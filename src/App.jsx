@@ -1,118 +1,148 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-/* ===== Helpers ===== */
-function calculateRSI(closes, period = 14) {
-  if (closes.length < period + 1) return null;
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) gains += diff;
-    else losses -= diff;
+/**
+ * Swing detection (fractal)
+ * A swing high: high is greater than N highs left and right
+ * A swing low: low is lower than N lows left and right
+ */
+function detectSwings(candles, n = 2) {
+  const swings = [];
+  for (let i = n; i < candles.length - n; i++) {
+    const c = candles[i];
+    let isHigh = true;
+    let isLow = true;
+
+    for (let k = 1; k <= n; k++) {
+      if (candles[i - k].high >= c.high) isHigh = false;
+      if (candles[i + k].high >= c.high) isHigh = false;
+
+      if (candles[i - k].low <= c.low) isLow = false;
+      if (candles[i + k].low <= c.low) isLow = false;
+    }
+
+    if (isHigh) swings.push({ type: "H", price: c.high, time: c.time, idx: i });
+    if (isLow) swings.push({ type: "L", price: c.low, time: c.time, idx: i });
   }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - 100 / (1 + rs);
+
+  // Remove duplicates / keep alternating structure (H-L-H-L...)
+  swings.sort((a, b) => a.idx - b.idx);
+  const filtered = [];
+  for (const s of swings) {
+    const last = filtered[filtered.length - 1];
+    if (!last) {
+      filtered.push(s);
+      continue;
+    }
+    if (last.type === s.type) {
+      // keep the more extreme one (higher high / lower low)
+      if (s.type === "H") {
+        if (s.price > last.price) filtered[filtered.length - 1] = s;
+      } else {
+        if (s.price < last.price) filtered[filtered.length - 1] = s;
+      }
+    } else {
+      filtered.push(s);
+    }
+  }
+  return filtered;
 }
 
-function calculateEMA(values, period) {
-  if (values.length < period) return null;
-  const k = 2 / (period + 1);
-  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < values.length; i++) {
-    ema = values[i] * k + ema * (1 - k);
-  }
-  return ema;
+function labelStructure(swings) {
+  let lastHigh = null;
+  let lastLow = null;
+
+  return swings.map(s => {
+    if (s.type === "H") {
+      const label = lastHigh === null ? "H" : s.price > lastHigh ? "HH" : "LH";
+      lastHigh = s.price;
+      return { ...s, label };
+    } else {
+      const label = lastLow === null ? "L" : s.price > lastLow ? "HL" : "LL";
+      lastLow = s.price;
+      return { ...s, label };
+    }
+  });
 }
 
-/* ===== App ===== */
+function calcBias(labeled) {
+  // Use last 2 highs and last 2 lows to infer structure
+  const highs = labeled.filter(x => x.type === "H");
+  const lows = labeled.filter(x => x.type === "L");
+  if (highs.length < 2 || lows.length < 2) return "UNKNOWN";
+
+  const h1 = highs[highs.length - 2].price;
+  const h2 = highs[highs.length - 1].price;
+  const l1 = lows[lows.length - 2].price;
+  const l2 = lows[lows.length - 1].price;
+
+  const higherHigh = h2 > h1;
+  const higherLow = l2 > l1;
+  const lowerHigh = h2 < h1;
+  const lowerLow = l2 < l1;
+
+  if (higherHigh && higherLow) return "BULLISH";
+  if (lowerHigh && lowerLow) return "BEARISH";
+  return "RANGE";
+}
+
 export default function App() {
   const [price, setPrice] = useState(null);
-  const [rsi, setRsi] = useState(null);
-  const [ema20, setEma20] = useState(null);
-  const [ema50, setEma50] = useState(null);
-  const [signal, setSignal] = useState(null);
+  const [candles, setCandles] = useState([]);
 
   useEffect(() => {
-    const fetchBTC = async () => {
+    const fetchData = async () => {
       try {
         const res = await fetch(
-          "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=120"
+          "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=200"
         );
         const json = await res.json();
-        const closes = json.Data.Data.map(c => c.close);
-
-        const lastPrice = closes[closes.length - 1];
-        const rsiVal = calculateRSI(closes);
-        const e20 = calculateEMA(closes, 20);
-        const e50 = calculateEMA(closes, 50);
-
-        setPrice(lastPrice);
-        setRsi(rsiVal?.toFixed(2));
-        setEma20(e20?.toFixed(2));
-        setEma50(e50?.toFixed(2));
-
-        // ===== TREND + DISTANCE FILTER =====
-        const uptrend = e20 && e50 && e20 > e50;
-        const downtrend = e20 && e50 && e20 < e50;
-        const emaDistance = Math.abs(e20 - e50);
-
-        if (rsiVal !== null && emaDistance > 50) {
-          if (rsiVal < 40 && uptrend) {
-            setSignal({
-              direction: "BUY",
-              entry: lastPrice,
-              tp1: lastPrice + 1200,
-              tp2: lastPrice + 2500,
-              sl: lastPrice - 900
-            });
-          } else if (rsiVal > 60 && downtrend) {
-            setSignal({
-              direction: "SELL",
-              entry: lastPrice,
-              tp1: lastPrice - 1200,
-              tp2: lastPrice - 2500,
-              sl: lastPrice + 900
-            });
-          } else {
-            setSignal(null);
-          }
-        } else {
-          setSignal(null);
-        }
+        const data = json?.Data?.Data || [];
+        setCandles(data);
+        if (data.length) setPrice(data[data.length - 1].close);
       } catch (e) {
         console.error(e);
       }
     };
 
-    fetchBTC();
-    const interval = setInterval(fetchBTC, 60000);
+    fetchData();
+    const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
   }, []);
 
+  const { labeled, bias } = useMemo(() => {
+    const swings = detectSwings(candles, 2);
+    const lab = labelStructure(swings);
+    const b = calcBias(lab);
+    return { labeled: lab, bias: b };
+  }, [candles]);
+
+  const last10 = labeled.slice(-10);
+
   return (
-    <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24 }}>
+    <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24, fontFamily: "Arial" }}>
       <h1>AI Trading Dashboard</h1>
 
-      {price && <div><strong>BTCUSD:</strong> ${price}</div>}
-      {rsi && <div><strong>RSI(14):</strong> {rsi}</div>}
-      {ema20 && <div><strong>EMA20:</strong> {ema20}</div>}
-      {ema50 && <div><strong>EMA50:</strong> {ema50}</div>}
+      <div style={{ marginTop: 10 }}>
+        <strong>BTCUSD:</strong> {price ? `$${price}` : "Loading..."}
+      </div>
 
-      {signal ? (
-        <div style={{ marginTop: 16, background: "#111827", padding: 16, borderRadius: 10 }}>
-          <div><strong>Signal:</strong> {signal.direction}</div>
-          <div>Entry: {signal.entry}</div>
-          <div>TP1: {signal.tp1}</div>
-          <div>TP2: {signal.tp2}</div>
-          <div>SL: {signal.sl}</div>
-        </div>
-      ) : (
-        <div style={{ marginTop: 16, color: "#9ca3af" }}>
-          No valid signal (tuned filters)
-        </div>
-      )}
+      <div style={{ marginTop: 10 }}>
+        <strong>Structure Bias:</strong> {bias}
+      </div>
+
+      <div style={{ marginTop: 18, background: "#111827", padding: 16, borderRadius: 10 }}>
+        <div style={{ fontWeight: "bold", marginBottom: 10 }}>Last Swings (HH/HL/LH/LL)</div>
+
+        {last10.length === 0 ? (
+          <div style={{ color: "#9ca3af" }}>Waiting for enough candles to detect swings…</div>
+        ) : (
+          last10.map((s, i) => (
+            <div key={i} style={{ padding: "6px 0", borderBottom: i === last10.length - 1 ? "none" : "1px solid #1f2937" }}>
+              <strong>{s.label}</strong> — {s.type === "H" ? "High" : "Low"} @ {s.price.toFixed(2)}
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
