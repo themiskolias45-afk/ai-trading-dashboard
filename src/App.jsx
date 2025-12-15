@@ -48,21 +48,42 @@ function labelStructure(swings) {
   });
 }
 
-function detectBOS(labeled, lastPrice) {
+/* ===== BOS & CHOCH ===== */
+function detectBOS(labeled, price) {
   const highs = labeled.filter(x => x.type === "H");
   const lows = labeled.filter(x => x.type === "L");
-
-  if (highs.length < 1 || lows.length < 1) return null;
+  if (!price || highs.length === 0 || lows.length === 0) return null;
 
   const lastHigh = highs[highs.length - 1];
   const lastLow = lows[lows.length - 1];
 
-  if (lastPrice > lastHigh.price) {
-    return { type: "BULLISH BOS", level: lastHigh.price };
+  if (price > lastHigh.price) return { type: "BULLISH BOS", level: lastHigh.price };
+  if (price < lastLow.price) return { type: "BEARISH BOS", level: lastLow.price };
+  return null;
+}
+
+function detectCHOCH(labeled, price) {
+  if (!price || labeled.length < 4) return null;
+
+  const lastHighs = labeled.filter(x => x.type === "H").slice(-2);
+  const lastLows = labeled.filter(x => x.type === "L").slice(-2);
+  if (lastHighs.length < 2 || lastLows.length < 2) return null;
+
+  const prevHigh = lastHighs[0].price;
+  const lastHigh = lastHighs[1].price;
+  const prevLow = lastLows[0].price;
+  const lastLow = lastLows[1].price;
+
+  // Bullish → Bearish CHOCH
+  if (lastHigh > prevHigh && price < lastLow) {
+    return { type: "BEARISH CHOCH", level: lastLow };
   }
-  if (lastPrice < lastLow.price) {
-    return { type: "BEARISH BOS", level: lastLow.price };
+
+  // Bearish → Bullish CHOCH
+  if (lastLow < prevLow && price > lastHigh) {
+    return { type: "BULLISH CHOCH", level: lastHigh };
   }
+
   return null;
 }
 
@@ -73,7 +94,7 @@ export default function App() {
   useEffect(() => {
     const fetchData = async () => {
       const res = await fetch(
-        "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=220"
+        "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=240"
       );
       const json = await res.json();
       const data = json.Data.Data;
@@ -85,11 +106,14 @@ export default function App() {
     return () => clearInterval(i);
   }, []);
 
-  const { labeled, bos } = useMemo(() => {
+  const { labeled, bos, choch } = useMemo(() => {
     const swings = detectSwings(candles, 2);
     const labeled = labelStructure(swings);
-    const bos = price ? detectBOS(labeled, price) : null;
-    return { labeled, bos };
+    return {
+      labeled,
+      bos: detectBOS(labeled, price),
+      choch: detectCHOCH(labeled, price)
+    };
   }, [candles, price]);
 
   const lastSwings = labeled.slice(-8);
@@ -100,9 +124,12 @@ export default function App() {
 
       <div><strong>BTCUSD:</strong> {price ? `$${price}` : "Loading…"}</div>
 
-      <div style={{ marginTop: 10 }}>
-        <strong>Last BOS:</strong>{" "}
-        {bos ? `${bos.type} above/below ${bos.level.toFixed(2)}` : "No BOS"}
+      <div style={{ marginTop: 8 }}>
+        <strong>BOS:</strong> {bos ? `${bos.type} @ ${bos.level.toFixed(2)}` : "None"}
+      </div>
+
+      <div style={{ marginTop: 4 }}>
+        <strong>CHOCH:</strong> {choch ? `${choch.type} @ ${choch.level.toFixed(2)}` : "None"}
       </div>
 
       <div style={{ marginTop: 16, background: "#111827", padding: 16, borderRadius: 10 }}>
