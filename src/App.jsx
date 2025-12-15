@@ -1,14 +1,29 @@
 import { useEffect, useState } from "react";
 
 export default function App() {
-  const [btc, setBtc] = useState("Waiting for data...");
-  const [xau, setXau] = useState("Waiting for data...");
+  const [btc, setBtc] = useState("Loading BTC...");
+  const [xau, setXau] = useState("Loading Gold...");
 
   useEffect(() => {
-    setTimeout(() => {
-      setBtc("BTCUSD ➜ BUY @ 42,350 | TP1 42,800 | SL 42,000");
-      setXau("XAUUSD ➜ SELL @ 2034 | TP1 2022 | SL 2040");
-    }, 1500);
+    async function fetchPrices() {
+      try {
+        const btcRes = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
+        const btcData = await btcRes.json();
+
+        const goldRes = await fetch("https://api.metals.live/v1/spot");
+        const goldData = await goldRes.json();
+
+        setBtc(`BTCUSD Price: $${Number(btcData.price).toFixed(2)}`);
+        setXau(`XAUUSD Price: $${Number(goldData[0].gold).toFixed(2)}`);
+      } catch (err) {
+        setBtc("BTC error");
+        setXau("Gold error");
+      }
+    }
+
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
