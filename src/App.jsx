@@ -12,24 +12,10 @@ export default function App() {
   }, []);
 
   return (
-    <div
-      style={{
-        background: "#0b0f1a",
-        color: "white",
-        minHeight: "100vh",
-        padding: "20px",
-        fontFamily: "Arial",
-      }}
-    >
+    <div style={{ background: "#0f172a", color: "#e5e7eb", minHeight: "100vh", padding: 20 }}>
       <h1>AI Trading Dashboard</h1>
-
-      <div style={{ marginTop: "20px", padding: "15px", background: "#111827", borderRadius: "8px" }}>
-        {btc}
-      </div>
-
-      <div style={{ marginTop: "10px", padding: "15px", background: "#111827", borderRadius: "8px" }}>
-        {xau}
-      </div>
+      <div style={{ marginTop: 16 }}>{btc}</div>
+      <div style={{ marginTop: 8 }}>{xau}</div>
     </div>
   );
 }
