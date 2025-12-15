@@ -1,1 +1,1 @@
-Cancel Changes 
+Delete vite.vite.config.js
