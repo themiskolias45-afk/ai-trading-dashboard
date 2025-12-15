@@ -2,34 +2,26 @@ import { useEffect, useState } from "react";
 
 export default function App() {
   const [btc, setBtc] = useState("Loading BTC...");
-  const [xau, setXau] = useState("Loading XAU...");
-  const [btcError, setBtcError] = useState(false);
-  const [xauError, setXauError] = useState(false);
+  const [signal, setSignal] = useState("Waiting for signal...");
 
   useEffect(() => {
-    // ======================
-    // BTC PRICE (CryptoCompare - browser safe)
-    // ======================
     fetch("https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD")
       .then(res => res.json())
       .then(data => {
-        if (!data.USD) throw new Error();
-        setBtc(`BTCUSD price: $${data.USD}`);
-      })
-      .catch(() => setBtcError(true));
+        const price = Number(data.USD);
+        setBtc(`BTCUSD price: $${price}`);
 
-    // ======================
-    // XAU PRICE (Metals.live via CORS proxy)
-    // ======================
-    fetch(
-      "https://api.allorigins.win/raw?url=https://api.metals.live/v1/spot"
-    )
-      .then(res => res.json())
-      .then(data => {
-        if (!data[0]?.gold) throw new Error();
-        setXau(`XAUUSD price: $${data[0].gold}`);
+        // SIMPLE SIGNAL LOGIC (example)
+        if (price > 90000) {
+          setSignal("SELL ➜ TP: 88000 | SL: 91000");
+        } else {
+          setSignal("BUY ➜ TP: 92000 | SL: 88000");
+        }
       })
-      .catch(() => setXauError(true));
+      .catch(() => {
+        setBtc("BTC error");
+        setSignal("Signal error");
+      });
   }, []);
 
   return (
@@ -42,28 +34,10 @@ export default function App() {
         fontFamily: "Arial"
       }}
     >
-      <h1 style={{ marginBottom: "24px" }}>AI Trading Dashboard</h1>
+      <h1>AI Trading Dashboard</h1>
 
-      <div
-        style={{
-          background: "#111827",
-          padding: "16px",
-          borderRadius: "10px",
-          marginBottom: "16px"
-        }}
-      >
-        {btcError ? "BTC error" : btc}
-      </div>
-
-      <div
-        style={{
-          background: "#111827",
-          padding: "16px",
-          borderRadius: "10px"
-        }}
-      >
-        {xauError ? "XAU error" : xau}
-      </div>
+      <div style={{ marginTop: "20px", fontSize: "18px" }}>{btc}</div>
+      <div style={{ marginTop: "10px", fontSize: "18px" }}>{signal}</div>
     </div>
   );
 }
