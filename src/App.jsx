@@ -1,23 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 
-/* ================== SWINGS ================== */
+/* ================== CORE SMC HELPERS ================== */
 function detectSwings(candles, n = 2) {
   const swings = [];
   for (let i = n; i < candles.length - n; i++) {
     const c = candles[i];
     let isHigh = true, isLow = true;
-
     for (let k = 1; k <= n; k++) {
       if (candles[i - k].high >= c.high) isHigh = false;
       if (candles[i + k].high >= c.high) isHigh = false;
       if (candles[i - k].low <= c.low) isLow = false;
       if (candles[i + k].low <= c.low) isLow = false;
     }
-
     if (isHigh) swings.push({ type: "H", price: c.high, idx: i });
     if (isLow) swings.push({ type: "L", price: c.low, idx: i });
   }
-
   swings.sort((a, b) => a.idx - b.idx);
   const filtered = [];
   for (const s of swings) {
@@ -46,17 +43,14 @@ function labelStructure(swings) {
   });
 }
 
-/* ================== BOS / CHOCH ================== */
 function detectBOS(labeled, price) {
   const highs = labeled.filter(x => x.type === "H");
   const lows = labeled.filter(x => x.type === "L");
   if (!price || highs.length === 0 || lows.length === 0) return null;
-
   const lastHigh = highs[highs.length - 1];
   const lastLow = lows[lows.length - 1];
-
-  if (price > lastHigh.price) return { type: "BULLISH BOS", level: lastHigh.price };
-  if (price < lastLow.price) return { type: "BEARISH BOS", level: lastLow.price };
+  if (price > lastHigh.price) return { dir: "BULL", level: lastHigh.price };
+  if (price < lastLow.price) return { dir: "BEAR", level: lastLow.price };
   return null;
 }
 
@@ -69,37 +63,22 @@ function detectCHOCH(labeled, price) {
   const [ph, lh] = highs.map(x => x.price);
   const [pl, ll] = lows.map(x => x.price);
 
-  if (lh > ph && price < ll) return { type: "BEARISH CHOCH", level: ll };
-  if (ll < pl && price > lh) return { type: "BULLISH CHOCH", level: lh };
+  if (lh > ph && price < ll) return { dir: "BEAR", level: ll };
+  if (ll < pl && price > lh) return { dir: "BULL", level: lh };
   return null;
 }
 
-/* ================== FVG ================== */
 function detectFVG(candles) {
   const fvgs = [];
   for (let i = 1; i < candles.length - 1; i++) {
     const prev = candles[i - 1];
-    const curr = candles[i];
     const next = candles[i + 1];
 
-    // Bullish FVG
     if (prev.high < next.low) {
-      fvgs.push({
-        type: "BULLISH FVG",
-        from: prev.high,
-        to: next.low,
-        idx: i
-      });
+      fvgs.push({ dir: "BULL", from: prev.high, to: next.low });
     }
-
-    // Bearish FVG
     if (prev.low > next.high) {
-      fvgs.push({
-        type: "BEARISH FVG",
-        from: next.high,
-        to: prev.low,
-        idx: i
-      });
+      fvgs.push({ dir: "BEAR", from: next.high, to: prev.low });
     }
   }
   return fvgs;
@@ -113,7 +92,7 @@ export default function App() {
   useEffect(() => {
     const fetchData = async () => {
       const res = await fetch(
-        "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=260"
+        "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=300"
       );
       const json = await res.json();
       const data = json.Data.Data;
@@ -125,41 +104,69 @@ export default function App() {
     return () => clearInterval(i);
   }, []);
 
-  const { labeled, bos, choch, lastFVG } = useMemo(() => {
+  const { entry } = useMemo(() => {
+    if (!price || candles.length === 0) return {};
+
     const swings = detectSwings(candles, 2);
     const labeled = labelStructure(swings);
     const bos = detectBOS(labeled, price);
     const choch = detectCHOCH(labeled, price);
     const fvgs = detectFVG(candles);
     const lastFVG = fvgs.length ? fvgs[fvgs.length - 1] : null;
-    return { labeled, bos, choch, lastFVG };
-  }, [candles, price]);
 
-  const lastSwings = labeled.slice(-6);
+    if (!lastFVG) return {};
+
+    const structureDir = bos?.dir || choch?.dir;
+    if (!structureDir || structureDir !== lastFVG.dir) return {};
+
+    const inFVG =
+      price >= Math.min(lastFVG.from, lastFVG.to) &&
+      price <= Math.max(lastFVG.from, lastFVG.to);
+
+    if (!inFVG) return {};
+
+    const lastLL = labeled.filter(x => x.label === "LL").slice(-1)[0];
+    const lastHH = labeled.filter(x => x.label === "HH").slice(-1)[0];
+
+    if (structureDir === "BEAR" && lastLL) {
+      return {
+        direction: "SELL",
+        entry: price,
+        sl: lastFVG.to,
+        tp: lastLL.price
+      };
+    }
+
+    if (structureDir === "BULL" && lastHH) {
+      return {
+        direction: "BUY",
+        entry: price,
+        sl: lastFVG.from,
+        tp: lastHH.price
+      };
+    }
+
+    return {};
+  }, [candles, price]);
 
   return (
     <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24 }}>
       <h1>AI Trading Dashboard</h1>
 
       <div><strong>BTCUSD:</strong> {price ? `$${price}` : "Loading…"}</div>
-      <div><strong>BOS:</strong> {bos ? `${bos.type} @ ${bos.level.toFixed(2)}` : "None"}</div>
-      <div><strong>CHOCH:</strong> {choch ? `${choch.type} @ ${choch.level.toFixed(2)}` : "None"}</div>
 
-      <div style={{ marginTop: 10 }}>
-        <strong>Last FVG:</strong>{" "}
-        {lastFVG
-          ? `${lastFVG.type} (${lastFVG.from.toFixed(2)} → ${lastFVG.to.toFixed(2)})`
-          : "None"}
-      </div>
-
-      <div style={{ marginTop: 16, background: "#111827", padding: 16, borderRadius: 10 }}>
-        <div style={{ fontWeight: "bold", marginBottom: 10 }}>Recent Structure</div>
-        {lastSwings.map((s, i) => (
-          <div key={i}>
-            {s.label} — {s.type === "H" ? "High" : "Low"} @ {s.price.toFixed(2)}
-          </div>
-        ))}
-      </div>
+      {entry?.direction ? (
+        <div style={{ marginTop: 16, background: "#111827", padding: 16, borderRadius: 10 }}>
+          <div><strong>ENTRY SIGNAL:</strong> {entry.direction}</div>
+          <div>Entry: {entry.entry.toFixed(2)}</div>
+          <div>Stop-Loss: {entry.sl.toFixed(2)}</div>
+          <div>Take-Profit: {entry.tp.toFixed(2)}</div>
+        </div>
+      ) : (
+        <div style={{ marginTop: 16, color: "#9ca3af" }}>
+          No valid SMC entry (waiting for BOS/CHOCH + FVG pullback)
+        </div>
+      )}
     </div>
   );
 }
