@@ -8,7 +8,7 @@ export default function App() {
 
   useEffect(() => {
     // ======================
-    // BTC PRICE (CryptoCompare)
+    // BTC PRICE (CryptoCompare - browser safe)
     // ======================
     fetch("https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD")
       .then(res => res.json())
@@ -19,9 +19,11 @@ export default function App() {
       .catch(() => setBtcError(true));
 
     // ======================
-    // XAU PRICE (Metals.live)
+    // XAU PRICE (Metals.live via CORS proxy)
     // ======================
-    fetch("https://api.metals.live/v1/spot")
+    fetch(
+      "https://api.allorigins.win/raw?url=https://api.metals.live/v1/spot"
+    )
       .then(res => res.json())
       .then(data => {
         if (!data[0]?.gold) throw new Error();
