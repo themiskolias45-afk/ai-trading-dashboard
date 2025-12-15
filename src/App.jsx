@@ -1,18 +1,29 @@
 import { useEffect, useState } from "react";
 
 export default function App() {
-  const [btc, setBtc] = useState("Loading...");
-  const [error, setError] = useState(false);
+  const [btc, setBtc] = useState("Loading BTC price...");
+  const [xau, setXau] = useState("Loading XAU price...");
+  const [btcError, setBtcError] = useState(false);
+  const [xauError, setXauError] = useState(false);
 
   useEffect(() => {
-    fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
+    // BTC
+    fetch("https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD")
       .then(res => res.json())
       .then(data => {
-        setBtc(`BTCUSD price: $${Number(data.price).toFixed(2)}`);
+        if (!data.USD) throw new Error();
+        setBtc(`BTCUSD price: $${data.USD}`);
       })
-      .catch(() => {
-        setError(true);
-      });
+      .catch(() => setBtcError(true));
+
+    // GOLD (XAU)
+    fetch("https://min-api.cryptocompare.com/data/price?fsym=XAU&tsyms=USD")
+      .then(res => res.json())
+      .then(data => {
+        if (!data.USD) throw new Error();
+        setXau(`XAUUSD price: $${data.USD}`);
+      })
+      .catch(() => setXauError(true));
   }, []);
 
   return (
@@ -27,8 +38,12 @@ export default function App() {
     >
       <h1>AI Trading Dashboard</h1>
 
-      <div style={{ marginTop: "20px" }}>
-        {error ? "BTC error" : btc}
+      <div style={{ marginTop: "20px", fontSize: "18px" }}>
+        {btcError ? "BTC error" : btc}
+      </div>
+
+      <div style={{ marginTop: "12px", fontSize: "18px" }}>
+        {xauError ? "XAU error" : xau}
       </div>
     </div>
   );
