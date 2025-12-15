@@ -1,56 +1,63 @@
 import { useEffect, useState } from "react";
 
-/**
- * Simple RSI calculation (period = 14)
- */
+/* ===== Helpers ===== */
 function calculateRSI(closes, period = 14) {
   if (closes.length < period + 1) return null;
-
-  let gains = 0;
-  let losses = 0;
-
+  let gains = 0, losses = 0;
   for (let i = closes.length - period; i < closes.length; i++) {
     const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) gains += diff;
-    else losses -= diff;
+    if (diff >= 0) gains += diff; else losses -= diff;
   }
-
   const avgGain = gains / period;
   const avgLoss = losses / period;
-
   if (avgLoss === 0) return 100;
-
   const rs = avgGain / avgLoss;
   return 100 - 100 / (1 + rs);
 }
 
+function calculateEMA(values, period) {
+  if (values.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+/* ===== App ===== */
 export default function App() {
   const [price, setPrice] = useState(null);
-  const [signal, setSignal] = useState(null);
   const [rsi, setRsi] = useState(null);
+  const [ema20, setEma20] = useState(null);
+  const [ema50, setEma50] = useState(null);
+  const [signal, setSignal] = useState(null);
 
   useEffect(() => {
     const fetchBTC = async () => {
       try {
-        // Get last 100 1m candles
         const res = await fetch(
-          "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=100"
+          "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=120"
         );
         const json = await res.json();
         const closes = json.Data.Data.map(c => c.close);
 
         const lastPrice = closes[closes.length - 1];
-        const rsiValue = calculateRSI(closes);
+        const rsiVal = calculateRSI(closes);
+        const e20 = calculateEMA(closes, 20);
+        const e50 = calculateEMA(closes, 50);
 
         setPrice(lastPrice);
-        setRsi(rsiValue?.toFixed(2));
+        setRsi(rsiVal?.toFixed(2));
+        setEma20(e20?.toFixed(2));
+        setEma50(e50?.toFixed(2));
 
-        // === TREND FILTER (simple) ===
-        const trendUp = closes[closes.length - 1] > closes[closes.length - 20];
+        // ===== EMA TREND CONFIRMATION =====
+        const uptrend = e20 && e50 && e20 > e50;
+        const downtrend = e20 && e50 && e20 < e50;
 
-        // === SIGNAL LOGIC ===
-        if (rsiValue !== null) {
-          if (rsiValue < 30 && trendUp) {
+        if (rsiVal !== null) {
+          if (rsiVal < 35 && uptrend) {
             setSignal({
               direction: "BUY",
               entry: lastPrice,
@@ -58,7 +65,7 @@ export default function App() {
               tp2: lastPrice + 2500,
               sl: lastPrice - 900
             });
-          } else if (rsiValue > 70 && !trendUp) {
+          } else if (rsiVal > 65 && downtrend) {
             setSignal({
               direction: "SELL",
               entry: lastPrice,
@@ -76,7 +83,7 @@ export default function App() {
     };
 
     fetchBTC();
-    const interval = setInterval(fetchBTC, 60000); // every 1 minute
+    const interval = setInterval(fetchBTC, 60000); // 1 min
     return () => clearInterval(interval);
   }, []);
 
@@ -84,20 +91,13 @@ export default function App() {
     <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24 }}>
       <h1>AI Trading Dashboard</h1>
 
-      {price && (
-        <div style={{ marginTop: 12 }}>
-          <strong>BTCUSD:</strong> ${price}
-        </div>
-      )}
-
-      {rsi && (
-        <div style={{ marginTop: 6 }}>
-          <strong>RSI(14):</strong> {rsi}
-        </div>
-      )}
+      {price && <div style={{ marginTop: 8 }}><strong>BTCUSD:</strong> ${price}</div>}
+      {rsi && <div><strong>RSI(14):</strong> {rsi}</div>}
+      {ema20 && <div><strong>EMA20:</strong> {ema20}</div>}
+      {ema50 && <div><strong>EMA50:</strong> {ema50}</div>}
 
       {signal ? (
-        <div style={{ marginTop: 20, background: "#111827", padding: 16, borderRadius: 10 }}>
+        <div style={{ marginTop: 16, background: "#111827", padding: 16, borderRadius: 10 }}>
           <div><strong>Signal:</strong> {signal.direction}</div>
           <div>Entry: {signal.entry}</div>
           <div>TP1: {signal.tp1}</div>
@@ -105,8 +105,8 @@ export default function App() {
           <div>SL: {signal.sl}</div>
         </div>
       ) : (
-        <div style={{ marginTop: 20, color: "#9ca3af" }}>
-          No valid signal (waiting for RSI + trend confirmation)
+        <div style={{ marginTop: 16, color: "#9ca3af" }}>
+          No valid signal (RSI + EMA confirmation)
         </div>
       )}
     </div>
