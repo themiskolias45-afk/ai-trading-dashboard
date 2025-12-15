@@ -6,7 +6,8 @@ function calculateRSI(closes, period = 14) {
   let gains = 0, losses = 0;
   for (let i = closes.length - period; i < closes.length; i++) {
     const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) gains += diff; else losses -= diff;
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
   }
   const avgGain = gains / period;
   const avgLoss = losses / period;
@@ -52,12 +53,13 @@ export default function App() {
         setEma20(e20?.toFixed(2));
         setEma50(e50?.toFixed(2));
 
-        // ===== EMA TREND CONFIRMATION =====
+        // ===== TREND + DISTANCE FILTER =====
         const uptrend = e20 && e50 && e20 > e50;
         const downtrend = e20 && e50 && e20 < e50;
+        const emaDistance = Math.abs(e20 - e50);
 
-        if (rsiVal !== null) {
-          if (rsiVal < 35 && uptrend) {
+        if (rsiVal !== null && emaDistance > 50) {
+          if (rsiVal < 40 && uptrend) {
             setSignal({
               direction: "BUY",
               entry: lastPrice,
@@ -65,7 +67,7 @@ export default function App() {
               tp2: lastPrice + 2500,
               sl: lastPrice - 900
             });
-          } else if (rsiVal > 65 && downtrend) {
+          } else if (rsiVal > 60 && downtrend) {
             setSignal({
               direction: "SELL",
               entry: lastPrice,
@@ -76,6 +78,8 @@ export default function App() {
           } else {
             setSignal(null);
           }
+        } else {
+          setSignal(null);
         }
       } catch (e) {
         console.error(e);
@@ -83,7 +87,7 @@ export default function App() {
     };
 
     fetchBTC();
-    const interval = setInterval(fetchBTC, 60000); // 1 min
+    const interval = setInterval(fetchBTC, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -91,7 +95,7 @@ export default function App() {
     <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24 }}>
       <h1>AI Trading Dashboard</h1>
 
-      {price && <div style={{ marginTop: 8 }}><strong>BTCUSD:</strong> ${price}</div>}
+      {price && <div><strong>BTCUSD:</strong> ${price}</div>}
       {rsi && <div><strong>RSI(14):</strong> {rsi}</div>}
       {ema20 && <div><strong>EMA20:</strong> {ema20}</div>}
       {ema50 && <div><strong>EMA50:</strong> {ema50}</div>}
@@ -106,7 +110,7 @@ export default function App() {
         </div>
       ) : (
         <div style={{ marginTop: 16, color: "#9ca3af" }}>
-          No valid signal (RSI + EMA confirmation)
+          No valid signal (tuned filters)
         </div>
       )}
     </div>
