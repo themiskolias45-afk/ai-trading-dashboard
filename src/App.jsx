@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
-/* ===== Swing Detection ===== */
+/* ================== SWINGS ================== */
 function detectSwings(candles, n = 2) {
   const swings = [];
   for (let i = n; i < candles.length - n; i++) {
     const c = candles[i];
-    let isHigh = true;
-    let isLow = true;
+    let isHigh = true, isLow = true;
 
     for (let k = 1; k <= n; k++) {
       if (candles[i - k].high >= c.high) isHigh = false;
@@ -33,8 +32,7 @@ function detectSwings(candles, n = 2) {
 }
 
 function labelStructure(swings) {
-  let lastHigh = null;
-  let lastLow = null;
+  let lastHigh = null, lastLow = null;
   return swings.map(s => {
     if (s.type === "H") {
       const label = lastHigh === null ? "H" : s.price > lastHigh ? "HH" : "LH";
@@ -48,7 +46,7 @@ function labelStructure(swings) {
   });
 }
 
-/* ===== BOS & CHOCH ===== */
+/* ================== BOS / CHOCH ================== */
 function detectBOS(labeled, price) {
   const highs = labeled.filter(x => x.type === "H");
   const lows = labeled.filter(x => x.type === "L");
@@ -64,29 +62,50 @@ function detectBOS(labeled, price) {
 
 function detectCHOCH(labeled, price) {
   if (!price || labeled.length < 4) return null;
+  const highs = labeled.filter(x => x.type === "H").slice(-2);
+  const lows = labeled.filter(x => x.type === "L").slice(-2);
+  if (highs.length < 2 || lows.length < 2) return null;
 
-  const lastHighs = labeled.filter(x => x.type === "H").slice(-2);
-  const lastLows = labeled.filter(x => x.type === "L").slice(-2);
-  if (lastHighs.length < 2 || lastLows.length < 2) return null;
+  const [ph, lh] = highs.map(x => x.price);
+  const [pl, ll] = lows.map(x => x.price);
 
-  const prevHigh = lastHighs[0].price;
-  const lastHigh = lastHighs[1].price;
-  const prevLow = lastLows[0].price;
-  const lastLow = lastLows[1].price;
-
-  // Bullish → Bearish CHOCH
-  if (lastHigh > prevHigh && price < lastLow) {
-    return { type: "BEARISH CHOCH", level: lastLow };
-  }
-
-  // Bearish → Bullish CHOCH
-  if (lastLow < prevLow && price > lastHigh) {
-    return { type: "BULLISH CHOCH", level: lastHigh };
-  }
-
+  if (lh > ph && price < ll) return { type: "BEARISH CHOCH", level: ll };
+  if (ll < pl && price > lh) return { type: "BULLISH CHOCH", level: lh };
   return null;
 }
 
+/* ================== FVG ================== */
+function detectFVG(candles) {
+  const fvgs = [];
+  for (let i = 1; i < candles.length - 1; i++) {
+    const prev = candles[i - 1];
+    const curr = candles[i];
+    const next = candles[i + 1];
+
+    // Bullish FVG
+    if (prev.high < next.low) {
+      fvgs.push({
+        type: "BULLISH FVG",
+        from: prev.high,
+        to: next.low,
+        idx: i
+      });
+    }
+
+    // Bearish FVG
+    if (prev.low > next.high) {
+      fvgs.push({
+        type: "BEARISH FVG",
+        from: next.high,
+        to: prev.low,
+        idx: i
+      });
+    }
+  }
+  return fvgs;
+}
+
+/* ================== APP ================== */
 export default function App() {
   const [candles, setCandles] = useState([]);
   const [price, setPrice] = useState(null);
@@ -94,7 +113,7 @@ export default function App() {
   useEffect(() => {
     const fetchData = async () => {
       const res = await fetch(
-        "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=240"
+        "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=260"
       );
       const json = await res.json();
       const data = json.Data.Data;
@@ -106,30 +125,31 @@ export default function App() {
     return () => clearInterval(i);
   }, []);
 
-  const { labeled, bos, choch } = useMemo(() => {
+  const { labeled, bos, choch, lastFVG } = useMemo(() => {
     const swings = detectSwings(candles, 2);
     const labeled = labelStructure(swings);
-    return {
-      labeled,
-      bos: detectBOS(labeled, price),
-      choch: detectCHOCH(labeled, price)
-    };
+    const bos = detectBOS(labeled, price);
+    const choch = detectCHOCH(labeled, price);
+    const fvgs = detectFVG(candles);
+    const lastFVG = fvgs.length ? fvgs[fvgs.length - 1] : null;
+    return { labeled, bos, choch, lastFVG };
   }, [candles, price]);
 
-  const lastSwings = labeled.slice(-8);
+  const lastSwings = labeled.slice(-6);
 
   return (
     <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24 }}>
       <h1>AI Trading Dashboard</h1>
 
       <div><strong>BTCUSD:</strong> {price ? `$${price}` : "Loading…"}</div>
+      <div><strong>BOS:</strong> {bos ? `${bos.type} @ ${bos.level.toFixed(2)}` : "None"}</div>
+      <div><strong>CHOCH:</strong> {choch ? `${choch.type} @ ${choch.level.toFixed(2)}` : "None"}</div>
 
-      <div style={{ marginTop: 8 }}>
-        <strong>BOS:</strong> {bos ? `${bos.type} @ ${bos.level.toFixed(2)}` : "None"}
-      </div>
-
-      <div style={{ marginTop: 4 }}>
-        <strong>CHOCH:</strong> {choch ? `${choch.type} @ ${choch.level.toFixed(2)}` : "None"}
+      <div style={{ marginTop: 10 }}>
+        <strong>Last FVG:</strong>{" "}
+        {lastFVG
+          ? `${lastFVG.type} (${lastFVG.from.toFixed(2)} → ${lastFVG.to.toFixed(2)})`
+          : "None"}
       </div>
 
       <div style={{ marginTop: 16, background: "#111827", padding: 16, borderRadius: 10 }}>
