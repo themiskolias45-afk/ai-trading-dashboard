@@ -1,1 +1,1 @@
-Delete vite.vite.config.js
+Delete vite.vite.config.js 
