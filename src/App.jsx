@@ -1,43 +1,61 @@
 import { useEffect, useState } from "react";
 
 export default function App() {
-  const [btc, setBtc] = useState("Loading BTC...");
-  const [signal, setSignal] = useState("Waiting for signal...");
+  const [price, setPrice] = useState(null);
+  const [signal, setSignal] = useState(null);
 
   useEffect(() => {
-    fetch("https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD")
-      .then(res => res.json())
-      .then(data => {
-        const price = Number(data.USD);
-        setBtc(`BTCUSD price: $${price}`);
+    const fetchBTC = () => {
+      fetch("https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD")
+        .then(res => res.json())
+        .then(data => {
+          const p = Number(data.USD);
+          setPrice(p);
 
-        // SIMPLE SIGNAL LOGIC (example)
-        if (price > 90000) {
-          setSignal("SELL ➜ TP: 88000 | SL: 91000");
-        } else {
-          setSignal("BUY ➜ TP: 92000 | SL: 88000");
-        }
-      })
-      .catch(() => {
-        setBtc("BTC error");
-        setSignal("Signal error");
-      });
+          if (p > 90000) {
+            setSignal({
+              direction: "SELL",
+              entry: p,
+              tp1: p - 1500,
+              tp2: p - 3000,
+              sl: p + 1200
+            });
+          } else {
+            setSignal({
+              direction: "BUY",
+              entry: p,
+              tp1: p + 1500,
+              tp2: p + 3000,
+              sl: p - 1200
+            });
+          }
+        });
+    };
+
+    fetchBTC();
+    const interval = setInterval(fetchBTC, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
-    <div
-      style={{
-        background: "#0b0f1a",
-        color: "white",
-        minHeight: "100vh",
-        padding: "24px",
-        fontFamily: "Arial"
-      }}
-    >
+    <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24 }}>
       <h1>AI Trading Dashboard</h1>
 
-      <div style={{ marginTop: "20px", fontSize: "18px" }}>{btc}</div>
-      <div style={{ marginTop: "10px", fontSize: "18px" }}>{signal}</div>
+      {price && (
+        <div style={{ marginTop: 16 }}>
+          <strong>BTCUSD:</strong> ${price}
+        </div>
+      )}
+
+      {signal && (
+        <div style={{ marginTop: 20, background: "#111827", padding: 16, borderRadius: 10 }}>
+          <div><strong>Signal:</strong> {signal.direction}</div>
+          <div>Entry: {signal.entry}</div>
+          <div>TP1: {signal.tp1}</div>
+          <div>TP2: {signal.tp2}</div>
+          <div>SL: {signal.sl}</div>
+        </div>
+      )}
     </div>
   );
 }
