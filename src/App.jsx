@@ -1,155 +1,144 @@
 import { useEffect, useState } from "react";
 
-/* ================== MARKET LOGIC ================== */
-function getHighLow(data, lookback = 96) {
-  const slice = data.slice(-lookback);
-  const high = Math.max(...slice.map(c => c.high));
-  const low = Math.min(...slice.map(c => c.low));
-  return { high, low };
-}
+/* =======================
+   SIMPLE SMC ENGINE
+   ======================= */
 
-function getBias(data) {
-  if (data.length < 10) return "NO DATA";
+// ---- Helpers ----
+function getBias(candles) {
+  if (candles.length < 20) return "NO DATA";
 
-  const highs = data.map(c => c.high);
-  const lows = data.map(c => c.low);
+  const last = candles.at(-1);
+  const prev = candles.at(-10);
 
-  const hh = highs.at(-1) > highs.at(-5);
-  const hl = lows.at(-1) > lows.at(-5);
-  const lh = highs.at(-1) < highs.at(-5);
-  const ll = lows.at(-1) < lows.at(-5);
-
-  if (hh && hl) return "BULLISH";
-  if (lh && ll) return "BEARISH";
+  if (last.close > prev.close) return "BULLISH";
+  if (last.close < prev.close) return "BEARISH";
   return "RANGE";
 }
 
-function buildAnalysis(data) {
-  const price = data.at(-1).close;
-  const bias = getBias(data);
-  const { high, low } = getHighLow(data);
+function getBOS(candles) {
+  if (candles.length < 20) return null;
 
-  if (bias === "BULLISH") {
-    const z1 = low + (high - low) * 0.25;
-    const z2 = low + (high - low) * 0.4;
-    return {
-      price,
-      bias,
-      zone: `${z1.toFixed(2)} – ${z2.toFixed(2)}`,
-      invalidation: low.toFixed(2),
-      confirmation: "Wait for bullish reaction, higher low, or strong bullish candle."
-    };
+  const highs = candles.map(c => c.high);
+  const lows = candles.map(c => c.low);
+
+  const lastHigh = highs.at(-1);
+  const lastLow = lows.at(-1);
+
+  const prevHigh = Math.max(...highs.slice(-10, -1));
+  const prevLow = Math.min(...lows.slice(-10, -1));
+
+  if (lastHigh > prevHigh) return "BULLISH";
+  if (lastLow < prevLow) return "BEARISH";
+  return null;
+}
+
+function getFVG(candles) {
+  if (candles.length < 3) return null;
+
+  const a = candles.at(-3);
+  const b = candles.at(-2);
+  const c = candles.at(-1);
+
+  // bullish imbalance
+  if (a.high < c.low) return "BULLISH";
+
+  // bearish imbalance
+  if (a.low > c.high) return "BEARISH";
+
+  return null;
+}
+
+function getFinalSignal({ bias, bos, fvg }) {
+  if (bias === "BULLISH" && bos === "BULLISH" && fvg === "BULLISH") {
+    return "BUY";
   }
-
-  if (bias === "BEARISH") {
-    const z1 = high - (high - low) * 0.4;
-    const z2 = high - (high - low) * 0.25;
-    return {
-      price,
-      bias,
-      zone: `${z1.toFixed(2)} – ${z2.toFixed(2)}`,
-      invalidation: high.toFixed(2),
-      confirmation: "Wait for rejection, lower high, or strong bearish candle."
-    };
+  if (bias === "BEARISH" && bos === "BEARISH" && fvg === "BEARISH") {
+    return "SELL";
   }
-
-  return {
-    price,
-    bias: "RANGE",
-    zone: "No trade",
-    invalidation: "N/A",
-    confirmation: "Wait for clear structure break."
-  };
+  return "WAIT";
 }
 
-/* ================== STORAGE ================== */
-function loadJournal() {
-  return JSON.parse(localStorage.getItem("ai_journal") || "[]");
-}
+/* =======================
+   APP
+   ======================= */
 
-function saveJournal(entries) {
-  localStorage.setItem("ai_journal", JSON.stringify(entries));
-}
-
-/* ================== APP ================== */
 export default function App() {
-  const [asset, setAsset] = useState("BTC");
-  const [analysis, setAnalysis] = useState(null);
-  const [journal, setJournal] = useState(loadJournal());
-  const [note, setNote] = useState("");
+  const [price, setPrice] = useState(null);
+  const [candles, setCandles] = useState([]);
+  const [error, setError] = useState(null);
 
+  // ---- Fetch BTC candles ----
   useEffect(() => {
-    const fetchData = async () => {
-      const symbol = asset === "BTC" ? "BTC" : "XAU";
-      const res = await fetch(
-        `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${symbol}&tsym=USD&limit=120`
-      );
-      const json = await res.json();
-      setAnalysis(buildAnalysis(json.Data.Data));
-    };
+    async function fetchData() {
+      try {
+        const res = await fetch(
+          "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=100"
+        );
+        const data = await res.json();
+
+        const parsed = data.map(c => ({
+          open: +c[1],
+          high: +c[2],
+          low: +c[3],
+          close: +c[4],
+        }));
+
+        setCandles(parsed);
+        setPrice(parsed.at(-1).close.toFixed(2));
+        setError(null);
+      } catch (e) {
+        setError("DATA ERROR");
+      }
+    }
+
     fetchData();
-  }, [asset]);
+    const id = setInterval(fetchData, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
-  const saveToday = () => {
-    if (!analysis) return;
-
-    const today = new Date().toISOString().slice(0, 10);
-    const entry = {
-      date: today,
-      asset,
-      ...analysis,
-      note
-    };
-
-    const filtered = journal.filter(j => !(j.date === today && j.asset === asset));
-    const updated = [entry, ...filtered];
-
-    setJournal(updated);
-    saveJournal(updated);
-    setNote("");
-  };
+  // ---- SMC Logic ----
+  const bias = getBias(candles);
+  const bos = getBOS(candles);
+  const fvg = getFVG(candles);
+  const signal = getFinalSignal({ bias, bos, fvg });
 
   return (
-    <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24 }}>
-      <h1>AI Market Analyst + Journal</h1>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#0b1020",
+        color: "white",
+        padding: "24px",
+        fontFamily: "Arial",
+      }}
+    >
+      <h1>AI Trading Dashboard</h1>
 
-      <div style={{ marginBottom: 12 }}>
-        <button onClick={() => setAsset("BTC")}>BTC</button>{" "}
-        <button onClick={() => setAsset("XAU")}>XAU</button>
-      </div>
+      {error && <p style={{ color: "red" }}>{error}</p>}
 
-      {analysis && (
-        <div style={{ background: "#111827", padding: 16, borderRadius: 10, marginBottom: 16 }}>
-          <div><strong>Bias:</strong> {analysis.bias}</div>
-          <div><strong>Zone:</strong> {analysis.zone}</div>
-          <div><strong>Invalidation:</strong> {analysis.invalidation}</div>
-          <div><strong>Confirmation:</strong> {analysis.confirmation}</div>
+      {price && (
+        <>
+          <p><b>BTCUSD:</b> ${price}</p>
+          <p><b>HTF Bias:</b> {bias}</p>
+          <p><b>BOS:</b> {bos || "None"}</p>
+          <p><b>FVG:</b> {fvg || "None"}</p>
 
-          <textarea
-            placeholder="Your note (optional)…"
-            value={note}
-            onChange={e => setNote(e.target.value)}
-            style={{ width: "100%", marginTop: 10 }}
-          />
-
-          <button onClick={saveToday} style={{ marginTop: 10 }}>
-            Save Today’s Analysis
-          </button>
-        </div>
+          <h2
+            style={{
+              marginTop: "20px",
+              color:
+                signal === "BUY"
+                  ? "lime"
+                  : signal === "SELL"
+                  ? "red"
+                  : "gray",
+            }}
+          >
+            FINAL SIGNAL: {signal}
+          </h2>
+        </>
       )}
-
-      <h2>Journal History</h2>
-
-      {journal.length === 0 && <div>No entries yet.</div>}
-
-      {journal.map((j, i) => (
-        <div key={i} style={{ background: "#020617", padding: 12, marginBottom: 8 }}>
-          <div><strong>{j.date} — {j.asset}</strong></div>
-          <div>Bias: {j.bias}</div>
-          <div>Zone: {j.zone}</div>
-          {j.note && <div>Note: {j.note}</div>}
-        </div>
-      ))}
     </div>
   );
 }
