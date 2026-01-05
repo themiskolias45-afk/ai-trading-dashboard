@@ -32,93 +32,86 @@ function buildAnalysis(data) {
   if (bias === "BULLISH") {
     const z1 = low + (high - low) * 0.25;
     const z2 = low + (high - low) * 0.4;
-
     return {
       price,
       bias,
       zone: `${z1.toFixed(2)} – ${z2.toFixed(2)}`,
       invalidation: low.toFixed(2),
-      confirmation:
-        "Wait for bullish reaction from the zone, higher low, or strong bullish candle.",
-      explanation:
-        "Higher-timeframe structure is bullish. Focus only on long setups."
+      confirmation: "Wait for bullish reaction, higher low, or strong bullish candle."
     };
   }
 
   if (bias === "BEARISH") {
     const z1 = high - (high - low) * 0.4;
     const z2 = high - (high - low) * 0.25;
-
     return {
       price,
       bias,
       zone: `${z1.toFixed(2)} – ${z2.toFixed(2)}`,
       invalidation: high.toFixed(2),
-      confirmation:
-        "Wait for rejection from the zone, lower high, or strong bearish candle.",
-      explanation:
-        "Higher-timeframe structure is bearish. Focus only on short setups."
+      confirmation: "Wait for rejection, lower high, or strong bearish candle."
     };
   }
 
   return {
     price,
     bias: "RANGE",
-    zone: "No trade zone",
+    zone: "No trade",
     invalidation: "N/A",
-    confirmation:
-      "Wait for clear break and structure shift.",
-    explanation:
-      "Market is ranging. Best decision is patience."
+    confirmation: "Wait for clear structure break."
   };
+}
+
+/* ================== STORAGE ================== */
+function loadJournal() {
+  return JSON.parse(localStorage.getItem("ai_journal") || "[]");
+}
+
+function saveJournal(entries) {
+  localStorage.setItem("ai_journal", JSON.stringify(entries));
 }
 
 /* ================== APP ================== */
 export default function App() {
   const [asset, setAsset] = useState("BTC");
   const [analysis, setAnalysis] = useState(null);
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("Ask me about BTC or Gold.");
+  const [journal, setJournal] = useState(loadJournal());
+  const [note, setNote] = useState("");
 
   useEffect(() => {
     const fetchData = async () => {
-      const symbol =
-        asset === "BTC"
-          ? "BTC"
-          : "XAU";
-
+      const symbol = asset === "BTC" ? "BTC" : "XAU";
       const res = await fetch(
         `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${symbol}&tsym=USD&limit=120`
       );
       const json = await res.json();
-      const data = json.Data.Data;
-      setAnalysis(buildAnalysis(data));
+      setAnalysis(buildAnalysis(json.Data.Data));
     };
-
     fetchData();
   }, [asset]);
 
-  const askAI = () => {
+  const saveToday = () => {
     if (!analysis) return;
 
-    const q = question.toLowerCase();
+    const today = new Date().toISOString().slice(0, 10);
+    const entry = {
+      date: today,
+      asset,
+      ...analysis,
+      note
+    };
 
-    if (q.includes("bias") || q.includes("trend") || q.includes("long or short")) {
-      setAnswer(`Bias: ${analysis.bias}\n\n${analysis.explanation}`);
-    } else if (q.includes("best") || q.includes("price") || q.includes("zone")) {
-      setAnswer(`Best zone: ${analysis.zone}\nInvalidation: ${analysis.invalidation}`);
-    } else if (q.includes("confirm")) {
-      setAnswer(`Confirmation:\n${analysis.confirmation}`);
-    } else {
-      setAnswer(
-        `${asset} Analysis\n\nBias: ${analysis.bias}\nZone: ${analysis.zone}\nConfirmation: ${analysis.confirmation}`
-      );
-    }
+    const filtered = journal.filter(j => !(j.date === today && j.asset === asset));
+    const updated = [entry, ...filtered];
+
+    setJournal(updated);
+    saveJournal(updated);
+    setNote("");
   };
 
   return (
     <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24 }}>
-      <h1>AI Market Analyst</h1>
+      <h1>AI Market Analyst + Journal</h1>
 
       <div style={{ marginBottom: 12 }}>
         <button onClick={() => setAsset("BTC")}>BTC</button>{" "}
@@ -126,24 +119,37 @@ export default function App() {
       </div>
 
       {analysis && (
-        <div style={{ marginBottom: 12 }}>
-          {asset}USD Price: ${analysis.price}
+        <div style={{ background: "#111827", padding: 16, borderRadius: 10, marginBottom: 16 }}>
+          <div><strong>Bias:</strong> {analysis.bias}</div>
+          <div><strong>Zone:</strong> {analysis.zone}</div>
+          <div><strong>Invalidation:</strong> {analysis.invalidation}</div>
+          <div><strong>Confirmation:</strong> {analysis.confirmation}</div>
+
+          <textarea
+            placeholder="Your note (optional)…"
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            style={{ width: "100%", marginTop: 10 }}
+          />
+
+          <button onClick={saveToday} style={{ marginTop: 10 }}>
+            Save Today’s Analysis
+          </button>
         </div>
       )}
 
-      <div style={{ background: "#111827", padding: 16, borderRadius: 10 }}>
-        <input
-          value={question}
-          onChange={e => setQuestion(e.target.value)}
-          placeholder={`Ask about ${asset}...`}
-          style={{ width: "100%", padding: 10, marginBottom: 10 }}
-        />
-        <button onClick={askAI}>Ask</button>
+      <h2>Journal History</h2>
 
-        <pre style={{ marginTop: 14, whiteSpace: "pre-wrap" }}>
-          {answer}
-        </pre>
-      </div>
+      {journal.length === 0 && <div>No entries yet.</div>}
+
+      {journal.map((j, i) => (
+        <div key={i} style={{ background: "#020617", padding: 12, marginBottom: 8 }}>
+          <div><strong>{j.date} — {j.asset}</strong></div>
+          <div>Bias: {j.bias}</div>
+          <div>Zone: {j.zone}</div>
+          {j.note && <div>Note: {j.note}</div>}
+        </div>
+      ))}
     </div>
   );
 }
