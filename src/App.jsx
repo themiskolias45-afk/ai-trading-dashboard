@@ -45,28 +45,27 @@ const detectDisplacement = (c) => {
   return body > prevRange * 1.5;
 };
 
-const fibLevels = (price, bias) => {
+const tradeLevels = (price, bias) => {
   const risk = price * 0.006;
-  if (bias === "BULLISH") {
-    return {
-      entry: price,
-      sl: price - risk,
-      tp: price + risk * 2,
-    };
-  }
-  return {
-    entry: price,
-    sl: price + risk,
-    tp: price - risk * 2,
-  };
+  return bias === "BULLISH"
+    ? {
+        entry: price,
+        sl: price - risk,
+        tp: price + risk * 2,
+      }
+    : {
+        entry: price,
+        sl: price + risk,
+        tp: price - risk * 2,
+      };
 };
 
 /* ==============================
    APP
 ================================ */
 export default function App() {
-  const [btcPrice, setBtcPrice] = useState(null);
-  const [goldPrice, setGoldPrice] = useState("Unavailable");
+  const [btc, setBtc] = useState("--");
+  const [gold, setGold] = useState("Unavailable");
 
   const [weekly, setWeekly] = useState("");
   const [daily, setDaily] = useState("");
@@ -74,16 +73,16 @@ export default function App() {
   const [ltf, setLtf] = useState("");
 
   const [mlProb, setMlProb] = useState(0);
-  const [alert, setAlert] = useState(null);
+  const [setup, setSetup] = useState(null);
   const [explain, setExplain] = useState("");
 
   const [question, setQuestion] = useState("");
-  const recognitionRef = useRef(null);
+  const recRef = useRef(null);
 
   /* ==============================
-     FETCH DATA
+     DATA LOAD
   ================================ */
-  async function load() {
+  async function loadAll() {
     const [w, d, h, l] = await Promise.all([
       fetch(BTC_WEEKLY).then((r) => r.json()),
       fetch(BTC_DAILY).then((r) => r.json()),
@@ -96,38 +95,34 @@ export default function App() {
     const hc = parse(h);
     const lc = parse(l);
 
-    const wBias = biasFromStructure(wc);
-    const dBias = biasFromStructure(dc);
-    const hBias = biasFromStructure(hc);
-    const lBias = biasFromStructure(lc);
+    const wb = biasFromStructure(wc);
+    const db = biasFromStructure(dc);
+    const hb = biasFromStructure(hc);
+    const lb = biasFromStructure(lc);
 
-    setWeekly(wBias);
-    setDaily(dBias);
-    setHtf(hBias);
-    setLtf(lBias);
+    setWeekly(wb);
+    setDaily(db);
+    setHtf(hb);
+    setLtf(lb);
 
     const price = hc.at(-1).close;
-    setBtcPrice(price.toFixed(2));
+    setBtc(price.toFixed(2));
 
     const displacement = detectDisplacement(hc);
     const aligned =
-      (dBias === "BULLISH" && hBias === "BULLISH" && lBias === "BULLISH") ||
-      (dBias === "BEARISH" && hBias === "BEARISH" && lBias === "BEARISH");
+      (db === "BULLISH" && hb === "BULLISH" && lb === "BULLISH") ||
+      (db === "BEARISH" && hb === "BEARISH" && lb === "BEARISH");
 
-    const probability = displacement && aligned ? 70 + Math.random() * 20 : 20;
-    setMlProb(Math.round(probability));
+    const prob = displacement && aligned ? 70 + Math.random() * 20 : 20;
+    setMlProb(Math.round(prob));
 
-    if (displacement && aligned && probability >= 65) {
-      const levels = fibLevels(price, dBias);
-      setAlert({
-        direction: dBias,
-        ...levels,
-      });
+    if (displacement && aligned && prob >= 65) {
+      setSetup({ bias: db, ...tradeLevels(price, db) });
       setExplain(
-        "Displacement confirmed with HTF and LTF alignment. Institutional continuation likely."
+        "Strong displacement with HTF + LTF alignment. Institutional continuation likely."
       );
     } else {
-      setAlert(null);
+      setSetup(null);
       setExplain(
         "Price is inside equilibrium. Professional traders wait for displacement."
       );
@@ -138,43 +133,36 @@ export default function App() {
     try {
       const r = await fetch(GOLD_PRICE);
       const d = await r.json();
-      setGoldPrice(Number(d.price).toFixed(2));
+      setGold(Number(d.price).toFixed(2));
     } catch {
-      setGoldPrice("Unavailable");
+      setGold("Unavailable");
     }
   }
 
   useEffect(() => {
-    load();
+    loadAll();
     loadGold();
-    const i = setInterval(load, 60000);
+    const i = setInterval(loadAll, 60000);
     return () => clearInterval(i);
   }, []);
 
   /* ==============================
-     VOICE INPUT (Push-to-talk)
+     VOICE
   ================================ */
-  const startVoice = () => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Voice not supported on this browser");
-      return;
-    }
-
-    const rec = new SpeechRecognition();
+  const speak = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return alert("Voice not supported");
+    const rec = new SR();
     rec.lang = "en-US";
     rec.start();
-    rec.onresult = (e) => {
-      setQuestion(e.results[0][0].transcript);
-    };
-    recognitionRef.current = rec;
+    rec.onresult = (e) => setQuestion(e.results[0][0].transcript);
+    recRef.current = rec;
   };
 
   const askAI = () => {
     if (!question) return;
     alert(
-      `AI Answer:\n\nCurrent BTC bias:\nWeekly: ${weekly}\nDaily: ${daily}\nHTF: ${htf}\nLTF: ${ltf}\n\nConclusion:\n${explain}`
+      `AI ANALYSIS\n\nBTCUSD: ${btc}\nWeekly: ${weekly}\nDaily: ${daily}\nHTF: ${htf}\nLTF: ${ltf}\n\n${explain}`
     );
   };
 
@@ -182,10 +170,18 @@ export default function App() {
      UI
   ================================ */
   return (
-    <div style={{ padding: 24, fontFamily: "serif", color: "#eaeaea" }}>
-      <h1>AI Trading Dashboard</h1>
+    <div
+      style={{
+        minHeight: "100vh",
+        padding: 24,
+        background: "linear-gradient(180deg,#020617,#020617)",
+        color: "#e5e7eb",
+        fontFamily: "system-ui",
+      }}
+    >
+      <h1 style={{ color: "#f9fafb" }}>AI Trading Dashboard</h1>
 
-      <p>BTCUSD: ${btcPrice}</p>
+      <p>BTCUSD: ${btc}</p>
       <p>Weekly Bias: {weekly}</p>
       <p>Daily Bias: {daily}</p>
       <p>HTF (15m): {htf}</p>
@@ -195,13 +191,13 @@ export default function App() {
       <h2>AI Conclusion</h2>
       <p>{explain}</p>
 
-      {alert && (
+      {setup && (
         <>
-          <h2>🎯 TRADE SETUP</h2>
-          <p>Direction: {alert.direction}</p>
-          <p>Entry: {alert.entry.toFixed(2)}</p>
-          <p>SL: {alert.sl.toFixed(2)}</p>
-          <p>TP: {alert.tp.toFixed(2)}</p>
+          <h2>🎯 Trade Setup</h2>
+          <p>Direction: {setup.bias}</p>
+          <p>Entry: {setup.entry.toFixed(2)}</p>
+          <p>SL: {setup.sl.toFixed(2)}</p>
+          <p>TP: {setup.tp.toFixed(2)}</p>
         </>
       )}
 
@@ -211,17 +207,17 @@ export default function App() {
       <input
         value={question}
         onChange={(e) => setQuestion(e.target.value)}
-        placeholder="Ask about today’s BTC or Gold setup..."
+        placeholder="Ask about BTC or Gold setup..."
         style={{ width: "100%", padding: 8 }}
       />
       <br />
       <button onClick={askAI}>Ask</button>
-      <button onClick={startVoice} style={{ marginLeft: 8 }}>
+      <button onClick={speak} style={{ marginLeft: 8 }}>
         🎤 Speak
       </button>
 
       <hr />
-      <p>XAUUSD (Gold): ${goldPrice}</p>
+      <p>XAUUSD (Gold): ${gold}</p>
     </div>
   );
 }
