@@ -36,12 +36,12 @@ function buildAnalysis(data) {
     return {
       price,
       bias,
-      zone: `${z1.toFixed(0)} – ${z2.toFixed(0)}`,
-      invalidation: low.toFixed(0),
+      zone: `${z1.toFixed(2)} – ${z2.toFixed(2)}`,
+      invalidation: low.toFixed(2),
       confirmation:
         "Wait for bullish reaction from the zone, higher low, or strong bullish candle.",
       explanation:
-        "Market is in a higher-timeframe uptrend. Only look for long setups today."
+        "Higher-timeframe structure is bullish. Focus only on long setups."
     };
   }
 
@@ -52,12 +52,12 @@ function buildAnalysis(data) {
     return {
       price,
       bias,
-      zone: `${z1.toFixed(0)} – ${z2.toFixed(0)}`,
-      invalidation: high.toFixed(0),
+      zone: `${z1.toFixed(2)} – ${z2.toFixed(2)}`,
+      invalidation: high.toFixed(2),
       confirmation:
         "Wait for rejection from the zone, lower high, or strong bearish candle.",
       explanation:
-        "Market is in a higher-timeframe downtrend. Only look for short setups today."
+        "Higher-timeframe structure is bearish. Focus only on short setups."
     };
   }
 
@@ -67,31 +67,36 @@ function buildAnalysis(data) {
     zone: "No trade zone",
     invalidation: "N/A",
     confirmation:
-      "Wait for a clear break and structure shift before trading.",
+      "Wait for clear break and structure shift.",
     explanation:
-      "Market is ranging. Probability is low. Best decision is to wait."
+      "Market is ranging. Best decision is patience."
   };
 }
 
 /* ================== APP ================== */
 export default function App() {
-  const [data, setData] = useState([]);
+  const [asset, setAsset] = useState("BTC");
   const [analysis, setAnalysis] = useState(null);
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("Ask me about BTC today.");
+  const [answer, setAnswer] = useState("Ask me about BTC or Gold.");
 
   useEffect(() => {
     const fetchData = async () => {
+      const symbol =
+        asset === "BTC"
+          ? "BTC"
+          : "XAU";
+
       const res = await fetch(
-        "https://min-api.cryptocompare.com/data/v2/histohour?fsym=BTC&tsym=USD&limit=120"
+        `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${symbol}&tsym=USD&limit=120`
       );
       const json = await res.json();
-      const d = json.Data.Data;
-      setData(d);
-      setAnalysis(buildAnalysis(d));
+      const data = json.Data.Data;
+      setAnalysis(buildAnalysis(data));
     };
+
     fetchData();
-  }, []);
+  }, [asset]);
 
   const askAI = () => {
     if (!analysis) return;
@@ -99,24 +104,14 @@ export default function App() {
     const q = question.toLowerCase();
 
     if (q.includes("bias") || q.includes("trend") || q.includes("long or short")) {
-      setAnswer(
-        `Bias: ${analysis.bias}\n\n${analysis.explanation}`
-      );
+      setAnswer(`Bias: ${analysis.bias}\n\n${analysis.explanation}`);
     } else if (q.includes("best") || q.includes("price") || q.includes("zone")) {
-      setAnswer(
-        `Best zone today: ${analysis.zone}\nInvalidation: ${analysis.invalidation}`
-      );
+      setAnswer(`Best zone: ${analysis.zone}\nInvalidation: ${analysis.invalidation}`);
     } else if (q.includes("confirm")) {
-      setAnswer(`Confirmation to enter:\n${analysis.confirmation}`);
-    } else if (q.includes("trade now")) {
-      setAnswer(
-        analysis.bias === "RANGE"
-          ? "No. Market is ranging. Waiting is the professional choice."
-          : "Only trade if price reaches the zone and confirmation appears. Do not chase price."
-      );
+      setAnswer(`Confirmation:\n${analysis.confirmation}`);
     } else {
       setAnswer(
-        `BTCUSD Analysis\n\nBias: ${analysis.bias}\nZone: ${analysis.zone}\nConfirmation: ${analysis.confirmation}`
+        `${asset} Analysis\n\nBias: ${analysis.bias}\nZone: ${analysis.zone}\nConfirmation: ${analysis.confirmation}`
       );
     }
   };
@@ -125,9 +120,14 @@ export default function App() {
     <div style={{ background: "#0b0f1a", color: "white", minHeight: "100vh", padding: 24 }}>
       <h1>AI Market Analyst</h1>
 
+      <div style={{ marginBottom: 12 }}>
+        <button onClick={() => setAsset("BTC")}>BTC</button>{" "}
+        <button onClick={() => setAsset("XAU")}>XAU</button>
+      </div>
+
       {analysis && (
         <div style={{ marginBottom: 12 }}>
-          BTCUSD: ${analysis.price}
+          {asset}USD Price: ${analysis.price}
         </div>
       )}
 
@@ -135,32 +135,12 @@ export default function App() {
         <input
           value={question}
           onChange={e => setQuestion(e.target.value)}
-          placeholder="Ask: BTC today? Best price? Confirmation?"
-          style={{
-            width: "100%",
-            padding: 10,
-            marginBottom: 10,
-            borderRadius: 6,
-            border: "none"
-          }}
+          placeholder={`Ask about ${asset}...`}
+          style={{ width: "100%", padding: 10, marginBottom: 10 }}
         />
-        <button
-          onClick={askAI}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 6,
-            border: "none",
-            cursor: "pointer"
-          }}
-        >
-          Ask
-        </button>
+        <button onClick={askAI}>Ask</button>
 
-        <pre style={{
-          marginTop: 14,
-          whiteSpace: "pre-wrap",
-          fontSize: 14
-        }}>
+        <pre style={{ marginTop: 14, whiteSpace: "pre-wrap" }}>
           {answer}
         </pre>
       </div>
