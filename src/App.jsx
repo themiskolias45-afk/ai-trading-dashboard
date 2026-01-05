@@ -1,127 +1,163 @@
 import { useEffect, useState } from "react";
 
-/* ================= MARKET DATA ================= */
-
+/* =========================
+   DATA FETCH
+========================= */
 async function fetchBTC() {
   const r = await fetch(
-    "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+    "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=120"
   );
-  const j = await r.json();
-  return parseFloat(j.price);
+  const d = await r.json();
+  return d.map(c => ({
+    open: +c[1],
+    high: +c[2],
+    low: +c[3],
+    close: +c[4]
+  }));
 }
 
-/* ================= SMC HELPERS ================= */
+/* =========================
+   MARKET LOGIC
+========================= */
+function getMarketState(candles) {
+  const last = candles.slice(-20);
+  const highs = last.map(c => c.high);
+  const lows = last.map(c => c.low);
 
-function detectBias(data) {
-  if (data.length < 5) return "RANGE";
-  const last = data.at(-1);
-  const prev = data.at(-3);
-  if (last > prev) return "BULLISH";
-  if (last < prev) return "BEARISH";
+  const hh = highs.at(-1) > highs.at(-5);
+  const hl = lows.at(-1) > lows.at(-5);
+  const ll = lows.at(-1) < lows.at(-5);
+
+  if (hh && hl) return "TREND";
+  if (ll) return "BREAKDOWN";
   return "RANGE";
 }
 
-function detectFVG(data) {
-  if (data.length < 3) return null;
-  const a = data.at(-3);
-  const b = data.at(-2);
-  const c = data.at(-1);
+function getHTFBias(candles) {
+  const last = candles.slice(-40);
+  const highs = last.map(c => c.high);
+  const lows = last.map(c => c.low);
 
-  if (a < c && a < b && b < c)
-    return { side: "BULLISH", from: a, to: c };
-
-  if (a > c && a > b && b > c)
-    return { side: "BEARISH", from: c, to: a };
-
-  return null;
+  if (highs.at(-1) > highs.at(-10)) return "BULLISH";
+  if (lows.at(-1) < lows.at(-10)) return "BEARISH";
+  return "NEUTRAL";
 }
 
-function calcTradeLevels({ side, price }) {
-  if (side === "WAIT") return null;
+function getContext(state) {
+  if (state === "TREND") return "Trend continuation day";
+  if (state === "BREAKDOWN") return "Expansion / volatility day";
+  return "Range / rotation day";
+}
 
-  const risk = price * 0.01;
-
-  if (side === "BUY") {
-    return {
-      entry: price,
-      sl: price - risk,
-      tp1: price + risk * 1.5,
-      tp2: price + risk * 3
-    };
-  }
-
+function buildPlan(price, state, bias) {
   return {
-    entry: price,
-    sl: price + risk,
-    tp1: price - risk * 1.5,
-    tp2: price - risk * 3
+    buy:
+      bias === "BULLISH"
+        ? `IF pullback holds above ${(price * 0.995).toFixed(0)}
+AND bullish displacement appears
+THEN BUY toward ${(price * 1.01).toFixed(0)}`
+        : "Wait for structure shift before buying",
+
+    sell:
+      bias === "BEARISH"
+        ? `IF liquidity taken above ${(price * 1.005).toFixed(0)}
+AND bearish CHOCH forms
+THEN SELL toward ${(price * 0.99).toFixed(0)}`
+        : "Sell only after rejection + CHOCH",
+
+    wait:
+      "Price is inside equilibrium. No displacement yet."
   };
 }
 
-/* ================= MAIN APP ================= */
-
+/* =========================
+   APP
+========================= */
 export default function App() {
-  const [price, setPrice] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [signal, setSignal] = useState("WAIT");
+  const [candles, setCandles] = useState([]);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const run = async () => {
-      const p = await fetchBTC();
-      setPrice(p);
-      setHistory(h => [...h.slice(-20), p]);
-    };
-
-    run();
-    const t = setInterval(run, 15000);
-    return () => clearInterval(t);
+    fetchBTC()
+      .then(setCandles)
+      .catch(() => setError("Data fetch error"));
   }, []);
 
-  const bias = detectBias(history);
-  const fvg = detectFVG(history);
+  if (error) return <Screen title="AI Trading Dashboard">{error}</Screen>;
+  if (candles.length === 0)
+    return <Screen title="AI Trading Dashboard">Loading market data…</Screen>;
 
-  useEffect(() => {
-    if (!price) return;
-
-    if (bias === "BULLISH" && fvg?.side === "BULLISH") {
-      setSignal("BUY");
-    } else if (bias === "BEARISH" && fvg?.side === "BEARISH") {
-      setSignal("SELL");
-    } else {
-      setSignal("WAIT");
-    }
-  }, [bias, fvg, price]);
-
-  const trade = calcTradeLevels({ side: signal, price });
+  const price = candles.at(-1).close;
+  const state = getMarketState(candles);
+  const bias = getHTFBias(candles);
+  const context = getContext(state);
+  const plan = buildPlan(price, state, bias);
 
   return (
-    <div style={styles.page}>
-      <h1>AI Trading Dashboard</h1>
+    <Screen title="AI Trading Dashboard">
+      <Block>BTCUSD: ${price.toFixed(2)}</Block>
+      <Block>Market State: {state}</Block>
+      <Block>HTF Bias: {bias}</Block>
+      <Block>Context: {context}</Block>
 
-      <div className="card">BTCUSD: ${price?.toFixed(2)}</div>
-      <div className="card">HTF Bias: {bias}</div>
-      <div className="card">Signal: {signal}</div>
+      <Divider />
 
-      {trade && (
-        <div className="card">
-          <div>ENTRY: {trade.entry.toFixed(2)}</div>
-          <div>SL: {trade.sl.toFixed(2)}</div>
-          <div>TP1: {trade.tp1.toFixed(2)}</div>
-          <div>TP2: {trade.tp2.toFixed(2)}</div>
-        </div>
-      )}
+      <BlockTitle>BUY SCENARIO</BlockTitle>
+      <Block>{plan.buy}</Block>
+
+      <BlockTitle>SELL SCENARIO</BlockTitle>
+      <Block>{plan.sell}</Block>
+
+      <BlockTitle>AI CONCLUSION</BlockTitle>
+      <Block>{plan.wait}</Block>
+    </Screen>
+  );
+}
+
+/* =========================
+   UI HELPERS
+========================= */
+function Screen({ title, children }) {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#0b1020",
+        color: "#fff",
+        padding: 20,
+        fontFamily: "Arial"
+      }}
+    >
+      <h1>{title}</h1>
+      {children}
     </div>
   );
 }
 
-/* ================= STYLES ================= */
+function Block({ children }) {
+  return (
+    <div
+      style={{
+        background: "#111831",
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 10,
+        whiteSpace: "pre-line"
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
-const styles = {
-  page: {
-    background: "#0b1220",
-    minHeight: "100vh",
-    color: "white",
-    padding: "20px",
-    fontFamily: "Arial"
-  }
-};
+function BlockTitle({ children }) {
+  return (
+    <div style={{ marginTop: 14, fontWeight: "bold", color: "#6ee7ff" }}>
+      {children}
+    </div>
+  );
+}
+
+function Divider() {
+  return <hr style={{ opacity: 0.2, margin: "16px 0" }} />;
+}
