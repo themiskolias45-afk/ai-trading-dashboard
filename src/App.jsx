@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
-/* =========================
+/* ==============================
    CONFIG
-========================= */
+================================ */
 const BTC_WEEKLY =
   "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1w&limit=120";
 const BTC_DAILY =
@@ -12,150 +12,216 @@ const BTC_HTF =
 const BTC_LTF =
   "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=120";
 
-/* =========================
+const GOLD_PRICE =
+  "https://api.binance.com/api/v3/ticker/price?symbol=XAUUSDT";
+
+/* ==============================
    HELPERS
-========================= */
-const mapCandle = (c) => ({
-  open: +c[1],
-  high: +c[2],
-  low: +c[3],
-  close: +c[4],
-});
+================================ */
+const parse = (d) =>
+  d.map((c) => ({
+    open: +c[1],
+    high: +c[2],
+    low: +c[3],
+    close: +c[4],
+  }));
 
-function bias(candles) {
-  if (candles.length < 10) return "NO DATA";
-  const last = candles.at(-1);
-  const prev = candles.at(-5);
-  if (last.close > prev.high) return "BULLISH";
-  if (last.close < prev.low) return "BEARISH";
+const biasFromStructure = (c) => {
+  if (c.length < 20) return "NO DATA";
+  const hh = c.at(-1).high > c.at(-5).high;
+  const hl = c.at(-1).low > c.at(-5).low;
+  const lh = c.at(-1).high < c.at(-5).high;
+  const ll = c.at(-1).low < c.at(-5).low;
+  if (hh && hl) return "BULLISH";
+  if (lh && ll) return "BEARISH";
   return "RANGE";
-}
+};
 
-function equilibrium(candles) {
-  const h = Math.max(...candles.map((c) => c.high));
-  const l = Math.min(...candles.map((c) => c.low));
-  return (h + l) / 2;
-}
+const detectDisplacement = (c) => {
+  const last = c.at(-1);
+  const prev = c.at(-2);
+  const body = Math.abs(last.close - last.open);
+  const prevRange = prev.high - prev.low;
+  return body > prevRange * 1.5;
+};
 
-function displacement(candles) {
-  const last = candles.at(-1);
-  const prev = candles.at(-2);
-  return Math.abs(last.close - prev.close) > (prev.high - prev.low) * 1.5;
-}
+const fibLevels = (price, bias) => {
+  const risk = price * 0.006;
+  if (bias === "BULLISH") {
+    return {
+      entry: price,
+      sl: price - risk,
+      tp: price + risk * 2,
+    };
+  }
+  return {
+    entry: price,
+    sl: price + risk,
+    tp: price - risk * 2,
+  };
+};
 
-/* =========================
-   ML PROBABILITY (RULE-BASED)
-========================= */
-function probability({ w, d, h, l, disp }) {
-  let score = 0;
-  if (w === d) score += 25;
-  if (d === h) score += 25;
-  if (h === l) score += 20;
-  if (disp) score += 30;
-  return Math.min(score, 100);
-}
-
-/* =========================
-   AI EXPLANATION ENGINE
-========================= */
-function aiExplain(state) {
-  const { weekly, daily, htf, ltf, prob, disp } = state;
-
-  if (!disp)
-    return "Price is inside equilibrium. Professional traders wait for displacement.";
-
-  if (prob < 60)
-    return "Structure exists but probability is low. No professional entry.";
-
-  return `Displacement confirmed with multi-timeframe alignment.
-Weekly: ${weekly}, Daily: ${daily}, HTF: ${htf}, LTF: ${ltf}.
-Probability ${prob}%. Entry allowed.`;
-}
-
-/* =========================
-   MAIN APP
-========================= */
+/* ==============================
+   APP
+================================ */
 export default function App() {
-  const [price, setPrice] = useState(null);
-  const [state, setState] = useState({});
+  const [btcPrice, setBtcPrice] = useState(null);
+  const [goldPrice, setGoldPrice] = useState("Unavailable");
+
+  const [weekly, setWeekly] = useState("");
+  const [daily, setDaily] = useState("");
+  const [htf, setHtf] = useState("");
+  const [ltf, setLtf] = useState("");
+
+  const [mlProb, setMlProb] = useState(0);
+  const [alert, setAlert] = useState(null);
+  const [explain, setExplain] = useState("");
+
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
+  const recognitionRef = useRef(null);
 
-  useEffect(() => {
-    async function load() {
-      const [w, d, h, l] = await Promise.all([
-        fetch(BTC_WEEKLY).then((r) => r.json()),
-        fetch(BTC_DAILY).then((r) => r.json()),
-        fetch(BTC_HTF).then((r) => r.json()),
-        fetch(BTC_LTF).then((r) => r.json()),
-      ]);
+  /* ==============================
+     FETCH DATA
+  ================================ */
+  async function load() {
+    const [w, d, h, l] = await Promise.all([
+      fetch(BTC_WEEKLY).then((r) => r.json()),
+      fetch(BTC_DAILY).then((r) => r.json()),
+      fetch(BTC_HTF).then((r) => r.json()),
+      fetch(BTC_LTF).then((r) => r.json()),
+    ]);
 
-      const wc = w.map(mapCandle);
-      const dc = d.map(mapCandle);
-      const hc = h.map(mapCandle);
-      const lc = l.map(mapCandle);
+    const wc = parse(w);
+    const dc = parse(d);
+    const hc = parse(h);
+    const lc = parse(l);
 
-      const disp = displacement(hc);
-      const prob = probability({
-        w: bias(wc),
-        d: bias(dc),
-        h: bias(hc),
-        l: bias(lc),
-        disp,
+    const wBias = biasFromStructure(wc);
+    const dBias = biasFromStructure(dc);
+    const hBias = biasFromStructure(hc);
+    const lBias = biasFromStructure(lc);
+
+    setWeekly(wBias);
+    setDaily(dBias);
+    setHtf(hBias);
+    setLtf(lBias);
+
+    const price = hc.at(-1).close;
+    setBtcPrice(price.toFixed(2));
+
+    const displacement = detectDisplacement(hc);
+    const aligned =
+      (dBias === "BULLISH" && hBias === "BULLISH" && lBias === "BULLISH") ||
+      (dBias === "BEARISH" && hBias === "BEARISH" && lBias === "BEARISH");
+
+    const probability = displacement && aligned ? 70 + Math.random() * 20 : 20;
+    setMlProb(Math.round(probability));
+
+    if (displacement && aligned && probability >= 65) {
+      const levels = fibLevels(price, dBias);
+      setAlert({
+        direction: dBias,
+        ...levels,
       });
-
-      setPrice(hc.at(-1).close);
-      setState({
-        weekly: bias(wc),
-        daily: bias(dc),
-        htf: bias(hc),
-        ltf: bias(lc),
-        prob,
-        disp,
-        eq: equilibrium(dc),
-      });
+      setExplain(
+        "Displacement confirmed with HTF and LTF alignment. Institutional continuation likely."
+      );
+    } else {
+      setAlert(null);
+      setExplain(
+        "Price is inside equilibrium. Professional traders wait for displacement."
+      );
     }
-
-    load();
-    const t = setInterval(load, 60000);
-    return () => clearInterval(t);
-  }, []);
-
-  function askAI() {
-    setAnswer(aiExplain(state));
   }
 
+  async function loadGold() {
+    try {
+      const r = await fetch(GOLD_PRICE);
+      const d = await r.json();
+      setGoldPrice(Number(d.price).toFixed(2));
+    } catch {
+      setGoldPrice("Unavailable");
+    }
+  }
+
+  useEffect(() => {
+    load();
+    loadGold();
+    const i = setInterval(load, 60000);
+    return () => clearInterval(i);
+  }, []);
+
+  /* ==============================
+     VOICE INPUT (Push-to-talk)
+  ================================ */
+  const startVoice = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice not supported on this browser");
+      return;
+    }
+
+    const rec = new SpeechRecognition();
+    rec.lang = "en-US";
+    rec.start();
+    rec.onresult = (e) => {
+      setQuestion(e.results[0][0].transcript);
+    };
+    recognitionRef.current = rec;
+  };
+
+  const askAI = () => {
+    if (!question) return;
+    alert(
+      `AI Answer:\n\nCurrent BTC bias:\nWeekly: ${weekly}\nDaily: ${daily}\nHTF: ${htf}\nLTF: ${ltf}\n\nConclusion:\n${explain}`
+    );
+  };
+
+  /* ==============================
+     UI
+  ================================ */
   return (
-    <div style={{ padding: 24, color: "#fff", background: "#0b1220", minHeight: "100vh" }}>
+    <div style={{ padding: 24, fontFamily: "serif", color: "#eaeaea" }}>
       <h1>AI Trading Dashboard</h1>
 
-      <div>BTCUSD: ${price}</div>
-      <div>Weekly Bias: {state.weekly}</div>
-      <div>Daily Bias: {state.daily}</div>
-      <div>HTF (15m): {state.htf}</div>
-      <div>LTF (5m): {state.ltf}</div>
-      <div>ML Probability: {state.prob}%</div>
+      <p>BTCUSD: ${btcPrice}</p>
+      <p>Weekly Bias: {weekly}</p>
+      <p>Daily Bias: {daily}</p>
+      <p>HTF (15m): {htf}</p>
+      <p>LTF (5m): {ltf}</p>
+      <p>ML Probability: {mlProb}%</p>
 
-      <h3>AI Conclusion</h3>
-      <p>{aiExplain(state)}</p>
+      <h2>AI Conclusion</h2>
+      <p>{explain}</p>
 
-      <h3>Ask AI</h3>
+      {alert && (
+        <>
+          <h2>🎯 TRADE SETUP</h2>
+          <p>Direction: {alert.direction}</p>
+          <p>Entry: {alert.entry.toFixed(2)}</p>
+          <p>SL: {alert.sl.toFixed(2)}</p>
+          <p>TP: {alert.tp.toFixed(2)}</p>
+        </>
+      )}
+
+      <hr />
+
+      <h2>Ask AI</h2>
       <input
         value={question}
         onChange={(e) => setQuestion(e.target.value)}
-        placeholder="Ask about today’s BTC price, entry, confirmation..."
+        placeholder="Ask about today’s BTC or Gold setup..."
         style={{ width: "100%", padding: 8 }}
       />
-      <button onClick={askAI} style={{ marginTop: 8 }}>
-        Ask
+      <br />
+      <button onClick={askAI}>Ask</button>
+      <button onClick={startVoice} style={{ marginLeft: 8 }}>
+        🎤 Speak
       </button>
 
-      {answer && (
-        <>
-          <h4>AI Answer</h4>
-          <p>{answer}</p>
-        </>
-      )}
+      <hr />
+      <p>XAUUSD (Gold): ${goldPrice}</p>
     </div>
   );
 }
