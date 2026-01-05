@@ -1,172 +1,178 @@
 import { useEffect, useState } from "react";
 
-/* =========================
+/* ===============================
    CONFIG
-========================= */
-const BTC_HTF = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=120";
-const BTC_LTF = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=120";
+================================ */
+const SYMBOL = "BTCUSDT";
 
-const XAU_PRICE_API = "https://api.metals.live/v1/spot/gold";
-
-/* =========================
-   HELPERS
-========================= */
-function parseCandles(raw) {
-  return raw.map(c => ({
+/* ===============================
+   DATA FETCH
+================================ */
+async function fetchKlines(interval, limit = 200) {
+  const r = await fetch(
+    `https://api.binance.com/api/v3/klines?symbol=${SYMBOL}&interval=${interval}&limit=${limit}`
+  );
+  const d = await r.json();
+  return d.map(c => ({
+    time: c[0],
     open: +c[1],
     high: +c[2],
     low: +c[3],
-    close: +c[4],
+    close: +c[4]
   }));
 }
 
-function getRange(candles, n = 20) {
-  const slice = candles.slice(-n);
-  const high = Math.max(...slice.map(c => c.high));
-  const low = Math.min(...slice.map(c => c.low));
-  return { high, low, range: high - low };
+async function fetchPrice() {
+  const r = await fetch(
+    `https://api.binance.com/api/v3/ticker/price?symbol=${SYMBOL}`
+  );
+  const d = await r.json();
+  return +d.price;
 }
 
-function getBias(candles) {
-  if (candles.length < 30) return "NO DATA";
-  const r1 = getRange(candles, 10);
-  const r2 = getRange(candles, 30);
-  if (r1.high > r2.high && r1.low > r2.low) return "BULLISH";
-  if (r1.high < r2.high && r1.low < r2.low) return "BEARISH";
+/* ===============================
+   MARKET STRUCTURE
+================================ */
+function structureBias(candles) {
+  if (candles.length < 10) return "NO DATA";
+  const highs = candles.map(c => c.high);
+  const lows = candles.map(c => c.low);
+
+  const hh = highs.at(-1) > highs.at(-5);
+  const hl = lows.at(-1) > lows.at(-5);
+  const lh = highs.at(-1) < highs.at(-5);
+  const ll = lows.at(-1) < lows.at(-5);
+
+  if (hh && hl) return "BULLISH";
+  if (lh && ll) return "BEARISH";
   return "RANGE";
 }
 
-function marketState(candles) {
-  const r = getRange(candles, 20);
-  return r.range > r.high * 0.004 ? "TREND" : "RANGE";
+/* ===============================
+   RANGE + EQUILIBRIUM
+================================ */
+function rangeInfo(candles) {
+  const high = Math.max(...candles.map(c => c.high));
+  const low = Math.min(...candles.map(c => c.low));
+  const eq = (high + low) / 2;
+  return { high, low, eq };
 }
 
-function buildLevels(price, bias, atr) {
-  if (bias === "BULLISH") {
-    return {
-      entry: price,
-      tp1: price + atr * 1.2,
-      tp2: price + atr * 2.2,
-      sl: price - atr * 1.0,
-    };
-  }
-  if (bias === "BEARISH") {
-    return {
-      entry: price,
-      tp1: price - atr * 1.2,
-      tp2: price - atr * 2.2,
-      sl: price + atr * 1.0,
-    };
-  }
-  return null;
+/* ===============================
+   SESSION LEVELS
+================================ */
+function sessionLevels(candles, startUTC, endUTC) {
+  const session = candles.filter(c => {
+    const h = new Date(c.time).getUTCHours();
+    return h >= startUTC && h < endUTC;
+  });
+  if (!session.length) return null;
+  return {
+    high: Math.max(...session.map(c => c.high)),
+    low: Math.min(...session.map(c => c.low))
+  };
 }
 
-function explain({ price, htf, ltf, state }) {
-  if (htf === "RANGE")
-    return "Price is inside equilibrium. Professional traders wait for displacement.";
+/* ===============================
+   AI ANALYST ENGINE
+================================ */
+function aiAnalysis({
+  price,
+  daily,
+  weekly,
+  htf,
+  ltf,
+  london,
+  ny
+}) {
+  if (!daily || !weekly) return "Waiting for market data...";
 
-  if (htf === "BULLISH" && ltf === "BULLISH")
-    return "Bullish HTF with LTF confirmation. Look for pullbacks into premium demand.";
+  if (price > daily.eq && price < daily.high)
+    return "Price is inside daily equilibrium. Professionals wait for displacement.";
 
-  if (htf === "BEARISH" && ltf === "BEARISH")
-    return "Bearish HTF with LTF continuation. Shorts preferred after liquidity grabs.";
+  if (price < daily.eq && htf === "BULLISH")
+    return "Price is in discount but HTF bullish. Wait for LTF confirmation.";
 
-  return "HTF bias exists but LTF confirmation is missing. Patience required.";
+  if (price > daily.eq && htf === "BEARISH")
+    return "Price is in premium with bearish HTF. Sell setup possible after liquidity.";
+
+  return "No high-probability setup. Discipline = no trade.";
 }
 
-/* =========================
+/* ===============================
    APP
-========================= */
+================================ */
 export default function App() {
-  const [btc, setBTC] = useState(null);
-  const [btcInfo, setBTCInfo] = useState("Loading BTC…");
-  const [xau, setXAU] = useState(null);
+  const [price, setPrice] = useState(null);
+
+  const [daily, setDaily] = useState(null);
+  const [weekly, setWeekly] = useState(null);
+  const [htfBias, setHTFBias] = useState(null);
+  const [ltfBias, setLTFBias] = useState(null);
+
+  const [london, setLondon] = useState(null);
+  const [ny, setNY] = useState(null);
 
   useEffect(() => {
-    async function fetchBTC() {
-      const htfRaw = await fetch(BTC_HTF).then(r => r.json());
-      const ltfRaw = await fetch(BTC_LTF).then(r => r.json());
+    async function load() {
+      const p = await fetchPrice();
+      setPrice(p);
 
-      const htf = parseCandles(htfRaw);
-      const ltf = parseCandles(ltfRaw);
+      const d1 = await fetchKlines("1d", 30);
+      const w1 = await fetchKlines("1w", 30);
+      const htf = await fetchKlines("15m", 120);
+      const ltf = await fetchKlines("5m", 120);
 
-      const price = htf.at(-1).close;
-      const htfBias = getBias(htf);
-      const ltfBias = getBias(ltf);
-      const state = marketState(htf);
+      setDaily(rangeInfo(d1));
+      setWeekly(rangeInfo(w1));
 
-      const atr = getRange(htf, 20).range;
-      const levels = buildLevels(price, htfBias, atr);
-      const text = explain({ price, htf: htfBias, ltf: ltfBias, state });
+      setHTFBias(structureBias(htf));
+      setLTFBias(structureBias(ltf));
 
-      setBTC({
-        price,
-        htfBias,
-        ltfBias,
-        state,
-        levels,
-        text,
-      });
-
-      setBTCInfo("OK");
+      setLondon(sessionLevels(ltf, 7, 12));
+      setNY(sessionLevels(ltf, 12, 17));
     }
 
-    async function fetchXAU() {
-      try {
-        const r = await fetch(XAU_PRICE_API).then(r => r.json());
-        setXAU(r[0].gold);
-      } catch {
-        setXAU("Unavailable");
-      }
-    }
-
-    fetchBTC();
-    fetchXAU();
-    const t = setInterval(fetchBTC, 60000);
+    load();
+    const t = setInterval(load, 60000);
     return () => clearInterval(t);
   }, []);
 
-  /* =========================
-     UI
-  ========================= */
+  const analysis = aiAnalysis({
+    price,
+    daily,
+    weekly,
+    htf: htfBias,
+    ltf: ltfBias,
+    london,
+    ny
+  });
+
   return (
-    <div style={{ background: "#0b1020", minHeight: "100vh", color: "#e5e7eb", padding: 20 }}>
+    <div style={{
+      background: "#0b1220",
+      color: "#e5e7eb",
+      minHeight: "100vh",
+      padding: "20px",
+      fontFamily: "Arial"
+    }}>
       <h1>AI Trading Dashboard</h1>
 
-      {/* BTC */}
-      {btc && (
-        <>
-          <div className="card">BTCUSD: ${btc.price.toFixed(2)}</div>
-          <div className="card">Market State: {btc.state}</div>
-          <div className="card">HTF Bias (15m): {btc.htfBias}</div>
-          <div className="card">LTF Bias (5m): {btc.ltfBias}</div>
+      <div className="card">BTCUSD: ${price?.toFixed(2)}</div>
+      <div className="card">Weekly Bias: {weekly ? (price > weekly.eq ? "BULLISH" : "BEARISH") : "—"}</div>
+      <div className="card">Daily Bias: {daily ? (price > daily.eq ? "BULLISH" : "BEARISH") : "—"}</div>
+      <div className="card">HTF (15m): {htfBias}</div>
+      <div className="card">LTF (5m): {ltfBias}</div>
 
-          {btc.levels && btc.htfBias !== "RANGE" && (
-            <>
-              <div className="card">Entry: {btc.levels.entry.toFixed(2)}</div>
-              <div className="card">TP1: {btc.levels.tp1.toFixed(2)}</div>
-              <div className="card">TP2: {btc.levels.tp2.toFixed(2)}</div>
-              <div className="card">SL: {btc.levels.sl.toFixed(2)}</div>
-            </>
-          )}
-
-          <div className="card">
-            <strong>AI Conclusion</strong>
-            <p>{btc.text}</p>
-          </div>
-        </>
-      )}
-
-      {/* GOLD */}
-      <hr />
-      <div className="card">XAUUSD (Gold): {xau ? `$${xau}` : "Loading…"}</div>
+      <h3>AI Conclusion</h3>
+      <div className="card">{analysis}</div>
 
       <style>{`
         .card {
-          background: #111827;
+          background: #020617;
           padding: 14px;
           border-radius: 10px;
-          margin: 10px 0;
+          margin-bottom: 12px;
         }
       `}</style>
     </div>
