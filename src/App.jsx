@@ -1,144 +1,127 @@
 import { useEffect, useState } from "react";
 
-/* =======================
-   SIMPLE SMC ENGINE
-   ======================= */
+/* ================= MARKET DATA ================= */
 
-// ---- Helpers ----
-function getBias(candles) {
-  if (candles.length < 20) return "NO DATA";
+async function fetchBTC() {
+  const r = await fetch(
+    "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+  );
+  const j = await r.json();
+  return parseFloat(j.price);
+}
 
-  const last = candles.at(-1);
-  const prev = candles.at(-10);
+/* ================= SMC HELPERS ================= */
 
-  if (last.close > prev.close) return "BULLISH";
-  if (last.close < prev.close) return "BEARISH";
+function detectBias(data) {
+  if (data.length < 5) return "RANGE";
+  const last = data.at(-1);
+  const prev = data.at(-3);
+  if (last > prev) return "BULLISH";
+  if (last < prev) return "BEARISH";
   return "RANGE";
 }
 
-function getBOS(candles) {
-  if (candles.length < 20) return null;
+function detectFVG(data) {
+  if (data.length < 3) return null;
+  const a = data.at(-3);
+  const b = data.at(-2);
+  const c = data.at(-1);
 
-  const highs = candles.map(c => c.high);
-  const lows = candles.map(c => c.low);
+  if (a < c && a < b && b < c)
+    return { side: "BULLISH", from: a, to: c };
 
-  const lastHigh = highs.at(-1);
-  const lastLow = lows.at(-1);
-
-  const prevHigh = Math.max(...highs.slice(-10, -1));
-  const prevLow = Math.min(...lows.slice(-10, -1));
-
-  if (lastHigh > prevHigh) return "BULLISH";
-  if (lastLow < prevLow) return "BEARISH";
-  return null;
-}
-
-function getFVG(candles) {
-  if (candles.length < 3) return null;
-
-  const a = candles.at(-3);
-  const b = candles.at(-2);
-  const c = candles.at(-1);
-
-  // bullish imbalance
-  if (a.high < c.low) return "BULLISH";
-
-  // bearish imbalance
-  if (a.low > c.high) return "BEARISH";
+  if (a > c && a > b && b > c)
+    return { side: "BEARISH", from: c, to: a };
 
   return null;
 }
 
-function getFinalSignal({ bias, bos, fvg }) {
-  if (bias === "BULLISH" && bos === "BULLISH" && fvg === "BULLISH") {
-    return "BUY";
+function calcTradeLevels({ side, price }) {
+  if (side === "WAIT") return null;
+
+  const risk = price * 0.01;
+
+  if (side === "BUY") {
+    return {
+      entry: price,
+      sl: price - risk,
+      tp1: price + risk * 1.5,
+      tp2: price + risk * 3
+    };
   }
-  if (bias === "BEARISH" && bos === "BEARISH" && fvg === "BEARISH") {
-    return "SELL";
-  }
-  return "WAIT";
+
+  return {
+    entry: price,
+    sl: price + risk,
+    tp1: price - risk * 1.5,
+    tp2: price - risk * 3
+  };
 }
 
-/* =======================
-   APP
-   ======================= */
+/* ================= MAIN APP ================= */
 
 export default function App() {
   const [price, setPrice] = useState(null);
-  const [candles, setCandles] = useState([]);
-  const [error, setError] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [signal, setSignal] = useState("WAIT");
 
-  // ---- Fetch BTC candles ----
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const res = await fetch(
-          "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=100"
-        );
-        const data = await res.json();
+    const run = async () => {
+      const p = await fetchBTC();
+      setPrice(p);
+      setHistory(h => [...h.slice(-20), p]);
+    };
 
-        const parsed = data.map(c => ({
-          open: +c[1],
-          high: +c[2],
-          low: +c[3],
-          close: +c[4],
-        }));
-
-        setCandles(parsed);
-        setPrice(parsed.at(-1).close.toFixed(2));
-        setError(null);
-      } catch (e) {
-        setError("DATA ERROR");
-      }
-    }
-
-    fetchData();
-    const id = setInterval(fetchData, 60_000);
-    return () => clearInterval(id);
+    run();
+    const t = setInterval(run, 15000);
+    return () => clearInterval(t);
   }, []);
 
-  // ---- SMC Logic ----
-  const bias = getBias(candles);
-  const bos = getBOS(candles);
-  const fvg = getFVG(candles);
-  const signal = getFinalSignal({ bias, bos, fvg });
+  const bias = detectBias(history);
+  const fvg = detectFVG(history);
+
+  useEffect(() => {
+    if (!price) return;
+
+    if (bias === "BULLISH" && fvg?.side === "BULLISH") {
+      setSignal("BUY");
+    } else if (bias === "BEARISH" && fvg?.side === "BEARISH") {
+      setSignal("SELL");
+    } else {
+      setSignal("WAIT");
+    }
+  }, [bias, fvg, price]);
+
+  const trade = calcTradeLevels({ side: signal, price });
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#0b1020",
-        color: "white",
-        padding: "24px",
-        fontFamily: "Arial",
-      }}
-    >
+    <div style={styles.page}>
       <h1>AI Trading Dashboard</h1>
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      <div className="card">BTCUSD: ${price?.toFixed(2)}</div>
+      <div className="card">HTF Bias: {bias}</div>
+      <div className="card">Signal: {signal}</div>
 
-      {price && (
-        <>
-          <p><b>BTCUSD:</b> ${price}</p>
-          <p><b>HTF Bias:</b> {bias}</p>
-          <p><b>BOS:</b> {bos || "None"}</p>
-          <p><b>FVG:</b> {fvg || "None"}</p>
-
-          <h2
-            style={{
-              marginTop: "20px",
-              color:
-                signal === "BUY"
-                  ? "lime"
-                  : signal === "SELL"
-                  ? "red"
-                  : "gray",
-            }}
-          >
-            FINAL SIGNAL: {signal}
-          </h2>
-        </>
+      {trade && (
+        <div className="card">
+          <div>ENTRY: {trade.entry.toFixed(2)}</div>
+          <div>SL: {trade.sl.toFixed(2)}</div>
+          <div>TP1: {trade.tp1.toFixed(2)}</div>
+          <div>TP2: {trade.tp2.toFixed(2)}</div>
+        </div>
       )}
     </div>
   );
 }
+
+/* ================= STYLES ================= */
+
+const styles = {
+  page: {
+    background: "#0b1220",
+    minHeight: "100vh",
+    color: "white",
+    padding: "20px",
+    fontFamily: "Arial"
+  }
+};
