@@ -3,8 +3,6 @@ import { useEffect, useState, useRef } from "react";
 /* ==============================
    CONFIG
 ================================ */
-
-// ===== BTC (BINANCE) =====
 const BTC_WEEKLY =
   "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1w&limit=120";
 const BTC_DAILY =
@@ -14,15 +12,13 @@ const BTC_HTF =
 const BTC_LTF =
   "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=120";
 
-// ===== REAL GOLD (XAUUSD) – FX FEED =====
-// Uses Metals.live (free, no API key, real spot gold)
+/* ✅ GOLD FIX — Binance supports PAXG, NOT XAUUSD */
 const GOLD_PRICE =
-  "https://api.metals.live/v1/spot/gold";
+  "https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT";
 
 /* ==============================
    HELPERS
 ================================ */
-
 const parse = (d) =>
   d.map((c) => ({
     open: +c[1],
@@ -52,35 +48,26 @@ const detectDisplacement = (c) => {
 
 const tradeLevels = (price, bias) => {
   const risk = price * 0.006;
-  if (bias === "BULLISH") {
-    return { entry: price, sl: price - risk, tp: price + risk * 2 };
-  }
-  return { entry: price, sl: price + risk, tp: price - risk * 2 };
+  return bias === "BULLISH"
+    ? { entry: price, sl: price - risk, tp: price + risk * 2 }
+    : { entry: price, sl: price + risk, tp: price - risk * 2 };
 };
 
 /* ==============================
    APP
 ================================ */
-
 export default function App() {
-  const [btcPrice, setBtcPrice] = useState(null);
-  const [goldPrice, setGoldPrice] = useState(null);
-
-  const [weekly, setWeekly] = useState("");
-  const [daily, setDaily] = useState("");
-  const [htf, setHtf] = useState("");
-  const [ltf, setLtf] = useState("");
-
+  const [btcPrice, setBtcPrice] = useState("-");
+  const [goldPrice, setGoldPrice] = useState("-");
+  const [weekly, setWeekly] = useState("-");
+  const [daily, setDaily] = useState("-");
+  const [htf, setHtf] = useState("-");
+  const [ltf, setLtf] = useState("-");
   const [mlProb, setMlProb] = useState(0);
-  const [alert, setAlert] = useState(null);
   const [explain, setExplain] = useState("");
-
+  const [alert, setAlert] = useState(null);
   const [question, setQuestion] = useState("");
-  const recognitionRef = useRef(null);
-
-  /* ==============================
-     LOAD BTC
-  ================================ */
+  const recRef = useRef(null);
 
   async function loadBTC() {
     const [w, d, h, l] = await Promise.all([
@@ -110,18 +97,14 @@ export default function App() {
 
     const displacement = detectDisplacement(hc);
     const aligned =
-      (dBias === "BULLISH" && hBias === "BULLISH" && lBias === "BULLISH") ||
-      (dBias === "BEARISH" && hBias === "BEARISH" && lBias === "BEARISH");
+      dBias === hBias && hBias === lBias && dBias !== "RANGE";
 
-    const probability = displacement && aligned ? 70 + Math.random() * 20 : 20;
-    setMlProb(Math.round(probability));
+    const prob = displacement && aligned ? 70 + Math.random() * 20 : 20;
+    setMlProb(Math.round(prob));
 
-    if (displacement && aligned && probability >= 65) {
-      const levels = tradeLevels(price, dBias);
-      setAlert({ direction: dBias, ...levels });
-      setExplain(
-        "Displacement confirmed with HTF and LTF alignment. Institutional continuation likely."
-      );
+    if (displacement && aligned && prob >= 65) {
+      setAlert({ direction: dBias, ...tradeLevels(price, dBias) });
+      setExplain("Displacement confirmed with HTF + LTF alignment.");
     } else {
       setAlert(null);
       setExplain(
@@ -130,16 +113,11 @@ export default function App() {
     }
   }
 
-  /* ==============================
-     LOAD GOLD (REAL XAUUSD)
-  ================================ */
-
   async function loadGold() {
     try {
       const r = await fetch(GOLD_PRICE);
       const d = await r.json();
-      // metals.live returns [[timestamp, price]]
-      setGoldPrice(d[0][1].toFixed(2));
+      setGoldPrice(Number(d.price).toFixed(2));
     } catch {
       setGoldPrice("Unavailable");
     }
@@ -148,42 +126,28 @@ export default function App() {
   useEffect(() => {
     loadBTC();
     loadGold();
-    const i = setInterval(() => {
-      loadBTC();
-      loadGold();
-    }, 60000);
+    const i = setInterval(loadBTC, 60000);
     return () => clearInterval(i);
   }, []);
 
-  /* ==============================
-     VOICE INPUT
-  ================================ */
-
   const startVoice = () => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return alert("Voice not supported");
-    const rec = new SpeechRecognition();
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return alert("Voice not supported");
+    const rec = new SR();
     rec.lang = "en-US";
     rec.start();
-    rec.onresult = (e) =>
-      setQuestion(e.results[0][0].transcript);
-    recognitionRef.current = rec;
+    rec.onresult = (e) => setQuestion(e.results[0][0].transcript);
+    recRef.current = rec;
   };
 
   const askAI = () => {
-    if (!question) return;
     alert(
-      `AI ANALYSIS\n\nBTC:\nWeekly: ${weekly}\nDaily: ${daily}\nHTF: ${htf}\nLTF: ${ltf}\n\nConclusion:\n${explain}`
+      `BTC Analysis\nWeekly: ${weekly}\nDaily: ${daily}\nHTF: ${htf}\nLTF: ${ltf}\n\n${explain}`
     );
   };
 
-  /* ==============================
-     UI
-  ================================ */
-
   return (
-    <div style={{ padding: 24, fontFamily: "serif", color: "#eaeaea", background: "#070b1a", minHeight: "100vh" }}>
+    <div style={{ background: "#0b1220", color: "#eaeaea", minHeight: "100vh", padding: 24 }}>
       <h1>AI Trading Dashboard</h1>
 
       <p>BTCUSD: ${btcPrice}</p>
@@ -212,7 +176,7 @@ export default function App() {
       <input
         value={question}
         onChange={(e) => setQuestion(e.target.value)}
-        placeholder="Ask about BTC or Gold setup..."
+        placeholder="Ask about BTC or Gold..."
         style={{ width: "100%", padding: 8 }}
       />
       <br />
@@ -222,7 +186,7 @@ export default function App() {
       </button>
 
       <hr />
-      <p>XAUUSD (Gold): ${goldPrice}</p>
+      <p>Gold (PAXG): ${goldPrice}</p>
     </div>
   );
 }
