@@ -50,14 +50,13 @@ const detectDisplacement = (c) => {
 };
 
 const levelsFromRisk = (price, bias) => {
-  const risk = price * 0.006; // 0.6%
+  const risk = price * 0.006;
   return bias === "BULLISH"
     ? { entry: price, sl: price - risk, tp: price + risk * 2 }
     : { entry: price, sl: price + risk, tp: price - risk * 2 };
 };
 
 const gradeFromScore = (score) => {
-  if (score >= 90) return "A+";
   if (score >= 75) return "A";
   if (score >= 60) return "B";
   return "C";
@@ -86,9 +85,9 @@ export default function App() {
   const recognitionRef = useRef(null);
 
   /* ==============================
-     CORE ENGINE (NO % DISPLAY)
+     CORE ENGINE + SAVE DATA
   ================================ */
-  async function loadAsset(cfg, setPrice, setBias, setGrade, setExplain, setAlert) {
+  async function loadAsset(cfg, name, setPrice, setBias, setGrade, setExplain, setAlert) {
     const [w, d, h, l] = await Promise.all([
       fetch(cfg.weekly).then(r=>r.json()),
       fetch(cfg.daily).then(r=>r.json()),
@@ -110,23 +109,40 @@ export default function App() {
     const alignedHTF = (dB === hB && hB === lB && dB !== "RANGE");
     const alignedW   = (wB === dB && dB !== "RANGE");
 
-    // Score (no % shown)
     let score = 0;
     if (alignedHTF) score += 30;
     if (displacement) score += 30;
     if (alignedW) score += 20;
-    if (displacement && alignedHTF) score += 20; // quality bonus
 
     setGrade(gradeFromScore(score));
 
+    let explanation = "Equilibrium. Waiting for displacement.";
+    let alert = null;
+
     if (displacement && alignedHTF) {
-      const lv = levelsFromRisk(price, dB);
-      setAlert({ direction:dB, ...lv });
-      setExplain("Displacement with HTF/LTF alignment. Wait for execution confirmation.");
-    } else {
-      setAlert(null);
-      setExplain("Equilibrium conditions. No trade until displacement.");
+      alert = { direction:dB, ...levelsFromRisk(price, dB) };
+      explanation = "Displacement + multi-timeframe alignment.";
     }
+
+    setAlert(alert);
+    setExplain(explanation);
+
+    /* ===== SAVE SNAPSHOT ===== */
+    const snapshot = {
+      time: new Date().toISOString(),
+      asset: name,
+      price: price.toFixed(2),
+      weekly: wB,
+      daily: dB,
+      htf: hB,
+      ltf: lB,
+      grade: gradeFromScore(score),
+      note: explanation,
+    };
+
+    const history = JSON.parse(localStorage.getItem("AI_HISTORY") || "[]");
+    history.push(snapshot);
+    localStorage.setItem("AI_HISTORY", JSON.stringify(history));
   }
 
   async function loadGoldPrice() {
@@ -140,15 +156,34 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadAsset(BTC, setBtcPrice, setBtcBias, setBtcGrade, setBtcExplain, setBtcAlert);
-    loadAsset(GOLD, setGoldPrice, setGoldBias, setGoldGrade, setGoldExplain, setGoldAlert);
+    loadAsset(BTC, "BTC", setBtcPrice, setBtcBias, setBtcGrade, setBtcExplain, setBtcAlert);
+    loadAsset(GOLD, "GOLD", setGoldPrice, setGoldBias, setGoldGrade, setGoldExplain, setGoldAlert);
     loadGoldPrice();
     const i = setInterval(() => {
-      loadAsset(BTC, setBtcPrice, setBtcBias, setBtcGrade, setBtcExplain, setBtcAlert);
-      loadAsset(GOLD, setGoldPrice, setGoldBias, setGoldGrade, setGoldExplain, setGoldAlert);
+      loadAsset(BTC, "BTC", setBtcPrice, setBtcBias, setBtcGrade, setBtcExplain, setBtcAlert);
+      loadAsset(GOLD, "GOLD", setGoldPrice, setGoldBias, setGoldGrade, setGoldExplain, setGoldAlert);
     }, 60000);
     return () => clearInterval(i);
   }, []);
+
+  /* ==============================
+     DOWNLOAD CSV
+  ================================ */
+  const downloadCSV = () => {
+    const rows = JSON.parse(localStorage.getItem("AI_HISTORY") || "[]");
+    if (!rows.length) return alert("No data yet");
+
+    const header = Object.keys(rows[0]).join(",");
+    const body = rows.map(r => Object.values(r).join(",")).join("\n");
+    const csv = header + "\n" + body;
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "AI_Trading_History.csv";
+    a.click();
+  };
 
   /* ==============================
      VOICE
@@ -164,81 +199,52 @@ export default function App() {
   };
 
   const askAI = () => {
-    if (!question) return;
     alert(
-`BTC AI:
-Weekly ${btcBias.w} | Daily ${btcBias.d}
-HTF ${btcBias.h} | LTF ${btcBias.l}
-Grade ${btcGrade}
-Conclusion: ${btcExplain}
-
-GOLD AI:
-Weekly ${goldBias.w} | Daily ${goldBias.d}
-HTF ${goldBias.h} | LTF ${goldBias.l}
-Grade ${goldGrade}
-Conclusion: ${goldExplain}`
+`BTC: ${btcExplain} (Grade ${btcGrade})
+GOLD: ${goldExplain} (Grade ${goldGrade})`
     );
   };
 
   /* ==============================
-     UI (DARK, MOBILE-SAFE)
+     UI
   ================================ */
   return (
-    <div style={{
-      minHeight:"100vh",
-      background:"linear-gradient(180deg,#050814,#0b1020)",
-      color:"#eaeaea",
-      padding:24,
-      fontFamily:"serif"
-    }}>
+    <div style={{ minHeight:"100vh", background:"#0b1220", color:"#eaeaea", padding:24, fontFamily:"serif" }}>
       <h1>AI Trading Dashboard</h1>
 
       <h2>BTCUSD</h2>
       <p>Price: ${btcPrice}</p>
-      <p>Weekly: {btcBias.w}</p>
-      <p>Daily: {btcBias.d}</p>
-      <p>HTF (15m): {btcBias.h}</p>
-      <p>LTF (5m): {btcBias.l}</p>
-      <p>Confidence Grade: {btcGrade}</p>
+      <p>Weekly {btcBias.w} | Daily {btcBias.d}</p>
+      <p>HTF {btcBias.h} | LTF {btcBias.l}</p>
+      <p>Grade: {btcGrade}</p>
       <p>{btcExplain}</p>
+
       {btcAlert && (
-        <>
-          <p>🎯 Entry: {btcAlert.entry.toFixed(2)}</p>
-          <p>SL: {btcAlert.sl.toFixed(2)}</p>
-          <p>TP: {btcAlert.tp.toFixed(2)}</p>
-        </>
+        <p>🎯 Entry {btcAlert.entry.toFixed(2)} | SL {btcAlert.sl.toFixed(2)} | TP {btcAlert.tp.toFixed(2)}</p>
       )}
 
       <hr />
 
       <h2>Gold (PAXG)</h2>
       <p>Price: ${goldPrice}</p>
-      <p>Weekly: {goldBias.w}</p>
-      <p>Daily: {goldBias.d}</p>
-      <p>HTF (15m): {goldBias.h}</p>
-      <p>LTF (5m): {goldBias.l}</p>
-      <p>Confidence Grade: {goldGrade}</p>
+      <p>Weekly {goldBias.w} | Daily {goldBias.d}</p>
+      <p>HTF {goldBias.h} | LTF {goldBias.l}</p>
+      <p>Grade: {goldGrade}</p>
       <p>{goldExplain}</p>
+
       {goldAlert && (
-        <>
-          <p>🎯 Entry: {goldAlert.entry.toFixed(2)}</p>
-          <p>SL: {goldAlert.sl.toFixed(2)}</p>
-          <p>TP: {goldAlert.tp.toFixed(2)}</p>
-        </>
+        <p>🎯 Entry {goldAlert.entry.toFixed(2)} | SL {goldAlert.sl.toFixed(2)} | TP {goldAlert.tp.toFixed(2)}</p>
       )}
 
       <hr />
 
       <h2>Ask AI</h2>
-      <input
-        value={question}
-        onChange={(e)=>setQuestion(e.target.value)}
-        placeholder="Ask about BTC or Gold setup..."
-        style={{width:"100%",padding:8}}
-      />
+      <input value={question} onChange={(e)=>setQuestion(e.target.value)} style={{width:"100%",padding:8}} />
       <br />
       <button onClick={askAI}>Ask</button>
       <button onClick={startVoice} style={{marginLeft:8}}>🎤 Speak</button>
+      <br /><br />
+      <button onClick={downloadCSV}>📥 Download AI History</button>
     </div>
   );
 }
