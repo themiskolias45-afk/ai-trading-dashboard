@@ -51,13 +51,12 @@ const detectDisplacement = (c) => {
 
 const levelsFromRisk = (price, bias) => {
   const risk = price * 0.006; // 0.6%
-  if (bias === "BULLISH") {
-    return { entry: price, sl: price - risk, tp: price + risk * 2 };
-  }
-  return { entry: price, sl: price + risk, tp: price - risk * 2 };
+  return bias === "BULLISH"
+    ? { entry: price, sl: price - risk, tp: price + risk * 2 }
+    : { entry: price, sl: price + risk, tp: price - risk * 2 };
 };
 
-const confidenceGrade = (score) => {
+const gradeFromScore = (score) => {
   if (score >= 90) return "A+";
   if (score >= 75) return "A";
   if (score >= 60) return "B";
@@ -71,7 +70,6 @@ export default function App() {
   // BTC
   const [btcPrice, setBtcPrice] = useState("-");
   const [btcBias, setBtcBias] = useState({ w:"", d:"", h:"", l:"" });
-  const [btcProb, setBtcProb] = useState(0);
   const [btcGrade, setBtcGrade] = useState("C");
   const [btcExplain, setBtcExplain] = useState("");
   const [btcAlert, setBtcAlert] = useState(null);
@@ -79,7 +77,6 @@ export default function App() {
   // GOLD
   const [goldPrice, setGoldPrice] = useState("-");
   const [goldBias, setGoldBias] = useState({ w:"", d:"", h:"", l:"" });
-  const [goldProb, setGoldProb] = useState(0);
   const [goldGrade, setGoldGrade] = useState("C");
   const [goldExplain, setGoldExplain] = useState("");
   const [goldAlert, setGoldAlert] = useState(null);
@@ -89,9 +86,9 @@ export default function App() {
   const recognitionRef = useRef(null);
 
   /* ==============================
-     CORE ENGINE
+     CORE ENGINE (NO % DISPLAY)
   ================================ */
-  async function loadAsset(cfg, setPrice, setBias, setProb, setGrade, setExplain, setAlert) {
+  async function loadAsset(cfg, setPrice, setBias, setGrade, setExplain, setAlert) {
     const [w, d, h, l] = await Promise.all([
       fetch(cfg.weekly).then(r=>r.json()),
       fetch(cfg.daily).then(r=>r.json()),
@@ -111,26 +108,24 @@ export default function App() {
 
     const displacement = detectDisplacement(hc);
     const alignedHTF = (dB === hB && hB === lB && dB !== "RANGE");
-    const alignedW = (wB === dB && dB !== "RANGE");
+    const alignedW   = (wB === dB && dB !== "RANGE");
 
+    // Score (no % shown)
     let score = 0;
     if (alignedHTF) score += 30;
     if (displacement) score += 30;
     if (alignedW) score += 20;
-    const prob = displacement && alignedHTF ? 70 + Math.random()*20 : 20;
-    score += prob >= 70 ? 20 : 0;
+    if (displacement && alignedHTF) score += 20; // quality bonus
 
-    const finalProb = Math.round(prob);
-    setProb(finalProb);
-    setGrade(confidenceGrade(score));
+    setGrade(gradeFromScore(score));
 
-    if (displacement && alignedHTF && finalProb >= 65) {
+    if (displacement && alignedHTF) {
       const lv = levelsFromRisk(price, dB);
       setAlert({ direction:dB, ...lv });
-      setExplain("Displacement + multi-timeframe alignment. Trade only with confirmation.");
+      setExplain("Displacement with HTF/LTF alignment. Wait for execution confirmation.");
     } else {
       setAlert(null);
-      setExplain("Price is inside equilibrium. Professional traders wait for displacement.");
+      setExplain("Equilibrium conditions. No trade until displacement.");
     }
   }
 
@@ -145,12 +140,12 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadAsset(BTC, setBtcPrice, setBtcBias, setBtcProb, setBtcGrade, setBtcExplain, setBtcAlert);
-    loadAsset(GOLD, setGoldPrice, setGoldBias, setGoldProb, setGoldGrade, setGoldExplain, setGoldAlert);
+    loadAsset(BTC, setBtcPrice, setBtcBias, setBtcGrade, setBtcExplain, setBtcAlert);
+    loadAsset(GOLD, setGoldPrice, setGoldBias, setGoldGrade, setGoldExplain, setGoldAlert);
     loadGoldPrice();
     const i = setInterval(() => {
-      loadAsset(BTC, setBtcPrice, setBtcBias, setBtcProb, setBtcGrade, setBtcExplain, setBtcAlert);
-      loadAsset(GOLD, setGoldPrice, setGoldBias, setGoldProb, setGoldGrade, setGoldExplain, setGoldAlert);
+      loadAsset(BTC, setBtcPrice, setBtcBias, setBtcGrade, setBtcExplain, setBtcAlert);
+      loadAsset(GOLD, setGoldPrice, setGoldBias, setGoldGrade, setGoldExplain, setGoldAlert);
     }, 60000);
     return () => clearInterval(i);
   }, []);
@@ -171,24 +166,22 @@ export default function App() {
   const askAI = () => {
     if (!question) return;
     alert(
-`BTC:
+`BTC AI:
 Weekly ${btcBias.w} | Daily ${btcBias.d}
 HTF ${btcBias.h} | LTF ${btcBias.l}
-ML ${btcProb}% | Grade ${btcGrade}
+Grade ${btcGrade}
+Conclusion: ${btcExplain}
 
-Gold:
+GOLD AI:
 Weekly ${goldBias.w} | Daily ${goldBias.d}
 HTF ${goldBias.h} | LTF ${goldBias.l}
-ML ${goldProb}% | Grade ${goldGrade}
-
-Conclusion:
-BTC: ${btcExplain}
-Gold: ${goldExplain}`
+Grade ${goldGrade}
+Conclusion: ${goldExplain}`
     );
   };
 
   /* ==============================
-     UI (DARK THEME FIXED)
+     UI (DARK, MOBILE-SAFE)
   ================================ */
   return (
     <div style={{
@@ -206,9 +199,8 @@ Gold: ${goldExplain}`
       <p>Daily: {btcBias.d}</p>
       <p>HTF (15m): {btcBias.h}</p>
       <p>LTF (5m): {btcBias.l}</p>
-      <p>ML Probability: {btcProb}% | Grade: {btcGrade}</p>
+      <p>Confidence Grade: {btcGrade}</p>
       <p>{btcExplain}</p>
-
       {btcAlert && (
         <>
           <p>🎯 Entry: {btcAlert.entry.toFixed(2)}</p>
@@ -225,9 +217,8 @@ Gold: ${goldExplain}`
       <p>Daily: {goldBias.d}</p>
       <p>HTF (15m): {goldBias.h}</p>
       <p>LTF (5m): {goldBias.l}</p>
-      <p>ML Probability: {goldProb}% | Grade: {goldGrade}</p>
+      <p>Confidence Grade: {goldGrade}</p>
       <p>{goldExplain}</p>
-
       {goldAlert && (
         <>
           <p>🎯 Entry: {goldAlert.entry.toFixed(2)}</p>
