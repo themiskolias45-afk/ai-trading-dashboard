@@ -63,188 +63,156 @@ const gradeFromScore = (score) => {
 };
 
 /* ==============================
+   SMART EXPLANATION ENGINE
+================================ */
+const explainMarket = (asset, bias, grade, displacement) => {
+  if (grade === "A") {
+    return `${asset} shows strong institutional conditions. Multi-timeframe alignment with displacement suggests continuation. Focus on precision entries only.`;
+  }
+  if (displacement) {
+    return `${asset} printed displacement, but structure is not fully aligned. This is often a stop-hunt or transition phase. Patience is required.`;
+  }
+  if (bias.h !== bias.l) {
+    return `${asset} is in pullback mode. Higher timeframe bias remains ${bias.d}, but execution timeframes are opposing. Wait for confirmation.`;
+  }
+  return `${asset} is consolidating in equilibrium. No commitment from smart money. Best action is to wait.`;
+};
+
+/* ==============================
    APP
 ================================ */
 export default function App() {
-  // BTC
-  const [btcPrice, setBtcPrice] = useState("-");
-  const [btcBias, setBtcBias] = useState({ w:"", d:"", h:"", l:"" });
-  const [btcGrade, setBtcGrade] = useState("C");
-  const [btcExplain, setBtcExplain] = useState("");
-  const [btcAlert, setBtcAlert] = useState(null);
-
-  // GOLD
-  const [goldPrice, setGoldPrice] = useState("-");
-  const [goldBias, setGoldBias] = useState({ w:"", d:"", h:"", l:"" });
-  const [goldGrade, setGoldGrade] = useState("C");
-  const [goldExplain, setGoldExplain] = useState("");
-  const [goldAlert, setGoldAlert] = useState(null);
-
-  // ASK AI
+  const [btc, setBtc] = useState({ price:"-", bias:{}, grade:"C", explain:"", alert:null });
+  const [gold, setGold] = useState({ price:"-", bias:{}, grade:"C", explain:"", alert:null });
   const [question, setQuestion] = useState("");
+  const [dailySummary, setDailySummary] = useState("");
   const recognitionRef = useRef(null);
 
-  /* ==============================
-     CORE ENGINE + SAVE DATA
-  ================================ */
-  async function loadAsset(cfg, name, setPrice, setBias, setGrade, setExplain, setAlert) {
-    const [w, d, h, l] = await Promise.all([
+  async function loadAsset(cfg, name, setter) {
+    const [w,d,h,l] = await Promise.all([
       fetch(cfg.weekly).then(r=>r.json()),
       fetch(cfg.daily).then(r=>r.json()),
       fetch(cfg.htf).then(r=>r.json()),
       fetch(cfg.ltf).then(r=>r.json()),
     ]);
 
-    const wc = parse(w), dc = parse(d), hc = parse(h), lc = parse(l);
-    const wB = biasFromStructure(wc);
-    const dB = biasFromStructure(dc);
-    const hB = biasFromStructure(hc);
-    const lB = biasFromStructure(lc);
-    setBias({ w:wB, d:dB, h:hB, l:lB });
+    const wc=parse(w), dc=parse(d), hc=parse(h), lc=parse(l);
+    const bias={ w:biasFromStructure(wc), d:biasFromStructure(dc), h:biasFromStructure(hc), l:biasFromStructure(lc) };
+    const price=hc.at(-1).close;
+    const displacement=detectDisplacement(hc);
+    const alignedHTF=(bias.d===bias.h && bias.h===bias.l && bias.d!=="RANGE");
+    const alignedW=(bias.w===bias.d && bias.d!=="RANGE");
 
-    const price = hc.at(-1).close;
-    setPrice(price.toFixed(2));
+    let score=0;
+    if(alignedHTF) score+=30;
+    if(displacement) score+=30;
+    if(alignedW) score+=20;
+    const grade=gradeFromScore(score);
 
-    const displacement = detectDisplacement(hc);
-    const alignedHTF = (dB === hB && hB === lB && dB !== "RANGE");
-    const alignedW   = (wB === dB && dB !== "RANGE");
-
-    let score = 0;
-    if (alignedHTF) score += 30;
-    if (displacement) score += 30;
-    if (alignedW) score += 20;
-
-    setGrade(gradeFromScore(score));
-
-    let explanation = "Equilibrium. Waiting for displacement.";
-    let alert = null;
-
-    if (displacement && alignedHTF) {
-      alert = { direction:dB, ...levelsFromRisk(price, dB) };
-      explanation = "Displacement + multi-timeframe alignment.";
+    const explanation=explainMarket(name,bias,grade,displacement);
+    let alert=null;
+    if(displacement && alignedHTF){
+      alert={ direction:bias.d, ...levelsFromRisk(price,bias.d) };
     }
 
-    setAlert(alert);
-    setExplain(explanation);
-
-    /* ===== SAVE SNAPSHOT ===== */
-    const snapshot = {
-      time: new Date().toISOString(),
-      asset: name,
-      price: price.toFixed(2),
-      weekly: wB,
-      daily: dB,
-      htf: hB,
-      ltf: lB,
-      grade: gradeFromScore(score),
-      note: explanation,
+    const snapshot={
+      time:new Date().toISOString(),
+      asset:name,
+      price:price.toFixed(2),
+      ...bias,
+      grade,
+      note:explanation
     };
+    const hist=JSON.parse(localStorage.getItem("AI_HISTORY")||"[]");
+    hist.push(snapshot);
+    localStorage.setItem("AI_HISTORY",JSON.stringify(hist));
 
-    const history = JSON.parse(localStorage.getItem("AI_HISTORY") || "[]");
-    history.push(snapshot);
-    localStorage.setItem("AI_HISTORY", JSON.stringify(history));
+    setter({ price:price.toFixed(2), bias, grade, explain:explanation, alert });
   }
 
-  async function loadGoldPrice() {
-    try {
-      const r = await fetch(GOLD.price);
-      const d = await r.json();
-      setGoldPrice(Number(d.price).toFixed(2));
-    } catch {
-      setGoldPrice("Unavailable");
-    }
-  }
+  const dailySummaryEngine=()=>{
+    const today=new Date().toDateString();
+    const last=localStorage.getItem("DAILY_SUMMARY_DATE");
+    if(last===today) return;
+    const text=`Daily AI Summary:\nBTC: ${btc.explain}\nGold: ${gold.explain}`;
+    localStorage.setItem("DAILY_SUMMARY",text);
+    localStorage.setItem("DAILY_SUMMARY_DATE",today);
+    setDailySummary(text);
+  };
 
-  useEffect(() => {
-    loadAsset(BTC, "BTC", setBtcPrice, setBtcBias, setBtcGrade, setBtcExplain, setBtcAlert);
-    loadAsset(GOLD, "GOLD", setGoldPrice, setGoldBias, setGoldGrade, setGoldExplain, setGoldAlert);
-    loadGoldPrice();
-    const i = setInterval(() => {
-      loadAsset(BTC, "BTC", setBtcPrice, setBtcBias, setBtcGrade, setBtcExplain, setBtcAlert);
-      loadAsset(GOLD, "GOLD", setGoldPrice, setGoldBias, setGoldGrade, setGoldExplain, setGoldAlert);
-    }, 60000);
-    return () => clearInterval(i);
-  }, []);
+  useEffect(()=>{
+    loadAsset(BTC,"BTC",setBtc);
+    loadAsset(GOLD,"GOLD",setGold);
+    dailySummaryEngine();
+    const i=setInterval(()=>{
+      loadAsset(BTC,"BTC",setBtc);
+      loadAsset(GOLD,"GOLD",setGold);
+    },60000);
+    return()=>clearInterval(i);
+  },[]);
 
-  /* ==============================
-     DOWNLOAD CSV
-  ================================ */
-  const downloadCSV = () => {
-    const rows = JSON.parse(localStorage.getItem("AI_HISTORY") || "[]");
-    if (!rows.length) return alert("No data yet");
+  const askAI=()=>{
+    alert(`BTC:\n${btc.explain}\n\nGOLD:\n${gold.explain}`);
+  };
 
-    const header = Object.keys(rows[0]).join(",");
-    const body = rows.map(r => Object.values(r).join(",")).join("\n");
-    const csv = header + "\n" + body;
+  const startVoice=()=>{
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR) return alert("Voice not supported");
+    const rec=new SR();
+    rec.lang="en-US";
+    rec.start();
+    rec.onresult=e=>setQuestion(e.results[0][0].transcript);
+    recognitionRef.current=rec;
+  };
 
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "AI_Trading_History.csv";
+  const downloadCSV=()=>{
+    const rows=JSON.parse(localStorage.getItem("AI_HISTORY")||"[]");
+    if(!rows.length) return alert("No data yet");
+    const header=Object.keys(rows[0]).join(",");
+    const body=rows.map(r=>Object.values(r).join(",")).join("\n");
+    const blob=new Blob([header+"\n"+body],{type:"text/csv"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="AI_Trading_History.csv";
     a.click();
   };
 
-  /* ==============================
-     VOICE
-  ================================ */
-  const startVoice = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return alert("Voice not supported");
-    const rec = new SR();
-    rec.lang = "en-US";
-    rec.start();
-    rec.onresult = (e) => setQuestion(e.results[0][0].transcript);
-    recognitionRef.current = rec;
-  };
-
-  const askAI = () => {
-    alert(
-`BTC: ${btcExplain} (Grade ${btcGrade})
-GOLD: ${goldExplain} (Grade ${goldGrade})`
-    );
-  };
-
-  /* ==============================
-     UI
-  ================================ */
   return (
-    <div style={{ minHeight:"100vh", background:"#0b1220", color:"#eaeaea", padding:24, fontFamily:"serif" }}>
+    <div style={{minHeight:"100vh",background:"#0b1220",color:"#eaeaea",padding:24,fontFamily:"serif"}}>
       <h1>AI Trading Dashboard</h1>
 
       <h2>BTCUSD</h2>
-      <p>Price: ${btcPrice}</p>
-      <p>Weekly {btcBias.w} | Daily {btcBias.d}</p>
-      <p>HTF {btcBias.h} | LTF {btcBias.l}</p>
-      <p>Grade: {btcGrade}</p>
-      <p>{btcExplain}</p>
+      <p>Price: ${btc.price}</p>
+      <p>Weekly {btc.bias.w} | Daily {btc.bias.d}</p>
+      <p>HTF {btc.bias.h} | LTF {btc.bias.l}</p>
+      <p>Grade: {btc.grade}</p>
+      <p>{btc.explain}</p>
 
-      {btcAlert && (
-        <p>🎯 Entry {btcAlert.entry.toFixed(2)} | SL {btcAlert.sl.toFixed(2)} | TP {btcAlert.tp.toFixed(2)}</p>
-      )}
+      {btc.alert && <p>🎯 Entry {btc.alert.entry.toFixed(2)} | SL {btc.alert.sl.toFixed(2)} | TP {btc.alert.tp.toFixed(2)}</p>}
 
       <hr />
 
       <h2>Gold (PAXG)</h2>
-      <p>Price: ${goldPrice}</p>
-      <p>Weekly {goldBias.w} | Daily {goldBias.d}</p>
-      <p>HTF {goldBias.h} | LTF {goldBias.l}</p>
-      <p>Grade: {goldGrade}</p>
-      <p>{goldExplain}</p>
+      <p>Price: ${gold.price}</p>
+      <p>Weekly {gold.bias.w} | Daily {gold.bias.d}</p>
+      <p>HTF {gold.bias.h} | LTF {gold.bias.l}</p>
+      <p>Grade: {gold.grade}</p>
+      <p>{gold.explain}</p>
 
-      {goldAlert && (
-        <p>🎯 Entry {goldAlert.entry.toFixed(2)} | SL {goldAlert.sl.toFixed(2)} | TP {goldAlert.tp.toFixed(2)}</p>
-      )}
+      {gold.alert && <p>🎯 Entry {gold.alert.entry.toFixed(2)} | SL {gold.alert.sl.toFixed(2)} | TP {gold.alert.tp.toFixed(2)}</p>}
 
       <hr />
 
       <h2>Ask AI</h2>
-      <input value={question} onChange={(e)=>setQuestion(e.target.value)} style={{width:"100%",padding:8}} />
+      <input value={question} onChange={e=>setQuestion(e.target.value)} style={{width:"100%",padding:8}} />
       <br />
       <button onClick={askAI}>Ask</button>
       <button onClick={startVoice} style={{marginLeft:8}}>🎤 Speak</button>
+
       <br /><br />
       <button onClick={downloadCSV}>📥 Download AI History</button>
+
+      {dailySummary && <pre style={{marginTop:20,whiteSpace:"pre-wrap"}}>{dailySummary}</pre>}
     </div>
   );
 }
