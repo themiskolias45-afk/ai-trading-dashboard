@@ -1,81 +1,44 @@
-// =======================================================
-// TKAI — BACKEND SERVER (API + TELEGRAM ENGINE)
-// Assets: BTC, GOLD, SP500, MSFT, AMZN
+// =====================================================
+// TKAI – BACKEND SERVER (TELEGRAM + DASHBOARD API)
+// Assets: BTC, GOLD (PAXG)
 // Scans: Hourly
 // Daily Report: 23:00 London
-// =======================================================
+// =====================================================
 
-const express = require("express");
-const cors = require("cors");
-const fetch = require("node-fetch");
-const cron = require("node-cron");
+import express from "express";
+import fetch from "node-fetch";
+import cron from "node-cron";
 
-// ===================== CONFIG =====================
+// ================== TELEGRAM (FIXED) ==================
 
-// 🔴 TELEGRAM (already provided by you)
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
 
-// Assets universe
-const ASSETS = ["BTCUSD", "XAUUSD", "SP500", "MSFT", "AMZN"];
+// ================== MARKET APIs ==================
 
-// ==================================================
+const BTC_API =
+  "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
+
+const GOLD_API =
+  "https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd";
+
+// ================== APP ==================
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+const PORT = process.env.PORT || 3000;
 
-// ===================== MOCK AI ENGINE =====================
-// (Later this can be replaced with real ML / indicators)
+let latestData = {
+  status: "starting",
+  btc: null,
+  gold: null,
+  updated: null,
+};
 
-function generateSignal(asset) {
-  return {
-    asset,
-    bias: "Bullish",
-    direction: "LONG",
-    entry: 43250,
-    tp1: 43800,
-    tp2: 44500,
-    sl: 42800,
-    confidence: "A",
-    explanation:
-      "Bullish market structure, liquidity sweep completed, momentum confirmed on lower timeframe.",
-    timestamp: new Date().toISOString()
-  };
-}
-
-// ===================== API ENDPOINTS =====================
-
-// Health check
-app.get("/", (req, res) => {
-  res.send("✅ TKAI Backend is running");
-});
-
-// 🔥 MAIN DASHBOARD ENDPOINT (THIS WAS MISSING BEFORE)
-app.get("/api/status", (req, res) => {
-  const signal = generateSignal("BTCUSD");
-  res.json(signal);
-});
-
-// All assets snapshot
-app.get("/api/assets", (req, res) => {
-  const data = ASSETS.map(a => generateSignal(a));
-  res.json(data);
-});
-
-// Manual request (for dashboard / future chat)
-app.get("/api/asset/:symbol", (req, res) => {
-  const symbol = req.params.symbol.toUpperCase();
-  if (!ASSETS.includes(symbol)) {
-    return res.status(404).json({ error: "Asset not supported" });
-  }
-  res.json(generateSignal(symbol));
-});
-
-// ===================== TELEGRAM =====================
+// ================== TELEGRAM FUNCTION ==================
 
 async function sendTelegram(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+
   try {
     await fetch(url, {
       method: "POST",
@@ -83,68 +46,78 @@ async function sendTelegram(message) {
       body: JSON.stringify({
         chat_id: TELEGRAM_CHAT_ID,
         text: message,
-        parse_mode: "HTML"
-      })
+      }),
     });
   } catch (err) {
     console.error("Telegram error:", err.message);
   }
 }
 
-// ===================== HOURLY SCAN =====================
+// ================== MARKET DATA ==================
 
-cron.schedule("0 * * * *", async () => {
-  const signal = generateSignal("BTCUSD");
+async function fetchMarket() {
+  try {
+    const btcRes = await fetch(BTC_API);
+    const goldRes = await fetch(GOLD_API);
 
-  if (signal.confidence === "A") {
-    const msg = `
-🤖 <b>TKAI Hourly Signal</b>
+    const btcJson = await btcRes.json();
+    const goldJson = await goldRes.json();
 
-Asset: <b>${signal.asset}</b>
-Bias: <b>${signal.bias}</b>
-Direction: <b>${signal.direction}</b>
+    latestData = {
+      status: "live",
+      btc: btcJson.bitcoin.usd,
+      gold: goldJson["pax-gold"].usd,
+      updated: new Date().toISOString(),
+    };
 
-Entry: ${signal.entry}
-TP1: ${signal.tp1}
-TP2: ${signal.tp2}
-SL: ${signal.sl}
-
-Confidence: <b>${signal.confidence}</b>
-
-🧠 ${signal.explanation}
-`;
-    await sendTelegram(msg);
+    return latestData;
+  } catch (err) {
+    latestData.status = "error";
+    return null;
   }
+}
+
+// ================== API ==================
+
+app.get("/", (req, res) => {
+  res.send("TKAI Backend is running");
 });
 
-// ===================== DAILY REPORT (23:00 LONDON) =====================
+app.get("/api/status", async (req, res) => {
+  if (!latestData.btc) {
+    await fetchMarket();
+  }
+  res.json(latestData);
+});
 
+// ================== CRON JOBS ==================
+
+// Hourly scan
+cron.schedule("0 * * * *", async () => {
+  const data = await fetchMarket();
+  if (!data) return;
+
+  await sendTelegram(
+    `📊 TKAI Hourly Scan\n\nBTC: $${data.btc}\nGOLD: $${data.gold}`
+  );
+});
+
+// Daily report – 23:00 London
 cron.schedule("0 23 * * *", async () => {
-  let report = "📊 <b>TKAI Daily Market Plan</b>\n\n";
+  const data = await fetchMarket();
+  if (!data) return;
 
-  ASSETS.forEach(asset => {
-    const s = generateSignal(asset);
-    report += `
-<b>${asset}</b>
-Bias: ${s.bias}
-Direction: ${s.direction}
-Entry: ${s.entry}
-TP1: ${s.tp1}
-TP2: ${s.tp2}
-SL: ${s.sl}
-Confidence: ${s.confidence}
-
-`;
-  });
-
-  await sendTelegram(report);
-}, {
-  timezone: "Europe/London"
+  await sendTelegram(
+    `📈 TKAI Daily Report\n\nBTC: $${data.btc}\nGOLD: $${data.gold}`
+  );
 });
 
-// ===================== START SERVER =====================
+// ================== START ==================
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("🚀 TKAI backend running on port", PORT);
+app.listen(PORT, async () => {
+  await sendTelegram(
+    "🤖 TKAI started successfully.\n• Hourly scans\n• Grade A alerts only\n• Daily report 23:00 London"
+  );
+
+  console.log(`TKAI backend running on port ${PORT}`);
 });
