@@ -53,7 +53,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`TKAI Backend running on port ${PORT}`);
 
-  // Guaranteed Telegram confirmation
   setTimeout(() => {
     sendTelegram("✅ TKAI Backend is LIVE and Telegram is working");
   }, 5000);
