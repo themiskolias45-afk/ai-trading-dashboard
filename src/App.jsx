@@ -7,51 +7,44 @@ export default function App() {
   const BACKEND_URL = "https://tkai-backend.onrender.com/api/status";
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch(BACKEND_URL);
-        const json = await res.json();
+    fetch(BACKEND_URL)
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("Backend not responding");
+        }
+        return res.json();
+      })
+      .then((json) => {
         setData(json);
-      } catch (e) {
-        setError("Backend not reachable");
-      }
-    };
-
-    load();
-    const interval = setInterval(load, 10000);
-    return () => clearInterval(interval);
+      })
+      .catch((err) => {
+        setError(err.message);
+      });
   }, []);
 
   return (
-    <div style={{
-      background: "#0b0f1a",
-      minHeight: "100vh",
-      color: "#e5e7eb",
-      padding: "20px",
-      fontFamily: "Arial"
-    }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#0b0f1a",
+        color: "#fff",
+        padding: "24px",
+        fontFamily: "Arial",
+      }}
+    >
       <h1 style={{ color: "#8b5cf6" }}>TKAI Dashboard</h1>
 
-      {!data && !error && <p>Loading…</p>}
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      {error && <p style={{ color: "red" }}>Error: {error}</p>}
+
+      {!data && !error && <p>Loading...</p>}
 
       {data && (
-        <div style={{
-          marginTop: "20px",
-          padding: "20px",
-          borderRadius: "10px",
-          background: "#111827",
-          maxWidth: "420px"
-        }}>
-          <p><b>Asset:</b> {data.asset}</p>
-          <p><b>Direction:</b> {data.direction}</p>
-          <p><b>Confidence:</b> {data.confidence}%</p>
-          <p><b>Explanation:</b></p>
-          <p style={{ opacity: 0.9 }}>{data.explanation}</p>
-          <p style={{ fontSize: "12px", opacity: 0.6 }}>
-            Last update: {new Date(data.time).toLocaleString()}
-          </p>
-        </div>
+        <>
+          <p>Status: {data.status}</p>
+          <p>BTC Price: ${data.btc}</p>
+          <p>Gold Price: ${data.gold}</p>
+          <p>Last Update: {data.updated}</p>
+        </>
       )}
     </div>
   );
