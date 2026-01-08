@@ -46,7 +46,7 @@ async function sendTelegram(chatId, text) {
 async function getLiveBTC() {
   try {
     const res = await fetch(
-      "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT",
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
       {
         headers: {
           "User-Agent": "Mozilla/5.0",
@@ -55,20 +55,17 @@ async function getLiveBTC() {
       }
     );
 
-    const text = await res.text();
-
-    // Binance sometimes returns HTML (blocked)
-    if (!text.startsWith("{")) {
-      return "⚠️ Binance temporarily blocked request.";
+    if (!res.ok) {
+      throw new Error("CoinGecko error");
     }
 
-    const d = JSON.parse(text);
+    const d = await res.json();
 
-    const price = Number(d.lastPrice);
-    const change = Number(d.priceChangePercent);
+    const price = d.bitcoin?.usd;
+    const change = d.bitcoin?.usd_24h_change;
 
     if (!Number.isFinite(price) || !Number.isFinite(change)) {
-      return "⚠️ Invalid BTC price data.";
+      return "⚠️ BTC data unavailable.";
     }
 
     const bias =
@@ -85,8 +82,8 @@ async function getLiveBTC() {
       "• Trade with trend\n" +
       "• Wait for confirmation"
     );
-  } catch (e) {
-    return "⚠️ BTC data fetch failed.";
+  } catch {
+    return "⚠️ Failed to fetch BTC data.";
   }
 }
 
