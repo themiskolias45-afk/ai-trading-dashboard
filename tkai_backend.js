@@ -1,12 +1,13 @@
+
 const express = require("express");
 
-// Safe fetch for Node 18 / Render
+// Safe fetch for Node 18 (Render)
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const app = express();
 
-/* ================= TELEGRAM (KEEP AS IS) ================= */
+/* ================= TELEGRAM (DO NOT REMOVE) ================= */
 
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
@@ -26,11 +27,11 @@ async function sendTelegram(message) {
   }
 }
 
-/* ================= REQUIRED ROUTES ================= */
+/* ================= ROUTES (REQUIRED) ================= */
 
-// REQUIRED ROOT ENDPOINT (Render health check)
+// Render health check
 app.get("/", (req, res) => {
-  res.send("TKAI backend alive");
+  res.status(200).send("TKAI backend alive");
 });
 
 // Dashboard API
@@ -43,7 +44,7 @@ app.get("/api/status", (req, res) => {
   });
 });
 
-/* ================= SERVER ================= */
+/* ================= SERVER (CRITICAL) ================= */
 
 const PORT = process.env.PORT || 3000;
 
