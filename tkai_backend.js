@@ -44,7 +44,7 @@ app.get("/api/status", (req, res) => {
   });
 });
 
-/* ================= SERVER (CRITICAL) ================= */
+/* ================== SERVER (CRITICAL) ================== */
 
 const PORT = process.env.PORT || 3000;
 
