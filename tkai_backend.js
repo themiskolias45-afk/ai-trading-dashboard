@@ -11,16 +11,17 @@
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
 
+
 // ======================
-// SAFE FETCH (Node 18+)
+// SAFE FETCH
 // ======================
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 // ======================
-// SEND TELEGRAM MESSAGE
+// SEND TELEGRAM MESSAGE (FIXED)
 // ======================
-async function sendTelegram(text) {
+async function sendTelegram(chatId, text) {
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
 
@@ -28,9 +29,10 @@ async function sendTelegram(text) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
+        chat_id: chatId,
         text,
-        parse_mode: "HTML"
+        parse_mode: "HTML",
+        disable_web_page_preview: true
       })
     });
   } catch (e) {
@@ -47,18 +49,23 @@ async function getLiveBTC() {
       "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT"
     );
 
-    const d = await res.json();
-
-    // SAFETY CHECK
-    if (!d || !d.lastPrice || !d.priceChangePercent) {
-      return "⚠️ Binance data unavailable. Try again in a moment.";
+    if (!res.ok) {
+      throw new Error("Binance API error");
     }
 
-    const price = parseFloat(d.lastPrice);
-    const change = parseFloat(d.priceChangePercent);
+    const d = await res.json();
+
+    const price = Number(d.lastPrice);
+    const change = Number(d.priceChangePercent);
+
+    if (!Number.isFinite(price) || !Number.isFinite(change)) {
+      return "⚠️ BTC data temporarily unavailable.";
+    }
 
     const bias =
-      change > 0 ? "BULLISH" : change < 0 ? "BEARISH" : "NEUTRAL";
+      change > 0 ? "BULLISH" :
+      change < 0 ? "BEARISH" :
+      "NEUTRAL";
 
     return (
       "📊 <b>BTC ANALYSIS</b>\n\n" +
@@ -69,8 +76,8 @@ async function getLiveBTC() {
       "• Trade with trend\n" +
       "• Wait for confirmation"
     );
-  } catch (e) {
-    return "⚠️ Failed to fetch BTC data from Binance";
+  } catch {
+    return "⚠️ Failed to fetch BTC data from Binance.";
   }
 }
 
@@ -89,10 +96,10 @@ function dailyReport() {
 }
 
 // ======================
-// HANDLE TELEGRAM COMMANDS
+// HANDLE COMMANDS
 // ======================
 async function handleMessage(message) {
-  if (!message || !message.text) return;
+  if (!message?.text) return;
 
   const chatId = message.chat.id;
   const text = message.text.trim().toLowerCase();
@@ -100,25 +107,22 @@ async function handleMessage(message) {
   if (text === "/start") {
     await sendTelegram(
       chatId,
-      "✅ BTC Telegram bot is active.\n\nCommands:\n/btc\n/daily"
+      "✅ BTC bot active\n\nCommands:\n/btc\n/daily"
     );
-    return;
   }
 
   if (text === "/btc" || text === "btc") {
     const report = await getLiveBTC();
     await sendTelegram(chatId, report);
-    return;
   }
 
   if (text === "/daily") {
     await sendTelegram(chatId, dailyReport());
-    return;
   }
 }
 
 // ======================
-// TELEGRAM POLLING LOOP
+// POLLING LOOP
 // ======================
 let lastUpdateId = 0;
 
@@ -127,16 +131,13 @@ async function pollTelegram() {
     const res = await fetch(
       `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates?offset=${lastUpdateId + 1}`
     );
-    const data = await res.json();
 
+    const data = await res.json();
     if (!data.result) return;
 
     for (const update of data.result) {
       lastUpdateId = update.update_id;
-
-      if (update.message) {
-        await handleMessage(update.message);
-      }
+      if (update.message) await handleMessage(update.message);
     }
   } catch (e) {
     console.error("Polling error:", e.message);
@@ -144,7 +145,7 @@ async function pollTelegram() {
 }
 
 // ======================
-// START BOT
+// START
 // ======================
-console.log("BTC Telegram bot running...");
+console.log("✅ BTC Telegram bot running...");
 setInterval(pollTelegram, 3000);
