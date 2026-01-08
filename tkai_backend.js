@@ -1,63 +1,101 @@
-// ================================
-// TKAI BACKEND — STABLE BASE
-// Node 18 / Express / Render
-// Dashboard API + Telegram
-// ================================
+/**
+ * BTC TELEGRAM ANALYSIS BOT
+ * BTC ONLY — NO DASHBOARD — NO RENDER
+ * Node 18+
+ */
 
-const express = require("express");
-const app = express();
-
-app.use(express.json());
-
-// ================================
-// TELEGRAM (KEEP AS IS)
-// ================================
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
-const TELEGRAM_CHAT_ID = "7063659034";
+const CHAT_ID = "7063659034";
 
-async function sendTelegram(message) {
-  try {
-    const res = await fetch(
-      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: TELEGRAM_CHAT_ID,
-          text: message,
-        }),
-      }
-    );
+const BTC_URL =
+  "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=200";
 
-    const data = await res.json();
-    console.log("Telegram sent:", data.ok);
-  } catch (err) {
-    console.error("Telegram error:", err.message);
-  }
+// ---------- TELEGRAM ----------
+async function sendTelegram(text) {
+  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: CHAT_ID, text }),
+  });
 }
 
-// ================================
-// ROUTES
-// ================================
-app.get("/", (req, res) => {
-  res.send("TKAI Backend is running");
-});
+// ---------- SIMPLE BTC ANALYSIS ----------
+function ema(values, period) {
+  const k = 2 / (period + 1);
+  let ema = values[0];
+  for (let i = 1; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
 
-app.get("/api/status", (req, res) => {
-  res.json({
-    service: "TKAI Backend",
-    status: "running",
-    assets: ["BTC", "GOLD", "SP500", "MSFT", "AMZN"],
-    time: new Date().toISOString(),
-  });
-});
+async function analyzeBTC() {
+  const res = await fetch(BTC_URL);
+  const data = await res.json();
+  const closes = data.map(c => Number(c[4]));
+  const price = closes.at(-1);
 
-// ================================
-// SERVER START (RENDER REQUIRED)
-// ================================
-const PORT = process.env.PORT || 3000;
+  const ema50 = ema(closes.slice(-50), 50);
+  const ema200 = ema(closes.slice(-200), 200);
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`TKAI Backend running on port ${PORT}`);
-  sendTelegram("✅ TKAI Backend is LIVE and Telegram is working");
-});
+  let direction = "WAIT";
+  let explanation = "Market is ranging. No professional confirmation.";
+
+  if (ema50 > ema200) {
+    direction = "LONG";
+    explanation =
+      "Bullish structure. EMA50 above EMA200 confirms trend continuation.";
+  }
+
+  if (ema50 < ema200) {
+    direction = "SHORT";
+    explanation =
+      "Bearish structure. EMA50 below EMA200 confirms downside pressure.";
+  }
+
+  return { price, ema50, ema200, direction, explanation };
+}
+
+// ---------- DAILY REPORT ----------
+async function sendDailyReport() {
+  const r = await analyzeBTC();
+
+  const msg = `
+📊 BTC DAILY ANALYSIS
+
+Price: ${r.price.toFixed(2)}
+Bias: ${r.direction}
+
+EMA50: ${r.ema50.toFixed(2)}
+EMA200: ${r.ema200.toFixed(2)}
+
+🧠 Explanation:
+${r.explanation}
+
+⏳ Next step:
+Wait for confirmation before entry.
+`;
+
+  await sendTelegram(msg);
+}
+
+// ---------- DAILY TIMER (23:00 LONDON) ----------
+function startDailyScheduler() {
+  setInterval(async () => {
+    const now = new Date();
+    const london = new Date(
+      now.toLocaleString("en-US", { timeZone: "Europe/London" })
+    );
+
+    if (london.getHours() === 23 && london.getMinutes() === 0) {
+      await sendDailyReport();
+    }
+  }, 60000);
+}
+
+// ---------- MANUAL ASK (RUN ON START) ----------
+(async () => {
+  await sendTelegram("✅ BTC Telegram bot started");
+  await sendDailyReport();
+  startDailyScheduler();
+})();
