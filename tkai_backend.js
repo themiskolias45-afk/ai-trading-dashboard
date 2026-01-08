@@ -1,106 +1,55 @@
 /**
  * BTC TELEGRAM ANALYSIS BOT
- * BTC ONLY — NO DASHBOARD — NO RENDER
+ * Telegram ONLY – BTC ONLY
  * Node 18+
+ * Polling (NO webhook, NO dashboard)
  */
 
+// ======================
+// TELEGRAM CONFIG (ONCE)
+// ======================
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
-const CHAT_ID = "7063659034";
+const TELEGRAM_CHAT_ID = "7063659034";
 
-const BTC_URL =
-  "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=200";
-
-// ---------- TELEGRAM ----------
-async function sendTelegram(text) {
-  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: CHAT_ID, text }),
-  });
-}
-
-// ===============================
-// BTC /btc COMMAND (ADD ONLY)
-// ===============================
-
-// Safe fetch (Node 18+)
+// ======================
+// SAFE FETCH (Node 18+)
+// ======================
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
-// Send Telegram message (SAFE)
-async function sendTelegram(message) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
-      text: message,
-      parse_mode: "Markdown"
-    })
-  });
-}
-
-// Simple BTC analysis (spot, safe)
-async function analyzeBTC() {
-  const res = await fetch(
-    "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=50"
-  );
-  const data = await res.json();
-
-  const closes = data.map(c => parseFloat(c[4]));
-  const last = closes[closes.length - 1];
-  const prev = closes[closes.length - 2];
-
-  let bias = "WAIT";
-  let explanation = "Market is ranging with no clear momentum.";
-
-  if (last > prev * 1.002) {
-    bias = "LONG";
-    explanation =
-      "BTC is showing bullish momentum with higher close. Buyers are in control.";
-  } else if (last < prev * 0.998) {
-    bias = "SHORT";
-    explanation =
-      "BTC is showing bearish pressure with lower close. Sellers dominate.";
-  }
-
-  return { bias, last, explanation };
-}
-
-// Listen for /btc command
-async function checkTelegramUpdates() {
-  const res = await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`
-  );
-  const data = await res.json();
-
-  if (!data.result.length) return;
-
-  const msg = data.result[data.result.length - 1].message;
-  if (!msg || !msg.text) return;
-
-  if (msg.text.toLowerCase() === "/btc") {
-    const btc = await analyzeBTC();
-
-    const reply =
-`📊 *BTC MARKET ANALYSIS*
-
-Bias: *${btc.bias}*
-Price: *${btc.last}*
-
-Explanation:
-${btc.explanation}
-
-⚠️ Not financial advice`;
-
-    await sendTelegram(reply);
+// ======================
+// SEND TELEGRAM MESSAGE
+// ======================
+async function sendTelegram(text) {
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text,
+        parse_mode: "HTML"
+      })
+    });
+  } catch (e) {
+    console.error("Telegram send error:", e.message);
   }
 }
 
-// Poll Telegram every 30s
-setInterval(checkTelegramUpdates, 30000);
-// ---------- SIMPLE BTC ANALYSIS ----------
+// ======================
+// GET BTC CANDLES (1H)
+// ======================
+async function getBTCCandles() {
+  const res = await fetch(
+    "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=60"
+  );
+  return res.json();
+}
+
+// ======================
+// EMA CALCULATION
+// ======================
 function ema(values, period) {
   const k = 2 / (period + 1);
   let ema = values[0];
@@ -110,73 +59,104 @@ function ema(values, period) {
   return ema;
 }
 
-async function analyzeBTC() {
-  const res = await fetch(BTC_URL);
-  const data = await res.json();
-  const closes = data.map(c => Number(c[4]));
-  const price = closes.at(-1);
+// ======================
+// BTC ANALYSIS (BIAS LOGIC)
+// ======================
+async function btcAnalysis() {
+  const candles = await getBTCCandles();
+  const closes = candles.map(c => Number(c[4]));
+  const price = closes[closes.length - 1];
 
   const ema50 = ema(closes.slice(-50), 50);
   const ema200 = ema(closes.slice(-200), 200);
 
-  let direction = "WAIT";
-  let explanation = "Market is ranging. No professional confirmation.";
+  let bias = "WAIT";
+  let explanation =
+    "BTC is trading inside equilibrium. No confirmed trend yet.";
 
-  if (ema50 > ema200) {
-    direction = "LONG";
+  if (ema50 > ema200 * 1.002) {
+    bias = "LONG";
     explanation =
-      "Bullish structure. EMA50 above EMA200 confirms trend continuation.";
+      "Bullish structure detected. EMA50 is above EMA200, confirming upward trend strength. Buyers control momentum.";
+  } else if (ema50 < ema200 * 0.998) {
+    bias = "SHORT";
+    explanation =
+      "Bearish structure detected. EMA50 is below EMA200, confirming downside pressure. Sellers dominate price action.";
   }
 
-  if (ema50 < ema200) {
-    direction = "SHORT";
-    explanation =
-      "Bearish structure. EMA50 below EMA200 confirms downside pressure.";
+  return { price, ema50, ema200, bias, explanation };
+}
+
+// ======================
+// DAILY REPORT (ON DEMAND)
+// ======================
+async function dailyReport() {
+  const r = await btcAnalysis();
+
+  return (
+    "🗓 <b>BTC DAILY SNAPSHOT</b>\n\n" +
+    `Price: <b>$${r.price.toFixed(2)}</b>\n` +
+    `Bias: <b>${r.bias}</b>\n\n` +
+    "🧠 Explanation:\n" +
+    r.explanation
+  );
+}
+
+// ======================
+// HANDLE COMMANDS
+// ======================
+async function handleMessage(text) {
+  const msg = text.toLowerCase();
+
+  if (msg === "/start") {
+    await sendTelegram("✅ BTC Telegram bot started");
   }
 
-  return { price, ema50, ema200, direction, explanation };
+  if (msg === "/btc" || msg === "btc") {
+    const r = await btcAnalysis();
+
+    const message =
+      "📊 <b>BTC MARKET ANALYSIS</b>\n\n" +
+      `Price: <b>$${r.price.toFixed(2)}</b>\n` +
+      `Bias: <b>${r.bias}</b>\n\n` +
+      "🧠 Explanation:\n" +
+      r.explanation;
+
+    await sendTelegram(message);
+  }
+
+  if (msg === "/daily") {
+    const report = await dailyReport();
+    await sendTelegram(report);
+  }
 }
 
-// ---------- DAILY REPORT ----------
-async function sendDailyReport() {
-  const r = await analyzeBTC();
+// ======================
+// TELEGRAM POLLING
+// ======================
+let lastUpdateId = 0;
 
-  const msg = `
-📊 BTC DAILY ANALYSIS
+async function pollTelegram() {
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates?offset=${lastUpdateId + 1}`;
+    const res = await fetch(url);
+    const data = await res.json();
 
-Price: ${r.price.toFixed(2)}
-Bias: ${r.direction}
+    if (!data.result) return;
 
-EMA50: ${r.ema50.toFixed(2)}
-EMA200: ${r.ema200.toFixed(2)}
+    for (const update of data.result) {
+      lastUpdateId = update.update_id;
 
-🧠 Explanation:
-${r.explanation}
-
-⏳ Next step:
-Wait for confirmation before entry.
-`;
-
-  await sendTelegram(msg);
-}
-
-// ---------- DAILY TIMER (23:00 LONDON) ----------
-function startDailyScheduler() {
-  setInterval(async () => {
-    const now = new Date();
-    const london = new Date(
-      now.toLocaleString("en-US", { timeZone: "Europe/London" })
-    );
-
-    if (london.getHours() === 23 && london.getMinutes() === 0) {
-      await sendDailyReport();
+      if (update.message && update.message.text) {
+        await handleMessage(update.message.text);
+      }
     }
-  }, 60000);
+  } catch (e) {
+    console.error("Polling error:", e.message);
+  }
 }
 
-// ---------- MANUAL ASK (RUN ON START) ----------
-(async () => {
-  await sendTelegram("✅ BTC Telegram bot started");
-  await sendDailyReport();
-  startDailyScheduler();
-})();
+// ======================
+// START BOT (SILENT)
+// ======================
+setInterval(pollTelegram, 3000);
