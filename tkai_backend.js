@@ -47,3 +47,18 @@ app.get("/api/status", (req, res) => {
     status: "running",
     lastScan,
     assets: AS
+// ================= SERVER START =================
+const PORT = process.env.PORT || 3000;
+
+app.get("/api/status", (req, res) => {
+  res.json({
+    service: "TKAI Backend",
+    status: "running",
+    assets: ["BTC", "GOLD (PAXG)", "SP500", "MSFT", "AMZN"],
+    time: new Date().toISOString()
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 TKAI Backend running on port ${PORT}`);
+});
