@@ -1,25 +1,25 @@
-const express = require("express");
-const app = express();
+// TELEGRAM ONLY — NO SERVER — NO EXPRESS
 
-// Telegram credentials (ONLY TELEGRAM)
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
 
-async function sendTelegram() {
-  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+async function sendTelegram(message) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: TELEGRAM_CHAT_ID,
-      text: "✅ Telegram from server is working"
+      text: message
     })
   });
+
+  const data = await res.json();
+  console.log(data);
 }
 
-// Render needs a port
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("Server started");
-  sendTelegram();
-});
+sendTelegram("✅ Telegram ONLY script is working");
