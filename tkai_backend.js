@@ -2,13 +2,14 @@
  * BTC TELEGRAM ANALYSIS BOT
  * Telegram ONLY – BTC ONLY
  * Node 18+
- * Polling (NO webhook)
+ * Polling (NO webhook, NO dashboard)
  */
 
 // ======================
-// TELEGRAM CONFIG
+// TELEGRAM CONFIG (ONCE)
 // ======================
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
+const TELEGRAM_CHAT_ID = "7063659034";
 
 // ======================
 // SAFE FETCH (Node 18+)
@@ -21,15 +22,14 @@ const fetch = (...args) =>
 // ======================
 async function sendTelegram(chatId, text) {
   try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-    await fetch(url, {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: chatId,
         text,
-        parse_mode: "HTML",
-      }),
+        parse_mode: "HTML"
+      })
     });
   } catch (e) {
     console.error("Telegram send error:", e.message);
@@ -37,7 +37,7 @@ async function sendTelegram(chatId, text) {
 }
 
 // ======================
-// BTC LIVE DATA (BINANCE)
+// BTC LIVE ANALYSIS (BINANCE)
 // ======================
 async function getLiveBTC() {
   try {
@@ -48,19 +48,21 @@ async function getLiveBTC() {
 
     const price = Number(d.lastPrice).toFixed(2);
     const change = Number(d.priceChangePercent).toFixed(2);
+
     const bias =
       change > 0 ? "BULLISH" : change < 0 ? "BEARISH" : "NEUTRAL";
 
     return (
       "📊 <b>BTC ANALYSIS</b>\n\n" +
       `Price: <b>$${price}</b>\n` +
-      `24h Change: <b>${change}%</b>\n\n` +
+      `24h Change: <b>${change}%</b>\n` +
       `Bias: <b>${bias}</b>\n\n` +
       "Plan:\n" +
       "• Trade with trend\n" +
-      "• Wait for confirmation"
+      "• Wait for confirmation\n\n" +
+      "No financial advice."
     );
-  } catch {
+  } catch (e) {
     return "⚠️ Failed to fetch BTC data";
   }
 }
@@ -73,7 +75,9 @@ function dailyReport() {
     "🗓 <b>BTC DAILY REPORT</b>\n\n" +
     "Market: Consolidation\n" +
     "Risk: Medium\n\n" +
-    "Best action: Patience"
+    "Best action:\n" +
+    "• Patience\n" +
+    "• No forced trades"
   );
 }
 
@@ -87,13 +91,16 @@ async function handleMessage(message) {
   const text = message.text.trim().toLowerCase();
 
   if (text === "/start") {
-    await sendTelegram(chatId, "✅ BTC Telegram bot started");
+    await sendTelegram(
+      chatId,
+      "✅ BTC Telegram bot is active.\n\nCommands:\n/btc\n/daily"
+    );
     return;
   }
 
   if (text === "/btc" || text === "btc") {
-    const live = await getLiveBTC();
-    await sendTelegram(chatId, live);
+    const report = await getLiveBTC();
+    await sendTelegram(chatId, report);
     return;
   }
 
@@ -104,7 +111,7 @@ async function handleMessage(message) {
 }
 
 // ======================
-// TELEGRAM POLLING
+// TELEGRAM POLLING LOOP
 // ======================
 let lastUpdateId = 0;
 
@@ -119,6 +126,7 @@ async function pollTelegram() {
 
     for (const update of data.result) {
       lastUpdateId = update.update_id;
+
       if (update.message) {
         await handleMessage(update.message);
       }
