@@ -5,11 +5,11 @@
 // Daily Report: 23:00 London
 // =====================================================
 
-import express from "express";
-import fetch from "node-fetch";
-import cron from "node-cron";
+const express = require("express");
+const fetch = require("node-fetch");
+const cron = require("node-cron");
 
-// ================== TELEGRAM (FIXED) ==================
+// ================== TELEGRAM ==================
 
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
@@ -34,20 +34,21 @@ let latestData = {
   updated: null,
 };
 
-// ================== TELEGRAM FUNCTION ==================
+// ================== TELEGRAM ==================
 
 async function sendTelegram(message) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-
   try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-      }),
-    });
+    await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text: message,
+        }),
+      }
+    );
   } catch (err) {
     console.error("Telegram error:", err.message);
   }
@@ -57,21 +58,19 @@ async function sendTelegram(message) {
 
 async function fetchMarket() {
   try {
-    const btcRes = await fetch(BTC_API);
-    const goldRes = await fetch(GOLD_API);
-
-    const btcJson = await btcRes.json();
-    const goldJson = await goldRes.json();
+    const btc = await (await fetch(BTC_API)).json();
+    const gold = await (await fetch(GOLD_API)).json();
 
     latestData = {
       status: "live",
-      btc: btcJson.bitcoin.usd,
-      gold: goldJson["pax-gold"].usd,
+      btc: btc.bitcoin.usd,
+      gold: gold["pax-gold"].usd,
       updated: new Date().toISOString(),
     };
 
     return latestData;
   } catch (err) {
+    console.error("Market fetch error:", err.message);
     latestData.status = "error";
     return null;
   }
@@ -90,7 +89,7 @@ app.get("/api/status", async (req, res) => {
   res.json(latestData);
 });
 
-// ================== CRON JOBS ==================
+// ================== CRON ==================
 
 // Hourly scan
 cron.schedule("0 * * * *", async () => {
@@ -115,9 +114,9 @@ cron.schedule("0 23 * * *", async () => {
 // ================== START ==================
 
 app.listen(PORT, async () => {
-  await sendTelegram(
-    "🤖 TKAI started successfully.\n• Hourly scans\n• Grade A alerts only\n• Daily report 23:00 London"
-  );
-
   console.log(`TKAI backend running on port ${PORT}`);
+
+  await sendTelegram(
+    "🤖 TKAI started successfully.\n• Hourly scans\n• Daily report 23:00 London"
+  );
 });
