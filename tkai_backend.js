@@ -11,7 +11,7 @@ const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 /* ================= TELEGRAM (DO NOT REMOVE) ================= */
-const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIeuUuddX5PnQjnC6BubqM3p-NeA";
+const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIeuUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
 
 async function sendTelegram(message) {
@@ -48,5 +48,5 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`TKAI Backend running on port ${PORT}`);
-  sendTelegram("✅ TKAI Backend is LIVE on Render");
+  sendTelegram("✅ TKAI Backend is LIVE and Telegram is working");
 });
