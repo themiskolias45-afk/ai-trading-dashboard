@@ -6,10 +6,9 @@
  */
 
 // ======================
-// TELEGRAM CONFIG (ONCE)
+// TELEGRAM TOKEN (ONLY)
 // ======================
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
-const TELEGRAM_CHAT_ID = "7063659034";
 
 // ======================
 // SAFE FETCH (Node 18+)
@@ -20,13 +19,13 @@ const fetch = (...args) =>
 // ======================
 // SEND TELEGRAM MESSAGE
 // ======================
-async function sendTelegram(text) {
+async function sendTelegram(chatId, text) {
   try {
     await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
+        chat_id: chatId,
         text,
         parse_mode: "HTML",
       }),
@@ -64,25 +63,26 @@ function dailyReport() {
 }
 
 // ======================
-// HANDLE MESSAGE (FIXED)
+// HANDLE MESSAGE (CORRECT)
 // ======================
 async function handleMessage(message) {
   if (!message || !message.text) return;
 
+  const chatId = message.chat.id;
   const text = message.text.trim().toLowerCase();
 
   if (text === "/start") {
-    await sendTelegram("✅ BTC Telegram bot started");
+    await sendTelegram(chatId, "✅ BTC Telegram bot started");
     return;
   }
 
   if (text === "/btc" || text === "btc") {
-    await sendTelegram(btcAnalysis());
+    await sendTelegram(chatId, btcAnalysis());
     return;
   }
 
   if (text === "/daily") {
-    await sendTelegram(dailyReport());
+    await sendTelegram(chatId, dailyReport());
     return;
   }
 }
@@ -116,7 +116,5 @@ async function pollTelegram() {
 // ======================
 // START BOT
 // ======================
-(async () => {
-  await sendTelegram("✅ Telegram BTC bot is running");
-  setInterval(pollTelegram, 3000);
-})();
+console.log("BTC Telegram bot running...");
+setInterval(pollTelegram, 3000);
