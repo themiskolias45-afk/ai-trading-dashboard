@@ -1,195 +1,182 @@
-import { useEffect, useState, useRef } from "react";
+// ===============================
+// TKAI — BACKEND AI BOT
+// ===============================
 
-/* ==============================
-   TELEGRAM (EDIT ONLY THESE)
-================================ */
+import fetch from "node-fetch";
+import fs from "fs";
+import cron from "node-cron";
+
+// ===============================
+// TELEGRAM CONFIG (READY)
+// ===============================
 const TELEGRAM_BOT_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
 
-/* ==============================
-   ASSETS
-================================ */
+// ===============================
+// ASSETS
+// ===============================
 const ASSETS = {
   BTC: {
     label: "BTCUSD",
-    weekly: "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1w&limit=120",
-    daily:  "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=120",
-    htf:    "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=120",
-    ltf:    "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=120",
+    base: "https://api.binance.com/api/v3/klines?symbol=BTCUSDT",
   },
   GOLD: {
     label: "GOLD (PAXG)",
-    weekly: "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1w&limit=120",
-    daily:  "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1d&limit=120",
-    htf:    "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=15m&limit=120",
-    ltf:    "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=5m&limit=120",
+    base: "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT",
+  },
+  SP500: {
+    label: "SP500 (SPY)",
+    base: "https://query1.finance.yahoo.com/v8/finance/chart/SPY",
+    yahoo: true,
+  },
+  MSFT: {
+    label: "MSFT",
+    base: "https://query1.finance.yahoo.com/v8/finance/chart/MSFT",
+    yahoo: true,
+  },
+  AMZN: {
+    label: "AMZN",
+    base: "https://query1.finance.yahoo.com/v8/finance/chart/AMZN",
+    yahoo: true,
   },
 };
 
-/* ==============================
-   HELPERS
-================================ */
-const parse = (d) =>
-  d.map(c => ({ open:+c[1], high:+c[2], low:+c[3], close:+c[4] }));
+// ===============================
+// HELPERS
+// ===============================
+const parseBinance = (d) =>
+  d.map((c) => ({
+    open: +c[1],
+    high: +c[2],
+    low: +c[3],
+    close: +c[4],
+  }));
+
+const parseYahoo = (d) => {
+  const q = d.chart.result[0];
+  return q.indicators.quote[0].close.map((c, i) => ({
+    open: q.indicators.quote[0].open[i],
+    high: q.indicators.quote[0].high[i],
+    low: q.indicators.quote[0].low[i],
+    close: c,
+  }));
+};
 
 const bias = (c) => {
   if (!c || c.length < 20) return "RANGE";
   const hh = c.at(-1).high > c.at(-5).high;
-  const hl = c.at(-1).low  > c.at(-5).low;
+  const hl = c.at(-1).low > c.at(-5).low;
   const lh = c.at(-1).high < c.at(-5).high;
-  const ll = c.at(-1).low  < c.at(-5).low;
+  const ll = c.at(-1).low < c.at(-5).low;
   if (hh && hl) return "BULLISH";
   if (lh && ll) return "BEARISH";
   return "RANGE";
 };
 
 const displacement = (c) => {
-  const a=c.at(-1), b=c.at(-2);
-  return Math.abs(a.close-a.open) > (b.high-b.low)*1.5;
+  const a = c.at(-1);
+  const b = c.at(-2);
+  return Math.abs(a.close - a.open) > (b.high - b.low) * 1.5;
 };
 
 const levels = (p, dir) => {
-  const r=p*0.006;
-  return dir==="BULLISH"
-    ? { entry:p, sl:p-r, tp1:p+r, tp2:p+r*2 }
-    : { entry:p, sl:p+r, tp1:p-r, tp2:p-r*2 };
+  const r = p * 0.006;
+  return dir === "BULLISH"
+    ? { entry: p, sl: p - r, tp1: p + r, tp2: p + r * 2 }
+    : { entry: p, sl: p + r, tp1: p - r, tp2: p - r * 2 };
 };
 
-const grade = (ok) => ok ? "A" : "C";
+// ===============================
+// TELEGRAM
+// ===============================
+async function sendTG(msg) {
+  await fetch(
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg }),
+    }
+  );
+}
 
-/* ==============================
-   TELEGRAM
-================================ */
-async function sendTG(text) {
+// ===============================
+// CORE SCAN
+// ===============================
+async function scanAsset(key, a) {
   try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body:JSON.stringify({ chat_id:TELEGRAM_CHAT_ID, text }),
-    });
-  } catch {}
-}
+    let data;
+    if (a.yahoo) {
+      const r = await fetch(a.base + "?range=5d&interval=15m");
+      const j = await r.json();
+      data = parseYahoo(j);
+    } else {
+      const r = await fetch(a.base + "&interval=15m&limit=120");
+      const j = await r.json();
+      data = parseBinance(j);
+    }
 
-/* ==============================
-   AI EXPLANATION ENGINE
-================================ */
-function aiExplain(asset, s) {
-  if (!s) return "No data yet.";
-  if (s.grade === "A")
-    return `${asset} shows institutional displacement with full alignment. This is a valid execution environment.`;
-  if (s.biasD !== s.biasH)
-    return `${asset} is in pullback. Higher timeframe bias remains ${s.biasD}. Waiting for execution alignment.`;
-  return `${asset} is consolidating. No smart-money commitment. Best action is to wait.`;
-}
+    const b = bias(data);
+    const disp = displacement(data);
+    const price = data.at(-1).close;
+    const lv = levels(price, b);
+    const ok = disp && b !== "RANGE";
+    const confidence = ok ? "A" : "C";
 
-function aiPlanToday(asset, s) {
-  if (!s || s.grade !== "A")
-    return `${asset}: No trade today. Wait for displacement and alignment.`;
-  return `${asset}: Focus on ${s.biasD} continuation. Entry near ${s.lv.entry.toFixed(2)}.`;
-}
+    const explanation = ok
+      ? "Institutional displacement detected. Continuation likely."
+      : "Market in equilibrium or pullback. Waiting.";
 
-function aiPlanTomorrow(asset, s) {
-  if (!s)
-    return `${asset}: Insufficient data.`;
-  return `${asset}: Bias remains ${s.biasD}. Tomorrow, look for displacement on 15m in the same direction.`;
-}
+    // Save CSV
+    const line = `${new Date().toISOString()},${a.label},${price},${b},${confidence}\n`;
+    fs.appendFileSync("tkai_history.csv", line);
 
-/* ==============================
-   APP
-================================ */
-export default function App() {
-  const [data,setData]=useState({});
-  const [question,setQuestion]=useState("");
-  const recRef=useRef(null);
-
-  async function scan(k,a){
-    const [w,d,h,l]=await Promise.all([
-      fetch(a.weekly).then(r=>r.json()),
-      fetch(a.daily).then(r=>r.json()),
-      fetch(a.htf).then(r=>r.json()),
-      fetch(a.ltf).then(r=>r.json()),
-    ]);
-    const wc=parse(w), dc=parse(d), hc=parse(h), lc=parse(l);
-    const biasW=bias(wc), biasD=bias(dc), biasH=bias(hc), biasL=bias(lc);
-    const price=hc.at(-1).close;
-    const disp=displacement(hc);
-    const ok=disp && biasD===biasH && biasH===biasL && biasD!=="RANGE";
-    const lv=levels(price,biasD);
-    const g=grade(ok);
-
-    const s={ price, biasD, biasH, biasL, lv, grade:g };
-    setData(p=>({...p,[k]:s}));
-
-    if(ok){
-      sendTG(
+    if (ok) {
+      await sendTG(
 `🚨 TKAI — TRADE SIGNAL
 
 Asset: ${a.label}
-Direction: ${biasD}
+Bias: ${b}
+Action: ${b === "BULLISH" ? "LONG" : "SHORT"}
+
 Entry: ${lv.entry.toFixed(2)}
 TP1: ${lv.tp1.toFixed(2)}
 TP2: ${lv.tp2.toFixed(2)}
 SL: ${lv.sl.toFixed(2)}
-Confidence: A
 
+Confidence: A
 Explanation:
-Institutional displacement with full alignment.`
+${explanation}`
       );
     }
+  } catch (e) {
+    console.error("Error scanning", key, e.message);
   }
-
-  function dailyReport(){
-    const now=new Date();
-    const london=new Date(now.toLocaleString("en-US",{timeZone:"Europe/London"}));
-    if(london.getHours()!==23) return;
-    if(localStorage.getItem("TKAI_DAY")===london.toDateString()) return;
-    localStorage.setItem("TKAI_DAY",london.toDateString());
-
-    let msg="🤖 TKAI — DAILY PLAN (23:00 London)\n\n";
-    Object.entries(data).forEach(([k,s])=>{
-      if(!s) return;
-      msg+=`${k}\nBias: ${s.biasD}\nPlan: ${aiPlanTomorrow(k,s)}\n\n`;
-    });
-    sendTG(msg);
-  }
-
-  useEffect(()=>{
-    Object.entries(ASSETS).forEach(([k,a])=>scan(k,a));
-    const i=setInterval(()=>{
-      Object.entries(ASSETS).forEach(([k,a])=>scan(k,a));
-      dailyReport();
-    },3600000);
-    return()=>clearInterval(i);
-  },[]);
-
-  const askAI=()=>{
-    let ans="🤖 TKAI — AI RESPONSE\n\n";
-    Object.entries(data).forEach(([k,s])=>{
-      ans+=`${k}\n${aiExplain(k,s)}\nToday: ${aiPlanToday(k,s)}\nTomorrow: ${aiPlanTomorrow(k,s)}\n\n`;
-    });
-    alert(ans);
-  };
-
-  const voice=()=>{
-    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SR) return alert("Voice not supported");
-    const r=new SR();
-    r.lang="en-US";
-    r.start();
-    r.onresult=e=>setQuestion(e.results[0][0].transcript);
-    recRef.current=r;
-  };
-
-  return (
-    <div style={{minHeight:"100vh",background:"#0b1220",color:"#eaeaea",padding:24}}>
-      <h1>TKAI — AI Trading Dashboard</h1>
-      <p>Hourly scan • Daily report 23:00 London • Grade A alerts only</p>
-
-      <h2>Ask TKAI</h2>
-      <input value={question} onChange={e=>setQuestion(e.target.value)} style={{width:"100%",padding:8}} />
-      <br />
-      <button onClick={askAI}>Ask</button>
-      <button onClick={voice} style={{marginLeft:8}}>🎤 Speak</button>
-    </div>
-  );
 }
+
+// ===============================
+// HOURLY SCAN
+// ===============================
+cron.schedule("0 * * * *", async () => {
+  for (const [k, a] of Object.entries(ASSETS)) {
+    await scanAsset(k, a);
+  }
+});
+
+// ===============================
+// DAILY REPORT — 23:00 LONDON
+// ===============================
+cron.schedule("0 23 * * *", async () => {
+  let msg = "🤖 TKAI — DAILY MARKET PLAN (23:00 London)\n\n";
+  for (const a of Object.values(ASSETS)) {
+    msg += `${a.label}: Monitoring for displacement.\n`;
+  }
+  await sendTG(msg);
+}, { timezone: "Europe/London" });
+
+// ===============================
+// START
+// ===============================
+(async () => {
+  await sendTG("🤖 TKAI started successfully. Monitoring markets 24/7.");
+})();
