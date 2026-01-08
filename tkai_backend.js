@@ -50,6 +50,32 @@ function btcAnalysis() {
   );
 }
 
+async function getLiveBTC() {
+  try {
+    const res = await fetch(
+      "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT"
+    );
+    const d = await res.json();
+
+    const price = Number(d.lastPrice).toFixed(2);
+    const change = Number(d.priceChangePercent).toFixed(2);
+
+    const bias =
+      change > 0 ? "BULLISH" : change < 0 ? "BEARISH" : "NEUTRAL";
+
+    return (
+      "📊 <b>BTC LIVE PRICE</b>\n\n" +
+      `Price: <b>$${price}</b>\n` +
+      `24h Change: <b>${change}%</b>\n\n` +
+      `Bias: <b>${bias}</b>\n\n` +
+      "Plan:\n" +
+      "• Trade with trend\n" +
+      "• Wait for confirmation\n"
+    );
+  } catch (e) {
+    return "⚠️ Failed to fetch BTC price";
+  }
+}
 // ======================
 // DAILY REPORT
 // ======================
@@ -76,10 +102,10 @@ async function handleMessage(message) {
     return;
   }
 
-  if (text === "/btc" || text === "btc") {
-    await sendTelegram(chatId, btcAnalysis());
-    return;
-  }
+  if (msg === "/btc" || msg === "btc") {
+  const live = await getLiveBTC();
+  await sendTelegram(live);
+}
 
   if (text === "/daily") {
     await sendTelegram(chatId, dailyReport());
