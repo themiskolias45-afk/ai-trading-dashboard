@@ -44,26 +44,31 @@ async function getLiveBTC() {
     const res = await fetch(
       "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT"
     );
+
     const d = await res.json();
 
-    const price = Number(d.lastPrice).toFixed(2);
-    const change = Number(d.priceChangePercent).toFixed(2);
+    // SAFETY CHECK
+    if (!d || !d.lastPrice || !d.priceChangePercent) {
+      return "⚠️ Binance data unavailable. Try again in a moment.";
+    }
+
+    const price = parseFloat(d.lastPrice);
+    const change = parseFloat(d.priceChangePercent);
 
     const bias =
       change > 0 ? "BULLISH" : change < 0 ? "BEARISH" : "NEUTRAL";
 
     return (
       "📊 <b>BTC ANALYSIS</b>\n\n" +
-      `Price: <b>$${price}</b>\n` +
-      `24h Change: <b>${change}%</b>\n` +
+      `Price: <b>$${price.toFixed(2)}</b>\n` +
+      `24h Change: <b>${change.toFixed(2)}%</b>\n\n` +
       `Bias: <b>${bias}</b>\n\n` +
       "Plan:\n" +
       "• Trade with trend\n" +
-      "• Wait for confirmation\n\n" +
-      "No financial advice."
+      "• Wait for confirmation"
     );
   } catch (e) {
-    return "⚠️ Failed to fetch BTC data";
+    return "⚠️ Failed to fetch BTC data from Binance";
   }
 }
 
