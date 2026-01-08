@@ -2,11 +2,11 @@
  * BTC TELEGRAM ANALYSIS BOT
  * Telegram ONLY – BTC ONLY
  * Node 18+
- * Polling (NO webhook, NO dashboard)
+ * Polling (NO webhook)
  */
 
 // ======================
-// TELEGRAM TOKEN (ONLY)
+// TELEGRAM CONFIG
 // ======================
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
 
@@ -17,32 +17,12 @@ const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 // ======================
-// SAFE FETCH (Node 18+)
-// ======================
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
-
-
-// ======================
-// BINANCE BTC LIVE DATA   ✅ ADD HERE
-// ======================
-async function fetchBTC() {
-  ...
-}
-
-
-// ======================
-// SEND TELEGRAM MESSAGE  ⬇️ MUST BE BELOW
-// ======================
-async function sendTelegram(text) {
-  ...
-}
-// ======================
 // SEND TELEGRAM MESSAGE
 // ======================
 async function sendTelegram(chatId, text) {
   try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+    await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -57,22 +37,7 @@ async function sendTelegram(chatId, text) {
 }
 
 // ======================
-// BTC ANALYSIS (STATIC BASE)
-// ======================
-function btcAnalysis() {
-  return (
-    "📊 <b>BTC ANALYSIS</b>\n\n" +
-    "Bias: NEUTRAL\n" +
-    "Market: RANGE\n\n" +
-    "Plan:\n" +
-    "• Wait for breakout\n" +
-    "• No confirmed entry\n\n" +
-    "Next step: live logic"
-  );
-}
-
-// ======================
-// LIVE BTC PRICE (BINANCE)
+// BTC LIVE DATA (BINANCE)
 // ======================
 async function getLiveBTC() {
   try {
@@ -83,14 +48,11 @@ async function getLiveBTC() {
 
     const price = Number(d.lastPrice).toFixed(2);
     const change = Number(d.priceChangePercent).toFixed(2);
-
     const bias =
-      change > 0 ? "BULLISH" :
-      change < 0 ? "BEARISH" :
-      "NEUTRAL";
+      change > 0 ? "BULLISH" : change < 0 ? "BEARISH" : "NEUTRAL";
 
     return (
-      "📊 <b>BTC LIVE PRICE</b>\n\n" +
+      "📊 <b>BTC ANALYSIS</b>\n\n" +
       `Price: <b>$${price}</b>\n` +
       `24h Change: <b>${change}%</b>\n\n` +
       `Bias: <b>${bias}</b>\n\n` +
@@ -98,8 +60,8 @@ async function getLiveBTC() {
       "• Trade with trend\n" +
       "• Wait for confirmation"
     );
-  } catch (e) {
-    return "⚠️ Failed to fetch BTC price";
+  } catch {
+    return "⚠️ Failed to fetch BTC data";
   }
 }
 
@@ -116,28 +78,33 @@ function dailyReport() {
 }
 
 // ======================
-// HANDLE MESSAGE (FIXED)
+// HANDLE TELEGRAM COMMANDS
 // ======================
-async function sendTelegram(chatId, text) {
-  try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+async function handleMessage(message) {
+  if (!message || !message.text) return;
 
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: text,
-        parse_mode: "HTML"
-      })
-    });
-  } catch (e) {
-    console.error("Telegram send error:", e.message);
+  const chatId = message.chat.id;
+  const text = message.text.trim().toLowerCase();
+
+  if (text === "/start") {
+    await sendTelegram(chatId, "✅ BTC Telegram bot started");
+    return;
+  }
+
+  if (text === "/btc" || text === "btc") {
+    const live = await getLiveBTC();
+    await sendTelegram(chatId, live);
+    return;
+  }
+
+  if (text === "/daily") {
+    await sendTelegram(chatId, dailyReport());
+    return;
   }
 }
 
 // ======================
-// POLLING LOOP
+// TELEGRAM POLLING
 // ======================
 let lastUpdateId = 0;
 
@@ -162,35 +129,7 @@ async function pollTelegram() {
 }
 
 // ======================
-// DAILY SCHEDULER (23:00 LONDON)
-// ======================
-function startDailyReport() {
-  setInterval(async () => {
-    const now = new Date();
-
-    // Convert to London time
-    const london = new Date(
-      now.toLocaleString("en-US", { timeZone: "Europe/London" })
-    );
-
-    const hours = london.getHours();
-    const minutes = london.getMinutes();
-
-    // Send once at 23:00
-    if (hours === 23 && minutes === 0) {
-      const report = await getLiveBTC();
-      await sendTelegram(
-        "📅 <b>DAILY BTC REPORT</b>\n\n" + report
-      );
-
-      // prevent duplicate sends in same minute
-      await new Promise(r => setTimeout(r, 61000));
-    }
-  }, 30000);
-}
-// ======================
 // START BOT
 // ======================
 console.log("BTC Telegram bot running...");
 setInterval(pollTelegram, 3000);
-startDailyReport();
