@@ -19,6 +19,87 @@ async function sendTelegram(text) {
   });
 }
 
+// ===============================
+// BTC /btc COMMAND (ADD ONLY)
+// ===============================
+
+// Safe fetch (Node 18+)
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+
+// Send Telegram message (SAFE)
+async function sendTelegram(message) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+  await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: TELEGRAM_CHAT_ID,
+      text: message,
+      parse_mode: "Markdown"
+    })
+  });
+}
+
+// Simple BTC analysis (spot, safe)
+async function analyzeBTC() {
+  const res = await fetch(
+    "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=50"
+  );
+  const data = await res.json();
+
+  const closes = data.map(c => parseFloat(c[4]));
+  const last = closes[closes.length - 1];
+  const prev = closes[closes.length - 2];
+
+  let bias = "WAIT";
+  let explanation = "Market is ranging with no clear momentum.";
+
+  if (last > prev * 1.002) {
+    bias = "LONG";
+    explanation =
+      "BTC is showing bullish momentum with higher close. Buyers are in control.";
+  } else if (last < prev * 0.998) {
+    bias = "SHORT";
+    explanation =
+      "BTC is showing bearish pressure with lower close. Sellers dominate.";
+  }
+
+  return { bias, last, explanation };
+}
+
+// Listen for /btc command
+async function checkTelegramUpdates() {
+  const res = await fetch(
+    `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`
+  );
+  const data = await res.json();
+
+  if (!data.result.length) return;
+
+  const msg = data.result[data.result.length - 1].message;
+  if (!msg || !msg.text) return;
+
+  if (msg.text.toLowerCase() === "/btc") {
+    const btc = await analyzeBTC();
+
+    const reply =
+`📊 *BTC MARKET ANALYSIS*
+
+Bias: *${btc.bias}*
+Price: *${btc.last}*
+
+Explanation:
+${btc.explanation}
+
+⚠️ Not financial advice`;
+
+    await sendTelegram(reply);
+  }
+}
+
+// Poll Telegram every 30s
+setInterval(checkTelegramUpdates, 30000);
 // ---------- SIMPLE BTC ANALYSIS ----------
 function ema(values, period) {
   const k = 2 / (period + 1);
