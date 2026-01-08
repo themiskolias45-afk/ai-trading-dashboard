@@ -20,13 +20,15 @@ const fetch = (...args) =>
 // ======================
 // SEND TELEGRAM MESSAGE
 // ======================
-async function sendTelegram(chatId, text) {
+async function sendTelegram(text) {
   try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+
+    await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chat_id: chatId,
+        chat_id: TELEGRAM_CHAT_ID,
         text,
         parse_mode: "HTML"
       })
