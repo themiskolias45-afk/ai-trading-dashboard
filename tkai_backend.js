@@ -17,6 +17,27 @@ const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 // ======================
+// SAFE FETCH (Node 18+)
+// ======================
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+
+
+// ======================
+// BINANCE BTC LIVE DATA   ✅ ADD HERE
+// ======================
+async function fetchBTC() {
+  ...
+}
+
+
+// ======================
+// SEND TELEGRAM MESSAGE  ⬇️ MUST BE BELOW
+// ======================
+async function sendTelegram(text) {
+  ...
+}
+// ======================
 // SEND TELEGRAM MESSAGE
 // ======================
 async function sendTelegram(chatId, text) {
@@ -36,7 +57,7 @@ async function sendTelegram(chatId, text) {
 }
 
 // ======================
-// BTC ANALYSIS
+// BTC ANALYSIS (STATIC BASE)
 // ======================
 function btcAnalysis() {
   return (
@@ -50,6 +71,9 @@ function btcAnalysis() {
   );
 }
 
+// ======================
+// LIVE BTC PRICE (BINANCE)
+// ======================
 async function getLiveBTC() {
   try {
     const res = await fetch(
@@ -61,7 +85,9 @@ async function getLiveBTC() {
     const change = Number(d.priceChangePercent).toFixed(2);
 
     const bias =
-      change > 0 ? "BULLISH" : change < 0 ? "BEARISH" : "NEUTRAL";
+      change > 0 ? "BULLISH" :
+      change < 0 ? "BEARISH" :
+      "NEUTRAL";
 
     return (
       "📊 <b>BTC LIVE PRICE</b>\n\n" +
@@ -70,12 +96,13 @@ async function getLiveBTC() {
       `Bias: <b>${bias}</b>\n\n` +
       "Plan:\n" +
       "• Trade with trend\n" +
-      "• Wait for confirmation\n"
+      "• Wait for confirmation"
     );
   } catch (e) {
     return "⚠️ Failed to fetch BTC price";
   }
 }
+
 // ======================
 // DAILY REPORT
 // ======================
@@ -89,7 +116,7 @@ function dailyReport() {
 }
 
 // ======================
-// HANDLE MESSAGE (CORRECT)
+// HANDLE MESSAGE (FIXED)
 // ======================
 async function handleMessage(message) {
   if (!message || !message.text) return;
@@ -102,10 +129,11 @@ async function handleMessage(message) {
     return;
   }
 
-  if (msg === "/btc" || msg === "btc") {
-  const live = await getLiveBTC();
-  await sendTelegram(live);
-}
+  if (text === "/btc" || text === "btc") {
+    const live = await getLiveBTC();
+    await sendTelegram(chatId, live);
+    return;
+  }
 
   if (text === "/daily") {
     await sendTelegram(chatId, dailyReport());
@@ -129,7 +157,6 @@ async function pollTelegram() {
 
     for (const update of data.result) {
       lastUpdateId = update.update_id;
-
       if (update.message) {
         await handleMessage(update.message);
       }
