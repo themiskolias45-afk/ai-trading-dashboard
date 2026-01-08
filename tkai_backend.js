@@ -2,24 +2,16 @@
  * BTC TELEGRAM ANALYSIS BOT
  * Telegram ONLY – BTC ONLY
  * Node 18+
- * Polling (NO webhook, NO dashboard)
+ * Polling (NO webhook)
  */
 
 // ======================
-// TELEGRAM CONFIG (ONCE)
+// TELEGRAM CONFIG
 // ======================
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
-const TELEGRAM_CHAT_ID = "7063659034";
-
 
 // ======================
-// SAFE FETCH
-// ======================
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
-
-// ======================
-// SEND TELEGRAM MESSAGE (FIXED)
+// SEND TELEGRAM MESSAGE
 // ======================
 async function sendTelegram(chatId, text) {
   try {
@@ -41,12 +33,13 @@ async function sendTelegram(chatId, text) {
 }
 
 // ======================
-// BTC LIVE ANALYSIS (BINANCE)
+// BTC LIVE ANALYSIS (COINGECKO)
 // ======================
 async function getLiveBTC() {
   try {
     const res = await fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
+      "https://api.coingecko.com/api/v3/simple/price" +
+      "?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
       {
         headers: {
           "User-Agent": "Mozilla/5.0",
@@ -55,9 +48,7 @@ async function getLiveBTC() {
       }
     );
 
-    if (!res.ok) {
-      throw new Error("CoinGecko error");
-    }
+    if (!res.ok) throw new Error("CoinGecko error");
 
     const d = await res.json();
 
@@ -128,7 +119,7 @@ async function handleMessage(message) {
 }
 
 // ======================
-// POLLING LOOP
+// TELEGRAM POLLING
 // ======================
 let lastUpdateId = 0;
 
@@ -151,7 +142,7 @@ async function pollTelegram() {
 }
 
 // ======================
-// START
+// START BOT
 // ======================
 console.log("✅ BTC Telegram bot running...");
 setInterval(pollTelegram, 3000);
