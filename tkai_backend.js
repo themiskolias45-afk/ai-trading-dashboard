@@ -5,7 +5,7 @@ const fetch = (...args) =>
 
 const app = express();
 
-/* TELEGRAM */
+/* TELEGRAM — DO NOT TOUCH */
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
 
@@ -34,10 +34,10 @@ app.get("/api/status", (req, res) => {
   });
 });
 
-/* SERVER */
+/* SERVER — REQUIRED FOR RENDER */
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", async () => {
-  console.log(`TKAI Backend running on ${PORT}`);
-  await sendTelegram("✅ TKAI Backend is LIVE");
+  console.log(`TKAI Backend running on port ${PORT}`);
+  await sendTelegram("✅ TKAI Backend is LIVE and Telegram is working");
 });
