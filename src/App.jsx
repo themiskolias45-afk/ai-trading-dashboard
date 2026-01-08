@@ -1,64 +1,58 @@
 import { useEffect, useState } from "react";
 
 export default function App() {
-  const [btcPrice, setBtcPrice] = useState("-");
-  const [goldPrice, setGoldPrice] = useState("-");
-  const [status, setStatus] = useState("Loading market data…");
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  const BACKEND_URL = "https://tkai-backend.onrender.com/api/status";
 
   useEffect(() => {
-    async function load() {
+    const load = async () => {
       try {
-        const btc = await fetch(
-          "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
-        ).then(r => r.json());
-
-        const gold = await fetch(
-          "https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT"
-        ).then(r => r.json());
-
-        setBtcPrice(Number(btc.price).toFixed(2));
-        setGoldPrice(Number(gold.price).toFixed(2));
-        setStatus("Market data live");
+        const res = await fetch(BACKEND_URL);
+        const json = await res.json();
+        setData(json);
       } catch (e) {
-        setStatus("Error loading data");
+        setError("Backend not reachable");
       }
-    }
+    };
 
     load();
-    const i = setInterval(load, 60000);
-    return () => clearInterval(i);
+    const interval = setInterval(load, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#0b1220",
-        color: "#eaeaea",
-        padding: 24,
-        fontFamily: "Arial"
-      }}
-    >
-      <h1>TKAI — Trading Dashboard</h1>
+    <div style={{
+      background: "#0b0f1a",
+      minHeight: "100vh",
+      color: "#e5e7eb",
+      padding: "20px",
+      fontFamily: "Arial"
+    }}>
+      <h1 style={{ color: "#8b5cf6" }}>TKAI Dashboard</h1>
 
-      <p>Status: {status}</p>
+      {!data && !error && <p>Loading…</p>}
+      {error && <p style={{ color: "red" }}>{error}</p>}
 
-      <hr />
-
-      <h2>BTCUSD</h2>
-      <p>Price: ${btcPrice}</p>
-
-      <hr />
-
-      <h2>Gold (PAXG)</h2>
-      <p>Price: ${goldPrice}</p>
-
-      <hr />
-
-      <p>
-        Dashboard is stable.<br />
-        Analysis & alerts handled by backend.
-      </p>
+      {data && (
+        <div style={{
+          marginTop: "20px",
+          padding: "20px",
+          borderRadius: "10px",
+          background: "#111827",
+          maxWidth: "420px"
+        }}>
+          <p><b>Asset:</b> {data.asset}</p>
+          <p><b>Direction:</b> {data.direction}</p>
+          <p><b>Confidence:</b> {data.confidence}%</p>
+          <p><b>Explanation:</b></p>
+          <p style={{ opacity: 0.9 }}>{data.explanation}</p>
+          <p style={{ fontSize: "12px", opacity: 0.6 }}>
+            Last update: {new Date(data.time).toLocaleString()}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
