@@ -6,6 +6,10 @@
 const express = require("express");
 const app = express();
 
+/* ============ SAFE FETCH (Node 18 / Render) ============ */
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+
 /* ================== TELEGRAM ================== */
 const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
@@ -23,8 +27,8 @@ async function sendTelegram(message) {
         }),
       }
     );
-  } catch (e) {
-    console.error("Telegram error:", e.message);
+  } catch (err) {
+    console.error("Telegram error:", err.message);
   }
 }
 
@@ -38,8 +42,9 @@ app.get("/api/status", (req, res) => {
   });
 });
 
-/* ================== SERVER ================== */
+/* ================== SERVER START ================== */
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, async () => {
   console.log(`TKAI Backend running on port ${PORT}`);
   await sendTelegram("✅ TKAI Backend started successfully");
