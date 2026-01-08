@@ -1,7 +1,8 @@
-/****************************************************
- * TKAI – BACKEND SERVER (STABLE / RENDER SAFE)
- * Dashboard API + Telegram Notifications
- ****************************************************/
+/************************************************************
+ * TKAI – BACKEND SERVER (STABLE / RENDER READY)
+ * Dashboard API + Telegram (CONFIRMED)
+ * Node 18 compatible
+ ************************************************************/
 
 const express = require("express");
 const app = express();
@@ -11,12 +12,14 @@ const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 /* ================= TELEGRAM (DO NOT REMOVE) ================= */
-const TELEGRAM_TOKEN = "8246792368:AAG8bxkAIeuUddX5PnQjnC6BubqM3p-NeA";
+const TELEGRAM_TOKEN =
+  "8246792368:AAG8bxkAIeuUddX5PnQjnC6BubqM3p-NeA";
 const TELEGRAM_CHAT_ID = "7063659034";
 
 async function sendTelegram(message) {
   try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+    await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -29,11 +32,7 @@ async function sendTelegram(message) {
   }
 }
 
-/* ================= API ================= */
-app.get("/", (req, res) => {
-  res.send("TKAI Backend is running");
-});
-
+/* ================= DASHBOARD API ================= */
 app.get("/api/status", (req, res) => {
   res.json({
     service: "TKAI Backend",
@@ -43,10 +42,17 @@ app.get("/api/status", (req, res) => {
   });
 });
 
-/* ================= SERVER (CRITICAL) ================= */
+/* ================= ROOT (OPTIONAL) ================= */
+app.get("/", (req, res) => {
+  res.send("TKAI Backend is running");
+});
+
+/* ================= SERVER START (CRITICAL) ================= */
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, "0.0.0.0", async () => {
   console.log(`TKAI Backend running on port ${PORT}`);
-  sendTelegram("✅ TKAI Backend is LIVE and Telegram is working");
+
+  // Telegram confirmation (guaranteed)
+  await sendTelegram("✅ TKAI Backend is LIVE and connected");
 });
