@@ -118,26 +118,21 @@ function dailyReport() {
 // ======================
 // HANDLE MESSAGE (FIXED)
 // ======================
-async function handleMessage(message) {
-  if (!message || !message.text) return;
+async function sendTelegram(chatId, text) {
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
 
-  const chatId = message.chat.id;
-  const text = message.text.trim().toLowerCase();
-
-  if (text === "/start") {
-    await sendTelegram(chatId, "✅ BTC Telegram bot started");
-    return;
-  }
-
-  if (text === "/btc" || text === "btc") {
-    const live = await getLiveBTC();
-    await sendTelegram(chatId, live);
-    return;
-  }
-
-  if (text === "/daily") {
-    await sendTelegram(chatId, dailyReport());
-    return;
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+        parse_mode: "HTML"
+      })
+    });
+  } catch (e) {
+    console.error("Telegram send error:", e.message);
   }
 }
 
