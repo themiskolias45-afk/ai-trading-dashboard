@@ -167,7 +167,35 @@ async function pollTelegram() {
 }
 
 // ======================
+// DAILY SCHEDULER (23:00 LONDON)
+// ======================
+function startDailyReport() {
+  setInterval(async () => {
+    const now = new Date();
+
+    // Convert to London time
+    const london = new Date(
+      now.toLocaleString("en-US", { timeZone: "Europe/London" })
+    );
+
+    const hours = london.getHours();
+    const minutes = london.getMinutes();
+
+    // Send once at 23:00
+    if (hours === 23 && minutes === 0) {
+      const report = await getLiveBTC();
+      await sendTelegram(
+        "📅 <b>DAILY BTC REPORT</b>\n\n" + report
+      );
+
+      // prevent duplicate sends in same minute
+      await new Promise(r => setTimeout(r, 61000));
+    }
+  }, 30000);
+}
+// ======================
 // START BOT
 // ======================
 console.log("BTC Telegram bot running...");
 setInterval(pollTelegram, 3000);
+startDailyReport();
