@@ -42,17 +42,15 @@ app.get("/api/status", (req, res) => {
   });
 });
 
-/* ================= ROOT (OPTIONAL) ================= */
+/* ================= ROOT ================= */
 app.get("/", (req, res) => {
   res.send("TKAI Backend is running");
 });
 
-/* ================= SERVER START (CRITICAL) ================= */
+/* ================= SERVER START ================= */
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", async () => {
   console.log(`TKAI Backend running on port ${PORT}`);
-
-  // Telegram confirmation (guaranteed)
   await sendTelegram("✅ TKAI Backend is LIVE and connected");
 });
