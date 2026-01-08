@@ -20,20 +20,24 @@ const fetch = (...args) =>
 /* =========================
    SEND TELEGRAM MESSAGE
    ========================= */
-async function sendTelegram(text) {
-  try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text,
-        parse_mode: "HTML"
-      })
-    });
-  } catch (e) {
-    console.error("Telegram send error:", e.message);
+async function handleMessage(message) {
+  if (!message.text) return;
+
+  const text = message.text.trim().toLowerCase();
+
+  if (text === "/start") {
+    await sendTelegram("✅ BTC Telegram bot started");
+    return;
+  }
+
+  if (text === "/btc" || text === "btc") {
+    await sendTelegram(btcAnalysis());
+    return;
+  }
+
+  if (text === "/daily") {
+    await sendTelegram(dailyReport());
+    return;
   }
 }
 
