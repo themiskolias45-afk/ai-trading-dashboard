@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "backend": "node tkai_backend.js",
-    "serve": "npm run build && SERVE_STATIC=true node tkai_backend.js"
+    "serve": "npm run build && SERVE_STATIC=true node tkai_backend.js",
+    "start": "node tkai_backend.js"
   },
   "dependencies": {
     "react": "^18.2.0",
