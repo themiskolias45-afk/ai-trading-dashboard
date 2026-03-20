@@ -25,7 +25,7 @@ const SIG_CLR  = { BUY: C.buy, SELL: C.sell, HOLD: C.hold, ERROR: C.warn, 'N/A':
 const TRD_ICON = { UP: '▲', DOWN: '▼', RANGE: '◆' };
 const TRD_CLR  = { UP: C.buy, DOWN: C.sell, RANGE: C.hold };
 
-const TABS = ['SIGNALS', 'ANALYSIS', 'LOG', 'PAPER', 'HELP'];
+const TABS = ['SIGNALS', 'ANALYSIS', 'LOG', 'PAPER', 'AUTO TRADE', 'HELP'];
 
 const ALL_ASSETS = ['BTC', 'GOLD', 'SP500', 'MSFT', 'AMZN'];
 
@@ -879,6 +879,301 @@ function HelpTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// TAB: AUTO TRADE
+// ═══════════════════════════════════════════════════════════════
+
+function AutoTradeTab() {
+  const [at,      setAt]      = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(false);
+  const [cfg,     setCfg]     = useState({ mode: 'PAPER', assets: ['BTC'], minConf: 70, riskPct: 1, tpLevel: 2 });
+  const [confirm, setConfirm] = useState(false);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const r = await fetch('/api/autotrade/status');
+      if (!r.ok) return;
+      const d = await r.json();
+      setAt(d);
+      if (!at) setCfg({ mode: d.mode, assets: d.assets, minConf: d.minConf, riskPct: d.riskPct, tpLevel: d.tpLevel });
+    } catch {}
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    const id = setInterval(fetchStatus, 15000);
+    return () => clearInterval(id);
+  }, [fetchStatus]);
+
+  const toggle = async (enable) => {
+    if (enable && cfg.mode === 'LIVE' && !confirm) { setConfirm(true); return; }
+    setConfirm(false);
+    setSaving(true);
+    try {
+      await fetch('/api/autotrade/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: enable, ...cfg }),
+      });
+      await fetchStatus();
+    } catch {}
+    setSaving(false);
+  };
+
+  const closeAll = async () => {
+    if (!window.confirm('Close ALL open auto-trade positions?')) return;
+    await fetch('/api/autotrade/closeall', { method: 'POST' });
+    await fetchStatus();
+  };
+
+  const ALL = ['BTC', 'GOLD', 'SP500', 'MSFT', 'AMZN'];
+  const liveAssets = ['BTC'];  // only BTC supported on Binance LIVE
+
+  const toggleAsset = id => {
+    const cur  = cfg.assets;
+    const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id];
+    if (next.length === 0) return;
+    setCfg(c => ({ ...c, assets: next }));
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>Loading auto-trade status...</div>;
+
+  const enabled   = at?.enabled || false;
+  const mode      = cfg.mode;
+  const positions = at?.positions || [];
+  const history   = at?.history   || [];
+  const stats     = at?.stats     || { wins: 0, losses: 0, totalPnlPct: 0 };
+  const logs      = at?.logs      || [];
+  const hasKeys   = at?.hasCredentials;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* ── MASTER CONTROL ─── */}
+      <div style={{ background: C.panel, border: `2px solid ${enabled ? C.buy : C.border}`, borderRadius: 8, padding: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: 1 }}>
+              AUTO-TRADE ENGINE
+              <span style={{ marginLeft: 10, fontSize: 10, color: enabled ? C.buy : C.muted }}>
+                {enabled ? '● ACTIVE' : '○ INACTIVE'}
+              </span>
+            </div>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 3 }}>
+              Mode: <span style={{ color: mode === 'LIVE' ? C.sell : C.warn, fontWeight: 700 }}>{mode}</span>
+              {mode === 'LIVE' && !hasKeys && <span style={{ color: C.sell }}> — No API keys set!</span>}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {enabled
+              ? <Btn color={C.sell} onClick={() => toggle(false)} disabled={saving}>DISABLE AUTO-TRADE</Btn>
+              : <Btn color={C.buy}  onClick={() => toggle(true)}  disabled={saving}>ENABLE AUTO-TRADE</Btn>
+            }
+            {positions.length > 0 && (
+              <Btn color={C.warn} onClick={closeAll} small>CLOSE ALL</Btn>
+            )}
+          </div>
+        </div>
+
+        {/* LIVE confirmation warning */}
+        {confirm && (
+          <div style={{ marginTop: 12, background: C.sell + '22', border: `1px solid ${C.sell}55`, borderRadius: 6, padding: 12 }}>
+            <div style={{ color: C.sell, fontWeight: 700, marginBottom: 8 }}>⚠ LIVE TRADING WARNING</div>
+            <div style={{ color: C.text, fontSize: 12, marginBottom: 10 }}>
+              You are about to enable LIVE trading with real money on Binance.
+              This will place real orders automatically. Make sure you have tested in PAPER mode first.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn color={C.sell} onClick={() => { setConfirm(false); toggle(true); }}>I UNDERSTAND — ENABLE LIVE</Btn>
+              <Btn color={C.muted} onClick={() => setConfirm(false)}>CANCEL</Btn>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── CONFIG ─── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+
+        {/* Mode */}
+        <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: 14 }}>
+          <div style={{ color: C.accent, fontWeight: 700, fontSize: 10, letterSpacing: 1, marginBottom: 12 }}>TRADING MODE</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {['PAPER', 'LIVE'].map(m => (
+              <Btn key={m} active={cfg.mode === m} color={m === 'LIVE' ? C.sell : C.buy}
+                onClick={() => setCfg(c => ({ ...c, mode: m, assets: m === 'LIVE' ? liveAssets : c.assets }))}>
+                {m}
+              </Btn>
+            ))}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 10, color: C.muted, lineHeight: 1.7 }}>
+            {mode === 'PAPER'
+              ? 'Paper mode: simulates trades without real money. Safe for testing.'
+              : 'LIVE mode: places real Binance orders. Requires BINANCE_KEY + BINANCE_SECRET in .env'}
+          </div>
+        </div>
+
+        {/* Assets */}
+        <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: 14 }}>
+          <div style={{ color: C.accent, fontWeight: 700, fontSize: 10, letterSpacing: 1, marginBottom: 12 }}>ASSETS TO TRADE</div>
+          {(mode === 'LIVE' ? liveAssets : ALL).map(id => {
+            const on = cfg.assets.includes(id);
+            return (
+              <div key={id} onClick={() => toggleAsset(id)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 7, userSelect: 'none' }}>
+                <div style={{ width: 14, height: 14, borderRadius: 2, border: `1px solid ${on ? C.buy : C.border}`, background: on ? C.buy + '44' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: C.buy }}>{on ? '✓' : ''}</div>
+                <span style={{ fontSize: 11, color: on ? C.text : C.muted }}>{id}</span>
+                {mode === 'LIVE' && id === 'BTC' && <Badge label="BINANCE" color={C.warn} small />}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Risk controls */}
+        <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ color: C.accent, fontWeight: 700, fontSize: 10, letterSpacing: 1 }}>RISK CONTROLS</div>
+          <Slider label="Min Confidence" value={cfg.minConf} min={50} max={95} step={5} onChange={v => setCfg(c => ({ ...c, minConf: v }))} unit="%" color={C.accent} />
+          <Slider label="Risk per Trade"  value={cfg.riskPct} min={0.5} max={5} step={0.5} onChange={v => setCfg(c => ({ ...c, riskPct: v }))} unit="%" color={C.warn} />
+          <div>
+            <div style={{ fontSize: 10, color: C.muted, marginBottom: 6 }}>Take Profit Target</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[1, 2, 3].map(n => <Btn key={n} small active={cfg.tpLevel === n} color={C.buy} onClick={() => setCfg(c => ({ ...c, tpLevel: n }))}>TP{n}</Btn>)}
+            </div>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: 14 }}>
+          <div style={{ color: C.accent, fontWeight: 700, fontSize: 10, letterSpacing: 1, marginBottom: 12 }}>PERFORMANCE</div>
+          {[
+            ['WINS',     stats.wins,                                           C.buy],
+            ['LOSSES',   stats.losses,                                         C.sell],
+            ['WIN RATE', stats.wins + stats.losses > 0 ? Math.round(stats.wins / (stats.wins + stats.losses) * 100) + '%' : '—', C.warn],
+            ['TOTAL P&L', (stats.totalPnlPct >= 0 ? '+' : '') + stats.totalPnlPct + '%', stats.totalPnlPct >= 0 ? C.buy : C.sell],
+          ].map(([lbl, val, clr]) => (
+            <div key={lbl} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, lineHeight: 2 }}>
+              <span style={{ color: C.muted }}>{lbl}</span>
+              <span style={{ color: clr, fontWeight: 700 }}>{val}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── OPEN POSITIONS ─── */}
+      <div>
+        <div style={{ color: C.accent, fontWeight: 700, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>
+          OPEN POSITIONS ({positions.length})
+        </div>
+        {positions.length === 0 ? (
+          <div style={{ color: C.muted, fontSize: 12 }}>No open positions. Enable auto-trade and wait for a signal.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+            {positions.map(p => {
+              const sc   = SIG_CLR[p.side] || C.muted;
+              const pnlC = p.pnlPct == null ? C.muted : p.pnlPct >= 0 ? C.buy : C.sell;
+              const d    = ['BTC', 'SP500'].includes(p.id) ? 0 : 2;
+              return (
+                <div key={p.id} style={{ background: C.panel, border: `1px solid ${sc}44`, borderLeft: `3px solid ${sc}`, borderRadius: 6, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 700, color: C.text }}>{p.id}</span>
+                    <Badge label={p.side} color={sc} small />
+                  </div>
+                  {[
+                    ['Entry',   numFmt(p.entry, d),        C.text],
+                    ['Current', numFmt(p.currentPrice, d), C.text],
+                    ['SL',      numFmt(p.sl, d),           C.sell],
+                    ['TP',      numFmt(p.tp, d),           C.buy],
+                    ['P&L',     p.pnlPct != null ? (p.pnlPct >= 0 ? '+' : '') + p.pnlPct + '%' : '—', pnlC],
+                    ['Qty',     p.qty,                     C.muted],
+                  ].map(([lbl, val, clr]) => (
+                    <div key={lbl} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, lineHeight: 1.9 }}>
+                      <span style={{ color: C.muted }}>{lbl}</span>
+                      <span style={{ color: clr, fontWeight: 600 }}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── TRADE HISTORY ─── */}
+      <div>
+        <div style={{ color: C.accent, fontWeight: 700, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>
+          TRADE HISTORY ({history.length})
+        </div>
+        {history.length === 0 ? (
+          <div style={{ color: C.muted, fontSize: 12 }}>No completed trades yet.</div>
+        ) : (
+          <div style={{ overflowX: 'auto', border: `1px solid ${C.border}`, borderRadius: 6 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ background: C.panel2 }}>
+                  {['Close Time', 'Asset', 'Side', 'Entry', 'Exit', 'P&L%', 'Result', 'Reason'].map(h => (
+                    <th key={h} style={{ padding: '7px 10px', textAlign: 'left', color: C.muted, fontSize: 9, fontWeight: 700, borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h, i) => {
+                  const rc = h.result === 'WIN' ? C.buy : C.sell;
+                  const d  = ['BTC', 'SP500'].includes(h.asset) ? 0 : 2;
+                  return (
+                    <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? 'transparent' : '#ffffff03' }}>
+                      <td style={{ padding: '7px 10px', color: C.muted, fontSize: 10, whiteSpace: 'nowrap' }}>{timeStr(h.closeTime)}</td>
+                      <td style={{ padding: '7px 10px', fontWeight: 700, color: C.text }}>{h.asset}</td>
+                      <td style={{ padding: '7px 10px' }}><Badge label={h.side} color={SIG_CLR[h.side]} small /></td>
+                      <td style={{ padding: '7px 10px', color: C.text }}>{numFmt(h.entry, d)}</td>
+                      <td style={{ padding: '7px 10px', color: C.text }}>{numFmt(h.exit, d)}</td>
+                      <td style={{ padding: '7px 10px', color: h.pnlPct >= 0 ? C.buy : C.sell, fontWeight: 700 }}>
+                        {h.pnlPct >= 0 ? '+' : ''}{h.pnlPct}%
+                      </td>
+                      <td style={{ padding: '7px 10px' }}><Badge label={h.result} color={rc} small /></td>
+                      <td style={{ padding: '7px 10px', color: C.muted, fontSize: 10 }}>{h.reason}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── EXECUTION LOG ─── */}
+      <div>
+        <div style={{ color: C.accent, fontWeight: 700, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>
+          EXECUTION LOG
+        </div>
+        {logs.length === 0 ? (
+          <div style={{ color: C.muted, fontSize: 12 }}>No auto-trade events yet.</div>
+        ) : (
+          <div style={{ background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 6, padding: 12, fontFamily: 'Consolas, monospace', fontSize: 10, maxHeight: 200, overflowY: 'auto' }}>
+            {logs.map((l, i) => {
+              const clr = l.includes('WIN') ? C.buy : l.includes('LOSS') ? C.sell : l.includes('PAPER') || l.includes('LIVE') ? C.accent : C.text;
+              return <div key={i} style={{ color: clr, lineHeight: 1.8 }}>{l}</div>;
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── SETUP GUIDE ─── */}
+      <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, padding: 14, fontSize: 11, color: C.muted, lineHeight: 2 }}>
+        <div style={{ color: C.accent, fontWeight: 700, fontSize: 10, letterSpacing: 1, marginBottom: 8 }}>SETUP GUIDE</div>
+        <div><span style={{ color: C.text }}>PAPER mode:</span> Works immediately — no setup needed. Simulates trades safely.</div>
+        <div><span style={{ color: C.text }}>LIVE mode:</span> Create a Binance API key at binance.com → API Management.</div>
+        <div style={{ marginLeft: 12 }}>• Enable <span style={{ color: C.warn }}>Spot Trading</span> permission only (no withdrawal needed)</div>
+        <div style={{ marginLeft: 12 }}>• Add to your <code style={{ color: C.accent }}>.env</code> file:</div>
+        <div style={{ background: C.panel2, borderRadius: 4, padding: '6px 10px', margin: '4px 0 4px 24px', fontFamily: 'Consolas, monospace', color: C.buy }}>
+          BINANCE_KEY=your_key_here<br/>BINANCE_SECRET=your_secret_here
+        </div>
+        <div>• Restart backend after setting credentials</div>
+        <div style={{ color: C.sell }}>• Start with PAPER mode and small risk % before going LIVE</div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ROOT APP
 // ═══════════════════════════════════════════════════════════════
 
@@ -1038,11 +1333,12 @@ export default function App() {
         )}
         {!loading && (
           <>
-            {activeTab === 'SIGNALS'  && <SignalsTab  signals={filteredSignals} settings={settings} />}
-            {activeTab === 'ANALYSIS' && <AnalysisTab signals={filteredSignals} settings={settings} />}
-            {activeTab === 'LOG'      && <LogTab      log={log} onExportLog={exportLogCSV} />}
-            {activeTab === 'PAPER'    && <PaperTab    signals={filteredSignals} settings={settings} />}
-            {activeTab === 'HELP'     && <HelpTab />}
+            {activeTab === 'SIGNALS'    && <SignalsTab    signals={filteredSignals} settings={settings} />}
+            {activeTab === 'ANALYSIS'   && <AnalysisTab   signals={filteredSignals} settings={settings} />}
+            {activeTab === 'LOG'        && <LogTab        log={log} onExportLog={exportLogCSV} />}
+            {activeTab === 'PAPER'      && <PaperTab      signals={filteredSignals} settings={settings} />}
+            {activeTab === 'AUTO TRADE' && <AutoTradeTab />}
+            {activeTab === 'HELP'       && <HelpTab />}
           </>
         )}
       </div>

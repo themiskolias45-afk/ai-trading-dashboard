@@ -7,17 +7,31 @@
  * Telegram   : /start /signals /btc /gold /sp500 /msft /amzn /daily
  */
 
-import fetch from 'node-fetch';
-import http  from 'http';
-import cron  from 'node-cron';
-import { URL } from 'url';
+import fetch    from 'node-fetch';
+import http     from 'http';
+import cron     from 'node-cron';
+import crypto   from 'crypto';
+import fs       from 'fs';
+import path     from 'path';
+import { URL, fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ============================================================
 // CONFIG
 // ============================================================
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA';
-const PORT           = process.env.PORT || 4000;
-const MAX_LOG        = 300;   // max signal-change log entries kept in memory
+const TELEGRAM_TOKEN  = process.env.TELEGRAM_TOKEN  || '8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA';
+const PORT            = process.env.PORT || 4000;
+const MAX_LOG         = 300;
+const SERVE_STATIC    = process.env.SERVE_STATIC === 'true';
+
+// Binance API credentials (set in .env for live trading)
+const BINANCE_KEY     = process.env.BINANCE_KEY    || '';
+const BINANCE_SECRET  = process.env.BINANCE_SECRET || '';
+const BINANCE_BASE    = 'https://api.binance.com';
+
+// Binance symbol map (assetId → Binance trading pair)
+const BINANCE_SYMBOLS = { BTC: 'BTCUSDT' };
 
 const ASSETS = [
   { id: 'BTC',   symbol: 'BTC-USD', name: 'Bitcoin',   decimals: 0 },
@@ -258,6 +272,7 @@ async function refreshAllSignals() {
     signalsCache.forEach(recordSignal);
     lastRefresh = Date.now();
     console.log('[Engine]', signalsCache.map(s => `${s.id}:${s.signal}(${s.confidence ?? 0}%)`).join(' | '));
+    await checkAutoTrade(signalsCache);
   } catch (e) {
     console.error('[Engine] Refresh error:', e.message);
   }
@@ -265,6 +280,200 @@ async function refreshAllSignals() {
 }
 
 cron.schedule('*/2 * * * *', refreshAllSignals);
+
+// ============================================================
+// BINANCE API HELPERS
+// ============================================================
+
+function bnSign(params) {
+  const q = new URLSearchParams(params).toString();
+  return crypto.createHmac('sha256', BINANCE_SECRET).update(q).digest('hex');
+}
+
+async function bnGet(endpoint, params = {}) {
+  const p = { ...params, timestamp: Date.now() };
+  p.signature = bnSign(p);
+  const res = await fetch(`${BINANCE_BASE}${endpoint}?${new URLSearchParams(p)}`, {
+    headers: { 'X-MBX-APIKEY': BINANCE_KEY },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`Binance GET ${endpoint}: ${data.msg || res.status}`);
+  return data;
+}
+
+async function bnPost(endpoint, params = {}) {
+  const p = { ...params, timestamp: Date.now() };
+  p.signature = bnSign(p);
+  const res = await fetch(`${BINANCE_BASE}${endpoint}`, {
+    method:  'POST',
+    headers: { 'X-MBX-APIKEY': BINANCE_KEY, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    new URLSearchParams(p).toString(),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`Binance POST ${endpoint}: ${data.msg || res.status}`);
+  return data;
+}
+
+async function bnGetUsdtBalance() {
+  const data = await bnGet('/api/v3/account');
+  const bal  = (data.balances || []).find(b => b.asset === 'USDT');
+  return parseFloat(bal?.free || 0);
+}
+
+async function bnGetBtcBalance() {
+  const data = await bnGet('/api/v3/account');
+  const bal  = (data.balances || []).find(b => b.asset === 'BTC');
+  return parseFloat(bal?.free || 0);
+}
+
+// ============================================================
+// AUTO-TRADE ENGINE
+// ============================================================
+
+const AT = {
+  enabled:   false,
+  mode:      'PAPER',   // 'PAPER' | 'LIVE'
+  assets:    ['BTC'],   // which assets to auto-trade
+  minConf:   70,
+  riskPct:   1,
+  tpLevel:   2,
+  positions: {},        // assetId → { side, entry, qty, sl, tp, openTime, orderId? }
+  history:   [],        // { asset, side, entry, exit, qty, pnlPct, pnlUsdt, result, openTime, closeTime, reason }
+  logs:      [],        // execution log lines
+  stats:     { wins: 0, losses: 0, totalPnlPct: 0, totalPnlUsdt: 0 },
+};
+
+function atLog(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}`;
+  console.log('[AutoTrade]', msg);
+  AT.logs.unshift(line);
+  if (AT.logs.length > 200) AT.logs.pop();
+}
+
+function atGetTp(sig) {
+  return AT.tpLevel === 1 ? sig.tp1 : AT.tpLevel === 3 ? sig.tp3 : sig.tp2;
+}
+
+async function atOpenPosition(sig) {
+  const { id, signal, entry, sl, atr } = sig;
+  const tp  = atGetTp(sig);
+  const qty = AT.mode === 'LIVE' ? null : 0;   // qty computed below
+
+  if (AT.mode === 'LIVE') {
+    if (!BINANCE_KEY || !BINANCE_SECRET) {
+      atLog(`LIVE trade skipped — no Binance credentials (set BINANCE_KEY + BINANCE_SECRET in .env)`);
+      return;
+    }
+    if (!BINANCE_SYMBOLS[id]) {
+      atLog(`${id}: not supported for LIVE Binance trading (only BTC)`);
+      return;
+    }
+    try {
+      const balance   = await bnGetUsdtBalance();
+      const riskUsdt  = balance * (AT.riskPct / 100);
+      const rawQty    = riskUsdt / entry;
+      const liveQty   = Math.floor(rawQty * 100000) / 100000;   // 5 decimals for BTC
+      if (liveQty < 0.00001) { atLog(`${id}: qty too small (${liveQty}) — increase balance or risk`); return; }
+
+      const side  = signal === 'BUY' ? 'BUY' : 'SELL';
+      const order = await bnPost('/api/v3/order', {
+        symbol:    BINANCE_SYMBOLS[id],
+        side,
+        type:      'MARKET',
+        quantity:  liveQty,
+      });
+      AT.positions[id] = { side: signal, entry, qty: liveQty, sl, tp, openTime: new Date().toISOString(), orderId: order.orderId };
+      atLog(`LIVE ${signal} ${id} qty=${liveQty} @ ${entry} | SL:${sl} TP:${tp} | orderId:${order.orderId}`);
+    } catch (e) {
+      atLog(`LIVE open error ${id}: ${e.message}`);
+    }
+    return;
+  }
+
+  // PAPER mode — all 5 assets supported
+  const paperQty = atr > 0 ? +(1000 / entry).toFixed(6) : 0.001;
+  AT.positions[id] = { side: signal, entry, qty: paperQty, sl, tp, openTime: new Date().toISOString() };
+  atLog(`PAPER ${signal} ${id} @ ${entry} | SL:${sl} TP:${tp}`);
+}
+
+async function atClosePosition(assetId, exitPrice, reason) {
+  const pos = AT.positions[assetId];
+  if (!pos) return;
+
+  if (AT.mode === 'LIVE' && pos.orderId && BINANCE_SYMBOLS[assetId]) {
+    try {
+      await bnPost('/api/v3/order', {
+        symbol:   BINANCE_SYMBOLS[assetId],
+        side:     pos.side === 'BUY' ? 'SELL' : 'BUY',
+        type:     'MARKET',
+        quantity: pos.qty,
+      });
+    } catch (e) {
+      atLog(`LIVE close error ${assetId}: ${e.message}`);
+    }
+  }
+
+  const pnlPct  = pos.side === 'BUY'
+    ? ((exitPrice - pos.entry) / pos.entry) * 100
+    : ((pos.entry - exitPrice) / pos.entry) * 100;
+  const pnlUsdt = AT.mode === 'PAPER' ? +(pnlPct / 100 * pos.qty * pos.entry).toFixed(4) : 0;
+  const result  = pnlPct >= 0 ? 'WIN' : 'LOSS';
+
+  AT.history.unshift({
+    asset:     assetId,
+    side:      pos.side,
+    entry:     pos.entry,
+    exit:      exitPrice,
+    qty:       pos.qty,
+    pnlPct:    +pnlPct.toFixed(3),
+    pnlUsdt,
+    result,
+    openTime:  pos.openTime,
+    closeTime: new Date().toISOString(),
+    reason,
+  });
+  if (AT.history.length > 500) AT.history.pop();
+
+  AT.stats[result === 'WIN' ? 'wins' : 'losses']++;
+  AT.stats.totalPnlPct  = +(AT.stats.totalPnlPct  + pnlPct).toFixed(3);
+  AT.stats.totalPnlUsdt = +(AT.stats.totalPnlUsdt + pnlUsdt).toFixed(4);
+
+  atLog(`CLOSE ${assetId} ${pos.side} @ ${exitPrice} | P&L: ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(3)}% | ${result} | ${reason}`);
+  delete AT.positions[assetId];
+}
+
+async function checkAutoTrade(signals) {
+  if (!AT.enabled) return;
+  for (const sig of signals) {
+    if (!AT.assets.includes(sig.id)) continue;
+    if (!sig.ok || sig.signal === 'ERROR') continue;
+
+    const pos = AT.positions[sig.id];
+
+    // Check stop-loss / take-profit on open positions
+    if (pos && sig.price != null) {
+      const hitSL = pos.side === 'BUY'  ? sig.price <= pos.sl : sig.price >= pos.sl;
+      const hitTP = pos.side === 'BUY'  ? sig.price >= pos.tp : sig.price <= pos.tp;
+      if (hitSL) { await atClosePosition(sig.id, sig.price, 'SL HIT'); continue; }
+      if (hitTP) { await atClosePosition(sig.id, sig.price, 'TP HIT'); continue; }
+    }
+
+    if (sig.signal === 'BUY' || sig.signal === 'SELL') {
+      const confOk = (sig.confidence || 0) >= AT.minConf;
+      if (!confOk) continue;
+
+      if (pos && pos.side !== sig.signal) {
+        // Signal flipped — close old, open new
+        await atClosePosition(sig.id, sig.price, 'SIGNAL FLIP');
+        await atOpenPosition(sig);
+      } else if (!pos) {
+        await atOpenPosition(sig);
+      }
+    } else if (sig.signal === 'HOLD' && pos) {
+      await atClosePosition(sig.id, sig.price, 'HOLD SIGNAL');
+    }
+  }
+}
 
 // ============================================================
 // HTTP API SERVER
@@ -332,14 +541,84 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── AUTO-TRADE ROUTES ──────────────────────────────────────
+
+  if (path === '/api/autotrade/status') {
+    const openList = Object.entries(AT.positions).map(([id, p]) => {
+      const cur = signalsCache.find(s => s.id === id);
+      const pnlPct = cur?.price != null
+        ? (p.side === 'BUY'
+            ? ((cur.price - p.entry) / p.entry) * 100
+            : ((p.entry - cur.price) / p.entry) * 100)
+        : null;
+      return { id, ...p, currentPrice: cur?.price ?? null, pnlPct: pnlPct != null ? +pnlPct.toFixed(3) : null };
+    });
+    jsonRes(res, 200, {
+      enabled: AT.enabled, mode: AT.mode, assets: AT.assets,
+      minConf: AT.minConf, riskPct: AT.riskPct, tpLevel: AT.tpLevel,
+      positions: openList, history: AT.history.slice(0, 100),
+      stats: AT.stats, logs: AT.logs.slice(0, 50),
+      hasCredentials: !!(BINANCE_KEY && BINANCE_SECRET),
+    });
+    return;
+  }
+
+  if (path === '/api/autotrade/toggle' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      try {
+        const d = JSON.parse(body || '{}');
+        AT.enabled = typeof d.enabled === 'boolean' ? d.enabled : !AT.enabled;
+        if (typeof d.mode    === 'string')  AT.mode    = d.mode;
+        if (Array.isArray(d.assets))        AT.assets  = d.assets;
+        if (typeof d.minConf === 'number')  AT.minConf = d.minConf;
+        if (typeof d.riskPct === 'number')  AT.riskPct = d.riskPct;
+        if (typeof d.tpLevel === 'number')  AT.tpLevel = d.tpLevel;
+        atLog(`Auto-trade ${AT.enabled ? 'ENABLED' : 'DISABLED'} | mode:${AT.mode} assets:${AT.assets} conf:${AT.minConf}% risk:${AT.riskPct}%`);
+        jsonRes(res, 200, { ok: true, enabled: AT.enabled, mode: AT.mode });
+      } catch { jsonRes(res, 400, { error: 'invalid JSON' }); }
+    });
+    return;
+  }
+
+  if (path === '/api/autotrade/closeall' && req.method === 'POST') {
+    const ids = Object.keys(AT.positions);
+    for (const id of ids) {
+      const cur = signalsCache.find(s => s.id === id);
+      await atClosePosition(id, cur?.price ?? AT.positions[id]?.entry, 'MANUAL CLOSE ALL');
+    }
+    jsonRes(res, 200, { ok: true, closed: ids.length });
+    return;
+  }
+
+  // ── STATIC FILE SERVING (production / phone access) ───────
+
+  if (SERVE_STATIC) {
+    const distDir  = path.join(__dirname, 'dist');
+    let   filePath = path.join(distDir, parsed.pathname === '/' ? 'index.html' : parsed.pathname);
+    // SPA fallback
+    if (!fs.existsSync(filePath)) filePath = path.join(distDir, 'index.html');
+    if (fs.existsSync(filePath)) {
+      const ext  = path.extname(filePath);
+      const mime = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+      res.writeHead(200, { 'Content-Type': mime[ext] || 'application/octet-stream' });
+      fs.createReadStream(filePath).pipe(res);
+      return;
+    }
+  }
+
   jsonRes(res, 404, { error: 'Not found' });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n✅ Smart Entry Pro V3 API → http://localhost:${PORT}`);
   console.log('   /api/status   /api/signals   /api/signal?asset=BTC');
   console.log('   /api/log      /api/log?asset=BTC&limit=50');
-  console.log('   /api/stats\n');
+  console.log('   /api/stats');
+  console.log('   /api/autotrade/status   /api/autotrade/toggle   /api/autotrade/closeall');
+  if (SERVE_STATIC) console.log(`\n📱 Phone access → http://<your-pc-ip>:${PORT}`);
+  console.log('');
 });
 
 // ============================================================

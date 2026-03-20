@@ -7,6 +7,7 @@ export default defineConfig({
     outDir: 'dist'
   },
   server: {
+    host: '0.0.0.0',   // expose on LAN → phone access via http://<your-pc-ip>:5173
     proxy: {
       // In dev, forward /api/* → local backend on port 4000
       '/api': {
