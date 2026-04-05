@@ -293,6 +293,18 @@ int OnInit()
    // Load brain
    if(AI_On && AI_Load) LoadBrain();
 
+   // Init risk stats and symbol performance arrays
+   InitGlobalArrays();
+
+   // Validate symbol accessibility
+   ValidateSymbols();
+
+   // Log startup diagnostics
+   PrintStartupDiagnostics();
+
+   // Register timer for periodic tasks (brain save, TG heartbeat)
+   EventSetTimer(60); // fire every 60 seconds
+
    PrintFormat("Scalping AI Pro v8.0 initialized. Symbols=%d Magic=%d", g_symCnt, MagicBase);
    if(TG_On) TGSend("Scalping AI Pro v8.0 started. Symbols: " + Symbols);
    return INIT_SUCCEEDED;
@@ -303,6 +315,7 @@ int OnInit()
 //============================================================
 void OnDeinit(const int reason)
 {
+   EventKillTimer();
    if(AI_On && AI_Save) SaveBrain();
    for(int i=0; i<g_symCnt; i++)
    {
