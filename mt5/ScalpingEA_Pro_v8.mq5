@@ -398,6 +398,8 @@ void DailyReset()
       g_daily_reset_time    = TimeCurrent();
       g_monthly_wins        = 0;
       g_monthly_loss        = 0;
+      g_consecLoss          = 0;     // reset streak each new day
+      g_tradingPaused       = false; // always resume at day start
       if(TG_On) TGSend(StringFormat("Daily reset. Balance: %.2f", g_daily_start_balance));
    }
 }
@@ -2150,7 +2152,8 @@ void UpdateConsecLoss(double pnl)
    }
    else
    {
-      g_consecLoss = 0; // reset on any win
+      g_consecLoss   = 0;     // reset streak on any win
+      g_tradingPaused = false; // auto-resume after a winning trade
    }
 }
 
