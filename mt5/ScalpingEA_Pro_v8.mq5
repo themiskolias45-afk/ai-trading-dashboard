@@ -573,7 +573,7 @@ int GetBBSignal(int si, string sym)
 //============================================================
 int GetRSIDivSignal(int si, string sym)
 {
-   double rsi[5];
+   double rsi[]; // dynamic array required for ArraySetAsSeries
    if(CopyBuffer(g_hRSI[si], 0, 1, 5, rsi) < 5) return 0;
    ArraySetAsSeries(rsi, true);
 
