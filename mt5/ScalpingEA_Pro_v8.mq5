@@ -19,7 +19,7 @@
 //+------------------------------------------------------------------+
 #property copyright   "AI Trading Dashboard"
 #property link        ""
-#property version     "8.00"
+#property version     "8.01"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -53,7 +53,7 @@ input int      MaxPositions      = 3;       // Max simultaneous positions
 input double   MinRR             = 1.5;     // v8: Minimum R:R to enter trade
 
 input group "=== SIGNAL SCORING ==="
-input double   MinScore          = 4.0;     // Minimum signal score to trade
+input double   MinScore          = 2.0;     // Minimum signal score to trade
 input bool     UseSwingSL        = true;    // Use swing-high/low as SL
 
 input group "=== ATR ==="
@@ -381,7 +381,7 @@ void OnTick()
    // Dashboard refresh
    if(TimeCurrent() - g_lastDash >= 2)
    {
-      DrawDashboard();
+      DrawDashboardFull();
       g_lastDash = TimeCurrent();
    }
 }
@@ -852,45 +852,43 @@ void Scan()
       }
 
       // === SIGNAL GATHERING ===
-      int emaSig  = GetEMASignal(si, sym);
+      // PRIMARY trigger: EMA crossover with trend filter
+      // All other signals are score BOOSTERS, not hard requirements
+      int emaSig = GetEMASignal(si, sym);
+      if(emaSig == 0) continue; // No EMA cross = no trade
+
+      int dir = emaSig; // Direction set by EMA cross
+
+      // RSI guard: block entries against extreme RSI (overbought buys / oversold sells)
+      double rsiVal = GetRSIValue(si, 1);
+      if(dir ==  1 && rsiVal > 75.0) continue; // Don't buy overbought
+      if(dir == -1 && rsiVal < 25.0) continue; // Don't sell oversold
+
+      // Secondary signals — used for scoring only
       int rsiSig  = GetRSISignal(si);
-      int bbSig   = GetBBSignal(si, sym);   // v8: bounce logic
+      int bbSig   = GetBBSignal(si, sym);
       int divSig  = GetRSIDivSignal(si, sym);
-      int obSig   = 0;
       int liqSig  = GetLiqSweepSignal(sym);
-
       double curPrice = SymbolInfoDouble(sym, SYMBOL_BID);
-      obSig = GetOBSignal(sym, curPrice);
-
-      // Determine dominant direction by vote
-      int votes_buy  = (emaSig==1?1:0) + (rsiSig==1?1:0) + (bbSig==1?1:0)
-                     + (divSig==1?1:0) + (obSig==1?1:0) + (liqSig==1?1:0);
-      int votes_sell = (emaSig==-1?1:0) + (rsiSig==-1?1:0) + (bbSig==-1?1:0)
-                     + (divSig==-1?1:0) + (obSig==-1?1:0) + (liqSig==-1?1:0);
-
-      int dir = 0;
-      if(votes_buy > votes_sell && votes_buy >= 2) dir = 1;
-      if(votes_sell > votes_buy && votes_sell >= 2) dir = -1;
-      if(dir == 0) continue;
+      int obSig   = GetOBSignal(sym, curPrice);
 
       // Run extended pre-checks (news, consec loss, correlation, HTF, volume)
       if(!ScanPreChecks(sym, si, dir)) continue;
 
-      // v8 IMP 2: 3-bar momentum filter
-      int momentum3 = Count3BarMomentum(sym, dir); // v8: momentum filter
-      if(momentum3 == 0) continue; // v8: 0 confirming bars = skip
+      // 3-bar momentum count — used as SCORE BONUS, not a hard block
+      int momentum3 = Count3BarMomentum(sym, dir);
 
       // === BASE SCORING ===
-      double score = 0;
-      if(emaSig == dir) score += 2.0;
+      double score = 2.0;              // Base score: EMA cross confirmed
       if(rsiSig == dir) score += 1.5;
       if(bbSig  == dir) score += 1.5;
       if(divSig == dir) score += 2.0;
       if(obSig  == dir) score += 2.0;
       if(liqSig == dir) score += 1.5;
 
-      // v8 IMP 2: Momentum bonus
-      if(momentum3 == 3) score += 1.5; // v8: all 3 bars confirm = bonus
+      // Momentum bonus (was a hard block in v8.0 — caused no trades)
+      if(momentum3 >= 2) score += 1.5; // 2+ confirming bars = bonus
+      else if(momentum3 == 1) score += 0.5;
 
       // v8 IMP 3: ATR expansion bonus
       if(IsATRExpanding(si, atr)) score += 1.0; // v8: expanding ATR = bonus
@@ -2906,10 +2904,11 @@ void OnTimer()
 
 //+------------------------------------------------------------------+
 //  END OF ScalpingEA_Pro_v8.mq5
-//  Version 8.0 - 2026-04-05
-//  Fixes: Deal/Position ticket, loop shadow, R:R after SwingSL
-//  Improvements: Additive scoring, 3-bar momentum, ATR expansion,
-//    min R:R, per-symbol cooldown, early BE at 0.75R,
-//    trail from BE, stale trade exit, faster AI, BB bounce,
-//    minimum ATR filter
+//  Version 8.01 - 2026-04-05
+//  v8.01 CRITICAL FIX: Vote system replaced with EMA primary trigger
+//    - Was: required 2+ votes from 6 rare signals (never fired)
+//    - Now: EMA cross = primary trigger, others = score bonus
+//    - MinScore 4.0 -> 2.0 (EMA cross alone = valid trade)
+//    - momentum3==0 hard block removed (now a score bonus)
+//    - Dashboard: DrawDashboard() -> DrawDashboardFull() in OnTick
 //+------------------------------------------------------------------+
