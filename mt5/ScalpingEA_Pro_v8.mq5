@@ -43,7 +43,7 @@ input long     MagicBase         = 88001;   // Magic Number Base
 input string   TradeComment      = "SAIPv8"; // Trade Comment
 
 input group "=== SYMBOLS ==="
-input string   Symbols           = "EURUSD,GBPUSD,USDJPY,XAUUSD,US30"; // Symbols (comma-separated)
+input string   Symbols           = "EURUSD,GBPUSD,USDJPY,XAUUSD"; // Symbols — use exact names from your broker's Market Watch
 
 input group "=== RISK ==="
 input double   RiskPct           = 1.0;     // Risk % per trade
@@ -59,8 +59,8 @@ input bool     UseSwingSL        = true;    // Use swing-high/low as SL
 input group "=== ATR ==="
 input int      ATR_Period        = 14;      // ATR Period
 input double   ATR_SL_Mult       = 1.5;     // ATR SL Multiplier
-input double   ATR_TP1_Mult      = 1.5;     // ATR TP1 Multiplier
-input double   ATR_TP2_Mult      = 3.0;     // ATR TP2 Multiplier
+input double   ATR_TP1_Mult      = 2.5;     // ATR TP1 Multiplier  ← v8 fix: was 1.5 (gave R:R=1.0, always blocked)
+input double   ATR_TP2_Mult      = 4.0;     // ATR TP2 Multiplier
 input double   ATR_Trail_Mult    = 1.0;     // ATR Trail Multiplier
 
 input group "=== TRADE MANAGEMENT ==="
@@ -153,6 +153,8 @@ struct SignalLog
 
 string         g_syms[];
 int            g_symCnt       = 0;
+bool           g_symEnabled[];   // v8 fix: per-symbol enabled flag (false = bad symbol, skip)
+datetime       g_symLastBar[];   // v8: per-symbol new-bar gate
 
 // Indicator handles per symbol
 int            g_hEMAFast[];
@@ -241,20 +243,35 @@ int OnInit()
    }
 
    // Allocate indicator handle arrays
-   ArrayResize(g_hEMAFast,  g_symCnt);
-   ArrayResize(g_hEMASlow,  g_symCnt);
-   ArrayResize(g_hEMATrend, g_symCnt);
-   ArrayResize(g_hRSI,      g_symCnt);
-   ArrayResize(g_hATR,      g_symCnt);
-   ArrayResize(g_hBB,       g_symCnt);
+   ArrayResize(g_hEMAFast,   g_symCnt);
+   ArrayResize(g_hEMASlow,   g_symCnt);
+   ArrayResize(g_hEMATrend,  g_symCnt);
+   ArrayResize(g_hRSI,       g_symCnt);
+   ArrayResize(g_hATR,       g_symCnt);
+   ArrayResize(g_hBB,        g_symCnt);
+   ArrayResize(g_symEnabled, g_symCnt);
+   ArrayResize(g_symLastBar, g_symCnt);
+   ArrayInitialize(g_symEnabled, 1);   // default all enabled
+   ArrayInitialize(g_symLastBar, 0);
 
    // Init per-symbol cooldown (v8)
    ArrayInitialize(g_symCoolUntil, 0);
 
-   // Create indicator handles
+   // v8 FIX: Validate symbol exists BEFORE creating indicators
+   //         Bad symbol = skip gracefully (no INIT_FAILED for whole EA)
    for(int i=0; i<g_symCnt; i++)
    {
       string s = g_syms[i];
+      // Check symbol is known to the broker
+      if(!SymbolSelect(s, true) || SymbolInfoDouble(s, SYMBOL_POINT) <= 0)
+      {
+         PrintFormat("WARNING: Symbol '%s' not found on broker — SKIPPED. Check Market Watch name.", s);
+         g_symEnabled[i] = false;
+         g_hEMAFast[i] = g_hEMASlow[i] = g_hEMATrend[i] =
+         g_hRSI[i] = g_hATR[i] = g_hBB[i] = INVALID_HANDLE;
+         continue;
+      }
+
       g_hEMAFast[i]  = iMA(s, PERIOD_M5, EMA_Fast,  0, MODE_EMA, PRICE_CLOSE);
       g_hEMASlow[i]  = iMA(s, PERIOD_M5, EMA_Slow,  0, MODE_EMA, PRICE_CLOSE);
       g_hEMATrend[i] = iMA(s, PERIOD_M5, EMA_Trend, 0, MODE_EMA, PRICE_CLOSE);
@@ -266,9 +283,11 @@ int OnInit()
          g_hEMATrend[i]==INVALID_HANDLE || g_hRSI[i]==INVALID_HANDLE ||
          g_hATR[i]==INVALID_HANDLE || g_hBB[i]==INVALID_HANDLE)
       {
-         PrintFormat("ERROR: Failed indicator handles for %s", s);
-         return INIT_FAILED;
+         PrintFormat("WARNING: Indicator handles failed for '%s' — SKIPPED.", s);
+         g_symEnabled[i] = false;
       }
+      else
+         PrintFormat("Symbol '%s' ready.", s);
    }
 
    // Init brain nodes
@@ -791,6 +810,14 @@ void Scan()
    {
       string sym = g_syms[si];
 
+      // v8 fix: skip symbols that failed to initialise
+      if(!g_symEnabled[si]) continue;
+
+      // v8 fix: per-symbol new-bar gate — only scan on a new M5 bar
+      datetime barTime = iTime(sym, PERIOD_M5, 0);
+      if(barTime == 0 || barTime == g_symLastBar[si]) continue;
+      g_symLastBar[si] = barTime;
+
       // Check if already have open trade on this symbol
       bool hasOpen = false;
       for(int m=0; m<g_mCnt; m++)
@@ -798,7 +825,7 @@ void Scan()
       if(hasOpen) continue;
 
       // v8 IMP 5: Per-symbol cooldown check
-      if(TimeCurrent() < g_symCoolUntil[si]) continue; // v8: cooldown active
+      if(TimeCurrent() < g_symCoolUntil[si]) continue;
 
       // Spread check
       if(!IsSpreadOK(sym)) continue;
