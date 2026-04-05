@@ -846,6 +846,9 @@ void Scan()
       if(votes_sell > votes_buy && votes_sell >= 2) dir = -1;
       if(dir == 0) continue;
 
+      // Run extended pre-checks (news, consec loss, correlation, HTF, volume)
+      if(!ScanPreChecks(sym, si, dir)) continue;
+
       // v8 IMP 2: 3-bar momentum filter
       int momentum3 = Count3BarMomentum(sym, dir); // v8: momentum filter
       if(momentum3 == 0) continue; // v8: 0 confirming bars = skip
@@ -877,6 +880,9 @@ void Scan()
       int h = dtnow.hour;
       bool peakSession = ((h==9||h==10||h==14||h==15)); // London/NY overlap
       if(peakSession) score += 1.0; // v8: additive (was *=1.1)
+
+      // Extended score bonus (candle patterns, pivot, volume, day range)
+      score += GetExtendedScoreBonus(sym, si, dir, atr, curPrice);
 
       // Brain dynamic threshold
       int bi = si; // brain index = symbol index
@@ -1188,6 +1194,11 @@ void CheckClosed()
       if(closedPnl >= 0) g_monthly_wins++;
       else               g_monthly_loss++;
 
+      // Update risk stats and per-symbol performance
+      UpdateRiskStats(closedPnl);
+      UpdateConsecLoss(closedPnl);
+      UpdateSymbolPerf(g_M[m].symIdx, closedPnl);
+
       // v8 IMP 5: Per-symbol cooldown after a loss
       if(closedPnl < 0)
       {
@@ -1322,8 +1333,10 @@ void PollTelegram()
    if(res == -1) return;
 
    string body = CharArrayToString(result);
-   // Parse text commands
+   // Parse text commands — all command processors
    ProcessTGCommands(body);
+   ProcessTGCommandsExtended(body);
+   ProcessTGCommandsMarket(body);
 }
 
 void ProcessTGCommands(string body)
