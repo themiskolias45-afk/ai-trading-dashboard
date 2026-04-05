@@ -490,7 +490,7 @@ bool IsSpreadOK(string sym)
 //============================================================
 string DetectRegime(string sym, double atr, double atrAvg)
 {
-   double fast[3], slow[3], trend[3];
+   double fast[], slow[], trend[]; // v8 fix: dynamic arrays for ArraySetAsSeries
    int si = GetSymIdx(sym);
    if(si<0) return "neutral";
    if(CopyBuffer(g_hEMAFast[si],  0,1,3,fast)  < 3) return "neutral";
@@ -527,7 +527,7 @@ int GetSymIdx(string sym)
 int GetBBSignal(int si, string sym)
 {
    // v8: BB bounce logic instead of breakout
-   double bbUpper[3], bbLower[3], bbMid[3];
+   double bbUpper[], bbLower[], bbMid[]; // v8 fix: dynamic arrays
    if(CopyBuffer(g_hBB[si], 1, 1, 3, bbUpper) < 3) return 0; // upper band
    if(CopyBuffer(g_hBB[si], 2, 1, 3, bbLower) < 3) return 0; // lower band
    if(CopyBuffer(g_hBB[si], 0, 1, 3, bbMid)   < 3) return 0; // middle band
@@ -650,7 +650,7 @@ int GetLiqSweepSignal(string sym)
 //============================================================
 int GetEMASignal(int si, string sym)
 {
-   double fast[3], slow[3], trend[3];
+   double fast[], slow[], trend[]; // v8 fix: dynamic arrays
    if(CopyBuffer(g_hEMAFast[si],  0,1,3,fast)  < 3) return 0;
    if(CopyBuffer(g_hEMASlow[si],  0,1,3,slow)  < 3) return 0;
    if(CopyBuffer(g_hEMATrend[si], 0,1,3,trend) < 3) return 0;
@@ -674,7 +674,7 @@ int GetEMASignal(int si, string sym)
 //============================================================
 int GetRSISignal(int si)
 {
-   double rsi[2];
+   double rsi[]; // v8 fix: dynamic array
    if(CopyBuffer(g_hRSI[si], 0,1,2,rsi) < 2) return 0;
    ArraySetAsSeries(rsi, true);
    if(rsi[0] > 40 && rsi[0] < 60) return 0; // No edge in middle
@@ -1430,7 +1430,8 @@ void CloseAllTrades()
       rq.deviation    = 20;
       rq.magic        = MagicBase;
       rq.comment      = "SAIPv8_FORCE";
-      OrderSend(rq, rs);
+      if(!OrderSend(rq, rs)) // v8 fix: check return value
+         Print("CloseAllTrades failed: ", sym, " rc=", rs.retcode);
    }
 }
 
@@ -2031,7 +2032,7 @@ int GetMACDSignal(string sym)
 {
    int hMACD = iMACD(sym, PERIOD_M5, 12, 26, 9, PRICE_CLOSE);
    if(hMACD == INVALID_HANDLE) return 0;
-   double macdMain[2], macdSignal[2];
+   double macdMain[], macdSignal[]; // v8 fix: dynamic arrays
    if(CopyBuffer(hMACD, 0, 1, 2, macdMain)   < 2) { IndicatorRelease(hMACD); return 0; }
    if(CopyBuffer(hMACD, 1, 1, 2, macdSignal) < 2) { IndicatorRelease(hMACD); return 0; }
    ArraySetAsSeries(macdMain,   true);
