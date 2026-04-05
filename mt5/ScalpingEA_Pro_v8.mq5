@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                               ScalpingEA_Pro_v8.mq5              |
-//|                    Scalping AI Pro v8.0 - AI Trading Dashboard   |
+//|                   Scalping AI Pro v8.02 - AI Trading Dashboard   |
 //|  CHANGELOG v8.0:                                                 |
 //|   BUG FIX 1 - Store res.order (position ticket) not res.deal     |
 //|   BUG FIX 2 - CheckClosed inner loop renamed mi (was m, shadow)  |
@@ -19,7 +19,7 @@
 //+------------------------------------------------------------------+
 #property copyright   "AI Trading Dashboard"
 #property link        ""
-#property version     "8.01"
+#property version     "8.02"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -61,10 +61,10 @@ input int      ATR_Period        = 14;      // ATR Period
 input double   ATR_SL_Mult       = 1.5;     // ATR SL Multiplier
 input double   ATR_TP1_Mult      = 2.5;     // ATR TP1 Multiplier  ← v8 fix: was 1.5 (gave R:R=1.0, always blocked)
 input double   ATR_TP2_Mult      = 4.0;     // ATR TP2 Multiplier
-input double   ATR_Trail_Mult    = 1.0;     // ATR Trail Multiplier
+input double   ATR_Trail_Mult    = 1.5;     // ATR Trail Multiplier (v8.02: 1.0->1.5, gives more room)
 
 input group "=== TRADE MANAGEMENT ==="
-input double   PartialClosePct   = 50.0;    // Partial close % at TP1
+input double   PartialClosePct   = 30.0;    // Partial close % at TP1 (v8.02: 50->30, keeps more for TP2)
 input int      MaxTradeHours     = 8;       // v8: Max hours in trade before auto-exit
 input double   CooldownMins      = 30.0;    // Per-symbol cooldown after loss (minutes)
 
@@ -1254,15 +1254,17 @@ void CheckClosed()
                            ? (double)g_B[bi].wins / (g_B[bi].wins + g_B[bi].losses)
                            : 0.5;
 
-            // Adjust dynamic score threshold
-            if(winRate >= 0.6)      g_B[bi].dynScore = MathMax(MinScore - 0.5, 3.0);
-            else if(winRate <= 0.4) g_B[bi].dynScore = MathMin(MinScore + 1.0, 8.0);
+            // v8.02 fix: dynScore adaptation — removed hardcoded 3.0 floor that was
+            // RAISING threshold above MinScore when MinScore<3.0; reduced penalty to +0.5
+            if(winRate >= 0.6)      g_B[bi].dynScore = MathMax(MinScore - 0.3, 1.5);  // reward good WR
+            else if(winRate <= 0.4) g_B[bi].dynScore = MathMin(MinScore + 0.5, MinScore * 1.5); // gentle penalty
             else                   g_B[bi].dynScore = MinScore;
 
             // Adjust lot multiplier based on expectancy
+            // v8.02: raised floor from 0.5 to 0.7 (don't halve lots too aggressively)
             double avgPnl = (g_B[bi].adaptCnt > 0) ? g_B[bi].sumPnl / g_B[bi].adaptCnt : 0;
             if(avgPnl > 0 && winRate >= 0.55) g_B[bi].lotMult = MathMin(g_B[bi].lotMult * 1.1, 2.0);
-            else if(avgPnl < 0)               g_B[bi].lotMult = MathMax(g_B[bi].lotMult * 0.9, 0.5);
+            else if(avgPnl < 0)               g_B[bi].lotMult = MathMax(g_B[bi].lotMult * 0.9, 0.7);
 
             // Reset counter for next adaptation cycle
             g_B[bi].adaptCnt = 0;
