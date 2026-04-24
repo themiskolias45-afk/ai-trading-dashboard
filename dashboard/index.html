@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartEntry Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: #0b0f1a;
+      color: #e2e8f0;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px;
+    }
+
+    header {
+      width: 100%;
+      max-width: 720px;
+      margin-bottom: 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    h1 { color: #8b5cf6; font-size: 1.6rem; font-weight: 700; }
+    .version { color: #4a5568; font-size: 0.75rem; }
+
+    .grid {
+      width: 100%;
+      max-width: 720px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: #151c2c;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+
+    .card-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-bottom: 8px;
+    }
+
+    .card-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #f1f5f9;
+      line-height: 1.1;
+    }
+
+    .card-value.up   { color: #22c55e; }
+    .card-value.down { color: #ef4444; }
+
+    .card-sub {
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 4px;
+    }
+
+    .status-bar {
+      width: 100%;
+      max-width: 720px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #151c2c;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 0.78rem;
+      color: #64748b;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      background: #ef4444;
+    }
+    .dot.online { background: #22c55e; }
+
+    .error-msg {
+      color: #ef4444;
+      font-size: 0.82rem;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+    .loading { animation: pulse 1.2s ease-in-out infinite; color: #64748b; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SmartEntry</h1>
+    <span class="version">v7</span>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-label">BTC Price</div>
+      <div class="card-value" id="btc-price">—</div>
+      <div class="card-sub" id="btc-change"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">Gold Price</div>
+      <div class="card-value" id="gold-price">—</div>
+      <div class="card-sub">per troy oz</div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">BTC Bias</div>
+      <div class="card-value" id="bias">—</div>
+      <div class="card-sub">24h momentum</div>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <span>
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">Connecting…</span>
+    </span>
+    <span id="updated-at"></span>
+  </div>
+
+  <script>
+    const API = "/api/status";
+    const REFRESH_MS = 30_000;
+
+    function fmt(n) {
+      if (n == null) return "N/A";
+      return "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function bias(change) {
+      if (change > 2)  return { label: "STRONG BUY",  cls: "up" };
+      if (change > 0)  return { label: "BULLISH",     cls: "up" };
+      if (change < -2) return { label: "STRONG SELL", cls: "down" };
+      if (change < 0)  return { label: "BEARISH",     cls: "down" };
+      return { label: "NEUTRAL", cls: "" };
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch(API, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const d = await res.json();
+
+        const b = bias(d.btcChange ?? 0);
+
+        document.getElementById("btc-price").textContent = fmt(d.btc);
+        document.getElementById("gold-price").textContent = fmt(d.gold);
+
+        const changeEl = document.getElementById("btc-change");
+        const sign = (d.btcChange ?? 0) >= 0 ? "+" : "";
+        changeEl.textContent = sign + (d.btcChange ?? 0).toFixed(2) + "% (24h)";
+        changeEl.style.color = (d.btcChange ?? 0) >= 0 ? "#22c55e" : "#ef4444";
+
+        const biasEl = document.getElementById("bias");
+        biasEl.textContent = b.label;
+        biasEl.className = "card-value " + b.cls;
+
+        document.getElementById("status-dot").className = "dot online";
+        document.getElementById("status-text").textContent = "Online";
+
+        if (d.updated) {
+          const dt = new Date(d.updated);
+          document.getElementById("updated-at").textContent =
+            "Updated " + dt.toLocaleTimeString();
+        }
+      } catch (err) {
+        document.getElementById("status-dot").className = "dot";
+        document.getElementById("status-text").textContent = "Offline — " + err.message;
+      }
+    }
+
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+  </script>
+</body>
+</html>
