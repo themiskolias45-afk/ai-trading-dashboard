@@ -567,6 +567,7 @@ cron.schedule("45 6 * * *", async () => {
 
 // 7:00 AM — send morning plan to Telegram
 cron.schedule("0 7 * * *", async () => {
+  if (!TELEGRAM_TOKEN) return;
   for (const cid of knownChatIds) await sendTelegram(cid, planToTelegram(dailyPlan));
   console.log("[cron] 7:00 AM — plan sent");
 });
@@ -577,10 +578,12 @@ cron.schedule("0 */4 * * *", async () => {
   await refreshSignals();
   generateDailyPlan();
   // Alert if strong signal appeared
-  for (const key of ["btc", "gold"]) {
-    const s = signalCache[key];
-    if (s && s.signal !== "WAIT" && s.strength === "STRONG") {
-      for (const cid of knownChatIds) await sendTelegram(cid, `⚡ <b>STRONG SIGNAL DETECTED</b>\n\n` + signalToTelegram(s));
+  if (TELEGRAM_TOKEN) {
+    for (const key of ["btc", "gold"]) {
+      const s = signalCache[key];
+      if (s && s.signal !== "WAIT" && s.strength === "STRONG") {
+        for (const cid of knownChatIds) await sendTelegram(cid, `⚡ <b>STRONG SIGNAL DETECTED</b>\n\n` + signalToTelegram(s));
+      }
     }
   }
 });
@@ -713,5 +716,7 @@ app.listen(PORT, async () => {
   await fetchCongress();
   await fetchFlow();
   generateDailyPlan();
-  setInterval(pollTelegram, 3000);
+  if (TELEGRAM_TOKEN) setInterval(pollTelegram, 3000);
+  if (ANTHROPIC_API_KEY) console.log("[ai] Claude AI enabled ✅");
+  else console.log("[ai] No ANTHROPIC_API_KEY — using rule-based analysis");
 });
