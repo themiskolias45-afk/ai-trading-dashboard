@@ -240,6 +240,44 @@
     }
     .btn-refresh:hover { border-color: var(--accent); color: var(--text); }
 
+    /* ── Signal cards ── */
+    .signal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      transition: border-color .2s;
+    }
+    .signal-card.sig-BUY  { border-color: rgba(34,197,94,.4); }
+    .signal-card.sig-SELL { border-color: rgba(239,68,68,.4); }
+    .sig-loading { color: var(--muted); font-size: .78rem; }
+
+    .sig-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .sig-label  { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .sig-badge  { font-size: .7rem; font-weight: 800; padding: 3px 10px; border-radius: 5px; letter-spacing: .05em; }
+    .sig-badge-BUY    { background: #0d2010; color: var(--green); border: 1px solid rgba(34,197,94,.3); }
+    .sig-badge-SELL   { background: #200d0d; color: var(--red);   border: 1px solid rgba(239,68,68,.3); }
+    .sig-badge-WAIT   { background: #1a1a0d; color: var(--yellow);border: 1px solid rgba(234,179,8,.2); }
+
+    .sig-row    { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: .78rem; }
+    .sig-row:last-child { border-bottom: none; }
+    .sig-key    { color: var(--muted); }
+    .sig-val    { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    .sig-levels { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 10px; }
+    .sig-level-box { background: var(--bg); border-radius: 6px; padding: 6px 8px; text-align: center; }
+    .sig-level-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 2px; }
+    .sig-level-val   { font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    .ind-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .ind-pill {
+      font-size: .65rem; padding: 3px 8px; border-radius: 4px;
+      background: var(--bg); border: 1px solid var(--border);
+      font-variant-numeric: tabular-nums;
+    }
+    .ind-pill.bull { border-color: rgba(34,197,94,.3); color: var(--green); }
+    .ind-pill.bear { border-color: rgba(239,68,68,.3); color: var(--red); }
+
     @media (max-width: 900px) {
       .price-strip, .charts-grid, .bottom-grid { grid-template-columns: 1fr; }
     }
@@ -317,6 +355,19 @@
         <div class="chart-sub">NYSE Arca · Daily</div>
       </div>
       <div id="tv-spx"></div>
+    </div>
+  </div>
+
+  <!-- Signal cards -->
+  <div class="price-strip" style="margin-bottom:16px" id="signal-strip">
+    <div class="signal-card" id="sig-btc">
+      <div class="sig-loading">Loading BTC signal…</div>
+    </div>
+    <div class="signal-card" id="sig-gold">
+      <div class="sig-loading">Loading Gold signal…</div>
+    </div>
+    <div class="signal-card" id="sig-spx">
+      <div class="sig-loading">Loading SPY signal…</div>
     </div>
   </div>
 
@@ -574,13 +625,85 @@ async function loadCongress() {
   }
 }
 
+// ── Signals ───────────────────────────────────────────────────
+function rsiColor(rsi) {
+  if (!rsi) return "";
+  return rsi < 35 ? "bull" : rsi > 65 ? "bear" : "";
+}
+
+function renderSignalCard(id, s) {
+  const el = document.getElementById(id);
+  if (!s) { el.innerHTML = `<div class="sig-loading">Signal unavailable</div>`; return; }
+
+  el.className = `signal-card sig-${s.signal}`;
+
+  const signalColor = s.signal === "BUY" ? "var(--green)" : s.signal === "SELL" ? "var(--red)" : "var(--yellow)";
+  const macdIcon    = s.indicators?.macd?.bullish ? "📈" : "📉";
+  const trendShort  = s.trend?.replace("STRONG ", "").replace("TREND", "") ?? "—";
+
+  let html = `
+    <div class="sig-header">
+      <div class="sig-label">${s.label}</div>
+      <div class="sig-badge sig-badge-${s.signal}">${s.strength !== "NONE" ? s.strength + " " : ""}${s.signal}</div>
+    </div>`;
+
+  if (s.signal !== "WAIT" && s.stop && s.target) {
+    html += `<div class="sig-levels">
+      <div class="sig-level-box">
+        <div class="sig-level-label">Entry</div>
+        <div class="sig-level-val" style="color:var(--text)">$${Number(s.entry).toLocaleString()}</div>
+      </div>
+      <div class="sig-level-box">
+        <div class="sig-level-label">Stop</div>
+        <div class="sig-level-val" style="color:var(--red)">$${Number(s.stop).toLocaleString()}</div>
+      </div>
+      <div class="sig-level-box">
+        <div class="sig-level-label">Target</div>
+        <div class="sig-level-val" style="color:var(--green)">$${Number(s.target).toLocaleString()}</div>
+      </div>
+    </div>`;
+    if (s.rr) html += `<div style="font-size:.68rem;color:var(--muted);margin-top:6px;text-align:center">R/R 1:${s.rr} · ${s.trend}</div>`;
+  } else {
+    html += `<div style="font-size:.72rem;color:var(--muted);margin:8px 0">Trend: ${s.trend}</div>`;
+  }
+
+  html += `<div class="ind-row">
+    <div class="ind-pill ${rsiColor(s.indicators?.rsi)}">RSI ${s.indicators?.rsi ?? "—"}</div>`;
+  if (s.indicators?.macd) html += `<div class="ind-pill ${s.indicators.macd.bullish ? "bull" : "bear"}">${macdIcon} MACD</div>`;
+  if (s.indicators?.bb)   html += `<div class="ind-pill">BB ${s.indicators.bb.bandwidth}%</div>`;
+  html += `<div class="ind-pill">EMA ${s.indicators?.ema20 ? "$" + Number(s.indicators.ema20).toLocaleString() : "—"}</div>`;
+  html += `</div>`;
+
+  if (s.reasons?.length) {
+    html += `<div style="margin-top:8px;font-size:.7rem;color:var(--muted)">`;
+    s.reasons.slice(0, 2).forEach(r => { html += `• ${r}<br>`; });
+    html += `</div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+async function loadSignals() {
+  try {
+    const d = await fetch(API + "/signals", { cache: "no-store" }).then(r => r.json());
+    renderSignalCard("sig-btc",  d.btc);
+    renderSignalCard("sig-gold", d.gold);
+    renderSignalCard("sig-spx",  d.spx);
+  } catch {
+    ["sig-btc","sig-gold","sig-spx"].forEach(id => {
+      document.getElementById(id).innerHTML = `<div class="sig-loading">Server offline</div>`;
+    });
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadPrices(), loadPlan(), loadAlerts(), loadCongress()]);
+  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress()]);
 }
 
 init();
 setInterval(loadPrices,   REFRESH_MS);
+setInterval(loadSignals,  4 * 60_000);   // signals refresh every 4 min on dashboard
 setInterval(loadAlerts,   15_000);
 setInterval(loadCongress, 5 * 60_000);
 setInterval(() => loadPlan(), 5 * 60_000);
