@@ -8,6 +8,7 @@ const express    = require("express");
 const axios      = require("axios");
 const cron       = require("node-cron");
 const Anthropic  = require("@anthropic-ai/sdk");
+const fs         = require("fs");
 
 const app = express();
 app.use(express.json());
@@ -20,10 +21,19 @@ app.use((req, res, next) => {
 });
 
 // ── Config ────────────────────────────────────────────────────
-const PORT             = process.env.PORT             || 3001;
-const TELEGRAM_TOKEN   = process.env.TELEGRAM_TOKEN   || "";
-const UW_API_KEY       = process.env.UW_API_KEY       || "";
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const PORT           = process.env.PORT           || 3001;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || "";
+const UW_API_KEY     = process.env.UW_API_KEY     || "";
+
+// Load Claude API key — from apikey.txt file first, then environment variable
+function loadApiKey() {
+  try {
+    const p = require("path").join(__dirname, "apikey.txt");
+    if (fs.existsSync(p)) return fs.readFileSync(p, "utf8").trim();
+  } catch (e) {}
+  return process.env.ANTHROPIC_API_KEY || "";
+}
+const ANTHROPIC_API_KEY = loadApiKey();
 
 const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
 const UW_BASE        = "https://api.unusualwhales.com/api";

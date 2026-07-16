@@ -1,3 +1,4 @@
 keys.env
+apikey.txt
 node_modules/
 *.log
