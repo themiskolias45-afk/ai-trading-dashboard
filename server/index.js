@@ -246,6 +246,70 @@ function generateSignal(label, ticker, closes, highs, lows) {
   };
 }
 
+// ── Multi-timeframe wrapper ───────────────────────────────────
+function generateSignalMTF(label, ticker, dailyData, h4Data) {
+  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows);
+  if (!daily) return null;
+
+  let h4 = null;
+  try {
+    if (h4Data?.closes?.length >= 50)
+      h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows);
+  } catch (e) {}
+
+  // Confidence: rises when both timeframes agree
+  let confidence = daily.signal === "WAIT" ? 0 : 40;
+  if (h4 && h4.signal === daily.signal && daily.signal !== "WAIT") {
+    confidence = daily.strength === "STRONG" || h4.strength === "STRONG" ? 88 : 72;
+    if (daily.strength === "STRONG" && h4.strength === "STRONG") confidence = 95;
+  } else if (h4 && h4.signal !== "WAIT" && daily.signal === "WAIT") {
+    confidence = 25; // 4H only — weaker
+  }
+
+  // Pivots from last completed daily candle
+  const n = dailyData.closes.length;
+  const pivots = n >= 2 ? calcPivots(dailyData.highs[n - 2], dailyData.lows[n - 2], dailyData.closes[n - 2]) : null;
+
+  // Require confidence ≥ 65 for a signal to fire
+  const finalSignal   = confidence >= 65 ? daily.signal : "WAIT";
+  const finalStrength = confidence >= 90 ? "STRONG" : confidence >= 70 ? "MODERATE" : "NONE";
+
+  return {
+    ...daily,
+    signal:     finalSignal,
+    strength:   finalStrength,
+    confidence,
+    h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi } : null,
+    pivots,
+    session: getCurrentSession()
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SESSION & PIVOT POINTS
+// ══════════════════════════════════════════════════════════════
+
+function getCurrentSession() {
+  const h = new Date().getUTCHours();
+  if (h >= 22 || h < 7)  return { name: "ASIAN",    color: "#eab308" };
+  if (h >= 7  && h < 9)  return { name: "PRE-LONDON", color: "#64748b" };
+  if (h >= 9  && h < 12) return { name: "LONDON",   color: "#3b82f6" };
+  if (h >= 12 && h < 13) return { name: "OVERLAP",  color: "#8b5cf6" };
+  if (h >= 13 && h < 17) return { name: "NEW YORK", color: "#22c55e" };
+  return { name: "AFTER HOURS", color: "#64748b" };
+}
+
+function calcPivots(high, low, close) {
+  const pp = (high + low + close) / 3;
+  return {
+    pp: parseFloat(pp.toFixed(2)),
+    r1: parseFloat((2 * pp - low).toFixed(2)),
+    r2: parseFloat((pp + (high - low)).toFixed(2)),
+    s1: parseFloat((2 * pp - high).toFixed(2)),
+    s2: parseFloat((pp - (high - low)).toFixed(2))
+  };
+}
+
 // ══════════════════════════════════════════════════════════════
 //  DATA FETCHING
 // ══════════════════════════════════════════════════════════════
@@ -263,6 +327,26 @@ async function fetchCandles(symbol) {
   const highs  = quote.high.map(v  => v ?? null).filter(v => v !== null);
   const lows   = quote.low.map(v   => v ?? null).filter(v => v !== null);
   return { closes, highs, lows, meta: result.meta };
+}
+
+async function fetchCandles4H(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=60m&range=60d`;
+  const res = await axios.get(url, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
+  const result = res.data?.chart?.result?.[0];
+  if (!result) throw new Error("No 1H data");
+  const q = result.indicators.quote[0];
+  const rawC = q.close, rawH = q.high, rawL = q.low;
+  const closes = [], highs = [], lows = [];
+  for (let i = 3; i < rawC.length; i += 4) {
+    const c4 = rawC.slice(i - 3, i + 1).filter(Boolean);
+    const h4 = rawH.slice(i - 3, i + 1).filter(Boolean);
+    const l4 = rawL.slice(i - 3, i + 1).filter(Boolean);
+    if (!c4.length) continue;
+    closes.push(c4[c4.length - 1]);
+    highs.push(Math.max(...h4));
+    lows.push(Math.min(...l4));
+  }
+  return { closes, highs, lows };
 }
 
 async function yahooPrice(symbol) {
@@ -296,7 +380,7 @@ async function fetchPrices() {
 }
 
 async function refreshSignals() {
-  console.log("[signals] Refreshing technical analysis…");
+  console.log("[signals] Refreshing technical analysis (Daily + 4H)…");
   const assets = [
     { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
     { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
@@ -304,9 +388,13 @@ async function refreshSignals() {
   ];
   for (const a of assets) {
     try {
-      const { closes, highs, lows } = await fetchCandles(a.symbol);
-      signalCache[a.key] = generateSignal(a.label, a.symbol, closes, highs, lows);
-      console.log(`[signals] ${a.label}: ${signalCache[a.key]?.signal} (${signalCache[a.key]?.strength})`);
+      const [daily, h4] = await Promise.allSettled([fetchCandles(a.symbol), fetchCandles4H(a.symbol)]);
+      const dailyData = daily.status === "fulfilled" ? daily.value : null;
+      const h4Data    = h4.status    === "fulfilled" ? h4.value    : null;
+      if (!dailyData) { console.error(`[signals] ${a.label}: no daily data`); continue; }
+      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data);
+      const s = signalCache[a.key];
+      console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) | confidence: ${s?.confidence}% | 4H: ${h4Data ? s?.h4?.signal ?? "?" : "unavailable"}`);
     } catch (e) {
       console.error(`[signals] ${a.label} error:`, e.message);
     }
@@ -502,7 +590,7 @@ async function pollTelegram() {
 //  API ROUTES
 // ══════════════════════════════════════════════════════════════
 
-app.get("/api/status",  (_, res) => res.json({ status: "online", version: 9, ...priceCache }));
+app.get("/api/status",  (_, res) => res.json({ status: "online", version: 11, session: getCurrentSession(), ...priceCache }));
 app.get("/api/health",  (_, res) => res.json({ ok: true, version: 9, ts: Date.now() }));
 app.get("/api/signals", (_, res) => res.json(signalCache));
 app.get("/api/plan",    (_, res) => {

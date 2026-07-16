@@ -240,6 +240,19 @@
     }
     .btn-refresh:hover { border-color: var(--accent); color: var(--text); }
 
+    /* ── Session badge ── */
+    .session-pill {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 20px;
+      font-size: .68rem; font-weight: 700; letter-spacing: .06em;
+      border: 1px solid rgba(255,255,255,.1);
+    }
+    .session-dot { width: 6px; height: 6px; border-radius: 50%; animation: blink 1.5s ease-in-out infinite; }
+
+    /* ── Confidence bar ── */
+    .conf-bar-wrap { height: 4px; background: var(--border); border-radius: 2px; margin: 8px 0; }
+    .conf-bar { height: 100%; border-radius: 2px; transition: width .6s ease; }
+
     /* ── Signal cards ── */
     .signal-card {
       background: var(--surface);
@@ -252,12 +265,18 @@
     .signal-card.sig-SELL { border-color: rgba(239,68,68,.4); }
     .sig-loading { color: var(--muted); font-size: .78rem; }
 
-    .sig-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .sig-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .sig-label  { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
     .sig-badge  { font-size: .7rem; font-weight: 800; padding: 3px 10px; border-radius: 5px; letter-spacing: .05em; }
     .sig-badge-BUY    { background: #0d2010; color: var(--green); border: 1px solid rgba(34,197,94,.3); }
     .sig-badge-SELL   { background: #200d0d; color: var(--red);   border: 1px solid rgba(239,68,68,.3); }
     .sig-badge-WAIT   { background: #1a1a0d; color: var(--yellow);border: 1px solid rgba(234,179,8,.2); }
+
+    .sig-mtf { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+    .sig-tf-pill {
+      font-size: .6rem; padding: 2px 7px; border-radius: 4px; font-weight: 700;
+      background: var(--bg); border: 1px solid var(--border2);
+    }
 
     .sig-row    { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: .78rem; }
     .sig-row:last-child { border-bottom: none; }
@@ -268,6 +287,11 @@
     .sig-level-box { background: var(--bg); border-radius: 6px; padding: 6px 8px; text-align: center; }
     .sig-level-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 2px; }
     .sig-level-val   { font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    .sig-pivots { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; font-size: .65rem; }
+    .pivot-item { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; }
+    .pivot-label { color: var(--muted); }
+    .pivot-val   { font-weight: 700; font-variant-numeric: tabular-nums; }
 
     .ind-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
     .ind-pill {
@@ -295,6 +319,10 @@
   </div>
   <div class="header-right">
     <div class="clock" id="clock">--:--:--</div>
+    <div class="session-pill" id="session-pill" style="color:#64748b;border-color:rgba(100,116,139,.3)">
+      <div class="session-dot" id="session-dot" style="background:#64748b"></div>
+      <span id="session-name">LOADING</span>
+    </div>
     <div class="regime-badge regime-MIXED" id="regime-badge">MIXED</div>
     <div class="status-pill"><div class="dot"></div><span id="conn-status">Connecting</span></div>
   </div>
@@ -559,6 +587,17 @@ async function loadPrices() {
 
     document.getElementById("conn-status").textContent = "Live";
     if (d.updated) document.getElementById("last-update").textContent = "Updated " + new Date(d.updated).toLocaleTimeString();
+
+    // Session indicator
+    if (d.session) {
+      const pill = document.getElementById("session-pill");
+      const dot  = document.getElementById("session-dot");
+      const name = document.getElementById("session-name");
+      pill.style.color       = d.session.color;
+      pill.style.borderColor = d.session.color + "44";
+      dot.style.background   = d.session.color;
+      name.textContent       = d.session.name;
+    }
   } catch {
     document.getElementById("conn-status").textContent = "Offline";
   }
@@ -681,22 +720,49 @@ function rsiColor(rsi) {
   return rsi < 35 ? "bull" : rsi > 65 ? "bear" : "";
 }
 
+function confColor(c) {
+  if (!c) return "#64748b";
+  if (c >= 85) return "#22c55e";
+  if (c >= 65) return "#3b82f6";
+  if (c >= 40) return "#eab308";
+  return "#64748b";
+}
+
 function renderSignalCard(id, s) {
   const el = document.getElementById(id);
   if (!s) { el.innerHTML = `<div class="sig-loading">Signal unavailable</div>`; return; }
 
   el.className = `signal-card sig-${s.signal}`;
 
-  const signalColor = s.signal === "BUY" ? "var(--green)" : s.signal === "SELL" ? "var(--red)" : "var(--yellow)";
-  const macdIcon    = s.indicators?.macd?.bullish ? "📈" : "📉";
-  const trendShort  = s.trend?.replace("STRONG ", "").replace("TREND", "") ?? "—";
+  const macdIcon = s.indicators?.macd?.bullish ? "▲ MACD" : "▼ MACD";
+  const conf     = s.confidence ?? 0;
+  const cColor   = confColor(conf);
 
   let html = `
     <div class="sig-header">
       <div class="sig-label">${s.label}</div>
-      <div class="sig-badge sig-badge-${s.signal}">${s.strength !== "NONE" ? s.strength + " " : ""}${s.signal}</div>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${conf > 0 ? `<span style="font-size:.65rem;font-weight:700;color:${cColor}">${conf}%</span>` : ""}
+        <div class="sig-badge sig-badge-${s.signal}">${s.strength !== "NONE" ? s.strength + " " : ""}${s.signal}</div>
+      </div>
     </div>`;
 
+  // Confidence bar
+  if (conf > 0) {
+    html += `<div class="conf-bar-wrap"><div class="conf-bar" style="width:${conf}%;background:${cColor}"></div></div>`;
+  }
+
+  // Multi-timeframe row
+  html += `<div class="sig-mtf">
+    <span class="sig-tf-pill" style="color:${s.signal==="BUY"?"var(--green)":s.signal==="SELL"?"var(--red)":"var(--yellow)"}">D: ${s.trend?.replace("STRONG ","")?.replace("TREND","") ?? "?"}</span>`;
+  if (s.h4) {
+    const h4c = s.h4.signal === "BUY" ? "var(--green)" : s.h4.signal === "SELL" ? "var(--red)" : "var(--yellow)";
+    html += `<span class="sig-tf-pill" style="color:${h4c}">4H: ${s.h4.trend?.replace("STRONG ","")?.replace("TREND","") ?? s.h4.signal}</span>`;
+    if (s.h4.rsi) html += `<span class="sig-tf-pill" style="color:var(--muted)">4H RSI ${s.h4.rsi}</span>`;
+  }
+  html += `</div>`;
+
+  // Entry/Stop/Target
   if (s.signal !== "WAIT" && s.stop && s.target) {
     html += `<div class="sig-levels">
       <div class="sig-level-box">
@@ -712,18 +778,28 @@ function renderSignalCard(id, s) {
         <div class="sig-level-val" style="color:var(--green)">$${Number(s.target).toLocaleString()}</div>
       </div>
     </div>`;
-    if (s.rr) html += `<div style="font-size:.68rem;color:var(--muted);margin-top:6px;text-align:center">R/R 1:${s.rr} · ${s.trend}</div>`;
-  } else {
-    html += `<div style="font-size:.72rem;color:var(--muted);margin:8px 0">Trend: ${s.trend}</div>`;
+    if (s.rr) html += `<div style="font-size:.68rem;color:var(--muted);margin-top:6px;text-align:center">R/R 1:${s.rr} &nbsp;·&nbsp; Setup: ${s.setup?.replace(/_/g," ")}</div>`;
   }
 
+  // Indicators
   html += `<div class="ind-row">
     <div class="ind-pill ${rsiColor(s.indicators?.rsi)}">RSI ${s.indicators?.rsi ?? "—"}</div>`;
-  if (s.indicators?.macd) html += `<div class="ind-pill ${s.indicators.macd.bullish ? "bull" : "bear"}">${macdIcon} MACD</div>`;
+  if (s.indicators?.macd) html += `<div class="ind-pill ${s.indicators.macd.bullish ? "bull" : "bear"}">${macdIcon}</div>`;
   if (s.indicators?.bb)   html += `<div class="ind-pill">BB ${s.indicators.bb.bandwidth}%</div>`;
-  html += `<div class="ind-pill">EMA ${s.indicators?.ema20 ? "$" + Number(s.indicators.ema20).toLocaleString() : "—"}</div>`;
+  if (s.indicators?.ema200) html += `<div class="ind-pill ${s.price > s.indicators.ema200 ? "bull" : "bear"}">EMA200 $${Number(s.indicators.ema200).toLocaleString()}</div>`;
   html += `</div>`;
 
+  // Pivot points
+  if (s.pivots) {
+    const p = s.pivots;
+    html += `<div class="sig-pivots">
+      <div class="pivot-item"><span class="pivot-label">S1 </span><span class="pivot-val" style="color:var(--green)">$${Number(p.s1).toLocaleString()}</span></div>
+      <div class="pivot-item"><span class="pivot-label">PP </span><span class="pivot-val" style="color:var(--muted)">$${Number(p.pp).toLocaleString()}</span></div>
+      <div class="pivot-item"><span class="pivot-label">R1 </span><span class="pivot-val" style="color:var(--red)">$${Number(p.r1).toLocaleString()}</span></div>
+    </div>`;
+  }
+
+  // Reasons
   if (s.reasons?.length) {
     html += `<div style="margin-top:8px;font-size:.7rem;color:var(--muted)">`;
     s.reasons.slice(0, 2).forEach(r => { html += `• ${r}<br>`; });
