@@ -555,9 +555,12 @@ app.post("/api/chat", async (req, res) => {
   if (!message) return res.status(400).json({ error: "message required" });
   try {
     const reply = await askClaude(message);
+    if (!reply) return res.json({ reply: "No reply from AI — check API key." });
     res.json({ reply, context: buildMarketContext() });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    const msg = e?.message || e?.toString() || "Unknown error";
+    console.error("[chat] error:", msg);
+    res.status(500).json({ error: msg });
   }
 });
 

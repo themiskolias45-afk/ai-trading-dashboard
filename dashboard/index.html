@@ -798,10 +798,10 @@ async function sendChat() {
       body: JSON.stringify({ message: msg })
     }).then(r => r.json());
     thinking.remove();
-    addChatMsg(res.reply ?? res.error ?? "No response.", "claude");
-  } catch {
+    addChatMsg(res.reply || res.error || "No response from server.", "claude");
+  } catch (err) {
     thinking.remove();
-    addChatMsg("Server not responding — is the server running?", "claude");
+    addChatMsg("Error: " + (err.message || "Server not responding — is the server running?"), "claude");
   }
 }
 
