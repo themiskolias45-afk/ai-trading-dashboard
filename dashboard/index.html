@@ -3,195 +3,587 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SmartEntry Dashboard</title>
+  <title>SmartEntry Pro Dashboard</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg:       #080c14;
+      --surface:  #0f1520;
+      --border:   #1a2235;
+      --border2:  #243044;
+      --text:     #e2e8f0;
+      --muted:    #4a6080;
+      --accent:   #7c3aed;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --yellow:   #eab308;
+      --blue:     #3b82f6;
+      --font:     'Segoe UI', system-ui, Arial, sans-serif;
+    }
+
     body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
       min-height: 100vh;
-      background: #0b0f1a;
-      color: #e2e8f0;
-      font-family: 'Segoe UI', Arial, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 32px 16px;
+      font-size: 14px;
     }
 
+    /* ── Header ── */
     header {
-      width: 100%;
-      max-width: 720px;
-      margin-bottom: 32px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-mark {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), #4f46e5);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 16px; color: #fff;
+    }
+    .logo-text { font-size: 1rem; font-weight: 700; color: var(--text); }
+    .logo-sub  { font-size: 0.65rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
 
-    h1 { color: #8b5cf6; font-size: 1.6rem; font-weight: 700; }
-    .version { color: #4a5568; font-size: 0.75rem; }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .clock { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .status-pill {
+      display: flex; align-items: center; gap: 6px;
+      background: #0d2010; border: 1px solid #1a3a20;
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 0.72rem; color: var(--green);
+    }
+    .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: blink 2s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-    .grid {
-      width: 100%;
-      max-width: 720px;
+    .regime-badge {
+      padding: 4px 12px; border-radius: 20px;
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em;
+    }
+    .regime-RISK-ON   { background: #0d2010; border: 1px solid var(--green); color: var(--green); }
+    .regime-RISK-OFF  { background: #200d0d; border: 1px solid var(--red);   color: var(--red); }
+    .regime-MIXED     { background: #201a0d; border: 1px solid var(--yellow); color: var(--yellow); }
+
+    /* ── Layout ── */
+    .container { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
+
+    /* ── Price strip ── */
+    .price-strip {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
     }
-
-    .card {
-      background: #151c2c;
-      border: 1px solid #1e293b;
-      border-radius: 12px;
-      padding: 20px 24px;
-    }
-
-    .card-label {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #64748b;
-      margin-bottom: 8px;
-    }
-
-    .card-value {
-      font-size: 1.6rem;
-      font-weight: 700;
-      color: #f1f5f9;
-      line-height: 1.1;
-    }
-
-    .card-value.up   { color: #22c55e; }
-    .card-value.down { color: #ef4444; }
-
-    .card-sub {
-      font-size: 0.8rem;
-      color: #64748b;
-      margin-top: 4px;
-    }
-
-    .status-bar {
-      width: 100%;
-      max-width: 720px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: #151c2c;
-      border: 1px solid #1e293b;
+    .price-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 10px 16px;
-      font-size: 0.78rem;
-      color: #64748b;
+      padding: 14px 18px;
+      display: flex; align-items: center; gap: 14px;
+      transition: border-color .2s;
+    }
+    .price-card:hover { border-color: var(--border2); }
+    .price-icon { font-size: 1.4rem; }
+    .price-info { flex: 1; }
+    .price-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+    .price-value { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .price-change { font-size: 0.75rem; font-weight: 600; margin-top: 2px; }
+    .up   { color: var(--green); }
+    .down { color: var(--red); }
+    .flat { color: var(--muted); }
+    .price-bias {
+      font-size: 0.6rem; font-weight: 700; letter-spacing: .08em;
+      padding: 3px 8px; border-radius: 4px;
+    }
+    .bias-BUY         { background:#0d2010; color: var(--green); }
+    .bias-STRONG_BUY  { background:#0d2010; color: var(--green); }
+    .bias-SELL        { background:#200d0d; color: var(--red); }
+    .bias-STRONG_SELL { background:#200d0d; color: var(--red); }
+    .bias-NEUTRAL     { background:#1a1a2e; color: var(--muted); }
+
+    /* ── Chart section ── */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .chart-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .chart-header {
+      padding: 10px 14px;
+      display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .chart-title { font-size: 0.75rem; font-weight: 600; letter-spacing: .05em; }
+    .chart-sub   { font-size: 0.65rem; color: var(--muted); }
+
+    /* ── Bottom grid ── */
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
     }
 
-    .dot {
+    /* ── Panel ── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .panel-title {
+      font-size: 0.72rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+    }
+    .panel-body { padding: 14px 16px; flex: 1; overflow-y: auto; max-height: 340px; }
+
+    /* ── Daily Plan ── */
+    .plan-regime {
       display: inline-block;
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      margin-right: 6px;
-      background: #ef4444;
+      padding: 5px 14px; border-radius: 6px;
+      font-weight: 800; font-size: 0.85rem; letter-spacing: .05em;
+      margin-bottom: 14px;
     }
-    .dot.online { background: #22c55e; }
+    .plan-section { margin-bottom: 14px; }
+    .plan-section-title {
+      font-size: 0.65rem; text-transform: uppercase;
+      letter-spacing: .1em; color: var(--muted);
+      margin-bottom: 8px; padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+    }
+    .watchlist-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .watchlist-item:last-child { border-bottom: none; }
+    .w-ticker { font-weight: 700; font-size: 0.82rem; min-width: 70px; }
+    .w-action { font-size: 0.75rem; flex: 1; color: var(--muted); }
+    .w-priority {
+      font-size: 0.62rem; padding: 2px 7px; border-radius: 4px; font-weight: 700;
+    }
+    .p-HIGH   { background: #2d1010; color: var(--red); }
+    .p-MEDIUM { background: #2d220a; color: var(--yellow); }
+    .p-LOW    { background: #0d1a0d; color: var(--muted); }
 
-    .error-msg {
-      color: #ef4444;
-      font-size: 0.82rem;
+    .level-row {
+      display: flex; justify-content: space-between;
+      padding: 5px 0; border-bottom: 1px solid var(--border);
+      font-size: 0.78rem;
+    }
+    .level-row:last-child { border-bottom: none; }
+    .level-ticker { font-weight: 600; }
+    .level-support    { color: var(--green); }
+    .level-resistance { color: var(--red); }
+
+    .rule-item { font-size: 0.75rem; color: var(--muted); padding: 4px 0; display: flex; gap: 6px; }
+    .rule-item::before { content: "•"; color: var(--accent); }
+
+    /* ── Alerts ── */
+    .alert-item {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.78rem;
+    }
+    .alert-item:last-child { border-bottom: none; }
+    .alert-ticker { font-weight: 700; color: var(--accent); }
+    .alert-action { font-weight: 600; margin-left: 6px; }
+    .alert-time   { font-size: 0.65rem; color: var(--muted); margin-top: 2px; }
+    .alert-empty  { color: var(--muted); font-size: 0.78rem; padding: 12px 0; }
+
+    /* ── Congress ── */
+    .congress-item {
+      padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.78rem;
+    }
+    .congress-item:last-child { border-bottom: none; }
+    .congress-ticker { font-weight: 700; color: var(--text); }
+    .congress-member { color: var(--muted); font-size: 0.7rem; margin-top: 2px; }
+    .congress-type   { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-left: 6px; }
+    .buy  { background:#0d2010; color:var(--green); }
+    .sell { background:#200d0d; color:var(--red); }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center; padding: 16px; margin-top: 16px;
+      color: var(--muted); font-size: 0.65rem;
+      border-top: 1px solid var(--border);
     }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.4; }
+    /* ── Skeleton loader ── */
+    .skeleton { background: var(--border); border-radius: 4px; animation: shimmer 1.5s ease-in-out infinite; }
+    @keyframes shimmer { 0%,100%{opacity:.4} 50%{opacity:.8} }
+
+    /* ── Refresh button ── */
+    .btn-refresh {
+      background: none; border: 1px solid var(--border2);
+      color: var(--muted); padding: 4px 10px; border-radius: 6px;
+      font-size: 0.7rem; cursor: pointer; transition: all .2s;
     }
-    .loading { animation: pulse 1.2s ease-in-out infinite; color: #64748b; }
+    .btn-refresh:hover { border-color: var(--accent); color: var(--text); }
+
+    @media (max-width: 900px) {
+      .price-strip, .charts-grid, .bottom-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>SmartEntry</h1>
-    <span class="version">v7</span>
-  </header>
 
-  <div class="grid">
-    <div class="card">
-      <div class="card-label">BTC Price</div>
-      <div class="card-value" id="btc-price">—</div>
-      <div class="card-sub" id="btc-change"></div>
+<header>
+  <div class="logo">
+    <div class="logo-mark">S</div>
+    <div>
+      <div class="logo-text">SmartEntry Pro</div>
+      <div class="logo-sub">Live Trading Intelligence</div>
     </div>
+  </div>
+  <div class="header-right">
+    <div class="clock" id="clock">--:--:--</div>
+    <div class="regime-badge regime-MIXED" id="regime-badge">MIXED</div>
+    <div class="status-pill"><div class="dot"></div><span id="conn-status">Connecting</span></div>
+  </div>
+</header>
 
-    <div class="card">
-      <div class="card-label">Gold Price</div>
-      <div class="card-value" id="gold-price">—</div>
-      <div class="card-sub">per troy oz</div>
+<div class="container">
+
+  <!-- Price strip -->
+  <div class="price-strip">
+    <div class="price-card">
+      <div class="price-icon">₿</div>
+      <div class="price-info">
+        <div class="price-label">Bitcoin</div>
+        <div class="price-value" id="btc-price">—</div>
+        <div class="price-change" id="btc-change">—</div>
+      </div>
+      <div class="price-bias bias-NEUTRAL" id="btc-bias">—</div>
     </div>
-
-    <div class="card">
-      <div class="card-label">BTC Bias</div>
-      <div class="card-value" id="bias">—</div>
-      <div class="card-sub">24h momentum</div>
+    <div class="price-card">
+      <div class="price-icon">🥇</div>
+      <div class="price-info">
+        <div class="price-label">Gold / XAUUSD</div>
+        <div class="price-value" id="gold-price">—</div>
+        <div class="price-change" id="gold-change">—</div>
+      </div>
+      <div class="price-bias bias-NEUTRAL" id="gold-bias">—</div>
+    </div>
+    <div class="price-card">
+      <div class="price-icon">📈</div>
+      <div class="price-info">
+        <div class="price-label">S&P 500 / SPY</div>
+        <div class="price-value" id="spx-price">—</div>
+        <div class="price-change" id="spx-change">—</div>
+      </div>
+      <div class="price-bias bias-NEUTRAL" id="spx-bias">—</div>
     </div>
   </div>
 
-  <div class="status-bar">
-    <span>
-      <span class="dot" id="status-dot"></span>
-      <span id="status-text">Connecting…</span>
-    </span>
-    <span id="updated-at"></span>
+  <!-- TradingView Charts -->
+  <div class="charts-grid">
+    <div class="chart-wrap">
+      <div class="chart-header">
+        <div class="chart-title">BTC / USD</div>
+        <div class="chart-sub">Bitstamp · Daily</div>
+      </div>
+      <div id="tv-btc"></div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-header">
+        <div class="chart-title">GOLD / XAUUSD</div>
+        <div class="chart-sub">Comex · Daily</div>
+      </div>
+      <div id="tv-gold"></div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-header">
+        <div class="chart-title">S&P 500 / SPY</div>
+        <div class="chart-sub">NYSE Arca · Daily</div>
+      </div>
+      <div id="tv-spx"></div>
+    </div>
   </div>
 
-  <script>
-    const API = "/api/status";
-    const REFRESH_MS = 30_000;
+  <!-- Bottom panels -->
+  <div class="bottom-grid">
 
-    function fmt(n) {
-      if (n == null) return "N/A";
-      return "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    <!-- Daily Plan -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Daily Trading Plan</div>
+        <button class="btn-refresh" onclick="loadPlan(true)">↻ Refresh</button>
+      </div>
+      <div class="panel-body" id="plan-body">
+        <div style="color:var(--muted);font-size:.78rem">Loading plan…</div>
+      </div>
+    </div>
+
+    <!-- Live Alerts -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Live Alerts</div>
+        <span style="font-size:.65rem;color:var(--muted)">TradingView + Flow</span>
+      </div>
+      <div class="panel-body" id="alerts-body">
+        <div class="alert-empty">No alerts yet — connect TradingView webhooks to see signals here.</div>
+      </div>
+    </div>
+
+    <!-- Congress Trades -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Congress Trades</div>
+        <span style="font-size:.65rem;color:var(--muted)">Unusual Whales</span>
+      </div>
+      <div class="panel-body" id="congress-body">
+        <div style="color:var(--muted);font-size:.78rem">Loading…</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  SmartEntry Pro v8 · Data: Unusual Whales, CoinGecko, Yahoo Finance, TradingView ·
+  <span id="last-update">—</span>
+</footer>
+
+<!-- TradingView widget library -->
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+const API = "/api";
+const REFRESH_MS = 30_000;
+
+// ── Clock ─────────────────────────────────────────────────────
+function tickClock() {
+  document.getElementById("clock").textContent =
+    new Date().toLocaleTimeString("en-US", { hour12: false });
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+// ── TradingView charts ─────────────────────────────────────────
+function mkChart(containerId, symbol, interval = "D") {
+  if (typeof TradingView === "undefined") return;
+  new TradingView.widget({
+    autosize: true,
+    height: 260,
+    symbol,
+    interval,
+    timezone: "Etc/UTC",
+    theme: "dark",
+    style: "1",
+    locale: "en",
+    toolbar_bg: "#0f1520",
+    enable_publishing: false,
+    hide_top_toolbar: false,
+    hide_legend: false,
+    save_image: false,
+    container_id: containerId,
+    backgroundColor: "#0f1520",
+    gridColor: "rgba(26,34,53,0.5)"
+  });
+}
+
+window.addEventListener("load", () => {
+  mkChart("tv-btc",  "BITSTAMP:BTCUSD");
+  mkChart("tv-gold", "OANDA:XAUUSD");
+  mkChart("tv-spx",  "AMEX:SPY");
+});
+
+// ── Helpers ───────────────────────────────────────────────────
+function fmt(n, decimals = 2) {
+  if (n == null) return "N/A";
+  return "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+function fmtChange(c) {
+  if (c == null) return "—";
+  const sign = c >= 0 ? "+" : "";
+  return sign + c.toFixed(2) + "%";
+}
+function biasClass(bias) {
+  return "bias-" + (bias ?? "NEUTRAL").replace(" ", "_");
+}
+function changeClass(c) {
+  return c == null ? "flat" : c > 0 ? "up" : c < 0 ? "down" : "flat";
+}
+
+// ── Prices ────────────────────────────────────────────────────
+async function loadPrices() {
+  try {
+    const d = await fetch(API + "/status", { cache: "no-store" }).then(r => r.json());
+
+    // BTC
+    document.getElementById("btc-price").textContent  = fmt(d.btc, 0);
+    const btcChEl = document.getElementById("btc-change");
+    btcChEl.textContent  = fmtChange(d.btcChange);
+    btcChEl.className    = "price-change " + changeClass(d.btcChange);
+    const btcBiasEl = document.getElementById("btc-bias");
+    btcBiasEl.textContent = (d.btcChange ?? 0) > 2 ? "STRONG BUY" : (d.btcChange ?? 0) > 0 ? "BUY" : (d.btcChange ?? 0) < -2 ? "STRONG SELL" : (d.btcChange ?? 0) < 0 ? "SELL" : "NEUTRAL";
+    btcBiasEl.className = "price-bias " + biasClass(btcBiasEl.textContent);
+
+    // Gold
+    document.getElementById("gold-price").textContent = fmt(d.gold, 1);
+    const goldChEl = document.getElementById("gold-change");
+    goldChEl.textContent = fmtChange(d.goldChange);
+    goldChEl.className   = "price-change " + changeClass(d.goldChange);
+    const goldBiasEl = document.getElementById("gold-bias");
+    goldBiasEl.textContent = (d.goldChange ?? 0) > 2 ? "STRONG BUY" : (d.goldChange ?? 0) > 0 ? "BUY" : (d.goldChange ?? 0) < -2 ? "STRONG SELL" : (d.goldChange ?? 0) < 0 ? "SELL" : "NEUTRAL";
+    goldBiasEl.className = "price-bias " + biasClass(goldBiasEl.textContent);
+
+    // SPX
+    document.getElementById("spx-price").textContent  = fmt(d.spx, 2);
+    const spxChEl = document.getElementById("spx-change");
+    spxChEl.textContent  = fmtChange(d.spxChange);
+    spxChEl.className    = "price-change " + changeClass(d.spxChange);
+    const spxBiasEl = document.getElementById("spx-bias");
+    spxBiasEl.textContent = (d.spxChange ?? 0) > 2 ? "STRONG BUY" : (d.spxChange ?? 0) > 0 ? "BUY" : (d.spxChange ?? 0) < -2 ? "STRONG SELL" : (d.spxChange ?? 0) < 0 ? "SELL" : "NEUTRAL";
+    spxBiasEl.className = "price-bias " + biasClass(spxBiasEl.textContent);
+
+    document.getElementById("conn-status").textContent = "Live";
+    if (d.updated) document.getElementById("last-update").textContent = "Updated " + new Date(d.updated).toLocaleTimeString();
+  } catch {
+    document.getElementById("conn-status").textContent = "Offline";
+  }
+}
+
+// ── Daily plan ────────────────────────────────────────────────
+async function loadPlan(force = false) {
+  const url = force ? API + "/plan/refresh" : API + "/plan";
+  const method = force ? "POST" : "GET";
+  try {
+    const plan = await fetch(url, { method, cache: "no-store" }).then(r => r.json());
+    renderPlan(plan);
+
+    // Update regime badge
+    const badge = document.getElementById("regime-badge");
+    badge.textContent = plan.regime ?? "MIXED";
+    badge.className = "regime-badge regime-" + (plan.regime ?? "MIXED").replace(" ", "-");
+  } catch {
+    document.getElementById("plan-body").innerHTML = `<div style="color:var(--red);font-size:.78rem">Could not load plan — is the server running?</div>`;
+  }
+}
+
+function renderPlan(plan) {
+  if (!plan) return;
+  const { regime, date, markets, watchlist, rules, levels } = plan;
+
+  const regimeColor = regime === "RISK-ON" ? "var(--green)" : regime === "RISK-OFF" ? "var(--red)" : "var(--yellow)";
+  const regimeBg    = regime === "RISK-ON" ? "#0d2010" : regime === "RISK-OFF" ? "#200d0d" : "#201a0d";
+
+  let html = `<div class="plan-regime" style="background:${regimeBg};color:${regimeColor};border:1px solid ${regimeColor}">${regime}</div>`;
+  html += `<div style="font-size:.65rem;color:var(--muted);margin-bottom:12px">${date ?? ""}</div>`;
+
+  // Watchlist
+  html += `<div class="plan-section"><div class="plan-section-title">Watchlist</div>`;
+  (watchlist ?? []).forEach(w => {
+    html += `<div class="watchlist-item">
+      <div class="w-ticker">${w.ticker}</div>
+      <div class="w-action">${w.action}</div>
+      <div class="w-priority p-${w.priority}">${w.priority}</div>
+    </div>`;
+  });
+  html += `</div>`;
+
+  // Key levels
+  if (levels) {
+    html += `<div class="plan-section"><div class="plan-section-title">Key Levels</div>`;
+    for (const [key, val] of Object.entries(levels)) {
+      const label = key === "btc" ? "BTC/USD" : key === "gold" ? "XAUUSD" : "SPY";
+      html += `<div class="level-row">
+        <span class="level-ticker">${label}</span>
+        <span><span class="level-support">S ${fmt(val.support, key === "btc" ? 0 : 2)}</span>
+        &nbsp;/&nbsp;
+        <span class="level-resistance">R ${fmt(val.resistance, key === "btc" ? 0 : 2)}</span></span>
+      </div>`;
     }
+    html += `</div>`;
+  }
 
-    function bias(change) {
-      if (change > 2)  return { label: "STRONG BUY",  cls: "up" };
-      if (change > 0)  return { label: "BULLISH",     cls: "up" };
-      if (change < -2) return { label: "STRONG SELL", cls: "down" };
-      if (change < 0)  return { label: "BEARISH",     cls: "down" };
-      return { label: "NEUTRAL", cls: "" };
+  // Rules
+  html += `<div class="plan-section"><div class="plan-section-title">Rules for Today</div>`;
+  (rules ?? []).forEach(r => { html += `<div class="rule-item">${r}</div>`; });
+  html += `</div>`;
+
+  document.getElementById("plan-body").innerHTML = html;
+}
+
+// ── Alerts ────────────────────────────────────────────────────
+async function loadAlerts() {
+  try {
+    const { alerts } = await fetch(API + "/alerts", { cache: "no-store" }).then(r => r.json());
+    const el = document.getElementById("alerts-body");
+    if (!alerts || alerts.length === 0) {
+      el.innerHTML = `<div class="alert-empty">No alerts yet.<br><br>To connect TradingView: set your alert webhook URL to:<br><code style="color:var(--accent)">/api/tv-alert</code></div>`;
+      return;
     }
+    el.innerHTML = alerts.slice(0, 20).map(a => `
+      <div class="alert-item">
+        <div>
+          <span class="alert-ticker">${a.ticker}</span>
+          <span class="alert-action ${a.action?.toLowerCase().includes("buy") ? "up" : a.action?.toLowerCase().includes("sell") ? "down" : ""}">${a.action}</span>
+          ${a.price ? `<span style="color:var(--muted);font-size:.72rem;margin-left:6px">@ $${Number(a.price).toLocaleString()}</span>` : ""}
+        </div>
+        <div class="alert-time">${new Date(a.ts).toLocaleString()}</div>
+      </div>
+    `).join("");
+  } catch {
+    document.getElementById("alerts-body").innerHTML = `<div class="alert-empty">Could not load alerts.</div>`;
+  }
+}
 
-    async function refresh() {
-      try {
-        const res = await fetch(API, { cache: "no-store" });
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const d = await res.json();
-
-        const b = bias(d.btcChange ?? 0);
-
-        document.getElementById("btc-price").textContent = fmt(d.btc);
-        document.getElementById("gold-price").textContent = fmt(d.gold);
-
-        const changeEl = document.getElementById("btc-change");
-        const sign = (d.btcChange ?? 0) >= 0 ? "+" : "";
-        changeEl.textContent = sign + (d.btcChange ?? 0).toFixed(2) + "% (24h)";
-        changeEl.style.color = (d.btcChange ?? 0) >= 0 ? "#22c55e" : "#ef4444";
-
-        const biasEl = document.getElementById("bias");
-        biasEl.textContent = b.label;
-        biasEl.className = "card-value " + b.cls;
-
-        document.getElementById("status-dot").className = "dot online";
-        document.getElementById("status-text").textContent = "Online";
-
-        if (d.updated) {
-          const dt = new Date(d.updated);
-          document.getElementById("updated-at").textContent =
-            "Updated " + dt.toLocaleTimeString();
-        }
-      } catch (err) {
-        document.getElementById("status-dot").className = "dot";
-        document.getElementById("status-text").textContent = "Offline — " + err.message;
-      }
+// ── Congress ──────────────────────────────────────────────────
+async function loadCongress() {
+  try {
+    const data = await fetch(API + "/congress", { cache: "no-store" }).then(r => r.json());
+    const el = document.getElementById("congress-body");
+    const trades = data?.data ?? (Array.isArray(data) ? data : []);
+    if (trades.length === 0) {
+      el.innerHTML = `<div style="color:var(--muted);font-size:.78rem">No recent congressional trades or Unusual Whales API not responding.</div>`;
+      return;
     }
+    el.innerHTML = trades.slice(0, 15).map(t => {
+      const type  = (t.transaction_type ?? t.type ?? "").toLowerCase();
+      const isBuy = type.includes("purchase") || type.includes("buy");
+      return `<div class="congress-item">
+        <div>
+          <span class="congress-ticker">${t.ticker ?? t.symbol ?? "?"}</span>
+          <span class="congress-type ${isBuy ? "buy" : "sell"}">${isBuy ? "BUY" : "SELL"}</span>
+        </div>
+        <div class="congress-member">${t.politician ?? t.representative ?? t.senator ?? "Unknown"} · ${t.transaction_date ?? t.date ?? ""}</div>
+      </div>`;
+    }).join("");
+  } catch {
+    document.getElementById("congress-body").innerHTML = `<div style="color:var(--muted);font-size:.78rem">Could not reach Unusual Whales API.</div>`;
+  }
+}
 
-    refresh();
-    setInterval(refresh, REFRESH_MS);
-  </script>
+// ── Boot ──────────────────────────────────────────────────────
+async function init() {
+  await Promise.all([loadPrices(), loadPlan(), loadAlerts(), loadCongress()]);
+}
+
+init();
+setInterval(loadPrices,   REFRESH_MS);
+setInterval(loadAlerts,   15_000);
+setInterval(loadCongress, 5 * 60_000);
+setInterval(() => loadPlan(), 5 * 60_000);
+</script>
 </body>
 </html>
