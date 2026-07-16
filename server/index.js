@@ -1050,6 +1050,150 @@ async function generateWeeklyReport() {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+//  BACKTESTING ENGINE
+// ══════════════════════════════════════════════════════════════
+
+let backtestCache = {};   // { btc: result, gold: result, spx: result, runAt: iso }
+
+async function runBacktest(symbol, label, years = 5) {
+  const range = `${years * 365}d`;
+  const url   = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
+  const res   = await axios.get(url, { timeout: 30000, headers: { "User-Agent": "Mozilla/5.0" } });
+  const result = res.data?.chart?.result?.[0];
+  if (!result) throw new Error("No historical data");
+
+  const q   = result.indicators.quote[0];
+  const tss = result.timestamp;
+  const bars = [];
+  for (let i = 0; i < tss.length; i++) {
+    if (q.close[i] != null && q.high[i] != null && q.low[i] != null)
+      bars.push({ ts: tss[i], close: q.close[i], high: q.high[i], low: q.low[i] });
+  }
+
+  const trades = [];
+  let lastKey  = null;
+  const MIN    = 210;  // warm-up for EMA200
+
+  for (let i = MIN; i < bars.length; i++) {
+    const w = bars.slice(0, i + 1);
+    const sig = generateSignal(label, symbol,
+      w.map(b => b.close), w.map(b => b.high), w.map(b => b.low));
+    if (!sig || sig.signal === "WAIT" || !sig.stop || !sig.target) { lastKey = null; continue; }
+
+    const key = `${sig.signal}_${sig.setup}_${i}`;
+    if (key === lastKey) continue;
+    lastKey = key;
+
+    const { signal, entry, stop: sl, target: tp } = sig;
+    const rr = parseFloat((Math.abs(tp - entry) / Math.abs(entry - sl)).toFixed(1));
+
+    let outcome = "EXPIRED", barsHeld = 0;
+    for (let j = i + 1; j < bars.length && j <= i + 60; j++) {
+      const b = bars[j];
+      barsHeld++;
+      if (signal === "BUY") {
+        if (b.low  <= sl) { outcome = "LOSS"; break; }
+        if (b.high >= tp) { outcome = "WIN";  break; }
+      } else {
+        if (b.high >= sl) { outcome = "LOSS"; break; }
+        if (b.low  <= tp) { outcome = "WIN";  break; }
+      }
+    }
+
+    trades.push({
+      date:     new Date(bars[i].ts * 1000).toISOString().split("T")[0],
+      signal, setup: sig.setup,
+      entry:    parseFloat(entry.toFixed(2)),
+      sl:       parseFloat(sl.toFixed(2)),
+      tp:       parseFloat(tp.toFixed(2)),
+      rr, outcome, barsHeld
+    });
+  }
+
+  const wins   = trades.filter(t => t.outcome === "WIN").length;
+  const losses = trades.filter(t => t.outcome === "LOSS").length;
+  const closed = wins + losses;
+  const winRate = closed > 0 ? parseFloat((wins / closed * 100).toFixed(1)) : 0;
+
+  // Equity curve — 1% risk per trade on $10 000 start
+  let equity = 10000, peak = 10000, maxDD = 0;
+  const curve = [10000];
+  for (const t of trades) {
+    if (t.outcome === "WIN")  equity *= (1 + 0.01 * t.rr);
+    if (t.outcome === "LOSS") equity *= 0.99;
+    curve.push(parseFloat(equity.toFixed(0)));
+    peak  = Math.max(peak, equity);
+    maxDD = Math.max(maxDD, (peak - equity) / peak * 100);
+  }
+
+  const winRRsum  = trades.filter(t => t.outcome === "WIN").reduce((s, t) => s + t.rr, 0);
+  const profitFactor = losses > 0 ? parseFloat((winRRsum / losses).toFixed(2)) : null;
+
+  return {
+    symbol, label, years,
+    totalTrades: trades.length, wins, losses, winRate,
+    avgRR:        parseFloat((trades.reduce((s, t) => s + t.rr, 0) / (trades.length || 1)).toFixed(1)),
+    profitFactor,
+    startEquity:  10000,
+    finalEquity:  parseFloat(equity.toFixed(0)),
+    returnPct:    parseFloat(((equity - 10000) / 100).toFixed(1)),
+    maxDrawdown:  parseFloat(maxDD.toFixed(1)),
+    expectancy:   parseFloat(((winRate / 100 * (trades.reduce((s,t)=>s+t.rr,0)/(trades.length||1))) - (1 - winRate / 100)).toFixed(2)),
+    curve:        curve.slice(-120),
+    recentTrades: trades.slice(-15)
+  };
+}
+
+app.get("/api/backtest", async (req, res) => {
+  const years = Math.min(parseInt(req.query.years ?? "5"), 10);
+  const force = req.query.force === "1";
+
+  // Use cache if < 12 hours old and same years
+  if (!force && backtestCache.runAt && backtestCache.years === years) {
+    const age = Date.now() - new Date(backtestCache.runAt).getTime();
+    if (age < 12 * 3600 * 1000) return res.json(backtestCache);
+  }
+
+  console.log(`[backtest] Running ${years}-year backtest on BTC, Gold, SPY…`);
+  const assets = [
+    { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
+    { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
+    { key: "spx",  label: "S&P500/SPY", symbol: "SPY"     }
+  ];
+  const out = { years, runAt: new Date().toISOString() };
+  for (const a of assets) {
+    try {
+      out[a.key] = await runBacktest(a.symbol, a.label, years);
+      console.log(`[backtest] ${a.label}: ${out[a.key].totalTrades} trades | WR ${out[a.key].winRate}% | Return ${out[a.key].returnPct}%`);
+    } catch (e) {
+      console.error(`[backtest] ${a.label} error:`, e.message);
+      out[a.key] = { error: e.message };
+    }
+  }
+
+  // Ask Claude to summarize the results
+  if (anthropic) {
+    try {
+      const summary = [out.btc, out.gold, out.spx].filter(r => !r?.error).map(r =>
+        `${r.label}: ${r.totalTrades} trades over ${years}y | Win rate ${r.winRate}% | Profit factor ${r.profitFactor} | Max drawdown ${r.maxDrawdown}% | Return on $10k: $${r.finalEquity} (${r.returnPct}%)`
+      ).join("\n");
+
+      const msg = await anthropic.messages.create({
+        model: "claude-opus-4-8", max_tokens: 500,
+        messages: [{ role: "user", content:
+          `You are a professional quant analyst. Here are backtesting results for a rule-based trading strategy over ${years} years:\n\n${summary}\n\n` +
+          `In 4-5 concise sentences: (1) is this strategy viable? (2) which asset performs best? (3) biggest risk/weakness? (4) one concrete improvement suggestion.`
+        }]
+      });
+      out.claudeVerdict = msg.content?.[0]?.text ?? null;
+    } catch {}
+  }
+
+  backtestCache = out;
+  res.json(out);
+});
+
 // ── Serve dashboard ──────────────────────────────────────────
 const path = require("path");
 app.use(express.static(path.join(__dirname, "..", "dashboard")));

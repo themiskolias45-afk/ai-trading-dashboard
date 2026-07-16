@@ -349,6 +349,20 @@
     }
     .btn-ai:hover { border-color: var(--blue); color: var(--blue); }
 
+    /* ── Backtest ── */
+    .bt-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:12px; }
+    .bt-card { background:var(--bg); border:1px solid var(--border2); border-radius:8px; padding:12px 14px; }
+    .bt-card-title { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:8px; }
+    .bt-stat { display:flex; justify-content:space-between; font-size:.75rem; padding:3px 0; border-bottom:1px solid var(--border); }
+    .bt-stat:last-child { border-bottom:none; }
+    .bt-stat-label { color:var(--muted); }
+    .bt-stat-val { font-weight:700; font-variant-numeric:tabular-nums; }
+    .bt-verdict { background:rgba(59,130,246,.06); border:1px solid rgba(59,130,246,.3); border-radius:8px; padding:12px 14px; font-size:.78rem; line-height:1.6; margin-top:10px; }
+    .bt-trades { margin-top:10px; }
+    .bt-trade-row { display:flex; gap:8px; font-size:.7rem; padding:4px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .bt-trade-row:last-child { border-bottom:none; }
+    @media(max-width:900px){ .bt-grid{ grid-template-columns:1fr; } }
+
     /* ── Quick prompts ── */
     .quick-prompt {
       background: var(--bg); border: 1px solid var(--border2);
@@ -564,6 +578,27 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- Backtest Panel -->
+<div class="container" style="margin-top:0;padding-top:0">
+  <div class="panel" style="margin-bottom:12px">
+    <div class="panel-header">
+      <div class="panel-title">Strategy Backtest</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <select id="bt-years" style="background:var(--bg);border:1px solid var(--border2);color:var(--muted);border-radius:6px;padding:3px 8px;font-size:.7rem">
+          <option value="3">3 years</option>
+          <option value="5" selected>5 years</option>
+          <option value="10">10 years</option>
+        </select>
+        <button onclick="runBacktest()" class="btn-refresh">▶ Run Backtest</button>
+        <span id="bt-status" style="font-size:.65rem;color:var(--muted)"></span>
+      </div>
+    </div>
+    <div class="panel-body" id="bt-body" style="max-height:500px">
+      <div style="color:var(--muted);font-size:.78rem">Click <b>Run Backtest</b> to test the strategy against 5 years of historical data. Takes ~20 seconds.</div>
+    </div>
   </div>
 </div>
 
@@ -943,6 +978,88 @@ async function loadAnalysis() {
   } catch {
     document.getElementById("analysis-body").innerHTML = `<div style="color:var(--muted);font-size:.78rem">Analysis unavailable.</div>`;
   }
+}
+
+// ── Backtest ──────────────────────────────────────────────────
+async function runBacktest(force = false) {
+  const years = document.getElementById("bt-years").value;
+  const status = document.getElementById("bt-status");
+  const body   = document.getElementById("bt-body");
+  status.textContent = "Running… (up to 30s)";
+  body.innerHTML = `<div style="color:var(--muted);font-size:.78rem;padding:20px 0;text-align:center">
+    Testing ${years} years of BTC, Gold &amp; SPY signals… please wait.
+  </div>`;
+  try {
+    const url = `${API}/backtest?years=${years}${force ? "&force=1" : ""}`;
+    const d = await fetch(url, { cache: "no-store" }).then(r => r.json());
+    status.textContent = `Last run: ${new Date(d.runAt).toLocaleString()}`;
+    renderBacktest(d);
+  } catch (e) {
+    status.textContent = "";
+    body.innerHTML = `<div style="color:var(--red);font-size:.78rem">Backtest failed: ${e.message}</div>`;
+  }
+}
+
+function renderBacktest(d) {
+  const body = document.getElementById("bt-body");
+  const assets = [
+    { key: "btc",  icon: "₿", color: "#f7931a" },
+    { key: "gold", icon: "🥇", color: "#eab308" },
+    { key: "spx",  icon: "📈", color: "#3b82f6"  }
+  ];
+
+  let html = `<div class="bt-grid">`;
+  for (const a of assets) {
+    const r = d[a.key];
+    if (!r || r.error) {
+      html += `<div class="bt-card"><div class="bt-card-title" style="color:${a.color}">${a.icon} ${a.key.toUpperCase()}</div><div style="color:var(--red);font-size:.75rem">${r?.error ?? "No data"}</div></div>`;
+      continue;
+    }
+    const retColor  = r.returnPct >= 0 ? "var(--green)" : "var(--red)";
+    const wrColor   = r.winRate >= 55 ? "var(--green)" : r.winRate >= 45 ? "var(--yellow)" : "var(--red)";
+    const ddColor   = r.maxDrawdown <= 15 ? "var(--green)" : r.maxDrawdown <= 30 ? "var(--yellow)" : "var(--red)";
+    const pfColor   = (r.profitFactor ?? 0) >= 1.5 ? "var(--green)" : (r.profitFactor ?? 0) >= 1.0 ? "var(--yellow)" : "var(--red)";
+    html += `<div class="bt-card">
+      <div class="bt-card-title" style="color:${a.color}">${a.icon} ${r.label} — ${d.years}Y</div>
+      <div class="bt-stat"><span class="bt-stat-label">Total trades</span><span class="bt-stat-val">${r.totalTrades}</span></div>
+      <div class="bt-stat"><span class="bt-stat-label">Win rate</span><span class="bt-stat-val" style="color:${wrColor}">${r.winRate}%</span></div>
+      <div class="bt-stat"><span class="bt-stat-label">Profit factor</span><span class="bt-stat-val" style="color:${pfColor}">${r.profitFactor ?? "N/A"}</span></div>
+      <div class="bt-stat"><span class="bt-stat-label">Avg R/R</span><span class="bt-stat-val">1:${r.avgRR}</span></div>
+      <div class="bt-stat"><span class="bt-stat-label">Max drawdown</span><span class="bt-stat-val" style="color:${ddColor}">${r.maxDrawdown}%</span></div>
+      <div class="bt-stat"><span class="bt-stat-label">Return on $10k</span><span class="bt-stat-val" style="color:${retColor}">${r.returnPct >= 0 ? "+" : ""}${r.returnPct}% ($${r.finalEquity.toLocaleString()})</span></div>
+      <div class="bt-stat"><span class="bt-stat-label">Expectancy (R)</span><span class="bt-stat-val" style="color:${(r.expectancy??0)>0?"var(--green)":"var(--red)"}">${r.expectancy ?? "N/A"}</span></div>
+    </div>`;
+  }
+  html += `</div>`;
+
+  // Claude verdict
+  if (d.claudeVerdict) {
+    html += `<div class="bt-verdict"><strong style="color:var(--blue)">Claude Opus verdict:</strong><br>${d.claudeVerdict.replace(/\n/g,"<br>")}</div>`;
+  }
+
+  // Recent trades for first asset with data
+  for (const a of assets) {
+    const r = d[a.key];
+    if (!r || r.error || !r.recentTrades?.length) continue;
+    html += `<div class="bt-trades"><div style="font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:10px 0 6px">Recent ${r.label} signals tested</div>`;
+    html += r.recentTrades.map(t => {
+      const oc = t.outcome === "WIN" ? "var(--green)" : t.outcome === "LOSS" ? "var(--red)" : "var(--muted)";
+      const dc = t.signal === "BUY" ? "var(--green)" : "var(--red)";
+      return `<div class="bt-trade-row">
+        <span style="color:var(--muted)">${t.date}</span>
+        <span style="color:${dc};font-weight:700">${t.signal}</span>
+        <span style="color:var(--muted)">${t.setup.replace(/_/g," ")}</span>
+        <span>Entry $${t.entry.toLocaleString()}</span>
+        <span>R/R 1:${t.rr}</span>
+        <span style="color:${oc};font-weight:700">${t.outcome}</span>
+        <span style="color:var(--muted)">${t.barsHeld}d</span>
+      </div>`;
+    }).join("");
+    html += `</div>`;
+    break; // show only first asset's trades to keep it compact
+  }
+
+  body.innerHTML = html;
 }
 
 // ── Quick prompts ─────────────────────────────────────────────
