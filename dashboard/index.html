@@ -497,7 +497,11 @@
   <div class="panel" style="margin-bottom:12px">
     <div class="panel-header">
       <div class="panel-title">System Controls</div>
-      <div id="news-blackout-badge" style="display:none;font-size:.65rem;padding:3px 10px;border-radius:4px;font-weight:700"></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="news-blackout-badge" style="display:none;font-size:.65rem;padding:3px 10px;border-radius:4px;font-weight:700"></div>
+        <span id="server-uptime" style="font-size:.65rem;color:var(--muted)"></span>
+        <button onclick="stopServer()" style="background:#200d0d;border:1px solid rgba(239,68,68,.4);color:var(--red);padding:4px 12px;border-radius:6px;font-size:.7rem;font-weight:700;cursor:pointer" title="Stop the SmartEntry server">&#9632; Stop Server</button>
+      </div>
     </div>
     <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;max-height:none;padding:14px 16px">
       <div id="feature-toggles" style="display:flex;flex-wrap:wrap;gap:10px">
@@ -679,7 +683,8 @@ async function loadPlan(force = false) {
   const url = force ? API + "/plan/refresh" : API + "/plan";
   const method = force ? "POST" : "GET";
   try {
-    const plan = await fetch(url, { method, cache: "no-store" }).then(r => r.json());
+    const raw  = await fetch(url, { method, cache: "no-store" }).then(r => r.json());
+    const plan = raw.plan ?? raw;   // POST returns {ok,plan:{…}}, GET returns plan directly
     renderPlan(plan);
 
     // Update regime badge
@@ -1074,9 +1079,34 @@ async function loadJournal() {
   }
 }
 
+// ── Server uptime ─────────────────────────────────────────────
+let serverStartTime = null;
+async function loadUptime() {
+  try {
+    const d = await fetch(API + "/status", { cache: "no-store" }).then(r => r.json());
+    if (d.startedAt && !serverStartTime) serverStartTime = new Date(d.startedAt);
+    if (serverStartTime) {
+      const sec = Math.floor((Date.now() - serverStartTime) / 1000);
+      const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+      document.getElementById("server-uptime").textContent =
+        `Uptime ${h}h ${m}m ${s}s`;
+    }
+  } catch {}
+}
+
+// ── Stop server ───────────────────────────────────────────────
+async function stopServer() {
+  if (!confirm("Stop the SmartEntry server?\n\nThe dashboard will go offline. Run run_all.bat to restart.")) return;
+  try {
+    await fetch(API + "/shutdown", { method: "POST" });
+  } catch {}
+  document.getElementById("conn-status").textContent = "Stopped";
+  document.getElementById("server-uptime").textContent = "Server offline — run run_all.bat to restart";
+}
+
 // ── Boot ──────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress(), loadAnalysis(), loadMT5(), loadFeatures(), loadJournal()]);
+  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress(), loadAnalysis(), loadMT5(), loadFeatures(), loadJournal(), loadUptime()]);
 }
 
 init();
@@ -1088,6 +1118,7 @@ setInterval(() => loadPlan(), 5 * 60_000);
 setInterval(loadMT5,      15_000);       // MT5 positions refresh every 15s
 setInterval(loadFeatures, 30_000);       // feature toggles + news filter status every 30s
 setInterval(loadJournal,  30_000);       // trade journal refresh every 30s
+setInterval(loadUptime,    1_000);       // server uptime counter
 </script>
 </body>
 </html>

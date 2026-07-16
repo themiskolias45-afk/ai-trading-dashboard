@@ -593,7 +593,13 @@ async function pollTelegram() {
 //  API ROUTES
 // ══════════════════════════════════════════════════════════════
 
-app.get("/api/status",  (_, res) => res.json({ status: "online", version: 12, session: getCurrentSession(), ...priceCache }));
+const SERVER_START = new Date().toISOString();
+app.get("/api/status",  (_, res) => res.json({ status: "online", version: 12, startedAt: SERVER_START, session: getCurrentSession(), ...priceCache }));
+app.post("/api/shutdown", (_, res) => {
+  res.json({ ok: true });
+  console.log("[server] Shutdown requested from dashboard");
+  setTimeout(() => process.exit(0), 400);
+});
 app.get("/api/health",  (_, res) => res.json({ ok: true, version: 9, ts: Date.now() }));
 app.get("/api/signals", (_, res) => res.json(signalCache));
 app.get("/api/plan",    (_, res) => {
