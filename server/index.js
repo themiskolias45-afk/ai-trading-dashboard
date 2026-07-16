@@ -563,6 +563,11 @@ cron.schedule("* * * * *", fetchPrices);
 // Every 15 min — UW data
 cron.schedule("*/15 * * * *", async () => { await fetchCongress(); await fetchFlow(); });
 
+// ── Serve dashboard ──────────────────────────────────────────
+const path = require("path");
+app.use(express.static(path.join(__dirname, "..", "dashboard")));
+app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "index.html")));
+
 // ── Boot ──────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`✅ SmartEntry Pro v9 on port ${PORT}`);
