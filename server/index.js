@@ -37,6 +37,7 @@ let tvAlerts      = [];
 let congressCache = null;
 let flowCache     = null;
 let knownChatIds  = new Set();
+let mt5Positions  = [];   // reported by mt5_bridge.py via POST /api/mt5/positions
 
 // ══════════════════════════════════════════════════════════════
 //  TECHNICAL ANALYSIS
@@ -526,6 +527,13 @@ app.post("/api/tv-alert", (req, res) => {
 app.get("/api/alerts",   (_, res) => res.json({ alerts: tvAlerts }));
 app.get("/api/congress", async (_, res) => { if (!congressCache) await fetchCongress(); res.json(congressCache ?? { data: [] }); });
 app.get("/api/flow",     async (_, res) => { if (!flowCache)     await fetchFlow();     res.json(flowCache     ?? { data: [] }); });
+
+// MT5 bridge endpoints
+app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions }));
+app.post("/api/mt5/positions", (req, res) => {
+  mt5Positions = req.body?.positions ?? [];
+  res.json({ ok: true, count: mt5Positions.length });
+});
 
 app.get("/api/analysis", (_, res) => {
   if (!analysisCache.updatedAt) refreshAnalysis();

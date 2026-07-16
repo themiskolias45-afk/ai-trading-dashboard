@@ -408,6 +408,17 @@
     </div>
 
   </div>
+
+  <!-- MT5 Open Positions -->
+  <div class="panel" style="margin-bottom:12px">
+    <div class="panel-header">
+      <div class="panel-title">MT5 Open Positions</div>
+      <span style="font-size:.65rem;color:var(--muted)">SmartEntry trades only</span>
+    </div>
+    <div class="panel-body" id="mt5-body" style="min-height:60px">
+      <div style="color:var(--muted);font-size:.78rem">No open positions — MT5 bridge not connected.</div>
+    </div>
+  </div>
 </div>
 
 <!-- Claude Chat Panel -->
@@ -794,9 +805,37 @@ async function sendChat() {
   }
 }
 
+// ── MT5 Positions ─────────────────────────────────────────────
+async function loadMT5() {
+  try {
+    const { positions } = await fetch(API + "/mt5/positions", { cache: "no-store" }).then(r => r.json());
+    const el = document.getElementById("mt5-body");
+    if (!positions || positions.length === 0) {
+      el.innerHTML = `<div style="color:var(--muted);font-size:.78rem">No open positions — run <code style="color:var(--accent)">start_mt5.bat</code> to connect MetaTrader 5.</div>`;
+      return;
+    }
+    el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:10px">` + positions.map(p => {
+      const profitColor = p.profit >= 0 ? "var(--green)" : "var(--red)";
+      const dirColor    = p.type === "BUY" ? "var(--green)" : "var(--red)";
+      return `<div style="background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;min-width:180px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-weight:700;font-size:.85rem">${p.symbol}</span>
+          <span style="font-size:.7rem;color:${dirColor};font-weight:700">${p.type}</span>
+        </div>
+        <div style="font-size:.72rem;color:var(--muted)">${p.volume} lot @ $${Number(p.price).toLocaleString()}</div>
+        <div style="font-size:.72rem;color:var(--muted)">SL: $${Number(p.sl).toLocaleString()} &nbsp;|&nbsp; TP: $${Number(p.tp).toLocaleString()}</div>
+        <div style="font-size:.85rem;font-weight:700;color:${profitColor};margin-top:4px">${p.profit >= 0 ? "+" : ""}$${p.profit}</div>
+        <div style="font-size:.65rem;color:var(--muted);margin-top:2px">Opened ${p.openTime} · #${p.ticket}</div>
+      </div>`;
+    }).join("") + `</div>`;
+  } catch {
+    document.getElementById("mt5-body").innerHTML = `<div style="color:var(--muted);font-size:.78rem">MT5 bridge not connected.</div>`;
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress(), loadAnalysis()]);
+  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress(), loadAnalysis(), loadMT5()]);
 }
 
 init();
@@ -805,6 +844,7 @@ setInterval(loadSignals,  4 * 60_000);   // signals refresh every 4 min on dashb
 setInterval(loadAlerts,   15_000);
 setInterval(loadCongress, 5 * 60_000);
 setInterval(() => loadPlan(), 5 * 60_000);
+setInterval(loadMT5, 15_000);   // MT5 positions refresh every 15s
 </script>
 </body>
 </html>
