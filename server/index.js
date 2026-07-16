@@ -1,13 +1,13 @@
 /**
- * SmartEntry Pro Server v9
- * Real technical analysis: RSI, EMA 20/50/200, Bollinger Bands, MACD
- * Entry / Stop / Target levels for BTC and Gold
+ * SmartEntry Pro Server v10
+ * Real TA + Claude AI analysis + Ask Claude chat
  * Port: 3001
  */
 
-const express = require("express");
-const axios   = require("axios");
-const cron    = require("node-cron");
+const express    = require("express");
+const axios      = require("axios");
+const cron       = require("node-cron");
+const Anthropic  = require("@anthropic-ai/sdk");
 
 const app = express();
 app.use(express.json());
@@ -20,9 +20,12 @@ app.use((req, res, next) => {
 });
 
 // ── Config ────────────────────────────────────────────────────
-const PORT           = process.env.PORT           || 3001;
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || "8246792368:AAG8bxkAIEulUddX5PnQjnC6BubqM3p-NeA";
-const UW_API_KEY     = process.env.UW_API_KEY     || "44f340fd-f440-442f-a97d-d8aae118f06f";
+const PORT             = process.env.PORT             || 3001;
+const TELEGRAM_TOKEN   = process.env.TELEGRAM_TOKEN   || "";
+const UW_API_KEY       = process.env.UW_API_KEY       || "";
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+
+const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
 const UW_BASE        = "https://api.unusualwhales.com/api";
 const uwHeaders      = { Authorization: `Bearer ${UW_API_KEY}`, Accept: "application/json", "User-Agent": "SmartEntry/9.0" };
 
@@ -298,6 +301,7 @@ async function refreshSignals() {
     }
   }
   signalCache.updatedAt = new Date().toISOString();
+  refreshAnalysis();
 }
 
 // ── Unusual Whales ────────────────────────────────────────────
@@ -523,6 +527,22 @@ app.get("/api/alerts",   (_, res) => res.json({ alerts: tvAlerts }));
 app.get("/api/congress", async (_, res) => { if (!congressCache) await fetchCongress(); res.json(congressCache ?? { data: [] }); });
 app.get("/api/flow",     async (_, res) => { if (!flowCache)     await fetchFlow();     res.json(flowCache     ?? { data: [] }); });
 
+app.get("/api/analysis", (_, res) => {
+  if (!analysisCache.updatedAt) refreshAnalysis();
+  res.json(analysisCache);
+});
+
+app.post("/api/chat", async (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: "message required" });
+  try {
+    const reply = await askClaude(message);
+    res.json({ reply, context: buildMarketContext() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════════════
 //  SCHEDULED JOBS
 // ══════════════════════════════════════════════════════════════
@@ -562,6 +582,115 @@ cron.schedule("* * * * *", fetchPrices);
 
 // Every 15 min — UW data
 cron.schedule("*/15 * * * *", async () => { await fetchCongress(); await fetchFlow(); });
+
+// ══════════════════════════════════════════════════════════════
+//  AUTO-ANALYSIS ENGINE (works without Claude API key)
+// ══════════════════════════════════════════════════════════════
+
+function rsiRead(rsi) {
+  if (!rsi) return "neutral";
+  if (rsi < 25) return "extremely oversold — strong bounce candidate";
+  if (rsi < 35) return "oversold — dip buying zone";
+  if (rsi < 45) return "mildly oversold — slight bullish lean";
+  if (rsi > 75) return "extremely overbought — reversal risk high";
+  if (rsi > 65) return "overbought — watch for rejection";
+  if (rsi > 55) return "mildly overbought — slight bearish lean";
+  return "neutral — no momentum extreme";
+}
+
+function autoAnalyze(s) {
+  if (!s) return null;
+  const { label, signal, strength, setup, trend, entry, stop, target, rr, indicators, reasons } = s;
+  const { rsi, ema20, ema50, ema200, macd, bb } = indicators ?? {};
+  const price = s.price;
+
+  const lines = [];
+
+  // Headline
+  if (signal === "WAIT") {
+    lines.push(`**${label} — No Trade Setup Right Now**`);
+    lines.push(`The market is in a ${trend} phase with RSI at ${rsi} (${rsiRead(rsi)}). Price is between key levels — no edge to trade.`);
+    lines.push(`**What to watch:** Wait for RSI to reach below 35 (oversold) or above 65 (overbought) with a clear EMA break. Patience here protects capital.`);
+  } else {
+    const dir = signal === "BUY" ? "Long" : "Short";
+    lines.push(`**${label} — ${strength} ${signal} Setup (${setup.replace(/_/g," ")})**`);
+    lines.push(`Trend: ${trend}. This is a ${strength.toLowerCase()} ${dir.toLowerCase()} opportunity based on ${reasons?.[0]?.toLowerCase() ?? "technical confluence"}.`);
+
+    lines.push(`\n**Trade Plan:**`);
+    lines.push(`• Entry: $${entry?.toLocaleString()}`);
+    lines.push(`• Stop Loss: $${stop?.toLocaleString()} — place this BEFORE entering`);
+    lines.push(`• Target: $${target?.toLocaleString()}`);
+    lines.push(`• Risk/Reward: 1:${rr} — ${rr >= 2 ? "good ratio, worth taking" : "acceptable but keep size small"}`);
+
+    lines.push(`\n**Why this setup works:**`);
+    reasons?.forEach(r => lines.push(`• ${r}`));
+
+    lines.push(`\n**Indicators:**`);
+    lines.push(`• RSI ${rsi}: ${rsiRead(rsi)}`);
+    if (macd) lines.push(`• MACD: ${macd.bullish ? "Bullish" : "Bearish"} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
+    if (bb) lines.push(`• Bollinger Bands: width ${bb.bandwidth}% — ${bb.bandwidth < 10 ? "squeeze, breakout likely soon" : "normal volatility"}`);
+    if (ema200) lines.push(`• EMA200 at $${ema200?.toLocaleString()} — ${price > ema200 ? "price above, uptrend confirmed" : "price below, downtrend"}`);
+
+    lines.push(`\n**Risk reminder:** Never risk more than 1-2% of your account on this trade. Set your stop the moment you enter — no exceptions.`);
+  }
+
+  return lines.join("\n");
+}
+
+let analysisCache = { btc: null, gold: null, spx: null, updatedAt: null };
+
+function refreshAnalysis() {
+  analysisCache = {
+    btc:  autoAnalyze(signalCache.btc),
+    gold: autoAnalyze(signalCache.gold),
+    spx:  autoAnalyze(signalCache.spx),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CLAUDE CHAT
+// ══════════════════════════════════════════════════════════════
+
+function buildMarketContext() {
+  const s = signalCache;
+  const p = priceCache;
+  return `
+Current market data (${new Date().toLocaleString()}):
+
+BTC: $${p.btc?.toLocaleString()} (${p.btcChange > 0 ? "+" : ""}${p.btcChange}% 24h)
+Signal: ${s.btc?.signal} | Trend: ${s.btc?.trend} | RSI: ${s.btc?.indicators?.rsi}
+${s.btc?.signal !== "WAIT" ? `Entry: $${s.btc?.entry} | Stop: $${s.btc?.stop} | Target: $${s.btc?.target}` : "No active setup"}
+
+Gold: $${p.gold?.toLocaleString()} (${p.goldChange > 0 ? "+" : ""}${p.goldChange}% 24h)
+Signal: ${s.gold?.signal} | Trend: ${s.gold?.trend} | RSI: ${s.gold?.indicators?.rsi}
+${s.gold?.signal !== "WAIT" ? `Entry: $${s.gold?.entry} | Stop: $${s.gold?.stop} | Target: $${s.gold?.target}` : "No active setup"}
+
+SPY: $${p.spx?.toLocaleString()} (${p.spxChange > 0 ? "+" : ""}${p.spxChange}% 24h)
+Signal: ${s.spx?.signal} | Trend: ${s.spx?.trend} | RSI: ${s.spx?.indicators?.rsi}
+`.trim();
+}
+
+async function askClaude(question) {
+  const context = buildMarketContext();
+
+  if (anthropic) {
+    const msg = await anthropic.messages.create({
+      model: "claude-sonnet-5",
+      max_tokens: 1024,
+      system: "You are SmartEntry Pro, a professional trading analyst. Answer concisely and practically. Always include specific levels (entry, stop, target) when discussing trades. Never give financial advice — give analysis.",
+      messages: [{ role: "user", content: `Market context:\n${context}\n\nQuestion: ${question}` }]
+    });
+    return msg.content[0].text;
+  }
+
+  // Fallback — rule-based response without API key
+  const q = question.toLowerCase();
+  if (q.includes("btc") || q.includes("bitcoin")) return autoAnalyze(signalCache.btc) ?? "BTC signal not available.";
+  if (q.includes("gold") || q.includes("xau"))    return autoAnalyze(signalCache.gold) ?? "Gold signal not available.";
+  if (q.includes("spy") || q.includes("s&p"))     return autoAnalyze(signalCache.spx)  ?? "SPY signal not available.";
+  return `Here is the current market snapshot:\n\n${context}\n\nAsk me about a specific asset (BTC, Gold, SPY) for a detailed analysis.`;
+}
 
 // ── Serve dashboard ──────────────────────────────────────────
 const path = require("path");

@@ -1,13 +1,14 @@
 {
   "name": "smartentry-server",
-  "version": "8.0.0",
-  "description": "SmartEntry Pro backend — prices, daily plan, TradingView webhooks, Telegram bot",
+  "version": "10.0.0",
+  "description": "SmartEntry Pro — TA signals, Claude AI analysis, TradingView webhooks",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.54.0",
     "axios": "^1.6.0",
     "express": "^4.18.0",
     "node-cron": "^3.0.3"

@@ -410,6 +410,45 @@
   </div>
 </div>
 
+<!-- Claude Chat Panel -->
+<div class="container" style="margin-top:0;padding-top:0">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+
+    <!-- Auto Analysis -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Claude Analysis</div>
+        <button class="btn-refresh" onclick="loadAnalysis()">↻ Refresh</button>
+      </div>
+      <div class="panel-body" id="analysis-body" style="max-height:280px">
+        <div style="color:var(--muted);font-size:.78rem">Loading analysis…</div>
+      </div>
+    </div>
+
+    <!-- Ask Claude -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Ask Claude</div>
+        <span style="font-size:.65rem;color:var(--muted)">Live market context</span>
+      </div>
+      <div class="panel-body" style="display:flex;flex-direction:column;gap:10px;max-height:280px">
+        <div id="chat-messages" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:120px"></div>
+        <div style="display:flex;gap:8px">
+          <input id="chat-input" type="text"
+            placeholder="Ask about BTC, Gold, setups, risk…"
+            style="flex:1;background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text);font-size:.82rem;outline:none"
+            onkeydown="if(event.key==='Enter')sendChat()" />
+          <button onclick="sendChat()"
+            style="background:var(--accent);border:none;border-radius:8px;padding:8px 14px;color:#fff;font-size:.82rem;cursor:pointer;font-weight:600">
+            Ask
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <footer>
   SmartEntry Pro v8 · Data: Unusual Whales, CoinGecko, Yahoo Finance, TradingView ·
   <span id="last-update">—</span>
@@ -696,9 +735,68 @@ async function loadSignals() {
   }
 }
 
+// ── Analysis panel ───────────────────────────────────────────
+function mdToHtml(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/^• /gm, "<span style='color:var(--accent)'>•</span> ")
+    .replace(/\n/g, "<br>");
+}
+
+async function loadAnalysis() {
+  try {
+    const d = await fetch(API + "/analysis", { cache: "no-store" }).then(r => r.json());
+    const el = document.getElementById("analysis-body");
+    const active = [d.btc, d.gold, d.spx].filter(Boolean).filter(a => a.includes("Setup") && !a.includes("No Trade"));
+    if (active.length === 0) {
+      const waits = [d.btc, d.gold, d.spx].filter(Boolean);
+      el.innerHTML = waits.map(a => `<div style="margin-bottom:12px;font-size:.78rem;line-height:1.6">${mdToHtml(a)}</div>`).join("<hr style='border-color:var(--border);margin:10px 0'>");
+    } else {
+      el.innerHTML = active.map(a => `<div style="margin-bottom:12px;font-size:.78rem;line-height:1.6">${mdToHtml(a)}</div>`).join("<hr style='border-color:var(--border);margin:10px 0'>");
+    }
+  } catch {
+    document.getElementById("analysis-body").innerHTML = `<div style="color:var(--muted);font-size:.78rem">Analysis unavailable.</div>`;
+  }
+}
+
+// ── Claude Chat ───────────────────────────────────────────────
+function addChatMsg(text, role) {
+  const el = document.getElementById("chat-messages");
+  const isUser = role === "user";
+  const div = document.createElement("div");
+  div.style.cssText = `font-size:.78rem;line-height:1.6;padding:8px 10px;border-radius:8px;max-width:90%;${isUser ? "align-self:flex-end;background:var(--accent);color:#fff;margin-left:auto" : "align-self:flex-start;background:var(--surface);border:1px solid var(--border);color:var(--text)"}`;
+  div.innerHTML = isUser ? text : mdToHtml(text);
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendChat() {
+  const input = document.getElementById("chat-input");
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = "";
+  addChatMsg(msg, "user");
+  const thinking = document.createElement("div");
+  thinking.style.cssText = "font-size:.72rem;color:var(--muted);padding:4px 0;animation:pulse 1.2s infinite";
+  thinking.textContent = "Claude is thinking…";
+  document.getElementById("chat-messages").appendChild(thinking);
+  try {
+    const res = await fetch(API + "/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: msg })
+    }).then(r => r.json());
+    thinking.remove();
+    addChatMsg(res.reply ?? res.error ?? "No response.", "claude");
+  } catch {
+    thinking.remove();
+    addChatMsg("Server not responding — is the server running?", "claude");
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress()]);
+  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress(), loadAnalysis()]);
 }
 
 init();
