@@ -48,6 +48,9 @@ let congressCache = null;
 let flowCache     = null;
 let knownChatIds  = new Set();
 let mt5Positions  = [];   // reported by mt5_bridge.py via POST /api/mt5/positions
+let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
+let tradeJournal  = [];   // trade journal entries (max 200)
+let newsCache     = [];   // economic calendar events from ForexFactory
 
 // ══════════════════════════════════════════════════════════════
 //  TECHNICAL ANALYSIS
@@ -590,7 +593,7 @@ async function pollTelegram() {
 //  API ROUTES
 // ══════════════════════════════════════════════════════════════
 
-app.get("/api/status",  (_, res) => res.json({ status: "online", version: 11, session: getCurrentSession(), ...priceCache }));
+app.get("/api/status",  (_, res) => res.json({ status: "online", version: 12, session: getCurrentSession(), ...priceCache }));
 app.get("/api/health",  (_, res) => res.json({ ok: true, version: 9, ts: Date.now() }));
 app.get("/api/signals", (_, res) => res.json(signalCache));
 app.get("/api/plan",    (_, res) => {
@@ -652,6 +655,98 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+// ── V12 Feature Endpoints ─────────────────────────────────────
+
+// MT5 bridge notifies server when a trade is opened
+app.post("/api/trade-opened", async (req, res) => {
+  const trade = req.body;
+  if (!trade || !trade.ticket) return res.status(400).json({ error: "invalid trade data" });
+  console.log(`[trade] Opened: ${trade.type} ${trade.symbol} @ $${trade.price} #${trade.ticket}`);
+
+  // Generate Claude commentary if feature enabled
+  let commentary = null;
+  if (features.autoCommentary) {
+    commentary = await generateTradeCommentary(trade);
+  }
+
+  // Add to trade journal
+  if (features.tradeJournal) {
+    const entry = {
+      id:        Date.now(),
+      ticket:    trade.ticket,
+      symbol:    trade.symbol,
+      direction: trade.type,
+      entry:     trade.price,
+      sl:        trade.sl,
+      tp:        trade.tp,
+      volume:    trade.volume,
+      openTime:  new Date().toISOString(),
+      closeTime: null,
+      closePrice: null,
+      pnl:       null,
+      status:    "OPEN",
+      commentary
+    };
+    tradeJournal.unshift(entry);
+    if (tradeJournal.length > 200) tradeJournal = tradeJournal.slice(0, 200);
+  }
+
+  // Post commentary to alerts panel
+  if (commentary && features.autoCommentary) {
+    const alert = {
+      id:      Date.now(),
+      ts:      new Date().toISOString(),
+      ticker:  trade.symbol,
+      action:  `${trade.type} OPENED`,
+      price:   trade.price,
+      message: commentary
+    };
+    tvAlerts.unshift(alert);
+    if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+  }
+
+  res.json({ ok: true, commentary });
+});
+
+// MT5 bridge notifies server when a trade is closed
+app.post("/api/trade-closed", (req, res) => {
+  const { ticket, pnl, closePrice, closeTime } = req.body;
+  if (!ticket) return res.status(400).json({ error: "ticket required" });
+  const trade = tradeJournal.find(t => t.ticket === ticket);
+  if (trade) {
+    trade.status     = "CLOSED";
+    trade.pnl        = pnl       ?? null;
+    trade.closePrice = closePrice ?? null;
+    trade.closeTime  = closeTime  ?? new Date().toISOString();
+  }
+  console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);
+  res.json({ ok: true });
+});
+
+// Trade journal (last 50 entries)
+app.get("/api/journal", (_, res) => {
+  res.json({ journal: tradeJournal.slice(0, 50) });
+});
+
+// Feature flags
+app.get("/api/features", (_, res) => {
+  res.json({ features });
+});
+
+app.post("/api/features/:name/toggle", (req, res) => {
+  const { name } = req.params;
+  if (!(name in features)) return res.status(404).json({ error: "unknown feature" });
+  features[name] = !features[name];
+  console.log(`[feature] ${name} → ${features[name] ? "ON" : "OFF"}`);
+  res.json({ feature: name, enabled: features[name] });
+});
+
+// News blackout status (used by MT5 bridge before placing orders)
+app.get("/api/newsfilter", (_, res) => {
+  const status = isNewsBlackout();
+  res.json({ enabled: features.newsFilter, ...status, events: newsCache.length });
+});
+
 // ══════════════════════════════════════════════════════════════
 //  SCHEDULED JOBS
 // ══════════════════════════════════════════════════════════════
@@ -694,6 +789,23 @@ cron.schedule("* * * * *", fetchPrices);
 
 // Every 15 min — UW data
 cron.schedule("*/15 * * * *", async () => { await fetchCongress(); await fetchFlow(); });
+
+// Every 4 hours — Claude position review (offset 30 min from signal refresh)
+cron.schedule("30 */4 * * *", async () => {
+  if (features.positionReview && mt5Positions.length > 0) {
+    console.log("[cron] 4H position review…");
+    await reviewOpenPositions();
+  }
+});
+
+// Sunday 8:00 AM — weekly performance report
+cron.schedule("0 8 * * 0", async () => {
+  console.log("[cron] Sunday 8AM — generating weekly report…");
+  await generateWeeklyReport();
+});
+
+// Every 6 hours — refresh economic calendar
+cron.schedule("0 */6 * * *", fetchEconomicCalendar);
 
 // ══════════════════════════════════════════════════════════════
 //  AUTO-ANALYSIS ENGINE (works without Claude API key)
@@ -788,7 +900,7 @@ async function askClaude(question) {
 
   if (anthropic) {
     const msg = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-opus-4-8",
       max_tokens: 1024,
       system: "You are SmartEntry Pro, a professional trading analyst. Answer concisely and practically. Always include specific levels (entry, stop, target) when discussing trades. Never give financial advice — give analysis.",
       messages: [{ role: "user", content: `Market context:\n${context}\n\nQuestion: ${question}` }]
@@ -806,6 +918,132 @@ async function askClaude(question) {
   return `Here is the current market snapshot:\n\n${context}\n\nAsk me about a specific asset (BTC, Gold, SPY) for a detailed analysis.`;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  V12 FEATURES
+// ══════════════════════════════════════════════════════════════
+
+async function fetchEconomicCalendar() {
+  try {
+    const res = await axios.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", { timeout: 10000 });
+    newsCache = Array.isArray(res.data) ? res.data : [];
+    console.log(`[news] Calendar loaded — ${newsCache.length} events this week`);
+  } catch (e) {
+    console.error("[news] Calendar fetch failed:", e.message);
+  }
+}
+
+function isNewsBlackout() {
+  if (!features.newsFilter) return { blackout: false, reason: null };
+  const now = Date.now();
+  const WINDOW_MS = 30 * 60 * 1000;  // 30 minutes either side
+  const relevant = newsCache.filter(ev => {
+    if (!ev.impact || ev.impact.toLowerCase() !== "high") return false;
+    const cur = (ev.currency ?? "").toUpperCase();
+    return cur === "USD" || cur === "XAU";
+  });
+  for (const ev of relevant) {
+    try {
+      const evTime = new Date(ev.date).getTime();
+      if (Math.abs(now - evTime) <= WINDOW_MS) {
+        return { blackout: true, reason: `${ev.title} (${ev.currency}) @ ${new Date(evTime).toUTCString()}` };
+      }
+    } catch {}
+  }
+  return { blackout: false, reason: null };
+}
+
+async function generateTradeCommentary(trade) {
+  if (!features.autoCommentary || !anthropic) return null;
+  try {
+    const prompt =
+      `You are a professional trading analyst. A trade was just opened on MetaTrader 5. ` +
+      `Write a concise 2-3 sentence analysis of this setup.\n\n` +
+      `Trade: ${trade.type} ${trade.symbol}\n` +
+      `Entry: $${trade.price} | Stop: $${trade.sl} | Target: $${trade.tp} | Volume: ${trade.volume} lots\n\n` +
+      `Market context:\n${buildMarketContext()}\n\n` +
+      `Cover: (1) why this trade makes technical sense, (2) key risk to watch, (3) target expectation. ` +
+      `Be specific about price levels. No bullet points — prose only.`;
+
+    const msg = await anthropic.messages.create({
+      model:      "claude-opus-4-8",
+      max_tokens: 300,
+      messages:   [{ role: "user", content: prompt }]
+    });
+    return msg.content?.[0]?.text ?? null;
+  } catch (e) {
+    console.error("[commentary] Error:", e.message);
+    return null;
+  }
+}
+
+async function reviewOpenPositions() {
+  if (!features.positionReview || !anthropic || mt5Positions.length === 0) return;
+  try {
+    const positionList = mt5Positions.map(p =>
+      `${p.type} ${p.symbol}: Entry $${p.price}, SL $${p.sl}, TP $${p.tp}, ` +
+      `P&L ${p.profit >= 0 ? "+" : ""}$${p.profit}, ${p.volume} lots (opened ${p.openTime})`
+    ).join("\n");
+
+    const prompt =
+      `You are a professional trading coach reviewing open MT5 positions.\n\n` +
+      `Open Positions (${mt5Positions.length}):\n${positionList}\n\n` +
+      `Market context:\n${buildMarketContext()}\n\n` +
+      `For each position: (1) is it progressing as expected? (2) should the stop be adjusted? ` +
+      `(3) any exit consideration? End with an overall portfolio risk assessment. Keep it concise and actionable.`;
+
+    const msg = await anthropic.messages.create({
+      model:      "claude-opus-4-8",
+      max_tokens: 600,
+      messages:   [{ role: "user", content: prompt }]
+    });
+    const review = msg.content?.[0]?.text;
+    if (review) {
+      tvAlerts.unshift({ id: Date.now(), ts: new Date().toISOString(), ticker: "PORTFOLIO", action: "POSITION REVIEW", price: null, message: review });
+      if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+      console.log("[review] Position review posted to alerts");
+    }
+  } catch (e) {
+    console.error("[review] Error:", e.message);
+  }
+}
+
+async function generateWeeklyReport() {
+  if (!features.weeklyReport || !anthropic) return;
+  try {
+    const wins      = tradeJournal.filter(t => (t.pnl ?? 0) > 0);
+    const losses    = tradeJournal.filter(t => (t.pnl ?? 0) < 0);
+    const totalPnl  = tradeJournal.reduce((s, t) => s + (t.pnl ?? 0), 0);
+    const winRate   = tradeJournal.length > 0 ? ((wins.length / tradeJournal.length) * 100).toFixed(1) : "N/A";
+    const recentTrades = tradeJournal.slice(0, 20).map(t =>
+      `${t.direction} ${t.symbol}: Entry $${t.entry}, P&L ${t.pnl != null ? "$" + t.pnl.toFixed(2) : "(open)"}${t.status === "OPEN" ? " [OPEN]" : ""}`
+    ).join("\n");
+
+    const prompt =
+      `You are a professional trading coach writing a weekly performance review.\n\n` +
+      `Performance Summary:\n` +
+      `- Total Trades: ${tradeJournal.length} | Wins: ${wins.length} | Losses: ${losses.length}\n` +
+      `- Win Rate: ${winRate}% | Total P&L: $${totalPnl.toFixed(2)}\n\n` +
+      `Recent Trades:\n${recentTrades || "No trades recorded this week."}\n\n` +
+      `Market context:\n${buildMarketContext()}\n\n` +
+      `Provide: (1) performance summary, (2) what worked well, (3) key improvement areas, ` +
+      `(4) strategy suggestions for next week. Practical and concise.`;
+
+    const msg = await anthropic.messages.create({
+      model:      "claude-opus-4-8",
+      max_tokens: 800,
+      messages:   [{ role: "user", content: prompt }]
+    });
+    const report = msg.content?.[0]?.text;
+    if (report) {
+      tvAlerts.unshift({ id: Date.now(), ts: new Date().toISOString(), ticker: "WEEKLY", action: "WEEKLY REPORT", price: null, message: report });
+      if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+      console.log("[weekly] Weekly report posted to alerts");
+    }
+  } catch (e) {
+    console.error("[weekly] Error:", e.message);
+  }
+}
+
 // ── Serve dashboard ──────────────────────────────────────────
 const path = require("path");
 app.use(express.static(path.join(__dirname, "..", "dashboard")));
@@ -813,11 +1051,12 @@ app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "i
 
 // ── Boot ──────────────────────────────────────────────────────
 app.listen(PORT, async () => {
-  console.log(`✅ SmartEntry Pro v9 on port ${PORT}`);
+  console.log(`✅ SmartEntry Pro v12 on port ${PORT}`);
   await fetchPrices();
   await refreshSignals();
   await fetchCongress();
   await fetchFlow();
+  await fetchEconomicCalendar();
   generateDailyPlan();
   if (TELEGRAM_TOKEN) setInterval(pollTelegram, 3000);
   if (ANTHROPIC_API_KEY) console.log("[ai] Claude AI enabled ✅");

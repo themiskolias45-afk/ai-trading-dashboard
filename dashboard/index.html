@@ -305,6 +305,49 @@
     @media (max-width: 900px) {
       .price-strip, .charts-grid, .bottom-grid { grid-template-columns: 1fr; }
     }
+
+    /* ── Feature toggle buttons ── */
+    .feature-toggle {
+      padding: 6px 14px; border-radius: 6px;
+      font-size: .72rem; font-weight: 700;
+      cursor: pointer; transition: all .2s;
+    }
+    .feature-on  { background: #0d2010; color: var(--green); border: 1px solid rgba(34,197,94,.4); }
+    .feature-off { background: #200d0d; color: var(--red);   border: 1px solid rgba(239,68,68,.4); }
+    .feature-on:hover  { background: #0d3015; border-color: var(--green); }
+    .feature-off:hover { background: #300d0d; border-color: var(--red); }
+
+    /* ── Special alerts (POSITION REVIEW, WEEKLY REPORT) ── */
+    .alert-item.alert-special {
+      border: 1px solid rgba(59,130,246,.4);
+      border-radius: 6px;
+      padding: 8px;
+      background: rgba(59,130,246,.04);
+      margin-bottom: 6px;
+    }
+    .alert-msg {
+      font-size: .7rem; color: var(--muted);
+      margin-top: 4px; line-height: 1.55;
+    }
+
+    /* ── Trade journal ── */
+    .journal-row {
+      padding: 8px 0; border-bottom: 1px solid var(--border); font-size: .78rem;
+    }
+    .journal-row:last-child { border-bottom: none; }
+    .journal-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .j-comment {
+      margin-top: 6px; font-size: .72rem; color: var(--muted);
+      line-height: 1.5; background: var(--bg);
+      padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border);
+    }
+    .btn-ai {
+      background: none; border: 1px solid var(--border2);
+      color: var(--muted); padding: 1px 8px;
+      border-radius: 4px; font-size: .65rem; cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-ai:hover { border-color: var(--blue); color: var(--blue); }
   </style>
 </head>
 <body>
@@ -449,6 +492,21 @@
   </div>
 </div>
 
+<!-- System Controls -->
+<div class="container" style="margin-top:0;padding-top:0">
+  <div class="panel" style="margin-bottom:12px">
+    <div class="panel-header">
+      <div class="panel-title">System Controls</div>
+      <div id="news-blackout-badge" style="display:none;font-size:.65rem;padding:3px 10px;border-radius:4px;font-weight:700"></div>
+    </div>
+    <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;max-height:none;padding:14px 16px">
+      <div id="feature-toggles" style="display:flex;flex-wrap:wrap;gap:10px">
+        <span style="color:var(--muted);font-size:.78rem">Loading features…</span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Claude Chat Panel -->
 <div class="container" style="margin-top:0;padding-top:0">
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -488,8 +546,21 @@
   </div>
 </div>
 
+<!-- Trade Journal -->
+<div class="container" style="margin-top:0;padding-top:0">
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Trade Journal</div>
+      <span id="journal-count" style="font-size:.65rem;color:var(--muted)">0 trades</span>
+    </div>
+    <div class="panel-body" id="journal-body" style="max-height:420px">
+      <div style="color:var(--muted);font-size:.78rem">No trades recorded yet — MT5 bridge will log trades here.</div>
+    </div>
+  </div>
+</div>
+
 <footer>
-  SmartEntry Pro v8 · Data: Unusual Whales, CoinGecko, Yahoo Finance, TradingView ·
+  SmartEntry Pro v12 · Data: Unusual Whales, CoinGecko, Yahoo Finance, TradingView ·
   <span id="last-update">—</span>
 </footer>
 
@@ -673,16 +744,22 @@ async function loadAlerts() {
       el.innerHTML = `<div class="alert-empty">No alerts yet.<br><br>To connect TradingView: set your alert webhook URL to:<br><code style="color:var(--accent)">/api/tv-alert</code></div>`;
       return;
     }
-    el.innerHTML = alerts.slice(0, 20).map(a => `
-      <div class="alert-item">
+    el.innerHTML = alerts.slice(0, 20).map(a => {
+      const isSpecial = a.action === "POSITION REVIEW" || a.action === "WEEKLY REPORT";
+      const actionCls = a.action?.toLowerCase().includes("buy") ? "up" : a.action?.toLowerCase().includes("sell") ? "down" : "";
+      const msgHtml   = a.message
+        ? `<div class="alert-msg">${a.message.substring(0, 240)}${a.message.length > 240 ? "…" : ""}</div>`
+        : "";
+      return `<div class="alert-item${isSpecial ? " alert-special" : ""}">
         <div>
           <span class="alert-ticker">${a.ticker}</span>
-          <span class="alert-action ${a.action?.toLowerCase().includes("buy") ? "up" : a.action?.toLowerCase().includes("sell") ? "down" : ""}">${a.action}</span>
+          <span class="alert-action ${actionCls}">${a.action}</span>
           ${a.price ? `<span style="color:var(--muted);font-size:.72rem;margin-left:6px">@ $${Number(a.price).toLocaleString()}</span>` : ""}
         </div>
+        ${msgHtml}
         <div class="alert-time">${new Date(a.ts).toLocaleString()}</div>
-      </div>
-    `).join("");
+      </div>`;
+    }).join("");
   } catch {
     document.getElementById("alerts-body").innerHTML = `<div class="alert-empty">Could not load alerts.</div>`;
   }
@@ -909,9 +986,97 @@ async function loadMT5() {
   }
 }
 
+// ── Feature Controls ──────────────────────────────────────────
+async function loadFeatures() {
+  try {
+    const { features } = await fetch(API + "/features", { cache: "no-store" }).then(r => r.json());
+    const labels = {
+      autoCommentary: "Auto Commentary",
+      trailingStop:   "Trailing Stop",
+      newsFilter:     "News Filter",
+      tradeJournal:   "Trade Journal",
+      positionReview: "Position Review",
+      weeklyReport:   "Weekly Report"
+    };
+    document.getElementById("feature-toggles").innerHTML = Object.entries(labels).map(([key, label]) => {
+      const on = features[key];
+      return `<button onclick="toggleFeature('${key}')" class="feature-toggle ${on ? "feature-on" : "feature-off"}">${label}: ${on ? "ON" : "OFF"}</button>`;
+    }).join("");
+    loadNewsFilterStatus();
+  } catch {
+    document.getElementById("feature-toggles").textContent = "Could not load features.";
+  }
+}
+
+async function toggleFeature(name) {
+  try {
+    await fetch(API + "/features/" + name + "/toggle", { method: "POST" });
+    await loadFeatures();
+  } catch (e) { console.error("Toggle failed:", e); }
+}
+
+async function loadNewsFilterStatus() {
+  try {
+    const d = await fetch(API + "/newsfilter", { cache: "no-store" }).then(r => r.json());
+    const badge = document.getElementById("news-blackout-badge");
+    if (d.blackout) {
+      badge.textContent       = "NEWS BLACKOUT";
+      badge.style.background  = "#200d0d";
+      badge.style.color       = "var(--red)";
+      badge.style.border      = "1px solid var(--red)";
+      badge.style.display     = "inline-block";
+      badge.title             = d.reason || "";
+    } else {
+      badge.textContent       = "MARKET CLEAR";
+      badge.style.background  = "#0d2010";
+      badge.style.color       = "var(--green)";
+      badge.style.border      = "1px solid var(--green)";
+      badge.style.display     = "inline-block";
+      badge.title             = "";
+    }
+  } catch {}
+}
+
+// ── Trade Journal ─────────────────────────────────────────────
+async function loadJournal() {
+  try {
+    const { journal } = await fetch(API + "/journal", { cache: "no-store" }).then(r => r.json());
+    const el      = document.getElementById("journal-body");
+    const countEl = document.getElementById("journal-count");
+    if (!journal || journal.length === 0) {
+      el.innerHTML = `<div style="color:var(--muted);font-size:.78rem">No trades recorded yet — MT5 bridge will log trades here.</div>`;
+      countEl.textContent = "0 trades";
+      return;
+    }
+    countEl.textContent = journal.length + " trade" + (journal.length !== 1 ? "s" : "");
+    el.innerHTML = journal.slice(0, 20).map(t => {
+      const pnlColor  = t.pnl == null ? "var(--muted)" : t.pnl >= 0 ? "var(--green)" : "var(--red)";
+      const pnlText   = t.pnl == null ? "Open" : (t.pnl >= 0 ? "+" : "") + "$" + Number(t.pnl).toFixed(2);
+      const dirColor  = t.direction === "BUY" ? "var(--green)" : "var(--red)";
+      const stColor   = t.status === "OPEN" ? "var(--yellow)" : (t.pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)";
+      const cid       = "jc-" + t.ticket;
+      return `<div class="journal-row">
+        <div class="journal-meta">
+          <span style="font-weight:700">${t.symbol}</span>
+          <span style="color:${dirColor};font-weight:700;font-size:.7rem">${t.direction}</span>
+          <span style="color:var(--muted)">@ $${Number(t.entry).toLocaleString()}</span>
+          <span style="color:${pnlColor};font-weight:700">${pnlText}</span>
+          <span style="font-size:.65rem;padding:1px 6px;border-radius:3px;border:1px solid ${stColor};color:${stColor}">${t.status}</span>
+          ${t.volume ? `<span style="color:var(--muted);font-size:.68rem">${t.volume} lot</span>` : ""}
+          <span style="color:var(--muted);font-size:.65rem;margin-left:auto">${t.openTime ? new Date(t.openTime).toLocaleString() : ""}</span>
+          ${t.commentary ? `<button class="btn-ai" onclick="const d=document.getElementById('${cid}');d.style.display=d.style.display==='none'?'block':'none'">AI</button>` : ""}
+        </div>
+        ${t.commentary ? `<div id="${cid}" class="j-comment" style="display:none">${t.commentary.replace(/\n/g,"<br>")}</div>` : ""}
+      </div>`;
+    }).join("");
+  } catch {
+    document.getElementById("journal-body").innerHTML = `<div style="color:var(--muted);font-size:.78rem">Could not load journal.</div>`;
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress(), loadAnalysis(), loadMT5()]);
+  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress(), loadAnalysis(), loadMT5(), loadFeatures(), loadJournal()]);
 }
 
 init();
@@ -920,7 +1085,9 @@ setInterval(loadSignals,  4 * 60_000);   // signals refresh every 4 min on dashb
 setInterval(loadAlerts,   15_000);
 setInterval(loadCongress, 5 * 60_000);
 setInterval(() => loadPlan(), 5 * 60_000);
-setInterval(loadMT5, 15_000);   // MT5 positions refresh every 15s
+setInterval(loadMT5,      15_000);       // MT5 positions refresh every 15s
+setInterval(loadFeatures, 30_000);       // feature toggles + news filter status every 30s
+setInterval(loadJournal,  30_000);       // trade journal refresh every 30s
 </script>
 </body>
 </html>

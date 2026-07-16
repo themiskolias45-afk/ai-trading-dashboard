@@ -57,7 +57,9 @@ MIN_LOT = {
 }
 
 # ── State ─────────────────────────────────────────────────────────────────────
-executed_signals = {}   # key → signal updatedAt string (deduplication)
+executed_signals  = {}   # key → signal updatedAt string (deduplication)
+known_positions   = set()  # set of open SmartEntry position tickets
+position_initial_r = {}  # ticket → initial risk (|entry - original_sl|) for trailing stop logic
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -162,6 +164,20 @@ def place_order(symbol, signal_type, entry, stop, target):
     if result.retcode == mt5.TRADE_RETCODE_DONE:
         log(f"ORDER PLACED: {signal_type} {lots} lot {symbol} @ {price:.2f}  SL:{stop}  TP:{target}", GREEN + BOLD)
         log(f"Ticket: #{result.order}", GREEN)
+        # Notify server so it can generate commentary and log the trade
+        try:
+            requests.post(f"{SERVER_URL}/api/trade-opened", json={
+                "ticket": result.order,
+                "symbol": symbol,
+                "type":   signal_type,
+                "price":  round(price, 5),
+                "sl":     stop,
+                "tp":     target,
+                "volume": lots,
+            }, timeout=5)
+        except Exception as e:
+            log(f"Could not POST trade-opened to server: {e}", YELLOW)
+        known_positions.add(result.order)
         return True
     else:
         log(f"Order failed (retcode {result.retcode}): {result.comment}", RED)
@@ -236,6 +252,12 @@ def process_signal(key, sig):
         executed_signals[key] = cache_key
         return
 
+    # Check news blackout before executing
+    blackout, blackout_reason = check_news_blackout()
+    if blackout:
+        log(f"NEWS BLACKOUT — skipping {ticker}: {blackout_reason}", YELLOW)
+        return
+
     # Check symbol is tradeable
     if not mt5.symbol_select(symbol, True):
         log(f"Cannot select {symbol} in MT5 — check symbol name for your broker", RED)
@@ -299,6 +321,137 @@ def print_status(signals):
     print(f"[{now}] {' | '.join(parts)}")
 
 
+def check_news_blackout():
+    """Ask the server if we're inside a 30-min news blackout window."""
+    try:
+        res = requests.get(f"{SERVER_URL}/api/newsfilter", timeout=5)
+        data = res.json()
+        return data.get("blackout", False), data.get("reason", None)
+    except Exception:
+        return False, None  # fail open — don't block trades if server unreachable
+
+
+def manage_trailing_stops():
+    """Move SL to breakeven at 1R profit; trail to entry+1R at 2R profit."""
+    try:
+        res  = requests.get(f"{SERVER_URL}/api/features", timeout=5)
+        feat = res.json().get("features", {})
+        if not feat.get("trailingStop", True):
+            return
+    except Exception:
+        pass  # if server unreachable, run anyway (trailing stops are safety-critical)
+
+    positions = mt5.positions_get()
+    if not positions:
+        return
+
+    for p in positions:
+        if p.magic != MAGIC_NUMBER:
+            continue
+
+        ticket = p.ticket
+        entry  = p.price_open
+        sl     = p.sl
+        tp     = p.tp
+        price  = p.price_current
+        is_buy = (p.type == 0)
+        symbol = p.symbol
+
+        # Record initial R on first encounter with this position
+        if ticket not in position_initial_r and sl != 0:
+            r = abs(entry - sl)
+            if r > 0:
+                position_initial_r[ticket] = r
+
+        r = position_initial_r.get(ticket)
+        if not r or r == 0:
+            continue
+
+        new_sl = None
+        if is_buy:
+            # 1R profit → move SL to breakeven
+            if price >= entry + r and sl < entry - 0.0001:
+                new_sl = round(entry, 5)
+                log(f"Breakeven triggered: #{ticket} {symbol} SL → {new_sl}", CYAN)
+            # 2R profit → trail SL to entry + 1R (lock in 1R)
+            elif price >= entry + 2 * r and sl < round(entry + r, 5) - 0.0001:
+                new_sl = round(entry + r, 5)
+                log(f"Trail 2R: #{ticket} {symbol} SL → {new_sl}", CYAN)
+        else:  # SELL
+            # 1R profit → move SL to breakeven
+            if price <= entry - r and sl > entry + 0.0001:
+                new_sl = round(entry, 5)
+                log(f"Breakeven triggered: #{ticket} {symbol} SL → {new_sl}", CYAN)
+            # 2R profit → trail SL to entry - 1R
+            elif price <= entry - 2 * r and sl > round(entry - r, 5) + 0.0001:
+                new_sl = round(entry - r, 5)
+                log(f"Trail 2R: #{ticket} {symbol} SL → {new_sl}", CYAN)
+
+        if new_sl is not None:
+            req = {
+                "action":   mt5.TRADE_ACTION_SLTP,
+                "position": ticket,
+                "symbol":   symbol,
+                "sl":       new_sl,
+                "tp":       tp,
+                "magic":    MAGIC_NUMBER,
+            }
+            result = mt5.order_send(req)
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                log(f"SL updated to {new_sl} for #{ticket}", GREEN)
+            else:
+                log(f"SL update failed #{ticket}: {result.comment}", RED)
+
+
+def track_closed_positions():
+    """Detect positions that closed since last check and POST to /api/trade-closed."""
+    global known_positions
+
+    positions = mt5.positions_get()
+    current_tickets = set()
+    if positions:
+        for p in positions:
+            if p.magic == MAGIC_NUMBER:
+                current_tickets.add(p.ticket)
+
+    closed_tickets = known_positions - current_tickets
+
+    for ticket in closed_tickets:
+        pnl         = None
+        close_price = None
+        try:
+            from datetime import timedelta
+            deals = mt5.history_deals_get(
+                datetime.now() - timedelta(days=1),
+                datetime.now(),
+                position=ticket
+            )
+            if deals:
+                for deal in deals:
+                    if deal.entry == mt5.DEAL_ENTRY_OUT:
+                        pnl         = round(deal.profit, 2)
+                        close_price = deal.price
+                        break
+        except Exception:
+            pass
+
+        try:
+            requests.post(f"{SERVER_URL}/api/trade-closed", json={
+                "ticket":     ticket,
+                "pnl":        pnl,
+                "closePrice": close_price,
+                "closeTime":  datetime.now().isoformat(),
+            }, timeout=5)
+            color = GREEN if pnl and pnl > 0 else RED
+            log(f"Trade closed #{ticket}  P&L ${pnl}", color)
+        except Exception as e:
+            log(f"Could not POST trade-closed #{ticket}: {e}", RED)
+
+        position_initial_r.pop(ticket, None)
+
+    known_positions = current_tickets
+
+
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 def main():
@@ -321,6 +474,8 @@ def main():
                 for key in ["btc", "gold"]:   # SPY skipped — not on MT5
                     process_signal(key, data.get(key))
             report_positions()
+            manage_trailing_stops()
+            track_closed_positions()
         except KeyboardInterrupt:
             log("Shutting down MT5 bridge…", YELLOW)
             mt5.shutdown()
