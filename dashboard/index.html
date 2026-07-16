@@ -348,6 +348,14 @@
       transition: all .15s;
     }
     .btn-ai:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* ── Quick prompts ── */
+    .quick-prompt {
+      background: var(--bg); border: 1px solid var(--border2);
+      color: var(--muted); padding: 4px 10px; border-radius: 6px;
+      font-size: .68rem; cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .quick-prompt:hover { border-color: var(--accent); color: var(--text); background: rgba(124,58,237,.08); }
   </style>
 </head>
 <body>
@@ -530,9 +538,18 @@
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">Ask Claude</div>
-        <span style="font-size:.65rem;color:var(--muted)">Live market context</span>
+        <span style="font-size:.65rem;color:var(--muted)">claude-opus-4-8 · Live context</span>
       </div>
-      <div class="panel-body" style="display:flex;flex-direction:column;gap:10px;max-height:280px">
+      <div class="panel-body" style="display:flex;flex-direction:column;gap:8px;max-height:340px">
+        <!-- Quick prompts -->
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <button class="quick-prompt" onclick="quickPrompt('best')">Best setup now</button>
+          <button class="quick-prompt" onclick="quickPrompt('risk')">Risk check</button>
+          <button class="quick-prompt" onclick="quickPrompt('btc')">BTC deep dive</button>
+          <button class="quick-prompt" onclick="quickPrompt('gold')">Gold deep dive</button>
+          <button class="quick-prompt" onclick="quickPrompt('spx')">SPY deep dive</button>
+          <button class="quick-prompt" onclick="quickPrompt('plan')">Today's game plan</button>
+        </div>
         <div id="chat-messages" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:120px"></div>
         <div style="display:flex;gap:8px">
           <input id="chat-input" type="text"
@@ -926,6 +943,23 @@ async function loadAnalysis() {
   } catch {
     document.getElementById("analysis-body").innerHTML = `<div style="color:var(--muted);font-size:.78rem">Analysis unavailable.</div>`;
   }
+}
+
+// ── Quick prompts ─────────────────────────────────────────────
+const QUICK_PROMPTS = {
+  best:  "Look at Gold (XAUUSD), Bitcoin (BTC) and SP500 (SPY) right now. Which single asset has the highest-quality trade setup? Give me: asset, direction (BUY or SELL), exact entry price, stop loss, target, risk/reward ratio, and your confidence level 0-100. Then in one sentence: what would INVALIDATE this trade?",
+  risk:  "Review the current market conditions across Gold, BTC and SPY. What is the overall market risk right now — should I be trading aggressively, cautiously, or staying in cash? What are the 2 biggest risks to watch today?",
+  btc:   "Give me a complete deep-dive analysis of Bitcoin right now. Cover: trend (daily + 4H), key support/resistance levels, RSI reading and what it means, MACD signal, Bollinger Bands, EMA alignment, and the best trade setup if there is one. Entry, stop, target, R/R.",
+  gold:  "Give me a complete deep-dive analysis of Gold (XAUUSD) right now. Cover: trend (daily + 4H), key support/resistance levels, RSI reading and what it means, MACD signal, Bollinger Bands, EMA alignment, and the best trade setup if there is one. Entry, stop, target, R/R.",
+  spx:   "Give me a complete deep-dive analysis of SPY/SP500 right now. Cover: trend (daily + 4H), key support/resistance levels, RSI reading and what it means, MACD signal, Bollinger Bands, EMA alignment, and the best trade setup if there is one. Entry, stop, target, R/R.",
+  plan:  "Based on the current market data, give me today's trading game plan. For each asset (Gold, BTC, SPY): (1) current bias, (2) key level to watch, (3) specific trigger that would make you enter a trade. End with: how many trades maximum should I take today and why?"
+};
+
+function quickPrompt(key) {
+  const input = document.getElementById("chat-input");
+  input.value = QUICK_PROMPTS[key];
+  input.focus();
+  sendChat();
 }
 
 // ── Claude Chat ───────────────────────────────────────────────
