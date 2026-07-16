@@ -700,12 +700,14 @@ async function askClaude(question) {
 
   if (anthropic) {
     const msg = await anthropic.messages.create({
-      model: "claude-sonnet-5",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
       system: "You are SmartEntry Pro, a professional trading analyst. Answer concisely and practically. Always include specific levels (entry, stop, target) when discussing trades. Never give financial advice — give analysis.",
       messages: [{ role: "user", content: `Market context:\n${context}\n\nQuestion: ${question}` }]
     });
-    return msg.content[0].text;
+    const text = msg.content?.[0]?.text;
+    console.log("[chat] Claude reply length:", text?.length ?? 0);
+    return text;
   }
 
   // Fallback — rule-based response without API key
