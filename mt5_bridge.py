@@ -60,6 +60,7 @@ MIN_LOT = {
 executed_signals  = {}   # key → signal updatedAt string (deduplication)
 known_positions   = set()  # set of open SmartEntry position tickets
 position_initial_r = {}  # ticket → initial risk (|entry - original_sl|) for trailing stop logic
+position_partial_taken = set()  # tickets where 50% has already been closed at 1R
 
 # ── Risk circuit breaker ───────────────────────────────────────
 daily_pnl        = 0.0      # cumulative P&L today
@@ -307,6 +308,14 @@ def process_signal(key, sig):
         executed_signals[key] = cache_key
         return
 
+    # Claude AI approval (only in AUTO mode — in semi-auto the human decides)
+    if AUTO_MODE:
+        ai_ok = claude_approves_trade(sig, symbol, entry, stop, target)
+        if not ai_ok:
+            log(f"Trade BLOCKED by Claude AI filter — {ticker}", RED)
+            executed_signals[key] = cache_key  # mark so we don't retry same signal
+            return
+
     confirmed = prompt_confirm(sig, symbol)
     if confirmed:
         ok = place_order(symbol, direction, entry, stop, target)
@@ -364,6 +373,26 @@ def check_news_blackout():
         return data.get("blackout", False), data.get("reason", None)
     except Exception:
         return False, None  # fail open — don't block trades if server unreachable
+
+
+def claude_approves_trade(sig, symbol, entry, stop, target):
+    """Ask Claude Opus to approve or reject this trade before execution."""
+    try:
+        res = requests.post(
+            f"{SERVER_URL}/api/claude-approve-trade",
+            json={"signal": sig, "symbol": symbol, "entry": entry, "stop": stop, "target": target},
+            timeout=25
+        )
+        data = res.json()
+        approved = data.get("approved", True)
+        reason   = data.get("reason", "")
+        risk     = data.get("risk", "MEDIUM")
+        color = GREEN if approved else RED
+        log(f"Claude AI: {'APPROVED' if approved else 'REJECTED'} [{risk}] — {reason}", color)
+        return approved
+    except Exception as e:
+        log(f"AI approval unavailable ({e}) — proceeding", YELLOW)
+        return True  # fail open so network issues don't block all trades
 
 
 def manage_trailing_stops():
@@ -436,6 +465,76 @@ def manage_trailing_stops():
                 log(f"SL updated to {new_sl} for #{ticket}", GREEN)
             else:
                 log(f"SL update failed #{ticket}: {result.comment}", RED)
+
+
+def take_partial_profit():
+    """At 1R profit: close 50% of the position, move SL to breakeven."""
+    positions = mt5.positions_get()
+    if not positions:
+        return
+
+    for p in positions:
+        if p.magic != MAGIC_NUMBER:
+            continue
+        ticket = p.ticket
+        if ticket in position_partial_taken:
+            continue  # already done for this trade
+
+        r = position_initial_r.get(ticket)
+        if not r or r == 0:
+            continue
+
+        entry  = p.price_open
+        price  = p.price_current
+        is_buy = (p.type == 0)
+
+        at_1r = (is_buy and price >= entry + r) or (not is_buy and price <= entry - r)
+        if not at_1r:
+            continue
+
+        # Close 50% of the position
+        sym_info = mt5.symbol_info(p.symbol)
+        if not sym_info:
+            continue
+        half_vol = round(p.volume / 2 / sym_info.volume_step) * sym_info.volume_step
+        half_vol = max(half_vol, sym_info.volume_min)
+        if half_vol >= p.volume:
+            continue  # too small to split
+
+        tick       = mt5.symbol_info_tick(p.symbol)
+        close_type = mt5.ORDER_TYPE_SELL if is_buy else mt5.ORDER_TYPE_BUY
+        close_price = tick.bid if is_buy else tick.ask
+
+        close_req = {
+            "action":       mt5.TRADE_ACTION_DEAL,
+            "position":     ticket,
+            "symbol":       p.symbol,
+            "volume":       half_vol,
+            "type":         close_type,
+            "price":        close_price,
+            "deviation":    20,
+            "magic":        MAGIC_NUMBER,
+            "comment":      "SmartEntry partial 1R",
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        result = mt5.order_send(close_req)
+        if result.retcode == mt5.TRADE_RETCODE_DONE:
+            position_partial_taken.add(ticket)
+            log(f"PARTIAL PROFIT: Closed 50% of #{ticket} {p.symbol} @ {close_price:.2f} (+1R)", GREEN + BOLD)
+            # Move SL to breakeven
+            be_req = {
+                "action":   mt5.TRADE_ACTION_SLTP,
+                "position": ticket,
+                "symbol":   p.symbol,
+                "sl":       round(entry, 5),
+                "tp":       p.tp,
+                "magic":    MAGIC_NUMBER,
+            }
+            be_result = mt5.order_send(be_req)
+            if be_result.retcode == mt5.TRADE_RETCODE_DONE:
+                log(f"SL moved to breakeven for #{ticket}", CYAN)
+        else:
+            log(f"Partial close failed #{ticket}: {result.comment}", RED)
 
 
 def track_closed_positions():
@@ -528,6 +627,7 @@ def main():
                     process_signal(key, data.get(key))
             report_positions()
             manage_trailing_stops()
+            take_partial_profit()
             track_closed_positions()
         except KeyboardInterrupt:
             log("Shutting down MT5 bridge…", YELLOW)

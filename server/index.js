@@ -321,11 +321,19 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null) {
   finalSignal = confidence >= 65 ? daily.signal : "WAIT";
   const finalStrength = confidence >= 90 ? "STRONG" : confidence >= 70 ? "MODERATE" : "NONE";
 
+  // Market regime
+  const bbW = daily.indicators?.bb?.bandwidth;
+  const regime =
+    (daily.trend === "STRONG UPTREND" || daily.trend === "STRONG DOWNTREND") ? "TRENDING" :
+    (bbW && bbW < 8) ? "SQUEEZE" :
+    (bbW && bbW > 25) ? "VOLATILE" : "RANGING";
+
   return {
     ...daily,
     signal:     finalSignal,
     strength:   finalStrength,
     confidence,
+    regime,
     h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi } : null,
     h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi } : null,
     pivots,
@@ -1280,6 +1288,68 @@ app.get("/api/backtest", async (req, res) => {
 
   backtestCache = out;
   res.json(out);
+});
+
+// Claude AI trade approval — called by MT5 bridge before executing any order
+app.post("/api/claude-approve-trade", async (req, res) => {
+  const { signal, symbol, entry, stop, target } = req.body ?? {};
+  if (!anthropic || !signal) return res.json({ approved: true, reason: "No AI available — proceeding", risk: "UNKNOWN" });
+
+  const rr = (entry && stop && target)
+    ? (Math.abs(target - entry) / Math.abs(entry - stop)).toFixed(1)
+    : "N/A";
+  const newsCheck = isNewsBlackout();
+  const macro = `DXY ${priceCache.dxy ?? "N/A"} | VIX ${priceCache.vix ?? "N/A"}`;
+
+  const prompt =
+    `You are a professional algorithmic trading risk manager. Evaluate this trade signal.\n\n` +
+    `Trade: ${signal.signal} ${symbol}\n` +
+    `Setup: ${(signal.setup ?? "").replace(/_/g," ")} | Trend: ${signal.trend ?? "?"}\n` +
+    `Entry: $${entry} | Stop: $${stop} | Target: $${target} | R/R: 1:${rr}\n` +
+    `RSI: ${signal.indicators?.rsi ?? "?"} | MACD: ${signal.indicators?.macd?.bullish ? "Bullish" : "Bearish"}\n` +
+    `Volume: ${signal.volume?.ratio ?? "N/A"}x avg | Vol confirmed: ${signal.volume?.confirmed ? "YES" : "NO"}\n` +
+    `Confidence score: ${signal.confidence ?? 0}%\n` +
+    `Macro: ${macro}\n` +
+    `News blackout: ${newsCheck.blackout ? "YES — " + newsCheck.reason : "CLEAR"}\n\n` +
+    `Current market:\n${buildMarketContext()}\n\n` +
+    `APPROVE the trade if ALL of: confidence >= 60%, R/R >= 1.5, no news blackout, macro not strongly against.\n` +
+    `REJECT if: confidence < 60%, R/R < 1.5, news blackout active, strong macro headwind (strong DXY against Gold/BTC long), or VIX > 30 on a BUY.\n\n` +
+    `Reply with ONLY valid JSON, no markdown:\n` +
+    `{"approved": true, "reason": "one sentence max", "risk": "LOW"}`;
+
+  try {
+    const msg = await anthropic.messages.create({
+      model: "claude-opus-4-8", max_tokens: 120,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const text = msg.content?.[0]?.text ?? "";
+    const match = text.match(/\{[\s\S]*\}/);
+    const parsed = match ? JSON.parse(match[0]) : null;
+    const approved = parsed?.approved ?? true;
+    const reason   = parsed?.reason   ?? "No reason given";
+    const risk     = parsed?.risk     ?? "MEDIUM";
+    console.log(`[AI-filter] ${symbol} ${signal.signal}: ${approved ? "APPROVED" : "REJECTED"} — ${reason}`);
+    res.json({ approved, reason, risk });
+  } catch (e) {
+    console.error("[AI-filter] Error:", e.message);
+    res.json({ approved: true, reason: "AI error — proceeding", risk: "MEDIUM" });
+  }
+});
+
+// Market regime endpoint
+app.get("/api/regime/:key", (_, res) => {
+  const key = _.params?.key ?? "btc";
+  const sig = signalCache[key];
+  if (!sig) return res.json({ regime: "UNKNOWN" });
+  const { indicators, trend } = sig;
+  const rsi = indicators?.rsi ?? 50;
+  const bb  = indicators?.bb;
+  // Detect regime
+  let regime = "RANGING";
+  if (trend === "STRONG UPTREND" || trend === "STRONG DOWNTREND") regime = "TRENDING";
+  if (bb && bb.bandwidth < 8) regime = "SQUEEZE";   // Bollinger squeeze = breakout incoming
+  if (bb && bb.bandwidth > 25) regime = "VOLATILE";
+  res.json({ regime, trend, rsi, bandwidth: bb?.bandwidth });
 });
 
 // ── Serve dashboard ──────────────────────────────────────────
