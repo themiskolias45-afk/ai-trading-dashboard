@@ -40,7 +40,7 @@ const UW_BASE        = "https://api.unusualwhales.com/api";
 const uwHeaders      = { Authorization: `Bearer ${UW_API_KEY}`, Accept: "application/json", "User-Agent": "SmartEntry/9.0" };
 
 // ── State ─────────────────────────────────────────────────────
-let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, spx: null, spxChange: null, updated: null };
+let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, spx: null, spxChange: null, dxy: null, dxyChange: null, vix: null, updated: null };
 let signalCache   = { btc: null, gold: null, spx: null, updatedAt: null };
 let dailyPlan     = null;
 let tvAlerts      = [];
@@ -51,6 +51,7 @@ let mt5Positions  = [];   // reported by mt5_bridge.py via POST /api/mt5/positio
 let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
 let tradeJournal  = [];   // trade journal entries (max 200)
 let newsCache     = [];   // economic calendar events from ForexFactory
+let riskStatus    = { dailyPnl: 0, consecutiveLosses: 0, halted: false, haltReason: "" };
 
 // ══════════════════════════════════════════════════════════════
 //  TECHNICAL ANALYSIS
@@ -115,7 +116,7 @@ function atr(highs, lows, closes, period = 14) {
 }
 
 // ── Core signal generator ─────────────────────────────────────
-function generateSignal(label, ticker, closes, highs, lows) {
+function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
   if (!closes || closes.length < 50) return null;
 
   const price  = closes[closes.length - 1];
@@ -137,6 +138,14 @@ function generateSignal(label, ticker, closes, highs, lows) {
     aboveEma200 === true  && aboveEma50                ? "UPTREND" :
     aboveEma200 === false && !aboveEma50 && !aboveEma20 ? "STRONG DOWNTREND" :
     aboveEma200 === false && !aboveEma50               ? "DOWNTREND" : "MIXED";
+
+  // Volume analysis — last bar vs 20-period average
+  const avgVol = volumes.length >= 20
+    ? volumes.slice(-20).reduce((a,b) => a+b, 0) / 20
+    : null;
+  const lastVol  = volumes[volumes.length - 1] ?? 0;
+  const volRatio = avgVol && avgVol > 0 ? parseFloat((lastVol / avgVol).toFixed(1)) : null;
+  const volConfirmed = volRatio !== null && volRatio >= 1.4;
 
   // ── Signal logic ──
   let setup = "WAIT", signal = "WAIT", strength = "NONE";
@@ -224,6 +233,8 @@ function generateSignal(label, ticker, closes, highs, lows) {
     ? Math.abs(target - entry) / Math.abs(entry - stop)
     : null;
 
+  if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg — ${volConfirmed ? "confirms breakout" : "below average"}`);
+
   return {
     label,
     ticker,
@@ -244,20 +255,27 @@ function generateSignal(label, ticker, closes, highs, lows) {
       macd
     },
     trend,
+    volume: { last: Math.round(lastVol), avg: avgVol ? Math.round(avgVol) : null, ratio: volRatio, confirmed: volConfirmed },
     reasons,
     updatedAt: new Date().toISOString()
   };
 }
 
 // ── Multi-timeframe wrapper ───────────────────────────────────
-function generateSignalMTF(label, ticker, dailyData, h4Data) {
-  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows);
+function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null) {
+  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? []);
   if (!daily) return null;
 
   let h4 = null;
   try {
     if (h4Data?.closes?.length >= 50)
-      h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows);
+      h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows, h4Data.volumes ?? []);
+  } catch (e) {}
+
+  let h1 = null;
+  try {
+    if (h1Data?.closes?.length >= 50)
+      h1 = generateSignal(label, ticker, h1Data.closes, h1Data.highs, h1Data.lows, h1Data.volumes ?? []);
   } catch (e) {}
 
   // Confidence: rises when both timeframes agree
@@ -269,12 +287,38 @@ function generateSignalMTF(label, ticker, dailyData, h4Data) {
     confidence = 25; // 4H only — weaker
   }
 
+  // Triple alignment: Daily + 4H + 1H all agree
+  if (h4 && h1 && h4.signal === daily.signal && h1.signal === daily.signal && daily.signal !== "WAIT") {
+    const allStrong = daily.strength === "STRONG" && h4.strength === "STRONG";
+    confidence = allStrong ? 97 : 88;
+  }
+
+  // Volume confidence boost
+  if (daily.volume?.confirmed && (daily.signal === "BUY" || daily.signal === "SELL")) {
+    confidence = Math.min(100, confidence + 5);
+  }
+
+  // Preliminary signal for macro filter checks
+  let finalSignal = confidence >= 65 ? daily.signal : "WAIT";
+
+  // DXY filter: strong dollar hurts Gold and BTC
+  const dxy = priceCache.dxy;
+  if (dxy && dxy > 105 && (ticker === "GC=F" || ticker === "BTC-USD") && finalSignal === "BUY") {
+    confidence = Math.max(0, confidence - 10);
+    daily.reasons.push(`⚠ DXY ${dxy} (strong dollar — headwind for ${label})`);
+  }
+  // VIX filter: high fear = reduce confidence on BUY signals
+  if (priceCache.vix && priceCache.vix > 25 && finalSignal === "BUY") {
+    confidence = Math.max(0, confidence - 8);
+    daily.reasons.push(`⚠ VIX ${priceCache.vix} elevated — risk-off environment`);
+  }
+
   // Pivots from last completed daily candle
   const n = dailyData.closes.length;
   const pivots = n >= 2 ? calcPivots(dailyData.highs[n - 2], dailyData.lows[n - 2], dailyData.closes[n - 2]) : null;
 
   // Require confidence ≥ 65 for a signal to fire
-  const finalSignal   = confidence >= 65 ? daily.signal : "WAIT";
+  finalSignal = confidence >= 65 ? daily.signal : "WAIT";
   const finalStrength = confidence >= 90 ? "STRONG" : confidence >= 70 ? "MODERATE" : "NONE";
 
   return {
@@ -283,6 +327,7 @@ function generateSignalMTF(label, ticker, dailyData, h4Data) {
     strength:   finalStrength,
     confidence,
     h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi } : null,
+    h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi } : null,
     pivots,
     session: getCurrentSession()
   };
@@ -329,7 +374,8 @@ async function fetchCandles(symbol) {
   const closes = quote.close.map(v => v ?? null).filter(v => v !== null);
   const highs  = quote.high.map(v  => v ?? null).filter(v => v !== null);
   const lows   = quote.low.map(v   => v ?? null).filter(v => v !== null);
-  return { closes, highs, lows, meta: result.meta };
+  const volumes = quote.volume.map(v => v ?? 0);
+  return { closes, highs, lows, volumes, meta: result.meta };
 }
 
 async function fetchCandles4H(symbol) {
@@ -338,18 +384,42 @@ async function fetchCandles4H(symbol) {
   const result = res.data?.chart?.result?.[0];
   if (!result) throw new Error("No 1H data");
   const q = result.indicators.quote[0];
-  const rawC = q.close, rawH = q.high, rawL = q.low;
-  const closes = [], highs = [], lows = [];
+  const rawC = q.close, rawH = q.high, rawL = q.low, rawV = q.volume ?? [];
+  const closes = [], highs = [], lows = [], volumes = [];
   for (let i = 3; i < rawC.length; i += 4) {
     const c4 = rawC.slice(i - 3, i + 1).filter(Boolean);
     const h4 = rawH.slice(i - 3, i + 1).filter(Boolean);
     const l4 = rawL.slice(i - 3, i + 1).filter(Boolean);
+    const v4 = rawV.slice(i - 3, i + 1).filter(v => v != null);
     if (!c4.length) continue;
     closes.push(c4[c4.length - 1]);
     highs.push(Math.max(...h4));
     lows.push(Math.min(...l4));
+    volumes.push(v4.reduce((a,b) => a+b, 0));
   }
-  return { closes, highs, lows };
+  return { closes, highs, lows, volumes };
+}
+
+async function fetchCandles1H(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=30m&range=30d`;
+  const res = await axios.get(url, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
+  const result = res.data?.chart?.result?.[0];
+  if (!result) throw new Error("No 30m data");
+  const q = result.indicators.quote[0];
+  const rawC = q.close, rawH = q.high, rawL = q.low, rawV = q.volume ?? [];
+  const closes = [], highs = [], lows = [], volumes = [];
+  for (let i = 1; i < rawC.length; i += 2) {
+    const c2 = rawC.slice(i-1, i+1).filter(Boolean);
+    const h2 = rawH.slice(i-1, i+1).filter(Boolean);
+    const l2 = rawL.slice(i-1, i+1).filter(Boolean);
+    const v2 = rawV.slice(i-1, i+1).filter(v => v != null);
+    if (!c2.length) continue;
+    closes.push(c2[c2.length - 1]);
+    highs.push(Math.max(...h2));
+    lows.push(Math.min(...l2));
+    volumes.push(v2.reduce((a,b) => a+b, 0));
+  }
+  return { closes, highs, lows, volumes };
 }
 
 async function yahooPrice(symbol) {
@@ -365,11 +435,13 @@ async function yahooPrice(symbol) {
 
 async function fetchPrices() {
   try {
-    const [btcRes, goldRes, spxRes] = await Promise.allSettled([
+    const [btcRes, goldRes, spxRes, dxyRes, vixRes] = await Promise.allSettled([
       axios.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
         { timeout: 8000, headers: { "User-Agent": "SmartEntry/9.0" } }),
       yahooPrice("GC=F"),
-      yahooPrice("SPY")
+      yahooPrice("SPY"),
+      yahooPrice("DX-Y.NYB"),
+      yahooPrice("^VIX")
     ]);
     if (btcRes.status === "fulfilled") {
       priceCache.btc       = parseFloat((btcRes.value.data?.bitcoin?.usd ?? priceCache.btc).toFixed(2));
@@ -377,13 +449,16 @@ async function fetchPrices() {
     }
     if (goldRes.status === "fulfilled") { priceCache.gold = goldRes.value.price; priceCache.goldChange = goldRes.value.change; }
     if (spxRes.status  === "fulfilled") { priceCache.spx  = spxRes.value.price;  priceCache.spxChange  = spxRes.value.change; }
+    if (dxyRes.status  === "fulfilled") { priceCache.dxy  = dxyRes.value.price;  priceCache.dxyChange  = dxyRes.value.change; }
+    if (vixRes.status  === "fulfilled") { priceCache.vix  = vixRes.value.price; }
     priceCache.updated = new Date().toISOString();
     console.log(`[prices] BTC $${priceCache.btc} | Gold $${priceCache.gold} | SPY $${priceCache.spx}`);
+    console.log(`[macro] DXY ${priceCache.dxy} | VIX ${priceCache.vix}`);
   } catch (e) { console.error("fetchPrices:", e.message); }
 }
 
 async function refreshSignals() {
-  console.log("[signals] Refreshing technical analysis (Daily + 4H)…");
+  console.log("[signals] Refreshing technical analysis (Daily + 4H + 1H)…");
   const assets = [
     { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
     { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
@@ -391,13 +466,14 @@ async function refreshSignals() {
   ];
   for (const a of assets) {
     try {
-      const [daily, h4] = await Promise.allSettled([fetchCandles(a.symbol), fetchCandles4H(a.symbol)]);
+      const [daily, h4, h1] = await Promise.allSettled([fetchCandles(a.symbol), fetchCandles4H(a.symbol), fetchCandles1H(a.symbol)]);
       const dailyData = daily.status === "fulfilled" ? daily.value : null;
       const h4Data    = h4.status    === "fulfilled" ? h4.value    : null;
+      const h1Data    = h1.status    === "fulfilled" ? h1.value    : null;
       if (!dailyData) { console.error(`[signals] ${a.label}: no daily data`); continue; }
-      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data);
+      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data);
       const s = signalCache[a.key];
-      console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) | confidence: ${s?.confidence}% | 4H: ${h4Data ? s?.h4?.signal ?? "?" : "unavailable"}`);
+      console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) | confidence: ${s?.confidence}% | 4H: ${h4Data ? s?.h4?.signal ?? "?" : "unavailable"} | 1H: ${h1Data ? s?.h1?.signal ?? "?" : "unavailable"}`);
     } catch (e) {
       console.error(`[signals] ${a.label} error:`, e.message);
     }
@@ -642,6 +718,16 @@ app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions })
 app.post("/api/mt5/positions", (req, res) => {
   mt5Positions = req.body?.positions ?? [];
   res.json({ ok: true, count: mt5Positions.length });
+});
+
+// Risk status endpoints
+app.get("/api/risk-status",  (_, res) => res.json(riskStatus));
+app.post("/api/risk-status", (req, res) => {
+  riskStatus = { ...riskStatus, ...req.body };
+  if (riskStatus.halted) {
+    console.log(`[risk] CIRCUIT BREAKER ACTIVE: ${riskStatus.haltReason}`);
+  }
+  res.json({ ok: true });
 });
 
 app.get("/api/analysis", (_, res) => {

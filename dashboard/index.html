@@ -426,6 +426,28 @@
     </div>
   </div>
 
+  <!-- Macro indicators row -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px" id="macro-strip">
+    <div class="price-card" id="dxy-card">
+      <div class="price-icon">💵</div>
+      <div class="price-info">
+        <div class="price-label">DXY — US Dollar Index</div>
+        <div class="price-value" id="dxy-price">—</div>
+        <div class="price-change" id="dxy-change">—</div>
+      </div>
+      <div id="dxy-badge" style="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700"></div>
+    </div>
+    <div class="price-card" id="vix-card">
+      <div class="price-icon">😱</div>
+      <div class="price-info">
+        <div class="price-label">VIX — Fear Index</div>
+        <div class="price-value" id="vix-price">—</div>
+        <div id="vix-label" style="font-size:.72rem;margin-top:2px"></div>
+      </div>
+      <div id="vix-badge" style="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700"></div>
+    </div>
+  </div>
+
   <!-- TradingView Charts -->
   <div class="charts-grid">
     <div class="chart-wrap">
@@ -531,6 +553,10 @@
       </div>
     </div>
   </div>
+</div>
+
+<div class="container" style="margin-top:0;padding-top:0">
+  <div id="risk-bar" style="display:none;background:#200d0d;border:1px solid var(--red);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:.78rem;color:var(--red);font-weight:700"></div>
 </div>
 
 <!-- Claude Chat Panel -->
@@ -711,6 +737,34 @@ async function loadPrices() {
     const spxBiasEl = document.getElementById("spx-bias");
     spxBiasEl.textContent = (d.spxChange ?? 0) > 2 ? "STRONG BUY" : (d.spxChange ?? 0) > 0 ? "BUY" : (d.spxChange ?? 0) < -2 ? "STRONG SELL" : (d.spxChange ?? 0) < 0 ? "SELL" : "NEUTRAL";
     spxBiasEl.className = "price-bias " + biasClass(spxBiasEl.textContent);
+
+    // DXY
+    if (d.dxy != null) {
+      document.getElementById("dxy-price").textContent = "$" + d.dxy.toFixed(2);
+      const dxyChEl = document.getElementById("dxy-change");
+      dxyChEl.textContent = fmtChange(d.dxyChange);
+      dxyChEl.className = "price-change " + changeClass(d.dxyChange);
+      const badge = document.getElementById("dxy-badge");
+      if (d.dxy > 106) { badge.textContent = "STRONG $"; badge.style.cssText = "font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#200d0d;color:var(--red)"; }
+      else if (d.dxy > 103) { badge.textContent = "NEUTRAL"; badge.style.cssText = "font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#1a1a2e;color:var(--muted)"; }
+      else { badge.textContent = "WEAK $"; badge.style.cssText = "font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#0d2010;color:var(--green)"; }
+    }
+    // VIX
+    if (d.vix != null) {
+      document.getElementById("vix-price").textContent = d.vix.toFixed(1);
+      const badge = document.getElementById("vix-badge");
+      const label = document.getElementById("vix-label");
+      if (d.vix >= 30) {
+        badge.textContent = "EXTREME FEAR"; badge.style.cssText = "font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#200d0d;color:var(--red)";
+        label.textContent = "Avoid longs — market panic mode"; label.style.color = "var(--red)";
+      } else if (d.vix >= 20) {
+        badge.textContent = "ELEVATED"; badge.style.cssText = "font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#201a0d;color:var(--yellow)";
+        label.textContent = "Caution on BUY signals"; label.style.color = "var(--yellow)";
+      } else {
+        badge.textContent = "CALM"; badge.style.cssText = "font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#0d2010;color:var(--green)";
+        label.textContent = "Low fear — normal conditions"; label.style.color = "var(--green)";
+      }
+    }
 
     document.getElementById("conn-status").textContent = "Live";
     if (d.updated) document.getElementById("last-update").textContent = "Updated " + new Date(d.updated).toLocaleTimeString();
@@ -894,6 +948,10 @@ function renderSignalCard(id, s) {
     html += `<span class="sig-tf-pill" style="color:${h4c}">4H: ${s.h4.trend?.replace("STRONG ","")?.replace("TREND","") ?? s.h4.signal}</span>`;
     if (s.h4.rsi) html += `<span class="sig-tf-pill" style="color:var(--muted)">4H RSI ${s.h4.rsi}</span>`;
   }
+  if (s.h1) {
+    const h1c = s.h1.signal === "BUY" ? "var(--green)" : s.h1.signal === "SELL" ? "var(--red)" : "var(--yellow)";
+    html += `<span class="sig-tf-pill" style="color:${h1c}">1H: ${s.h1.trend?.replace("STRONG ","")?.replace("TREND","") ?? s.h1.signal}</span>`;
+  }
   html += `</div>`;
 
   // Entry/Stop/Target
@@ -921,6 +979,7 @@ function renderSignalCard(id, s) {
   if (s.indicators?.macd) html += `<div class="ind-pill ${s.indicators.macd.bullish ? "bull" : "bear"}">${macdIcon}</div>`;
   if (s.indicators?.bb)   html += `<div class="ind-pill">BB ${s.indicators.bb.bandwidth}%</div>`;
   if (s.indicators?.ema200) html += `<div class="ind-pill ${s.price > s.indicators.ema200 ? "bull" : "bear"}">EMA200 $${Number(s.indicators.ema200).toLocaleString()}</div>`;
+  if (s.volume?.ratio != null) html += `<div class="ind-pill ${s.volume.confirmed ? "bull" : ""}">Vol ${s.volume.ratio}x</div>`;
   html += `</div>`;
 
   // Pivot points
@@ -1230,6 +1289,29 @@ async function loadJournal() {
   }
 }
 
+// ── Risk status ───────────────────────────────────────────────
+async function loadRiskStatus() {
+  try {
+    const d = await fetch(API + "/risk-status", { cache: "no-store" }).then(r => r.json());
+    const bar = document.getElementById("risk-bar");
+    if (d.halted) {
+      bar.style.display = "block";
+      bar.style.background = "#200d0d";
+      bar.style.borderColor = "var(--red)";
+      bar.style.color = "var(--red)";
+      bar.textContent = "🛑 TRADING HALTED: " + d.haltReason + "  |  Daily P&L: $" + (d.dailyPnl >= 0 ? "+" : "") + d.dailyPnl.toFixed(2);
+    } else if (d.dailyPnl < 0) {
+      bar.style.display = "block";
+      bar.style.background = "#201a0d";
+      bar.style.borderColor = "var(--yellow)";
+      bar.style.color = "var(--yellow)";
+      bar.textContent = "⚠ Daily P&L: $" + d.dailyPnl.toFixed(2) + "  |  Consecutive losses: " + d.consecutiveLosses;
+    } else {
+      bar.style.display = "none";
+    }
+  } catch {}
+}
+
 // ── Server uptime ─────────────────────────────────────────────
 let serverStartTime = null;
 async function loadUptime() {
@@ -1257,7 +1339,7 @@ async function stopServer() {
 
 // ── Boot ──────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress(), loadAnalysis(), loadMT5(), loadFeatures(), loadJournal(), loadUptime()]);
+  await Promise.all([loadPrices(), loadSignals(), loadPlan(), loadAlerts(), loadCongress(), loadAnalysis(), loadMT5(), loadFeatures(), loadJournal(), loadUptime(), loadRiskStatus()]);
 }
 
 init();
@@ -1270,6 +1352,7 @@ setInterval(loadMT5,      15_000);       // MT5 positions refresh every 15s
 setInterval(loadFeatures, 30_000);       // feature toggles + news filter status every 30s
 setInterval(loadJournal,  30_000);       // trade journal refresh every 30s
 setInterval(loadUptime,    1_000);       // server uptime counter
+setInterval(loadRiskStatus, 15_000);     // risk status refresh every 15s
 </script>
 </body>
 </html>

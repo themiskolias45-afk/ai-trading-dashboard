@@ -61,7 +61,39 @@ executed_signals  = {}   # key → signal updatedAt string (deduplication)
 known_positions   = set()  # set of open SmartEntry position tickets
 position_initial_r = {}  # ticket → initial risk (|entry - original_sl|) for trailing stop logic
 
+# ── Risk circuit breaker ───────────────────────────────────────
+daily_pnl        = 0.0      # cumulative P&L today
+daily_loss_limit = float(os.environ.get("DAILY_LOSS_PCT", "3.0"))  # % of balance
+consecutive_losses = 0
+MAX_CONSECUTIVE_LOSSES = int(os.environ.get("MAX_CONSEC_LOSSES", "3"))
+trading_halted   = False
+halt_reason      = ""
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def check_circuit_breaker():
+    global trading_halted, halt_reason
+    if trading_halted:
+        return True
+    acc = mt5.account_info()
+    if not acc:
+        return False
+    # Daily loss limit
+    if acc.balance > 0:
+        loss_pct = (-daily_pnl / acc.balance) * 100
+        if loss_pct >= daily_loss_limit:
+            trading_halted = True
+            halt_reason = f"Daily loss limit hit: -{loss_pct:.1f}% (limit {daily_loss_limit}%)"
+            log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
+            return True
+    # Consecutive losses
+    if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+        trading_halted = True
+        halt_reason = f"{consecutive_losses} consecutive losses — pausing"
+        log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
+        return True
+    return False
+
 
 def log(msg, color=""):
     ts = datetime.now().strftime("%H:%M:%S")
@@ -226,6 +258,9 @@ def prompt_confirm(sig, symbol):
 
 
 def process_signal(key, sig):
+    if check_circuit_breaker():
+        log(f"Trading halted: {halt_reason}", RED)
+        return
     if not sig:
         return
     direction = sig.get("signal")
@@ -435,6 +470,14 @@ def track_closed_positions():
         except Exception:
             pass
 
+        global daily_pnl, consecutive_losses
+        if pnl is not None:
+            daily_pnl += pnl
+            if pnl < 0:
+                consecutive_losses += 1
+            else:
+                consecutive_losses = 0
+
         try:
             requests.post(f"{SERVER_URL}/api/trade-closed", json={
                 "ticket":     ticket,
@@ -446,6 +489,16 @@ def track_closed_positions():
             log(f"Trade closed #{ticket}  P&L ${pnl}", color)
         except Exception as e:
             log(f"Could not POST trade-closed #{ticket}: {e}", RED)
+
+        try:
+            requests.post(f"{SERVER_URL}/api/risk-status", json={
+                "dailyPnl": round(daily_pnl, 2),
+                "consecutiveLosses": consecutive_losses,
+                "halted": trading_halted,
+                "haltReason": halt_reason
+            }, timeout=3)
+        except Exception:
+            pass
 
         position_initial_r.pop(ticket, None)
 
