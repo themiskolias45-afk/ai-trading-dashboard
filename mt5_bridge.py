@@ -15,6 +15,7 @@ import os
 import time
 import json
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 try:
@@ -537,6 +538,20 @@ def take_partial_profit():
             log(f"Partial close failed #{ticket}: {result.comment}", RED)
 
 
+def process_all_signals(data):
+    """Process BTC and Gold signals in parallel threads."""
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(process_signal, "btc",  data.get("btc")): "btc",
+            executor.submit(process_signal, "gold", data.get("gold")): "gold",
+        }
+        for future in futures:
+            try:
+                future.result(timeout=30)
+            except Exception as e:
+                log(f"Signal processing error ({futures[future]}): {e}", RED)
+
+
 def track_closed_positions():
     """Detect positions that closed since last check and POST to /api/trade-closed."""
     global known_positions
@@ -623,8 +638,7 @@ def main():
             data = fetch_signals()
             if data:
                 print_status(data)
-                for key in ["btc", "gold"]:   # SPY skipped — not on MT5
-                    process_signal(key, data.get(key))
+                process_all_signals(data)
             report_positions()
             manage_trailing_stops()
             take_partial_profit()

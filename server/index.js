@@ -445,14 +445,14 @@ async function fetchPrices() {
   try {
     const [btcRes, goldRes, spxRes, dxyRes, vixRes] = await Promise.allSettled([
       axios.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
-        { timeout: 8000, headers: { "User-Agent": "SmartEntry/9.0" } }),
+        { timeout: 8000, headers: { "User-Agent": "SmartEntry/12.0" } }),
       yahooPrice("GC=F"),
       yahooPrice("SPY"),
       yahooPrice("DX-Y.NYB"),
       yahooPrice("^VIX")
     ]);
     if (btcRes.status === "fulfilled") {
-      priceCache.btc       = parseFloat((btcRes.value.data?.bitcoin?.usd ?? priceCache.btc).toFixed(2));
+      priceCache.btc       = parseFloat((btcRes.value.data?.bitcoin?.usd ?? priceCache.btc ?? 0).toFixed(2));
       priceCache.btcChange = parseFloat((btcRes.value.data?.bitcoin?.usd_24h_change ?? 0).toFixed(2));
     }
     if (goldRes.status === "fulfilled") { priceCache.gold = goldRes.value.price; priceCache.goldChange = goldRes.value.change; }
@@ -460,32 +460,35 @@ async function fetchPrices() {
     if (dxyRes.status  === "fulfilled") { priceCache.dxy  = dxyRes.value.price;  priceCache.dxyChange  = dxyRes.value.change; }
     if (vixRes.status  === "fulfilled") { priceCache.vix  = vixRes.value.price; }
     priceCache.updated = new Date().toISOString();
-    console.log(`[prices] BTC $${priceCache.btc} | Gold $${priceCache.gold} | SPY $${priceCache.spx}`);
-    console.log(`[macro] DXY ${priceCache.dxy} | VIX ${priceCache.vix}`);
+    console.log(`[prices] BTC $${priceCache.btc} | Gold $${priceCache.gold} | SPY $${priceCache.spx} | DXY ${priceCache.dxy} | VIX ${priceCache.vix}`);
   } catch (e) { console.error("fetchPrices:", e.message); }
 }
 
 async function refreshSignals() {
-  console.log("[signals] Refreshing technical analysis (Daily + 4H + 1H)…");
+  console.log("[signals] Refreshing all assets in PARALLEL (Daily + 4H + 1H)…");
   const assets = [
     { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
     { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
     { key: "spx",  label: "S&P500/SPY", symbol: "SPY"     }
   ];
-  for (const a of assets) {
+  await Promise.all(assets.map(async (a) => {
     try {
-      const [daily, h4, h1] = await Promise.allSettled([fetchCandles(a.symbol), fetchCandles4H(a.symbol), fetchCandles1H(a.symbol)]);
+      const [daily, h4, h1] = await Promise.allSettled([
+        fetchCandles(a.symbol),
+        fetchCandles4H(a.symbol),
+        fetchCandles1H(a.symbol)
+      ]);
       const dailyData = daily.status === "fulfilled" ? daily.value : null;
       const h4Data    = h4.status    === "fulfilled" ? h4.value    : null;
       const h1Data    = h1.status    === "fulfilled" ? h1.value    : null;
-      if (!dailyData) { console.error(`[signals] ${a.label}: no daily data`); continue; }
+      if (!dailyData) { console.error(`[signals] ${a.label}: no daily data`); return; }
       signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data);
       const s = signalCache[a.key];
-      console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) | confidence: ${s?.confidence}% | 4H: ${h4Data ? s?.h4?.signal ?? "?" : "unavailable"} | 1H: ${h1Data ? s?.h1?.signal ?? "?" : "unavailable"}`);
+      console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) conf:${s?.confidence}% regime:${s?.regime} vol:${s?.volume?.ratio ?? "?"}x`);
     } catch (e) {
       console.error(`[signals] ${a.label} error:`, e.message);
     }
-  }
+  }));
   signalCache.updatedAt = new Date().toISOString();
   refreshAnalysis();
 }
@@ -965,13 +968,58 @@ function autoAnalyze(s) {
 
 let analysisCache = { btc: null, gold: null, spx: null, updatedAt: null };
 
-function refreshAnalysis() {
-  analysisCache = {
-    btc:  autoAnalyze(signalCache.btc),
-    gold: autoAnalyze(signalCache.gold),
-    spx:  autoAnalyze(signalCache.spx),
-    updatedAt: new Date().toISOString()
-  };
+async function refreshAnalysis() {
+  // Rule-based analysis runs instantly for all 3 in parallel
+  const [btcAuto, goldAuto, spxAuto] = await Promise.all([
+    Promise.resolve(autoAnalyze(signalCache.btc)),
+    Promise.resolve(autoAnalyze(signalCache.gold)),
+    Promise.resolve(autoAnalyze(signalCache.spx))
+  ]);
+
+  // Start with rule-based results immediately
+  analysisCache = { btc: btcAuto, gold: goldAuto, spx: spxAuto, updatedAt: new Date().toISOString(), aiEnhanced: false };
+
+  // If Claude is available, run 3 parallel AI brains — one per asset
+  if (anthropic) {
+    const assets = [
+      { key: "btc",  sig: signalCache.btc,  base: btcAuto  },
+      { key: "gold", sig: signalCache.gold, base: goldAuto },
+      { key: "spx",  sig: signalCache.spx,  base: spxAuto  }
+    ];
+
+    const results = await Promise.allSettled(assets.map(async ({ key, sig, base }) => {
+      if (!sig) return { key, text: base };
+      const prompt =
+        `You are the dedicated AI trading analyst for ${sig.label}. ` +
+        `Provide a concise professional analysis (3-4 sentences max).\n\n` +
+        `Signal: ${sig.signal} | Setup: ${(sig.setup ?? "WAIT").replace(/_/g," ")} | Regime: ${sig.regime ?? "?"}\n` +
+        `Trend: ${sig.trend} | RSI: ${sig.indicators?.rsi} | Confidence: ${sig.confidence ?? 0}%\n` +
+        `Volume: ${sig.volume?.ratio ?? "N/A"}x avg | Vol confirmed: ${sig.volume?.confirmed ? "YES" : "NO"}\n` +
+        `D:${sig.trend} 4H:${sig.h4?.trend ?? "?"} 1H:${sig.h1?.trend ?? "?"}\n` +
+        (sig.signal !== "WAIT"
+          ? `Entry: $${sig.entry} | Stop: $${sig.stop} | Target: $${sig.target} | R/R: 1:${sig.rr}\n`
+          : "No active trade setup.\n") +
+        `DXY: ${priceCache.dxy ?? "N/A"} | VIX: ${priceCache.vix ?? "N/A"}\n\n` +
+        `Focus on: (1) what the setup means, (2) key risk, (3) what to watch. ` +
+        `Be specific with price levels. Professional tone.`;
+
+      const msg = await anthropic.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 200,
+        messages: [{ role: "user", content: prompt }]
+      });
+      return { key, text: msg.content?.[0]?.text ?? base };
+    }));
+
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        analysisCache[r.value.key] = r.value.text;
+      }
+    }
+    analysisCache.updatedAt = new Date().toISOString();
+    analysisCache.aiEnhanced = true;
+    console.log("[analysis] 3 parallel Claude AI brains completed");
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1350,6 +1398,57 @@ app.get("/api/regime/:key", (_, res) => {
   if (bb && bb.bandwidth < 8) regime = "SQUEEZE";   // Bollinger squeeze = breakout incoming
   if (bb && bb.bandwidth > 25) regime = "VOLATILE";
   res.json({ regime, trend, rsi, bandwidth: bb?.bandwidth });
+});
+
+// Run 3 parallel Claude AI analyses on demand
+app.post("/api/ai-brain", async (req, res) => {
+  if (!anthropic) return res.json({ error: "No Claude API key" });
+  console.log("[ai-brain] Running 3 parallel Claude Opus analyses…");
+  const start = Date.now();
+
+  const assets = [
+    { key: "btc",  sig: signalCache.btc  },
+    { key: "gold", sig: signalCache.gold },
+    { key: "spx",  sig: signalCache.spx  }
+  ];
+
+  const results = await Promise.allSettled(assets.map(async ({ key, sig }) => {
+    if (!sig) return { key, analysis: null };
+    const prompt =
+      `You are the dedicated AI trading brain for ${sig.label} (${key.toUpperCase()}). ` +
+      `This is a real-time institutional-grade trading analysis.\n\n` +
+      `=== CURRENT STATE ===\n` +
+      `Signal: ${sig.signal} | Strength: ${sig.strength} | Confidence: ${sig.confidence}%\n` +
+      `Regime: ${sig.regime} | Setup: ${(sig.setup ?? "WAIT").replace(/_/g," ")}\n` +
+      `Price: $${sig.price} | Trend: ${sig.trend}\n` +
+      `RSI(14): ${sig.indicators?.rsi} | MACD: ${sig.indicators?.macd?.bullish ? "BULLISH" : "BEARISH"}\n` +
+      `BB Width: ${sig.indicators?.bb?.bandwidth}% | EMA200: $${sig.indicators?.ema200 ?? "N/A"}\n` +
+      `Volume: ${sig.volume?.ratio ?? "N/A"}x 20d avg | Confirmed: ${sig.volume?.confirmed ? "YES" : "NO"}\n` +
+      `Timeframes: D:${sig.trend} | 4H:${sig.h4?.trend ?? "?"} (RSI ${sig.h4?.rsi ?? "?"}) | 1H:${sig.h1?.trend ?? "?"}\n` +
+      (sig.pivots ? `Pivots: S1 $${sig.pivots.s1} | PP $${sig.pivots.pp} | R1 $${sig.pivots.r1}\n` : "") +
+      (sig.signal !== "WAIT" ? `Trade: Entry $${sig.entry} | Stop $${sig.stop} | Target $${sig.target} | R/R 1:${sig.rr}\n` : "") +
+      `\n=== MACRO ===\n` +
+      `DXY: ${priceCache.dxy ?? "N/A"} (${priceCache.dxyChange > 0 ? "+" : ""}${priceCache.dxyChange ?? 0}%)\n` +
+      `VIX: ${priceCache.vix ?? "N/A"}\n` +
+      `\nProvide a 5-sentence professional trading brief: ` +
+      `(1) current market structure, (2) what the signal/lack of signal means, ` +
+      `(3) key levels to watch, (4) execution plan if signal fires, (5) main risk. ` +
+      `Be specific with prices. Institutional quality.`;
+
+    const msg = await anthropic.messages.create({
+      model: "claude-opus-4-8",
+      max_tokens: 300,
+      messages: [{ role: "user", content: prompt }]
+    });
+    return { key, analysis: msg.content?.[0]?.text ?? null };
+  }));
+
+  const out = { elapsed: Date.now() - start };
+  for (const r of results) {
+    if (r.status === "fulfilled") out[r.value.key] = r.value.analysis;
+  }
+  console.log(`[ai-brain] 3 parallel analyses done in ${out.elapsed}ms`);
+  res.json(out);
 });
 
 // ── Serve dashboard ──────────────────────────────────────────

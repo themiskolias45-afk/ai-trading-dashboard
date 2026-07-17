@@ -63,6 +63,7 @@
     }
     .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: blink 2s ease-in-out infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
 
     .regime-badge {
       padding: 4px 12px; border-radius: 20px;
@@ -116,6 +117,7 @@
       gap: 12px;
       margin-bottom: 16px;
     }
+    .charts-grid .chart-wrap { min-height: 420px; }
     .chart-wrap {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -563,14 +565,18 @@
 <div class="container" style="margin-top:0;padding-top:0">
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
 
-    <!-- Auto Analysis -->
+    <!-- AI Brain Panel -->
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title">Claude Analysis</div>
-        <button class="btn-refresh" onclick="loadAnalysis()">↻ Refresh</button>
+        <div class="panel-title">AI Brain — Parallel Analysis</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="ai-brain-status" style="font-size:.6rem;color:var(--muted)"></span>
+          <button class="btn-refresh" onclick="runAIBrain()">⚡ Run All 3</button>
+          <button class="btn-refresh" onclick="loadAnalysis()">↻ Auto</button>
+        </div>
       </div>
-      <div class="panel-body" id="analysis-body" style="max-height:280px">
-        <div style="color:var(--muted);font-size:.78rem">Loading analysis…</div>
+      <div class="panel-body" id="analysis-body" style="max-height:320px">
+        <div style="color:var(--muted);font-size:.78rem">Click <b>⚡ Run All 3</b> to run 3 simultaneous Claude Opus analyses — one dedicated AI brain per asset.</div>
       </div>
     </div>
 
@@ -666,7 +672,7 @@ function mkChart(containerId, symbol, interval = "D") {
   if (typeof TradingView === "undefined") return;
   new TradingView.widget({
     autosize: true,
-    height: 260,
+    height: 400,
     symbol,
     interval,
     timezone: "Etc/UTC",
@@ -1126,6 +1132,49 @@ function renderBacktest(d) {
   }
 
   body.innerHTML = html;
+}
+
+// ── AI Brain — 3 parallel Claude analyses ─────────────────────
+async function runAIBrain() {
+  const status = document.getElementById("ai-brain-status");
+  const body   = document.getElementById("analysis-body");
+  const start  = Date.now();
+  status.textContent = "Running 3 parallel AI brains…";
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div style="background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:12px;animation:pulse 1.2s infinite">
+        <div style="font-size:.68rem;color:#f7931a;font-weight:700;margin-bottom:6px">₿ BTC AI Brain</div>
+        <div style="color:var(--muted);font-size:.72rem">Thinking…</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:12px;animation:pulse 1.2s infinite">
+        <div style="font-size:.68rem;color:#eab308;font-weight:700;margin-bottom:6px">🥇 GOLD AI Brain</div>
+        <div style="color:var(--muted);font-size:.72rem">Thinking…</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:12px;animation:pulse 1.2s infinite">
+        <div style="font-size:.68rem;color:#3b82f6;font-weight:700;margin-bottom:6px">📈 SPY AI Brain</div>
+        <div style="color:var(--muted);font-size:.72rem">Thinking…</div>
+      </div>
+    </div>`;
+  try {
+    const d = await fetch(API + "/ai-brain", { method: "POST", cache: "no-store" }).then(r => r.json());
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    status.textContent = `3 AI brains completed in ${elapsed}s`;
+    const cards = [
+      { key: "btc",  icon: "₿",  label: "BTC AI Brain",  color: "#f7931a" },
+      { key: "gold", icon: "🥇", label: "GOLD AI Brain", color: "#eab308" },
+      { key: "spx",  icon: "📈", label: "SPY AI Brain",  color: "#3b82f6" }
+    ];
+    body.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">` +
+      cards.map(c => `
+        <div style="background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:12px">
+          <div style="font-size:.68rem;color:${c.color};font-weight:700;margin-bottom:8px">${c.icon} ${c.label}</div>
+          <div style="font-size:.72rem;color:var(--text);line-height:1.6">${d[c.key] ? mdToHtml(d[c.key]) : '<span style="color:var(--muted)">No analysis available</span>'}</div>
+        </div>`).join("") +
+      `</div>`;
+  } catch (e) {
+    status.textContent = "Error";
+    body.innerHTML = `<div style="color:var(--red);font-size:.78rem">AI Brain error: ${e.message}</div>`;
+  }
 }
 
 // ── Quick prompts ─────────────────────────────────────────────
