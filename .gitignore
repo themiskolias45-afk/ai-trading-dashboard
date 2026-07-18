@@ -1,0 +1,6 @@
+keys.env
+apikey.txt
+node_modules/
+*.log
+__pycache__/
+*.pyc
