@@ -24,8 +24,11 @@ start "" "http://localhost:3001"
 
 REM Start MT5 bridge in FULL-AUTO mode — no questions
 echo.
-echo  SmartEntry Pro started in FULL-AUTO mode.
-echo  Dashboard: http://localhost:3001
+echo  ==========================================
+echo   SmartEntry Pro — FULL-AUTO MODE ACTIVE
+echo  ==========================================
+echo  Landing:   http://localhost:3001
+echo  Dashboard: http://localhost:3001/dashboard
 echo  To stop:   double-click stop.bat
 echo.
 python mt5_bridge.py --auto
