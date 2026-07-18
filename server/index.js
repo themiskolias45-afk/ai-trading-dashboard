@@ -1451,10 +1451,12 @@ app.post("/api/ai-brain", async (req, res) => {
   res.json(out);
 });
 
-// ── Serve dashboard ──────────────────────────────────────────
+// ── Serve pages ──────────────────────────────────────────────
 const path = require("path");
-app.use(express.static(path.join(__dirname, "..", "dashboard")));
-app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "index.html")));
+app.use("/dashboard", express.static(path.join(__dirname, "..", "dashboard")));
+app.get("/dashboard", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "index.html")));
+app.use(express.static(path.join(__dirname, "..", "commercial")));
+app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
 
 // ── Boot ──────────────────────────────────────────────────────
 app.listen(PORT, async () => {
