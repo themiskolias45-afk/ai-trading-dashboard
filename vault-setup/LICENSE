@@ -1,0 +1,12 @@
+Copyright (c) 2026 Jared Rhodenizer
+
+The contents of the ai-memory-vault system (VAULT-INDEX-template.md, Daily Note Template, ai-memory-vault skill) are licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0).
+
+You are free to share and adapt them under the following terms:
+- Attribution: give appropriate credit to Jared Rhodenizer (@jaredrhod)
+- NonCommercial: no commercial use
+- ShareAlike: distribute contributions under the same license
+
+Full license: https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+The SmartEntry Pro trading system code (server/index.js, dashboard/index.html, mt5_bridge.py, *.bat files) is separate and not covered by this license.
