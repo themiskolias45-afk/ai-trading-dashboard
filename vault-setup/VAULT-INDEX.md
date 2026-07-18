@@ -1,83 +1,114 @@
-# VAULT-INDEX
+---
+status: active
+project: meta
+type: index
+---
+# VAULT INDEX
 
-This file has two jobs: **your profile** and **the map of the vault**. JARVIS reads this at the start of every session.
+Read this file at the start of every conversation. Two jobs: **who I am and how I work**, and **the map of this vault**. Your identity is in CLAUDE.md (the boot file), not here.
 
 ---
 
-## Profile — Themis
+## Vault location
 
-- **Location:** Greece
-- **Focus:** Algorithmic trading — BTC, Gold (XAUUSD), S&P 500 (SPY)
-- **System:** SmartEntry Pro v14 — Express.js server, Claude Opus AI, MT5 Python bridge
-- **Broker:** MetaQuotes Ltd (demo/live MT5 account)
-- **Balance:** ~$90,000 | Leverage: 1:500
-- **Trading style:** Full-auto with Claude AI approval gate. Signal fires only at 65%+ confidence across D+4H+1H.
-- **Risk rules:** 1% per trade, 3% daily loss limit, 3 consecutive loss halt
-- **Working hours:** Flexible — system runs 24/7 unattended
-- **GitHub:** themiskolias45-afk/ai-trading-dashboard
-- **Project path:** `C:\Users\User\ai-trading-dashboard`
-- **Vault path:** `C:\Users\User\Documents\Brain`
+This vault lives at `C:\Users\User\Documents\Brain`.
 
 ---
 
-## Active Priorities
+## Who I Am
 
-<!-- JARVIS updates this section as work progresses -->
+I'm Themis. I build algorithmic trading systems. Right now I run SmartEntry Pro — a 24/7 AI-powered trading system that monitors BTC, Gold, and SPY and executes trades automatically via MetaTrader 5. I'm building toward turning this into a professional commercial product — a high-quality trading system service for both retail traders and managed account clients.
 
-- [ ] Monitor first live trades from SmartEntry Pro v14
-- [ ] Run 5-year backtest and review win rate per asset
-- [ ] Review AI Brain panel results after 1 week of signals
+## Key People
 
----
+- **Themis** — me, the founder and sole developer of SmartEntry Pro
 
-## Rules JARVIS Always Follows
+## SmartEntry Pro — Personal Trading System
 
-1. Never commit `server/apikey.txt` or `keys.env`
-2. Develop on branch `claude/backup-deploy-server-FWgpv`, merge to `main` when done
-3. Model is always `claude-opus-4-8` — do not downgrade
-4. Signal threshold is 65% confidence — do not lower it
-5. Risk per trade stays at 1% — do not increase it
+My own live trading system, running on a $90,000 MT5 account at 1:500 leverage. Claude Opus AI approves every trade. Multi-timeframe signals (Daily + 4H + 1H), 1% risk per trade, 3% daily loss circuit breaker.
 
----
+- **Status:** Active — live and trading
+- **Tools:** Node.js, Express, Python, MetaTrader 5, Claude Opus (claude-opus-4-8), Yahoo Finance API
+- **Location:** `C:\Users\User\ai-trading-dashboard`
+- **Dashboard:** http://localhost:3001
+
+## SmartEntry Pro — Commercial Product (in planning)
+
+The next project: turn SmartEntry Pro into a professional, sellable trading system. Two customer types:
+1. **Retail traders** — individuals who want algo trading without coding (SaaS subscription)
+2. **Managed accounts** — investors who pay for the system to trade for them
+
+This needs to be built to a significantly higher quality standard than the personal version — professional UI, reliability, compliance considerations, onboarding, support.
+
+- **Status:** Planning — no product built yet
+- **Next step:** Define what "professional quality" looks like and what the MVP is
 
 ## Vault Structure
 
 ```
-Brain/
-├── VAULT-INDEX.md                  ← this file
-├── Active Priorities.md            ← open tasks across all projects
+C:\Users\User\Documents\Brain\
+├── VAULT-INDEX.md              ← this file
+├── Active Priorities.md        ← all open work
 ├── 01 - Daily Notes/
-│   ├── Daily Note Template.md      ← template for every daily note
-│   └── NN - Month YYYY/
-│       └── YYYY-MM-DD.md
-├── 02 - Projects/
-│   └── SmartEntry Pro/
-│       └── SmartEntry Pro.md       ← system overview, decisions log
-└── 03 - Notes/
-    └── Trading/
-        └── Signal Logic.md         ← how signals fire, parameters
+│   └── Daily Note Template.md
+├── 02 - SmartEntry Pro/        ← personal system
+├── 03 - SmartEntry Commercial/ ← the new business
+└── 04 - Resources/             ← templates, Jobs, reference
 ```
 
----
+## What's Active Right Now
 
-## SmartEntry Pro — System Map
-
-| File | Purpose |
-|---|---|
-| `server/index.js` | Express backend, all signal logic, Claude AI calls |
-| `dashboard/index.html` | Trading dashboard UI |
-| `mt5_bridge.py` | Python bridge to MetaTrader 5 |
-| `START.bat` | One-click full-auto start |
-| `stop.bat` | Stop everything |
-| `CLAUDE.md` | JARVIS boot config (auto-loaded by Claude Code) |
+All open work: [[Active Priorities]]
 
 ---
 
-## Decisions Log
+## My Preferences for Working with AI
 
-| Date | Decision | Reason |
-|---|---|---|
-| 2026-07-18 | Set confidence threshold to 65% | Below 65% produces too many false signals |
-| 2026-07-18 | Partial profit at 1R (50% close) | Locks in guaranteed profit before trailing |
-| 2026-07-18 | Claude Opus as signal approver | Most capable model for trade evaluation |
-| 2026-07-18 | 3% daily loss limit | Protects account from bad streaks |
+- **Direct and short.** One sentence where possible. No openers like "Great!" or "Certainly!".
+- **Do it, then report.** Don't narrate what you're about to do — just do it and tell me what changed.
+- **No fluff.** No summaries of what we just discussed. No suggestions to take a break.
+- **When I send a screenshot, tell me what's relevant and act on it.**
+- **Trading context first.** Every decision should consider signal quality, risk, and system reliability.
+- **One question at a time — then stop.** Wait for my answer before continuing.
+- **Never suggest stopping.** I decide when we're done.
+- **Fix it now.** Don't defer bugs or problems without my explicit approval.
+
+---
+
+## How My Memory Works (for the AI)
+
+This vault is your memory — external and unlimited. Hold only what the current task needs; reach for everything else on demand. Start at this index, follow folder indexes and wikilinks, or search. Knowing a note exists is as good as holding it.
+
+---
+
+## Vault Rules for AI
+
+### Frontmatter
+
+Every note gets YAML frontmatter. Infer the values — never ask me.
+
+```yaml
+---
+status: active
+project: smartentry-personal | smartentry-commercial | personal | meta
+type: index | reference | guide | plan | log
+---
+```
+
+### Checkpoint Persistence
+
+When something changes that a future session needs to know: update the relevant note, today's daily note, and CLAUDE.md (only for a new always-on rule). Verify it landed. The vault is the memory — keeping it current is not busywork.
+
+### Daily Notes
+
+Live in `01 - Daily Notes/`, filename `YYYY-MM-DD.md`. Always create from `Daily Note Template.md`. If today's exists, append a new session — don't overwrite. Timestamp with my local time.
+
+**Trigger:** When I signal I'm done, offer to log the day. At session start, check yesterday's note and backfill if you have context it's missing.
+
+### Living Profile
+
+Update **Key People, How I Think, Personal Interests** as you learn through conversation. Log every update in the daily note under "Profile Updates." Never change project sections or Vault Rules on your own initiative.
+
+### Archiving
+
+Always confirm before archiving anything. Never archive on your own initiative.
