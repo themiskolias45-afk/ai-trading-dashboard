@@ -29,5 +29,9 @@ if /i "%AIASK%"=="Y" (
   claude --dangerously-skip-permissions -p "JARVIS: Read tasks/logs/morning_latest.txt. Give a 5-line trading brief: market regime, best opportunity today, main risk, one key price level to watch, one-line verdict."
 )
 echo.
+echo  Report saved to: tasks\logs\morning_latest.txt
+echo  Opening in Notepad for permanent view...
+start notepad tasks\logs\morning_latest.txt
+echo.
 echo  Press any key to return to menu...
 pause >nul
