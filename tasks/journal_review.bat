@@ -6,6 +6,8 @@ echo  ==========================================
 echo   SmartEntry Pro - TRADE JOURNAL REVIEW
 echo  ==========================================
 echo.
-claude -p "JARVIS: Read server/journal.json. Calculate and show: 1) Total trades, wins, losses, win rate. 2) Total P&L and average P&L per trade. 3) Best trade and worst trade. 4) Breakdown by asset (BTC/Gold/SPX) - win rate per asset. 5) Any losing streak of 2 or more in a row. 6) One concrete improvement based on the patterns you see. Keep it under 35 lines."
+
+claude --allowedTools "Read" -p "JARVIS: Read server/journal.json. If it doesn't exist, say 'No trades recorded yet - journal created on first trade'. Otherwise calculate: 1) Total trades / wins / losses / win rate. 2) Total P&L and avg P&L per trade. 3) Best and worst trade. 4) Win rate per asset (BTC/Gold/SPX). 5) Any losing streak of 2 or more consecutive losses. 6) One concrete pattern you see (good or bad). Max 35 lines."
+
 echo.
 pause
