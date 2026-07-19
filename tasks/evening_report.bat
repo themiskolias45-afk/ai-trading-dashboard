@@ -19,7 +19,9 @@ echo.
 claude --allowedTools "Read,Write" -p "JARVIS: Evening trading review. Read tasks/temp/risk.json, tasks/temp/positions.json, server/journal.json (if exists). Produce end-of-day report: == TODAY'S RESULTS == (trades taken today, total P&L, win/loss). == OPEN POSITIONS == (any positions still open overnight - flag as RISK if more than 1 open). == DAY GRADE == (A/B/C/D/F with one reason). == WHAT WORKED == (one thing that went well). == WHAT TO FIX == (one specific thing to improve tomorrow). == TOMORROW PREP == (key levels to watch for BTC/Gold/SPY). Save to tasks/logs/evening_%DATE:~-4,4%%DATE:~-10,2%%DATE:~-7,2%.txt"
 
 echo.
-echo  Report saved to tasks\logs\
+echo  Opening report in Notepad...
+set LOGFILE=tasks\logs\evening_%date:~-4,4%%date:~-10,2%%date:~-7,2%.txt
+if exist "%LOGFILE%" start notepad "%LOGFILE%"
 echo.
 
 REM Ask about overnight positions
