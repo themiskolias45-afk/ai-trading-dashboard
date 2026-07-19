@@ -307,6 +307,37 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
     reasons.push(`Target: BB middle (mean reversion)`);
   }
 
+  // ── SQUEEZE_BREAKOUT: price breaks out of BB squeeze with volume + MACD ─
+  else if (bb && closes.length >= 60 && volConfirmed && macd) {
+    const bb5 = calcBB(closes.slice(0, -5));
+    if (bb5 && bb5.bandwidth < 10 && bb.bandwidth > bb5.bandwidth) {
+      if (price > bb.upper && macd.bullish) {
+        setup  = "SQUEEZE_BREAKOUT";
+        signal = "BUY";
+        const sl = atrStop2x ? parseFloat((entry - atrStop2x).toFixed(2))
+                              : parseFloat((bb.upper * 0.985).toFixed(2));
+        stop   = sl;
+        target = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
+        strength = (volRatio !== null && volRatio >= 2.0) ? "STRONG" : "MODERATE";
+        reasons.push(`BB squeeze breakout — bandwidth expanded ${bb5.bandwidth}% -> ${bb.bandwidth}%`);
+        reasons.push(`Close above BB upper ${bb.upper} — confirmed bullish breakout`);
+        reasons.push(`Volume ${volRatio}x avg — institutional momentum`);
+        if (macd.crossed) reasons.push(`MACD bullish crossover — fresh momentum`);
+      } else if (price < bb.lower && !macd.bullish) {
+        setup  = "SQUEEZE_BREAKOUT";
+        signal = "SELL";
+        const sl = atrStop2x ? parseFloat((entry + atrStop2x).toFixed(2))
+                              : parseFloat((bb.lower * 1.015).toFixed(2));
+        stop   = sl;
+        target = parseFloat((entry - Math.abs(sl - entry) * 2.5).toFixed(2));
+        strength = (volRatio !== null && volRatio >= 2.0) ? "STRONG" : "MODERATE";
+        reasons.push(`BB squeeze breakdown — bandwidth expanded ${bb5.bandwidth}% -> ${bb.bandwidth}%`);
+        reasons.push(`Close below BB lower ${bb.lower} — confirmed bearish breakdown`);
+        reasons.push(`Volume ${volRatio}x avg — institutional selling`);
+      }
+    }
+  }
+
   // ── BB_SQUEEZE_WATCH: tight squeeze — flag pending breakout ──────
   else if (bb && bb.bandwidth < 8) {
     setup  = "BB_SQUEEZE_WATCH";
@@ -406,10 +437,11 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null) {
   }
 
   // Setup quality boost — high-quality setups with all criteria met
-  if (daily.setup === "BREAKOUT"  && daily.volume?.confirmed) confidence = Math.min(100, confidence + 7);
-  if (daily.setup === "MOMENTUM"  && daily.volume?.confirmed) confidence = Math.min(100, confidence + 5);
-  if (daily.setup === "BUY_DIP"   && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
-  if (daily.setup === "SELL_BOUNCE" && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
+  if (daily.setup === "BREAKOUT"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 7);
+  if (daily.setup === "SQUEEZE_BREAKOUT" && daily.volume?.confirmed) confidence = Math.min(100, confidence + 10);
+  if (daily.setup === "MOMENTUM"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 5);
+  if (daily.setup === "BUY_DIP"          && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
+  if (daily.setup === "SELL_BOUNCE"      && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
 
   // Preliminary signal for macro filter checks
   let finalSignal = confidence >= 65 ? daily.signal : "WAIT";
@@ -1353,7 +1385,7 @@ async function runBacktest(symbol, label, years = 5) {
   const bars = [];
   for (let i = 0; i < tss.length; i++) {
     if (q.close[i] != null && q.high[i] != null && q.low[i] != null)
-      bars.push({ ts: tss[i], close: q.close[i], high: q.high[i], low: q.low[i] });
+      bars.push({ ts: tss[i], close: q.close[i], high: q.high[i], low: q.low[i], volume: q.volume?.[i] ?? 0 });
   }
 
   const trades = [];
@@ -1363,7 +1395,7 @@ async function runBacktest(symbol, label, years = 5) {
   for (let i = MIN; i < bars.length; i++) {
     const w = bars.slice(0, i + 1);
     const sig = generateSignal(label, symbol,
-      w.map(b => b.close), w.map(b => b.high), w.map(b => b.low));
+      w.map(b => b.close), w.map(b => b.high), w.map(b => b.low), w.map(b => b.volume ?? 0));
     if (!sig || sig.signal === "WAIT" || !sig.stop || !sig.target) { lastKey = null; continue; }
 
     // Approximate the live MTF confidence gate (≥65%) using daily strength.

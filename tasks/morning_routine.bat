@@ -19,7 +19,7 @@ powershell -Command "try { Invoke-RestMethod http://localhost:3001/api/risk-stat
 echo  Done. Building report...
 echo.
 
-powershell -ExecutionPolicy Bypass -File tasks\morning.ps1 | powershell -Command "$input | Out-String | Tee-Object tasks\logs\morning_latest.txt | Write-Host"
+powershell -ExecutionPolicy Bypass -File tasks\morning.ps1
 
 echo.
 echo  ==========================================
@@ -30,7 +30,8 @@ if /i "%AIASK%"=="Y" (
 )
 echo.
 echo  Report saved to: tasks\logs\morning_latest.txt
-echo  Opening in Notepad for permanent view...
+echo  Opening in Notepad...
+taskkill /F /IM notepad.exe >nul 2>&1
 start notepad tasks\logs\morning_latest.txt
 echo.
 echo  Press any key to return to menu...
