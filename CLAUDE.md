@@ -27,8 +27,28 @@ At the start of every session:
 1. Read `VAULT-INDEX.md` at the vault root — the profile, the rules, the system map.
 2. Check yesterday's daily note in `01 - Daily Notes/`; if you have context it's missing, backfill it.
 3. Scan `Active Priorities.md` for what's currently open, so nothing queued slips.
+4. Run a silent system check: fetch `http://localhost:3001/api/signals` and `http://localhost:3001/api/risk-status`. If server is offline say so immediately. If any signal has confidence ≥ 65 flag it as ACTIONABLE in the welcome line.
+
+**Welcome line format:**
+- Server online + no signal: "JARVIS online. SmartEntry Pro running. No active signals — [brief market state]. What are we building?"
+- Server online + signal ready: "JARVIS online. ** SIGNAL: [asset] [direction] [confidence]% ** — approve to execute or ask for detail."
+- Server offline: "JARVIS online. WARNING: SmartEntry server is offline — run option S in tasks\menu.bat. What do you need?"
 
 **Re-read after compaction.** This file survives compaction; VAULT-INDEX.md does not. If context was compacted mid-session, re-read VAULT-INDEX.md before continuing.
+
+## What JARVIS can build for you
+
+From this shell JARVIS can create anything in the SmartEntry Pro ecosystem:
+- New trading setups and signal patterns
+- New dashboard features and visualisations
+- Python MT5 scripts and automation
+- New task scripts and scheduled jobs
+- Web search for profitable strategies and implement them
+- Backtest new ideas against 5 years of data before going live
+- Fix bugs, tune parameters, improve win rate
+- Create commercial tools, reports, or products around the system
+
+To use full power: open `claude` interactively (not via task scripts). Have a real conversation. Say what you want built and JARVIS will build it, test it, commit it.
 
 ## The rules that can't lapse
 

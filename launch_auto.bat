@@ -46,6 +46,10 @@ timeout /t 2 /nobreak >nul
 
 REM ── Start MT5 bridge — FULL AUTO ─────────────────────────────
 start "SmartEntry MT5 Bridge" cmd /k "cd /d C:\Users\User\ai-trading-dashboard && python mt5_bridge.py --auto"
+timeout /t 3 /nobreak >nul
+
+REM ── Start JARVIS command center ───────────────────────────────
+start "JARVIS - SmartEntry AI" cmd /k "cd /d C:\Users\User\ai-trading-dashboard && echo. && echo  JARVIS booting... && echo. && claude"
 
 echo.
 echo  ==========================================
@@ -55,5 +59,6 @@ echo   MT5        : started
 echo   Server     : http://localhost:3001
 echo   Dashboard  : http://localhost:3001/dashboard
 echo   MT5 Bridge : FULL AUTO mode
+echo   JARVIS     : ready in AI window
 echo  ==========================================
 echo.
