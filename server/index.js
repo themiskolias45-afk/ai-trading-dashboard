@@ -154,7 +154,10 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
     aboveEma200 === false && !aboveEma50 && !aboveEma20 ? "STRONG DOWNTREND" :
     aboveEma200 === false && !aboveEma50               ? "DOWNTREND" : "MIXED";
 
-  // Volume analysis — last bar vs 20-period average
+  const inUptrend   = trend === "STRONG UPTREND" || trend === "UPTREND";
+  const inDowntrend = trend === "STRONG DOWNTREND" || trend === "DOWNTREND";
+
+  // Volume analysis
   const avgVol = volumes.length >= 20
     ? volumes.slice(-20).reduce((a,b) => a+b, 0) / 20
     : null;
@@ -162,105 +165,143 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
   const volRatio = avgVol && avgVol > 0 ? parseFloat((lastVol / avgVol).toFixed(1)) : null;
   const volConfirmed = volRatio !== null && volRatio >= 1.4;
 
-  // ── Signal logic ──
+  // ATR-based stop distances
+  const atrStop1x = atrVal ?? null;
+  const atrStop15 = atrVal ? atrVal * 1.5 : null;
+  const atrStop2x = atrVal ? atrVal * 2.0 : null;
+
+  const MIN_RR = 1.5;
+
   let setup = "WAIT", signal = "WAIT", strength = "NONE";
   let entry = price, stop = null, target = null, reasons = [];
 
-  const stopPct  = ticker === "BTC-USD" ? 0.03 : 0.015;   // BTC 3%, Gold 1.5%
-  const targetMult = 2.5;
-
-  // LONG setups
+  // ── BUY_DIP: pullback to EMA20 in established uptrend ────────
   if (
-    (aboveEma200 === true || aboveEma200 === null) &&
-    aboveEma50 &&
+    inUptrend &&
     !aboveEma20 &&
-    rsi < 45 &&
+    price >= ema20 * 0.98 &&        // within 2% of EMA20
+    rsi !== null && rsi < 48 &&
     macd?.bullish
   ) {
     setup  = "BUY_DIP";
     signal = "BUY";
-    strength = rsi < 35 ? "STRONG" : "MODERATE";
-    stop   = parseFloat((entry * 0.985).toFixed(2));
-    target = parseFloat((bb?.upper ?? price * 1.05).toFixed(2));
-    reasons.push(`Above EMA50/200 (uptrend intact)`);
-    reasons.push(`RSI ${rsi} — oversold dip`);
-    reasons.push(`Pulling back to EMA20 support`);
+    const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
+    strength = (rsi < 38 && volConfirmed) ? "STRONG" : rsi < 42 ? "MODERATE" : "NONE";
+    reasons.push(`Uptrend intact — EMA50/200 structural support`);
+    reasons.push(`RSI ${rsi} — dip into oversold territory`);
+    reasons.push(`Pullback to EMA20 support zone`);
     if (macd.crossed) reasons.push(`MACD bullish crossover confirmed`);
+    if (atrStop15) reasons.push(`ATR stop: ${atrStop15.toFixed(0)} (1.5x ATR)`);
   }
+
+  // ── BUY_OVERSOLD: deep oversold + BB lower band ───────────────
   else if (
-    (aboveEma200 === true || aboveEma200 === null) &&
-    !aboveEma50 &&
-    rsi < 35 &&
-    bb && price <= bb.lower
+    (inUptrend || trend === "MIXED") &&
+    rsi !== null && rsi < 30 &&
+    bb && price <= bb.lower * 1.005
   ) {
     setup  = "BUY_OVERSOLD";
     signal = "BUY";
-    strength = "MODERATE";
-    stop   = parseFloat((price * (1 - stopPct)).toFixed(2));
-    target = parseFloat((bb.middle).toFixed(2));
-    reasons.push(`RSI ${rsi} — deeply oversold`);
-    reasons.push(`Price at Bollinger lower band`);
-    reasons.push(`Mean-reversion setup to BB middle`);
+    const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
+    stop   = sl;
+    target = parseFloat(Math.min(entry + Math.abs(entry - sl) * 2.0, bb.middle).toFixed(2));
+    strength = rsi < 22 ? "STRONG" : "MODERATE";
+    reasons.push(`RSI ${rsi} — extreme oversold`);
+    reasons.push(`Price at/below BB lower band`);
+    reasons.push(`Mean-reversion target: BB middle ${bb.middle}`);
   }
-  // SELL setups
+
+  // ── SELL_BOUNCE: rejection at EMA20 in downtrend ─────────────
   else if (
-    aboveEma200 === false &&
-    !aboveEma50 &&
+    inDowntrend &&
     aboveEma20 &&
-    rsi > 55 &&
+    price <= ema20 * 1.02 &&        // within 2% above EMA20
+    rsi !== null && rsi > 52 &&
     macd && !macd.bullish
   ) {
     setup  = "SELL_BOUNCE";
     signal = "SELL";
-    strength = rsi > 65 ? "STRONG" : "MODERATE";
-    stop   = parseFloat((entry * 1.015).toFixed(2));
-    target = parseFloat((bb?.lower ?? price * 0.95).toFixed(2));
-    reasons.push(`Below EMA200/50 (downtrend)`);
-    reasons.push(`RSI ${rsi} — overbought bounce`);
-    reasons.push(`Rejection at EMA20 resistance`);
+    const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((entry * 1.015).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry - Math.abs(sl - entry) * 2.5).toFixed(2));
+    strength = (rsi > 62 && volConfirmed) ? "STRONG" : rsi > 56 ? "MODERATE" : "NONE";
+    reasons.push(`Downtrend — below EMA50/200`);
+    reasons.push(`RSI ${rsi} — overbought bounce into resistance`);
+    reasons.push(`Rejection at EMA20 resistance zone`);
+    if (atrStop15) reasons.push(`ATR stop: ${atrStop15.toFixed(0)} (1.5x ATR)`);
   }
-  // BREAKOUT
+
+  // ── BREAKOUT: EMA200 reclaim with volume confirmation ─────────
   else if (
     ema200 &&
-    Math.abs(price - ema200) / ema200 < 0.005 &&
-    rsi > 50 && rsi < 65 &&
+    price > ema200 &&
+    price <= ema200 * 1.01 &&       // within 1% above EMA200
+    rsi !== null && rsi > 50 && rsi < 68 &&
     macd?.bullish &&
-    bb && bb.bandwidth < 15
+    bb && bb.bandwidth < 20 &&
+    volConfirmed                    // REQUIRE volume for breakout
   ) {
     setup  = "BREAKOUT";
     signal = "BUY";
-    strength = "MODERATE";
-    stop   = parseFloat((ema200 * 0.985).toFixed(2));
-    target = parseFloat((price * 1.06).toFixed(2));
-    reasons.push(`Testing EMA200 — key breakout level`);
-    reasons.push(`Bollinger squeeze (bandwidth ${bb.bandwidth}%) — energy building`);
-    reasons.push(`MACD bullish + RSI above 50`);
+    const sl = atrStop2x ? parseFloat((entry - atrStop2x).toFixed(2)) : parseFloat((ema200 * 0.985).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
+    strength = (volRatio !== null && volRatio >= 1.8) ? "STRONG" : "MODERATE";
+    reasons.push(`Breaking above EMA200 — major structural level`);
+    reasons.push(`BB squeeze ${bb.bandwidth}% — compressed energy releasing`);
+    reasons.push(`Volume ${volRatio}x avg — institutional buying confirmed`);
   }
+
+  // ── MOMENTUM: all EMAs aligned + MACD cross + volume ─────────
+  else if (
+    inUptrend &&
+    aboveEma50 && aboveEma20 &&
+    rsi !== null && rsi > 52 && rsi < 70 &&
+    macd?.crossed &&
+    volConfirmed
+  ) {
+    setup  = "MOMENTUM";
+    signal = "BUY";
+    const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry + Math.abs(entry - sl) * 2.0).toFixed(2));
+    strength = (rsi > 58 && volRatio !== null && volRatio >= 1.8) ? "STRONG" : "MODERATE";
+    reasons.push(`All EMAs aligned — momentum structure`);
+    reasons.push(`MACD bullish crossover — fresh momentum signal`);
+    reasons.push(`Volume ${volRatio}x avg — institutional participation`);
+  }
+
   else {
-    // WAIT — no setup
     reasons.push(`RSI ${rsi} — no extreme reading`);
     reasons.push(`Price between key EMAs — wait for clarity`);
-    if (bb && bb.bandwidth < 12) reasons.push(`Bollinger squeeze forming — breakout incoming`);
+    if (bb && bb.bandwidth < 12) reasons.push(`BB squeeze forming — breakout incoming`);
+    if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg`);
   }
 
-  // Risk/reward
-  const rr = (stop && target)
-    ? Math.abs(target - entry) / Math.abs(entry - stop)
+  // ── Minimum R:R gate ─────────────────────────────────────────
+  if (stop !== null && target !== null && signal !== "WAIT") {
+    const calcRR = Math.abs(target - entry) / Math.abs(entry - stop);
+    if (calcRR < MIN_RR) {
+      const badRR = calcRR.toFixed(1);
+      setup = "WAIT"; signal = "WAIT"; strength = "NONE";
+      stop = null; target = null;
+      reasons = [`Setup detected but R:R ${badRR} below minimum ${MIN_RR} — skip`];
+    }
+  }
+
+  const rr = (stop !== null && target !== null)
+    ? parseFloat((Math.abs(target - entry) / Math.abs(entry - stop)).toFixed(1))
     : null;
 
-  if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg — ${volConfirmed ? "confirms breakout" : "below average"}`);
-
   return {
-    label,
-    ticker,
-    price,
-    signal,
-    setup,
-    strength,
+    label, ticker, price, signal, setup, strength,
     entry:  parseFloat(entry.toFixed(2)),
-    stop:   stop   ? parseFloat(stop.toFixed(2))   : null,
-    target: target ? parseFloat(target.toFixed(2)) : null,
-    rr:     rr     ? parseFloat(rr.toFixed(1))     : null,
+    stop:   stop   !== null ? parseFloat(stop.toFixed(2))   : null,
+    target: target !== null ? parseFloat(target.toFixed(2)) : null,
+    rr,
+    atr:    atrVal ? parseFloat(atrVal.toFixed(2)) : null,
     indicators: {
       rsi,
       ema20:  parseFloat(ema20.toFixed(2)),
@@ -308,10 +349,16 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null) {
     confidence = allStrong ? 97 : 88;
   }
 
-  // Volume confidence boost
+  // Volume confirmation boost
   if (daily.volume?.confirmed && (daily.signal === "BUY" || daily.signal === "SELL")) {
     confidence = Math.min(100, confidence + 5);
   }
+
+  // Setup quality boost — high-quality setups with all criteria met
+  if (daily.setup === "BREAKOUT"  && daily.volume?.confirmed) confidence = Math.min(100, confidence + 7);
+  if (daily.setup === "MOMENTUM"  && daily.volume?.confirmed) confidence = Math.min(100, confidence + 5);
+  if (daily.setup === "BUY_DIP"   && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
+  if (daily.setup === "SELL_BOUNCE" && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
 
   // Preliminary signal for macro filter checks
   let finalSignal = confidence >= 65 ? daily.signal : "WAIT";
@@ -332,6 +379,25 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null) {
   const n = dailyData.closes.length;
   const pivots = n >= 2 ? calcPivots(dailyData.highs[n - 2], dailyData.lows[n - 2], dailyData.closes[n - 2]) : null;
 
+  // Refine stop/target using pivot levels
+  let refinedStop   = daily.stop;
+  let refinedTarget = daily.target;
+  if (pivots && daily.signal === "BUY" && daily.stop !== null) {
+    // Tighten stop to pivot S1 if it's above the ATR stop (closer to entry = better R:R)
+    if (pivots.s1 > daily.stop && pivots.s1 < daily.entry) refinedStop = pivots.s1;
+    // Use R1 as target if it's between entry and original target (more conservative, more likely to hit)
+    if (pivots.r1 > daily.entry && daily.target !== null && pivots.r1 < daily.target) refinedTarget = pivots.r1;
+  }
+  if (pivots && daily.signal === "SELL" && daily.stop !== null) {
+    if (pivots.r1 < daily.stop && pivots.r1 > daily.entry) refinedStop = pivots.r1;
+    if (pivots.s1 < daily.entry && daily.target !== null && pivots.s1 > daily.target) refinedTarget = pivots.s1;
+  }
+  // Only apply if refined R:R still meets minimum
+  if (refinedStop !== null && refinedTarget !== null) {
+    const refinedRR = Math.abs(refinedTarget - daily.entry) / Math.abs(daily.entry - refinedStop);
+    if (refinedRR < 1.5) { refinedStop = daily.stop; refinedTarget = daily.target; }
+  }
+
   // Require confidence ≥ 65 for a signal to fire
   finalSignal = confidence >= 65 ? daily.signal : "WAIT";
   const finalStrength = confidence >= 90 ? "STRONG" : confidence >= 70 ? "MODERATE" : "NONE";
@@ -343,12 +409,19 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null) {
     (bbW && bbW < 8) ? "SQUEEZE" :
     (bbW && bbW > 25) ? "VOLATILE" : "RANGING";
 
+  const finalRR = (refinedStop !== null && refinedTarget !== null)
+    ? parseFloat((Math.abs(refinedTarget - daily.entry) / Math.abs(daily.entry - refinedStop)).toFixed(1))
+    : daily.rr;
+
   return {
     ...daily,
     signal:     finalSignal,
     strength:   finalStrength,
     confidence,
     regime,
+    stop:       refinedStop   !== null ? parseFloat(refinedStop.toFixed(2))   : daily.stop,
+    target:     refinedTarget !== null ? parseFloat(refinedTarget.toFixed(2)) : daily.target,
+    rr:         finalRR,
     h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi } : null,
     h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi } : null,
     pivots,
