@@ -912,6 +912,52 @@ app.post("/api/risk-status", (req, res) => {
   res.json({ ok: true });
 });
 
+// Performance stats — actual win rate per setup + confidence calibration
+app.get("/api/stats/by-setup", (_, res) => {
+  const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
+  if (!closed.length) return res.json({ noData: true, message: "No closed trades yet" });
+
+  // Group by setup
+  const bySetup = {};
+  for (const t of closed) {
+    const key = t.setup || "UNKNOWN";
+    if (!bySetup[key]) bySetup[key] = { setup: key, trades: 0, wins: 0, losses: 0, totalPnl: 0, totalRR: 0 };
+    const s = bySetup[key];
+    s.trades++;
+    if (t.pnl > 0) s.wins++; else s.losses++;
+    s.totalPnl  += t.pnl;
+    s.totalRR   += (t.rr ?? 0);
+  }
+  const setupStats = Object.values(bySetup).map(s => ({
+    ...s,
+    winRate:  s.trades > 0 ? parseFloat((s.wins / s.trades * 100).toFixed(1)) : 0,
+    avgPnl:   parseFloat((s.totalPnl / s.trades).toFixed(2)),
+    avgRR:    parseFloat((s.totalRR  / s.trades).toFixed(1))
+  })).sort((a, b) => b.winRate - a.winRate);
+
+  // Confidence calibration — do higher confidence scores actually win more?
+  const tiers = [
+    { label: "95-100%", min: 95, max: 100 },
+    { label: "85-94%",  min: 85, max: 94  },
+    { label: "75-84%",  min: 75, max: 84  },
+    { label: "65-74%",  min: 65, max: 74  },
+    { label: "<65%",    min: 0,  max: 64  }
+  ];
+  const calibration = tiers.map(tier => {
+    const group = closed.filter(t => (t.confidence ?? 0) >= tier.min && (t.confidence ?? 0) <= tier.max);
+    const wins  = group.filter(t => t.pnl > 0).length;
+    return {
+      tier:     tier.label,
+      trades:   group.length,
+      wins,
+      winRate:  group.length > 0 ? parseFloat((wins / group.length * 100).toFixed(1)) : null,
+      avgPnl:   group.length > 0 ? parseFloat((group.reduce((s,t) => s + t.pnl, 0) / group.length).toFixed(2)) : null
+    };
+  }).filter(t => t.trades > 0);
+
+  res.json({ totalClosed: closed.length, setupStats, calibration });
+});
+
 app.get("/api/analysis", (_, res) => {
   if (!analysisCache.updatedAt) refreshAnalysis();
   res.json(analysisCache);
@@ -934,10 +980,31 @@ app.post("/api/chat", async (req, res) => {
 // ── V12 Feature Endpoints ─────────────────────────────────────
 
 // MT5 bridge notifies server when a trade is opened
+function getSignalKeyForSymbol(symbol) {
+  if (!symbol) return null;
+  const s = symbol.toUpperCase();
+  if (s.includes("BTC") || s.includes("BITCOIN")) return "btc";
+  if (s.includes("XAU") || s.includes("GOLD"))    return "gold";
+  if (s.includes("SPX") || s.includes("SPY") || s.includes("US500") || s.includes("SP500")) return "spx";
+  return null;
+}
+
 app.post("/api/trade-opened", async (req, res) => {
   const trade = req.body;
   if (!trade || !trade.ticket) return res.status(400).json({ error: "invalid trade data" });
   console.log(`[trade] Opened: ${trade.type} ${trade.symbol} @ $${trade.price} #${trade.ticket}`);
+
+  // Capture signal context at the moment the trade opens
+  const sigKey = getSignalKeyForSymbol(trade.symbol);
+  const sig    = sigKey ? signalCache[sigKey] : null;
+  const signalContext = sig ? {
+    setup:      sig.setup,
+    confidence: sig.confidence,
+    strength:   sig.strength,
+    regime:     sig.regime,
+    rr:         sig.rr,
+    atr:        sig.atr
+  } : null;
 
   // Generate Claude commentary if feature enabled
   let commentary = null;
@@ -961,6 +1028,7 @@ app.post("/api/trade-opened", async (req, res) => {
       closePrice: null,
       pnl:       null,
       status:    "OPEN",
+      ...signalContext,
       commentary
     };
     tradeJournal.unshift(entry);
