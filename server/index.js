@@ -165,7 +165,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
     setup  = "BUY_DIP";
     signal = "BUY";
     strength = rsi < 35 ? "STRONG" : "MODERATE";
-    stop   = parseFloat((ema50 * 0.99).toFixed(2));
+    stop   = parseFloat((entry * 0.985).toFixed(2));
     target = parseFloat((bb?.upper ?? price * 1.05).toFixed(2));
     reasons.push(`Above EMA50/200 (uptrend intact)`);
     reasons.push(`RSI ${rsi} — oversold dip`);
@@ -198,7 +198,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
     setup  = "SELL_BOUNCE";
     signal = "SELL";
     strength = rsi > 65 ? "STRONG" : "MODERATE";
-    stop   = parseFloat((ema20 * 1.01).toFixed(2));
+    stop   = parseFloat((entry * 1.015).toFixed(2));
     target = parseFloat((bb?.lower ?? price * 0.95).toFixed(2));
     reasons.push(`Below EMA200/50 (downtrend)`);
     reasons.push(`RSI ${rsi} — overbought bounce`);
