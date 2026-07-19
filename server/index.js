@@ -50,6 +50,21 @@ let knownChatIds  = new Set();
 let mt5Positions  = [];   // reported by mt5_bridge.py via POST /api/mt5/positions
 let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
 let tradeJournal  = [];   // trade journal entries (max 200)
+
+// ── Persistent journal ────────────────────────────────────────
+const JOURNAL_FILE = require("path").join(__dirname, "journal.json");
+function loadJournal() {
+  try {
+    if (fs.existsSync(JOURNAL_FILE)) {
+      const data = JSON.parse(fs.readFileSync(JOURNAL_FILE, "utf8"));
+      if (Array.isArray(data)) { tradeJournal = data; console.log(`[journal] Loaded ${tradeJournal.length} entries from disk`); }
+    }
+  } catch (e) { console.error("[journal] Load error:", e.message); }
+}
+function saveJournal() {
+  try { fs.writeFileSync(JOURNAL_FILE, JSON.stringify(tradeJournal, null, 2)); } catch (e) { console.error("[journal] Save error:", e.message); }
+}
+loadJournal();
 let newsCache     = [];   // economic calendar events from ForexFactory
 let riskStatus    = { dailyPnl: 0, consecutiveLosses: 0, halted: false, haltReason: "" };
 
@@ -794,6 +809,7 @@ app.post("/api/trade-opened", async (req, res) => {
     };
     tradeJournal.unshift(entry);
     if (tradeJournal.length > 200) tradeJournal = tradeJournal.slice(0, 200);
+    saveJournal();
   }
 
   // Post commentary to alerts panel
@@ -823,6 +839,7 @@ app.post("/api/trade-closed", (req, res) => {
     trade.pnl        = pnl       ?? null;
     trade.closePrice = closePrice ?? null;
     trade.closeTime  = closeTime  ?? new Date().toISOString();
+    saveJournal();
   }
   console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);
   res.json({ ok: true });
@@ -1224,6 +1241,13 @@ async function runBacktest(symbol, label, years = 5) {
     const sig = generateSignal(label, symbol,
       w.map(b => b.close), w.map(b => b.high), w.map(b => b.low));
     if (!sig || sig.signal === "WAIT" || !sig.stop || !sig.target) { lastKey = null; continue; }
+
+    // Approximate the live MTF confidence gate (≥65%) using daily strength.
+    // Without 4H/1H bars the real generateSignalMTF would cap at ~40%, so we
+    // proxy: STRONG daily = would pass with 4H confirmation (88%), MODERATE
+    // daily = borderline pass (65%), anything else = filtered.
+    const btConfidence = sig.strength === "STRONG" ? 88 : sig.strength === "MODERATE" ? 65 : 40;
+    if (btConfidence < 65) { lastKey = null; continue; }
 
     const key = `${sig.signal}_${sig.setup}_${i}`;
     if (key === lastKey) continue;
