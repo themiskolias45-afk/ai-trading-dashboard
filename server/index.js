@@ -175,12 +175,12 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
   let setup = "WAIT", signal = "WAIT", strength = "NONE";
   let entry = price, stop = null, target = null, reasons = [];
 
-  // ── BUY_DIP: pullback to EMA20 in established uptrend ────────
+  // ── BUY_DIP: pullback to EMA20 in uptrend or mixed with EMA50 support ──
   if (
-    inUptrend &&
+    (inUptrend || (trend === "MIXED" && aboveEma50)) &&
     !aboveEma20 &&
-    price >= ema20 * 0.98 &&        // within 2% of EMA20
-    rsi !== null && rsi < 48 &&
+    price >= ema20 * 0.978 &&       // within 2.2% of EMA20
+    rsi !== null && rsi < 50 &&
     macd?.bullish
   ) {
     setup  = "BUY_DIP";
@@ -213,12 +213,12 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
     reasons.push(`Mean-reversion target: BB middle ${bb.middle}`);
   }
 
-  // ── SELL_BOUNCE: rejection at EMA20 in downtrend ─────────────
+  // ── SELL_BOUNCE: rejection at EMA20 in downtrend or mixed below EMA50 ──
   else if (
-    inDowntrend &&
+    (inDowntrend || (trend === "MIXED" && !aboveEma50)) &&
     aboveEma20 &&
-    price <= ema20 * 1.02 &&        // within 2% above EMA20
-    rsi !== null && rsi > 52 &&
+    price <= ema20 * 1.022 &&       // within 2.2% above EMA20
+    rsi !== null && rsi > 50 &&
     macd && !macd.bullish
   ) {
     setup  = "SELL_BOUNCE";
@@ -273,10 +273,61 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
     reasons.push(`Volume ${volRatio}x avg — institutional participation`);
   }
 
+  // ── RANGE_TRADE_LONG: buy BB lower in ranging/squeeze market ─────
+  else if (
+    bb && price <= bb.lower * 1.008 &&
+    rsi !== null && rsi < 42 &&
+    !inDowntrend
+  ) {
+    setup  = "RANGE_TRADE_LONG";
+    signal = "BUY";
+    const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
+    stop   = sl;
+    target = parseFloat(Math.min(entry + Math.abs(entry - sl) * 2.0, bb.middle).toFixed(2));
+    strength = rsi < 32 ? "STRONG" : "MODERATE";
+    reasons.push(`Price at BB lower band — ranging market support`);
+    reasons.push(`RSI ${rsi} — oversold within range`);
+    reasons.push(`Target: BB middle (mean reversion)`);
+  }
+
+  // ── RANGE_TRADE_SHORT: sell BB upper in ranging/squeeze market ───
+  else if (
+    bb && price >= bb.upper * 0.992 &&
+    rsi !== null && rsi > 58 &&
+    !inUptrend
+  ) {
+    setup  = "RANGE_TRADE_SHORT";
+    signal = "SELL";
+    const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((entry * 1.015).toFixed(2));
+    stop   = sl;
+    target = parseFloat(Math.max(entry - Math.abs(sl - entry) * 2.0, bb.middle).toFixed(2));
+    strength = rsi > 68 ? "STRONG" : "MODERATE";
+    reasons.push(`Price at BB upper band — ranging market resistance`);
+    reasons.push(`RSI ${rsi} — overbought within range`);
+    reasons.push(`Target: BB middle (mean reversion)`);
+  }
+
+  // ── BB_SQUEEZE_WATCH: tight squeeze — flag pending breakout ──────
+  else if (bb && bb.bandwidth < 8) {
+    setup  = "BB_SQUEEZE_WATCH";
+    signal = "WAIT";
+    const breakoutUp   = parseFloat((bb.upper * 1.002).toFixed(2));
+    const breakoutDown = parseFloat((bb.lower * 0.998).toFixed(2));
+    reasons.push(`BB bandwidth ${bb.bandwidth}% — extreme squeeze, breakout imminent`);
+    reasons.push(`Watch for break above ${breakoutUp} (BUY) or below ${breakoutDown} (SELL)`);
+    reasons.push(`RSI ${rsi} — position neutral, waiting for direction`);
+    if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg — low volume confirms squeeze`);
+  }
+
   else {
-    reasons.push(`RSI ${rsi} — no extreme reading`);
-    reasons.push(`Price between key EMAs — wait for clarity`);
-    if (bb && bb.bandwidth < 12) reasons.push(`BB squeeze forming — breakout incoming`);
+    // WAIT — explain exactly what's needed to trigger each setup
+    const needsUptrend   = !inUptrend   ? `price above EMA200 (${ema200 ? ema200.toFixed(0) : "N/A"})` : null;
+    const needsOversold  = rsi !== null && rsi >= 50 ? `RSI below 50 (now ${rsi})` : null;
+    const needsMACD      = !macd?.bullish ? `MACD bullish crossover` : null;
+    const blockReasons   = [needsUptrend, needsOversold, needsMACD].filter(Boolean);
+    reasons.push(`No setup: ${blockReasons.length > 0 ? blockReasons.join(", ") : "market not at key level"}`);
+    reasons.push(`Trend: ${trend} | RSI: ${rsi} | BB bandwidth: ${bb?.bandwidth ?? "N/A"}%`);
+    if (bb && bb.bandwidth < 15) reasons.push(`BB squeeze forming — breakout setup building`);
     if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg`);
   }
 
