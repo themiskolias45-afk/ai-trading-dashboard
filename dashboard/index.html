@@ -550,6 +550,28 @@
     </div>
   </div>
 
+  <!-- Setup breakdown — which setups actually make money -->
+  <div class="perf-two-col" style="margin-top:0">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Win Rate by Setup</div></div>
+      <div class="panel-body" style="padding:0;max-height:none">
+        <table class="asset-table" id="setup-tbody-wrap">
+          <thead><tr><th>Setup</th><th>Trades</th><th>Win Rate</th><th>Avg P&amp;L</th><th>Result</th></tr></thead>
+          <tbody id="setup-tbody"><tr><td colspan="5" style="color:var(--muted);padding:16px 12px">No closed trades yet</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Confidence Calibration</div></div>
+      <div class="panel-body" style="padding:0;max-height:none">
+        <table class="asset-table" id="conf-tbody-wrap">
+          <thead><tr><th>Confidence Tier</th><th>Trades</th><th>Actual Win %</th><th>Avg P&amp;L</th></tr></thead>
+          <tbody id="conf-tbody"><tr><td colspan="4" style="color:var(--muted);padding:16px 12px">No closed trades yet</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div>
 </div>
 
@@ -1100,6 +1122,38 @@ async function loadPerformance() {
         <div style="font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px">By Direction</div>
         ${["BUY","SELL"].map(d=>{const ct=closed.filter(t=>t.direction===d);return`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:.78rem"><span style="color:${d==="BUY"?"var(--green)":"var(--red)"};font-weight:700">${d}</span><span>${ct.length} trades</span><span>${ct.filter(t=>t.pnl>0).length}W / ${ct.filter(t=>t.pnl<=0).length}L</span></div>`;}).join("")}
       </div>`;
+
+    // Setup breakdown
+    const setups={};
+    closed.forEach(t=>{
+      const k=t.setup||"UNKNOWN";
+      if(!setups[k])setups[k]={w:0,l:0,pnl:0,count:0};
+      if(t.pnl>0)setups[k].w++;else setups[k].l++;
+      setups[k].pnl+=t.pnl; setups[k].count++;
+    });
+    document.getElementById("setup-tbody").innerHTML=Object.entries(setups)
+      .sort((a,b)=>(b[1].w/b[1].count)-(a[1].w/a[1].count))
+      .map(([name,s])=>{
+        const wr=(s.w/s.count*100).toFixed(0);
+        const wc=wr>=55?"var(--green)":wr>=45?"var(--yellow)":"var(--red)";
+        const pc=s.pnl>=0?"var(--green)":"var(--red)";
+        const badge=wr>=60?'<span style="color:var(--green);font-size:.65rem">EDGE</span>':wr<40?'<span style="color:var(--red);font-size:.65rem">REVIEW</span>':'<span style="color:var(--yellow);font-size:.65rem">OK</span>';
+        return`<tr><td style="font-weight:700;font-size:.75rem">${name.replace(/_/g," ")}</td><td>${s.count}</td><td style="color:${wc};font-weight:700">${wr}%</td><td style="color:${pc}">${s.pnl>=0?"+":""}${s.pnl.toFixed(0)}</td><td>${badge}</td></tr>`;
+      }).join("")||`<tr><td colspan="5" style="color:var(--muted)">No data</td></tr>`;
+
+    // Confidence calibration
+    const tiers=[{l:"95-100%",min:95,max:100},{l:"85-94%",min:85,max:94},{l:"75-84%",min:75,max:84},{l:"65-74%",min:65,max:74},{l:"<65%",min:0,max:64}];
+    const confRows=tiers.map(tier=>{
+      const g=closed.filter(t=>(t.confidence||0)>=tier.min&&(t.confidence||0)<=tier.max);
+      if(!g.length)return"";
+      const w=g.filter(t=>t.pnl>0).length;
+      const wr=(w/g.length*100).toFixed(0);
+      const wc=wr>=55?"var(--green)":wr>=45?"var(--yellow)":"var(--red)";
+      const avgP=(g.reduce((s,t)=>s+t.pnl,0)/g.length).toFixed(0);
+      const pc=parseFloat(avgP)>=0?"var(--green)":"var(--red)";
+      return`<tr><td style="font-weight:700">${tier.l}</td><td>${g.length}</td><td style="color:${wc};font-weight:700">${wr}%</td><td style="color:${pc}">${parseFloat(avgP)>=0?"+":""}${avgP}</td></tr>`;
+    }).join("");
+    document.getElementById("conf-tbody").innerHTML=confRows||`<tr><td colspan="4" style="color:var(--muted)">No data</td></tr>`;
 
     // Equity curve SVG
     let eq=90000;
