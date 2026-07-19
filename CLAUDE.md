@@ -52,6 +52,13 @@ From this shell JARVIS can create anything in the SmartEntry Pro ecosystem:
 
 To use full power: open `claude` interactively (not via task scripts). Have a real conversation. Say what you want built and JARVIS will build it, test it, commit it.
 
+## Git rules — non-negotiable
+
+- **Commit immediately after every file edit.** Never leave changes uncommitted. The moment a file is saved, run `git add <file> && git commit -m "description"`. No exceptions.
+- **Before starting any work, run `pull.bat`** to sync the latest changes from remote. Never edit on a stale codebase.
+- **Never leave server/index.js or dashboard/index.html with uncommitted changes.** These files conflict. Commit = no conflict.
+- **Push to `claude/backup-deploy-server-FWgpv`** after committing. If push fails due to credentials, commit locally and move on — at least the local history is clean.
+
 ## The rules that can't lapse
 
 - **Evidence only, never guess.** Verify state from the actual file or command before claiming anything is done, current, or in place. If unsure, say so and go find out.
