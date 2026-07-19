@@ -10,35 +10,62 @@ echo   SmartEntry Pro - MORNING ROUTINE
 echo   %date% %time%
 echo  ==========================================
 echo.
-
 echo  Fetching market data...
+
 powershell -Command "try { Invoke-RestMethod http://localhost:3001/api/prices | ConvertTo-Json -Depth 10 | Out-File tasks\temp\prices.json -Encoding utf8 } catch { '{\"error\":\"offline\"}' | Out-File tasks\temp\prices.json -Encoding utf8 }"
 powershell -Command "try { Invoke-RestMethod http://localhost:3001/api/signals | ConvertTo-Json -Depth 10 | Out-File tasks\temp\signals.json -Encoding utf8 } catch { '{\"error\":\"offline\"}' | Out-File tasks\temp\signals.json -Encoding utf8 }"
 powershell -Command "try { Invoke-RestMethod http://localhost:3001/api/risk-status | ConvertTo-Json -Depth 10 | Out-File tasks\temp\risk.json -Encoding utf8 } catch { '{\"error\":\"offline\"}' | Out-File tasks\temp\risk.json -Encoding utf8 }"
-powershell -Command "try { Invoke-RestMethod http://localhost:3001/api/plan | ConvertTo-Json -Depth 10 | Out-File tasks\temp\plan.json -Encoding utf8 } catch { '{\"error\":\"offline\"}' | Out-File tasks\temp\plan.json -Encoding utf8 }"
-echo  Done. Running Claude analysis...
+
+echo  Done. Building report...
 echo.
 
-REM Close any open Notepad that may be locking the file
-taskkill /F /IM notepad.exe >nul 2>&1
-timeout /t 1 /nobreak >nul
-
-REM Save report to fixed filename — always easy to find
-claude --dangerously-skip-permissions -p "JARVIS: Morning brief. Read tasks/temp/prices.json, tasks/temp/signals.json, tasks/temp/risk.json, tasks/temp/plan.json, server/journal.json (if exists). Output sections: == PRICES == (BTC Gold SPY DXY VIX). == SIGNALS == (each asset: setup confidence entry/stop/target R:R — mark [TRADE NOW] if conf>=65, [WATCH] 40-64, [WAIT] below 40, for WAIT list exact condition to trigger). == RISK BUDGET == (daily PnL, consecutive losses, room left today). == MARKET REGIME == (trending/ranging/squeeze per asset). == TODAY PLAN == (3 bullets: what to watch, what to avoid, key level per asset)." > tasks\logs\morning_latest.txt
+powershell -Command ^
+  "$p = Get-Content tasks\temp\prices.json -Raw | ConvertFrom-Json;" ^
+  "$s = Get-Content tasks\temp\signals.json -Raw | ConvertFrom-Json;" ^
+  "$r = Get-Content tasks\temp\risk.json -Raw | ConvertFrom-Json;" ^
+  "if ($p.error) { Write-Host '!! SERVER OFFLINE - start server first' -ForegroundColor Red; exit }" ^
+  "Write-Host '';" ^
+  "Write-Host '== PRICES ==' -ForegroundColor Cyan;" ^
+  "Write-Host ('  BTC : $' + $p.btc + '  (' + $p.btcChange + '%)');" ^
+  "Write-Host ('  Gold: $' + $p.gold + '  (' + $p.goldChange + '%)');" ^
+  "Write-Host ('  SPY : $' + $p.spx + '  (' + $p.spxChange + '%)');" ^
+  "Write-Host ('  DXY : ' + $p.dxy + '  |  VIX: ' + $p.vix);" ^
+  "Write-Host '';" ^
+  "Write-Host '== SIGNALS ==' -ForegroundColor Cyan;" ^
+  "foreach ($key in @('btc','gold','spx')) {" ^
+  "  $sig = $s.$key;" ^
+  "  if ($sig -and $sig.signal) {" ^
+  "    $conf = [int]$sig.confidence;" ^
+  "    $flag = if ($conf -ge 65) { '[TRADE NOW]' } elseif ($conf -ge 40) { '[WATCH]' } else { '[WAIT]' };" ^
+  "    $color = if ($conf -ge 65) { 'Green' } elseif ($conf -ge 40) { 'Yellow' } else { 'Gray' };" ^
+  "    Write-Host ('  ' + $key.ToUpper() + ': ' + $sig.signal + ' | ' + $sig.setup + ' | conf:' + $conf + '% ' + $flag) -ForegroundColor $color;" ^
+  "    if ($sig.entry) { Write-Host ('    Entry:$' + $sig.entry + ' Stop:$' + $sig.stop + ' Target:$' + $sig.target + ' RR:' + $sig.rr) };" ^
+  "    if ($sig.reasons) { Write-Host ('    ' + $sig.reasons[0]) -ForegroundColor DarkGray };" ^
+  "  }" ^
+  "};" ^
+  "Write-Host '';" ^
+  "Write-Host '== RISK BUDGET ==' -ForegroundColor Cyan;" ^
+  "Write-Host ('  Daily PnL: $' + $r.dailyPnl + '  |  Consecutive losses: ' + $r.consecutiveLosses + '/3');" ^
+  "if ($r.halted) { Write-Host ('  !! HALTED: ' + $r.haltReason) -ForegroundColor Red } else { Write-Host '  Status: ACTIVE - safe to trade' -ForegroundColor Green };" ^
+  "Write-Host '';" ^
+  "Write-Host '== JOURNAL ==' -ForegroundColor Cyan;" ^
+  "if (Test-Path server\journal.json) {" ^
+  "  $j = Get-Content server\journal.json -Raw | ConvertFrom-Json;" ^
+  "  $j | Select-Object -First 3 | ForEach-Object { Write-Host ('  ' + $_.direction + ' ' + $_.symbol + ' | ' + $_.status + ' | PnL: ' + $_.pnl) }" ^
+  "} else { Write-Host '  No trades yet' -ForegroundColor DarkGray };" ^
+  "Write-Host ''" 2>&1 | Tee-Object tasks\logs\morning_latest.txt
 
 echo.
 echo  ==========================================
-echo   REPORT READY — opening in Notepad
+echo   Report saved to tasks\logs\morning_latest.txt
 echo  ==========================================
 echo.
-
-REM Show in terminal too
-type tasks\logs\morning_latest.txt
-
+set /p AIASK=" Want AI commentary on this? (Y/N): "
+if /i "%AIASK%"=="Y" (
+  echo.
+  echo  Running AI analysis...
+  claude --dangerously-skip-permissions -p "JARVIS: Read tasks/logs/morning_latest.txt. Give a 5-line trading brief: market regime, best opportunity today, main risk, one key price level to watch, one-line verdict. Be specific with numbers." 2>&1
+)
 echo.
-echo  ==========================================
-REM Open in Notepad for comfortable reading
-start notepad tasks\logs\morning_latest.txt
-
 echo  Press any key to return to menu...
 pause >nul
