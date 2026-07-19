@@ -1,16 +1,14 @@
 {
   "permissions": {
     "allow": [
+      "Bash(*)",
       "Read",
       "Write",
       "Edit",
-      "Bash(powershell *)",
-      "Bash(git add *)",
-      "Bash(git commit *)",
-      "Bash(git push *)",
-      "Bash(node *)",
-      "Bash(taskkill *)",
-      "Bash(timeout *)"
+      "WebFetch",
+      "WebSearch",
+      "NotebookRead",
+      "NotebookEdit"
     ],
     "deny": []
   }

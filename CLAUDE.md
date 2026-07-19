@@ -23,11 +23,13 @@ Claude Code auto-loads this CLAUDE.md from the working directory. The startup se
 
 ## Startup Sequence
 
-At the start of every session:
-1. Read `VAULT-INDEX.md` at the vault root — the profile, the rules, the system map.
-2. Check yesterday's daily note in `01 - Daily Notes/`; if you have context it's missing, backfill it.
-3. Scan `Active Priorities.md` for what's currently open, so nothing queued slips.
-4. Run a silent system check: fetch `http://localhost:3001/api/signals` and `http://localhost:3001/api/risk-status`. If server is offline say so immediately. If any signal has confidence ≥ 65 flag it as ACTIONABLE in the welcome line.
+**Interactive sessions only** (when user opens `claude` to talk). Skip entirely when running via `claude -p` batch tasks — go straight to the task.
+
+At the start of every interactive session:
+1. Read `VAULT-INDEX.md` at the vault root — skip silently if file doesn't exist, do not error.
+2. Check yesterday's daily note in `01 - Daily Notes/`; if you have context it's missing, backfill it. Skip silently if folder doesn't exist.
+3. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
+4. Run a silent system check: fetch `http://localhost:3001/api/signals` and `http://localhost:3001/api/risk-status`. Never hang — if offline after 3 seconds, say so and continue.
 
 **Welcome line format:**
 - Server online + no signal: "JARVIS online. SmartEntry Pro running. No active signals — [brief market state]. What are we building?"
