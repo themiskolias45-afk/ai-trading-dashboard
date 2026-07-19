@@ -131,7 +131,7 @@ function atr(highs, lows, closes, period = 14) {
 }
 
 // ── Core signal generator ─────────────────────────────────────
-function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
+function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyCloses = null) {
   if (!closes || closes.length < 50) return null;
 
   const price  = closes[closes.length - 1];
@@ -231,6 +231,45 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
     reasons.push(`RSI ${rsi} — overbought bounce into resistance`);
     reasons.push(`Rejection at EMA20 resistance zone`);
     if (atrStop15) reasons.push(`ATR stop: ${atrStop15.toFixed(0)} (1.5x ATR)`);
+  }
+
+  // ── DIVERGENCE: Gold/DXY correlation breakdown ───────────────
+  // Gold and DXY normally move inversely. When gold breaks a 30-bar extreme
+  // but DXY fails to confirm by ≥1%, it signals institutional divergence.
+  else if (dxyCloses && dxyCloses.length >= 30 && volConfirmed) {
+    const LB           = 30;
+    const goldWindow   = closes.slice(-LB);
+    const dxyWindow    = dxyCloses.slice(-LB);
+    const goldPriorLow  = Math.min(...goldWindow.slice(0, -1));
+    const goldPriorHigh = Math.max(...goldWindow.slice(0, -1));
+    const dxyPriorLow   = Math.min(...dxyWindow.slice(0, -1));
+    const dxyPriorHigh  = Math.max(...dxyWindow.slice(0, -1));
+    const dxyNow        = dxyWindow[dxyWindow.length - 1];
+    const goldNewLow    = price <= goldPriorLow  * 0.997;
+    const goldNewHigh   = price >= goldPriorHigh * 1.003;
+    const dxyFailedHigh = dxyNow < dxyPriorHigh  * 0.99;
+    const dxyFailedLow  = dxyNow > dxyPriorLow   * 1.01;
+    if (goldNewLow && dxyFailedHigh && rsi !== null && rsi < 35) {
+      setup    = "DIVERGENCE";
+      signal   = "BUY";
+      const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
+      stop     = sl;
+      target   = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
+      strength = rsi < 28 ? "STRONG" : "MODERATE";
+      reasons.push(`Gold broke ${LB}-bar low but DXY failed new high (${dxyNow.toFixed(2)} vs ${dxyPriorHigh.toFixed(2)}) — correlation breakdown`);
+      reasons.push(`RSI ${rsi} — selling not backed by real dollar strength`);
+      reasons.push(`Volume ${volRatio}x avg — institutional participation confirmed`);
+    } else if (goldNewHigh && dxyFailedLow && rsi !== null && rsi > 65) {
+      setup    = "DIVERGENCE";
+      signal   = "SELL";
+      const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((entry * 1.015).toFixed(2));
+      stop     = sl;
+      target   = parseFloat((entry - Math.abs(sl - entry) * 2.5).toFixed(2));
+      strength = rsi > 72 ? "STRONG" : "MODERATE";
+      reasons.push(`Gold broke ${LB}-bar high but DXY failed new low (${dxyNow.toFixed(2)} vs ${dxyPriorLow.toFixed(2)}) — correlation breakdown`);
+      reasons.push(`RSI ${rsi} — rally not backed by real dollar weakness`);
+      reasons.push(`Volume ${volRatio}x avg — institutional participation confirmed`);
+    }
   }
 
   // ── BREAKOUT: EMA200 reclaim with volume confirmation ─────────
@@ -400,8 +439,8 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = []) {
 }
 
 // ── Multi-timeframe wrapper ───────────────────────────────────
-function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null) {
-  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? []);
+function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyDailyCloses = null) {
+  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? [], dxyDailyCloses);
   if (!daily) return null;
 
   let h4 = null;
@@ -439,6 +478,7 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null) {
   // Setup quality boost — high-quality setups with all criteria met
   if (daily.setup === "BREAKOUT"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 7);
   if (daily.setup === "SQUEEZE_BREAKOUT" && daily.volume?.confirmed) confidence = Math.min(100, confidence + 10);
+  if (daily.setup === "DIVERGENCE"       && daily.strength === "STRONG") confidence = Math.min(100, confidence + 6);
   if (daily.setup === "MOMENTUM"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 5);
   if (daily.setup === "BUY_DIP"          && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
   if (daily.setup === "SELL_BOUNCE"      && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
@@ -642,6 +682,13 @@ async function refreshSignals() {
     { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
     { key: "spx",  label: "S&P500/SPY", symbol: "SPY"     }
   ];
+  // Fetch DXY daily candles once — used by Gold DIVERGENCE setup
+  let dxyDailyCloses = null;
+  try {
+    const dxy = await fetchCandles("DX-Y.NYB");
+    dxyDailyCloses = dxy?.closes ?? null;
+  } catch (e) { console.error("[signals] DXY fetch:", e.message); }
+
   await Promise.all(assets.map(async (a) => {
     try {
       const [daily, h4, h1] = await Promise.allSettled([
@@ -653,7 +700,8 @@ async function refreshSignals() {
       const h4Data    = h4.status    === "fulfilled" ? h4.value    : null;
       const h1Data    = h1.status    === "fulfilled" ? h1.value    : null;
       if (!dailyData) { console.error(`[signals] ${a.label}: no daily data`); return; }
-      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data);
+      const dxyForAsset = a.key === "gold" ? dxyDailyCloses : null;
+      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data, dxyForAsset);
       const s = signalCache[a.key];
       console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) conf:${s?.confidence}% regime:${s?.regime} vol:${s?.volume?.ratio ?? "?"}x`);
     } catch (e) {
