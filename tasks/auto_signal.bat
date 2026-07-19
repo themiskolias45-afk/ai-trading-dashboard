@@ -9,7 +9,7 @@ if errorlevel 1 exit /b
 
 set LOGFILE=tasks\logs\signals_%date:~-4,4%%date:~-10,2%%date:~-7,2%_%time:~0,2%%time:~3,2%.txt
 
-claude --allowedTools "Read" -p "JARVIS: Read tasks/temp/signals.json. If any asset has confidence >= 65, output: SIGNAL ALERT - [asset] [direction] [setup] conf:[N]%% entry:[price] stop:[price] target:[price] R:R:[N]. If nothing actionable, output: NO SIGNAL. One line only." > %LOGFILE% 2>&1
+claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/signals.json. If any asset has confidence >= 65, output: SIGNAL ALERT - [asset] [direction] [setup] conf:[N]%% entry:[price] stop:[price] target:[price] R:R:[N]. If nothing actionable, output: NO SIGNAL. One line only." > %LOGFILE% 2>&1
 
 REM If an actionable signal was found, pop up a notification
 findstr /i "SIGNAL ALERT" %LOGFILE% >nul

@@ -24,7 +24,7 @@ taskkill /F /IM notepad.exe >nul 2>&1
 timeout /t 1 /nobreak >nul
 
 REM Save report to fixed filename — always easy to find
-claude --allowedTools "Read,Write" -p "JARVIS: Morning brief. Read tasks/temp/prices.json, tasks/temp/signals.json, tasks/temp/risk.json, tasks/temp/plan.json, server/journal.json (if exists). Output sections: == PRICES == (BTC Gold SPY DXY VIX). == SIGNALS == (each asset: setup confidence entry/stop/target R:R — mark [TRADE NOW] if conf>=65, [WATCH] 40-64, [WAIT] below 40, for WAIT list exact condition to trigger). == RISK BUDGET == (daily PnL, consecutive losses, room left today). == MARKET REGIME == (trending/ranging/squeeze per asset). == TODAY PLAN == (3 bullets: what to watch, what to avoid, key level per asset)." > tasks\logs\morning_latest.txt
+claude --dangerously-skip-permissions -p "JARVIS: Morning brief. Read tasks/temp/prices.json, tasks/temp/signals.json, tasks/temp/risk.json, tasks/temp/plan.json, server/journal.json (if exists). Output sections: == PRICES == (BTC Gold SPY DXY VIX). == SIGNALS == (each asset: setup confidence entry/stop/target R:R — mark [TRADE NOW] if conf>=65, [WATCH] 40-64, [WAIT] below 40, for WAIT list exact condition to trigger). == RISK BUDGET == (daily PnL, consecutive losses, room left today). == MARKET REGIME == (trending/ranging/squeeze per asset). == TODAY PLAN == (3 bullets: what to watch, what to avoid, key level per asset)." > tasks\logs\morning_latest.txt
 
 echo.
 echo  ==========================================

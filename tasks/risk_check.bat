@@ -13,7 +13,7 @@ powershell -Command "try { Invoke-RestMethod http://localhost:3001/api/risk-stat
 powershell -Command "try { Invoke-RestMethod http://localhost:3001/api/mt5/positions | ConvertTo-Json -Depth 10 | Out-File tasks\temp\positions.json -Encoding utf8 } catch { '{\"error\":\"no positions\"}' | Out-File tasks\temp\positions.json -Encoding utf8 }"
 echo.
 
-claude --allowedTools "Read" -p "JARVIS: Read tasks/temp/risk.json and tasks/temp/positions.json. Show: VERDICT on first line (SAFE / CAUTION / HALT). Then: daily P&L vs $2700 limit (3% of $90k), consecutive losses vs 3-loss limit, is system halted and why, all open positions with unrealised P&L, total open risk. Flag anything within 20% of a limit as WARNING."
+claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/risk.json and tasks/temp/positions.json. Show: VERDICT on first line (SAFE / CAUTION / HALT). Then: daily P&L vs $2700 limit (3% of $90k), consecutive losses vs 3-loss limit, is system halted and why, all open positions with unrealised P&L, total open risk. Flag anything within 20% of a limit as WARNING."
 
 echo.
 pause

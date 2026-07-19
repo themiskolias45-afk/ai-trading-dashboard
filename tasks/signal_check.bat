@@ -13,7 +13,7 @@ powershell -Command "try { Invoke-RestMethod http://localhost:3001/api/signals |
 powershell -Command "try { Invoke-RestMethod http://localhost:3001/api/prices | ConvertTo-Json -Depth 10 | Out-File tasks\temp\prices.json -Encoding utf8 } catch { '{\"error\":\"server offline\"}' | Out-File tasks\temp\prices.json -Encoding utf8 }"
 echo.
 
-claude --allowedTools "Read" -p "JARVIS: Read tasks/temp/signals.json and tasks/temp/prices.json. Output a clean signal table: Asset | Price | Signal | Setup | Confidence | Entry | Stop | Target | R:R | Trend. Mark any row with confidence >= 65 as [ACTIONABLE]. If server is offline say so. Max 15 lines."
+claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/signals.json and tasks/temp/prices.json. Output a clean signal table: Asset | Price | Signal | Setup | Confidence | Entry | Stop | Target | R:R | Trend. Mark any row with confidence >= 65 as [ACTIONABLE]. If server is offline say so. Max 15 lines."
 
 echo.
 pause
