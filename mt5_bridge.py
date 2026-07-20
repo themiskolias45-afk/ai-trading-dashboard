@@ -44,18 +44,18 @@ POLL_INTERVAL  = int(os.environ.get("POLL_INTERVAL", "60"))      # seconds betwe
 MAGIC_NUMBER   = 20250101                                         # unique ID for SmartEntry orders
 AUTO_MODE      = "--auto" in sys.argv
 
-# MT5 symbol map: SmartEntry ticker → MT5 symbol name
-SYMBOL_MAP = {
-    "BTC-USD": "BTCUSD",
-    "GC=F":    "XAUUSD",
-    "SPY":     None,        # equities not available on most MT5 brokers — skip
+# MT5 symbol map: SmartEntry Yahoo ticker → candidate MT5 symbol names (checked in order)
+SYMBOL_CANDIDATES = {
+    "BTC-USD": ["BTCUSD", "BTC/USD", "BITCOIN", "BTCUSDT"],
+    "GC=F":    ["XAUUSD", "GOLD", "XAUUSDm", "GOLDm"],
+    "SPY":     ["SP500", "US500", "SPX500", "SPY", "US.500"],
 }
 
-# Minimum lots per symbol (broker-specific — adjust if needed)
-MIN_LOT = {
-    "BTCUSD": 0.01,
-    "XAUUSD": 0.01,
-}
+# Resolved at startup by auto_detect_symbols()
+SYMBOL_MAP = {}
+
+# Minimum lots per symbol (broker-specific — auto-detected at startup)
+MIN_LOT = {}
 
 # ── State ─────────────────────────────────────────────────────────────────────
 executed_signals  = {}   # key → signal updatedAt string (deduplication)
@@ -112,6 +112,32 @@ def fetch_signals():
         return None
 
 
+def auto_detect_symbols():
+    """Auto-detect available MT5 symbols by checking broker's symbol list."""
+    global SYMBOL_MAP, MIN_LOT
+    all_symbols = {s.name for s in (mt5.symbols_get() or [])}
+    log(f"Broker has {len(all_symbols)} symbols available — auto-detecting...", CYAN)
+
+    for se_ticker, candidates in SYMBOL_CANDIDATES.items():
+        for candidate in candidates:
+            if candidate in all_symbols:
+                info = mt5.symbol_info(candidate)
+                if info:
+                    mt5.symbol_select(candidate, True)
+                    SYMBOL_MAP[se_ticker] = candidate
+                    MIN_LOT[candidate] = info.volume_min
+                    log(f"  {se_ticker:12s} → {candidate:12s} (min lot: {info.volume_min})", GREEN)
+                    break
+        else:
+            log(f"  {se_ticker:12s} → NOT FOUND on this broker (skipping)", YELLOW)
+
+    if not SYMBOL_MAP:
+        log("No tradeable symbols found — check broker symbol names.", RED)
+        return False
+    log(f"Auto-detect complete: {len(SYMBOL_MAP)} asset(s) ready to trade.", GREEN)
+    return True
+
+
 def connect_mt5():
     if not mt5.initialize():
         log(f"MT5 initialize() failed — error: {mt5.last_error()}", RED)
@@ -122,7 +148,7 @@ def connect_mt5():
     if info and acc:
         log(f"MT5 connected: {acc.name} @ {info.company}", GREEN)
         log(f"Balance: ${acc.balance:.2f}  |  Equity: ${acc.equity:.2f}  |  Leverage: 1:{acc.leverage}", CYAN)
-    return True
+    return auto_detect_symbols()
 
 
 def get_lot_size(symbol, entry, stop):
