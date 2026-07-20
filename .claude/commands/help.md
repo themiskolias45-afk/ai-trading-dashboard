@@ -1,23 +1,40 @@
-List all available JARVIS commands:
+Print the full JARVIS command reference.
 
-TRADING
-/signal      — current BTC/Gold/SPX signals with entry, stop, target
-/morning     — daily brief: signals + performance + what to watch
-/trade       — open positions + last 5 closed trades
-/journal     — full performance report by setup + confidence calibration
+Output exactly this:
 
-SYSTEM
-/health      — quick server health check (port, signals, mode)
-/checksystem — DEEP health: equity, calibration, learning state, proposals
-/backtest    — 5-year backtest: win rate + return per asset
+---
+JARVIS — SmartEntry Pro Command Reference
+---
 
-AI & LEARNING
-/selflearn   — what the system has learned from past trades (boosts/penalties per setup)
-/improve     — find the single best improvement and implement it
-/agent       — FULL AUTONOMOUS MODE: check → analyze → fix → report
-/research    — web search for new trading strategies to implement
-/build       — build any new feature (asks what you want)
+SIGNALS & ANALYSIS
+  /signal              Live signal — all 3 assets, confidence, entry/stop/target
+  /analyze [sym]       Deep analysis with sequential reasoning — BTC, GOLD, or SPX
+  /news                Live market news briefing + trading impact
+  /morning             Full morning brief — signals + performance + today's priority
 
-/help        — show this list
+TRADE EXECUTION
+  /execute [sym] [dir] [entry] [stop] [target]   Force-execute a manual trade
+  /trade [details]     Log a completed trade to journal
+  /risk [sym] [entry] [stop]    Position size + risk check
 
-Then ask: "What do you want to do?"
+PERFORMANCE & LEARNING
+  /journal             Last 20 trades with P&L summary
+  /review              Weekly performance review + brutally honest what to fix
+  /selflearn           What the AI learned — win rates + boosts per setup
+  /backtest [idea]     Backtest a setup against historical data
+
+SYSTEM & IMPROVEMENT
+  /health              Server + bridge + system health check
+  /checksystem         Full diagnostic — all components + pending proposals
+  /improve             Find worst setup and auto-improve parameters
+  /agent               Autonomous mode — full cycle without asking permission
+  /research [idea]     Web search for strategy → implement if it's profitable
+  /build [feature]     Build any new feature or tool from scratch
+
+MEMORY
+  Say: "remember that Gold rejects hard at $2400" — stored for all future sessions
+
+---
+All commands work inside JARVIS.bat. Just type and press Enter.
+For complex work, have a real conversation — JARVIS can build anything.
+---
