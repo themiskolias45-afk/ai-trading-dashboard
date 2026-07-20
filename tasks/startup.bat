@@ -19,15 +19,7 @@ REM 4 — Launch MT5 if not already running
 tasklist /fi "imagename eq terminal64.exe" 2>nul | find /i "terminal64.exe" >nul
 if errorlevel 1 (
   echo  MT5 not running — launching...
-  REM Try common Vantage / MT5 install paths
-  if exist "C:\Program Files\Vantage Markets MetaTrader 5\terminal64.exe" (
-    start "" /min "C:\Program Files\Vantage Markets MetaTrader 5\terminal64.exe"
-    goto :wait_mt5
-  )
-  if exist "C:\Program Files\Vantage FX MetaTrader 5\terminal64.exe" (
-    start "" /min "C:\Program Files\Vantage FX MetaTrader 5\terminal64.exe"
-    goto :wait_mt5
-  )
+  REM MT5 install path (confirmed: C:\Program Files\MetaTrader 5)
   if exist "C:\Program Files\MetaTrader 5\terminal64.exe" (
     start "" /min "C:\Program Files\MetaTrader 5\terminal64.exe"
     goto :wait_mt5
