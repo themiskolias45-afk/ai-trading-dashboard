@@ -12,7 +12,11 @@ start "SmartEntry Server" /min cmd /c "cd server && node index.js >> ..\tasks\lo
 REM 2 — Wait for server to boot
 timeout /t 8 /nobreak >nul
 
-REM 3 — Backup data
+REM 3 — Start watchdog (monitors server, auto-restarts if it crashes)
+echo  Starting server watchdog...
+start "SmartEntry Watchdog" /min cmd /c "tasks\watchdog.bat"
+
+REM 4 — Backup data
 call tasks\backup_data.bat
 
 REM 4 — Launch MT5 if not already running
