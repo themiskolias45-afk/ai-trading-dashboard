@@ -4,40 +4,35 @@ echo.
 echo  Setting up SmartEntry to start automatically at Windows login...
 echo.
 
-REM Method 1: Try Task Scheduler (needs Admin)
-schtasks /delete /tn "SmartEntry Startup" /f >nul 2>&1
-schtasks /create /tn "SmartEntry Startup" /tr "C:\Users\User\ai-trading-dashboard\tasks\startup.bat" /sc ONLOGON /delay 0002:00 /ru "%USERNAME%" /f >nul 2>&1
-
-if not errorlevel 1 (
-  echo  SUCCESS via Task Scheduler. SmartEntry starts 2 min after every login.
-  goto :done
-)
-
-REM Method 2: No Admin needed — Windows Startup folder
-echo  Task Scheduler needs Admin. Using Startup folder instead...
+REM Write a wrapper to the Startup folder that always calls the latest startup.bat
 set STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-set SHORTCUT=%STARTUP%\SmartEntry.bat
+set WRAPPER=%STARTUP%\SmartEntry.bat
 
-copy /Y "C:\Users\User\ai-trading-dashboard\tasks\startup.bat" "%SHORTCUT%" >nul
+(
+  echo @echo off
+  echo call "C:\Users\User\ai-trading-dashboard\tasks\startup.bat"
+) > "%WRAPPER%"
 
 if errorlevel 1 (
-  echo  ERROR: Both methods failed.
+  echo  ERROR: Could not write to Startup folder.
   pause
   exit /b 1
 )
 
-echo  SUCCESS via Startup folder.
+REM Also try Task Scheduler for the delay feature (requires Admin — silent fail ok)
+schtasks /delete /tn "SmartEntry Startup" /f >nul 2>&1
+schtasks /create /tn "SmartEntry Startup" /tr "C:\Users\User\ai-trading-dashboard\tasks\startup.bat" /sc ONLOGON /delay 0002:00 /ru "%USERNAME%" /f >nul 2>&1
 
-:done
-echo.
-echo  SmartEntry Pro will start automatically at every login.
+echo  SUCCESS. SmartEntry Pro will start automatically at every login.
 echo.
 echo  What starts automatically:
 echo   - SmartEntry server (port 3001)
+echo   - MT5 auto-launched (tries common install paths)
+echo   - MT5 bridge in AUTO mode (after MT5 connects)
 echo   - Data backup (journal + learning)
-echo   - MT5 bridge in AUTO mode (if MT5 is open)
 echo   - Morning agent already runs at 7 AM (already scheduled)
 echo.
-echo  To disable: delete %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\SmartEntry.bat
+echo  If MT5 path is wrong: edit tasks\startup.bat and re-run this script.
+echo  To disable: delete %WRAPPER%
 echo.
 pause
