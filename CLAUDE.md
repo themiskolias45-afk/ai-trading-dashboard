@@ -97,3 +97,33 @@ To use full power: open `claude` interactively (not via task scripts). Have a re
 - When something is done, say what was done in one line — not what you're about to do.
 - When I send a screenshot, describe what you see that's relevant, then act on it.
 - Trading context first: always think about whether a change helps signal quality, risk management, or system reliability before implementing it.
+
+## Code quality — non-negotiable
+
+These rules apply to every line of code written or edited. No exceptions.
+
+**Before writing any code:**
+- Read the FULL file front to back. Never edit blind.
+- Understand what the function does, what calls it, and what it returns.
+- Know the exact change needed before touching anything.
+
+**While writing:**
+- Walk through the code mentally with real inputs before saving. If it would crash on `null`, on an empty array, on a network timeout — handle it.
+- Every async function: handle the rejection. Every file read: handle missing file. Every API call: handle non-200.
+- No magic numbers. Name the constant.
+- No dead code. If you add it, use it. If you remove it, remove every reference.
+- No TODO comments left in code. Either fix it now or don't mention it.
+- Variable names that say what they hold — not `data`, `result`, `temp`, `x`.
+- Functions do one thing. If a function is doing three things, split it.
+
+**After writing:**
+- Mentally run `node --check` on every JS file touched. Catch unclosed brackets, missing semicolons, bad async/await before saving.
+- Mentally run `python -m py_compile` on every Python file touched.
+- Trace the full call path: what calls this → what does it call → what does it return → does the caller handle the return correctly.
+- Check: does this change break anything that was working before?
+
+**The standard:**
+- Code ships working or not at all. No "it should work", no "try it and see".
+- If something is too complex to verify mentally, say so and break it into smaller pieces first.
+- Simplest correct solution wins. Clever code that's hard to read is a bug waiting to happen.
+- When fixing a bug: find the root cause, not the symptom. Don't patch around it.

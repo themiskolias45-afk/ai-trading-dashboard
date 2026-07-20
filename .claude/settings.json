@@ -54,10 +54,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /d C:\\Users\\User\\ai-trading-dashboard && git diff --quiet HEAD 2>nul || (git add -A && git commit -m \"auto-save\" --quiet)",
-            "shell": "powershell",
+            "command": "cd /d C:\\Users\\User\\ai-trading-dashboard && for /f \"delims=\" %f in ('git diff --name-only HEAD 2^>nul') do (if \"%~xf\"==\".js\" node --check \"%f\" 2^>nul && if \"%~xf\"==\".py\" python -m py_compile \"%f\" 2^>nul) & git diff --quiet HEAD 2>nul || (git add -A && git commit -m \"auto-save\" --quiet)",
+            "shell": "cmd",
             "async": true,
-            "statusMessage": "Auto-saving..."
+            "statusMessage": "Validating + auto-saving..."
           }
         ]
       }
