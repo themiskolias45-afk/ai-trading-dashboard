@@ -1293,7 +1293,7 @@ async function refreshAnalysis() {
         `Be specific with price levels. Professional tone.`;
 
       const msg = await anthropic.messages.create({
-        model: "claude-opus-4-8",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 200,
         messages: [{ role: "user", content: prompt }]
       });
@@ -1339,7 +1339,7 @@ async function askClaude(question) {
 
   if (anthropic) {
     const msg = await anthropic.messages.create({
-      model: "claude-opus-4-8",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
       system: "You are SmartEntry Pro, a professional trading analyst. Answer concisely and practically. Always include specific levels (entry, stop, target) when discussing trades. Never give financial advice — give analysis.",
       messages: [{ role: "user", content: `Market context:\n${context}\n\nQuestion: ${question}` }]
@@ -1404,7 +1404,7 @@ async function generateTradeCommentary(trade) {
       `Be specific about price levels. No bullet points — prose only.`;
 
     const msg = await anthropic.messages.create({
-      model:      "claude-opus-4-8",
+      model:      "claude-haiku-4-5-20251001",
       max_tokens: 300,
       messages:   [{ role: "user", content: prompt }]
     });
@@ -1431,7 +1431,7 @@ async function reviewOpenPositions() {
       `(3) any exit consideration? End with an overall portfolio risk assessment. Keep it concise and actionable.`;
 
     const msg = await anthropic.messages.create({
-      model:      "claude-opus-4-8",
+      model:      "claude-haiku-4-5-20251001",
       max_tokens: 600,
       messages:   [{ role: "user", content: prompt }]
     });
@@ -1468,7 +1468,7 @@ async function generateWeeklyReport() {
       `(4) strategy suggestions for next week. Practical and concise.`;
 
     const msg = await anthropic.messages.create({
-      model:      "claude-opus-4-8",
+      model:      "claude-haiku-4-5-20251001",
       max_tokens: 800,
       messages:   [{ role: "user", content: prompt }]
     });
@@ -1620,7 +1620,7 @@ app.get("/api/backtest", async (req, res) => {
       ).join("\n");
 
       const msg = await anthropic.messages.create({
-        model: "claude-opus-4-8", max_tokens: 500,
+        model: "claude-haiku-4-5-20251001", max_tokens: 500,
         messages: [{ role: "user", content:
           `You are a professional quant analyst. Here are backtesting results for a rule-based trading strategy over ${years} years:\n\n${summary}\n\n` +
           `In 4-5 concise sentences: (1) is this strategy viable? (2) which asset performs best? (3) biggest risk/weakness? (4) one concrete improvement suggestion.`
@@ -1663,7 +1663,7 @@ app.post("/api/claude-approve-trade", async (req, res) => {
 
   try {
     const msg = await anthropic.messages.create({
-      model: "claude-opus-4-8", max_tokens: 120,
+      model: "claude-haiku-4-5-20251001", max_tokens: 120,
       messages: [{ role: "user", content: prompt }]
     });
     const text = msg.content?.[0]?.text ?? "";
@@ -1732,7 +1732,7 @@ app.post("/api/ai-brain", async (req, res) => {
       `Be specific with prices. Institutional quality.`;
 
     const msg = await anthropic.messages.create({
-      model: "claude-opus-4-8",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 300,
       messages: [{ role: "user", content: prompt }]
     });
