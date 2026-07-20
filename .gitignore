@@ -5,5 +5,4 @@ node_modules/
 __pycache__/
 *.pyc
 tasks/logs/
-server/learning.json
-server/journal.json
+tasks/backups/
