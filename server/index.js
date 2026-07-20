@@ -65,6 +65,46 @@ function saveJournal() {
   try { fs.writeFileSync(JOURNAL_FILE, JSON.stringify(tradeJournal, null, 2)); } catch (e) { console.error("[journal] Save error:", e.message); }
 }
 loadJournal();
+
+// ── Self-learning engine ──────────────────────────────────────
+const LEARNING_FILE = require("path").join(__dirname, "learning.json");
+let learning = { setupStats: {}, sessionCount: 0, updatedAt: null };
+
+function loadLearning() {
+  try {
+    if (fs.existsSync(LEARNING_FILE)) {
+      learning = { ...learning, ...JSON.parse(fs.readFileSync(LEARNING_FILE, "utf8")) };
+      console.log(`[learning] Loaded — ${Object.keys(learning.setupStats).length} setups tracked`);
+    }
+  } catch (e) { console.error("[learning] Load error:", e.message); }
+}
+function saveLearning() {
+  learning.updatedAt = new Date().toISOString();
+  try { fs.writeFileSync(LEARNING_FILE, JSON.stringify(learning, null, 2)); } catch (e) {}
+}
+function updateLearning(setup, pnl) {
+  if (!setup || pnl === null || pnl === undefined) return;
+  if (!learning.setupStats[setup]) learning.setupStats[setup] = { wins: 0, losses: 0, totalPnl: 0 };
+  const s = learning.setupStats[setup];
+  if (pnl > 0) s.wins++; else s.losses++;
+  s.totalPnl = parseFloat(((s.totalPnl ?? 0) + pnl).toFixed(2));
+  saveLearning();
+  console.log(`[learning] ${setup} updated — W:${s.wins} L:${s.losses} (boost: ${getLearningBoost(setup)})`);
+}
+function getLearningBoost(setup) {
+  if (!setup || !learning.setupStats[setup]) return 0;
+  const s = learning.setupStats[setup];
+  const total = s.wins + s.losses;
+  if (total < 5) return 0;  // need minimum 5 trades before adjusting
+  const wr = s.wins / total;
+  // WR > 60% → positive boost up to +15, WR < 40% → negative down to -15
+  const boost = Math.round((wr - 0.5) * 30);
+  return Math.max(-15, Math.min(15, boost));
+}
+loadLearning();
+learning.sessionCount = (learning.sessionCount || 0) + 1;
+saveLearning();
+
 let newsCache     = [];   // economic calendar events from ForexFactory
 let riskStatus    = { dailyPnl: 0, consecutiveLosses: 0, halted: false, haltReason: "" };
 
@@ -482,6 +522,14 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   if (daily.setup === "MOMENTUM"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 5);
   if (daily.setup === "BUY_DIP"          && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
   if (daily.setup === "SELL_BOUNCE"      && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
+
+  // Self-learning boost — system learns from past trades on this setup
+  const learnBoost = getLearningBoost(daily.setup);
+  if (learnBoost !== 0) {
+    confidence = Math.max(0, Math.min(100, confidence + learnBoost));
+    if (learnBoost > 0) daily.reasons.push(`✅ Learned: ${daily.setup} performing above avg (+${learnBoost})`);
+    else daily.reasons.push(`⚠ Learned: ${daily.setup} underperforming (${learnBoost})`);
+  }
 
   // Preliminary signal for macro filter checks
   let finalSignal = confidence >= 65 ? daily.signal : "WAIT";
@@ -1112,6 +1160,8 @@ app.post("/api/trade-closed", (req, res) => {
     trade.closePrice = closePrice ?? null;
     trade.closeTime  = closeTime  ?? new Date().toISOString();
     saveJournal();
+    // Feed outcome to self-learning engine
+    if (trade.setup && pnl !== null) updateLearning(trade.setup, pnl);
   }
   console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);
   res.json({ ok: true });
@@ -1120,6 +1170,83 @@ app.post("/api/trade-closed", (req, res) => {
 // Trade journal (last 50 entries)
 app.get("/api/journal", (_, res) => {
   res.json({ journal: tradeJournal.slice(0, 50) });
+});
+
+// Self-learning state
+app.get("/api/learning", (_, res) => {
+  const summary = {};
+  for (const [setup, s] of Object.entries(learning.setupStats)) {
+    const total = s.wins + s.losses;
+    summary[setup] = {
+      wins: s.wins, losses: s.losses, total,
+      winRate: total > 0 ? parseFloat((s.wins / total * 100).toFixed(1)) : null,
+      totalPnl: s.totalPnl,
+      boost: getLearningBoost(setup),
+      status: total < 5 ? "learning" : s.wins / total > 0.55 ? "boosted" : s.wins / total < 0.45 ? "penalised" : "neutral"
+    };
+  }
+  res.json({ setupStats: summary, sessionCount: learning.sessionCount, updatedAt: learning.updatedAt });
+});
+
+app.post("/api/learning/reset", (_, res) => {
+  learning.setupStats = {};
+  learning.updatedAt = new Date().toISOString();
+  saveLearning();
+  res.json({ ok: true, message: "Learning reset — all boosts cleared" });
+});
+
+// Deep system health check
+app.get("/api/checksystem", (_, res) => {
+  const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
+  const wins = closed.filter(t => t.pnl > 0).length;
+  const totalPnl = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
+  const recentLosses = closed.slice(0, 5).filter(t => t.pnl < 0).length;
+
+  // Equity curve health
+  let equity = 10000;
+  for (const t of [...closed].reverse()) {
+    if (t.pnl > 0) equity += t.pnl; else equity += t.pnl;
+  }
+
+  // Setup health
+  const setupHealth = {};
+  for (const [setup, s] of Object.entries(learning.setupStats)) {
+    const total = s.wins + s.losses;
+    if (total >= 3) {
+      const wr = s.wins / total;
+      setupHealth[setup] = { wr: parseFloat((wr * 100).toFixed(1)), status: wr > 0.55 ? "GOOD" : wr < 0.4 ? "REVIEW" : "OK" };
+    }
+  }
+
+  // Confidence calibration check
+  const tiers = [
+    { label: "65-74%", min: 65, max: 74 },
+    { label: "75-84%", min: 75, max: 84 },
+    { label: "85%+",   min: 85, max: 100 }
+  ];
+  const calibration = tiers.map(tier => {
+    const group = closed.filter(t => (t.confidence ?? 0) >= tier.min && (t.confidence ?? 0) <= tier.max);
+    const gWins = group.filter(t => t.pnl > 0).length;
+    return { tier: tier.label, trades: group.length, winRate: group.length > 0 ? parseFloat((gWins / group.length * 100).toFixed(1)) : null };
+  });
+
+  // Proposal check
+  let proposal = null;
+  try {
+    const pp = require("path").join(__dirname, "..", "tasks", "improvement_proposal.json");
+    if (fs.existsSync(pp)) proposal = JSON.parse(fs.readFileSync(pp, "utf8"));
+  } catch {}
+
+  res.json({
+    server:      { port: PORT, uptime: Math.round(process.uptime()), healthy: true },
+    signals:     { btc: signalCache.btc?.signal, gold: signalCache.gold?.signal, spx: signalCache.spx?.signal, updatedAt: signalCache.updatedAt },
+    risk:        riskStatus,
+    mode:        { modeOverride: typeof modeOverride !== "undefined" ? modeOverride : null },
+    performance: { trades: closed.length, wins, winRate: closed.length > 0 ? parseFloat((wins / closed.length * 100).toFixed(1)) : null, totalPnl: parseFloat(totalPnl.toFixed(2)), recentLosses },
+    learning:    { sessionCount: learning.sessionCount, setupsTracked: Object.keys(learning.setupStats).length, setupHealth },
+    calibration,
+    proposal:    proposal ? { worstSetup: proposal.worstSetup, winRate: proposal.winRate, generatedAt: proposal.generatedAt } : null
+  });
 });
 
 // Feature flags
@@ -1200,6 +1327,42 @@ cron.schedule("0 8 * * 0", async () => {
 
 // Every 6 hours — refresh economic calendar
 cron.schedule("0 */6 * * *", fetchEconomicCalendar);
+
+// Sunday 9 PM — autonomous improvement proposal
+cron.schedule("0 21 * * 0", async () => {
+  console.log("[agent] Sunday auto-improvement run starting…");
+  const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
+  if (closed.length < 5) { console.log("[agent] Not enough trades for improvement analysis"); return; }
+
+  // Find worst setup
+  const bySetup = {};
+  for (const t of closed) {
+    const s = t.setup || "UNKNOWN";
+    if (!bySetup[s]) bySetup[s] = { wins: 0, losses: 0 };
+    if (t.pnl > 0) bySetup[s].wins++; else bySetup[s].losses++;
+  }
+  let worstSetup = null, worstWR = 1;
+  for (const [setup, stats] of Object.entries(bySetup)) {
+    const total = stats.wins + stats.losses;
+    if (total < 3) continue;
+    const wr = stats.wins / total;
+    if (wr < worstWR) { worstWR = wr; worstSetup = setup; }
+  }
+
+  if (!worstSetup) return;
+  const proposal = {
+    generatedAt: new Date().toISOString(),
+    worstSetup,
+    winRate: parseFloat((worstWR * 100).toFixed(1)),
+    trades: bySetup[worstSetup],
+    learningBoost: getLearningBoost(worstSetup),
+    recommendation: `${worstSetup} has ${(worstWR * 100).toFixed(1)}% WR — review and tighten entry criteria or disable. Learning engine has already applied ${getLearningBoost(worstSetup)} confidence adjustment.`
+  };
+
+  const proposalPath = require("path").join(__dirname, "..", "tasks", "improvement_proposal.json");
+  fs.writeFileSync(proposalPath, JSON.stringify(proposal, null, 2));
+  console.log(`[agent] Proposal written: ${worstSetup} at ${(worstWR * 100).toFixed(1)}% WR`);
+});
 
 // ══════════════════════════════════════════════════════════════
 //  AUTO-ANALYSIS ENGINE (works without Claude API key)
