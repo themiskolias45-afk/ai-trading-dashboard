@@ -4,3 +4,6 @@ node_modules/
 *.log
 __pycache__/
 *.pyc
+tasks/logs/
+server/learning.json
+server/journal.json
