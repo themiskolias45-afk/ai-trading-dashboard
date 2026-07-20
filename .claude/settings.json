@@ -11,5 +11,55 @@
       "NotebookEdit"
     ],
     "deny": []
-  }
+  },
+
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem",
+        "C:/Users/User/ai-trading-dashboard",
+        "C:/Users/User/Documents"
+      ]
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"]
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    }
+  },
+
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /d C:\\Users\\User\\ai-trading-dashboard && git diff --quiet HEAD 2>nul || (git add -A && git commit -m \"auto-save\" --quiet)",
+            "shell": "powershell",
+            "async": true,
+            "statusMessage": "Auto-saving..."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s --max-time 3 http://localhost:3001/api/risk-status 2>nul && echo. || echo {\"offline\":true}",
+            "shell": "powershell",
+            "async": true
+          }
+        ]
+      }
+    ]
+  },
+
+  "autoCompactEnabled": true,
+  "alwaysThinkingEnabled": true
 }
