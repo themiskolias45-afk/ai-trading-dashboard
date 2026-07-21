@@ -19,7 +19,8 @@ echo  [2/3] TradingView credentials
 echo   (stored in keys.env — never committed to git)
 echo.
 set /p TV_USER=  Enter your TradingView username or email:
-set /p TV_PASS=  Enter your TradingView password:
+REM Use PowerShell to hide password input
+for /f "usebackq delims=" %%P in (`powershell -Command "$p = Read-Host '  Enter your TradingView password' -AsSecureString; [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p))"`) do set TV_PASS=%%P
 
 REM Remove old TV lines from keys.env if they exist
 if exist keys.env (

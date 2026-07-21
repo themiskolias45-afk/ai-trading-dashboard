@@ -97,31 +97,71 @@ def login(page, ctx):
 
     page.goto(f"{TV_BASE}/")
     page.wait_for_load_state("domcontentloaded")
+    time.sleep(2)
 
     # Already logged in from saved session?
-    if TV_BASE + "/chart" in page.url or page.locator('[data-name="header-user-menu-button"]').count() > 0:
-        print(f"[TV] Already logged in")
-        return
-
-    # Click Sign In
     try:
-        page.click('[data-name="header-user-menu-sign-in"]', timeout=6000)
-    except PWTimeout:
-        page.goto(f"{TV_BASE}/accounts/signin/")
-        page.wait_for_load_state("domcontentloaded")
-
-    time.sleep(1)
-
-    # Email login tab
-    try:
-        page.click('button[name="Email"]', timeout=5000)
-        time.sleep(0.5)
+        if page.locator('[data-name="header-user-menu-button"]').count() > 0:
+            print("[TV] Already logged in (session active)")
+            return
     except:
         pass
 
-    page.fill('input[name="username"]', username, timeout=8000)
-    page.fill('input[name="password"]', password, timeout=8000)
-    page.click('button[type="submit"]', timeout=8000)
+    # Open sign-in dialog
+    try:
+        page.click('[data-name="header-user-menu-sign-in"]', timeout=8000)
+    except PWTimeout:
+        try:
+            page.click('button:has-text("Sign in")', timeout=5000)
+        except:
+            page.goto(f"{TV_BASE}/accounts/signin/")
+    time.sleep(2)
+
+    # Click "Email" tab inside the dialog
+    for selector in ['button[name="Email"]', 'button:has-text("Email")', '[class*="emailButton"]']:
+        try:
+            page.click(selector, timeout=3000)
+            time.sleep(0.8)
+            break
+        except:
+            continue
+
+    # Fill email — try multiple selectors
+    email_filled = False
+    for selector in ['input[name="username"]', 'input[type="email"]', 'input[autocomplete="username"]', 'input[placeholder*="mail"]']:
+        try:
+            page.fill(selector, username, timeout=5000)
+            email_filled = True
+            break
+        except:
+            continue
+    if not email_filled:
+        print("[TV] Could not find email field — browser is open, please log in manually.")
+        print("[TV] Waiting up to 3 minutes...")
+        page.wait_for_url(f"{TV_BASE}/**", timeout=180000)
+        for _ in range(60):
+            if "signin" not in page.url and "accounts" not in page.url:
+                break
+            time.sleep(3)
+        save_session(ctx)
+        print("[TV] Logged in manually — session saved.")
+        return
+
+    # Fill password
+    for selector in ['input[name="password"]', 'input[type="password"]', 'input[autocomplete="current-password"]']:
+        try:
+            page.fill(selector, password, timeout=5000)
+            break
+        except:
+            continue
+
+    # Submit
+    for selector in ['button[type="submit"]', 'button:has-text("Sign in")', 'button:has-text("Continue")']:
+        try:
+            page.click(selector, timeout=5000)
+            break
+        except:
+            continue
     time.sleep(2)
 
     # Check if 2FA code is required
