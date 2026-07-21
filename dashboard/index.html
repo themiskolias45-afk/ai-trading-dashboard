@@ -1087,6 +1087,7 @@ async function loadPerformance() {
       document.getElementById("p-pnl").textContent="—";
       document.getElementById("p-pf").textContent="—";
       document.getElementById("p-trades").textContent="0";
+      loadHealerPanel();
       return;
     }
     const wins=closed.filter(t=>t.pnl>0), losses=closed.filter(t=>t.pnl<=0);
@@ -1202,7 +1203,10 @@ async function loadPerformance() {
     }
   } catch(e) { console.error("Performance load failed:",e); }
 
-  // Load healer + system health into performance tab
+  loadHealerPanel();
+}
+
+async function loadHealerPanel() {
   try {
     const h = await fetch(API+"/healer",{cache:"no-store"}).then(r=>r.json());
     const checks = h.checks||{};
@@ -1218,21 +1222,23 @@ async function loadPerformance() {
       ).join("");
   } catch(e) {
     document.getElementById("healer-summary").textContent = "healer offline";
+    document.getElementById("healer-table-inline").innerHTML =
+      `<tr><td colspan="3" style="color:var(--red)">Cannot reach /api/healer</td></tr>`;
   }
 
   try {
     const s = await fetch(API+"/checksystem",{cache:"no-store"}).then(r=>r.json());
     const items = [
-      {label:"Server",     val: s.server||"online"},
-      {label:"Signals",    val: s.signalsOk?"OK":"WAIT"},
-      {label:"MT5 Bridge", val: s.mt5Connected?"CONNECTED":"OFFLINE"},
-      {label:"Learning AI",val: s.learningReady?"ACTIVE":"INITIALIZING"},
-      {label:"AI Brain",   val: s.aiEnabled?"ENABLED":"DISABLED"},
+      {label:"Server",     val: s.server?.healthy ? "ONLINE" : "OFFLINE"},
+      {label:"Signals",    val: (s.signals?.btc||s.signals?.gold||s.signals?.spx) ? "ACTIVE" : "WAIT"},
+      {label:"MT5 Bridge", val: s.mt5?.connected ? "CONNECTED" : "OFFLINE"},
+      {label:"Learning AI",val: s.learning?.setupsTracked >= 0 ? "ACTIVE" : "OFFLINE"},
+      {label:"AI Brain",   val: s.server?.healthy ? "ENABLED" : "OFFLINE"},
     ];
     document.getElementById("health-panel-perf").innerHTML =
       items.map(i=>{
-        const ok=["online","ok","connected","active","enabled"].includes((i.val||"").toLowerCase());
-        const col=ok?"var(--green)":"var(--muted)";
+        const ok=["online","active","connected","enabled"].includes((i.val||"").toLowerCase());
+        const col=ok?"var(--green)":i.val==="WAIT"?"var(--yellow)":"var(--muted)";
         return`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
           <span style="color:var(--muted)">${i.label}</span>
           <span style="color:${col};font-weight:700">${i.val}</span>
@@ -1240,7 +1246,7 @@ async function loadPerformance() {
       }).join("");
   } catch(e) {
     document.getElementById("health-panel-perf").innerHTML =
-      `<div style="color:var(--red);font-size:.78rem">Server offline — restart required</div>`;
+      `<div style="color:var(--red);font-size:.78rem">Server offline — restart node index.js</div>`;
   }
 }
 
