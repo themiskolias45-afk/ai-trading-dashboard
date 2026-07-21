@@ -69,28 +69,13 @@ def save_session(ctx):
 
 def make_context(playwright):
     """
-    Attach to the already-running Edge on port 9222 (opened by startup.bat / launch_chrome_tv.bat).
-    Returns (browser, ctx, already_logged_in).
-    Falls back to launching a fresh Edge only if port 9222 is not open.
+    Attach to the already-running Edge on port 9222.
+    Returns (browser, ctx) or raises if not available.
     """
-    try:
-        browser = playwright.chromium.connect_over_cdp("http://localhost:9222")
-        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        print("[TV] Attached to running Edge")
-        return browser, ctx, True   # already logged in — skip login()
-    except Exception:
-        pass
-
-    print("[TV] Edge not detected on port 9222 — launching now...")
-    print("[TV] TIP: Run tasks\\launch_chrome_tv.bat first so JARVIS can reuse your open TV tab.")
-    ctx = playwright.chromium.launch_persistent_context(
-        user_data_dir=CHROME_USER_DATA,
-        headless=False,
-        executable_path=CHROME_PATH,
-        args=["--remote-debugging-port=9222", "--start-maximized", "--no-first-run"],
-        no_viewport=True,
-    )
-    return None, ctx, False  # fresh launch — needs login
+    browser = playwright.chromium.connect_over_cdp("http://localhost:9222")
+    ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+    print("[TV] Attached to running Edge")
+    return browser, ctx
 
 # ── Login ─────────────────────────────────────────────────────────────────────
 def login(page, ctx):
@@ -348,34 +333,96 @@ if barstate.islast
 """
     return pine
 
-# ── Main commands ─────────────────────────────────────────────────────────────
-def _run(fn):
-    """Attach to running Edge, reuse the open TradingView tab."""
-    with sync_playwright() as pw:
-        browser, ctx, already_logged_in = make_context(pw)
+# ── Pine Editor auto-paste ────────────────────────────────────────────────────
+def draw_via_pine_editor(page, symbol, levels):
+    """Paste Pine Script into TV's editor and add to chart — no price axis needed."""
+    entry      = next((p for p, l in levels if l == "Entry"),      None)
+    stop       = next((p for p, l in levels if l == "Stop"),       None)
+    target     = next((p for p, l in levels if l == "Target"),     None)
+    support    = next((p for p, l in levels if l == "Support"),    None)
+    resistance = next((p for p, l in levels if l == "Resistance"), None)
 
-        # Find the open TradingView tab
-        page = None
-        for p in ctx.pages:
-            if "tradingview.com" in p.url:
-                page = p
-                break
-        if page is None:
-            page = ctx.new_page()
+    pine = generate_pine(symbol, entry, stop, target, support, resistance)
 
+    # Open Pine Editor tab (try multiple selector patterns)
+    opened = False
+    for sel in [
+        '[data-name="pine-editor-activate-button"]',
+        'button[aria-label*="Pine"]',
+        'span[class*="tabLabel"]:has-text("Pine")',
+        'div[class*="bottomBar"] button:first-child',
+        'button:has-text("Pine Script editor")',
+    ]:
         try:
-            if not already_logged_in:
-                login(page, ctx)
-            fn(page, ctx)
-        finally:
-            if browser and not already_logged_in:
-                browser.close()  # only close if WE launched it
+            page.click(sel, timeout=3000)
+            time.sleep(1.5)
+            opened = True
+            break
+        except:
+            continue
+
+    if not opened:
+        print("[TV] Cannot open Pine Editor tab — is TV chart fully loaded?")
+        return False
+
+    # Click into editor and select all
+    for sel in ['.cm-content', '.cm-editor', '[class*="editor"] .cm-line']:
+        try:
+            page.locator(sel).first.click(timeout=3000)
+            page.keyboard.press("Control+a")
+            time.sleep(0.3)
+            break
+        except:
+            continue
+
+    # Paste script (type is reliable; clipboard approach works too)
+    page.keyboard.type(pine, delay=0)
+    time.sleep(0.8)
+
+    # Click "Add to chart"
+    for sel in [
+        'button:has-text("Add to chart")',
+        '[data-name="add-script-to-chart"]',
+        'button[aria-label*="Add to chart"]',
+    ]:
+        try:
+            page.click(sel, timeout=5000)
+            time.sleep(2)
+            print(f"[TV] Levels added to {symbol} chart via Pine Script")
+            return True
+        except:
+            continue
+
+    print("[TV] Script pasted but could not click 'Add to chart' — do it manually in the Pine Editor")
+    return False
+
+# ── Main commands ─────────────────────────────────────────────────────────────
+def _get_tv_page(ctx):
+    """Return existing TradingView page from context, or open a new tab."""
+    for p in ctx.pages:
+        if "tradingview.com" in p.url:
+            return p
+    return ctx.new_page()
+
+def _run(fn):
+    """Attach to running Edge on port 9222 and run fn(page, ctx). Never opens a new window."""
+    try:
+        with sync_playwright() as pw:
+            browser, ctx = make_context(pw)
+            page = _get_tv_page(ctx)
+            try:
+                fn(page, ctx)
+            finally:
+                pass  # do NOT close — keep Edge alive
+    except Exception as e:
+        print(f"[TV] Cannot connect to Edge: {e}")
+        print("[TV] Open TradingView in Edge, then run: tasks\\launch_chrome_tv.bat")
 
 def cmd_test():
     print("[TV] Testing connection to TradingView...")
     def _test(page, ctx):
-        print("[TV] SUCCESS — connected to your TradingView account.")
-        time.sleep(3)
+        print(f"[TV] Connected — current page: {page.url}")
+        print("[TV] SUCCESS")
     _run(_test)
 
 def cmd_draw(symbol, entry, stop, target, support=None, resistance=None):
@@ -389,9 +436,15 @@ def cmd_draw(symbol, entry, stop, target, support=None, resistance=None):
 
     def _draw(page, ctx):
         open_chart(page, symbol)
+        # Try direct canvas drawing first
         drawn = sum(draw_hline(page, p, lbl) for p, lbl in levels)
-        print(f"[TV] Done: {drawn}/{len(levels)} levels drawn on {symbol}")
-        time.sleep(5)
+        if drawn == 0:
+            # Canvas selectors failed — use Pine Editor (always works)
+            print("[TV] Direct drawing failed — using Pine Editor")
+            draw_via_pine_editor(page, symbol, levels)
+        else:
+            print(f"[TV] Done: {drawn}/{len(levels)} levels drawn on {symbol}")
+        time.sleep(3)
     _run(_draw)
 
 def cmd_alert(symbol, price, message):
