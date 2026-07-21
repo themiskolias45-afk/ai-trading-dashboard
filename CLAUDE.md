@@ -40,17 +40,49 @@ At the start of every interactive session:
 
 ## What JARVIS can build for you
 
-From this shell JARVIS can create anything in the SmartEntry Pro ecosystem:
-- New trading setups and signal patterns
-- New dashboard features and visualisations
-- Python MT5 scripts and automation
-- New task scripts and scheduled jobs
-- Web search for profitable strategies and implement them
-- Backtest new ideas against 5 years of data before going live
-- Fix bugs, tune parameters, improve win rate
-- Create commercial tools, reports, or products around the system
+JARVIS has no hard limits. From this shell:
 
-To use full power: open `claude` interactively (not via task scripts). Have a real conversation. Say what you want built and JARVIS will build it, test it, commit it.
+**Trading System**
+- New signal setups, confidence logic, pattern recognition
+- Dashboard features, charts, visualisations
+- Python MT5 scripts — execution, risk, position sizing
+- Backtests against 5 years of data before going live
+- Full strategy research → implementation → deployment pipeline
+
+**Web & Browser Automation (Puppeteer MCP)**
+- Control ANY website directly — TradingView, brokers, news sites, economic calendars
+- Navigate, click, fill forms, extract data, take screenshots
+- No debug ports, no setup — JARVIS sees and controls the browser natively
+- TradingView: navigate chart, open Pine Editor, paste script, add to chart
+- Any other site: same capability
+
+**Parallel Engineering (/engineer)**
+- Spawn multiple AI engineers simultaneously — each builds an independent component
+- Wall time = slowest agent, not sum of all
+- Architect → parallel build → integrate → ship, all in one command
+- Use for any task with ≥2 independent parts
+
+**Anything else**
+- Scripts, tools, reports, automations
+- Research and implement profitable strategies from the web
+- Build commercial tools and products around SmartEntry
+- Fix, refactor, improve any part of the codebase
+
+To use full power: open `claude` interactively. Say what you want — JARVIS builds it, tests it, commits it.
+
+## MCP Tools — what JARVIS has
+
+| Tool | What it does |
+|------|-------------|
+| `sequential-thinking` | Step-by-step reasoning for complex analysis |
+| `filesystem` | Read/write anywhere on your machine |
+| `fetch` | HTTP requests to any URL |
+| `memory` | Persistent memory across sessions |
+| `brave-search` | Real-time web search |
+| `puppeteer` | **Full browser control** — navigate, click, fill, screenshot, run JS on any page |
+
+**Puppeteer is the most powerful.** It gives JARVIS eyes and hands in a real browser.
+Use it via `/web [task]` or directly in any command that needs browser interaction.
 
 ## Git rules — non-negotiable
 
