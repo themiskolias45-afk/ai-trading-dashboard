@@ -1227,18 +1227,25 @@ async function loadHealerPanel() {
   }
 
   try {
-    const s = await fetch(API+"/checksystem",{cache:"no-store"}).then(r=>r.json());
+    const [sys, sig, pos] = await Promise.allSettled([
+      fetch(API+"/checksystem",{cache:"no-store"}).then(r=>r.json()),
+      fetch(API+"/signals",{cache:"no-store"}).then(r=>r.json()),
+      fetch(API+"/mt5/positions",{cache:"no-store"}).then(r=>r.json()),
+    ]);
+    const s   = sys.status==="fulfilled" ? sys.value : null;
+    const sigs = sig.status==="fulfilled" ? sig.value : null;
+    const mt5  = pos.status==="fulfilled" && Array.isArray(pos.value) ? pos.value : [];
     const items = [
-      {label:"Server",     val: s.server?.healthy ? "ONLINE" : "OFFLINE"},
-      {label:"Signals",    val: (s.signals?.btc||s.signals?.gold||s.signals?.spx) ? "ACTIVE" : "WAIT"},
-      {label:"MT5 Bridge", val: s.mt5?.connected ? "CONNECTED" : "OFFLINE"},
-      {label:"Learning AI",val: s.learning?.setupsTracked >= 0 ? "ACTIVE" : "OFFLINE"},
-      {label:"AI Brain",   val: s.server?.healthy ? "ENABLED" : "OFFLINE"},
+      {label:"Server",     val: s ? "ONLINE" : "OFFLINE"},
+      {label:"Signals",    val: sigs ? "ACTIVE" : "WAIT"},
+      {label:"MT5 Bridge", val: mt5.length > 0 ? `${mt5.length} positions` : "OFFLINE"},
+      {label:"Learning AI",val: s?.learning?.setupsTracked >= 0 ? "ACTIVE" : "INITIALIZING"},
+      {label:"AI Brain",   val: s ? "ENABLED" : "OFFLINE"},
     ];
     document.getElementById("health-panel-perf").innerHTML =
       items.map(i=>{
-        const ok=["online","active","connected","enabled"].includes((i.val||"").toLowerCase());
-        const col=ok?"var(--green)":i.val==="WAIT"?"var(--yellow)":"var(--muted)";
+        const ok=["online","active","enabled"].includes((i.val||"").toLowerCase()) || /position/.test(i.val);
+        const col=ok?"var(--green)":i.val==="WAIT"||i.val==="INITIALIZING"?"var(--yellow)":"var(--muted)";
         return`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
           <span style="color:var(--muted)">${i.label}</span>
           <span style="color:${col};font-weight:700">${i.val}</span>
