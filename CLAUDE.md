@@ -115,6 +115,14 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - MT5 bridge: `python mt5_bridge.py --auto` for full-auto, no `--auto` for semi-auto
 - Model: always `claude-opus-4-8` for AI analysis
 - Signal fires only when confidence ≥ 65% across Daily + 4H + 1H timeframes
+- Auto-healer: monitors server health every 30s, auto-recovers stale data
+- Healer status: GET http://localhost:3001/api/healer
+- Force heal: POST http://localhost:3001/api/healer/heal
+- Performance dashboard: http://localhost:3001/dashboard/performance.html
+- Chart vision: python chart_vision.py [BTC|GOLD|SPX]
+- Voice: python voice.py --loop
+- Signal debate: python debate_agents.py [SYMBOL] [DIRECTION] [confidence] [entry] [stop] [target]
+- Notifications: python notifications.py test (verify channels)
 
 ## How the vault stays healthy
 

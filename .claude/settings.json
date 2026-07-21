@@ -14,7 +14,8 @@
       "mcp__fetch__*",
       "mcp__memory__*",
       "mcp__brave-search__*",
-      "mcp__puppeteer__*"
+      "mcp__puppeteer__*",
+      "mcp__exa__*"
     ],
     "deny": []
   },
@@ -46,6 +47,13 @@
       "args": ["-y", "@modelcontextprotocol/server-brave-search"],
       "env": {
         "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    },
+    "exa": {
+      "command": "npx",
+      "args": ["-y", "exa-mcp-server"],
+      "env": {
+        "EXA_API_KEY": "${EXA_API_KEY}"
       }
     },
     "puppeteer": {

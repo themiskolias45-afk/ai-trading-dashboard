@@ -962,7 +962,7 @@ app.post("/api/shutdown", (_, res) => {
   console.log("[server] Shutdown requested from dashboard");
   setTimeout(() => process.exit(0), 400);
 });
-app.get("/api/health",  (_, res) => res.json({ ok: true, version: 9, ts: Date.now() }));
+app.get("/api/health",  (_, res) => res.json({ ok: true, version: 9, ts: Date.now(), healer: autohealer.getStatus() }));
 app.get("/api/signals", (_, res) => res.json(signalCache));
 app.get("/api/plan",    (_, res) => {
   if (!dailyPlan) generateDailyPlan();
@@ -1168,6 +1168,9 @@ app.post("/api/trade-closed", (req, res) => {
     saveJournal();
     // Feed outcome to self-learning engine
     if (trade.setup && pnl !== null) updateLearning(trade.setup, pnl);
+    // Also update SQLite
+    db.updateLearning(trade.setup, pnl > 0 ? 'win' : 'loss', trade.pnl || 0);
+    db.insertTrade(trade);
   }
   console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);
   res.json({ ok: true });
@@ -1180,18 +1183,22 @@ app.get("/api/journal", (_, res) => {
 
 // Self-learning state
 app.get("/api/learning", (_, res) => {
-  const summary = {};
-  for (const [setup, s] of Object.entries(learning.setupStats)) {
-    const total = s.wins + s.losses;
-    summary[setup] = {
-      wins: s.wins, losses: s.losses, total,
-      winRate: total > 0 ? parseFloat((s.wins / total * 100).toFixed(1)) : null,
-      totalPnl: s.totalPnl,
-      boost: getLearningBoost(setup),
-      status: total < 5 ? "learning" : s.wins / total > 0.55 ? "boosted" : s.wins / total < 0.45 ? "penalised" : "neutral"
-    };
+  try {
+    const summary = {};
+    for (const [setup, s] of Object.entries(learning.setupStats)) {
+      const total = s.wins + s.losses;
+      summary[setup] = {
+        wins: s.wins, losses: s.losses, total,
+        winRate: total > 0 ? parseFloat((s.wins / total * 100).toFixed(1)) : null,
+        totalPnl: s.totalPnl,
+        boost: getLearningBoost(setup),
+        status: total < 5 ? "learning" : s.wins / total > 0.55 ? "boosted" : s.wins / total < 0.45 ? "penalised" : "neutral"
+      };
+    }
+    res.json({ setupStats: summary, sessionCount: learning.sessionCount, updatedAt: learning.updatedAt });
+  } catch (e) {
+    res.json({ setupStats: {}, sessionCount: 0, updatedAt: null });
   }
-  res.json({ setupStats: summary, sessionCount: learning.sessionCount, updatedAt: learning.updatedAt });
 });
 
 app.post("/api/learning/reset", (_, res) => {
@@ -1969,14 +1976,17 @@ app.listen(PORT, async () => {
   else console.log("[ai] No ANTHROPIC_API_KEY — using rule-based analysis");
 
   // Start auto-healer with server context
+  // eslint-disable-next-line no-undef
+  const _learning = (typeof learning !== "undefined") ? learning : {};
   autohealer.start({
     signalCache,
     priceCache,
-    learning,
-    tradeJournal,
+    learning: _learning,
+    tradeJournal: (typeof tradeJournal !== "undefined") ? tradeJournal : [],
     TELEGRAM_TOKEN,
     knownChatIds,
     refreshSignals,
     fetchPrices,
   });
+  console.log('[BOOT] Auto-healer + SQLite DB active');
 });
