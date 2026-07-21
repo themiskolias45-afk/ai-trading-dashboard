@@ -69,32 +69,28 @@ def save_session(ctx):
 
 def make_context(playwright):
     """
-    Attach to the already-running Edge on port 9222.
-    Edge is already open with TradingView from startup.bat.
-    Falls back to launching a new Edge window if port 9222 is not available.
+    Attach to the already-running Edge on port 9222 (opened by startup.bat / launch_chrome_tv.bat).
+    Returns (browser, ctx, already_logged_in).
+    Falls back to launching a fresh Edge only if port 9222 is not open.
     """
-    # Try to connect to the already-open Edge first
     try:
         browser = playwright.chromium.connect_over_cdp("http://localhost:9222")
         ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        print("[TV] Attached to running Edge — no new window opened")
-        return browser, ctx
+        print("[TV] Attached to running Edge")
+        return browser, ctx, True   # already logged in — skip login()
     except Exception:
         pass
 
-    # Edge not running — launch it with the SmartEntryTV profile
-    print("[TV] Edge not running — launching now...")
-    launch_kwargs = {
-        "headless": False,
-        "executable_path": CHROME_PATH,
-        "args": ["--remote-debugging-port=9222", "--start-maximized", "--no-first-run"],
-        "no_viewport": True,
-    }
+    print("[TV] Edge not detected on port 9222 — launching now...")
+    print("[TV] TIP: Run tasks\\launch_chrome_tv.bat first so JARVIS can reuse your open TV tab.")
     ctx = playwright.chromium.launch_persistent_context(
         user_data_dir=CHROME_USER_DATA,
-        **launch_kwargs
+        headless=False,
+        executable_path=CHROME_PATH,
+        args=["--remote-debugging-port=9222", "--start-maximized", "--no-first-run"],
+        no_viewport=True,
     )
-    return None, ctx
+    return None, ctx, False  # fresh launch — needs login
 
 # ── Login ─────────────────────────────────────────────────────────────────────
 def login(page, ctx):
@@ -354,11 +350,11 @@ if barstate.islast
 
 # ── Main commands ─────────────────────────────────────────────────────────────
 def _run(fn):
-    """Attach to running Edge, reuse existing TradingView page if open."""
+    """Attach to running Edge, reuse the open TradingView tab."""
     with sync_playwright() as pw:
-        browser, ctx = make_context(pw)
+        browser, ctx, already_logged_in = make_context(pw)
 
-        # Reuse open TradingView tab if it exists
+        # Find the open TradingView tab
         page = None
         for p in ctx.pages:
             if "tradingview.com" in p.url:
@@ -368,7 +364,8 @@ def _run(fn):
             page = ctx.new_page()
 
         try:
-            login(page, ctx)
+            if not already_logged_in:
+                login(page, ctx)
             fn(page, ctx)
         finally:
             if browser:
