@@ -24,8 +24,33 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 WORK_DIR  = Path(__file__).parent
-MAX_AGENTS = 8   # run up to 8 agents at once
-TIMEOUT    = 300  # seconds per agent
+MAX_AGENTS = 8
+TIMEOUT    = 300
+
+def find_claude() -> str:
+    """Find the claude CLI executable on Windows."""
+    import shutil
+    if shutil.which("claude"):
+        return "claude"
+    # Common Windows install locations
+    user = Path.home()
+    candidates = [
+        user / "AppData/Roaming/npm/claude.cmd",
+        user / "AppData/Local/npm-global/claude.cmd",
+        user / "AppData/Roaming/npm/claude",
+        Path("C:/Program Files/nodejs/claude.cmd"),
+        Path("C:/Users/User/AppData/Roaming/npm/claude.cmd"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+    raise FileNotFoundError(
+        "claude CLI not found.\n"
+        "Run this script from the JARVIS PowerShell terminal where 'claude' works,\n"
+        "OR run: npm install -g @anthropic-ai/claude-code"
+    )
+
+CLAUDE_CMD = None  # resolved lazily on first use
 
 def run_agent(task: dict) -> dict:
     label  = task.get("label", "Agent")
@@ -34,12 +59,16 @@ def run_agent(task: dict) -> dict:
 
     full_prompt = f"{ctx}\n\n{prompt}".strip() if ctx else prompt
 
+    global CLAUDE_CMD
+    if CLAUDE_CMD is None:
+        CLAUDE_CMD = find_claude()
+
     print(f"  [{label}] starting...")
     t0 = time.time()
 
     try:
         proc = subprocess.run(
-            ["claude", "-p", full_prompt,
+            [CLAUDE_CMD, "-p", full_prompt,
              "--dangerously-skip-permissions",
              "--output-format", "text"],
             capture_output=True,
@@ -113,8 +142,10 @@ if __name__ == "__main__":
         plan_prompt = argv[1] if len(argv) > 1 else " ".join(argv[1:])
         print(f"[PLAN] Breaking task into parallel workstreams: {plan_prompt}")
 
+        if CLAUDE_CMD is None:
+            CLAUDE_CMD = find_claude()
         planner_result = subprocess.run(
-            ["claude", "-p",
+            [CLAUDE_CMD, "-p",
              f"""You are a senior engineer and architect.
 Break this task into independent parallel workstreams that can be built simultaneously with NO file conflicts between them.
 Output ONLY a JSON array. Each item: {{"label": "short name", "prompt": "complete self-contained task for one engineer"}}.
