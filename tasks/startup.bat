@@ -12,11 +12,11 @@ start "SmartEntry Server" /min cmd /c "cd server && node index.js >> ..\tasks\lo
 REM 2 — Wait for server to boot
 timeout /t 8 /nobreak >nul
 
-REM 3 — Launch Chrome with TradingView (debug port so JARVIS can draw on charts)
-echo  Launching Chrome with TradingView...
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+REM 3 — Launch Edge with TradingView (debug port so JARVIS can draw on charts)
+echo  Launching Edge with TradingView...
+start "" "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" ^
   --remote-debugging-port=9222 ^
-  --user-data-dir="C:\Users\User\AppData\Local\Google\Chrome\User Data" ^
+  --user-data-dir="C:\Users\User\AppData\Local\Microsoft\Edge\User Data" ^
   --profile-directory=Default ^
   --start-maximized ^
   "https://www.tradingview.com/chart/"

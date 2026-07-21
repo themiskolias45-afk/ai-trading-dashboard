@@ -23,7 +23,7 @@ except ImportError:
 # ── Config ────────────────────────────────────────────────────────────────────
 KEYS_FILE   = Path(__file__).parent / "keys.env"
 TV_BASE     = "https://www.tradingview.com"
-CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+CHROME_PATH = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 CHART_SYMBOLS = {
     "BTC":    "BINANCE:BTCUSDT",
@@ -56,7 +56,7 @@ def get_cred(key):
 
 # ── Connect to existing Chrome via remote debug port ───────────────────────────
 CHROME_DEBUG_URL  = "http://localhost:9222"
-CHROME_USER_DATA  = r"C:\Users\User\AppData\Local\Google\Chrome\User Data"
+CHROME_USER_DATA  = r"C:\Users\User\AppData\Local\Microsoft\Edge\User Data"
 SESSION_FILE      = Path(__file__).parent / "tasks" / ".tv_session.json"
 
 def make_context(playwright):
