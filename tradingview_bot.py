@@ -54,11 +54,31 @@ def get_cred(key):
             return line.split("=", 1)[1].strip().strip('"').strip("'")
     return None
 
-# ── Session storage (saves login so 2FA only needed once) ─────────────────────
+# ── Use real Chrome profile (user already logged into TradingView) ─────────────
+CHROME_USER_DATA = r"C:\Users\User\AppData\Local\Google\Chrome\User Data"
 SESSION_FILE = Path(__file__).parent / "tasks" / ".tv_session.json"
 
 def make_context(playwright):
-    """Create browser context — reuses saved session if available."""
+    """
+    Use the real Chrome profile — user is already logged into TradingView there.
+    Falls back to saved session, then fresh login.
+    """
+    # Option 1: Use real Chrome with existing profile (best — already logged in)
+    if os.path.exists(CHROME_USER_DATA) and os.path.exists(CHROME_PATH):
+        try:
+            print("[TV] Connecting to your Chrome browser (already logged into TradingView)...")
+            ctx = playwright.chromium.launch_persistent_context(
+                user_data_dir=CHROME_USER_DATA,
+                executable_path=CHROME_PATH,
+                headless=False,
+                args=["--start-maximized", "--profile-directory=Default"],
+                no_viewport=True,
+            )
+            return None, ctx  # persistent context — no separate browser object
+        except Exception as e:
+            print(f"[TV] Chrome profile in use — trying saved session: {e}")
+
+    # Option 2: Saved session cookies
     launch_args = {"headless": False, "args": ["--start-maximized"]}
     if os.path.exists(CHROME_PATH):
         launch_args["executable_path"] = CHROME_PATH
@@ -68,7 +88,7 @@ def make_context(playwright):
         try:
             storage = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
             ctx = browser.new_context(storage_state=storage, viewport={"width": 1920, "height": 1080})
-            print("[TV] Using saved session — no login needed")
+            print("[TV] Using saved session")
             return browser, ctx
         except:
             pass
@@ -77,11 +97,10 @@ def make_context(playwright):
     return browser, ctx
 
 def save_session(ctx):
-    """Save browser cookies/storage so next run skips login."""
     try:
         SESSION_FILE.parent.mkdir(exist_ok=True)
         SESSION_FILE.write_text(json.dumps(ctx.storage_state()), encoding="utf-8")
-        print("[TV] Session saved — future logins are automatic")
+        print("[TV] Session saved")
     except Exception as e:
         print(f"[TV] Could not save session: {e}")
 
@@ -321,18 +340,25 @@ if barstate.islast
     return pine
 
 # ── Main commands ─────────────────────────────────────────────────────────────
-def cmd_test():
-    print("[TV] Testing login...")
+def _run(fn):
+    """Run fn(page, ctx) using real Chrome profile."""
     with sync_playwright() as pw:
         browser, ctx = make_context(pw)
         page = ctx.new_page()
         try:
             login(page, ctx)
-            print("[TV] SUCCESS — TradingView connected.")
-            time.sleep(3)
+            fn(page, ctx)
         finally:
             ctx.close()
-            browser.close()
+            if browser:
+                browser.close()
+
+def cmd_test():
+    print("[TV] Testing connection to TradingView...")
+    def _test(page, ctx):
+        print("[TV] SUCCESS — connected to your TradingView account.")
+        time.sleep(3)
+    _run(_test)
 
 def cmd_draw(symbol, entry, stop, target, support=None, resistance=None):
     levels = [
@@ -343,31 +369,19 @@ def cmd_draw(symbol, entry, stop, target, support=None, resistance=None):
     if support:    levels.append((support,    "Support"))
     if resistance: levels.append((resistance, "Resistance"))
 
-    with sync_playwright() as pw:
-        browser, ctx = make_context(pw)
-        page = ctx.new_page()
-        try:
-            login(page, ctx)
-            open_chart(page, symbol)
-            drawn = sum(draw_hline(page, p, lbl) for p, lbl in levels)
-            print(f"[TV] Done: {drawn}/{len(levels)} levels drawn on {symbol}")
-            time.sleep(5)
-        finally:
-            ctx.close()
-            browser.close()
+    def _draw(page, ctx):
+        open_chart(page, symbol)
+        drawn = sum(draw_hline(page, p, lbl) for p, lbl in levels)
+        print(f"[TV] Done: {drawn}/{len(levels)} levels drawn on {symbol}")
+        time.sleep(5)
+    _run(_draw)
 
 def cmd_alert(symbol, price, message):
-    with sync_playwright() as pw:
-        browser, ctx = make_context(pw)
-        page = ctx.new_page()
-        try:
-            login(page, ctx)
-            open_chart(page, symbol)
-            set_alert(page, price, symbol, message)
-            time.sleep(3)
-        finally:
-            ctx.close()
-            browser.close()
+    def _alert(page, ctx):
+        open_chart(page, symbol)
+        set_alert(page, price, symbol, message)
+        time.sleep(3)
+    _run(_alert)
 
 def cmd_pine(symbol, entry, stop, target, support=None, resistance=None, bias="WAIT"):
     script = generate_pine(symbol, entry, stop, target, support, resistance, bias)
@@ -375,7 +389,7 @@ def cmd_pine(symbol, entry, stop, target, support=None, resistance=None, bias="W
     out_file.write_text(script, encoding="utf-8")
     print(script)
     print(f"\n[TV] Pine Script saved to: {out_file}")
-    print("[TV] Paste it into TradingView → Pine Script Editor → Add to chart")
+    print("[TV] Paste it into TradingView > Pine Script Editor > Add to chart")
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
