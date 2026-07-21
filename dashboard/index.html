@@ -1227,20 +1227,21 @@ async function loadHealerPanel() {
   }
 
   try {
-    const [sys, sig, pos] = await Promise.allSettled([
-      fetch(API+"/checksystem",{cache:"no-store"}).then(r=>r.json()),
+    const [healRes, sigRes, posRes] = await Promise.allSettled([
+      fetch(API+"/healer",{cache:"no-store"}).then(r=>r.json()),
       fetch(API+"/signals",{cache:"no-store"}).then(r=>r.json()),
       fetch(API+"/mt5/positions",{cache:"no-store"}).then(r=>r.json()),
     ]);
-    const s   = sys.status==="fulfilled" ? sys.value : null;
-    const sigs = sig.status==="fulfilled" ? sig.value : null;
-    const mt5  = pos.status==="fulfilled" && Array.isArray(pos.value) ? pos.value : [];
+    const h2   = healRes.status==="fulfilled" ? healRes.value : null;
+    const sigs = sigRes.status==="fulfilled" ? sigRes.value : null;
+    const mt5  = posRes.status==="fulfilled" && Array.isArray(posRes.value) ? posRes.value : [];
+    const serverOk = h2?.healthy === true;
     const items = [
-      {label:"Server",     val: s ? "ONLINE" : "OFFLINE"},
+      {label:"Server",     val: serverOk ? "ONLINE" : "OFFLINE"},
       {label:"Signals",    val: sigs ? "ACTIVE" : "WAIT"},
       {label:"MT5 Bridge", val: mt5.length > 0 ? `${mt5.length} positions` : "OFFLINE"},
-      {label:"Learning AI",val: s?.learning?.setupsTracked >= 0 ? "ACTIVE" : "INITIALIZING"},
-      {label:"AI Brain",   val: s ? "ENABLED" : "OFFLINE"},
+      {label:"Learning AI",val: serverOk ? "ACTIVE" : "OFFLINE"},
+      {label:"AI Brain",   val: serverOk ? "ENABLED" : "OFFLINE"},
     ];
     document.getElementById("health-panel-perf").innerHTML =
       items.map(i=>{
