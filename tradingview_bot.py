@@ -54,63 +54,48 @@ def get_cred(key):
             return line.split("=", 1)[1].strip().strip('"').strip("'")
     return None
 
-# ── Connect to existing Chrome via remote debug port ───────────────────────────
-CHROME_DEBUG_URL  = "http://localhost:9222"
-CHROME_USER_DATA  = r"C:\Users\User\AppData\Local\Microsoft\Edge\SmartEntryTV"
-SESSION_FILE      = Path(__file__).parent / "tasks" / ".tv_session.json"
-
-def make_context(playwright):
-    """
-    Priority:
-    1. Connect to Chrome already open with --remote-debugging-port=9222 (best)
-    2. Launch Chrome with user profile (close Chrome first)
-    3. Use saved session cookies
-    """
-    # Option 1: Connect to existing Chrome (user ran tasks\launch_chrome_tv.bat)
-    try:
-        browser = playwright.chromium.connect_over_cdp(CHROME_DEBUG_URL, timeout=3000)
-        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        print("[TV] Connected to your open Chrome browser")
-        return browser, ctx
-    except:
-        pass
-
-    # Option 2: Launch Chrome fresh with profile
-    if os.path.exists(CHROME_PATH):
-        print("[TV] Opening Chrome with your profile...")
-        try:
-            ctx = playwright.chromium.launch_persistent_context(
-                user_data_dir=CHROME_USER_DATA,
-                executable_path=CHROME_PATH,
-                headless=False,
-                args=["--start-maximized", "--profile-directory=Default",
-                      "--remote-debugging-port=9222"],
-                no_viewport=True,
-            )
-            return None, ctx
-        except Exception as e:
-            print(f"[TV] Could not open Chrome profile: {e}")
-
-    # Option 3: Saved session in standalone Chromium
-    launch_args = {"headless": False, "args": ["--start-maximized"]}
-    browser = playwright.chromium.launch(**launch_args)
-    if SESSION_FILE.exists():
-        try:
-            storage = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
-            ctx = browser.new_context(storage_state=storage)
-            print("[TV] Using saved session")
-            return browser, ctx
-        except:
-            pass
-    ctx = browser.new_context()
-    return browser, ctx
+# ── Session config ─────────────────────────────────────────────────────────────
+CHROME_USER_DATA = r"C:\Users\User\AppData\Local\Microsoft\Edge\SmartEntryTV"
+SESSION_FILE     = Path(__file__).parent / "tasks" / ".tv_session.json"
 
 def save_session(ctx):
+    """Save TV cookies to file — survives browser restarts."""
     try:
         SESSION_FILE.parent.mkdir(exist_ok=True)
         SESSION_FILE.write_text(json.dumps(ctx.storage_state()), encoding="utf-8")
-    except:
-        pass
+        print("[TV] Session saved — no login needed next time")
+    except Exception as e:
+        print(f"[TV] Session save failed: {e}")
+
+def make_context(playwright):
+    """
+    Open Edge with the SmartEntryTV profile.
+    If saved session exists, inject cookies so TV login is automatic.
+    """
+    launch_kwargs = {
+        "headless": False,
+        "args": ["--start-maximized", "--no-first-run", "--no-default-browser-check"],
+        "no_viewport": True,
+    }
+    if os.path.exists(CHROME_PATH):
+        launch_kwargs["executable_path"] = CHROME_PATH
+
+    # Persistent context keeps cookies in the profile folder automatically
+    ctx = playwright.chromium.launch_persistent_context(
+        user_data_dir=CHROME_USER_DATA,
+        **launch_kwargs
+    )
+
+    # Also inject saved session cookies (double layer of persistence)
+    if SESSION_FILE.exists():
+        try:
+            storage = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+            if storage.get("cookies"):
+                ctx.add_cookies(storage["cookies"])
+        except:
+            pass
+
+    return None, ctx  # persistent context has no separate browser object
 
 # ── Login ─────────────────────────────────────────────────────────────────────
 def login(page, ctx):
