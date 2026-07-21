@@ -54,55 +54,63 @@ def get_cred(key):
             return line.split("=", 1)[1].strip().strip('"').strip("'")
     return None
 
-# ── Use real Chrome profile (user already logged into TradingView) ─────────────
-CHROME_USER_DATA = r"C:\Users\User\AppData\Local\Google\Chrome\User Data"
-SESSION_FILE = Path(__file__).parent / "tasks" / ".tv_session.json"
+# ── Connect to existing Chrome via remote debug port ───────────────────────────
+CHROME_DEBUG_URL  = "http://localhost:9222"
+CHROME_USER_DATA  = r"C:\Users\User\AppData\Local\Google\Chrome\User Data"
+SESSION_FILE      = Path(__file__).parent / "tasks" / ".tv_session.json"
 
 def make_context(playwright):
     """
-    Use the real Chrome profile — user is already logged into TradingView there.
-    Falls back to saved session, then fresh login.
+    Priority:
+    1. Connect to Chrome already open with --remote-debugging-port=9222 (best)
+    2. Launch Chrome with user profile (close Chrome first)
+    3. Use saved session cookies
     """
-    # Option 1: Use real Chrome with existing profile (best — already logged in)
-    if os.path.exists(CHROME_USER_DATA) and os.path.exists(CHROME_PATH):
+    # Option 1: Connect to existing Chrome (user ran tasks\launch_chrome_tv.bat)
+    try:
+        browser = playwright.chromium.connect_over_cdp(CHROME_DEBUG_URL, timeout=3000)
+        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+        print("[TV] Connected to your open Chrome browser")
+        return browser, ctx
+    except:
+        pass
+
+    # Option 2: Launch Chrome fresh with profile
+    if os.path.exists(CHROME_PATH):
+        print("[TV] Opening Chrome with your profile...")
         try:
-            print("[TV] Connecting to your Chrome browser (already logged into TradingView)...")
             ctx = playwright.chromium.launch_persistent_context(
                 user_data_dir=CHROME_USER_DATA,
                 executable_path=CHROME_PATH,
                 headless=False,
-                args=["--start-maximized", "--profile-directory=Default"],
+                args=["--start-maximized", "--profile-directory=Default",
+                      "--remote-debugging-port=9222"],
                 no_viewport=True,
             )
-            return None, ctx  # persistent context — no separate browser object
+            return None, ctx
         except Exception as e:
-            print(f"[TV] Chrome profile in use — trying saved session: {e}")
+            print(f"[TV] Could not open Chrome profile: {e}")
 
-    # Option 2: Saved session cookies
+    # Option 3: Saved session in standalone Chromium
     launch_args = {"headless": False, "args": ["--start-maximized"]}
-    if os.path.exists(CHROME_PATH):
-        launch_args["executable_path"] = CHROME_PATH
     browser = playwright.chromium.launch(**launch_args)
-
     if SESSION_FILE.exists():
         try:
             storage = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
-            ctx = browser.new_context(storage_state=storage, viewport={"width": 1920, "height": 1080})
+            ctx = browser.new_context(storage_state=storage)
             print("[TV] Using saved session")
             return browser, ctx
         except:
             pass
-
-    ctx = browser.new_context(viewport={"width": 1920, "height": 1080})
+    ctx = browser.new_context()
     return browser, ctx
 
 def save_session(ctx):
     try:
         SESSION_FILE.parent.mkdir(exist_ok=True)
         SESSION_FILE.write_text(json.dumps(ctx.storage_state()), encoding="utf-8")
-        print("[TV] Session saved")
-    except Exception as e:
-        print(f"[TV] Could not save session: {e}")
+    except:
+        pass
 
 # ── Login ─────────────────────────────────────────────────────────────────────
 def login(page, ctx):
