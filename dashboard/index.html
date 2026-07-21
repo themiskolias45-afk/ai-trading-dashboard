@@ -469,13 +469,6 @@
 <div id="tab-performance" class="tab-panel">
 <div class="container">
 
-  <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-    <a href="/dashboard/performance.html" target="_blank"
-       style="background:#1e2532;border:1px solid #2d3748;color:#60a5fa;padding:7px 16px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:500">
-      📊 Full Analytics Dashboard →
-    </a>
-  </div>
-
   <!-- Summary stats -->
   <div class="perf-stats-grid">
     <div class="perf-stat">
@@ -575,6 +568,29 @@
           <thead><tr><th>Confidence Tier</th><th>Trades</th><th>Actual Win %</th><th>Avg P&amp;L</th></tr></thead>
           <tbody id="conf-tbody"><tr><td colspan="4" style="color:var(--muted);padding:16px 12px">No closed trades yet</td></tr></tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auto-healer status -->
+  <div class="perf-two-col" style="margin-top:0">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">⚕️ Auto-Healer</div>
+        <span id="healer-summary" style="font-size:.65rem;color:var(--muted)">loading...</span>
+      </div>
+      <div class="panel-body" style="padding:10px 16px;max-height:none">
+        <div id="healer-checks-inline" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+        <table class="asset-table">
+          <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+          <tbody id="healer-table-inline"><tr><td colspan="3" style="color:var(--muted)">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">🛡️ System Health</div></div>
+      <div class="panel-body" style="max-height:none" id="health-panel-perf">
+        <div style="color:var(--muted);font-size:.78rem">Loading health data...</div>
       </div>
     </div>
   </div>
@@ -1185,6 +1201,47 @@ async function loadPerformance() {
         <text x="${toX(pts.length-1)-4}" y="${toY(eq)-8}" fill="${lineColor}" font-size="10" font-family="Segoe UI" text-anchor="end">$${Math.round(eq).toLocaleString()}</text>`;
     }
   } catch(e) { console.error("Performance load failed:",e); }
+
+  // Load healer + system health into performance tab
+  try {
+    const h = await fetch(API+"/healer",{cache:"no-store"}).then(r=>r.json());
+    const checks = h.checks||{};
+    document.getElementById("healer-summary").textContent =
+      `${h.healthy?"🟢 Healthy":"🔴 Issues"} | Heals: ${h.healCount||0} | Last: ${h.lastHealAt?new Date(h.lastHealAt).toLocaleTimeString():"never"}`;
+    document.getElementById("healer-checks-inline").innerHTML =
+      Object.entries(checks).map(([name,c])=>
+        `<span style="padding:3px 10px;border-radius:5px;font-size:.7rem;font-weight:600;border:1px solid ${c.ok?"rgba(34,197,94,.3)":"rgba(239,68,68,.3)"};color:${c.ok?"var(--green)":"var(--red)"}">${c.ok?"✓":"✗"} ${name}</span>`
+      ).join("");
+    document.getElementById("healer-table-inline").innerHTML =
+      Object.entries(checks).map(([name,c])=>
+        `<tr><td style="font-size:.75rem">${name}</td><td style="color:${c.ok?"var(--green)":"var(--red)"};font-weight:700">${c.ok?"OK":"FAIL"}</td><td style="color:var(--muted);font-size:.7rem">${c.detail||"—"}</td></tr>`
+      ).join("");
+  } catch(e) {
+    document.getElementById("healer-summary").textContent = "healer offline";
+  }
+
+  try {
+    const s = await fetch(API+"/checksystem",{cache:"no-store"}).then(r=>r.json());
+    const items = [
+      {label:"Server",     val: s.server||"online"},
+      {label:"Signals",    val: s.signalsOk?"OK":"WAIT"},
+      {label:"MT5 Bridge", val: s.mt5Connected?"CONNECTED":"OFFLINE"},
+      {label:"Learning AI",val: s.learningReady?"ACTIVE":"INITIALIZING"},
+      {label:"AI Brain",   val: s.aiEnabled?"ENABLED":"DISABLED"},
+    ];
+    document.getElementById("health-panel-perf").innerHTML =
+      items.map(i=>{
+        const ok=["online","ok","connected","active","enabled"].includes((i.val||"").toLowerCase());
+        const col=ok?"var(--green)":"var(--muted)";
+        return`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
+          <span style="color:var(--muted)">${i.label}</span>
+          <span style="color:${col};font-weight:700">${i.val}</span>
+        </div>`;
+      }).join("");
+  } catch(e) {
+    document.getElementById("health-panel-perf").innerHTML =
+      `<div style="color:var(--red);font-size:.78rem">Server offline — restart required</div>`;
+  }
 }
 
 // ── JOURNAL TAB ──────────────────────────────────────────────
