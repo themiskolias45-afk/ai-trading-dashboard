@@ -56,7 +56,7 @@ def get_cred(key):
 
 # ── Connect to existing Chrome via remote debug port ───────────────────────────
 CHROME_DEBUG_URL  = "http://localhost:9222"
-CHROME_USER_DATA  = r"C:\Users\User\AppData\Local\Microsoft\Edge\User Data"
+CHROME_USER_DATA  = r"C:\Users\User\AppData\Local\Microsoft\Edge\SmartEntryTV"
 SESSION_FILE      = Path(__file__).parent / "tasks" / ".tv_session.json"
 
 def make_context(playwright):
