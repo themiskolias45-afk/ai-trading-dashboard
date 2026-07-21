@@ -12,6 +12,13 @@ SIGNALS & ANALYSIS
   /news                Live market news briefing + trading impact
   /morning             Full morning brief — signals + performance + today's priority
 
+TRADINGVIEW
+  /draw [sym]          Draw daily plan on TradingView — entry/stop/target/S&R lines
+  /tv plan             Draw all 3 charts (BTC + GOLD + SPX) in one go
+  /tv alert [sym] [price]   Set a price alert on TradingView
+  /tv pine [sym]       Generate Pine Script only (paste into TV editor)
+  /tv login            Test TradingView connection
+
 TRADE EXECUTION
   /execute [sym] [dir] [entry] [stop] [target]   Force-execute a manual trade
   /trade [details]     Log a completed trade to journal
@@ -23,13 +30,19 @@ PERFORMANCE & LEARNING
   /selflearn           What the AI learned — win rates + boosts per setup
   /backtest [idea]     Backtest a setup against historical data
 
+CODE & BUILD
+  /plan [task]         Architect a solution before writing any code
+  /build [feature]     Build any new feature or tool from scratch
+  /debug [problem]     Read logs → trace root cause → fix it
+  /refactor [file]     Clean up dead code, fix names, split functions
+  /test [function]     Write and run tests — all pass before done
+
 SYSTEM & IMPROVEMENT
   /health              Server + bridge + system health check
   /checksystem         Full diagnostic — all components + pending proposals
   /improve             Find worst setup and auto-improve parameters
   /agent               Autonomous mode — full cycle without asking permission
   /research [idea]     Web search for strategy → implement if it's profitable
-  /build [feature]     Build any new feature or tool from scratch
 
 MEMORY
   Say: "remember that Gold rejects hard at $2400" — stored for all future sessions
