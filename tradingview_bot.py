@@ -368,8 +368,8 @@ def _run(fn):
                 login(page, ctx)
             fn(page, ctx)
         finally:
-            if browser:
-                browser.close()
+            if browser and not already_logged_in:
+                browser.close()  # only close if WE launched it
 
 def cmd_test():
     print("[TV] Testing connection to TradingView...")
