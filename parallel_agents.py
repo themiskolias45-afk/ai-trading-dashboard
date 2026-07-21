@@ -29,25 +29,23 @@ TIMEOUT    = 300
 
 def find_claude() -> str:
     """Find the claude CLI executable on Windows."""
-    import shutil
-    if shutil.which("claude"):
-        return "claude"
-    # Common Windows install locations
-    user = Path.home()
-    candidates = [
-        user / "AppData/Roaming/npm/claude.cmd",
-        user / "AppData/Local/npm-global/claude.cmd",
-        user / "AppData/Roaming/npm/claude",
-        Path("C:/Program Files/nodejs/claude.cmd"),
-        Path("C:/Users/User/AppData/Roaming/npm/claude.cmd"),
-    ]
-    for p in candidates:
+    import shutil, os
+    # 1. Already on PATH
+    found = shutil.which("claude") or shutil.which("claude.cmd")
+    if found:
+        return found
+    # 2. Standard npm global install — uses %APPDATA% env var
+    appdata = os.environ.get("APPDATA", "")
+    if appdata:
+        p = Path(appdata) / "npm" / "claude.cmd"
         if p.exists():
             return str(p)
+    # 3. Hardcoded known path
+    p = Path(r"C:\Users\User\AppData\Roaming\npm\claude.cmd")
+    if p.exists():
+        return str(p)
     raise FileNotFoundError(
-        "claude CLI not found.\n"
-        "Run this script from the JARVIS PowerShell terminal where 'claude' works,\n"
-        "OR run: npm install -g @anthropic-ai/claude-code"
+        "claude CLI not found. Run: npm install -g @anthropic-ai/claude-code"
     )
 
 CLAUDE_CMD = None  # resolved lazily on first use
