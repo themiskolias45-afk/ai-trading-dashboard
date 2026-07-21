@@ -12,12 +12,13 @@ start "SmartEntry Server" /min cmd /c "cd server && node index.js >> ..\tasks\lo
 REM 2 — Wait for server to boot
 timeout /t 8 /nobreak >nul
 
-REM 3 — Launch Edge with TradingView (debug port so JARVIS can draw on charts)
+REM 3 — Launch Edge with TradingView (dedicated SmartEntryTV profile + debug port)
+REM     Dedicated profile = always its own process, port 9222 always binds correctly
 echo  Launching Edge with TradingView...
 start "" "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" ^
   --remote-debugging-port=9222 ^
-  --user-data-dir="C:\Users\User\AppData\Local\Microsoft\Edge\User Data" ^
-  --profile-directory=Default ^
+  --user-data-dir="C:\Users\User\AppData\Local\Microsoft\Edge\SmartEntryTV" ^
+  --no-first-run ^
   --start-maximized ^
   "https://www.tradingview.com/chart/"
 
