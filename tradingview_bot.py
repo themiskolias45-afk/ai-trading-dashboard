@@ -69,55 +69,75 @@ def save_session(ctx):
 
 def make_context(playwright):
     """
-    Open Edge with the SmartEntryTV profile.
-    If saved session exists, inject cookies so TV login is automatic.
+    Attach to the already-running Edge on port 9222.
+    Edge is already open with TradingView from startup.bat.
+    Falls back to launching a new Edge window if port 9222 is not available.
     """
+    # Try to connect to the already-open Edge first
+    try:
+        browser = playwright.chromium.connect_over_cdp("http://localhost:9222")
+        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+        print("[TV] Attached to running Edge — no new window opened")
+        return browser, ctx
+    except Exception:
+        pass
+
+    # Edge not running — launch it with the SmartEntryTV profile
+    print("[TV] Edge not running — launching now...")
     launch_kwargs = {
         "headless": False,
-        "args": ["--start-maximized", "--no-first-run", "--no-default-browser-check"],
+        "executable_path": CHROME_PATH,
+        "args": ["--remote-debugging-port=9222", "--start-maximized", "--no-first-run"],
         "no_viewport": True,
     }
-    if os.path.exists(CHROME_PATH):
-        launch_kwargs["executable_path"] = CHROME_PATH
-
-    # Persistent context keeps cookies in the profile folder automatically
     ctx = playwright.chromium.launch_persistent_context(
         user_data_dir=CHROME_USER_DATA,
         **launch_kwargs
     )
-
-    # Also inject saved session cookies (double layer of persistence)
-    if SESSION_FILE.exists():
-        try:
-            storage = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
-            if storage.get("cookies"):
-                ctx.add_cookies(storage["cookies"])
-        except:
-            pass
-
-    return None, ctx  # persistent context has no separate browser object
+    return None, ctx
 
 # ── Login ─────────────────────────────────────────────────────────────────────
 def login(page, ctx):
-    """Login to TradingView. Handles 2FA — waits for user to enter code."""
+    """Login to TradingView only if not already logged in."""
+    # Check current URL — if already on TV and logged in, skip everything
+    try:
+        current = page.url
+        if "tradingview.com" in current:
+            if page.locator('[data-name="header-user-menu-button"]').count() > 0:
+                print("[TV] Already logged in")
+                return
+    except:
+        pass
+
     username = get_cred("TV_USERNAME")
     password = get_cred("TV_PASSWORD")
-    if not username or not password:
-        print("ERROR: TV_USERNAME / TV_PASSWORD missing in keys.env")
-        print("Run: tasks\\setup_tradingview.bat")
-        sys.exit(1)
 
     page.goto(f"{TV_BASE}/")
     page.wait_for_load_state("domcontentloaded")
     time.sleep(2)
 
-    # Already logged in from saved session?
+    # Already logged in?
     try:
         if page.locator('[data-name="header-user-menu-button"]').count() > 0:
             print("[TV] Already logged in (session active)")
             return
     except:
         pass
+
+    # No credentials — tell user to log in manually in the open window
+    if not username or not password:
+        print("[TV] No credentials — please log into TradingView in the browser window.")
+        print("[TV] Waiting up to 3 minutes...")
+        for _ in range(60):
+            try:
+                if page.locator('[data-name="header-user-menu-button"]').count() > 0:
+                    save_session(ctx)
+                    print("[TV] Logged in — session saved.")
+                    return
+            except:
+                pass
+            time.sleep(3)
+        return
 
     # Open sign-in dialog
     try:
@@ -334,15 +354,23 @@ if barstate.islast
 
 # ── Main commands ─────────────────────────────────────────────────────────────
 def _run(fn):
-    """Run fn(page, ctx) using real Chrome profile."""
+    """Attach to running Edge, reuse existing TradingView page if open."""
     with sync_playwright() as pw:
         browser, ctx = make_context(pw)
-        page = ctx.new_page()
+
+        # Reuse open TradingView tab if it exists
+        page = None
+        for p in ctx.pages:
+            if "tradingview.com" in p.url:
+                page = p
+                break
+        if page is None:
+            page = ctx.new_page()
+
         try:
             login(page, ctx)
             fn(page, ctx)
         finally:
-            ctx.close()
             if browser:
                 browser.close()
 
