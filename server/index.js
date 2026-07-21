@@ -9,6 +9,12 @@ const axios      = require("axios");
 const cron       = require("node-cron");
 const Anthropic  = require("@anthropic-ai/sdk");
 const fs         = require("fs");
+const path       = require("path");
+
+// ── New modules ───────────────────────────────────────────────
+const autohealer = require("./autohealer");
+const db         = require("./db");
+const sizing     = require("./sizing");
 
 const app = express();
 app.use(express.json());
@@ -1911,15 +1917,47 @@ app.post("/api/ai-brain", async (req, res) => {
 });
 
 // ── Serve pages ──────────────────────────────────────────────
-const path = require("path");
 app.use("/dashboard", express.static(path.join(__dirname, "..", "dashboard")));
 app.get("/dashboard", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "index.html")));
 app.use(express.static(path.join(__dirname, "..", "commercial")));
 app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
 
+// ── /api/healer ───────────────────────────────────────────────
+app.get("/api/healer", (_, res) => {
+  res.json(autohealer.getStatus());
+});
+
+app.post("/api/healer/heal", async (_, res) => {
+  try {
+    const result = await autohealer.forceHeal();
+    res.json({ ok: true, result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── /api/size — Kelly-based position sizing ───────────────────
+app.post("/api/size", (req, res) => {
+  try {
+    const { accountBalance, signal, openPositions } = req.body || {};
+    if (!accountBalance || !signal) {
+      return res.status(400).json({ error: "accountBalance and signal required" });
+    }
+    const validation = sizing.validateTrade(signal, accountBalance, openPositions || []);
+    res.json(validation);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Boot ──────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`✅ SmartEntry Pro v12 on port ${PORT}`);
+
+  // Init SQLite (graceful if better-sqlite3 not installed)
+  const dbPath = path.join(__dirname, "smartentry.db");
+  db.init(dbPath);
+
   await fetchPrices();
   await refreshSignals();
   await fetchCongress();
@@ -1929,4 +1967,16 @@ app.listen(PORT, async () => {
   if (TELEGRAM_TOKEN) setInterval(pollTelegram, 3000);
   if (ANTHROPIC_API_KEY) console.log("[ai] Claude AI enabled ✅");
   else console.log("[ai] No ANTHROPIC_API_KEY — using rule-based analysis");
+
+  // Start auto-healer with server context
+  autohealer.start({
+    signalCache,
+    priceCache,
+    learning,
+    tradeJournal,
+    TELEGRAM_TOKEN,
+    knownChatIds,
+    refreshSignals,
+    fetchPrices,
+  });
 });
