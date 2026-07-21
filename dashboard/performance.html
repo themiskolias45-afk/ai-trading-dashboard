@@ -980,10 +980,10 @@ async function loadHealth() {
     ts.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { hour12: false });
 
     const components = [
-      { icon: '🖥️',  label: 'Server',       val: d.server     ?? d.status       },
-      { icon: '📡',  label: 'MT5 Bridge',   val: d.mt5        ?? d.mt5Status    },
-      { icon: '📶',  label: 'Signals',      val: d.signals    ?? d.signalEngine  },
-      { icon: '🧠',  label: 'Learning AI',  val: d.learning   ?? d.aiLearning   },
+      { icon: '🖥️',  label: 'Server',       val: d.server?.healthy ? 'ONLINE' : (d.server ? 'RUNNING' : 'OFFLINE') },
+      { icon: '📡',  label: 'MT5 Bridge',   val: d.mt5?.connected ? 'CONNECTED' : (d.mt5Positions?.length > 0 ? 'CONNECTED' : 'OFFLINE') },
+      { icon: '📶',  label: 'Signals',      val: (d.signals?.btc || d.signals?.gold || d.signals?.spx) ? 'ACTIVE' : 'WAIT' },
+      { icon: '🧠',  label: 'Learning AI',  val: d.learning?.setupsTracked >= 0 ? 'ACTIVE' : 'OFFLINE' },
     ];
 
     grid.innerHTML = components.map(c => {
