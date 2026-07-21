@@ -54,18 +54,40 @@ def get_cred(key):
             return line.split("=", 1)[1].strip().strip('"').strip("'")
     return None
 
-# ── Browser setup ─────────────────────────────────────────────────────────────
-def make_browser(playwright):
-    launch_args = {
-        "headless": False,
-        "args": ["--start-maximized"]
-    }
+# ── Session storage (saves login so 2FA only needed once) ─────────────────────
+SESSION_FILE = Path(__file__).parent / "tasks" / ".tv_session.json"
+
+def make_context(playwright):
+    """Create browser context — reuses saved session if available."""
+    launch_args = {"headless": False, "args": ["--start-maximized"]}
     if os.path.exists(CHROME_PATH):
         launch_args["executable_path"] = CHROME_PATH
-    return playwright.chromium.launch(**launch_args)
+    browser = playwright.chromium.launch(**launch_args)
+
+    if SESSION_FILE.exists():
+        try:
+            storage = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+            ctx = browser.new_context(storage_state=storage, viewport={"width": 1920, "height": 1080})
+            print("[TV] Using saved session — no login needed")
+            return browser, ctx
+        except:
+            pass
+
+    ctx = browser.new_context(viewport={"width": 1920, "height": 1080})
+    return browser, ctx
+
+def save_session(ctx):
+    """Save browser cookies/storage so next run skips login."""
+    try:
+        SESSION_FILE.parent.mkdir(exist_ok=True)
+        SESSION_FILE.write_text(json.dumps(ctx.storage_state()), encoding="utf-8")
+        print("[TV] Session saved — future logins are automatic")
+    except Exception as e:
+        print(f"[TV] Could not save session: {e}")
 
 # ── Login ─────────────────────────────────────────────────────────────────────
-def login(page):
+def login(page, ctx):
+    """Login to TradingView. Handles 2FA — waits for user to enter code."""
     username = get_cred("TV_USERNAME")
     password = get_cred("TV_PASSWORD")
     if not username or not password:
@@ -75,6 +97,11 @@ def login(page):
 
     page.goto(f"{TV_BASE}/")
     page.wait_for_load_state("domcontentloaded")
+
+    # Already logged in from saved session?
+    if TV_BASE + "/chart" in page.url or page.locator('[data-name="header-user-menu-button"]').count() > 0:
+        print(f"[TV] Already logged in")
+        return
 
     # Click Sign In
     try:
@@ -95,9 +122,30 @@ def login(page):
     page.fill('input[name="username"]', username, timeout=8000)
     page.fill('input[name="password"]', password, timeout=8000)
     page.click('button[type="submit"]', timeout=8000)
-
-    page.wait_for_url(f"{TV_BASE}/**", timeout=20000)
     time.sleep(2)
+
+    # Check if 2FA code is required
+    needs_2fa = False
+    try:
+        page.wait_for_selector('input[name="code"], input[autocomplete="one-time-code"], input[placeholder*="code"]', timeout=4000)
+        needs_2fa = True
+    except:
+        pass
+
+    if needs_2fa:
+        print("\n[TV] 2FA required — check your email/authenticator app.")
+        print("[TV] Enter the code in the browser window that just opened.")
+        print("[TV] Waiting up to 3 minutes for you to complete login...\n")
+        # Wait up to 3 minutes for user to complete 2FA and land on TV homepage
+        page.wait_for_url(f"{TV_BASE}/**", timeout=180000)
+        # Make sure we're past any auth pages
+        for _ in range(30):
+            if "signin" not in page.url and "accounts" not in page.url:
+                break
+            time.sleep(2)
+
+    time.sleep(2)
+    save_session(ctx)
     print(f"[TV] Logged in: {username}")
 
 # ── Chart navigation ──────────────────────────────────────────────────────────
@@ -236,13 +284,14 @@ if barstate.islast
 def cmd_test():
     print("[TV] Testing login...")
     with sync_playwright() as pw:
-        browser = make_browser(pw)
-        page = browser.new_page()
+        browser, ctx = make_context(pw)
+        page = ctx.new_page()
         try:
-            login(page)
+            login(page, ctx)
             print("[TV] SUCCESS — TradingView connected.")
             time.sleep(3)
         finally:
+            ctx.close()
             browser.close()
 
 def cmd_draw(symbol, entry, stop, target, support=None, resistance=None):
@@ -255,27 +304,29 @@ def cmd_draw(symbol, entry, stop, target, support=None, resistance=None):
     if resistance: levels.append((resistance, "Resistance"))
 
     with sync_playwright() as pw:
-        browser = make_browser(pw)
-        page = browser.new_page()
+        browser, ctx = make_context(pw)
+        page = ctx.new_page()
         try:
-            login(page)
+            login(page, ctx)
             open_chart(page, symbol)
             drawn = sum(draw_hline(page, p, lbl) for p, lbl in levels)
             print(f"[TV] Done: {drawn}/{len(levels)} levels drawn on {symbol}")
             time.sleep(5)
         finally:
+            ctx.close()
             browser.close()
 
 def cmd_alert(symbol, price, message):
     with sync_playwright() as pw:
-        browser = make_browser(pw)
-        page = browser.new_page()
+        browser, ctx = make_context(pw)
+        page = ctx.new_page()
         try:
-            login(page)
+            login(page, ctx)
             open_chart(page, symbol)
             set_alert(page, price, symbol, message)
             time.sleep(3)
         finally:
+            ctx.close()
             browser.close()
 
 def cmd_pine(symbol, entry, stop, target, support=None, resistance=None, bias="WAIT"):
