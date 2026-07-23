@@ -27,9 +27,10 @@ Claude Code auto-loads this CLAUDE.md from the working directory. The startup se
 
 At the start of every interactive session:
 1. Read `VAULT-INDEX.md` at the vault root — skip silently if file doesn't exist, do not error.
-2. Check yesterday's daily note in `01 - Daily Notes/`; if you have context it's missing, backfill it. Skip silently if folder doesn't exist.
-3. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
-4. Run a silent system check: fetch `http://localhost:3001/api/signals` and `http://localhost:3001/api/risk-status`. Never hang — if offline after 3 seconds, say so and continue.
+2. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
+3. Read `tasks/daily/YYYY-MM-DD.json` for today and yesterday — load any trade signals, outcomes, or notes. Skip silently if missing.
+4. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
+5. Run a silent system check: fetch `http://localhost:3001/api/signals` and `http://localhost:3001/api/risk-status`. Never hang — if offline after 3 seconds, say so and continue.
 
 **Welcome line format:**
 - Server online + no signal: "JARVIS online. SmartEntry Pro running. No active signals — [brief market state]. What are we building?"
@@ -123,6 +124,10 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - Voice: python voice.py --loop
 - Signal debate: python debate_agents.py [SYMBOL] [DIRECTION] [confidence] [entry] [stop] [target]
 - Notifications: python notifications.py test (verify channels)
+- Memory: python memory.py add KEY VALUE [CATEGORY] | recall KEYWORD | summary
+- Daily notes: python daily_notes.py today | auto | log "text"
+- Error check: python check_errors.py (full stack check)
+- Self-improve: python self_improve.py scan --save | propose
 
 ## How the vault stays healthy
 
