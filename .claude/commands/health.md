@@ -1,16 +1,31 @@
-Run a full system health check on SmartEntry Pro. Do all of these:
+Run a full system health check on SmartEntry Pro using the deep error checker.
 
-1. Bash: curl -s http://localhost:3001/api/risk-status
-2. Bash: curl -s http://localhost:3001/api/mode
-3. Bash: curl -s http://localhost:3001/api/signals | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const j=JSON.parse(d); console.log('BTC:',j.btc?.signal,'GOLD:',j.gold?.signal,'SPX:',j.spx?.signal)"
-4. Bash: cd server && node --check index.js 2>&1 | head -5
-5. Bash: netstat -ano | findstr :3001 | head -3
+Run:
+```
+python check_errors.py
+```
 
-Report:
-- Server: RUNNING or OFFLINE (port 3001)
-- Signals: BTC/GOLD/SPX current signal
-- Mode: auto or semi-auto
-- Regime: current market regime
-- Any errors found
+Then fetch for live status:
+- GET http://localhost:3001/api/healer
+- GET http://localhost:3001/api/risk-status
+- GET http://localhost:3001/api/signals
 
-One line per check. Flag anything that looks wrong.
+Report in this format:
+
+SYSTEM HEALTH — [timestamp]
+══════════════════════════
+SERVER:    [ONLINE / OFFLINE] | Uptime: Xh Xm | Healer: X/6 checks green
+SIGNALS:   BTC=[signal] GOLD=[signal] SPX=[signal]
+RISK:      [regime] | Session: [session] | Circuit breaker: [open/closed]
+MODE:      [auto / semi-auto]
+SYNTAX:    [X JS files clean / X Python files clean — or list any failures]
+SECURITY:  [secrets gitignored: YES / NO — escalate immediately if NO]
+GIT:       [branch correct: YES / NO]
+
+FAILURES: [list any — these block trading]
+WARNINGS: [list any — review but not blocking]
+
+VERDICT: [GREEN — system healthy / YELLOW — warnings present / RED — failures found]
+
+If RED: state the exact problem and ask "Fix now? (Y/N)"
+If GREEN: "All checks passed — system ready to trade."
