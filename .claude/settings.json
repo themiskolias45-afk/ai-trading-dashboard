@@ -77,8 +77,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /d C:\\Users\\User\\ai-trading-dashboard && for /f \"delims=\" %f in ('git diff --name-only HEAD 2^>nul') do (if \"%~xf\"==\".js\" node --check \"%f\" 2^>nul && if \"%~xf\"==\".py\" python -m py_compile \"%f\" 2^>nul) & git diff --quiet HEAD 2>nul || (git add -A && git commit -m \"auto-save\" --quiet)",
-            "shell": "cmd",
+            "command": "Set-Location 'C:\\Users\\User\\ai-trading-dashboard'; $files = git diff --name-only HEAD 2>$null; foreach ($f in $files) { if ($f -match '\\.js$') { node --check $f 2>$null } elseif ($f -match '\\.py$') { python -m py_compile $f 2>$null } }; if (git status --porcelain 2>$null) { git add -A; git commit -m 'auto-save' --quiet }",
+            "shell": "powershell",
             "async": true,
             "statusMessage": "Validating + auto-saving..."
           }
@@ -90,7 +90,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s --max-time 3 http://localhost:3001/api/signals 2>nul && curl -s --max-time 3 http://localhost:3001/api/risk-status 2>nul || echo {\"offline\":true}",
+            "command": "try { $s = curl.exe -s --max-time 3 http://localhost:3001/api/signals 2>$null; $r = curl.exe -s --max-time 3 http://localhost:3001/api/risk-status 2>$null; \"$s $r\" } catch { '{\"offline\":true}' }",
             "shell": "powershell",
             "async": true,
             "statusMessage": "Checking SmartEntry..."
