@@ -107,6 +107,26 @@ function getLearningBoost(setup) {
   const boost = Math.round((wr - 0.5) * 30);
   return Math.max(-15, Math.min(15, boost));
 }
+
+function checkSetupHealth() {
+  const alerts = [];
+  const AVOID_THRESHOLD    = 0.40;  // below 40% WR → avoid
+  const PRIORITY_THRESHOLD = 0.65;  // above 65% WR → prioritise
+  for (const [setup, s] of Object.entries(learning.setupStats)) {
+    const total = s.wins + s.losses;
+    if (total < 5) continue;
+    const wr = s.wins / total;
+    if (wr < AVOID_THRESHOLD)    alerts.push({ setup, wr: Math.round(wr * 100), status: 'AVOID',    trades: total });
+    else if (wr > PRIORITY_THRESHOLD) alerts.push({ setup, wr: Math.round(wr * 100), status: 'PRIORITY', trades: total });
+  }
+  if (alerts.length > 0) {
+    for (const a of alerts) {
+      const emoji = a.status === 'AVOID' ? '⚠️' : '✅';
+      console.log(`[learning] ${emoji} Setup ${a.status}: ${a.setup} ${a.wr}% WR (${a.trades} trades)`);
+    }
+  }
+  return alerts;
+}
 loadLearning();
 learning.sessionCount = (learning.sessionCount || 0) + 1;
 saveLearning();
@@ -1167,7 +1187,13 @@ app.post("/api/trade-closed", (req, res) => {
     trade.closeTime  = closeTime  ?? new Date().toISOString();
     saveJournal();
     // Feed outcome to self-learning engine
-    if (trade.setup && pnl !== null) updateLearning(trade.setup, pnl);
+    if (trade.setup && pnl !== null) {
+      updateLearning(trade.setup, pnl);
+      const healthAlerts = checkSetupHealth();
+      if (healthAlerts.length > 0) {
+        riskStatus.setupAlerts = healthAlerts;
+      }
+    }
     // Also update SQLite
     db.updateLearning(trade.setup, pnl > 0 ? 'win' : 'loss', trade.pnl || 0);
     db.insertTrade(trade);
@@ -1268,6 +1294,37 @@ app.get("/api/checksystem", (_, res) => {
   });
 });
 
+// Setup health — which setups to prioritise or avoid
+app.get("/api/setup-health", (_, res) => {
+  res.json({ alerts: checkSetupHealth(), updatedAt: new Date().toISOString() });
+});
+
+// Daily plan — structured trade plan for today
+app.get("/api/daily-plan", (_, res) => {
+  const plan = {
+    date:     new Date().toISOString().slice(0, 10),
+    generatedAt: new Date().toISOString(),
+    signals: {
+      btc:  signalCache.btc  ? { signal: signalCache.btc.signal,  confidence: signalCache.btc.confidence,  entry: signalCache.btc.entry,  stop: signalCache.btc.stop,  target: signalCache.btc.target,  setup: signalCache.btc.setup,  regime: signalCache.btc.regime,  rr: signalCache.btc.rr  } : null,
+      gold: signalCache.gold ? { signal: signalCache.gold.signal, confidence: signalCache.gold.confidence, entry: signalCache.gold.entry, stop: signalCache.gold.stop, target: signalCache.gold.target, setup: signalCache.gold.setup, regime: signalCache.gold.regime, rr: signalCache.gold.rr } : null,
+      spx:  signalCache.spx  ? { signal: signalCache.spx.signal,  confidence: signalCache.spx.confidence,  entry: signalCache.spx.entry,  stop: signalCache.spx.stop,  target: signalCache.spx.target,  setup: signalCache.spx.setup,  regime: signalCache.spx.regime,  rr: signalCache.spx.rr  } : null,
+    },
+    prices:   { btc: priceCache.btc, gold: priceCache.gold, spx: priceCache.spx, dxy: priceCache.dxy, vix: priceCache.vix },
+    risk:     riskStatus,
+    setupHealth: checkSetupHealth(),
+    calendar: newsCache.filter(ev => {
+      if (!ev.date || !ev.impact || ev.impact.toLowerCase() !== 'high') return false;
+      const evDate = new Date(ev.date).toISOString().slice(0, 10);
+      return evDate === new Date().toISOString().slice(0, 10);
+    }).slice(0, 8),
+    todayPnl: tradeJournal.filter(t => {
+      const d = (t.closeTime || t.openTime || '').slice(0, 10);
+      return d === new Date().toISOString().slice(0, 10) && t.status === 'CLOSED';
+    }).reduce((sum, t) => sum + (t.pnl || 0), 0),
+  };
+  res.json(plan);
+});
+
 // Feature flags
 app.get("/api/features", (_, res) => {
   res.json({ features });
@@ -1291,7 +1348,7 @@ app.get("/api/newsfilter", (_, res) => {
 //  SCHEDULED JOBS
 // ══════════════════════════════════════════════════════════════
 
-// 6:45 AM — refresh signals before market open
+// 6:45 AM — refresh signals + run full morning plan
 cron.schedule("45 6 * * *", async () => {
   await fetchPrices();
   await refreshSignals();
@@ -1299,6 +1356,13 @@ cron.schedule("45 6 * * *", async () => {
   await fetchFlow();
   generateDailyPlan();
   console.log("[cron] 6:45 AM — plan ready");
+  // Run Python daily plan generator in background
+  const { execFile } = require("child_process");
+  const PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
+  execFile(PYTHON_BIN, [require("path").join(__dirname, "..", "tv_daily_plan.py"), "--no-tv", "--silent"],
+    { cwd: require("path").join(__dirname, ".."), timeout: 60000 },
+    (err, out) => { if (err) console.error("[cron] daily plan error:", err.message); else console.log("[cron] daily plan done:", out.trim().slice(0, 100)); }
+  );
 });
 
 // 7:00 AM — send morning plan to Telegram
@@ -1346,6 +1410,17 @@ cron.schedule("0 8 * * 0", async () => {
 
 // Every 6 hours — refresh economic calendar
 cron.schedule("0 */6 * * *", fetchEconomicCalendar);
+
+// Weekdays 10 PM UTC — end-of-day review (runs eod_review.py)
+cron.schedule("0 22 * * 1-5", async () => {
+  console.log("[cron] EOD review starting…");
+  const { execFile } = require("child_process");
+  const PYTHON = process.platform === "win32" ? "python" : "python3";
+  execFile(PYTHON, [require("path").join(__dirname, "..", "eod_review.py")], { cwd: require("path").join(__dirname, ".."), timeout: 120000 }, (err, out, se) => {
+    if (err) console.error("[EOD] Error:", se || err.message);
+    else console.log("[EOD] Done:", out.trim().slice(0, 200));
+  });
+});
 
 // Sunday 9 PM — autonomous improvement proposal
 cron.schedule("0 21 * * 0", async () => {
@@ -1439,7 +1514,24 @@ function autoAnalyze(s) {
 
 let analysisCache = { btc: null, gold: null, spx: null, updatedAt: null };
 
+// Signal fingerprint — skip AI analysis when signals haven't changed (cost saving)
+let _lastAnalysisFingerprint = '';
+function _signalFingerprint() {
+  return ['btc','gold','spx'].map(k => {
+    const s = signalCache[k];
+    return s ? `${s.signal}:${s.setup}:${s.confidence}` : 'null';
+  }).join('|');
+}
+
 async function refreshAnalysis() {
+  // Skip AI calls when signals are unchanged — keeps costs low
+  const fp = _signalFingerprint();
+  if (fp === _lastAnalysisFingerprint && analysisCache.btc) {
+    console.log('[analysis] Signals unchanged — skipping AI calls');
+    return;
+  }
+  _lastAnalysisFingerprint = fp;
+
   // Rule-based analysis runs instantly for all 3 in parallel
   const [btcAuto, goldAuto, spxAuto] = await Promise.all([
     Promise.resolve(autoAnalyze(signalCache.btc)),
@@ -1936,6 +2028,8 @@ app.post("/api/ai-brain", async (req, res) => {
 // ── Serve pages ──────────────────────────────────────────────
 app.use("/dashboard", express.static(path.join(__dirname, "..", "dashboard")));
 app.get("/dashboard", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "index.html")));
+app.get("/daily-plan", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "daily-plan.html")));
+app.use("/screenshots", express.static(path.join(__dirname, "..", "dashboard", "screenshots")));
 app.use(express.static(path.join(__dirname, "..", "commercial")));
 app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
 

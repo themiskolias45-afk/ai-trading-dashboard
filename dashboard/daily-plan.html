@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JARVIS — Daily Plan</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
+      --text:#e2e8f0; --muted:#4a6080; --accent:#7c3aed;
+      --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
+      --font:'Segoe UI',system-ui,Arial,sans-serif;
+    }
+    body { background:var(--bg); color:var(--text); font-family:var(--font); min-height:100vh; font-size:14px; }
+
+    header {
+      background:var(--surface); border-bottom:1px solid var(--border);
+      padding:12px 24px; display:flex; align-items:center; justify-content:space-between;
+      position:sticky; top:0; z-index:100;
+    }
+    .logo { display:flex; align-items:center; gap:10px; }
+    .logo-mark {
+      width:32px; height:32px;
+      background:linear-gradient(135deg,var(--accent),#4f46e5);
+      border-radius:8px; display:flex; align-items:center;
+      justify-content:center; font-weight:900; font-size:16px; color:#fff;
+    }
+    .logo-text { font-size:1rem; font-weight:700; }
+    .logo-sub  { font-size:.65rem; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
+    .header-right { display:flex; align-items:center; gap:14px; }
+    .clock { font-size:.78rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .pill {
+      display:flex; align-items:center; gap:6px;
+      padding:4px 12px; border-radius:20px; font-size:.72rem; font-weight:700;
+    }
+    .pill-green { background:#0d2010; border:1px solid var(--green); color:var(--green); }
+    .pill-red   { background:#200d0d; border:1px solid var(--red);   color:var(--red); }
+    .pill-muted { background:var(--surface); border:1px solid var(--border2); color:var(--muted); }
+    .dot { width:6px; height:6px; border-radius:50%; background:currentColor; animation:blink 2s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    a.back { font-size:.68rem; color:var(--muted); text-decoration:none; padding:4px 10px; border:1px solid var(--border2); border-radius:6px; }
+    a.back:hover { color:var(--text); border-color:var(--accent); }
+
+    .container { padding:20px 24px; max-width:1400px; margin:0 auto; }
+
+    /* Date bar */
+    .date-bar {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:10px; padding:14px 20px; margin-bottom:16px;
+      display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+    }
+    .date-bar h1 { font-size:1.1rem; font-weight:700; }
+    .date-bar .meta { font-size:.72rem; color:var(--muted); }
+    .risk-budget { display:flex; gap:20px; flex-wrap:wrap; }
+    .risk-item { text-align:center; }
+    .risk-label { font-size:.6rem; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+    .risk-value { font-size:1rem; font-weight:700; margin-top:2px; }
+
+    /* Signal grid */
+    .signal-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:16px; }
+    @media(max-width:900px){ .signal-grid{ grid-template-columns:1fr; } }
+
+    .signal-card {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:10px; overflow:hidden; transition:border-color .2s;
+    }
+    .signal-card:hover { border-color:var(--border2); }
+    .signal-card.long  { border-top:3px solid var(--green); }
+    .signal-card.short { border-top:3px solid var(--red); }
+    .signal-card.wait  { border-top:3px solid var(--muted); }
+
+    .sc-header { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    .sc-title { font-size:.85rem; font-weight:700; }
+    .sc-badge { padding:4px 10px; border-radius:6px; font-size:.7rem; font-weight:700; letter-spacing:.05em; }
+    .badge-long  { background:#0d2010; color:var(--green); }
+    .badge-short { background:#200d0d; color:var(--red); }
+    .badge-wait  { background:#1a1a2e; color:var(--muted); }
+
+    .sc-body { padding:14px 16px; }
+    .sc-price { font-size:1.4rem; font-weight:700; font-variant-numeric:tabular-nums; margin-bottom:10px; }
+    .sc-conf  { font-size:.72rem; color:var(--muted); margin-bottom:10px; }
+    .sc-conf span { font-weight:700; color:var(--text); }
+
+    .level-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
+    .level-item { text-align:center; padding:8px 4px; border-radius:8px; }
+    .level-entry { background:#0d1a2e; }
+    .level-stop  { background:#200d0d; }
+    .level-target { background:#0d2010; }
+    .level-label { font-size:.58rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+    .level-price { font-size:.85rem; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
+    .level-entry  .level-price { color:var(--blue); }
+    .level-stop   .level-price { color:var(--red); }
+    .level-target .level-price { color:var(--green); }
+
+    .rr-bar { margin-top:10px; font-size:.68rem; color:var(--muted); display:flex; align-items:center; justify-content:space-between; }
+    .rr-val { font-weight:700; color:var(--yellow); }
+
+    .setup-tag { margin-top:10px; font-size:.62rem; color:var(--muted); background:var(--bg); padding:4px 8px; border-radius:4px; display:inline-block; }
+
+    /* Two-col layout */
+    .two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px; }
+    @media(max-width:900px){ .two-col{ grid-template-columns:1fr; } }
+
+    /* Panel */
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .panel-header { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .panel-title { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+    .panel-body { padding:14px 16px; }
+
+    /* Calendar events */
+    .cal-event { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
+    .cal-event:last-child { border-bottom:none; }
+    .cal-time { font-size:.7rem; color:var(--muted); width:50px; flex-shrink:0; font-variant-numeric:tabular-nums; }
+    .cal-name { font-size:.78rem; flex:1; }
+    .cal-cur  { font-size:.62rem; color:var(--muted); background:var(--bg); padding:2px 6px; border-radius:4px; }
+    .impact-high { color:var(--red); font-weight:700; }
+
+    /* Setup health */
+    .health-row { display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); }
+    .health-row:last-child { border-bottom:none; }
+    .health-setup { font-size:.78rem; font-weight:600; }
+    .health-wr    { font-size:.78rem; font-variant-numeric:tabular-nums; }
+    .health-status { font-size:.62rem; font-weight:700; padding:2px 8px; border-radius:4px; }
+    .status-priority { background:#0d2010; color:var(--green); }
+    .status-avoid    { background:#200d0d; color:var(--red); }
+    .status-ok       { background:#1a1a2e; color:var(--muted); }
+
+    /* PnL */
+    .pnl-display { font-size:2rem; font-weight:700; text-align:center; padding:20px 0; }
+    .pnl-pos { color:var(--green); }
+    .pnl-neg { color:var(--red); }
+    .pnl-zero { color:var(--muted); }
+
+    /* Refresh */
+    .refresh-bar {
+      text-align:center; font-size:.65rem; color:var(--muted);
+      padding:12px; border-top:1px solid var(--border); margin-top:8px;
+    }
+
+    /* Screenshot section */
+    .screenshot-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+    .screenshot-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .screenshot-card img { width:100%; display:block; }
+    .screenshot-label { font-size:.68rem; color:var(--muted); padding:8px 12px; text-align:center; }
+    .no-screenshot { padding:40px 20px; text-align:center; color:var(--muted); font-size:.78rem; }
+
+    .halted-banner {
+      background:#200d0d; border:1px solid var(--red); border-radius:8px;
+      padding:10px 16px; margin-bottom:14px; color:var(--red);
+      font-size:.8rem; font-weight:700; text-align:center;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">J</div>
+    <div>
+      <div class="logo-text">JARVIS — Daily Plan</div>
+      <div class="logo-sub">SmartEntry Pro</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="clock" id="clock">--:--:--</div>
+    <div class="pill pill-green" id="server-status"><span class="dot"></span> LIVE</div>
+    <a class="back" href="/">← Dashboard</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <div id="halt-banner" class="halted-banner" style="display:none">
+    ⛔ TRADING HALTED — <span id="halt-reason"></span>
+  </div>
+
+  <!-- Date & risk budget -->
+  <div class="date-bar">
+    <div>
+      <h1 id="plan-date">Loading…</h1>
+      <div class="meta" id="plan-meta">Fetching plan…</div>
+    </div>
+    <div class="risk-budget">
+      <div class="risk-item">
+        <div class="risk-label">Max Daily Loss</div>
+        <div class="risk-value" id="max-loss">$200</div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-label">Today's P&L</div>
+        <div class="risk-value" id="today-pnl">—</div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-label">VIX</div>
+        <div class="risk-value" id="vix-val">—</div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-label">DXY</div>
+        <div class="risk-value" id="dxy-val">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signal cards -->
+  <div class="signal-grid" id="signal-grid">
+    <div class="signal-card wait" id="card-btc">
+      <div class="sc-header"><span class="sc-title">BTC / Bitcoin</span><span class="sc-badge badge-wait">WAIT</span></div>
+      <div class="sc-body"><div class="sc-price" style="color:var(--muted)">Loading…</div></div>
+    </div>
+    <div class="signal-card wait" id="card-gold">
+      <div class="sc-header"><span class="sc-title">GOLD / XAU</span><span class="sc-badge badge-wait">WAIT</span></div>
+      <div class="sc-body"><div class="sc-price" style="color:var(--muted)">Loading…</div></div>
+    </div>
+    <div class="signal-card wait" id="card-spx">
+      <div class="sc-header"><span class="sc-title">SPX / S&P 500</span><span class="sc-badge badge-wait">WAIT</span></div>
+      <div class="sc-body"><div class="sc-price" style="color:var(--muted)">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- Chart screenshots (if available) -->
+  <div class="screenshot-grid" id="screenshot-grid" style="display:none">
+    <div class="screenshot-card">
+      <img id="ss-btc" src="" alt="BTC Chart" />
+      <div class="screenshot-label">BTC Daily Chart</div>
+    </div>
+    <div class="screenshot-card">
+      <img id="ss-gold" src="" alt="GOLD Chart" />
+      <div class="screenshot-label">GOLD Daily Chart</div>
+    </div>
+    <div class="screenshot-card">
+      <img id="ss-spx" src="" alt="SPX Chart" />
+      <div class="screenshot-label">SPX Daily Chart</div>
+    </div>
+  </div>
+
+  <!-- Calendar + Setup health -->
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">📅 High-Impact Events Today</div>
+        <div id="cal-count" style="font-size:.65rem;color:var(--muted)"></div>
+      </div>
+      <div class="panel-body" id="calendar-body">
+        <div style="color:var(--muted);font-size:.78rem">Loading calendar…</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">📊 Setup Health</div>
+        <div style="font-size:.65rem;color:var(--muted)">Min 5 trades</div>
+      </div>
+      <div class="panel-body" id="health-body">
+        <div style="color:var(--muted);font-size:.78rem">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Today PnL -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">💰 Today's Performance</div>
+    </div>
+    <div class="panel-body">
+      <div class="pnl-display" id="pnl-big">$0.00</div>
+    </div>
+  </div>
+
+  <div class="refresh-bar" id="refresh-bar">Auto-refreshing every 30s — <span id="last-refresh">never</span></div>
+</div>
+
+<script>
+const BASE = 'http://localhost:3001';
+
+function fmt(n) {
+  if (n == null) return '—';
+  return '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function signalClass(s) {
+  if (!s || s === 'WAIT') return 'wait';
+  return s === 'BUY' || s === 'LONG' ? 'long' : 'short';
+}
+function badgeClass(s) {
+  if (!s || s === 'WAIT') return 'badge-wait';
+  return s === 'BUY' || s === 'LONG' ? 'badge-long' : 'badge-short';
+}
+function signalLabel(s) {
+  if (!s || s === 'WAIT') return 'WAIT';
+  return s;
+}
+
+function renderCard(id, title, sig, price) {
+  const card = document.getElementById(id);
+  if (!card) return;
+  const dir = sig?.signal;
+  card.className = 'signal-card ' + signalClass(dir);
+  const hasLevels = sig && dir && dir !== 'WAIT' && sig.entry;
+  const conf = sig?.confidence ?? 0;
+  const confColor = conf >= 80 ? 'var(--green)' : conf >= 65 ? 'var(--yellow)' : 'var(--muted)';
+
+  card.innerHTML = `
+    <div class="sc-header">
+      <span class="sc-title">${title}</span>
+      <span class="sc-badge ${badgeClass(dir)}">${signalLabel(dir)}</span>
+    </div>
+    <div class="sc-body">
+      <div class="sc-price">${price ? fmt(price) : '—'}</div>
+      <div class="sc-conf">Confidence: <span style="color:${confColor}">${conf}%</span>
+        &nbsp;|&nbsp; Regime: <span>${sig?.regime ?? '—'}</span>
+      </div>
+      ${hasLevels ? `
+        <div class="level-grid">
+          <div class="level-item level-entry">
+            <div class="level-label">Entry</div>
+            <div class="level-price">${fmt(sig.entry)}</div>
+          </div>
+          <div class="level-item level-stop">
+            <div class="level-label">Stop</div>
+            <div class="level-price">${fmt(sig.stop)}</div>
+          </div>
+          <div class="level-item level-target">
+            <div class="level-label">Target</div>
+            <div class="level-price">${fmt(sig.target)}</div>
+          </div>
+        </div>
+        <div class="rr-bar">
+          <span>Setup: <b>${(sig.setup||'').replace(/_/g,' ')}</b></span>
+          <span>R:R <span class="rr-val">1:${sig.rr ?? '—'}</span></span>
+        </div>
+      ` : `<div class="setup-tag">No actionable setup — ${sig?.regime ?? 'market scanning'}</div>`}
+    </div>
+  `;
+}
+
+function renderCalendar(events) {
+  const body = document.getElementById('calendar-body');
+  document.getElementById('cal-count').textContent = events.length + ' events';
+  if (!events.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:.78rem">No high-impact events today — clean trading day.</div>';
+    return;
+  }
+  body.innerHTML = events.map(ev => {
+    const t = ev.date ? new Date(ev.date).toUTCString().slice(17, 22) + ' UTC' : '';
+    return `
+      <div class="cal-event">
+        <div class="cal-time">${t}</div>
+        <div class="cal-name impact-high">${ev.title || ev.name || ''}</div>
+        <div class="cal-cur">${ev.currency || ''}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderHealth(alerts) {
+  const body = document.getElementById('health-body');
+  if (!alerts || !alerts.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:.78rem">All setups within normal WR — no flags.</div>';
+    return;
+  }
+  body.innerHTML = alerts.map(a => `
+    <div class="health-row">
+      <span class="health-setup">${a.setup.replace(/_/g,' ')}</span>
+      <span class="health-wr">${a.wr}% WR (${a.trades} trades)</span>
+      <span class="health-status ${a.status === 'PRIORITY' ? 'status-priority' : a.status === 'AVOID' ? 'status-avoid' : 'status-ok'}">${a.status}</span>
+    </div>
+  `).join('');
+}
+
+async function loadPlan() {
+  try {
+    const [plan, prices] = await Promise.all([
+      fetch(BASE + '/api/daily-plan').then(r => r.json()),
+      fetch(BASE + '/api/prices').then(r => r.json()).catch(() => ({})),
+    ]);
+
+    // Date bar
+    document.getElementById('plan-date').textContent = 'Daily Plan — ' + plan.date;
+    document.getElementById('plan-meta').textContent = 'Generated ' + new Date(plan.generatedAt).toLocaleTimeString();
+    document.getElementById('vix-val').textContent = plan.prices?.vix ? plan.prices.vix.toFixed(1) : '—';
+    document.getElementById('dxy-val').textContent = plan.prices?.dxy ? plan.prices.dxy.toFixed(2) : '—';
+
+    // Today P&L
+    const pnl = plan.todayPnl ?? 0;
+    document.getElementById('today-pnl').textContent = (pnl >= 0 ? '+' : '') + fmt(pnl);
+    document.getElementById('today-pnl').style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
+    const pnlBig = document.getElementById('pnl-big');
+    pnlBig.textContent = (pnl >= 0 ? '+' : '') + fmt(pnl);
+    pnlBig.className = 'pnl-display ' + (pnl > 0 ? 'pnl-pos' : pnl < 0 ? 'pnl-neg' : 'pnl-zero');
+
+    // Halt banner
+    if (plan.risk?.halted) {
+      document.getElementById('halt-banner').style.display = 'block';
+      document.getElementById('halt-reason').textContent = plan.risk.haltReason || 'Risk limit reached';
+    }
+
+    // Signal cards
+    const p = plan.prices || {};
+    renderCard('card-btc',  'BTC / Bitcoin', plan.signals?.btc,  p.btc);
+    renderCard('card-gold', 'GOLD / XAU',    plan.signals?.gold, p.gold);
+    renderCard('card-spx',  'SPX / S&P 500', plan.signals?.spx,  p.spx);
+
+    // Calendar
+    renderCalendar(plan.calendar || []);
+
+    // Setup health
+    renderHealth(plan.setupHealth || []);
+
+    // Screenshots
+    const ssGrid = document.getElementById('screenshot-grid');
+    ['btc','gold','spx'].forEach(sym => {
+      const img = document.getElementById('ss-' + sym);
+      if (img) {
+        const src = '/screenshots/' + sym + '_daily.png?t=' + Date.now();
+        fetch(src, { method: 'HEAD' }).then(r => {
+          if (r.ok) { img.src = src; ssGrid.style.display = 'grid'; }
+        }).catch(() => {});
+      }
+    });
+
+    document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('server-status').className = 'pill pill-red';
+    document.getElementById('server-status').innerHTML = '<span class="dot"></span> OFFLINE';
+  }
+}
+
+// Clock
+function tick() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}
+tick();
+setInterval(tick, 1000);
+
+// Load + auto-refresh
+loadPlan();
+setInterval(loadPlan, 30000);
+</script>
+</body>
+</html>

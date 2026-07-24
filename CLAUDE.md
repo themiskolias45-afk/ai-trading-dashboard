@@ -130,6 +130,11 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - Self-improve: python self_improve.py scan --save | propose
 - Daily auto-runner: python auto_runner.py (health + performance + web research + AI proposal)
 - Auto-runner runs automatically once per day at session start (flag in tasks/.auto_runner_YYYYMMDD)
+- Daily plan: python tv_daily_plan.py (signals + levels + calendar + TV screenshots → http://localhost:3001/daily-plan)
+- EOD review: python eod_review.py (today's trades → P&L + insight + notes — also auto-runs 10 PM UTC)
+- Setup health: GET http://localhost:3001/api/setup-health (which setups to take or avoid today)
+- Daily plan API: GET http://localhost:3001/api/daily-plan (structured JSON for all assets)
+- TV screenshots: node tv_screenshot.js [--4h] [--symbol btc|gold|spx] → dashboard/screenshots/
 
 ## How the vault stays healthy
 
