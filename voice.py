@@ -27,43 +27,83 @@ except ImportError:
     pass
 
 JARVIS_API_URL = "http://localhost:3001/api/chat"
-SAMPLE_RATE = 16000
-RECORD_SECONDS = 5
+SAMPLE_RATE    = 16000
+RECORD_SECONDS = 8     # wider window — gives more time to speak
+WHISPER_MODEL  = "base"
+MIN_AMPLITUDE  = 150   # int16 threshold; below = silence (mic not picking up)
+BOOST_FACTOR   = 3.0   # amplify quiet audio by this factor when --boost is set
 
 
-def record_audio(seconds=5, sample_rate=16000):
-    """Record audio from microphone. Returns path to temp WAV file."""
+def list_devices():
+    """Print available audio input devices and exit."""
     try:
         import sounddevice as sd
     except ImportError:
         print("sounddevice not installed. Run: pip install sounddevice")
-        return None
+        return
+    devices = sd.query_devices()
+    print("\nAvailable audio devices:")
+    print("-" * 60)
+    for i, d in enumerate(devices):
+        marker = " <-- DEFAULT INPUT" if i == sd.default.device[0] else ""
+        if d["max_input_channels"] > 0:
+            print(f"  [{i}] {d['name']}{marker}")
+    print("\nUse:  python voice.py --device N  to select a specific mic")
+    print("      python voice.py --device N --loop  for continuous mode\n")
+
+
+def record_audio(seconds=RECORD_SECONDS, sample_rate=SAMPLE_RATE,
+                 device=None, boost=False):
+    """Record from mic. Returns (path_to_wav, peak_amplitude)."""
+    try:
+        import sounddevice as sd
+    except ImportError:
+        print("sounddevice not installed. Run: pip install sounddevice")
+        return None, 0
 
     try:
         from scipy.io.wavfile import write as wav_write
     except ImportError:
         print("scipy not installed. Run: pip install scipy")
-        return None
+        return None, 0
 
     try:
         import numpy as np
     except ImportError:
         print("numpy not installed. Run: pip install numpy")
-        return None
+        return None, 0
 
-    print(f"Listening for {seconds}s...")
+    # Show which device is in use
+    dev_info = sd.query_devices(device, "input") if device is not None else sd.query_devices(sd.default.device[0], "input")
+    print(f"Listening ({seconds}s) via [{dev_info['name']}] ...")
 
     try:
         audio_data = sd.rec(
             int(seconds * sample_rate),
             samplerate=sample_rate,
             channels=1,
-            dtype="int16"
+            dtype="int16",
+            device=device,
         )
         sd.wait()
     except Exception as exc:
         print(f"Recording failed: {exc}")
-        return None
+        print("  Try:  python voice.py --list-devices   then  --device N")
+        return None, 0
+
+    peak = int(np.abs(audio_data).max())
+    print(f"  Peak level: {peak}  (min to transcribe: {MIN_AMPLITUDE})")
+
+    if peak < MIN_AMPLITUDE:
+        print("  ⚠ Audio too quiet — mic may be muted, wrong device, or volume too low.")
+        print("  → Run: python voice.py --list-devices   then pick a device with --device N")
+        print("  → Or use --boost to amplify weak input.")
+        return None, peak
+
+    if boost and peak > 0:
+        scale = min(BOOST_FACTOR, 32767 / peak)
+        audio_data = (audio_data.astype("float32") * scale).clip(-32768, 32767).astype("int16")
+        print(f"  Boost applied ({scale:.1f}x)")
 
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp_path = tmp.name
@@ -73,12 +113,12 @@ def record_audio(seconds=5, sample_rate=16000):
         wav_write(tmp_path, sample_rate, audio_data)
     except Exception as exc:
         print(f"Failed to write WAV: {exc}")
-        return None
+        return None, peak
 
-    return tmp_path
+    return tmp_path, peak
 
 
-def transcribe(audio_file):
+def transcribe(audio_file, model_size=WHISPER_MODEL):
     """Transcribe audio file using Whisper. Returns text string."""
     if audio_file is None:
         return ""
@@ -90,8 +130,8 @@ def transcribe(audio_file):
         return ""
 
     try:
-        model = whisper.load_model("base")
-        result = model.transcribe(audio_file)
+        model = whisper.load_model(model_size)
+        result = model.transcribe(audio_file, language="en")
         text = result.get("text", "").strip()
         return text
     except Exception as exc:
@@ -164,13 +204,17 @@ def ask_jarvis(question):
         return f"Request failed: {exc}"
 
 
-def listen_and_respond():
+def listen_and_respond(device=None, boost=False, model_size=WHISPER_MODEL):
     """Record, transcribe, detect hotword, query JARVIS, speak response."""
-    audio_path = record_audio(seconds=RECORD_SECONDS, sample_rate=SAMPLE_RATE)
-    transcript = transcribe(audio_path)
+    audio_path, peak = record_audio(seconds=RECORD_SECONDS, sample_rate=SAMPLE_RATE,
+                                    device=device, boost=boost)
+    if not audio_path:
+        return  # record_audio already printed the diagnostic
+
+    transcript = transcribe(audio_path, model_size=model_size)
 
     if not transcript:
-        print("(No speech detected)")
+        print("(No speech detected after transcription — try speaking louder or --boost)")
         return
 
     print(f"Heard: {transcript}")
@@ -204,6 +248,30 @@ def listen_and_respond():
 def main():
     args = sys.argv[1:]
 
+    # Flags
+    boost       = "--boost" in args
+    do_loop     = "--loop" in args
+
+    device = None
+    if "--device" in args:
+        idx = args.index("--device")
+        if idx + 1 < len(args):
+            try:
+                device = int(args[idx + 1])
+            except ValueError:
+                print("--device requires a number. Use --list-devices to see options.")
+                return
+
+    model_size = WHISPER_MODEL
+    if "--model" in args:
+        idx = args.index("--model")
+        if idx + 1 < len(args):
+            model_size = args[idx + 1]  # base | small | medium | large
+
+    if "--list-devices" in args:
+        list_devices()
+        return
+
     if "--tts" in args:
         idx = args.index("--tts")
         if idx + 1 < len(args):
@@ -212,18 +280,19 @@ def main():
             print("Usage: python voice.py --tts \"text to speak\"")
         return
 
-    if "--loop" in args:
+    if do_loop:
         print("JARVIS voice loop active. Say 'JARVIS <command>'. Ctrl+C to stop.")
+        print("Tips: --boost (amplify quiet mic) | --device N (select mic) | --model small (more accurate)")
         try:
             while True:
-                listen_and_respond()
+                listen_and_respond(device=device, boost=boost, model_size=model_size)
                 time.sleep(0.5)
         except KeyboardInterrupt:
             print("\nVoice loop stopped.")
         return
 
     # Single-shot mode
-    listen_and_respond()
+    listen_and_respond(device=device, boost=boost, model_size=model_size)
 
 
 if __name__ == "__main__":
