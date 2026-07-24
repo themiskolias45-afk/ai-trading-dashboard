@@ -1839,10 +1839,12 @@ app.post("/api/claude-approve-trade", async (req, res) => {
 
   try {
     const msg = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001", max_tokens: 120,
+      model: "claude-opus-4-8",
+      max_tokens: 1200,
+      thinking: { type: "enabled", budget_tokens: 800 },
       messages: [{ role: "user", content: prompt }]
     });
-    const text = msg.content?.[0]?.text ?? "";
+    const text = (msg.content ?? []).find(b => b.type === "text")?.text ?? "";
     const match = text.match(/\{[\s\S]*\}/);
     const parsed = match ? JSON.parse(match[0]) : null;
     const approved = parsed?.approved ?? true;
@@ -1908,11 +1910,13 @@ app.post("/api/ai-brain", async (req, res) => {
       `Be specific with prices. Institutional quality.`;
 
     const msg = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
+      model: "claude-opus-4-8",
+      max_tokens: 1000,
+      thinking: { type: "enabled", budget_tokens: 500 },
       messages: [{ role: "user", content: prompt }]
     });
-    return { key, analysis: msg.content?.[0]?.text ?? null };
+    const analysis = (msg.content ?? []).find(b => b.type === "text")?.text ?? null;
+    return { key, analysis };
   }));
 
   const out = { elapsed: Date.now() - start };

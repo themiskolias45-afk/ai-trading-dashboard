@@ -128,6 +128,8 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - Daily notes: python daily_notes.py today | auto | log "text"
 - Error check: python check_errors.py (full stack check)
 - Self-improve: python self_improve.py scan --save | propose
+- Daily auto-runner: python auto_runner.py (health + performance + web research + AI proposal)
+- Auto-runner runs automatically once per day at session start (flag in tasks/.auto_runner_YYYYMMDD)
 
 ## How the vault stays healthy
 
