@@ -15,7 +15,8 @@
       "mcp__memory__*",
       "mcp__brave-search__*",
       "mcp__puppeteer__*",
-      "mcp__exa__*"
+      "mcp__exa__*",
+      "mcp__smartentry__*"
     ],
     "deny": []
   },
@@ -62,6 +63,10 @@
       "env": {
         "PUPPETEER_LAUNCH_OPTIONS": "{\"headless\":false,\"executablePath\":\"C:\\\\Program Files (x86)\\\\Microsoft\\\\Edge\\\\Application\\\\msedge.exe\",\"userDataDir\":\"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Microsoft\\\\Edge\\\\SmartEntryTV\",\"args\":[\"--start-maximized\",\"--no-first-run\"]}"
       }
+    },
+    "smartentry": {
+      "command": "node",
+      "args": ["C:/Users/User/ai-trading-dashboard/server/mcp_server.js"]
     }
   },
 
