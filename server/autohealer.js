@@ -1,7 +1,8 @@
 'use strict';
-const fs   = require('fs');
-const path = require('path');
-const http = require('http');
+const fs    = require('fs');
+const path  = require('path');
+const http  = require('http');
+const https = require('https');
 
 // ── Self-healing watchdog for SmartEntry Pro ────────────────────────────────
 // Monitors internal state every 30s. Detects stale data, failed fetches,
@@ -370,7 +371,7 @@ function sendAlert(message) {
     headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
   };
 
-  const req = http.request(opts, (res) => {
+  const req = https.request(opts, (res) => {
     if (res.statusCode !== 200) {
       logError(`Telegram alert failed: HTTP ${res.statusCode}`);
     }

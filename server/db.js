@@ -188,7 +188,7 @@ function insertTrade(trade) {
       target:     trade.target     ?? null,
       size:       trade.size       ?? null,
       confidence: trade.confidence ?? null,
-      opened_at:  trade.opened_at  ?? new Date().toISOString(),
+      opened_at:  trade.openTime ?? trade.opened_at ?? new Date().toISOString(),
       closed_at:  trade.closed_at  ?? null,
       pnl:        trade.pnl        ?? null,
       outcome:    trade.outcome    ?? null,

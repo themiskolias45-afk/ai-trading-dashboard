@@ -198,26 +198,27 @@ const TOOLS = [
         `/api/journal?limit=500`,
       ]);
 
-      const trades = Array.isArray(journal) ? journal : [];
+      const raw    = journal;
+      const trades = Array.isArray(raw) ? raw : Array.isArray(raw?.journal) ? raw.journal : [];
       const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-      const recent = trades.filter(t => (t.opened_at || '') >= cutoff);
+      const recent = trades.filter(t => (t.opened_at || t.openTime || '') >= cutoff);
 
-      const wins   = recent.filter(t => t.outcome === 'WIN').length;
-      const losses = recent.filter(t => t.outcome === 'LOSS').length;
+      const wins   = recent.filter(t => t.pnl > 0).length;
+      const losses = recent.filter(t => t.pnl < 0).length;
       const total  = wins + losses;
       const pnls   = recent.map(t => t.pnl ?? 0);
       const grossPnl = pnls.reduce((a, b) => a + b, 0);
 
-      const winPnls  = recent.filter(t => t.outcome === 'WIN').map(t => t.pnl ?? 0);
-      const lossPnls = recent.filter(t => t.outcome === 'LOSS').map(t => t.pnl ?? 0);
+      const winPnls  = recent.filter(t => t.pnl > 0).map(t => t.pnl ?? 0);
+      const lossPnls = recent.filter(t => t.pnl < 0).map(t => t.pnl ?? 0);
       const avgWin   = winPnls.length ? winPnls.reduce((a, b) => a + b, 0) / winPnls.length : 0;
       const avgLoss  = lossPnls.length ? lossPnls.reduce((a, b) => a + b, 0) / lossPnls.length : 0;
 
       // Max streak
       let maxWinStreak = 0, maxLossStreak = 0, curW = 0, curL = 0;
       for (const t of recent) {
-        if (t.outcome === 'WIN')  { curW++; curL = 0; maxWinStreak  = Math.max(maxWinStreak,  curW); }
-        if (t.outcome === 'LOSS') { curL++; curW = 0; maxLossStreak = Math.max(maxLossStreak, curL); }
+        if (t.pnl > 0) { curW++; curL = 0; maxWinStreak  = Math.max(maxWinStreak,  curW); }
+        if (t.pnl < 0) { curL++; curW = 0; maxLossStreak = Math.max(maxLossStreak, curL); }
       }
 
       return {
@@ -322,9 +323,10 @@ const TOOLS = [
       const wr     = total ? Math.round((st.wins || 0) / total * 100) : null;
 
       // Recent trades
-      const trades = Array.isArray(journal) ? journal : [];
-      const recentW = trades.filter(t => t.outcome === 'WIN').length;
-      const recentL = trades.filter(t => t.outcome === 'LOSS').length;
+      const rawJ = journal;
+      const trades = Array.isArray(rawJ) ? rawJ : Array.isArray(rawJ?.journal) ? rawJ.journal : [];
+      const recentW = trades.filter(t => t.pnl > 0).length;
+      const recentL = trades.filter(t => t.pnl < 0).length;
 
       // R:R
       let rr = 0;

@@ -1176,9 +1176,15 @@ app.post("/api/trade-closed", (req, res) => {
   res.json({ ok: true });
 });
 
-// Trade journal (last 50 entries)
-app.get("/api/journal", (_, res) => {
-  res.json({ journal: tradeJournal.slice(0, 50) });
+// Trade journal with optional filtering
+app.get("/api/journal", (req, res) => {
+  const limit   = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+  const symbol  = (req.query.symbol  || "").toUpperCase();
+  const outcome = (req.query.outcome || "").toUpperCase();
+  let entries = tradeJournal;
+  if (symbol)  entries = entries.filter(t => (t.symbol  || "").toUpperCase() === symbol);
+  if (outcome) entries = entries.filter(t => (t.outcome || "").toUpperCase() === outcome);
+  res.json({ journal: entries.slice(0, limit) });
 });
 
 // Self-learning state
@@ -1254,7 +1260,7 @@ app.get("/api/checksystem", (_, res) => {
     server:      { port: PORT, uptime: Math.round(process.uptime()), healthy: true },
     signals:     { btc: signalCache.btc?.signal, gold: signalCache.gold?.signal, spx: signalCache.spx?.signal, updatedAt: signalCache.updatedAt },
     risk:        riskStatus,
-    mode:        { modeOverride: typeof modeOverride !== "undefined" ? modeOverride : null },
+    mode:        { modeOverride: null },
     performance: { trades: closed.length, wins, winRate: closed.length > 0 ? parseFloat((wins / closed.length * 100).toFixed(1)) : null, totalPnl: parseFloat(totalPnl.toFixed(2)), recentLosses },
     learning:    { sessionCount: learning.sessionCount, setupsTracked: Object.keys(learning.setupStats).length, setupHealth },
     calibration,
