@@ -124,6 +124,111 @@ def _calc_rr(direction: str, entry: float, stop: float, target: float) -> float:
         return 0.0
 
 
+# ─── Market context fetcher ───────────────────────────────────────────────────
+
+def _normalize_symbol_key(symbol: str) -> str:
+    s = symbol.lower().replace("-", "").replace("_", "").replace("/", "")
+    if s in ("btc", "bitcoin", "btcusd", "btcusdt"):
+        return "btc"
+    if s in ("gold", "xauusd", "gcf", "xau"):
+        return "gold"
+    if s in ("spx", "spy", "sp500", "spx500", "gspc"):
+        return "spx"
+    return s
+
+
+def _fetch_market_context(symbol: str) -> dict:
+    """Fetch full signal + macro data from SmartEntry Pro server."""
+    import urllib.request
+    sym_key = _normalize_symbol_key(symbol)
+    ctx: dict = {"sym_key": sym_key, "signal": {}, "dxy": None, "dxyChange": None, "vix": None,
+                 "setup_stats": {}, "cross": {}}
+    try:
+        with urllib.request.urlopen("http://localhost:3001/api/signals", timeout=5) as r:
+            signals = json.loads(r.read().decode())
+            ctx["signal"] = signals.get(sym_key, {}) or {}
+            # grab cross-asset signals for gate context
+            for k in ("btc", "gold", "spx"):
+                if k != sym_key:
+                    ctx["cross"][k] = signals.get(k, {}).get("signal", "WAIT")
+    except Exception:
+        pass
+    try:
+        with urllib.request.urlopen("http://localhost:3001/api/prices", timeout=5) as r:
+            prices = json.loads(r.read().decode())
+            ctx["dxy"]       = prices.get("dxy")
+            ctx["dxyChange"] = prices.get("dxyChange")
+            ctx["vix"]       = prices.get("vix")
+    except Exception:
+        pass
+    try:
+        with urllib.request.urlopen("http://localhost:3001/api/learning", timeout=5) as r:
+            learning = json.loads(r.read().decode())
+            setup = ctx["signal"].get("setup", "")
+            ctx["setup_stats"] = (learning.get("setupStats") or {}).get(setup, {}) or {}
+    except Exception:
+        pass
+    return ctx
+
+
+def _build_context_str(symbol: str, direction: str, entry: float, stop: float,
+                        target: float, rr: float, confidence: float, ctx: dict) -> str:
+    sig  = ctx.get("signal", {}) or {}
+    ind  = sig.get("indicators", {}) or {}
+    bb   = ind.get("bb", {}) or {}
+    macd = ind.get("macd", {}) or {}
+    h4   = sig.get("h4") or {}
+    h1   = sig.get("h1") or {}
+    vol  = sig.get("volume", {}) or {}
+    pivs = sig.get("pivots") or {}
+    ss   = ctx.get("setup_stats", {}) or {}
+    cross = ctx.get("cross", {})
+
+    ema200 = ind.get("ema200")
+    price_vs_ema = "ABOVE" if ema200 and entry > ema200 else "BELOW" if ema200 else "N/A"
+
+    setup_line = "No history."
+    if ss:
+        w = ss.get("wins", 0); l = ss.get("losses", 0); tot = w + l
+        wr = round(w / max(tot, 1) * 100, 1)
+        setup_line = f"{sig.get('setup','?')}: {tot} trades | {wr}% WR | avg R:R {ss.get('avgRR', 'N/A')}"
+
+    pivot_line = (f"R2:{pivs.get('r2','?')} R1:{pivs.get('r1','?')} "
+                  f"PP:{pivs.get('pp','?')} S1:{pivs.get('s1','?')} S2:{pivs.get('s2','?')}"
+                  if pivs else "N/A")
+
+    cross_line = " | ".join(f"{k.upper()}={v}" for k, v in cross.items()) or "N/A"
+
+    reasons = "\n  ".join(sig.get("reasons", [])[:10]) or "none"
+
+    return (
+        f"=== FULL MARKET PICTURE: {symbol} ===\n"
+        f"SIGNAL:     {direction.upper()} | Confidence: {confidence}% | R:R {rr}:1\n"
+        f"TRADE:      Entry: {entry} | Stop: {stop} | Target: {target}\n\n"
+        f"DAILY TECHNICALS\n"
+        f"  Trend:    {sig.get('trend','N/A')} | Regime: {sig.get('regime','N/A')} | Setup: {sig.get('setup','N/A')}\n"
+        f"  RSI(14):  {ind.get('rsi','N/A')}\n"
+        f"  MACD:     value={macd.get('value','N/A')} signal={macd.get('signal','N/A')} hist={macd.get('histogram','N/A')}\n"
+        f"  BB:       bandwidth={bb.get('bandwidth','N/A')}% upper={bb.get('upper','N/A')} lower={bb.get('lower','N/A')}\n"
+        f"  EMA200:   {ema200 if ema200 else 'N/A'} | Price {price_vs_ema} EMA200\n"
+        f"  Volume:   ratio={vol.get('ratio','N/A')}x | confirmed={vol.get('confirmed',False)}\n\n"
+        f"TIMEFRAMES\n"
+        f"  4H:  signal={h4.get('signal','N/A')} trend={h4.get('trend','N/A')} RSI={h4.get('rsi','N/A')}\n"
+        f"  1H:  signal={h1.get('signal','N/A')} trend={h1.get('trend','N/A')} RSI={h1.get('rsi','N/A')}\n\n"
+        f"MACRO\n"
+        f"  DXY:  {ctx.get('dxy','N/A')} (change: {ctx.get('dxyChange','N/A')}%)\n"
+        f"  VIX:  {ctx.get('vix','N/A')}\n\n"
+        f"CROSS-ASSET SIGNALS\n"
+        f"  {cross_line}\n\n"
+        f"PIVOT LEVELS\n"
+        f"  {pivot_line}\n\n"
+        f"SETUP HISTORY\n"
+        f"  {setup_line}\n\n"
+        f"SYSTEM REASONING\n"
+        f"  {reasons}"
+    )
+
+
 # ─── Core debate function ─────────────────────────────────────────────────────
 
 def debate_signal(
@@ -133,9 +238,11 @@ def debate_signal(
     entry: float,
     stop: float,
     target: float,
+    market_data: dict = None,
 ) -> dict:
     """
     Run Bull, Bear, and Risk Manager agents in parallel to debate a signal.
+    Fetches full market data from server so agents reason on real technicals.
 
     Returns:
         {
@@ -157,39 +264,40 @@ def debate_signal(
     """
     rr = _calc_rr(direction, entry, stop, target)
 
-    signal_summary = (
-        f"Symbol: {symbol} | Direction: {direction.upper()} | "
-        f"Confidence: {confidence}% | Entry: {entry} | Stop: {stop} | "
-        f"Target: {target} | R:R = {rr}:1"
-    )
+    ctx = market_data if isinstance(market_data, dict) else _fetch_market_context(symbol)
+    context_str = _build_context_str(symbol, direction, entry, stop, target, rr, confidence, ctx)
 
     bull_prompt = (
-        "You are a bull-biased trading analyst. "
-        "Find every reason this trade SHOULD be taken. "
-        f"Signal: {signal_summary}. "
-        "Make the bull case in 5 bullet points covering: trend alignment, momentum, "
-        "key support/resistance, pattern confirmation, and timing. "
+        "You are a bull-biased trading analyst with access to the full market picture. "
+        "Your job: find every REAL reason this trade SHOULD be taken, grounded in the actual data below.\n\n"
+        f"{context_str}\n\n"
+        "Make the bull case in 5 bullet points. Use the actual RSI, MACD, BB, trend, "
+        "volume, timeframe alignment, and pivot levels shown above — no generic statements. "
+        "Address the cross-asset signals and macro picture. "
         "End your response with exactly: VERDICT: TAKE or VERDICT: SKIP"
     )
 
     bear_prompt = (
-        "You are a bear-biased trading analyst and skeptic. "
-        "Find every reason this trade should NOT be taken. "
-        f"Signal: {signal_summary}. "
-        "Make the bear case in 5 bullet points covering: trend risk, "
-        "counter-signals, key resistance/support threats, macro headwinds, "
-        "and timing concerns. "
+        "You are a bear-biased trading analyst and skeptic with access to the full market picture. "
+        "Your job: find every REAL reason this trade should NOT be taken, based on the actual data below.\n\n"
+        f"{context_str}\n\n"
+        "Make the bear case in 5 bullet points. Use the actual RSI, MACD, BB bandwidth, "
+        "trend vs timeframe conflicts, volume, macro headwinds, and pivot resistance shown above. "
+        "Do not invent risks — point to real signals in the data. "
         "End your response with exactly: VERDICT: TAKE or VERDICT: SKIP"
     )
 
     risk_prompt = (
-        "You are a risk manager. Evaluate this signal purely on risk/reward and "
-        "capital preservation. "
-        f"Signal: {signal_summary}. "
+        "You are a risk manager evaluating this trade on structural safety. "
+        "You have the full market picture below — use it.\n\n"
+        f"{context_str}\n\n"
+        "Evaluate in 5 bullet points: "
+        "(1) R:R adequacy vs the actual pivot levels and volatility (BB bandwidth), "
+        "(2) stop placement quality relative to key S/R and ATR, "
+        "(3) whether regime and VIX support this risk size, "
+        "(4) cross-asset alignment — are other markets confirming or diverging, "
+        "(5) setup history win rate — does the track record justify the risk? "
         f"R:R = {rr}:1. Account risk = 1% per trade. "
-        "Check whether the trade is structurally safe regardless of directional bias. "
-        "Evaluate in 5 bullet points: R:R adequacy, stop placement quality, "
-        "position sizing feasibility, drawdown scenario, and max adverse excursion risk. "
         "End your response with exactly: VERDICT: TAKE or VERDICT: SKIP"
     )
 

@@ -572,6 +572,48 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     daily.reasons.push(`⚠ VIX ${priceCache.vix} elevated — risk-off environment`);
   }
 
+  // Cross-asset confirmation gate — uses previous-cycle cache (always available)
+  {
+    const spxSig = signalCache.spx?.signal;
+    const btcSig = signalCache.btc?.signal;
+    const dxyChg = priceCache.dxyChange ?? 0;
+
+    if (ticker === "BTC-USD") {
+      if (finalSignal === "BUY" && spxSig === "SELL") {
+        confidence = Math.max(0, confidence - 12);
+        daily.reasons.push(`⚠ Cross-asset: SPX is SELL — risk-off headwind for BTC`);
+      } else if (finalSignal === "BUY" && spxSig === "BUY") {
+        confidence = Math.min(100, confidence + 5);
+        daily.reasons.push(`✅ Cross-asset: SPX confirms BUY — risk-on tailwind`);
+      }
+    }
+
+    if (ticker === "GC=F") {
+      if (finalSignal === "BUY" && dxyChg > 0.5) {
+        confidence = Math.max(0, confidence - 10);
+        daily.reasons.push(`⚠ Cross-asset: DXY +${dxyChg.toFixed(1)}% — rising dollar headwind for Gold`);
+      } else if (finalSignal === "BUY" && dxyChg < -0.3) {
+        confidence = Math.min(100, confidence + 5);
+        daily.reasons.push(`✅ Cross-asset: DXY ${dxyChg.toFixed(1)}% — falling dollar tailwind for Gold`);
+      }
+      // Safe-haven boost when risk assets are both selling
+      if (btcSig === "SELL" && spxSig === "SELL") {
+        confidence = Math.min(100, confidence + 8);
+        daily.reasons.push(`✅ Cross-asset: Risk-off (BTC+SPX SELL) — safe haven demand for Gold`);
+      }
+    }
+
+    if (ticker === "SPY") {
+      if (finalSignal === "BUY" && btcSig === "BUY") {
+        confidence = Math.min(100, confidence + 5);
+        daily.reasons.push(`✅ Cross-asset: BTC also BUY — broad risk-on alignment`);
+      } else if (finalSignal === "BUY" && btcSig === "SELL") {
+        confidence = Math.max(0, confidence - 8);
+        daily.reasons.push(`⚠ Cross-asset: BTC diverging SELL while SPY buying — caution`);
+      }
+    }
+  }
+
   // Pivots from last completed daily candle
   const n = dailyData.closes.length;
   const pivots = n >= 2 ? calcPivots(dailyData.highs[n - 2], dailyData.lows[n - 2], dailyData.closes[n - 2]) : null;

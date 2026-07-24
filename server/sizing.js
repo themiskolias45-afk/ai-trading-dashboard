@@ -89,8 +89,13 @@ function calcSize(opts) {
       learningStats.avgWin,
       learningStats.avgLoss
     );
-    riskPct = Math.min(riskPct, kellyFraction);
-    reasoningParts.push(`Kelly adjustment applied (${learningStats.tradeCount} trades): capped at ${(kellyFraction * 100).toFixed(2)}%`);
+    // Kelly scales bidirectionally — up when system is hot, down when it's cold.
+    // Constrained to 0.5x–2x of the pre-Kelly risk so single trade never blows out.
+    const preKellyRisk = riskPct;
+    const kellyTarget  = Math.min(Math.max(kellyFraction, preKellyRisk * 0.5), preKellyRisk * 2.0);
+    riskPct = kellyTarget;
+    const kellyDir = kellyFraction > preKellyRisk ? 'scaled UP' : kellyFraction < preKellyRisk ? 'scaled DOWN' : 'unchanged';
+    reasoningParts.push(`Kelly (${learningStats.tradeCount} trades): f=${(kellyFraction * 100).toFixed(2)}% → ${kellyDir} to ${(kellyTarget * 100).toFixed(2)}%`);
   }
 
   riskPct = Math.min(riskPct, MAX_SINGLE_TRADE_RISK);
