@@ -1017,6 +1017,28 @@ app.get("/api/alerts",   (_, res) => res.json({ alerts: tvAlerts }));
 app.get("/api/congress", async (_, res) => { if (!congressCache) await fetchCongress(); res.json(congressCache ?? { data: [] }); });
 app.get("/api/flow",     async (_, res) => { if (!flowCache)     await fetchFlow();     res.json(flowCache     ?? { data: [] }); });
 
+// Prices endpoint (live priceCache snapshot)
+app.get("/api/prices", (_, res) => res.json(priceCache));
+
+// Manual trade queue — bridge polls this to pick up trades queued from dashboard
+let manualTradeQueue = [];
+app.get("/api/manual-trade/pending",  (_, res) => res.json({ trades: manualTradeQueue }));
+app.post("/api/manual-trade/queue",   (req, res) => {
+  const trade = req.body;
+  if (!trade || !trade.symbol) return res.status(400).json({ error: "symbol required" });
+  trade.queuedAt = new Date().toISOString();
+  manualTradeQueue.push(trade);
+  console.log(`[manual] Trade queued: ${trade.symbol} ${trade.direction}`);
+  res.json({ ok: true, queued: manualTradeQueue.length });
+});
+app.post("/api/manual-trade/clear",   (_, res) => { manualTradeQueue = []; res.json({ ok: true }); });
+app.delete("/api/manual-trade/:idx",  (req, res) => {
+  const idx = parseInt(req.params.idx, 10);
+  if (isNaN(idx) || idx < 0 || idx >= manualTradeQueue.length) return res.status(400).json({ error: "invalid index" });
+  manualTradeQueue.splice(idx, 1);
+  res.json({ ok: true, remaining: manualTradeQueue.length });
+});
+
 // MT5 bridge endpoints
 app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions }));
 app.post("/api/mt5/positions", (req, res) => {

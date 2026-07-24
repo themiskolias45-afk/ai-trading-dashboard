@@ -368,10 +368,7 @@ function renderHealth(alerts) {
 
 async function loadPlan() {
   try {
-    const [plan, prices] = await Promise.all([
-      fetch(BASE + '/api/daily-plan').then(r => r.json()),
-      fetch(BASE + '/api/prices').then(r => r.json()).catch(() => ({})),
-    ]);
+    const plan = await fetch(BASE + '/api/daily-plan').then(r => r.json());
 
     // Date bar
     document.getElementById('plan-date').textContent = 'Daily Plan — ' + plan.date;
