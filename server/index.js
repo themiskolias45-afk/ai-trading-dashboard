@@ -360,23 +360,42 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     reasons.push(`Volume ${volRatio}x avg — institutional buying confirmed`);
   }
 
-  // ── MOMENTUM: all EMAs aligned + MACD cross + volume ─────────
+  // ── MOMENTUM: all EMAs aligned + MACD bullish (no longer requires fresh cross or volume spike)
   else if (
     inUptrend &&
     aboveEma50 && aboveEma20 &&
-    rsi !== null && rsi > 52 && rsi < 70 &&
-    macd?.crossed &&
-    volConfirmed
+    rsi !== null && rsi > 52 && rsi < 72 &&
+    macd?.bullish
   ) {
     setup  = "MOMENTUM";
     signal = "BUY";
     const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
     stop   = sl;
     target = parseFloat((entry + Math.abs(entry - sl) * 2.0).toFixed(2));
-    strength = (rsi > 58 && volRatio !== null && volRatio >= 1.8) ? "STRONG" : "MODERATE";
-    reasons.push(`All EMAs aligned — momentum structure`);
-    reasons.push(`MACD bullish crossover — fresh momentum signal`);
-    reasons.push(`Volume ${volRatio}x avg — institutional participation`);
+    strength = (macd.crossed || (volRatio !== null && volRatio >= 1.8)) ? "STRONG" : rsi > 60 ? "MODERATE" : "NONE";
+    reasons.push(`All EMAs aligned — trend structure intact`);
+    reasons.push(`MACD bullish${macd.crossed ? " — fresh crossover" : ""} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
+    if (volConfirmed) reasons.push(`Volume ${volRatio}x avg — institutional participation`);
+    else reasons.push(`Volume ${volRatio ?? "?"}x avg (monitoring for breakout confirmation)`);
+  }
+
+  // ── TREND_FOLLOW: price in uptrend above all EMAs, MACD bullish — trend continuation ──
+  else if (
+    (inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20) &&
+    rsi !== null && rsi > 45 && rsi < 68 &&
+    macd?.bullish &&
+    ema200 && price > ema200 * 1.005
+  ) {
+    setup  = "TREND_FOLLOW";
+    signal = "BUY";
+    const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((ema20 * 0.99).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry + Math.abs(entry - sl) * 2.0).toFixed(2));
+    strength = (volConfirmed && rsi > 55) ? "STRONG" : rsi > 52 ? "MODERATE" : "NONE";
+    reasons.push(`Above EMA200/50/20 — structural uptrend intact`);
+    reasons.push(`RSI ${rsi} — not extended, room to run`);
+    reasons.push(`MACD bullish — momentum aligned with trend`);
+    if (volConfirmed) reasons.push(`Volume ${volRatio}x avg — participation confirmed`);
   }
 
   // ── RANGE_TRADE_LONG: buy BB lower in ranging/squeeze market ─────
