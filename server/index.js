@@ -775,7 +775,7 @@ async function fetchPrices() {
       axios.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
         { timeout: 8000, headers: { "User-Agent": "SmartEntry/12.0" } }),
       yahooPrice("GC=F"),
-      yahooPrice("SPY"),
+      yahooPrice("^GSPC"),
       yahooPrice("DX-Y.NYB"),
       yahooPrice("^VIX")
     ]);
@@ -788,7 +788,7 @@ async function fetchPrices() {
     if (dxyRes.status  === "fulfilled") { priceCache.dxy  = dxyRes.value.price;  priceCache.dxyChange  = dxyRes.value.change; }
     if (vixRes.status  === "fulfilled") { priceCache.vix  = vixRes.value.price; }
     priceCache.updated = new Date().toISOString();
-    console.log(`[prices] BTC $${priceCache.btc} | Gold $${priceCache.gold} | SPY $${priceCache.spx} | DXY ${priceCache.dxy} | VIX ${priceCache.vix}`);
+    console.log(`[prices] BTC $${priceCache.btc} | Gold $${priceCache.gold} | SP500 $${priceCache.spx} | DXY ${priceCache.dxy} | VIX ${priceCache.vix}`);
   } catch (e) { console.error("fetchPrices:", e.message); }
 }
 
@@ -797,7 +797,7 @@ async function refreshSignals() {
   const assets = [
     { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
     { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
-    { key: "spx",  label: "S&P500/SPY", symbol: "SPY"     }
+    { key: "spx",  label: "S&P500",     symbol: "^GSPC"   }
   ];
   // Fetch DXY daily candles once — used by Gold DIVERGENCE setup
   let dxyDailyCloses = null;
@@ -948,7 +948,7 @@ function planToTelegram(plan) {
   msg += `📊 <b>Markets</b>\n`;
   msg += `BTC:  $${markets.btc.price?.toLocaleString()} (${markets.btc.change > 0 ? "+" : ""}${markets.btc.change ?? 0}%) — <b>${markets.btc.bias}</b>\n`;
   msg += `Gold: $${markets.gold.price?.toLocaleString()} (${markets.gold.change > 0 ? "+" : ""}${markets.gold.change ?? 0}%) — <b>${markets.gold.bias}</b>\n`;
-  msg += `SPY:  $${markets.spx.price?.toLocaleString()} (${markets.spx.change > 0 ? "+" : ""}${markets.spx.change ?? 0}%) — <b>${markets.spx.bias}</b>\n\n`;
+  msg += `SP500: $${markets.spx.price?.toLocaleString()} (${markets.spx.change > 0 ? "+" : ""}${markets.spx.change ?? 0}%) — <b>${markets.spx.bias}</b>\n\n`;
 
   if (signals?.btc  && signals.btc.signal  !== "WAIT") msg += signalToTelegram(signals.btc)  + "\n";
   if (signals?.gold && signals.gold.signal !== "WAIT") msg += signalToTelegram(signals.gold) + "\n";
@@ -967,7 +967,7 @@ async function handleMessage(message) {
   const cmds = {
     "/start": async () => sendTelegram(chatId,
       "✅ <b>SmartEntry Pro v9 active</b>\n\n" +
-      "/plan — full daily plan with entries\n/btc — BTC signal + entry\n/gold — Gold signal + entry\n/spx — SPY signal\n/signals — refresh all signals\n/daily — price summary"
+      "/plan — full daily plan with entries\n/btc — BTC signal + entry\n/gold — Gold signal + entry\n/spx — SP500 signal\n/signals — refresh all signals\n/daily — price summary"
     ),
     "/plan": async () => {
       if (!dailyPlan) generateDailyPlan();
@@ -1947,7 +1947,7 @@ app.get("/api/backtest", async (req, res) => {
   const assets = [
     { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
     { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
-    { key: "spx",  label: "S&P500/SPY", symbol: "SPY"     }
+    { key: "spx",  label: "S&P500",     symbol: "^GSPC"   }
   ];
   const out = { years, runAt: new Date().toISOString() };
   for (const a of assets) {

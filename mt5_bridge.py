@@ -48,7 +48,7 @@ AUTO_MODE      = "--auto" in sys.argv
 SYMBOL_CANDIDATES = {
     "BTC-USD": ["BTCUSD", "BTC/USD", "BITCOIN", "BTCUSDT"],
     "GC=F":    ["XAUUSD", "GOLD", "XAUUSDm", "GOLDm"],
-    "SPY":     ["SP500", "US500", "SPX500", "SPY", "US.500"],
+    "^GSPC":   ["SP500", "US500", "SPX500", "US.500", "SPY"],
 }
 
 # Resolved at startup by auto_detect_symbols()
@@ -382,7 +382,7 @@ def report_positions():
 def print_status(signals):
     now   = datetime.now().strftime("%H:%M:%S")
     parts = []
-    for k, label in [("btc", "BTC"), ("gold", "Gold"), ("spx", "SPY")]:
+    for k, label in [("btc", "BTC"), ("gold", "Gold"), ("spx", "SP500")]:
         s = signals.get(k)
         if s:
             sig = s.get("signal", "?")
