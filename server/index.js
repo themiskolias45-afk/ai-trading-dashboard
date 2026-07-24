@@ -48,6 +48,7 @@ const uwHeaders      = { Authorization: `Bearer ${UW_API_KEY}`, Accept: "applica
 // ── State ─────────────────────────────────────────────────────
 let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, spx: null, spxChange: null, dxy: null, dxyChange: null, vix: null, updated: null };
 let signalCache   = { btc: null, gold: null, spx: null, updatedAt: null };
+let signalHistory = [];   // last 100 signal cycles — full confidence + reasons per asset
 let dailyPlan     = null;
 let tvAlerts      = [];
 let congressCache = null;
@@ -825,6 +826,14 @@ async function refreshSignals() {
     }
   }));
   signalCache.updatedAt = new Date().toISOString();
+  // Record this cycle to history so the command center can show what happened
+  signalHistory.unshift({
+    t: signalCache.updatedAt,
+    btc:  signalCache.btc  ? { s: signalCache.btc.signal,  c: signalCache.btc.confidence,  regime: signalCache.btc.regime,  setup: signalCache.btc.setup,  reasons: (signalCache.btc.reasons  || []).slice(0,6), entry: signalCache.btc.entry,  stop: signalCache.btc.stop,  target: signalCache.btc.target  } : null,
+    gold: signalCache.gold ? { s: signalCache.gold.signal, c: signalCache.gold.confidence, regime: signalCache.gold.regime, setup: signalCache.gold.setup, reasons: (signalCache.gold.reasons || []).slice(0,6), entry: signalCache.gold.entry, stop: signalCache.gold.stop, target: signalCache.gold.target } : null,
+    spx:  signalCache.spx  ? { s: signalCache.spx.signal,  c: signalCache.spx.confidence,  regime: signalCache.spx.regime,  setup: signalCache.spx.setup,  reasons: (signalCache.spx.reasons  || []).slice(0,6), entry: signalCache.spx.entry,  stop: signalCache.spx.stop,  target: signalCache.spx.target  } : null,
+  });
+  if (signalHistory.length > 100) signalHistory.length = 100;
   refreshAnalysis();
 }
 
@@ -1025,7 +1034,8 @@ app.post("/api/shutdown", (_, res) => {
   setTimeout(() => process.exit(0), 400);
 });
 app.get("/api/health",  (_, res) => res.json({ ok: true, version: 9, ts: Date.now(), healer: autohealer.getStatus() }));
-app.get("/api/signals", (_, res) => res.json(signalCache));
+app.get("/api/signals",        (_, res) => res.json(signalCache));
+app.get("/api/signal-history", (_, res) => res.json({ history: signalHistory.slice(0, 50) }));
 app.get("/api/plan",    (_, res) => {
   if (!dailyPlan) generateDailyPlan();
   res.json(dailyPlan);
@@ -1436,8 +1446,8 @@ cron.schedule("0 7 * * *", async () => {
   console.log("[cron] 7:00 AM — plan sent");
 });
 
-// Every 4 hours — refresh signals (catches intraday setups)
-cron.schedule("0 */4 * * *", async () => {
+// Every 30 min — refresh signals (4h was too slow; catches intraday setups and regime changes)
+cron.schedule("*/30 * * * *", async () => {
   await fetchPrices();
   await refreshSignals();
   generateDailyPlan();
@@ -2001,7 +2011,7 @@ app.post("/api/claude-approve-trade", async (req, res) => {
 
   try {
     const msg = await anthropic.messages.create({
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
       max_tokens: 1200,
       thinking: { type: "enabled", budget_tokens: 800 },
       messages: [{ role: "user", content: prompt }]
@@ -2072,7 +2082,7 @@ app.post("/api/ai-brain", async (req, res) => {
       `Be specific with prices. Institutional quality.`;
 
     const msg = await anthropic.messages.create({
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
       max_tokens: 1000,
       thinking: { type: "enabled", budget_tokens: 500 },
       messages: [{ role: "user", content: prompt }]
@@ -2093,6 +2103,7 @@ app.post("/api/ai-brain", async (req, res) => {
 app.use("/dashboard", express.static(path.join(__dirname, "..", "dashboard")));
 app.get("/dashboard", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "index.html")));
 app.get("/daily-plan", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "daily-plan.html")));
+app.get("/command",    (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "command.html")));
 app.use("/screenshots", express.static(path.join(__dirname, "..", "dashboard", "screenshots")));
 app.use(express.static(path.join(__dirname, "..", "commercial")));
 app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
