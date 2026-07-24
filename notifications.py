@@ -267,11 +267,36 @@ def main() -> None:
         )
 
     elif command == "alert":
-        # python notifications.py alert "message text"
+        # python notifications.py alert "message" [--title TITLE] [--channel all|toast|email|webhook]
         if len(args) < 2:
+            print("Usage: notifications.py alert \"message\" [--title TITLE] [--channel all|toast|email|webhook]")
+            sys.exit(1)
+        # Parse flags out of remaining args
+        remaining = args[1:]
+        title_override = None
+        channel = "all"
+        msg_parts = []
+        i = 0
+        while i < len(remaining):
+            if remaining[i] == "--title" and i + 1 < len(remaining):
+                title_override = remaining[i + 1]; i += 2
+            elif remaining[i] == "--channel" and i + 1 < len(remaining):
+                channel = remaining[i + 1]; i += 2
+            else:
+                msg_parts.append(remaining[i]); i += 1
+        message = " ".join(msg_parts)
+        if not message:
             print("Usage: notifications.py alert \"message\"")
             sys.exit(1)
-        notify_alert(" ".join(args[1:]))
+        _title = title_override or "JARVIS ALERT"
+        _body  = message
+        if channel in ("all", "toast"):
+            toast(_title, _body)
+        if channel in ("all", "email"):
+            send_email(subject=f"[JARVIS] {_title}", body=_body)
+        if channel in ("all", "webhook"):
+            send_webhook({"content": _body, "embeds": [{"title": _title, "description": _body, "color": 16776960}]})
+        print(f"[NOTIFY] Alert sent via {channel}: {_title} — {_body[:80]}")
 
     elif command == "trade-closed":
         # python notifications.py trade-closed <SYMBOL> <OUTCOME> <PNL>
