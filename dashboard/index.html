@@ -261,6 +261,7 @@
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('overview')" id="t-overview">📊 Overview</button>
   <button class="tab-btn" onclick="switchTab('signals')" id="t-signals">📡 Signals</button>
+  <button class="tab-btn" onclick="switchTab('feed')" id="t-feed">📶 Data Feed</button>
   <button class="tab-btn" onclick="switchTab('autotrade')" id="t-autotrade">⚡ Auto Trade</button>
   <button class="tab-btn" onclick="switchTab('performance')" id="t-performance">📈 Performance</button>
   <button class="tab-btn" onclick="switchTab('journal')" id="t-journal">📒 Journal</button>
@@ -294,7 +295,7 @@
     <div class="price-card">
       <div class="price-icon">📈</div>
       <div class="price-info">
-        <div class="price-label">S&amp;P 500 / SPY</div>
+        <div class="price-label">S&amp;P 500</div>
         <div class="price-value" id="spx-price">—</div>
         <div class="price-change" id="spx-change">—</div>
       </div>
@@ -437,6 +438,138 @@
         <tbody id="sc-learn-body"><tr><td colspan="5" style="color:var(--muted);font-size:.72rem;padding:16px;text-align:center">No trades yet — learning starts after first closed trade</td></tr></tbody>
       </table>
     </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ TAB: DATA FEED -->
+<div id="tab-feed" class="tab-panel">
+<div class="container">
+
+  <!-- Freshness bar -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+    <div class="panel" style="padding:10px 14px">
+      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Prices Last Fetch</div>
+      <div id="fd-price-ts" style="font-size:.85rem;font-weight:700;color:var(--green)">—</div>
+    </div>
+    <div class="panel" style="padding:10px 14px">
+      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Signals Last Refresh</div>
+      <div id="fd-sig-ts" style="font-size:.85rem;font-weight:700;color:var(--accent)">—</div>
+    </div>
+    <div class="panel" style="padding:10px 14px">
+      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">System Status</div>
+      <div id="fd-sys-status" style="font-size:.85rem;font-weight:700;color:var(--green)">—</div>
+    </div>
+  </div>
+
+  <!-- Live macro values -->
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">
+    <div class="panel" style="padding:10px 12px;text-align:center">
+      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">BTC/USD</div>
+      <div id="fd-btc" style="font-size:1rem;font-weight:700">—</div>
+      <div id="fd-btc-chg" style="font-size:.65rem;color:var(--muted)">—</div>
+    </div>
+    <div class="panel" style="padding:10px 12px;text-align:center">
+      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">GOLD</div>
+      <div id="fd-gold" style="font-size:1rem;font-weight:700">—</div>
+      <div id="fd-gold-chg" style="font-size:.65rem;color:var(--muted)">—</div>
+    </div>
+    <div class="panel" style="padding:10px 12px;text-align:center">
+      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">SP500</div>
+      <div id="fd-spx" style="font-size:1rem;font-weight:700">—</div>
+      <div id="fd-spx-chg" style="font-size:.65rem;color:var(--muted)">—</div>
+    </div>
+    <div class="panel" style="padding:10px 12px;text-align:center">
+      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">DXY</div>
+      <div id="fd-dxy" style="font-size:1rem;font-weight:700">—</div>
+      <div id="fd-dxy-chg" style="font-size:.65rem;color:var(--muted)">—</div>
+    </div>
+    <div class="panel" style="padding:10px 12px;text-align:center">
+      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">VIX</div>
+      <div id="fd-vix" style="font-size:1rem;font-weight:700">—</div>
+      <div id="fd-vix-chg" style="font-size:.65rem;color:var(--muted)">—</div>
+    </div>
+  </div>
+
+  <!-- Indicator grid: one card per asset -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">BTC Raw Indicators</div><span id="fd-btc-regime" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span></div>
+      <div class="panel-body" id="fd-btc-ind" style="font-size:.75rem;line-height:1.9">Loading…</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">GOLD Raw Indicators</div><span id="fd-gold-regime" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span></div>
+      <div class="panel-body" id="fd-gold-ind" style="font-size:.75rem;line-height:1.9">Loading…</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">SP500 Raw Indicators</div><span id="fd-spx-regime" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span></div>
+      <div class="panel-body" id="fd-spx-ind" style="font-size:.75rem;line-height:1.9">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Bottom: MT5 positions + Live alerts feed -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+
+    <!-- MT5 live positions -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">MT5 Live Positions</div>
+        <span id="fd-pos-count" style="font-size:.6rem;color:var(--muted)">—</span>
+      </div>
+      <div class="panel-body" style="padding:0">
+        <table style="width:100%;border-collapse:collapse;font-size:.7rem">
+          <thead><tr style="background:var(--surface)">
+            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Symbol</th>
+            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Dir</th>
+            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">P&L</th>
+            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">Size</th>
+          </tr></thead>
+          <tbody id="fd-pos-body"><tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">No open positions</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TradingView alert feed -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">TradingView Alert Feed</div>
+        <span id="fd-alert-count" style="font-size:.6rem;color:var(--muted)">—</span>
+      </div>
+      <div class="panel-body" style="padding:0;max-height:220px;overflow-y:auto">
+        <div id="fd-alerts-list" style="font-size:.7rem">
+          <div style="color:var(--muted);padding:14px;text-align:center">No alerts received yet</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Setup health + Risk status -->
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:14px">
+
+    <!-- Setup health -->
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Setup Health Today</div></div>
+      <div class="panel-body" style="padding:0">
+        <table style="width:100%;border-collapse:collapse;font-size:.7rem">
+          <thead><tr style="background:var(--surface)">
+            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Setup</th>
+            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Status</th>
+            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">Win Rate</th>
+            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">P&L</th>
+          </tr></thead>
+          <tbody id="fd-setup-body"><tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Risk gate -->
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Risk Gate</div></div>
+      <div class="panel-body" id="fd-risk-body" style="font-size:.75rem;line-height:2">Loading…</div>
+    </div>
+
   </div>
 
 </div>
@@ -788,6 +921,7 @@ function switchTab(name) {
   if (name === "autotrade")   refreshAutoTradeTab();
   if (name === "journal")     loadJournalTab();
   if (name === "signals")     loadSignalsTab();
+  if (name === "feed")        loadFeedTab();
 }
 
 // ── Mode toggle ──────────────────────────────────────────────
@@ -1527,6 +1661,176 @@ async function init() {
   await Promise.all([loadPrices(),loadSignals(),loadPlan(),loadAlerts(),loadCongress(),loadAnalysis(),loadMT5(),loadFeatures(),loadRiskStatus(),loadUptime()]);
 }
 init();
+// ── Data Feed Tab ──────────────────────────────────────────────
+async function loadFeedTab() {
+  try {
+    const [priceRes, sigRes, posRes, alertRes, setupRes, riskRes] = await Promise.allSettled([
+      fetch('/api/prices').then(r=>r.json()),
+      fetch('/api/signals').then(r=>r.json()),
+      fetch('/api/mt5/positions').then(r=>r.json()),
+      fetch('/api/alerts').then(r=>r.json()),
+      fetch('/api/setup-health').then(r=>r.json()),
+      fetch('/api/risk-status').then(r=>r.json()),
+    ]);
+
+    const prices = priceRes.status === 'fulfilled' ? priceRes.value : null;
+    const sigs   = sigRes.status   === 'fulfilled' ? sigRes.value   : null;
+    const pos    = posRes.status   === 'fulfilled' ? posRes.value   : null;
+    const alerts = alertRes.status === 'fulfilled' ? alertRes.value : null;
+    const setup  = setupRes.status === 'fulfilled' ? setupRes.value : null;
+    const risk   = riskRes.status  === 'fulfilled' ? riskRes.value  : null;
+
+    // Freshness bar
+    if (prices?.updatedAt) {
+      const ago = Math.round((Date.now() - new Date(prices.updatedAt)) / 1000);
+      document.getElementById('fd-price-ts').textContent = ago < 120 ? `${ago}s ago` : new Date(prices.updatedAt).toLocaleTimeString();
+    }
+    if (sigs?.updatedAt) {
+      const ago = Math.round((Date.now() - new Date(sigs.updatedAt)) / 1000);
+      document.getElementById('fd-sig-ts').textContent = ago < 120 ? `${ago}s ago` : new Date(sigs.updatedAt).toLocaleTimeString();
+    }
+    document.getElementById('fd-sys-status').textContent = sigs ? '● ONLINE' : '✗ Server unreachable';
+    document.getElementById('fd-sys-status').style.color = sigs ? 'var(--green)' : 'var(--red)';
+
+    // Macro price strip
+    function fmtP(v, dp=2) { return v != null ? v.toLocaleString('en-US', {minimumFractionDigits:dp, maximumFractionDigits:dp}) : '—'; }
+    function fmtChg(c) {
+      if (c == null) return {txt:'—', col:'var(--muted)'};
+      return {txt: (c>=0?'+':'')+c.toFixed(2)+'%', col: c>=0?'var(--green)':'var(--red)'};
+    }
+    if (prices) {
+      const p = prices;
+      const btcEl  = document.getElementById('fd-btc');
+      const goldEl = document.getElementById('fd-gold');
+      const spxEl  = document.getElementById('fd-spx');
+      const dxyEl  = document.getElementById('fd-dxy');
+      const vixEl  = document.getElementById('fd-vix');
+      if (btcEl)  btcEl.textContent  = p.btc  != null ? '$'+fmtP(p.btc,  0) : '—';
+      if (goldEl) goldEl.textContent = p.gold != null ? '$'+fmtP(p.gold, 0) : '—';
+      if (spxEl)  spxEl.textContent  = p.spx  != null ? fmtP(p.spx,  0) : '—';
+      if (dxyEl)  dxyEl.textContent  = p.dxy  != null ? fmtP(p.dxy,  2) : '—';
+      if (vixEl)  vixEl.textContent  = p.vix  != null ? fmtP(p.vix,  2) : '—';
+      const changes = { btc: p.btcChg, gold: p.goldChg, spx: p.spxChg, dxy: p.dxyChg, vix: p.vixChg };
+      ['btc','gold','spx','dxy','vix'].forEach(k => {
+        const el = document.getElementById('fd-'+k+'-chg');
+        if (el) { const r = fmtChg(changes[k]); el.textContent = r.txt; el.style.color = r.col; }
+      });
+    }
+
+    // Indicator cards per asset
+    function renderInd(elId, regElId, sig) {
+      const el = document.getElementById(elId);
+      const re = document.getElementById(regElId);
+      if (!el) return;
+      if (!sig) { el.innerHTML = '<span style="color:var(--muted)">No data</span>'; return; }
+      const tf = (label, val) => val != null
+        ? `<div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">${label}</span><span style="font-weight:600">${val}</span></div>`
+        : '';
+      const sigCol = sig.signal === 'BUY' ? 'var(--green)' : sig.signal === 'SELL' ? 'var(--red)' : 'var(--muted)';
+      el.innerHTML = [
+        tf('Signal', `<span style="color:${sigCol};font-weight:700">${sig.signal||'WAIT'}</span>`),
+        tf('Confidence', sig.confidence != null ? sig.confidence+'%' : null),
+        tf('Entry', sig.entry != null ? sig.entry.toLocaleString() : null),
+        tf('Stop', sig.stop  != null ? sig.stop.toLocaleString()  : null),
+        tf('Target', sig.target != null ? sig.target.toLocaleString() : null),
+        tf('Setup', sig.setup||null),
+        tf('Trend', sig.trend||null),
+        tf('RSI-D', sig.rsi_d != null ? sig.rsi_d.toFixed(1) : null),
+        tf('RSI-4H', sig.rsi_4h != null ? sig.rsi_4h.toFixed(1) : null),
+        tf('RSI-1H', sig.rsi_1h != null ? sig.rsi_1h.toFixed(1) : null),
+        tf('MACD', sig.macd != null ? sig.macd.toFixed(2) : null),
+        tf('BB Pos', sig.bb_pos != null ? (sig.bb_pos*100).toFixed(0)+'%' : null),
+        tf('EMA200', sig.ema200 != null ? sig.ema200.toLocaleString() : null),
+      ].filter(Boolean).join('');
+      if (re) {
+        re.textContent = sig.regime || '—';
+        re.style.background = sig.regime === 'RISK-ON' ? '#0d2010' : sig.regime === 'RISK-OFF' ? '#200d0d' : 'var(--border)';
+        re.style.color = sig.regime === 'RISK-ON' ? 'var(--green)' : sig.regime === 'RISK-OFF' ? 'var(--red)' : 'var(--muted)';
+      }
+    }
+    if (sigs) {
+      renderInd('fd-btc-ind',  'fd-btc-regime',  sigs.btc);
+      renderInd('fd-gold-ind', 'fd-gold-regime', sigs.gold);
+      renderInd('fd-spx-ind',  'fd-spx-regime',  sigs.spx);
+    }
+
+    // MT5 positions
+    const posBody = document.getElementById('fd-pos-body');
+    const positions = pos?.positions || [];
+    document.getElementById('fd-pos-count').textContent = positions.length ? `${positions.length} open` : 'No positions';
+    if (posBody) {
+      posBody.innerHTML = positions.length === 0
+        ? '<tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">No open positions</td></tr>'
+        : positions.map(p => {
+            const pnlCol = (p.profit||0) >= 0 ? 'var(--green)' : 'var(--red)';
+            return `<tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:6px 10px;font-weight:700">${p.symbol||'—'}</td>
+              <td style="padding:6px 10px;color:${p.type==='BUY'?'var(--green)':'var(--red)'}">${p.type||'—'}</td>
+              <td style="padding:6px 10px;text-align:right;color:${pnlCol};font-weight:700">${p.profit!=null?'$'+(p.profit>=0?'+':'')+p.profit.toFixed(2):'—'}</td>
+              <td style="padding:6px 10px;text-align:right;color:var(--muted)">${p.volume||'—'}</td>
+            </tr>`;
+          }).join('');
+    }
+
+    // Alerts feed
+    const alertList = document.getElementById('fd-alerts-list');
+    const alertItems = alerts?.alerts || [];
+    document.getElementById('fd-alert-count').textContent = alertItems.length ? `${alertItems.length} received` : '0 received';
+    if (alertList) {
+      alertList.innerHTML = alertItems.length === 0
+        ? '<div style="color:var(--muted);padding:14px;text-align:center">No alerts received yet</div>'
+        : alertItems.slice(0, 20).map(a => {
+            const col = a.signal === 'BUY' ? 'var(--green)' : a.signal === 'SELL' ? 'var(--red)' : 'var(--muted)';
+            const ts = a.time ? new Date(a.time).toLocaleTimeString() : '';
+            return `<div style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border)">
+              <span style="color:var(--muted);font-size:.6rem;white-space:nowrap">${ts}</span>
+              <span style="font-weight:700;color:${col};min-width:40px">${a.signal||'?'}</span>
+              <span style="color:var(--text)">${a.symbol||''}</span>
+              <span style="color:var(--muted);font-size:.65rem;margin-left:auto">${a.source||''}</span>
+            </div>`;
+          }).join('');
+    }
+
+    // Setup health
+    const setupBody = document.getElementById('fd-setup-body');
+    const setups = setup?.setups || setup?.data || [];
+    if (setupBody) {
+      setupBody.innerHTML = setups.length === 0
+        ? '<tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">No setup data yet</td></tr>'
+        : setups.slice(0,10).map(s => {
+            const hot = (s.status||'').toLowerCase() === 'hot';
+            const cold = (s.status||'').toLowerCase() === 'cold';
+            const stCol = hot ? 'var(--green)' : cold ? 'var(--red)' : 'var(--muted)';
+            const wr = s.win_rate != null ? (s.win_rate*100).toFixed(0)+'%' : '—';
+            const pnl = s.total_pnl != null ? (s.total_pnl>=0?'+':'')+s.total_pnl.toFixed(0) : '—';
+            return `<tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:6px 10px;font-weight:600">${s.setup||s.name||'—'}</td>
+              <td style="padding:6px 10px;color:${stCol};font-weight:700;text-transform:uppercase">${s.status||'—'}</td>
+              <td style="padding:6px 10px;text-align:right">${wr}</td>
+              <td style="padding:6px 10px;text-align:right;color:${s.total_pnl>=0?'var(--green)':'var(--red)'}">${pnl}</td>
+            </tr>`;
+          }).join('');
+    }
+
+    // Risk gate
+    const riskBody = document.getElementById('fd-risk-body');
+    if (riskBody && risk) {
+      const gate = risk.trading_allowed !== false;
+      const gateCol = gate ? 'var(--green)' : 'var(--red)';
+      riskBody.innerHTML = `
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Trading</span><span style="color:${gateCol};font-weight:700">${gate?'ALLOWED':'BLOCKED'}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Max Risk/Trade</span><span>${risk.max_risk_pct != null ? risk.max_risk_pct+'%' : '—'}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Daily Loss Limit</span><span>${risk.daily_loss_pct != null ? risk.daily_loss_pct+'%' : '—'}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">News Block</span><span style="color:${risk.news_blackout?'var(--red)':'var(--muted)'}">${risk.news_blackout?'ACTIVE':'OFF'}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Reason</span><span style="font-size:.7rem;color:var(--muted)">${risk.reason||'OK'}</span></div>
+      `;
+    }
+
+  } catch(e) { console.error('loadFeedTab:', e); }
+}
+
+setInterval(()=>{ if(document.getElementById('tab-feed')?.classList.contains('active')) loadFeedTab(); }, 15_000);
+
 setInterval(loadPrices,    REFRESH_MS);
 setInterval(loadSignals,   60_000);
 setInterval(loadAlerts,    15_000);
