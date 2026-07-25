@@ -593,6 +593,7 @@ console.log('sizing.js test summary');
 console.log('  total:  ' + total);
 console.log('  passed: ' + passed);
 console.log('  failed: ' + failures);
+console.log('  known issues (not counted): ' + knownIssues);
 console.log('  result: ' + (failures ? 'FAILED' : 'ALL PASSED'));
 console.log('=====================================');
 
