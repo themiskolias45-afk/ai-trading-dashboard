@@ -1222,10 +1222,17 @@ function recomputeMt5Positions() {
   );
 }
 
+// Every bridge loop posts here once per poll (even with zero open positions), so this
+// doubles as the connectivity heartbeat used by /api/checksystem — a bridge with no
+// open trades should never be reported as "offline" just because mt5Positions is empty.
+let mt5LastSeenByAccount = {}; // account tag -> ISO timestamp of last report
+const MT5_HEARTBEAT_STALE_MS = 150 * 1000; // 2.5x the default 60s poll interval
+
 app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions, byAccount: mt5PositionsByAccount }));
 app.post("/api/mt5/positions", (req, res) => {
   const account = req.body?.account || "default";
   mt5PositionsByAccount[account] = req.body?.positions ?? [];
+  mt5LastSeenByAccount[account] = new Date().toISOString();
   recomputeMt5Positions();
   res.json({ ok: true, count: mt5Positions.length });
 });
