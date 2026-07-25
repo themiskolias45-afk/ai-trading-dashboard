@@ -905,7 +905,7 @@ async function fetchCongress() {
 async function fetchFlow() {
   if (!UW_API_KEY) return;
   try {
-    const res = await axios.get(`${UW_BASE}/flow/alerts`, { headers: uwHeaders, timeout: 10000, params: { limit: 20 } });
+    const res = await axios.get(`${UW_BASE}/flow/alerts`, { headers: getUwHeaders(), timeout: 10000, params: { limit: 20 } });
     flowCache = res.data;
   } catch (e) { console.error("UW flow:", e.message); }
 }
