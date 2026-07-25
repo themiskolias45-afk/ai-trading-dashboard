@@ -465,6 +465,7 @@ function sleep(ms) {
  *     priceCache:      object   — { updated: ISO string, ... }
  *     learning:        object   — the learning state object
  *     tradeJournal:    Array    — the live trade-journal array
+ *     mt5LastSeenByAccount: object — account tag -> ISO timestamp of last bridge heartbeat
  *     refreshSignals:  Function — async () => void
  *     fetchPrices:     Function — async () => void
  *     TELEGRAM_TOKEN:  string   — optional, for alerts
