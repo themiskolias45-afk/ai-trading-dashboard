@@ -89,6 +89,7 @@ if not errorlevel 1 (
 echo.
 echo  ==========================================
 echo   SMARTENTRY PRO IS LIVE
+echo   JARVIS:     http://localhost:3001/jarvis
 echo   Dashboard:  http://localhost:3001/dashboard
 echo   Logs:       tasks\logs\
 echo   To stop:    close the server window
