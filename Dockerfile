@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Copy server dependencies and install
 COPY server/package*.json ./server/
-RUN cd server && npm install --production
+RUN cd server && npm install --production && npm rebuild better-sqlite3 --build-from-source
 
 # Copy server source
 COPY server/ ./server/
