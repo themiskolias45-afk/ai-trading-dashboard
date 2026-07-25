@@ -80,7 +80,8 @@
           {
             "type": "command",
             "command": "powershell -NoProfile -NonInteractive -File 'C:\\Users\\User\\ai-trading-dashboard\\tasks\\hooks\\git-safety.ps1'",
-            "shell": "powershell"
+            "shell": "powershell",
+            "async": true
           }
         ]
       }
@@ -92,7 +93,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "Set-Location 'C:\\Users\\User\\ai-trading-dashboard'; $files = git diff --name-only HEAD 2>$null; foreach ($f in $files) { if ($f -match '\\.js$') { node --check $f 2>$null } elseif ($f -match '\\.py$') { python -m py_compile $f 2>$null } }; if (git status --porcelain 2>$null) { git add -A; git commit -m 'auto-save' --quiet }",
+            "command": "Set-Location 'C:\\Users\\User\\ai-trading-dashboard'; $files = git diff --name-only HEAD 2>$null; foreach ($f in $files) { if ($f -match '\\.js$') { node --check $f 2>$null } elseif ($f -match '\\.py$') { python -m py_compile $f 2>$null } }; if (git status --porcelain 2>$null) { git add -A; $changed = (git diff --cached --name-only 2>$null) -join ', '; $msg = if ($changed) { \"update $changed\" } else { 'auto-save' }; git commit -m $msg --quiet }",
             "shell": "powershell",
             "async": true,
             "statusMessage": "Validating + auto-saving..."

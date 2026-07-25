@@ -1,25 +1,41 @@
-Run a full autonomous agent cycle on SmartEntry Pro. Do all of this automatically without asking permission at each step:
+Run a full autonomous improvement loop on SmartEntry Pro. Runs continuously until all issues are resolved.
 
-STEP 1 — CHECK SYSTEM
-Fetch http://localhost:3001/api/checksystem. Note any problems.
+Do everything automatically without asking permission at each step. Act like a senior engineer doing a full system audit.
 
-STEP 2 — CHECK SIGNALS
-Fetch http://localhost:3001/api/signals. Check if any signal has confidence ≥ 65%.
+═══ LOOP — repeat until nothing left to fix ═══
 
-STEP 3 — CHECK LEARNING
-Fetch http://localhost:3001/api/learning. Identify any setup with WR < 40% over ≥ 5 trades.
+ROUND START: fetch all system data in parallel:
+- GET http://localhost:3001/api/checksystem
+- GET http://localhost:3001/api/signals
+- GET http://localhost:3001/api/learning
+- GET http://localhost:3001/api/healer
+- GET http://localhost:3001/api/risk-status
 
-STEP 4 — DECIDE ACTION
-Based on what you found:
-- If a setup has WR < 40% over ≥ 5 trades → propose tightening its entry criteria in server/index.js
-- If confidence is miscalibrated (65-74% tier showing < 50% actual WR) → propose adjusting the confidence threshold
-- If system is healthy → report that and suggest next improvement area
+EVALUATE — check all of these:
+1. Any setup with win rate < 40% over ≥ 5 trades → tighten entry criteria in server/index.js
+2. Confidence miscalibrated (65-74% tier with < 50% actual WR) → adjust threshold
+3. Healer reporting stale data → force heal: POST http://localhost:3001/api/healer/heal
+4. Any server error in checksystem → find root cause and fix it
+5. Risk gate tripped when it shouldn't be (or vice versa) → fix risk logic
+6. Any signal engine producing WAIT when market is trending clearly → fix signal logic
+7. Any endpoint returning errors → fix the endpoint
 
-STEP 5 — IMPLEMENT (only if there is a clear improvement with low risk)
-If you found something fixable: implement it, commit it, report what changed and expected impact.
-If the fix is risky or unclear: describe it and ask for approval.
+FOR EACH ISSUE FOUND:
+- If fix is clear and low-risk → implement it immediately, commit, note what changed
+- If fix is risky or changes core logic → describe it, show the proposed diff, ask for approval
+- If no fix needed → mark as healthy and move on
 
-STEP 6 — REPORT
-One paragraph: what you found, what you did (or propose), expected outcome.
+AFTER EACH ROUND:
+- Re-fetch all data and check if the fix worked
+- If new issues appeared → run another round
+- If everything is clean → stop and report
 
-This is full autonomous mode. Act like a senior engineer doing a system review.
+═══ FINAL REPORT ═══
+Report in this format:
+- Issues found: [list]
+- Fixed automatically: [list with commit hashes]
+- Awaiting approval: [list with proposed changes]
+- System status: HEALTHY / NEEDS ATTENTION
+
+This is full autonomous mode — keep looping until the system is clean.
+Maximum 5 rounds before stopping and reporting.

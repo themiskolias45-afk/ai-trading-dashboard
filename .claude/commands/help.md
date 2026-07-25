@@ -9,6 +9,8 @@ JARVIS — SmartEntry Pro Command Reference
 SIGNALS & ANALYSIS
   /signal              Live signal — all 3 assets, confidence, entry/stop/target
   /analyze [sym]       Deep analysis with sequential reasoning — BTC, GOLD, or SPX
+  /scan                Parallel market scan — all assets scored and ranked
+  /monitor             Continuous signal watcher — alerts when confidence ≥ 65%
   /news                Live market news briefing + trading impact
   /morning             Full morning brief — signals + performance + today's priority
 
@@ -29,25 +31,32 @@ PERFORMANCE & LEARNING
   /review              Weekly performance review + brutally honest what to fix
   /selflearn           What the AI learned — win rates + boosts per setup
   /backtest [idea]     Backtest a setup against historical data
+  /portfolio           Full portfolio view — open positions, P&L, exposure
 
 CODE & BUILD
   /plan [task]         Architect a solution before writing any code
   /build [feature]     Build any new feature or tool from scratch
+  /engineer [task]     Spawn real parallel Claude agents — up to 6 simultaneously
   /debug [problem]     Read logs → trace root cause → fix it
   /refactor [file]     Clean up dead code, fix names, split functions
   /test [function]     Write and run tests — all pass before done
+
+RESEARCH
+  /research [topic]    Multi-source deep research (Brave + Exa + web scrape) → implement
+  /web [task]          Full browser control — any website, any interaction
 
 SYSTEM & IMPROVEMENT
   /health              Server + bridge + system health check
   /checksystem         Full diagnostic — all components + pending proposals
   /improve             Find worst setup and auto-improve parameters
-  /agent               Autonomous mode — full cycle without asking permission
-  /research [idea]     Web search for strategy → implement if it's profitable
+  /agent               Autonomous loop — keeps fixing until system is clean
+  /state save          Save full session state to resume next time
+  /state load          Restore last session — pick up exactly where you left off
 
 MEMORY
   Say: "remember that Gold rejects hard at $2400" — stored for all future sessions
 
 ---
-All commands work inside JARVIS.bat. Just type and press Enter.
-For complex work, have a real conversation — JARVIS can build anything.
+Model: claude-opus-5 | Engineers: up to 6 parallel | Tools: Browser, Search, Filesystem, Memory
+All commands work inside the JARVIS PowerShell window. Just type and press Enter.
 ---
