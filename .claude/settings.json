@@ -1,4 +1,6 @@
 {
+  "model": "claude-opus-5",
+
   "permissions": {
     "allow": [
       "Bash(*)",
@@ -67,17 +69,31 @@
     "smartentry": {
       "command": "node",
       "args": ["C:/Users/User/ai-trading-dashboard/server/mcp_server.js"]
-    }
+    },
   },
 
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -NonInteractive -File 'C:\\Users\\User\\ai-trading-dashboard\\tasks\\hooks\\git-safety.ps1'",
+            "shell": "powershell",
+            "async": true
+          }
+        ]
+      }
+    ],
+
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "Set-Location 'C:\\Users\\User\\ai-trading-dashboard'; $files = git diff --name-only HEAD 2>$null; foreach ($f in $files) { if ($f -match '\\.js$') { node --check $f 2>$null } elseif ($f -match '\\.py$') { python -m py_compile $f 2>$null } }; if (git status --porcelain 2>$null) { git add -A; git commit -m 'auto-save' --quiet }",
+            "command": "Set-Location 'C:\\Users\\User\\ai-trading-dashboard'; $files = git diff --name-only HEAD 2>$null; foreach ($f in $files) { if ($f -match '\\.js$') { node --check $f 2>$null } elseif ($f -match '\\.py$') { python -m py_compile $f 2>$null } }; if (git status --porcelain 2>$null) { git add -A; $changed = (git diff --cached --name-only 2>$null) -join ', '; $msg = if ($changed) { \"update $changed\" } else { 'auto-save' }; git commit -m $msg --quiet }",
             "shell": "powershell",
             "async": true,
             "statusMessage": "Validating + auto-saving..."
@@ -85,6 +101,7 @@
         ]
       }
     ],
+
     "SessionStart": [
       {
         "hooks": [
@@ -101,6 +118,19 @@
             "shell": "powershell",
             "async": true,
             "statusMessage": "Running daily auto-check..."
+          }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -NonInteractive -File 'C:\\Users\\User\\ai-trading-dashboard\\tasks\\hooks\\session-stop.ps1'",
+            "shell": "powershell",
+            "async": true
           }
         ]
       }

@@ -1,28 +1,57 @@
-Spawn parallel AI engineers to build complex systems simultaneously. Usage: /engineer [task]
+Spawn real parallel Claude sub-agents to build complex systems simultaneously. Usage: /engineer [task]
 
-$ARGUMENTS is the task. JARVIS plans the workstreams and runs all engineers in parallel.
+$ARGUMENTS is the task. You are the architect and integrator. Sub-agents build in parallel.
 
-Steps:
-1. Run the planner to break the task into independent parallel workstreams:
-   python parallel_agents.py --plan "$ARGUMENTS"
+═══ STEP 1 — ARCHITECT FIRST ═══
+Before spawning anything, design the full system:
+1. Break the task into independent workstreams (2–6 max)
+2. Each workstream owns specific files — ZERO overlap between agents
+3. Define all interfaces and data contracts between components
+4. Write the plan to tasks/engineer-plan.md
+5. Only spawn after the plan is written and interfaces are clear
 
-2. All engineers run simultaneously. Wall time = slowest, not sum.
+═══ STEP 2 — SPAWN REAL PARALLEL AGENTS ═══
+Run each workstream as a real parallel claude -p process:
 
-3. Read all outputs and integrate into the final system.
+```powershell
+$workstreams = @(
+  @{ name="agent1"; task="[workstream 1 — files it owns and exact task]" },
+  @{ name="agent2"; task="[workstream 2 — files it owns and exact task]" }
+)
 
-4. Commit everything in one clean push.
+$jobs = @()
+foreach ($ws in $workstreams) {
+    $prompt = "SmartEntry Pro engineer. Your task: $($ws.task). Only touch your assigned files. Commit after each file. Write working code only."
+    $jobs += Start-Job -Name $ws.name -ScriptBlock {
+        param($p)
+        Set-Location 'C:\Users\User\ai-trading-dashboard'
+        & claude -p $p --dangerously-skip-permissions 2>&1
+    } -ArgumentList $prompt
+}
 
-Rules:
-- Each engineer owns different files — no two engineers touch the same file
-- Each engineer's task must be 100% self-contained (no shared state mid-run)
-- JARVIS is architect + integrator — it designs the interfaces before spawning
-- If the task is simple (1 component), just do it directly — don't over-engineer
+Write-Host "[$($jobs.Count) agents running in parallel]"
+$jobs | Wait-Job | Out-Null
+$jobs | ForEach-Object { Receive-Job $_; Remove-Job $_ }
+Write-Host "[All agents complete]"
+```
 
-When to use /engineer:
-- Building a full feature (UI + API + Python + tests)
-- Multi-symbol analysis (BTC + GOLD + SPX simultaneously)
-- Research AND implementation at the same time
-- Any task with 3+ independent components
+Wall time = slowest agent, not sum of all.
 
-The engine uses your existing Claude Pro session — no API key required.
-Up to 8 engineers run in parallel. Each is a full JARVIS instance with all tools.
+═══ STEP 3 — VERIFY ═══
+1. git log --oneline -15 — see what each agent committed
+2. git status — check for conflicts
+3. node --check on every .js file touched
+4. python -m py_compile on every .py file touched
+
+═══ STEP 4 — INTEGRATE & SHIP ═══
+1. Wire components together where needed
+2. Test key endpoints: curl http://localhost:3001/api/signals
+3. Final commit: "engineer: [what was built]"
+
+═══ RULES ═══
+- Architect first — never spawn without a written plan in tasks/engineer-plan.md
+- Each agent owns specific files with zero overlap
+- You are integrator only — agents build, you connect
+- If an agent fails, rebuild that piece yourself directly
+- Max 6 agents — more causes file conflicts
+- Simple tasks (1 file, 1 component) → do it directly, skip spawning
