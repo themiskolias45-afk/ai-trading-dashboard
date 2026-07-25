@@ -1178,13 +1178,14 @@ app.post("/api/risk-status", (req, res) => {
 // Values are masked on read and written only to gitignored files (keys.env, apikey.txt).
 app.get("/api/settings", (_, res) => {
   const env = readKeysEnv();
-  const known = new Set(["TV_USERNAME", "TV_PASSWORD", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID", "UW_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
+  const known = new Set(["TV_USERNAME", "TV_PASSWORD", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID", "UW_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "YOUTUBE_API_KEY"]);
   res.json({
     anthropicKey:   { configured: !!ANTHROPIC_API_KEY, preview: maskKey(ANTHROPIC_API_KEY) },
     telegramToken:  { configured: !!TELEGRAM_TOKEN,     preview: maskKey(TELEGRAM_TOKEN) },
     telegramChatId: TELEGRAM_CHAT_ID || "",
     openaiKey:      { configured: !!OPENAI_API_KEY,     preview: maskKey(OPENAI_API_KEY) },
     uwKey:          { configured: !!UW_API_KEY,         preview: maskKey(UW_API_KEY) },
+    youtubeKey:     { configured: !!YOUTUBE_API_KEY,    preview: maskKey(YOUTUBE_API_KEY) },
     custom: Object.entries(env)
       .filter(([k]) => !known.has(k))
       .map(([k, v]) => ({ key: k, preview: maskKey(v) })),
@@ -1192,13 +1193,14 @@ app.get("/api/settings", (_, res) => {
 });
 
 app.post("/api/settings", (req, res) => {
-  const { anthropicKey, telegramToken, telegramChatId, openaiKey, uwKey, custom } = req.body || {};
+  const { anthropicKey, telegramToken, telegramChatId, openaiKey, uwKey, youtubeKey, custom } = req.body || {};
   const updates = {};
 
   if (typeof telegramToken === "string" && telegramToken.trim())   { TELEGRAM_TOKEN   = sanitizeEnvValue(telegramToken);   updates.TELEGRAM_TOKEN   = TELEGRAM_TOKEN; ensureTelegramPolling(); }
   if (typeof telegramChatId === "string" && telegramChatId.trim()) { TELEGRAM_CHAT_ID = sanitizeEnvValue(telegramChatId); updates.TELEGRAM_CHAT_ID = TELEGRAM_CHAT_ID; knownChatIds.add(TELEGRAM_CHAT_ID); }
   if (typeof uwKey === "string" && uwKey.trim())                   { UW_API_KEY       = sanitizeEnvValue(uwKey);          updates.UW_API_KEY       = UW_API_KEY; }
   if (typeof openaiKey === "string" && openaiKey.trim())           { OPENAI_API_KEY   = sanitizeEnvValue(openaiKey);      updates.OPENAI_API_KEY   = OPENAI_API_KEY; }
+  if (typeof youtubeKey === "string" && youtubeKey.trim())         { YOUTUBE_API_KEY  = sanitizeEnvValue(youtubeKey);     updates.YOUTUBE_API_KEY  = YOUTUBE_API_KEY; }
 
   if (Array.isArray(custom)) {
     for (const entry of custom) {
