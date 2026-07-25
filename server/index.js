@@ -2607,7 +2607,7 @@ app.listen(PORT, async () => {
   console.log(`✅ SmartEntry Pro v12 on port ${PORT}`);
 
   // Init SQLite (graceful if better-sqlite3 not installed)
-  const dbPath = path.join(__dirname, "smartentry.db");
+  const dbPath = process.env.DB_PATH || path.join(__dirname, "smartentry.db");
   db.init(dbPath);
 
   await fetchPrices();
