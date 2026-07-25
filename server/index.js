@@ -1985,6 +1985,12 @@ const PLAY_VIDEO_TOOL = {
   }
 };
 
+const FORCE_HEAL_TOOL = {
+  name: "force_heal",
+  description: "Actually run a system health-check/repair cycle right now — not just report status, run it. Use when Themis asks you to check/fix/heal the system, or when something looks broken and he wants it addressed immediately.",
+  input_schema: { type: "object", properties: {} }
+};
+
 async function braveWebSearch(query) {
   // Env vars set via the Windows GUI often pick up invisible copy-paste artifacts
   // (non-breaking spaces etc.) that silently break header auth — strip anything non-printable-ASCII.
