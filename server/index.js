@@ -897,7 +897,7 @@ async function refreshSignals() {
 async function fetchCongress() {
   if (!UW_API_KEY) return;
   try {
-    const res = await axios.get(`${UW_BASE}/congress/trades`, { headers: uwHeaders, timeout: 10000, params: { limit: 20 } });
+    const res = await axios.get(`${UW_BASE}/congress/trades`, { headers: getUwHeaders(), timeout: 10000, params: { limit: 20 } });
     congressCache = res.data;
   } catch (e) { console.error("UW congress:", e.message); }
 }
