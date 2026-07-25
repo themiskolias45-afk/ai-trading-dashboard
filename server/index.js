@@ -1310,19 +1310,21 @@ app.post("/api/tts", async (req, res) => {
 });
 
 // ── /api/youtube-search — find a video for JARVIS to pop up (requires a YouTube key in Settings) ──
+async function searchYouTube(query) {
+  const results = await YouTube.search(query, { limit: 5, type: "video", safeSearch: true });
+  return results.map(v => ({
+    videoId: v.id,
+    title: v.title,
+    channel: v.channel?.name || "",
+    thumbnail: v.thumbnail?.url || "",
+  }));
+}
+
 app.get("/api/youtube-search", async (req, res) => {
   const q = req.query.q;
   if (!q) return res.status(400).json({ error: "q required" });
   try {
-    const results = await YouTube.search(q, { limit: 5, type: "video", safeSearch: true });
-    res.json({
-      results: results.map(v => ({
-        videoId: v.id,
-        title: v.title,
-        channel: v.channel?.name || "",
-        thumbnail: v.thumbnail?.url || "",
-      }))
-    });
+    res.json({ results: await searchYouTube(q) });
   } catch (e) {
     console.error("[youtube] search error:", e.message);
     res.status(502).json({ error: "YouTube search failed: " + e.message });
