@@ -2361,7 +2361,7 @@ app.listen(PORT, async () => {
   await fetchFlow();
   await fetchEconomicCalendar();
   generateDailyPlan();
-  if (TELEGRAM_TOKEN) setInterval(pollTelegram, 3000);
+  ensureTelegramPolling();
   if (ANTHROPIC_API_KEY) console.log("[ai] Claude AI enabled ✅");
   else console.log("[ai] No ANTHROPIC_API_KEY — using rule-based analysis");
 
