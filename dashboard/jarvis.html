@@ -521,6 +521,24 @@ header{
 
   <!-- CHAT -->
   <div class="chat">
+    <div class="hero-logo" aria-hidden="true">
+      <svg viewBox="0 0 100 100">
+        <defs>
+          <radialGradient id="coreGradHero" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="35%" stop-color="#c4b5fd"/>
+            <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <circle cx="50" cy="50" r="48" class="ring-outer"/>
+        <circle cx="50" cy="50" r="42" class="ring-tick"/>
+        <circle cx="50" cy="50" r="22" fill="url(#coreGradHero)"/>
+        <circle cx="50" cy="50" r="34" class="ring-dash"/>
+        <circle cx="50" cy="50" r="30" class="ring-tick" style="animation:spinRing 20s linear infinite reverse;transform-origin:50px 50px"/>
+        <circle cx="50" cy="2" r="2" class="orbit-dot"/>
+        <text x="50" y="60" class="logo-j" style="font-size:36px">J</text>
+      </svg>
+    </div>
     <div class="messages" id="msgs"></div>
 
     <div class="input-zone">
