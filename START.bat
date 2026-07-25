@@ -39,9 +39,9 @@ if errorlevel 1 (
   echo  [2] Server: ONLINE — http://localhost:3001/dashboard
 )
 
-REM ── Open dashboard in browser ──────────────────────────────────
-echo  [3] Opening dashboard...
-start "" "http://localhost:3001/dashboard"
+REM ── Open JARVIS in browser ──────────────────────────────────────
+echo  [3] Opening JARVIS...
+start "" "http://localhost:3001/jarvis"
 timeout /t 2 /nobreak >nul
 
 REM ── Start watchdog ─────────────────────────────────────────────
