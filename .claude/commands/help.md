@@ -7,12 +7,13 @@ JARVIS — SmartEntry Pro Command Reference
 ---
 
 SIGNALS & ANALYSIS
-  /signal              Live signal — all 3 assets, confidence, entry/stop/target
-  /analyze [sym]       Deep analysis with sequential reasoning — BTC, GOLD, or SPX
+  /signal              Live signal — all 3 assets + Fear & Greed context
+  /analyze [sym]       Deep analysis — technical + sentiment + live news — BTC, GOLD, or SPX
   /scan                Parallel market scan — all assets scored and ranked
   /monitor             Continuous signal watcher — alerts when confidence ≥ 65%
+  /sentiment           Full sentiment brief — Fear & Greed + macro + asset outlook
   /news                Live market news briefing + trading impact
-  /morning             Full morning brief — signals + performance + today's priority
+  /morning             Full morning brief — signals + sentiment + pre-market research
 
 TRADINGVIEW
   /draw [sym]          Draw daily plan on TradingView — entry/stop/target/S&R lines
@@ -32,6 +33,7 @@ PERFORMANCE & LEARNING
   /selflearn           What the AI learned — win rates + boosts per setup
   /backtest [idea]     Backtest a setup against historical data
   /portfolio           Full portfolio view — open positions, P&L, exposure
+  /profit              Autonomous profitability loop — researches + implements improvements, up to 5 rounds
 
 CODE & BUILD
   /plan [task]         Architect a solution before writing any code
