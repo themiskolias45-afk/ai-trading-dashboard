@@ -1066,6 +1066,14 @@ async function handleMessage(message) {
 }
 
 let lastUpdateId = 0;
+let telegramPollingStarted = false;
+function ensureTelegramPolling() {
+  if (telegramPollingStarted || !TELEGRAM_TOKEN) return;
+  telegramPollingStarted = true;
+  setInterval(pollTelegram, 3000);
+  console.log("[telegram] Polling started");
+}
+
 async function pollTelegram() {
   try {
     const res = await axios.get(
