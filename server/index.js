@@ -1165,6 +1165,55 @@ app.post("/api/risk-status", (req, res) => {
   res.json({ ok: true });
 });
 
+// ── /api/settings — API keys & Telegram config ─────────────────
+// Values are masked on read and written only to gitignored files (keys.env, apikey.txt).
+app.get("/api/settings", (_, res) => {
+  const env = readKeysEnv();
+  const known = new Set(["TV_USERNAME", "TV_PASSWORD", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID", "UW_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
+  res.json({
+    anthropicKey:   { configured: !!ANTHROPIC_API_KEY, preview: maskKey(ANTHROPIC_API_KEY) },
+    telegramToken:  { configured: !!TELEGRAM_TOKEN,     preview: maskKey(TELEGRAM_TOKEN) },
+    telegramChatId: TELEGRAM_CHAT_ID || "",
+    openaiKey:      { configured: !!OPENAI_API_KEY,     preview: maskKey(OPENAI_API_KEY) },
+    uwKey:          { configured: !!UW_API_KEY,         preview: maskKey(UW_API_KEY) },
+    custom: Object.entries(env)
+      .filter(([k]) => !known.has(k))
+      .map(([k, v]) => ({ key: k, preview: maskKey(v) })),
+  });
+});
+
+app.post("/api/settings", (req, res) => {
+  const { anthropicKey, telegramToken, telegramChatId, openaiKey, uwKey, custom } = req.body || {};
+  const updates = {};
+
+  if (typeof telegramToken === "string" && telegramToken.trim())   { TELEGRAM_TOKEN   = sanitizeEnvValue(telegramToken);   updates.TELEGRAM_TOKEN   = TELEGRAM_TOKEN; }
+  if (typeof telegramChatId === "string" && telegramChatId.trim()) { TELEGRAM_CHAT_ID = sanitizeEnvValue(telegramChatId); updates.TELEGRAM_CHAT_ID = TELEGRAM_CHAT_ID; knownChatIds.add(TELEGRAM_CHAT_ID); }
+  if (typeof uwKey === "string" && uwKey.trim())                   { UW_API_KEY       = sanitizeEnvValue(uwKey);          updates.UW_API_KEY       = UW_API_KEY; }
+  if (typeof openaiKey === "string" && openaiKey.trim())           { OPENAI_API_KEY   = sanitizeEnvValue(openaiKey);      updates.OPENAI_API_KEY   = OPENAI_API_KEY; }
+
+  if (Array.isArray(custom)) {
+    for (const entry of custom) {
+      const key = entry?.key, value = entry?.value;
+      if (!key || typeof value !== "string" || !value.trim()) continue;
+      const safeKey = String(key).trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+      if (safeKey) updates[safeKey] = sanitizeEnvValue(value);
+    }
+  }
+
+  if (Object.keys(updates).length) writeKeysEnv(updates);
+
+  if (typeof anthropicKey === "string" && anthropicKey.trim()) {
+    try {
+      fs.writeFileSync(APIKEY_PATH, sanitizeEnvValue(anthropicKey), "utf8");
+      reloadAnthropicClient();
+    } catch (e) {
+      return res.status(500).json({ error: "Failed to save Anthropic key: " + e.message });
+    }
+  }
+
+  res.json({ ok: true });
+});
+
 // Performance stats — actual win rate per setup + confidence calibration
 app.get("/api/stats/by-setup", (_, res) => {
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
