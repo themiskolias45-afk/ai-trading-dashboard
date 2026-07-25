@@ -689,29 +689,75 @@ function toggleMic() {
 // ══════════════════════════════════════════
 //  SPEECH SYNTHESIS (voice out)
 // ══════════════════════════════════════════
-function speak(text) {
-  if (!voiceOn || !window.speechSynthesis) return;
+async function speak(text) {
+  if (!voiceOn) return;
   stopSpeaking();
-  const clean = text.replace(/[*#_`~>]/g, "").replace(/\n+/g, ". ").substring(0, 600);
-  const utt   = new SpeechSynthesisUtterance(clean);
-  utt.rate  = 1.0;
-  utt.pitch = 1.0;
+  const clean = text.replace(/[*#_`~>]/g, "").replace(/\n+/g, ". ").substring(0, 900);
+
+  // Try cloud TTS first — only responds if an OpenAI key is configured in Settings.
+  // Categorically better voice quality than the browser's built-in synthesis.
+  try {
+    const r = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: clean })
+    });
+    if (r.ok) {
+      const url = URL.createObjectURL(await r.blob());
+      currentAudio = new Audio(url);
+      currentAudio.onplay  = () => onSpeakStart();
+      currentAudio.onended = () => { onSpeakEnd(); URL.revokeObjectURL(url); };
+      currentAudio.onerror = () => { onSpeakEnd(); URL.revokeObjectURL(url); speakBrowser(clean); };
+      currentAudio.play();
+      return;
+    }
+  } catch {}
+
+  speakBrowser(clean);
+}
+
+function speakBrowser(clean) {
+  if (!window.speechSynthesis) return;
+  const utt = new SpeechSynthesisUtterance(clean);
+  utt.rate  = 0.98;
+  utt.pitch = 0.92;
   utt.volume= 1.0;
-  // pick a natural English voice if available
+  // Prefer neural/"Natural" voices (Edge exposes high-quality online neural voices) over robotic defaults.
   window.speechSynthesis.onvoiceschanged = null;
   const voices = window.speechSynthesis.getVoices();
-  const pick = voices.find(v =>
-    /Google UK English Male|Daniel|Google US|en-GB|en-US/i.test(v.name + v.lang)
-  );
+  const priority = [
+    /Online \(Natural\)/i,
+    /Neural/i,
+    /Google UK English Male/i,
+    /Daniel/i,
+    /Microsoft David/i,
+    /Google US English/i,
+    /en-GB/i,
+    /en-US/i
+  ];
+  let pick = null;
+  for (const rx of priority) { pick = voices.find(v => rx.test(v.name) || rx.test(v.lang)); if (pick) break; }
   if (pick) utt.voice = pick;
 
-  utt.onstart = () => { speaking = true;  setVI("speaking"); document.getElementById("stop-spk").style.display = "inline-flex"; setTranscript("JARVIS speaking…"); };
-  utt.onend   = () => { speaking = false; setVI(voiceOn ? "ready" : null); document.getElementById("stop-spk").style.display = "none"; setTranscript("Ready — tap mic or type below"); };
+  utt.onstart = () => onSpeakStart();
+  utt.onend   = () => onSpeakEnd();
   window.speechSynthesis.speak(utt);
+}
+
+function onSpeakStart() {
+  speaking = true; setVI("speaking");
+  document.getElementById("stop-spk").style.display = "inline-flex";
+  setTranscript("JARVIS speaking…");
+}
+function onSpeakEnd() {
+  speaking = false; setVI(voiceOn ? "ready" : null);
+  document.getElementById("stop-spk").style.display = "none";
+  setTranscript("Ready — tap mic or type below");
 }
 
 function stopSpeaking() {
   if (window.speechSynthesis) window.speechSynthesis.cancel();
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   speaking = false;
   document.getElementById("stop-spk").style.display = "none";
   setVI(voiceOn ? "ready" : null);
