@@ -2014,10 +2014,11 @@ async function askClaude(question, history = []) {
       .map(m => ({ role: m.role, content: m.content }));
     msgs.push({ role: "user", content: `[Live system state]\n${context}\n\n[Question]\n${question}` });
 
-    const callOpts = { model: "claude-opus-4-8", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL, WEB_SEARCH_TOOL] };
+    const callOpts = { model: "claude-opus-4-8", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL, WEB_SEARCH_TOOL, PLAY_VIDEO_TOOL] };
     let response = await anthropic.messages.create({ ...callOpts, messages: msgs });
 
-    // Tool-use loop: let JARVIS actually save memories and search the web mid-conversation.
+    // Tool-use loop: let JARVIS actually save memories, search the web, and open videos mid-conversation.
+    let video = null;
     let guard = 0;
     while (response.stop_reason === "tool_use" && guard < 3) {
       guard++;
@@ -2034,6 +2035,15 @@ async function askClaude(question, history = []) {
           }
         } else if (block.name === "web_search") {
           resultText = await braveWebSearch(block.input?.query || "");
+        } else if (block.name === "play_video") {
+          const q = block.input?.query || "";
+          try {
+            const results = await searchYouTube(q);
+            if (results.length) {
+              video = { query: q, results };
+              resultText = `Now playing on screen: "${results[0].title}" (${results[0].channel}). Acknowledge briefly — don't list the results, he can already see them.`;
+            } else resultText = "No YouTube results found for that.";
+          } catch (e) { resultText = "Video search failed: " + e.message; }
         } else continue;
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: resultText });
       }
@@ -2043,16 +2053,16 @@ async function askClaude(question, history = []) {
     }
 
     const text = response.content?.find(b => b.type === "text")?.text;
-    console.log("[chat] Claude reply length:", text?.length ?? 0);
-    return text;
+    console.log("[chat] Claude reply length:", text?.length ?? 0, video ? "| video: " + video.query : "");
+    return { text, video };
   }
 
   // Fallback — rule-based response without API key
   const q = question.toLowerCase();
-  if (q.includes("btc") || q.includes("bitcoin")) return autoAnalyze(signalCache.btc) ?? "BTC signal not available.";
-  if (q.includes("gold") || q.includes("xau"))    return autoAnalyze(signalCache.gold) ?? "Gold signal not available.";
-  if (q.includes("spy") || q.includes("s&p"))     return autoAnalyze(signalCache.spx)  ?? "SPY signal not available.";
-  return `Here is the current system snapshot:\n\n${context}\n\nAsk me about a specific asset (BTC, Gold, SPY), risk, positions, or what I've learned.`;
+  if (q.includes("btc") || q.includes("bitcoin")) return { text: autoAnalyze(signalCache.btc) ?? "BTC signal not available.", video: null };
+  if (q.includes("gold") || q.includes("xau"))    return { text: autoAnalyze(signalCache.gold) ?? "Gold signal not available.", video: null };
+  if (q.includes("spy") || q.includes("s&p"))     return { text: autoAnalyze(signalCache.spx)  ?? "SPY signal not available.", video: null };
+  return { text: `Here is the current system snapshot:\n\n${context}\n\nAsk me about a specific asset (BTC, Gold, SPY), risk, positions, or what I've learned.`, video: null };
 }
 
 // ══════════════════════════════════════════════════════════════
