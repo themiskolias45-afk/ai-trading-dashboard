@@ -1014,8 +1014,31 @@ function switchChart(assetKey, interval) {
   });
 }
 
+// ── Chart layout — how many chart panels are shown at once ───
+const CHART_LAYOUT_ORDER = ["btc", "gold", "spx"];
+
+function setChartLayout(n) {
+  const grid = document.getElementById("charts-grid");
+  grid.classList.remove("layout-1", "layout-2", "layout-3");
+  grid.classList.add(`layout-${n}`);
+
+  const visible = new Set(CHART_LAYOUT_ORDER.slice(0, n));
+  document.querySelectorAll(".chart-wrap[data-chart-asset]").forEach(wrap => {
+    wrap.classList.toggle("chart-hidden", !visible.has(wrap.dataset.chartAsset));
+  });
+
+  document.querySelectorAll(".tf-btn[data-layout]").forEach(btn => {
+    btn.classList.toggle("active", Number(btn.dataset.layout) === n);
+  });
+
+  try { localStorage.setItem("chartLayout", String(n)); } catch {}
+}
+
 window.addEventListener("load", () => {
   Object.entries(CHART_ASSETS).forEach(([key, a]) => mkChart(a.containerId, a.symbol, "D"));
+  let savedLayout = 3;
+  try { savedLayout = Number(localStorage.getItem("chartLayout")) || 3; } catch {}
+  setChartLayout(savedLayout);
 });
 
 // ── Helpers ──────────────────────────────────────────────────
