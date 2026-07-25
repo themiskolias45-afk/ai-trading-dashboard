@@ -893,6 +893,7 @@ async function refreshSignals() {
     spx:  signalCache.spx  ? { s: signalCache.spx.signal,  c: signalCache.spx.confidence,  regime: signalCache.spx.regime,  setup: signalCache.spx.setup,  reasons: (signalCache.spx.reasons  || []).slice(0,6), entry: signalCache.spx.entry,  stop: signalCache.spx.stop,  target: signalCache.spx.target  } : null,
   });
   if (signalHistory.length > 100) signalHistory.length = 100;
+  try { hermes.runHermesCycle(signalCache, priceCache); } catch (e) { console.error("[hermes] cycle error:", e.message); }
   refreshAnalysis();
 }
 
