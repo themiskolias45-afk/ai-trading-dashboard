@@ -973,9 +973,17 @@ function tickClock() {
 tickClock();
 setInterval(tickClock, 1000);
 
-// ── TradingView charts ───────────────────────────────────────
+// ── TradingView charts — 1H / 4H / 1D per asset ───────────────
+const CHART_ASSETS = {
+  btc:  { symbol:"BITSTAMP:BTCUSD", containerId:"tv-btc"  },
+  gold: { symbol:"OANDA:XAUUSD",    containerId:"tv-gold" },
+  spx:  { symbol:"FOREXCOM:SPXUSD", containerId:"tv-spx"  },
+};
+
 function mkChart(containerId, symbol, interval="D") {
   if (typeof TradingView === "undefined") return;
+  const container = document.getElementById(containerId);
+  if (container) container.innerHTML = "";
   new TradingView.widget({
     autosize:false, width:"100%", height:520,
     symbol, interval, timezone:"Etc/UTC", theme:"dark", style:"1", locale:"en",
@@ -984,10 +992,18 @@ function mkChart(containerId, symbol, interval="D") {
     backgroundColor:"#0f1520", gridColor:"rgba(26,34,53,0.5)"
   });
 }
+
+function switchChart(assetKey, interval) {
+  const asset = CHART_ASSETS[assetKey];
+  if (!asset) return;
+  mkChart(asset.containerId, asset.symbol, interval);
+  document.querySelectorAll(`.tf-btn[data-asset="${assetKey}"]`).forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.interval === interval);
+  });
+}
+
 window.addEventListener("load", () => {
-  mkChart("tv-btc","BITSTAMP:BTCUSD");
-  mkChart("tv-gold","OANDA:XAUUSD");
-  mkChart("tv-spx","FOREXCOM:SPXUSD");
+  Object.entries(CHART_ASSETS).forEach(([key, a]) => mkChart(a.containerId, a.symbol, "D"));
 });
 
 // ── Helpers ──────────────────────────────────────────────────
