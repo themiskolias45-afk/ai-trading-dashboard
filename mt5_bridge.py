@@ -629,6 +629,7 @@ def track_closed_positions():
                 "pnl":        pnl,
                 "closePrice": close_price,
                 "closeTime":  datetime.now().isoformat(),
+                "account":    ACCOUNT_TAG or "default",
             }, timeout=5)
             color = GREEN if pnl and pnl > 0 else RED
             log(f"Trade closed #{ticket}  P&L ${pnl}", color)
@@ -640,7 +641,8 @@ def track_closed_positions():
                 "dailyPnl": round(daily_pnl, 2),
                 "consecutiveLosses": consecutive_losses,
                 "halted": trading_halted,
-                "haltReason": halt_reason
+                "haltReason": halt_reason,
+                "account": ACCOUNT_TAG or "default",
             }, timeout=3)
         except Exception:
             pass
