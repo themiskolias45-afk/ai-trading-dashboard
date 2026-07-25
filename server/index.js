@@ -2388,13 +2388,33 @@ app.post("/api/size", (req, res) => {
 });
 
 // ── /api/memory — persistent JARVIS memory (read/write) ──────
+// Same store memory.py (the CLI tool used by Claude Code sessions) reads and writes —
+// this is what makes the web chat's memory genuinely cross-session, not just this tab.
 const MEMORY_PATH = path.join(__dirname, "..", "tasks", "jarvis_memory.json");
+
+function loadMemory() {
+  try {
+    if (fs.existsSync(MEMORY_PATH)) return JSON.parse(fs.readFileSync(MEMORY_PATH, "utf8"));
+  } catch {}
+  return { version: 1, entries: [] };
+}
+
+function saveMemoryEntry(key, value, category, source = "manual") {
+  const data = loadMemory();
+  const now = new Date().toISOString();
+  const idx = data.entries.findIndex(e => e.key.toLowerCase() === key.toLowerCase());
+  const entry = { key, value, category: (category || "GENERAL").toUpperCase(), source, updated_at: now };
+  if (idx >= 0) data.entries[idx] = { ...data.entries[idx], ...entry };
+  else { entry.created_at = now; data.entries.unshift(entry); }
+  data.last_updated = now;
+  fs.mkdirSync(path.dirname(MEMORY_PATH), { recursive: true });
+  fs.writeFileSync(MEMORY_PATH, JSON.stringify(data, null, 2));
+  return data.entries[idx >= 0 ? idx : 0];
+}
 
 app.get("/api/memory", (_, res) => {
   try {
-    if (!require("fs").existsSync(MEMORY_PATH)) return res.json({ entries: [] });
-    const data = JSON.parse(require("fs").readFileSync(MEMORY_PATH, "utf8"));
-    res.json(data);
+    res.json(loadMemory());
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2404,24 +2424,8 @@ app.post("/api/memory", (req, res) => {
   try {
     const { key, value, category } = req.body || {};
     if (!key || !value) return res.status(400).json({ error: "key and value required" });
-    const fs = require("fs");
-    let data = { version: 1, entries: [] };
-    if (fs.existsSync(MEMORY_PATH)) {
-      try { data = JSON.parse(fs.readFileSync(MEMORY_PATH, "utf8")); } catch (_) {}
-    }
-    const now = new Date().toISOString();
-    const idx = data.entries.findIndex(e => e.key.toLowerCase() === key.toLowerCase());
-    const entry = { key, value, category: (category || "GENERAL").toUpperCase(), updated_at: now };
-    if (idx >= 0) {
-      data.entries[idx] = { ...data.entries[idx], ...entry };
-    } else {
-      entry.created_at = now;
-      data.entries.unshift(entry);
-    }
-    data.last_updated = now;
-    require("fs").mkdirSync(path.dirname(MEMORY_PATH), { recursive: true });
-    fs.writeFileSync(MEMORY_PATH, JSON.stringify(data, null, 2));
-    res.json({ ok: true, entry: data.entries[idx >= 0 ? idx : 0] });
+    const entry = saveMemoryEntry(key, value, category, "manual");
+    res.json({ ok: true, entry });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
