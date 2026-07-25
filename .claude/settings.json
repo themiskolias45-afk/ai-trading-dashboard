@@ -1,4 +1,6 @@
 {
+  "model": "claude-opus-5",
+
   "permissions": {
     "allow": [
       "Bash(*)",
@@ -16,7 +18,8 @@
       "mcp__brave-search__*",
       "mcp__puppeteer__*",
       "mcp__exa__*",
-      "mcp__smartentry__*"
+      "mcp__smartentry__*",
+      "mcp__github__*"
     ],
     "deny": []
   },
@@ -67,10 +70,30 @@
     "smartentry": {
       "command": "node",
       "args": ["C:/Users/User/ai-trading-dashboard/server/mcp_server.js"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
     }
   },
 
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -NonInteractive -File 'C:\\Users\\User\\ai-trading-dashboard\\tasks\\hooks\\git-safety.ps1'",
+            "shell": "powershell"
+          }
+        ]
+      }
+    ],
+
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
@@ -85,6 +108,7 @@
         ]
       }
     ],
+
     "SessionStart": [
       {
         "hooks": [
@@ -101,6 +125,19 @@
             "shell": "powershell",
             "async": true,
             "statusMessage": "Running daily auto-check..."
+          }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -NonInteractive -File 'C:\\Users\\User\\ai-trading-dashboard\\tasks\\hooks\\session-stop.ps1'",
+            "shell": "powershell",
+            "async": true
           }
         ]
       }
