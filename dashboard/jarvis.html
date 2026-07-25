@@ -507,6 +507,12 @@ body.focus-mode .focus-exit{display:block}
       </div>
 
       <div class="field-group">
+        <div class="field-label">YouTube API Key <span class="field-status off" id="st-youtube">not set</span></div>
+        <input class="field-input" id="in-youtube" type="password" placeholder="AIza…" autocomplete="off">
+        <div class="field-hint">Free from Google Cloud Console (enable "YouTube Data API v3", create an API key). Lets JARVIS pull up videos when you ask.</div>
+      </div>
+
+      <div class="field-group">
         <div class="field-label">Other API Keys</div>
         <div id="custom-rows"></div>
         <button class="btn-ghost" onclick="addCustomRow()" style="margin-top:4px">+ Add key</button>
