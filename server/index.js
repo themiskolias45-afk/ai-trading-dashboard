@@ -1444,6 +1444,14 @@ app.get("/api/journal", (req, res) => {
 });
 
 // Self-learning state
+app.get("/api/hermes", (_, res) => {
+  try {
+    res.json(hermes.getSnapshot(signalCache, priceCache));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/learning", (_, res) => {
   try {
     const summary = {};
