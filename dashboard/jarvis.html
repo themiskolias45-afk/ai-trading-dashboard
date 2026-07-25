@@ -1165,9 +1165,7 @@ async function searchAndShowVideo(query) {
     const r = await fetch("/api/youtube-search?q=" + encodeURIComponent(query));
     const d = await r.json();
     if (!r.ok) {
-      addMsg("jarvis", (d.error || "").includes("No YouTube API key")
-        ? "I don't have a YouTube API key yet — add one in Settings (free from Google Cloud Console, enable \"YouTube Data API v3\") and I'll be able to pull up videos."
-        : `Couldn't search YouTube: ${d.error || "unknown error"}`);
+      addMsg("jarvis", `Couldn't search YouTube: ${d.error || "unknown error"}`);
       return;
     }
     if (!d.results?.length) { addMsg("jarvis", `No YouTube results for "${query}".`); return; }
