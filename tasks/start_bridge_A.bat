@@ -13,5 +13,5 @@ echo  STRONG signals execute instantly. Semi-auto for MODERATE.
 echo  Risk: 1%% per trade. Circuit breaker: 3 consecutive losses.
 echo  Press Ctrl+C to stop.
 echo.
-python mt5_bridge.py --auto
+python mt5_bridge.py --auto >> tasks\logs\bridge_log_A.txt 2>&1
 pause
