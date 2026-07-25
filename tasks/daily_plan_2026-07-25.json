@@ -1,0 +1,55 @@
+{
+  "date": "2026-07-25",
+  "generatedAt": "2026-07-25T05:45:00.460606+00:00",
+  "assets": {
+    "btc": {
+      "price": 63976,
+      "levels": {
+        "R2": 66000,
+        "R1": 65000,
+        "pivot": 63976,
+        "S1": 63000,
+        "S2": 62000
+      },
+      "trade_plan": null
+    },
+    "gold": {
+      "price": 4070.8,
+      "levels": {
+        "R2": 4240,
+        "R1": 4160,
+        "pivot": 4070.8,
+        "S1": 4000,
+        "S2": 3920
+      },
+      "trade_plan": null
+    },
+    "spx": {
+      "price": 7411.98,
+      "levels": {
+        "R2": 7600,
+        "R1": 7500,
+        "pivot": 7411.98,
+        "S1": 7300,
+        "S2": 7200
+      },
+      "trade_plan": null
+    }
+  },
+  "prices": {
+    "btc": 63976,
+    "gold": 4070.8,
+    "spx": 7411.98,
+    "dxy": 101.47,
+    "vix": 18.58
+  },
+  "risk": {
+    "dailyPnl": 0,
+    "consecutiveLosses": 0,
+    "halted": false,
+    "haltReason": ""
+  },
+  "setup_health": {},
+  "calendar": [],
+  "warnings": []
+}

@@ -171,10 +171,36 @@ header{
 .hero-logo{
   position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   pointer-events:none;z-index:0;opacity:.14;animation:heroPulse 6s ease-in-out infinite;
+  transition:opacity .6s ease;
 }
-.hero-logo svg{width:min(46vw,460px);height:min(46vw,460px);overflow:visible}
+.hero-logo svg{width:min(46vw,460px);height:min(46vw,460px);overflow:visible;transition:width .6s ease,height .6s ease}
+.hero-logo::after{
+  content:'';position:absolute;top:50%;left:50%;width:min(50vw,500px);height:min(50vw,500px);
+  border-radius:50%;background:conic-gradient(from 0deg,transparent 0%,rgba(167,139,250,.4) 6%,transparent 16%);
+  -webkit-mask:radial-gradient(circle,transparent 61%,#000 62%,#000 65%,transparent 66%);
+  mask:radial-gradient(circle,transparent 61%,#000 62%,#000 65%,transparent 66%);
+  animation:sweepRotate 5s linear infinite;transition:width .6s ease,height .6s ease;
+}
 @keyframes heroPulse{0%,100%{opacity:.1;transform:scale(1)}50%{opacity:.2;transform:scale(1.035)}}
+@keyframes sweepRotate{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
 .messages{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px;position:relative;z-index:1}
+
+/* ── FOCUS MODE — logo + background only ── */
+body.focus-mode header,
+body.focus-mode .sidebar,
+body.focus-mode .messages,
+body.focus-mode .input-zone{display:none}
+body.focus-mode .chat{position:fixed;inset:0}
+body.focus-mode .hero-logo{opacity:1}
+body.focus-mode .hero-logo svg{width:min(60vw,640px);height:min(60vw,640px)}
+body.focus-mode .hero-logo::after{width:min(64vw,680px);height:min(64vw,680px)}
+.focus-exit{
+  display:none;position:fixed;top:18px;right:18px;z-index:50;
+  padding:7px 16px;border-radius:20px;font-size:.7rem;font-weight:600;color:var(--muted);
+  background:rgba(13,20,40,.7);border:1px solid var(--border2);cursor:pointer;backdrop-filter:blur(8px);
+}
+.focus-exit:hover{color:var(--text);border-color:var(--accent)}
+body.focus-mode .focus-exit{display:block}
 .messages::-webkit-scrollbar{width:4px}
 .messages::-webkit-scrollbar-track{background:transparent}
 .messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
