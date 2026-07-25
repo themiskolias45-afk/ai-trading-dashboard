@@ -378,7 +378,7 @@ def report_positions():
                 "profit":  round(p.profit, 2),
                 "openTime": datetime.fromtimestamp(p.time).strftime("%H:%M:%S"),
             })
-        requests.post(f"{SERVER_URL}/api/mt5/positions", json={"positions": data}, timeout=5)
+        requests.post(f"{SERVER_URL}/api/mt5/positions", json={"positions": data, "account": ACCOUNT_TAG or "default"}, timeout=5)
     except Exception:
         pass
 
