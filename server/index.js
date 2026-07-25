@@ -1280,9 +1280,9 @@ app.post("/api/chat", async (req, res) => {
   const { message, history } = req.body;
   if (!message) return res.status(400).json({ error: "message required" });
   try {
-    const reply = await askClaude(message, Array.isArray(history) ? history : []);
-    if (!reply) return res.json({ reply: "No reply from AI — check API key." });
-    res.json({ reply });
+    const { text, video } = await askClaude(message, Array.isArray(history) ? history : []);
+    if (!text) return res.json({ reply: "No reply from AI — check API key." });
+    res.json({ reply: text, video });
   } catch (e) {
     const msg = e?.message || e?.toString() || "Unknown error";
     console.error("[chat] error:", msg);
