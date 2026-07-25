@@ -363,6 +363,9 @@ body.focus-mode .focus-exit{display:block}
 <!-- Animated background — neural network field -->
 <canvas id="bg-fx"></canvas>
 
+<!-- Focus mode exit (only visible while focus mode is on) -->
+<button class="focus-exit" onclick="toggleFocus()">✕ Exit focus mode</button>
+
 <!-- Toast alert -->
 <div id="toast" onclick="this.classList.remove('show')">
   <div id="toast-title">🔔 Signal Alert</div>
