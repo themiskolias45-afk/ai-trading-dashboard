@@ -1182,10 +1182,20 @@ async function send() {
   el.value = "";
   resize(el);
   document.getElementById("sbtn").disabled = true;
-  addTyping();
 
+  // Video requests skip the chat/voice pipeline entirely — otherwise JARVIS's spoken
+  // reply (which has no idea a video is playing) talks over the video's own audio,
+  // and since it has no video tool it tends to say it *can't* play one while one plays.
   const videoMatch = txt.match(VIDEO_REQUEST_RE);
-  if (videoMatch) searchAndShowVideo((videoMatch[1] || txt).trim() || txt);
+  if (videoMatch) {
+    const query = (videoMatch[1] || txt).trim() || txt;
+    addMsg("jarvis", `🎥 Pulling up a video: "${query}"`);
+    searchAndShowVideo(query);
+    document.getElementById("sbtn").disabled = false;
+    return;
+  }
+
+  addTyping();
 
   try {
     const r = await fetch("/api/chat", {
