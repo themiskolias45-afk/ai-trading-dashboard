@@ -1120,6 +1120,8 @@ function addTyping() {
 
 function rmTyping() { const t = document.getElementById("typing"); if (t) t.remove(); }
 
+const VIDEO_REQUEST_RE = /\b(?:play|show|find|pull up|pop up)\b(?:\s+me)?\s+(?:a|an|the|some)?\s*videos?\b(?:\s+(?:of|about|on|for))?\s*(.*)/i;
+
 async function send() {
   const el  = document.getElementById("inp");
   const txt = el.value.trim();
@@ -1129,6 +1131,9 @@ async function send() {
   resize(el);
   document.getElementById("sbtn").disabled = true;
   addTyping();
+
+  const videoMatch = txt.match(VIDEO_REQUEST_RE);
+  if (videoMatch) searchAndShowVideo((videoMatch[1] || txt).trim() || txt);
 
   try {
     const r = await fetch("/api/chat", {
