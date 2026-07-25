@@ -36,7 +36,6 @@ let TELEGRAM_TOKEN   = process.env.TELEGRAM_TOKEN   || "";
 let TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
 let UW_API_KEY       = process.env.UW_API_KEY       || "";
 let OPENAI_API_KEY   = process.env.OPENAI_API_KEY   || "";
-let YOUTUBE_API_KEY  = process.env.YOUTUBE_API_KEY  || "";
 
 // Load Claude API key — from apikey.txt file first, then environment variable
 function loadApiKey() {
