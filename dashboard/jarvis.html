@@ -1175,13 +1175,16 @@ function rmTyping() { const t = document.getElementById("typing"); if (t) t.remo
 // Voice input produces far more varied phrasing than typed text ("search for a video on X",
 // "open a video about X", "youtube X") — a strict ordered regex missed most of it, and when
 // nothing was captured it fell back to searching the raw trigger phrase itself, returning
-// random unrelated results. This detects the request anywhere in the sentence, then strips
-// every known filler/trigger phrase to isolate just the topic.
-const VIDEO_HAS_REQUEST_RE = /\b(?:play|search|show|find|pull\s*up|pop\s*up|open|get\s+me|look\s*up|watch|youtube|bring\s*up)\b.*\bvideos?\b|\bvideos?\b.*\b(?:play|search|show|find|pull\s*up|pop\s*up|open|get\s+me|look\s*up|watch|youtube|bring\s*up)\b/i;
-const VIDEO_STRIP_RE = /\b(can you|could you|please|jarvis|play|search(\s+for)?|show(\s+me)?|find(\s+me)?|pull\s*up|pop\s*up|open|get\s+me|look\s*up|watch|youtube|bring\s*up|a|an|the|some|videos?|of|about|on|for|regarding)\b/gi;
+// random unrelated results. This detects the request anywhere in the sentence — "youtube"
+// alone counts, it doesn't require the word "video" too — then strips every known filler/
+// trigger word to isolate just the topic.
+const VIDEO_TRIGGER_RE = /\b(?:play|search|show|find|pull\s*up|pop\s*up|open|get\s+me|look\s*up|watch|bring\s*up)\b/i;
+const VIDEO_STRIP_RE = /\b(can you|could you|please|jarvis|play|search(\s+for)?|show(\s+me)?|find(\s+me)?|pull\s*up|pop\s*up|open|get\s+me|look\s*up|watch|youtube|bring\s*up|me|a|an|the|some|videos?|of|about|on|for|regarding)\b/gi;
 
 function extractVideoQuery(txt) {
-  if (!VIDEO_HAS_REQUEST_RE.test(txt)) return null;
+  const hasYoutube = /\byoutube\b/i.test(txt);
+  const hasVideoWord = /\bvideos?\b/i.test(txt);
+  if (!hasYoutube && !(hasVideoWord && VIDEO_TRIGGER_RE.test(txt))) return null;
   const query = txt.replace(VIDEO_STRIP_RE, " ").replace(/\s+/g, " ").trim();
   return query || ""; // "" (not null) means: this IS a video request, but no topic was said
 }
