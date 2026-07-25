@@ -1609,6 +1609,14 @@ app.get("/api/checksystem", (_, res) => {
     if (fs.existsSync(pp)) proposal = JSON.parse(fs.readFileSync(pp, "utf8"));
   } catch {}
 
+  // MT5 bridge connectivity — based on last heartbeat per account, not open-position
+  // count (a bridge with zero open trades is still connected and must not read OFFLINE).
+  const now = Date.now();
+  const mt5Accounts = Object.entries(mt5LastSeenByAccount).map(([account, lastSeen]) => {
+    const ageMs = now - new Date(lastSeen).getTime();
+    return { account, lastSeen, secondsAgo: Math.round(ageMs / 1000), connected: ageMs < MT5_HEARTBEAT_STALE_MS };
+  });
+
   res.json({
     server:      { port: PORT, uptime: Math.round(process.uptime()), healthy: true },
     signals:     { btc: signalCache.btc?.signal, gold: signalCache.gold?.signal, spx: signalCache.spx?.signal, updatedAt: signalCache.updatedAt },
@@ -1617,6 +1625,7 @@ app.get("/api/checksystem", (_, res) => {
     performance: { trades: closed.length, wins, winRate: closed.length > 0 ? parseFloat((wins / closed.length * 100).toFixed(1)) : null, totalPnl: parseFloat(totalPnl.toFixed(2)), recentLosses },
     learning:    { sessionCount: learning.sessionCount, setupsTracked: Object.keys(learning.setupStats).length, setupHealth },
     calibration,
+    mt5:         { connected: mt5Accounts.some(a => a.connected), accounts: mt5Accounts },
     proposal:    proposal ? { worstSetup: proposal.worstSetup, winRate: proposal.winRate, generatedAt: proposal.generatedAt } : null
   });
 });
