@@ -1178,14 +1178,13 @@ app.post("/api/risk-status", (req, res) => {
 // Values are masked on read and written only to gitignored files (keys.env, apikey.txt).
 app.get("/api/settings", (_, res) => {
   const env = readKeysEnv();
-  const known = new Set(["TV_USERNAME", "TV_PASSWORD", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID", "UW_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "YOUTUBE_API_KEY"]);
+  const known = new Set(["TV_USERNAME", "TV_PASSWORD", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID", "UW_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
   res.json({
     anthropicKey:   { configured: !!ANTHROPIC_API_KEY, preview: maskKey(ANTHROPIC_API_KEY) },
     telegramToken:  { configured: !!TELEGRAM_TOKEN,     preview: maskKey(TELEGRAM_TOKEN) },
     telegramChatId: TELEGRAM_CHAT_ID || "",
     openaiKey:      { configured: !!OPENAI_API_KEY,     preview: maskKey(OPENAI_API_KEY) },
     uwKey:          { configured: !!UW_API_KEY,         preview: maskKey(UW_API_KEY) },
-    youtubeKey:     { configured: !!YOUTUBE_API_KEY,    preview: maskKey(YOUTUBE_API_KEY) },
     custom: Object.entries(env)
       .filter(([k]) => !known.has(k))
       .map(([k, v]) => ({ key: k, preview: maskKey(v) })),
