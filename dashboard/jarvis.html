@@ -6,6 +6,7 @@
 <title>JARVIS — SmartEntry Pro</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{height:100%}
 :root{
   --bg:#04070f;
   --surface:#0a0f1e;
@@ -19,18 +20,23 @@
   --green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6;
   --font:'Segoe UI',system-ui,Arial,sans-serif;
 }
-body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:var(--font);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
 /* ── ANIMATED BACKGROUND ── */
+#bg-fx{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.85;animation:hueShift 22s ease-in-out infinite}
 body::before{
   content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   background:
-    radial-gradient(ellipse 70% 60% at 15% -5%,rgba(124,58,237,.22) 0%,transparent 65%),
-    radial-gradient(ellipse 50% 45% at 85% 105%,rgba(79,70,229,.17) 0%,transparent 65%),
-    radial-gradient(ellipse 40% 50% at 50% 50%,rgba(124,58,237,.07) 0%,transparent 75%);
-  animation:bgPulse 8s ease-in-out infinite;
+    radial-gradient(ellipse 70% 60% at 15% -5%,rgba(139,92,246,.32) 0%,transparent 65%),
+    radial-gradient(ellipse 55% 50% at 85% 105%,rgba(59,130,246,.24) 0%,transparent 65%),
+    radial-gradient(ellipse 45% 55% at 50% 50%,rgba(124,58,237,.13) 0%,transparent 75%),
+    radial-gradient(ellipse 40% 40% at 90% 10%,rgba(96,165,250,.15) 0%,transparent 70%);
+  background-size:140% 140%;
+  animation:bgPulse 10s ease-in-out infinite, bgDrift 26s ease-in-out infinite, hueShift 22s ease-in-out infinite;
 }
-@keyframes bgPulse{0%,100%{opacity:1}50%{opacity:.7}}
+@keyframes bgPulse{0%,100%{opacity:1}50%{opacity:.75}}
+@keyframes bgDrift{0%,100%{background-position:0% 0%}50%{background-position:8% 6%}}
+@keyframes hueShift{0%,100%{filter:hue-rotate(0deg)}33%{filter:hue-rotate(-28deg)}66%{filter:hue-rotate(32deg)}}
 
 /* ── HEADER ── */
 header{
@@ -41,19 +47,49 @@ header{
 }
 .logo{display:flex;align-items:center;gap:14px}
 .logo-mark{
-  width:46px;height:46px;flex-shrink:0;
-  background:linear-gradient(135deg,#7c3aed 0%,#4f46e5 50%,#3730a3 100%);
-  border-radius:14px;display:flex;align-items:center;justify-content:center;
-  font-weight:900;font-size:22px;color:#fff;letter-spacing:-.02em;
-  box-shadow:0 0 0 1px rgba(124,58,237,.4),0 0 24px rgba(124,58,237,.55),0 0 50px rgba(124,58,237,.2);
-  position:relative;overflow:hidden;
+  width:52px;height:52px;flex-shrink:0;position:relative;
   animation:logoPulse 4s ease-in-out infinite;
 }
-.logo-mark::before{
-  content:'';position:absolute;inset:0;
-  background:linear-gradient(135deg,rgba(255,255,255,.25) 0%,transparent 55%);
+.logo-svg{width:100%;height:100%;overflow:visible;transition:transform .09s linear}
+.ring-glow{fill:none;stroke:rgba(124,58,237,.35);stroke-width:9;filter:blur(3.5px)}
+.ring-outer{fill:none;stroke:rgba(230,235,255,.85);stroke-width:1.1}
+.ring-tick{fill:none;stroke:rgba(167,139,250,.7);stroke-width:1;stroke-dasharray:1.5 5.2}
+.ring-fine{fill:none;stroke:rgba(230,235,255,.4);stroke-width:.5;stroke-dasharray:.8 2.4}
+.core-edge{fill:none;stroke:rgba(255,255,255,.85);stroke-width:.8}
+.tick-major{stroke:rgba(230,235,255,.95);stroke-width:1.2;stroke-linecap:round}
+.tick-minor{stroke:rgba(167,139,250,.55);stroke-width:.6;stroke-linecap:round}
+.crosshair{stroke:rgba(230,235,255,.8);stroke-width:1;stroke-linecap:round}
+.ring-dash{
+  fill:none;stroke-width:2.6;stroke-dasharray:9 6;stroke-linecap:round;
+  transform-origin:50px 50px;animation:spinRing 12s linear infinite;
 }
-@keyframes logoPulse{0%,100%{box-shadow:0 0 0 1px rgba(124,58,237,.4),0 0 24px rgba(124,58,237,.55),0 0 50px rgba(124,58,237,.2)}50%{box-shadow:0 0 0 1px rgba(124,58,237,.6),0 0 36px rgba(124,58,237,.8),0 0 70px rgba(124,58,237,.35)}}
+.orbit-dot{
+  fill:#fff;filter:drop-shadow(0 0 5px #fff) drop-shadow(0 0 12px #a78bfa);
+  transform-origin:50px 50px;animation:spinRing 6s linear infinite;
+}
+.orbit-dot2{
+  fill:#60a5fa;filter:drop-shadow(0 0 4px #60a5fa) drop-shadow(0 0 9px #3b82f6);
+  transform-origin:50px 50px;animation:spinRing 4s linear infinite reverse;
+}
+.logo-core{fill:url(#coreGrad)}
+.core-facet-fill{
+  fill:rgba(124,58,237,.22);stroke:rgba(196,181,253,.55);stroke-width:.9;
+  transform-origin:50px 50px;animation:spinRing 15s linear infinite;
+}
+.core-facet{
+  fill:none;stroke:rgba(255,255,255,.7);stroke-width:1.2;
+  transform-origin:50px 50px;animation:spinRing 8s linear infinite reverse;
+}
+.core-dot{
+  fill:#fff;filter:drop-shadow(0 0 7px #fff) drop-shadow(0 0 16px #c4b5fd);
+  animation:corePulse 2.2s ease-in-out infinite;
+}
+@keyframes corePulse{0%,100%{r:3.6;opacity:.85}50%{r:5.8;opacity:1}}
+@keyframes logoPulse{
+  0%,100%{filter:drop-shadow(0 0 8px rgba(124,58,237,.65)) drop-shadow(0 0 20px rgba(124,58,237,.4))}
+  50%{filter:drop-shadow(0 0 14px rgba(124,58,237,.95)) drop-shadow(0 0 34px rgba(124,58,237,.6))}
+}
+@keyframes spinRing{to{transform:rotate(360deg)}}
 .logo-text{}
 .logo-name{font-size:1.25rem;font-weight:900;letter-spacing:.06em;
   background:linear-gradient(90deg,#fff 0%,#c4b5fd 60%,#818cf8 100%);
@@ -80,13 +116,13 @@ header{
 
 /* ── SIDEBAR ── */
 .sidebar{
-  width:260px;flex-shrink:0;border-right:1px solid var(--border);
+  width:270px;flex-shrink:0;border-right:1px solid var(--border);
   background:rgba(8,12,22,.8);display:flex;flex-direction:column;overflow-y:auto;
 }
 .sidebar::-webkit-scrollbar{width:3px}
 .sidebar::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 .sb-section{padding:12px 14px;border-bottom:1px solid var(--border)}
-.sb-title{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:10px}
+.sb-title{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 
 /* Signal cards */
 .sig-card{
@@ -104,6 +140,8 @@ header{
 .sc-bar-bg{background:#07101e;border-radius:4px;height:5px;overflow:hidden;margin-bottom:5px}
 .sc-bar{height:5px;border-radius:4px;transition:width .7s ease,background .7s}
 .sc-meta{display:flex;justify-content:space-between;font-size:.62rem;color:var(--muted)}
+.sc-chart-link{font-size:.58rem;color:var(--muted);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.sc-chart-link:hover{color:#c4b5fd}
 
 /* Quick prompts */
 .qp-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
@@ -113,6 +151,26 @@ header{
   transition:all .2s;text-align:center;line-height:1.4;
 }
 .qp:hover{border-color:var(--accent);color:#c4b5fd;background:rgba(124,58,237,.1)}
+
+/* System control buttons */
+.sysbtn{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 10px;background:rgba(13,20,40,.8);border:1px solid var(--border);
+  border-radius:7px;font-size:.68rem;color:var(--muted);cursor:pointer;
+  transition:all .2s;margin-bottom:5px;text-decoration:none;
+}
+.sysbtn:hover{border-color:var(--accent);color:#c4b5fd;background:rgba(124,58,237,.1)}
+.sysbtn .arrow{opacity:.5;font-size:.6rem}
+
+/* Learning rows */
+.learn-row{display:flex;flex-direction:column;gap:3px;padding:7px 0;border-bottom:1px solid rgba(26,37,64,.5)}
+.learn-row:last-child{border-bottom:none}
+.learn-top{display:flex;justify-content:space-between;font-size:.66rem}
+.learn-name{color:var(--text);font-weight:600}
+.learn-wr{font-weight:800}
+.learn-bar-bg{height:4px;background:#07101e;border-radius:3px;overflow:hidden}
+.learn-bar{height:100%;border-radius:3px}
+.learn-empty{font-size:.66rem;color:var(--muted);line-height:1.5}
 
 /* Voice status box */
 .voice-box{
@@ -126,8 +184,61 @@ header{
 .voice-box-text{font-size:.7rem;color:var(--muted);line-height:1.3}
 
 /* ── CHAT ── */
-.chat{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
-.messages{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+.chat{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.hero-logo{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;z-index:0;opacity:.24;animation:heroPulse 6s ease-in-out infinite;
+  transition:opacity .6s ease;
+}
+.hero-logo svg{width:min(50vw,520px);height:min(50vw,520px);overflow:visible;transition:width .6s ease,height .6s ease,transform .09s linear}
+.hero-logo::after{
+  content:'';position:absolute;top:50%;left:50%;width:min(54vw,560px);height:min(54vw,560px);
+  border-radius:50%;background:conic-gradient(from 0deg,transparent 0%,rgba(167,139,250,.5) 6%,transparent 16%);
+  -webkit-mask:radial-gradient(circle,transparent 61%,#000 62%,#000 65%,transparent 66%);
+  mask:radial-gradient(circle,transparent 61%,#000 62%,#000 65%,transparent 66%);
+  animation:sweepRotate 5s linear infinite;transition:width .6s ease,height .6s ease;
+}
+@keyframes heroPulse{0%,100%{opacity:.18;transform:scale(1)}50%{opacity:.34;transform:scale(1.04)}}
+@keyframes sweepRotate{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+.messages{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px;position:relative;z-index:1}
+
+/* ── FOCUS MODE — logo + background only ── */
+body.focus-mode header,
+body.focus-mode .sidebar,
+body.focus-mode .messages,
+body.focus-mode .input-zone{display:none}
+body.focus-mode .chat{position:fixed;inset:0}
+body.focus-mode .hero-logo{opacity:1}
+body.focus-mode .hero-logo svg{width:min(60vw,640px);height:min(60vw,640px)}
+body.focus-mode .hero-logo::after{width:min(64vw,680px);height:min(64vw,680px)}
+
+/* ── SPEAKING STATE — logo reacts while JARVIS talks ── */
+body.jarvis-speaking .logo-mark{animation-duration:1.1s}
+body.jarvis-speaking .hero-logo{animation-duration:1.3s;opacity:.4}
+body.jarvis-speaking.focus-mode .hero-logo{opacity:1}
+body.jarvis-speaking .ring-dash{animation-duration:4s}
+body.jarvis-speaking .core-dot{animation-duration:.9s}
+.focus-exit{
+  display:none;position:fixed;top:18px;right:18px;z-index:50;
+  padding:7px 16px;border-radius:20px;font-size:.7rem;font-weight:600;color:var(--muted);
+  background:rgba(13,20,40,.7);border:1px solid var(--border2);cursor:pointer;backdrop-filter:blur(8px);
+}
+.focus-exit:hover{color:var(--text);border-color:var(--accent)}
+.focus-mic{
+  display:none;position:fixed;bottom:34px;left:50%;transform:translateX(-50%);z-index:50;
+  width:58px;height:58px;border-radius:50%;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:22px;cursor:pointer;
+  box-shadow:0 4px 22px rgba(124,58,237,.6);transition:transform .2s;
+}
+.focus-mic:hover{transform:translateX(-50%) scale(1.08)}
+.focus-mic.rec{background:linear-gradient(135deg,#ef4444,#dc2626);animation:blink .8s ease-in-out infinite}
+body.focus-mode .focus-mic{display:flex}
+.focus-status{
+  display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:50;
+  font-size:.66rem;color:var(--muted);white-space:nowrap;text-align:center;
+}
+body.focus-mode .focus-status{display:block;bottom:100px}
+body.focus-mode .focus-exit{display:block}
 .messages::-webkit-scrollbar{width:4px}
 .messages::-webkit-scrollbar-track{background:transparent}
 .messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
@@ -147,6 +258,8 @@ header{
 .bubble{padding:11px 15px;border-radius:12px;font-size:.82rem;line-height:1.65;white-space:pre-wrap;word-break:break-word}
 .msg.jarvis .bubble{background:var(--surface2);border:1px solid var(--border);border-top-left-radius:2px;color:var(--text)}
 .msg.user   .bubble{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border-top-right-radius:2px}
+.bubble strong{color:#c4b5fd}
+.msg.user .bubble strong{color:#fff}
 .ts{font-size:.58rem;color:var(--muted)}
 
 /* Typing */
@@ -217,6 +330,101 @@ header{
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 #stop-spk{display:none}
 
+/* ── MODALS (Settings / Charts) ── */
+.modal-overlay{
+  display:none;position:fixed;inset:0;background:rgba(2,4,10,.78);z-index:998;
+  align-items:center;justify-content:center;backdrop-filter:blur(4px);
+}
+.modal-overlay.show{display:flex}
+.modal-box{
+  background:var(--surface);border:1px solid var(--border2);border-radius:14px;
+  width:520px;max-width:92vw;max-height:86vh;overflow-y:auto;
+  box-shadow:0 20px 60px rgba(0,0,0,.6);
+}
+.modal-box.wide{width:920px}
+.modal-hdr{
+  padding:16px 20px;border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;
+  background:var(--surface);z-index:2;
+}
+.modal-title{font-size:.85rem;font-weight:800;letter-spacing:.04em}
+.modal-close{background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;line-height:1}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:18px 20px}
+.field-group{margin-bottom:14px}
+.field-label{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;display:flex;justify-content:space-between}
+.field-status{font-size:.6rem;font-weight:700;padding:1px 7px;border-radius:8px}
+.field-status.ok{background:rgba(34,197,94,.15);color:var(--green)}
+.field-status.off{background:rgba(74,96,128,.15);color:var(--muted)}
+.field-input{
+  width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
+  color:var(--text);font-family:var(--font);font-size:.8rem;padding:9px 12px;outline:none;
+}
+.field-input:focus{border-color:var(--accent)}
+.field-hint{font-size:.6rem;color:var(--muted);margin-top:4px}
+.custom-row{display:flex;gap:6px;margin-bottom:6px}
+.custom-row .field-input{flex:1}
+.custom-row .field-input.key-in{flex:0 0 140px}
+.rm-row{background:none;border:1px solid var(--border2);color:var(--muted);border-radius:6px;width:32px;cursor:pointer;flex-shrink:0}
+.rm-row:hover{color:var(--red);border-color:var(--red)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;padding-top:8px;border-top:1px solid var(--border);margin-top:6px}
+.btn-primary{background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;padding:9px 18px;border-radius:8px;font-size:.75rem;font-weight:700;cursor:pointer}
+.btn-primary:hover{box-shadow:0 4px 16px rgba(124,58,237,.5)}
+.btn-ghost{background:none;border:1px solid var(--border2);color:var(--muted);padding:9px 14px;border-radius:8px;font-size:.75rem;cursor:pointer}
+.btn-ghost:hover{color:var(--text);border-color:var(--accent)}
+.settings-save-msg{font-size:.68rem;color:var(--green);margin-right:auto;align-self:center}
+
+/* Charts modal */
+.chart-tabs{display:flex;gap:6px;margin-bottom:10px}
+.chart-tab{padding:6px 16px;border-radius:8px;font-size:.72rem;font-weight:700;cursor:pointer;border:1px solid var(--border2);color:var(--muted);background:none}
+.chart-tab.active{background:rgba(124,58,237,.2);border-color:var(--accent);color:#c4b5fd}
+.chart-layout-row{display:flex;gap:6px;margin-bottom:14px}
+.layout-btn{padding:5px 14px;border-radius:20px;font-size:.68rem;font-weight:600;cursor:pointer;border:1px solid var(--border2);color:var(--muted);background:none}
+.layout-btn.active{background:rgba(124,58,237,.2);border-color:var(--accent);color:#c4b5fd}
+.chart-grid{display:grid;gap:10px}
+.chart-slot{background:var(--surface2);border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+.chart-slot-hdr{padding:6px 10px;font-size:.62rem;color:var(--muted);font-weight:700;letter-spacing:.06em;border-bottom:1px solid var(--border)}
+.chart-slot-body{height:340px}
+
+/* Video modal */
+.video-player-wrap{position:relative;padding-top:56.25%;background:#000;border-radius:10px;overflow:hidden}
+.video-player-wrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+#video-results{display:flex;flex-direction:column;gap:6px;margin-top:12px;max-height:180px;overflow-y:auto}
+.video-result{display:flex;gap:10px;align-items:center;padding:6px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.video-result:hover{background:rgba(124,58,237,.1);border-color:var(--border2)}
+.video-result img{width:80px;height:45px;object-fit:cover;border-radius:5px;flex-shrink:0}
+.video-result-title{font-size:.75rem;color:var(--text);line-height:1.3}
+.video-result-channel{font-size:.62rem;color:var(--muted);margin-top:2px}
+
+/* Hermes modal */
+.hermes-inception{font-size:.66rem;color:var(--muted);margin-bottom:14px}
+.hermes-section-title{font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--text);margin:18px 0 8px;display:flex;align-items:baseline;gap:8px}
+.hermes-section-title:first-of-type{margin-top:0}
+.hermes-sub{font-size:.6rem;font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted)}
+.hermes-pulse-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.hermes-pulse-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.hermes-pulse-asset{font-size:.72rem;font-weight:800;letter-spacing:.04em}
+.hermes-pulse-meta{font-size:.64rem;color:var(--muted);margin-top:4px;line-height:1.6}
+.hermes-duel-row{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;margin-bottom:5px;font-size:.68rem}
+.hermes-duel-geo{font-weight:700}
+.hermes-duel-dir{font-size:.6rem;font-weight:700;padding:1px 7px;border-radius:5px;margin-left:6px}
+.hermes-duel-dir.BUY{background:rgba(34,197,94,.15);color:var(--green)}
+.hermes-duel-dir.SELL{background:rgba(239,68,68,.15);color:var(--red)}
+.hermes-table{width:100%;border-collapse:collapse;font-size:.68rem}
+.hermes-table th{text-align:left;color:var(--muted);font-weight:600;padding:5px 8px;border-bottom:1px solid var(--border);font-size:.6rem;text-transform:uppercase;letter-spacing:.06em}
+.hermes-table td{padding:6px 8px;border-bottom:1px solid rgba(26,37,64,.5)}
+.hermes-validated{font-size:.58rem;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,.15);color:var(--green);font-weight:700}
+.hermes-gathering{font-size:.58rem;color:var(--muted)}
+.hermes-champ-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.hermes-champ-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
+.hermes-champ-card.has-champ{border-color:rgba(234,179,8,.4);background:rgba(234,179,8,.06)}
+.hermes-champ-asset{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.hermes-champ-geo{font-size:.85rem;font-weight:800;margin-top:4px}
+.hermes-champ-stats{font-size:.62rem;color:var(--muted);margin-top:3px}
+.hermes-rejection{font-size:.66rem;color:var(--muted);padding:5px 0;border-bottom:1px solid rgba(26,37,64,.5)}
+.hermes-rejection:last-child{border-bottom:none}
+.hermes-empty{font-size:.68rem;color:var(--muted)}
+
 /* ── ANIMATIONS ── */
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
 @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-7px)}}
@@ -224,10 +432,18 @@ header{
 @keyframes slideIn{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:translateX(0)}}
 
 /* ── RESPONSIVE ── */
-@media(max-width:820px){.sidebar{display:none}.mc{max-width:88%}}
+@media(max-width:820px){.sidebar{display:none}.mc{max-width:88%}.modal-box.wide{width:92vw}.chart-slot-body{height:220px}}
 </style>
 </head>
 <body>
+
+<!-- Animated background — neural network field -->
+<canvas id="bg-fx"></canvas>
+
+<!-- Focus mode exit (only visible while focus mode is on) -->
+<button class="focus-exit" onclick="toggleFocus()">✕ Exit focus mode</button>
+<button class="focus-mic" id="focus-mic-btn" onclick="toggleMic()" title="Speak to JARVIS">🎤</button>
+<div class="focus-status" id="focus-status">Tap the mic or just start talking</div>
 
 <!-- Toast alert -->
 <div id="toast" onclick="this.classList.remove('show')">
@@ -238,7 +454,34 @@ header{
 <!-- ═══════════ HEADER ═══════════ -->
 <header>
   <div class="logo">
-    <div class="logo-mark">J</div>
+    <div class="logo-mark">
+      <svg class="logo-svg" viewBox="0 0 100 100">
+        <defs>
+          <radialGradient id="coreGrad" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="30%" stop-color="#e0d4ff"/>
+            <stop offset="60%" stop-color="#a78bfa"/>
+            <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="ringGradHeader" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#a78bfa"/>
+            <stop offset="50%" stop-color="#60a5fa"/>
+            <stop offset="100%" stop-color="#c4b5fd"/>
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="50" r="46" class="ring-glow"/>
+        <circle cx="50" cy="50" r="46" class="ring-outer"/>
+        <circle cx="50" cy="50" r="40" class="ring-tick"/>
+        <circle cx="50" cy="50" r="22" class="logo-core"/>
+        <circle cx="50" cy="50" r="22" class="core-edge"/>
+        <circle cx="50" cy="50" r="34" class="ring-dash" stroke="url(#ringGradHeader)"/>
+        <circle cx="50" cy="4" r="2.6" class="orbit-dot"/>
+        <circle cx="88" cy="50" r="1.7" class="orbit-dot2"/>
+        <polygon points="50,36 64,50 50,64 36,50" class="core-facet-fill"/>
+        <polygon points="50,42 58,50 50,58 42,50" class="core-facet"/>
+        <circle cx="50" cy="50" r="3.6" class="core-dot"/>
+      </svg>
+    </div>
     <div class="logo-text">
       <div class="logo-name">JARVIS</div>
       <div class="logo-sub">SmartEntry Pro — AI Trading Assistant</div>
@@ -256,9 +499,134 @@ header{
   <div class="header-btns">
     <button class="hbtn" id="btn-voice" onclick="toggleVoice()">🔈 Voice</button>
     <button class="hbtn" id="btn-alerts" onclick="toggleAlerts()">🔔 Alerts</button>
+    <button class="hbtn" onclick="toggleFocus()">🌌 Focus</button>
+    <button class="hbtn" onclick="openCharts()">📈 Charts</button>
+    <button class="hbtn" onclick="openHermes()">⚔️ Hermes</button>
+    <button class="hbtn" onclick="openSettings()">⚙ Settings</button>
     <a href="/dashboard" class="hbtn">← Dashboard</a>
   </div>
 </header>
+
+<!-- ═══════════ SETTINGS MODAL ═══════════ -->
+<div class="modal-overlay" id="settings-overlay">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <div class="modal-title">⚙ System Settings</div>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <div class="field-group">
+        <div class="field-label">Anthropic API Key <span class="field-status off" id="st-anthropic">not set</span></div>
+        <input class="field-input" id="in-anthropic" type="password" placeholder="sk-ant-…" autocomplete="off">
+        <div class="field-hint">Powers JARVIS chat + all AI analysis. Applies immediately, no restart.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">OpenAI API Key <span class="field-status off" id="st-openai">not set</span></div>
+        <input class="field-input" id="in-openai" type="password" placeholder="sk-…" autocomplete="off">
+        <div class="field-hint">Stored for future use — no OpenAI feature is wired up yet.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Telegram Bot Token <span class="field-status off" id="st-tgtoken">not set</span></div>
+        <input class="field-input" id="in-tgtoken" type="password" placeholder="123456:ABC-DEF…" autocomplete="off">
+        <div class="field-hint">From @BotFather. Polling starts immediately once saved.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Telegram Chat ID</div>
+        <input class="field-input" id="in-tgchat" type="text" placeholder="e.g. 123456789">
+        <div class="field-hint">Your personal chat ID so JARVIS can message you proactively (morning plan, strong signals).</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Unusual Whales API Key <span class="field-status off" id="st-uw">not set</span></div>
+        <input class="field-input" id="in-uw" type="password" placeholder="uw_…" autocomplete="off">
+        <div class="field-hint">Congress trades + options flow.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Other API Keys</div>
+        <div id="custom-rows"></div>
+        <button class="btn-ghost" onclick="addCustomRow()" style="margin-top:4px">+ Add key</button>
+      </div>
+
+      <div class="modal-actions">
+        <span class="settings-save-msg" id="settings-save-msg"></span>
+        <button class="btn-ghost" onclick="closeSettings()">Cancel</button>
+        <button class="btn-primary" onclick="saveSettings()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ CHARTS MODAL ═══════════ -->
+<div class="modal-overlay" id="charts-overlay">
+  <div class="modal-box wide">
+    <div class="modal-hdr">
+      <div class="modal-title">📈 Live Charts</div>
+      <button class="modal-close" onclick="closeCharts()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="chart-tabs">
+        <button class="chart-tab active" id="ctab-btc"  onclick="setChartAsset('btc')">₿ BTC</button>
+        <button class="chart-tab" id="ctab-gold" onclick="setChartAsset('gold')">🥇 GOLD</button>
+        <button class="chart-tab" id="ctab-spx"  onclick="setChartAsset('spx')">📈 SPX</button>
+      </div>
+      <div class="chart-layout-row">
+        <button class="layout-btn" id="clay-1" onclick="setChartLayout(1)">1 Chart</button>
+        <button class="layout-btn active" id="clay-2" onclick="setChartLayout(2)">2 Charts</button>
+        <button class="layout-btn" id="clay-3" onclick="setChartLayout(3)">3 Charts</button>
+      </div>
+      <div class="chart-grid" id="chart-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ HERMES MODAL ═══════════ -->
+<div class="modal-overlay" id="hermes-overlay">
+  <div class="modal-box wide">
+    <div class="modal-hdr">
+      <div class="modal-title">⚔️ Hermes — forward paper-trading validation</div>
+      <button class="modal-close" onclick="closeHermes()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="hermes-inception" id="hermes-inception">—</div>
+
+      <div class="hermes-section-title">🌐 MARKET PULSE <span class="hermes-sub">the factory's senses</span></div>
+      <div class="hermes-pulse-row" id="hermes-pulse"></div>
+
+      <div class="hermes-section-title">⚔️ LIVE DUEL <span class="hermes-sub" id="hermes-duel-sub">forward paper-trading on live signals</span></div>
+      <div id="hermes-duel"></div>
+
+      <div class="hermes-section-title">🏆 VALIDATED LEADERBOARD <span class="hermes-sub">out-of-sample expectancy, costs deducted</span></div>
+      <div id="hermes-leaderboard"></div>
+
+      <div class="hermes-section-title">👑 PER-PAIR CHAMPIONS <span class="hermes-sub">best validated geometry per market</span></div>
+      <div class="hermes-champ-row" id="hermes-champions"></div>
+
+      <div class="hermes-section-title">RECENT REJECTIONS <span class="hermes-sub">the gate doing its job</span></div>
+      <div id="hermes-rejections"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ VIDEO MODAL ═══════════ -->
+<div class="modal-overlay" id="video-overlay">
+  <div class="modal-box wide">
+    <div class="modal-hdr">
+      <div class="modal-title" id="video-modal-title">📺 Video</div>
+      <button class="modal-close" onclick="closeVideoModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="video-player-wrap">
+        <iframe id="video-iframe" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+      </div>
+      <div id="video-results"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════ MAIN ═══════════ -->
 <div class="layout">
@@ -266,7 +634,7 @@ header{
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="sb-section">
-      <div class="sb-title">Live Signals</div>
+      <div class="sb-title"><span>Live Signals</span></div>
       <div class="sig-card" id="sc-btc">
         <div class="sc-row1"><span class="sc-asset">BTC</span><span class="sc-badge b-WAIT" id="sb-btc">WAIT</span></div>
         <div class="sc-bar-bg"><div class="sc-bar" id="bar-btc" style="width:0;background:var(--muted)"></div></div>
@@ -285,7 +653,21 @@ header{
     </div>
 
     <div class="sb-section">
-      <div class="sb-title">Quick Ask</div>
+      <div class="sb-title"><span>Self-Learning</span></div>
+      <div id="learn-box"><div class="learn-empty">Loading…</div></div>
+    </div>
+
+    <div class="sb-section">
+      <div class="sb-title"><span>System</span></div>
+      <div class="sysbtn" onclick="forceHeal()"><span>🩺 Force Heal</span><span class="arrow">run</span></div>
+      <div class="sysbtn" onclick="sq('Give me setup health — which setups should I take or avoid right now?')"><span>📊 Setup Health</span><span class="arrow">ask</span></div>
+      <a class="sysbtn" href="/daily-plan"><span>📅 Daily Plan</span><span class="arrow">open</span></a>
+      <a class="sysbtn" href="/command"><span>⚡ Command Center</span><span class="arrow">open</span></a>
+      <a class="sysbtn" href="/dashboard/performance.html"><span>📈 Performance</span><span class="arrow">open</span></a>
+    </div>
+
+    <div class="sb-section">
+      <div class="sb-title"><span>Quick Ask</span></div>
       <div class="qp-grid">
         <div class="qp" onclick="sq('What is the best trade setup right now?')">🎯 Best setup</div>
         <div class="qp" onclick="sq('Deep analysis of Bitcoin — entry, stop, target, confidence.')">₿ BTC deep</div>
@@ -294,14 +676,14 @@ header{
         <div class="qp" onclick="sq('Current market regime — risk on, risk off, or mixed?')">🌐 Regime</div>
         <div class="qp" onclick="sq('Full risk check — are my positions safe given current volatility?')">🛡 Risk check</div>
         <div class="qp" onclick="sq('What is the trading plan for today across all assets?')">📋 Today plan</div>
-        <div class="qp" onclick="sq('Show signal confidence for all assets right now.')">📡 Signals</div>
+        <div class="qp" onclick="sq('What have you learned from past trades? Any setups to avoid?')">🧠 Learning</div>
         <div class="qp" onclick="sq('Should I trade now or wait? Explain why.')">⏳ Trade now?</div>
         <div class="qp" onclick="sq('Key support and resistance levels for BTC, Gold and SPX.')">📊 Levels</div>
       </div>
     </div>
 
     <div class="sb-section">
-      <div class="sb-title">Voice</div>
+      <div class="sb-title"><span>Voice</span></div>
       <div class="voice-box">
         <div class="vi" id="vi"></div>
         <div class="voice-box-text" id="vbox-text">Tap 🎤 to speak to JARVIS</div>
@@ -311,6 +693,37 @@ header{
 
   <!-- CHAT -->
   <div class="chat">
+    <div class="hero-logo" aria-hidden="true">
+      <svg viewBox="0 0 100 100">
+        <defs>
+          <radialGradient id="coreGradHero" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="30%" stop-color="#e0d4ff"/>
+            <stop offset="60%" stop-color="#a78bfa"/>
+            <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="ringGradHero" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#a78bfa"/>
+            <stop offset="50%" stop-color="#60a5fa"/>
+            <stop offset="100%" stop-color="#c4b5fd"/>
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="50" r="48" class="ring-glow"/>
+        <circle cx="50" cy="50" r="48" class="ring-outer"/>
+        <circle cx="50" cy="50" r="44" class="ring-fine"/>
+        <circle cx="50" cy="50" r="42" class="ring-tick"/>
+        <circle cx="50" cy="50" r="22" fill="url(#coreGradHero)"/>
+        <circle cx="50" cy="50" r="22" class="core-edge"/>
+        <circle cx="50" cy="50" r="34" class="ring-dash" stroke="url(#ringGradHero)"/>
+        <circle cx="50" cy="50" r="30" class="ring-tick" style="animation:spinRing 20s linear infinite reverse;transform-origin:50px 50px"/>
+        <circle cx="50" cy="2" r="2" class="orbit-dot"/>
+        <circle cx="87" cy="50" r="1.4" class="orbit-dot2"/>
+        <polygon points="50,30 70,50 50,70 30,50" class="core-facet-fill" style="animation-duration:18s"/>
+        <polygon points="50,32 68,50 50,68 32,50" class="core-facet" style="animation-duration:11s"/>
+        <polygon points="50,40 60,50 50,60 40,50" class="core-facet" style="animation-duration:7s;animation-direction:normal"/>
+        <circle cx="50" cy="50" r="4.2" class="core-dot"/>
+      </svg>
+    </div>
     <div class="messages" id="msgs"></div>
 
     <div class="input-zone">
@@ -323,7 +736,7 @@ header{
       <!-- Text input row -->
       <div class="input-row">
         <div class="input-wrap">
-          <textarea id="inp" rows="1" placeholder="Ask JARVIS anything about the market…" onkeydown="hkey(event)" oninput="resize(this)"></textarea>
+          <textarea id="inp" rows="1" placeholder="Ask JARVIS anything about the system…" onkeydown="hkey(event)" oninput="resize(this)"></textarea>
           <button class="mic-inline" id="mic2" onclick="toggleMic()" title="Voice input">🎤</button>
         </div>
         <button class="send" id="sbtn" onclick="send()">↑</button>
@@ -332,16 +745,84 @@ header{
   </div>
 </div>
 
+<script src="https://s3.tradingview.com/tv.js"></script>
 <script>
+// ══════════════════════════════════════════
+//  ANIMATED BACKGROUND — drifting neural network field
+// ══════════════════════════════════════════
+(function initBgFX() {
+  const canvas = document.getElementById("bg-fx");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  let w, h, particles;
+
+  function resize() {
+    w = canvas.width  = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+  }
+  function makeParticles() {
+    const count = Math.min(190, Math.floor((w * h) / 9000));
+    particles = Array.from({ length: count }, () => ({
+      x: Math.random() * w, y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.32, vy: (Math.random() - 0.5) * 0.32,
+      r: Math.random() * 1.8 + 0.7,
+      tw: Math.random() * Math.PI * 2,   // twinkle phase
+      tws: 0.015 + Math.random() * 0.025 // twinkle speed
+    }));
+  }
+  function step() {
+    ctx.clearRect(0, 0, w, h);
+    for (const p of particles) {
+      p.x += p.vx; p.y += p.vy;
+      p.tw += p.tws;
+      if (p.x < 0 || p.x > w) p.vx *= -1;
+      if (p.y < 0 || p.y > h) p.vy *= -1;
+    }
+    const LINK_DIST = 150;
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const a = particles[i], b = particles[j];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist < LINK_DIST) {
+          const t = 1 - dist / LINK_DIST;
+          ctx.strokeStyle = `rgba(150,110,255,${0.4 * t * t})`;
+          ctx.lineWidth = t > 0.6 ? 1.3 : 0.8;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+      }
+    }
+    ctx.shadowColor = "rgba(180,150,255,0.95)";
+    for (const p of particles) {
+      const twinkle = 0.5 + 0.45 * (0.5 + 0.5 * Math.sin(p.tw));
+      ctx.shadowBlur = 5 + twinkle * 6;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(210,195,255,${twinkle})`;
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    requestAnimationFrame(step);
+  }
+  window.addEventListener("resize", () => { resize(); makeParticles(); });
+  resize(); makeParticles(); step();
+})();
+
 // ══════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════
-let voiceOn    = false;
-let alertsOn   = true;
-let recording  = false;
-let speaking   = false;
-let recog      = null;
-let lastAlerts = {};
+let voiceOn      = false;
+let alertsOn     = true;
+let recording    = false;
+let speaking     = false;
+let recog        = null;
+let lastAlerts   = {};
+let conversation = [];   // {role:'user'|'assistant', content} — sent to /api/chat for multi-turn memory
+let chartAsset   = 'btc';
+let chartLayout  = 2;
+let currentAudio = null; // cloud TTS <audio> currently playing, if any
+
+const CHART_SYMBOLS = { btc: 'BITSTAMP:BTCUSD', gold: 'OANDA:XAUUSD', spx: 'FOREXCOM:SPXUSD' };
+const CHART_TIMEFRAMES = { 1: [{i:'D',l:'Daily'}], 2: [{i:'D',l:'Daily'},{i:'240',l:'4H'}], 3: [{i:'D',l:'Daily'},{i:'240',l:'4H'},{i:'60',l:'1H'}] };
 
 // ══════════════════════════════════════════
 //  BOOT
@@ -352,11 +833,49 @@ window.addEventListener("DOMContentLoaded", () => {
   setInterval(updateClock, 1000);
   fetchData();
   setInterval(fetchData, 20000);
-  addMsg("jarvis", "JARVIS online. I'm watching BTC, Gold, and SPX live. Ask me anything or tap 🎤 to speak.");
+  loadLearning();
+  setInterval(loadLearning, 60000);
+  addMsg("jarvis", "JARVIS online. I'm watching BTC, Gold, and SPX live — and I know the full system state: risk, positions, and what I've learned from past trades. Ask me anything or tap 🎤 to speak.");
   // restore voice prefs
   if (localStorage.getItem("jarvis-voice") === "on") { voiceOn = true; refreshVoiceBtn(); }
   if (localStorage.getItem("jarvis-alerts") === "off") { alertsOn = false; refreshAlertBtn(); }
+  buildDial(".logo-svg", 24, 39, 43.5);
+  buildDial(".hero-logo svg", 60, 44.5, 48.5);
 });
+
+// Generates real instrument-dial tick marks + a crosshair reticle around a logo SVG —
+// hand-writing 60 <line> elements per logo in markup would be unreadable, so build them once at boot.
+function buildDial(selector, tickCount, innerR, outerR) {
+  const NS = "http://www.w3.org/2000/svg";
+  document.querySelectorAll(selector).forEach(svg => {
+    const g = document.createElementNS(NS, "g");
+    for (let i = 0; i < tickCount; i++) {
+      const angle = (i / tickCount) * Math.PI * 2;
+      const major = i % 5 === 0;
+      const r1 = major ? innerR - 2.5 : innerR;
+      const x1 = 50 + r1 * Math.cos(angle), y1 = 50 + r1 * Math.sin(angle);
+      const x2 = 50 + outerR * Math.cos(angle), y2 = 50 + outerR * Math.sin(angle);
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("x1", x1.toFixed(2)); line.setAttribute("y1", y1.toFixed(2));
+      line.setAttribute("x2", x2.toFixed(2)); line.setAttribute("y2", y2.toFixed(2));
+      line.setAttribute("class", major ? "tick-major" : "tick-minor");
+      g.appendChild(line);
+    }
+    // crosshair reticle at N/E/S/W, extending just past the outer ring
+    [0, 90, 180, 270].forEach(deg => {
+      const a = deg * Math.PI / 180;
+      const r1 = outerR + 1.5, r2 = outerR + 5;
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("x1", (50 + r1 * Math.cos(a)).toFixed(2));
+      line.setAttribute("y1", (50 + r1 * Math.sin(a)).toFixed(2));
+      line.setAttribute("x2", (50 + r2 * Math.cos(a)).toFixed(2));
+      line.setAttribute("y2", (50 + r2 * Math.sin(a)).toFixed(2));
+      line.setAttribute("class", "crosshair");
+      g.appendChild(line);
+    });
+    svg.appendChild(g);
+  });
+}
 
 function updateClock() {
   const now = new Date();
@@ -380,6 +899,7 @@ function initRecog() {
     setTranscript("Listening…");
     document.getElementById("mic2").classList.add("rec");
     document.getElementById("vcbtn-mic").classList.add("rec");
+    document.getElementById("focus-mic-btn")?.classList.add("rec");
     document.getElementById("mic-lbl").textContent = "Stop";
   };
 
@@ -396,6 +916,7 @@ function initRecog() {
     recording = false;
     document.getElementById("mic2").classList.remove("rec");
     document.getElementById("vcbtn-mic").classList.remove("rec");
+    document.getElementById("focus-mic-btn")?.classList.remove("rec");
     document.getElementById("mic-lbl").textContent = "Speak";
     setVI(voiceOn ? "ready" : null);
     const txt = document.getElementById("inp").value.trim();
@@ -407,6 +928,7 @@ function initRecog() {
     recording = false;
     document.getElementById("mic2").classList.remove("rec");
     document.getElementById("vcbtn-mic").classList.remove("rec");
+    document.getElementById("focus-mic-btn")?.classList.remove("rec");
     document.getElementById("mic-lbl").textContent = "Speak";
     setVI(null);
     setTranscript("Mic error: " + e.error);
@@ -424,33 +946,148 @@ function toggleMic() {
 // ══════════════════════════════════════════
 //  SPEECH SYNTHESIS (voice out)
 // ══════════════════════════════════════════
-function speak(text) {
-  if (!voiceOn || !window.speechSynthesis) return;
+async function speak(text) {
+  if (!voiceOn) return;
   stopSpeaking();
-  const clean = text.replace(/[*#_`~>]/g, "").replace(/\n+/g, ". ").substring(0, 600);
-  const utt   = new SpeechSynthesisUtterance(clean);
-  utt.rate  = 1.0;
-  utt.pitch = 1.0;
+  const clean = text.replace(/[*#_`~>]/g, "").replace(/\n+/g, ". ").substring(0, 900);
+
+  // Try cloud TTS first — only responds if an OpenAI key is configured in Settings.
+  // Categorically better voice quality than the browser's built-in synthesis.
+  try {
+    const r = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: clean })
+    });
+    if (r.ok) {
+      const url = URL.createObjectURL(await r.blob());
+      currentAudio = new Audio(url);
+      currentAudio.onplay  = () => onSpeakStart(currentAudio);
+      currentAudio.onended = () => { onSpeakEnd(); URL.revokeObjectURL(url); };
+      currentAudio.onerror = () => { onSpeakEnd(); URL.revokeObjectURL(url); speakBrowser(clean); };
+      currentAudio.play();
+      return;
+    }
+  } catch {}
+
+  speakBrowser(clean);
+}
+
+function speakBrowser(clean) {
+  if (!window.speechSynthesis) return;
+  // Voice list loads async in most browsers — speaking before it's ready silently
+  // falls back to the OS default voice, which may not even be English.
+  const existing = window.speechSynthesis.getVoices();
+  if (existing.length === 0) {
+    window.speechSynthesis.onvoiceschanged = () => {
+      window.speechSynthesis.onvoiceschanged = null;
+      speakBrowser(clean);
+    };
+    return;
+  }
+  speakWithVoices(clean, existing);
+}
+
+function speakWithVoices(clean, allVoices) {
+  const utt = new SpeechSynthesisUtterance(clean);
+  utt.lang  = "en-US";   // hard requirement: JARVIS always speaks English
+  utt.rate  = 0.98;
+  utt.pitch = 0.92;
   utt.volume= 1.0;
-  // pick a natural English voice if available
-  window.speechSynthesis.onvoiceschanged = null;
-  const voices = window.speechSynthesis.getVoices();
-  const pick = voices.find(v =>
-    /Google UK English Male|Daniel|Google US|en-GB|en-US/i.test(v.name + v.lang)
-  );
+
+  // Restrict to English voices only, then prefer the highest-quality ones within that set.
+  const englishVoices = allVoices.filter(v => (v.lang || "").toLowerCase().startsWith("en"));
+  const priority = [
+    /Ryan Online \(Natural\)/i,               // UK male neural — closest to a JARVIS-style voice
+    /Guy Online \(Natural\)/i,                // US male neural fallback
+    /Online \(Natural\).*United Kingdom/i,
+    /Online \(Natural\).*United States/i,
+    /Online \(Natural\)/i,
+    /Neural/i,
+    /Google UK English Male/i,
+    /Daniel/i,
+    /Microsoft David/i,
+    /Google US English/i,
+  ];
+  let pick = null;
+  for (const rx of priority) { pick = englishVoices.find(v => rx.test(v.name)); if (pick) break; }
+  if (!pick && englishVoices.length) pick = englishVoices[0];
   if (pick) utt.voice = pick;
 
-  utt.onstart = () => { speaking = true;  setVI("speaking"); document.getElementById("stop-spk").style.display = "inline-flex"; setTranscript("JARVIS speaking…"); };
-  utt.onend   = () => { speaking = false; setVI(voiceOn ? "ready" : null); document.getElementById("stop-spk").style.display = "none"; setTranscript("Ready — tap mic or type below"); };
+  utt.onstart = () => onSpeakStart();
+  utt.onend   = () => onSpeakEnd();
   window.speechSynthesis.speak(utt);
+}
+
+function onSpeakStart(audioEl) {
+  speaking = true; setVI("speaking");
+  document.getElementById("stop-spk").style.display = "inline-flex";
+  setTranscript("JARVIS speaking…");
+  startSpeakVisualizer(audioEl || null);
+}
+function onSpeakEnd() {
+  speaking = false; setVI(voiceOn ? "ready" : null);
+  document.getElementById("stop-spk").style.display = "none";
+  setTranscript("Ready — tap mic or type below");
+  stopSpeakVisualizer();
 }
 
 function stopSpeaking() {
   if (window.speechSynthesis) window.speechSynthesis.cancel();
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   speaking = false;
   document.getElementById("stop-spk").style.display = "none";
   setVI(voiceOn ? "ready" : null);
   setTranscript("Ready — tap mic or type below");
+  stopSpeakVisualizer();
+}
+
+// ══════════════════════════════════════════
+//  LOGO SPEECH VISUALIZER — logo expands in sync with JARVIS talking.
+//  Real audio amplitude for cloud TTS playback; a simulated talking rhythm
+//  for the browser speechSynthesis fallback (raw audio isn't accessible there).
+// ══════════════════════════════════════════
+let speakRAF = null;
+let audioCtx = null, analyserNode = null, analyserData = null;
+
+function startSpeakVisualizer(audioEl) {
+  stopSpeakVisualizer();
+  analyserNode = null;
+  if (audioEl) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      const source = audioCtx.createMediaElementSource(audioEl);
+      analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 256;
+      source.connect(analyserNode);
+      analyserNode.connect(audioCtx.destination);
+      analyserData = new Uint8Array(analyserNode.frequencyBinCount);
+    } catch { analyserNode = null; }
+  }
+  document.body.classList.add("jarvis-speaking");
+  const tick = () => {
+    let intensity;
+    if (analyserNode && analyserData) {
+      analyserNode.getByteFrequencyData(analyserData);
+      const avg = analyserData.reduce((a, b) => a + b, 0) / analyserData.length;
+      intensity = Math.min(1, avg / 85);
+    } else {
+      // No raw audio to analyze — simulate a natural talking cadence instead of a flat idle loop.
+      intensity = 0.4 + 0.35 * Math.abs(Math.sin(Date.now() / 170)) + 0.15 * Math.random();
+    }
+    const scale = 1 + intensity * 0.24;
+    document.querySelectorAll(".hero-logo svg, .logo-svg").forEach(el => { el.style.transform = `scale(${scale})`; });
+    speakRAF = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function stopSpeakVisualizer() {
+  if (speakRAF) cancelAnimationFrame(speakRAF);
+  speakRAF = null;
+  document.body.classList.remove("jarvis-speaking");
+  document.querySelectorAll(".hero-logo svg, .logo-svg").forEach(el => { el.style.transform = ""; });
 }
 
 function toggleVoice() {
@@ -479,6 +1116,16 @@ function refreshAlertBtn() {
   else          { btn.textContent = "🔕 Alerts Off"; btn.classList.remove("on"); }
 }
 
+// ══════════════════════════════════════════
+//  FOCUS MODE — hide everything but the logo + background
+// ══════════════════════════════════════════
+function toggleFocus() {
+  document.body.classList.toggle("focus-mode");
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.body.classList.contains("focus-mode")) toggleFocus();
+});
+
 function setVI(state) {
   const el = document.getElementById("vi");
   const tx = document.getElementById("vbox-text");
@@ -489,7 +1136,11 @@ function setVI(state) {
   else { tx.textContent = "Tap 🎤 to speak to JARVIS"; }
 }
 
-function setTranscript(t) { document.getElementById("transcript").textContent = t; }
+function setTranscript(t) {
+  document.getElementById("transcript").textContent = t;
+  const fs = document.getElementById("focus-status");
+  if (fs) fs.textContent = t;
+}
 
 // ══════════════════════════════════════════
 //  CHAT
@@ -502,7 +1153,7 @@ function addMsg(role, text) {
   wrap.innerHTML = `
     <div class="av">${role === "jarvis" ? "J" : "U"}</div>
     <div class="mc">
-      <div class="bubble">${esc(text)}</div>
+      <div class="bubble">${fmt(text)}</div>
       <div class="ts">${now}</div>
     </div>`;
   box.appendChild(wrap);
@@ -521,6 +1172,23 @@ function addTyping() {
 
 function rmTyping() { const t = document.getElementById("typing"); if (t) t.remove(); }
 
+// Voice input produces far more varied phrasing than typed text ("search for a video on X",
+// "open a video about X", "youtube X") — a strict ordered regex missed most of it, and when
+// nothing was captured it fell back to searching the raw trigger phrase itself, returning
+// random unrelated results. This detects the request anywhere in the sentence — "youtube"
+// alone counts, it doesn't require the word "video" too — then strips every known filler/
+// trigger word to isolate just the topic.
+const VIDEO_TRIGGER_RE = /\b(?:play|search|show|find|pull\s*up|pop\s*up|open|get\s+me|look\s*up|watch|bring\s*up)\b/i;
+const VIDEO_STRIP_RE = /\b(can you|could you|please|jarvis|play|search(\s+for)?|show(\s+me)?|find(\s+me)?|pull\s*up|pop\s*up|open|get\s+me|look\s*up|watch|youtube|bring\s*up|me|a|an|the|some|videos?|of|about|on|for|regarding)\b/gi;
+
+function extractVideoQuery(txt) {
+  const hasYoutube = /\byoutube\b/i.test(txt);
+  const hasVideoWord = /\bvideos?\b/i.test(txt);
+  if (!hasYoutube && !(hasVideoWord && VIDEO_TRIGGER_RE.test(txt))) return null;
+  const query = txt.replace(VIDEO_STRIP_RE, " ").replace(/\s+/g, " ").trim();
+  return query || ""; // "" (not null) means: this IS a video request, but no topic was said
+}
+
 async function send() {
   const el  = document.getElementById("inp");
   const txt = el.value.trim();
@@ -529,19 +1197,44 @@ async function send() {
   el.value = "";
   resize(el);
   document.getElementById("sbtn").disabled = true;
+
+  // Video requests skip the chat/voice pipeline entirely — otherwise JARVIS's spoken
+  // reply (which has no idea a video is playing) talks over the video's own audio,
+  // and since it has no video tool it tends to say it *can't* play one while one plays.
+  const videoQuery = extractVideoQuery(txt);
+  if (videoQuery !== null) {
+    if (videoQuery) {
+      addMsg("jarvis", `🎥 Pulling up a video: "${videoQuery}"`);
+      searchAndShowVideo(videoQuery);
+    } else {
+      addMsg("jarvis", `What should the video be about? Try "play a video about bitcoin halving."`);
+    }
+    document.getElementById("sbtn").disabled = false;
+    return;
+  }
+
   addTyping();
 
   try {
     const r = await fetch("/api/chat", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({message: txt})
+      body: JSON.stringify({ message: txt, history: conversation })
     });
     rmTyping();
     const d = await r.json();
     const reply = d.reply || d.error || "No response.";
     addMsg("jarvis", reply);
-    speak(reply);
+    conversation.push({ role: "user", content: txt }, { role: "assistant", content: reply });
+    if (conversation.length > 24) conversation = conversation.slice(-24);
+    if (d.video?.results?.length) {
+      // Claude decided this was a video request (catches phrasing/typos the client regex misses).
+      // Open it, but don't also speak — same reason as the fast-path: JARVIS's voice shouldn't
+      // talk over the video's own audio.
+      openVideoModal(d.video.results, d.video.query);
+    } else {
+      speak(reply);
+    }
     setTranscript("Ready — tap mic or type below");
   } catch {
     rmTyping();
@@ -554,6 +1247,49 @@ function sq(text) { document.getElementById("inp").value = text; send(); }
 function hkey(e)  { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }
 function resize(el){ el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 function esc(s)   { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function fmt(s)   { return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); }
+
+// ══════════════════════════════════════════
+//  VIDEO — search YouTube and pop the result up in a modal
+// ══════════════════════════════════════════
+async function searchAndShowVideo(query) {
+  if (!query || !query.trim()) return;
+  try {
+    const r = await fetch("/api/youtube-search?q=" + encodeURIComponent(query));
+    const d = await r.json();
+    if (!r.ok) {
+      addMsg("jarvis", `Couldn't search YouTube: ${d.error || "unknown error"}`);
+      return;
+    }
+    if (!d.results?.length) { addMsg("jarvis", `No YouTube results for "${query}".`); return; }
+    openVideoModal(d.results, query);
+  } catch {
+    addMsg("jarvis", "Couldn't reach the server to search YouTube.");
+  }
+}
+
+function openVideoModal(results, query) {
+  document.getElementById("video-modal-title").textContent = "📺 " + query;
+  playVideo(results[0].videoId);
+  document.getElementById("video-results").innerHTML = results.map(v => `
+    <div class="video-result" onclick="playVideo('${v.videoId}')">
+      <img src="${v.thumbnail || ''}" alt="">
+      <div>
+        <div class="video-result-title">${esc(v.title)}</div>
+        <div class="video-result-channel">${esc(v.channel)}</div>
+      </div>
+    </div>`).join("");
+  document.getElementById("video-overlay").classList.add("show");
+}
+
+function playVideo(videoId) {
+  document.getElementById("video-iframe").src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+}
+
+function closeVideoModal() {
+  document.getElementById("video-iframe").src = "";
+  document.getElementById("video-overlay").classList.remove("show");
+}
 
 // ══════════════════════════════════════════
 //  LIVE DATA
@@ -641,6 +1377,272 @@ function showToast(msg) {
   void t.offsetWidth;
   t.classList.add("show");
   setTimeout(() => t.classList.remove("show"), 8000);
+}
+
+// ══════════════════════════════════════════
+//  SELF-LEARNING PANEL
+// ══════════════════════════════════════════
+async function loadLearning() {
+  try {
+    const learning = await fetch("/api/learning").then(r => r.json());
+    const stats = learning?.setupStats || {};
+    const entries = Object.entries(stats);
+    const box = document.getElementById("learn-box");
+    if (!entries.length) {
+      box.innerHTML = `<div class="learn-empty">No completed trades yet — nothing learned so far.</div>`;
+      return;
+    }
+    const sorted = entries.sort((a,b) => ((b[1].wins||0)+(b[1].losses||0)) - ((a[1].wins||0)+(a[1].losses||0))).slice(0, 6);
+    box.innerHTML = sorted.map(([name, s]) => {
+      const w = s.wins||0, l = s.losses||0, tot = w+l;
+      const wr = tot > 0 ? Math.round(w/tot*100) : 0;
+      const clr = wr >= 65 ? "var(--green)" : wr >= 45 ? "var(--yellow)" : "var(--red)";
+      return `<div class="learn-row">
+        <div class="learn-top"><span class="learn-name">${esc(name)}</span><span class="learn-wr" style="color:${clr}">${wr}%</span></div>
+        <div class="learn-bar-bg"><div class="learn-bar" style="width:${wr}%;background:${clr}"></div></div>
+        <div style="font-size:.6rem;color:var(--muted)">${w}W / ${l}L</div>
+      </div>`;
+    }).join("");
+  } catch {
+    document.getElementById("learn-box").innerHTML = `<div class="learn-empty">Learning data unavailable.</div>`;
+  }
+}
+
+// ══════════════════════════════════════════
+//  SYSTEM CONTROLS
+// ══════════════════════════════════════════
+async function forceHeal() {
+  showToast("Running force-heal cycle…");
+  try {
+    const r = await fetch("/api/healer/heal", { method: "POST" });
+    const d = await r.json();
+    showToast(d.healthy ? "✅ System healthy." : "⚠ Heal ran — issues remain, check errors.");
+    addMsg("jarvis", `Force-heal complete. Healthy: ${d.healthy ? "yes" : "no"}. Heals performed: ${d.healCount ?? "—"}.`);
+  } catch {
+    showToast("Force-heal failed — server unreachable.");
+  }
+}
+
+// ══════════════════════════════════════════
+//  SETTINGS MODAL
+// ══════════════════════════════════════════
+function openSettings() {
+  document.getElementById("settings-overlay").classList.add("show");
+  loadSettings();
+}
+function closeSettings() { document.getElementById("settings-overlay").classList.remove("show"); }
+
+async function loadSettings() {
+  try {
+    const s = await fetch("/api/settings").then(r => r.json());
+    setFieldStatus("st-anthropic", s.anthropicKey, "in-anthropic");
+    setFieldStatus("st-openai",    s.openaiKey,    "in-openai");
+    setFieldStatus("st-tgtoken",   s.telegramToken,"in-tgtoken");
+    setFieldStatus("st-uw",        s.uwKey,        "in-uw");
+    document.getElementById("in-tgchat").value = s.telegramChatId || "";
+    document.getElementById("in-tgchat").placeholder = "e.g. 123456789";
+
+    const rows = document.getElementById("custom-rows");
+    rows.innerHTML = "";
+    (s.custom || []).forEach(c => addCustomRow(c.key, "", c.preview));
+  } catch {
+    document.getElementById("settings-save-msg").textContent = "Could not load settings.";
+  }
+}
+
+function setFieldStatus(statusId, obj, inputId) {
+  const badge = document.getElementById(statusId);
+  const input = document.getElementById(inputId);
+  if (obj?.configured) {
+    badge.textContent = obj.preview || "set";
+    badge.className = "field-status ok";
+    input.placeholder = "Leave blank to keep current key";
+  } else {
+    badge.textContent = "not set";
+    badge.className = "field-status off";
+    input.placeholder = input.placeholder;
+  }
+}
+
+function addCustomRow(key = "", value = "", preview = "") {
+  const rows = document.getElementById("custom-rows");
+  const row = document.createElement("div");
+  row.className = "custom-row";
+  row.innerHTML = `
+    <input class="field-input key-in" placeholder="KEY_NAME" value="${esc(key)}">
+    <input class="field-input" type="password" placeholder="${preview ? 'Set (' + esc(preview) + ') — leave blank to keep' : 'value'}" value="${esc(value)}">
+    <button class="rm-row" onclick="this.parentElement.remove()">✕</button>`;
+  rows.appendChild(row);
+}
+
+async function saveSettings() {
+  const body = {
+    anthropicKey:   document.getElementById("in-anthropic").value,
+    openaiKey:      document.getElementById("in-openai").value,
+    telegramToken:  document.getElementById("in-tgtoken").value,
+    telegramChatId: document.getElementById("in-tgchat").value,
+    uwKey:          document.getElementById("in-uw").value,
+    custom: Array.from(document.getElementById("custom-rows").children).map(row => {
+      const inputs = row.querySelectorAll("input");
+      return { key: inputs[0].value, value: inputs[1].value };
+    }).filter(c => c.key && c.value),
+  };
+  const msgEl = document.getElementById("settings-save-msg");
+  msgEl.textContent = "Saving…";
+  try {
+    const r = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error();
+    msgEl.textContent = "Saved ✓";
+    document.getElementById("in-anthropic").value = "";
+    document.getElementById("in-openai").value = "";
+    document.getElementById("in-tgtoken").value = "";
+    document.getElementById("in-uw").value = "";
+    loadSettings();
+    setTimeout(() => { msgEl.textContent = ""; }, 3000);
+  } catch {
+    msgEl.textContent = "Save failed — server unreachable.";
+  }
+}
+
+// ══════════════════════════════════════════
+//  CHARTS MODAL
+// ══════════════════════════════════════════
+function openCharts() {
+  document.getElementById("charts-overlay").classList.add("show");
+  renderCharts();
+}
+function closeCharts() { document.getElementById("charts-overlay").classList.remove("show"); }
+
+// ══════════════════════════════════════════
+//  HERMES — forward paper-trading validation panel
+// ══════════════════════════════════════════
+function openHermes() {
+  document.getElementById("hermes-overlay").classList.add("show");
+  loadHermes();
+}
+function closeHermes() { document.getElementById("hermes-overlay").classList.remove("show"); }
+
+async function loadHermes() {
+  try {
+    const d = await fetch("/api/hermes").then(r => r.json());
+    renderHermesPulse(d.pulse);
+    renderHermesDuel(d);
+    renderHermesLeaderboard(d.leaderboard);
+    renderHermesChampions(d.champions);
+    renderHermesRejections(d.rejections);
+    document.getElementById("hermes-inception").textContent =
+      "Dueling since " + new Date(d.inceptionAt).toLocaleString();
+  } catch {
+    document.getElementById("hermes-inception").textContent = "Couldn't reach the server.";
+  }
+}
+
+function renderHermesPulse(pulse) {
+  const box = document.getElementById("hermes-pulse");
+  box.innerHTML = ["btc", "gold", "spx"].map(a => {
+    const p = pulse?.[a];
+    if (!p) return `<div class="hermes-pulse-card"><div class="hermes-pulse-asset">${a.toUpperCase()}</div><div class="hermes-pulse-meta">no data</div></div>`;
+    return `<div class="hermes-pulse-card">
+      <div class="hermes-pulse-asset">${a.toUpperCase()} <span style="color:var(--muted);font-weight:400">$${p.price != null ? Number(p.price).toLocaleString() : "—"}</span></div>
+      <div class="hermes-pulse-meta">${p.signal} ${p.confidence ?? 0}% · ${esc(p.setup || "—")}<br>${esc(p.trend || "—")} · ${esc(p.regime || "—")}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderHermesDuel(d) {
+  document.getElementById("hermes-duel-sub").textContent =
+    `${d.duel.open.length} open · ${d.duel.closedCount} closed`;
+  const box = document.getElementById("hermes-duel");
+  if (!d.duel.open.length) { box.innerHTML = `<div class="hermes-empty">No paper positions open right now.</div>`; return; }
+  box.innerHTML = d.duel.open.map(p => `
+    <div class="hermes-duel-row">
+      <span><span class="hermes-duel-geo">${esc(p.asset.toUpperCase())} — ${esc(p.geometry)}</span><span class="hermes-duel-dir ${p.dir}">${p.dir}</span></span>
+      <span style="color:var(--muted)">entry $${p.entry} · stop $${p.stop} · target $${p.target}</span>
+    </div>`).join("");
+}
+
+function renderHermesLeaderboard(rows) {
+  const box = document.getElementById("hermes-leaderboard");
+  if (!rows?.length) { box.innerHTML = `<div class="hermes-empty">No closed paper trades yet — nothing to rank.</div>`; return; }
+  box.innerHTML = `<table class="hermes-table">
+    <thead><tr><th>Asset</th><th>Geometry</th><th>Trades</th><th>Win Rate</th><th>Expectancy</th><th></th></tr></thead>
+    <tbody>${rows.map(r => `
+      <tr>
+        <td>${esc(r.asset.toUpperCase())}</td>
+        <td>${esc(r.geometry)}</td>
+        <td>${r.trades}</td>
+        <td>${r.winRate}%</td>
+        <td style="color:${r.expectancy >= 0 ? 'var(--green)' : 'var(--red)'}">${r.expectancy >= 0 ? "+" : ""}${r.expectancy}R</td>
+        <td>${r.validated ? '<span class="hermes-validated">VALIDATED</span>' : '<span class="hermes-gathering">gathering…</span>'}</td>
+      </tr>`).join("")}</tbody>
+  </table>`;
+}
+
+function renderHermesChampions(champions) {
+  const box = document.getElementById("hermes-champions");
+  box.innerHTML = ["btc", "gold", "spx"].map(a => {
+    const c = champions?.[a];
+    if (!c) return `<div class="hermes-champ-card"><div class="hermes-champ-asset">${a.toUpperCase()}</div><div class="hermes-champ-geo" style="color:var(--muted);font-size:.7rem">no champion yet</div></div>`;
+    return `<div class="hermes-champ-card has-champ">
+      <div class="hermes-champ-asset">${a.toUpperCase()}</div>
+      <div class="hermes-champ-geo">👑 ${esc(c.geometry)}</div>
+      <div class="hermes-champ-stats">${c.winRate}% WR · +${c.expectancy}R · ${c.trades} trades</div>
+    </div>`;
+  }).join("");
+}
+
+function renderHermesRejections(rejections) {
+  const box = document.getElementById("hermes-rejections");
+  if (!rejections?.length) { box.innerHTML = `<div class="hermes-empty">No rejections logged yet.</div>`; return; }
+  box.innerHTML = rejections.map(r => `
+    <div class="hermes-rejection">${esc(r.asset.toUpperCase())} — ${esc(r.geometry)}: ${esc(r.reason)}
+      <span style="color:var(--dim)"> · ${fmtTime(r.at)}</span>
+    </div>`).join("");
+}
+
+function fmtTime(iso) {
+  try { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
+}
+
+function setChartAsset(asset) {
+  chartAsset = asset;
+  ["btc","gold","spx"].forEach(a => document.getElementById("ctab-" + a).classList.toggle("active", a === asset));
+  renderCharts();
+}
+
+function setChartLayout(n) {
+  chartLayout = n;
+  [1,2,3].forEach(x => document.getElementById("clay-" + x).classList.toggle("active", x === n));
+  renderCharts();
+}
+
+function renderCharts() {
+  const grid = document.getElementById("chart-grid");
+  grid.style.gridTemplateColumns = `repeat(${chartLayout}, 1fr)`;
+  grid.innerHTML = "";
+  const symbol = CHART_SYMBOLS[chartAsset];
+  const frames = CHART_TIMEFRAMES[chartLayout];
+  frames.forEach((tf, idx) => {
+    const id = `chart-slot-${idx}`;
+    const slot = document.createElement("div");
+    slot.className = "chart-slot";
+    slot.innerHTML = `<div class="chart-slot-hdr">${chartAsset.toUpperCase()} — ${tf.l}</div><div class="chart-slot-body" id="${id}"></div>`;
+    grid.appendChild(slot);
+  });
+  // TradingView widgets must be created after their container divs exist in the DOM
+  frames.forEach((tf, idx) => {
+    if (typeof TradingView === "undefined") return;
+    new TradingView.widget({
+      autosize: true, symbol, interval: tf.i, timezone: "Etc/UTC", theme: "dark",
+      style: "1", locale: "en", toolbar_bg: "#0d1428", enable_publishing: false,
+      hide_top_toolbar: false, save_image: false, container_id: `chart-slot-${idx}`,
+      backgroundColor: "#0d1428", gridColor: "rgba(26,37,64,0.5)"
+    });
+  });
 }
 </script>
 </body>

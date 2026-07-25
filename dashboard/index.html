@@ -253,33 +253,10 @@
     </div>
     <div class="regime-badge regime-MIXED" id="regime-badge">MIXED</div>
     <div class="status-pill"><div class="dot"></div><span id="conn-status">Connecting</span></div>
-    <button id="btn-sound" onclick="toggleSound()" title="Toggle sound alerts" style="background:none;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--muted);font-size:.78rem;cursor:pointer;transition:all .2s" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">🔊 Sound</button>
-    <button onclick="openSettings()" title="System settings" style="background:none;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--muted);font-size:.78rem;cursor:pointer;transition:all .2s" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">⚙ Settings</button>
-    <a href="/jarvis" style="background:linear-gradient(135deg,var(--accent),#4f46e5);border:none;border-radius:6px;padding:4px 12px;color:#fff;font-size:.78rem;cursor:pointer;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🤖 JARVIS</a>
+    <a href="/jarvis" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:6px;padding:4px 12px;color:#fff;font-size:.78rem;cursor:pointer;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🤖 JARVIS</a>
     <a href="/" class="home-link">← Home</a>
   </div>
 </header>
-
-<!-- Settings modal -->
-<div id="settings-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;align-items:center;justify-content:center">
-  <div style="background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:24px;width:420px;max-width:90vw">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <div style="font-size:.85rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">⚙ System Settings</div>
-      <button onclick="closeSettings()" style="background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer">✕</button>
-    </div>
-    <div id="settings-features" style="display:flex;flex-direction:column;gap:10px">
-      <div style="color:var(--muted);font-size:.78rem">Loading settings…</div>
-    </div>
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-      <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Quick Links</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <a href="/dashboard/performance.html" style="font-size:.72rem;color:var(--muted);text-decoration:none;padding:4px 10px;border:1px solid var(--border2);border-radius:6px">📈 Full Analytics</a>
-        <a href="/daily-plan" style="font-size:.72rem;color:var(--muted);text-decoration:none;padding:4px 10px;border:1px solid var(--border2);border-radius:6px">📅 Daily Plan</a>
-        <a href="/command" style="font-size:.72rem;color:var(--muted);text-decoration:none;padding:4px 10px;border:1px solid var(--border2);border-radius:6px">⚡ Command Center</a>
-      </div>
-    </div>
-  </div>
-</div>
 
 <!-- Tab nav -->
 <nav class="tab-nav">
@@ -287,7 +264,6 @@
   <button class="tab-btn" onclick="switchTab('signals')" id="t-signals">📡 Signals</button>
   <button class="tab-btn" onclick="switchTab('feed')" id="t-feed">📶 Data Feed</button>
   <button class="tab-btn" onclick="switchTab('autotrade')" id="t-autotrade">⚡ Auto Trade</button>
-  <button class="tab-btn" onclick="switchTab('invest')" id="t-invest">💰 Invest</button>
   <button class="tab-btn" onclick="switchTab('performance')" id="t-performance">📈 Performance</button>
   <button class="tab-btn" onclick="switchTab('journal')" id="t-journal">📒 Journal</button>
   <button class="tab-btn" onclick="switchTab('aibrain')" id="t-aibrain">🧠 AI Brain</button>
@@ -691,100 +667,6 @@
 </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════ TAB: INVEST -->
-<div id="tab-invest" class="tab-panel">
-<div class="container">
-
-  <!-- Portfolio summary -->
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-    <div class="panel" style="padding:14px 18px">
-      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Total Equity</div>
-      <div id="inv-equity" style="font-size:1.4rem;font-weight:800;font-variant-numeric:tabular-nums">—</div>
-      <div id="inv-equity-chg" style="font-size:.72rem;color:var(--muted);margin-top:2px">—</div>
-    </div>
-    <div class="panel" style="padding:14px 18px">
-      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Open P&amp;L</div>
-      <div id="inv-pnl" style="font-size:1.4rem;font-weight:800;font-variant-numeric:tabular-nums">—</div>
-      <div id="inv-pnl-sub" style="font-size:.72rem;color:var(--muted);margin-top:2px">Live positions</div>
-    </div>
-    <div class="panel" style="padding:14px 18px">
-      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Open Trades</div>
-      <div id="inv-trades" style="font-size:1.4rem;font-weight:800;font-variant-numeric:tabular-nums">—</div>
-      <div id="inv-risk" style="font-size:.72rem;color:var(--muted);margin-top:2px">—</div>
-    </div>
-    <div class="panel" style="padding:14px 18px">
-      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Market Regime</div>
-      <div id="inv-regime" style="font-size:1.4rem;font-weight:800">—</div>
-      <div id="inv-regime-sub" style="font-size:.72rem;color:var(--muted);margin-top:2px">—</div>
-    </div>
-  </div>
-
-  <!-- Active positions -->
-  <div class="panel" style="margin-bottom:16px">
-    <div class="panel-header">
-      <div class="panel-title">💼 Active Positions (MT5)</div>
-      <button class="btn-refresh" onclick="loadInvest()">↻ Refresh</button>
-    </div>
-    <div class="panel-body" style="padding:0;overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:.78rem">
-        <thead><tr style="background:var(--bg)">
-          <th style="padding:8px 14px;color:var(--muted);font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);text-align:left">Symbol</th>
-          <th style="padding:8px 14px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Direction</th>
-          <th style="padding:8px 14px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">Lots</th>
-          <th style="padding:8px 14px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">Entry</th>
-          <th style="padding:8px 14px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">Current</th>
-          <th style="padding:8px 14px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">P&amp;L</th>
-          <th style="padding:8px 14px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">Stop</th>
-          <th style="padding:8px 14px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">Target</th>
-        </tr></thead>
-        <tbody id="inv-positions-body"><tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted);font-size:.78rem">No open positions</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Signal opportunities -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title">₿ BTC Opportunity</div></div>
-      <div class="panel-body" id="inv-btc-sig"><div style="color:var(--muted);font-size:.78rem">Loading…</div></div>
-    </div>
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title">🥇 Gold Opportunity</div></div>
-      <div class="panel-body" id="inv-gold-sig"><div style="color:var(--muted);font-size:.78rem">Loading…</div></div>
-    </div>
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title">📈 SP500 Opportunity</div></div>
-      <div class="panel-body" id="inv-spx-sig"><div style="color:var(--muted);font-size:.78rem">Loading…</div></div>
-    </div>
-  </div>
-
-  <!-- Risk settings -->
-  <div class="panel" style="margin-bottom:16px">
-    <div class="panel-header"><div class="panel-title">🛡️ Risk Management</div></div>
-    <div class="panel-body">
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
-        <div style="background:var(--bg);border-radius:8px;padding:12px;text-align:center">
-          <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Max Risk / Trade</div>
-          <div style="font-size:1.2rem;font-weight:700;color:var(--yellow)">1.0%</div>
-          <div style="font-size:.65rem;color:var(--muted);margin-top:2px">of account equity</div>
-        </div>
-        <div style="background:var(--bg);border-radius:8px;padding:12px;text-align:center">
-          <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Min R:R Ratio</div>
-          <div style="font-size:1.2rem;font-weight:700;color:var(--green)">2.0 : 1</div>
-          <div style="font-size:.65rem;color:var(--muted);margin-top:2px">reward vs risk</div>
-        </div>
-        <div style="background:var(--bg);border-radius:8px;padding:12px;text-align:center">
-          <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Confidence Gate</div>
-          <div style="font-size:1.2rem;font-weight:700;color:var(--accent)">≥ 65%</div>
-          <div style="font-size:.65rem;color:var(--muted);margin-top:2px">minimum to trade</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-</div>
-</div>
-
 <!-- ══════════════════════════════════════════════════ TAB 3: PERFORMANCE -->
 <div id="tab-performance" class="tab-panel">
 <div class="container">
@@ -1041,7 +923,6 @@ function switchTab(name) {
   if (name === "journal")     loadJournalTab();
   if (name === "signals")     loadSignalsTab();
   if (name === "feed")        loadFeedTab();
-  if (name === "invest")      loadInvest();
 }
 
 // ── Mode toggle ──────────────────────────────────────────────
@@ -1952,118 +1833,6 @@ async function loadFeedTab() {
 setInterval(()=>{ if(document.getElementById('tab-feed')?.classList.contains('active')) loadFeedTab(); }, 15_000);
 
 setInterval(loadPrices,    REFRESH_MS);
-
-// ── Sound toggle ─────────────────────────────────────────────
-let soundOn = localStorage.getItem("sound") !== "off";
-function toggleSound() {
-  soundOn = !soundOn;
-  localStorage.setItem("sound", soundOn ? "on" : "off");
-  const btn = document.getElementById("btn-sound");
-  btn.textContent = soundOn ? "🔊 Sound" : "🔇 Muted";
-  btn.style.color = soundOn ? "var(--green)" : "var(--red)";
-  btn.style.borderColor = soundOn ? "var(--green)" : "var(--red)";
-}
-(function initSound() {
-  const btn = document.getElementById("btn-sound");
-  if (!soundOn) { btn.textContent = "🔇 Muted"; btn.style.color = "var(--red)"; btn.style.borderColor = "var(--red)"; }
-})();
-
-// ── Settings modal ───────────────────────────────────────────
-function openSettings() {
-  const m = document.getElementById("settings-modal");
-  m.style.display = "flex";
-  fetch(API + "/features", { cache: "no-store" }).then(r => r.json()).then(({ features }) => {
-    const labels = {
-      autoCommentary: "💬 Auto Commentary",
-      trailingStop:   "📉 Trailing Stop",
-      newsFilter:     "📰 News Filter",
-      tradeJournal:   "📒 Trade Journal",
-      positionReview: "🔍 Position Review",
-      weeklyReport:   "📊 Weekly Report"
-    };
-    document.getElementById("settings-features").innerHTML = Object.entries(labels).map(([k, lbl]) => {
-      const on = features[k];
-      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
-        <span style="font-size:.8rem">${lbl}</span>
-        <button onclick="toggleFeature('${k}')" style="background:${on ? "#0d2010" : "#1a0a0a"};border:1px solid ${on ? "var(--green)" : "var(--red)"};color:${on ? "var(--green)" : "var(--red)"};border-radius:6px;padding:3px 12px;font-size:.72rem;font-weight:700;cursor:pointer">${on ? "ON" : "OFF"}</button>
-      </div>`;
-    }).join("");
-  }).catch(() => {
-    document.getElementById("settings-features").innerHTML = `<div style="color:var(--muted);font-size:.78rem">Settings unavailable — server offline?</div>`;
-  });
-}
-function closeSettings() { document.getElementById("settings-modal").style.display = "none"; }
-document.getElementById("settings-modal").addEventListener("click", e => { if (e.target === document.getElementById("settings-modal")) closeSettings(); });
-async function toggleFeature(name) {
-  await fetch(API + "/features/" + name + "/toggle", { method: "POST" });
-  openSettings();
-}
-
-// ── Invest tab ───────────────────────────────────────────────
-async function loadInvest() {
-  try {
-    const [posRes, sigRes, planRes] = await Promise.allSettled([
-      fetch(API + "/mt5/positions", { cache: "no-store" }).then(r => r.json()),
-      fetch(API + "/signals",       { cache: "no-store" }).then(r => r.json()),
-      fetch(API + "/plan",          { cache: "no-store" }).then(r => r.json())
-    ]);
-
-    // Positions
-    const positions = posRes.status === "fulfilled" ? (posRes.value.positions ?? []) : [];
-    document.getElementById("inv-trades").textContent = positions.length;
-    document.getElementById("inv-risk").textContent = positions.length > 0 ? `${positions.length} live trade${positions.length > 1 ? "s" : ""}` : "No open trades";
-    const totalPnl = positions.reduce((s, p) => s + (p.profit ?? 0), 0);
-    const pnlEl = document.getElementById("inv-pnl");
-    pnlEl.textContent = (totalPnl >= 0 ? "+" : "") + "$" + totalPnl.toFixed(2);
-    pnlEl.style.color = totalPnl >= 0 ? "var(--green)" : "var(--red)";
-    document.getElementById("inv-positions-body").innerHTML = positions.length === 0
-      ? `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted);font-size:.78rem">No open positions — MT5 bridge running?</td></tr>`
-      : positions.map(p => {
-          const pnl = p.profit ?? 0;
-          const col = pnl >= 0 ? "var(--green)" : "var(--red)";
-          return `<tr style="border-bottom:1px solid var(--border)">
-            <td style="padding:8px 14px;font-weight:700">${p.symbol ?? "—"}</td>
-            <td style="padding:8px 14px"><span style="color:${p.type === "BUY" ? "var(--green)" : "var(--red)"};font-weight:700">${p.type ?? "—"}</span></td>
-            <td style="padding:8px 14px;text-align:right;font-variant-numeric:tabular-nums">${p.lots ?? "—"}</td>
-            <td style="padding:8px 14px;text-align:right;font-variant-numeric:tabular-nums">${p.openPrice?.toFixed(2) ?? "—"}</td>
-            <td style="padding:8px 14px;text-align:right;font-variant-numeric:tabular-nums">${p.currentPrice?.toFixed(2) ?? "—"}</td>
-            <td style="padding:8px 14px;text-align:right;font-weight:700;color:${col};font-variant-numeric:tabular-nums">${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}</td>
-            <td style="padding:8px 14px;text-align:right;font-variant-numeric:tabular-nums;color:var(--red)">${p.sl?.toFixed(2) ?? "—"}</td>
-            <td style="padding:8px 14px;text-align:right;font-variant-numeric:tabular-nums;color:var(--green)">${p.tp?.toFixed(2) ?? "—"}</td>
-          </tr>`;
-        }).join("");
-
-    // Signals → opportunities
-    const sigs = sigRes.status === "fulfilled" ? sigRes.value : {};
-    ["btc","gold","spx"].forEach(k => {
-      const s = sigs[k];
-      const el = document.getElementById(`inv-${k}-sig`);
-      if (!s) { el.innerHTML = `<div style="color:var(--muted);font-size:.78rem">No signal</div>`; return; }
-      const col = s.signal === "BUY" ? "var(--green)" : s.signal === "SELL" ? "var(--red)" : "var(--muted)";
-      el.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span style="font-size:.85rem;font-weight:700;color:${col}">${s.signal}</span>
-          <span style="font-size:.7rem;font-weight:700;color:${col}">${s.confidence ?? 0}%</span>
-        </div>
-        <div style="font-size:.72rem;color:var(--muted);margin-bottom:4px">Setup: <span style="color:var(--text)">${s.setup ?? "WAIT"}</span></div>
-        <div style="font-size:.72rem;color:var(--muted)">Entry: <span style="color:var(--text);font-variant-numeric:tabular-nums">${s.entry ?? "—"}</span></div>
-        <div style="font-size:.72rem;color:var(--muted)">Stop: <span style="color:var(--red);font-variant-numeric:tabular-nums">${s.stop ?? "—"}</span></div>
-        <div style="font-size:.72rem;color:var(--muted)">Target: <span style="color:var(--green);font-variant-numeric:tabular-nums">${s.target ?? "—"}</span></div>`;
-    });
-
-    // Regime
-    const plan = planRes.status === "fulfilled" ? planRes.value : null;
-    if (plan) {
-      const r = plan.regime ?? "MIXED";
-      const col = r === "RISK-ON" ? "var(--green)" : r === "RISK-OFF" ? "var(--red)" : "var(--yellow)";
-      document.getElementById("inv-regime").style.color = col;
-      document.getElementById("inv-regime").textContent = r;
-      document.getElementById("inv-regime-sub").textContent = r === "RISK-ON" ? "Favour longs" : r === "RISK-OFF" ? "Reduce size" : "Be selective";
-    }
-  } catch(e) {
-    console.error("loadInvest:", e);
-  }
-}
 setInterval(loadSignals,   60_000);
 setInterval(loadAlerts,    15_000);
 setInterval(loadCongress,  5*60_000);

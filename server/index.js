@@ -10,11 +10,13 @@ const cron       = require("node-cron");
 const Anthropic  = require("@anthropic-ai/sdk");
 const fs         = require("fs");
 const path       = require("path");
+const { YouTube } = require("youtube-sr");
 
 // ── New modules ───────────────────────────────────────────────
 const autohealer = require("./autohealer");
 const db         = require("./db");
 const sizing     = require("./sizing");
+const hermes     = require("./hermes");
 
 const app = express();
 app.use(express.json());
@@ -28,22 +30,59 @@ app.use((req, res, next) => {
 
 // ── Config ────────────────────────────────────────────────────
 const PORT           = process.env.PORT           || 3001;
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || "";
-const UW_API_KEY     = process.env.UW_API_KEY     || "";
+const KEYS_ENV_PATH  = path.join(__dirname, "..", "keys.env");
+const APIKEY_PATH    = path.join(__dirname, "apikey.txt");
+
+let TELEGRAM_TOKEN   = process.env.TELEGRAM_TOKEN   || "";
+let TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
+let UW_API_KEY       = process.env.UW_API_KEY       || "";
+let OPENAI_API_KEY   = process.env.OPENAI_API_KEY   || "";
 
 // Load Claude API key — from apikey.txt file first, then environment variable
 function loadApiKey() {
   try {
-    const p = require("path").join(__dirname, "apikey.txt");
-    if (fs.existsSync(p)) return fs.readFileSync(p, "utf8").trim();
+    if (fs.existsSync(APIKEY_PATH)) return fs.readFileSync(APIKEY_PATH, "utf8").trim();
   } catch (e) {}
   return process.env.ANTHROPIC_API_KEY || "";
 }
-const ANTHROPIC_API_KEY = loadApiKey();
-
-const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+let ANTHROPIC_API_KEY = loadApiKey();
+let anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+function reloadAnthropicClient() {
+  ANTHROPIC_API_KEY = loadApiKey();
+  anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+  console.log(ANTHROPIC_API_KEY ? "[settings] Anthropic key reloaded" : "[settings] Anthropic key cleared");
+}
 const UW_BASE        = "https://api.unusualwhales.com/api";
-const uwHeaders      = { Authorization: `Bearer ${UW_API_KEY}`, Accept: "application/json", "User-Agent": "SmartEntry/9.0" };
+function getUwHeaders() {
+  return { Authorization: `Bearer ${UW_API_KEY}`, Accept: "application/json", "User-Agent": "SmartEntry/9.0" };
+}
+
+// ── Settings persistence (keys.env — gitignored, never committed) ──────
+function sanitizeEnvValue(v) { return String(v).replace(/[\r\n]/g, " ").trim(); }
+function readKeysEnv() {
+  const map = {};
+  try {
+    if (fs.existsSync(KEYS_ENV_PATH)) {
+      for (const line of fs.readFileSync(KEYS_ENV_PATH, "utf8").split(/\r?\n/)) {
+        const idx = line.indexOf("=");
+        if (idx === -1) continue;
+        const k = line.slice(0, idx).trim();
+        if (k) map[k] = line.slice(idx + 1).trim();
+      }
+    }
+  } catch (e) { console.error("[settings] keys.env read error:", e.message); }
+  return map;
+}
+function writeKeysEnv(updates) {
+  const map = readKeysEnv();
+  for (const [k, v] of Object.entries(updates)) map[k] = sanitizeEnvValue(v);
+  const body = Object.entries(map).map(([k, v]) => `${k}=${v}`).join("\r\n") + "\r\n";
+  fs.writeFileSync(KEYS_ENV_PATH, body, "utf8");
+}
+function maskKey(v) {
+  if (!v) return null;
+  return v.length <= 8 ? "••••" : v.slice(0, 4) + "…" + v.slice(-4);
+}
 
 // ── State ─────────────────────────────────────────────────────
 let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, spx: null, spxChange: null, dxy: null, dxyChange: null, vix: null, updated: null };
@@ -55,6 +94,7 @@ let tvAlerts      = [];
 let congressCache = null;
 let flowCache     = null;
 let knownChatIds  = new Set();
+if (TELEGRAM_CHAT_ID) knownChatIds.add(TELEGRAM_CHAT_ID);
 let mt5Positions  = [];   // reported by mt5_bridge.py via POST /api/mt5/positions
 let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
 let tradeJournal  = [];   // trade journal entries (max 200)
@@ -878,6 +918,7 @@ async function refreshSignals() {
     spx:  signalCache.spx  ? { s: signalCache.spx.signal,  c: signalCache.spx.confidence,  regime: signalCache.spx.regime,  setup: signalCache.spx.setup,  reasons: (signalCache.spx.reasons  || []).slice(0,6), entry: signalCache.spx.entry,  stop: signalCache.spx.stop,  target: signalCache.spx.target  } : null,
   });
   if (signalHistory.length > 100) signalHistory.length = 100;
+  try { hermes.runHermesCycle(signalCache, priceCache); } catch (e) { console.error("[hermes] cycle error:", e.message); }
   refreshAnalysis();
 }
 
@@ -885,7 +926,7 @@ async function refreshSignals() {
 async function fetchCongress() {
   if (!UW_API_KEY) return;
   try {
-    const res = await axios.get(`${UW_BASE}/congress/trades`, { headers: uwHeaders, timeout: 10000, params: { limit: 20 } });
+    const res = await axios.get(`${UW_BASE}/congress/trades`, { headers: getUwHeaders(), timeout: 10000, params: { limit: 20 } });
     congressCache = res.data;
   } catch (e) { console.error("UW congress:", e.message); }
 }
@@ -893,7 +934,7 @@ async function fetchCongress() {
 async function fetchFlow() {
   if (!UW_API_KEY) return;
   try {
-    const res = await axios.get(`${UW_BASE}/flow/alerts`, { headers: uwHeaders, timeout: 10000, params: { limit: 20 } });
+    const res = await axios.get(`${UW_BASE}/flow/alerts`, { headers: getUwHeaders(), timeout: 10000, params: { limit: 20 } });
     flowCache = res.data;
   } catch (e) { console.error("UW flow:", e.message); }
 }
@@ -1053,6 +1094,14 @@ async function handleMessage(message) {
 }
 
 let lastUpdateId = 0;
+let telegramPollingStarted = false;
+function ensureTelegramPolling() {
+  if (telegramPollingStarted || !TELEGRAM_TOKEN) return;
+  telegramPollingStarted = true;
+  setInterval(pollTelegram, 3000);
+  console.log("[telegram] Polling started");
+}
+
 async function pollTelegram() {
   try {
     const res = await axios.get(
@@ -1155,6 +1204,55 @@ app.post("/api/risk-status", (req, res) => {
   res.json({ ok: true });
 });
 
+// ── /api/settings — API keys & Telegram config ─────────────────
+// Values are masked on read and written only to gitignored files (keys.env, apikey.txt).
+app.get("/api/settings", (_, res) => {
+  const env = readKeysEnv();
+  const known = new Set(["TV_USERNAME", "TV_PASSWORD", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID", "UW_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
+  res.json({
+    anthropicKey:   { configured: !!ANTHROPIC_API_KEY, preview: maskKey(ANTHROPIC_API_KEY) },
+    telegramToken:  { configured: !!TELEGRAM_TOKEN,     preview: maskKey(TELEGRAM_TOKEN) },
+    telegramChatId: TELEGRAM_CHAT_ID || "",
+    openaiKey:      { configured: !!OPENAI_API_KEY,     preview: maskKey(OPENAI_API_KEY) },
+    uwKey:          { configured: !!UW_API_KEY,         preview: maskKey(UW_API_KEY) },
+    custom: Object.entries(env)
+      .filter(([k]) => !known.has(k))
+      .map(([k, v]) => ({ key: k, preview: maskKey(v) })),
+  });
+});
+
+app.post("/api/settings", (req, res) => {
+  const { anthropicKey, telegramToken, telegramChatId, openaiKey, uwKey, custom } = req.body || {};
+  const updates = {};
+
+  if (typeof telegramToken === "string" && telegramToken.trim())   { TELEGRAM_TOKEN   = sanitizeEnvValue(telegramToken);   updates.TELEGRAM_TOKEN   = TELEGRAM_TOKEN; ensureTelegramPolling(); }
+  if (typeof telegramChatId === "string" && telegramChatId.trim()) { TELEGRAM_CHAT_ID = sanitizeEnvValue(telegramChatId); updates.TELEGRAM_CHAT_ID = TELEGRAM_CHAT_ID; knownChatIds.add(TELEGRAM_CHAT_ID); }
+  if (typeof uwKey === "string" && uwKey.trim())                   { UW_API_KEY       = sanitizeEnvValue(uwKey);          updates.UW_API_KEY       = UW_API_KEY; }
+  if (typeof openaiKey === "string" && openaiKey.trim())           { OPENAI_API_KEY   = sanitizeEnvValue(openaiKey);      updates.OPENAI_API_KEY   = OPENAI_API_KEY; }
+
+  if (Array.isArray(custom)) {
+    for (const entry of custom) {
+      const key = entry?.key, value = entry?.value;
+      if (!key || typeof value !== "string" || !value.trim()) continue;
+      const safeKey = String(key).trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+      if (safeKey) updates[safeKey] = sanitizeEnvValue(value);
+    }
+  }
+
+  if (Object.keys(updates).length) writeKeysEnv(updates);
+
+  if (typeof anthropicKey === "string" && anthropicKey.trim()) {
+    try {
+      fs.writeFileSync(APIKEY_PATH, sanitizeEnvValue(anthropicKey), "utf8");
+      reloadAnthropicClient();
+    } catch (e) {
+      return res.status(500).json({ error: "Failed to save Anthropic key: " + e.message });
+    }
+  }
+
+  res.json({ ok: true });
+});
+
 // Performance stats — actual win rate per setup + confidence calibration
 app.get("/api/stats/by-setup", (_, res) => {
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
@@ -1207,16 +1305,57 @@ app.get("/api/analysis", (_, res) => {
 });
 
 app.post("/api/chat", async (req, res) => {
-  const { message } = req.body;
+  const { message, history } = req.body;
   if (!message) return res.status(400).json({ error: "message required" });
   try {
-    const reply = await askClaude(message);
-    if (!reply) return res.json({ reply: "No reply from AI — check API key." });
-    res.json({ reply, context: buildMarketContext() });
+    const { text, video } = await askClaude(message, Array.isArray(history) ? history : []);
+    if (!text) return res.json({ reply: "No reply from AI — check API key." });
+    res.json({ reply: text, video });
   } catch (e) {
     const msg = e?.message || e?.toString() || "Unknown error";
     console.error("[chat] error:", msg);
     res.status(500).json({ error: msg });
+  }
+});
+
+// ── /api/tts — high-quality cloud voice for JARVIS (requires an OpenAI key in Settings) ──
+app.post("/api/tts", async (req, res) => {
+  const { text } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
+  if (!OPENAI_API_KEY) return res.status(404).json({ error: "No OpenAI key configured — using browser voice." });
+  try {
+    const r = await axios.post(
+      "https://api.openai.com/v1/audio/speech",
+      { model: "gpt-4o-mini-tts", voice: "onyx", input: String(text).slice(0, 2000), response_format: "mp3" },
+      { headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" }, responseType: "arraybuffer", timeout: 30000 }
+    );
+    res.set("Content-Type", "audio/mpeg");
+    res.send(Buffer.from(r.data));
+  } catch (e) {
+    console.error("[tts] error:", e.message);
+    res.status(502).json({ error: "TTS request failed: " + e.message });
+  }
+});
+
+// ── /api/youtube-search — find a video for JARVIS to pop up (requires a YouTube key in Settings) ──
+async function searchYouTube(query) {
+  const results = await YouTube.search(query, { limit: 5, type: "video", safeSearch: true });
+  return results.map(v => ({
+    videoId: v.id,
+    title: v.title,
+    channel: v.channel?.name || "",
+    thumbnail: v.thumbnail?.url || "",
+  }));
+}
+
+app.get("/api/youtube-search", async (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.status(400).json({ error: "q required" });
+  try {
+    res.json({ results: await searchYouTube(q) });
+  } catch (e) {
+    console.error("[youtube] search error:", e.message);
+    res.status(502).json({ error: "YouTube search failed: " + e.message });
   }
 });
 
@@ -1335,6 +1474,14 @@ app.get("/api/journal", (req, res) => {
 });
 
 // Self-learning state
+app.get("/api/hermes", (_, res) => {
+  try {
+    res.json(hermes.getSnapshot(signalCache, priceCache));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/learning", (_, res) => {
   try {
     const summary = {};
@@ -1732,41 +1879,234 @@ Signal: ${s.spx?.signal} | Trend: ${s.spx?.trend} | RSI: ${s.spx?.indicators?.rs
 `.trim();
 }
 
-async function askClaude(question) {
-  const context = buildMarketContext();
+// Full system snapshot — signals, risk, positions, self-learning, journal, health.
+// This is what makes JARVIS chat aware of the whole system, not just prices.
+// Deterministic open/closed check — a cheap backstop so JARVIS's answer never depends on
+// the model doing correct day-of-week/timezone arithmetic. Weekday session hours only;
+// does not model NYSE/forex holidays (BTC needs no such check — it never closes).
+function getMarketHoursStatus() {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun..6=Sat
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  let goldOpen = true, goldNote = "forex hours, open";
+  if (day === 6) { goldOpen = false; goldNote = "closed — forex week ends Fri ~22:00 UTC, reopens Sun ~22:00 UTC"; }
+  else if (day === 0 && mins < 22 * 60) { goldOpen = false; goldNote = "closed — reopens ~22:00 UTC today (Sunday)"; }
+  else if (day === 5 && mins >= 22 * 60) { goldOpen = false; goldNote = "closed — forex week just ended ~22:00 UTC"; }
+
+  const isDST   = now.getUTCMonth() > 2 && now.getUTCMonth() < 10; // rough Mar-Nov EDT approximation
+  const openMin = isDST ? 13 * 60 + 30 : 14 * 60 + 30;
+  const closeMin = isDST ? 20 * 60 : 21 * 60;
+  const spxOpen = day >= 1 && day <= 5 && mins >= openMin && mins < closeMin;
+
+  return [
+    `BTC: OPEN (24/7, no session breaks)`,
+    `GOLD (forex): ${goldOpen ? "OPEN" : "CLOSED"} (${goldNote})`,
+    `SPX (NYSE cash): ${spxOpen ? "OPEN (cash session)" : "CLOSED (outside Mon-Fri ~13:30-20:00 UTC — NYSE holidays not modeled here)"}`,
+  ].join("\n");
+}
+
+function buildSystemContext() {
+  const s = signalCache, p = priceCache;
+  const lines = [`Current time: ${new Date().toLocaleString()}`, "", "═══ MARKET HOURS ═══", getMarketHoursStatus(), "", "═══ SIGNALS ═══"];
+
+  for (const [key, label] of [["btc", "BTC"], ["gold", "GOLD"], ["spx", "SPX"]]) {
+    const sig = s[key];
+    if (!sig) { lines.push(`${label}: no data yet`); continue; }
+    const price = p[key];
+    const chg   = p[key + "Change"];
+    lines.push(`${label}: $${price?.toLocaleString() ?? "—"} (${chg > 0 ? "+" : ""}${chg ?? "—"}% 24h) | Signal: ${sig.signal} ${sig.confidence ?? 0}% | Setup: ${sig.setup ?? "—"} | Trend: ${sig.trend ?? "—"} | Regime: ${sig.regime ?? "—"}`);
+    if (sig.signal !== "WAIT" && sig.entry) lines.push(`  Entry $${sig.entry} | Stop $${sig.stop} | Target $${sig.target} | R:R ${sig.rr ?? "—"}`);
+    if (sig.reasons?.length) lines.push(`  Reasons: ${sig.reasons.slice(0, 5).join(" | ")}`);
+  }
+
+  lines.push("", "═══ RISK ═══", `Daily P&L: ${riskStatus.dailyPnl ?? 0} | Consecutive losses: ${riskStatus.consecutiveLosses ?? 0} | Halted: ${riskStatus.halted ? `YES (${riskStatus.haltReason})` : "no"}`);
+
+  lines.push("", "═══ OPEN POSITIONS (MT5) ═══");
+  if (mt5Positions.length) {
+    for (const pos of mt5Positions.slice(0, 10)) {
+      lines.push(`${pos.type} ${pos.symbol}: entry $${pos.price}, SL $${pos.sl}, TP $${pos.tp}, P&L ${pos.profit >= 0 ? "+" : ""}$${pos.profit}, ${pos.volume} lots`);
+    }
+  } else lines.push("None open.");
+
+  lines.push("", "═══ SELF-LEARNING (setup win rates) ═══");
+  const setups = Object.entries(learning.setupStats || {});
+  if (setups.length) {
+    for (const [name, st] of setups.sort((a, b) => ((b[1].wins||0)+(b[1].losses||0)) - ((a[1].wins||0)+(a[1].losses||0))).slice(0, 8)) {
+      const tot = (st.wins || 0) + (st.losses || 0);
+      const wr  = tot ? Math.round((st.wins || 0) / tot * 100) : 0;
+      lines.push(`${name}: ${st.wins || 0}W/${st.losses || 0}L (${wr}%) P&L ${(st.totalPnl ?? 0).toFixed ? st.totalPnl.toFixed(2) : st.totalPnl}`);
+    }
+  } else lines.push("No completed trades yet — nothing learned.");
+
+  lines.push("", "═══ RECENT CLOSED TRADES ═══");
+  const closed = tradeJournal.filter(t => t.status === "CLOSED" || t.pnl != null).slice(0, 5);
+  if (closed.length) {
+    for (const t of closed) lines.push(`${(t.symbol||"?").toUpperCase()} ${t.direction || t.dir || "?"} ${t.setup || ""} — P&L ${t.pnl}`);
+  } else lines.push("No closed trades yet.");
+
+  lines.push("", "═══ SYSTEM HEALTH ═══");
+  try {
+    const h = autohealer.getStatus();
+    lines.push(`Healer: ${h.healthy ? "healthy" : "UNHEALTHY"} | heals performed: ${h.healCount} | last heal: ${h.lastHealAt ?? "never"}`);
+    if (h.errorLog?.length) lines.push(`Recent errors: ${h.errorLog.slice(0, 3).map(e => e.message || e).join(" | ")}`);
+  } catch { lines.push("Healer status unavailable."); }
+
+  lines.push("", "═══ HERMES — validated forward paper-trading (per-asset champion geometry) ═══");
+  try {
+    const champs = hermes.computeChampions();
+    const champEntries = Object.entries(champs);
+    if (champEntries.length) {
+      for (const [asset, row] of champEntries) lines.push(`${asset.toUpperCase()}: ${row.geometry} is champion — ${row.winRate}% WR, expectancy ${row.expectancy}R over ${row.trades} paper trades (costs deducted)`);
+    } else lines.push("No validated champion yet for any asset — still gathering forward paper-trade samples.");
+  } catch { lines.push("Hermes data unavailable."); }
+
+  lines.push("", "═══ PERSISTENT MEMORY (facts saved across sessions — not lost on page reload) ═══");
+  try {
+    const recent = loadMemory().entries.slice(0, 10);
+    if (recent.length) for (const e of recent) lines.push(`[${e.category}] ${e.key}: ${e.value}`);
+    else lines.push("Nothing saved yet.");
+  } catch { lines.push("Memory store unavailable."); }
+
+  return lines.join("\n");
+}
+
+const JARVIS_SYSTEM_PROMPT = `You are JARVIS, Themis's trading system engineer and AI partner for SmartEntry Pro.
+Personality: direct, sharp, fast, zero fluff. Talk like a senior engineer who respects his time. No "Great question!", no preambles.
+You have full visibility into SmartEntry Pro's live state, which is provided below on every turn — signals, risk, open positions, self-learning stats, recent trades, system health, and persistent memory saved from past sessions. Use it. Never say you don't have access to system data — you do, it's in the context.
+You have a save_memory tool — a real cross-session memory, not just this conversation. Use it whenever Themis tells you a preference, a decision, a lesson learned, or a fact worth remembering later (e.g. "I prefer 1.5x ATR stops", "we're pausing SPX trades this week"). Don't save routine chit-chat or things already in the live system state above.
+You have a web_search tool for real-time information — news, events, anything current you don't already have. Use it when the question needs it instead of guessing from training data.
+You have a play_video tool and you genuinely can open and play YouTube videos on Themis's screen — never say you can't play video/audio or that you're "not YouTube," that's false. Use it for ANY video request on ANY topic (trading or not — music, news, anything), including terse ones with no request verb at all ("gold video", "youtube ripple", "greek music").
+You have a force_heal tool that actually runs a real health-check/repair cycle — not a status report, a real action. Use it when asked to check/fix the system, don't just describe the healer status from context.
+Trading context first: weigh signal quality, risk management, and system reliability before answering.
+Give concrete levels (entry/stop/target) when discussing a trade. Analysis, not financial advice.
+Never loosen or suggest bypassing the 65% confidence gate or the daily-loss circuit breaker just because nothing is firing — a quiet market is a correct read, not a bug.
+Keep answers tight — a few sentences unless the question genuinely needs more.`;
+
+const MEMORY_TOOL = {
+  name: "save_memory",
+  description: "Save an important fact, decision, lesson, or preference to JARVIS's persistent cross-session memory (survives page reloads and future sessions). Use for things worth remembering long-term, not routine chit-chat.",
+  input_schema: {
+    type: "object",
+    properties: {
+      key:      { type: "string", description: "Short unique label, e.g. RISK_PREFERENCE or BTC_KEY_SUPPORT" },
+      value:    { type: "string", description: "The fact, written so it makes sense read cold in a future session" },
+      category: { type: "string", enum: ["TRADE", "SYSTEM", "MARKET", "CODE", "RISK", "LEARNING", "GENERAL"] }
+    },
+    required: ["key", "value"]
+  }
+};
+
+const WEB_SEARCH_TOOL = {
+  name: "web_search",
+  description: "Search the live web for real-time information — news, events, prices, anything outside the trading system's own data. Use whenever the question needs current information you can't get from the system state above.",
+  input_schema: {
+    type: "object",
+    properties: { query: { type: "string", description: "The search query" } },
+    required: ["query"]
+  }
+};
+
+const PLAY_VIDEO_TOOL = {
+  name: "play_video",
+  description: "Search YouTube and open a video player on Themis's screen. Use this any time he wants to watch/see/open a video, on any topic — trading-related or not (music, news, anything). Recognize the intent even from terse phrasing, typos, or requests with no video-request verb at all (e.g. 'gold video', 'youtube ripple').",
+  input_schema: {
+    type: "object",
+    properties: { query: { type: "string", description: "What to search YouTube for" } },
+    required: ["query"]
+  }
+};
+
+const FORCE_HEAL_TOOL = {
+  name: "force_heal",
+  description: "Actually run a system health-check/repair cycle right now — not just report status, run it. Use when Themis asks you to check/fix/heal the system, or when something looks broken and he wants it addressed immediately.",
+  input_schema: { type: "object", properties: {} }
+};
+
+async function braveWebSearch(query) {
+  // Env vars set via the Windows GUI often pick up invisible copy-paste artifacts
+  // (non-breaking spaces etc.) that silently break header auth — strip anything non-printable-ASCII.
+  const key = (process.env.BRAVE_API_KEY || "").replace(/[^\x21-\x7e]/g, "");
+  if (!key) return "Web search unavailable — no BRAVE_API_KEY configured.";
+  try {
+    const r = await axios.get("https://api.search.brave.com/res/v1/web/search", {
+      params: { q: query, count: 5 },
+      headers: { Accept: "application/json", "X-Subscription-Token": key },
+      timeout: 10000
+    });
+    const results = r.data?.web?.results || [];
+    if (!results.length) return "No web results found.";
+    return results.slice(0, 5).map((res, i) => `${i + 1}. ${res.title}\n   ${res.url}\n   ${res.description || ""}`).join("\n\n");
+  } catch (e) {
+    console.error("[web_search] error:", e.message);
+    return "Web search failed: " + e.message;
+  }
+}
+
+async function askClaude(question, history = []) {
+  const context = buildSystemContext();
 
   if (anthropic) {
-    const msg = await anthropic.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 2048,
-      system: `You are JARVIS, an elite quantitative trading analyst for SmartEntry Pro. You have deep expertise in crypto (BTC), commodities (Gold/XAU), and equities (S&P500/SPX).
+    const msgs = history
+      .filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .slice(-12)
+      .map(m => ({ role: m.role, content: m.content }));
+    msgs.push({ role: "user", content: `[Live system state]\n${context}\n\n[Question]\n${question}` });
 
-Your analysis framework:
-- Technical: RSI, MACD, EMA20/50/200 structure, Bollinger Bands (bandwidth, squeeze), ATR-based stops
-- Cross-asset: BTC/Gold/SPX correlation, DXY dollar strength, VIX fear regime
-- Multi-timeframe: Daily trend + 4H confirmation + 1H timing = highest confidence
-- Risk management: 1% risk per trade minimum, 1.5:1 R:R minimum, Kelly sizing
+    const callOpts = { model: "claude-opus-4-8", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL, WEB_SEARCH_TOOL, PLAY_VIDEO_TOOL, FORCE_HEAL_TOOL] };
+    let response = await anthropic.messages.create({ ...callOpts, messages: msgs });
 
-For every question:
-1. State signal direction, confidence %, entry, stop, target with exact R:R ratio
-2. Give the 3 strongest reasons supporting or rejecting the trade
-3. State the one thing that would invalidate the setup
-4. Give a conviction-weighted position size recommendation
+    // Tool-use loop: let JARVIS actually save memories, search the web, and open videos mid-conversation.
+    let video = null;
+    let guard = 0;
+    while (response.stop_reason === "tool_use" && guard < 3) {
+      guard++;
+      const toolResults = [];
+      for (const block of response.content) {
+        if (block.type !== "tool_use") continue;
+        let resultText = "Unknown tool.";
+        if (block.name === "save_memory") {
+          const { key, value, category } = block.input || {};
+          resultText = "Save failed — missing key or value.";
+          if (key && value) {
+            try { saveMemoryEntry(key, value, category, "jarvis-chat"); resultText = `Saved: ${key}`; }
+            catch (e) { resultText = "Save failed: " + e.message; }
+          }
+        } else if (block.name === "web_search") {
+          resultText = await braveWebSearch(block.input?.query || "");
+        } else if (block.name === "play_video") {
+          const q = block.input?.query || "";
+          try {
+            const results = await searchYouTube(q);
+            if (results.length) {
+              video = { query: q, results };
+              resultText = `Now playing on screen: "${results[0].title}" (${results[0].channel}). Acknowledge briefly — don't list the results, he can already see them.`;
+            } else resultText = "No YouTube results found for that.";
+          } catch (e) { resultText = "Video search failed: " + e.message; }
+        } else if (block.name === "force_heal") {
+          try {
+            const result = await autohealer.forceHeal();
+            resultText = `Heal cycle ran. Healthy: ${result.healthy}. Total heals so far: ${result.healCount}. Last heal: ${result.lastHealAt ?? "just now"}.`;
+          } catch (e) { resultText = "Force-heal failed: " + e.message; }
+        } else continue;
+        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: resultText });
+      }
+      msgs.push({ role: "assistant", content: response.content });
+      msgs.push({ role: "user", content: toolResults });
+      response = await anthropic.messages.create({ ...callOpts, messages: msgs });
+    }
 
-Rules: Never say "consider" or "might" — say TAKE IT, WAIT, or SKIP with a specific reason. Never give vague advice. Always include price levels. If the market is in a squeeze, say so and what to watch. If a signal is below 65% confidence, say WAIT.`,
-      messages: [{ role: "user", content: `Live market context:\n${context}\n\nQuestion: ${question}` }]
-    });
-    const text = msg.content?.[0]?.text;
-    console.log("[chat] Claude reply length:", text?.length ?? 0);
-    return text;
+    const text = response.content?.find(b => b.type === "text")?.text;
+    console.log("[chat] Claude reply length:", text?.length ?? 0, video ? "| video: " + video.query : "");
+    return { text, video };
   }
 
   // Fallback — rule-based response without API key
   const q = question.toLowerCase();
-  if (q.includes("btc") || q.includes("bitcoin")) return autoAnalyze(signalCache.btc) ?? "BTC signal not available.";
-  if (q.includes("gold") || q.includes("xau"))    return autoAnalyze(signalCache.gold) ?? "Gold signal not available.";
-  if (q.includes("spy") || q.includes("s&p"))     return autoAnalyze(signalCache.spx)  ?? "SPY signal not available.";
-  return `Here is the current market snapshot:\n\n${context}\n\nAsk me about a specific asset (BTC, Gold, SPY) for a detailed analysis.`;
+  if (q.includes("btc") || q.includes("bitcoin")) return { text: autoAnalyze(signalCache.btc) ?? "BTC signal not available.", video: null };
+  if (q.includes("gold") || q.includes("xau"))    return { text: autoAnalyze(signalCache.gold) ?? "Gold signal not available.", video: null };
+  if (q.includes("spy") || q.includes("s&p"))     return { text: autoAnalyze(signalCache.spx)  ?? "SPY signal not available.", video: null };
+  return { text: `Here is the current system snapshot:\n\n${context}\n\nAsk me about a specific asset (BTC, Gold, SPY), risk, positions, or what I've learned.`, video: null };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2219,13 +2559,33 @@ app.post("/api/size", (req, res) => {
 });
 
 // ── /api/memory — persistent JARVIS memory (read/write) ──────
+// Same store memory.py (the CLI tool used by Claude Code sessions) reads and writes —
+// this is what makes the web chat's memory genuinely cross-session, not just this tab.
 const MEMORY_PATH = path.join(__dirname, "..", "tasks", "jarvis_memory.json");
+
+function loadMemory() {
+  try {
+    if (fs.existsSync(MEMORY_PATH)) return JSON.parse(fs.readFileSync(MEMORY_PATH, "utf8"));
+  } catch {}
+  return { version: 1, entries: [] };
+}
+
+function saveMemoryEntry(key, value, category, source = "manual") {
+  const data = loadMemory();
+  const now = new Date().toISOString();
+  const idx = data.entries.findIndex(e => e.key.toLowerCase() === key.toLowerCase());
+  const entry = { key, value, category: (category || "GENERAL").toUpperCase(), source, updated_at: now };
+  if (idx >= 0) data.entries[idx] = { ...data.entries[idx], ...entry };
+  else { entry.created_at = now; data.entries.unshift(entry); }
+  data.last_updated = now;
+  fs.mkdirSync(path.dirname(MEMORY_PATH), { recursive: true });
+  fs.writeFileSync(MEMORY_PATH, JSON.stringify(data, null, 2));
+  return data.entries[idx >= 0 ? idx : 0];
+}
 
 app.get("/api/memory", (_, res) => {
   try {
-    if (!require("fs").existsSync(MEMORY_PATH)) return res.json({ entries: [] });
-    const data = JSON.parse(require("fs").readFileSync(MEMORY_PATH, "utf8"));
-    res.json(data);
+    res.json(loadMemory());
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2235,24 +2595,8 @@ app.post("/api/memory", (req, res) => {
   try {
     const { key, value, category } = req.body || {};
     if (!key || !value) return res.status(400).json({ error: "key and value required" });
-    const fs = require("fs");
-    let data = { version: 1, entries: [] };
-    if (fs.existsSync(MEMORY_PATH)) {
-      try { data = JSON.parse(fs.readFileSync(MEMORY_PATH, "utf8")); } catch (_) {}
-    }
-    const now = new Date().toISOString();
-    const idx = data.entries.findIndex(e => e.key.toLowerCase() === key.toLowerCase());
-    const entry = { key, value, category: (category || "GENERAL").toUpperCase(), updated_at: now };
-    if (idx >= 0) {
-      data.entries[idx] = { ...data.entries[idx], ...entry };
-    } else {
-      entry.created_at = now;
-      data.entries.unshift(entry);
-    }
-    data.last_updated = now;
-    require("fs").mkdirSync(path.dirname(MEMORY_PATH), { recursive: true });
-    fs.writeFileSync(MEMORY_PATH, JSON.stringify(data, null, 2));
-    res.json({ ok: true, entry: data.entries[idx >= 0 ? idx : 0] });
+    const entry = saveMemoryEntry(key, value, category, "manual");
+    res.json({ ok: true, entry });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2273,7 +2617,7 @@ app.listen(PORT, async () => {
   await fetchEconomicCalendar();
   await fetchFearGreed();
   generateDailyPlan();
-  if (TELEGRAM_TOKEN) setInterval(pollTelegram, 3000);
+  ensureTelegramPolling();
   if (ANTHROPIC_API_KEY) console.log("[ai] Claude AI enabled ✅");
   else console.log("[ai] No ANTHROPIC_API_KEY — using rule-based analysis");
 

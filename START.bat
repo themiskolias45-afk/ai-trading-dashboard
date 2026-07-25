@@ -39,9 +39,9 @@ if errorlevel 1 (
   echo  [2] Server: ONLINE — http://localhost:3001/dashboard
 )
 
-REM ── Open dashboard in browser ──────────────────────────────────
-echo  [3] Opening dashboard...
-start "" "http://localhost:3001/dashboard"
+REM ── Open JARVIS in browser ──────────────────────────────────────
+echo  [3] Opening JARVIS...
+start "" "http://localhost:3001/jarvis"
 timeout /t 2 /nobreak >nul
 
 REM ── Start watchdog ─────────────────────────────────────────────
@@ -89,6 +89,7 @@ if not errorlevel 1 (
 echo.
 echo  ==========================================
 echo   SMARTENTRY PRO IS LIVE
+echo   JARVIS:     http://localhost:3001/jarvis
 echo   Dashboard:  http://localhost:3001/dashboard
 echo   Logs:       tasks\logs\
 echo   To stop:    close the server window

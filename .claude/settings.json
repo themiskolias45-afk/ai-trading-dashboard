@@ -69,7 +69,7 @@
     "smartentry": {
       "command": "node",
       "args": ["C:/Users/User/ai-trading-dashboard/server/mcp_server.js"]
-    },
+    }
   },
 
   "hooks": {

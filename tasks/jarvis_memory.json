@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "key": "NO_SPX_ON_FED_DAYS",
+      "value": "Themis never wants to trade SPX on Fed announcement days — too much slippage. Skip all SPX setups on FOMC/Fed announcement dates.",
+      "category": "GENERAL",
+      "source": "jarvis-chat",
+      "updated_at": "2026-07-25T09:40:50.109Z",
+      "created_at": "2026-07-25T09:40:50.109Z"
+    },
+    {
+      "key": "PLAN_20260725",
+      "value": "Daily Plan 2026-07-25: |   BTC WAIT |   GOLD WAIT |   SPX WAIT",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-07-25T05:45:00.852793+00:00",
+      "updated_at": "2026-07-25T05:45:00.852793+00:00"
+    }
+  ],
+  "last_updated": "2026-07-25T09:40:50.109Z"
+}
