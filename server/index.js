@@ -95,7 +95,8 @@ let congressCache = null;
 let flowCache     = null;
 let knownChatIds  = new Set();
 if (TELEGRAM_CHAT_ID) knownChatIds.add(TELEGRAM_CHAT_ID);
-let mt5Positions  = [];   // reported by mt5_bridge.py via POST /api/mt5/positions
+let mt5PositionsByAccount = {};  // account tag -> positions[], one entry per connected MT5 bridge
+let mt5Positions  = [];   // flattened across all accounts (each position tagged with .account) — kept for existing consumers
 let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
 let tradeJournal  = [];   // trade journal entries (max 200)
 
