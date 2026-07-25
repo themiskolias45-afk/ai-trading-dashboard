@@ -17,10 +17,16 @@ if exist server\apikey.txt (
   set /p ANTHROPIC_API_KEY=<server\apikey.txt
 )
 
-REM ── Kill anything already using port 3001 ──────────────────────
-echo  [0] Clearing old processes...
-taskkill /F /IM node.exe   /T >nul 2>&1
-taskkill /F /IM python.exe /T >nul 2>&1
+REM ── Stop only our own previous processes — never touch other node/python ──
+REM (a prior version of this script killed every node.exe and python.exe on
+REM  the whole machine by image name, which also silently killed unrelated
+REM  tools and reset both MT5 bridges to a single untagged instance on every
+REM  login. Window-title scoping matches tasks\watchdog.bat's safe pattern.)
+echo  [0] Stopping previous SmartEntry processes...
+taskkill /F /FI "WINDOWTITLE eq SmartEntry Server*"    >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq SmartEntry Watchdog*"  >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq SmartEntry Bridge*"    >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq SmartEntry MT5 Bridge*" >nul 2>&1
 timeout /t 2 /nobreak >nul
 
 REM ── Skip git reset — system runs from local files ─────────────
