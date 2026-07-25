@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>JARVIS — SmartEntry Pro</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#080c14;--surface:#0d1422;--border:#1a2235;--border2:#243044;
+  --text:#e2e8f0;--muted:#4a6080;--accent:#7c3aed;
+  --green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6;
+  --font:'Segoe UI',system-ui,Arial,sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;font-size:14px;display:flex;flex-direction:column}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-mark{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),#4f46e5);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff}
+.logo-text{font-size:1.1rem;font-weight:800;letter-spacing:.02em}
+.logo-sub{font-size:.62rem;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
+.header-right{display:flex;align-items:center;gap:10px}
+.pill{display:flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:.68rem;font-weight:600;border:1px solid var(--border2);color:var(--muted)}
+.pill.live{border-color:#1a3a20;background:#0a1a10;color:var(--green)}
+.pill .dot{width:5px;height:5px;border-radius:50%;background:currentColor;animation:blink 2s ease-in-out infinite}
+.nav-a{font-size:.7rem;color:var(--muted);text-decoration:none;padding:5px 12px;border:1px solid var(--border);border-radius:6px;transition:all .2s}
+.nav-a:hover{color:var(--text);border-color:var(--border2)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* price strip */
+.strip{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:12px 24px;background:var(--surface);border-bottom:1px solid var(--border)}
+.strip-item{text-align:center}
+.strip-label{font-size:.55rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:2px}
+.strip-val{font-size:.88rem;font-weight:700;font-variant-numeric:tabular-nums}
+.strip-chg{font-size:.65rem;font-weight:600;margin-top:1px}
+.up{color:var(--green)}.down{color:var(--red)}.flat{color:var(--muted)}
+
+/* main layout */
+.main{flex:1;display:grid;grid-template-columns:1fr 340px;gap:0;overflow:hidden}
+
+/* chat */
+.chat-area{display:flex;flex-direction:column;height:calc(100vh - 120px)}
+.chat-messages{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:14px}
+.msg{max-width:80%;line-height:1.6}
+.msg.user{align-self:flex-end;background:var(--accent);color:#fff;border-radius:12px 12px 2px 12px;padding:10px 14px;font-size:.82rem}
+.msg.jarvis{align-self:flex-start;background:var(--surface);border:1px solid var(--border2);border-radius:12px 12px 12px 2px;padding:12px 16px;font-size:.82rem}
+.msg.jarvis .from{font-size:.6rem;color:var(--accent);font-weight:700;letter-spacing:.08em;margin-bottom:6px;text-transform:uppercase}
+.msg-input{padding:16px 24px;background:var(--surface);border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-end}
+.msg-input textarea{flex:1;background:var(--bg);border:1px solid var(--border2);border-radius:10px;padding:10px 14px;color:var(--text);font-size:.84rem;font-family:var(--font);resize:none;outline:none;min-height:42px;max-height:120px}
+.msg-input textarea:focus{border-color:var(--accent)}
+.btn-send{background:var(--accent);border:none;border-radius:10px;padding:10px 18px;color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .2s}
+.btn-send:hover{opacity:.85}
+.btn-send:disabled{opacity:.5;cursor:not-allowed}
+
+/* quick prompts */
+.quick-bar{padding:10px 24px 0;display:flex;gap:6px;flex-wrap:wrap}
+.qp{background:var(--bg);border:1px solid var(--border2);border-radius:20px;padding:4px 12px;font-size:.68rem;color:var(--muted);cursor:pointer;transition:all .2s}
+.qp:hover{border-color:var(--accent);color:var(--text)}
+
+/* sidebar */
+.sidebar{border-left:1px solid var(--border);overflow-y:auto;height:calc(100vh - 120px)}
+.side-section{padding:16px}
+.side-title{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.sig-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+.sig-item:last-child{border-bottom:none}
+.sig-name{font-size:.72rem;font-weight:600}
+.sig-badge{font-size:.6rem;font-weight:800;padding:2px 8px;border-radius:4px}
+.sig-badge.BUY{background:#0d2010;color:var(--green);border:1px solid rgba(34,197,94,.3)}
+.sig-badge.SELL{background:#1a0808;color:var(--red);border:1px solid rgba(239,68,68,.3)}
+.sig-badge.WAIT{background:#1a1500;color:var(--yellow);border:1px solid rgba(234,179,8,.2)}
+.sig-conf{font-size:.68rem;color:var(--muted)}
+
+/* thinking animation */
+.thinking{display:flex;gap:4px;align-items:center;padding:4px 0}
+.thinking span{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:bounce .6s ease-in-out infinite}
+.thinking span:nth-child(2){animation-delay:.1s}
+.thinking span:nth-child(3){animation-delay:.2s}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">J</div>
+    <div>
+      <div class="logo-text">JARVIS</div>
+      <div class="logo-sub">SmartEntry Pro · AI Trading Partner</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="pill live"><span class="dot"></span><span id="server-status">Connecting</span></div>
+    <a href="/dashboard" class="nav-a">📊 Dashboard</a>
+    <a href="/dashboard" onclick="event.preventDefault();history.back()" class="nav-a">← Back</a>
+  </div>
+</header>
+
+<!-- Price strip -->
+<div class="strip">
+  <div class="strip-item"><div class="strip-label">BTC/USD</div><div class="strip-val" id="s-btc">—</div><div class="strip-chg" id="s-btc-c">—</div></div>
+  <div class="strip-item"><div class="strip-label">Gold</div><div class="strip-val" id="s-gold">—</div><div class="strip-chg" id="s-gold-c">—</div></div>
+  <div class="strip-item"><div class="strip-label">SP500</div><div class="strip-val" id="s-spx">—</div><div class="strip-chg" id="s-spx-c">—</div></div>
+  <div class="strip-item"><div class="strip-label">DXY</div><div class="strip-val" id="s-dxy">—</div><div class="strip-chg" id="s-dxy-c">—</div></div>
+  <div class="strip-item"><div class="strip-label">VIX</div><div class="strip-val" id="s-vix">—</div><div class="strip-chg" id="s-vix-c">—</div></div>
+</div>
+
+<div class="main">
+  <!-- Chat -->
+  <div class="chat-area">
+    <div class="quick-bar">
+      <button class="qp" onclick="ask('What is the best trade setup right now?')">Best setup now</button>
+      <button class="qp" onclick="ask('Give me a full BTC deep dive analysis')">BTC deep dive</button>
+      <button class="qp" onclick="ask('Gold analysis — trend, levels, setup')">Gold analysis</button>
+      <button class="qp" onclick="ask('SP500 outlook and key levels to watch')">SP500 outlook</button>
+      <button class="qp" onclick="ask('What is the current market regime and how should I trade it?')">Market regime</button>
+      <button class="qp" onclick="ask('Check the overall risk — should I be trading aggressively or cautiously?')">Risk check</button>
+      <button class="qp" onclick="ask('Give me today\\'s full trading game plan for all 3 assets')">Today\\'s plan</button>
+      <button class="qp" onclick="ask('What signals are live right now and are any ready to trade?')">Live signals</button>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg jarvis">
+        <div class="from">JARVIS</div>
+        JARVIS online. SmartEntry Pro running. Ask me anything — market analysis, trade setups, risk, strategy.
+      </div>
+    </div>
+    <div class="msg-input">
+      <textarea id="chat-input" rows="1" placeholder="Ask JARVIS anything… trade setup, analysis, risk, strategy" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+      <button class="btn-send" id="btn-send" onclick="sendMsg()">Send</button>
+    </div>
+  </div>
+
+  <!-- Sidebar: live signals -->
+  <div class="sidebar">
+    <div class="side-section">
+      <div class="side-title">Live Signals</div>
+      <div id="sidebar-signals"><div style="color:var(--muted);font-size:.72rem">Loading…</div></div>
+    </div>
+    <div class="side-section" style="border-top:1px solid var(--border)">
+      <div class="side-title">Quick Actions</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <a href="/dashboard" style="text-decoration:none;background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:.78rem;color:var(--text);display:block">📊 Main Dashboard</a>
+        <a href="/daily-plan" style="text-decoration:none;background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:.78rem;color:var(--text);display:block">📅 Daily Plan</a>
+        <a href="/dashboard/performance.html" style="text-decoration:none;background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:.78rem;color:var(--text);display:block">📈 Performance</a>
+        <a href="/command" style="text-decoration:none;background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:.78rem;color:var(--text);display:block">⚡ Command Center</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "/api";
+let thinking = false;
+
+async function loadPrices() {
+  try {
+    const d = await fetch(API + "/prices", {cache:"no-store"}).then(r=>r.json());
+    const fmt = (v,d=0) => v != null ? "$" + Number(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d}) : "—";
+    const chg = (v) => {
+      if (v == null) return {t:"—",c:"flat"};
+      return {t: (v>=0?"+":"")+v.toFixed(2)+"%", c: v>0?"up":v<0?"down":"flat"};
+    };
+    document.getElementById("s-btc").textContent  = fmt(d.btc,0);
+    document.getElementById("s-gold").textContent = fmt(d.gold,1);
+    document.getElementById("s-spx").textContent  = fmt(d.spx,2);
+    document.getElementById("s-dxy").textContent  = d.dxy ? d.dxy.toFixed(2) : "—";
+    document.getElementById("s-vix").textContent  = d.vix ? d.vix.toFixed(1) : "—";
+    const pairs = [["btc","btcChange"],["gold","goldChange"],["spx","spxChange"],["dxy","dxyChange"],["vix","vixChange"]];
+    pairs.forEach(([id,key]) => {
+      const el = document.getElementById("s-"+id+"-c");
+      const r = chg(d[key]);
+      el.textContent = r.t; el.className = "strip-chg " + r.c;
+    });
+    document.getElementById("server-status").textContent = "JARVIS Online";
+  } catch(e) {
+    document.getElementById("server-status").textContent = "Server Offline";
+  }
+}
+
+async function loadSignals() {
+  try {
+    const d = await fetch(API + "/signals", {cache:"no-store"}).then(r=>r.json());
+    const items = [
+      {k:"btc",  label:"Bitcoin (BTC)"},
+      {k:"gold", label:"Gold (XAUUSD)"},
+      {k:"spx",  label:"S&P 500"}
+    ];
+    document.getElementById("sidebar-signals").innerHTML = items.map(({k,label}) => {
+      const s = d[k];
+      if (!s) return `<div class="sig-item"><span class="sig-name">${label}</span><span class="sig-badge WAIT">—</span></div>`;
+      return `<div class="sig-item">
+        <div>
+          <div class="sig-name">${label}</div>
+          <div class="sig-conf">${s.entry ? "Entry: $"+s.entry : "No entry"}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="sig-badge ${s.signal}">${s.signal}</div>
+          <div class="sig-conf" style="margin-top:3px">${s.confidence}%</div>
+        </div>
+      </div>`;
+    }).join("");
+  } catch(e) {}
+}
+
+function scrollBottom() {
+  const el = document.getElementById("chat-messages");
+  el.scrollTop = el.scrollHeight;
+}
+
+function addMsg(role, text) {
+  const el = document.getElementById("chat-messages");
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  if (role === "jarvis") div.innerHTML = `<div class="from">JARVIS</div>${text.replace(/\n/g,"<br>")}`;
+  else div.textContent = text;
+  el.appendChild(div);
+  scrollBottom();
+  return div;
+}
+
+function addThinking() {
+  const el = document.getElementById("chat-messages");
+  const div = document.createElement("div");
+  div.className = "msg jarvis";
+  div.id = "thinking-msg";
+  div.innerHTML = `<div class="from">JARVIS</div><div class="thinking"><span></span><span></span><span></span></div>`;
+  el.appendChild(div);
+  scrollBottom();
+}
+
+function removeThinking() {
+  const t = document.getElementById("thinking-msg");
+  if (t) t.remove();
+}
+
+async function sendMsg() {
+  const input = document.getElementById("chat-input");
+  const text = input.value.trim();
+  if (!text || thinking) return;
+  input.value = "";
+  input.style.height = "auto";
+  await ask(text);
+}
+
+async function ask(text) {
+  if (thinking) return;
+  thinking = true;
+  document.getElementById("btn-send").disabled = true;
+  addMsg("user", text);
+  addThinking();
+  try {
+    const r = await fetch(API + "/chat", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({message: text})
+    }).then(r => r.json());
+    removeThinking();
+    addMsg("jarvis", r.reply ?? r.response ?? r.message ?? "No response from JARVIS.");
+  } catch(e) {
+    removeThinking();
+    addMsg("jarvis", "Connection error — is the server running?");
+  }
+  thinking = false;
+  document.getElementById("btn-send").disabled = false;
+}
+
+loadPrices();
+loadSignals();
+setInterval(loadPrices,  30000);
+setInterval(loadSignals, 60000);
+</script>
+</body>
+</html>
