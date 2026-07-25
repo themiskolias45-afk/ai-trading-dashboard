@@ -935,7 +935,11 @@ function setVI(state) {
   else { tx.textContent = "Tap 🎤 to speak to JARVIS"; }
 }
 
-function setTranscript(t) { document.getElementById("transcript").textContent = t; }
+function setTranscript(t) {
+  document.getElementById("transcript").textContent = t;
+  const fs = document.getElementById("focus-status");
+  if (fs) fs.textContent = t;
+}
 
 // ══════════════════════════════════════════
 //  CHAT
