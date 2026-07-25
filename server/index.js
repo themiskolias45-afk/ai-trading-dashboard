@@ -1309,6 +1309,30 @@ app.post("/api/tts", async (req, res) => {
   }
 });
 
+// ── /api/youtube-search — find a video for JARVIS to pop up (requires a YouTube key in Settings) ──
+app.get("/api/youtube-search", async (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.status(400).json({ error: "q required" });
+  if (!YOUTUBE_API_KEY) return res.status(404).json({ error: "No YouTube API key configured in Settings." });
+  try {
+    const r = await axios.get("https://www.googleapis.com/youtube/v3/search", {
+      params: { key: YOUTUBE_API_KEY, q, part: "snippet", type: "video", maxResults: 5, safeSearch: "moderate" },
+      timeout: 10000
+    });
+    const results = (r.data.items || []).map(it => ({
+      videoId: it.id.videoId,
+      title: it.snippet.title,
+      channel: it.snippet.channelTitle,
+      thumbnail: it.snippet.thumbnails?.medium?.url || it.snippet.thumbnails?.default?.url,
+    }));
+    res.json({ results });
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || e.message;
+    console.error("[youtube] search error:", msg);
+    res.status(502).json({ error: "YouTube search failed: " + msg });
+  }
+});
+
 // ── V12 Feature Endpoints ─────────────────────────────────────
 
 // MT5 bridge notifies server when a trade is opened
