@@ -28,22 +28,59 @@ app.use((req, res, next) => {
 
 // ── Config ────────────────────────────────────────────────────
 const PORT           = process.env.PORT           || 3001;
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || "";
-const UW_API_KEY     = process.env.UW_API_KEY     || "";
+const KEYS_ENV_PATH  = path.join(__dirname, "..", "keys.env");
+const APIKEY_PATH    = path.join(__dirname, "apikey.txt");
+
+let TELEGRAM_TOKEN   = process.env.TELEGRAM_TOKEN   || "";
+let TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
+let UW_API_KEY       = process.env.UW_API_KEY       || "";
+let OPENAI_API_KEY   = process.env.OPENAI_API_KEY   || "";
 
 // Load Claude API key — from apikey.txt file first, then environment variable
 function loadApiKey() {
   try {
-    const p = require("path").join(__dirname, "apikey.txt");
-    if (fs.existsSync(p)) return fs.readFileSync(p, "utf8").trim();
+    if (fs.existsSync(APIKEY_PATH)) return fs.readFileSync(APIKEY_PATH, "utf8").trim();
   } catch (e) {}
   return process.env.ANTHROPIC_API_KEY || "";
 }
-const ANTHROPIC_API_KEY = loadApiKey();
-
-const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+let ANTHROPIC_API_KEY = loadApiKey();
+let anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+function reloadAnthropicClient() {
+  ANTHROPIC_API_KEY = loadApiKey();
+  anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+  console.log(ANTHROPIC_API_KEY ? "[settings] Anthropic key reloaded" : "[settings] Anthropic key cleared");
+}
 const UW_BASE        = "https://api.unusualwhales.com/api";
-const uwHeaders      = { Authorization: `Bearer ${UW_API_KEY}`, Accept: "application/json", "User-Agent": "SmartEntry/9.0" };
+function getUwHeaders() {
+  return { Authorization: `Bearer ${UW_API_KEY}`, Accept: "application/json", "User-Agent": "SmartEntry/9.0" };
+}
+
+// ── Settings persistence (keys.env — gitignored, never committed) ──────
+function sanitizeEnvValue(v) { return String(v).replace(/[\r\n]/g, " ").trim(); }
+function readKeysEnv() {
+  const map = {};
+  try {
+    if (fs.existsSync(KEYS_ENV_PATH)) {
+      for (const line of fs.readFileSync(KEYS_ENV_PATH, "utf8").split(/\r?\n/)) {
+        const idx = line.indexOf("=");
+        if (idx === -1) continue;
+        const k = line.slice(0, idx).trim();
+        if (k) map[k] = line.slice(idx + 1).trim();
+      }
+    }
+  } catch (e) { console.error("[settings] keys.env read error:", e.message); }
+  return map;
+}
+function writeKeysEnv(updates) {
+  const map = readKeysEnv();
+  for (const [k, v] of Object.entries(updates)) map[k] = sanitizeEnvValue(v);
+  const body = Object.entries(map).map(([k, v]) => `${k}=${v}`).join("\r\n") + "\r\n";
+  fs.writeFileSync(KEYS_ENV_PATH, body, "utf8");
+}
+function maskKey(v) {
+  if (!v) return null;
+  return v.length <= 8 ? "••••" : v.slice(0, 4) + "…" + v.slice(-4);
+}
 
 // ── State ─────────────────────────────────────────────────────
 let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, spx: null, spxChange: null, dxy: null, dxyChange: null, vix: null, updated: null };
