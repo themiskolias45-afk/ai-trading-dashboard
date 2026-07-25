@@ -23,11 +23,8 @@ taskkill /F /IM node.exe   /T >nul 2>&1
 taskkill /F /IM python.exe /T >nul 2>&1
 timeout /t 2 /nobreak >nul
 
-REM ── Pull latest code (force reset — no merge conflicts) ────────
-echo  [1] Pulling latest code from GitHub...
-git fetch origin claude/backup-deploy-server-FWgpv >nul 2>&1
-git reset --hard origin/claude/backup-deploy-server-FWgpv >nul 2>&1
-echo  [1] Code up to date.
+REM ── Skip git reset — system runs from local files ─────────────
+echo  [1] Using local files (no git reset — your changes are safe).
 
 REM ── Start server ───────────────────────────────────────────────
 echo  [2] Starting SmartEntry server...
