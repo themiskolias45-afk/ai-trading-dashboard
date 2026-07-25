@@ -1788,15 +1788,79 @@ Signal: ${s.spx?.signal} | Trend: ${s.spx?.trend} | RSI: ${s.spx?.indicators?.rs
 `.trim();
 }
 
-async function askClaude(question) {
-  const context = buildMarketContext();
+// Full system snapshot — signals, risk, positions, self-learning, journal, health.
+// This is what makes JARVIS chat aware of the whole system, not just prices.
+function buildSystemContext() {
+  const s = signalCache, p = priceCache;
+  const lines = [`Current time: ${new Date().toLocaleString()}`, "", "═══ SIGNALS ═══"];
+
+  for (const [key, label] of [["btc", "BTC"], ["gold", "GOLD"], ["spx", "SPX"]]) {
+    const sig = s[key];
+    if (!sig) { lines.push(`${label}: no data yet`); continue; }
+    const price = p[key];
+    const chg   = p[key + "Change"];
+    lines.push(`${label}: $${price?.toLocaleString() ?? "—"} (${chg > 0 ? "+" : ""}${chg ?? "—"}% 24h) | Signal: ${sig.signal} ${sig.confidence ?? 0}% | Setup: ${sig.setup ?? "—"} | Trend: ${sig.trend ?? "—"} | Regime: ${sig.regime ?? "—"}`);
+    if (sig.signal !== "WAIT" && sig.entry) lines.push(`  Entry $${sig.entry} | Stop $${sig.stop} | Target $${sig.target} | R:R ${sig.rr ?? "—"}`);
+    if (sig.reasons?.length) lines.push(`  Reasons: ${sig.reasons.slice(0, 5).join(" | ")}`);
+  }
+
+  lines.push("", "═══ RISK ═══", `Daily P&L: ${riskStatus.dailyPnl ?? 0} | Consecutive losses: ${riskStatus.consecutiveLosses ?? 0} | Halted: ${riskStatus.halted ? `YES (${riskStatus.haltReason})` : "no"}`);
+
+  lines.push("", "═══ OPEN POSITIONS (MT5) ═══");
+  if (mt5Positions.length) {
+    for (const pos of mt5Positions.slice(0, 10)) {
+      lines.push(`${pos.type} ${pos.symbol}: entry $${pos.price}, SL $${pos.sl}, TP $${pos.tp}, P&L ${pos.profit >= 0 ? "+" : ""}$${pos.profit}, ${pos.volume} lots`);
+    }
+  } else lines.push("None open.");
+
+  lines.push("", "═══ SELF-LEARNING (setup win rates) ═══");
+  const setups = Object.entries(learning.setupStats || {});
+  if (setups.length) {
+    for (const [name, st] of setups.sort((a, b) => ((b[1].wins||0)+(b[1].losses||0)) - ((a[1].wins||0)+(a[1].losses||0))).slice(0, 8)) {
+      const tot = (st.wins || 0) + (st.losses || 0);
+      const wr  = tot ? Math.round((st.wins || 0) / tot * 100) : 0;
+      lines.push(`${name}: ${st.wins || 0}W/${st.losses || 0}L (${wr}%) P&L ${(st.totalPnl ?? 0).toFixed ? st.totalPnl.toFixed(2) : st.totalPnl}`);
+    }
+  } else lines.push("No completed trades yet — nothing learned.");
+
+  lines.push("", "═══ RECENT CLOSED TRADES ═══");
+  const closed = tradeJournal.filter(t => t.status === "CLOSED" || t.pnl != null).slice(0, 5);
+  if (closed.length) {
+    for (const t of closed) lines.push(`${(t.symbol||"?").toUpperCase()} ${t.direction || t.dir || "?"} ${t.setup || ""} — P&L ${t.pnl}`);
+  } else lines.push("No closed trades yet.");
+
+  lines.push("", "═══ SYSTEM HEALTH ═══");
+  try {
+    const h = autohealer.getStatus();
+    lines.push(`Healer: ${h.healthy ? "healthy" : "UNHEALTHY"} | heals performed: ${h.healCount} | last heal: ${h.lastHealAt ?? "never"}`);
+    if (h.errorLog?.length) lines.push(`Recent errors: ${h.errorLog.slice(0, 3).map(e => e.message || e).join(" | ")}`);
+  } catch { lines.push("Healer status unavailable."); }
+
+  return lines.join("\n");
+}
+
+const JARVIS_SYSTEM_PROMPT = `You are JARVIS, Themis's trading system engineer and AI partner for SmartEntry Pro.
+Personality: direct, sharp, fast, zero fluff. Talk like a senior engineer who respects his time. No "Great question!", no preambles.
+You have full visibility into SmartEntry Pro's live state, which is provided below on every turn — signals, risk, open positions, self-learning stats, recent trades, system health. Use it. Never say you don't have access to system data — you do, it's in the context.
+Trading context first: weigh signal quality, risk management, and system reliability before answering.
+Give concrete levels (entry/stop/target) when discussing a trade. Analysis, not financial advice.
+Keep answers tight — a few sentences unless the question genuinely needs more.`;
+
+async function askClaude(question, history = []) {
+  const context = buildSystemContext();
 
   if (anthropic) {
+    const msgs = history
+      .filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .slice(-12)
+      .map(m => ({ role: m.role, content: m.content }));
+    msgs.push({ role: "user", content: `[Live system state]\n${context}\n\n[Question]\n${question}` });
+
     const msg = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-opus-4-8",
       max_tokens: 1024,
-      system: "You are SmartEntry Pro, a professional trading analyst. Answer concisely and practically. Always include specific levels (entry, stop, target) when discussing trades. Never give financial advice — give analysis.",
-      messages: [{ role: "user", content: `Market context:\n${context}\n\nQuestion: ${question}` }]
+      system: JARVIS_SYSTEM_PROMPT,
+      messages: msgs
     });
     const text = msg.content?.[0]?.text;
     console.log("[chat] Claude reply length:", text?.length ?? 0);
@@ -1808,7 +1872,7 @@ async function askClaude(question) {
   if (q.includes("btc") || q.includes("bitcoin")) return autoAnalyze(signalCache.btc) ?? "BTC signal not available.";
   if (q.includes("gold") || q.includes("xau"))    return autoAnalyze(signalCache.gold) ?? "Gold signal not available.";
   if (q.includes("spy") || q.includes("s&p"))     return autoAnalyze(signalCache.spx)  ?? "SPY signal not available.";
-  return `Here is the current market snapshot:\n\n${context}\n\nAsk me about a specific asset (BTC, Gold, SPY) for a detailed analysis.`;
+  return `Here is the current system snapshot:\n\n${context}\n\nAsk me about a specific asset (BTC, Gold, SPY), risk, positions, or what I've learned.`;
 }
 
 // ══════════════════════════════════════════════════════════════
