@@ -1961,6 +1961,33 @@ const MEMORY_TOOL = {
   }
 };
 
+const WEB_SEARCH_TOOL = {
+  name: "web_search",
+  description: "Search the live web for real-time information — news, events, prices, anything outside the trading system's own data. Use whenever the question needs current information you can't get from the system state above.",
+  input_schema: {
+    type: "object",
+    properties: { query: { type: "string", description: "The search query" } },
+    required: ["query"]
+  }
+};
+
+async function braveWebSearch(query) {
+  if (!process.env.BRAVE_API_KEY) return "Web search unavailable — no BRAVE_API_KEY configured.";
+  try {
+    const r = await axios.get("https://api.search.brave.com/res/v1/web/search", {
+      params: { q: query, count: 5 },
+      headers: { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_API_KEY },
+      timeout: 10000
+    });
+    const results = r.data?.web?.results || [];
+    if (!results.length) return "No web results found.";
+    return results.slice(0, 5).map((res, i) => `${i + 1}. ${res.title}\n   ${res.url}\n   ${res.description || ""}`).join("\n\n");
+  } catch (e) {
+    console.error("[web_search] error:", e.message);
+    return "Web search failed: " + e.message;
+  }
+}
+
 async function askClaude(question, history = []) {
   const context = buildSystemContext();
 
