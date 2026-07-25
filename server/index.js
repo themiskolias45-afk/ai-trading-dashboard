@@ -2051,6 +2051,11 @@ async function askClaude(question, history = []) {
               resultText = `Now playing on screen: "${results[0].title}" (${results[0].channel}). Acknowledge briefly — don't list the results, he can already see them.`;
             } else resultText = "No YouTube results found for that.";
           } catch (e) { resultText = "Video search failed: " + e.message; }
+        } else if (block.name === "force_heal") {
+          try {
+            const result = await autohealer.forceHeal();
+            resultText = `Heal cycle ran. Healthy: ${result.healthy}. Total heals so far: ${result.healCount}. Last heal: ${result.lastHealAt ?? "just now"}.`;
+          } catch (e) { resultText = "Force-heal failed: " + e.message; }
         } else continue;
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: resultText });
       }
