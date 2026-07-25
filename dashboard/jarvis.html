@@ -582,20 +582,29 @@ body.focus-mode .focus-exit{display:block}
         <defs>
           <radialGradient id="coreGradHero" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stop-color="#ffffff"/>
-            <stop offset="35%" stop-color="#c4b5fd"/>
+            <stop offset="30%" stop-color="#e0d4ff"/>
+            <stop offset="60%" stop-color="#a78bfa"/>
             <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
           </radialGradient>
+          <linearGradient id="ringGradHero" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#a78bfa"/>
+            <stop offset="50%" stop-color="#60a5fa"/>
+            <stop offset="100%" stop-color="#c4b5fd"/>
+          </linearGradient>
         </defs>
+        <circle cx="50" cy="50" r="48" class="ring-glow"/>
         <circle cx="50" cy="50" r="48" class="ring-outer"/>
         <circle cx="50" cy="50" r="44" class="ring-fine"/>
         <circle cx="50" cy="50" r="42" class="ring-tick"/>
         <circle cx="50" cy="50" r="22" fill="url(#coreGradHero)"/>
-        <circle cx="50" cy="50" r="34" class="ring-dash"/>
+        <circle cx="50" cy="50" r="34" class="ring-dash" stroke="url(#ringGradHero)"/>
         <circle cx="50" cy="50" r="30" class="ring-tick" style="animation:spinRing 20s linear infinite reverse;transform-origin:50px 50px"/>
         <circle cx="50" cy="2" r="2" class="orbit-dot"/>
+        <circle cx="87" cy="50" r="1.4" class="orbit-dot2"/>
+        <polygon points="50,30 70,50 50,70 30,50" class="core-facet-fill" style="animation-duration:18s"/>
         <polygon points="50,32 68,50 50,68 32,50" class="core-facet" style="animation-duration:11s"/>
         <polygon points="50,40 60,50 50,60 40,50" class="core-facet" style="animation-duration:7s;animation-direction:normal"/>
-        <circle cx="50" cy="50" r="4" class="core-dot"/>
+        <circle cx="50" cy="50" r="4.2" class="core-dot"/>
       </svg>
     </div>
     <div class="messages" id="msgs"></div>
