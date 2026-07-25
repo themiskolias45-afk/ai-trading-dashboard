@@ -10,6 +10,7 @@ const cron       = require("node-cron");
 const Anthropic  = require("@anthropic-ai/sdk");
 const fs         = require("fs");
 const path       = require("path");
+const { YouTube } = require("youtube-sr");
 
 // ── New modules ───────────────────────────────────────────────
 const autohealer = require("./autohealer");
