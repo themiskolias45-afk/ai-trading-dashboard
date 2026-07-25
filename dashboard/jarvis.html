@@ -41,19 +41,30 @@ header{
 }
 .logo{display:flex;align-items:center;gap:14px}
 .logo-mark{
-  width:46px;height:46px;flex-shrink:0;
-  background:linear-gradient(135deg,#7c3aed 0%,#4f46e5 50%,#3730a3 100%);
-  border-radius:14px;display:flex;align-items:center;justify-content:center;
-  font-weight:900;font-size:22px;color:#fff;letter-spacing:-.02em;
-  box-shadow:0 0 0 1px rgba(124,58,237,.4),0 0 24px rgba(124,58,237,.55),0 0 50px rgba(124,58,237,.2);
-  position:relative;overflow:hidden;
+  width:52px;height:52px;flex-shrink:0;position:relative;
   animation:logoPulse 4s ease-in-out infinite;
 }
-.logo-mark::before{
-  content:'';position:absolute;inset:0;
-  background:linear-gradient(135deg,rgba(255,255,255,.25) 0%,transparent 55%);
+.logo-svg{width:100%;height:100%;overflow:visible}
+.ring-outer{fill:none;stroke:rgba(196,181,253,.45);stroke-width:1.2}
+.ring-tick{fill:none;stroke:rgba(124,58,237,.55);stroke-width:1;stroke-dasharray:1.5 5.2}
+.ring-dash{
+  fill:none;stroke:#a78bfa;stroke-width:2.2;stroke-dasharray:8 7;stroke-linecap:round;
+  transform-origin:50px 50px;animation:spinRing 14s linear infinite;
 }
-@keyframes logoPulse{0%,100%{box-shadow:0 0 0 1px rgba(124,58,237,.4),0 0 24px rgba(124,58,237,.55),0 0 50px rgba(124,58,237,.2)}50%{box-shadow:0 0 0 1px rgba(124,58,237,.6),0 0 36px rgba(124,58,237,.8),0 0 70px rgba(124,58,237,.35)}}
+.orbit-dot{
+  fill:#fff;filter:drop-shadow(0 0 5px #fff) drop-shadow(0 0 10px #a78bfa);
+  transform-origin:50px 50px;animation:spinRing 7s linear infinite;
+}
+.logo-core{fill:url(#coreGrad)}
+.logo-j{
+  font-family:var(--font);font-size:32px;font-weight:900;fill:#fff;text-anchor:middle;
+  filter:drop-shadow(0 0 6px rgba(255,255,255,.85));
+}
+@keyframes logoPulse{
+  0%,100%{filter:drop-shadow(0 0 6px rgba(124,58,237,.55)) drop-shadow(0 0 16px rgba(124,58,237,.3))}
+  50%{filter:drop-shadow(0 0 10px rgba(124,58,237,.85)) drop-shadow(0 0 26px rgba(124,58,237,.5))}
+}
+@keyframes spinRing{to{transform:rotate(360deg)}}
 .logo-text{}
 .logo-name{font-size:1.25rem;font-weight:900;letter-spacing:.06em;
   background:linear-gradient(90deg,#fff 0%,#c4b5fd 60%,#818cf8 100%);
