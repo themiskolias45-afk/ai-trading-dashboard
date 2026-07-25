@@ -1266,12 +1266,12 @@ app.get("/api/analysis", (_, res) => {
 });
 
 app.post("/api/chat", async (req, res) => {
-  const { message } = req.body;
+  const { message, history } = req.body;
   if (!message) return res.status(400).json({ error: "message required" });
   try {
-    const reply = await askClaude(message);
+    const reply = await askClaude(message, Array.isArray(history) ? history : []);
     if (!reply) return res.json({ reply: "No reply from AI — check API key." });
-    res.json({ reply, context: buildMarketContext() });
+    res.json({ reply });
   } catch (e) {
     const msg = e?.message || e?.toString() || "Unknown error";
     console.error("[chat] error:", msg);
