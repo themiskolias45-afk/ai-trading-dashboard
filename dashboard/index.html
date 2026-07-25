@@ -63,6 +63,10 @@
 
     /* Charts */
     .charts-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+    .charts-grid.layout-1 { grid-template-columns:1fr; }
+    .charts-grid.layout-2 { grid-template-columns:1fr 1fr; }
+    .charts-grid.layout-3 { grid-template-columns:repeat(3,1fr); }
+    .charts-grid .chart-wrap.chart-hidden { display:none; }
     .charts-grid .chart-wrap { min-height:560px; }
     .chart-wrap { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
     .chart-header { padding:10px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); }
