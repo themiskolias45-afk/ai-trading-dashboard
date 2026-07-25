@@ -2838,6 +2838,7 @@ app.listen(PORT, async () => {
     priceCache,
     learning: _learning,
     tradeJournal: (typeof tradeJournal !== "undefined") ? tradeJournal : [],
+    mt5LastSeenByAccount,
     TELEGRAM_TOKEN,
     knownChatIds,
     refreshSignals,
