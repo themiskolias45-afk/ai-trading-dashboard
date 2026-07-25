@@ -550,6 +550,22 @@ body.focus-mode .focus-exit{display:block}
   </div>
 </div>
 
+<!-- ═══════════ VIDEO MODAL ═══════════ -->
+<div class="modal-overlay" id="video-overlay">
+  <div class="modal-box wide">
+    <div class="modal-hdr">
+      <div class="modal-title" id="video-modal-title">📺 Video</div>
+      <button class="modal-close" onclick="closeVideoModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="video-player-wrap">
+        <iframe id="video-iframe" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+      </div>
+      <div id="video-results"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════ MAIN ═══════════ -->
 <div class="layout">
 
