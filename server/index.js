@@ -2478,6 +2478,7 @@ app.get("/dashboard", (_, res) => res.sendFile(path.join(__dirname, "..", "dashb
 app.get("/daily-plan", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "daily-plan.html")));
 app.get("/command",    (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "command.html")));
 app.get("/jarvis",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "jarvis.html")));
+app.get("/system",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "system.html")));
 app.use("/screenshots", express.static(path.join(__dirname, "..", "dashboard", "screenshots")));
 app.use(express.static(path.join(__dirname, "..", "commercial")));
 app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
