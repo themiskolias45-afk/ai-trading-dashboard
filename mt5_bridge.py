@@ -659,7 +659,10 @@ def main():
     print(f"Mode: {'AUTO (STRONG signals only)' if AUTO_MODE else 'SEMI-AUTO (confirm each trade)'}")
     print(f"Risk per trade: {RISK_PERCENT}%  |  Max spread: {MAX_SPREAD_PTS} pts")
     print(f"Server: {SERVER_URL}")
-    print(f"Poll interval: {POLL_INTERVAL}s\n")
+    print(f"Poll interval: {POLL_INTERVAL}s")
+    if ACCOUNT_TAG:
+        print(f"Account tag: {ACCOUNT_TAG}")
+    print(f"Terminal: {TERMINAL_PATH or '(auto-detect — unsafe with more than one MT5 terminal running)'}\n")
 
     if not connect_mt5():
         sys.exit(1)
