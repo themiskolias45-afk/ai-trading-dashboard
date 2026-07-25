@@ -883,15 +883,17 @@ function speakWithVoices(clean, allVoices) {
   window.speechSynthesis.speak(utt);
 }
 
-function onSpeakStart() {
+function onSpeakStart(audioEl) {
   speaking = true; setVI("speaking");
   document.getElementById("stop-spk").style.display = "inline-flex";
   setTranscript("JARVIS speaking…");
+  startSpeakVisualizer(audioEl || null);
 }
 function onSpeakEnd() {
   speaking = false; setVI(voiceOn ? "ready" : null);
   document.getElementById("stop-spk").style.display = "none";
   setTranscript("Ready — tap mic or type below");
+  stopSpeakVisualizer();
 }
 
 function stopSpeaking() {
@@ -901,6 +903,55 @@ function stopSpeaking() {
   document.getElementById("stop-spk").style.display = "none";
   setVI(voiceOn ? "ready" : null);
   setTranscript("Ready — tap mic or type below");
+  stopSpeakVisualizer();
+}
+
+// ══════════════════════════════════════════
+//  LOGO SPEECH VISUALIZER — logo expands in sync with JARVIS talking.
+//  Real audio amplitude for cloud TTS playback; a simulated talking rhythm
+//  for the browser speechSynthesis fallback (raw audio isn't accessible there).
+// ══════════════════════════════════════════
+let speakRAF = null;
+let audioCtx = null, analyserNode = null, analyserData = null;
+
+function startSpeakVisualizer(audioEl) {
+  stopSpeakVisualizer();
+  analyserNode = null;
+  if (audioEl) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      const source = audioCtx.createMediaElementSource(audioEl);
+      analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 256;
+      source.connect(analyserNode);
+      analyserNode.connect(audioCtx.destination);
+      analyserData = new Uint8Array(analyserNode.frequencyBinCount);
+    } catch { analyserNode = null; }
+  }
+  document.body.classList.add("jarvis-speaking");
+  const tick = () => {
+    let intensity;
+    if (analyserNode && analyserData) {
+      analyserNode.getByteFrequencyData(analyserData);
+      const avg = analyserData.reduce((a, b) => a + b, 0) / analyserData.length;
+      intensity = Math.min(1, avg / 85);
+    } else {
+      // No raw audio to analyze — simulate a natural talking cadence instead of a flat idle loop.
+      intensity = 0.4 + 0.35 * Math.abs(Math.sin(Date.now() / 170)) + 0.15 * Math.random();
+    }
+    const scale = 1 + intensity * 0.24;
+    document.querySelectorAll(".hero-logo svg, .logo-svg").forEach(el => { el.style.transform = `scale(${scale})`; });
+    speakRAF = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function stopSpeakVisualizer() {
+  if (speakRAF) cancelAnimationFrame(speakRAF);
+  speakRAF = null;
+  document.body.classList.remove("jarvis-speaking");
+  document.querySelectorAll(".hero-logo svg, .logo-svg").forEach(el => { el.style.transform = ""; });
 }
 
 function toggleVoice() {
