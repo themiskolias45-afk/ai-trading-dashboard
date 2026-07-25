@@ -505,6 +505,99 @@ async function runBacktest() {
   }
 }
 
+// ── AI PARALLEL — /engineer trigger ───────────────────────────
+let engCurrentRunId = null;
+let engPollTimer = null;
+
+async function architectTask() {
+  const task = el('eng-task-input').value.trim();
+  if (!task) return;
+  const btn = el('eng-architect-btn');
+  btn.disabled = true; btn.textContent = 'Architecting…';
+  text('eng-run-meta', 'Designing workstreams…');
+  html('eng-plan-wrap', '');
+  html('eng-status-wrap', '');
+  el('eng-launch-btn').disabled = true;
+
+  try {
+    const res = await fetch(API + '/engineer/architect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task })
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Architect failed');
+
+    engCurrentRunId = d.runId;
+    html('eng-plan-wrap', `<div style="font-size:.72rem;color:var(--muted2);margin-bottom:8px">
+      ${d.plan.length} workstream${d.plan.length === 1 ? '' : 's'} — review, then launch:</div>` +
+      d.plan.map(w => `<div class="worker-card">
+        <div class="worker-head"><span class="worker-name">${w.name}</span></div>
+        <div class="worker-files">Files: ${w.files}</div>
+        <div style="font-size:.72rem;color:var(--text)">${w.task}</div>
+      </div>`).join(''));
+
+    text('eng-run-meta', 'Plan ready — awaiting launch');
+    el('eng-launch-btn').disabled = false;
+  } catch (e) {
+    html('eng-plan-wrap', `<div class="empty-state"><span class="icon">⚠️</span>${e.message}</div>`);
+    text('eng-run-meta', 'Failed');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Architect';
+  }
+}
+
+async function launchTask() {
+  if (!engCurrentRunId) return;
+  const btn = el('eng-launch-btn');
+  btn.disabled = true; btn.textContent = 'Launching…';
+
+  try {
+    const res = await fetch(API + '/engineer/launch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runId: engCurrentRunId })
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Launch failed');
+
+    text('eng-run-meta', 'Running…');
+    el('eng-architect-btn').disabled = true;
+    if (engPollTimer) clearInterval(engPollTimer);
+    pollEngineerStatus();
+    engPollTimer = setInterval(pollEngineerStatus, 3000);
+  } catch (e) {
+    text('eng-run-meta', e.message);
+    btn.disabled = false; btn.textContent = 'Launch Parallel Build';
+  }
+}
+
+async function pollEngineerStatus() {
+  if (!engCurrentRunId) return;
+  try {
+    const d = await fetch(API + '/engineer/status/' + engCurrentRunId, { cache: 'no-store' }).then(r => r.json());
+
+    html('eng-status-wrap', d.workers.map(w => {
+      const cls = 'w-' + w.status;
+      return `<div class="worker-card">
+        <div class="worker-head">
+          <span class="worker-name">${w.name}</span>
+          <span class="w-status ${cls}">${w.status}</span>
+        </div>
+        <div class="worker-files">Files: ${w.files}</div>
+        ${w.outputTail ? `<div class="worker-log">${w.outputTail.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>` : ''}
+      </div>`;
+    }).join(''));
+
+    if (d.status === 'completed' || d.status === 'completed_with_errors') {
+      text('eng-run-meta', d.status === 'completed' ? 'Completed' : 'Completed with errors');
+      clearInterval(engPollTimer);
+      engPollTimer = null;
+      el('eng-architect-btn').disabled = false;
+      el('eng-launch-btn').textContent = 'Launch Parallel Build';
+      el('eng-launch-btn').disabled = true;
+    }
+  } catch { /* transient — next poll retries */ }
+}
+
 // ── STATUS ─────────────────────────────────────────────────────
 async function loadStatus() {
   try {
