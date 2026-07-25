@@ -241,6 +241,41 @@ async function checkPriceFreshness() {
   }
 }
 
+function checkMt5Bridge() {
+  const name = 'mt5Bridge';
+  try {
+    const lastSeen = ctx && ctx.mt5LastSeenByAccount ? ctx.mt5LastSeenByAccount : {};
+    const accounts = Object.entries(lastSeen);
+
+    if (accounts.length === 0) {
+      updateCheck(name, true, 'no bridge has connected yet this session');
+      return;
+    }
+
+    const now = Date.now();
+    const ages = accounts.map(([account, ts]) => ({ account, ageMs: now - new Date(ts).getTime() }));
+    const live = ages.filter(a => a.ageMs < STALE_MT5_MS);
+
+    if (live.length > 0) {
+      updateCheck(name, true, `${live.length}/${ages.length} account(s) reporting`);
+      if (mt5AlertSent) {
+        mt5AlertSent = false;
+        console.log('[HEALER] MT5 bridge heartbeat recovered');
+      }
+    } else {
+      const staleList = ages.map(a => `${a.account} (${Math.round(a.ageMs / 1000)}s ago)`).join(', ');
+      updateCheck(name, false, `no bridge heartbeat — ${staleList}`);
+      if (!mt5AlertSent) {
+        sendAlert(`MT5 bridge has gone silent (${staleList}) — no trades will execute until it's restarted.`);
+        mt5AlertSent = true;
+      }
+    }
+  } catch (err) {
+    updateCheck(name, false, err.message);
+    logError(`checkMt5Bridge: ${err.message}`);
+  }
+}
+
 function checkLearningFile() {
   const name = 'learningFile';
   try {
