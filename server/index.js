@@ -1999,22 +1999,27 @@ async function askClaude(question, history = []) {
       .map(m => ({ role: m.role, content: m.content }));
     msgs.push({ role: "user", content: `[Live system state]\n${context}\n\n[Question]\n${question}` });
 
-    const callOpts = { model: "claude-opus-4-8", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL] };
+    const callOpts = { model: "claude-opus-4-8", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL, WEB_SEARCH_TOOL] };
     let response = await anthropic.messages.create({ ...callOpts, messages: msgs });
 
-    // Tool-use loop: let JARVIS actually save memories mid-conversation, not just read them.
+    // Tool-use loop: let JARVIS actually save memories and search the web mid-conversation.
     let guard = 0;
     while (response.stop_reason === "tool_use" && guard < 3) {
       guard++;
       const toolResults = [];
       for (const block of response.content) {
-        if (block.type !== "tool_use" || block.name !== "save_memory") continue;
-        const { key, value, category } = block.input || {};
-        let resultText = "Save failed — missing key or value.";
-        if (key && value) {
-          try { saveMemoryEntry(key, value, category, "jarvis-chat"); resultText = `Saved: ${key}`; }
-          catch (e) { resultText = "Save failed: " + e.message; }
-        }
+        if (block.type !== "tool_use") continue;
+        let resultText = "Unknown tool.";
+        if (block.name === "save_memory") {
+          const { key, value, category } = block.input || {};
+          resultText = "Save failed — missing key or value.";
+          if (key && value) {
+            try { saveMemoryEntry(key, value, category, "jarvis-chat"); resultText = `Saved: ${key}`; }
+            catch (e) { resultText = "Save failed: " + e.message; }
+          }
+        } else if (block.name === "web_search") {
+          resultText = await braveWebSearch(block.input?.query || "");
+        } else continue;
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: resultText });
       }
       msgs.push({ role: "assistant", content: response.content });
