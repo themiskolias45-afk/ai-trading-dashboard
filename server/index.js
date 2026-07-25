@@ -995,6 +995,7 @@ function generateDailyPlan() {
       gold: signalCache.gold,
       spx:  signalCache.spx
     },
+    watchlist: buildWatchlist(),
     rules: buildRules(regime)
   };
   console.log(`[plan] ${regime} — ${now.toISOString()}`);
