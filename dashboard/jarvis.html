@@ -1163,6 +1163,50 @@ function esc(s)   { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(
 function fmt(s)   { return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); }
 
 // ══════════════════════════════════════════
+//  VIDEO — search YouTube and pop the result up in a modal
+// ══════════════════════════════════════════
+async function searchAndShowVideo(query) {
+  if (!query || !query.trim()) return;
+  try {
+    const r = await fetch("/api/youtube-search?q=" + encodeURIComponent(query));
+    const d = await r.json();
+    if (!r.ok) {
+      addMsg("jarvis", (d.error || "").includes("No YouTube API key")
+        ? "I don't have a YouTube API key yet — add one in Settings (free from Google Cloud Console, enable \"YouTube Data API v3\") and I'll be able to pull up videos."
+        : `Couldn't search YouTube: ${d.error || "unknown error"}`);
+      return;
+    }
+    if (!d.results?.length) { addMsg("jarvis", `No YouTube results for "${query}".`); return; }
+    openVideoModal(d.results, query);
+  } catch {
+    addMsg("jarvis", "Couldn't reach the server to search YouTube.");
+  }
+}
+
+function openVideoModal(results, query) {
+  document.getElementById("video-modal-title").textContent = "📺 " + query;
+  playVideo(results[0].videoId);
+  document.getElementById("video-results").innerHTML = results.map(v => `
+    <div class="video-result" onclick="playVideo('${v.videoId}')">
+      <img src="${v.thumbnail || ''}" alt="">
+      <div>
+        <div class="video-result-title">${esc(v.title)}</div>
+        <div class="video-result-channel">${esc(v.channel)}</div>
+      </div>
+    </div>`).join("");
+  document.getElementById("video-overlay").classList.add("show");
+}
+
+function playVideo(videoId) {
+  document.getElementById("video-iframe").src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+}
+
+function closeVideoModal() {
+  document.getElementById("video-iframe").src = "";
+  document.getElementById("video-overlay").classList.remove("show");
+}
+
+// ══════════════════════════════════════════
 //  LIVE DATA
 // ══════════════════════════════════════════
 async function fetchData() {
