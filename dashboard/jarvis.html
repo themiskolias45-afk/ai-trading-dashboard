@@ -880,6 +880,16 @@ function refreshAlertBtn() {
   else          { btn.textContent = "🔕 Alerts Off"; btn.classList.remove("on"); }
 }
 
+// ══════════════════════════════════════════
+//  FOCUS MODE — hide everything but the logo + background
+// ══════════════════════════════════════════
+function toggleFocus() {
+  document.body.classList.toggle("focus-mode");
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.body.classList.contains("focus-mode")) toggleFocus();
+});
+
 function setVI(state) {
   const el = document.getElementById("vi");
   const tx = document.getElementById("vbox-text");
