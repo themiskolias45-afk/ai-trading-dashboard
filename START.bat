@@ -78,6 +78,16 @@ start "SmartEntry Bridge" /min cmd /k "cd /d "%~dp0" && python mt5_bridge.py --a
 timeout /t 3 /nobreak >nul
 echo  [6] Bridge: running in background.
 
+REM ── Open JARVIS (Claude AI session) ────────────────────────────
+echo  [7] Opening JARVIS...
+where claude >nul 2>&1
+if not errorlevel 1 (
+  start "JARVIS" cmd /k "cd /d "%~dp0" && claude"
+  echo  [7] JARVIS: ready.
+) else (
+  echo  [7] Claude CLI not found in PATH — open manually with: claude
+)
+
 :done
 echo.
 echo  ==========================================
