@@ -10,6 +10,7 @@ const https = require('https');
 
 const STALE_SIGNAL_MS  = 6 * 60 * 60 * 1000;  // 6 hours
 const STALE_PRICE_MS   = 10 * 60 * 1000;       // 10 minutes
+const STALE_MT5_MS     = 3 * 60 * 1000;        // 3 minutes — 3x the default 60s bridge poll interval
 const MAX_RETRY        = 3;
 const HEAL_INTERVAL_MS = 30 * 1000;
 
