@@ -1921,10 +1921,26 @@ function buildSystemContext() {
 
 const JARVIS_SYSTEM_PROMPT = `You are JARVIS, Themis's trading system engineer and AI partner for SmartEntry Pro.
 Personality: direct, sharp, fast, zero fluff. Talk like a senior engineer who respects his time. No "Great question!", no preambles.
-You have full visibility into SmartEntry Pro's live state, which is provided below on every turn — signals, risk, open positions, self-learning stats, recent trades, system health. Use it. Never say you don't have access to system data — you do, it's in the context.
+You have full visibility into SmartEntry Pro's live state, which is provided below on every turn — signals, risk, open positions, self-learning stats, recent trades, system health, and persistent memory saved from past sessions. Use it. Never say you don't have access to system data — you do, it's in the context.
+You have a save_memory tool — a real cross-session memory, not just this conversation. Use it whenever Themis tells you a preference, a decision, a lesson learned, or a fact worth remembering later (e.g. "I prefer 1.5x ATR stops", "we're pausing SPX trades this week"). Don't save routine chit-chat or things already in the live system state above.
 Trading context first: weigh signal quality, risk management, and system reliability before answering.
 Give concrete levels (entry/stop/target) when discussing a trade. Analysis, not financial advice.
+Never loosen or suggest bypassing the 65% confidence gate or the daily-loss circuit breaker just because nothing is firing — a quiet market is a correct read, not a bug.
 Keep answers tight — a few sentences unless the question genuinely needs more.`;
+
+const MEMORY_TOOL = {
+  name: "save_memory",
+  description: "Save an important fact, decision, lesson, or preference to JARVIS's persistent cross-session memory (survives page reloads and future sessions). Use for things worth remembering long-term, not routine chit-chat.",
+  input_schema: {
+    type: "object",
+    properties: {
+      key:      { type: "string", description: "Short unique label, e.g. RISK_PREFERENCE or BTC_KEY_SUPPORT" },
+      value:    { type: "string", description: "The fact, written so it makes sense read cold in a future session" },
+      category: { type: "string", enum: ["TRADE", "SYSTEM", "MARKET", "CODE", "RISK", "LEARNING", "GENERAL"] }
+    },
+    required: ["key", "value"]
+  }
+};
 
 async function askClaude(question, history = []) {
   const context = buildSystemContext();
@@ -1936,13 +1952,30 @@ async function askClaude(question, history = []) {
       .map(m => ({ role: m.role, content: m.content }));
     msgs.push({ role: "user", content: `[Live system state]\n${context}\n\n[Question]\n${question}` });
 
-    const msg = await anthropic.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 1024,
-      system: JARVIS_SYSTEM_PROMPT,
-      messages: msgs
-    });
-    const text = msg.content?.[0]?.text;
+    const callOpts = { model: "claude-opus-4-8", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL] };
+    let response = await anthropic.messages.create({ ...callOpts, messages: msgs });
+
+    // Tool-use loop: let JARVIS actually save memories mid-conversation, not just read them.
+    let guard = 0;
+    while (response.stop_reason === "tool_use" && guard < 3) {
+      guard++;
+      const toolResults = [];
+      for (const block of response.content) {
+        if (block.type !== "tool_use" || block.name !== "save_memory") continue;
+        const { key, value, category } = block.input || {};
+        let resultText = "Save failed — missing key or value.";
+        if (key && value) {
+          try { saveMemoryEntry(key, value, category, "jarvis-chat"); resultText = `Saved: ${key}`; }
+          catch (e) { resultText = "Save failed: " + e.message; }
+        }
+        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: resultText });
+      }
+      msgs.push({ role: "assistant", content: response.content });
+      msgs.push({ role: "user", content: toolResults });
+      response = await anthropic.messages.create({ ...callOpts, messages: msgs });
+    }
+
+    const text = response.content?.find(b => b.type === "text")?.text;
     console.log("[chat] Claude reply length:", text?.length ?? 0);
     return text;
   }
