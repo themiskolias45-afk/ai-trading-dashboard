@@ -74,9 +74,9 @@ timeout /t 30 /nobreak >nul
 
 REM ── Start both MT5 bridges, each pinned to its own terminal/account ────
 echo  [6] Starting MT5 bridges A and B (full-auto, one per account)...
-start "" /min cmd /k ""%~dp0tasks\start_bridge_A.bat""
+start "" /min cmd /k "%~dp0tasks\start_bridge_A.bat"
 timeout /t 3 /nobreak >nul
-start "" /min cmd /k ""%~dp0tasks\start_bridge_B.bat""
+start "" /min cmd /k "%~dp0tasks\start_bridge_B.bat"
 timeout /t 3 /nobreak >nul
 echo  [6] Bridges A and B: running in background.
 
