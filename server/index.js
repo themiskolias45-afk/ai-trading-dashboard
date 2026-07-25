@@ -16,6 +16,7 @@ const { YouTube } = require("youtube-sr");
 const autohealer = require("./autohealer");
 const db         = require("./db");
 const sizing     = require("./sizing");
+const hermes     = require("./hermes");
 
 const app = express();
 app.use(express.json());
