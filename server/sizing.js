@@ -167,7 +167,7 @@ function calcPortfolioRisk(positions, accountBalance) {
 }
 
 function validateTrade(signal, accountBalance, openPositions) {
-  if (!signal || typeof accountBalance !== 'number' || accountBalance <= 0) {
+  if (!signal || !Number.isFinite(accountBalance) || accountBalance <= 0) {
     return { approved: false, reason: 'Invalid inputs', suggestedSize: 0 };
   }
 
