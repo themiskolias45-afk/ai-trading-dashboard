@@ -742,13 +742,28 @@ async function speak(text) {
 
 function speakBrowser(clean) {
   if (!window.speechSynthesis) return;
+  // Voice list loads async in most browsers — speaking before it's ready silently
+  // falls back to the OS default voice, which may not even be English.
+  const existing = window.speechSynthesis.getVoices();
+  if (existing.length === 0) {
+    window.speechSynthesis.onvoiceschanged = () => {
+      window.speechSynthesis.onvoiceschanged = null;
+      speakBrowser(clean);
+    };
+    return;
+  }
+  speakWithVoices(clean, existing);
+}
+
+function speakWithVoices(clean, allVoices) {
   const utt = new SpeechSynthesisUtterance(clean);
+  utt.lang  = "en-US";   // hard requirement: JARVIS always speaks English
   utt.rate  = 0.98;
   utt.pitch = 0.92;
   utt.volume= 1.0;
-  // Prefer neural/"Natural" voices (Edge exposes high-quality online neural voices) over robotic defaults.
-  window.speechSynthesis.onvoiceschanged = null;
-  const voices = window.speechSynthesis.getVoices();
+
+  // Restrict to English voices only, then prefer the highest-quality ones within that set.
+  const englishVoices = allVoices.filter(v => (v.lang || "").toLowerCase().startsWith("en"));
   const priority = [
     /Online \(Natural\)/i,
     /Neural/i,
@@ -756,11 +771,10 @@ function speakBrowser(clean) {
     /Daniel/i,
     /Microsoft David/i,
     /Google US English/i,
-    /en-GB/i,
-    /en-US/i
   ];
   let pick = null;
-  for (const rx of priority) { pick = voices.find(v => rx.test(v.name) || rx.test(v.lang)); if (pick) break; }
+  for (const rx of priority) { pick = englishVoices.find(v => rx.test(v.name)); if (pick) break; }
+  if (!pick && englishVoices.length) pick = englishVoices[0];
   if (pick) utt.voice = pick;
 
   utt.onstart = () => onSpeakStart();
