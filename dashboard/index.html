@@ -336,8 +336,16 @@
   </div>
 
   <!-- Charts -->
-  <div class="charts-grid">
-    <div class="chart-wrap">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+    <span style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Chart Layout</span>
+    <div class="tf-btns">
+      <button class="tf-btn" data-layout="1" onclick="setChartLayout(1)">1</button>
+      <button class="tf-btn" data-layout="2" onclick="setChartLayout(2)">2</button>
+      <button class="tf-btn active" data-layout="3" onclick="setChartLayout(3)">3</button>
+    </div>
+  </div>
+  <div class="charts-grid" id="charts-grid">
+    <div class="chart-wrap" data-chart-asset="btc">
       <div class="chart-header">
         <div><div class="chart-title">BTC / USD</div><div class="chart-sub">Bitstamp</div></div>
         <div class="tf-btns">
@@ -348,7 +356,7 @@
       </div>
       <div id="tv-btc"></div>
     </div>
-    <div class="chart-wrap">
+    <div class="chart-wrap" data-chart-asset="gold">
       <div class="chart-header">
         <div><div class="chart-title">GOLD / XAUUSD</div><div class="chart-sub">Comex</div></div>
         <div class="tf-btns">
@@ -359,7 +367,7 @@
       </div>
       <div id="tv-gold"></div>
     </div>
-    <div class="chart-wrap">
+    <div class="chart-wrap" data-chart-asset="spx">
       <div class="chart-header">
         <div><div class="chart-title">S&amp;P 500 Index</div><div class="chart-sub">FOREXCOM:SPXUSD</div></div>
         <div class="tf-btns">
