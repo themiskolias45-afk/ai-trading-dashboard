@@ -1213,17 +1213,43 @@ app.delete("/api/manual-trade/:idx",  (req, res) => {
   res.json({ ok: true, remaining: manualTradeQueue.length });
 });
 
-// MT5 bridge endpoints
-app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions }));
+// MT5 bridge endpoints — each bridge instance tags its posts with its own account
+// (ACCOUNT_TAG env var in mt5_bridge.py) so running two bridges doesn't stomp on
+// each other's reported positions/risk state.
+function recomputeMt5Positions() {
+  mt5Positions = Object.entries(mt5PositionsByAccount).flatMap(([account, positions]) =>
+    positions.map(p => ({ ...p, account }))
+  );
+}
+
+app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions, byAccount: mt5PositionsByAccount }));
 app.post("/api/mt5/positions", (req, res) => {
-  mt5Positions = req.body?.positions ?? [];
+  const account = req.body?.account || "default";
+  mt5PositionsByAccount[account] = req.body?.positions ?? [];
+  recomputeMt5Positions();
   res.json({ ok: true, count: mt5Positions.length });
 });
 
 // Risk status endpoints
+let riskStatusByAccount = {}; // account tag -> {dailyPnl, consecutiveLosses, halted, haltReason}
+function recomputeRiskStatus() {
+  const accounts = Object.values(riskStatusByAccount);
+  if (!accounts.length) return;
+  const halted = accounts.filter(a => a.halted);
+  riskStatus = {
+    dailyPnl: parseFloat(accounts.reduce((s, a) => s + (a.dailyPnl || 0), 0).toFixed(2)),
+    consecutiveLosses: Math.max(...accounts.map(a => a.consecutiveLosses || 0)),
+    halted: halted.length > 0,
+    haltReason: halted.map(a => a.haltReason).filter(Boolean).join(" | "),
+    accounts: riskStatusByAccount
+  };
+}
+
 app.get("/api/risk-status",  (_, res) => res.json(riskStatus));
 app.post("/api/risk-status", (req, res) => {
-  riskStatus = { ...riskStatus, ...req.body };
+  const account = req.body?.account || "default";
+  riskStatusByAccount[account] = { ...riskStatusByAccount[account], ...req.body };
+  recomputeRiskStatus();
   if (riskStatus.halted) {
     console.log(`[risk] CIRCUIT BREAKER ACTIVE: ${riskStatus.haltReason}`);
   }
