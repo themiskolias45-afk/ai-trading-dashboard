@@ -1287,6 +1287,25 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+// ── /api/tts — high-quality cloud voice for JARVIS (requires an OpenAI key in Settings) ──
+app.post("/api/tts", async (req, res) => {
+  const { text } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
+  if (!OPENAI_API_KEY) return res.status(404).json({ error: "No OpenAI key configured — using browser voice." });
+  try {
+    const r = await axios.post(
+      "https://api.openai.com/v1/audio/speech",
+      { model: "gpt-4o-mini-tts", voice: "onyx", input: String(text).slice(0, 2000), response_format: "mp3" },
+      { headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" }, responseType: "arraybuffer", timeout: 30000 }
+    );
+    res.set("Content-Type", "audio/mpeg");
+    res.send(Buffer.from(r.data));
+  } catch (e) {
+    console.error("[tts] error:", e.message);
+    res.status(502).json({ error: "TTS request failed: " + e.message });
+  }
+});
+
 // ── V12 Feature Endpoints ─────────────────────────────────────
 
 // MT5 bridge notifies server when a trade is opened
