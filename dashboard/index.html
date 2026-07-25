@@ -1551,25 +1551,29 @@ async function loadHealerPanel() {
   }
 
   try {
-    const [healRes, sigRes, posRes] = await Promise.allSettled([
+    const [healRes, sigRes, checkRes] = await Promise.allSettled([
       fetch(API+"/healer",{cache:"no-store"}).then(r=>r.json()),
       fetch(API+"/signals",{cache:"no-store"}).then(r=>r.json()),
-      fetch(API+"/mt5/positions",{cache:"no-store"}).then(r=>r.json()),
+      fetch(API+"/checksystem",{cache:"no-store"}).then(r=>r.json()),
     ]);
     const h2   = healRes.status==="fulfilled" ? healRes.value : null;
     const sigs = sigRes.status==="fulfilled" ? sigRes.value : null;
-    const mt5  = posRes.status==="fulfilled" && Array.isArray(posRes.value) ? posRes.value : [];
+    const chk  = checkRes.status==="fulfilled" ? checkRes.value : null;
     const serverOk = h2?.healthy === true;
+    // MT5 connectivity comes from the bridge's own heartbeat (last POST to /api/mt5/positions),
+    // not open-position count — a flat bridge with zero trades is still connected.
+    const mt5Connected = chk?.mt5?.connected === true;
+    const mt5Accounts   = chk?.mt5?.accounts?.length ?? 0;
     const items = [
       {label:"Server",     val: serverOk ? "ONLINE" : "OFFLINE"},
       {label:"Signals",    val: sigs ? "ACTIVE" : "WAIT"},
-      {label:"MT5 Bridge", val: mt5.length > 0 ? `${mt5.length} positions` : "OFFLINE"},
+      {label:"MT5 Bridge", val: mt5Connected ? (mt5Accounts > 1 ? `ONLINE (${mt5Accounts})` : "ONLINE") : "OFFLINE"},
       {label:"Learning AI",val: serverOk ? "ACTIVE" : "OFFLINE"},
       {label:"AI Brain",   val: serverOk ? "ENABLED" : "OFFLINE"},
     ];
     document.getElementById("health-panel-perf").innerHTML =
       items.map(i=>{
-        const ok=["online","active","enabled"].includes((i.val||"").toLowerCase()) || /position/.test(i.val);
+        const ok=["online","active","enabled"].includes((i.val||"").toLowerCase()) || i.val.startsWith("ONLINE");
         const col=ok?"var(--green)":i.val==="WAIT"||i.val==="INITIALIZING"?"var(--yellow)":"var(--muted)";
         return`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
           <span style="color:var(--muted)">${i.label}</span>
