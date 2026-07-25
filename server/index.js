@@ -2603,6 +2603,146 @@ app.post("/api/memory", (req, res) => {
   }
 });
 
+// ── /api/engineer — AI Parallel: architect a task, then run real ──────
+// parallel `claude -p` sub-agents (same mechanism as the /engineer skill),
+// triggerable from the System dashboard instead of a manual PowerShell block.
+const { spawn: spawnEngineerAgent } = require("child_process");
+const REPO_ROOT             = path.join(__dirname, "..");
+const ENGINEER_PLAN_PATH    = path.join(REPO_ROOT, "tasks", "engineer-plan.md");
+const ENGINEER_MAX_WORKERS  = 6;
+const ENGINEER_AGENT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min safety cap per agent
+const engineerRuns = {}; // runId -> { task, status, workers[], createdAt, startedAt, finishedAt }
+
+function newEngineerRunId() {
+  return "run_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+}
+
+// Step 1 — architect: split the task into independent, non-overlapping workstreams.
+app.post("/api/engineer/architect", async (req, res) => {
+  const task = (req.body?.task || "").trim();
+  if (!task) return res.status(400).json({ error: "task required" });
+  if (!anthropic) return res.status(503).json({ error: "Claude API not configured (ANTHROPIC_API_KEY missing)" });
+
+  try {
+    const prompt =
+      `You are a software architect splitting a coding task into independent parallel workstreams for the ` +
+      `SmartEntry Pro trading dashboard repo (Node/Express server in server/, static dashboard pages in ` +
+      `dashboard/, Python trading scripts in the repo root).\n\n` +
+      `TASK: ${task}\n\n` +
+      `Break this into 2-${ENGINEER_MAX_WORKERS} independent workstreams. Each workstream must own a distinct, ` +
+      `non-overlapping set of files so they can be built simultaneously with zero merge conflicts. If the task ` +
+      `is too small to parallelize, return exactly 1 workstream.\n\n` +
+      `Respond with ONLY strict JSON, no markdown fences, no commentary:\n` +
+      `{"workstreams":[{"name":"short-id","files":"which files this agent owns","task":"exact self-contained ` +
+      `instructions for this agent, written as if briefing a colleague with no other context"}]}`;
+
+    const msg = await anthropic.messages.create({
+      model: "claude-opus-4-8",
+      max_tokens: 1500,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const text = (msg.content ?? []).find(b => b.type === "text")?.text ?? "{}";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+    const workstreams = (parsed.workstreams || []).slice(0, ENGINEER_MAX_WORKERS);
+    if (!workstreams.length) return res.status(500).json({ error: "Architect returned no workstreams" });
+
+    const runId = newEngineerRunId();
+    engineerRuns[runId] = {
+      task, status: "planned",
+      workers: workstreams.map(w => ({
+        name: w.name, files: w.files, task: w.task,
+        status: "queued", output: "", exitCode: null, pid: null
+      })),
+      createdAt: new Date().toISOString(), startedAt: null, finishedAt: null
+    };
+
+    fs.mkdirSync(path.dirname(ENGINEER_PLAN_PATH), { recursive: true });
+    fs.writeFileSync(ENGINEER_PLAN_PATH,
+      `# Engineer Plan — ${new Date().toISOString()}\n\nTask: ${task}\n\n` +
+      workstreams.map((w, i) => `## ${i + 1}. ${w.name}\nFiles: ${w.files}\n\n${w.task}\n`).join("\n")
+    );
+
+    res.json({ runId, plan: workstreams });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Step 2 — launch: spawn one real `claude -p` process per workstream.
+// The prompt is sent over stdin, never as a CLI argument or shell string —
+// nothing user-controlled is ever interpolated into a shell command.
+app.post("/api/engineer/launch", (req, res) => {
+  const runId = req.body?.runId;
+  const run = engineerRuns[runId];
+  if (!run) return res.status(404).json({ error: "Unknown runId — call /api/engineer/architect first" });
+  if (run.status === "running") return res.status(409).json({ error: "This run is already in progress" });
+  if (Object.values(engineerRuns).some(r => r.status === "running")) {
+    return res.status(409).json({ error: "Another engineer run is already in progress — wait for it to finish" });
+  }
+
+  run.status = "running";
+  run.startedAt = new Date().toISOString();
+
+  run.workers.forEach(worker => {
+    worker.status = "running";
+    const briefing =
+      `SmartEntry Pro engineer. Your task: ${worker.task}\n\n` +
+      `Only touch these files: ${worker.files}\n` +
+      `Commit after each file. Write working code only. Do not touch files outside your scope.`;
+
+    const child = spawnEngineerAgent(
+      "claude",
+      ["-p", "--dangerously-skip-permissions"],
+      { cwd: REPO_ROOT, windowsHide: true, shell: true }
+    );
+    worker.pid = child.pid;
+
+    const killTimer = setTimeout(() => { try { child.kill(); } catch {} }, ENGINEER_AGENT_TIMEOUT_MS);
+
+    child.stdout.on("data", d => { worker.output = (worker.output + d.toString()).slice(-6000); });
+    child.stderr.on("data", d => { worker.output = (worker.output + d.toString()).slice(-6000); });
+    child.on("error", e => { worker.output += `\n[spawn error] ${e.message}`; });
+    child.on("close", code => {
+      clearTimeout(killTimer);
+      worker.status = code === 0 ? "done" : "error";
+      worker.exitCode = code;
+      if (run.workers.every(w => w.status === "done" || w.status === "error")) {
+        run.status = run.workers.some(w => w.status === "error") ? "completed_with_errors" : "completed";
+        run.finishedAt = new Date().toISOString();
+      }
+    });
+
+    child.stdin.write(briefing, "utf8");
+    child.stdin.end();
+  });
+
+  res.json({ ok: true, runId });
+});
+
+app.get("/api/engineer/status/:runId", (req, res) => {
+  const run = engineerRuns[req.params.runId];
+  if (!run) return res.status(404).json({ error: "Unknown runId" });
+  res.json({
+    task: run.task, status: run.status, startedAt: run.startedAt, finishedAt: run.finishedAt,
+    workers: run.workers.map(w => ({
+      name: w.name, files: w.files, status: w.status, exitCode: w.exitCode,
+      outputTail: w.output.slice(-1500)
+    }))
+  });
+});
+
+app.get("/api/engineer/runs", (_, res) => {
+  const runs = Object.entries(engineerRuns)
+    .map(([runId, r]) => ({
+      runId, task: r.task, status: r.status, createdAt: r.createdAt,
+      workerCount: r.workers.length
+    }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 20);
+  res.json({ runs });
+});
+
 // ── Boot ──────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`✅ SmartEntry Pro v12 on port ${PORT}`);
