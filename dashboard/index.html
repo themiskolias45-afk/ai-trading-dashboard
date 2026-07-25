@@ -1024,31 +1024,60 @@ function switchChart(assetKey, interval) {
   });
 }
 
-// ── Chart layout — how many chart panels are shown at once ───
-const CHART_LAYOUT_ORDER = ["btc", "gold", "spx"];
+// ── Chart layout — how many chart panels, and which assets ───
+let chartAssetOrder = ["btc", "gold", "spx"]; // front N are the visible ones
+let currentChartLayout = 3;
 
-function setChartLayout(n) {
+function applyChartLayout() {
   const grid = document.getElementById("charts-grid");
   grid.classList.remove("layout-1", "layout-2", "layout-3");
-  grid.classList.add(`layout-${n}`);
+  grid.classList.add(`layout-${currentChartLayout}`);
 
-  const visible = new Set(CHART_LAYOUT_ORDER.slice(0, n));
+  const visible = new Set(chartAssetOrder.slice(0, currentChartLayout));
+
+  // Re-order the DOM so visible charts read left-to-right in the chosen order.
+  chartAssetOrder.forEach(assetKey => {
+    const wrap = document.querySelector(`.chart-wrap[data-chart-asset="${assetKey}"]`);
+    if (wrap) grid.appendChild(wrap);
+  });
+
   document.querySelectorAll(".chart-wrap[data-chart-asset]").forEach(wrap => {
     wrap.classList.toggle("chart-hidden", !visible.has(wrap.dataset.chartAsset));
   });
 
-  document.querySelectorAll(".tf-btn[data-layout]").forEach(btn => {
-    btn.classList.toggle("active", Number(btn.dataset.layout) === n);
+  document.querySelectorAll(".asset-chip[data-chart-asset]").forEach(chip => {
+    chip.classList.toggle("active", visible.has(chip.dataset.chartAsset));
   });
 
+  document.querySelectorAll(".tf-btn[data-layout]").forEach(btn => {
+    btn.classList.toggle("active", Number(btn.dataset.layout) === currentChartLayout);
+  });
+}
+
+function setChartLayout(n) {
+  currentChartLayout = n;
   try { localStorage.setItem("chartLayout", String(n)); } catch {}
+  applyChartLayout();
+}
+
+function selectChartAsset(assetKey) {
+  chartAssetOrder = [assetKey, ...chartAssetOrder.filter(a => a !== assetKey)];
+  try { localStorage.setItem("chartAssetOrder", JSON.stringify(chartAssetOrder)); } catch {}
+  applyChartLayout();
 }
 
 window.addEventListener("load", () => {
   Object.entries(CHART_ASSETS).forEach(([key, a]) => mkChart(a.containerId, a.symbol, "D"));
-  let savedLayout = 3;
-  try { savedLayout = Number(localStorage.getItem("chartLayout")) || 3; } catch {}
-  setChartLayout(savedLayout);
+
+  try {
+    currentChartLayout = Number(localStorage.getItem("chartLayout")) || 3;
+    const savedOrder = JSON.parse(localStorage.getItem("chartAssetOrder"));
+    if (Array.isArray(savedOrder) && savedOrder.length === 3 && savedOrder.every(a => CHART_ASSETS[a])) {
+      chartAssetOrder = savedOrder;
+    }
+  } catch {}
+
+  applyChartLayout();
 });
 
 // ── Helpers ──────────────────────────────────────────────────
