@@ -338,15 +338,36 @@
   <!-- Charts -->
   <div class="charts-grid">
     <div class="chart-wrap">
-      <div class="chart-header"><div class="chart-title">BTC / USD</div><div class="chart-sub">Bitstamp · Daily</div></div>
+      <div class="chart-header">
+        <div><div class="chart-title">BTC / USD</div><div class="chart-sub">Bitstamp</div></div>
+        <div class="tf-btns">
+          <button class="tf-btn" data-asset="btc" data-interval="60"  onclick="switchChart('btc','60')">1H</button>
+          <button class="tf-btn" data-asset="btc" data-interval="240" onclick="switchChart('btc','240')">4H</button>
+          <button class="tf-btn active" data-asset="btc" data-interval="D" onclick="switchChart('btc','D')">1D</button>
+        </div>
+      </div>
       <div id="tv-btc"></div>
     </div>
     <div class="chart-wrap">
-      <div class="chart-header"><div class="chart-title">GOLD / XAUUSD</div><div class="chart-sub">Comex · Daily</div></div>
+      <div class="chart-header">
+        <div><div class="chart-title">GOLD / XAUUSD</div><div class="chart-sub">Comex</div></div>
+        <div class="tf-btns">
+          <button class="tf-btn" data-asset="gold" data-interval="60"  onclick="switchChart('gold','60')">1H</button>
+          <button class="tf-btn" data-asset="gold" data-interval="240" onclick="switchChart('gold','240')">4H</button>
+          <button class="tf-btn active" data-asset="gold" data-interval="D" onclick="switchChart('gold','D')">1D</button>
+        </div>
+      </div>
       <div id="tv-gold"></div>
     </div>
     <div class="chart-wrap">
-      <div class="chart-header"><div class="chart-title">S&amp;P 500 Index</div><div class="chart-sub">FOREXCOM:SPXUSD · Daily</div></div>
+      <div class="chart-header">
+        <div><div class="chart-title">S&amp;P 500 Index</div><div class="chart-sub">FOREXCOM:SPXUSD</div></div>
+        <div class="tf-btns">
+          <button class="tf-btn" data-asset="spx" data-interval="60"  onclick="switchChart('spx','60')">1H</button>
+          <button class="tf-btn" data-asset="spx" data-interval="240" onclick="switchChart('spx','240')">4H</button>
+          <button class="tf-btn active" data-asset="spx" data-interval="D" onclick="switchChart('spx','D')">1D</button>
+        </div>
+      </div>
       <div id="tv-spx"></div>
     </div>
   </div>
