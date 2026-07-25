@@ -87,4 +87,9 @@ echo   Logs:       tasks\logs\
 echo   To stop:    close the server window
 echo  ==========================================
 echo.
-pause
+REM If run manually, pause so the user can read the output.
+REM If auto-started at login (no interactive session), skip the pause.
+echo %SESSIONNAME% | findstr /i "Console RDP" >nul 2>&1
+if not errorlevel 1 (
+  pause
+)

@@ -5,47 +5,52 @@ echo.
 echo  Installing SmartEntry Pro to start automatically at Windows login...
 echo.
 
-REM ── Startup folder shortcut (runs at login, no admin needed) ───────────────
+REM ── 1. Startup folder shortcut (no admin needed) ───────────────────────────
 set STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 set WRAPPER=%STARTUP%\SmartEntry.bat
 
 (
   echo @echo off
-  echo REM Wait 45 seconds for Windows and network to fully load
   echo timeout /t 45 /nobreak ^>nul
   echo call "C:\Users\User\ai-trading-dashboard\START.bat"
 ) > "%WRAPPER%"
 
 if errorlevel 1 (
-  echo  ERROR: Could not write to Startup folder.
-  echo  Try running this script as Administrator.
+  echo  ERROR: Could not write to Startup folder. Try running as Administrator.
   pause
   exit /b 1
 )
+echo  [1] Startup folder entry created.
 
-REM ── Task Scheduler entry (backup — runs 2 min after login, requires admin) ─
-schtasks /delete /tn "SmartEntry Startup" /f >nul 2>&1
+REM ── 2. Task Scheduler (more reliable — requires Admin but silently skips if not) ──
+schtasks /delete /tn "SmartEntryPro" /f >nul 2>&1
 schtasks /create ^
-  /tn "SmartEntry Startup" ^
-  /tr "\"C:\Users\User\ai-trading-dashboard\START.bat\"" ^
+  /tn "SmartEntryPro" ^
+  /tr "cmd /c \"C:\Users\User\ai-trading-dashboard\START.bat\"" ^
   /sc ONLOGON ^
   /delay 0002:00 ^
   /ru "%USERNAME%" ^
+  /rl HIGHEST ^
   /f >nul 2>&1
 
+if not errorlevel 1 (
+  echo  [2] Task Scheduler entry created (runs 2 min after login^).
+) else (
+  echo  [2] Task Scheduler skipped (needs Admin^) — Startup folder will be used instead.
+)
+
+echo.
 echo  DONE. SmartEntry Pro will launch automatically at every login.
 echo.
-echo  What happens when you open your laptop:
-echo   [45s delay] Windows and network fully load
-echo   [Step 0]    Kills any leftover old processes
-echo   [Step 1]    Pulls latest code from GitHub
-echo   [Step 2]    Starts SmartEntry server on port 3001
-echo   [Step 3]    Opens dashboard in your browser automatically
-echo   [Step 4]    Starts watchdog (auto-restarts server if it crashes)
-echo   [Step 5]    Launches MetaTrader 5
-echo   [Step 6]    Starts MT5 bridge in FULL-AUTO mode
+echo  What starts automatically (45 seconds after login^):
+echo   - Latest code pulled from GitHub
+echo   - SmartEntry server on port 3001
+echo   - Dashboard opens in browser
+echo   - Watchdog (auto-restarts server if it crashes^)
+echo   - MetaTrader 5
+echo   - MT5 bridge in FULL-AUTO mode
 echo.
-echo  To disable auto-start: delete the file at:
+echo  To disable: delete this file:
 echo   %WRAPPER%
 echo.
 pause
