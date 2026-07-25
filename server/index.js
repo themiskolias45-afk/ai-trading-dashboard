@@ -1974,6 +1974,16 @@ const WEB_SEARCH_TOOL = {
   }
 };
 
+const PLAY_VIDEO_TOOL = {
+  name: "play_video",
+  description: "Search YouTube and open a video player on Themis's screen. Use this any time he wants to watch/see/open a video, on any topic — trading-related or not (music, news, anything). Recognize the intent even from terse phrasing, typos, or requests with no video-request verb at all (e.g. 'gold video', 'youtube ripple').",
+  input_schema: {
+    type: "object",
+    properties: { query: { type: "string", description: "What to search YouTube for" } },
+    required: ["query"]
+  }
+};
+
 async function braveWebSearch(query) {
   // Env vars set via the Windows GUI often pick up invisible copy-paste artifacts
   // (non-breaking spaces etc.) that silently break header auth — strip anything non-printable-ASCII.
