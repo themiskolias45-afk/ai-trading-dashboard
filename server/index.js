@@ -1311,23 +1311,19 @@ app.post("/api/tts", async (req, res) => {
 app.get("/api/youtube-search", async (req, res) => {
   const q = req.query.q;
   if (!q) return res.status(400).json({ error: "q required" });
-  if (!YOUTUBE_API_KEY) return res.status(404).json({ error: "No YouTube API key configured in Settings." });
   try {
-    const r = await axios.get("https://www.googleapis.com/youtube/v3/search", {
-      params: { key: YOUTUBE_API_KEY, q, part: "snippet", type: "video", maxResults: 5, safeSearch: "moderate" },
-      timeout: 10000
+    const results = await YouTube.search(q, { limit: 5, type: "video", safeSearch: true });
+    res.json({
+      results: results.map(v => ({
+        videoId: v.id,
+        title: v.title,
+        channel: v.channel?.name || "",
+        thumbnail: v.thumbnail?.url || "",
+      }))
     });
-    const results = (r.data.items || []).map(it => ({
-      videoId: it.id.videoId,
-      title: it.snippet.title,
-      channel: it.snippet.channelTitle,
-      thumbnail: it.snippet.thumbnails?.medium?.url || it.snippet.thumbnails?.default?.url,
-    }));
-    res.json({ results });
   } catch (e) {
-    const msg = e.response?.data?.error?.message || e.message;
-    console.error("[youtube] search error:", msg);
-    res.status(502).json({ error: "YouTube search failed: " + msg });
+    console.error("[youtube] search error:", e.message);
+    res.status(502).json({ error: "YouTube search failed: " + e.message });
   }
 });
 
