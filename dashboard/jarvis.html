@@ -206,6 +206,13 @@ body.focus-mode .chat{position:fixed;inset:0}
 body.focus-mode .hero-logo{opacity:1}
 body.focus-mode .hero-logo svg{width:min(60vw,640px);height:min(60vw,640px)}
 body.focus-mode .hero-logo::after{width:min(64vw,680px);height:min(64vw,680px)}
+
+/* ── SPEAKING STATE — logo reacts while JARVIS talks ── */
+body.jarvis-speaking .logo-mark{animation-duration:1.1s}
+body.jarvis-speaking .hero-logo{animation-duration:1.3s;opacity:.4}
+body.jarvis-speaking.focus-mode .hero-logo{opacity:1}
+body.jarvis-speaking .ring-dash{animation-duration:4s}
+body.jarvis-speaking .core-dot{animation-duration:.9s}
 .focus-exit{
   display:none;position:fixed;top:18px;right:18px;z-index:50;
   padding:7px 16px;border-radius:20px;font-size:.7rem;font-weight:600;color:var(--muted);
