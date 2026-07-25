@@ -142,14 +142,15 @@ def auto_detect_symbols():
 
 
 def connect_mt5():
-    if not mt5.initialize():
+    init_ok = mt5.initialize(path=TERMINAL_PATH) if TERMINAL_PATH else mt5.initialize()
+    if not init_ok:
         log(f"MT5 initialize() failed — error: {mt5.last_error()}", RED)
         log("Make sure MetaTrader 5 is open and logged into your broker account.", YELLOW)
         return False
     info = mt5.terminal_info()
     acc  = mt5.account_info()
     if info and acc:
-        log(f"MT5 connected: {acc.name} @ {info.company}", GREEN)
+        log(f"MT5 connected: {acc.name} #{acc.login} @ {info.company}  (terminal: {info.path})", GREEN)
         log(f"Balance: ${acc.balance:.2f}  |  Equity: ${acc.equity:.2f}  |  Leverage: 1:{acc.leverage}", CYAN)
     return auto_detect_symbols()
 
