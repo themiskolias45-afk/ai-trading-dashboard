@@ -238,6 +238,7 @@ def place_order(symbol, signal_type, entry, stop, target):
                 "sl":     stop,
                 "tp":     target,
                 "volume": lots,
+                "account": ACCOUNT_TAG or "default",
             }, timeout=5)
         except Exception as e:
             log(f"Could not POST trade-opened to server: {e}", YELLOW)
