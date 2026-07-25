@@ -212,6 +212,20 @@ body.focus-mode .hero-logo::after{width:min(64vw,680px);height:min(64vw,680px)}
   background:rgba(13,20,40,.7);border:1px solid var(--border2);cursor:pointer;backdrop-filter:blur(8px);
 }
 .focus-exit:hover{color:var(--text);border-color:var(--accent)}
+.focus-mic{
+  display:none;position:fixed;bottom:34px;left:50%;transform:translateX(-50%);z-index:50;
+  width:58px;height:58px;border-radius:50%;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:22px;cursor:pointer;
+  box-shadow:0 4px 22px rgba(124,58,237,.6);transition:transform .2s;
+}
+.focus-mic:hover{transform:translateX(-50%) scale(1.08)}
+.focus-mic.rec{background:linear-gradient(135deg,#ef4444,#dc2626);animation:blink .8s ease-in-out infinite}
+body.focus-mode .focus-mic{display:flex}
+.focus-status{
+  display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:50;
+  font-size:.66rem;color:var(--muted);white-space:nowrap;text-align:center;
+}
+body.focus-mode .focus-status{display:block;bottom:100px}
 body.focus-mode .focus-exit{display:block}
 .messages::-webkit-scrollbar{width:4px}
 .messages::-webkit-scrollbar-track{background:transparent}
