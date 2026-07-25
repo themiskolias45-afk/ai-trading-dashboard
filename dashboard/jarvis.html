@@ -389,17 +389,26 @@ body.focus-mode .focus-exit{display:block}
         <defs>
           <radialGradient id="coreGrad" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stop-color="#ffffff"/>
-            <stop offset="35%" stop-color="#c4b5fd"/>
+            <stop offset="30%" stop-color="#e0d4ff"/>
+            <stop offset="60%" stop-color="#a78bfa"/>
             <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
           </radialGradient>
+          <linearGradient id="ringGradHeader" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#a78bfa"/>
+            <stop offset="50%" stop-color="#60a5fa"/>
+            <stop offset="100%" stop-color="#c4b5fd"/>
+          </linearGradient>
         </defs>
+        <circle cx="50" cy="50" r="46" class="ring-glow"/>
         <circle cx="50" cy="50" r="46" class="ring-outer"/>
         <circle cx="50" cy="50" r="40" class="ring-tick"/>
         <circle cx="50" cy="50" r="22" class="logo-core"/>
-        <circle cx="50" cy="50" r="34" class="ring-dash"/>
+        <circle cx="50" cy="50" r="34" class="ring-dash" stroke="url(#ringGradHeader)"/>
         <circle cx="50" cy="4" r="2.6" class="orbit-dot"/>
-        <polygon points="50,38 62,50 50,62 38,50" class="core-facet"/>
-        <circle cx="50" cy="50" r="3.4" class="core-dot"/>
+        <circle cx="88" cy="50" r="1.7" class="orbit-dot2"/>
+        <polygon points="50,36 64,50 50,64 36,50" class="core-facet-fill"/>
+        <polygon points="50,42 58,50 50,58 42,50" class="core-facet"/>
+        <circle cx="50" cy="50" r="3.6" class="core-dot"/>
       </svg>
     </div>
     <div class="logo-text">
