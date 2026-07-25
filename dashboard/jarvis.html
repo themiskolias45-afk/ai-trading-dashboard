@@ -765,6 +765,10 @@ function speakWithVoices(clean, allVoices) {
   // Restrict to English voices only, then prefer the highest-quality ones within that set.
   const englishVoices = allVoices.filter(v => (v.lang || "").toLowerCase().startsWith("en"));
   const priority = [
+    /Ryan Online \(Natural\)/i,               // UK male neural — closest to a JARVIS-style voice
+    /Guy Online \(Natural\)/i,                // US male neural fallback
+    /Online \(Natural\).*United Kingdom/i,
+    /Online \(Natural\).*United States/i,
     /Online \(Natural\)/i,
     /Neural/i,
     /Google UK English Male/i,
