@@ -43,6 +43,8 @@ MAX_SPREAD_PTS = int(os.environ.get("MAX_SPREAD",    "50"))      # reject trade 
 POLL_INTERVAL  = int(os.environ.get("POLL_INTERVAL", "60"))      # seconds between signal checks
 MAGIC_NUMBER   = 20250101                                         # unique ID for SmartEntry orders
 AUTO_MODE      = "--auto" in sys.argv
+TERMINAL_PATH  = os.environ.get("MT5_TERMINAL_PATH", "")          # pin to one MT5 install when running multiple terminals
+ACCOUNT_TAG    = os.environ.get("ACCOUNT_TAG", "")                # identifies this instance in logs + server posts (dual-account setups)
 
 # MT5 symbol map: SmartEntry Yahoo ticker → candidate MT5 symbol names (checked in order)
 SYMBOL_CANDIDATES = {
