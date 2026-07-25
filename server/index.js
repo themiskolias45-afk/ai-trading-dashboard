@@ -1817,9 +1817,34 @@ Signal: ${s.spx?.signal} | Trend: ${s.spx?.trend} | RSI: ${s.spx?.indicators?.rs
 
 // Full system snapshot — signals, risk, positions, self-learning, journal, health.
 // This is what makes JARVIS chat aware of the whole system, not just prices.
+// Deterministic open/closed check — a cheap backstop so JARVIS's answer never depends on
+// the model doing correct day-of-week/timezone arithmetic. Weekday session hours only;
+// does not model NYSE/forex holidays (BTC needs no such check — it never closes).
+function getMarketHoursStatus() {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun..6=Sat
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  let goldOpen = true, goldNote = "forex hours, open";
+  if (day === 6) { goldOpen = false; goldNote = "closed — forex week ends Fri ~22:00 UTC, reopens Sun ~22:00 UTC"; }
+  else if (day === 0 && mins < 22 * 60) { goldOpen = false; goldNote = "closed — reopens ~22:00 UTC today (Sunday)"; }
+  else if (day === 5 && mins >= 22 * 60) { goldOpen = false; goldNote = "closed — forex week just ended ~22:00 UTC"; }
+
+  const isDST   = now.getUTCMonth() > 2 && now.getUTCMonth() < 10; // rough Mar-Nov EDT approximation
+  const openMin = isDST ? 13 * 60 + 30 : 14 * 60 + 30;
+  const closeMin = isDST ? 20 * 60 : 21 * 60;
+  const spxOpen = day >= 1 && day <= 5 && mins >= openMin && mins < closeMin;
+
+  return [
+    `BTC: OPEN (24/7, no session breaks)`,
+    `GOLD (forex): ${goldOpen ? "OPEN" : "CLOSED"} (${goldNote})`,
+    `SPX (NYSE cash): ${spxOpen ? "OPEN (cash session)" : "CLOSED (outside Mon-Fri ~13:30-20:00 UTC — NYSE holidays not modeled here)"}`,
+  ].join("\n");
+}
+
 function buildSystemContext() {
   const s = signalCache, p = priceCache;
-  const lines = [`Current time: ${new Date().toLocaleString()}`, "", "═══ SIGNALS ═══"];
+  const lines = [`Current time: ${new Date().toLocaleString()}`, "", "═══ MARKET HOURS ═══", getMarketHoursStatus(), "", "═══ SIGNALS ═══"];
 
   for (const [key, label] of [["btc", "BTC"], ["gold", "GOLD"], ["spx", "SPX"]]) {
     const sig = s[key];
