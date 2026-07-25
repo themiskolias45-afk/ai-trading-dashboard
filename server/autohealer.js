@@ -432,6 +432,7 @@ async function runHealCycle() {
   try { checkErrorRate(); } catch (e) { logError(`checkErrorRate threw: ${e.message}`); anyFail = true; }
   try { checkLearningFile(); } catch (e) { logError(`checkLearningFile threw: ${e.message}`); anyFail = true; }
   try { checkJournalFile();  } catch (e) { logError(`checkJournalFile threw: ${e.message}`);  anyFail = true; }
+  try { checkMt5Bridge();    } catch (e) { logError(`checkMt5Bridge threw: ${e.message}`);    anyFail = true; }
 
   // Run async checks sequentially (they may trigger network calls)
   try { await checkSignalFreshness(); } catch (e) { logError(`checkSignalFreshness threw: ${e.message}`); anyFail = true; }
