@@ -321,6 +321,9 @@ header{
 </head>
 <body>
 
+<!-- Animated background — neural network field -->
+<canvas id="bg-fx"></canvas>
+
 <!-- Toast alert -->
 <div id="toast" onclick="this.classList.remove('show')">
   <div id="toast-title">🔔 Signal Alert</div>
@@ -330,7 +333,23 @@ header{
 <!-- ═══════════ HEADER ═══════════ -->
 <header>
   <div class="logo">
-    <div class="logo-mark">J</div>
+    <div class="logo-mark">
+      <svg class="logo-svg" viewBox="0 0 100 100">
+        <defs>
+          <radialGradient id="coreGrad" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="35%" stop-color="#c4b5fd"/>
+            <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <circle cx="50" cy="50" r="46" class="ring-outer"/>
+        <circle cx="50" cy="50" r="40" class="ring-tick"/>
+        <circle cx="50" cy="50" r="22" class="logo-core"/>
+        <circle cx="50" cy="50" r="34" class="ring-dash"/>
+        <circle cx="50" cy="4" r="2.6" class="orbit-dot"/>
+        <text x="50" y="59" class="logo-j">J</text>
+      </svg>
+    </div>
     <div class="logo-text">
       <div class="logo-name">JARVIS</div>
       <div class="logo-sub">SmartEntry Pro — AI Trading Assistant</div>
