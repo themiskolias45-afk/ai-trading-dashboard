@@ -86,6 +86,7 @@ function maskKey(v) {
 
 // ── State ─────────────────────────────────────────────────────
 let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, spx: null, spxChange: null, dxy: null, dxyChange: null, vix: null, updated: null };
+let sentimentCache = { fearGreed: 50, classification: "Neutral", btcSentiment: "NEUTRAL", newsHeadlines: [], updated: null };
 let signalCache   = { btc: null, gold: null, spx: null, updatedAt: null };
 let signalHistory = [];   // last 100 signal cycles — full confidence + reasons per asset
 let dailyPlan     = null;
@@ -632,6 +633,30 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     daily.reasons.push(`⚠ VIX ${priceCache.vix} elevated — risk-off environment`);
   }
 
+  // Fear & Greed sentiment filter — extreme greed = risky BUY, extreme fear = risky SELL
+  const fg = sentimentCache.fearGreed;
+  if (fg !== null && fg !== undefined) {
+    if (fg <= 20 && finalSignal === "SELL") {
+      confidence = Math.max(0, confidence - 7);
+      daily.reasons.push(`⚠ Fear & Greed ${fg} (Extreme Fear) — markets may be oversold, SELL risk elevated`);
+    } else if (fg <= 20 && finalSignal === "BUY") {
+      confidence = Math.min(100, confidence + 6);
+      daily.reasons.push(`✅ Fear & Greed ${fg} (Extreme Fear) — contrarian BUY opportunity, oversold`);
+    } else if (fg >= 80 && finalSignal === "BUY") {
+      confidence = Math.max(0, confidence - 7);
+      daily.reasons.push(`⚠ Fear & Greed ${fg} (Extreme Greed) — markets may be overbought, BUY risk elevated`);
+    } else if (fg >= 80 && finalSignal === "SELL") {
+      confidence = Math.min(100, confidence + 6);
+      daily.reasons.push(`✅ Fear & Greed ${fg} (Extreme Greed) — contrarian SELL, markets overheated`);
+    } else if (fg >= 60 && finalSignal === "BUY") {
+      confidence = Math.min(100, confidence + 3);
+      daily.reasons.push(`✅ Fear & Greed ${fg} (Greed) — risk appetite supports BUY`);
+    } else if (fg <= 40 && finalSignal === "SELL") {
+      confidence = Math.min(100, confidence + 3);
+      daily.reasons.push(`✅ Fear & Greed ${fg} (Fear) — fear regime supports SELL`);
+    }
+  }
+
   // Cross-asset confirmation gate — uses previous-cycle cache (always available)
   {
     const spxSig = signalCache.spx?.signal;
@@ -1139,6 +1164,9 @@ app.get("/api/flow",     async (_, res) => { if (!flowCache)     await fetchFlow
 
 // Prices endpoint (live priceCache snapshot)
 app.get("/api/prices", (_, res) => res.json(priceCache));
+
+// Sentiment endpoint — Fear & Greed index + market sentiment
+app.get("/api/sentiment", (_, res) => res.json(sentimentCache));
 
 // Manual trade queue — bridge polls this to pick up trades queued from dashboard
 let manualTradeQueue = [];
@@ -1651,6 +1679,9 @@ cron.schedule("0 8 * * 0", async () => {
 // Every 6 hours — refresh economic calendar
 cron.schedule("0 */6 * * *", fetchEconomicCalendar);
 
+// Every 30 minutes — refresh Fear & Greed index
+cron.schedule("*/30 * * * *", fetchFearGreed);
+
 // Weekdays 10 PM UTC — end-of-day review (runs eod_review.py)
 cron.schedule("0 22 * * 1-5", async () => {
   console.log("[cron] EOD review starting…");
@@ -1807,7 +1838,7 @@ async function refreshAnalysis() {
         `Be specific with price levels. Professional tone.`;
 
       const msg = await anthropic.messages.create({
-        model: "claude-haiku-4-5-20251001",
+        model: "claude-sonnet-5",
         max_tokens: 200,
         messages: [{ role: "user", content: prompt }]
       });
@@ -2092,6 +2123,23 @@ async function fetchEconomicCalendar() {
   }
 }
 
+async function fetchFearGreed() {
+  try {
+    const res = await axios.get("https://api.alternative.me/fng/?limit=1", { timeout: 8000 });
+    const data = res.data?.data?.[0];
+    if (data) {
+      sentimentCache.fearGreed = parseInt(data.value, 10);
+      sentimentCache.classification = data.value_classification;
+      sentimentCache.updated = new Date().toISOString();
+      const fg = sentimentCache.fearGreed;
+      sentimentCache.btcSentiment = fg >= 60 ? "BULLISH" : fg <= 40 ? "BEARISH" : "NEUTRAL";
+      console.log(`[sentiment] Fear & Greed: ${fg} (${sentimentCache.classification})`);
+    }
+  } catch (e) {
+    console.error("[sentiment] Fear & Greed fetch failed:", e.message);
+  }
+}
+
 function isNewsBlackout() {
   if (!features.newsFilter) return { blackout: false, reason: null };
   const now = Date.now();
@@ -2125,7 +2173,7 @@ async function generateTradeCommentary(trade) {
       `Be specific about price levels. No bullet points — prose only.`;
 
     const msg = await anthropic.messages.create({
-      model:      "claude-haiku-4-5-20251001",
+      model:      "claude-sonnet-5",
       max_tokens: 300,
       messages:   [{ role: "user", content: prompt }]
     });
@@ -2152,7 +2200,7 @@ async function reviewOpenPositions() {
       `(3) any exit consideration? End with an overall portfolio risk assessment. Keep it concise and actionable.`;
 
     const msg = await anthropic.messages.create({
-      model:      "claude-haiku-4-5-20251001",
+      model:      "claude-sonnet-5",
       max_tokens: 600,
       messages:   [{ role: "user", content: prompt }]
     });
@@ -2189,7 +2237,7 @@ async function generateWeeklyReport() {
       `(4) strategy suggestions for next week. Practical and concise.`;
 
     const msg = await anthropic.messages.create({
-      model:      "claude-haiku-4-5-20251001",
+      model:      "claude-sonnet-5",
       max_tokens: 800,
       messages:   [{ role: "user", content: prompt }]
     });
@@ -2341,7 +2389,7 @@ app.get("/api/backtest", async (req, res) => {
       ).join("\n");
 
       const msg = await anthropic.messages.create({
-        model: "claude-haiku-4-5-20251001", max_tokens: 500,
+        model: "claude-sonnet-5", max_tokens: 500,
         messages: [{ role: "user", content:
           `You are a professional quant analyst. Here are backtesting results for a rule-based trading strategy over ${years} years:\n\n${summary}\n\n` +
           `In 4-5 concise sentences: (1) is this strategy viable? (2) which asset performs best? (3) biggest risk/weakness? (4) one concrete improvement suggestion.`
@@ -2568,6 +2616,7 @@ app.listen(PORT, async () => {
   await fetchCongress();
   await fetchFlow();
   await fetchEconomicCalendar();
+  await fetchFearGreed();
   generateDailyPlan();
   ensureTelegramPolling();
   if (ANTHROPIC_API_KEY) console.log("[ai] Claude AI enabled ✅");
