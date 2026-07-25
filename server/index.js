@@ -1228,6 +1228,18 @@ function recomputeMt5Positions() {
 let mt5LastSeenByAccount = {}; // account tag -> ISO timestamp of last report
 const MT5_HEARTBEAT_STALE_MS = 150 * 1000; // 2.5x the default 60s poll interval
 
+// Per-account health check, batch-friendly: 200 while connected (or never yet seen —
+// that's not "down", just not started), 503 once a previously-connected bridge goes
+// stale. tasks/watchdog.bat polls this per account and restarts only the stale one.
+app.get("/api/mt5/health", (req, res) => {
+  const account  = req.query.account || "default";
+  const lastSeen = mt5LastSeenByAccount[account];
+  if (!lastSeen) return res.status(200).json({ connected: null, reason: "never connected yet" });
+  const ageMs     = Date.now() - new Date(lastSeen).getTime();
+  const connected = ageMs < MT5_HEARTBEAT_STALE_MS;
+  res.status(connected ? 200 : 503).json({ connected, ageMs, lastSeen });
+});
+
 app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions, byAccount: mt5PositionsByAccount }));
 app.post("/api/mt5/positions", (req, res) => {
   const account = req.body?.account || "default";
