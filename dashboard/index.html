@@ -68,6 +68,14 @@
     .chart-header { padding:10px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); }
     .chart-title { font-size:.75rem; font-weight:600; letter-spacing:.05em; }
     .chart-sub   { font-size:.65rem; color:var(--muted); }
+    .tf-btns { display:flex; gap:4px; }
+    .tf-btn {
+      background:var(--bg); border:1px solid var(--border2); color:var(--muted);
+      font-size:.62rem; font-weight:700; letter-spacing:.03em; padding:3px 10px;
+      border-radius:5px; cursor:pointer; transition:all .15s; font-family:var(--font);
+    }
+    .tf-btn:hover { border-color:var(--green); color:var(--text); }
+    .tf-btn.active { background:rgba(34,197,94,.12); border-color:var(--green); color:var(--green); }
 
     /* Bottom grid */
     .bottom-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:16px; }
