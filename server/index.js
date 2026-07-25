@@ -1194,7 +1194,7 @@ app.post("/api/settings", (req, res) => {
   const { anthropicKey, telegramToken, telegramChatId, openaiKey, uwKey, custom } = req.body || {};
   const updates = {};
 
-  if (typeof telegramToken === "string" && telegramToken.trim())   { TELEGRAM_TOKEN   = sanitizeEnvValue(telegramToken);   updates.TELEGRAM_TOKEN   = TELEGRAM_TOKEN; }
+  if (typeof telegramToken === "string" && telegramToken.trim())   { TELEGRAM_TOKEN   = sanitizeEnvValue(telegramToken);   updates.TELEGRAM_TOKEN   = TELEGRAM_TOKEN; ensureTelegramPolling(); }
   if (typeof telegramChatId === "string" && telegramChatId.trim()) { TELEGRAM_CHAT_ID = sanitizeEnvValue(telegramChatId); updates.TELEGRAM_CHAT_ID = TELEGRAM_CHAT_ID; knownChatIds.add(TELEGRAM_CHAT_ID); }
   if (typeof uwKey === "string" && uwKey.trim())                   { UW_API_KEY       = sanitizeEnvValue(uwKey);          updates.UW_API_KEY       = UW_API_KEY; }
   if (typeof openaiKey === "string" && openaiKey.trim())           { OPENAI_API_KEY   = sanitizeEnvValue(openaiKey);      updates.OPENAI_API_KEY   = OPENAI_API_KEY; }
