@@ -377,6 +377,8 @@ body.focus-mode .focus-exit{display:block}
 
 <!-- Focus mode exit (only visible while focus mode is on) -->
 <button class="focus-exit" onclick="toggleFocus()">✕ Exit focus mode</button>
+<button class="focus-mic" id="focus-mic-btn" onclick="toggleMic()" title="Speak to JARVIS">🎤</button>
+<div class="focus-status" id="focus-status">Tap the mic or just start talking</div>
 
 <!-- Toast alert -->
 <div id="toast" onclick="this.classList.remove('show')">
