@@ -755,7 +755,43 @@ window.addEventListener("DOMContentLoaded", () => {
   // restore voice prefs
   if (localStorage.getItem("jarvis-voice") === "on") { voiceOn = true; refreshVoiceBtn(); }
   if (localStorage.getItem("jarvis-alerts") === "off") { alertsOn = false; refreshAlertBtn(); }
+  buildDial(".logo-svg", 24, 39, 43.5);
+  buildDial(".hero-logo svg", 60, 44.5, 48.5);
 });
+
+// Generates real instrument-dial tick marks + a crosshair reticle around a logo SVG —
+// hand-writing 60 <line> elements per logo in markup would be unreadable, so build them once at boot.
+function buildDial(selector, tickCount, innerR, outerR) {
+  const NS = "http://www.w3.org/2000/svg";
+  document.querySelectorAll(selector).forEach(svg => {
+    const g = document.createElementNS(NS, "g");
+    for (let i = 0; i < tickCount; i++) {
+      const angle = (i / tickCount) * Math.PI * 2;
+      const major = i % 5 === 0;
+      const r1 = major ? innerR - 2.5 : innerR;
+      const x1 = 50 + r1 * Math.cos(angle), y1 = 50 + r1 * Math.sin(angle);
+      const x2 = 50 + outerR * Math.cos(angle), y2 = 50 + outerR * Math.sin(angle);
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("x1", x1.toFixed(2)); line.setAttribute("y1", y1.toFixed(2));
+      line.setAttribute("x2", x2.toFixed(2)); line.setAttribute("y2", y2.toFixed(2));
+      line.setAttribute("class", major ? "tick-major" : "tick-minor");
+      g.appendChild(line);
+    }
+    // crosshair reticle at N/E/S/W, extending just past the outer ring
+    [0, 90, 180, 270].forEach(deg => {
+      const a = deg * Math.PI / 180;
+      const r1 = outerR + 1.5, r2 = outerR + 5;
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("x1", (50 + r1 * Math.cos(a)).toFixed(2));
+      line.setAttribute("y1", (50 + r1 * Math.sin(a)).toFixed(2));
+      line.setAttribute("x2", (50 + r2 * Math.cos(a)).toFixed(2));
+      line.setAttribute("y2", (50 + r2 * Math.sin(a)).toFixed(2));
+      line.setAttribute("class", "crosshair");
+      g.appendChild(line);
+    });
+    svg.appendChild(g);
+  });
+}
 
 function updateClock() {
   const now = new Date();
