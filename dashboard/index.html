@@ -340,12 +340,22 @@
   </div>
 
   <!-- Charts -->
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-    <span style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Chart Layout</span>
-    <div class="tf-btns">
-      <button class="tf-btn" data-layout="1" onclick="setChartLayout(1)">1</button>
-      <button class="tf-btn" data-layout="2" onclick="setChartLayout(2)">2</button>
-      <button class="tf-btn active" data-layout="3" onclick="setChartLayout(3)">3</button>
+  <div style="display:flex;align-items:center;gap:18px;margin-bottom:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Chart Layout</span>
+      <div class="tf-btns">
+        <button class="tf-btn" data-layout="1" onclick="setChartLayout(1)">1</button>
+        <button class="tf-btn" data-layout="2" onclick="setChartLayout(2)">2</button>
+        <button class="tf-btn active" data-layout="3" onclick="setChartLayout(3)">3</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Assets Shown</span>
+      <div class="tf-btns">
+        <button class="tf-btn asset-chip active" data-chart-asset="btc"  onclick="selectChartAsset('btc')">BTC</button>
+        <button class="tf-btn asset-chip active" data-chart-asset="gold" onclick="selectChartAsset('gold')">GOLD</button>
+        <button class="tf-btn asset-chip active" data-chart-asset="spx"  onclick="selectChartAsset('spx')">SPX</button>
+      </div>
     </div>
   </div>
   <div class="charts-grid" id="charts-grid">
