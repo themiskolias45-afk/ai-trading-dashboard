@@ -101,7 +101,8 @@ def check_circuit_breaker():
 
 def log(msg, color=""):
     ts = datetime.now().strftime("%H:%M:%S")
-    print(f"{color}[{ts}] {msg}{RESET}")
+    prefix = f"[{ACCOUNT_TAG}] " if ACCOUNT_TAG else ""
+    print(f"{color}[{ts}] {prefix}{msg}{RESET}")
 
 
 def fetch_signals():
