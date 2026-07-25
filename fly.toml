@@ -1,31 +1,37 @@
-app = "ai-trading-dashboard"
-primary_region = "ams"
+# fly.toml app configuration file generated for ai-trading-dashboard on 2026-07-25T18:46:40Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'ai-trading-dashboard'
+primary_region = 'ams'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
+
+[[mounts]]
+  source = 'smartentry_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 3001
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 1
-
-[[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
-  cpus = 1
 
 [checks]
   [checks.health]
     port = 3001
-    type = "http"
-    interval = "30s"
-    timeout = "10s"
-    grace_period = "120s"
-    method = "get"
-    path = "/api/health"
+    type = 'http'
+    interval = '30s'
+    timeout = '10s'
+    grace_period = '2m0s'
+    method = 'get'
+    path = '/api/health'
 
-[[mounts]]
-  source = "smartentry_data"
-  destination = "/data"
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
