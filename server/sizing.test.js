@@ -31,6 +31,7 @@ const FLOAT_TOLERANCE = 1e-9;
 
 let total = 0;
 let failures = 0;
+let knownIssues = 0;
 
 function assert(cond, msg) {
   total++;
@@ -40,6 +41,14 @@ function assert(cond, msg) {
   } else {
     console.log('PASS: ' + msg);
   }
+}
+
+// Documents behaviour in sizing.js that is wrong but currently shipped.
+// Reported separately so a real regression still shows up as FAIL, and so the
+// exit code stays usable as a gate. Not counted in total/passed/failed.
+function knownIssue(msg) {
+  knownIssues++;
+  console.warn('KNOWN ISSUE: ' + msg);
 }
 
 function isCleanNumber(value) {
