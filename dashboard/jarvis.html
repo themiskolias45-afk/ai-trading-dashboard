@@ -1227,7 +1227,14 @@ async function send() {
     addMsg("jarvis", reply);
     conversation.push({ role: "user", content: txt }, { role: "assistant", content: reply });
     if (conversation.length > 24) conversation = conversation.slice(-24);
-    speak(reply);
+    if (d.video?.results?.length) {
+      // Claude decided this was a video request (catches phrasing/typos the client regex misses).
+      // Open it, but don't also speak — same reason as the fast-path: JARVIS's voice shouldn't
+      // talk over the video's own audio.
+      openVideoModal(d.video.results, d.video.query);
+    } else {
+      speak(reply);
+    }
     setTranscript("Ready — tap mic or type below");
   } catch {
     rmTyping();
