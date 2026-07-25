@@ -1482,6 +1482,97 @@ function openCharts() {
 }
 function closeCharts() { document.getElementById("charts-overlay").classList.remove("show"); }
 
+// ══════════════════════════════════════════
+//  HERMES — forward paper-trading validation panel
+// ══════════════════════════════════════════
+function openHermes() {
+  document.getElementById("hermes-overlay").classList.add("show");
+  loadHermes();
+}
+function closeHermes() { document.getElementById("hermes-overlay").classList.remove("show"); }
+
+async function loadHermes() {
+  try {
+    const d = await fetch("/api/hermes").then(r => r.json());
+    renderHermesPulse(d.pulse);
+    renderHermesDuel(d);
+    renderHermesLeaderboard(d.leaderboard);
+    renderHermesChampions(d.champions);
+    renderHermesRejections(d.rejections);
+    document.getElementById("hermes-inception").textContent =
+      "Dueling since " + new Date(d.inceptionAt).toLocaleString();
+  } catch {
+    document.getElementById("hermes-inception").textContent = "Couldn't reach the server.";
+  }
+}
+
+function renderHermesPulse(pulse) {
+  const box = document.getElementById("hermes-pulse");
+  box.innerHTML = ["btc", "gold", "spx"].map(a => {
+    const p = pulse?.[a];
+    if (!p) return `<div class="hermes-pulse-card"><div class="hermes-pulse-asset">${a.toUpperCase()}</div><div class="hermes-pulse-meta">no data</div></div>`;
+    return `<div class="hermes-pulse-card">
+      <div class="hermes-pulse-asset">${a.toUpperCase()} <span style="color:var(--muted);font-weight:400">$${p.price != null ? Number(p.price).toLocaleString() : "—"}</span></div>
+      <div class="hermes-pulse-meta">${p.signal} ${p.confidence ?? 0}% · ${esc(p.setup || "—")}<br>${esc(p.trend || "—")} · ${esc(p.regime || "—")}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderHermesDuel(d) {
+  document.getElementById("hermes-duel-sub").textContent =
+    `${d.duel.open.length} open · ${d.duel.closedCount} closed`;
+  const box = document.getElementById("hermes-duel");
+  if (!d.duel.open.length) { box.innerHTML = `<div class="hermes-empty">No paper positions open right now.</div>`; return; }
+  box.innerHTML = d.duel.open.map(p => `
+    <div class="hermes-duel-row">
+      <span><span class="hermes-duel-geo">${esc(p.asset.toUpperCase())} — ${esc(p.geometry)}</span><span class="hermes-duel-dir ${p.dir}">${p.dir}</span></span>
+      <span style="color:var(--muted)">entry $${p.entry} · stop $${p.stop} · target $${p.target}</span>
+    </div>`).join("");
+}
+
+function renderHermesLeaderboard(rows) {
+  const box = document.getElementById("hermes-leaderboard");
+  if (!rows?.length) { box.innerHTML = `<div class="hermes-empty">No closed paper trades yet — nothing to rank.</div>`; return; }
+  box.innerHTML = `<table class="hermes-table">
+    <thead><tr><th>Asset</th><th>Geometry</th><th>Trades</th><th>Win Rate</th><th>Expectancy</th><th></th></tr></thead>
+    <tbody>${rows.map(r => `
+      <tr>
+        <td>${esc(r.asset.toUpperCase())}</td>
+        <td>${esc(r.geometry)}</td>
+        <td>${r.trades}</td>
+        <td>${r.winRate}%</td>
+        <td style="color:${r.expectancy >= 0 ? 'var(--green)' : 'var(--red)'}">${r.expectancy >= 0 ? "+" : ""}${r.expectancy}R</td>
+        <td>${r.validated ? '<span class="hermes-validated">VALIDATED</span>' : '<span class="hermes-gathering">gathering…</span>'}</td>
+      </tr>`).join("")}</tbody>
+  </table>`;
+}
+
+function renderHermesChampions(champions) {
+  const box = document.getElementById("hermes-champions");
+  box.innerHTML = ["btc", "gold", "spx"].map(a => {
+    const c = champions?.[a];
+    if (!c) return `<div class="hermes-champ-card"><div class="hermes-champ-asset">${a.toUpperCase()}</div><div class="hermes-champ-geo" style="color:var(--muted);font-size:.7rem">no champion yet</div></div>`;
+    return `<div class="hermes-champ-card has-champ">
+      <div class="hermes-champ-asset">${a.toUpperCase()}</div>
+      <div class="hermes-champ-geo">👑 ${esc(c.geometry)}</div>
+      <div class="hermes-champ-stats">${c.winRate}% WR · +${c.expectancy}R · ${c.trades} trades</div>
+    </div>`;
+  }).join("");
+}
+
+function renderHermesRejections(rejections) {
+  const box = document.getElementById("hermes-rejections");
+  if (!rejections?.length) { box.innerHTML = `<div class="hermes-empty">No rejections logged yet.</div>`; return; }
+  box.innerHTML = rejections.map(r => `
+    <div class="hermes-rejection">${esc(r.asset.toUpperCase())} — ${esc(r.geometry)}: ${esc(r.reason)}
+      <span style="color:var(--dim)"> · ${fmtTime(r.at)}</span>
+    </div>`).join("");
+}
+
+function fmtTime(iso) {
+  try { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
+}
+
 function setChartAsset(asset) {
   chartAsset = asset;
   ["btc","gold","spx"].forEach(a => document.getElementById("ctab-" + a).classList.toggle("active", a === asset));
