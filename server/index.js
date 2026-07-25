@@ -1973,11 +1973,14 @@ const WEB_SEARCH_TOOL = {
 };
 
 async function braveWebSearch(query) {
-  if (!process.env.BRAVE_API_KEY) return "Web search unavailable — no BRAVE_API_KEY configured.";
+  // Env vars set via the Windows GUI often pick up invisible copy-paste artifacts
+  // (non-breaking spaces etc.) that silently break header auth — strip anything non-printable-ASCII.
+  const key = (process.env.BRAVE_API_KEY || "").replace(/[^\x21-\x7e]/g, "");
+  if (!key) return "Web search unavailable — no BRAVE_API_KEY configured.";
   try {
     const r = await axios.get("https://api.search.brave.com/res/v1/web/search", {
       params: { q: query, count: 5 },
-      headers: { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_API_KEY },
+      headers: { Accept: "application/json", "X-Subscription-Token": key },
       timeout: 10000
     });
     const results = r.data?.web?.results || [];
