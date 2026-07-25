@@ -58,10 +58,15 @@ header{
   transform-origin:50px 50px;animation:spinRing 7s linear infinite;
 }
 .logo-core{fill:url(#coreGrad)}
-.logo-j{
-  font-family:var(--font);font-size:32px;font-weight:900;fill:#fff;text-anchor:middle;
-  filter:drop-shadow(0 0 6px rgba(255,255,255,.85));
+.core-facet{
+  fill:none;stroke:rgba(255,255,255,.6);stroke-width:1.1;
+  transform-origin:50px 50px;animation:spinRing 9s linear infinite reverse;
 }
+.core-dot{
+  fill:#fff;filter:drop-shadow(0 0 6px #fff) drop-shadow(0 0 14px #c4b5fd);
+  animation:corePulse 2.2s ease-in-out infinite;
+}
+@keyframes corePulse{0%,100%{r:3.4;opacity:.85}50%{r:5.2;opacity:1}}
 @keyframes logoPulse{
   0%,100%{filter:drop-shadow(0 0 6px rgba(124,58,237,.55)) drop-shadow(0 0 16px rgba(124,58,237,.3))}
   50%{filter:drop-shadow(0 0 10px rgba(124,58,237,.85)) drop-shadow(0 0 26px rgba(124,58,237,.5))}
