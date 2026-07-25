@@ -1919,6 +1919,15 @@ function buildSystemContext() {
     if (h.errorLog?.length) lines.push(`Recent errors: ${h.errorLog.slice(0, 3).map(e => e.message || e).join(" | ")}`);
   } catch { lines.push("Healer status unavailable."); }
 
+  lines.push("", "═══ HERMES — validated forward paper-trading (per-asset champion geometry) ═══");
+  try {
+    const champs = hermes.computeChampions();
+    const champEntries = Object.entries(champs);
+    if (champEntries.length) {
+      for (const [asset, row] of champEntries) lines.push(`${asset.toUpperCase()}: ${row.geometry} is champion — ${row.winRate}% WR, expectancy ${row.expectancy}R over ${row.trades} paper trades (costs deducted)`);
+    } else lines.push("No validated champion yet for any asset — still gathering forward paper-trade samples.");
+  } catch { lines.push("Hermes data unavailable."); }
+
   lines.push("", "═══ PERSISTENT MEMORY (facts saved across sessions — not lost on page reload) ═══");
   try {
     const recent = loadMemory().entries.slice(0, 10);
