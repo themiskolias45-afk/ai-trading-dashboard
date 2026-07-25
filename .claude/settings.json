@@ -18,8 +18,7 @@
       "mcp__brave-search__*",
       "mcp__puppeteer__*",
       "mcp__exa__*",
-      "mcp__smartentry__*",
-      "mcp__github__*"
+      "mcp__smartentry__*"
     ],
     "deny": []
   },
@@ -71,13 +70,6 @@
       "command": "node",
       "args": ["C:/Users/User/ai-trading-dashboard/server/mcp_server.js"]
     },
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
-      }
-    }
   },
 
   "hooks": {
