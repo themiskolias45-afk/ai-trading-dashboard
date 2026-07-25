@@ -91,6 +91,7 @@ let tvAlerts      = [];
 let congressCache = null;
 let flowCache     = null;
 let knownChatIds  = new Set();
+if (TELEGRAM_CHAT_ID) knownChatIds.add(TELEGRAM_CHAT_ID);
 let mt5Positions  = [];   // reported by mt5_bridge.py via POST /api/mt5/positions
 let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
 let tradeJournal  = [];   // trade journal entries (max 200)
