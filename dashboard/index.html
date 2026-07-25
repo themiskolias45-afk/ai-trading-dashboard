@@ -260,13 +260,10 @@
 <!-- Tab nav -->
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('overview')" id="t-overview">📊 Overview</button>
-  <button class="tab-btn" onclick="switchTab('signals')" id="t-signals">📡 Signals</button>
-  <button class="tab-btn" onclick="switchTab('feed')" id="t-feed">📶 Data Feed</button>
   <button class="tab-btn" onclick="switchTab('autotrade')" id="t-autotrade">⚡ Auto Trade</button>
   <button class="tab-btn" onclick="switchTab('performance')" id="t-performance">📈 Performance</button>
   <button class="tab-btn" onclick="switchTab('journal')" id="t-journal">📒 Journal</button>
   <button class="tab-btn" onclick="switchTab('aibrain')" id="t-aibrain">🧠 AI Brain</button>
-  <a href="/command" class="tab-btn" style="text-decoration:none;display:inline-flex;align-items:center">🤖 JARVIS</a>
 </nav>
 
 <!-- ═══════════════════════════════════════════════════════ TAB 1: OVERVIEW -->
@@ -296,7 +293,7 @@
     <div class="price-card">
       <div class="price-icon">📈</div>
       <div class="price-info">
-        <div class="price-label">S&amp;P 500</div>
+        <div class="price-label">S&amp;P 500 / SPY</div>
         <div class="price-value" id="spx-price">—</div>
         <div class="price-change" id="spx-change">—</div>
       </div>
@@ -337,7 +334,7 @@
       <div id="tv-gold"></div>
     </div>
     <div class="chart-wrap">
-      <div class="chart-header"><div class="chart-title">S&amp;P 500 Index</div><div class="chart-sub">FOREXCOM:SPXUSD · Daily</div></div>
+      <div class="chart-header"><div class="chart-title">S&amp;P 500 / SPY</div><div class="chart-sub">NYSE Arca · Daily</div></div>
       <div id="tv-spx"></div>
     </div>
   </div>
@@ -346,7 +343,7 @@
   <div class="price-strip" style="margin-bottom:16px">
     <div class="signal-card" id="sig-btc"><div class="sig-loading">Loading BTC signal…</div></div>
     <div class="signal-card" id="sig-gold"><div class="sig-loading">Loading Gold signal…</div></div>
-    <div class="signal-card" id="sig-spx"><div class="sig-loading">Loading S&P500 signal…</div></div>
+    <div class="signal-card" id="sig-spx"><div class="sig-loading">Loading SPY signal…</div></div>
   </div>
 
   <!-- Bottom panels -->
@@ -372,205 +369,6 @@
       </div>
       <div class="panel-body" id="congress-body"><div style="color:var(--muted);font-size:.78rem">Loading…</div></div>
     </div>
-  </div>
-
-</div>
-</div>
-
-<!-- ═══════════════════════════════════════════════ TAB: SIGNALS (COMMAND) -->
-<div id="tab-signals" class="tab-panel">
-<div class="container">
-
-  <!-- Confidence cards -->
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px" id="sc-cards">
-    <div class="panel"><div class="panel-header"><div class="panel-title">Bitcoin (BTC)</div></div><div class="panel-body" id="sc-btc" style="min-height:160px"><div class="sig-loading">Loading…</div></div></div>
-    <div class="panel"><div class="panel-header"><div class="panel-title">Gold (XAUUSD)</div></div><div class="panel-body" id="sc-gold" style="min-height:160px"><div class="sig-loading">Loading…</div></div></div>
-    <div class="panel"><div class="panel-header"><div class="panel-title">S&amp;P 500 (SPX)</div></div><div class="panel-body" id="sc-spx" style="min-height:160px"><div class="sig-loading">Loading…</div></div></div>
-  </div>
-
-  <div style="display:grid;grid-template-columns:3fr 2fr;gap:12px;margin-bottom:14px">
-
-    <!-- Signal history table -->
-    <div class="panel" style="max-height:360px">
-      <div class="panel-header">
-        <div class="panel-title">Signal History — Every 30 Min</div>
-        <span id="sc-cycle-count" style="font-size:.6rem;color:var(--muted)">Loading…</span>
-      </div>
-      <div class="panel-body" style="padding:0;overflow-x:auto;max-height:320px">
-        <table style="width:100%;border-collapse:collapse;font-size:.68rem">
-          <thead><tr style="position:sticky;top:0;background:var(--surface)">
-            <th style="padding:7px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap">Time</th>
-            <th style="padding:7px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);text-align:left">BTC</th>
-            <th style="padding:7px 8px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Conf</th>
-            <th style="padding:7px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);text-align:left">GOLD</th>
-            <th style="padding:7px 8px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Conf</th>
-            <th style="padding:7px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);text-align:left">SPX</th>
-            <th style="padding:7px 8px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Conf</th>
-            <th style="padding:7px 8px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Fired?</th>
-          </tr></thead>
-          <tbody id="sc-hist-body"><tr><td colspan="8" style="color:var(--muted);font-size:.72rem;padding:16px;text-align:center">No history yet — refreshes every 30 min</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Why / Reasons -->
-    <div class="panel" style="max-height:360px;overflow-y:auto">
-      <div class="panel-header"><div class="panel-title">What JARVIS Sees</div></div>
-      <div class="panel-body" id="sc-reasons"><div class="sig-loading">Loading…</div></div>
-    </div>
-
-  </div>
-
-  <!-- Learning table -->
-  <div class="panel" style="margin-bottom:14px">
-    <div class="panel-header">
-      <div class="panel-title">Setup Learning</div>
-      <span style="font-size:.6rem;color:var(--muted)">Updates after every closed trade</span>
-    </div>
-    <div class="panel-body" style="padding:0;overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:.72rem" id="sc-learn-table">
-        <thead><tr>
-          <th style="padding:8px 12px;color:var(--muted);font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);text-align:left">Setup</th>
-          <th style="padding:8px 12px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">W / L</th>
-          <th style="padding:8px 12px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left;min-width:120px">Win Rate</th>
-          <th style="padding:8px 12px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">P&amp;L</th>
-          <th style="padding:8px 12px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Status</th>
-        </tr></thead>
-        <tbody id="sc-learn-body"><tr><td colspan="5" style="color:var(--muted);font-size:.72rem;padding:16px;text-align:center">No trades yet — learning starts after first closed trade</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-</div>
-</div>
-
-<!-- ══════════════════════════════════════════════════ TAB: DATA FEED -->
-<div id="tab-feed" class="tab-panel">
-<div class="container">
-
-  <!-- Freshness bar -->
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
-    <div class="panel" style="padding:10px 14px">
-      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Prices Last Fetch</div>
-      <div id="fd-price-ts" style="font-size:.85rem;font-weight:700;color:var(--green)">—</div>
-    </div>
-    <div class="panel" style="padding:10px 14px">
-      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Signals Last Refresh</div>
-      <div id="fd-sig-ts" style="font-size:.85rem;font-weight:700;color:var(--accent)">—</div>
-    </div>
-    <div class="panel" style="padding:10px 14px">
-      <div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">System Status</div>
-      <div id="fd-sys-status" style="font-size:.85rem;font-weight:700;color:var(--green)">—</div>
-    </div>
-  </div>
-
-  <!-- Live macro values -->
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">
-    <div class="panel" style="padding:10px 12px;text-align:center">
-      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">BTC/USD</div>
-      <div id="fd-btc" style="font-size:1rem;font-weight:700">—</div>
-      <div id="fd-btc-chg" style="font-size:.65rem;color:var(--muted)">—</div>
-    </div>
-    <div class="panel" style="padding:10px 12px;text-align:center">
-      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">GOLD</div>
-      <div id="fd-gold" style="font-size:1rem;font-weight:700">—</div>
-      <div id="fd-gold-chg" style="font-size:.65rem;color:var(--muted)">—</div>
-    </div>
-    <div class="panel" style="padding:10px 12px;text-align:center">
-      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">SP500</div>
-      <div id="fd-spx" style="font-size:1rem;font-weight:700">—</div>
-      <div id="fd-spx-chg" style="font-size:.65rem;color:var(--muted)">—</div>
-    </div>
-    <div class="panel" style="padding:10px 12px;text-align:center">
-      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">DXY</div>
-      <div id="fd-dxy" style="font-size:1rem;font-weight:700">—</div>
-      <div id="fd-dxy-chg" style="font-size:.65rem;color:var(--muted)">—</div>
-    </div>
-    <div class="panel" style="padding:10px 12px;text-align:center">
-      <div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">VIX</div>
-      <div id="fd-vix" style="font-size:1rem;font-weight:700">—</div>
-      <div id="fd-vix-chg" style="font-size:.65rem;color:var(--muted)">—</div>
-    </div>
-  </div>
-
-  <!-- Indicator grid: one card per asset -->
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title">BTC Raw Indicators</div><span id="fd-btc-regime" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span></div>
-      <div class="panel-body" id="fd-btc-ind" style="font-size:.75rem;line-height:1.9">Loading…</div>
-    </div>
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title">GOLD Raw Indicators</div><span id="fd-gold-regime" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span></div>
-      <div class="panel-body" id="fd-gold-ind" style="font-size:.75rem;line-height:1.9">Loading…</div>
-    </div>
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title">SP500 Raw Indicators</div><span id="fd-spx-regime" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span></div>
-      <div class="panel-body" id="fd-spx-ind" style="font-size:.75rem;line-height:1.9">Loading…</div>
-    </div>
-  </div>
-
-  <!-- Bottom: MT5 positions + Live alerts feed -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
-
-    <!-- MT5 live positions -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">MT5 Live Positions</div>
-        <span id="fd-pos-count" style="font-size:.6rem;color:var(--muted)">—</span>
-      </div>
-      <div class="panel-body" style="padding:0">
-        <table style="width:100%;border-collapse:collapse;font-size:.7rem">
-          <thead><tr style="background:var(--surface)">
-            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Symbol</th>
-            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Dir</th>
-            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">P&L</th>
-            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">Size</th>
-          </tr></thead>
-          <tbody id="fd-pos-body"><tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">No open positions</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- TradingView alert feed -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">TradingView Alert Feed</div>
-        <span id="fd-alert-count" style="font-size:.6rem;color:var(--muted)">—</span>
-      </div>
-      <div class="panel-body" style="padding:0;max-height:220px;overflow-y:auto">
-        <div id="fd-alerts-list" style="font-size:.7rem">
-          <div style="color:var(--muted);padding:14px;text-align:center">No alerts received yet</div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Setup health + Risk status -->
-  <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:14px">
-
-    <!-- Setup health -->
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title">Setup Health Today</div></div>
-      <div class="panel-body" style="padding:0">
-        <table style="width:100%;border-collapse:collapse;font-size:.7rem">
-          <thead><tr style="background:var(--surface)">
-            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Setup</th>
-            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Status</th>
-            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">Win Rate</th>
-            <th style="padding:6px 10px;color:var(--muted);font-size:.58rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:right">P&L</th>
-          </tr></thead>
-          <tbody id="fd-setup-body"><tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">Loading…</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Risk gate -->
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title">Risk Gate</div></div>
-      <div class="panel-body" id="fd-risk-body" style="font-size:.75rem;line-height:2">Loading…</div>
-    </div>
-
   </div>
 
 </div>
@@ -855,7 +653,7 @@
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">Ask Claude</div>
-        <span style="font-size:.65rem;color:var(--muted)">claude-opus-5 · Live context</span>
+        <span style="font-size:.65rem;color:var(--muted)">claude-opus-4-8 · Live context</span>
       </div>
       <div class="panel-body" style="display:flex;flex-direction:column;gap:8px;max-height:420px">
         <div style="display:flex;flex-wrap:wrap;gap:6px">
@@ -921,8 +719,6 @@ function switchTab(name) {
   if (name === "performance") loadPerformance();
   if (name === "autotrade")   refreshAutoTradeTab();
   if (name === "journal")     loadJournalTab();
-  if (name === "signals")     loadSignalsTab();
-  if (name === "feed")        loadFeedTab();
 }
 
 // ── Mode toggle ──────────────────────────────────────────────
@@ -1512,328 +1308,13 @@ function renderJournalTab() {
   }).join("");
 }
 
-// ── SIGNALS TAB ──────────────────────────────────────────────
-function _scConf(c){
-  if(c>=85)return{cls:'conf-bar',color:'#22c55e',bg:'rgba(34,197,94,.15)'};
-  if(c>=65)return{cls:'conf-bar',color:'#22c55e',bg:'rgba(34,197,94,.08)'};
-  if(c>=50)return{cls:'conf-bar',color:'#eab308',bg:'rgba(234,179,8,.1)'};
-  return{cls:'conf-bar',color:'#ef4444',bg:'rgba(239,68,68,.08)'};
-}
-function _scChip(sig,conf){
-  const c=conf||0;
-  const sigColor=sig==='BUY'?'var(--green)':sig==='SELL'?'var(--red)':'var(--muted)';
-  const confColor=c>=65?'var(--green)':c>=50?'var(--yellow)':'var(--red)';
-  return`<span style="font-size:.6rem;font-weight:700;color:${sigColor}">${sig||'—'}</span>
-         <span style="font-size:.62rem;font-weight:700;color:${confColor};margin-left:4px">${c}%</span>`;
-}
-function buildSCCard(sig, key){
-  if(!sig) return`<div class="sig-loading">No data</div>`;
-  const s=sig.signal||'WAIT';
-  const c=sig.confidence||0;
-  const cf=_scConf(c);
-  const borderColor=s==='BUY'?'rgba(34,197,94,.35)':s==='SELL'?'rgba(239,68,68,.35)':'var(--border)';
-  const badgeClass=`sig-badge sig-badge-${s}`;
-  const threshold=c<65?`<div style="font-size:.6rem;color:var(--muted);margin-top:4px">Need 65% — gap: ${65-c}%</div>`
-                       :`<div style="font-size:.6rem;color:var(--green);margin-top:4px">Above threshold — signal active</div>`;
-  let entryHtml='';
-  if(sig.entry&&sig.stop&&sig.target){
-    const rr=sig.rr||((Math.abs(sig.target-sig.entry)/Math.abs(sig.entry-sig.stop)).toFixed(1));
-    entryHtml=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px">
-      <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:5px 8px"><div style="font-size:.55rem;text-transform:uppercase;color:var(--muted)">Entry</div><div style="font-size:.82rem;font-weight:700;color:var(--blue)">${fmt(sig.entry,2)}</div></div>
-      <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:5px 8px"><div style="font-size:.55rem;text-transform:uppercase;color:var(--muted)">Stop</div><div style="font-size:.82rem;font-weight:700;color:var(--red)">${fmt(sig.stop,2)}</div></div>
-      <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:5px 8px"><div style="font-size:.55rem;text-transform:uppercase;color:var(--muted)">Target</div><div style="font-size:.82rem;font-weight:700;color:var(--green)">${fmt(sig.target,2)}</div></div>
-    </div>
-    <div style="font-size:.62rem;color:var(--muted);margin-top:4px">R:R ${rr}:1 &nbsp;|&nbsp; ${sig.h4?'4H: '+sig.h4.signal:''} &nbsp;${sig.h1?'1H: '+sig.h1.signal:''}</div>`;
-  }
-  const reasons=(sig.reasons||[]).slice(0,8).map(r=>{
-    const col=r.startsWith('✅')?'#16a34a':r.startsWith('⚠')?'#ca8a04':r.startsWith('❌')?'#dc2626':'var(--muted)';
-    return`<div style="font-size:.65rem;color:${col};padding:1px 0">${r}</div>`;
-  }).join('');
-  return`<div style="border:1px solid ${borderColor};border-radius:8px;padding:14px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div>
-        <div style="font-size:.75rem;font-weight:800;letter-spacing:.04em">${key.toUpperCase()}</div>
-        <div style="font-size:.6rem;color:var(--muted);margin-top:2px">${sig.regime||''} · ${sig.setup||''}</div>
-      </div>
-      <span class="${badgeClass}">${s}</span>
-    </div>
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-      <span style="font-size:.62rem;color:var(--muted)">Confidence</span>
-      <span style="font-size:1.4rem;font-weight:900;color:${cf.color};font-variant-numeric:tabular-nums">${c}%</span>
-    </div>
-    <div class="conf-bar-wrap"><div class="${cf.cls}" style="width:${c}%;background:${cf.color}"></div></div>
-    ${threshold}
-    ${entryHtml}
-    ${reasons?`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px">${reasons}</div>`:''}
-  </div>`;
-}
-async function loadSignalsTab(){
-  try{
-    const[sRes,hRes,lRes]=await Promise.allSettled([
-      fetch(API+'/signals',{cache:'no-store'}).then(r=>r.json()),
-      fetch(API+'/signal-history',{cache:'no-store'}).then(r=>r.json()),
-      fetch(API+'/learning',{cache:'no-store'}).then(r=>r.json()),
-    ]);
-    const sig  =sRes.status==='fulfilled'?sRes.value:{};
-    const hist =hRes.status==='fulfilled'?hRes.value:{};
-    const learn=lRes.status==='fulfilled'?lRes.value:{};
-    // Cards
-    ['btc','gold','spx'].forEach(k=>{
-      const el=document.getElementById(`sc-${k}`);
-      if(el) el.innerHTML=buildSCCard(sig[k],k);
-    });
-    // Reasons
-    const rEl=document.getElementById('sc-reasons');
-    if(rEl){
-      const parts=['btc','gold','spx'].map(k=>{
-        const s=sig[k]; if(!s) return'';
-        const reasons=(s.reasons||[]).slice(0,10).map(r=>{
-          const col=r.startsWith('✅')?'#16a34a':r.startsWith('⚠')?'#ca8a04':r.startsWith('❌')?'#dc2626':'var(--muted)';
-          return`<div style="font-size:.67rem;color:${col};padding:1px 0">${r}</div>`;
-        }).join('');
-        const gap=s.confidence<65?`<div style="font-size:.62rem;color:var(--yellow);margin-top:4px">Missing: 4H must confirm Daily for signal to fire.</div>`:'';
-        return`<div style="margin-bottom:12px">
-          <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:6px">${k.toUpperCase()} — ${s.signal} ${s.confidence}%</div>
-          ${reasons||'<div style="color:var(--muted);font-size:.65rem">No reasons available</div>'}
-          ${gap}
-        </div>`;
-      });
-      rEl.innerHTML=parts.join('');
-    }
-    // History
-    const hBody=document.getElementById('sc-hist-body');
-    const history=hist.history||[];
-    const now=Date.now();
-    const cycles24=history.filter(h=>(now-new Date(h.t).getTime())<86400000).length;
-    document.getElementById('sc-cycle-count').textContent=`${history.length} cycles recorded · ${cycles24} last 24h`;
-    if(hBody){
-      if(!history.length){hBody.innerHTML=`<tr><td colspan="8" style="color:var(--muted);font-size:.72rem;padding:16px;text-align:center">No history yet — populates after first 30-min refresh cycle</td></tr>`;
-      }else{
-        const cColor=c=>c>=65?'var(--green)':c>=50?'var(--yellow)':'var(--red)';
-        const sColor=s=>s==='BUY'?'var(--green)':s==='SELL'?'var(--red)':'var(--muted)';
-        hBody.innerHTML=history.slice(0,40).map(h=>{
-          const fired=['btc','gold','spx'].some(k=>h[k]&&h[k].s!=='WAIT'&&(h[k].c||0)>=65);
-          const d=new Date(h.t);
-          const ts=d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});
-          const cell=(k)=>h[k]?`<td style="padding:5px 8px;color:${sColor(h[k].s)};font-weight:700;font-size:.62rem">${h[k].s}</td><td style="padding:5px 8px;font-weight:700;font-size:.62rem;color:${cColor(h[k].c||0)}">${h[k].c||0}%</td>`:'<td colspan="2" style="color:var(--muted);padding:5px 8px">—</td>';
-          return`<tr style="border-bottom:1px solid rgba(26,34,53,.5)">
-            <td style="padding:5px 10px;color:var(--muted);font-size:.62rem;font-variant-numeric:tabular-nums;white-space:nowrap">${ts}</td>
-            ${cell('btc')}${cell('gold')}${cell('spx')}
-            <td style="padding:5px 8px;font-size:.6rem;font-weight:700;color:${fired?'var(--green)':'var(--dim)'}">${fired?'SIGNAL':'wait'}</td>
-          </tr>`;
-        }).join('');
-      }
-    }
-    // Learning
-    const lBody=document.getElementById('sc-learn-body');
-    if(lBody){
-      const stats=learn?.setupStats||{};
-      const entries=Object.entries(stats);
-      if(!entries.length){lBody.innerHTML=`<tr><td colspan="5" style="color:var(--muted);padding:14px;text-align:center;font-size:.72rem">No trades yet — learning starts after first closed trade</td></tr>`;}
-      else{
-        lBody.innerHTML=entries.sort((a,b)=>(b[1].total||0)-(a[1].total||0)).map(([name,s])=>{
-          const w=s.wins||0,l=s.losses||0,tot=w+l;
-          const wr=tot>0?Math.round(w/tot*100):0;
-          const wrCol=wr>=65?'var(--green)':wr>=50?'var(--yellow)':'var(--red)';
-          const pnl=s.totalPnl||s.total_pnl||0;
-          const status=wr<40&&tot>=5?`<span style="background:rgba(239,68,68,.15);color:var(--red);padding:1px 6px;border-radius:3px;font-size:.58rem;font-weight:700">AVOID</span>`
-                      :wr>=65&&tot>=5?`<span style="background:rgba(34,197,94,.12);color:var(--green);padding:1px 6px;border-radius:3px;font-size:.58rem;font-weight:700">HOT</span>`
-                      :`<span style="color:var(--muted);font-size:.62rem">${tot<5?`${tot}/5 trades`:'OK'}</span>`;
-          return`<tr style="border-bottom:1px solid rgba(26,34,53,.5)">
-            <td style="padding:7px 12px;font-weight:600">${name}</td>
-            <td style="padding:7px 12px;color:var(--muted)">${w}W / ${l}L</td>
-            <td style="padding:7px 12px">
-              <div style="display:flex;align-items:center;gap:6px">
-                <div style="flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden;min-width:60px"><div style="height:100%;width:${wr}%;background:${wrCol};border-radius:3px"></div></div>
-                <span style="font-weight:700;color:${wrCol};font-variant-numeric:tabular-nums;min-width:30px">${wr}%</span>
-              </div>
-            </td>
-            <td style="padding:7px 12px;color:${pnl>=0?'var(--green)':'var(--red)'};font-variant-numeric:tabular-nums">${pnl>=0?'+':''}${pnl.toFixed(2)}</td>
-            <td style="padding:7px 12px">${status}</td>
-          </tr>`;
-        }).join('');
-      }
-    }
-  }catch(e){console.error('loadSignalsTab:',e);}
-}
-
 // ── Boot ─────────────────────────────────────────────────────
 async function init() {
   await Promise.all([loadPrices(),loadSignals(),loadPlan(),loadAlerts(),loadCongress(),loadAnalysis(),loadMT5(),loadFeatures(),loadRiskStatus(),loadUptime()]);
 }
 init();
-// ── Data Feed Tab ──────────────────────────────────────────────
-async function loadFeedTab() {
-  try {
-    const [priceRes, sigRes, posRes, alertRes, setupRes, riskRes] = await Promise.allSettled([
-      fetch('/api/prices').then(r=>r.json()),
-      fetch('/api/signals').then(r=>r.json()),
-      fetch('/api/mt5/positions').then(r=>r.json()),
-      fetch('/api/alerts').then(r=>r.json()),
-      fetch('/api/setup-health').then(r=>r.json()),
-      fetch('/api/risk-status').then(r=>r.json()),
-    ]);
-
-    const prices = priceRes.status === 'fulfilled' ? priceRes.value : null;
-    const sigs   = sigRes.status   === 'fulfilled' ? sigRes.value   : null;
-    const pos    = posRes.status   === 'fulfilled' ? posRes.value   : null;
-    const alerts = alertRes.status === 'fulfilled' ? alertRes.value : null;
-    const setup  = setupRes.status === 'fulfilled' ? setupRes.value : null;
-    const risk   = riskRes.status  === 'fulfilled' ? riskRes.value  : null;
-
-    // Freshness bar
-    if (prices?.updatedAt) {
-      const ago = Math.round((Date.now() - new Date(prices.updatedAt)) / 1000);
-      document.getElementById('fd-price-ts').textContent = ago < 120 ? `${ago}s ago` : new Date(prices.updatedAt).toLocaleTimeString();
-    }
-    if (sigs?.updatedAt) {
-      const ago = Math.round((Date.now() - new Date(sigs.updatedAt)) / 1000);
-      document.getElementById('fd-sig-ts').textContent = ago < 120 ? `${ago}s ago` : new Date(sigs.updatedAt).toLocaleTimeString();
-    }
-    document.getElementById('fd-sys-status').textContent = sigs ? '● ONLINE' : '✗ Server unreachable';
-    document.getElementById('fd-sys-status').style.color = sigs ? 'var(--green)' : 'var(--red)';
-
-    // Macro price strip
-    function fmtP(v, dp=2) { return v != null ? v.toLocaleString('en-US', {minimumFractionDigits:dp, maximumFractionDigits:dp}) : '—'; }
-    function fmtChg(c) {
-      if (c == null) return {txt:'—', col:'var(--muted)'};
-      return {txt: (c>=0?'+':'')+c.toFixed(2)+'%', col: c>=0?'var(--green)':'var(--red)'};
-    }
-    if (prices) {
-      const p = prices;
-      const btcEl  = document.getElementById('fd-btc');
-      const goldEl = document.getElementById('fd-gold');
-      const spxEl  = document.getElementById('fd-spx');
-      const dxyEl  = document.getElementById('fd-dxy');
-      const vixEl  = document.getElementById('fd-vix');
-      if (btcEl)  btcEl.textContent  = p.btc  != null ? '$'+fmtP(p.btc,  0) : '—';
-      if (goldEl) goldEl.textContent = p.gold != null ? '$'+fmtP(p.gold, 0) : '—';
-      if (spxEl)  spxEl.textContent  = p.spx  != null ? fmtP(p.spx,  0) : '—';
-      if (dxyEl)  dxyEl.textContent  = p.dxy  != null ? fmtP(p.dxy,  2) : '—';
-      if (vixEl)  vixEl.textContent  = p.vix  != null ? fmtP(p.vix,  2) : '—';
-      const changes = { btc: p.btcChg, gold: p.goldChg, spx: p.spxChg, dxy: p.dxyChg, vix: p.vixChg };
-      ['btc','gold','spx','dxy','vix'].forEach(k => {
-        const el = document.getElementById('fd-'+k+'-chg');
-        if (el) { const r = fmtChg(changes[k]); el.textContent = r.txt; el.style.color = r.col; }
-      });
-    }
-
-    // Indicator cards per asset
-    function renderInd(elId, regElId, sig) {
-      const el = document.getElementById(elId);
-      const re = document.getElementById(regElId);
-      if (!el) return;
-      if (!sig) { el.innerHTML = '<span style="color:var(--muted)">No data</span>'; return; }
-      const tf = (label, val) => val != null
-        ? `<div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">${label}</span><span style="font-weight:600">${val}</span></div>`
-        : '';
-      const sigCol = sig.signal === 'BUY' ? 'var(--green)' : sig.signal === 'SELL' ? 'var(--red)' : 'var(--muted)';
-      el.innerHTML = [
-        tf('Signal', `<span style="color:${sigCol};font-weight:700">${sig.signal||'WAIT'}</span>`),
-        tf('Confidence', sig.confidence != null ? sig.confidence+'%' : null),
-        tf('Entry', sig.entry != null ? sig.entry.toLocaleString() : null),
-        tf('Stop', sig.stop  != null ? sig.stop.toLocaleString()  : null),
-        tf('Target', sig.target != null ? sig.target.toLocaleString() : null),
-        tf('Setup', sig.setup||null),
-        tf('Trend', sig.trend||null),
-        tf('RSI-D', sig.rsi_d != null ? sig.rsi_d.toFixed(1) : null),
-        tf('RSI-4H', sig.rsi_4h != null ? sig.rsi_4h.toFixed(1) : null),
-        tf('RSI-1H', sig.rsi_1h != null ? sig.rsi_1h.toFixed(1) : null),
-        tf('MACD', sig.macd != null ? sig.macd.toFixed(2) : null),
-        tf('BB Pos', sig.bb_pos != null ? (sig.bb_pos*100).toFixed(0)+'%' : null),
-        tf('EMA200', sig.ema200 != null ? sig.ema200.toLocaleString() : null),
-      ].filter(Boolean).join('');
-      if (re) {
-        re.textContent = sig.regime || '—';
-        re.style.background = sig.regime === 'RISK-ON' ? '#0d2010' : sig.regime === 'RISK-OFF' ? '#200d0d' : 'var(--border)';
-        re.style.color = sig.regime === 'RISK-ON' ? 'var(--green)' : sig.regime === 'RISK-OFF' ? 'var(--red)' : 'var(--muted)';
-      }
-    }
-    if (sigs) {
-      renderInd('fd-btc-ind',  'fd-btc-regime',  sigs.btc);
-      renderInd('fd-gold-ind', 'fd-gold-regime', sigs.gold);
-      renderInd('fd-spx-ind',  'fd-spx-regime',  sigs.spx);
-    }
-
-    // MT5 positions
-    const posBody = document.getElementById('fd-pos-body');
-    const positions = pos?.positions || [];
-    document.getElementById('fd-pos-count').textContent = positions.length ? `${positions.length} open` : 'No positions';
-    if (posBody) {
-      posBody.innerHTML = positions.length === 0
-        ? '<tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">No open positions</td></tr>'
-        : positions.map(p => {
-            const pnlCol = (p.profit||0) >= 0 ? 'var(--green)' : 'var(--red)';
-            return `<tr style="border-bottom:1px solid var(--border)">
-              <td style="padding:6px 10px;font-weight:700">${p.symbol||'—'}</td>
-              <td style="padding:6px 10px;color:${p.type==='BUY'?'var(--green)':'var(--red)'}">${p.type||'—'}</td>
-              <td style="padding:6px 10px;text-align:right;color:${pnlCol};font-weight:700">${p.profit!=null?'$'+(p.profit>=0?'+':'')+p.profit.toFixed(2):'—'}</td>
-              <td style="padding:6px 10px;text-align:right;color:var(--muted)">${p.volume||'—'}</td>
-            </tr>`;
-          }).join('');
-    }
-
-    // Alerts feed
-    const alertList = document.getElementById('fd-alerts-list');
-    const alertItems = alerts?.alerts || [];
-    document.getElementById('fd-alert-count').textContent = alertItems.length ? `${alertItems.length} received` : '0 received';
-    if (alertList) {
-      alertList.innerHTML = alertItems.length === 0
-        ? '<div style="color:var(--muted);padding:14px;text-align:center">No alerts received yet</div>'
-        : alertItems.slice(0, 20).map(a => {
-            const col = a.signal === 'BUY' ? 'var(--green)' : a.signal === 'SELL' ? 'var(--red)' : 'var(--muted)';
-            const ts = a.time ? new Date(a.time).toLocaleTimeString() : '';
-            return `<div style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border)">
-              <span style="color:var(--muted);font-size:.6rem;white-space:nowrap">${ts}</span>
-              <span style="font-weight:700;color:${col};min-width:40px">${a.signal||'?'}</span>
-              <span style="color:var(--text)">${a.symbol||''}</span>
-              <span style="color:var(--muted);font-size:.65rem;margin-left:auto">${a.source||''}</span>
-            </div>`;
-          }).join('');
-    }
-
-    // Setup health
-    const setupBody = document.getElementById('fd-setup-body');
-    const setups = setup?.setups || setup?.data || [];
-    if (setupBody) {
-      setupBody.innerHTML = setups.length === 0
-        ? '<tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">No setup data yet</td></tr>'
-        : setups.slice(0,10).map(s => {
-            const hot = (s.status||'').toLowerCase() === 'hot';
-            const cold = (s.status||'').toLowerCase() === 'cold';
-            const stCol = hot ? 'var(--green)' : cold ? 'var(--red)' : 'var(--muted)';
-            const wr = s.win_rate != null ? (s.win_rate*100).toFixed(0)+'%' : '—';
-            const pnl = s.total_pnl != null ? (s.total_pnl>=0?'+':'')+s.total_pnl.toFixed(0) : '—';
-            return `<tr style="border-bottom:1px solid var(--border)">
-              <td style="padding:6px 10px;font-weight:600">${s.setup||s.name||'—'}</td>
-              <td style="padding:6px 10px;color:${stCol};font-weight:700;text-transform:uppercase">${s.status||'—'}</td>
-              <td style="padding:6px 10px;text-align:right">${wr}</td>
-              <td style="padding:6px 10px;text-align:right;color:${s.total_pnl>=0?'var(--green)':'var(--red)'}">${pnl}</td>
-            </tr>`;
-          }).join('');
-    }
-
-    // Risk gate
-    const riskBody = document.getElementById('fd-risk-body');
-    if (riskBody && risk) {
-      const gate = risk.trading_allowed !== false;
-      const gateCol = gate ? 'var(--green)' : 'var(--red)';
-      riskBody.innerHTML = `
-        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Trading</span><span style="color:${gateCol};font-weight:700">${gate?'ALLOWED':'BLOCKED'}</span></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Max Risk/Trade</span><span>${risk.max_risk_pct != null ? risk.max_risk_pct+'%' : '—'}</span></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Daily Loss Limit</span><span>${risk.daily_loss_pct != null ? risk.daily_loss_pct+'%' : '—'}</span></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">News Block</span><span style="color:${risk.news_blackout?'var(--red)':'var(--muted)'}">${risk.news_blackout?'ACTIVE':'OFF'}</span></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Reason</span><span style="font-size:.7rem;color:var(--muted)">${risk.reason||'OK'}</span></div>
-      `;
-    }
-
-  } catch(e) { console.error('loadFeedTab:', e); }
-}
-
-setInterval(()=>{ if(document.getElementById('tab-feed')?.classList.contains('active')) loadFeedTab(); }, 15_000);
-
 setInterval(loadPrices,    REFRESH_MS);
-setInterval(loadSignals,   60_000);
+setInterval(loadSignals,   4*60_000);
 setInterval(loadAlerts,    15_000);
 setInterval(loadCongress,  5*60_000);
 setInterval(()=>loadPlan(),5*60_000);
@@ -1841,7 +1322,6 @@ setInterval(loadMT5,       15_000);
 setInterval(loadFeatures,  30_000);
 setInterval(loadRiskStatus,15_000);
 setInterval(loadUptime,    1_000);
-setInterval(()=>{if(document.getElementById('tab-signals')?.classList.contains('active'))loadSignalsTab();}, 20_000);
 </script>
 </body>
 </html>
