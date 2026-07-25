@@ -826,7 +826,7 @@ async function speak(text) {
     if (r.ok) {
       const url = URL.createObjectURL(await r.blob());
       currentAudio = new Audio(url);
-      currentAudio.onplay  = () => onSpeakStart();
+      currentAudio.onplay  = () => onSpeakStart(currentAudio);
       currentAudio.onended = () => { onSpeakEnd(); URL.revokeObjectURL(url); };
       currentAudio.onerror = () => { onSpeakEnd(); URL.revokeObjectURL(url); speakBrowser(clean); };
       currentAudio.play();
