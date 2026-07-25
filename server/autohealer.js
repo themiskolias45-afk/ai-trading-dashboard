@@ -30,8 +30,11 @@ const state = {
     journalFile:     { ok: true, lastChecked: null, detail: null },
     memory:          { ok: true, lastChecked: null, detail: null },
     errorRate:       { ok: true, lastChecked: null, detail: null },
+    mt5Bridge:       { ok: true, lastChecked: null, detail: null },
   },
 };
+
+let mt5AlertSent = false; // avoid re-alerting every 30s while the bridge stays down
 
 // Server context injected via start()
 let ctx = null;
