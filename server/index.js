@@ -1909,6 +1909,13 @@ function buildSystemContext() {
     if (h.errorLog?.length) lines.push(`Recent errors: ${h.errorLog.slice(0, 3).map(e => e.message || e).join(" | ")}`);
   } catch { lines.push("Healer status unavailable."); }
 
+  lines.push("", "═══ PERSISTENT MEMORY (facts saved across sessions — not lost on page reload) ═══");
+  try {
+    const recent = loadMemory().entries.slice(0, 10);
+    if (recent.length) for (const e of recent) lines.push(`[${e.category}] ${e.key}: ${e.value}`);
+    else lines.push("Nothing saved yet.");
+  } catch { lines.push("Memory store unavailable."); }
+
   return lines.join("\n");
 }
 
