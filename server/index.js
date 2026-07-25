@@ -948,6 +948,30 @@ function mktBias(change) {
   return change > 2 ? "STRONG BUY" : change > 0 ? "BUY" : change < -2 ? "STRONG SELL" : "SELL";
 }
 
+const WATCHLIST_PRIORITY_RANK = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+
+function buildWatchlist() {
+  const entries = [
+    { ticker: "BTC",  signal: signalCache.btc  },
+    { ticker: "GOLD", signal: signalCache.gold },
+    { ticker: "SPX",  signal: signalCache.spx  }
+  ];
+
+  return entries
+    .filter(e => e.signal)
+    .map(({ ticker, signal: s }) => {
+      const bandwidth = s.indicators?.bb?.bandwidth;
+      const squeeze    = bandwidth != null && bandwidth < 8;
+      const active     = s.signal !== "WAIT";
+      const priority   = active ? "HIGH" : (squeeze || (s.confidence ?? 0) >= 50) ? "MEDIUM" : "LOW";
+      const action     = active
+        ? `${s.signal} live — ${s.confidence}% confidence (${(s.setup || "").replace(/_/g, " ")})`
+        : (s.reasons?.find(r => r.startsWith("Watch for")) || s.reasons?.[0] || "No setup forming");
+      return { ticker, action, priority };
+    })
+    .sort((a, b) => WATCHLIST_PRIORITY_RANK[b.priority] - WATCHLIST_PRIORITY_RANK[a.priority]);
+}
+
 function generateDailyPlan() {
   const { btc, btcChange, gold, goldChange, spx, spxChange } = priceCache;
   const signals = [signalCache.btc, signalCache.gold, signalCache.spx].filter(Boolean);
