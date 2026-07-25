@@ -80,13 +80,13 @@ header{
 
 /* ── SIDEBAR ── */
 .sidebar{
-  width:260px;flex-shrink:0;border-right:1px solid var(--border);
+  width:270px;flex-shrink:0;border-right:1px solid var(--border);
   background:rgba(8,12,22,.8);display:flex;flex-direction:column;overflow-y:auto;
 }
 .sidebar::-webkit-scrollbar{width:3px}
 .sidebar::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 .sb-section{padding:12px 14px;border-bottom:1px solid var(--border)}
-.sb-title{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:10px}
+.sb-title{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 
 /* Signal cards */
 .sig-card{
@@ -104,6 +104,8 @@ header{
 .sc-bar-bg{background:#07101e;border-radius:4px;height:5px;overflow:hidden;margin-bottom:5px}
 .sc-bar{height:5px;border-radius:4px;transition:width .7s ease,background .7s}
 .sc-meta{display:flex;justify-content:space-between;font-size:.62rem;color:var(--muted)}
+.sc-chart-link{font-size:.58rem;color:var(--muted);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.sc-chart-link:hover{color:#c4b5fd}
 
 /* Quick prompts */
 .qp-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
@@ -113,6 +115,26 @@ header{
   transition:all .2s;text-align:center;line-height:1.4;
 }
 .qp:hover{border-color:var(--accent);color:#c4b5fd;background:rgba(124,58,237,.1)}
+
+/* System control buttons */
+.sysbtn{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 10px;background:rgba(13,20,40,.8);border:1px solid var(--border);
+  border-radius:7px;font-size:.68rem;color:var(--muted);cursor:pointer;
+  transition:all .2s;margin-bottom:5px;text-decoration:none;
+}
+.sysbtn:hover{border-color:var(--accent);color:#c4b5fd;background:rgba(124,58,237,.1)}
+.sysbtn .arrow{opacity:.5;font-size:.6rem}
+
+/* Learning rows */
+.learn-row{display:flex;flex-direction:column;gap:3px;padding:7px 0;border-bottom:1px solid rgba(26,37,64,.5)}
+.learn-row:last-child{border-bottom:none}
+.learn-top{display:flex;justify-content:space-between;font-size:.66rem}
+.learn-name{color:var(--text);font-weight:600}
+.learn-wr{font-weight:800}
+.learn-bar-bg{height:4px;background:#07101e;border-radius:3px;overflow:hidden}
+.learn-bar{height:100%;border-radius:3px}
+.learn-empty{font-size:.66rem;color:var(--muted);line-height:1.5}
 
 /* Voice status box */
 .voice-box{
@@ -147,6 +169,8 @@ header{
 .bubble{padding:11px 15px;border-radius:12px;font-size:.82rem;line-height:1.65;white-space:pre-wrap;word-break:break-word}
 .msg.jarvis .bubble{background:var(--surface2);border:1px solid var(--border);border-top-left-radius:2px;color:var(--text)}
 .msg.user   .bubble{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border-top-right-radius:2px}
+.bubble strong{color:#c4b5fd}
+.msg.user .bubble strong{color:#fff}
 .ts{font-size:.58rem;color:var(--muted)}
 
 /* Typing */
@@ -217,6 +241,62 @@ header{
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 #stop-spk{display:none}
 
+/* ── MODALS (Settings / Charts) ── */
+.modal-overlay{
+  display:none;position:fixed;inset:0;background:rgba(2,4,10,.78);z-index:998;
+  align-items:center;justify-content:center;backdrop-filter:blur(4px);
+}
+.modal-overlay.show{display:flex}
+.modal-box{
+  background:var(--surface);border:1px solid var(--border2);border-radius:14px;
+  width:520px;max-width:92vw;max-height:86vh;overflow-y:auto;
+  box-shadow:0 20px 60px rgba(0,0,0,.6);
+}
+.modal-box.wide{width:920px}
+.modal-hdr{
+  padding:16px 20px;border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;
+  background:var(--surface);z-index:2;
+}
+.modal-title{font-size:.85rem;font-weight:800;letter-spacing:.04em}
+.modal-close{background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;line-height:1}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:18px 20px}
+.field-group{margin-bottom:14px}
+.field-label{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;display:flex;justify-content:space-between}
+.field-status{font-size:.6rem;font-weight:700;padding:1px 7px;border-radius:8px}
+.field-status.ok{background:rgba(34,197,94,.15);color:var(--green)}
+.field-status.off{background:rgba(74,96,128,.15);color:var(--muted)}
+.field-input{
+  width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
+  color:var(--text);font-family:var(--font);font-size:.8rem;padding:9px 12px;outline:none;
+}
+.field-input:focus{border-color:var(--accent)}
+.field-hint{font-size:.6rem;color:var(--muted);margin-top:4px}
+.custom-row{display:flex;gap:6px;margin-bottom:6px}
+.custom-row .field-input{flex:1}
+.custom-row .field-input.key-in{flex:0 0 140px}
+.rm-row{background:none;border:1px solid var(--border2);color:var(--muted);border-radius:6px;width:32px;cursor:pointer;flex-shrink:0}
+.rm-row:hover{color:var(--red);border-color:var(--red)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;padding-top:8px;border-top:1px solid var(--border);margin-top:6px}
+.btn-primary{background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;padding:9px 18px;border-radius:8px;font-size:.75rem;font-weight:700;cursor:pointer}
+.btn-primary:hover{box-shadow:0 4px 16px rgba(124,58,237,.5)}
+.btn-ghost{background:none;border:1px solid var(--border2);color:var(--muted);padding:9px 14px;border-radius:8px;font-size:.75rem;cursor:pointer}
+.btn-ghost:hover{color:var(--text);border-color:var(--accent)}
+.settings-save-msg{font-size:.68rem;color:var(--green);margin-right:auto;align-self:center}
+
+/* Charts modal */
+.chart-tabs{display:flex;gap:6px;margin-bottom:10px}
+.chart-tab{padding:6px 16px;border-radius:8px;font-size:.72rem;font-weight:700;cursor:pointer;border:1px solid var(--border2);color:var(--muted);background:none}
+.chart-tab.active{background:rgba(124,58,237,.2);border-color:var(--accent);color:#c4b5fd}
+.chart-layout-row{display:flex;gap:6px;margin-bottom:14px}
+.layout-btn{padding:5px 14px;border-radius:20px;font-size:.68rem;font-weight:600;cursor:pointer;border:1px solid var(--border2);color:var(--muted);background:none}
+.layout-btn.active{background:rgba(124,58,237,.2);border-color:var(--accent);color:#c4b5fd}
+.chart-grid{display:grid;gap:10px}
+.chart-slot{background:var(--surface2);border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+.chart-slot-hdr{padding:6px 10px;font-size:.62rem;color:var(--muted);font-weight:700;letter-spacing:.06em;border-bottom:1px solid var(--border)}
+.chart-slot-body{height:340px}
+
 /* ── ANIMATIONS ── */
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
 @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-7px)}}
@@ -224,7 +304,7 @@ header{
 @keyframes slideIn{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:translateX(0)}}
 
 /* ── RESPONSIVE ── */
-@media(max-width:820px){.sidebar{display:none}.mc{max-width:88%}}
+@media(max-width:820px){.sidebar{display:none}.mc{max-width:88%}.modal-box.wide{width:92vw}.chart-slot-body{height:220px}}
 </style>
 </head>
 <body>
@@ -256,9 +336,88 @@ header{
   <div class="header-btns">
     <button class="hbtn" id="btn-voice" onclick="toggleVoice()">🔈 Voice</button>
     <button class="hbtn" id="btn-alerts" onclick="toggleAlerts()">🔔 Alerts</button>
+    <button class="hbtn" onclick="openCharts()">📈 Charts</button>
+    <button class="hbtn" onclick="openSettings()">⚙ Settings</button>
     <a href="/dashboard" class="hbtn">← Dashboard</a>
   </div>
 </header>
+
+<!-- ═══════════ SETTINGS MODAL ═══════════ -->
+<div class="modal-overlay" id="settings-overlay">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <div class="modal-title">⚙ System Settings</div>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <div class="field-group">
+        <div class="field-label">Anthropic API Key <span class="field-status off" id="st-anthropic">not set</span></div>
+        <input class="field-input" id="in-anthropic" type="password" placeholder="sk-ant-…" autocomplete="off">
+        <div class="field-hint">Powers JARVIS chat + all AI analysis. Applies immediately, no restart.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">OpenAI API Key <span class="field-status off" id="st-openai">not set</span></div>
+        <input class="field-input" id="in-openai" type="password" placeholder="sk-…" autocomplete="off">
+        <div class="field-hint">Stored for future use — no OpenAI feature is wired up yet.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Telegram Bot Token <span class="field-status off" id="st-tgtoken">not set</span></div>
+        <input class="field-input" id="in-tgtoken" type="password" placeholder="123456:ABC-DEF…" autocomplete="off">
+        <div class="field-hint">From @BotFather. Polling starts immediately once saved.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Telegram Chat ID</div>
+        <input class="field-input" id="in-tgchat" type="text" placeholder="e.g. 123456789">
+        <div class="field-hint">Your personal chat ID so JARVIS can message you proactively (morning plan, strong signals).</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Unusual Whales API Key <span class="field-status off" id="st-uw">not set</span></div>
+        <input class="field-input" id="in-uw" type="password" placeholder="uw_…" autocomplete="off">
+        <div class="field-hint">Congress trades + options flow.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Other API Keys</div>
+        <div id="custom-rows"></div>
+        <button class="btn-ghost" onclick="addCustomRow()" style="margin-top:4px">+ Add key</button>
+      </div>
+
+      <div class="modal-actions">
+        <span class="settings-save-msg" id="settings-save-msg"></span>
+        <button class="btn-ghost" onclick="closeSettings()">Cancel</button>
+        <button class="btn-primary" onclick="saveSettings()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ CHARTS MODAL ═══════════ -->
+<div class="modal-overlay" id="charts-overlay">
+  <div class="modal-box wide">
+    <div class="modal-hdr">
+      <div class="modal-title">📈 Live Charts</div>
+      <button class="modal-close" onclick="closeCharts()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="chart-tabs">
+        <button class="chart-tab active" id="ctab-btc"  onclick="setChartAsset('btc')">₿ BTC</button>
+        <button class="chart-tab" id="ctab-gold" onclick="setChartAsset('gold')">🥇 GOLD</button>
+        <button class="chart-tab" id="ctab-spx"  onclick="setChartAsset('spx')">📈 SPX</button>
+      </div>
+      <div class="chart-layout-row">
+        <button class="layout-btn" id="clay-1" onclick="setChartLayout(1)">1 Chart</button>
+        <button class="layout-btn active" id="clay-2" onclick="setChartLayout(2)">2 Charts</button>
+        <button class="layout-btn" id="clay-3" onclick="setChartLayout(3)">3 Charts</button>
+      </div>
+      <div class="chart-grid" id="chart-grid"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════ MAIN ═══════════ -->
 <div class="layout">
@@ -266,7 +425,7 @@ header{
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="sb-section">
-      <div class="sb-title">Live Signals</div>
+      <div class="sb-title"><span>Live Signals</span></div>
       <div class="sig-card" id="sc-btc">
         <div class="sc-row1"><span class="sc-asset">BTC</span><span class="sc-badge b-WAIT" id="sb-btc">WAIT</span></div>
         <div class="sc-bar-bg"><div class="sc-bar" id="bar-btc" style="width:0;background:var(--muted)"></div></div>
@@ -285,7 +444,21 @@ header{
     </div>
 
     <div class="sb-section">
-      <div class="sb-title">Quick Ask</div>
+      <div class="sb-title"><span>Self-Learning</span></div>
+      <div id="learn-box"><div class="learn-empty">Loading…</div></div>
+    </div>
+
+    <div class="sb-section">
+      <div class="sb-title"><span>System</span></div>
+      <div class="sysbtn" onclick="forceHeal()"><span>🩺 Force Heal</span><span class="arrow">run</span></div>
+      <div class="sysbtn" onclick="sq('Give me setup health — which setups should I take or avoid right now?')"><span>📊 Setup Health</span><span class="arrow">ask</span></div>
+      <a class="sysbtn" href="/daily-plan"><span>📅 Daily Plan</span><span class="arrow">open</span></a>
+      <a class="sysbtn" href="/command"><span>⚡ Command Center</span><span class="arrow">open</span></a>
+      <a class="sysbtn" href="/dashboard/performance.html"><span>📈 Performance</span><span class="arrow">open</span></a>
+    </div>
+
+    <div class="sb-section">
+      <div class="sb-title"><span>Quick Ask</span></div>
       <div class="qp-grid">
         <div class="qp" onclick="sq('What is the best trade setup right now?')">🎯 Best setup</div>
         <div class="qp" onclick="sq('Deep analysis of Bitcoin — entry, stop, target, confidence.')">₿ BTC deep</div>
@@ -294,14 +467,14 @@ header{
         <div class="qp" onclick="sq('Current market regime — risk on, risk off, or mixed?')">🌐 Regime</div>
         <div class="qp" onclick="sq('Full risk check — are my positions safe given current volatility?')">🛡 Risk check</div>
         <div class="qp" onclick="sq('What is the trading plan for today across all assets?')">📋 Today plan</div>
-        <div class="qp" onclick="sq('Show signal confidence for all assets right now.')">📡 Signals</div>
+        <div class="qp" onclick="sq('What have you learned from past trades? Any setups to avoid?')">🧠 Learning</div>
         <div class="qp" onclick="sq('Should I trade now or wait? Explain why.')">⏳ Trade now?</div>
         <div class="qp" onclick="sq('Key support and resistance levels for BTC, Gold and SPX.')">📊 Levels</div>
       </div>
     </div>
 
     <div class="sb-section">
-      <div class="sb-title">Voice</div>
+      <div class="sb-title"><span>Voice</span></div>
       <div class="voice-box">
         <div class="vi" id="vi"></div>
         <div class="voice-box-text" id="vbox-text">Tap 🎤 to speak to JARVIS</div>
@@ -323,7 +496,7 @@ header{
       <!-- Text input row -->
       <div class="input-row">
         <div class="input-wrap">
-          <textarea id="inp" rows="1" placeholder="Ask JARVIS anything about the market…" onkeydown="hkey(event)" oninput="resize(this)"></textarea>
+          <textarea id="inp" rows="1" placeholder="Ask JARVIS anything about the system…" onkeydown="hkey(event)" oninput="resize(this)"></textarea>
           <button class="mic-inline" id="mic2" onclick="toggleMic()" title="Voice input">🎤</button>
         </div>
         <button class="send" id="sbtn" onclick="send()">↑</button>
@@ -332,16 +505,23 @@ header{
   </div>
 </div>
 
+<script src="https://s3.tradingview.com/tv.js"></script>
 <script>
 // ══════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════
-let voiceOn    = false;
-let alertsOn   = true;
-let recording  = false;
-let speaking   = false;
-let recog      = null;
-let lastAlerts = {};
+let voiceOn      = false;
+let alertsOn     = true;
+let recording    = false;
+let speaking     = false;
+let recog        = null;
+let lastAlerts   = {};
+let conversation = [];   // {role:'user'|'assistant', content} — sent to /api/chat for multi-turn memory
+let chartAsset   = 'btc';
+let chartLayout  = 2;
+
+const CHART_SYMBOLS = { btc: 'BITSTAMP:BTCUSD', gold: 'OANDA:XAUUSD', spx: 'FOREXCOM:SPXUSD' };
+const CHART_TIMEFRAMES = { 1: [{i:'D',l:'Daily'}], 2: [{i:'D',l:'Daily'},{i:'240',l:'4H'}], 3: [{i:'D',l:'Daily'},{i:'240',l:'4H'},{i:'60',l:'1H'}] };
 
 // ══════════════════════════════════════════
 //  BOOT
@@ -352,7 +532,9 @@ window.addEventListener("DOMContentLoaded", () => {
   setInterval(updateClock, 1000);
   fetchData();
   setInterval(fetchData, 20000);
-  addMsg("jarvis", "JARVIS online. I'm watching BTC, Gold, and SPX live. Ask me anything or tap 🎤 to speak.");
+  loadLearning();
+  setInterval(loadLearning, 60000);
+  addMsg("jarvis", "JARVIS online. I'm watching BTC, Gold, and SPX live — and I know the full system state: risk, positions, and what I've learned from past trades. Ask me anything or tap 🎤 to speak.");
   // restore voice prefs
   if (localStorage.getItem("jarvis-voice") === "on") { voiceOn = true; refreshVoiceBtn(); }
   if (localStorage.getItem("jarvis-alerts") === "off") { alertsOn = false; refreshAlertBtn(); }
@@ -502,7 +684,7 @@ function addMsg(role, text) {
   wrap.innerHTML = `
     <div class="av">${role === "jarvis" ? "J" : "U"}</div>
     <div class="mc">
-      <div class="bubble">${esc(text)}</div>
+      <div class="bubble">${fmt(text)}</div>
       <div class="ts">${now}</div>
     </div>`;
   box.appendChild(wrap);
@@ -535,12 +717,14 @@ async function send() {
     const r = await fetch("/api/chat", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({message: txt})
+      body: JSON.stringify({ message: txt, history: conversation })
     });
     rmTyping();
     const d = await r.json();
     const reply = d.reply || d.error || "No response.";
     addMsg("jarvis", reply);
+    conversation.push({ role: "user", content: txt }, { role: "assistant", content: reply });
+    if (conversation.length > 24) conversation = conversation.slice(-24);
     speak(reply);
     setTranscript("Ready — tap mic or type below");
   } catch {
@@ -554,6 +738,7 @@ function sq(text) { document.getElementById("inp").value = text; send(); }
 function hkey(e)  { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }
 function resize(el){ el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 function esc(s)   { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function fmt(s)   { return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); }
 
 // ══════════════════════════════════════════
 //  LIVE DATA
@@ -641,6 +826,181 @@ function showToast(msg) {
   void t.offsetWidth;
   t.classList.add("show");
   setTimeout(() => t.classList.remove("show"), 8000);
+}
+
+// ══════════════════════════════════════════
+//  SELF-LEARNING PANEL
+// ══════════════════════════════════════════
+async function loadLearning() {
+  try {
+    const learning = await fetch("/api/learning").then(r => r.json());
+    const stats = learning?.setupStats || {};
+    const entries = Object.entries(stats);
+    const box = document.getElementById("learn-box");
+    if (!entries.length) {
+      box.innerHTML = `<div class="learn-empty">No completed trades yet — nothing learned so far.</div>`;
+      return;
+    }
+    const sorted = entries.sort((a,b) => ((b[1].wins||0)+(b[1].losses||0)) - ((a[1].wins||0)+(a[1].losses||0))).slice(0, 6);
+    box.innerHTML = sorted.map(([name, s]) => {
+      const w = s.wins||0, l = s.losses||0, tot = w+l;
+      const wr = tot > 0 ? Math.round(w/tot*100) : 0;
+      const clr = wr >= 65 ? "var(--green)" : wr >= 45 ? "var(--yellow)" : "var(--red)";
+      return `<div class="learn-row">
+        <div class="learn-top"><span class="learn-name">${esc(name)}</span><span class="learn-wr" style="color:${clr}">${wr}%</span></div>
+        <div class="learn-bar-bg"><div class="learn-bar" style="width:${wr}%;background:${clr}"></div></div>
+        <div style="font-size:.6rem;color:var(--muted)">${w}W / ${l}L</div>
+      </div>`;
+    }).join("");
+  } catch {
+    document.getElementById("learn-box").innerHTML = `<div class="learn-empty">Learning data unavailable.</div>`;
+  }
+}
+
+// ══════════════════════════════════════════
+//  SYSTEM CONTROLS
+// ══════════════════════════════════════════
+async function forceHeal() {
+  showToast("Running force-heal cycle…");
+  try {
+    const r = await fetch("/api/healer/heal", { method: "POST" });
+    const d = await r.json();
+    showToast(d.healthy ? "✅ System healthy." : "⚠ Heal ran — issues remain, check errors.");
+    addMsg("jarvis", `Force-heal complete. Healthy: ${d.healthy ? "yes" : "no"}. Heals performed: ${d.healCount ?? "—"}.`);
+  } catch {
+    showToast("Force-heal failed — server unreachable.");
+  }
+}
+
+// ══════════════════════════════════════════
+//  SETTINGS MODAL
+// ══════════════════════════════════════════
+function openSettings() {
+  document.getElementById("settings-overlay").classList.add("show");
+  loadSettings();
+}
+function closeSettings() { document.getElementById("settings-overlay").classList.remove("show"); }
+
+async function loadSettings() {
+  try {
+    const s = await fetch("/api/settings").then(r => r.json());
+    setFieldStatus("st-anthropic", s.anthropicKey, "in-anthropic");
+    setFieldStatus("st-openai",    s.openaiKey,    "in-openai");
+    setFieldStatus("st-tgtoken",   s.telegramToken,"in-tgtoken");
+    setFieldStatus("st-uw",        s.uwKey,        "in-uw");
+    document.getElementById("in-tgchat").value = s.telegramChatId || "";
+    document.getElementById("in-tgchat").placeholder = "e.g. 123456789";
+
+    const rows = document.getElementById("custom-rows");
+    rows.innerHTML = "";
+    (s.custom || []).forEach(c => addCustomRow(c.key, "", c.preview));
+  } catch {
+    document.getElementById("settings-save-msg").textContent = "Could not load settings.";
+  }
+}
+
+function setFieldStatus(statusId, obj, inputId) {
+  const badge = document.getElementById(statusId);
+  const input = document.getElementById(inputId);
+  if (obj?.configured) {
+    badge.textContent = obj.preview || "set";
+    badge.className = "field-status ok";
+    input.placeholder = "Leave blank to keep current key";
+  } else {
+    badge.textContent = "not set";
+    badge.className = "field-status off";
+    input.placeholder = input.placeholder;
+  }
+}
+
+function addCustomRow(key = "", value = "", preview = "") {
+  const rows = document.getElementById("custom-rows");
+  const row = document.createElement("div");
+  row.className = "custom-row";
+  row.innerHTML = `
+    <input class="field-input key-in" placeholder="KEY_NAME" value="${esc(key)}">
+    <input class="field-input" type="password" placeholder="${preview ? 'Set (' + esc(preview) + ') — leave blank to keep' : 'value'}" value="${esc(value)}">
+    <button class="rm-row" onclick="this.parentElement.remove()">✕</button>`;
+  rows.appendChild(row);
+}
+
+async function saveSettings() {
+  const body = {
+    anthropicKey:   document.getElementById("in-anthropic").value,
+    openaiKey:      document.getElementById("in-openai").value,
+    telegramToken:  document.getElementById("in-tgtoken").value,
+    telegramChatId: document.getElementById("in-tgchat").value,
+    uwKey:          document.getElementById("in-uw").value,
+    custom: Array.from(document.getElementById("custom-rows").children).map(row => {
+      const inputs = row.querySelectorAll("input");
+      return { key: inputs[0].value, value: inputs[1].value };
+    }).filter(c => c.key && c.value),
+  };
+  const msgEl = document.getElementById("settings-save-msg");
+  msgEl.textContent = "Saving…";
+  try {
+    const r = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error();
+    msgEl.textContent = "Saved ✓";
+    document.getElementById("in-anthropic").value = "";
+    document.getElementById("in-openai").value = "";
+    document.getElementById("in-tgtoken").value = "";
+    document.getElementById("in-uw").value = "";
+    loadSettings();
+    setTimeout(() => { msgEl.textContent = ""; }, 3000);
+  } catch {
+    msgEl.textContent = "Save failed — server unreachable.";
+  }
+}
+
+// ══════════════════════════════════════════
+//  CHARTS MODAL
+// ══════════════════════════════════════════
+function openCharts() {
+  document.getElementById("charts-overlay").classList.add("show");
+  renderCharts();
+}
+function closeCharts() { document.getElementById("charts-overlay").classList.remove("show"); }
+
+function setChartAsset(asset) {
+  chartAsset = asset;
+  ["btc","gold","spx"].forEach(a => document.getElementById("ctab-" + a).classList.toggle("active", a === asset));
+  renderCharts();
+}
+
+function setChartLayout(n) {
+  chartLayout = n;
+  [1,2,3].forEach(x => document.getElementById("clay-" + x).classList.toggle("active", x === n));
+  renderCharts();
+}
+
+function renderCharts() {
+  const grid = document.getElementById("chart-grid");
+  grid.style.gridTemplateColumns = `repeat(${chartLayout}, 1fr)`;
+  grid.innerHTML = "";
+  const symbol = CHART_SYMBOLS[chartAsset];
+  const frames = CHART_TIMEFRAMES[chartLayout];
+  frames.forEach((tf, idx) => {
+    const id = `chart-slot-${idx}`;
+    const slot = document.createElement("div");
+    slot.className = "chart-slot";
+    slot.innerHTML = `<div class="chart-slot-hdr">${chartAsset.toUpperCase()} — ${tf.l}</div><div class="chart-slot-body" id="${id}"></div>`;
+    grid.appendChild(slot);
+  });
+  // TradingView widgets must be created after their container divs exist in the DOM
+  frames.forEach((tf, idx) => {
+    if (typeof TradingView === "undefined") return;
+    new TradingView.widget({
+      autosize: true, symbol, interval: tf.i, timezone: "Etc/UTC", theme: "dark",
+      style: "1", locale: "en", toolbar_bg: "#0d1428", enable_publishing: false,
+      hide_top_toolbar: false, save_image: false, container_id: `chart-slot-${idx}`,
+      backgroundColor: "#0d1428", gridColor: "rgba(26,37,64,0.5)"
+    });
+  });
 }
 </script>
 </body>
