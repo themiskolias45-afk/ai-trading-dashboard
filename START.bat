@@ -17,10 +17,16 @@ if exist server\apikey.txt (
   set /p ANTHROPIC_API_KEY=<server\apikey.txt
 )
 
-REM ── Kill anything already using port 3001 ──────────────────────
-echo  [0] Clearing old processes...
-taskkill /F /IM node.exe   /T >nul 2>&1
-taskkill /F /IM python.exe /T >nul 2>&1
+REM ── Stop only our own previous processes — never touch other node/python ──
+REM (a prior version of this script killed every node.exe and python.exe on
+REM  the whole machine by image name, which also silently killed unrelated
+REM  tools and reset both MT5 bridges to a single untagged instance on every
+REM  login. Window-title scoping matches tasks\watchdog.bat's safe pattern.)
+echo  [0] Stopping previous SmartEntry processes...
+taskkill /F /FI "WINDOWTITLE eq SmartEntry Server*"    >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq SmartEntry Watchdog*"  >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq SmartEntry Bridge*"    >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq SmartEntry MT5 Bridge*" >nul 2>&1
 timeout /t 2 /nobreak >nul
 
 REM ── Skip git reset — system runs from local files ─────────────
@@ -48,32 +54,31 @@ REM ── Start watchdog ──────────────────
 echo  [4] Starting watchdog (auto-restarts server if it crashes)...
 start "SmartEntry Watchdog" /min cmd /c "tasks\watchdog.bat"
 
-REM ── Launch MT5 if not running ──────────────────────────────────
-echo  [5] Checking MetaTrader 5...
-tasklist /fi "imagename eq terminal64.exe" 2>nul | find /i "terminal64.exe" >nul
-if errorlevel 1 (
-  echo  [5] MT5 not running — launching...
-  if exist "C:\Program Files\MetaTrader 5\terminal64.exe" (
-    start "" /min "C:\Program Files\MetaTrader 5\terminal64.exe"
-    echo  [5] MT5 launched — waiting 30 seconds to connect...
-    timeout /t 30 /nobreak >nul
-  ) else if exist "C:\Program Files (x86)\MetaTrader 5\terminal64.exe" (
-    start "" /min "C:\Program Files (x86)\MetaTrader 5\terminal64.exe"
-    echo  [5] MT5 launched — waiting 30 seconds to connect...
-    timeout /t 30 /nobreak >nul
-  ) else (
-    echo  [5] MT5 not found — open it manually, then run tasks\start_bridge.bat
-    goto :done
-  )
+REM ── Launch both MT5 terminals (dual-account setup) ─────────────
+REM Launching terminal64.exe again when that specific install is already
+REM running just activates its existing window (MT5 is single-instance per
+REM install) — safe to call unconditionally rather than guess at state.
+echo  [5] Ensuring both MT5 terminals are running...
+if exist "C:\Program Files\MetaTrader 5\terminal64.exe" (
+  start "" /min "C:\Program Files\MetaTrader 5\terminal64.exe"
 ) else (
-  echo  [5] MT5 already running.
+  echo  [5] WARNING: Account A terminal not found at C:\Program Files\MetaTrader 5
 )
+if exist "C:\Users\User\AppData\Roaming\MetaTrader 5\terminal64.exe" (
+  start "" /min "C:\Users\User\AppData\Roaming\MetaTrader 5\terminal64.exe"
+) else (
+  echo  [5] WARNING: Account B terminal not found at C:\Users\User\AppData\Roaming\MetaTrader 5
+)
+echo  [5] Waiting 30 seconds for terminals to connect...
+timeout /t 30 /nobreak >nul
 
-REM ── Start MT5 bridge in full-auto mode ─────────────────────────
-echo  [6] Starting MT5 bridge (full-auto)...
-start "SmartEntry Bridge" /min cmd /k "cd /d "%~dp0" && python mt5_bridge.py --auto"
+REM ── Start both MT5 bridges, each pinned to its own terminal/account ────
+echo  [6] Starting MT5 bridges A and B (full-auto, one per account)...
+start "" /min cmd /k "%~dp0tasks\start_bridge_A.bat"
 timeout /t 3 /nobreak >nul
-echo  [6] Bridge: running in background.
+start "" /min cmd /k "%~dp0tasks\start_bridge_B.bat"
+timeout /t 3 /nobreak >nul
+echo  [6] Bridges A and B: running in background.
 
 REM ── Open JARVIS (Claude AI session) ────────────────────────────
 echo  [7] Opening JARVIS...

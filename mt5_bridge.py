@@ -43,6 +43,8 @@ MAX_SPREAD_PTS = int(os.environ.get("MAX_SPREAD",    "50"))      # reject trade 
 POLL_INTERVAL  = int(os.environ.get("POLL_INTERVAL", "60"))      # seconds between signal checks
 MAGIC_NUMBER   = 20250101                                         # unique ID for SmartEntry orders
 AUTO_MODE      = "--auto" in sys.argv
+TERMINAL_PATH  = os.environ.get("MT5_TERMINAL_PATH", "")          # pin to one MT5 install when running multiple terminals
+ACCOUNT_TAG    = os.environ.get("ACCOUNT_TAG", "")                # identifies this instance in logs + server posts (dual-account setups)
 
 # MT5 symbol map: SmartEntry Yahoo ticker → candidate MT5 symbol names (checked in order)
 SYMBOL_CANDIDATES = {
@@ -99,7 +101,8 @@ def check_circuit_breaker():
 
 def log(msg, color=""):
     ts = datetime.now().strftime("%H:%M:%S")
-    print(f"{color}[{ts}] {msg}{RESET}")
+    prefix = f"[{ACCOUNT_TAG}] " if ACCOUNT_TAG else ""
+    print(f"{color}[{ts}] {prefix}{msg}{RESET}")
 
 
 def fetch_signals():
@@ -139,14 +142,15 @@ def auto_detect_symbols():
 
 
 def connect_mt5():
-    if not mt5.initialize():
+    init_ok = mt5.initialize(path=TERMINAL_PATH) if TERMINAL_PATH else mt5.initialize()
+    if not init_ok:
         log(f"MT5 initialize() failed — error: {mt5.last_error()}", RED)
         log("Make sure MetaTrader 5 is open and logged into your broker account.", YELLOW)
         return False
     info = mt5.terminal_info()
     acc  = mt5.account_info()
     if info and acc:
-        log(f"MT5 connected: {acc.name} @ {info.company}", GREEN)
+        log(f"MT5 connected: {acc.name} #{acc.login} @ {info.company}  (terminal: {info.path})", GREEN)
         log(f"Balance: ${acc.balance:.2f}  |  Equity: ${acc.equity:.2f}  |  Leverage: 1:{acc.leverage}", CYAN)
     return auto_detect_symbols()
 
@@ -234,6 +238,7 @@ def place_order(symbol, signal_type, entry, stop, target):
                 "sl":     stop,
                 "tp":     target,
                 "volume": lots,
+                "account": ACCOUNT_TAG or "default",
             }, timeout=5)
         except Exception as e:
             log(f"Could not POST trade-opened to server: {e}", YELLOW)
@@ -374,7 +379,7 @@ def report_positions():
                 "profit":  round(p.profit, 2),
                 "openTime": datetime.fromtimestamp(p.time).strftime("%H:%M:%S"),
             })
-        requests.post(f"{SERVER_URL}/api/mt5/positions", json={"positions": data}, timeout=5)
+        requests.post(f"{SERVER_URL}/api/mt5/positions", json={"positions": data, "account": ACCOUNT_TAG or "default"}, timeout=5)
     except Exception:
         pass
 
@@ -624,6 +629,7 @@ def track_closed_positions():
                 "pnl":        pnl,
                 "closePrice": close_price,
                 "closeTime":  datetime.now().isoformat(),
+                "account":    ACCOUNT_TAG or "default",
             }, timeout=5)
             color = GREEN if pnl and pnl > 0 else RED
             log(f"Trade closed #{ticket}  P&L ${pnl}", color)
@@ -635,7 +641,8 @@ def track_closed_positions():
                 "dailyPnl": round(daily_pnl, 2),
                 "consecutiveLosses": consecutive_losses,
                 "halted": trading_halted,
-                "haltReason": halt_reason
+                "haltReason": halt_reason,
+                "account": ACCOUNT_TAG or "default",
             }, timeout=3)
         except Exception:
             pass
@@ -652,7 +659,10 @@ def main():
     print(f"Mode: {'AUTO (STRONG signals only)' if AUTO_MODE else 'SEMI-AUTO (confirm each trade)'}")
     print(f"Risk per trade: {RISK_PERCENT}%  |  Max spread: {MAX_SPREAD_PTS} pts")
     print(f"Server: {SERVER_URL}")
-    print(f"Poll interval: {POLL_INTERVAL}s\n")
+    print(f"Poll interval: {POLL_INTERVAL}s")
+    if ACCOUNT_TAG:
+        print(f"Account tag: {ACCOUNT_TAG}")
+    print(f"Terminal: {TERMINAL_PATH or '(auto-detect — unsafe with more than one MT5 terminal running)'}\n")
 
     if not connect_mt5():
         sys.exit(1)

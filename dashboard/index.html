@@ -63,11 +63,23 @@
 
     /* Charts */
     .charts-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+    .charts-grid.layout-1 { grid-template-columns:1fr; }
+    .charts-grid.layout-2 { grid-template-columns:1fr 1fr; }
+    .charts-grid.layout-3 { grid-template-columns:repeat(3,1fr); }
+    .charts-grid .chart-wrap.chart-hidden { display:none; }
     .charts-grid .chart-wrap { min-height:560px; }
     .chart-wrap { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
     .chart-header { padding:10px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); }
     .chart-title { font-size:.75rem; font-weight:600; letter-spacing:.05em; }
     .chart-sub   { font-size:.65rem; color:var(--muted); }
+    .tf-btns { display:flex; gap:4px; }
+    .tf-btn {
+      background:var(--bg); border:1px solid var(--border2); color:var(--muted);
+      font-size:.62rem; font-weight:700; letter-spacing:.03em; padding:3px 10px;
+      border-radius:5px; cursor:pointer; transition:all .15s; font-family:var(--font);
+    }
+    .tf-btn:hover { border-color:var(--green); color:var(--text); }
+    .tf-btn.active { background:rgba(34,197,94,.12); border-color:var(--green); color:var(--green); }
 
     /* Bottom grid */
     .bottom-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:16px; }
@@ -254,6 +266,7 @@
     <div class="regime-badge regime-MIXED" id="regime-badge">MIXED</div>
     <div class="status-pill"><div class="dot"></div><span id="conn-status">Connecting</span></div>
     <a href="/jarvis" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:6px;padding:4px 12px;color:#fff;font-size:.78rem;cursor:pointer;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🤖 JARVIS</a>
+    <a href="/system" style="background:linear-gradient(135deg,#00aa55,#0d7a3d);border:none;border-radius:6px;padding:4px 12px;color:#fff;font-size:.78rem;cursor:pointer;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🏛️ System</a>
     <a href="/" class="home-link">← Home</a>
   </div>
 </header>
@@ -327,17 +340,56 @@
   </div>
 
   <!-- Charts -->
-  <div class="charts-grid">
-    <div class="chart-wrap">
-      <div class="chart-header"><div class="chart-title">BTC / USD</div><div class="chart-sub">Bitstamp · Daily</div></div>
+  <div style="display:flex;align-items:center;gap:18px;margin-bottom:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Chart Layout</span>
+      <div class="tf-btns">
+        <button class="tf-btn" data-layout="1" onclick="setChartLayout(1)">1</button>
+        <button class="tf-btn" data-layout="2" onclick="setChartLayout(2)">2</button>
+        <button class="tf-btn active" data-layout="3" onclick="setChartLayout(3)">3</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Assets Shown</span>
+      <div class="tf-btns">
+        <button class="tf-btn asset-chip active" data-chart-asset="btc"  onclick="selectChartAsset('btc')">BTC</button>
+        <button class="tf-btn asset-chip active" data-chart-asset="gold" onclick="selectChartAsset('gold')">GOLD</button>
+        <button class="tf-btn asset-chip active" data-chart-asset="spx"  onclick="selectChartAsset('spx')">SPX</button>
+      </div>
+    </div>
+  </div>
+  <div class="charts-grid" id="charts-grid">
+    <div class="chart-wrap" data-chart-asset="btc">
+      <div class="chart-header">
+        <div><div class="chart-title">BTC / USD</div><div class="chart-sub">Bitstamp</div></div>
+        <div class="tf-btns">
+          <button class="tf-btn" data-asset="btc" data-interval="60"  onclick="switchChart('btc','60')">1H</button>
+          <button class="tf-btn" data-asset="btc" data-interval="240" onclick="switchChart('btc','240')">4H</button>
+          <button class="tf-btn active" data-asset="btc" data-interval="D" onclick="switchChart('btc','D')">1D</button>
+        </div>
+      </div>
       <div id="tv-btc"></div>
     </div>
-    <div class="chart-wrap">
-      <div class="chart-header"><div class="chart-title">GOLD / XAUUSD</div><div class="chart-sub">Comex · Daily</div></div>
+    <div class="chart-wrap" data-chart-asset="gold">
+      <div class="chart-header">
+        <div><div class="chart-title">GOLD / XAUUSD</div><div class="chart-sub">Comex</div></div>
+        <div class="tf-btns">
+          <button class="tf-btn" data-asset="gold" data-interval="60"  onclick="switchChart('gold','60')">1H</button>
+          <button class="tf-btn" data-asset="gold" data-interval="240" onclick="switchChart('gold','240')">4H</button>
+          <button class="tf-btn active" data-asset="gold" data-interval="D" onclick="switchChart('gold','D')">1D</button>
+        </div>
+      </div>
       <div id="tv-gold"></div>
     </div>
-    <div class="chart-wrap">
-      <div class="chart-header"><div class="chart-title">S&amp;P 500 Index</div><div class="chart-sub">FOREXCOM:SPXUSD · Daily</div></div>
+    <div class="chart-wrap" data-chart-asset="spx">
+      <div class="chart-header">
+        <div><div class="chart-title">S&amp;P 500 Index</div><div class="chart-sub">FOREXCOM:SPXUSD</div></div>
+        <div class="tf-btns">
+          <button class="tf-btn" data-asset="spx" data-interval="60"  onclick="switchChart('spx','60')">1H</button>
+          <button class="tf-btn" data-asset="spx" data-interval="240" onclick="switchChart('spx','240')">4H</button>
+          <button class="tf-btn active" data-asset="spx" data-interval="D" onclick="switchChart('spx','D')">1D</button>
+        </div>
+      </div>
       <div id="tv-spx"></div>
     </div>
   </div>
@@ -943,9 +995,17 @@ function tickClock() {
 tickClock();
 setInterval(tickClock, 1000);
 
-// ── TradingView charts ───────────────────────────────────────
+// ── TradingView charts — 1H / 4H / 1D per asset ───────────────
+const CHART_ASSETS = {
+  btc:  { symbol:"BITSTAMP:BTCUSD", containerId:"tv-btc"  },
+  gold: { symbol:"OANDA:XAUUSD",    containerId:"tv-gold" },
+  spx:  { symbol:"FOREXCOM:SPXUSD", containerId:"tv-spx"  },
+};
+
 function mkChart(containerId, symbol, interval="D") {
   if (typeof TradingView === "undefined") return;
+  const container = document.getElementById(containerId);
+  if (container) container.innerHTML = "";
   new TradingView.widget({
     autosize:false, width:"100%", height:520,
     symbol, interval, timezone:"Etc/UTC", theme:"dark", style:"1", locale:"en",
@@ -954,10 +1014,70 @@ function mkChart(containerId, symbol, interval="D") {
     backgroundColor:"#0f1520", gridColor:"rgba(26,34,53,0.5)"
   });
 }
+
+function switchChart(assetKey, interval) {
+  const asset = CHART_ASSETS[assetKey];
+  if (!asset) return;
+  mkChart(asset.containerId, asset.symbol, interval);
+  document.querySelectorAll(`.tf-btn[data-asset="${assetKey}"]`).forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.interval === interval);
+  });
+}
+
+// ── Chart layout — how many chart panels, and which assets ───
+let chartAssetOrder = ["btc", "gold", "spx"]; // front N are the visible ones
+let currentChartLayout = 3;
+
+function applyChartLayout() {
+  const grid = document.getElementById("charts-grid");
+  grid.classList.remove("layout-1", "layout-2", "layout-3");
+  grid.classList.add(`layout-${currentChartLayout}`);
+
+  const visible = new Set(chartAssetOrder.slice(0, currentChartLayout));
+
+  // Re-order the DOM so visible charts read left-to-right in the chosen order.
+  chartAssetOrder.forEach(assetKey => {
+    const wrap = document.querySelector(`.chart-wrap[data-chart-asset="${assetKey}"]`);
+    if (wrap) grid.appendChild(wrap);
+  });
+
+  document.querySelectorAll(".chart-wrap[data-chart-asset]").forEach(wrap => {
+    wrap.classList.toggle("chart-hidden", !visible.has(wrap.dataset.chartAsset));
+  });
+
+  document.querySelectorAll(".asset-chip[data-chart-asset]").forEach(chip => {
+    chip.classList.toggle("active", visible.has(chip.dataset.chartAsset));
+  });
+
+  document.querySelectorAll(".tf-btn[data-layout]").forEach(btn => {
+    btn.classList.toggle("active", Number(btn.dataset.layout) === currentChartLayout);
+  });
+}
+
+function setChartLayout(n) {
+  currentChartLayout = n;
+  try { localStorage.setItem("chartLayout", String(n)); } catch {}
+  applyChartLayout();
+}
+
+function selectChartAsset(assetKey) {
+  chartAssetOrder = [assetKey, ...chartAssetOrder.filter(a => a !== assetKey)];
+  try { localStorage.setItem("chartAssetOrder", JSON.stringify(chartAssetOrder)); } catch {}
+  applyChartLayout();
+}
+
 window.addEventListener("load", () => {
-  mkChart("tv-btc","BITSTAMP:BTCUSD");
-  mkChart("tv-gold","OANDA:XAUUSD");
-  mkChart("tv-spx","FOREXCOM:SPXUSD");
+  Object.entries(CHART_ASSETS).forEach(([key, a]) => mkChart(a.containerId, a.symbol, "D"));
+
+  try {
+    currentChartLayout = Number(localStorage.getItem("chartLayout")) || 3;
+    const savedOrder = JSON.parse(localStorage.getItem("chartAssetOrder"));
+    if (Array.isArray(savedOrder) && savedOrder.length === 3 && savedOrder.every(a => CHART_ASSETS[a])) {
+      chartAssetOrder = savedOrder;
+    }
+  } catch {}
+
+  applyChartLayout();
 });
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -1431,25 +1551,29 @@ async function loadHealerPanel() {
   }
 
   try {
-    const [healRes, sigRes, posRes] = await Promise.allSettled([
+    const [healRes, sigRes, checkRes] = await Promise.allSettled([
       fetch(API+"/healer",{cache:"no-store"}).then(r=>r.json()),
       fetch(API+"/signals",{cache:"no-store"}).then(r=>r.json()),
-      fetch(API+"/mt5/positions",{cache:"no-store"}).then(r=>r.json()),
+      fetch(API+"/checksystem",{cache:"no-store"}).then(r=>r.json()),
     ]);
     const h2   = healRes.status==="fulfilled" ? healRes.value : null;
     const sigs = sigRes.status==="fulfilled" ? sigRes.value : null;
-    const mt5  = posRes.status==="fulfilled" && Array.isArray(posRes.value) ? posRes.value : [];
+    const chk  = checkRes.status==="fulfilled" ? checkRes.value : null;
     const serverOk = h2?.healthy === true;
+    // MT5 connectivity comes from the bridge's own heartbeat (last POST to /api/mt5/positions),
+    // not open-position count — a flat bridge with zero trades is still connected.
+    const mt5Connected = chk?.mt5?.connected === true;
+    const mt5Accounts   = chk?.mt5?.accounts?.length ?? 0;
     const items = [
       {label:"Server",     val: serverOk ? "ONLINE" : "OFFLINE"},
       {label:"Signals",    val: sigs ? "ACTIVE" : "WAIT"},
-      {label:"MT5 Bridge", val: mt5.length > 0 ? `${mt5.length} positions` : "OFFLINE"},
+      {label:"MT5 Bridge", val: mt5Connected ? (mt5Accounts > 1 ? `ONLINE (${mt5Accounts})` : "ONLINE") : "OFFLINE"},
       {label:"Learning AI",val: serverOk ? "ACTIVE" : "OFFLINE"},
       {label:"AI Brain",   val: serverOk ? "ENABLED" : "OFFLINE"},
     ];
     document.getElementById("health-panel-perf").innerHTML =
       items.map(i=>{
-        const ok=["online","active","enabled"].includes((i.val||"").toLowerCase()) || /position/.test(i.val);
+        const ok=["online","active","enabled"].includes((i.val||"").toLowerCase()) || i.val.startsWith("ONLINE");
         const col=ok?"var(--green)":i.val==="WAIT"||i.val==="INITIALIZING"?"var(--yellow)":"var(--muted)";
         return`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
           <span style="color:var(--muted)">${i.label}</span>

@@ -95,7 +95,8 @@ let congressCache = null;
 let flowCache     = null;
 let knownChatIds  = new Set();
 if (TELEGRAM_CHAT_ID) knownChatIds.add(TELEGRAM_CHAT_ID);
-let mt5Positions  = [];   // reported by mt5_bridge.py via POST /api/mt5/positions
+let mt5PositionsByAccount = {};  // account tag -> positions[], one entry per connected MT5 bridge
+let mt5Positions  = [];   // flattened across all accounts (each position tagged with .account) — kept for existing consumers
 let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
 let tradeJournal  = [];   // trade journal entries (max 200)
 
@@ -948,6 +949,30 @@ function mktBias(change) {
   return change > 2 ? "STRONG BUY" : change > 0 ? "BUY" : change < -2 ? "STRONG SELL" : "SELL";
 }
 
+const WATCHLIST_PRIORITY_RANK = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+
+function buildWatchlist() {
+  const entries = [
+    { ticker: "BTC",  signal: signalCache.btc  },
+    { ticker: "GOLD", signal: signalCache.gold },
+    { ticker: "SPX",  signal: signalCache.spx  }
+  ];
+
+  return entries
+    .filter(e => e.signal)
+    .map(({ ticker, signal: s }) => {
+      const bandwidth = s.indicators?.bb?.bandwidth;
+      const squeeze    = bandwidth != null && bandwidth < 8;
+      const active     = s.signal !== "WAIT";
+      const priority   = active ? "HIGH" : (squeeze || (s.confidence ?? 0) >= 50) ? "MEDIUM" : "LOW";
+      const action     = active
+        ? `${s.signal} live — ${s.confidence}% confidence (${(s.setup || "").replace(/_/g, " ")})`
+        : (s.reasons?.find(r => r.startsWith("Watch for")) || s.reasons?.[0] || "No setup forming");
+      return { ticker, action, priority };
+    })
+    .sort((a, b) => WATCHLIST_PRIORITY_RANK[b.priority] - WATCHLIST_PRIORITY_RANK[a.priority]);
+}
+
 function generateDailyPlan() {
   const { btc, btcChange, gold, goldChange, spx, spxChange } = priceCache;
   const signals = [signalCache.btc, signalCache.gold, signalCache.spx].filter(Boolean);
@@ -971,6 +996,7 @@ function generateDailyPlan() {
       gold: signalCache.gold,
       spx:  signalCache.spx
     },
+    watchlist: buildWatchlist(),
     rules: buildRules(regime)
   };
   console.log(`[plan] ${regime} — ${now.toISOString()}`);
@@ -1187,17 +1213,62 @@ app.delete("/api/manual-trade/:idx",  (req, res) => {
   res.json({ ok: true, remaining: manualTradeQueue.length });
 });
 
-// MT5 bridge endpoints
-app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions }));
+// MT5 bridge endpoints — each bridge instance tags its posts with its own account
+// (ACCOUNT_TAG env var in mt5_bridge.py) so running two bridges doesn't stomp on
+// each other's reported positions/risk state.
+function recomputeMt5Positions() {
+  mt5Positions = Object.entries(mt5PositionsByAccount).flatMap(([account, positions]) =>
+    positions.map(p => ({ ...p, account }))
+  );
+}
+
+// Every bridge loop posts here once per poll (even with zero open positions), so this
+// doubles as the connectivity heartbeat used by /api/checksystem — a bridge with no
+// open trades should never be reported as "offline" just because mt5Positions is empty.
+let mt5LastSeenByAccount = {}; // account tag -> ISO timestamp of last report
+const MT5_HEARTBEAT_STALE_MS = 150 * 1000; // 2.5x the default 60s poll interval
+
+// Per-account health check, batch-friendly: 200 while connected (or never yet seen —
+// that's not "down", just not started), 503 once a previously-connected bridge goes
+// stale. tasks/watchdog.bat polls this per account and restarts only the stale one.
+app.get("/api/mt5/health", (req, res) => {
+  const account  = req.query.account || "default";
+  const lastSeen = mt5LastSeenByAccount[account];
+  if (!lastSeen) return res.status(200).json({ connected: null, reason: "never connected yet" });
+  const ageMs     = Date.now() - new Date(lastSeen).getTime();
+  const connected = ageMs < MT5_HEARTBEAT_STALE_MS;
+  res.status(connected ? 200 : 503).json({ connected, ageMs, lastSeen });
+});
+
+app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions, byAccount: mt5PositionsByAccount }));
 app.post("/api/mt5/positions", (req, res) => {
-  mt5Positions = req.body?.positions ?? [];
+  const account = req.body?.account || "default";
+  mt5PositionsByAccount[account] = req.body?.positions ?? [];
+  mt5LastSeenByAccount[account] = new Date().toISOString();
+  recomputeMt5Positions();
   res.json({ ok: true, count: mt5Positions.length });
 });
 
 // Risk status endpoints
+let riskStatusByAccount = {}; // account tag -> {dailyPnl, consecutiveLosses, halted, haltReason}
+function recomputeRiskStatus() {
+  const accounts = Object.values(riskStatusByAccount);
+  if (!accounts.length) return;
+  const halted = accounts.filter(a => a.halted);
+  riskStatus = {
+    dailyPnl: parseFloat(accounts.reduce((s, a) => s + (a.dailyPnl || 0), 0).toFixed(2)),
+    consecutiveLosses: Math.max(...accounts.map(a => a.consecutiveLosses || 0)),
+    halted: halted.length > 0,
+    haltReason: halted.map(a => a.haltReason).filter(Boolean).join(" | "),
+    accounts: riskStatusByAccount
+  };
+}
+
 app.get("/api/risk-status",  (_, res) => res.json(riskStatus));
 app.post("/api/risk-status", (req, res) => {
-  riskStatus = { ...riskStatus, ...req.body };
+  const account = req.body?.account || "default";
+  riskStatusByAccount[account] = { ...riskStatusByAccount[account], ...req.body };
+  recomputeRiskStatus();
   if (riskStatus.halted) {
     console.log(`[risk] CIRCUIT BREAKER ACTIVE: ${riskStatus.haltReason}`);
   }
@@ -1550,6 +1621,14 @@ app.get("/api/checksystem", (_, res) => {
     if (fs.existsSync(pp)) proposal = JSON.parse(fs.readFileSync(pp, "utf8"));
   } catch {}
 
+  // MT5 bridge connectivity — based on last heartbeat per account, not open-position
+  // count (a bridge with zero open trades is still connected and must not read OFFLINE).
+  const now = Date.now();
+  const mt5Accounts = Object.entries(mt5LastSeenByAccount).map(([account, lastSeen]) => {
+    const ageMs = now - new Date(lastSeen).getTime();
+    return { account, lastSeen, secondsAgo: Math.round(ageMs / 1000), connected: ageMs < MT5_HEARTBEAT_STALE_MS };
+  });
+
   res.json({
     server:      { port: PORT, uptime: Math.round(process.uptime()), healthy: true },
     signals:     { btc: signalCache.btc?.signal, gold: signalCache.gold?.signal, spx: signalCache.spx?.signal, updatedAt: signalCache.updatedAt },
@@ -1558,6 +1637,7 @@ app.get("/api/checksystem", (_, res) => {
     performance: { trades: closed.length, wins, winRate: closed.length > 0 ? parseFloat((wins / closed.length * 100).toFixed(1)) : null, totalPnl: parseFloat(totalPnl.toFixed(2)), recentLosses },
     learning:    { sessionCount: learning.sessionCount, setupsTracked: Object.keys(learning.setupStats).length, setupHealth },
     calibration,
+    mt5:         { connected: mt5Accounts.some(a => a.connected), accounts: mt5Accounts },
     proposal:    proposal ? { worstSetup: proposal.worstSetup, winRate: proposal.winRate, generatedAt: proposal.generatedAt } : null
   });
 });
@@ -2526,6 +2606,7 @@ app.get("/dashboard", (_, res) => res.sendFile(path.join(__dirname, "..", "dashb
 app.get("/daily-plan", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "daily-plan.html")));
 app.get("/command",    (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "command.html")));
 app.get("/jarvis",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "jarvis.html")));
+app.get("/system",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "system.html")));
 app.use("/screenshots", express.static(path.join(__dirname, "..", "dashboard", "screenshots")));
 app.use(express.static(path.join(__dirname, "..", "commercial")));
 app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
@@ -2602,6 +2683,146 @@ app.post("/api/memory", (req, res) => {
   }
 });
 
+// ── /api/engineer — AI Parallel: architect a task, then run real ──────
+// parallel `claude -p` sub-agents (same mechanism as the /engineer skill),
+// triggerable from the System dashboard instead of a manual PowerShell block.
+const { spawn: spawnEngineerAgent } = require("child_process");
+const REPO_ROOT             = path.join(__dirname, "..");
+const ENGINEER_PLAN_PATH    = path.join(REPO_ROOT, "tasks", "engineer-plan.md");
+const ENGINEER_MAX_WORKERS  = 6;
+const ENGINEER_AGENT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min safety cap per agent
+const engineerRuns = {}; // runId -> { task, status, workers[], createdAt, startedAt, finishedAt }
+
+function newEngineerRunId() {
+  return "run_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+}
+
+// Step 1 — architect: split the task into independent, non-overlapping workstreams.
+app.post("/api/engineer/architect", async (req, res) => {
+  const task = (req.body?.task || "").trim();
+  if (!task) return res.status(400).json({ error: "task required" });
+  if (!anthropic) return res.status(503).json({ error: "Claude API not configured (ANTHROPIC_API_KEY missing)" });
+
+  try {
+    const prompt =
+      `You are a software architect splitting a coding task into independent parallel workstreams for the ` +
+      `SmartEntry Pro trading dashboard repo (Node/Express server in server/, static dashboard pages in ` +
+      `dashboard/, Python trading scripts in the repo root).\n\n` +
+      `TASK: ${task}\n\n` +
+      `Break this into 2-${ENGINEER_MAX_WORKERS} independent workstreams. Each workstream must own a distinct, ` +
+      `non-overlapping set of files so they can be built simultaneously with zero merge conflicts. If the task ` +
+      `is too small to parallelize, return exactly 1 workstream.\n\n` +
+      `Respond with ONLY strict JSON, no markdown fences, no commentary:\n` +
+      `{"workstreams":[{"name":"short-id","files":"which files this agent owns","task":"exact self-contained ` +
+      `instructions for this agent, written as if briefing a colleague with no other context"}]}`;
+
+    const msg = await anthropic.messages.create({
+      model: "claude-opus-4-8",
+      max_tokens: 1500,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const text = (msg.content ?? []).find(b => b.type === "text")?.text ?? "{}";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+    const workstreams = (parsed.workstreams || []).slice(0, ENGINEER_MAX_WORKERS);
+    if (!workstreams.length) return res.status(500).json({ error: "Architect returned no workstreams" });
+
+    const runId = newEngineerRunId();
+    engineerRuns[runId] = {
+      task, status: "planned",
+      workers: workstreams.map(w => ({
+        name: w.name, files: w.files, task: w.task,
+        status: "queued", output: "", exitCode: null, pid: null
+      })),
+      createdAt: new Date().toISOString(), startedAt: null, finishedAt: null
+    };
+
+    fs.mkdirSync(path.dirname(ENGINEER_PLAN_PATH), { recursive: true });
+    fs.writeFileSync(ENGINEER_PLAN_PATH,
+      `# Engineer Plan — ${new Date().toISOString()}\n\nTask: ${task}\n\n` +
+      workstreams.map((w, i) => `## ${i + 1}. ${w.name}\nFiles: ${w.files}\n\n${w.task}\n`).join("\n")
+    );
+
+    res.json({ runId, plan: workstreams });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Step 2 — launch: spawn one real `claude -p` process per workstream.
+// The prompt is sent over stdin, never as a CLI argument or shell string —
+// nothing user-controlled is ever interpolated into a shell command.
+app.post("/api/engineer/launch", (req, res) => {
+  const runId = req.body?.runId;
+  const run = engineerRuns[runId];
+  if (!run) return res.status(404).json({ error: "Unknown runId — call /api/engineer/architect first" });
+  if (run.status === "running") return res.status(409).json({ error: "This run is already in progress" });
+  if (Object.values(engineerRuns).some(r => r.status === "running")) {
+    return res.status(409).json({ error: "Another engineer run is already in progress — wait for it to finish" });
+  }
+
+  run.status = "running";
+  run.startedAt = new Date().toISOString();
+
+  run.workers.forEach(worker => {
+    worker.status = "running";
+    const briefing =
+      `SmartEntry Pro engineer. Your task: ${worker.task}\n\n` +
+      `Only touch these files: ${worker.files}\n` +
+      `Commit after each file. Write working code only. Do not touch files outside your scope.`;
+
+    const child = spawnEngineerAgent(
+      "claude",
+      ["-p", "--dangerously-skip-permissions"],
+      { cwd: REPO_ROOT, windowsHide: true, shell: true }
+    );
+    worker.pid = child.pid;
+
+    const killTimer = setTimeout(() => { try { child.kill(); } catch {} }, ENGINEER_AGENT_TIMEOUT_MS);
+
+    child.stdout.on("data", d => { worker.output = (worker.output + d.toString()).slice(-6000); });
+    child.stderr.on("data", d => { worker.output = (worker.output + d.toString()).slice(-6000); });
+    child.on("error", e => { worker.output += `\n[spawn error] ${e.message}`; });
+    child.on("close", code => {
+      clearTimeout(killTimer);
+      worker.status = code === 0 ? "done" : "error";
+      worker.exitCode = code;
+      if (run.workers.every(w => w.status === "done" || w.status === "error")) {
+        run.status = run.workers.some(w => w.status === "error") ? "completed_with_errors" : "completed";
+        run.finishedAt = new Date().toISOString();
+      }
+    });
+
+    child.stdin.write(briefing, "utf8");
+    child.stdin.end();
+  });
+
+  res.json({ ok: true, runId });
+});
+
+app.get("/api/engineer/status/:runId", (req, res) => {
+  const run = engineerRuns[req.params.runId];
+  if (!run) return res.status(404).json({ error: "Unknown runId" });
+  res.json({
+    task: run.task, status: run.status, startedAt: run.startedAt, finishedAt: run.finishedAt,
+    workers: run.workers.map(w => ({
+      name: w.name, files: w.files, status: w.status, exitCode: w.exitCode,
+      outputTail: w.output.slice(-1500)
+    }))
+  });
+});
+
+app.get("/api/engineer/runs", (_, res) => {
+  const runs = Object.entries(engineerRuns)
+    .map(([runId, r]) => ({
+      runId, task: r.task, status: r.status, createdAt: r.createdAt,
+      workerCount: r.workers.length
+    }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 20);
+  res.json({ runs });
+});
+
 // ── Boot ──────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`✅ SmartEntry Pro v12 on port ${PORT}`);
@@ -2629,6 +2850,7 @@ app.listen(PORT, async () => {
     priceCache,
     learning: _learning,
     tradeJournal: (typeof tradeJournal !== "undefined") ? tradeJournal : [],
+    mt5LastSeenByAccount,
     TELEGRAM_TOKEN,
     knownChatIds,
     refreshSignals,

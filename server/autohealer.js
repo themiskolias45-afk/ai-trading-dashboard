@@ -10,6 +10,7 @@ const https = require('https');
 
 const STALE_SIGNAL_MS  = 6 * 60 * 60 * 1000;  // 6 hours
 const STALE_PRICE_MS   = 10 * 60 * 1000;       // 10 minutes
+const STALE_MT5_MS     = 3 * 60 * 1000;        // 3 minutes — 3x the default 60s bridge poll interval
 const MAX_RETRY        = 3;
 const HEAL_INTERVAL_MS = 30 * 1000;
 
@@ -29,8 +30,11 @@ const state = {
     journalFile:     { ok: true, lastChecked: null, detail: null },
     memory:          { ok: true, lastChecked: null, detail: null },
     errorRate:       { ok: true, lastChecked: null, detail: null },
+    mt5Bridge:       { ok: true, lastChecked: null, detail: null },
   },
 };
+
+let mt5AlertSent = false; // avoid re-alerting every 30s while the bridge stays down
 
 // Server context injected via start()
 let ctx = null;
@@ -237,6 +241,41 @@ async function checkPriceFreshness() {
   }
 }
 
+function checkMt5Bridge() {
+  const name = 'mt5Bridge';
+  try {
+    const lastSeen = ctx && ctx.mt5LastSeenByAccount ? ctx.mt5LastSeenByAccount : {};
+    const accounts = Object.entries(lastSeen);
+
+    if (accounts.length === 0) {
+      updateCheck(name, true, 'no bridge has connected yet this session');
+      return;
+    }
+
+    const now = Date.now();
+    const ages = accounts.map(([account, ts]) => ({ account, ageMs: now - new Date(ts).getTime() }));
+    const live = ages.filter(a => a.ageMs < STALE_MT5_MS);
+
+    if (live.length > 0) {
+      updateCheck(name, true, `${live.length}/${ages.length} account(s) reporting`);
+      if (mt5AlertSent) {
+        mt5AlertSent = false;
+        console.log('[HEALER] MT5 bridge heartbeat recovered');
+      }
+    } else {
+      const staleList = ages.map(a => `${a.account} (${Math.round(a.ageMs / 1000)}s ago)`).join(', ');
+      updateCheck(name, false, `no bridge heartbeat — ${staleList}`);
+      if (!mt5AlertSent) {
+        sendAlert(`MT5 bridge has gone silent (${staleList}) — no trades will execute until it's restarted.`);
+        mt5AlertSent = true;
+      }
+    }
+  } catch (err) {
+    updateCheck(name, false, err.message);
+    logError(`checkMt5Bridge: ${err.message}`);
+  }
+}
+
 function checkLearningFile() {
   const name = 'learningFile';
   try {
@@ -393,6 +432,7 @@ async function runHealCycle() {
   try { checkErrorRate(); } catch (e) { logError(`checkErrorRate threw: ${e.message}`); anyFail = true; }
   try { checkLearningFile(); } catch (e) { logError(`checkLearningFile threw: ${e.message}`); anyFail = true; }
   try { checkJournalFile();  } catch (e) { logError(`checkJournalFile threw: ${e.message}`);  anyFail = true; }
+  try { checkMt5Bridge();    } catch (e) { logError(`checkMt5Bridge threw: ${e.message}`);    anyFail = true; }
 
   // Run async checks sequentially (they may trigger network calls)
   try { await checkSignalFreshness(); } catch (e) { logError(`checkSignalFreshness threw: ${e.message}`); anyFail = true; }
@@ -425,6 +465,7 @@ function sleep(ms) {
  *     priceCache:      object   — { updated: ISO string, ... }
  *     learning:        object   — the learning state object
  *     tradeJournal:    Array    — the live trade-journal array
+ *     mt5LastSeenByAccount: object — account tag -> ISO timestamp of last bridge heartbeat
  *     refreshSignals:  Function — async () => void
  *     fetchPrices:     Function — async () => void
  *     TELEGRAM_TOKEN:  string   — optional, for alerts
