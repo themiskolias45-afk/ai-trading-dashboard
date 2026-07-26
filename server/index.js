@@ -3176,10 +3176,6 @@ app.get("/command",    (_, res) => res.sendFile(path.join(__dirname, "..", "dash
 app.get("/jarvis",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "jarvis.html")));
 app.get("/system",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "system.html")));
 app.get("/plan",       (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "plan.html")));
-// Signal brief, formatted to be shared. Behind the same login as everything else:
-// sharing stays a deliberate act (copy the text, print the PDF, send a screenshot)
-// rather than this URL quietly becoming a public feed of your live entries.
-app.get("/share",      (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "share.html")));
 app.use("/screenshots", express.static(path.join(__dirname, "..", "dashboard", "screenshots")));
 app.use(express.static(path.join(__dirname, "..", "commercial")));
 app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
