@@ -2881,7 +2881,7 @@ app.get("/api/engineer/status/:runId", requireLocalOnly, (req, res) => {
   });
 });
 
-app.get("/api/engineer/runs", (_, res) => {
+app.get("/api/engineer/runs", requireLocalOnly, (_, res) => {
   const runs = Object.entries(engineerRuns)
     .map(([runId, r]) => ({
       runId, task: r.task, status: r.status, createdAt: r.createdAt,
