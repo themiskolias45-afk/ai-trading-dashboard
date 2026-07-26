@@ -712,22 +712,48 @@
     </div>
   </div>
 
-  <!-- Circuit breakers -->
+  <!-- Kill switch. The only "control" here used to be "Stop Server", which kills
+       the server, closes nothing, and leaves live positions running unwatched.
+       This stops the bridge OPENING trades and deliberately leaves open positions
+       alone — flattening places market orders and is a separate decision. -->
+  <div class="panel" style="margin-bottom:16px;border-color:var(--border2)">
+    <div class="panel-header">
+      <div class="panel-title">Trading Control</div>
+      <span id="ctl-state" style="font-size:.7rem;font-weight:700;color:var(--muted)">checking…</span>
+    </div>
+    <div class="panel-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;max-height:none">
+      <button id="ctl-halt" onclick="setTradingHalt(true)"
+        style="padding:9px 18px;background:#200d0d;border:1px solid rgba(239,68,68,.5);color:var(--red);border-radius:6px;font-size:.8rem;font-weight:700;cursor:pointer">
+        ■ HALT NEW TRADES
+      </button>
+      <button id="ctl-resume" onclick="setTradingHalt(false)"
+        style="padding:9px 18px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.4);color:var(--green);border-radius:6px;font-size:.8rem;font-weight:700;cursor:pointer">
+        ▶ RESUME TRADING
+      </button>
+      <div id="ctl-detail" style="font-size:.7rem;color:var(--muted);flex:1;min-width:200px">
+        Halts new entries only. Open positions keep their stops and targets and are still managed.
+      </div>
+    </div>
+  </div>
+
+  <!-- Circuit breakers — values reported by the bridge, never hardcoded.
+       These numbers used to be written into the HTML ("3%", "1%", "$900"), so
+       changing RISK_PERCENT or DAILY_LOSS_PCT left the page showing the old ones. -->
   <div class="circuit-grid">
     <div class="circuit-card">
       <div class="circuit-label">Daily P&amp;L</div>
       <div class="circuit-val" id="cb-pnl" style="color:var(--green)">$0.00</div>
-      <div style="font-size:.65rem;color:var(--muted);margin-top:4px">Circuit breaks at −$2,700 (3%)</div>
+      <div style="font-size:.65rem;color:var(--muted);margin-top:4px" id="cb-pnl-sub">limit not reported yet</div>
     </div>
     <div class="circuit-card">
       <div class="circuit-label">Consecutive Losses</div>
       <div class="circuit-val" id="cb-losses" style="color:var(--yellow)">0</div>
-      <div style="font-size:.65rem;color:var(--muted);margin-top:4px">Circuit breaks at 3 in a row</div>
+      <div style="font-size:.65rem;color:var(--muted);margin-top:4px" id="cb-losses-sub">limit not reported yet</div>
     </div>
     <div class="circuit-card">
       <div class="circuit-label">Risk per Trade</div>
-      <div class="circuit-val" style="color:var(--blue)">1%</div>
-      <div style="font-size:.65rem;color:var(--muted);margin-top:4px">$900 max loss per position</div>
+      <div class="circuit-val" id="cb-risk" style="color:var(--blue)">—</div>
+      <div style="font-size:.65rem;color:var(--muted);margin-top:4px" id="cb-risk-sub">reported by bridge</div>
     </div>
   </div>
 
