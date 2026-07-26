@@ -3,6 +3,9 @@
 # one). An exact-match rule would have left that copy trackable.
 keys.env*
 apikey.txt*
+# Signs dashboard session cookies. Same trust boundary as the keys above:
+# whoever holds it can forge a logged-in session.
+server/session_secret.txt
 node_modules/
 *.log
 __pycache__/
