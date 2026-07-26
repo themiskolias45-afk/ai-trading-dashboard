@@ -109,6 +109,7 @@ const API_NO_LOGIN_REQUIRED = new Set([
 // logged in.
 const API_NO_LOGIN_GET_ONLY = new Set([
   "/api/mt5/control",
+  "/api/strategy-settings",
 ]);
 
 app.use((req, res, next) => {
