@@ -332,6 +332,12 @@ const STRATEGY_LIMITS = {
   confidenceThreshold:    { min: 50, max: 95, def: 65 },
   maxConcurrentPositions: { min: 1,  max: 10, def: 3  },
   maxTradesPerDay:        { min: 1,  max: 50, def: 5  },
+  // Lot controls. `decimals` matters: rounding these to whole numbers would turn
+  // 0.01 into 0 and silently disable the setting the moment it was saved.
+  // fixedLotSize 0 means "off — size from risk". Any value above 0 overrides the
+  // risk calculation entirely and trades exactly that size.
+  fixedLotSize: { min: 0,    max: 100, def: 0,  decimals: 2 },
+  maxLotSize:   { min: 0.01, max: 100, def: 10, decimals: 2 },
 };
 
 let strategySettings = {
