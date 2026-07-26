@@ -378,16 +378,15 @@ function signalAsBroadcast(assetKey) {
   // Standard broadcast field names - BUY/SELL, Entry, SL, TP1, TP2 - so a copier
   // can parse it. "Stop"/"Target" are not names any copier looks for.
   const out = [`${side === 'LONG' ? 'BUY' : 'SELL'} ${symbol}`];
-  if (s.entry  != null) out.push(`Entry: ${num(s.entry, 2)}`);
-  if (s.stop   != null) out.push(`SL: ${num(s.stop, 2)}`);
-  if (s.target != null) out.push(`TP1: ${num(s.target, 2)}`);
-  if (s.entry != null && s.stop != null && s.target != null) {
-    const risk = Math.abs(s.entry - s.stop);
-    const tp2  = side === 'LONG' ? s.entry + risk * TP2_R_MULTIPLE * (Math.abs(s.target - s.entry) / risk)
-                                 : s.entry - risk * TP2_R_MULTIPLE * (Math.abs(s.target - s.entry) / risk);
-    out.push(`TP2: ${num(tp2, 2)} (projected ${TP2_R_MULTIPLE}x)`);
+  if (s.entry  != null) out.push(`Entry: ${raw(s.entry)}`);
+  if (s.stop   != null) out.push(`SL: ${raw(s.stop)}`);
+  if (s.target != null) out.push(`TP1: ${raw(s.target)}`);
+  if (s.entry != null && s.target != null) {
+    // Twice the distance to TP1, in the direction of the trade.
+    const tp2 = s.entry + (s.target - s.entry) * TP2_TARGET_MULTIPLE;
+    out.push(`TP2: ${raw(tp2)} (projected)`);
   }
-  if (s.rr) out.push(`R:R ${num(s.rr, 2)}:1`);
+  if (s.rr) out.push(`R:R ${raw(s.rr)}:1`);
   out.push(`Confidence: ${s.confidence == null ? 0 : s.confidence}%`);
   out.push(`Setup: ${s.setup || '—'} · ${s.regime || '—'}`);
   out.push(`TF: D ${s.signal || '—'} / 4H ${(s.h4 && s.h4.signal) || '—'} / 1H ${(s.h1 && s.h1.signal) || '—'}`);
