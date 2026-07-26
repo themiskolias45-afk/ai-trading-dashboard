@@ -349,20 +349,57 @@ function renderCards() {
 }
 
 // Plain-text version for pasting into a chat, where a screenshot is awkward.
-function briefAsText() {
-  const lines = ['SmartEntry Pro — Signal Brief', new Date().toLocaleString(), ''];
-  for (const a of ASSETS.filter(x => selected.has(x.key))) {
-    const s = signalData && signalData[a.key];
-    if (!s) continue;
-    lines.push(`${a.name} (${a.ticker}) — ${dirWord(s.signal)}  ${s.confidence == null ? 0 : s.confidence}% confidence`);
-    lines.push(`  Setup: ${s.setup || '—'} · Regime: ${s.regime || '—'} · Trend: ${s.trend || '—'}`);
-    lines.push(`  Price ${price(s.price)} | Entry ${price(s.entry)} | Stop ${price(s.stop)} | Target ${price(s.target)}${s.rr ? ' | R:R ' + num(s.rr, 2) + ':1' : ''}`);
-    lines.push(`  Daily ${s.signal || '—'} / 4H ${(s.h4 && s.h4.signal) || '—'} / 1H ${(s.h1 && s.h1.signal) || '—'}`);
-    if (Array.isArray(s.reasons)) s.reasons.slice(0, 3).forEach(r => lines.push(`  · ${r}`));
-    lines.push('');
+// Broker symbols, because a shared signal has to name the instrument the way a
+// terminal does. "Gold" is not tradeable; XAUUSD is.
+const BROKER_SYMBOL = { btc: 'BTCUSD', gold: 'XAUUSD', spx: 'SP500' };
+
+// TP2 is the convention in broadcast signals: TP1 to bank partial, TP2 to run.
+// This system computes one target, so TP2 is projected at 2x the measured move —
+// labelled as projected so nobody mistakes it for something the system decided.
+const TP2_R_MULTIPLE = 2;
+
+function signalAsBroadcast(assetKey) {
+  const s = signalData && signalData[assetKey];
+  if (!s) return null;
+  const symbol = BROKER_SYMBOL[assetKey] || assetKey.toUpperCase();
+  const side   = dirWord(s.signal);
+
+  if (side === 'WAIT — NO TRADE') {
+    return `${symbol}\nNO TRADE — waiting\nConfidence: ${s.confidence == null ? 0 : s.confidence}% (gate ${settings ? settings.confidenceThreshold : 65}%)\nSetup: ${s.setup || '—'} · ${s.regime || '—'}`;
   }
-  lines.push('Description of one system\'s output. Not financial advice. Trading carries risk of loss.');
-  return lines.join('\n');
+
+  // Standard broadcast field names - BUY/SELL, Entry, SL, TP1, TP2 - so a copier
+  // can parse it. "Stop"/"Target" are not names any copier looks for.
+  const out = [`${side === 'LONG' ? 'BUY' : 'SELL'} ${symbol}`];
+  if (s.entry  != null) out.push(`Entry: ${num(s.entry, 2)}`);
+  if (s.stop   != null) out.push(`SL: ${num(s.stop, 2)}`);
+  if (s.target != null) out.push(`TP1: ${num(s.target, 2)}`);
+  if (s.entry != null && s.stop != null && s.target != null) {
+    const risk = Math.abs(s.entry - s.stop);
+    const tp2  = side === 'LONG' ? s.entry + risk * TP2_R_MULTIPLE * (Math.abs(s.target - s.entry) / risk)
+                                 : s.entry - risk * TP2_R_MULTIPLE * (Math.abs(s.target - s.entry) / risk);
+    out.push(`TP2: ${num(tp2, 2)} (projected ${TP2_R_MULTIPLE}x)`);
+  }
+  if (s.rr) out.push(`R:R ${num(s.rr, 2)}:1`);
+  out.push(`Confidence: ${s.confidence == null ? 0 : s.confidence}%`);
+  out.push(`Setup: ${s.setup || '—'} · ${s.regime || '—'}`);
+  out.push(`TF: D ${s.signal || '—'} / 4H ${(s.h4 && s.h4.signal) || '—'} / 1H ${(s.h1 && s.h1.signal) || '—'}`);
+  return out.join('\n');
+}
+
+// Copy-ready broadcast text. Field names follow the format signal copiers parse
+// (BUY/SELL SYMBOL, Entry, SL, TP1, TP2) rather than the prose-with-pipes this
+// used to emit, which no copier or reader could act on.
+function briefAsText() {
+  const blocks = [];
+  for (const a of ASSETS.filter(x => selected.has(x.key))) {
+    const block = signalAsBroadcast(a.key);
+    if (block) blocks.push(block);
+  }
+  if (blocks.length === 0) return 'No signals selected.';
+  return blocks.join('\n\n')
+    + '\n\nSmartEntry Pro · ' + new Date().toLocaleString()
+    + '\nManage your own size and risk. Not financial advice.';
 }
 
 async function copyBrief() {
