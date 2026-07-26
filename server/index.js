@@ -1276,15 +1276,28 @@ app.post("/api/mt5/login", (req, res) => {
     cwd: path.join(__dirname, "..")
   });
 
+  // Hard ceiling independent of the Python-side timeouts — a hung child process
+  // must never leave this request (or the process itself) hanging indefinitely.
+  const killTimer = setTimeout(() => { try { child.kill(); } catch {} }, 30000);
+  let responded = false;
+
   let out = "";
   child.stdout.on("data", d => { out += d.toString(); });
-  child.on("error", () => { res.status(500).json({ ok: false, error: "could not start login helper" }); });
+  child.on("error", () => {
+    if (responded) return;
+    responded = true;
+    clearTimeout(killTimer);
+    res.status(500).json({ ok: false, error: "could not start login helper" });
+  });
   child.on("close", () => {
+    if (responded) return;
+    responded = true;
+    clearTimeout(killTimer);
     try {
       const lastLine = out.trim().split("\n").pop();
       res.json(JSON.parse(lastLine));
     } catch {
-      res.status(500).json({ ok: false, error: "login helper produced no usable result" });
+      res.status(500).json({ ok: false, error: "login helper produced no usable result (or timed out)" });
     }
   });
 
