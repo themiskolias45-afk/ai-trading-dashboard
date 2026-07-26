@@ -344,6 +344,8 @@ let strategySettings = {
   confidenceThreshold:    STRATEGY_LIMITS.confidenceThreshold.def,
   maxConcurrentPositions: STRATEGY_LIMITS.maxConcurrentPositions.def,
   maxTradesPerDay:        STRATEGY_LIMITS.maxTradesPerDay.def,
+  fixedLotSize:           STRATEGY_LIMITS.fixedLotSize.def,
+  maxLotSize:             STRATEGY_LIMITS.maxLotSize.def,
   updatedAt: null,
   updatedBy: null,
 };
@@ -353,7 +355,14 @@ function clampStrategyValue(name, value) {
   if (!limit) return null;
   const num = Number(value);
   if (!Number.isFinite(num)) return null;
-  return Math.min(limit.max, Math.max(limit.min, Math.round(num)));
+  const bounded = Math.min(limit.max, Math.max(limit.min, num));
+  // Lot sizes are fractional. Rounding them like the integer settings would turn
+  // a 0.01 lot into 0 and quietly switch the feature off.
+  if (limit.decimals) {
+    const factor = Math.pow(10, limit.decimals);
+    return Math.round(bounded * factor) / factor;
+  }
+  return Math.round(bounded);
 }
 
 function loadStrategySettings() {
