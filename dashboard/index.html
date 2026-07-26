@@ -1463,6 +1463,27 @@ async function loadRiskStatus() {
     document.getElementById("cb-pnl").style.color=d.dailyPnl>=0?"var(--green)":"var(--red)";
     document.getElementById("cb-losses").textContent=d.consecutiveLosses||0;
     pnlEl.textContent=`Daily P&L: ${d.dailyPnl>=0?"+":""}$${Number(d.dailyPnl).toFixed(2)}`;
+
+    // Real limits, straight from the bridge that enforces them. These three lines
+    // used to be static HTML ("3%", "3 in a row", "1%", "$900 max loss"), so editing
+    // RISK_PERCENT or DAILY_LOSS_PCT left the page quoting figures nothing obeyed.
+    // Shown as "not reported" rather than guessed when no bridge has checked in.
+    const cfg = (d.accounts && Object.values(d.accounts).map(a => a && a.config).filter(Boolean)[0]) || null;
+    const pnlSub    = document.getElementById("cb-pnl-sub");
+    const lossesSub = document.getElementById("cb-losses-sub");
+    const riskVal   = document.getElementById("cb-risk");
+    const riskSub   = document.getElementById("cb-risk-sub");
+    if (cfg) {
+      if (pnlSub)    pnlSub.textContent    = `Circuit breaks at −${cfg.dailyLossPct}% of balance`;
+      if (lossesSub) lossesSub.textContent = `Circuit breaks at ${cfg.maxConsecLosses} in a row`;
+      if (riskVal)   riskVal.textContent   = `${cfg.riskPercent}%`;
+      if (riskSub)   riskSub.textContent   = `max spread ${cfg.maxSpreadPts} pts · ${cfg.autoMode ? "full auto" : "semi-auto"}`;
+    } else {
+      if (pnlSub)    pnlSub.textContent    = "limit not reported — no bridge check-in yet";
+      if (lossesSub) lossesSub.textContent = "limit not reported — no bridge check-in yet";
+      if (riskVal)   riskVal.textContent   = "—";
+      if (riskSub)   riskSub.textContent   = "no bridge check-in yet";
+    }
     if(d.halted){banner.className="at-banner at-banner-HALTED";dot.style.background="var(--red)";document.getElementById("at-status-text").textContent="TRADING HALTED";document.getElementById("at-status-sub").textContent=d.haltReason||"Circuit breaker triggered";}
     else if(d.dailyPnl<0){banner.className="at-banner at-banner-PAUSED";dot.style.background="var(--yellow)";document.getElementById("at-status-text").textContent="RUNNING — CAUTION";document.getElementById("at-status-sub").textContent="Daily P&L negative — monitor closely";}
     else{banner.className="at-banner at-banner-RUNNING";dot.style.background="var(--green)";document.getElementById("at-status-text").textContent="SYSTEM RUNNING";document.getElementById("at-status-sub").textContent="Full-auto mode · Claude Opus approves every trade";}
