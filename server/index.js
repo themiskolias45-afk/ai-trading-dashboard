@@ -38,7 +38,43 @@ app.use((req, res, next) => {
 const crypto = require("crypto");
 const DASHBOARD_USERNAME = (process.env.DASHBOARD_USERNAME || "").trim();
 const DASHBOARD_PASSWORD = (process.env.DASHBOARD_PASSWORD || "").trim();
-const SESSION_SECRET = crypto.randomBytes(32).toString("hex"); // regenerates each restart — everyone re-logs in, by design
+// Session secret, persisted across restarts.
+//
+// This used to be regenerated on every boot, which sounds safe and reads as
+// "everyone re-logs in, by design" — but the watchdog restarts this server on any
+// crash, and every deploy restarts it too. In practice it meant being logged out
+// at random, repeatedly, including in the middle of trying to look at a live
+// position. A 30-day cookie that silently dies on an unrelated crash is not a
+// security control, it is a papercut that trains you to distrust the dashboard.
+//
+// Now generated once and kept in a file next to the other secrets (gitignored,
+// same trust boundary as apikey.txt). Delete the file to invalidate every session.
+const SESSION_SECRET_PATH = path.join(__dirname, "session_secret.txt");
+
+function loadOrCreateSessionSecret() {
+  try {
+    if (fs.existsSync(SESSION_SECRET_PATH)) {
+      const existing = fs.readFileSync(SESSION_SECRET_PATH, "utf8").trim();
+      // A truncated or empty file must not become a guessable secret.
+      if (existing.length >= 32) return existing;
+      console.warn("[auth] session_secret.txt too short — regenerating");
+    }
+  } catch (e) {
+    console.error(`[auth] Could not read session secret (${e.message}) — regenerating`);
+  }
+
+  const generated = crypto.randomBytes(32).toString("hex");
+  try {
+    fs.writeFileSync(SESSION_SECRET_PATH, generated, { mode: 0o600 });
+  } catch (e) {
+    // Falling back to memory-only keeps the server usable; it just means the old
+    // log-out-on-restart behaviour for this run.
+    console.error(`[auth] Could not persist session secret (${e.message}) — sessions will not survive a restart`);
+  }
+  return generated;
+}
+
+const SESSION_SECRET = loadOrCreateSessionSecret();
 const SESSION_COOKIE = "smartentry_session";
 
 function timingSafeStringEqual(a, b) {
