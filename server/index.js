@@ -876,13 +876,18 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // create one. A STRONG call in a market with no measurable trend is the case
   // that gets stopped out, and auto mode trades STRONG only — so this is the
   // filter that decides whether money moves.
+  // Demotes STRONG to MODERATE only. It deliberately does NOT push MODERATE to
+  // NONE any more: that killed the setup outright in chop, and with the engine
+  // already producing about one signal a month it was starving the self-learning
+  // tables, which need 5 closed trades per setup before they can say anything.
+  // Flagging a weak trend is useful; refusing to trade at all is what left
+  // setupStats empty for 42 sessions.
   if (signal !== "WAIT" && adxValue !== null && !adxTrending) {
     if (strength === "STRONG") {
       strength = "MODERATE";
-      reasons.push(`ADX ${adxValue} below ${ADX_TRENDING_MIN} — trend too weak to size up`);
+      reasons.push(`ADX ${adxValue} below ${ADX_TRENDING_MIN} — trend weak, not sized up`);
     } else if (strength === "MODERATE") {
-      strength = "NONE";
-      reasons.push(`ADX ${adxValue} — choppy, no measurable trend`);
+      reasons.push(`ADX ${adxValue} — weak trend, trading at reduced conviction`);
     }
   } else if (signal !== "WAIT" && adxTrending) {
     reasons.push(`ADX ${adxValue} — trend confirmed`);
