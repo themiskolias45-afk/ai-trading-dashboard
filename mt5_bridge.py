@@ -98,6 +98,41 @@ halt_reason      = ""
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# Remote halt set from the dashboard. Separate from the local circuit breakers
+# because the two mean different things: a circuit breaker is the bridge deciding
+# it has lost enough for today, a remote halt is a human deciding to stop.
+# Reported separately too, so "why is nothing trading" always has a clear answer.
+remote_halted = False
+remote_halt_reason = ""
+
+
+def check_remote_control():
+    """Poll the server's kill switch. Returns True when trading is remotely halted.
+
+    Deliberately fail-OPEN on a network error: the server being briefly
+    unreachable is not an instruction to stop, and the local circuit breakers
+    still protect the account. A halt that latches on every dropped packet would
+    train you to ignore it.
+    """
+    global remote_halted, remote_halt_reason
+    try:
+        res = requests.get(f"{SERVER_URL}/api/mt5/control", timeout=5)
+        res.raise_for_status()
+        control = res.json()
+        halted = bool(control.get("halted"))
+        reason = control.get("reason") or "halted from dashboard"
+        if halted and not remote_halted:
+            log(f"REMOTE HALT: {reason} — will not open new trades.", RED + BOLD)
+        elif not halted and remote_halted:
+            log("Remote halt lifted — trading enabled again.", GREEN)
+        remote_halted = halted
+        remote_halt_reason = reason if halted else ""
+        return remote_halted
+    except Exception as exc:
+        log(f"Could not read remote control ({exc}) — leaving trading as-is.", YELLOW)
+        return remote_halted
+
+
 def check_circuit_breaker():
     global trading_halted, halt_reason
     if trading_halted:
