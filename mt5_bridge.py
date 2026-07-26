@@ -638,6 +638,9 @@ def process_signal(key, sig):
         ok = place_order(symbol, direction, entry, stop, target, risk_amount=approved_risk_usd)
         if ok:
             executed_signals[key] = cache_key
+            global trades_opened_today
+            trades_opened_today += 1
+            log(f"Trades opened today: {trades_opened_today}/{strategy_settings.get('maxTradesPerDay', 5)}", CYAN)
     else:
         log(f"Trade on {symbol} skipped by user", YELLOW)
         executed_signals[key] = cache_key  # mark so we don't prompt again this signal
