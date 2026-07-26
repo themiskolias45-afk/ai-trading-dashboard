@@ -6,5 +6,6 @@ __pycache__/
 *.pyc
 tasks/logs/
 tasks/backups/
+vps-backups/
 tasks/.tv_session.json
 tasks/*.pine
