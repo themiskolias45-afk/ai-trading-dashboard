@@ -54,6 +54,21 @@ AUTO_MODE      = "--auto" in sys.argv
 TERMINAL_PATH  = os.environ.get("MT5_TERMINAL_PATH", "")          # pin to one MT5 install when running multiple terminals
 ACCOUNT_TAG    = os.environ.get("ACCOUNT_TAG", "")                # identifies this instance in logs + server posts (dual-account setups)
 
+# Refuse to trade unless the connected terminal holds this exact login.
+#
+# MT5_TERMINAL_PATH pins a bridge to one *install*, which is not the same as
+# pinning it to one *account*. Two terminals can hold the same login, and if they
+# do, both bridges poll the same signals and both execute against the same
+# account: every trade placed twice, at double the intended risk. That is not
+# redundancy, it is accidental 2x leverage, and nothing in this file used to
+# prevent it — the mirrored dual-account setup only ever worked because the two
+# terminals happened to hold different accounts.
+#
+# Leave unset to keep the old behaviour (connect to whatever the terminal holds).
+# Set it per bridge and a mis-pointed terminal fails loudly at startup instead of
+# silently doubling exposure.
+EXPECTED_LOGIN = os.environ.get("MT5_EXPECTED_LOGIN", "").strip()
+
 # MT5 symbol map: SmartEntry Yahoo ticker → candidate MT5 symbol names (checked in order)
 SYMBOL_CANDIDATES = {
     "BTC-USD": ["BTCUSD", "BTC/USD", "BITCOIN", "BTCUSDT"],
