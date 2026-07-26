@@ -3146,7 +3146,15 @@ app.post("/api/ai-brain", async (req, res) => {
 });
 
 // ── Serve pages ──────────────────────────────────────────────
-app.use("/dashboard", express.static(path.join(__dirname, "..", "dashboard")));
+// HTML must revalidate on every load. Without this a browser can keep serving a
+// cached dashboard from memory, so a deployed change appears simply not to exist —
+// which has cost real time today, hunting for updates that were already live.
+// ETags still make the revalidation cheap (304, no re-download).
+app.use("/dashboard", express.static(path.join(__dirname, "..", "dashboard"), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".html")) res.setHeader("Cache-Control", "no-cache");
+  },
+}));
 app.get("/dashboard", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "index.html")));
 app.get("/daily-plan", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "daily-plan.html")));
 app.get("/command",    (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "command.html")));
