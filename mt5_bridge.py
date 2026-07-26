@@ -368,15 +368,6 @@ def prompt_confirm(sig, symbol):
 
 
 def process_signal(key, sig):
-    # Remote halt is checked first and separately from the local circuit breakers
-    # so the log always says WHICH stopped the trade. Neither one touches open
-    # positions — both only prevent opening new ones.
-    if remote_halted:
-        log(f"Remote halt active: {remote_halt_reason} — not opening {key}.", RED)
-        return
-    if check_circuit_breaker():
-        log(f"Trading halted: {halt_reason}", RED)
-        return
     if not sig:
         return
     direction = sig.get("signal")
@@ -395,6 +386,22 @@ def process_signal(key, sig):
 
     # In semi-auto: act on any BUY/SELL. In auto: only STRONG signals.
     if AUTO_MODE and strength != "STRONG":
+        return
+
+    # Halt checks sit HERE, after we know there is a real, actionable, not-yet-taken
+    # signal. Checked earlier they fired on every WAIT for every asset every cycle —
+    # thousands of log lines a day announcing that nothing was blocked, which buries
+    # the one line that matters. Now a halt is logged only when it actually stopped a
+    # trade, and the signal is not marked executed, so it can still be taken if the
+    # halt is lifted while the setup is live.
+    #
+    # Remote halt is reported separately from the local circuit breakers so the log
+    # always says WHICH one stopped it. Neither touches open positions.
+    if remote_halted:
+        log(f"Remote halt active: {remote_halt_reason} — NOT opening {direction} on {ticker}.", RED)
+        return
+    if check_circuit_breaker():
+        log(f"Circuit breaker active: {halt_reason} — NOT opening {direction} on {ticker}.", RED)
         return
 
     symbol = SYMBOL_MAP.get(ticker)
