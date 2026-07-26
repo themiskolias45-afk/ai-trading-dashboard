@@ -98,9 +98,19 @@ const API_NO_LOGIN_REQUIRED = new Set([
   "/api/healer", "/api/healer/heal",
 ]);
 
+// Paths the MT5 bridge must READ without a browser session, but which must never
+// be WRITABLE without one. /api/mt5/control is the remote kill switch: an
+// unauthenticated POST there could RESUME trading after a safety halt, and this
+// server is reachable from the internet on the VPS. Read freely, write only when
+// logged in.
+const API_NO_LOGIN_GET_ONLY = new Set([
+  "/api/mt5/control",
+]);
+
 app.use((req, res, next) => {
   if (!DASHBOARD_USERNAME || !DASHBOARD_PASSWORD) return next(); // not configured yet — never lock the owner out
   if (req.path === "/login") return next();
+  if (req.method === "GET" && API_NO_LOGIN_GET_ONLY.has(req.path)) return next();
   if (req.path.startsWith("/api/") && !API_NO_LOGIN_REQUIRED.has(req.path)) {
     const cookies = parseCookies(req);
     if (cookies[SESSION_COOKIE] && timingSafeStringEqual(cookies[SESSION_COOKIE], SESSION_SECRET)) return next();
