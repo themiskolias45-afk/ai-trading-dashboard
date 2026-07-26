@@ -736,6 +736,39 @@
     </div>
   </div>
 
+  <!-- Strategy settings. Confidence was a literal 65 in three places in
+       server/index.js; slots and the daily trade cap did not exist at all. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Strategy Settings</div>
+      <span id="ss-status" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-height:none">
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Confidence Gate</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+          <input id="ss-confidence" type="number" style="width:80px;padding:6px 8px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+          <span style="font-size:.8rem;color:var(--muted)">%</span>
+        </div>
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-confidence-hint">signal fires at or above this</div>
+      </div>
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Position Slots</div>
+        <input id="ss-slots" type="number" style="width:80px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-slots-hint">max positions open at once</div>
+      </div>
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Max Trades / Day</div>
+        <input id="ss-maxtrades" type="number" style="width:80px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-maxtrades-hint">resets at midnight</div>
+      </div>
+      <div style="grid-column:1/-1;display:flex;align-items:center;gap:12px">
+        <button onclick="saveStrategySettings()" style="padding:8px 18px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.45);color:var(--blue);border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer">Save Settings</button>
+        <span id="ss-msg" style="font-size:.7rem;color:var(--muted)"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- Circuit breakers — values reported by the bridge, never hardcoded.
        These numbers used to be written into the HTML ("3%", "1%", "$900"), so
        changing RISK_PERCENT or DAILY_LOSS_PCT left the page showing the old ones. -->
