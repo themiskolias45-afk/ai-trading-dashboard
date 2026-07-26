@@ -43,16 +43,28 @@ def export(symbol, tf_name, tf_const, start, end):
     if not mt5.symbol_select(symbol, True):
         return f"{symbol} {tf_name}: symbol not available"
 
-    rates = mt5.copy_rates_range(symbol, tf_const, start, end)
+    # The terminal refuses any single call over roughly 100k bars ("Invalid params"),
+    # which is why a 5-year M15 request returned nothing while H1 and H4 were fine.
+    # Probed on this terminal: 50k works, 100k fails, and a 730-day range (~69k bars)
+    # succeeds. So walk the period in chunks and stitch, rather than capping history
+    # at whatever one call happens to allow.
+    rates = []
+    seen = set()
+    chunk_start = start
+    while chunk_start < end:
+        chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS), end)
+        part = mt5.copy_rates_range(symbol, tf_const, chunk_start, chunk_end)
+        if part is not None:
+            for r in part:
+                t = int(r["time"])
+                if t not in seen:          # chunk boundaries overlap by one bar
+                    seen.add(t)
+                    rates.append(r)
+        chunk_start = chunk_end
 
-    # A multi-year range request fails on lower timeframes ("Invalid params") because
-    # the terminal will not serve that many bars in one call. Falling back to a
-    # position-based pull gets the most recent N bars instead, which is what the
-    # lower timeframes actually need.
-    if rates is None or len(rates) == 0:
-        rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, MAX_BARS)
-        if rates is None or len(rates) == 0:
-            return f"{symbol} {tf_name}: no data ({mt5.last_error()})"
+    if not rates:
+        return f"{symbol} {tf_name}: no data ({mt5.last_error()})"
+    rates.sort(key=lambda r: r["time"])
 
     path = os.path.join(OUT_DIR, f"{symbol}_{tf_name}.csv")
     with open(path, "w", encoding="ascii", newline="") as fh:
