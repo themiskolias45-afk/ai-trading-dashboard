@@ -106,14 +106,21 @@ $vpsDestDir = 'C:/vault-backups'
 
 if (Test-Path $sshKey) {
     try {
-        & ssh -i $sshKey -o ConnectTimeout=15 -o BatchMode=yes $vpsTarget `
-            "powershell -NoProfile -Command \"if (-not (Test-Path $vpsDestDir)) { New-Item -ItemType Directory -Path $vpsDestDir -Force | Out-Null }\"" 2>&1 | Out-Null
-        & scp -q -i $sshKey -o ConnectTimeout=15 -o BatchMode=yes $destZip ($vpsTarget + ':' + $vpsDestDir + '/') 2>&1 | Out-Null
+        # ssh.exe/scp.exe by full name with an argument ARRAY. Calling them as
+        # bare "ssh -i ..." lets PowerShell's parameter binder try to interpret
+        # -i itself, which fails with a confusing complaint about inputFormat.
+        $sshOpts = @('-i', $sshKey, '-o', 'ConnectTimeout=15', '-o', 'BatchMode=yes')
+
+        $mkdirCmd = 'if not exist "' + ($vpsDestDir -replace '/', '\') + '" mkdir "' + ($vpsDestDir -replace '/', '\') + '"'
+        & ssh.exe @sshOpts $vpsTarget $mkdirCmd 2>&1 | Out-Null
+
+        & scp.exe @('-q') @sshOpts $destZip ($vpsTarget + ':' + $vpsDestDir + '/') 2>&1 | Out-Null
+
         if ($LASTEXITCODE -eq 0) {
-            Write-VaultLog ('Copied to VPS ' + $vpsDestDir)
+            Write-VaultLog ('Copied off-box to VPS ' + $vpsDestDir)
             # Keep the same depth off-box as on it.
-            & ssh -i $sshKey -o ConnectTimeout=15 -o BatchMode=yes $vpsTarget `
-                "powershell -NoProfile -Command \"Get-ChildItem $vpsDestDir/vault_*.zip -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip $KEEP_SNAPSHOTS | Remove-Item -Force -ErrorAction SilentlyContinue\"" 2>&1 | Out-Null
+            $rotateCmd = 'powershell -NoProfile -Command "Get-ChildItem ' + $vpsDestDir + '/vault_*.zip -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip ' + $KEEP_SNAPSHOTS + ' | Remove-Item -Force -ErrorAction SilentlyContinue"'
+            & ssh.exe @sshOpts $vpsTarget $rotateCmd 2>&1 | Out-Null
         } else {
             Write-VaultLog 'VPS copy failed - local snapshot is still good'
         }
