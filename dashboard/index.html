@@ -2195,7 +2195,10 @@ function setGrowthPeriod(period) {
   growthPeriod = period;
   document.querySelectorAll('#growth-period-btns .tf-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.growth === period));
+  // Fetch when there is nothing cached — otherwise a failed first load (a 401 after
+  // a restart, say) leaves every one of these buttons silently doing nothing.
   if (growthCache) renderGrowth(growthCache);
+  else loadGrowth();
 }
 
 function money(n) {
