@@ -81,6 +81,32 @@
     .tf-btn:hover { border-color:var(--green); color:var(--text); }
     .tf-btn.active { background:rgba(34,197,94,.12); border-color:var(--green); color:var(--green); }
 
+    /* Trust strip — "can I believe the numbers below this line?"
+       Sits above the market data on purpose. Every other panel on this page shows
+       what the system THINKS; none of them showed whether the system was actually
+       working. The stack ran for weeks with a bridge stone dead and this page
+       looked completely normal. */
+    .trust-strip {
+      display:grid; grid-template-columns:repeat(5,1fr); gap:1px;
+      background:var(--border); border:1px solid var(--border);
+      border-radius:10px; overflow:hidden; margin-bottom:16px;
+    }
+    @media(max-width:1000px){ .trust-strip{ grid-template-columns:repeat(2,1fr); } }
+    .trust-cell { background:var(--surface); padding:10px 14px; min-width:0; }
+    .trust-label { font-size:.58rem; color:var(--muted); text-transform:uppercase; letter-spacing:.09em; }
+    .trust-value { font-size:.86rem; font-weight:700; margin-top:3px; display:flex; align-items:center; gap:6px; }
+    .trust-detail {
+      font-size:.6rem; color:var(--muted); margin-top:2px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .trust-ok   { color:var(--green); }
+    .trust-bad  { color:var(--red); }
+    .trust-warn { color:var(--yellow); }
+    .trust-idle { color:var(--muted); }
+    .trust-led { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+    a.trust-link { text-decoration:none; color:inherit; display:block; }
+    a.trust-link:hover .trust-label { color:var(--text); }
+
     /* Bottom grid */
     .bottom-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:16px; }
 
