@@ -2869,7 +2869,7 @@ app.post("/api/engineer/launch", requireLocalOnly, (req, res) => {
   res.json({ ok: true, runId });
 });
 
-app.get("/api/engineer/status/:runId", (req, res) => {
+app.get("/api/engineer/status/:runId", requireLocalOnly, (req, res) => {
   const run = engineerRuns[req.params.runId];
   if (!run) return res.status(404).json({ error: "Unknown runId" });
   res.json({
