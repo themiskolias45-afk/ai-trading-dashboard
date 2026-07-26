@@ -17,6 +17,29 @@ const HEAL_INTERVAL_MS = 30 * 1000;
 const LEARNING_FILE = path.join(__dirname, 'learning.json');
 const JOURNAL_FILE  = path.join(__dirname, 'journal.json');
 
+// Which bridge accounts MUST be reporting for this deployment to be complete.
+//
+// This exists because the healer used to derive the account list from
+// mt5LastSeenByAccount, which only ever contains accounts that have reported at
+// least once. An account that failed its very first connection was therefore not
+// in the object, not in the denominator, and completely invisible: the VPS ran
+// for weeks with Bridge B dead while this check cheerfully reported
+// "1/1 account(s) reporting" and healthy:true. Counting only what showed up can
+// never detect what never showed up — the expected set has to be declared.
+//
+// Drop an account from the list when you deliberately disable its bridge, so a
+// planned shutdown doesn't read as a fault. The default describes the system as
+// designed (mirrored dual-account); any deviation is opt-in and visible.
+const EXPECTED_MT5_ACCOUNTS = (process.env.MT5_EXPECTED_ACCOUNTS ?? 'A,B')
+  .split(',')
+  .map(tag => tag.trim())
+  .filter(Boolean);
+
+// A cold boot legitimately has no heartbeats yet: the MT5 terminal has to launch
+// and the bridge burns up to 6 retries at 15s apart before its first post. Matches
+// MT5_NEVER_CONNECTED_GRACE_MS in server/index.js — keep the two in step.
+const MT5_STARTUP_GRACE_MS = 5 * 60 * 1000;
+
 const state = {
   healCount:   0,
   lastHealAt:  null,
