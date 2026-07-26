@@ -18,10 +18,20 @@
 
 $ErrorActionPreference = 'Continue'
 
-$vpsUrl     = 'http://169.58.74.133:3001/api/healer'
-$keysFile   = 'C:\Users\User\ai-trading-dashboard\keys.env'
-$stateFile  = 'C:\Users\User\ai-trading-dashboard\tasks\logs\vps_monitor_state.json'
-$logFile    = 'C:\Users\User\ai-trading-dashboard\tasks\logs\vps_monitor.txt'
+# Overridable so the alarm can be rehearsed against a dead endpoint without
+# touching the real VPS and without firing a live Telegram alert at anyone. An
+# untested alarm is an assumption, not a safety net. Production values are the
+# defaults; the Scheduled Task sets nothing.
+function Get-Setting($envName, $default) {
+    $value = [Environment]::GetEnvironmentVariable($envName)
+    if ([string]::IsNullOrWhiteSpace($value)) { return $default }
+    return $value
+}
+
+$vpsUrl    = Get-Setting 'VPS_MONITOR_URL'   'http://169.58.74.133:3001/api/healer'
+$keysFile  = Get-Setting 'VPS_MONITOR_KEYS'  'C:\Users\User\ai-trading-dashboard\keys.env'
+$stateFile = Get-Setting 'VPS_MONITOR_STATE' 'C:\Users\User\ai-trading-dashboard\tasks\logs\vps_monitor_state.json'
+$logFile   = Get-Setting 'VPS_MONITOR_LOG'   'C:\Users\User\ai-trading-dashboard\tasks\logs\vps_monitor.txt'
 
 # One transient failure is a network blip, not an outage. Two consecutive misses at
 # a 5-minute cadence means ~10 minutes genuinely unreachable.
