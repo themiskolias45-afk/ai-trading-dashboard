@@ -39,7 +39,7 @@ REM -- MT5 bridge watchdog, same 503-only-after-connected logic as the local set
 if !COOL_A! GTR 0 (
     set /a COOL_A-=1
 ) else (
-    call :is_task_enabled SmartEntryBridgeA
+    call :is_task_enabled "SmartEntryBridgeA"
     if !TASK_ENABLED! EQU 1 (
         curl -sf --max-time 5 "http://localhost:3001/api/mt5/health?account=A" >nul 2>&1
         if errorlevel 1 (
