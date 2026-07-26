@@ -276,6 +276,70 @@ saveLearning();
 let newsCache     = [];   // economic calendar events from ForexFactory
 let riskStatus    = { dailyPnl: 0, consecutiveLosses: 0, halted: false, haltReason: "" };
 
+// ── Strategy settings ─────────────────────────────────────────
+// The knobs that decide how much this system is allowed to do. Two of these
+// never existed at all: nothing limited how many positions could be open at once,
+// so BTC, Gold and SPX could all open together as one correlated bet, and nothing
+// capped trades per day, so a choppy session could churn the account.
+//
+// The confidence gate was worse than missing — it was the literal 65 written into
+// three separate places in this file. Changing your mind about it meant editing
+// source in three spots and hoping you found them all, which is exactly the
+// "no magic numbers" rule this project sets for itself.
+//
+// Persisted so a restart keeps your choices, and clamped to sane ranges so a
+// fat-fingered value cannot disable the protection it is meant to tune.
+const STRATEGY_SETTINGS_FILE = path.join(__dirname, "strategy_settings.json");
+
+const STRATEGY_LIMITS = {
+  confidenceThreshold:    { min: 50, max: 95, def: 65 },
+  maxConcurrentPositions: { min: 1,  max: 10, def: 3  },
+  maxTradesPerDay:        { min: 1,  max: 50, def: 5  },
+};
+
+let strategySettings = {
+  confidenceThreshold:    STRATEGY_LIMITS.confidenceThreshold.def,
+  maxConcurrentPositions: STRATEGY_LIMITS.maxConcurrentPositions.def,
+  maxTradesPerDay:        STRATEGY_LIMITS.maxTradesPerDay.def,
+  updatedAt: null,
+  updatedBy: null,
+};
+
+function clampStrategyValue(name, value) {
+  const limit = STRATEGY_LIMITS[name];
+  if (!limit) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.min(limit.max, Math.max(limit.min, Math.round(num)));
+}
+
+function loadStrategySettings() {
+  try {
+    if (!fs.existsSync(STRATEGY_SETTINGS_FILE)) return;
+    const saved = JSON.parse(fs.readFileSync(STRATEGY_SETTINGS_FILE, "utf8"));
+    for (const name of Object.keys(STRATEGY_LIMITS)) {
+      const clamped = clampStrategyValue(name, saved[name]);
+      if (clamped !== null) strategySettings[name] = clamped;
+    }
+    strategySettings.updatedAt = saved.updatedAt || null;
+    strategySettings.updatedBy = saved.updatedBy || null;
+    console.log(`[strategy] Loaded: confidence>=${strategySettings.confidenceThreshold}%, max ${strategySettings.maxConcurrentPositions} positions, max ${strategySettings.maxTradesPerDay} trades/day`);
+  } catch (e) {
+    // Keep the safe defaults rather than trading on a half-parsed config.
+    console.error(`[strategy] settings unreadable (${e.message}) — using defaults`);
+  }
+}
+
+function saveStrategySettings() {
+  try {
+    fs.writeFileSync(STRATEGY_SETTINGS_FILE, JSON.stringify(strategySettings, null, 2));
+  } catch (e) {
+    console.error(`[strategy] Could not persist settings: ${e.message}`);
+  }
+}
+
+loadStrategySettings();
+
 // ══════════════════════════════════════════════════════════════
 //  TECHNICAL ANALYSIS
 // ══════════════════════════════════════════════════════════════
