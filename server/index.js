@@ -2923,12 +2923,14 @@ async function runBacktest(symbol, label, years = 5) {
       w.map(b => b.close), w.map(b => b.high), w.map(b => b.low), w.map(b => b.volume ?? 0));
     if (!sig || sig.signal === "WAIT" || !sig.stop || !sig.target) { lastKey = null; continue; }
 
-    // Approximate the live MTF confidence gate (≥65%) using daily strength.
-    // Without 4H/1H bars the real generateSignalMTF would cap at ~40%, so we
-    // proxy: STRONG daily = would pass with 4H confirmation (88%), MODERATE
-    // daily = borderline pass (65%), anything else = filtered.
-    const btConfidence = sig.strength === "STRONG" ? 88 : sig.strength === "MODERATE" ? 65 : 40;
-    if (btConfidence < 65) { lastKey = null; continue; }
+    // Keep every setup that produced a tradeable signal. Filtering to what live
+    // would actually take happens after the loop, so both figures come from one
+    // pass over identical data and are directly comparable.
+    //
+    // MODERATE used to be scored as exactly 65 and let through, which is why the
+    // headline backtest described a looser strategy than the one connected to the
+    // broker: auto mode discards everything that is not STRONG.
+    if (sig.strength !== "STRONG" && sig.strength !== "MODERATE") { lastKey = null; continue; }
 
     const key = `${sig.signal}_${sig.setup}_${i}`;
     if (key === lastKey) continue;
