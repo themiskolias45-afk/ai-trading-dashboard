@@ -19,8 +19,8 @@ one on the wrong machine will fail or do the wrong thing.
 - `watchdog_vps.bat` — crash-recovery via Scheduled Tasks (`schtasks /end` + `/run`),
   not window titles — the VPS runs everything headless via Task Scheduler, so there
   are no titled windows for `taskkill /fi "windowtitle eq ..."` to find
-- `vps_backup.ps1` — daily snapshot of journal/learning/db/logs, runs via the
-  `SmartEntryBackup` Scheduled Task
+- `vps_backup.ps1` / `vps_backup.bat` — daily snapshot of journal/learning/db/logs,
+  runs via the `SmartEntryBackup` Scheduled Task at 03:00
 - `pull_vps_backup.bat` — **runs on the local machine**, pulls the latest VPS backup
   down via scp for off-site safekeeping (separate Scheduled Task on the local PC)
 
