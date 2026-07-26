@@ -526,6 +526,25 @@ def process_signal(key, sig):
         executed_signals[key] = cache_key
         return
 
+    # Portfolio risk gate. Runs BEFORE the AI filter so a trade that breaches the
+    # portfolio cap never costs an Anthropic call, and so the cheaper deterministic
+    # check is what rejects it.
+    #
+    # Deliberately does NOT mark the signal executed on rejection: "portfolio at 6%"
+    # and "already holding BTCUSD BUY" are temporary states, and the same setup
+    # should be tradeable once a position closes. Permanent problems with this
+    # signal (bad R:R, confidence too low) simply keep failing harmlessly.
+    approved, risk_reason, approved_risk_usd = request_trade_approval(
+        symbol, direction, entry, stop, target, sig.get("confidence")
+    )
+    if not approved:
+        if last_rejection.get(key) != risk_reason:
+            log(f"RISK ENGINE blocked {direction} {symbol}: {risk_reason}", RED)
+            last_rejection[key] = risk_reason
+        return
+    if last_rejection.pop(key, None):
+        log(f"Risk engine now allows {symbol} — {risk_reason}", GREEN)
+
     # Claude AI approval (only in AUTO mode — in semi-auto the human decides)
     if AUTO_MODE:
         ai_ok = claude_approves_trade(sig, symbol, entry, stop, target)
@@ -536,7 +555,7 @@ def process_signal(key, sig):
 
     confirmed = prompt_confirm(sig, symbol)
     if confirmed:
-        ok = place_order(symbol, direction, entry, stop, target)
+        ok = place_order(symbol, direction, entry, stop, target, risk_amount=approved_risk_usd)
         if ok:
             executed_signals[key] = cache_key
     else:
