@@ -2715,6 +2715,55 @@ app.post("/api/size", (req, res) => {
   }
 });
 
+// ── Improvement proposals — findings from the autonomous research agent ─────
+// The agent runs in an isolated cloud sandbox with no SSH/local access, so it can't
+// reach this server directly except over this one relay endpoint, gated by a shared
+// secret (not IP-restricted, since the cloud agent has no fixed/local address).
+const PROPOSALS_PATH   = path.join(__dirname, "..", "tasks", "proposals.json");
+const AGENT_RELAY_SECRET = (process.env.AGENT_RELAY_SECRET || "").trim();
+
+function loadProposals() {
+  try {
+    if (fs.existsSync(PROPOSALS_PATH)) return JSON.parse(fs.readFileSync(PROPOSALS_PATH, "utf8"));
+  } catch {}
+  return { proposals: [] };
+}
+function saveProposals(data) {
+  fs.mkdirSync(path.dirname(PROPOSALS_PATH), { recursive: true });
+  fs.writeFileSync(PROPOSALS_PATH, JSON.stringify(data, null, 2));
+}
+
+// Cloud research agent calls this to report findings and/or register a proposed change.
+app.post("/api/agent/notify", (req, res) => {
+  const { secret, message, proposal } = req.body || {};
+  if (!AGENT_RELAY_SECRET || secret !== AGENT_RELAY_SECRET) {
+    return res.status(403).json({ error: "invalid or missing secret" });
+  }
+
+  let id = null;
+  if (proposal && typeof proposal === "object") {
+    const data = loadProposals();
+    id = "prop_" + Date.now().toString(36);
+    data.proposals.unshift({
+      id,
+      summary:      proposal.summary || "(no summary provided)",
+      branch:       proposal.branch || null,
+      prUrl:        proposal.prUrl || null,
+      filesChanged: proposal.filesChanged || [],
+      createdAt:    new Date().toISOString(),
+      status:       "pending"
+    });
+    saveProposals(data);
+  }
+
+  if (message && TELEGRAM_TOKEN) {
+    const chatId = TELEGRAM_CHAT_ID || [...knownChatIds][0];
+    if (chatId) sendTelegram(chatId, message).catch(() => {});
+  }
+
+  res.json({ ok: true, id });
+});
+
 // ── /api/memory — persistent JARVIS memory (read/write) ──────
 // Same store memory.py (the CLI tool used by Claude Code sessions) reads and writes —
 // this is what makes the web chat's memory genuinely cross-session, not just this tab.
