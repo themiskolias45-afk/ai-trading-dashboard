@@ -1348,7 +1348,7 @@ app.get("/api/settings", (_, res) => {
   });
 });
 
-app.post("/api/settings", (req, res) => {
+app.post("/api/settings", requireLocalOnly, (req, res) => {
   const { anthropicKey, telegramToken, telegramChatId, openaiKey, uwKey, custom } = req.body || {};
   const updates = {};
 
