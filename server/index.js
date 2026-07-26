@@ -390,6 +390,7 @@ function loadStrategySettings() {
       const clamped = clampStrategyValue(name, saved[name]);
       if (clamped !== null) strategySettings[name] = clamped;
     }
+    if (STRENGTH_LEVELS.includes(saved.minStrength)) strategySettings.minStrength = saved.minStrength;
     strategySettings.updatedAt = saved.updatedAt || null;
     strategySettings.updatedBy = saved.updatedBy || null;
     console.log(`[strategy] Loaded: confidence>=${strategySettings.confidenceThreshold}%, max ${strategySettings.maxConcurrentPositions} positions, max ${strategySettings.maxTradesPerDay} trades/day`);
@@ -1818,6 +1819,16 @@ app.post("/api/strategy-settings", (req, res) => {
     }
     strategySettings[name] = clamped;
     applied[name] = clamped;
+  }
+
+  if (incoming.minStrength !== undefined) {
+    const wanted = String(incoming.minStrength).toUpperCase();
+    if (STRENGTH_LEVELS.includes(wanted)) {
+      strategySettings.minStrength = wanted;
+      applied.minStrength = wanted;
+    } else {
+      rejected.push(`minStrength must be one of ${STRENGTH_LEVELS.join(", ")}`);
+    }
   }
 
   if (Object.keys(applied).length === 0) {

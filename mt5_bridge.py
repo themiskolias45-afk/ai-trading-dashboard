@@ -386,6 +386,7 @@ strategy_settings = {
     "maxTradesPerDay": 5,
     "fixedLotSize": 0.0,   # 0 = size from risk; above 0 = always trade exactly this
     "maxLotSize": 10.0,    # hard ceiling regardless of what the risk maths asks for
+    "minStrength": "STRONG",  # lowest signal strength AUTO mode will take
 }
 
 # Trades opened today, reset on date change. Counted here rather than server-side
@@ -408,6 +409,8 @@ def refresh_strategy_settings():
         for name in ("fixedLotSize", "maxLotSize"):
             if isinstance(data.get(name), (int, float)):
                 strategy_settings[name] = float(data[name])
+        if data.get("minStrength") in ("MODERATE", "STRONG"):
+            strategy_settings["minStrength"] = data["minStrength"]
     except Exception:
         pass
 
@@ -575,9 +578,17 @@ def process_signal(key, sig):
     if executed_signals.get(key) == cache_key:
         return
 
-    # In semi-auto: act on any BUY/SELL. In auto: only STRONG signals.
-    if AUTO_MODE and strength != "STRONG":
-        return
+    # In semi-auto: act on any BUY/SELL. In auto: whatever minStrength allows.
+    #
+    # This was hardcoded to STRONG, which is why the self-learning engine never had
+    # data: learning needs 5 closed trades per setup before it adjusts anything, and
+    # STRONG-only fires roughly once a month. Allowing MODERATE raises that to about
+    # one signal every 2.4 days. On a demo account that trade-off is worth making —
+    # you cannot learn from a trade you never took.
+    if AUTO_MODE:
+        allowed = ("STRONG",) if strategy_settings.get("minStrength", "STRONG") == "STRONG" else ("STRONG", "MODERATE")
+        if strength not in allowed:
+            return
 
     # Halt checks sit HERE, after we know there is a real, actionable, not-yet-taken
     # signal. Checked earlier they fired on every WAIT for every asset every cycle —

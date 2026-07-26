@@ -772,7 +772,14 @@
         <input id="ss-maxlot" type="number" step="0.01" style="width:90px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
         <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-maxlot-hint">hard ceiling on any single trade</div>
       </div>
-      <div></div>
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Min Strength (auto)</div>
+        <select id="ss-minstrength" style="width:130px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+          <option value="STRONG">STRONG only</option>
+          <option value="MODERATE">MODERATE +</option>
+        </select>
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px">MODERATE trades ~10x more — needed to feed self-learning</div>
+      </div>
       <div style="grid-column:1/-1;display:flex;align-items:center;gap:12px">
         <button onclick="saveStrategySettings()" style="padding:8px 18px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.45);color:var(--blue);border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer">Save Settings</button>
         <span id="ss-msg" style="font-size:.7rem;color:var(--muted)"></span>
@@ -2305,6 +2312,7 @@ async function loadStrategySettings() {
     document.getElementById('ss-maxtrades').value  = s.maxTradesPerDay;
     document.getElementById('ss-fixedlot').value   = s.fixedLotSize;
     document.getElementById('ss-maxlot').value     = s.maxLotSize;
+    if (s.minStrength) document.getElementById('ss-minstrength').value = s.minStrength;
 
     // Show the real allowed range so a rejected value is never a surprise.
     if (strategyLimits) {
@@ -2338,6 +2346,7 @@ async function saveStrategySettings() {
     maxTradesPerDay:        Number(document.getElementById('ss-maxtrades').value),
     fixedLotSize:           Number(document.getElementById('ss-fixedlot').value),
     maxLotSize:             Number(document.getElementById('ss-maxlot').value),
+    minStrength:            document.getElementById('ss-minstrength').value,
   };
   if (!confirm(`Apply these limits?\n\nConfidence gate: ${body.confidenceThreshold}%\nPosition slots: ${body.maxConcurrentPositions}\nMax trades/day: ${body.maxTradesPerDay}\n\nThe bridge picks these up on its next poll.`)) return;
   try {
