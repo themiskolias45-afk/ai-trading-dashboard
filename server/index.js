@@ -2835,6 +2835,131 @@ app.post("/api/healer/heal", async (_, res) => {
   }
 });
 
+// ── /api/system-plan ──────────────────────────────────────────
+// Feeds dashboard/plan.html. Everything here is DERIVED from live state rather
+// than written down, because a hand-maintained status page is wrong within a week
+// and a status page that is quietly wrong is worse than none — that is exactly how
+// the healer came to report "1/1 account(s) reporting" while half the bridges were
+// dead. If a fact here is stale, the system it describes has changed, not the page.
+const SCHEDULED_TASK_PREFIX = "SmartEntry";
+const TASK_QUERY_TIMEOUT_MS = 8000;
+
+// Scheduled Tasks are a Windows-only concept; on anything else report "unavailable"
+// rather than pretending the components are missing.
+function readScheduledTasks() {
+  return new Promise((resolve) => {
+    if (process.platform !== "win32") return resolve({ available: false, tasks: [] });
+
+    const child = require("child_process").spawn("schtasks", ["/query", "/fo", "csv", "/nh"], { windowsHide: true });
+    let stdout = "";
+    let settled = false;
+
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+    const timer = setTimeout(() => { child.kill(); finish({ available: false, tasks: [] }); }, TASK_QUERY_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.on("error", () => { clearTimeout(timer); finish({ available: false, tasks: [] }); });
+    child.on("close", () => {
+      clearTimeout(timer);
+      const tasks = stdout.split(/\r?\n/).reduce((acc, line) => {
+        // csv: "TaskName","Next Run Time","Status"
+        const cells = line.split('","').map(c => c.replace(/^"|"$/g, "").trim());
+        if (cells.length < 3) return acc;
+        const name = cells[0].replace(/^\\+/, "");
+        if (!name.startsWith(SCHEDULED_TASK_PREFIX)) return acc;
+        acc.push({ name, nextRun: cells[1], status: cells[2] });
+        return acc;
+      }, []);
+      finish({ available: true, tasks });
+    });
+  });
+}
+
+function readLatestBackup() {
+  const backupDir = "C:\\ai-trading-dashboard-backups";
+  try {
+    if (!fs.existsSync(backupDir)) return null;
+    const newest = fs.readdirSync(backupDir)
+      .filter(name => name.toLowerCase().endsWith(".zip"))
+      .map(name => {
+        const stat = fs.statSync(path.join(backupDir, name));
+        return { name, sizeKB: Math.round(stat.size / 1024), modified: stat.mtime.toISOString() };
+      })
+      .sort((a, b) => new Date(b.modified) - new Date(a.modified))[0];
+    return newest || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Things only a human can clear. Derived from configuration, so an item disappears
+// when it is genuinely resolved rather than when someone remembers to delete it.
+function deriveActionItems(expectedAccounts, reportingAccounts) {
+  const items = [];
+
+  const missingBridges = expectedAccounts.filter(tag => !reportingAccounts.includes(tag));
+  if (missingBridges.length > 0) {
+    items.push({
+      severity: "high",
+      title: `Bridge ${missingBridges.join(", ")} expected but not reporting`,
+      detail: "A bridge this deployment declares as required is silent. Check its terminal login and the bridge log.",
+    });
+  }
+
+  if (!expectedAccounts.includes("B")) {
+    items.push({
+      severity: "medium",
+      title: "Bridge B disabled — needs a second demo account",
+      detail: "This machine holds one broker account. Two bridges on one account would place every trade twice at double risk, so B stays off until a second account exists. Then set MT5_EXPECTED_LOGIN in start_bridge_B_vps.bat and MT5_EXPECTED_ACCOUNTS=A,B.",
+    });
+  }
+
+  items.push({
+    severity: "low",
+    title: "No log rotation",
+    detail: "tasks/logs grows without bound. Not urgent at current disk headroom, but nothing trims it.",
+  });
+
+  items.push({
+    severity: "low",
+    title: "Voice needs a trusted origin",
+    detail: "Chrome allows the microphone only on HTTPS or localhost. Use the SSH tunnel at localhost:3002, or finish the cloudflared tunnel for a real HTTPS URL that also works on a phone.",
+  });
+
+  return items;
+}
+
+app.get("/api/system-plan", async (_, res) => {
+  try {
+    const healer   = autohealer.getStatus();
+    const taskInfo = await readScheduledTasks();
+
+    const reportingAccounts = Object.entries(mt5LastSeenByAccount)
+      .filter(([, seenAt]) => Date.now() - new Date(seenAt).getTime() < MT5_HEARTBEAT_STALE_MS)
+      .map(([tag]) => tag);
+
+    const expectedAccounts = (process.env.MT5_EXPECTED_ACCOUNTS ?? "A,B")
+      .split(",").map(tag => tag.trim()).filter(Boolean);
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      uptimeSeconds: Math.round(process.uptime()),
+      serverStartedAt: SERVER_START,
+      healthy: healer.healthy,
+      checks: healer.checks,
+      bridges: {
+        expected:  expectedAccounts,
+        reporting: reportingAccounts,
+      },
+      scheduledTasks: taskInfo,
+      latestBackup: readLatestBackup(),
+      actionItems: deriveActionItems(expectedAccounts, reportingAccounts),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── /api/size — Kelly-based position sizing ───────────────────
 app.post("/api/size", (req, res) => {
   try {
