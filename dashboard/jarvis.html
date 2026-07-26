@@ -931,7 +931,14 @@ function initRecog() {
     document.getElementById("focus-mic-btn")?.classList.remove("rec");
     document.getElementById("mic-lbl").textContent = "Speak";
     setVI(null);
-    setTranscript("Mic error: " + e.error);
+    // 'not-allowed' on an insecure origin is not a permission the user can grant —
+    // it's the origin. Saying "Mic error: not-allowed" sent us looking at Chrome
+    // settings for a problem that was in the URL.
+    if ((e.error === "not-allowed" || e.error === "service-not-allowed") && !window.isSecureContext) {
+      setTranscript("Mic blocked — page is on plain HTTP (" + location.host + "). Needs HTTPS or localhost.");
+    } else {
+      setTranscript("Mic error: " + e.error);
+    }
   };
 }
 
