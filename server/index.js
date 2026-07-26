@@ -1336,10 +1336,25 @@ const MT5_HEARTBEAT_STALE_MS = 150 * 1000; // 2.5x the default 60s poll interval
 // Per-account health check, batch-friendly: 200 while connected (or never yet seen —
 // that's not "down", just not started), 503 once a previously-connected bridge goes
 // stale. tasks/watchdog.bat polls this per account and restarts only the stale one.
+// "Never connected yet" is only tolerated for a grace period after the server itself
+// started — long enough for a cold-boot MT5 launch + the bridge's own retry loop
+// (6 attempts, 15s apart = ~90s) to succeed. Past that, an account that has STILL never
+// reported in is exactly as broken as one that connected once and went stale — this is
+// what closes the gap a real reboot test found: a bridge that fails its very first
+// connection attempt used to be invisible to this check forever, since neither "stale"
+// nor "never connected" fired past that point.
+const MT5_NEVER_CONNECTED_GRACE_MS = 5 * 60 * 1000;
+
 app.get("/api/mt5/health", (req, res) => {
   const account  = req.query.account || "default";
   const lastSeen = mt5LastSeenByAccount[account];
-  if (!lastSeen) return res.status(200).json({ connected: null, reason: "never connected yet" });
+  if (!lastSeen) {
+    const serverAgeMs = process.uptime() * 1000;
+    if (serverAgeMs < MT5_NEVER_CONNECTED_GRACE_MS) {
+      return res.status(200).json({ connected: null, reason: "never connected yet — within startup grace period" });
+    }
+    return res.status(503).json({ connected: false, reason: `never connected — server has been up ${Math.round(serverAgeMs / 1000)}s, past the startup grace period` });
+  }
   const ageMs     = Date.now() - new Date(lastSeen).getTime();
   const connected = ageMs < MT5_HEARTBEAT_STALE_MS;
   res.status(connected ? 200 : 503).json({ connected, ageMs, lastSeen });
