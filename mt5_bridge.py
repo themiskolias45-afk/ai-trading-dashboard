@@ -172,9 +172,28 @@ def connect_mt5():
         return False
     info = mt5.terminal_info()
     acc  = mt5.account_info()
-    if info and acc:
+
+    if acc is None:
+        log("MT5 initialize() succeeded but account_info() is empty — the terminal is "
+            "running but not logged into an account.", RED)
+        log("Log the terminal into its broker account, then restart this bridge.", YELLOW)
+        mt5.shutdown()
+        return False
+
+    # Wrong account is worse than no account: it trades, just not where you think.
+    if EXPECTED_LOGIN and str(acc.login) != EXPECTED_LOGIN:
+        log(f"REFUSING TO TRADE — terminal is logged into #{acc.login} but this bridge "
+            f"({ACCOUNT_TAG or 'untagged'}) expects #{EXPECTED_LOGIN}.", RED)
+        log("Two bridges on one account would place every trade twice at double risk. "
+            "Fix the terminal login or MT5_EXPECTED_LOGIN before restarting.", YELLOW)
+        mt5.shutdown()
+        return False
+
+    if info:
         log(f"MT5 connected: {acc.name} #{acc.login} @ {info.company}  (terminal: {info.path})", GREEN)
-        log(f"Balance: ${acc.balance:.2f}  |  Equity: ${acc.equity:.2f}  |  Leverage: 1:{acc.leverage}", CYAN)
+    else:
+        log(f"MT5 connected: {acc.name} #{acc.login}", GREEN)
+    log(f"Balance: ${acc.balance:.2f}  |  Equity: ${acc.equity:.2f}  |  Leverage: 1:{acc.leverage}", CYAN)
     return auto_detect_symbols()
 
 
