@@ -40,8 +40,15 @@ def export(symbol, tf_name, tf_const, start, end):
         return f"{symbol} {tf_name}: symbol not available"
 
     rates = mt5.copy_rates_range(symbol, tf_const, start, end)
+
+    # A multi-year range request fails on lower timeframes ("Invalid params") because
+    # the terminal will not serve that many bars in one call. Falling back to a
+    # position-based pull gets the most recent N bars instead, which is what the
+    # lower timeframes actually need.
     if rates is None or len(rates) == 0:
-        return f"{symbol} {tf_name}: no data ({mt5.last_error()})"
+        rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, MAX_BARS)
+        if rates is None or len(rates) == 0:
+            return f"{symbol} {tf_name}: no data ({mt5.last_error()})"
 
     path = os.path.join(OUT_DIR, f"{symbol}_{tf_name}.csv")
     with open(path, "w", encoding="ascii", newline="") as fh:
