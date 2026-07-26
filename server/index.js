@@ -338,6 +338,10 @@ const STRATEGY_LIMITS = {
   // risk calculation entirely and trades exactly that size.
   fixedLotSize: { min: 0,    max: 100, def: 0,  decimals: 2 },
   maxLotSize:   { min: 0.01, max: 100, def: 10, decimals: 2 },
+  // Below this ADX the trend is treated as too weak to size up. Measured on this
+  // account's own 5 years: >=20 lifted swing-pullback win rate 52%->65% on Gold
+  // and 42%->54% on SPX.
+  adxTrendingMin: { min: 10, max: 40, def: 20 },
 };
 
 // Minimum signal strength AUTO mode will trade.
@@ -362,6 +366,7 @@ let strategySettings = {
   maxTradesPerDay:        STRATEGY_LIMITS.maxTradesPerDay.def,
   fixedLotSize:           STRATEGY_LIMITS.fixedLotSize.def,
   maxLotSize:             STRATEGY_LIMITS.maxLotSize.def,
+  adxTrendingMin:         STRATEGY_LIMITS.adxTrendingMin.def,
   minStrength:            "STRONG",
   updatedAt: null,
   updatedBy: null,
@@ -607,7 +612,12 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // setup survives. Measured on 5 years of this system's own assets — requiring
   // >= 20 lifted win rate 52%->65% on Gold and 42%->54% on SPX. Only used to
   // demote strength, never to invent a signal that was not there.
-  const ADX_TRENDING_MIN = 20;
+  // Tunable, not a constant: this is the dial the nightly evidence gate can
+  // actually measure, because unlike confidenceThreshold it lives inside
+  // generateSignal rather than the multi-timeframe wrapper.
+  const ADX_TRENDING_MIN = (typeof strategySettings !== "undefined"
+    && Number.isFinite(strategySettings.adxTrendingMin))
+    ? strategySettings.adxTrendingMin : 20;
   const adxTrending = adxValue !== null && adxValue >= ADX_TRENDING_MIN;
 
   const MIN_RR = 1.5;

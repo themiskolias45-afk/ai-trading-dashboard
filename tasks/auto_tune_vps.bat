@@ -22,9 +22,12 @@ REM Rotate on day-of-week so each setting gets tested regularly but only one
 REM changes per night.
 for /f %%d in ('powershell -NoProfile -Command "(Get-Date).DayOfWeek.value__"') do set DOW=%%d
 
-if "%DOW%"=="1" set SETTING=confidenceThreshold& set VALUES=55,60,65,70,75& set BASE=65
-if "%DOW%"=="3" set SETTING=maxConcurrentPositions& set VALUES=1,2,3,4& set BASE=3
-if "%DOW%"=="5" set SETTING=maxTradesPerDay& set VALUES=3,5,10,15& set BASE=10
+REM Only adxTrendingMin is tested, because it is the only tunable the replay can
+REM actually see. confidenceThreshold lives in generateSignalMTF and the position
+REM and trade caps are enforced in the bridge - testing those returned KEEP every
+REM time regardless of value, which looked like "no improvement found" but was
+REM really "the harness cannot measure this".
+if "%DOW%"=="1" set SETTING=adxTrendingMin& set VALUES=15,20,25,30& set BASE=20
 
 if "%SETTING%"=="" (
   echo No tuning scheduled today ^(day %DOW%^) >> %LOG%

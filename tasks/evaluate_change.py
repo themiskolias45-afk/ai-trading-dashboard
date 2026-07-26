@@ -42,7 +42,11 @@ COST_R = 0.05
 # is at risk per trade, and an unattended process should not size positions. The
 # ones here only decide WHICH trades qualify, and every value is clamped
 # server-side, so the worst case is a config inside a range you already approved.
-AUTO_TUNABLE = {"confidenceThreshold", "maxConcurrentPositions", "maxTradesPerDay"}
+# Only adxTrendingMin is currently measurable: it lives inside generateSignal,
+# which is what the replay runs. confidenceThreshold sits in generateSignalMTF and
+# the position/trade caps are enforced in the bridge, so the replay cannot see
+# them - testing those would silently return KEEP every time.
+AUTO_TUNABLE = {"adxTrendingMin"}
 
 SETTINGS_PATH = os.path.join(ROOT, "server", "strategy_settings.json")
 
