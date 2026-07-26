@@ -69,7 +69,7 @@ def replay(symbol, tf, setting, value):
     Uses server/index.js so the thing being measured is the code that will run
     live — not a Python re-implementation that can drift away from it.
     """
-    script = os.path.join(ROOT, "tasks", "_replay_engine.js")
+    script = os.path.join(ROOT, "tasks", "_replay_engine.cjs")
     env = dict(os.environ)
     if setting:
         env["OVERRIDE_SETTING"] = setting
