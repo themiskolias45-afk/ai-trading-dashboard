@@ -1,0 +1,136 @@
+# ---------------------------------------------------------------------------
+# External dead-man's switch for the Contabo VPS.
+#
+# RUNS ON THE LOCAL MACHINE. That is the entire point. Every other piece of
+# monitoring in this system lives inside the VPS: the auto-healer runs in the node
+# process, so a dead server sends no alert, and watchdog_vps.bat runs as a VPS
+# Scheduled Task, so a powered-off or unreachable box triggers nothing at all.
+# Silence was indistinguishable from health - the outage you would notice by
+# missing a signal, not by being told.
+#
+# This talks to the Telegram API directly from this machine, so it does not depend
+# on any part of the VPS being alive to deliver bad news.
+#
+# Alerts on the TRANSITION into trouble and again on recovery - never every run.
+# A 5-minute task that re-sends the same alarm becomes noise you learn to ignore,
+# which is the same as having no alarm.
+# ---------------------------------------------------------------------------
+
+$ErrorActionPreference = 'Continue'
+
+$vpsUrl     = 'http://169.58.74.133:3001/api/healer'
+$keysFile   = 'C:\Users\User\ai-trading-dashboard\keys.env'
+$stateFile  = 'C:\Users\User\ai-trading-dashboard\tasks\logs\vps_monitor_state.json'
+$logFile    = 'C:\Users\User\ai-trading-dashboard\tasks\logs\vps_monitor.txt'
+
+# One transient failure is a network blip, not an outage. Two consecutive misses at
+# a 5-minute cadence means ~10 minutes genuinely unreachable.
+$FAILURES_BEFORE_ALERT = 2
+$REQUEST_TIMEOUT_SEC   = 15
+
+$logDir = Split-Path $logFile -Parent
+if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+
+function Write-MonitorLog($message) {
+    Add-Content -Path $logFile -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] ' + $message) -ErrorAction SilentlyContinue
+}
+
+function Get-TelegramConfig {
+    if (-not (Test-Path $keysFile)) { return $null }
+    $lines = Get-Content $keysFile -ErrorAction SilentlyContinue
+    $token = ($lines | Where-Object { $_ -like 'TELEGRAM_TOKEN=*' }) -replace '^TELEGRAM_TOKEN=', ''
+    $chat  = ($lines | Where-Object { $_ -like 'TELEGRAM_CHAT_ID=*' }) -replace '^TELEGRAM_CHAT_ID=', ''
+    if (-not $token -or -not $chat) { return $null }
+    return @{ Token = $token.Trim(); ChatId = $chat.Trim() }
+}
+
+function Send-Alert($text) {
+    $cfg = Get-TelegramConfig
+    if (-not $cfg) { Write-MonitorLog 'ALERT NOT SENT - no Telegram token/chat id in keys.env'; return }
+    try {
+        $body = @{ chat_id = $cfg.ChatId; text = $text } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Uri ('https://api.telegram.org/bot' + $cfg.Token + '/sendMessage') `
+            -Method Post -ContentType 'application/json; charset=utf-8' `
+            -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 20 | Out-Null
+        Write-MonitorLog 'Telegram alert sent'
+    } catch {
+        Write-MonitorLog ('Telegram send FAILED - ' + $_.Exception.Message)
+    }
+}
+
+# --- previous state -------------------------------------------------------
+$consecutiveFailures = 0
+$lastState = 'ok'
+if (Test-Path $stateFile) {
+    try {
+        $prev = Get-Content $stateFile -Raw | ConvertFrom-Json
+        if ($null -ne $prev.consecutiveFailures) { $consecutiveFailures = [int]$prev.consecutiveFailures }
+        if ($prev.lastState) { $lastState = [string]$prev.lastState }
+    } catch {
+        # Corrupt state file must not stop the check - a monitor that dies on its
+        # own bookkeeping is worse than no monitor.
+        Write-MonitorLog 'State file unreadable - treating as first run'
+    }
+}
+
+# --- probe ----------------------------------------------------------------
+$reachable = $false
+$problems  = @()
+
+try {
+    $response = Invoke-RestMethod -Uri $vpsUrl -TimeoutSec $REQUEST_TIMEOUT_SEC
+    $reachable = $true
+
+    if ($response.healthy -ne $true) { $problems += 'healer reports unhealthy' }
+
+    # Name the specific failing check - "unhealthy" alone sends you hunting.
+    if ($response.checks) {
+        foreach ($name in $response.checks.PSObject.Properties.Name) {
+            $check = $response.checks.$name
+            if ($check.ok -ne $true) { $problems += ($name + ': ' + $check.detail) }
+        }
+    }
+} catch {
+    $problems += ('unreachable - ' + $_.Exception.Message)
+}
+
+# --- decide ---------------------------------------------------------------
+if ($reachable -and $problems.Count -eq 0) {
+    if ($lastState -eq 'down') {
+        Send-Alert ("SmartEntry VPS RECOVERED`n`nThe VPS is reachable again and all healer checks are green.")
+        Write-MonitorLog 'RECOVERED - alert sent'
+    }
+    $consecutiveFailures = 0
+    $lastState = 'ok'
+} else {
+    $consecutiveFailures = $consecutiveFailures + 1
+    $detail = ($problems -join "`n  - ")
+    Write-MonitorLog ('problem (' + $consecutiveFailures + '/' + $FAILURES_BEFORE_ALERT + '): ' + $detail)
+
+    if ($consecutiveFailures -ge $FAILURES_BEFORE_ALERT -and $lastState -ne 'down') {
+        $msg = "SmartEntry VPS PROBLEM`n`n"
+        if (-not $reachable) {
+            $msg += "The VPS did not respond to $consecutiveFailures consecutive checks.`n`n"
+            $msg += "No trades will execute and no signals will fire until it is back. "
+            $msg += "Check the Contabo panel - if the box rebooted and Windows auto-logon failed, "
+            $msg += "nothing starts on its own.`n`n"
+        } else {
+            $msg += "The VPS is up but reporting faults:`n  - $detail`n`n"
+        }
+        $msg += "Checked: $vpsUrl"
+        Send-Alert $msg
+        $lastState = 'down'
+    }
+}
+
+# --- persist --------------------------------------------------------------
+$state = @{
+    consecutiveFailures = $consecutiveFailures
+    lastState           = $lastState
+    lastCheckedAt       = (Get-Date -Format 'o')
+}
+try {
+    $state | ConvertTo-Json | Set-Content -Path $stateFile -Encoding utf8
+} catch {
+    Write-MonitorLog ('Could not write state file - ' + $_.Exception.Message)
+}
