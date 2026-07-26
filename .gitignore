@@ -1,5 +1,8 @@
-keys.env
-apikey.txt
+# Globbed, not exact: a keys.env.bak is exactly as sensitive as keys.env, and
+# taking a .bak before editing the file is a normal thing to do (the VPS now has
+# one). An exact-match rule would have left that copy trackable.
+keys.env*
+apikey.txt*
 node_modules/
 *.log
 __pycache__/
