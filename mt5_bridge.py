@@ -18,6 +18,14 @@ import requests
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
+# Force UTF-8 stdout/stderr regardless of how this process is launched — Task
+# Scheduler and some non-console launch paths fall back to the system's legacy
+# codepage (cp1252 on Windows), which can't encode characters like the arrow
+# used in log lines below and crashes the whole bridge on the very first log call.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 try:
     import MetaTrader5 as mt5
 except ImportError:
