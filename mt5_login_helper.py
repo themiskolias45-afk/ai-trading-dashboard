@@ -39,7 +39,7 @@ def main():
         print(json.dumps({"ok": False, "error": "login must be numeric"}))
         sys.exit(1)
 
-    init_kwargs = {"path": terminal_path}
+    init_kwargs = {"path": terminal_path, "timeout": 15000}
     if portable:
         init_kwargs["portable"] = True
 
