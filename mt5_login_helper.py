@@ -47,7 +47,7 @@ def main():
         print(json.dumps({"ok": False, "error": f"initialize failed: {mt5.last_error()}"}))
         sys.exit(1)
 
-    if not mt5.login(login, password=password, server=server):
+    if not mt5.login(login, password=password, server=server, timeout=10000):
         err = mt5.last_error()
         mt5.shutdown()
         print(json.dumps({"ok": False, "error": f"login failed: {err}"}))
