@@ -900,7 +900,15 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
       ema50:  parseFloat(ema50.toFixed(2)),
       ema200: ema200 ? parseFloat(ema200.toFixed(2)) : null,
       bb,
-      macd
+      macd,
+      adx: adxValue,
+      plusDI:  adxData ? adxData.plusDI  : null,
+      minusDI: adxData ? adxData.minusDI : null,
+    },
+    structure: {
+      swingLow:  swingLow  ? parseFloat(swingLow.price.toFixed(2))  : null,
+      swingHigh: swingHigh ? parseFloat(swingHigh.price.toFixed(2)) : null,
+      trending:  adxTrending,
     },
     trend,
     volume: { last: Math.round(lastVol), avg: avgVol ? Math.round(avgVol) : null, ratio: volRatio, confirmed: volConfirmed },
