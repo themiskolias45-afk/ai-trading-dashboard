@@ -94,3 +94,32 @@ Get-ChildItem (Join-Path $backupDir 'vault_*.zip') -ErrorAction SilentlyContinue
     Sort-Object LastWriteTime -Descending |
     Select-Object -Skip $KEEP_SNAPSHOTS |
     Remove-Item -Force -ErrorAction SilentlyContinue
+
+# --- push a copy off this machine ------------------------------------------
+# The vault lives on this PC, so a snapshot that also lives on this PC protects
+# against a bad edit but not against losing the machine. The VPS is the only other
+# box that is always on, so the newest snapshot goes there too. Best-effort: if the
+# VPS is unreachable the local snapshot has already been written and is still good.
+$sshKey     = 'C:\Users\User\.ssh\contabo_smartentry'
+$vpsTarget  = 'administrator@169.58.74.133'
+$vpsDestDir = 'C:/vault-backups'
+
+if (Test-Path $sshKey) {
+    try {
+        & ssh -i $sshKey -o ConnectTimeout=15 -o BatchMode=yes $vpsTarget `
+            "powershell -NoProfile -Command \"if (-not (Test-Path $vpsDestDir)) { New-Item -ItemType Directory -Path $vpsDestDir -Force | Out-Null }\"" 2>&1 | Out-Null
+        & scp -q -i $sshKey -o ConnectTimeout=15 -o BatchMode=yes $destZip ($vpsTarget + ':' + $vpsDestDir + '/') 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-VaultLog ('Copied to VPS ' + $vpsDestDir)
+            # Keep the same depth off-box as on it.
+            & ssh -i $sshKey -o ConnectTimeout=15 -o BatchMode=yes $vpsTarget `
+                "powershell -NoProfile -Command \"Get-ChildItem $vpsDestDir/vault_*.zip -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip $KEEP_SNAPSHOTS | Remove-Item -Force -ErrorAction SilentlyContinue\"" 2>&1 | Out-Null
+        } else {
+            Write-VaultLog 'VPS copy failed - local snapshot is still good'
+        }
+    } catch {
+        Write-VaultLog ('VPS copy error - ' + $_.Exception.Message + ' (local snapshot still good)')
+    }
+} else {
+    Write-VaultLog 'No SSH key - skipped off-box copy'
+}
