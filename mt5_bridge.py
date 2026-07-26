@@ -770,6 +770,11 @@ def main():
 
     while True:
         try:
+            # Read the kill switch BEFORE looking at signals, so a halt takes effect
+            # on the very next cycle rather than one cycle late. Existing positions
+            # are still managed below either way — a halt stops new entries, it does
+            # not abandon open trades.
+            check_remote_control()
             data = fetch_signals()
             if data:
                 print_status(data)
