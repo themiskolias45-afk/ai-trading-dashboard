@@ -275,6 +275,92 @@ def get_lot_size(symbol, entry, stop, risk_amount=None):
     return round(lots, 2)
 
 
+# Last rejection reason per asset, so a standing rejection is logged once instead of
+# once per poll. Same reasoning as the remote-halt transition logging: an alarm that
+# repeats every cycle is one you stop reading.
+last_rejection = {}
+
+
+def open_positions_for_risk_engine():
+    """Open SmartEntry positions in the shape server/sizing.js expects.
+
+    calcPortfolioRisk needs entry, stop and lots per position to total up real
+    money at risk, plus symbol and direction to spot correlated exposure.
+    """
+    out = []
+    try:
+        positions = mt5.positions_get()
+        if not positions:
+            return out
+        for p in positions:
+            if p.magic != MAGIC_NUMBER:
+                continue
+            out.append({
+                "symbol":    p.symbol,
+                "direction": "BUY" if p.type == 0 else "SELL",
+                "entry":     float(p.price_open),
+                "stop":      float(p.sl) if p.sl else float(p.price_open),
+                "lots":      float(p.volume),
+            })
+    except Exception as exc:
+        log(f"Could not read positions for risk check: {exc}", YELLOW)
+    return out
+
+
+def request_trade_approval(symbol, direction, entry, stop, target, confidence):
+    """Ask the server's risk engine to approve and budget this trade.
+
+    server/sizing.js holds the portfolio risk cap (6%), the single-trade cap (3%),
+    the minimum R:R, a duplicate-position guard and a correlation penalty for being
+    long or short several correlated markets at once. It was fully written and
+    tested but nothing in the live path ever called it, so none of it applied to a
+    real trade - the same way conviction sizing was dead code back in July.
+
+    Returns (approved: bool, reason: str, risk_amount_usd: float or None).
+
+    Fails CLOSED: no answer means no trade. That costs nothing, because signals come
+    from this same server - if it cannot be reached there is no signal to act on
+    anyway - and silently trading unguarded is the exact failure this closes.
+    """
+    acc = mt5.account_info()
+    if not acc:
+        return False, "no account info", None
+
+    payload = {
+        "accountBalance": float(acc.balance),
+        "signal": {
+            "symbol":     symbol,
+            "direction":  direction,
+            "entry":      float(entry),
+            "stop":       float(stop),
+            "target":     float(target),
+            "confidence": float(confidence) if confidence is not None else 0.0,
+        },
+        "openPositions": open_positions_for_risk_engine(),
+    }
+
+    try:
+        res = requests.post(f"{SERVER_URL}/api/size", json=payload, timeout=8)
+        res.raise_for_status()
+        verdict = res.json()
+    except Exception as exc:
+        return False, f"risk engine unreachable ({exc})", None
+
+    if not verdict.get("approved"):
+        return False, verdict.get("reason") or "rejected by risk engine", None
+
+    # suggestedSize is riskAmount / stopDistance, so multiplying back gives the
+    # dollar budget the engine approved - portfolio-aware, unlike a flat percentage.
+    stop_distance = abs(float(entry) - float(stop))
+    suggested     = float(verdict.get("suggestedSize") or 0)
+    risk_amount   = suggested * stop_distance
+
+    if risk_amount <= 0:
+        return False, "risk engine approved a zero budget", None
+
+    return True, verdict.get("reason") or "approved", risk_amount
+
+
 def check_spread(symbol):
     tick = mt5.symbol_info_tick(symbol)
     if not tick:
