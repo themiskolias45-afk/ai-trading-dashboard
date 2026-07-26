@@ -306,35 +306,38 @@
   </div>
 </section>
 
-<!-- TICKER -->
-<div class="ticker">
+<!-- TICKER — live from /api/signals.
+     These were hardcoded ($64,116 BUY / $4,018 BUY / $743 SELL) on a page selling
+     a signal service, so visitors were shown three invented signals as if they
+     were the system's live output. Real data or nothing. -->
+<div class="ticker" id="live-ticker">
   <div class="ticker-item">
     <div>
       <div class="ticker-label">Bitcoin</div>
-      <div class="ticker-price">$64,116</div>
+      <div class="ticker-price" id="tk-btc-price">—</div>
     </div>
-    <div class="ticker-signal sig-buy">BUY</div>
+    <div class="ticker-signal sig-wait" id="tk-btc-sig">—</div>
   </div>
   <div class="ticker-item">
     <div>
       <div class="ticker-label">Gold / XAUUSD</div>
-      <div class="ticker-price">$4,018</div>
+      <div class="ticker-price" id="tk-gold-price">—</div>
     </div>
-    <div class="ticker-signal sig-buy">BUY</div>
+    <div class="ticker-signal sig-wait" id="tk-gold-sig">—</div>
   </div>
   <div class="ticker-item">
     <div>
-      <div class="ticker-label">S&P 500 / SPY</div>
-      <div class="ticker-price">$743</div>
+      <div class="ticker-label">S&amp;P 500</div>
+      <div class="ticker-price" id="tk-spx-price">—</div>
     </div>
-    <div class="ticker-signal sig-sell">SELL</div>
+    <div class="ticker-signal sig-wait" id="tk-spx-sig">—</div>
   </div>
   <div class="ticker-item">
     <div>
-      <div class="ticker-label">VIX Fear Index</div>
-      <div class="ticker-price">18.8</div>
+      <div class="ticker-label">Last updated</div>
+      <div class="ticker-price" id="tk-stamp" style="font-size:.82rem">—</div>
     </div>
-    <div class="ticker-signal sig-wait">CALM</div>
+    <div class="ticker-signal sig-wait" id="tk-live">LIVE</div>
   </div>
 </div>
 
