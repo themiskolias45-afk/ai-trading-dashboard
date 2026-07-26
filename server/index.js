@@ -1147,7 +1147,7 @@ async function pollTelegram() {
 
 const SERVER_START = new Date().toISOString();
 app.get("/api/status",  (_, res) => res.json({ status: "online", version: 12, startedAt: SERVER_START, session: getCurrentSession(), ...priceCache }));
-app.post("/api/shutdown", (_, res) => {
+app.post("/api/shutdown", requireLocalOnly, (_, res) => {
   res.json({ ok: true });
   console.log("[server] Shutdown requested from dashboard");
   setTimeout(() => process.exit(0), 400);
