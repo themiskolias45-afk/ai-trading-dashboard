@@ -2179,6 +2179,22 @@ const FORCE_HEAL_TOOL = {
   input_schema: { type: "object", properties: {} }
 };
 
+const LIST_PROPOSALS_TOOL = {
+  name: "list_proposals",
+  description: "List pending/recent improvement proposals from the autonomous research agent — code changes it found and implemented on a branch, awaiting approval before anything touches the live server. Use when Themis asks what's pending, what the agent found, or what needs approval.",
+  input_schema: { type: "object", properties: {} }
+};
+
+const APPROVE_PROPOSAL_TOOL = {
+  name: "approve_proposal",
+  description: "Mark a pending improvement proposal as approved by Themis. This does NOT deploy it — deployment to the live server is a separate, deliberate step. This just records that he has reviewed and greenlit it, so it's ready to ship next session. Use only when he clearly approves a specific proposal (by id or by unambiguous description) — if it's not clear which one, ask, don't guess.",
+  input_schema: {
+    type: "object",
+    properties: { id: { type: "string", description: "The proposal id, e.g. prop_abc123" } },
+    required: ["id"]
+  }
+};
+
 async function braveWebSearch(query) {
   // Env vars set via the Windows GUI often pick up invisible copy-paste artifacts
   // (non-breaking spaces etc.) that silently break header auth — strip anything non-printable-ASCII.
