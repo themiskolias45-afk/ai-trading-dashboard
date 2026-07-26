@@ -2079,6 +2079,88 @@ async function loadFeedTab() {
 
 setInterval(()=>{ if(document.getElementById('tab-feed')?.classList.contains('active')) loadFeedTab(); }, 15_000);
 
+// ── Trust strip ──────────────────────────────────────────────────────────────
+// Answers one question the rest of this page never did: can I believe the numbers
+// below? Reads /api/system-plan, the same endpoint the Systems Plan page uses, so
+// there is one source of truth for system state rather than a second one to drift.
+const TRUST_REFRESH_MS = 60_000;
+
+function setTrustCell(id, cls, value, detail, withLed) {
+  const valueEl  = document.getElementById(id);
+  const detailEl = document.getElementById(id + '-d');
+  if (!valueEl || !detailEl) return;
+  valueEl.className = 'trust-value ' + cls;
+  valueEl.innerHTML = (withLed ? '<span class="trust-led"></span>' : '') + value;
+  detailEl.textContent = detail;
+}
+
+function describeAge(isoString, staleAfterMs) {
+  const ageMs   = Date.now() - new Date(isoString).getTime();
+  const ageMins = Math.round(ageMs / 60000);
+  const text    = ageMins < 60 ? ageMins + 'm ago'
+                : ageMins < 1440 ? Math.round(ageMins / 60) + 'h ago'
+                : Math.round(ageMins / 1440) + 'd ago';
+  return { stale: ageMs > staleAfterMs, text };
+}
+
+async function loadTrust() {
+  try {
+    const response = await fetch('/api/system-plan');
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const data = await response.json();
+
+    setTrustCell('tr-health',
+      data.healthy ? 'trust-ok' : 'trust-bad',
+      data.healthy ? 'Healthy' : 'Degraded',
+      'server up ' + Math.floor(data.uptimeSeconds / 3600) + 'h ' + Math.floor((data.uptimeSeconds % 3600) / 60) + 'm',
+      true);
+
+    const expected  = (data.bridges && data.bridges.expected)  || [];
+    const reporting = (data.bridges && data.bridges.reporting) || [];
+    const live      = expected.filter(tag => reporting.indexOf(tag) !== -1);
+    const missing   = expected.filter(tag => reporting.indexOf(tag) === -1);
+    // Honest denominator. The old healer counted only accounts that had already
+    // reported, so a bridge that never connected was invisible and this read "1/1".
+    setTrustCell('tr-bridge',
+      missing.length === 0 ? 'trust-ok' : 'trust-bad',
+      live.length + '/' + expected.length + ' live',
+      missing.length === 0 ? 'account ' + live.join(', ') + ' reporting' : 'silent: ' + missing.join(', '),
+      false);
+
+    const signalCheck = data.checks && data.checks.signalFreshness;
+    setTrustCell('tr-signal',
+      signalCheck && signalCheck.ok ? 'trust-ok' : 'trust-bad',
+      signalCheck && signalCheck.ok ? 'Fresh' : 'Stale',
+      signalCheck ? signalCheck.detail : 'unknown',
+      false);
+
+    if (data.latestBackup) {
+      // A backup older than ~26h means the 03:00 job did not run.
+      const age = describeAge(data.latestBackup.modified, 26 * 3600 * 1000);
+      setTrustCell('tr-backup', age.stale ? 'trust-warn' : 'trust-ok',
+        age.text, data.latestBackup.sizeKB + ' KB', false);
+    } else {
+      setTrustCell('tr-backup', 'trust-bad', 'None', 'no backup found', false);
+    }
+
+    const items = data.actionItems || [];
+    const high  = items.filter(item => item.severity === 'high').length;
+    setTrustCell('tr-actions',
+      high > 0 ? 'trust-bad' : items.length > 0 ? 'trust-warn' : 'trust-ok',
+      String(items.length),
+      items.length === 0 ? 'nothing waiting' : (high > 0 ? high + ' urgent — open plan' : 'open plan for detail'),
+      false);
+  } catch (e) {
+    // Say so rather than leaving stale green ticks implying health we cannot confirm.
+    console.error('loadTrust:', e);
+    ['tr-health','tr-bridge','tr-signal','tr-backup','tr-actions'].forEach(id =>
+      setTrustCell(id, 'trust-idle', '—', 'unreachable', id === 'tr-health'));
+  }
+}
+
+loadTrust();
+setInterval(loadTrust, TRUST_REFRESH_MS);
+
 setInterval(loadPrices,    REFRESH_MS);
 setInterval(loadSignals,   60_000);
 setInterval(loadAlerts,    15_000);
