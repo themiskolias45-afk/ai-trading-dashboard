@@ -1586,6 +1586,46 @@ loadTradingControl();
 // the bridge has no browser session.
 app.get("/api/mt5/control", (_, res) => res.json(tradingControl));
 
+// ── Strategy settings API ─────────────────────────────────────
+// GET is public because the bridge polls it and has no browser session; POST
+// requires one, since raising the trade cap or lowering the confidence gate makes
+// the system trade more, and this server is reachable from the internet.
+app.get("/api/strategy-settings", (_, res) => {
+  res.json({ ...strategySettings, limits: STRATEGY_LIMITS });
+});
+
+app.post("/api/strategy-settings", (req, res) => {
+  const incoming = req.body || {};
+  const applied = {};
+  const rejected = [];
+
+  for (const name of Object.keys(STRATEGY_LIMITS)) {
+    if (incoming[name] === undefined) continue;
+    const clamped = clampStrategyValue(name, incoming[name]);
+    if (clamped === null) {
+      rejected.push(`${name} must be a number`);
+      continue;
+    }
+    // Say so when a value was clamped. Silently "accepting" 200 and storing 50
+    // would leave you believing a limit you do not have.
+    if (Number(incoming[name]) !== clamped) {
+      rejected.push(`${name} clamped to ${clamped} (allowed ${STRATEGY_LIMITS[name].min}-${STRATEGY_LIMITS[name].max})`);
+    }
+    strategySettings[name] = clamped;
+    applied[name] = clamped;
+  }
+
+  if (Object.keys(applied).length === 0) {
+    return res.status(400).json({ ok: false, error: "No valid settings supplied", rejected });
+  }
+
+  strategySettings.updatedAt = new Date().toISOString();
+  strategySettings.updatedBy = "dashboard";
+  saveStrategySettings();
+  console.log(`[strategy] Updated from dashboard: ${JSON.stringify(applied)}`);
+  res.json({ ok: true, settings: strategySettings, applied, notes: rejected });
+});
+
 app.post("/api/mt5/control", (req, res) => {
   const { halted, reason } = req.body || {};
   if (typeof halted !== "boolean") {
