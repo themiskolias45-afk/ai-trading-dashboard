@@ -2821,7 +2821,7 @@ app.post("/api/engineer/architect", requireLocalOnly, async (req, res) => {
 // Step 2 — launch: spawn one real `claude -p` process per workstream.
 // The prompt is sent over stdin, never as a CLI argument or shell string —
 // nothing user-controlled is ever interpolated into a shell command.
-app.post("/api/engineer/launch", (req, res) => {
+app.post("/api/engineer/launch", requireLocalOnly, (req, res) => {
   const runId = req.body?.runId;
   const run = engineerRuns[runId];
   if (!run) return res.status(404).json({ error: "Unknown runId — call /api/engineer/architect first" });
