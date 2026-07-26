@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartEntry Pro — Login</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1117; --surface: #1a2332; --border: #253650;
+    --text: #e2e8f0; --muted: #6b88a8; --green: #00ff88; --red: #ff4444;
+    --font: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--font);
+    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+  }
+  .card {
+    width: 100%; max-width: 340px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 14px; padding: 32px 28px;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .logo-mark {
+    width: 40px; height: 40px; background: linear-gradient(135deg, #00ff88, #00aa55);
+    border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 20px; color: #0d1117; flex-shrink: 0;
+  }
+  .logo-title { font-size: 1rem; font-weight: 800; }
+  .logo-sub { font-size: .68rem; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; margin-top: 1px; }
+  label { display: block; font-size: .72rem; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .06em; }
+  input {
+    width: 100%; padding: 10px 12px; margin-bottom: 16px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: .9rem;
+  }
+  input:focus { outline: none; border-color: var(--green); }
+  button {
+    width: 100%; padding: 11px; background: rgba(0,255,136,.1); border: 1px solid rgba(0,255,136,.35);
+    color: var(--green); border-radius: 8px; font-size: .85rem; font-weight: 700; cursor: pointer;
+  }
+  button:hover { background: rgba(0,255,136,.18); }
+  button:disabled { opacity: .6; cursor: not-allowed; }
+  #error { color: var(--red); font-size: .78rem; margin-top: 14px; text-align: center; display: none; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="logo">
+    <div class="logo-mark">S</div>
+    <div>
+      <div class="logo-title">SmartEntry Pro</div>
+      <div class="logo-sub">Sign in</div>
+    </div>
+  </div>
+
+  <form id="login-form">
+    <label for="username">Username</label>
+    <input id="username" name="username" autocomplete="username" autofocus />
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" />
+    <button type="submit" id="submit-btn">Sign In</button>
+    <div id="error"></div>
+  </form>
+</div>
+
+<script>
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const errorEl = document.getElementById('error');
+  const username = document.getElementById('username').value;
+  const password = document.getElementById('password').value;
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+  errorEl.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      window.location.href = '/dashboard';
+    } else {
+      errorEl.textContent = data.error || 'Login failed.';
+      errorEl.style.display = 'block';
+    }
+  } catch (err) {
+    errorEl.textContent = 'Request failed: ' + err.message;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+});
+</script>
+</body>
+</html>
