@@ -783,7 +783,7 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   }
 
   // Preliminary signal for macro filter checks
-  let finalSignal = confidence >= 65 ? daily.signal : "WAIT";
+  let finalSignal = confidence >= strategySettings.confidenceThreshold ? daily.signal : "WAIT";
 
   // DXY filter: strong dollar hurts Gold and BTC
   const dxy = priceCache.dxy;
