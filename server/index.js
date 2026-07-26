@@ -2753,8 +2753,21 @@ function newEngineerRunId() {
   return "run_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
 }
 
+// AI Parallel spawns real claude -p --dangerously-skip-permissions processes with full
+// shell/file access on this machine — on an internet-reachable server that is remote code
+// execution for anyone who finds the URL. Restrict the whole feature to the server's own
+// loopback address, same guard as /api/mt5/login.
+function requireLocalOnly(req, res, next) {
+  const remote = req.socket.remoteAddress || "";
+  const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  if (!isLocal) {
+    return res.status(403).json({ error: "AI Parallel only accepts requests from the server's own machine." });
+  }
+  next();
+}
+
 // Step 1 — architect: split the task into independent, non-overlapping workstreams.
-app.post("/api/engineer/architect", async (req, res) => {
+app.post("/api/engineer/architect", requireLocalOnly, async (req, res) => {
   const task = (req.body?.task || "").trim();
   if (!task) return res.status(400).json({ error: "task required" });
   if (!anthropic) return res.status(503).json({ error: "Claude API not configured (ANTHROPIC_API_KEY missing)" });
