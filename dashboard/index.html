@@ -2187,6 +2187,91 @@ async function loadFeedTab() {
 
 setInterval(()=>{ if(document.getElementById('tab-feed')?.classList.contains('active')) loadFeedTab(); }, 15_000);
 
+// ── Growth tracker ───────────────────────────────────────────────────────────
+let growthPeriod = 'month';
+let growthCache  = null;
+
+function setGrowthPeriod(period) {
+  growthPeriod = period;
+  document.querySelectorAll('#growth-period-btns .tf-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.growth === period));
+  if (growthCache) renderGrowth(growthCache);
+}
+
+function money(n) {
+  const sign = n > 0 ? '+' : n < 0 ? '−' : '';
+  return sign + '$' + Math.abs(Number(n)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderGrowth(data) {
+  const totalsEl = document.getElementById('growth-totals');
+  const tableEl  = document.getElementById('growth-table');
+  const noteEl   = document.getElementById('growth-note');
+  if (!totalsEl || !tableEl) return;
+
+  const t = data.totals || {};
+  const cell = (label, value, colour) =>
+    '<div style="background:var(--surface);padding:10px 14px">'
+    + '<div style="font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">' + label + '</div>'
+    + '<div style="font-size:.9rem;font-weight:700;margin-top:3px;' + (colour ? 'color:' + colour : '') + '">' + value + '</div></div>';
+
+  const pnlColour = t.netPnl > 0 ? 'var(--green)' : t.netPnl < 0 ? 'var(--red)' : 'var(--muted)';
+  totalsEl.innerHTML =
+      cell('Net P&L', data.hasData ? money(t.netPnl) : '—', data.hasData ? pnlColour : '')
+    + cell('Trades', t.trades || 0)
+    + cell('Win Rate', t.winRate == null ? '—' : t.winRate + '%')
+    + cell('Profit Factor', t.profitFactor == null ? '—' : t.profitFactor)
+    + cell('Max Drawdown', data.hasData ? money(-t.maxDrawdown) : '—', t.maxDrawdown > 0 ? 'var(--red)' : '');
+
+  const rows = data[growthPeriod] || [];
+  if (!data.hasData || rows.length === 0) {
+    // Say why it is empty. "No data" alone reads like a bug.
+    tableEl.innerHTML = '<tbody><tr><td style="padding:16px;color:var(--muted);font-size:.75rem">'
+      + 'No closed trades yet — this fills in as trades close. Nothing is broken.'
+      + '</td></tr></tbody>';
+    noteEl.textContent = '';
+    return;
+  }
+
+  const head = '<thead><tr style="position:sticky;top:0;background:var(--surface)">'
+    + ['Period','Net P&L','Trades','W / L','Win Rate'].map(h =>
+        '<th style="text-align:left;padding:9px 16px;font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border)">' + h + '</th>').join('')
+    + '</tr></thead>';
+
+  // Newest first: the current period is what you look at.
+  const body = '<tbody>' + rows.slice().reverse().map(r => {
+    const colour = r.pnl > 0 ? 'var(--green)' : r.pnl < 0 ? 'var(--red)' : 'var(--muted)';
+    return '<tr style="border-bottom:1px solid var(--border)">'
+      + '<td style="padding:9px 16px;font-weight:600">' + r.period + '</td>'
+      + '<td style="padding:9px 16px;font-weight:700;color:' + colour + '">' + money(r.pnl) + '</td>'
+      + '<td style="padding:9px 16px">' + r.trades + '</td>'
+      + '<td style="padding:9px 16px;color:var(--muted)">' + r.wins + ' / ' + r.losses + '</td>'
+      + '<td style="padding:9px 16px">' + (r.winRate == null ? '—' : r.winRate + '%') + '</td>'
+      + '</tr>';
+  }).join('') + '</tbody>';
+
+  tableEl.innerHTML = head + body;
+  noteEl.textContent = 'Realised P&L on closed trades only — open positions are not counted.'
+    + (data.truncated ? ' Journal is at its 200-trade cap, so older trades are not included.' : '');
+}
+
+async function loadGrowth() {
+  try {
+    const r = await fetch('/api/growth');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    growthCache = await r.json();
+    renderGrowth(growthCache);
+  } catch (e) {
+    console.error('loadGrowth:', e);
+    const tableEl = document.getElementById('growth-table');
+    if (tableEl) tableEl.innerHTML = '<tbody><tr><td style="padding:16px;color:var(--red);font-size:.75rem">Could not load growth data: '
+      + String(e.message) + '</td></tr></tbody>';
+  }
+}
+
+loadGrowth();
+setInterval(() => { if (document.getElementById('tab-performance')?.classList.contains('active')) loadGrowth(); }, 60_000);
+
 // ── Strategy settings ────────────────────────────────────────────────────────
 // Confidence used to be the literal 65 in three places in server/index.js; slots
 // and the daily trade cap did not exist anywhere. All three are now server-side,
