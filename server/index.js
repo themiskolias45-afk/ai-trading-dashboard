@@ -1451,6 +1451,79 @@ app.post("/api/risk-status", (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Remote trading control ────────────────────────────────────
+// Until now every channel between the dashboard and the bridge ran one way:
+// the bridge reported positions and its own circuit-breaker state upward, and
+// nothing could reach down to tell it to stop. The only "control" on the Auto
+// Trade page was "Stop Server", which kills the server, closes nothing, and
+// leaves live positions running with no one watching them. That is the opposite
+// of a kill switch.
+//
+// This is the downward channel: the dashboard sets a halt, the bridge reads it
+// once per poll and stops OPENING trades. It deliberately does not touch open
+// positions — flattening places market orders and is a separate, far more
+// dangerous action that deserves its own explicit confirmation, not a shared
+// endpoint where a typo could liquidate an account.
+//
+// Persisted to disk on purpose: a halt is a safety decision, and a server
+// restart (the watchdog does this on any crash) must never silently resume
+// trading behind your back. Fail-safe means fail-halted.
+const TRADING_CONTROL_FILE = path.join(__dirname, "trading_control.json");
+
+let tradingControl = { halted: false, reason: "", setAt: null, setBy: null };
+
+function loadTradingControl() {
+  try {
+    if (!fs.existsSync(TRADING_CONTROL_FILE)) return;
+    const saved = JSON.parse(fs.readFileSync(TRADING_CONTROL_FILE, "utf8"));
+    if (saved && typeof saved.halted === "boolean") {
+      tradingControl = {
+        halted: saved.halted,
+        reason: typeof saved.reason === "string" ? saved.reason : "",
+        setAt:  saved.setAt  || null,
+        setBy:  saved.setBy  || null,
+      };
+      if (tradingControl.halted) {
+        console.log(`[control] Restored HALT from disk: ${tradingControl.reason || "no reason given"}`);
+      }
+    }
+  } catch (e) {
+    // A corrupt control file must not decide to let trading run. Halt and say so.
+    tradingControl = { halted: true, reason: `control file unreadable (${e.message}) — halted for safety`, setAt: new Date().toISOString(), setBy: "system" };
+    console.error("[control] trading_control.json unreadable — defaulting to HALTED");
+  }
+}
+
+function saveTradingControl() {
+  try {
+    fs.writeFileSync(TRADING_CONTROL_FILE, JSON.stringify(tradingControl, null, 2));
+  } catch (e) {
+    console.error(`[control] Could not persist trading control: ${e.message}`);
+  }
+}
+
+loadTradingControl();
+
+// The bridge polls this every cycle. Kept in the no-login allowlist below because
+// the bridge has no browser session.
+app.get("/api/mt5/control", (_, res) => res.json(tradingControl));
+
+app.post("/api/mt5/control", (req, res) => {
+  const { halted, reason } = req.body || {};
+  if (typeof halted !== "boolean") {
+    return res.status(400).json({ ok: false, error: "halted must be true or false" });
+  }
+  tradingControl = {
+    halted,
+    reason: typeof reason === "string" ? reason.slice(0, 200) : "",
+    setAt:  new Date().toISOString(),
+    setBy:  "dashboard",
+  };
+  saveTradingControl();
+  console.log(`[control] Trading ${halted ? "HALTED" : "RESUMED"} from dashboard${tradingControl.reason ? ` — ${tradingControl.reason}` : ""}`);
+  res.json({ ok: true, control: tradingControl });
+});
+
 // ── /api/settings — API keys & Telegram config ─────────────────
 // Values are masked on read and written only to gitignored files (keys.env, apikey.txt).
 app.get("/api/settings", (_, res) => {
