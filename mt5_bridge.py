@@ -1021,6 +1021,7 @@ def main():
             # are still managed below either way — a halt stops new entries, it does
             # not abandon open trades.
             check_remote_control()
+            refresh_strategy_settings()
             data = fetch_signals()
             if data:
                 print_status(data)
