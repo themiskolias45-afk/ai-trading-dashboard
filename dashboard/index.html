@@ -2159,6 +2159,75 @@ async function loadFeedTab() {
 
 setInterval(()=>{ if(document.getElementById('tab-feed')?.classList.contains('active')) loadFeedTab(); }, 15_000);
 
+// ── Strategy settings ────────────────────────────────────────────────────────
+// Confidence used to be the literal 65 in three places in server/index.js; slots
+// and the daily trade cap did not exist anywhere. All three are now server-side,
+// persisted, and enforced by the bridge — a setting nothing enforces is decoration.
+let strategyLimits = null;
+
+async function loadStrategySettings() {
+  const status = document.getElementById('ss-status');
+  try {
+    const r = await fetch('/api/strategy-settings');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const s = await r.json();
+    strategyLimits = s.limits || null;
+
+    document.getElementById('ss-confidence').value = s.confidenceThreshold;
+    document.getElementById('ss-slots').value      = s.maxConcurrentPositions;
+    document.getElementById('ss-maxtrades').value  = s.maxTradesPerDay;
+
+    // Show the real allowed range so a rejected value is never a surprise.
+    if (strategyLimits) {
+      const range = k => `${strategyLimits[k].min}–${strategyLimits[k].max}`;
+      document.getElementById('ss-confidence-hint').textContent = `signal fires at or above this (${range('confidenceThreshold')})`;
+      document.getElementById('ss-slots-hint').textContent      = `max positions open at once (${range('maxConcurrentPositions')})`;
+      document.getElementById('ss-maxtrades-hint').textContent  = `resets at midnight (${range('maxTradesPerDay')})`;
+      ['ss-confidence','ss-slots','ss-maxtrades'].forEach((id, i) => {
+        const key = ['confidenceThreshold','maxConcurrentPositions','maxTradesPerDay'][i];
+        const el = document.getElementById(id);
+        el.min = strategyLimits[key].min;
+        el.max = strategyLimits[key].max;
+      });
+    }
+    if (status) status.textContent = s.updatedAt
+      ? 'last changed ' + new Date(s.updatedAt).toLocaleString()
+      : 'defaults — never changed';
+  } catch (e) {
+    console.error('loadStrategySettings:', e);
+    if (status) status.textContent = 'could not load settings';
+  }
+}
+
+async function saveStrategySettings() {
+  const msg = document.getElementById('ss-msg');
+  const body = {
+    confidenceThreshold:    Number(document.getElementById('ss-confidence').value),
+    maxConcurrentPositions: Number(document.getElementById('ss-slots').value),
+    maxTradesPerDay:        Number(document.getElementById('ss-maxtrades').value),
+  };
+  if (!confirm(`Apply these limits?\n\nConfidence gate: ${body.confidenceThreshold}%\nPosition slots: ${body.maxConcurrentPositions}\nMax trades/day: ${body.maxTradesPerDay}\n\nThe bridge picks these up on its next poll.`)) return;
+  try {
+    const r = await fetch('/api/strategy-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const out = await r.json();
+    if (!r.ok || !out.ok) throw new Error(out.error || ('HTTP ' + r.status));
+    // Surface clamping instead of silently storing something else.
+    msg.textContent = 'Saved' + (out.notes && out.notes.length ? ' — ' + out.notes.join('; ') : '');
+    msg.style.color = out.notes && out.notes.length ? 'var(--yellow)' : 'var(--green)';
+    await loadStrategySettings();
+    logExec(`Strategy settings updated: confidence ${body.confidenceThreshold}%, ${body.maxConcurrentPositions} slots, ${body.maxTradesPerDay} trades/day`, 'info');
+  } catch (e) {
+    msg.textContent = 'Failed: ' + e.message + (String(e.message).indexOf('401') !== -1 ? ' (log in first)' : '');
+    msg.style.color = 'var(--red)';
+  }
+}
+
+loadStrategySettings();
+
 // ── Trading control (kill switch) ────────────────────────────────────────────
 // The dashboard had no way to reach the bridge at all: it reported its own
 // circuit-breaker state upward and nothing could tell it to stop. /api/mt5/control
