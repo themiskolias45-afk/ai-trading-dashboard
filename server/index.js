@@ -887,7 +887,7 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   }
 
   // Require confidence ≥ 65 for a signal to fire
-  finalSignal = confidence >= 65 ? daily.signal : "WAIT";
+  finalSignal = confidence >= strategySettings.confidenceThreshold ? daily.signal : "WAIT";
   const finalStrength = confidence >= 90 ? "STRONG" : confidence >= 70 ? "MODERATE" : "NONE";
 
   // Market regime
