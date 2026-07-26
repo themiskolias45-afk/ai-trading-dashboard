@@ -1,0 +1,28 @@
+# Windows/local-only files — not needed on Railway
+*.bat
+*.ps1
+*.py
+__pycache__/
+*.pyc
+
+# Local dev tools
+node_modules/
+.claude/
+tasks/
+vault-setup/
+second-brain/
+commercial/
+
+# Sensitive files — set these as Railway env vars instead
+server/apikey.txt
+keys.env
+*.env
+
+# Local database — Railway uses a Volume
+server/smartentry.db
+server/smartentry.db-shm
+server/smartentry.db-wal
+
+# Docs
+README.md
+CLAUDE.md
