@@ -96,6 +96,10 @@ const API_NO_LOGIN_REQUIRED = new Set([
   "/api/agent/notify", "/api/mt5/health", "/api/status",
   "/api/checksystem", "/api/journal", "/api/backtest", "/api/learning",
   "/api/healer", "/api/healer/heal",
+  // The bridge must call this before every trade and has no browser session.
+  // Pure calculation: it validates and sizes a hypothetical trade and mutates
+  // nothing, so exposing it grants no power over the account.
+  "/api/size",
 ]);
 
 // Paths the MT5 bridge must READ without a browser session, but which must never
