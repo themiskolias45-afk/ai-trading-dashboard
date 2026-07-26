@@ -2225,7 +2225,7 @@ async function askClaude(question, history = []) {
       .map(m => ({ role: m.role, content: m.content }));
     msgs.push({ role: "user", content: `[Live system state]\n${context}\n\n[Question]\n${question}` });
 
-    const callOpts = { model: "claude-opus-4-8", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL, WEB_SEARCH_TOOL, PLAY_VIDEO_TOOL, FORCE_HEAL_TOOL] };
+    const callOpts = { model: "claude-opus-4-8", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL, WEB_SEARCH_TOOL, PLAY_VIDEO_TOOL, FORCE_HEAL_TOOL, LIST_PROPOSALS_TOOL, APPROVE_PROPOSAL_TOOL] };
     let response = await anthropic.messages.create({ ...callOpts, messages: msgs });
 
     // Tool-use loop: let JARVIS actually save memories, search the web, and open videos mid-conversation.
