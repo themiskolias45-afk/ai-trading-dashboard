@@ -126,7 +126,7 @@ if (Test-Path $sshKey) {
             $rotateCmd = 'powershell -NoProfile -Command "Get-ChildItem ' + $vpsDestDir + '/vault_*.zip -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip ' + $KEEP_SNAPSHOTS + ' | Remove-Item -Force -ErrorAction SilentlyContinue"'
             & ssh.exe @sshOpts $vpsTarget $rotateCmd 2>&1 | Out-Null
         } else {
-            Write-VaultLog 'VPS copy failed - local snapshot is still good'
+            Write-VaultLog ('VPS copy failed (exit ' + $scpExit + ': ' + ($scpOutput -join ' ') + ') - local snapshot is still good')
         }
     } catch {
         Write-VaultLog ('VPS copy error - ' + $_.Exception.Message + ' (local snapshot still good)')
