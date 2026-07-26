@@ -268,30 +268,58 @@ function checkMt5Bridge() {
   const name = 'mt5Bridge';
   try {
     const lastSeen = ctx && ctx.mt5LastSeenByAccount ? ctx.mt5LastSeenByAccount : {};
-    const accounts = Object.entries(lastSeen);
+    const now      = Date.now();
 
-    if (accounts.length === 0) {
-      updateCheck(name, true, 'no bridge has connected yet this session');
+    // Someone has explicitly declared that no bridge is expected here. Say so
+    // rather than silently passing, so an empty list can't be mistaken for health.
+    if (EXPECTED_MT5_ACCOUNTS.length === 0) {
+      updateCheck(name, true, 'no accounts expected (MT5_EXPECTED_ACCOUNTS is empty)');
       return;
     }
 
-    const now = Date.now();
-    const ages = accounts.map(([account, ts]) => ({ account, ageMs: now - new Date(ts).getTime() }));
-    const live = ages.filter(a => a.ageMs < STALE_MT5_MS);
+    const report = EXPECTED_MT5_ACCOUNTS.map(account => {
+      const ts = lastSeen[account];
+      if (!ts) return { account, status: 'never', ageMs: null };
+      const ageMs = now - new Date(ts).getTime();
+      return { account, status: ageMs < STALE_MT5_MS ? 'live' : 'stale', ageMs };
+    });
 
-    if (live.length > 0) {
-      updateCheck(name, true, `${live.length}/${ages.length} account(s) reporting`);
+    const live    = report.filter(entry => entry.status === 'live');
+    const absent  = report.filter(entry => entry.status !== 'live');
+    const summary = `${live.length}/${EXPECTED_MT5_ACCOUNTS.length} expected account(s) reporting`;
+
+    // A bridge posting under a tag nobody declared — usually a misconfigured
+    // ACCOUNT_TAG. It would otherwise be silently ignored by the loop above.
+    const undeclared = Object.keys(lastSeen).filter(tag => !EXPECTED_MT5_ACCOUNTS.includes(tag));
+    const undeclaredNote = undeclared.length
+      ? ` | undeclared account(s) reporting: ${undeclared.join(', ')} — check ACCOUNT_TAG`
+      : '';
+
+    if (absent.length === 0) {
+      updateCheck(name, true, summary + undeclaredNote);
       if (mt5AlertSent) {
         mt5AlertSent = false;
-        console.log('[HEALER] MT5 bridge heartbeat recovered');
+        console.log('[HEALER] MT5 bridge heartbeat recovered — all expected accounts reporting');
       }
-    } else {
-      const staleList = ages.map(a => `${a.account} (${Math.round(a.ageMs / 1000)}s ago)`).join(', ');
-      updateCheck(name, false, `no bridge heartbeat — ${staleList}`);
-      if (!mt5AlertSent) {
-        sendAlert(`MT5 bridge has gone silent (${staleList}) — no trades will execute until it's restarted.`);
-        mt5AlertSent = true;
-      }
+      return;
+    }
+
+    const detail = absent
+      .map(entry => entry.status === 'never'
+        ? `${entry.account} has never connected`
+        : `${entry.account} silent for ${Math.round(entry.ageMs / 1000)}s`)
+      .join(', ');
+
+    // Don't cry wolf while the bridges are still legitimately starting up.
+    if (process.uptime() * 1000 < MT5_STARTUP_GRACE_MS) {
+      updateCheck(name, true, `${summary} — ${detail} (within startup grace)` + undeclaredNote);
+      return;
+    }
+
+    updateCheck(name, false, `${summary} — ${detail}` + undeclaredNote);
+    if (!mt5AlertSent) {
+      sendAlert(`MT5 bridge incomplete: ${detail}. No trades will execute on ${absent.length > 1 ? 'those accounts' : 'that account'} until it's restored.`);
+      mt5AlertSent = true;
     }
   } catch (err) {
     updateCheck(name, false, err.message);
