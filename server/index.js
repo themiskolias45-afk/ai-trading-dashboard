@@ -1948,6 +1948,113 @@ app.get("/api/journal", (req, res) => {
   res.json({ journal: entries.slice(0, limit) });
 });
 
+// ── /api/growth — P&L by real calendar period ─────────────────
+// The only performance view before this was a prose weekly AI report and a set of
+// all-time totals, which cannot answer "am I up this month" or "was last week
+// worse than the one before". Buckets closed trades by actual calendar boundaries
+// rather than rolling windows, because "this month" means the month, not 30 days.
+//
+// Reads the journal, which caps at 200 entries — the equity curve is therefore the
+// last 200 closed trades, not all history. Stated in the payload rather than
+// quietly implied, so nobody reads a truncated curve as a complete one.
+const GROWTH_PERIOD_KEYS = {
+  // ISO week, so weeks start Monday and do not drift across year boundaries.
+  week: (d) => {
+    const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const dayNum = tmp.getUTCDay() || 7;              // Sunday = 7, not 0
+    tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);    // shift to the Thursday of this week
+    const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil(((tmp - yearStart) / 86400000 + 1) / 7);
+    return `${tmp.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+  },
+  day:   (d) => d.toISOString().slice(0, 10),
+  month: (d) => d.toISOString().slice(0, 7),
+  year:  (d) => String(d.getUTCFullYear()),
+};
+
+function summariseGrowth(closedTrades, periodName) {
+  const keyOf = GROWTH_PERIOD_KEYS[periodName];
+  const buckets = new Map();
+
+  for (const trade of closedTrades) {
+    const key = keyOf(new Date(trade.closeTime));
+    if (!buckets.has(key)) buckets.set(key, { period: key, pnl: 0, trades: 0, wins: 0, losses: 0 });
+    const bucket = buckets.get(key);
+    bucket.pnl += trade.pnl;
+    bucket.trades += 1;
+    if (trade.pnl > 0) bucket.wins += 1;
+    else if (trade.pnl < 0) bucket.losses += 1;
+  }
+
+  return [...buckets.values()]
+    .map(b => ({
+      ...b,
+      pnl: Math.round(b.pnl * 100) / 100,
+      // Breakeven trades count in `trades` but belong to neither side, so the rate
+      // is wins over decided trades, not over everything.
+      winRate: (b.wins + b.losses) > 0 ? Math.round((b.wins / (b.wins + b.losses)) * 100) : null,
+    }))
+    .sort((a, b) => a.period.localeCompare(b.period));
+}
+
+app.get("/api/growth", (_, res) => {
+  try {
+    const closed = (tradeJournal || [])
+      .filter(t => t && t.status === "CLOSED" && typeof t.pnl === "number" && t.closeTime)
+      .sort((a, b) => new Date(a.closeTime) - new Date(b.closeTime));
+
+    let running = 0;
+    const equityCurve = closed.map(t => {
+      running += t.pnl;
+      return {
+        at: t.closeTime,
+        pnl: Math.round(t.pnl * 100) / 100,
+        cumulative: Math.round(running * 100) / 100,
+        symbol: t.symbol || null,
+      };
+    });
+
+    // Peak-to-trough on realised P&L only — open positions are not in here.
+    let peak = 0, maxDrawdown = 0;
+    for (const point of equityCurve) {
+      if (point.cumulative > peak) peak = point.cumulative;
+      const drawdown = peak - point.cumulative;
+      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    }
+
+    const wins   = closed.filter(t => t.pnl > 0);
+    const losses = closed.filter(t => t.pnl < 0);
+    const grossWin  = wins.reduce((s, t) => s + t.pnl, 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      hasData: closed.length > 0,
+      journalCap: 200,
+      truncated: (tradeJournal || []).length >= 200,
+      totals: {
+        trades: closed.length,
+        netPnl: Math.round(running * 100) / 100,
+        wins: wins.length,
+        losses: losses.length,
+        winRate: (wins.length + losses.length) > 0
+          ? Math.round((wins.length / (wins.length + losses.length)) * 100) : null,
+        avgWin:  wins.length   ? Math.round((grossWin / wins.length) * 100) / 100 : null,
+        avgLoss: losses.length ? Math.round((grossLoss / losses.length) * 100) / 100 : null,
+        profitFactor: grossLoss > 0 ? Math.round((grossWin / grossLoss) * 100) / 100 : null,
+        maxDrawdown: Math.round(maxDrawdown * 100) / 100,
+      },
+      day:   summariseGrowth(closed, "day"),
+      week:  summariseGrowth(closed, "week"),
+      month: summariseGrowth(closed, "month"),
+      year:  summariseGrowth(closed, "year"),
+      equityCurve,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Self-learning state
 app.get("/api/hermes", (_, res) => {
   try {
