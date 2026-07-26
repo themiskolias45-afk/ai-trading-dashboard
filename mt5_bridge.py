@@ -726,6 +726,17 @@ def track_closed_positions():
                 "halted": trading_halted,
                 "haltReason": halt_reason,
                 "account": ACCOUNT_TAG or "default",
+                # The real limits this bridge is running with. The Auto Trade page
+                # used to hardcode these numbers in HTML, so changing the env vars
+                # left the dashboard confidently displaying the old ones.
+                "config": {
+                    "riskPercent":      RISK_PERCENT,
+                    "dailyLossPct":     daily_loss_limit,
+                    "maxConsecLosses":  MAX_CONSECUTIVE_LOSSES,
+                    "maxSpreadPts":     MAX_SPREAD_PTS,
+                    "autoMode":         AUTO_MODE,
+                    "expectedLogin":    EXPECTED_LOGIN or None,
+                },
             }, timeout=3)
         except Exception:
             pass
