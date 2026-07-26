@@ -585,6 +585,130 @@
 </footer>
 
 <script>
+  // ── Live signals on the sales page ────────────────────────────────────────
+  // Reads /api/signals, which is already public. The ticker and showcase were
+  // hardcoded before, which meant this page advertised invented signals as if the
+  // system had produced them.
+  const SC_ASSETS = [
+    { key: 'btc',  name: 'Bitcoin',   sym: 'BTCUSD' },
+    { key: 'gold', name: 'Gold',      sym: 'XAUUSD' },
+    { key: 'spx',  name: 'S&P 500',   sym: 'SP500'  },
+  ];
+
+  function scEsc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+  function scPrice(v) {
+    return v == null || !isFinite(v) ? '—' : '$' + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function scSide(sig) {
+    if (!sig || sig === 'WAIT') return 'wait';
+    return sig.indexOf('SELL') !== -1 ? 'sell' : 'buy';
+  }
+  function scWord(sig) {
+    if (!sig || sig === 'WAIT') return 'NO TRADE';
+    return sig.indexOf('SELL') !== -1 ? 'SELL' : 'BUY';
+  }
+
+  function scRenderTicker(data) {
+    for (const a of SC_ASSETS) {
+      const s = data[a.key];
+      const priceEl = document.getElementById('tk-' + a.key + '-price');
+      const sigEl   = document.getElementById('tk-' + a.key + '-sig');
+      if (!priceEl || !sigEl) continue;
+      priceEl.textContent = s ? scPrice(s.price) : '—';
+      sigEl.textContent = s ? scWord(s.signal) : '—';
+      sigEl.className = 'ticker-signal sig-' + (s ? (scSide(s.signal) === 'wait' ? 'wait' : scSide(s.signal)) : 'wait');
+    }
+    const stamp = document.getElementById('tk-stamp');
+    if (stamp) stamp.textContent = data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString() : '—';
+  }
+
+  function scCard(a, s) {
+    if (!s) return '';
+    const side = scSide(s.signal);
+    const isWait = side === 'wait';
+    const conf = s.confidence == null ? 0 : s.confidence;
+
+    // A subscriber gets the exact levels. This page shows the structure and the
+    // reasoning in full, and holds back only the numbers that are the product.
+    const level = (label, value) => `<div class="sc-row"><span class="l">${label}</span><span class="v">${value}</span></div>`;
+    const locked = '<span class="sc-lock">subscribers</span>';
+
+    const tf = (n, d) => `<div><div class="n">${n}</div><div class="s" style="color:${
+      d && d.signal && d.signal !== 'WAIT' ? (scSide(d.signal) === 'sell' ? 'var(--red)' : 'var(--green)') : 'var(--muted)'
+    }">${scEsc(d && d.signal ? d.signal : '—')}</div></div>`;
+
+    const reasons = Array.isArray(s.reasons) && s.reasons.length
+      ? s.reasons.slice(0, 3).map(r => '<li>' + scEsc(r) + '</li>').join('')
+      : '<li>No setup forming — the system stays out.</li>';
+
+    return `
+    <div class="sc-card ${side}">
+      <div class="sc-head">
+        <div>
+          <div class="sc-asset">${scEsc(a.name)}</div>
+          <div class="sc-sym">${scEsc(a.sym)} · ${scEsc(s.setup || '—')}</div>
+        </div>
+        <span class="sc-tag ${side}">${scWord(s.signal)}</span>
+      </div>
+      <div class="sc-body">
+        ${level('Price', scPrice(s.price))}
+        ${level('Confidence', conf + '%')}
+        ${level('Regime', scEsc(s.regime || '—'))}
+        ${level('Entry', isWait ? '—' : locked)}
+        ${level('Stop loss', isWait ? '—' : locked)}
+        ${level('TP1 / TP2', isWait ? '—' : locked)}
+        ${level('Reward : risk', s.rr ? Number(s.rr).toFixed(2) + ':1' : '—')}
+        <div class="sc-sub-t" style="margin-top:14px">Timeframe alignment</div>
+        <div class="sc-tf">
+          ${tf('Daily', { signal: s.signal })}
+          ${tf('4H', s.h4)}
+          ${tf('1H', s.h1)}
+        </div>
+      </div>
+      <div class="sc-sub">
+        <div class="sc-sub-t">Why the system reads it this way</div>
+        <ul>${reasons}</ul>
+      </div>
+    </div>`;
+  }
+
+  function scRenderCards(data) {
+    const grid = document.getElementById('sc-grid');
+    if (!grid) return;
+    grid.innerHTML = SC_ASSETS.map(a => scCard(a, data[a.key])).join('');
+    const stamp = document.getElementById('sc-stamp');
+    if (stamp) {
+      stamp.textContent = data.updatedAt
+        ? 'Live — last analysed ' + new Date(data.updatedAt).toLocaleString()
+        : 'Live';
+    }
+  }
+
+  async function scLoad() {
+    try {
+      const r = await fetch('/api/signals', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      scRenderTicker(data);
+      scRenderCards(data);
+    } catch (e) {
+      // Never invent numbers to fill the gap — say the feed is unavailable.
+      console.error('scLoad:', e);
+      const stamp = document.getElementById('sc-stamp');
+      if (stamp) stamp.textContent = 'Live signal feed unavailable right now.';
+      const grid = document.getElementById('sc-grid');
+      if (grid && !grid.innerHTML.trim()) {
+        grid.innerHTML = '<p style="color:var(--muted);font-size:.82rem;text-align:center;grid-column:1/-1">'
+          + 'Could not reach the signal feed. Nothing is shown rather than showing placeholder numbers.</p>';
+      }
+    }
+  }
+
+  scLoad();
+  setInterval(scLoad, 60000);
+
   function handleWaitlist(e) {
     e.preventDefault();
     const email = document.getElementById('waitlist-email').value;
