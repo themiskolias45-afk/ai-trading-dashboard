@@ -232,13 +232,23 @@ def connect_mt5():
     return auto_detect_symbols()
 
 
-def get_lot_size(symbol, entry, stop):
+def get_lot_size(symbol, entry, stop, risk_amount=None):
+    """Convert a dollar risk budget into broker lots.
+
+    risk_amount defaults to the flat RISK_PERCENT of balance. The server's risk
+    engine passes an explicit budget instead, which is how the 6% portfolio cap and
+    the correlation penalty reach live trades. The dollars->lots conversion stays
+    here on purpose: it needs tick_value/tick_size from this broker's symbol, and
+    the server's `suggestedSize` is a raw unit count, not lots. Treating that number
+    as lots would mis-size every position.
+    """
     acc = mt5.account_info()
     if not acc:
         return MIN_LOT.get(symbol, 0.01)
 
     balance      = acc.balance
-    risk_amount  = balance * RISK_PERCENT / 100
+    if risk_amount is None:
+        risk_amount = balance * RISK_PERCENT / 100
     stop_distance = abs(entry - stop)
     if stop_distance == 0:
         return MIN_LOT.get(symbol, 0.01)
