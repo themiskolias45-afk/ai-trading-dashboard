@@ -1394,6 +1394,45 @@ async function refreshAutoTradeTab() {
   await Promise.all([loadRiskStatus(), loadMT5(), loadFeatures(), loadJournalExecLog()]);
 }
 
+// ── MT5 terminal login (local-only endpoint) ──────────────────
+async function mt5Login(account) {
+  const prefix = account.toLowerCase();
+  const login    = document.getElementById(`mt5-${prefix}-login`).value.trim();
+  const password = document.getElementById(`mt5-${prefix}-password`).value;
+  const server   = document.getElementById(`mt5-${prefix}-server`).value.trim();
+  const resultEl = document.getElementById(`mt5-${prefix}-result`);
+
+  if (!login || !password || !server) {
+    resultEl.style.color = "var(--red)";
+    resultEl.textContent = "Login, password, and server are all required.";
+    return;
+  }
+
+  resultEl.style.color = "var(--muted)";
+  resultEl.textContent = "Logging in… (can take a few seconds)";
+
+  try {
+    const res = await fetch(API + "/mt5/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account, login, password, server })
+    });
+    const d = await res.json();
+    document.getElementById(`mt5-${prefix}-password`).value = "";
+
+    if (d.ok) {
+      resultEl.style.color = "var(--green)";
+      resultEl.textContent = `✓ ${d.name} #${d.login} @ ${d.company || d.server} — Balance $${Number(d.balance).toLocaleString()}`;
+    } else {
+      resultEl.style.color = "var(--red)";
+      resultEl.textContent = "✗ " + (d.error || "Login failed");
+    }
+  } catch (e) {
+    resultEl.style.color = "var(--red)";
+    resultEl.textContent = "✗ Request failed: " + e.message;
+  }
+}
+
 async function loadJournalExecLog() {
   try {
     const {journal}=await fetch(API+"/journal",{cache:"no-store"}).then(r=>r.json());
