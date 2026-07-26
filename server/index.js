@@ -1734,7 +1734,7 @@ app.get("/api/features", (_, res) => {
   res.json({ features });
 });
 
-app.post("/api/features/:name/toggle", (req, res) => {
+app.post("/api/features/:name/toggle", requireLocalOnly, (req, res) => {
   const { name } = req.params;
   if (!(name in features)) return res.status(404).json({ error: "unknown feature" });
   features[name] = !features[name];
