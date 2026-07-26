@@ -2370,7 +2370,10 @@ async function runBacktest(symbol, label, years = 5) {
     const btConfidence = sig.strength === "STRONG" ? 88 : sig.strength === "MODERATE" ? 65 : 40;
     if (btConfidence < 65) { lastKey = null; continue; }
 
-    const key = `${sig.signal}_${sig.setup}_${i}`;
+    // Dedup key intentionally excludes the bar index: it must persist across
+    // bars so a signal/setup that stays active for many consecutive days is
+    // only entered once, not re-entered as a "new" trade on every single bar.
+    const key = `${sig.signal}_${sig.setup}`;
     if (key === lastKey) continue;
     lastKey = key;
 
