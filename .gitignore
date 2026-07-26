@@ -15,3 +15,6 @@ tasks/backups/
 vps-backups/
 tasks/.tv_session.json
 tasks/*.pine
+
+# Exported MT5 bars — large and regenerable via tasks/export_mt5_history.py
+tasks/history/
