@@ -1249,6 +1249,49 @@ app.post("/api/mt5/positions", (req, res) => {
   res.json({ ok: true, count: mt5Positions.length });
 });
 
+// MT5 terminal login — dashboard "Auto Trade" tab, one form per account.
+// Credentials never touch a log line or an error message. This only accepts
+// requests from the machine's own loopback address: password is submitted from
+// a browser tab, but that tab must be running on this machine (e.g. inside the
+// VPS's own RDP session), never relayed from a remote browser over the network.
+const MT5_TERMINALS = {
+  A: { path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe", portable: false },
+  B: { path: "C:\\MT5-B\\terminal64.exe",                       portable: true  },
+};
+
+app.post("/api/mt5/login", (req, res) => {
+  const remote = req.socket.remoteAddress || "";
+  const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  if (!isLocal) {
+    return res.status(403).json({ ok: false, error: "This only accepts requests from the server's own machine — open the dashboard in a browser on the VPS itself." });
+  }
+
+  const { account, login, password, server } = req.body || {};
+  const terminal = MT5_TERMINALS[account];
+  if (!terminal) return res.status(400).json({ ok: false, error: "account must be 'A' or 'B'" });
+  if (!login || !password || !server) return res.status(400).json({ ok: false, error: "login, password, and server are required" });
+
+  const PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
+  const child = require("child_process").spawn(PYTHON_BIN, [path.join(__dirname, "..", "mt5_login_helper.py")], {
+    cwd: path.join(__dirname, "..")
+  });
+
+  let out = "";
+  child.stdout.on("data", d => { out += d.toString(); });
+  child.on("error", () => { res.status(500).json({ ok: false, error: "could not start login helper" }); });
+  child.on("close", () => {
+    try {
+      const lastLine = out.trim().split("\n").pop();
+      res.json(JSON.parse(lastLine));
+    } catch {
+      res.status(500).json({ ok: false, error: "login helper produced no usable result" });
+    }
+  });
+
+  child.stdin.write(JSON.stringify({ login, password, server, terminalPath: terminal.path, portable: terminal.portable }));
+  child.stdin.end();
+});
+
 // Risk status endpoints
 let riskStatusByAccount = {}; // account tag -> {dailyPnl, consecutiveLosses, halted, haltReason}
 function recomputeRiskStatus() {
