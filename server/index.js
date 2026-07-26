@@ -340,12 +340,29 @@ const STRATEGY_LIMITS = {
   maxLotSize:   { min: 0.01, max: 100, def: 10, decimals: 2 },
 };
 
+// Minimum signal strength AUTO mode will trade.
+//
+// This was hardcoded to STRONG in mt5_bridge.py, and it is the reason the
+// self-learning engine has never had anything to learn from. Learning needs 5
+// closed trades PER SETUP before it adjusts anything (getLearningBoost), and 10
+// before Kelly sizing engages — roughly 60 trades across the ~12 setups. STRONG-only
+// produces about one trade a month, so that threshold is years away and
+// setupStats has sat empty through 42 server sessions.
+//
+// On a demo account the scarce resource is data, not capital. Allowing MODERATE
+// raises the rate to roughly one signal every 2.4 days, which fills the learning
+// tables in weeks instead of years. Backtests say MODERATE trades are worse — that
+// is exactly the thing the learning engine exists to measure, and it cannot
+// measure a trade that was never taken.
+const STRENGTH_LEVELS = ["MODERATE", "STRONG"];
+
 let strategySettings = {
   confidenceThreshold:    STRATEGY_LIMITS.confidenceThreshold.def,
   maxConcurrentPositions: STRATEGY_LIMITS.maxConcurrentPositions.def,
   maxTradesPerDay:        STRATEGY_LIMITS.maxTradesPerDay.def,
   fixedLotSize:           STRATEGY_LIMITS.fixedLotSize.def,
   maxLotSize:             STRATEGY_LIMITS.maxLotSize.def,
+  minStrength:            "STRONG",
   updatedAt: null,
   updatedBy: null,
 };
