@@ -935,7 +935,25 @@ function initRecog() {
   };
 }
 
+// Chrome grants microphone access only to secure origins: HTTPS, or localhost.
+// Opened over plain HTTP at the VPS IP this page still constructs a
+// SpeechRecognition object, so the old "use Chrome or Edge" message was actively
+// misleading — the browser was fine, the origin wasn't. navigator.mediaDevices is
+// undefined there and recog.start() fails with 'not-allowed'. Name the real cause.
+function micBlockReason() {
+  if (window.isSecureContext) return null;
+  return "Microphone is blocked because this page was opened over plain HTTP at "
+       + location.host + ". Chrome only allows mic access on HTTPS or localhost.\n\n"
+       + "Options:\n"
+       + "  1. Open the dashboard on the VPS itself at http://localhost:3001\n"
+       + "  2. Put it behind HTTPS (cloudflared tunnel) — the permanent fix\n"
+       + "  3. Chrome only, for testing: chrome://flags/"
+       + "#unsafely-treat-insecure-origin-as-secure, add http://" + location.host + ", relaunch";
+}
+
 function toggleMic() {
+  const blocked = micBlockReason();
+  if (blocked) { alert(blocked); return; }
   if (!recog) { alert("Voice not supported — use Chrome or Edge."); return; }
   if (recording) { recog.stop(); return; }
   stopSpeaking();
