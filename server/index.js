@@ -80,9 +80,33 @@ app.post("/api/logout", (_, res) => {
   res.json({ ok: true });
 });
 
+// Exact set of API routes real machine callers need with no browser session:
+// the MT5 bridge (positions/risk/trade lifecycle/signal polling/trade approval),
+// the TradingView webhook, and the cloud research/health agents (already gated
+// separately by AGENT_RELAY_SECRET, or read-only status/journal/backtest data).
+// Everything else under /api/* is human-facing and now requires being logged in —
+// /api/chat in particular has tool access (force_heal, approve_proposal) and spends
+// real Anthropic/Brave API credits, and had no auth at all before this.
+const API_NO_LOGIN_REQUIRED = new Set([
+  "/api/login", "/api/logout",
+  "/api/signals", "/api/newsfilter", "/api/features",
+  "/api/mt5/positions", "/api/risk-status",
+  "/api/trade-opened", "/api/trade-closed",
+  "/api/tv-alert", "/api/claude-approve-trade",
+  "/api/agent/notify", "/api/mt5/health",
+  "/api/checksystem", "/api/journal", "/api/backtest", "/api/learning",
+]);
+
 app.use((req, res, next) => {
   if (!DASHBOARD_USERNAME || !DASHBOARD_PASSWORD) return next(); // not configured yet — never lock the owner out
-  if (req.path.startsWith("/api/") || req.path === "/login") return next();
+  if (req.path === "/login") return next();
+  if (req.path.startsWith("/api/") && !API_NO_LOGIN_REQUIRED.has(req.path)) {
+    const cookies = parseCookies(req);
+    if (cookies[SESSION_COOKIE] && timingSafeStringEqual(cookies[SESSION_COOKIE], SESSION_SECRET)) return next();
+    return res.status(401).json({ error: "Not logged in." });
+  }
+  if (req.path.startsWith("/api/")) return next(); // in the no-login allowlist above
+
   const cookies = parseCookies(req);
   if (cookies[SESSION_COOKIE] && timingSafeStringEqual(cookies[SESSION_COOKIE], SESSION_SECRET)) return next();
   return res.redirect("/login");
