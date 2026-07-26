@@ -56,7 +56,7 @@ if !COOL_A! GTR 0 (
 if !COOL_B! GTR 0 (
     set /a COOL_B-=1
 ) else (
-    call :is_task_enabled SmartEntryBridgeB
+    call :is_task_enabled "SmartEntryBridgeB"
     if !TASK_ENABLED! EQU 1 (
         curl -sf --max-time 5 "http://localhost:3001/api/mt5/health?account=B" >nul 2>&1
         if errorlevel 1 (
