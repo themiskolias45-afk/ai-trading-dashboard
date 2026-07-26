@@ -452,6 +452,54 @@
   </div>
 </section>
 
+<!-- SIGNAL SHOWCASE — what a subscriber actually receives, per asset -->
+<section id="signals" style="background:var(--surface); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+  <div class="container">
+    <div class="section-tag" style="text-align:center">Live Signals</div>
+    <h2 style="text-align:center">Exactly what you receive.</h2>
+    <p class="section-sub" style="margin:0 auto 8px; text-align:center">
+      Every signal arrives with the full entry plan — levels, invalidation, timeframe alignment and the reasoning behind it. Nothing hidden, nothing vague.
+    </p>
+    <p style="text-align:center; font-size:.78rem; color:var(--muted); margin-bottom:8px" id="sc-stamp">Loading live signals…</p>
+
+    <div class="sc-grid" id="sc-grid"></div>
+
+    <p style="text-align:center; font-size:.76rem; color:var(--muted); margin-top:28px">
+      Live output from the running system. Exact entry, stop and target levels are delivered to subscribers.
+    </p>
+  </div>
+</section>
+
+<style>
+  .sc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:20px; margin-top:36px; }
+  .sc-card { background:var(--bg); border:1px solid var(--border); border-radius:14px; overflow:hidden; text-align:left; }
+  .sc-card.buy  { border-top:3px solid var(--green); }
+  .sc-card.sell { border-top:3px solid var(--red); }
+  .sc-card.wait { border-top:3px solid var(--muted); }
+  .sc-head { padding:16px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+  .sc-asset { font-size:1.02rem; font-weight:700; }
+  .sc-sym { font-size:.66rem; color:var(--muted); font-family:monospace; }
+  .sc-tag { margin-left:auto; padding:5px 12px; border-radius:6px; font-size:.7rem; font-weight:800; letter-spacing:.05em; }
+  .sc-tag.buy  { background:rgba(34,197,94,.14); color:var(--green); }
+  .sc-tag.sell { background:rgba(239,68,68,.14); color:var(--red); }
+  .sc-tag.wait { background:var(--subtle); color:var(--muted); }
+  .sc-body { padding:16px 18px; }
+  .sc-row { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border); font-size:.8rem; }
+  .sc-row:last-child { border-bottom:none; }
+  .sc-row span.l { color:var(--muted); }
+  .sc-row span.v { font-family:monospace; font-weight:600; }
+  .sc-lock { color:var(--accent); font-weight:700; font-size:.74rem; }
+  .sc-sub { padding:14px 18px; border-top:1px solid var(--border); }
+  .sc-sub-t { font-size:.6rem; color:var(--muted); text-transform:uppercase; letter-spacing:.11em; margin-bottom:8px; font-weight:700; }
+  .sc-sub ul { list-style:none; margin:0; }
+  .sc-sub li { font-size:.75rem; color:#aab6c8; line-height:1.55; padding-left:14px; position:relative; margin-bottom:5px; }
+  .sc-sub li::before { content:'·'; position:absolute; left:3px; color:var(--accent); font-weight:700; }
+  .sc-tf { display:flex; gap:8px; margin-top:4px; }
+  .sc-tf div { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:8px; text-align:center; }
+  .sc-tf .n { font-size:.56rem; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+  .sc-tf .s { font-size:.78rem; font-weight:700; margin-top:2px; }
+</style>
+
 <!-- PRICING -->
 <section id="pricing" style="background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
   <div class="container" style="text-align:center">
