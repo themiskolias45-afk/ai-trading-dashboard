@@ -340,10 +340,19 @@ function checkJournalFile() {
   }
 }
 
+// Node can't reduce its own heap on demand — the only real fix for a genuine leak is a
+// restart. This doesn't restart itself directly (no supervisor access from in-process);
+// it exits cleanly and lets the already-running watchdog (tested working on both the
+// local machine and the VPS) detect the outage and relaunch via Scheduled Tasks, same
+// path as any other crash. Requires 3 consecutive critical checks (~90s sustained, since
+// this runs every 30s) before acting, so a single GC-pause spike doesn't trigger a restart.
+let consecutiveCriticalMemoryHits = 0;
+const CRITICAL_MEMORY_RESTART_THRESHOLD = 3;
+
 function checkMemory() {
   const name = 'memory';
   try {
-    const { heapUsed, heapTotal, rss } = process.memoryUsage();
+    const { heapUsed, rss } = process.memoryUsage();
     const heapMB = heapUsed / 1_048_576;
     const rssMB  = rss       / 1_048_576;
 
@@ -351,12 +360,21 @@ function checkMemory() {
     const CRITICAL_MB = 900;
 
     if (heapMB > CRITICAL_MB) {
-      updateCheck(name, false, `CRITICAL heap usage: ${heapMB.toFixed(0)}MB`);
-      logError(`CRITICAL memory: heap=${heapMB.toFixed(0)}MB rss=${rssMB.toFixed(0)}MB — consider restarting`);
+      consecutiveCriticalMemoryHits++;
+      updateCheck(name, false, `CRITICAL heap usage: ${heapMB.toFixed(0)}MB (${consecutiveCriticalMemoryHits}/${CRITICAL_MEMORY_RESTART_THRESHOLD} before restart)`);
+      logError(`CRITICAL memory: heap=${heapMB.toFixed(0)}MB rss=${rssMB.toFixed(0)}MB`);
+
+      if (consecutiveCriticalMemoryHits >= CRITICAL_MEMORY_RESTART_THRESHOLD) {
+        logError(`Memory critical for ${consecutiveCriticalMemoryHits} consecutive checks — exiting cleanly so the watchdog restarts the process.`);
+        sendAlert(`SmartEntry Pro restarting itself — sustained critical memory usage (${heapMB.toFixed(0)}MB heap). The watchdog will bring it back up within ~60s.`);
+        setTimeout(() => process.exit(1), 500); // brief delay so the alert/log actually flush before exit
+      }
     } else if (heapMB > WARNING_MB) {
+      consecutiveCriticalMemoryHits = 0;
       updateCheck(name, false, `HIGH heap usage: ${heapMB.toFixed(0)}MB (warning > ${WARNING_MB}MB)`);
       logError(`HIGH memory usage: heap=${heapMB.toFixed(0)}MB rss=${rssMB.toFixed(0)}MB`);
     } else {
+      consecutiveCriticalMemoryHits = 0;
       updateCheck(name, true, `heap=${heapMB.toFixed(0)}MB rss=${rssMB.toFixed(0)}MB`);
     }
   } catch (err) {
