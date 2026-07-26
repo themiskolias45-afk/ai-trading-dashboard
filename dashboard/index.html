@@ -762,6 +762,17 @@
         <input id="ss-maxtrades" type="number" style="width:80px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
         <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-maxtrades-hint">resets at midnight</div>
       </div>
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Fixed Lot Size</div>
+        <input id="ss-fixedlot" type="number" step="0.01" style="width:90px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-fixedlot-hint">0 = size from risk. 0.01 = always trade 0.01 lots</div>
+      </div>
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Max Lot Size</div>
+        <input id="ss-maxlot" type="number" step="0.01" style="width:90px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-maxlot-hint">hard ceiling on any single trade</div>
+      </div>
+      <div></div>
       <div style="grid-column:1/-1;display:flex;align-items:center;gap:12px">
         <button onclick="saveStrategySettings()" style="padding:8px 18px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.45);color:var(--blue);border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer">Save Settings</button>
         <span id="ss-msg" style="font-size:.7rem;color:var(--muted)"></span>
