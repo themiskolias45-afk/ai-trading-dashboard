@@ -2105,6 +2105,82 @@ async function loadFeedTab() {
 
 setInterval(()=>{ if(document.getElementById('tab-feed')?.classList.contains('active')) loadFeedTab(); }, 15_000);
 
+// ── Trading control (kill switch) ────────────────────────────────────────────
+// The dashboard had no way to reach the bridge at all: it reported its own
+// circuit-breaker state upward and nothing could tell it to stop. /api/mt5/control
+// is that missing downward channel. GET is public so the bridge can poll it; POST
+// requires a session, because an unauthenticated resume on an internet-facing
+// server would undo a safety halt.
+const CONTROL_REFRESH_MS = 20_000;
+
+function renderControl(control) {
+  const stateEl  = document.getElementById('ctl-state');
+  const detailEl = document.getElementById('ctl-detail');
+  if (!stateEl) return;
+
+  if (control.halted) {
+    stateEl.textContent = '■ HALTED';
+    stateEl.style.color = 'var(--red)';
+    detailEl.textContent = (control.reason || 'halted')
+      + (control.setAt ? ' · since ' + new Date(control.setAt).toLocaleString() : '')
+      + ' · open positions are still managed.';
+  } else {
+    stateEl.textContent = '▶ TRADING ENABLED';
+    stateEl.style.color = 'var(--green)';
+    detailEl.textContent = 'Halts new entries only. Open positions keep their stops and targets and are still managed.';
+  }
+}
+
+async function loadControl() {
+  try {
+    const r = await fetch('/api/mt5/control');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    renderControl(await r.json());
+  } catch (e) {
+    console.error('loadControl:', e);
+    const stateEl = document.getElementById('ctl-state');
+    if (stateEl) { stateEl.textContent = 'state unknown'; stateEl.style.color = 'var(--muted)'; }
+  }
+}
+
+async function setTradingHalt(halt) {
+  // Confirm both directions. Halting mid-setup costs you a trade; resuming when you
+  // meant to stay stopped costs more than that.
+  const question = halt
+    ? 'Halt new trades on all bridges?\n\nOpen positions are NOT closed — they keep their stops and targets and stay managed.'
+    : 'Resume trading?\n\nThe bridges will start opening new positions again on the next signal.';
+  if (!confirm(question)) return;
+
+  const reason = halt ? (prompt('Reason (optional, shown in the log):', 'Halted from dashboard') || 'Halted from dashboard') : '';
+  try {
+    const r = await fetch('/api/mt5/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ halted: halt, reason })
+    });
+    const body = await r.json();
+    if (!r.ok || !body.ok) throw new Error(body.error || ('HTTP ' + r.status));
+    renderControl(body.control);
+    logExec((halt ? 'Trading HALTED' : 'Trading RESUMED') + ' from dashboard', halt ? 'warn' : 'info');
+  } catch (e) {
+    alert('Could not change trading state: ' + e.message
+      + (String(e.message).indexOf('401') !== -1 ? '\n\nYou need to be logged in.' : ''));
+  }
+}
+
+// Best-effort append to the execution log if this page has one.
+function logExec(message, kind) {
+  const log = document.getElementById('exec-log');
+  if (!log) return;
+  const span = document.createElement('div');
+  span.className = 'log-' + (kind || 'info');
+  span.textContent = '[' + new Date().toLocaleTimeString() + '] ' + message;
+  log.prepend(span);
+}
+
+loadControl();
+setInterval(loadControl, CONTROL_REFRESH_MS);
+
 // ── Trust strip ──────────────────────────────────────────────────────────────
 // Answers one question the rest of this page never did: can I believe the numbers
 // below? Reads /api/system-plan, the same endpoint the Systems Plan page uses, so
