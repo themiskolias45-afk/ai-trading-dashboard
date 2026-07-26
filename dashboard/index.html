@@ -673,6 +673,32 @@
     </div>
   </div>
 
+  <!-- MT5 terminal login (local-only — see /api/mt5/login) -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">MT5 Terminal Login</div>
+      <span style="font-size:.65rem;color:var(--muted)">Only works from a browser on this machine</span>
+    </div>
+    <div class="panel-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:8px">ACCOUNT A</div>
+        <input id="mt5-a-login" placeholder="Login" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.78rem">
+        <input id="mt5-a-password" type="password" placeholder="Password" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.78rem">
+        <input id="mt5-a-server" placeholder="Server (e.g. Broker-Live)" style="width:100%;margin-bottom:8px;padding:6px 8px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.78rem">
+        <button onclick="mt5Login('A')" style="width:100%;padding:7px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:var(--green);border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer">Login Account A</button>
+        <div id="mt5-a-result" style="font-size:.7rem;margin-top:8px;color:var(--muted)"></div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:8px">ACCOUNT B</div>
+        <input id="mt5-b-login" placeholder="Login" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.78rem">
+        <input id="mt5-b-password" type="password" placeholder="Password" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.78rem">
+        <input id="mt5-b-server" placeholder="Server (e.g. Broker-Live)" style="width:100%;margin-bottom:8px;padding:6px 8px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.78rem">
+        <button onclick="mt5Login('B')" style="width:100%;padding:7px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:var(--green);border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer">Login Account B</button>
+        <div id="mt5-b-result" style="font-size:.7rem;margin-top:8px;color:var(--muted)"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Two-col: MT5 positions + feature toggles -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
     <div class="panel">
