@@ -114,9 +114,13 @@ if (Test-Path $sshKey) {
         $mkdirCmd = 'if not exist "' + ($vpsDestDir -replace '/', '\') + '" mkdir "' + ($vpsDestDir -replace '/', '\') + '"'
         & ssh.exe @sshOpts $vpsTarget $mkdirCmd 2>&1 | Out-Null
 
-        & scp.exe @('-q') @sshOpts $destZip ($vpsTarget + ':' + $vpsDestDir + '/') 2>&1 | Out-Null
+        # Capture into a variable rather than piping to Out-Null: a pipeline
+        # resets $LASTEXITCODE, so the old check reported failure on a copy that
+        # had actually succeeded.
+        $scpOutput = & scp.exe @sshOpts $destZip ($vpsTarget + ':' + $vpsDestDir + '/') 2>&1
+        $scpExit   = $LASTEXITCODE
 
-        if ($LASTEXITCODE -eq 0) {
+        if ($scpExit -eq 0) {
             Write-VaultLog ('Copied off-box to VPS ' + $vpsDestDir)
             # Keep the same depth off-box as on it.
             $rotateCmd = 'powershell -NoProfile -Command "Get-ChildItem ' + $vpsDestDir + '/vault_*.zip -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip ' + $KEEP_SNAPSHOTS + ' | Remove-Item -Force -ErrorAction SilentlyContinue"'
