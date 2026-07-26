@@ -95,6 +95,7 @@ const API_NO_LOGIN_REQUIRED = new Set([
   "/api/tv-alert", "/api/claude-approve-trade",
   "/api/agent/notify", "/api/mt5/health", "/api/status",
   "/api/checksystem", "/api/journal", "/api/backtest", "/api/learning",
+  "/api/healer", "/api/healer/heal",
 ]);
 
 app.use((req, res, next) => {
