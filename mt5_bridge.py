@@ -371,7 +371,10 @@ def check_spread(symbol):
     return ok, spread
 
 
-def place_order(symbol, signal_type, entry, stop, target):
+def place_order(symbol, signal_type, entry, stop, target, risk_amount=None):
+    """Place a market order. risk_amount is the dollar budget the server's risk
+    engine approved; without it the flat RISK_PERCENT is used, which ignores how
+    much of the portfolio is already exposed."""
     spread_ok, spread = check_spread(symbol)
     if not spread_ok:
         log(f"Spread too wide on {symbol}: {spread:.0f} pts (max {MAX_SPREAD_PTS}) — skipping", YELLOW)
@@ -380,7 +383,9 @@ def place_order(symbol, signal_type, entry, stop, target):
     order_type = mt5.ORDER_TYPE_BUY if signal_type == "BUY" else mt5.ORDER_TYPE_SELL
     tick       = mt5.symbol_info_tick(symbol)
     price      = tick.ask if signal_type == "BUY" else tick.bid
-    lots       = get_lot_size(symbol, entry, stop)
+    lots       = get_lot_size(symbol, entry, stop, risk_amount=risk_amount)
+    if risk_amount is not None:
+        log(f"Sizing from risk-engine budget ${risk_amount:.2f} → {lots} lots", CYAN)
 
     request = {
         "action":        mt5.TRADE_ACTION_DEAL,
