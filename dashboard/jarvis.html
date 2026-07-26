@@ -973,16 +973,24 @@ async function speak(text) {
   speakBrowser(clean);
 }
 
-function speakBrowser(clean) {
+// Voices load async: getVoices() returns [] for the first second or so after a page
+// load, and speaking before the list is ready falls back to the OS default voice,
+// which may not even be English.
+//
+// This used to wait on a bare speechSynthesis.onvoiceschanged. That event is
+// effectively single-shot per page — if it had already fired before the first
+// speakBrowser() call, the handler never ran and that utterance was lost in total
+// silence. The very first thing JARVIS says after a page load is exactly when the
+// list is most likely to be empty, so that is the utterance most likely to vanish.
+// A bounded poll can't miss an event that already happened.
+const VOICE_WAIT_POLL_MS   = 150;
+const VOICE_WAIT_MAX_TRIES = 20;   // ~3s, then speak anyway with the OS default
+
+function speakBrowser(clean, attempt = 0) {
   if (!window.speechSynthesis) return;
-  // Voice list loads async in most browsers — speaking before it's ready silently
-  // falls back to the OS default voice, which may not even be English.
   const existing = window.speechSynthesis.getVoices();
-  if (existing.length === 0) {
-    window.speechSynthesis.onvoiceschanged = () => {
-      window.speechSynthesis.onvoiceschanged = null;
-      speakBrowser(clean);
-    };
+  if (existing.length === 0 && attempt < VOICE_WAIT_MAX_TRIES) {
+    setTimeout(() => speakBrowser(clean, attempt + 1), VOICE_WAIT_POLL_MS);
     return;
   }
   speakWithVoices(clean, existing);
