@@ -1116,7 +1116,27 @@ async function handleMessage(message) {
     }
   };
 
-  if (cmds[text]) await cmds[text]();
+  if (cmds[text]) { await cmds[text](); return; }
+
+  // Anything else goes to JARVIS proper — same brain, same tools as the web dashboard's
+  // chat, so "report/recommend/approve/search" all work as a real conversation, not a menu.
+  await handleTelegramFreeform(chatId, message.text);
+}
+
+const telegramHistory = new Map(); // chatId -> recent {role, content} turns, same shape as web chat history
+const TELEGRAM_HISTORY_MAX = 12;
+
+async function handleTelegramFreeform(chatId, text) {
+  const history = telegramHistory.get(chatId) || [];
+  try {
+    const { text: reply } = await askClaude(text, history);
+    const safeReply = reply || "No reply from AI — check API key.";
+    history.push({ role: "user", content: text }, { role: "assistant", content: safeReply });
+    telegramHistory.set(chatId, history.slice(-TELEGRAM_HISTORY_MAX));
+    await sendTelegram(chatId, safeReply);
+  } catch (e) {
+    await sendTelegram(chatId, "JARVIS error: " + (e?.message || "unknown"));
+  }
 }
 
 let lastUpdateId = 0;
