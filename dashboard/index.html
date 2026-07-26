@@ -2303,6 +2303,8 @@ async function loadStrategySettings() {
     document.getElementById('ss-confidence').value = s.confidenceThreshold;
     document.getElementById('ss-slots').value      = s.maxConcurrentPositions;
     document.getElementById('ss-maxtrades').value  = s.maxTradesPerDay;
+    document.getElementById('ss-fixedlot').value   = s.fixedLotSize;
+    document.getElementById('ss-maxlot').value     = s.maxLotSize;
 
     // Show the real allowed range so a rejected value is never a surprise.
     if (strategyLimits) {
@@ -2310,8 +2312,10 @@ async function loadStrategySettings() {
       document.getElementById('ss-confidence-hint').textContent = `signal fires at or above this (${range('confidenceThreshold')})`;
       document.getElementById('ss-slots-hint').textContent      = `max positions open at once (${range('maxConcurrentPositions')})`;
       document.getElementById('ss-maxtrades-hint').textContent  = `resets at midnight (${range('maxTradesPerDay')})`;
-      ['ss-confidence','ss-slots','ss-maxtrades'].forEach((id, i) => {
-        const key = ['confidenceThreshold','maxConcurrentPositions','maxTradesPerDay'][i];
+      document.getElementById('ss-fixedlot-hint').textContent   = `0 = size from risk, else always this size (${range('fixedLotSize')})`;
+      document.getElementById('ss-maxlot-hint').textContent     = `hard ceiling on any single trade (${range('maxLotSize')})`;
+      ['ss-confidence','ss-slots','ss-maxtrades','ss-fixedlot','ss-maxlot'].forEach((id, i) => {
+        const key = ['confidenceThreshold','maxConcurrentPositions','maxTradesPerDay','fixedLotSize','maxLotSize'][i];
         const el = document.getElementById(id);
         el.min = strategyLimits[key].min;
         el.max = strategyLimits[key].max;
@@ -2332,6 +2336,8 @@ async function saveStrategySettings() {
     confidenceThreshold:    Number(document.getElementById('ss-confidence').value),
     maxConcurrentPositions: Number(document.getElementById('ss-slots').value),
     maxTradesPerDay:        Number(document.getElementById('ss-maxtrades').value),
+    fixedLotSize:           Number(document.getElementById('ss-fixedlot').value),
+    maxLotSize:             Number(document.getElementById('ss-maxlot').value),
   };
   if (!confirm(`Apply these limits?\n\nConfidence gate: ${body.confidenceThreshold}%\nPosition slots: ${body.maxConcurrentPositions}\nMax trades/day: ${body.maxTradesPerDay}\n\nThe bridge picks these up on its next poll.`)) return;
   try {
