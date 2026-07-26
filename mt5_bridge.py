@@ -368,6 +368,12 @@ def prompt_confirm(sig, symbol):
 
 
 def process_signal(key, sig):
+    # Remote halt is checked first and separately from the local circuit breakers
+    # so the log always says WHICH stopped the trade. Neither one touches open
+    # positions — both only prevent opening new ones.
+    if remote_halted:
+        log(f"Remote halt active: {remote_halt_reason} — not opening {key}.", RED)
+        return
     if check_circuit_breaker():
         log(f"Trading halted: {halt_reason}", RED)
         return
