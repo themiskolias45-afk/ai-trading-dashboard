@@ -361,6 +361,73 @@ def request_trade_approval(symbol, direction, entry, stop, target, confidence):
     return True, verdict.get("reason") or "approved", risk_amount
 
 
+# Strategy limits fetched from the server each cycle. Defaults match the server's
+# own defaults so a bridge that cannot reach the server still behaves sanely.
+strategy_settings = {
+    "confidenceThreshold": 65,
+    "maxConcurrentPositions": 3,
+    "maxTradesPerDay": 5,
+}
+
+# Trades opened today, reset on date change. Counted here rather than server-side
+# because this bridge is what actually opens them.
+trades_opened_today = 0
+trades_count_date = datetime.now().date()
+
+
+def refresh_strategy_settings():
+    """Pull the current strategy limits. Keeps the last known values on failure."""
+    global strategy_settings
+    try:
+        res = requests.get(f"{SERVER_URL}/api/strategy-settings", timeout=5)
+        res.raise_for_status()
+        data = res.json()
+        for name in ("confidenceThreshold", "maxConcurrentPositions", "maxTradesPerDay"):
+            if isinstance(data.get(name), (int, float)):
+                strategy_settings[name] = int(data[name])
+    except Exception:
+        pass
+
+
+def count_open_positions():
+    try:
+        positions = mt5.positions_get()
+        if not positions:
+            return 0
+        return len([p for p in positions if p.magic == MAGIC_NUMBER])
+    except Exception:
+        return 0
+
+
+def check_strategy_limits():
+    """Enforce the slot and daily-trade caps. Returns (allowed, reason).
+
+    Neither of these limits existed before: nothing capped concurrent positions,
+    so the system could hold every asset at once, and nothing capped trades per
+    day, so a choppy session could churn the account. The portfolio risk engine
+    bounds total money at risk, which is related but not the same thing — three
+    small positions can pass a risk cap and still be three ways of making the same
+    bet.
+    """
+    global trades_opened_today, trades_count_date
+
+    today = datetime.now().date()
+    if today != trades_count_date:
+        trades_count_date = today
+        trades_opened_today = 0
+
+    max_positions = strategy_settings.get("maxConcurrentPositions", 3)
+    open_count = count_open_positions()
+    if open_count >= max_positions:
+        return False, f"{open_count} positions already open (limit {max_positions})"
+
+    max_trades = strategy_settings.get("maxTradesPerDay", 5)
+    if trades_opened_today >= max_trades:
+        return False, f"{trades_opened_today} trades opened today (limit {max_trades})"
+
+    return True, ""
+
+
 def check_spread(symbol):
     tick = mt5.symbol_info_tick(symbol)
     if not tick:
