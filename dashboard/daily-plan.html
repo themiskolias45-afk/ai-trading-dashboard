@@ -270,7 +270,13 @@
 </div>
 
 <script>
-const BASE = 'http://localhost:3001';
+// Must stay relative — this is the only page that ever hardcoded an absolute
+// origin, and it broke the page everywhere except a localhost-served dashboard.
+// Opened from the VPS, 'http://localhost:3001' resolves to the *viewer's* machine,
+// so the fetch was cross-origin, CORS-blocked, and threw straight into the catch
+// below: OFFLINE pill, every field stuck on "Loading…". Same-origin works from
+// localhost and from the VPS both.
+const BASE = '';
 
 function fmt(n) {
   if (n == null) return '—';
