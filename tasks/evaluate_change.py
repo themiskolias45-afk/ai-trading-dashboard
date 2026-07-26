@@ -36,6 +36,16 @@ SYMBOLS = [("BTCUSD", "BTC"), ("XAUUSD", "Gold"), ("SP500", "SPX")]
 MIN_PF_IMPROVEMENT = 0.10
 COST_R = 0.05
 
+# Settings this may change on its own.
+#
+# Deliberately excludes fixedLotSize and maxLotSize: those decide how much money
+# is at risk per trade, and an unattended process should not size positions. The
+# ones here only decide WHICH trades qualify, and every value is clamped
+# server-side, so the worst case is a config inside a range you already approved.
+AUTO_TUNABLE = {"confidenceThreshold", "maxConcurrentPositions", "maxTradesPerDay"}
+
+SETTINGS_PATH = os.path.join(ROOT, "server", "strategy_settings.json")
+
 
 def load_bars(symbol, tf):
     path = os.path.join(HIST, f"{symbol}_{tf}.csv")
@@ -138,12 +148,39 @@ def decide(results, baseline_value):
     return best, f"beat baseline on {best_score}/{len(results[best])} assets"
 
 
+def apply_setting(setting, value):
+    """Write one setting into strategy_settings.json.
+
+    Only ever touches the named key, so a concurrent dashboard edit to a different
+    setting is preserved. The server clamps on load, so an out-of-range value
+    cannot widen a limit beyond what is already permitted.
+    """
+    try:
+        current = {}
+        if os.path.exists(SETTINGS_PATH):
+            with open(SETTINGS_PATH, encoding="utf-8-sig") as fh:
+                current = json.load(fh)
+        num = float(value)
+        current[setting] = int(num) if num.is_integer() else num
+        current["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+        current["updatedBy"] = "auto-tune"
+        tmp = SETTINGS_PATH + ".tmp"
+        with open(tmp, "w", encoding="ascii") as fh:
+            json.dump(current, fh)
+        os.replace(tmp, SETTINGS_PATH)
+        return True, None
+    except Exception as exc:
+        return False, str(exc)[:200]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--setting", required=True)
     ap.add_argument("--values", required=True, help="comma separated")
     ap.add_argument("--baseline", help="current live value (defaults to first)")
     ap.add_argument("--tf", default="H4")
+    ap.add_argument("--apply", action="store_true",
+                    help="write a passing recommendation to strategy_settings.json")
     args = ap.parse_args()
 
     values = [v.strip() for v in args.values.split(",") if v.strip()]
@@ -156,10 +193,20 @@ def main():
 
     winner, reason = decide(results, baseline)
     print("=" * 70)
-    if winner:
+    if winner and args.apply and args.setting in AUTO_TUNABLE:
+        applied, err = apply_setting(args.setting, winner)
+        if applied:
+            print(f"APPLIED {args.setting}: {baseline} -> {winner}   ({reason})")
+            print("Restart the server task for it to take effect.")
+        else:
+            print(f"RECOMMEND {args.setting} = {winner} but apply FAILED: {err}")
+    elif winner and args.apply:
         print(f"RECOMMEND {args.setting} = {winner}   ({reason})")
-        print(f"Current is {baseline}. Not applied automatically — apply via the")
-        print("dashboard or /api/strategy-settings so the change is deliberate.")
+        print(f"NOT auto-applied: {args.setting} is not in the auto-tunable set "
+              f"({', '.join(sorted(AUTO_TUNABLE))}).")
+    elif winner:
+        print(f"RECOMMEND {args.setting} = {winner}   ({reason})")
+        print(f"Current is {baseline}. Run with --apply to write it.")
     else:
         print(f"KEEP {args.setting} = {baseline}   ({reason})")
     print("=" * 70)
