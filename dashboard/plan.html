@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartEntry Pro — Systems Plan</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
+      --text:#e2e8f0; --muted:#4a6080; --accent:#7c3aed;
+      --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
+      --font:'Segoe UI',system-ui,Arial,sans-serif;
+    }
+    body { background:var(--bg); color:var(--text); font-family:var(--font); min-height:100vh; font-size:14px; }
+
+    header {
+      background:var(--surface); border-bottom:1px solid var(--border);
+      padding:12px 24px; display:flex; align-items:center; justify-content:space-between;
+      position:sticky; top:0; z-index:100; flex-wrap:wrap; gap:10px;
+    }
+    .logo { display:flex; align-items:center; gap:10px; }
+    .logo-mark {
+      width:32px; height:32px;
+      background:linear-gradient(135deg,var(--accent),#4f46e5);
+      border-radius:8px; display:flex; align-items:center;
+      justify-content:center; font-weight:900; font-size:16px; color:#fff;
+    }
+    .logo-text { font-size:1rem; font-weight:700; }
+    .logo-sub  { font-size:.65rem; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
+    .header-right { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+    .clock { font-size:.78rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .pill { display:flex; align-items:center; gap:6px; padding:4px 12px; border-radius:20px; font-size:.72rem; font-weight:700; }
+    .pill-green { background:#0d2010; border:1px solid var(--green); color:var(--green); }
+    .pill-red   { background:#200d0d; border:1px solid var(--red);   color:var(--red); }
+    .pill-muted { background:var(--surface); border:1px solid var(--border2); color:var(--muted); }
+    .dot { width:6px; height:6px; border-radius:50%; background:currentColor; animation:blink 2s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    a.back { font-size:.68rem; color:var(--muted); text-decoration:none; padding:4px 10px; border:1px solid var(--border2); border-radius:6px; }
+    a.back:hover { color:var(--text); border-color:var(--accent); }
+
+    .container { padding:20px 24px; max-width:1400px; margin:0 auto; }
+
+    .title-bar {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:10px; padding:14px 20px; margin-bottom:16px;
+      display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+    }
+    .title-bar h1 { font-size:1.1rem; font-weight:700; }
+    .title-bar .meta { font-size:.72rem; color:var(--muted); margin-top:3px; }
+
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px; }
+    @media(max-width:900px){ .grid2{ grid-template-columns:1fr; } }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .card-head { padding:12px 16px; border-bottom:1px solid var(--border); font-size:.8rem; font-weight:700; letter-spacing:.03em; }
+    .card-body { padding:6px 16px 14px; }
+
+    .row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--border); }
+    .row:last-child { border-bottom:none; }
+    .row-label { font-size:.78rem; }
+    .row-detail { font-size:.68rem; color:var(--muted); margin-top:2px; }
+    .row-value { font-size:.72rem; font-weight:700; white-space:nowrap; }
+    .ok    { color:var(--green); }
+    .bad   { color:var(--red); }
+    .warn  { color:var(--yellow); }
+    .idle  { color:var(--muted); }
+
+    .action { padding:11px 0; border-bottom:1px solid var(--border); display:flex; gap:11px; }
+    .action:last-child { border-bottom:none; }
+    .sev { width:3px; border-radius:2px; flex-shrink:0; }
+    .sev-high   { background:var(--red); }
+    .sev-medium { background:var(--yellow); }
+    .sev-low    { background:var(--muted); }
+    .action-title { font-size:.78rem; font-weight:600; }
+    .action-detail { font-size:.68rem; color:var(--muted); margin-top:3px; line-height:1.5; }
+
+    .empty { font-size:.75rem; color:var(--muted); padding:14px 0; }
+    .footnote { font-size:.66rem; color:var(--muted); text-align:center; margin-top:18px; line-height:1.6; }
+    /* Wide content must scroll inside its own box, never the page body. */
+    .scroll-x { overflow-x:auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <div class="logo-mark">S</div>
+      <div>
+        <div class="logo-text">SmartEntry Pro</div>
+        <div class="logo-sub">Systems Plan</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="clock" id="clock">--:--:--</span>
+      <span class="pill pill-muted" id="server-status"><span class="dot"></span> Loading</span>
+      <a class="back" href="/dashboard/index.html">&larr; Dashboard</a>
+      <a class="back" href="/dashboard/jarvis.html">JARVIS</a>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="title-bar">
+      <div>
+        <h1 id="plan-title">Systems Plan</h1>
+        <div class="meta" id="plan-meta">Reading live system state...</div>
+      </div>
+      <div class="pill pill-muted" id="uptime-pill">uptime --</div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-head">HEALTH CHECKS</div>
+        <div class="card-body" id="checks"><div class="empty">Loading...</div></div>
+      </div>
+      <div class="card">
+        <div class="card-head">COMPONENTS</div>
+        <div class="card-body" id="components"><div class="empty">Loading...</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-head">NEEDS A HUMAN</div>
+      <div class="card-body" id="actions"><div class="empty">Loading...</div></div>
+    </div>
+
+    <div class="footnote">
+      Every line on this page is read from the running system, not written down.<br />
+      Refreshes every 60s. If something here looks wrong, the system changed &mdash; not the page.
+    </div>
+  </div>
+
+<script>
+// Same-origin only. The one page that ever hardcoded an absolute origin
+// (daily-plan.html) was broken everywhere except a localhost-served dashboard.
+const REFRESH_MS = 60000;
+
+function esc(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
+function tick() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}
+
+function setStatus(ok, text) {
+  const el = document.getElementById('server-status');
+  el.className = 'pill ' + (ok ? 'pill-green' : 'pill-red');
+  el.innerHTML = '<span class="dot"></span> ' + esc(text);
+}
+
+function renderChecks(checks) {
+  const host = document.getElementById('checks');
+  const names = checks ? Object.keys(checks) : [];
+  if (names.length === 0) { host.innerHTML = '<div class="empty">No checks reported.</div>'; return; }
+  host.innerHTML = names.map(name => {
+    const check = checks[name];
+    return '<div class="row"><div><div class="row-label">' + esc(name) + '</div>'
+         + '<div class="row-detail">' + esc(check.detail || '') + '</div></div>'
+         + '<div class="row-value ' + (check.ok ? 'ok' : 'bad') + '">' + (check.ok ? 'OK' : 'FAIL') + '</div></div>';
+  }).join('');
+}
+
+function renderComponents(data) {
+  const host = document.getElementById('components');
+  const parts = [];
+
+  const expected  = (data.bridges && data.bridges.expected)  || [];
+  const reporting = (data.bridges && data.bridges.reporting) || [];
+  expected.forEach(tag => {
+    const live = reporting.indexOf(tag) !== -1;
+    parts.push('<div class="row"><div><div class="row-label">Bridge ' + esc(tag) + '</div>'
+      + '<div class="row-detail">' + (live ? 'reporting heartbeats' : 'expected but silent') + '</div></div>'
+      + '<div class="row-value ' + (live ? 'ok' : 'bad') + '">' + (live ? 'LIVE' : 'DOWN') + '</div></div>');
+  });
+  reporting.filter(tag => expected.indexOf(tag) === -1).forEach(tag => {
+    parts.push('<div class="row"><div><div class="row-label">Bridge ' + esc(tag) + '</div>'
+      + '<div class="row-detail">reporting but not declared &mdash; check ACCOUNT_TAG</div></div>'
+      + '<div class="row-value warn">EXTRA</div></div>');
+  });
+
+  const taskInfo = data.scheduledTasks || {};
+  if (taskInfo.available && taskInfo.tasks && taskInfo.tasks.length) {
+    taskInfo.tasks.forEach(task => {
+      const status = String(task.status || '');
+      let cls = 'idle';
+      if (status === 'Running') cls = 'ok';
+      else if (status === 'Disabled') cls = 'idle';
+      else if (status !== 'Ready') cls = 'bad';
+      parts.push('<div class="row"><div><div class="row-label">' + esc(task.name) + '</div>'
+        + '<div class="row-detail">' + (task.nextRun && task.nextRun !== 'N/A' ? 'next: ' + esc(task.nextRun) : 'continuous') + '</div></div>'
+        + '<div class="row-value ' + cls + '">' + esc(status.toUpperCase()) + '</div></div>');
+    });
+  } else {
+    parts.push('<div class="row"><div><div class="row-label">Scheduled tasks</div>'
+      + '<div class="row-detail">not readable from this host</div></div>'
+      + '<div class="row-value idle">N/A</div></div>');
+  }
+
+  const backup = data.latestBackup;
+  parts.push('<div class="row"><div><div class="row-label">Latest backup</div>'
+    + '<div class="row-detail">' + (backup
+        ? esc(backup.name) + ' &middot; ' + esc(backup.sizeKB) + ' KB'
+        : 'none found') + '</div></div>'
+    + '<div class="row-value ' + (backup ? 'ok' : 'bad') + '">'
+    + (backup ? new Date(backup.modified).toLocaleString() : 'MISSING') + '</div></div>');
+
+  host.innerHTML = parts.join('');
+}
+
+function renderActions(items) {
+  const host = document.getElementById('actions');
+  if (!items || items.length === 0) {
+    host.innerHTML = '<div class="empty">Nothing waiting on you.</div>';
+    return;
+  }
+  host.innerHTML = items.map(item =>
+    '<div class="action"><div class="sev sev-' + esc(item.severity) + '"></div>'
+    + '<div><div class="action-title">' + esc(item.title) + '</div>'
+    + '<div class="action-detail">' + esc(item.detail) + '</div></div></div>'
+  ).join('');
+}
+
+async function loadPlan() {
+  try {
+    const response = await fetch('/api/system-plan');
+    if (!response.ok) throw new Error('HTTP ' + response.status + (response.status === 401 ? ' (not logged in)' : ''));
+    const data = await response.json();
+
+    document.getElementById('plan-title').textContent = 'Systems Plan';
+    document.getElementById('plan-meta').textContent =
+      'Read from the live system at ' + new Date(data.generatedAt).toLocaleTimeString();
+
+    const hours = Math.floor(data.uptimeSeconds / 3600);
+    const mins  = Math.floor((data.uptimeSeconds % 3600) / 60);
+    document.getElementById('uptime-pill').textContent = 'server up ' + hours + 'h ' + mins + 'm';
+
+    setStatus(data.healthy, data.healthy ? 'Healthy' : 'Needs attention');
+    renderChecks(data.checks);
+    renderComponents(data);
+    renderActions(data.actionItems);
+  } catch (err) {
+    // Never fail silently the way daily-plan.html used to: an empty console and a
+    // red pill gave nothing to debug from.
+    console.error('[plan] loadPlan failed:', err);
+    setStatus(false, 'Offline');
+    document.getElementById('plan-meta').textContent = 'Could not read system state - ' + err.message;
+  }
+}
+
+tick();
+setInterval(tick, 1000);
+loadPlan();
+setInterval(loadPlan, REFRESH_MS);
+</script>
+</body>
+</html>
