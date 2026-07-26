@@ -354,9 +354,16 @@ function renderCards() {
 const BROKER_SYMBOL = { btc: 'BTCUSD', gold: 'XAUUSD', spx: 'SP500' };
 
 // TP2 is the convention in broadcast signals: TP1 to bank partial, TP2 to run.
-// This system computes one target, so TP2 is projected at 2x the measured move —
-// labelled as projected so nobody mistakes it for something the system decided.
-const TP2_R_MULTIPLE = 2;
+// This system computes one target, so TP2 is simply twice the measured move to
+// TP1 — labelled projected, so nobody mistakes it for a level the system chose.
+const TP2_TARGET_MULTIPLE = 2;
+
+// Prices in a broadcast must have NO thousands separator. A comma is the decimal
+// separator across much of Europe, so "64,500.00" is ambiguous to a human reader
+// and can be silently misparsed by a copier bot. Plain digits only.
+function raw(v, dp) {
+  return v == null || !isFinite(v) ? '—' : Number(v).toFixed(dp == null ? 2 : dp);
+}
 
 function signalAsBroadcast(assetKey) {
   const s = signalData && signalData[assetKey];
