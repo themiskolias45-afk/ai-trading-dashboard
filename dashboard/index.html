@@ -313,6 +313,37 @@
 <div id="tab-overview" class="tab-panel active">
 <div class="container">
 
+  <!-- Trust strip: is the system that produced everything below actually healthy? -->
+  <a class="trust-link" href="/plan" title="Open the full Systems Plan">
+    <div class="trust-strip" id="trust-strip">
+      <div class="trust-cell">
+        <div class="trust-label">System</div>
+        <div class="trust-value trust-idle" id="tr-health"><span class="trust-led"></span>—</div>
+        <div class="trust-detail" id="tr-health-d">checking…</div>
+      </div>
+      <div class="trust-cell">
+        <div class="trust-label">MT5 Bridges</div>
+        <div class="trust-value trust-idle" id="tr-bridge">—</div>
+        <div class="trust-detail" id="tr-bridge-d">checking…</div>
+      </div>
+      <div class="trust-cell">
+        <div class="trust-label">Signal Data</div>
+        <div class="trust-value trust-idle" id="tr-signal">—</div>
+        <div class="trust-detail" id="tr-signal-d">checking…</div>
+      </div>
+      <div class="trust-cell">
+        <div class="trust-label">Last Backup</div>
+        <div class="trust-value trust-idle" id="tr-backup">—</div>
+        <div class="trust-detail" id="tr-backup-d">checking…</div>
+      </div>
+      <div class="trust-cell">
+        <div class="trust-label">Needs You</div>
+        <div class="trust-value trust-idle" id="tr-actions">—</div>
+        <div class="trust-detail" id="tr-actions-d">checking…</div>
+      </div>
+    </div>
+  </a>
+
   <!-- Price strip -->
   <div class="price-strip">
     <div class="price-card">
