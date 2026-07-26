@@ -28,6 +28,66 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Dashboard login — protects the human-facing pages only ─────
+// Never gates /api/* here: the MT5 bridge, TradingView webhooks, and the cloud
+// research/health-check agents all call dozens of API routes with no browser
+// session, and a blanket gate would break every one of them. The handful of
+// truly dangerous mutating endpoints already have their own requireLocalOnly
+// guard (added earlier); this is specifically "don't let a stranger view the
+// dashboard," which is a page-level concern, not an API-level one.
+const crypto = require("crypto");
+const DASHBOARD_USERNAME = (process.env.DASHBOARD_USERNAME || "").trim();
+const DASHBOARD_PASSWORD = (process.env.DASHBOARD_PASSWORD || "").trim();
+const SESSION_SECRET = crypto.randomBytes(32).toString("hex"); // regenerates each restart — everyone re-logs in, by design
+const SESSION_COOKIE = "smartentry_session";
+
+function timingSafeStringEqual(a, b) {
+  const aBuf = Buffer.from(String(a));
+  const bBuf = Buffer.from(String(b));
+  if (aBuf.length !== bBuf.length) return false;
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  const out = {};
+  if (!header) return out;
+  header.split(";").forEach(pair => {
+    const idx = pair.indexOf("=");
+    if (idx === -1) return;
+    out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+  });
+  return out;
+}
+
+app.get("/login", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "login.html")));
+
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body || {};
+  if (!DASHBOARD_USERNAME || !DASHBOARD_PASSWORD) {
+    return res.status(500).json({ error: "Dashboard login is not configured on the server." });
+  }
+  const userOk = typeof username === "string" && timingSafeStringEqual(username, DASHBOARD_USERNAME);
+  const passOk = typeof password === "string" && timingSafeStringEqual(password, DASHBOARD_PASSWORD);
+  if (!userOk || !passOk) return res.status(401).json({ error: "Invalid username or password." });
+
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${SESSION_SECRET}; HttpOnly; SameSite=Lax; Max-Age=2592000; Path=/`);
+  res.json({ ok: true });
+});
+
+app.post("/api/logout", (_, res) => {
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Max-Age=0; Path=/`);
+  res.json({ ok: true });
+});
+
+app.use((req, res, next) => {
+  if (!DASHBOARD_USERNAME || !DASHBOARD_PASSWORD) return next(); // not configured yet — never lock the owner out
+  if (req.path.startsWith("/api/") || req.path === "/login") return next();
+  const cookies = parseCookies(req);
+  if (cookies[SESSION_COOKIE] && timingSafeStringEqual(cookies[SESSION_COOKIE], SESSION_SECRET)) return next();
+  return res.redirect("/login");
+});
+
 // ── Config ────────────────────────────────────────────────────
 const PORT           = process.env.PORT           || 3001;
 const KEYS_ENV_PATH  = path.join(__dirname, "..", "keys.env");
