@@ -734,32 +734,6 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     else reasons.push(`Volume ${volRatio ?? "?"}x avg (monitoring for breakout confirmation)`);
   }
 
-  // ── MOMENTUM_DOWN: the exact mirror of MOMENTUM ───────────────
-  // MOMENTUM was the most-used setup in the whole engine — 8 of BTC's last 15
-  // trades, 12 of 15 on both Gold and SPX — and it could only go long. In a
-  // downtrend the system's main driver was simply silent, which is why Gold and
-  // SPX traded 15 long / 0 short and why BTC (below its EMA200) performed worst.
-  // Same thresholds, inverted: RSI mirrored around 50, MACD bearish, EMAs aligned down.
-  else if (
-    inDowntrend &&
-    !aboveEma50 && !aboveEma20 &&
-    rsi !== null && rsi < 48 && rsi > 28 &&
-    macd && !macd.bullish
-  ) {
-    setup  = "MOMENTUM_DOWN";
-    signal = "SELL";
-    const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((entry * 1.015).toFixed(2));
-    stop   = sl;
-    target = parseFloat((entry - Math.abs(sl - entry) * 2.0).toFixed(2));
-    strength = (macd.crossed === false && (volRatio !== null && volRatio >= 1.8)) || rsi < 40
-      ? (volRatio !== null && volRatio >= 1.8 ? "STRONG" : "MODERATE")
-      : rsi < 44 ? "MODERATE" : "NONE";
-    reasons.push(`All EMAs aligned down — downtrend structure intact`);
-    reasons.push(`MACD bearish (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
-    if (volConfirmed) reasons.push(`Volume ${volRatio}x avg — institutional participation`);
-    else reasons.push(`Volume ${volRatio ?? "?"}x avg (monitoring for breakdown confirmation)`);
-  }
-
   // ── TREND_FOLLOW: price in uptrend above all EMAs, MACD bullish — trend continuation ──
   else if (
     (inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20) &&
@@ -777,42 +751,6 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     reasons.push(`RSI ${rsi} — not extended, room to run`);
     reasons.push(`MACD bullish — momentum aligned with trend`);
     if (volConfirmed) reasons.push(`Volume ${volRatio}x avg — participation confirmed`);
-  }
-
-  // ── TREND_FOLLOW_DOWN: mirror of TREND_FOLLOW ─────────────────
-  // Structural downtrend below all EMAs, momentum aligned, not yet exhausted.
-  else if (
-    (inDowntrend || (trend === "MIXED" && !aboveEma50 && !aboveEma20)) &&
-    rsi !== null && rsi < 55 && rsi > 32 &&
-    macd && !macd.bullish &&
-    ema200 && price < ema200 * 0.995
-  ) {
-    setup  = "TREND_FOLLOW_DOWN";
-    signal = "SELL";
-    const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((ema20 * 1.01).toFixed(2));
-    stop   = sl;
-    target = parseFloat((entry - Math.abs(sl - entry) * 2.0).toFixed(2));
-    strength = (volConfirmed && rsi < 45) ? "STRONG" : rsi < 48 ? "MODERATE" : "NONE";
-    reasons.push(`Below EMA200/50/20 — structural downtrend intact`);
-    reasons.push(`RSI ${rsi} — not yet oversold, room to fall`);
-    reasons.push(`MACD bearish — momentum aligned with trend`);
-    if (volConfirmed) reasons.push(`Volume ${volRatio}x avg — participation confirmed`);
-  }
-
-  // ── SELL_OVERBOUGHT: mirror of BUY_OVERSOLD ───────────────────
-  else if (
-    (inDowntrend || trend === "MIXED") &&
-    rsi !== null && rsi > 70 &&
-    bb && price >= bb.upper * 0.995
-  ) {
-    setup  = "SELL_OVERBOUGHT";
-    signal = "SELL";
-    const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((entry * 1.015).toFixed(2));
-    stop   = sl;
-    target = parseFloat(Math.max(entry - Math.abs(sl - entry) * 2.0, bb.middle).toFixed(2));
-    strength = rsi > 78 ? "STRONG" : "MODERATE";
-    reasons.push(`RSI ${rsi} — extreme overbought`);
-    reasons.push(`Price at/above upper Bollinger band — stretched`);
   }
 
   // ── RANGE_TRADE_LONG: buy BB lower in ranging/squeeze market ─────
