@@ -448,6 +448,36 @@ def process_signal(key, sig):
         executed_signals[key] = cache_key  # mark so we don't prompt again this signal
 
 
+def report_risk_status():
+    """Push this bridge's risk state and the limits it actually enforces, every cycle.
+
+    This used to be sent only when a trade CLOSED, so on an account with no closed
+    trades the dashboard never learned the real limits and the circuit-breaker cards
+    had nothing to show. The limits are the whole point of the panel: they need to be
+    visible before the first trade, not after it.
+    """
+    try:
+        requests.post(f"{SERVER_URL}/api/risk-status", json={
+            "dailyPnl": round(daily_pnl, 2),
+            "consecutiveLosses": consecutive_losses,
+            "halted": trading_halted or remote_halted,
+            "haltReason": halt_reason or remote_halt_reason,
+            "account": ACCOUNT_TAG or "default",
+            "config": {
+                "riskPercent":     RISK_PERCENT,
+                "dailyLossPct":    daily_loss_limit,
+                "maxConsecLosses": MAX_CONSECUTIVE_LOSSES,
+                "maxSpreadPts":    MAX_SPREAD_PTS,
+                "autoMode":        AUTO_MODE,
+                "expectedLogin":   EXPECTED_LOGIN or None,
+                "remoteHalted":    remote_halted,
+            },
+        }, timeout=3)
+    except Exception:
+        # Reporting is telemetry, never a reason to interrupt trading.
+        pass
+
+
 def report_positions():
     """Send open MT5 positions to SmartEntry server so the dashboard can display them."""
     try:
