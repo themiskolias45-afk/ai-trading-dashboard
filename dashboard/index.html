@@ -866,6 +866,34 @@
 <div id="tab-performance" class="tab-panel">
 <div class="container">
 
+  <!-- Growth tracker. Before this there was a prose weekly AI report and all-time
+       totals, which cannot answer "am I up this month" or "was last week worse
+       than the one before". Real calendar buckets, not rolling windows. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Growth Tracker</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <div class="tf-btns" id="growth-period-btns">
+          <button class="tf-btn" data-growth="day"   onclick="setGrowthPeriod('day')">Day</button>
+          <button class="tf-btn" data-growth="week"  onclick="setGrowthPeriod('week')">Week</button>
+          <button class="tf-btn active" data-growth="month" onclick="setGrowthPeriod('month')">Month</button>
+          <button class="tf-btn" data-growth="year"  onclick="setGrowthPeriod('year')">Year</button>
+        </div>
+        <button class="btn-refresh" onclick="loadGrowth()">↻</button>
+      </div>
+    </div>
+    <div class="panel-body" style="max-height:none;padding:0">
+      <div id="growth-totals" style="display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border-bottom:1px solid var(--border)"></div>
+      <!-- Wide table scrolls inside its own box; the page body never scrolls sideways. -->
+      <div style="overflow-x:auto;max-height:320px;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.75rem" id="growth-table">
+          <tbody><tr><td style="padding:14px;color:var(--muted)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div id="growth-note" style="padding:9px 16px;font-size:.62rem;color:var(--muted);border-top:1px solid var(--border)"></div>
+    </div>
+  </div>
+
   <!-- Summary stats -->
   <div class="perf-stats-grid">
     <div class="perf-stat">
