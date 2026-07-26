@@ -2753,15 +2753,15 @@ function newEngineerRunId() {
   return "run_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
 }
 
-// AI Parallel spawns real claude -p --dangerously-skip-permissions processes with full
-// shell/file access on this machine — on an internet-reachable server that is remote code
-// execution for anyone who finds the URL. Restrict the whole feature to the server's own
-// loopback address, same guard as /api/mt5/login.
+// Shared guard for admin-level actions with no auth layer of their own (AI Parallel code
+// execution, server shutdown, settings/secret writes, learning-data reset, feature toggles).
+// On an internet-reachable server these were previously callable by anyone who found the
+// URL — restrict them to the server's own loopback address, same pattern as /api/mt5/login.
 function requireLocalOnly(req, res, next) {
   const remote = req.socket.remoteAddress || "";
   const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
   if (!isLocal) {
-    return res.status(403).json({ error: "AI Parallel only accepts requests from the server's own machine." });
+    return res.status(403).json({ error: "This admin action only accepts requests from the server's own machine." });
   }
   next();
 }
