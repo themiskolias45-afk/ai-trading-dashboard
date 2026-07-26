@@ -2954,7 +2954,7 @@ async function runBacktest(symbol, label, years = 5) {
 
     trades.push({
       date:     new Date(bars[i].ts * 1000).toISOString().split("T")[0],
-      signal, setup: sig.setup,
+      signal, setup: sig.setup, strength: sig.strength,
       entry:    parseFloat(entry.toFixed(2)),
       sl:       parseFloat(sl.toFixed(2)),
       tp:       parseFloat(tp.toFixed(2)),
@@ -2962,6 +2962,25 @@ async function runBacktest(symbol, label, years = 5) {
     });
   }
 
+  return {
+    symbol, label, years,
+    // What the live system would actually have traded. AUTO mode refuses anything
+    // that is not STRONG, so this is the headline figure — the previous one
+    // included MODERATE setups the broker connection would never have taken.
+    ...summariseBacktest(trades.filter(t => t.strength === "STRONG")),
+    // Kept alongside so the cost of that filter is visible rather than implied.
+    allSetups: summariseBacktest(trades),
+    filter: {
+      applied: "STRONG only — matches AUTO_MODE in mt5_bridge.py",
+      caveat:  "Real live confidence also requires Daily/4H/1H agreement, which daily bars "
+             + "cannot reproduce. Live will therefore trade the same or fewer times than shown here, never more.",
+    },
+  };
+}
+
+// Shared so the live-equivalent and all-setups figures are computed identically and
+// any difference between them is the filter, not the arithmetic.
+function summariseBacktest(trades) {
   const wins   = trades.filter(t => t.outcome === "WIN").length;
   const losses = trades.filter(t => t.outcome === "LOSS").length;
   const closed = wins + losses;
@@ -2981,18 +3000,28 @@ async function runBacktest(symbol, label, years = 5) {
   const winRRsum  = trades.filter(t => t.outcome === "WIN").reduce((s, t) => s + t.rr, 0);
   const profitFactor = losses > 0 ? parseFloat((winRRsum / losses).toFixed(2)) : null;
 
+  // Averaged over CLOSED trades only. Including EXPIRED ones — which never hit a
+  // stop or target and move equity not at all — dragged the average R down and
+  // made expectancy read worse than the trades that actually resolved.
+  const closedTrades = trades.filter(t => t.outcome === "WIN" || t.outcome === "LOSS");
+  const avgRR = closedTrades.length
+    ? closedTrades.reduce((s, t) => s + t.rr, 0) / closedTrades.length
+    : 0;
+
   return {
-    symbol, label, years,
-    totalTrades: trades.length, wins, losses, winRate,
-    avgRR:        parseFloat((trades.reduce((s, t) => s + t.rr, 0) / (trades.length || 1)).toFixed(1)),
+    totalTrades:  trades.length,
+    resolved:     closed,
+    expired:      trades.length - closed,
+    wins, losses, winRate,
+    avgRR:        parseFloat(avgRR.toFixed(1)),
     profitFactor,
     startEquity:  10000,
     finalEquity:  parseFloat(equity.toFixed(0)),
     returnPct:    parseFloat(((equity - 10000) / 100).toFixed(1)),
     maxDrawdown:  parseFloat(maxDD.toFixed(1)),
-    expectancy:   parseFloat(((winRate / 100 * (trades.reduce((s,t)=>s+t.rr,0)/(trades.length||1))) - (1 - winRate / 100)).toFixed(2)),
+    expectancy:   parseFloat(((winRate / 100 * avgRR) - (1 - winRate / 100)).toFixed(2)),
     curve:        curve.slice(-120),
-    recentTrades: trades.slice(-15)
+    recentTrades: trades.slice(-15),
   };
 }
 
