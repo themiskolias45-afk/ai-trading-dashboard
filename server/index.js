@@ -93,7 +93,7 @@ const API_NO_LOGIN_REQUIRED = new Set([
   "/api/mt5/positions", "/api/risk-status",
   "/api/trade-opened", "/api/trade-closed",
   "/api/tv-alert", "/api/claude-approve-trade",
-  "/api/agent/notify", "/api/mt5/health",
+  "/api/agent/notify", "/api/mt5/health", "/api/status",
   "/api/checksystem", "/api/journal", "/api/backtest", "/api/learning",
 ]);
 
