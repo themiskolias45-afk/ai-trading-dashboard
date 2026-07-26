@@ -422,8 +422,13 @@ async function loadPlan() {
 
     document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
   } catch (e) {
+    // Log it. This catch swallowed the CORS failure above in total silence for as
+    // long as the bug existed — an empty console and an OFFLINE pill gave nothing
+    // to work from. A failure that leaves no trace is a failure you can't fix.
+    console.error('[daily-plan] loadPlan failed:', e);
     document.getElementById('server-status').className = 'pill pill-red';
     document.getElementById('server-status').innerHTML = '<span class="dot"></span> OFFLINE';
+    document.getElementById('plan-meta').textContent = 'Failed to load plan — ' + (e && e.message ? e.message : e);
   }
 }
 
