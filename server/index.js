@@ -94,9 +94,6 @@ const API_NO_LOGIN_REQUIRED = new Set([
   "/api/trade-opened", "/api/trade-closed",
   "/api/tv-alert", "/api/claude-approve-trade",
   "/api/agent/notify", "/api/mt5/health", "/api/status",
-  // GET only in spirit — the bridge polls this every cycle and has no browser
-  // session. POST is what changes state and is guarded in the handler below.
-  "/api/mt5/control",
   "/api/checksystem", "/api/journal", "/api/backtest", "/api/learning",
   "/api/healer", "/api/healer/heal",
 ]);
