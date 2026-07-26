@@ -598,6 +598,14 @@ def process_signal(key, sig):
         executed_signals[key] = cache_key
         return
 
+    # Slot and daily-trade caps. Cheapest checks first — both are local counts.
+    limits_ok, limits_reason = check_strategy_limits()
+    if not limits_ok:
+        if last_rejection.get(key) != limits_reason:
+            log(f"STRATEGY LIMIT blocked {direction} {symbol}: {limits_reason}", YELLOW)
+            last_rejection[key] = limits_reason
+        return
+
     # Portfolio risk gate. Runs BEFORE the AI filter so a trade that breaches the
     # portfolio cap never costs an Anthropic call, and so the cheaper deterministic
     # check is what rejects it.
