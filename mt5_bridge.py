@@ -387,6 +387,10 @@ def refresh_strategy_settings():
         for name in ("confidenceThreshold", "maxConcurrentPositions", "maxTradesPerDay"):
             if isinstance(data.get(name), (int, float)):
                 strategy_settings[name] = int(data[name])
+        # Lot sizes stay floats — int() here would make 0.01 become 0.
+        for name in ("fixedLotSize", "maxLotSize"):
+            if isinstance(data.get(name), (int, float)):
+                strategy_settings[name] = float(data[name])
     except Exception:
         pass
 
