@@ -1628,7 +1628,7 @@ app.get("/api/learning", (_, res) => {
   }
 });
 
-app.post("/api/learning/reset", (_, res) => {
+app.post("/api/learning/reset", requireLocalOnly, (_, res) => {
   learning.setupStats = {};
   learning.updatedAt = new Date().toISOString();
   saveLearning();
