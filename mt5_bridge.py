@@ -268,8 +268,25 @@ def get_lot_size(symbol, entry, stop, risk_amount=None):
         return MIN_LOT.get(symbol, 0.01)
 
     raw_lots = risk_amount / value_per_lot
+
+    # Fixed lot size overrides the risk maths entirely. This is what you want when
+    # you would rather trade a known, small size than let a percentage of a large
+    # balance decide - e.g. always 0.01 lots on gold regardless of the stop.
+    fixed = float(strategy_settings.get("fixedLotSize", 0) or 0)
+    if fixed > 0:
+        raw_lots = fixed
+
+    # Ceiling applies either way, so a wide stop on a big balance can never quietly
+    # produce an enormous position.
+    max_lots = float(strategy_settings.get("maxLotSize", 0) or 0)
+    if max_lots > 0 and raw_lots > max_lots:
+        log(f"Lot size capped: {raw_lots:.2f} → {max_lots:.2f} (maxLotSize)", YELLOW)
+        raw_lots = max_lots
+
     step     = sym_info.volume_step
     lots     = round(raw_lots / step) * step
+    # The broker's own floor and ceiling always win - asking for 0.005 where the
+    # minimum is 0.01 would be rejected outright.
     lots     = max(lots, sym_info.volume_min)
     lots     = min(lots, sym_info.volume_max)
     return round(lots, 2)
