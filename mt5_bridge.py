@@ -672,7 +672,23 @@ def main():
         print(f"Account tag: {ACCOUNT_TAG}")
     print(f"Terminal: {TERMINAL_PATH or '(auto-detect — unsafe with more than one MT5 terminal running)'}\n")
 
-    if not connect_mt5():
+    # On a cold boot (auto-logon just fired, terminal launched seconds ago), MT5 can take
+    # longer to become IPC-ready than a warm restart — a single failed attempt used to kill
+    # the whole bridge permanently, with nothing (not even the watchdog) able to bring it
+    # back, since "never connected yet" is deliberately not treated as a failure state.
+    CONNECT_RETRIES = 6
+    CONNECT_RETRY_DELAY_S = 15
+    connected = False
+    for attempt in range(1, CONNECT_RETRIES + 1):
+        if connect_mt5():
+            connected = True
+            break
+        if attempt < CONNECT_RETRIES:
+            log(f"Connect attempt {attempt}/{CONNECT_RETRIES} failed — retrying in {CONNECT_RETRY_DELAY_S}s (MT5 may still be starting up)…", YELLOW)
+            time.sleep(CONNECT_RETRY_DELAY_S)
+
+    if not connected:
+        log(f"Could not connect after {CONNECT_RETRIES} attempts — giving up.", RED)
         sys.exit(1)
 
     log("Bridge started — watching for signals…", GREEN)
