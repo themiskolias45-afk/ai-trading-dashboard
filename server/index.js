@@ -2260,6 +2260,23 @@ async function askClaude(question, history = []) {
             const result = await autohealer.forceHeal();
             resultText = `Heal cycle ran. Healthy: ${result.healthy}. Total heals so far: ${result.healCount}. Last heal: ${result.lastHealAt ?? "just now"}.`;
           } catch (e) { resultText = "Force-heal failed: " + e.message; }
+        } else if (block.name === "list_proposals") {
+          const { proposals } = loadProposals();
+          if (!proposals.length) resultText = "No proposals on record.";
+          else resultText = proposals.slice(0, 10).map(p =>
+            `[${p.status}] ${p.id} — ${p.summary}${p.prUrl ? ` (${p.prUrl})` : ""} (${p.createdAt})`
+          ).join("\n");
+        } else if (block.name === "approve_proposal") {
+          const { id } = block.input || {};
+          const data = loadProposals();
+          const prop = data.proposals.find(p => p.id === id);
+          if (!prop) resultText = `No proposal found with id ${id}.`;
+          else {
+            prop.status = "approved";
+            prop.approvedAt = new Date().toISOString();
+            saveProposals(data);
+            resultText = `Approved: ${prop.summary}. Marked ready to deploy next session — this did not deploy it live.`;
+          }
         } else continue;
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: resultText });
       }
