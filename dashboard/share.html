@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartEntry Pro — Signal Brief</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#080c14; --surface:#0f1520; --surface2:#131b28; --border:#1a2235; --border2:#243044;
+      --text:#e2e8f0; --muted:#5a7090; --accent:#7c3aed;
+      --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
+      --font:'Segoe UI',system-ui,Arial,sans-serif;
+      --mono:'Consolas','SF Mono',monospace;
+    }
+    body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px; padding-bottom:40px; }
+
+    header {
+      background:var(--surface); border-bottom:1px solid var(--border);
+      padding:14px 24px; display:flex; align-items:center; justify-content:space-between;
+      flex-wrap:wrap; gap:12px;
+    }
+    .brand { display:flex; align-items:center; gap:11px; }
+    .brand-mark {
+      width:34px; height:34px; border-radius:9px; color:#fff; font-weight:900; font-size:17px;
+      background:linear-gradient(135deg,var(--accent),#4f46e5);
+      display:flex; align-items:center; justify-content:center;
+    }
+    .brand-name { font-size:1.02rem; font-weight:700; letter-spacing:-.01em; }
+    .brand-sub { font-size:.63rem; color:var(--muted); letter-spacing:.13em; text-transform:uppercase; }
+    .head-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .btn {
+      background:var(--surface2); border:1px solid var(--border2); color:var(--text);
+      font-size:.7rem; font-weight:700; padding:7px 13px; border-radius:6px; cursor:pointer;
+      font-family:var(--font); letter-spacing:.02em;
+    }
+    .btn:hover { border-color:var(--accent); }
+    .btn-primary { background:rgba(124,58,237,.16); border-color:rgba(124,58,237,.5); color:#c4b5fd; }
+    a.btn { text-decoration:none; display:inline-block; }
+
+    .wrap { max-width:1080px; margin:0 auto; padding:22px 24px 0; }
+
+    /* Asset picker — this is the "share one, two or three" control */
+    .picker {
+      background:var(--surface); border:1px solid var(--border); border-radius:11px;
+      padding:14px 18px; margin-bottom:18px;
+      display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    }
+    .picker-label { font-size:.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; }
+    .chips { display:flex; gap:7px; flex-wrap:wrap; }
+    .chip {
+      background:var(--bg); border:1px solid var(--border2); color:var(--muted);
+      font-size:.72rem; font-weight:700; padding:6px 15px; border-radius:20px; cursor:pointer;
+      font-family:var(--font); transition:all .15s;
+    }
+    .chip:hover { color:var(--text); }
+    .chip.on { background:rgba(124,58,237,.16); border-color:var(--accent); color:#c4b5fd; }
+
+    /* Signal card */
+    .card {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:12px; overflow:hidden; margin-bottom:18px;
+    }
+    .card.long  { border-top:3px solid var(--green); }
+    .card.short { border-top:3px solid var(--red); }
+    .card.wait  { border-top:3px solid var(--muted); }
+
+    .card-head { padding:16px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+    .asset-name { font-size:1.12rem; font-weight:700; }
+    .asset-ticker { font-size:.66rem; color:var(--muted); font-family:var(--mono); }
+    .badge { padding:5px 13px; border-radius:6px; font-size:.72rem; font-weight:800; letter-spacing:.06em; }
+    .badge-long  { background:#0d2010; color:var(--green); border:1px solid rgba(34,197,94,.35); }
+    .badge-short { background:#200d0d; color:var(--red);   border:1px solid rgba(239,68,68,.35); }
+    .badge-wait  { background:#161b2b; color:var(--muted); border:1px solid var(--border2); }
+    .conf { margin-left:auto; text-align:right; }
+    .conf-val { font-size:1.3rem; font-weight:800; font-variant-numeric:tabular-nums; }
+    .conf-lbl { font-size:.58rem; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; }
+
+    .section { padding:16px 20px; border-bottom:1px solid var(--border); }
+    .section:last-child { border-bottom:none; }
+    .section-title {
+      font-size:.6rem; color:var(--muted); text-transform:uppercase;
+      letter-spacing:.12em; font-weight:700; margin-bottom:11px;
+    }
+
+    .levels { display:grid; grid-template-columns:repeat(5,1fr); gap:1px; background:var(--border); border-radius:8px; overflow:hidden; }
+    @media(max-width:760px){ .levels{ grid-template-columns:repeat(2,1fr); } }
+    .level { background:var(--surface2); padding:11px 14px; }
+    .level-lbl { font-size:.57rem; color:var(--muted); text-transform:uppercase; letter-spacing:.09em; }
+    .level-val { font-size:.95rem; font-weight:700; margin-top:3px; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+    .tf-row { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+    @media(max-width:620px){ .tf-row{ grid-template-columns:1fr; } }
+    .tf {
+      background:var(--surface2); border:1px solid var(--border2);
+      border-radius:8px; padding:11px 13px;
+    }
+    .tf-name { font-size:.6rem; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; }
+    .tf-sig { font-size:.86rem; font-weight:700; margin-top:4px; }
+    .tf-meta { font-size:.65rem; color:var(--muted); margin-top:3px; font-family:var(--mono); }
+
+    ol.guide { margin:0; padding-left:20px; }
+    ol.guide li { font-size:.79rem; line-height:1.65; margin-bottom:8px; }
+    ol.guide li:last-child { margin-bottom:0; }
+    ol.guide strong { color:#fff; }
+
+    ul.reasons { margin:0; padding-left:18px; }
+    ul.reasons li { font-size:.76rem; line-height:1.6; color:#c3cede; margin-bottom:5px; }
+
+    .kv { display:grid; grid-template-columns:repeat(4,1fr); gap:10px 18px; }
+    @media(max-width:760px){ .kv{ grid-template-columns:repeat(2,1fr); } }
+    .kv div { font-size:.72rem; }
+    .kv span.k { color:var(--muted); }
+    .kv span.v { float:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+    .foot {
+      background:var(--surface); border:1px solid var(--border); border-radius:11px;
+      padding:14px 18px; font-size:.66rem; color:var(--muted); line-height:1.7;
+    }
+    .empty { background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:34px; text-align:center; color:var(--muted); font-size:.82rem; }
+    .g  { color:var(--green); } .r { color:var(--red); } .y { color:var(--yellow); } .m { color:var(--muted); }
+
+    /* Printing / PDF: drop the app chrome so a shared copy is just the brief. */
+    @media print {
+      body { background:#fff; color:#000; }
+      header, .picker, .head-actions { display:none !important; }
+      .card, .foot { border-color:#ccc; background:#fff; page-break-inside:avoid; }
+      .level, .tf { background:#f5f5f5; }
+      .asset-name, ol.guide strong { color:#000; }
+      ul.reasons li, .kv div { color:#222; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-mark">S</div>
+      <div>
+        <div class="brand-name">SmartEntry Pro</div>
+        <div class="brand-sub">Signal Brief</div>
+      </div>
+    </div>
+    <div class="head-actions">
+      <button class="btn" onclick="copyBrief()" id="copy-btn">Copy as text</button>
+      <button class="btn" onclick="window.print()">Print / PDF</button>
+      <button class="btn" onclick="loadBrief()">Refresh</button>
+      <a class="btn btn-primary" href="/dashboard/index.html">Dashboard</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="picker">
+      <span class="picker-label">Assets in this brief</span>
+      <div class="chips" id="chips"></div>
+      <span style="margin-left:auto;font-size:.65rem;color:var(--muted)" id="stamp">loading…</span>
+    </div>
+
+    <div id="cards"></div>
+
+    <div class="foot" id="foot"></div>
+  </div>
+
+<script>
+// Same-origin only. Reads /api/signals (already public) plus /api/strategy-settings
+// so the risk guidance quotes the limits this system is really running, instead of
+// numbers written into the page that drift the moment you change a setting.
+const ASSETS = [
+  { key:'btc',  name:'Bitcoin',   ticker:'BTC-USD' },
+  { key:'gold', name:'Gold',      ticker:'XAU/USD' },
+  { key:'spx',  name:'S&P 500',   ticker:'SPX'     },
+];
+
+// Which assets are in the brief. Driven by ?assets=btc,gold so a chosen selection
+// survives a reload and can be bookmarked.
+let selected = new Set(
+  (new URLSearchParams(location.search).get('assets') || 'btc,gold,spx')
+    .split(',').map(s => s.trim().toLowerCase()).filter(k => ASSETS.some(a => a.key === k))
+);
+if (selected.size === 0) selected = new Set(ASSETS.map(a => a.key));
+
+let signalData = null;
+let settings   = null;
+
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function num(v, dp) {
+  if (v == null || !isFinite(v)) return '—';
+  return Number(v).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
+}
+function price(v) { return v == null || !isFinite(v) ? '—' : '$' + num(v, Math.abs(v) < 100 ? 2 : 2); }
+
+function dirClass(sig) {
+  if (!sig || sig === 'WAIT') return 'wait';
+  return sig.indexOf('SELL') !== -1 || sig === 'SHORT' ? 'short' : 'long';
+}
+function dirWord(sig) {
+  if (!sig || sig === 'WAIT') return 'WAIT — NO TRADE';
+  return sig.indexOf('SELL') !== -1 || sig === 'SHORT' ? 'SHORT' : 'LONG';
+}
+
+function renderChips() {
+  document.getElementById('chips').innerHTML = ASSETS.map(a =>
+    `<button class="chip ${selected.has(a.key) ? 'on' : ''}" onclick="toggleAsset('${a.key}')">${esc(a.name)}</button>`
+  ).join('');
+}
+
+function toggleAsset(key) {
+  if (selected.has(key)) {
+    // Never allow an empty brief — an empty page is not a share.
+    if (selected.size === 1) return;
+    selected.delete(key);
+  } else {
+    selected.add(key);
+  }
+  const order = ASSETS.filter(a => selected.has(a.key)).map(a => a.key);
+  history.replaceState(null, '', location.pathname + '?assets=' + order.join(','));
+  renderChips();
+  renderCards();
+}
+
+// Guidance is generated from the signal's own numbers and this system's real
+// configured limits. It describes what the system decided and how its rules work —
+// it is not a recommendation, which is why the footer says so plainly.
+function buildGuidance(sig, conf) {
+  const g = [];
+  const isWait = !sig.signal || sig.signal === 'WAIT';
+  const gate   = settings ? settings.confidenceThreshold : 65;
+  const long   = dirWord(sig.signal) === 'LONG';
+  const side   = long ? 'above' : 'below';
+
+  if (isWait) {
+    g.push(`<strong>No entry.</strong> This asset is on WAIT — the setup has not met the ${gate}% multi-timeframe confidence gate. Confidence is currently ${conf}%.`);
+    g.push(`<strong>What would change it:</strong> ${esc(sig.setup || 'the current setup')} resolving in the ${esc(sig.regime || 'current')} regime, with the Daily, 4H and 1H reads aligning.`);
+    g.push(`<strong>Do not force it.</strong> A quiet market is a correct read, not a missing signal.`);
+    return g;
+  }
+
+  if (sig.entry != null) {
+    g.push(`<strong>Entry:</strong> ${dirWord(sig.signal)} at <b>${price(sig.entry)}</b>. Treat it as a zone, not a tick — entering ${side} it by more than a fraction of the ${num(sig.atr, 2)} ATR changes the risk:reward you are actually taking.`);
+  }
+  if (sig.stop != null) {
+    g.push(`<strong>Invalidation:</strong> stop at <b>${price(sig.stop)}</b>. That is ${num(Math.abs(sig.entry - sig.stop), 2)} away, ${sig.atr ? (Math.abs(sig.entry - sig.stop) / sig.atr).toFixed(2) + '× ATR' : ''}. If price closes beyond it the thesis is wrong — this is the level, not a suggestion.`);
+  }
+  if (sig.target != null) {
+    g.push(`<strong>Target:</strong> <b>${price(sig.target)}</b>${sig.rr ? `, a ${num(sig.rr, 2)}:1 reward-to-risk` : ''}. Partial profit is taken automatically by the bridge; the trailing stop manages the remainder.`);
+  }
+  if (settings) {
+    const lotNote = settings.fixedLotSize > 0
+      ? `a fixed <b>${settings.fixedLotSize}</b> lots`
+      : `risk-sized position, capped at <b>${settings.maxLotSize}</b> lots`;
+    g.push(`<strong>Size:</strong> ${lotNote}. The portfolio gate refuses any trade that would push total open risk beyond 6%, and no more than ${settings.maxConcurrentPositions} position${settings.maxConcurrentPositions === 1 ? '' : 's'} may be open at once.`);
+  }
+  g.push(`<strong>If it runs without you:</strong> do not chase. The stop distance is what makes the ${sig.rr ? num(sig.rr, 2) + ':1' : 'stated'} reward-to-risk true; entering late keeps the target and shrinks the reward.`);
+  return g;
+}
+
+function renderCard(asset) {
+  const sig = signalData && signalData[asset.key];
+  if (!sig) return `<div class="empty">No data for ${esc(asset.name)}.</div>`;
+
+  const conf = sig.confidence == null ? 0 : sig.confidence;
+  const cls  = dirClass(sig.signal);
+  const confColour = conf >= 75 ? 'g' : conf >= (settings ? settings.confidenceThreshold : 65) ? 'y' : 'm';
+
+  const tf = (name, d) => `
+    <div class="tf">
+      <div class="tf-name">${name}</div>
+      <div class="tf-sig ${d && d.signal && d.signal !== 'WAIT' ? (dirClass(d.signal) === 'short' ? 'r' : 'g') : 'm'}">${esc(d && d.signal ? d.signal : '—')}</div>
+      <div class="tf-meta">${esc(d && d.trend ? d.trend : '—')}${d && d.rsi != null ? ' · RSI ' + num(d.rsi, 1) : ''}</div>
+    </div>`;
+
+  const ind = sig.indicators || {};
+  const piv = sig.pivots || {};
+
+  return `
+  <div class="card ${cls}">
+    <div class="card-head">
+      <div>
+        <div class="asset-name">${esc(asset.name)}</div>
+        <div class="asset-ticker">${esc(asset.ticker)} · ${esc(sig.setup || '—')} · ${esc(sig.regime || '—')}</div>
+      </div>
+      <span class="badge badge-${cls}">${dirWord(sig.signal)}</span>
+      <div class="conf">
+        <div class="conf-val ${confColour}">${conf}%</div>
+        <div class="conf-lbl">Confidence</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Levels</div>
+      <div class="levels">
+        <div class="level"><div class="level-lbl">Price now</div><div class="level-val">${price(sig.price)}</div></div>
+        <div class="level"><div class="level-lbl">Entry</div><div class="level-val">${price(sig.entry)}</div></div>
+        <div class="level"><div class="level-lbl">Stop</div><div class="level-val r">${price(sig.stop)}</div></div>
+        <div class="level"><div class="level-lbl">Target</div><div class="level-val g">${price(sig.target)}</div></div>
+        <div class="level"><div class="level-lbl">R : R</div><div class="level-val">${sig.rr ? num(sig.rr, 2) + ':1' : '—'}</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Timeframe alignment</div>
+      <div class="tf-row">
+        ${tf('Daily', { signal: sig.signal, trend: sig.trend, rsi: ind.rsi })}
+        ${tf('4 Hour', sig.h4)}
+        ${tf('1 Hour', sig.h1)}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Entry guidelines</div>
+      <ol class="guide">${buildGuidance(sig, conf).map(li => '<li>' + li + '</li>').join('')}</ol>
+    </div>
+
+    ${Array.isArray(sig.reasons) && sig.reasons.length ? `
+    <div class="section">
+      <div class="section-title">Why the system reads it this way</div>
+      <ul class="reasons">${sig.reasons.map(r => '<li>' + esc(r) + '</li>').join('')}</ul>
+    </div>` : ''}
+
+    <div class="section">
+      <div class="section-title">Key levels &amp; indicators</div>
+      <div class="kv">
+        <div><span class="k">Pivot</span><span class="v">${price(piv.pp)}</span></div>
+        <div><span class="k">R1 / R2</span><span class="v">${price(piv.r1)} / ${price(piv.r2)}</span></div>
+        <div><span class="k">S1 / S2</span><span class="v">${price(piv.s1)} / ${price(piv.s2)}</span></div>
+        <div><span class="k">ATR</span><span class="v">${num(sig.atr, 2)}</span></div>
+        <div><span class="k">RSI</span><span class="v">${num(ind.rsi, 1)}</span></div>
+        <div><span class="k">EMA 20 / 50</span><span class="v">${price(ind.ema20)} / ${price(ind.ema50)}</span></div>
+        <div><span class="k">EMA 200</span><span class="v">${price(ind.ema200)}</span></div>
+        <div><span class="k">BB width</span><span class="v">${ind.bb ? num(ind.bb.bandwidth, 1) + '%' : '—'}</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderCards() {
+  const host = document.getElementById('cards');
+  const chosen = ASSETS.filter(a => selected.has(a.key));
+  host.innerHTML = chosen.length ? chosen.map(renderCard).join('')
+    : '<div class="empty">Select at least one asset.</div>';
+
+  const first = signalData && signalData[chosen[0] && chosen[0].key];
+  document.getElementById('foot').innerHTML =
+    `Generated ${new Date().toLocaleString()}${signalData && signalData.updatedAt ? ' · signals as of ' + new Date(signalData.updatedAt).toLocaleString() : ''}`
+    + `${first && first.session ? ' · ' + esc(first.session.name) + ' session' : ''}`
+    + `<br>Levels come from a multi-timeframe read (Daily / 4H / 1H) and are recalculated automatically — a brief older than a few hours may no longer be valid.`
+    + `<br><strong>This is a description of one system's output, not financial advice or a recommendation to trade.</strong> Trading carries risk of loss.`;
+}
+
+// Plain-text version for pasting into a chat, where a screenshot is awkward.
+function briefAsText() {
+  const lines = ['SmartEntry Pro — Signal Brief', new Date().toLocaleString(), ''];
+  for (const a of ASSETS.filter(x => selected.has(x.key))) {
+    const s = signalData && signalData[a.key];
+    if (!s) continue;
+    lines.push(`${a.name} (${a.ticker}) — ${dirWord(s.signal)}  ${s.confidence == null ? 0 : s.confidence}% confidence`);
+    lines.push(`  Setup: ${s.setup || '—'} · Regime: ${s.regime || '—'} · Trend: ${s.trend || '—'}`);
+    lines.push(`  Price ${price(s.price)} | Entry ${price(s.entry)} | Stop ${price(s.stop)} | Target ${price(s.target)}${s.rr ? ' | R:R ' + num(s.rr, 2) + ':1' : ''}`);
+    lines.push(`  Daily ${s.signal || '—'} / 4H ${(s.h4 && s.h4.signal) || '—'} / 1H ${(s.h1 && s.h1.signal) || '—'}`);
+    if (Array.isArray(s.reasons)) s.reasons.slice(0, 3).forEach(r => lines.push(`  · ${r}`));
+    lines.push('');
+  }
+  lines.push('Description of one system\'s output. Not financial advice. Trading carries risk of loss.');
+  return lines.join('\n');
+}
+
+async function copyBrief() {
+  const btn = document.getElementById('copy-btn');
+  const text = briefAsText();
+  try {
+    // Clipboard API needs a secure context; fall back so this still works over
+    // plain HTTP at an IP, which is exactly where the mic already fails.
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = 'Copy as text'; }, 1800);
+  } catch (e) {
+    console.error('copyBrief:', e);
+    btn.textContent = 'Copy failed';
+    setTimeout(() => { btn.textContent = 'Copy as text'; }, 1800);
+  }
+}
+
+async function loadBrief() {
+  const stamp = document.getElementById('stamp');
+  try {
+    const [sigRes, setRes] = await Promise.all([
+      fetch('/api/signals', { cache: 'no-store' }),
+      fetch('/api/strategy-settings', { cache: 'no-store' }).catch(() => null),
+    ]);
+    if (!sigRes.ok) throw new Error('signals HTTP ' + sigRes.status);
+    signalData = await sigRes.json();
+    settings = setRes && setRes.ok ? await setRes.json() : null;
+    stamp.textContent = 'updated ' + new Date().toLocaleTimeString();
+    renderCards();
+  } catch (e) {
+    // Say what failed. A blank brief with no explanation is the worst outcome.
+    console.error('loadBrief:', e);
+    stamp.textContent = 'failed to load';
+    document.getElementById('cards').innerHTML =
+      '<div class="empty">Could not load signals — ' + esc(e.message) + '</div>';
+  }
+}
+
+renderChips();
+loadBrief();
+setInterval(loadBrief, 120000);
+</script>
+</body>
+</html>
