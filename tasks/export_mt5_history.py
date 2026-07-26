@@ -34,6 +34,10 @@ TIMEFRAMES = {
 
 YEARS_BACK = int(os.environ.get("EXPORT_YEARS", "5"))
 
+# Ceiling for the position-based fallback. ~200k M15 bars is roughly 5-6 years of
+# 24/5 data, so this asks for everything the terminal is willing to give.
+MAX_BARS = int(os.environ.get("EXPORT_MAX_BARS", "200000"))
+
 
 def export(symbol, tf_name, tf_const, start, end):
     if not mt5.symbol_select(symbol, True):
