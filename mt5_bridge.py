@@ -367,6 +367,8 @@ strategy_settings = {
     "confidenceThreshold": 65,
     "maxConcurrentPositions": 3,
     "maxTradesPerDay": 5,
+    "fixedLotSize": 0.0,   # 0 = size from risk; above 0 = always trade exactly this
+    "maxLotSize": 10.0,    # hard ceiling regardless of what the risk maths asks for
 }
 
 # Trades opened today, reset on date change. Counted here rather than server-side
