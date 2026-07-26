@@ -828,6 +828,7 @@ def main():
                 print_status(data)
                 process_all_signals(data)
             report_positions()
+            report_risk_status()
             manage_trailing_stops()
             take_partial_profit()
             track_closed_positions()
