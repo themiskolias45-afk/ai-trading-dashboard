@@ -479,8 +479,12 @@ def main():
         print(json.dumps(facts, indent=2)[:20000])
         return 0
 
-    reports = run_analysts(facts)
-    synthesis = run_synthesiser(facts, reports)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    facts_path = write_json(os.path.join(OUT_DIR, f"facts-{stamp}.json"), facts)
+
+    reports = run_analysts(facts_path)
+    reports_path = write_json(os.path.join(OUT_DIR, f"reports-{stamp}.json"), reports)
+    synthesis = run_synthesiser(facts_path, reports_path)
 
     if not args.no_gate and isinstance(synthesis.get("actions"), list):
         for action in synthesis["actions"]:
@@ -488,7 +492,7 @@ def main():
 
     payload = {"generatedAt": facts["generatedAt"], "facts": facts,
                "analysts": reports, "synthesis": synthesis}
-    path = write_report(payload)
+    path = write_report(payload, stamp)
     print_summary(payload)
     print(f"\nWritten: {path}")
     return 0
