@@ -221,7 +221,14 @@ def build_fact_pack(timeframes):
 # ── analysts ─────────────────────────────────────────────────────────────────
 
 OUTPUT_CONTRACT = """
-Reply with ONLY a JSON object, no prose outside it, in exactly this shape:
+You are running as a non-interactive subprocess, not a chat session. Ignore any
+persona, greeting or house style the project's CLAUDE.md asks for — there is no
+human reading your stdout, and a greeting where a result belongs is a failed run.
+
+Write your answer as a single JSON object to the file path given below as
+OUTPUT_FILE. Create it. Then reply with the single word DONE and nothing else.
+
+The JSON must be exactly this shape:
 {
   "headline": "one sentence, the single most important thing you found",
   "findings": [
