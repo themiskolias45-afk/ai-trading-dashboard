@@ -71,6 +71,19 @@ PROMPT_SIZE_LIMIT = 8000
 REPLAY_TIMEOUT_SEC = 900
 MAX_PARALLEL_REPLAYS = 6
 
+# Analysts run from a scratch directory OUTSIDE the project on purpose. An agent
+# started inside ai-trading-dashboard loads the project's CLAUDE.md, adopts the
+# JARVIS persona, opens with the welcome line instead of an answer, and — because
+# that file says to double-confirm before writing anything — refuses to create its
+# own output file and asks for permission no one is there to give. Every path the
+# analysts touch is absolute, so nothing is lost by starting them elsewhere.
+AGENT_SYSTEM_PROMPT = (
+    "You are a non-interactive analysis subprocess in an automated pipeline. "
+    "There is no human reading your output and no one to answer a question. "
+    "Never greet, never introduce yourself, never ask for confirmation. "
+    "Write the file you are asked to write, then stop."
+)
+
 
 # ── fact pack ────────────────────────────────────────────────────────────────
 
