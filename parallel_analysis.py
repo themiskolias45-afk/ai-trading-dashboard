@@ -212,8 +212,7 @@ def build_fact_pack(timeframes):
             "journalEntries": len(read_json_file(
                 os.path.join(ROOT, "server", "journal.json"), [])),
         },
-        "trades": every_trade[:MAX_TRADES_IN_PROMPT],
-        "tradesTruncated": len(every_trade) > MAX_TRADES_IN_PROMPT,
+        "trades": every_trade,
         "autoTunableSettings": sorted(AUTO_TUNABLE),
     }
     return fact_pack
