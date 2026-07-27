@@ -100,7 +100,7 @@ def bucket_of(trade, field, edges):
     for upper, label in edges:
         if value < upper:
             return label
-    return edges[-1][1].replace("<", ">=")
+    return edges[-1][1]
 
 
 ADX_EDGES = [(20, "adx<20"), (30, "adx20-30"), (float("inf"), "adx>=30")]
