@@ -367,7 +367,7 @@ let strategySettings = {
   fixedLotSize:           STRATEGY_LIMITS.fixedLotSize.def,
   maxLotSize:             STRATEGY_LIMITS.maxLotSize.def,
   adxTrendingMin:         STRATEGY_LIMITS.adxTrendingMin.def,
-  minStrength:            "STRONG",
+  minStrength:            "MODERATE",
   updatedAt: null,
   updatedBy: null,
 };
