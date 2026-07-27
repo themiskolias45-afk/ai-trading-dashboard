@@ -60,9 +60,13 @@ parallel_agents.TIMEOUT = AGENT_TIMEOUT_SEC
 # the basis of a recommendation - the same 5-trade floor getLearningBoost uses.
 MIN_SAMPLE = 5
 
-# Full trade rows are sent so an analyst can spot a pattern the buckets miss.
-# Capped so a large H4 run cannot produce a prompt too big to reason over.
-MAX_TRADES_IN_PROMPT = 400
+# The fact pack goes to the agents as a FILE, never inside the prompt string.
+# Windows caps a process command line at ~32K characters; a D1+H4 fact pack is
+# several times that, so passing it as an argv made CreateProcess fail instantly
+# and every agent "failed in 0s" with what looked like a missing CLI. Handing
+# over a path also means the analysts read byte-for-byte the same file that is
+# archived next to the report.
+PROMPT_SIZE_LIMIT = 8000
 
 REPLAY_TIMEOUT_SEC = 900
 MAX_PARALLEL_REPLAYS = 6
