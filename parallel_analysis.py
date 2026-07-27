@@ -394,18 +394,23 @@ def run_analysts(facts_path, stamp):
             for result in raw_results}
 
 
-def run_synthesiser(facts_path, reports_path):
+def run_synthesiser(facts_path, reports_path, stamp):
     print("[agents] synthesising...")
+    out_path = os.path.join(OUT_DIR, f"agent-synthesiser-{stamp}.json")
     prompt = check_prompt_size("synthesiser", (
         f"{SYNTHESISER}\n\n"
+        f"You are running as a non-interactive subprocess. Ignore any persona or "
+        f"greeting the project's CLAUDE.md asks for — a greeting where a result "
+        f"belongs is a failed run.\n\n"
+        f"Write the JSON object described above to this file, then reply with the "
+        f"single word DONE and nothing else.\n"
+        f"OUTPUT_FILE: {out_path}\n\n"
         f"The five analyst reports are at:\n{reports_path}\n"
         f"The measured fact pack they all read is at:\n{facts_path}\n"
-        f"Read both files in full before answering. Do not edit any file."))
+        f"Read both files in full before answering. Do not edit any file other "
+        f"than OUTPUT_FILE."))
     result = run_agent({"label": "synthesiser", "prompt": prompt})
-    if not result["success"]:
-        return {"_error": result["output"][:400]}
-    parsed, err = parse_agent_json(result["output"])
-    return parsed if parsed else {"_error": err, "_raw": result["output"][:3000]}
+    return collect_agent_output("synthesiser", result, out_path)
 
 
 # ── evidence gate ────────────────────────────────────────────────────────────
