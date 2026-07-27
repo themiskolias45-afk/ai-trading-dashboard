@@ -51,9 +51,23 @@ def find_claude() -> str:
 CLAUDE_CMD = None  # resolved lazily on first use
 
 def run_agent(task: dict) -> dict:
+    """Run one agent.
+
+    Optional task keys:
+      cwd    — working directory for the agent. Defaults to the project, which
+               means the agent loads this project's CLAUDE.md and adopts the
+               JARVIS persona along with its "double-confirm before any edit"
+               rule. That is correct for build agents and fatal for unattended
+               ones, which then greet instead of answering and refuse to write
+               their own output file. Point this outside the project to get a
+               plain agent.
+      system — extra system prompt, appended to the agent's own.
+    """
     label  = task.get("label", "Agent")
     prompt = task["prompt"]
     ctx    = task.get("context", "")
+    cwd    = task.get("cwd") or str(WORK_DIR)
+    system = task.get("system")
 
     full_prompt = f"{ctx}\n\n{prompt}".strip() if ctx else prompt
 
