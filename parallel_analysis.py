@@ -344,15 +344,44 @@ def check_prompt_size(label, prompt):
     return prompt
 
 
-def run_analysts(facts_path):
+def collect_agent_output(label, result, out_path):
+    """Prefer the file the agent was told to write; fall back to its stdout.
+
+    Reading a file the agent produced is a far stronger contract than parsing
+    what it printed: the nested session inherits the project's CLAUDE.md persona
+    and will happily wrap the answer in markdown, or open with a greeting."""
+    if os.path.exists(out_path):
+        try:
+            with open(out_path, encoding="utf-8-sig") as fh:
+                content = fh.read()
+        except OSError as exc:
+            return {"_error": f"could not read {out_path}: {exc}"}
+        parsed, err = parse_agent_json(content)
+        if parsed:
+            return parsed
+        return {"_error": f"output file was not valid JSON: {err}",
+                "_raw": content[:2000]}
+    if not result["success"]:
+        return {"_error": result["output"][:400]}
+    parsed, err = parse_agent_json(result["output"])
+    if parsed:
+        return parsed
+    return {"_error": f"no output file written and stdout unusable: {err}",
+            "_raw": result["output"][:2000]}
+
+
+def run_analysts(facts_path, stamp):
+    out_paths = {label: os.path.join(OUT_DIR, f"agent-{label}-{stamp}.json")
+                 for label, _ in ANALYSTS}
     tasks = [{
         "label": label,
         "prompt": check_prompt_size(label, (
             f"{brief}\n\n{OUTPUT_CONTRACT}\n\n"
+            f"OUTPUT_FILE: {out_paths[label]}\n\n"
             f"FACTS: read the measured fact pack at this exact path and base every "
             f"number you quote on it:\n{facts_path}\n"
-            f"Read the whole file before answering. Do not run any other command, "
-            f"do not edit any file, and do not re-derive the numbers yourself.")),
+            f"Read the whole file before answering. Do not edit any file other than "
+            f"OUTPUT_FILE, and do not re-derive the numbers yourself.")),
     } for label, brief in ANALYSTS]
 
     print(f"\n[agents] launching {len(tasks)} analysts in parallel "
@@ -360,15 +389,9 @@ def run_analysts(facts_path):
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         raw_results = list(pool.map(run_agent, tasks))
 
-    reports = {}
-    for result in raw_results:
-        if not result["success"]:
-            reports[result["label"]] = {"_error": result["output"][:400]}
-            continue
-        parsed, err = parse_agent_json(result["output"])
-        reports[result["label"]] = parsed if parsed else {
-            "_error": err, "_raw": result["output"][:2000]}
-    return reports
+    return {result["label"]: collect_agent_output(
+                result["label"], result, out_paths[result["label"]])
+            for result in raw_results}
 
 
 def run_synthesiser(facts_path, reports_path):
