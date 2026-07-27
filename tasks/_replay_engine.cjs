@@ -92,6 +92,11 @@ const allowed = settings.minStrength === "MODERATE" ? ["STRONG", "MODERATE"] : [
 const WARMUP = 210;      // EMA200 needs history before any signal means anything
 const MAX_HOLD = 40;
 
+// Regime thresholds, kept identical to generateSignalMTF in server/index.js so a
+// replayed trade is labelled the same way the live dashboard would label it.
+const SQUEEZE_BANDWIDTH_PCT  = 8;
+const VOLATILE_BANDWIDTH_PCT = 25;
+
 const trades = [];
 let lastKey = null;
 
