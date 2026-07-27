@@ -1559,6 +1559,33 @@ app.post("/api/shutdown", requireLocalOnly, (_, res) => {
 app.get("/api/health",  (_, res) => res.json({ ok: true, version: 9, ts: Date.now(), healer: autohealer.getStatus() }));
 app.get("/api/signals",        (_, res) => res.json(signalCache));
 app.get("/api/signal-history", (_, res) => res.json({ history: signalHistory.slice(0, 50) }));
+// Latest parallel_analysis.py run. Served from disk rather than held in memory:
+// the analysis is produced by a separate process on its own schedule, so the
+// server must report whatever is currently on disk, including nothing at all.
+// The full fact pack is several hundred KB, so it is only included on request.
+const ANALYSIS_FILE = require("path").join(__dirname, "..", "tasks", "analysis", "latest.json");
+app.get("/api/analysis", (req, res) => {
+  try {
+    if (!fs.existsSync(ANALYSIS_FILE)) {
+      return res.json({ available: false, reason: "no analysis has been run yet — run: python parallel_analysis.py" });
+    }
+    const report = JSON.parse(fs.readFileSync(ANALYSIS_FILE, "utf8"));
+    const ageHours = (Date.now() - new Date(report.generatedAt).getTime()) / 3_600_000;
+    res.json({
+      available:   true,
+      generatedAt: report.generatedAt,
+      ageHours:    parseFloat(ageHours.toFixed(1)),
+      overall:     report.facts?.overall  ?? null,
+      verdict:     report.synthesis?.verdict ?? null,
+      actions:     report.synthesis?.actions ?? [],
+      blindSpots:  report.synthesis?.blindSpots ?? [],
+      facts:       req.query.full === "1" ? report.facts : undefined,
+    });
+  } catch (e) {
+    res.status(500).json({ available: false, error: `could not read analysis: ${e.message}` });
+  }
+});
+
 app.get("/api/plan",    (_, res) => {
   if (!dailyPlan) generateDailyPlan();
   res.json(dailyPlan);
