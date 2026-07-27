@@ -8,3 +8,4 @@ tasks/logs/
 tasks/backups/
 tasks/.tv_session.json
 tasks/*.pine
+mt5_risk_state*.json

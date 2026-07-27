@@ -72,11 +72,92 @@ consecutive_losses = 0
 MAX_CONSECUTIVE_LOSSES = int(os.environ.get("MAX_CONSEC_LOSSES", "3"))
 trading_halted   = False
 halt_reason      = ""
+current_trading_day = None  # local date (YYYY-MM-DD) the counters above apply to
+
+# Persisted separately per account tag so dual-account setups (bridge_A / bridge_B)
+# don't clobber each other's circuit-breaker state.
+RISK_STATE_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    f"mt5_risk_state{'_' + ACCOUNT_TAG if ACCOUNT_TAG else ''}.json"
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _today():
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def save_risk_state():
+    """Persist circuit-breaker state to disk so a bridge crash/restart mid-day
+    can't silently clear a halt or forget today's losses (see load_or_reset_risk_state)."""
+    try:
+        with open(RISK_STATE_FILE, "w") as f:
+            json.dump({
+                "date": current_trading_day,
+                "daily_pnl": daily_pnl,
+                "consecutive_losses": consecutive_losses,
+                "trading_halted": trading_halted,
+                "halt_reason": halt_reason,
+            }, f)
+    except Exception as e:
+        log(f"Could not save risk state: {e}", YELLOW)
+
+
+def load_or_reset_risk_state():
+    """Called once at startup. Restores today's circuit-breaker state from disk
+    so a crash/restart doesn't quietly re-enable trading after a halt. If the
+    saved state is from a previous day, starts fresh — the daily loss limit
+    must actually reset once a day, not just once per process lifetime."""
+    global daily_pnl, consecutive_losses, trading_halted, halt_reason, current_trading_day
+    today = _today()
+    state = None
+    try:
+        if os.path.exists(RISK_STATE_FILE):
+            with open(RISK_STATE_FILE) as f:
+                state = json.load(f)
+    except Exception as e:
+        log(f"Could not read risk state ({e}) — starting fresh", YELLOW)
+
+    if state and state.get("date") == today:
+        daily_pnl           = state.get("daily_pnl", 0.0)
+        consecutive_losses  = state.get("consecutive_losses", 0)
+        trading_halted      = state.get("trading_halted", False)
+        halt_reason         = state.get("halt_reason", "")
+        current_trading_day = today
+        if trading_halted:
+            log(f"Restored circuit breaker from disk — still HALTED: {halt_reason}", RED + BOLD)
+        else:
+            log(f"Restored today's risk state — P&L ${daily_pnl:.2f}, {consecutive_losses} consecutive losses", CYAN)
+    else:
+        daily_pnl           = 0.0
+        consecutive_losses  = 0
+        trading_halted      = False
+        halt_reason         = ""
+        current_trading_day = today
+        save_risk_state()
+
+
+def check_new_trading_day():
+    """Reset the circuit breaker at the start of each new day. Without this,
+    'daily loss limit' silently behaves as a lifetime limit — losses accumulate
+    across every day the bridge has been running and can permanently halt
+    trading even though the current day is fine."""
+    global daily_pnl, consecutive_losses, trading_halted, halt_reason, current_trading_day
+    today = _today()
+    if today != current_trading_day:
+        log(f"New trading day ({today}) — resetting circuit breaker "
+            f"(was: P&L ${daily_pnl:.2f}, halted={trading_halted})", CYAN)
+        daily_pnl           = 0.0
+        consecutive_losses  = 0
+        trading_halted      = False
+        halt_reason         = ""
+        current_trading_day = today
+        save_risk_state()
+
+
 def check_circuit_breaker():
     global trading_halted, halt_reason
+    check_new_trading_day()
     if trading_halted:
         return True
     acc = mt5.account_info()
@@ -89,12 +170,14 @@ def check_circuit_breaker():
             trading_halted = True
             halt_reason = f"Daily loss limit hit: -{loss_pct:.1f}% (limit {daily_loss_limit}%)"
             log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
+            save_risk_state()
             return True
     # Consecutive losses
     if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
         trading_halted = True
         halt_reason = f"{consecutive_losses} consecutive losses — pausing"
         log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
+        save_risk_state()
         return True
     return False
 
@@ -622,6 +705,7 @@ def track_closed_positions():
                 consecutive_losses += 1
             else:
                 consecutive_losses = 0
+            save_risk_state()
 
         try:
             requests.post(f"{SERVER_URL}/api/trade-closed", json={
@@ -667,6 +751,7 @@ def main():
     if not connect_mt5():
         sys.exit(1)
 
+    load_or_reset_risk_state()
     log("Bridge started — watching for signals…", GREEN)
 
     while True:
