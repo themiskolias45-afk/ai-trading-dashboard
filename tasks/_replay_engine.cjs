@@ -127,8 +127,23 @@ for (let i = WARMUP; i < bars.length - 1; i++) {
       if (b.l <= target) { outcome = "WIN"; break; }
     }
   }
+  // Market context at entry. Purely additive — evaluate_change.py reads only
+  // t/rr/outcome — but without it any analysis of WHY a setup loses has nothing
+  // to work with except the setup name, which is the question, not the answer.
+  const bandwidth = sig.indicators?.bb?.bandwidth;
+  const regime =
+    (sig.trend === "STRONG UPTREND" || sig.trend === "STRONG DOWNTREND") ? "TRENDING" :
+    (bandwidth != null && bandwidth < SQUEEZE_BANDWIDTH_PCT)  ? "SQUEEZE"  :
+    (bandwidth != null && bandwidth > VOLATILE_BANDWIDTH_PCT) ? "VOLATILE" : "RANGING";
+
   trades.push({ t: bars[i].t, setup: sig.setup, dir: sig.signal,
-                strength: sig.strength, rr: Math.round(rr * 100) / 100, outcome });
+                strength: sig.strength, rr: Math.round(rr * 100) / 100, outcome,
+                regime,
+                trend:     sig.trend ?? null,
+                rsi:       sig.indicators?.rsi ?? null,
+                adx:       sig.indicators?.adx ?? null,
+                bandwidth: bandwidth ?? null,
+                volRatio:  sig.volume?.ratio ?? null });
 }
 
 process.stdout.write(JSON.stringify(trades));
