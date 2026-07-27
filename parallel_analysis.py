@@ -328,11 +328,24 @@ def parse_agent_json(text):
         return None, f"invalid JSON: {exc}"
 
 
-def run_analysts(fact_pack):
-    facts_json = json.dumps(fact_pack, separators=(",", ":"))
+def check_prompt_size(label, prompt):
+    """A prompt over the limit will not fail loudly — the process dies before it
+    starts and looks like a missing CLI. Better to say so."""
+    if len(prompt) > PROMPT_SIZE_LIMIT:
+        print(f"  [{label}] WARNING: prompt is {len(prompt)} chars, over the "
+              f"{PROMPT_SIZE_LIMIT} limit — it may fail to launch")
+    return prompt
+
+
+def run_analysts(facts_path):
     tasks = [{
         "label": label,
-        "prompt": f"{brief}\n\n{OUTPUT_CONTRACT}\n\nFACTS:\n{facts_json}",
+        "prompt": check_prompt_size(label, (
+            f"{brief}\n\n{OUTPUT_CONTRACT}\n\n"
+            f"FACTS: read the measured fact pack at this exact path and base every "
+            f"number you quote on it:\n{facts_path}\n"
+            f"Read the whole file before answering. Do not run any other command, "
+            f"do not edit any file, and do not re-derive the numbers yourself.")),
     } for label, brief in ANALYSTS]
 
     print(f"\n[agents] launching {len(tasks)} analysts in parallel "
