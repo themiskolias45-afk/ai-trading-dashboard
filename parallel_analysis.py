@@ -517,9 +517,9 @@ def main():
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     facts_path = write_json(os.path.join(OUT_DIR, f"facts-{stamp}.json"), facts)
 
-    reports = run_analysts(facts_path)
+    reports = run_analysts(facts_path, stamp)
     reports_path = write_json(os.path.join(OUT_DIR, f"reports-{stamp}.json"), reports)
-    synthesis = run_synthesiser(facts_path, reports_path)
+    synthesis = run_synthesiser(facts_path, reports_path, stamp)
 
     if not args.no_gate and isinstance(synthesis.get("actions"), list):
         for action in synthesis["actions"]:
