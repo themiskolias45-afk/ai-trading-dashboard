@@ -412,14 +412,16 @@ def gate_action(action):
 
 # ── report ───────────────────────────────────────────────────────────────────
 
-def write_report(payload):
-    os.makedirs(OUT_DIR, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
-    for path in (os.path.join(OUT_DIR, f"{stamp}.json"),
-                 os.path.join(OUT_DIR, "latest.json")):
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
-    return os.path.join(OUT_DIR, "latest.json")
+def write_json(path, payload):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+    return path
+
+
+def write_report(payload, stamp):
+    write_json(os.path.join(OUT_DIR, f"{stamp}.json"), payload)
+    return write_json(os.path.join(OUT_DIR, "latest.json"), payload)
 
 
 def print_summary(payload):
