@@ -387,22 +387,11 @@ def collect_agent_output(label, result, out_path):
             "_raw": result["output"][:2000]}
 
 
-def agent_scratch_dir():
-    """A directory outside the project for agents to start in — see
-    AGENT_SYSTEM_PROMPT for why that matters."""
-    import tempfile
-    path = os.path.join(tempfile.gettempdir(), "jarvis-analysis-agents")
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
 def run_analysts(facts_path, stamp):
-    scratch = agent_scratch_dir()
     out_paths = {label: os.path.join(OUT_DIR, f"agent-{label}-{stamp}.json")
                  for label, _ in ANALYSTS}
     tasks = [{
         "label": label,
-        "cwd": scratch,
         "system": AGENT_SYSTEM_PROMPT,
         "prompt": check_prompt_size(label, (
             f"{brief}\n\n{OUTPUT_CONTRACT}\n\n"
@@ -439,7 +428,6 @@ def run_synthesiser(facts_path, reports_path, stamp):
         f"Read both files in full before answering. Do not edit any file other "
         f"than OUTPUT_FILE."))
     result = run_agent({"label": "synthesiser", "prompt": prompt,
-                        "cwd": agent_scratch_dir(),
                         "system": AGENT_SYSTEM_PROMPT})
     return collect_agent_output("synthesiser", result, out_path)
 
