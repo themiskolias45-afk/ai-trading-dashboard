@@ -364,10 +364,13 @@ def run_analysts(facts_path):
     return reports
 
 
-def run_synthesiser(fact_pack, reports):
+def run_synthesiser(facts_path, reports_path):
     print("[agents] synthesising...")
-    prompt = (f"{SYNTHESISER}\n\nANALYST REPORTS:\n{json.dumps(reports, indent=1)}"
-              f"\n\nFACTS:\n{json.dumps(fact_pack, separators=(',', ':'))}")
+    prompt = check_prompt_size("synthesiser", (
+        f"{SYNTHESISER}\n\n"
+        f"The five analyst reports are at:\n{reports_path}\n"
+        f"The measured fact pack they all read is at:\n{facts_path}\n"
+        f"Read both files in full before answering. Do not edit any file."))
     result = run_agent({"label": "synthesiser", "prompt": prompt})
     if not result["success"]:
         return {"_error": result["output"][:400]}
