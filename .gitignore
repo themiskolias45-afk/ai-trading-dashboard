@@ -18,3 +18,8 @@ tasks/*.pine
 
 # Exported MT5 bars — large and regenerable via tasks/export_mt5_history.py
 tasks/history/
+
+# Analysis output — ~400KB per run (report + fact pack + analyst replies) and
+# fully regenerable by parallel_analysis.py. The server reads latest.json from
+# disk, so nothing depends on these being in git.
+tasks/analysis/
