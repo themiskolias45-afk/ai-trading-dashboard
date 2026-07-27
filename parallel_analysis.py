@@ -434,7 +434,9 @@ def run_synthesiser(facts_path, reports_path, stamp):
         f"The measured fact pack they all read is at:\n{facts_path}\n"
         f"Read both files in full before answering. Do not edit any file other "
         f"than OUTPUT_FILE."))
-    result = run_agent({"label": "synthesiser", "prompt": prompt})
+    result = run_agent({"label": "synthesiser", "prompt": prompt,
+                        "cwd": agent_scratch_dir(),
+                        "system": AGENT_SYSTEM_PROMPT})
     return collect_agent_output("synthesiser", result, out_path)
 
 
