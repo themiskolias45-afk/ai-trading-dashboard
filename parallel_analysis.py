@@ -71,12 +71,16 @@ PROMPT_SIZE_LIMIT = 8000
 REPLAY_TIMEOUT_SEC = 900
 MAX_PARALLEL_REPLAYS = 6
 
-# Analysts run from a scratch directory OUTSIDE the project on purpose. An agent
-# started inside ai-trading-dashboard loads the project's CLAUDE.md, adopts the
-# JARVIS persona, opens with the welcome line instead of an answer, and — because
-# that file says to double-confirm before writing anything — refuses to create its
-# own output file and asks for permission no one is there to give. Every path the
-# analysts touch is absolute, so nothing is lost by starting them elsewhere.
+# Analysts run INSIDE the project. Starting them elsewhere was tried and is wrong:
+# Claude Code scopes file access to its working directory, so an agent launched in
+# a scratch dir cannot read the fact pack at all — it replies "could you paste
+# them?" and, finding only whatever else is lying in that directory, returns the
+# contents of an unrelated file. Verified 2026-07-27.
+#
+# The problem the scratch dir was meant to solve is real: inside the project an
+# agent loads CLAUDE.md, adopts the JARVIS persona, opens with the welcome line,
+# and obeys "double-confirm before any edit" by refusing to write its output file.
+# The lever for that is this system-prompt override, not the working directory.
 AGENT_SYSTEM_PROMPT = (
     "You are a non-interactive analysis subprocess in an automated pipeline. "
     "There is no human reading your output and no one to answer a question. "
