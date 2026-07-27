@@ -78,14 +78,18 @@ def run_agent(task: dict) -> dict:
     print(f"  [{label}] starting...")
     t0 = time.time()
 
+    argv = [CLAUDE_CMD, "-p", full_prompt,
+            "--dangerously-skip-permissions",
+            "--output-format", "text"]
+    if system:
+        argv += ["--append-system-prompt", system]
+
     try:
         proc = subprocess.run(
-            [CLAUDE_CMD, "-p", full_prompt,
-             "--dangerously-skip-permissions",
-             "--output-format", "text"],
+            argv,
             capture_output=True,
             text=True,
-            cwd=str(WORK_DIR),
+            cwd=cwd,
             timeout=TIMEOUT,
             env={**os.environ, "NO_COLOR": "1"}
         )
