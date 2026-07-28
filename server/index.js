@@ -622,6 +622,43 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
 
   const MIN_RR = 1.5;
 
+  // ── Gold/DXY divergence detection ────────────────────────────
+  // Detected BEFORE the setup chain so a non-match falls through to the remaining
+  // setups. Previously this lived in the chain behind a guard of
+  // (dxyCloses && volConfirmed) alone. Only Gold is passed dxyCloses, and Gold's
+  // volume ratio clears volConfirmed on nearly every cycle (contract volume against
+  // a continuous-series average runs ~19x), so that guard captured Gold on almost
+  // every pass and — being an else-if — terminated the chain whether a divergence
+  // was found or not. BREAKOUT, MOMENTUM, TREND_FOLLOW, RANGE_TRADE_LONG/SHORT
+  // and SQUEEZE_BREAKOUT were unreachable on Gold's daily timeframe; hoisting the
+  // detection makes those six reachable again.
+  // NOT fixed by this: the SQUEEZE_BREAKOUT branch below carries the identical
+  // defect — a broad (bb && volConfirmed && macd) guard with the real test inside
+  // — so it still swallows Gold on a non-match, and BB_SQUEEZE_WATCH plus the
+  // diagnostic WAIT branch remain unreachable with an empty reasons array.
+  const DIVERGENCE_LOOKBACK = 30;
+  let divergence = null;
+  if (dxyCloses && dxyCloses.length >= DIVERGENCE_LOOKBACK && volConfirmed && rsi !== null) {
+    const assetWindow    = closes.slice(-DIVERGENCE_LOOKBACK);
+    const dxyWindow      = dxyCloses.slice(-DIVERGENCE_LOOKBACK);
+    const assetPriorLow  = Math.min(...assetWindow.slice(0, -1));
+    const assetPriorHigh = Math.max(...assetWindow.slice(0, -1));
+    const dxyPriorLow    = Math.min(...dxyWindow.slice(0, -1));
+    const dxyPriorHigh   = Math.max(...dxyWindow.slice(0, -1));
+    const dxyNow         = dxyWindow[dxyWindow.length - 1];
+    // A NaN anywhere in either series makes every comparison below false, so a
+    // bad feed leaves divergence null and the chain proceeds normally.
+    const assetNewLow    = price <= assetPriorLow  * 0.997;
+    const assetNewHigh   = price >= assetPriorHigh * 1.003;
+    const dxyFailedHigh  = dxyNow < dxyPriorHigh   * 0.99;
+    const dxyFailedLow   = dxyNow > dxyPriorLow    * 1.01;
+    if (assetNewLow && dxyFailedHigh && rsi < 35) {
+      divergence = { direction: "BUY",  dxyNow, dxyReference: dxyPriorHigh };
+    } else if (assetNewHigh && dxyFailedLow && rsi > 65) {
+      divergence = { direction: "SELL", dxyNow, dxyReference: dxyPriorLow };
+    }
+  }
+
   let setup = "WAIT", signal = "WAIT", strength = "NONE";
   let entry = price, stop = null, target = null, reasons = [];
 
@@ -686,40 +723,30 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // ── DIVERGENCE: Gold/DXY correlation breakdown ───────────────
   // Gold and DXY normally move inversely. When gold breaks a 30-bar extreme
   // but DXY fails to confirm by ≥1%, it signals institutional divergence.
-  else if (dxyCloses && dxyCloses.length >= 30 && volConfirmed) {
-    const LB           = 30;
-    const goldWindow   = closes.slice(-LB);
-    const dxyWindow    = dxyCloses.slice(-LB);
-    const goldPriorLow  = Math.min(...goldWindow.slice(0, -1));
-    const goldPriorHigh = Math.max(...goldWindow.slice(0, -1));
-    const dxyPriorLow   = Math.min(...dxyWindow.slice(0, -1));
-    const dxyPriorHigh  = Math.max(...dxyWindow.slice(0, -1));
-    const dxyNow        = dxyWindow[dxyWindow.length - 1];
-    const goldNewLow    = price <= goldPriorLow  * 0.997;
-    const goldNewHigh   = price >= goldPriorHigh * 1.003;
-    const dxyFailedHigh = dxyNow < dxyPriorHigh  * 0.99;
-    const dxyFailedLow  = dxyNow > dxyPriorLow   * 1.01;
-    if (goldNewLow && dxyFailedHigh && rsi !== null && rsi < 35) {
-      setup    = "DIVERGENCE";
-      signal   = "BUY";
-      const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
-      stop     = sl;
-      target   = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
-      strength = rsi < 28 ? "STRONG" : "MODERATE";
-      reasons.push(`Gold broke ${LB}-bar low but DXY failed new high (${dxyNow.toFixed(2)} vs ${dxyPriorHigh.toFixed(2)}) — correlation breakdown`);
-      reasons.push(`RSI ${rsi} — selling not backed by real dollar strength`);
-      reasons.push(`Volume ${volRatio}x avg — institutional participation confirmed`);
-    } else if (goldNewHigh && dxyFailedLow && rsi !== null && rsi > 65) {
-      setup    = "DIVERGENCE";
-      signal   = "SELL";
-      const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((entry * 1.015).toFixed(2));
-      stop     = sl;
-      target   = parseFloat((entry - Math.abs(sl - entry) * 2.5).toFixed(2));
-      strength = rsi > 72 ? "STRONG" : "MODERATE";
-      reasons.push(`Gold broke ${LB}-bar high but DXY failed new low (${dxyNow.toFixed(2)} vs ${dxyPriorLow.toFixed(2)}) — correlation breakdown`);
-      reasons.push(`RSI ${rsi} — rally not backed by real dollar weakness`);
-      reasons.push(`Volume ${volRatio}x avg — institutional participation confirmed`);
-    }
+  // Detection ran above; this branch is entered only on an actual match, so a
+  // non-divergent Gold cycle now continues down the chain.
+  else if (divergence && divergence.direction === "BUY") {
+    setup    = "DIVERGENCE";
+    signal   = "BUY";
+    const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
+    stop     = sl;
+    target   = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
+    strength = rsi < 28 ? "STRONG" : "MODERATE";
+    reasons.push(`${label} broke ${DIVERGENCE_LOOKBACK}-bar low but DXY failed new high (${divergence.dxyNow.toFixed(2)} vs ${divergence.dxyReference.toFixed(2)}) — correlation breakdown`);
+    reasons.push(`RSI ${rsi} — selling not backed by real dollar strength`);
+    reasons.push(`Volume ${volRatio}x avg — institutional participation confirmed`);
+  }
+
+  else if (divergence && divergence.direction === "SELL") {
+    setup    = "DIVERGENCE";
+    signal   = "SELL";
+    const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((entry * 1.015).toFixed(2));
+    stop     = sl;
+    target   = parseFloat((entry - Math.abs(sl - entry) * 2.5).toFixed(2));
+    strength = rsi > 72 ? "STRONG" : "MODERATE";
+    reasons.push(`${label} broke ${DIVERGENCE_LOOKBACK}-bar high but DXY failed new low (${divergence.dxyNow.toFixed(2)} vs ${divergence.dxyReference.toFixed(2)}) — correlation breakdown`);
+    reasons.push(`RSI ${rsi} — rally not backed by real dollar weakness`);
+    reasons.push(`Volume ${volRatio}x avg — institutional participation confirmed`);
   }
 
   // ── BREAKOUT: EMA200 reclaim with volume confirmation ─────────
