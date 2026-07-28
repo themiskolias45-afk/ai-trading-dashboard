@@ -36,12 +36,13 @@ PERFORMANCE & LEARNING
   /profit              Autonomous profitability loop — researches + implements improvements, up to 5 rounds
 
 CODE & BUILD
+  /think [task]        Deep analysis mode — force explicit reasoning before implementing
   /plan [task]         Architect a solution before writing any code
-  /build [feature]     Build any new feature or tool from scratch
+  /build [feature]     Build any new feature — check exists, plan, quality gates, test, commit
   /engineer [task]     Spawn real parallel Claude agents — up to 6 simultaneously
   /debug [problem]     Read logs → trace root cause → fix it
   /refactor [file]     Clean up dead code, fix names, split functions
-  /test [function]     Write and run tests — all pass before done
+  /test [function]     Write and run tests — all pass before done. /test alone = full system test
 
 RESEARCH
   /research [topic]    Multi-source deep research (Brave + Exa + web scrape) → implement

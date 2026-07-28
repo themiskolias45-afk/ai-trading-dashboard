@@ -110,6 +110,8 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - **Test before done.** Never say a task is complete without verifying the changed code actually runs. Run `node --check` on JS, `python -m py_compile` on Python, hit the relevant API endpoint. If it can't be verified, say so explicitly.
 - **Security before commit.** Every file edit: check it contains no API keys, passwords, or tokens. If a pattern like `sk-ant-` or `password=` appears, stop and fix it first.
 - **Tasks for multi-step work.** Any task with 3+ steps: create a task with TaskCreate, update status at each step, mark complete when verified working — not when code is written.
+- **Auto-review trading code.** After every edit to `server/index.js`: invoke the `code-reviewer` agent on the changed function(s). Fix all CRITICAL findings before declaring done. No exceptions.
+- **Think before you code.** Never write the first line of code without completing the CHANGING/NOW/AFTER/RISK scaffold above. If the risk is HIGH, show it to the user and wait for approval.
 
 ## SmartEntry Pro — always-on rules
 
@@ -154,32 +156,51 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - When I send a screenshot, describe what you see that's relevant, then act on it.
 - Trading context first: always think about whether a change helps signal quality, risk management, or system reliability before implementing it.
 
+## Thinking scaffold — mandatory before every code change
+
+Before touching any file, write out these four lines. If you can't, you haven't read the code yet.
+
+```
+CHANGING:  [function name] in [file]
+NOW:       [what it does today — one sentence]
+AFTER:     [what it will do — one sentence]
+RISK:      [what could break, specifically — not "could cause issues"]
+```
+
+Then trace through with 3 real values (normal, edge, failure). If any trace produces a wrong result, redesign before writing code.
+
+**If RISK touches signal generation, the risk gate, lot sizing, or stop logic → stop and show the user before writing a single line.**
+
+This scaffold is not optional. It is the quality gate.
+
 ## Code quality — non-negotiable
 
 These rules apply to every line of code written or edited. No exceptions.
 
 **Before writing any code:**
+- Write the thinking scaffold above — CHANGING / NOW / AFTER / RISK.
 - Read the FULL file front to back. Never edit blind.
 - Understand what the function does, what calls it, and what it returns.
 - Know the exact change needed before touching anything.
 
 **While writing:**
-- Walk through the code mentally with real inputs before saving. If it would crash on `null`, on an empty array, on a network timeout — handle it.
+- Walk through the code with real inputs before saving. If it would crash on `null`, empty array, or network timeout — handle it.
 - Every async function: handle the rejection. Every file read: handle missing file. Every API call: handle non-200.
 - No magic numbers. Name the constant.
 - No dead code. If you add it, use it. If you remove it, remove every reference.
 - No TODO comments left in code. Either fix it now or don't mention it.
 - Variable names that say what they hold — not `data`, `result`, `temp`, `x`.
-- Functions do one thing. If a function is doing three things, split it.
+- Functions do one thing. If a function does three things, split it.
 
 **After writing:**
-- Mentally run `node --check` on every JS file touched. Catch unclosed brackets, missing semicolons, bad async/await before saving.
-- Mentally run `python -m py_compile` on every Python file touched.
-- Trace the full call path: what calls this → what does it call → what does it return → does the caller handle the return correctly.
+- Run `node --check [file]` on every JS file touched — not mentally, actually run it.
+- Run `python -m py_compile [file]` on every Python file touched — not mentally, actually run it.
+- Hit the relevant API endpoint and verify the response shape is correct.
 - Check: does this change break anything that was working before?
+- If `server/index.js` was changed → invoke the `code-reviewer` agent on the changed function before declaring done.
 
 **The standard:**
 - Code ships working or not at all. No "it should work", no "try it and see".
-- If something is too complex to verify mentally, say so and break it into smaller pieces first.
 - Simplest correct solution wins. Clever code that's hard to read is a bug waiting to happen.
 - When fixing a bug: find the root cause, not the symptom. Don't patch around it.
+- If something is too complex to verify, say so and break it into smaller pieces first.
