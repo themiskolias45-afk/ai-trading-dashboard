@@ -586,7 +586,7 @@ def process_signal(key, sig):
     # one signal every 2.4 days. On a demo account that trade-off is worth making —
     # you cannot learn from a trade you never took.
     if AUTO_MODE:
-        allowed = ("STRONG",) if strategy_settings.get("minStrength", "STRONG") == "STRONG" else ("STRONG", "MODERATE")
+        allowed = ("STRONG",) if strategy_settings["minStrength"] == "STRONG" else ("STRONG", "MODERATE")
         if strength not in allowed:
             return
 
@@ -1020,7 +1020,7 @@ def track_closed_positions():
 
 def main():
     print(f"\n{CYAN}{BOLD}SmartEntry MT5 Bridge v1{RESET}")
-    print(f"Mode: {'AUTO (STRONG signals only)' if AUTO_MODE else 'SEMI-AUTO (confirm each trade)'}")
+    print(f"Mode: {'AUTO (min strength: ' + strategy_settings['minStrength'] + ')' if AUTO_MODE else 'SEMI-AUTO (confirm each trade)'}")
     print(f"Risk per trade: {RISK_PERCENT}%  |  Max spread: {MAX_SPREAD_PTS} pts")
     print(f"Server: {SERVER_URL}")
     print(f"Poll interval: {POLL_INTERVAL}s")
