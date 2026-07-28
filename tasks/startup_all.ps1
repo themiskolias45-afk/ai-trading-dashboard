@@ -18,7 +18,7 @@ Log "=== SmartEntry Pro Auto-Start ==="
 Log "Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 
 # 2. START NODE SERVER
-$serverRunning = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -TimeoutSec 3 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
+$serverRunning = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
 if ($serverRunning) {
     Log "SERVER: already running on port 3001"
 } else {
@@ -30,7 +30,7 @@ if ($serverRunning) {
         -RedirectStandardError  "$proj\tasks\logs\server_err.txt" `
         -NoNewWindow
     Start-Sleep 3
-    $check = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -TimeoutSec 5 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
+    $check = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
     if ($check) { Log "SERVER: started OK" } else { Log "SERVER: FAILED TO START -- check tasks\logs\server_err.txt" }
 }
 
@@ -90,11 +90,10 @@ if (-not (Test-Path $dailyFlag)) {
     Log "DAILY AI: starting (this may take a few minutes in background)..."
     New-Item $dailyFlag -Force | Out-Null
     $dailyLog = "$proj\tasks\logs\daily_runner_$today.txt"
-    Start-Process -FilePath 'claude' `
-        -ArgumentList '-p "Run /daily -- full daily automated check. Run every step. Stop after the report." --dangerously-skip-permissions' `
+    Start-Process -FilePath 'cmd' `
+        -ArgumentList "/c claude -p ""Run /daily -- full daily automated check. Run every step. Stop after the report."" --dangerously-skip-permissions > ""$dailyLog"" 2>&1" `
         -WorkingDirectory $proj `
-        -RedirectStandardOutput $dailyLog `
-        -NoNewWindow
+        -WindowStyle Hidden
     Log "DAILY AI: running in background -> $dailyLog"
 } else {
     Log "DAILY AI: already ran today"
