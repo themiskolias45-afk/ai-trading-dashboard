@@ -1,38 +1,50 @@
-# Saves a brief session summary to the vault when JARVIS closes.
-#
-# This used to Add-Content unconditionally on every stop event. A single working
-# day produced ~40 near-identical "JARVIS Session" blocks in one daily note, all
-# quoting the same five commits, because stop fires far more often than the repo
-# actually changes. The note stopped being a record and became noise, which
-# defeats the point of the vault - a future session reading it learns nothing.
-#
-# Now it appends only when the newest commit is one the note has not already
-# recorded. No new commits since the last write means nothing worth saying.
+# Saves session summary to vault + persists key facts to MCP memory.
+# Only writes when the newest commit is new — prevents duplicate noise.
+
 $ts     = Get-Date -Format 'yyyy-MM-dd HH:mm'
 $today  = Get-Date -Format 'yyyy-MM-dd'
 $vault  = 'C:\Users\User\Documents\Brain\01 - Daily Notes'
 $note   = "$vault\$today.md"
+$proj   = 'C:\Users\User\ai-trading-dashboard'
 
-if (-not (Test-Path $vault)) { return }
-
-# Last 5 commits as session record
-$commits = git -C 'C:\Users\User\ai-trading-dashboard' log --oneline -5 2>$null
-if (-not $commits) { return }
-
-# The newest commit's short hash is the dedupe key: if the note already mentions
-# it, this session added nothing new to record.
-$newestHash = ($commits | Select-Object -First 1).ToString().Split(' ')[0]
-if (-not $newestHash) { return }
-
-if (Test-Path $note) {
-    $existing = Get-Content -Path $note -Raw -ErrorAction SilentlyContinue
-    if ($existing -and $existing.Contains($newestHash)) { return }
-}
-
-$content = @"
+# --- 1. Vault daily note (deduped by newest commit hash) ---
+if (Test-Path $vault) {
+    $commits = git -C $proj log --oneline -5 2>$null
+    if ($commits) {
+        $newestHash = ($commits | Select-Object -First 1).ToString().Split(' ')[0]
+        $alreadyLogged = $false
+        if (Test-Path $note) {
+            $existing = Get-Content -Path $note -Raw -ErrorAction SilentlyContinue
+            if ($existing -and $existing.Contains($newestHash)) { $alreadyLogged = $true }
+        }
+        if (-not $alreadyLogged) {
+            $content = @"
 
 ## JARVIS Session - $ts
 $($commits -join "`n")
 "@
+            Add-Content -Path $note -Value $content -Encoding UTF8 -ErrorAction SilentlyContinue
+        }
+    }
+}
 
-Add-Content -Path $note -Value $content -Encoding UTF8 -ErrorAction SilentlyContinue
+# --- 2. Push last 3 commits to MCP memory for next session recall ---
+# Uses the SmartEntry MCP write_memory tool via HTTP since MCP isn't
+# available in hook context. Falls back silently if server is offline.
+$recentLog = git -C $proj log --oneline -3 2>$null
+if ($recentLog) {
+    $summary = $recentLog -join " | "
+    $body = "{`"key`":`"last-session-commits`",`"value`":`"$summary`"}"
+    curl.exe -s -X POST http://localhost:3001/api/memory `
+        -H 'Content-Type: application/json' `
+        -d $body `
+        --max-time 3 2>$null | Out-Null
+}
+
+# --- 3. Check for uncommitted changes — warn so nothing is lost ---
+$dirty = git -C $proj status --porcelain 2>$null
+if ($dirty) {
+    $count = ($dirty | Measure-Object -Line).Lines
+    Write-Host ""
+    Write-Host "WARNING: $count uncommitted file(s) when session ended. Run: git add [files] && git commit" -ForegroundColor Red
+}

@@ -116,10 +116,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "try { $s = curl.exe -s --max-time 3 http://localhost:3001/api/signals 2>$null; $r = curl.exe -s --max-time 3 http://localhost:3001/api/risk-status 2>$null; \"$s $r\" } catch { '{\"offline\":true}' }",
+            "command": "powershell -NoProfile -NonInteractive -File 'C:\\Users\\User\\ai-trading-dashboard\\tasks\\hooks\\startup-check.ps1'",
             "shell": "powershell",
             "async": true,
-            "statusMessage": "Checking SmartEntry..."
+            "statusMessage": "Running startup checks..."
           },
           {
             "type": "command",

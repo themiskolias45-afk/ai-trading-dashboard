@@ -1,41 +1,48 @@
-Run a full autonomous improvement loop on SmartEntry Pro. Runs continuously until all issues are resolved.
+Run a full autonomous improvement loop on SmartEntry Pro. Loops until all issues resolved.
 
-Do everything automatically without asking permission at each step. Act like a senior engineer doing a full system audit.
+Does everything automatically without asking permission at each step.
 
-═══ LOOP — repeat until nothing left to fix ═══
+═══ LOOP — repeat until nothing left to fix (max 5 rounds) ═══
 
-ROUND START: fetch all system data in parallel:
-- GET http://localhost:3001/api/checksystem
-- GET http://localhost:3001/api/signals
-- GET http://localhost:3001/api/learning
-- GET http://localhost:3001/api/healer
-- GET http://localhost:3001/api/risk-status
+ROUND START — gather all state in parallel (MCP tools directly):
+  mcp__smartentry__get_signals              → signal quality per asset
+  mcp__smartentry__get_learning             → setup win rates, calibration
+  mcp__smartentry__get_healer               → 6-point health check
+  mcp__smartentry__get_risk_status          → regime, P&L, circuit breaker, consecutive losses
+  mcp__smartentry__get_performance          → total trades, WR, worst setup
 
-EVALUATE — check all of these:
-1. Any setup with win rate < 40% over ≥ 5 trades → tighten entry criteria in server/index.js
-2. Confidence miscalibrated (65-74% tier with < 50% actual WR) → adjust threshold
-3. Healer reporting stale data → force heal: POST http://localhost:3001/api/healer/heal
-4. Any server error in checksystem → find root cause and fix it
-5. Risk gate tripped when it shouldn't be (or vice versa) → fix risk logic
-6. Any signal engine producing WAIT when market is trending clearly → fix signal logic
-7. Any endpoint returning errors → fix the endpoint
+EVALUATE — check all of these in order:
+  1. Setup WR < 40% over ≥ 5 trades → tighten entry criteria in server/index.js
+  2. Confidence tier mismatch (65-74% tier < 50% actual WR) → adjust threshold
+  3. Healer reports stale data → mcp__smartentry__force_heal
+  4. Consecutive losses ≥ 3 and circuit breaker NOT halted → fix risk gate
+  5. Any endpoint returning errors → find root cause and fix it (read full file first)
+  6. Signal stuck at WAIT when regime is trending → fix signal logic
 
-FOR EACH ISSUE FOUND:
-- If fix is clear and low-risk → implement it immediately, commit, note what changed
-- If fix is risky or changes core logic → describe it, show the proposed diff, ask for approval
-- If no fix needed → mark as healthy and move on
+FOR EACH ISSUE:
+  LOW-RISK (thresholds, boosts, parameters):
+    → Implement immediately
+    → node --check [file] — verify syntax
+    → git add [specific file] && git commit
+    → mcp__smartentry__log_note tag="AUTO-FIX" text="[what was fixed]"
+
+  HIGH-RISK (core signal logic, risk gate, execution):
+    → Describe issue, show exact proposed diff
+    → Wait for approval — DO NOT auto-apply
+    → Mark as "awaiting approval" in final report
 
 AFTER EACH ROUND:
-- Re-fetch all data and check if the fix worked
-- If new issues appeared → run another round
-- If everything is clean → stop and report
+  Re-fetch all data and confirm fix worked.
+  New issues appeared → run another round.
+  Everything clean → stop and report.
 
 ═══ FINAL REPORT ═══
-Report in this format:
-- Issues found: [list]
-- Fixed automatically: [list with commit hashes]
-- Awaiting approval: [list with proposed changes]
-- System status: HEALTHY / NEEDS ATTENTION
+AUTO-AGENT COMPLETE — [N] rounds
+---
+Issues found:    [list]
+Fixed auto:      [list with what changed]
+Awaiting approval: [list with proposed diffs]
+System status:   HEALTHY / NEEDS ATTENTION
+---
 
-This is full autonomous mode — keep looping until the system is clean.
-Maximum 5 rounds before stopping and reporting.
+Never auto-fix anything that could cause a trade to fire incorrectly or a stop to be calculated wrong.
