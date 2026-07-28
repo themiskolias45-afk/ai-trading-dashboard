@@ -1,42 +1,47 @@
-Run the morning briefing for SmartEntry Pro. Do this in order — no steps skipped:
+Run the morning briefing for SmartEntry Pro. Usage: /morning
 
-1. Load memory context: run `python memory.py summary` — note the most recent TRADE and MARKET entries
-2. Load yesterday's notes: run `python daily_notes.py yesterday` — note any open signals or trades from yesterday
-3. Auto-log today's start: run `python daily_notes.py auto` to sync server data into today's note
-4. Fetch in parallel:
-   - http://localhost:3001/api/signals
-   - http://localhost:3001/api/risk-status
-   - http://localhost:3001/api/sentiment
-   - http://localhost:3001/api/journal (last 10 trades)
-5. Brave search: "market outlook [today's date] BTC gold SPX" — get live pre-market context
+Use SmartEntry MCP tools directly. All steps required — no skipping.
 
-Then deliver the morning brief in this format:
+STEP 1 — Load memory and yesterday (in parallel):
+  mcp__smartentry__read_memory query="recent trade"    → most recent lessons
+  mcp__smartentry__get_daily_note date=yesterday       → yesterday's session log
+  mcp__smartentry__get_performance                     → recent performance stats
+
+STEP 2 — Get live data (in parallel):
+  mcp__smartentry__get_signals       → all three assets
+  mcp__smartentry__get_risk_status   → regime, session, circuit breaker
+  mcp__smartentry__get_healer        → system health
+  mcp__smartentry__get_journal limit=10  → last 10 trades
+  Brave search: "market outlook [today's date] BTC gold SPX"
+
+STEP 3 — Log today's session start:
+  mcp__smartentry__log_note tag="SESSION_START" text="Morning brief — [summary of signals]"
+
+STEP 4 — Deliver the brief:
 
 ---
 SMARTENTRY PRO — MORNING BRIEF [today's date]
 ---
 
 FROM MEMORY:
-• [1-2 most relevant facts — open trades, pending setups, risk notes]
+• [1-2 most relevant lessons or open setups from memory]
 
 YESTERDAY RECAP:
-• [from daily note — signals that fired, trades closed, lessons]
+• [signals that fired, trades closed, any lessons from daily note]
 
-FEAR & GREED: [score] ([classification]) — [one sentence on what this means today]
-MARKET REGIME: [regime] | SESSION: [session] | NEWS: [any blackout?]
-PRE-MARKET: [key context from web search — any major move, event, catalyst]
+MARKET REGIME: [regime] | SESSION: [session] | News blackout: [YES/NO]
+PRE-MARKET: [key context from web search]
 
 SIGNALS READY:
-• BTC:  [signal + setup + confidence% + sentiment edge — entry/stop/target if signal, WAIT if not]
-• GOLD: [signal + setup + confidence% + sentiment edge — entry/stop/target if signal, WAIT if not]
-• SPX:  [signal + setup + confidence% + sentiment edge — entry/stop/target if signal, WAIT if not]
+• BTC:  [signal] [setup] [confidence]% — Entry $X | Stop $X | Target $X (or WAIT)
+• GOLD: [signal] [setup] [confidence]% — Entry $X | Stop $X | Target $X (or WAIT)
+• SPX:  [signal] [setup] [confidence]% — Entry $X | Stop $X | Target $X (or WAIT)
 
 RECENT PERFORMANCE (last 10 trades):
-• Win rate: X% | P&L: $X | [any streak worth noting]
+• Win rate: X% | P&L: $X | [streak if any]
 
 TOP PRIORITY TODAY:
 • [one sentence — the single most important thing to watch or act on]
 ---
 
-Keep it tight. No fluff. This is the daily trading plan.
 After the brief, ask: "Run a full scan? (Y/N)"
