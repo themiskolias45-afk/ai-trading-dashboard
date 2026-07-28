@@ -474,7 +474,32 @@ def check_spread(symbol):
     return ok, spread
 
 
-def place_order(symbol, signal_type, entry, stop, target, risk_amount=None):
+def build_order_comment(setup, confidence):
+    """Name the trade so it is identifiable in the MT5 terminal.
+
+    Every SmartEntry order used to carry the same static "SmartEntry" comment, so
+    the terminal's Comment column said nothing about WHICH setup opened a position
+    — you had to cross-reference the bridge log by timestamp to find out. MT5
+    truncates this field (31 chars is the safe limit) and some brokers overwrite
+    it entirely on partial fills, so it is a convenience, never the source of
+    truth: MAGIC_NUMBER is what actually identifies our positions.
+    """
+    if not setup:
+        return "SmartEntry"
+    try:
+        pct = int(round(float(confidence)))
+    except (TypeError, ValueError, OverflowError):
+        # Never invent a number here — a comment reading "SE MOMENTUM 0" would put
+        # a fabricated 0% confidence in front of you in the terminal. Drop the
+        # figure instead and keep the setup name, which is the useful part.
+        return f"SE {setup}"[:31]
+    # "SE " + setup + " " + up to 3 digits. RANGE_TRADE_SHORT is the longest setup
+    # name at 17 chars, giving 24 worst case, so [:31] never cuts the name.
+    return f"SE {setup} {pct}"[:31]
+
+
+def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
+                setup=None, confidence=None):
     """Place a market order. risk_amount is the dollar budget the server's risk
     engine approved; without it the flat RISK_PERCENT is used, which ignores how
     much of the portfolio is already exposed."""
@@ -500,7 +525,7 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None):
         "tp":            target,
         "deviation":     20,
         "magic":         MAGIC_NUMBER,
-        "comment":       "SmartEntry",
+        "comment":       build_order_comment(setup, confidence),
         "type_time":     mt5.ORDER_TIME_GTC,
         "type_filling":  mt5.ORDER_FILLING_IOC,
     }
@@ -679,7 +704,8 @@ def process_signal(key, sig):
 
     confirmed = prompt_confirm(sig, symbol)
     if confirmed:
-        ok = place_order(symbol, direction, entry, stop, target, risk_amount=approved_risk_usd)
+        ok = place_order(symbol, direction, entry, stop, target, risk_amount=approved_risk_usd,
+                         setup=sig.get("setup"), confidence=sig.get("confidence"))
         if ok:
             executed_signals[key] = cache_key
             global trades_opened_today

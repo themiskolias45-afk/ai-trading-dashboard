@@ -996,10 +996,27 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
 
   // Confidence: rises when both timeframes agree
   const isH4Only = h4 && h4.signal !== "WAIT" && daily.signal === "WAIT";
+  // Daily fired and H4 has NO opinion — distinct from H4 actively disagreeing.
+  // Both used to collapse to confidence 40, which no boost can lift past the 65
+  // gate (40 + 5 volume + 10 setup = 55), so the whole cohort was silently dead.
+  const isDailyNeutralH4 = daily.signal !== "WAIT" && h4 !== null && h4.signal === "WAIT";
   let confidence = daily.signal === "WAIT" ? 0 : 40;
   if (h4 && h4.signal === daily.signal && daily.signal !== "WAIT") {
     confidence = daily.strength === "STRONG" || h4.strength === "STRONG" ? 88 : 72;
     if (daily.strength === "STRONG" && h4.strength === "STRONG") confidence = 95;
+  } else if (isDailyNeutralH4 && ticker === "GC=F") {
+    // Gold only. Measured on a 60/40 chronological split of XAUUSD history, read
+    // off the held-out TEST half (R/trade, cost 0.05R):
+    //   MODERATE  +0.464 over 424 trades, 49% win  <- largest cohort in the system
+    //   STRONG    +0.347 over  47 trades, 30% win
+    //   NONE      -0.103 over 151 trades           <- stays blocked at 40
+    // The same cohort on BTC (+0.119 train -> -0.088 test) and SPX (+0.209 ->
+    // -0.134) flips sign out-of-sample, so neither is admitted here. Requires a
+    // real H4 read: h4 === null means we could not compute that timeframe at all,
+    // which is not the same as H4 having no opinion.
+    confidence = daily.strength === "MODERATE" ? 72
+               : daily.strength === "STRONG"   ? 70
+               : 40;
   } else if (isH4Only) {
     // H4-only: gate by asset (SPX has negative edge from held-out backtest) and H4 strength
     if (ticker === "^GSPC") {
@@ -1148,6 +1165,18 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     if (refinedRR < 1.5) { refinedStop = daily.stop; refinedTarget = daily.target; }
   }
 
+  // Confidence is dual-purpose: it is not only the fire/no-fire gate, it is also
+  // what server/sizing.js scales position size from (>= 75 -> 1.25x risk,
+  // >= 90 -> 1.5x). The Gold neutral-H4 cohort was validated at CONSTANT risk —
+  // the replay harness holds R fixed and stubs the macro caches — so letting it
+  // inherit a size multiplier would trade it at a risk level nothing here has
+  // measured. Gold's volConfirmed is true on nearly every cycle, so the +5 volume
+  // boost alone would put every trade in this cohort at 77 and size it 1.25x.
+  // Hold it at 1.0x until it has live closed trades of its own.
+  if (isDailyNeutralH4 && ticker === "GC=F" && confidence >= SIZING_BOOST_MIN_CONFIDENCE) {
+    confidence = SIZING_BOOST_MIN_CONFIDENCE - 1;
+  }
+
   // Require confidence ≥ 65 for a signal to fire
   finalSignal = confidence >= strategySettings.confidenceThreshold ? signalDir : "WAIT";
   // Banded off the same threshold that decides whether the signal fires at all.
@@ -1222,8 +1251,29 @@ function calcPivots(high, low, close) {
 //  DATA FETCHING
 // ══════════════════════════════════════════════════════════════
 
+// Yahoo's `range` counts CALENDAR days, not bars. 210d therefore yields a
+// different bar count per asset depending on how many days a week it trades:
+// measured 2026-07-28, BTC-USD 210 bars (24/7), ^GSPC 209, but GC=F only 173.
+// 173 is under the 200 that EMA200 needs, so Gold's `ema200` came back null,
+// `aboveEma200` was null, and `trend` could not match any of its four EMA200
+// branches — it was pinned to "MIXED" forever, which made inUptrend/inDowntrend
+// permanently false and MOMENTUM, BREAKOUT and TREND_FOLLOW unreachable on
+// Gold's daily timeframe. 300d returns 248 bars and fixes it.
+//
+// Deliberately per-symbol rather than a global bump: only Gold's cohorts were
+// validated on held-out data. Widening BTC and SPX would shift their EMA200 and
+// swing points and change signals nobody has measured.
+const DAILY_RANGE_DEFAULT = "210d";
+const DAILY_RANGE_BY_SYMBOL = { "GC=F": "300d" };
+
+// The confidence at which server/sizing.js starts scaling risk above 1.0x. Kept
+// here because generateSignalMTF has to know where that boundary is to avoid
+// handing a size multiplier to a cohort that was measured at constant risk.
+const SIZING_BOOST_MIN_CONFIDENCE = 75;
+
 async function fetchCandles(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=210d`;
+  const range = DAILY_RANGE_BY_SYMBOL[symbol] ?? DAILY_RANGE_DEFAULT;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
   const res = await axios.get(url, {
     timeout: 10000,
     headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }
