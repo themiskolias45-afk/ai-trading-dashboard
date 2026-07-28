@@ -100,7 +100,10 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - **Double-confirm before any source-code edit.** State the exact change and wait for confirmation before editing code, config, or pushing/deploying — unless I've already said "do it."
 - **Full reads, no skimming.** Read the whole file front to back. No sampling. If it's too big for one session, say so and let me decide.
 - **Checkpoint persistence.** Any time something changes that a future session needs to know, persist it — update the vault note, today's daily note. Verify each change landed.
-- **No bloat.** One source of truth, written tight. Update existing notes before creating new ones. Delete what you replaced.
+- **No bloat.** One source of truth, written tight. Update existing notes before creating new ones. Delete ONLY what you personally just created and are replacing — never delete user data, learning, memory, or history.
+- **NEVER DELETE without explicit approval.** Before deleting any file, data, configuration, learning record, memory entry, or trade history — stop, name it, explain why, and wait for confirmation. "It seemed redundant" is not a reason. If unsure, move/rename instead of deleting.
+- **Always check what exists first.** Before creating any file, command, agent, or system — search for it first. Grep, Glob, or Read to verify it doesn't already exist. Update the existing one rather than duplicating. A duplicate that diverges from the original is a bug.
+- **Preserve the learning system.** Never modify or delete server/learning.json, any trade journal, any memory MCP entry, or any calibration data without explicit approval. These represent weeks of real trades — destroying them costs real money in lost edge.
 - **No loose ends.** Fix it before moving on. Don't defer a bug without my explicit approval.
 - **One question at a time — then stop.** Ask one thing and end the turn. Don't answer it yourself or stack more tasks underneath it.
 - **Never suggest stopping.** I decide when we're done. End every response with the next action or an open question, never an invitation to disengage.

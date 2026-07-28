@@ -52,6 +52,7 @@ DAILY & WEEKLY CYCLES
   /daily               Full daily check — health, deep errors, learning, research, ranked tasks
   /weekly              Deep weekly review — strategy research, code audit, calibration, plan
   /errors              Deep error scan — ALL logs, code anti-patterns, signal integrity
+  /diagnose            Why is the system not opening trades? Full pipeline trace + fix
   /morning             Morning brief — signals + yesterday recap + pre-market research
 
 SYSTEM & IMPROVEMENT
