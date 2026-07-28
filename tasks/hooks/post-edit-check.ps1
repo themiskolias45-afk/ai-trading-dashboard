@@ -94,4 +94,21 @@ if (git status --porcelain 2>$null) {
     }
 }
 
+# ── 6. CODE REVIEW SIGNAL — visible to JARVIS for trading logic changes ────────
+$tradingFiles = @(
+    'server\index.js',
+    'server\autohealer.js',
+    'mt5_bridge.py',
+    'parallel_analysis.py'
+)
+foreach ($tf in $tradingFiles) {
+    if ($rel -ieq $tf) {
+        Write-Host ""
+        Write-Host ">>> CODE REVIEW REQUIRED: $rel is a trading logic file." -ForegroundColor Cyan
+        Write-Host ">>> JARVIS: invoke the code-reviewer agent on the changed function(s) before declaring done." -ForegroundColor Cyan
+        Write-Host ""
+        break
+    }
+}
+
 exit 0

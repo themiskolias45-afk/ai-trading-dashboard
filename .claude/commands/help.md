@@ -49,6 +49,7 @@ RESEARCH
   /web [task]          Full browser control — any website, any interaction
 
 SYSTEM & IMPROVEMENT
+  /status              One-screen snapshot — signals, risk, code health, action item
   /health              Server + API + syntax + security health check
   /check [scope]       Deep check — syntax|security|api|git (no Python needed)
   /verify              Full end-to-end verification — syntax + security + API + signals
@@ -61,6 +62,12 @@ SYSTEM & IMPROVEMENT
 
 MEMORY
   Say: "remember that Gold rejects hard at $2400" — stored for all future sessions
+
+AGENTS (spawn automatically via /engineer or /build)
+  builder              Implements one workstream: read → build → verify → commit → report
+  researcher           Multi-source research: Brave + Exa + web → synthesise → SmartEntry score
+  tester               Full QA: syntax + secrets + live API + signal integrity → RED/YELLOW/GREEN
+  code-reviewer        Reviews trading code changes for correctness, security, system integrity
 
 ---
 Model: claude-opus-5 | Engineers: up to 6 parallel | Tools: Browser, Search, Filesystem, Memory
