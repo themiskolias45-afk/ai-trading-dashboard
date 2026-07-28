@@ -999,20 +999,22 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     confidence = Math.min(100, confidence + 5);
   }
 
-  // Setup quality boost — high-quality setups with all criteria met
-  if (daily.setup === "BREAKOUT"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 7);
-  if (daily.setup === "SQUEEZE_BREAKOUT" && daily.volume?.confirmed) confidence = Math.min(100, confidence + 10);
-  if (daily.setup === "DIVERGENCE"       && daily.strength === "STRONG") confidence = Math.min(100, confidence + 6);
-  if (daily.setup === "MOMENTUM"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 5);
-  if (daily.setup === "BUY_DIP"          && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
-  if (daily.setup === "SELL_BOUNCE"      && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
+  // Setup quality boost — daily setups only (H4-only entries have daily.setup="WAIT", no boost)
+  if (!isH4Only) {
+    if (daily.setup === "BREAKOUT"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 7);
+    if (daily.setup === "SQUEEZE_BREAKOUT" && daily.volume?.confirmed) confidence = Math.min(100, confidence + 10);
+    if (daily.setup === "DIVERGENCE"       && daily.strength === "STRONG") confidence = Math.min(100, confidence + 6);
+    if (daily.setup === "MOMENTUM"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 5);
+    if (daily.setup === "BUY_DIP"          && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
+    if (daily.setup === "SELL_BOUNCE"      && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
 
-  // Self-learning boost — system learns from past trades on this setup
-  const learnBoost = getLearningBoost(daily.setup);
-  if (learnBoost !== 0) {
-    confidence = Math.max(0, Math.min(100, confidence + learnBoost));
-    if (learnBoost > 0) daily.reasons.push(`✅ Learned: ${daily.setup} performing above avg (+${learnBoost})`);
-    else daily.reasons.push(`⚠ Learned: ${daily.setup} underperforming (${learnBoost})`);
+    // Self-learning boost — system learns from past trades on this setup
+    const learnBoost = getLearningBoost(daily.setup);
+    if (learnBoost !== 0) {
+      confidence = Math.max(0, Math.min(100, confidence + learnBoost));
+      if (learnBoost > 0) daily.reasons.push(`✅ Learned: ${daily.setup} performing above avg (+${learnBoost})`);
+      else daily.reasons.push(`⚠ Learned: ${daily.setup} underperforming (${learnBoost})`);
+    }
   }
 
   // Preliminary signal for macro filter checks
@@ -1078,8 +1080,8 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
         confidence = Math.min(100, confidence + 5);
         daily.reasons.push(`✅ Cross-asset: DXY ${dxyChg.toFixed(1)}% — falling dollar tailwind for Gold`);
       }
-      // Safe-haven boost when risk assets are both selling
-      if (btcSig === "SELL" && spxSig === "SELL") {
+      // Safe-haven boost when risk assets are both selling — BUY Gold only
+      if (finalSignal === "BUY" && btcSig === "SELL" && spxSig === "SELL") {
         confidence = Math.min(100, confidence + 8);
         daily.reasons.push(`✅ Cross-asset: Risk-off (BTC+SPX SELL) — safe haven demand for Gold`);
       }
@@ -1140,8 +1142,8 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     strength:   finalStrength,
     confidence,
     regime,
-    stop:       refinedStop   !== null ? parseFloat(refinedStop.toFixed(2))   : (daily.stop   ?? (h4?.stop   != null ? parseFloat(h4.stop.toFixed(2))   : null)),
-    target:     refinedTarget !== null ? parseFloat(refinedTarget.toFixed(2)) : (daily.target ?? (h4?.target != null ? parseFloat(h4.target.toFixed(2)) : null)),
+    stop:       (refinedStop   != null && refinedStop   !== 0) ? parseFloat(refinedStop.toFixed(2))   : (daily.stop   ?? (h4?.stop   != null ? parseFloat(h4.stop.toFixed(2))   : null)),
+    target:     (refinedTarget != null && refinedTarget !== 0) ? parseFloat(refinedTarget.toFixed(2)) : (daily.target ?? (h4?.target != null ? parseFloat(h4.target.toFixed(2)) : null)),
     rr:         finalRR ?? h4?.rr ?? null,
     h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi } : null,
     h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi } : null,
