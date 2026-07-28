@@ -76,6 +76,16 @@ SYMBOL_CANDIDATES = {
     "^GSPC":   ["SP500", "US500", "SPX500", "US.500", "SPY"],
 }
 
+# Assets AUTO mode may open positions on. All three trade.
+#
+# Kept as one named tuple rather than three hardcoded submit() calls so an asset
+# can be taken out later by editing this line alone. Worth knowing when that day
+# comes: replayed through generateSignalMTF - the live multi-timeframe path, not
+# the single-timeframe replay the standard harness runs - SPX scores PF 0.32 over
+# the full sample and 0.00 on the held-out test half. It trades anyway; the
+# learning engine cannot calibrate on an asset it never sees closed trades from.
+TRADABLE_KEYS = ("btc", "gold", "spx")
+
 # Resolved at startup by auto_detect_symbols()
 SYMBOL_MAP = {}
 
@@ -922,13 +932,12 @@ def take_partial_profit():
 
 
 def process_all_signals(data):
-    """Process BTC, Gold and SPX signals in parallel threads."""
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            executor.submit(process_signal, "btc",  data.get("btc")): "btc",
-            executor.submit(process_signal, "gold", data.get("gold")): "gold",
-            executor.submit(process_signal, "spx",  data.get("spx")): "spx",
-        }
+    """Process every tradable asset's signal in parallel threads."""
+    # max(1, ...) so emptying TRADABLE_KEYS gates all trading rather than raising
+    # ValueError out of ThreadPoolExecutor on every poll.
+    with ThreadPoolExecutor(max_workers=max(1, len(TRADABLE_KEYS))) as executor:
+        futures = {executor.submit(process_signal, key, data.get(key)): key
+                   for key in TRADABLE_KEYS}
         for future in futures:
             try:
                 future.result(timeout=30)

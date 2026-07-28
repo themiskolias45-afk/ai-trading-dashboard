@@ -1123,7 +1123,15 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
 
   // Require confidence ≥ 65 for a signal to fire
   finalSignal = confidence >= strategySettings.confidenceThreshold ? signalDir : "WAIT";
-  const finalStrength = confidence >= 90 ? "STRONG" : confidence >= 70 ? "MODERATE" : "NONE";
+  // Banded off the same threshold that decides whether the signal fires at all.
+  // With a fixed 70 here, anything landing 65-69 fired as a real BUY/SELL carrying
+  // strength NONE — which mt5_bridge.py drops in AUTO mode. The signal showed on
+  // the dashboard and the trade silently never happened. Tying the MODERATE band
+  // to confidenceThreshold makes "fires => tradeable" an invariant that survives
+  // the threshold being changed from the dashboard.
+  const finalStrength = confidence >= 90 ? "STRONG"
+                      : confidence >= strategySettings.confidenceThreshold ? "MODERATE"
+                      : "NONE";
 
   // Market regime
   const bbW = daily.indicators?.bb?.bandwidth;
@@ -1142,6 +1150,12 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     strength:   finalStrength,
     confidence,
     regime,
+    // H4-only entries take stop/target from h4 below, so entry has to come from h4
+    // too. Spreading ...daily leaves entry on the daily close while the stop sits
+    // on the 4H close; when those diverge |entry - stop| collapses, which inflated
+    // replayed R:R as far as 24R and — under risk-based sizing, which divides by
+    // stop distance — would size the position into the maxLotSize ceiling.
+    entry:      (isH4Only && h4?.entry != null) ? h4.entry : daily.entry,
     stop:       (refinedStop   != null && refinedStop   !== 0) ? parseFloat(refinedStop.toFixed(2))   : (daily.stop   ?? (h4?.stop   != null ? parseFloat(h4.stop.toFixed(2))   : null)),
     target:     (refinedTarget != null && refinedTarget !== 0) ? parseFloat(refinedTarget.toFixed(2)) : (daily.target ?? (h4?.target != null ? parseFloat(h4.target.toFixed(2)) : null)),
     rr:         finalRR ?? h4?.rr ?? null,
