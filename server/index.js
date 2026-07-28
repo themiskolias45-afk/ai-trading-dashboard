@@ -968,13 +968,25 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   } catch (e) {}
 
   // Confidence: rises when both timeframes agree
+  const isH4Only = h4 && h4.signal !== "WAIT" && daily.signal === "WAIT";
   let confidence = daily.signal === "WAIT" ? 0 : 40;
   if (h4 && h4.signal === daily.signal && daily.signal !== "WAIT") {
     confidence = daily.strength === "STRONG" || h4.strength === "STRONG" ? 88 : 72;
     if (daily.strength === "STRONG" && h4.strength === "STRONG") confidence = 95;
-  } else if (h4 && h4.signal !== "WAIT" && daily.signal === "WAIT") {
-    confidence = 25; // 4H only — weaker
+  } else if (isH4Only) {
+    // H4-only: gate by asset (SPX has negative edge from held-out backtest) and H4 strength
+    if (ticker === "^GSPC") {
+      confidence = 45; // SPX: needs exceptional quality boosts to clear 65 gate
+    } else if (ticker === "GC=F") {
+      // Gold H4-only: PF 1.40 in held-out backtest — STRONG fires directly
+      confidence = h4.strength === "STRONG" ? 68 : h4.strength === "MODERATE" ? 55 : 40;
+    } else {
+      // BTC H4-only: PF 1.08 (marginal) — STRONG needs a small quality boost to clear gate
+      confidence = h4.strength === "STRONG" ? 63 : h4.strength === "MODERATE" ? 50 : 40;
+    }
   }
+  // Direction to use for macro filters and final gate: H4 provides direction when daily is WAIT
+  const signalDir = isH4Only ? h4.signal : daily.signal;
 
   // Triple alignment: Daily + 4H + 1H all agree
   if (h4 && h1 && h4.signal === daily.signal && h1.signal === daily.signal && daily.signal !== "WAIT") {
@@ -1004,7 +1016,7 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   }
 
   // Preliminary signal for macro filter checks
-  let finalSignal = confidence >= strategySettings.confidenceThreshold ? daily.signal : "WAIT";
+  let finalSignal = confidence >= strategySettings.confidenceThreshold ? signalDir : "WAIT";
 
   // DXY filter: strong dollar hurts Gold and BTC
   const dxy = priceCache.dxy;
@@ -1108,7 +1120,7 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   }
 
   // Require confidence ≥ 65 for a signal to fire
-  finalSignal = confidence >= strategySettings.confidenceThreshold ? daily.signal : "WAIT";
+  finalSignal = confidence >= strategySettings.confidenceThreshold ? signalDir : "WAIT";
   const finalStrength = confidence >= 90 ? "STRONG" : confidence >= 70 ? "MODERATE" : "NONE";
 
   // Market regime
@@ -1128,9 +1140,9 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     strength:   finalStrength,
     confidence,
     regime,
-    stop:       refinedStop   !== null ? parseFloat(refinedStop.toFixed(2))   : daily.stop,
-    target:     refinedTarget !== null ? parseFloat(refinedTarget.toFixed(2)) : daily.target,
-    rr:         finalRR,
+    stop:       refinedStop   !== null ? parseFloat(refinedStop.toFixed(2))   : (daily.stop   ?? (h4?.stop   != null ? parseFloat(h4.stop.toFixed(2))   : null)),
+    target:     refinedTarget !== null ? parseFloat(refinedTarget.toFixed(2)) : (daily.target ?? (h4?.target != null ? parseFloat(h4.target.toFixed(2)) : null)),
+    rr:         finalRR ?? h4?.rr ?? null,
     h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi } : null,
     h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi } : null,
     pivots,
