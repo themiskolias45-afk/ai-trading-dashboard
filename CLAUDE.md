@@ -106,6 +106,10 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - **No secrets in docs.** Never write API keys or passwords into notes or docs. Reference where they're stored instead.
 - **Verify the date.** Check actual system date before writing dates into anything permanent.
 - **Locked decisions stay locked.** If an instruction contradicts a rule marked "Locked" or a prior decision, surface it instead of silently overriding.
+- **Memory is mandatory.** After every session where something new was built, learned, or fixed — call `mcp__memory__create_entities` to persist it. A fact not in memory is lost on next session.
+- **Test before done.** Never say a task is complete without verifying the changed code actually runs. Run `node --check` on JS, `python -m py_compile` on Python, hit the relevant API endpoint. If it can't be verified, say so explicitly.
+- **Security before commit.** Every file edit: check it contains no API keys, passwords, or tokens. If a pattern like `sk-ant-` or `password=` appears, stop and fix it first.
+- **Tasks for multi-step work.** Any task with 3+ steps: create a task with TaskCreate, update status at each step, mark complete when verified working — not when code is written.
 
 ## SmartEntry Pro — always-on rules
 

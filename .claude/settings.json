@@ -84,6 +84,16 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -NonInteractive -File 'C:\\Users\\User\\ai-trading-dashboard\\tasks\\hooks\\pre-edit-check.ps1'",
+            "shell": "powershell"
+          }
+        ]
       }
     ],
 
@@ -93,10 +103,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "Set-Location 'C:\\Users\\User\\ai-trading-dashboard'; $files = git diff --name-only HEAD 2>$null; foreach ($f in $files) { if ($f -match '\\.js$') { node --check $f 2>$null } elseif ($f -match '\\.py$') { python -m py_compile $f 2>$null } }; if (git status --porcelain 2>$null) { git add -A; $changed = (git diff --cached --name-only 2>$null) -join ', '; $msg = if ($changed) { \"update $changed\" } else { 'auto-save' }; git commit -m $msg --quiet }",
+            "command": "powershell -NoProfile -NonInteractive -File 'C:\\Users\\User\\ai-trading-dashboard\\tasks\\hooks\\post-edit-check.ps1'",
             "shell": "powershell",
-            "async": true,
-            "statusMessage": "Validating + auto-saving..."
+            "statusMessage": "Quality + security check..."
           }
         ]
       }
