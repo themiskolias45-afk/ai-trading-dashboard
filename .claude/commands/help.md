@@ -48,7 +48,10 @@ RESEARCH
   /web [task]          Full browser control — any website, any interaction
 
 SYSTEM & IMPROVEMENT
-  /health              Server + bridge + system health check
+  /health              Server + API + syntax + security health check
+  /check [scope]       Deep check — syntax|security|api|git (no Python needed)
+  /verify              Full end-to-end verification — syntax + security + API + signals
+  /fix [bug]           Autonomous bug finder and fixer — targeted or full scan
   /checksystem         Full diagnostic — all components + pending proposals
   /improve             Find worst setup and auto-improve parameters
   /agent               Autonomous loop — keeps fixing until system is clean

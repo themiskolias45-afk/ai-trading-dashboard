@@ -1,35 +1,58 @@
-Deep stack error check — validates server, APIs, file integrity, code syntax, and security. Usage: /check [server|code|files|git]
+Deep system check — syntax, security, API health, git. Usage: /check [syntax|security|api|git]
 
-$ARGUMENTS selects what to check. If blank, runs everything.
+$ARGUMENTS selects scope. If blank, runs everything.
 
-Run:
-```
-python check_errors.py $ARGUMENTS
-```
+Do NOT rely on Python scripts. Run all checks directly.
 
-Then interpret and report the results:
+═══ SYNTAX CHECK ═══
+Check these files (use Bash tool directly):
+  node --check server/index.js
+  node --check server/mcp_server.js (skip if missing)
 
-**SYSTEM CHECK — [timestamp]**
+Find and check all Python files:
+  python -m py_compile [each .py file in project root]
 
-Group results by status:
-  FAIL: [list every failure — these need immediate action]
-  WARN: [list warnings — review but not blocking]
-  PASS: [count only, e.g. "42 checks passed"]
+Collect every file that fails — report the exact error message.
 
-For each FAIL:
-  - State the exact problem in one line
-  - State the fix in one line
-  - Ask if I want to apply the fix now
+═══ SECURITY CHECK ═══
+1. git ls-files server/apikey.txt
+   → If non-empty: ESCALATE — "SECRET TRACKED IN GIT: git rm --cached server/apikey.txt"
+2. git ls-files keys.env
+   → If non-empty: ESCALATE — "SECRET TRACKED IN GIT: git rm --cached keys.env"
+3. Read .gitignore — must contain: server/apikey.txt, keys.env, *.env
+4. Grep server/index.js for literal API key patterns (sk-ant-, AKIA) — must find none
 
-Security flags to escalate immediately:
-  - Any secret file (apikey.txt, keys.env) appearing in git diff → "STOP — secrets at risk of being committed"
-  - Wrong git branch → "WARNING: not on development branch"
+═══ API HEALTH ═══
+Fetch these in parallel (timeout 5s each):
+  GET http://localhost:3001/api/health
+  GET http://localhost:3001/api/signals
+  GET http://localhost:3001/api/risk-status
+  GET http://localhost:3001/api/healer
+  GET http://localhost:3001/api/sentiment
 
-If all checks pass: "System clean — X checks, 0 failures."
-If failures exist: "X failure(s) found — [list them]. Fix now?"
+Mark each PASS (200 + valid JSON) or FAIL (error/timeout/wrong shape).
 
-Checks performed:
-  server — API health, all required routes reachable
-  files  — critical files exist and are non-empty, secrets are gitignored
-  code   — Python syntax (py_compile), JS syntax (node --check)
-  git    — branch correct, no secrets in working tree
+═══ GIT CHECK ═══
+  git branch (verify on correct branch)
+  git status --short (uncommitted changes)
+  git ls-files --others --exclude-standard (untracked files)
+
+═══ REPORT FORMAT ═══
+
+SYSTEM CHECK — [timestamp]
+══════════════════════════
+SYNTAX    [PASS — X files clean / FAIL — list each file + error]
+SECURITY  [PASS — secrets protected / ESCALATE — file tracked in git]
+API       [X/5 endpoints healthy — list any failures]
+GIT       branch: [name] | uncommitted: [count or CLEAN]
+
+FAILURES (fix before trading):
+  1. [exact problem] → [exact fix]
+
+WARNINGS:
+  [anything worth noting but not blocking]
+
+VERDICT: GREEN / YELLOW / RED
+
+If RED: "Fix required. Fix now?"
+If GREEN: "System clean — [X] checks, 0 failures."
