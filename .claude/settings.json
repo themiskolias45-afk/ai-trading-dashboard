@@ -123,10 +123,10 @@
           },
           {
             "type": "command",
-            "command": "Set-Location 'C:\\Users\\User\\ai-trading-dashboard'; $today = Get-Date -Format 'yyyyMMdd'; $flag = \"tasks\\.auto_runner_$today\"; if (-not (Test-Path $flag)) { python auto_runner.py --silent 2>$null; New-Item $flag -Force | Out-Null }",
+            "command": "powershell -NoProfile -NonInteractive -File 'C:\\Users\\User\\ai-trading-dashboard\\tasks\\hooks\\daily-runner.ps1'",
             "shell": "powershell",
             "async": true,
-            "statusMessage": "Running daily auto-check..."
+            "statusMessage": "Running daily AI analysis..."
           }
         ]
       }

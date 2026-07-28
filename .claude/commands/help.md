@@ -48,22 +48,27 @@ RESEARCH
   /research [topic]    Multi-source deep research (Brave + Exa + web scrape) → implement
   /web [task]          Full browser control — any website, any interaction
 
+DAILY & WEEKLY CYCLES
+  /daily               Full daily check — health, deep errors, learning, research, ranked tasks
+  /weekly              Deep weekly review — strategy research, code audit, calibration, plan
+  /errors              Deep error scan — ALL logs, code anti-patterns, signal integrity
+  /morning             Morning brief — signals + yesterday recap + pre-market research
+
 SYSTEM & IMPROVEMENT
   /status              One-screen snapshot — signals, risk, code health, action item
   /health              Server + API + syntax + security health check
-  /check [scope]       Deep check — syntax|security|api|git (no Python needed)
+  /check [scope]       Deep check — syntax|security|api|git
   /verify              Full end-to-end verification — syntax + security + API + signals
   /fix [bug]           Autonomous bug finder and fixer — targeted or full scan
   /checksystem         Full diagnostic — all components + pending proposals
   /improve             Find worst setup and auto-improve parameters
   /agent               Autonomous loop — keeps fixing until system is clean
-  /state save          Save full session state to resume next time
-  /state load          Restore last session — pick up exactly where you left off
 
 MEMORY
   Say: "remember that Gold rejects hard at $2400" — stored for all future sessions
 
-AGENTS (spawn automatically via /engineer or /build)
+AGENTS (spawn automatically via /engineer, /build, /daily, /weekly)
+  analyst              Deep performance analysis — trajectories, calibration, failure patterns
   builder              Implements one workstream: read → build → verify → commit → report
   researcher           Multi-source research: Brave + Exa + web → synthesise → SmartEntry score
   tester               Full QA: syntax + secrets + live API + signal integrity → RED/YELLOW/GREEN

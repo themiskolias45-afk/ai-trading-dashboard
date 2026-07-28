@@ -39,6 +39,8 @@ At the start of every interactive session:
 
 **Re-read after compaction.** This file survives compaction; VAULT-INDEX.md does not. If context was compacted mid-session, re-read VAULT-INDEX.md before continuing.
 
+**Rules are not optional.** Every rule in "The rules that can't lapse" and "Code quality" applies to EVERY action, EVERY session, WITHOUT exception. No rule is skipped because it feels like overhead. No rule is skipped because the task is simple. The rules exist because they've prevented real bugs and losses — they are the job, not a box to check.
+
 ## What JARVIS can build for you
 
 JARVIS has no hard limits. From this shell:
