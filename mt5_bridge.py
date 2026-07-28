@@ -386,7 +386,7 @@ strategy_settings = {
     "maxTradesPerDay": 5,
     "fixedLotSize": 0.0,   # 0 = size from risk; above 0 = always trade exactly this
     "maxLotSize": 10.0,    # hard ceiling regardless of what the risk maths asks for
-    "minStrength": "STRONG",  # lowest signal strength AUTO mode will take
+    "minStrength": "MODERATE",  # lowest signal strength AUTO mode will take
 }
 
 # Trades opened today, reset on date change. Counted here rather than server-side
@@ -922,11 +922,12 @@ def take_partial_profit():
 
 
 def process_all_signals(data):
-    """Process BTC and Gold signals in parallel threads."""
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    """Process BTC, Gold and SPX signals in parallel threads."""
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {
             executor.submit(process_signal, "btc",  data.get("btc")): "btc",
             executor.submit(process_signal, "gold", data.get("gold")): "gold",
+            executor.submit(process_signal, "spx",  data.get("spx")): "spx",
         }
         for future in futures:
             try:

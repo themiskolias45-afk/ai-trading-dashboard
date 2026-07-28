@@ -1,42 +1,30 @@
 # Install SmartEntry Pro to auto-start at Windows login.
-# Run this ONCE as Administrator. Creates a Scheduled Task that fires
-# at logon and runs startup_all.ps1 automatically.
+# Uses the user's Startup folder — no admin rights needed.
+# Run once from PowerShell with Bypass: powershell -ExecutionPolicy Bypass -File tasks\install_startup.ps1
 
-$proj    = 'C:\Users\User\ai-trading-dashboard'
-$script  = "$proj\tasks\startup_all.ps1"
-$taskName = 'SmartEntryPro-AutoStart'
+$proj      = 'C:\Users\User\ai-trading-dashboard'
+$script    = "$proj\tasks\startup_all.ps1"
+$startupDir = [System.Environment]::GetFolderPath('Startup')
+$shortcut  = "$startupDir\SmartEntryPro.bat"
 
-# Remove old task if it exists
-Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+# Write a .bat launcher that calls the PowerShell script with Bypass
+$bat = @"
+@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$script"
+"@
+Set-Content -Path $shortcut -Value $bat -Encoding ASCII
 
-$action  = New-ScheduledTaskAction `
-    -Execute 'powershell.exe' `
-    -Argument "-NoProfile -WindowStyle Hidden -File `"$script`"" `
-    -WorkingDirectory $proj
-
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-
-$settings = New-ScheduledTaskSettingsSet `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
-    -RestartCount 2 `
-    -RestartInterval (New-TimeSpan -Minutes 1) `
-    -StartWhenAvailable
-
-Register-ScheduledTask `
-    -TaskName $taskName `
-    -Action $action `
-    -Trigger $trigger `
-    -Settings $settings `
-    -RunLevel Highest `
-    -Force
-
-Write-Host ""
-Write-Host "=== SmartEntry Pro Auto-Start INSTALLED ===" -ForegroundColor Green
-Write-Host "Task: $taskName" -ForegroundColor Green
-Write-Host "Runs: at every Windows login" -ForegroundColor Green
-Write-Host "Script: $script" -ForegroundColor Green
-Write-Host ""
-Write-Host "To run NOW without restarting: " -NoNewline
-Write-Host "Start-ScheduledTask -TaskName '$taskName'" -ForegroundColor Yellow
-Write-Host "To check logs: " -NoNewline
-Write-Host "$proj\tasks\logs\startup_all_*.txt" -ForegroundColor Yellow
+if (Test-Path $shortcut) {
+    Write-Host ""
+    Write-Host "=== SmartEntry Pro Auto-Start INSTALLED ===" -ForegroundColor Green
+    Write-Host "Location: $shortcut" -ForegroundColor Green
+    Write-Host "Runs:     at every Windows login (no admin needed)" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "To run NOW without restarting:"
+    Write-Host "  powershell -ExecutionPolicy Bypass -File `"$script`"" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "To uninstall: delete $shortcut"
+} else {
+    Write-Host "FAILED to create shortcut in Startup folder." -ForegroundColor Red
+    Write-Host "Startup folder path: $startupDir" -ForegroundColor Red
+}
