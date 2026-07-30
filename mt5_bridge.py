@@ -240,12 +240,19 @@ def _rates_to_bars(rates):
     """
     if rates is None or len(rates) == 0:
         return None
+    # Rounded on the way out purely to keep the payload small: MT5 returns full
+    # double precision, and the raw serialisation of 1100 bars x 4 series x 3
+    # symbols measured ~240kb, which overran the server's JSON body limit and got
+    # the whole push rejected with 413. Five decimals is far finer than any
+    # instrument here quotes (XAUUSD and the indices are 2, BTCUSD is 2), so this
+    # loses nothing an indicator could see. Volumes are counts — integers.
+    PRICE_DECIMALS = 5
     try:
         bars = {
-            "closes":  [float(r["close"])       for r in rates],
-            "highs":   [float(r["high"])        for r in rates],
-            "lows":    [float(r["low"])         for r in rates],
-            "volumes": [float(r["tick_volume"]) for r in rates],
+            "closes":  [round(float(r["close"]), PRICE_DECIMALS) for r in rates],
+            "highs":   [round(float(r["high"]),  PRICE_DECIMALS) for r in rates],
+            "lows":    [round(float(r["low"]),   PRICE_DECIMALS) for r in rates],
+            "volumes": [float(int(r["tick_volume"]))             for r in rates],
         }
     except (KeyError, ValueError, TypeError) as exc:
         log(f"Rate conversion failed: {exc}", YELLOW)

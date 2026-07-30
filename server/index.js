@@ -19,7 +19,16 @@ const sizing     = require("./sizing");
 const hermes     = require("./hermes");
 
 const app = express();
-app.use(express.json());
+
+// Express defaults to a 100kb JSON body, which every endpoint here fits inside
+// except one: /api/mt5/candles carries 1100 bars x 4 series x 3 symbols and
+// measured ~240kb, so the bridge's very first push came back 413 Payload Too
+// Large and the server silently stayed on its Yahoo fallback. Raised only as far
+// as that payload needs — the bridge additionally rounds its values to keep it
+// well under this, and the candles route is requireLocalOnly, so this does not
+// widen what an internet-facing VPS will accept from an unauthenticated caller.
+const JSON_BODY_LIMIT = "2mb";
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-api-key");
