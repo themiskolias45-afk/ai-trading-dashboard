@@ -1,0 +1,23 @@
+# SmartEntry Pro — Python dependencies
+# Install: pip install -r requirements.txt
+#
+# NOTE: MetaTrader5 is Windows-only. Install only on the Windows trading machine.
+# All other packages work on both Windows and Linux (VPS).
+
+# Core — always required
+requests>=2.31.0
+colorama>=0.4.6
+
+# TradingView automation (chart screenshots, Pine Script upload)
+# playwright>=1.40.0        # install separately: pip install playwright && playwright install chromium
+# pyautogui>=0.9.54         # Windows/Linux with display; not needed if playwright works
+
+# Voice interface (Windows only, optional)
+# sounddevice>=0.4.6
+# scipy>=1.11.0
+# numpy>=1.24.0
+# pyttsx3>=2.90
+# openai-whisper>=20231117
+
+# MT5 bridge (Windows only — requires MetaTrader5 terminal installed)
+# MetaTrader5>=5.0.37       # pip install MetaTrader5  (Windows only)

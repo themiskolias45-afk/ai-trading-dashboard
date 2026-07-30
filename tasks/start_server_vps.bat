@@ -9,4 +9,8 @@ if exist server\apikey.txt (
 )
 
 cd server
+if not exist node_modules\ (
+    echo Installing npm packages...
+    npm install >> C:\ai-trading-dashboard\tasks\logs\server_log.txt 2>&1
+)
 node index.js >> C:\ai-trading-dashboard\tasks\logs\server_log.txt 2>&1
