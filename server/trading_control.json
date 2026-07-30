@@ -1,6 +1,0 @@
-{
-  "halted": true,
-  "reason": "JARVIS: confidence-gate change under test (H4-only quality boosts restored). Six auto bridges are live and share one MAGIC_NUMBER, so an unmeasured signal could be filled up to 6x. Unhalt from the dashboard once the new numbers are reviewed.",
-  "setAt": "2026-07-30T14:20:00.000Z",
-  "setBy": "jarvis"
-}

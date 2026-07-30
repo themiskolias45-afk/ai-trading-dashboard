@@ -23,3 +23,7 @@ tasks/history/
 # fully regenerable by parallel_analysis.py. The server reads latest.json from
 # disk, so nothing depends on these being in git.
 tasks/analysis/
+
+# Per-machine live state: a halt is a local safety decision and must never
+# deploy from one box to another, and the VPS keeps its own copy untracked.
+server/trading_control.json
