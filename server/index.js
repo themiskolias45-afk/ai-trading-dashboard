@@ -250,6 +250,11 @@ let signalHistory = [];   // last 100 signal cycles — full confidence + reason
 // over Yahoo when fresh and deep enough; see pickCandleSource().
 let mt5CandleCache = {};
 
+// Guards the candle-ingest recompute against overlapping with itself. Three assets
+// arrive in one payload and a refresh takes ~15s; without this, a bridge restart
+// could stack refreshes on top of each other.
+let signalRefreshInFlight = false;
+
 // Yahoo tickers the signal engine is written against → asset keys used everywhere
 // else. Declared once so the ingest endpoint and refreshSignals agree; a mismatch
 // here would silently route XAUUSD bars into the BTC signal.
@@ -1916,6 +1921,14 @@ app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
   const account  = typeof req.body?.account === "string" ? req.body.account : "default";
   const accepted = {};
   const rejected = {};
+  // Which assets had no usable MT5 bars before this payload. Signals only recompute
+  // on a 30-minute cron, so without this an asset could report activeSource "mt5"
+  // while its cached signal was still built from Yahoo bars — different instrument,
+  // different levels. That gap is how ticket #1682651222 got opened.
+  const sourceWasYahoo = {};
+  for (const assetKey of Object.values(ASSET_KEY_BY_TICKER)) {
+    sourceWasYahoo[assetKey] = !mt5BarsFor(assetKey);
+  }
 
   for (const [ticker, payload] of Object.entries(assets)) {
     const assetKey = ASSET_KEY_BY_TICKER[ticker];
@@ -1956,6 +1969,23 @@ app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
     console.log(`[mt5-candles] accepted from ${account}:`,
       Object.entries(accepted).map(([k, v]) => `${k}=${v.symbol}(${v.d1}/${v.h4}/${v.h1})`).join(" "));
   }
+
+  // Recompute immediately when an asset crosses from Yahoo to MT5, rather than
+  // leaving a stale futures-derived signal live for the rest of the cron interval.
+  // Fires only on the transition — steady-state pushes every 5 minutes do not
+  // trigger it, so this cannot become a refresh storm.
+  const flippedToMt5 = Object.keys(accepted).filter(k => sourceWasYahoo[k] && mt5BarsFor(k));
+  if (flippedToMt5.length && !signalRefreshInFlight) {
+    signalRefreshInFlight = true;
+    console.log(`[mt5-candles] ${flippedToMt5.join(", ")} switched yahoo -> mt5, recomputing signals now`);
+    // Deliberately not awaited: the bridge is waiting on this response and a signal
+    // refresh takes ~15s. Errors are swallowed into a log because a failed refresh
+    // must not fail the candle ingest — the bars are already stored either way.
+    refreshSignals()
+      .catch(e => console.error("[mt5-candles] post-ingest refresh failed:", e.message))
+      .finally(() => { signalRefreshInFlight = false; });
+  }
+
   res.json({ ok: true, accepted, rejected });
 });
 

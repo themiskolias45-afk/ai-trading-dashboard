@@ -229,6 +229,11 @@ BAR_COUNT_BY_TIMEFRAME = {"d1": 300, "h4": 400, "h1": 400}
 CANDLE_PUSH_INTERVAL_SEC = 300
 _last_candle_push_at = 0.0
 
+# SmartEntry tickers this bridge has successfully pushed MT5 bars for. Used to
+# decide whether a Yahoo-stamped signal is a legitimate fallback (we have nothing
+# better) or a stale cache the server has not recomputed yet (we do).
+pushed_candle_tickers = set()
+
 
 def _rates_to_bars(rates):
     """Convert an MT5 rates array to the {closes,highs,lows,volumes} shape the
@@ -309,6 +314,12 @@ def push_candles(force=False):
         res.raise_for_status()
         accepted = res.json().get("accepted", {})
         _last_candle_push_at = now
+        # Only tickers the server actually ACCEPTED count — a payload it rejected
+        # (too few bars, unusable series) leaves it correctly on Yahoo, and blocking
+        # trades over a rejection we caused would be worse than the fallback.
+        for se_ticker, payload in assets.items():
+            if any(payload["symbol"] == acc.get("symbol") for acc in accepted.values()):
+                pushed_candle_tickers.add(se_ticker)
         summary = ", ".join(
             f"{se}->{assets[se]['symbol']}:{len(assets[se]['bars'])}tf"
             for se in assets
@@ -754,6 +765,32 @@ def process_signal(key, sig):
     if not symbol:
         log(f"No MT5 symbol for {ticker} — skipping", YELLOW)
         executed_signals[key] = cache_key
+        return
+
+    # Never fill one instrument using another instrument's levels.
+    #
+    # The server computes signals from MT5 bars when it has them and falls back to
+    # Yahoo when it does not, stamping which it used. Those are different
+    # instruments: measured 2026-07-30, Yahoo GC=F read 4156.10 while the XAUUSD we
+    # actually fill read 4104.72 — $51 apart, 56% of that setup's stop distance —
+    # and the H4 BREAKOUT driving the signal did not exist on XAUUSD at all.
+    #
+    # This is not hypothetical. signalCache only recomputes on a 30-minute cron, so
+    # a freshly started bridge can fetch a signal built from Yahoo bars minutes
+    # before its own first candle push lands. That is exactly how ticket #1682651222
+    # was opened: a Yahoo-derived Gold BUY at confidence 85 that read WAIT at
+    # confidence 0 the moment the same engine saw XAUUSD.
+    #
+    # Deliberately fails OPEN on an unknown source: a server too old to stamp
+    # dataSource returns None here, and refusing to trade against it would silently
+    # freeze a working system. Only an explicit "yahoo" blocks, and only for symbols
+    # this bridge has actually pushed bars for — otherwise Yahoo is the legitimate
+    # fallback and there is nothing better available.
+    data_source = sig.get("dataSource")
+    if data_source == "yahoo" and ticker in pushed_candle_tickers:
+        log(f"STALE SOURCE: {ticker} signal was computed from Yahoo, but MT5 bars for "
+            f"{symbol} have been pushed — refusing to trade another instrument's levels. "
+            f"Waiting for the server to recompute.", YELLOW)
         return
 
     # Check news blackout before executing
