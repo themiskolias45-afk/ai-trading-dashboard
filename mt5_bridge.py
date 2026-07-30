@@ -209,6 +209,108 @@ def auto_detect_symbols():
     return True
 
 
+# ── MT5 → server candle feed ──────────────────────────────────────────────────
+# Until this existed, every bar the signal engine read came from Yahoo Finance
+# (GC=F, BTC-USD, ^GSPC) while every fill happened on the broker's own symbols
+# (XAUUSD, BTCUSD, SP500). Those are different instruments: different price,
+# different sessions, different bars. Entry/stop/target were computed on a
+# continuous futures series and then sent to a broker quoting spot, so the levels
+# did not exist on the chart the trade lived on, and Gold's volume ratio read ~18x
+# because it compared a contract's volume against a continuous series' average.
+#
+# The bridge is the only process that can see MT5, so it is the only place these
+# bars can come from. SYMBOL_MAP is already resolved by auto_detect_symbols(), so
+# this reuses the mapping the executor itself trades on — the feed and the fill can
+# never drift apart.
+BAR_COUNT_BY_TIMEFRAME = {"d1": 300, "h4": 400, "h1": 400}
+
+# Pushed on its own clock rather than every poll: 1100 bars x 3 symbols is a real
+# payload, and the daily bar the signal engine cares about only closes once a day.
+CANDLE_PUSH_INTERVAL_SEC = 300
+_last_candle_push_at = 0.0
+
+
+def _rates_to_bars(rates):
+    """Convert an MT5 rates array to the {closes,highs,lows,volumes} shape the
+    server's signal engine already consumes. Returns None if unusable.
+
+    tick_volume, not real_volume: brokers leave real_volume at 0 on CFDs and
+    synthetic symbols, and a series of zeros would make every volume ratio null
+    and silently disable every volume-confirmed setup.
+    """
+    if rates is None or len(rates) == 0:
+        return None
+    try:
+        bars = {
+            "closes":  [float(r["close"])       for r in rates],
+            "highs":   [float(r["high"])        for r in rates],
+            "lows":    [float(r["low"])         for r in rates],
+            "volumes": [float(r["tick_volume"]) for r in rates],
+        }
+    except (KeyError, ValueError, TypeError) as exc:
+        log(f"Rate conversion failed: {exc}", YELLOW)
+        return None
+    # A NaN or inf reaching the indicators poisons every comparison downstream and
+    # produces a confident-looking signal from garbage. Drop the whole timeframe.
+    for series in bars.values():
+        if not all(v == v and v not in (float("inf"), float("-inf")) for v in series):
+            log("Rate series contained NaN/inf — discarding timeframe", YELLOW)
+            return None
+    return bars
+
+
+def push_candles(force=False):
+    """Push native D1/H4/H1 bars for every mapped symbol to the server.
+
+    Failure here must never stop trading: the server keeps the Yahoo path as its
+    fallback, so a push that does not land degrades the data source rather than
+    halting the bridge.
+    """
+    global _last_candle_push_at
+    if not SYMBOL_MAP:
+        return
+    now = time.time()
+    if not force and now - _last_candle_push_at < CANDLE_PUSH_INTERVAL_SEC:
+        return
+
+    timeframes = {"d1": mt5.TIMEFRAME_D1, "h4": mt5.TIMEFRAME_H4, "h1": mt5.TIMEFRAME_H1}
+    assets = {}
+    for se_ticker, mt5_symbol in SYMBOL_MAP.items():
+        bars_by_tf = {}
+        for tf_name, tf_const in timeframes.items():
+            try:
+                rates = mt5.copy_rates_from_pos(mt5_symbol, tf_const, 0, BAR_COUNT_BY_TIMEFRAME[tf_name])
+            except Exception as exc:
+                log(f"copy_rates {mt5_symbol} {tf_name} raised: {exc}", YELLOW)
+                continue
+            converted = _rates_to_bars(rates)
+            if converted:
+                bars_by_tf[tf_name] = converted
+        if bars_by_tf:
+            assets[se_ticker] = {"symbol": mt5_symbol, "bars": bars_by_tf}
+
+    if not assets:
+        log("No MT5 bars available to push — server stays on its Yahoo fallback.", YELLOW)
+        return
+
+    try:
+        res = requests.post(
+            f"{SERVER_URL}/api/mt5/candles",
+            json={"account": ACCOUNT_TAG or "default", "assets": assets},
+            timeout=20,
+        )
+        res.raise_for_status()
+        accepted = res.json().get("accepted", {})
+        _last_candle_push_at = now
+        summary = ", ".join(
+            f"{se}->{assets[se]['symbol']}:{len(assets[se]['bars'])}tf"
+            for se in assets
+        )
+        log(f"Pushed MT5 candles ({summary}) — server accepted {accepted}", CYAN)
+    except Exception as exc:
+        log(f"Candle push failed ({exc}) — server stays on its Yahoo fallback.", YELLOW)
+
+
 def connect_mt5():
     init_ok = mt5.initialize(path=TERMINAL_PATH) if TERMINAL_PATH else mt5.initialize()
     if not init_ok:
@@ -1084,6 +1186,10 @@ def main():
 
     log("Bridge started — watching for signals…", GREEN)
 
+    # Push once before the first signal fetch so the server's very first refresh
+    # already has MT5 bars rather than spending a cycle on the Yahoo fallback.
+    push_candles(force=True)
+
     while True:
         try:
             # Read the kill switch BEFORE looking at signals, so a halt takes effect
@@ -1092,6 +1198,9 @@ def main():
             # not abandon open trades.
             check_remote_control()
             refresh_strategy_settings()
+            # Before fetching signals, so the bars the server is about to compute
+            # from are the freshest this bridge has seen.
+            push_candles()
             data = fetch_signals()
             if data:
                 print_status(data)

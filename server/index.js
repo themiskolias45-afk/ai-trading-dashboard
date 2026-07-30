@@ -136,6 +136,14 @@ const API_NO_LOGIN_REQUIRED = new Set([
   // Pure calculation: it validates and sizes a hypothetical trade and mutates
   // nothing, so exposing it grants no power over the account.
   "/api/size",
+  // Session-free because the bridge has no browser, but the POST additionally
+  // carries requireLocalOnly — unlike the other bridge endpoints, which only
+  // REPORT state, this one FEEDS the signal engine. An unauthenticated writer
+  // could push fabricated bars and manufacture a high-confidence signal that
+  // every auto-mode bridge would then execute. Reachable from the internet on
+  // the VPS, so the localhost restriction is the control that matters here; the
+  // bridge always runs on the same machine as the server.
+  "/api/mt5/candles",
 ]);
 
 // Paths the MT5 bridge must READ without a browser session, but which must never
@@ -225,6 +233,29 @@ let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, 
 let sentimentCache = { fearGreed: 50, classification: "Neutral", btcSentiment: "NEUTRAL", newsHeadlines: [], updated: null };
 let signalCache   = { btc: null, gold: null, spx: null, updatedAt: null };
 let signalHistory = [];   // last 100 signal cycles — full confidence + reasons per asset
+
+// Native bars pushed up from mt5_bridge.py, keyed by asset key (btc/gold/spx):
+//   { symbol, bars: { d1: {closes,highs,lows,volumes}, h4: {...}, h1: {...} }, receivedAt }
+// The bridge is the only process that can see MT5, so this is the only route by
+// which the signal engine can read the instrument it actually trades. Preferred
+// over Yahoo when fresh and deep enough; see pickCandleSource().
+let mt5CandleCache = {};
+
+// Yahoo tickers the signal engine is written against → asset keys used everywhere
+// else. Declared once so the ingest endpoint and refreshSignals agree; a mismatch
+// here would silently route XAUUSD bars into the BTC signal.
+const ASSET_KEY_BY_TICKER = { "BTC-USD": "btc", "GC=F": "gold", "^GSPC": "spx" };
+
+// A daily series shorter than this leaves ema200 null, which pins `trend` to
+// "MIXED" and makes MOMENTUM, BREAKOUT and TREND_FOLLOW unreachable — the exact
+// starvation that DAILY_RANGE_BY_SYMBOL exists to work around on the Yahoo path.
+// Rather than repeat that bug with a new data source, short MT5 series are refused
+// and the asset falls back to Yahoo.
+const MT5_MIN_BARS = { d1: 200, h4: 50, h1: 50 };
+
+// Past this age the bridge is assumed down or wedged and Yahoo takes over. Signals
+// refresh far more often than this, so a healthy bridge never comes close.
+const MT5_CANDLE_MAX_AGE_MS = 15 * 60 * 1000;
 let dailyPlan     = null;
 let tvAlerts      = [];
 let congressCache = null;
@@ -1389,6 +1420,40 @@ async function fetchPrices() {
   } catch (e) { console.error("fetchPrices:", e.message); }
 }
 
+// ── MT5 candle ingest / selection ─────────────────────────────
+
+// Every indicator indexes closes/highs/lows in lockstep, so a ragged set would
+// misalign highs against closes and silently corrupt ATR, swing points and the
+// structural stop. Length equality is checked, not assumed.
+function sanitizeBars(bars, minBars) {
+  if (!bars || typeof bars !== "object") return null;
+  const { closes, highs, lows, volumes } = bars;
+  const usable = (series) => Array.isArray(series)
+    && series.length >= minBars
+    && series.every(v => typeof v === "number" && Number.isFinite(v));
+  if (!usable(closes) || !usable(highs) || !usable(lows)) return null;
+  if (highs.length !== closes.length || lows.length !== closes.length) return null;
+  // Volumes are optional: some brokers report tick_volume only on some symbols.
+  // An empty array makes volRatio null and volConfirmed false, which disables the
+  // volume-confirmed setups rather than inventing confirmation from zeros.
+  const alignedVolumes = (usable(volumes) && volumes.length === closes.length) ? volumes : [];
+  return { closes, highs, lows, volumes: alignedVolumes };
+}
+
+// Returns the MT5 bar set for an asset, or null to mean "use Yahoo". Bars are
+// sanitized on ingest, so this only decides freshness and completeness.
+function mt5BarsFor(assetKey) {
+  const entry = mt5CandleCache[assetKey];
+  if (!entry) return null;
+  if (Date.now() - new Date(entry.receivedAt).getTime() > MT5_CANDLE_MAX_AGE_MS) return null;
+  // No usable daily series means no signal at all — generateSignalMTF requires it —
+  // so there is nothing to gain from taking H4/H1 from MT5 and daily from Yahoo.
+  // Mixing feeds across timeframes is also how entry and stop ended up on
+  // different instruments before; keep one source per asset per cycle.
+  if (!entry.bars?.d1) return null;
+  return { symbol: entry.symbol, daily: entry.bars.d1, h4: entry.bars.h4, h1: entry.bars.h1 };
+}
+
 async function refreshSignals() {
   console.log("[signals] Refreshing all assets in PARALLEL (Daily + 4H + 1H)…");
   const assets = [
@@ -1405,17 +1470,47 @@ async function refreshSignals() {
 
   await Promise.all(assets.map(async (a) => {
     try {
-      const [daily, h4, h1] = await Promise.allSettled([
-        fetchCandles(a.symbol),
-        fetchCandles4H(a.symbol),
-        fetchCandles1H(a.symbol)
-      ]);
-      const dailyData = daily.status === "fulfilled" ? daily.value : null;
-      const h4Data    = h4.status    === "fulfilled" ? h4.value    : null;
-      const h1Data    = h1.status    === "fulfilled" ? h1.value    : null;
+      // MT5 first: those are the bars for the symbol this asset is actually filled
+      // on. Yahoo is the fallback for when no bridge is running, its series is too
+      // short for EMA200, or its last push has gone stale.
+      const mt5Bars = mt5BarsFor(a.key);
+      let dailyData, h4Data, h1Data, dataSource, sourceSymbol;
+
+      if (mt5Bars) {
+        dailyData    = mt5Bars.daily;
+        h4Data       = mt5Bars.h4;
+        h1Data       = mt5Bars.h1;
+        dataSource   = "mt5";
+        sourceSymbol = mt5Bars.symbol;
+      } else {
+        const [daily, h4, h1] = await Promise.allSettled([
+          fetchCandles(a.symbol),
+          fetchCandles4H(a.symbol),
+          fetchCandles1H(a.symbol)
+        ]);
+        dailyData    = daily.status === "fulfilled" ? daily.value : null;
+        h4Data       = h4.status    === "fulfilled" ? h4.value    : null;
+        h1Data       = h1.status    === "fulfilled" ? h1.value    : null;
+        dataSource   = "yahoo";
+        sourceSymbol = a.symbol;
+      }
+
       if (!dailyData) { console.error(`[signals] ${a.label}: no daily data`); return; }
       const dxyForAsset = a.key === "gold" ? dxyDailyCloses : null;
       signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data, dxyForAsset);
+      // Stamped on the signal so every consumer — dashboard, bridge, daily plan —
+      // can tell which instrument produced these levels. Without this, a Gold
+      // signal carrying futures levels is indistinguishable from one carrying spot
+      // levels, and that ambiguity is what made the entry/stop mismatch invisible.
+      if (signalCache[a.key]) {
+        signalCache[a.key].dataSource   = dataSource;
+        signalCache[a.key].sourceSymbol = sourceSymbol;
+        signalCache[a.key].bars = {
+          d1: dailyData.closes.length,
+          h4: h4Data?.closes.length ?? 0,
+          h1: h1Data?.closes.length ?? 0,
+        };
+      }
       const s = signalCache[a.key];
       console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) conf:${s?.confidence}% regime:${s?.regime} vol:${s?.volume?.ratio ?? "?"}x`);
     } catch (e) {
@@ -1770,6 +1865,88 @@ app.delete("/api/manual-trade/:idx",  (req, res) => {
   if (isNaN(idx) || idx < 0 || idx >= manualTradeQueue.length) return res.status(400).json({ error: "invalid index" });
   manualTradeQueue.splice(idx, 1);
   res.json({ ok: true, remaining: manualTradeQueue.length });
+});
+
+// Native D1/H4/H1 bars pushed up by mt5_bridge.py for the symbols it actually
+// trades. Validated hard on the way in: a payload that fails is rejected outright
+// rather than stored partially, because a short or ragged series does not produce a
+// missing signal — it produces a confident-looking signal computed from garbage.
+// Per-asset, so one bad symbol never blocks the other two.
+app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
+  const assets = req.body?.assets;
+  if (!assets || typeof assets !== "object") {
+    return res.status(400).json({ error: "assets object required" });
+  }
+  const account  = typeof req.body?.account === "string" ? req.body.account : "default";
+  const accepted = {};
+  const rejected = {};
+
+  for (const [ticker, payload] of Object.entries(assets)) {
+    const assetKey = ASSET_KEY_BY_TICKER[ticker];
+    if (!assetKey) { rejected[ticker] = "unknown ticker"; continue; }
+
+    const symbol = typeof payload?.symbol === "string" && payload.symbol.trim()
+      ? payload.symbol.trim() : null;
+    if (!symbol) { rejected[ticker] = "missing broker symbol"; continue; }
+
+    const daily = sanitizeBars(payload?.bars?.d1, MT5_MIN_BARS.d1);
+    if (!daily) {
+      rejected[ticker] = `daily series unusable or under ${MT5_MIN_BARS.d1} bars`;
+      continue;
+    }
+
+    mt5CandleCache[assetKey] = {
+      symbol,
+      account,
+      bars: {
+        d1: daily,
+        h4: sanitizeBars(payload?.bars?.h4, MT5_MIN_BARS.h4),
+        h1: sanitizeBars(payload?.bars?.h1, MT5_MIN_BARS.h1),
+      },
+      receivedAt: new Date().toISOString(),
+    };
+    accepted[assetKey] = {
+      symbol,
+      d1: daily.closes.length,
+      h4: mt5CandleCache[assetKey].bars.h4?.closes.length ?? 0,
+      h1: mt5CandleCache[assetKey].bars.h1?.closes.length ?? 0,
+    };
+  }
+
+  if (Object.keys(rejected).length) {
+    console.warn(`[mt5-candles] rejected from ${account}:`, rejected);
+  }
+  if (Object.keys(accepted).length) {
+    console.log(`[mt5-candles] accepted from ${account}:`,
+      Object.entries(accepted).map(([k, v]) => `${k}=${v.symbol}(${v.d1}/${v.h4}/${v.h1})`).join(" "));
+  }
+  res.json({ ok: true, accepted, rejected });
+});
+
+// What the signal engine is currently reading per asset, and why. Exists because
+// "which instrument produced this signal" was previously unanswerable from outside
+// the process — the dashboard showed Gold levels with no way to tell they came from
+// a futures series rather than the spot symbol being filled.
+app.get("/api/mt5/candles", (_, res) => {
+  const sources = {};
+  for (const [ticker, assetKey] of Object.entries(ASSET_KEY_BY_TICKER)) {
+    const entry = mt5CandleCache[assetKey];
+    const live  = mt5BarsFor(assetKey);
+    sources[assetKey] = {
+      yahooTicker: ticker,
+      brokerSymbol: entry?.symbol ?? null,
+      receivedAt: entry?.receivedAt ?? null,
+      ageMs: entry ? Date.now() - new Date(entry.receivedAt).getTime() : null,
+      bars: entry ? {
+        d1: entry.bars.d1?.closes.length ?? 0,
+        h4: entry.bars.h4?.closes.length ?? 0,
+        h1: entry.bars.h1?.closes.length ?? 0,
+      } : null,
+      inUse: Boolean(live),
+      activeSource: live ? "mt5" : "yahoo",
+    };
+  }
+  res.json({ sources, maxAgeMs: MT5_CANDLE_MAX_AGE_MS, minBars: MT5_MIN_BARS });
 });
 
 // MT5 bridge endpoints — each bridge instance tags its posts with its own account
