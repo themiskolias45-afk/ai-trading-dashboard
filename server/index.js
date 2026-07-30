@@ -1092,27 +1092,54 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     confidence = allStrong ? 97 : 88;
   }
 
+  // The timeframe that actually produced this signal. Everything below reads
+  // quality off it rather than off `daily` unconditionally.
+  //
+  // This is the fix for a cohort that was dead by arithmetic. In the H4-only case
+  // `daily.signal` is "WAIT" by definition — that is what isH4Only MEANS — so the
+  // volume boost below could never apply to it, and the setup boosts were skipped
+  // outright by an `if (!isH4Only)` guard. That made the H4-only confidences above
+  // terminal values, not starting points: BTC STRONG was pinned at 63 against a 65
+  // gate and SPX at 45, while the comments beside them claimed a "small quality
+  // boost" and "exceptional quality boosts" would lift them over. No such boost
+  // existed. Measured live 2026-07-30: BTC sat at exactly 63 with H4 reading BUY /
+  // STRONG UPTREND, two points short, unable to move.
+  //
+  // Reading quality from h4 in the H4-only case is the same principle the entry,
+  // stop and target already follow (see the entry/stop selection below) — all legs
+  // of an H4-only trade come from the H4 timeframe, and confidence is now no
+  // exception. This does not lower the gate; it restores the intended path to it.
+  const signalTf = isH4Only ? h4 : daily;
+
   // Volume confirmation boost
-  if (daily.volume?.confirmed && (daily.signal === "BUY" || daily.signal === "SELL")) {
+  if (signalTf.volume?.confirmed && (signalTf.signal === "BUY" || signalTf.signal === "SELL")) {
     confidence = Math.min(100, confidence + 5);
   }
 
-  // Setup quality boost — daily setups only (H4-only entries have daily.setup="WAIT", no boost)
-  if (!isH4Only) {
-    if (daily.setup === "BREAKOUT"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 7);
-    if (daily.setup === "SQUEEZE_BREAKOUT" && daily.volume?.confirmed) confidence = Math.min(100, confidence + 10);
-    if (daily.setup === "DIVERGENCE"       && daily.strength === "STRONG") confidence = Math.min(100, confidence + 6);
-    if (daily.setup === "MOMENTUM"         && daily.volume?.confirmed) confidence = Math.min(100, confidence + 5);
-    if (daily.setup === "BUY_DIP"          && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
-    if (daily.setup === "SELL_BOUNCE"      && daily.strength === "STRONG") confidence = Math.min(100, confidence + 3);
+  // Setup quality boost
+  if (signalTf.setup === "BREAKOUT"         && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 7);
+  if (signalTf.setup === "SQUEEZE_BREAKOUT" && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 10);
+  if (signalTf.setup === "DIVERGENCE"       && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 6);
+  if (signalTf.setup === "MOMENTUM"         && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 5);
+  if (signalTf.setup === "BUY_DIP"          && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 3);
+  if (signalTf.setup === "SELL_BOUNCE"      && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 3);
 
-    // Self-learning boost — system learns from past trades on this setup
-    const learnBoost = getLearningBoost(daily.setup);
-    if (learnBoost !== 0) {
-      confidence = Math.max(0, Math.min(100, confidence + learnBoost));
-      if (learnBoost > 0) daily.reasons.push(`✅ Learned: ${daily.setup} performing above avg (+${learnBoost})`);
-      else daily.reasons.push(`⚠ Learned: ${daily.setup} underperforming (${learnBoost})`);
-    }
+  // Self-learning boost — system learns from past trades on this setup.
+  // Reasons are always pushed onto daily.reasons because that is the array the
+  // returned object carries (the spread below is `...daily`), regardless of which
+  // timeframe supplied the setup.
+  const learnBoost = getLearningBoost(signalTf.setup);
+  if (learnBoost !== 0) {
+    confidence = Math.max(0, Math.min(100, confidence + learnBoost));
+    if (learnBoost > 0) daily.reasons.push(`✅ Learned: ${signalTf.setup} performing above avg (+${learnBoost})`);
+    else daily.reasons.push(`⚠ Learned: ${signalTf.setup} underperforming (${learnBoost})`);
+  }
+
+  // Name the source timeframe on H4-only entries. Without this the dashboard shows
+  // a daily setup of "WAIT" beside a live BUY and there is no way to tell which
+  // timeframe the levels came from.
+  if (isH4Only) {
+    daily.reasons.push(`4H entry: ${h4.setup} ${h4.signal} (${h4.strength}) — daily has no setup`);
   }
 
   // Preliminary signal for macro filter checks
