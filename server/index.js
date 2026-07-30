@@ -632,10 +632,8 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // was found or not. BREAKOUT, MOMENTUM, TREND_FOLLOW, RANGE_TRADE_LONG/SHORT
   // and SQUEEZE_BREAKOUT were unreachable on Gold's daily timeframe; hoisting the
   // detection makes those six reachable again.
-  // NOT fixed by this: the SQUEEZE_BREAKOUT branch below carries the identical
-  // defect — a broad (bb && volConfirmed && macd) guard with the real test inside
-  // — so it still swallows Gold on a non-match, and BB_SQUEEZE_WATCH plus the
-  // diagnostic WAIT branch remain unreachable with an empty reasons array.
+  // The SQUEEZE_BREAKOUT branch carried the identical defect and is now hoisted the
+  // same way — see the squeeze-breakout detection below.
   const DIVERGENCE_LOOKBACK = 30;
   let divergence = null;
   if (dxyCloses && dxyCloses.length >= DIVERGENCE_LOOKBACK && volConfirmed && rsi !== null) {
@@ -656,6 +654,32 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
       divergence = { direction: "BUY",  dxyNow, dxyReference: dxyPriorHigh };
     } else if (assetNewHigh && dxyFailedLow && rsi > 65) {
       divergence = { direction: "SELL", dxyNow, dxyReference: dxyPriorLow };
+    }
+  }
+
+  // ── BB squeeze-breakout detection ────────────────────────────
+  // Hoisted out of the setup chain for the same reason DIVERGENCE was: the branch
+  // used to be guarded by (bb && closes.length >= 60 && volConfirmed && macd) with
+  // the real bandwidth-expansion test nested inside. Gold clears volConfirmed on
+  // nearly every cycle (contract volume against a continuous-series average runs
+  // ~18x), so Gold entered that branch on almost every pass and — being an else-if
+  // — terminated the chain whether a breakout was found or not. That left
+  // BB_SQUEEZE_WATCH and the diagnostic WAIT branch below unreachable on Gold,
+  // which is why its signal came back with setup "WAIT" and an EMPTY reasons array:
+  // the dashboard had nothing to display. Detecting here means a non-breakout falls
+  // through to those two branches.
+  const SQUEEZE_PRIOR_BANDWIDTH_MAX = 10;  // prior-window bandwidth that counts as compressed
+  const SQUEEZE_LOOKBACK_BARS       = 5;   // bars back for the pre-expansion reading
+  const SQUEEZE_MIN_BARS            = 60;  // need enough history for a stable prior BB
+  let squeezeBreakout = null;
+  if (bb && closes.length >= SQUEEZE_MIN_BARS && volConfirmed && macd) {
+    const priorBB = calcBB(closes.slice(0, -SQUEEZE_LOOKBACK_BARS));
+    if (priorBB && priorBB.bandwidth < SQUEEZE_PRIOR_BANDWIDTH_MAX && bb.bandwidth > priorBB.bandwidth) {
+      if (price > bb.upper && macd.bullish) {
+        squeezeBreakout = { direction: "BUY",  priorBandwidth: priorBB.bandwidth };
+      } else if (price < bb.lower && !macd.bullish) {
+        squeezeBreakout = { direction: "SELL", priorBandwidth: priorBB.bandwidth };
+      }
     }
   }
 
@@ -843,34 +867,33 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   }
 
   // ── SQUEEZE_BREAKOUT: price breaks out of BB squeeze with volume + MACD ─
-  else if (bb && closes.length >= 60 && volConfirmed && macd) {
-    const bb5 = calcBB(closes.slice(0, -5));
-    if (bb5 && bb5.bandwidth < 10 && bb.bandwidth > bb5.bandwidth) {
-      if (price > bb.upper && macd.bullish) {
-        setup  = "SQUEEZE_BREAKOUT";
-        signal = "BUY";
-        const sl = atrStop2x ? parseFloat((entry - atrStop2x).toFixed(2))
-                              : parseFloat((bb.upper * 0.985).toFixed(2));
-        stop   = sl;
-        target = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
-        strength = (volRatio !== null && volRatio >= 2.0) ? "STRONG" : "MODERATE";
-        reasons.push(`BB squeeze breakout — bandwidth expanded ${bb5.bandwidth}% -> ${bb.bandwidth}%`);
-        reasons.push(`Close above BB upper ${bb.upper} — confirmed bullish breakout`);
-        reasons.push(`Volume ${volRatio}x avg — institutional momentum`);
-        if (macd.crossed) reasons.push(`MACD bullish crossover — fresh momentum`);
-      } else if (price < bb.lower && !macd.bullish) {
-        setup  = "SQUEEZE_BREAKOUT";
-        signal = "SELL";
-        const sl = atrStop2x ? parseFloat((entry + atrStop2x).toFixed(2))
-                              : parseFloat((bb.lower * 1.015).toFixed(2));
-        stop   = sl;
-        target = parseFloat((entry - Math.abs(sl - entry) * 2.5).toFixed(2));
-        strength = (volRatio !== null && volRatio >= 2.0) ? "STRONG" : "MODERATE";
-        reasons.push(`BB squeeze breakdown — bandwidth expanded ${bb5.bandwidth}% -> ${bb.bandwidth}%`);
-        reasons.push(`Close below BB lower ${bb.lower} — confirmed bearish breakdown`);
-        reasons.push(`Volume ${volRatio}x avg — institutional selling`);
-      }
-    }
+  // Detection ran above; these two branches are entered only on an actual match,
+  // so a non-breakout cycle now continues down the chain to BB_SQUEEZE_WATCH.
+  else if (squeezeBreakout && squeezeBreakout.direction === "BUY") {
+    setup  = "SQUEEZE_BREAKOUT";
+    signal = "BUY";
+    const sl = atrStop2x ? parseFloat((entry - atrStop2x).toFixed(2))
+                          : parseFloat((bb.upper * 0.985).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
+    strength = (volRatio !== null && volRatio >= 2.0) ? "STRONG" : "MODERATE";
+    reasons.push(`BB squeeze breakout — bandwidth expanded ${squeezeBreakout.priorBandwidth}% -> ${bb.bandwidth}%`);
+    reasons.push(`Close above BB upper ${bb.upper} — confirmed bullish breakout`);
+    reasons.push(`Volume ${volRatio}x avg — institutional momentum`);
+    if (macd.crossed) reasons.push(`MACD bullish crossover — fresh momentum`);
+  }
+
+  else if (squeezeBreakout && squeezeBreakout.direction === "SELL") {
+    setup  = "SQUEEZE_BREAKOUT";
+    signal = "SELL";
+    const sl = atrStop2x ? parseFloat((entry + atrStop2x).toFixed(2))
+                          : parseFloat((bb.lower * 1.015).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry - Math.abs(sl - entry) * 2.5).toFixed(2));
+    strength = (volRatio !== null && volRatio >= 2.0) ? "STRONG" : "MODERATE";
+    reasons.push(`BB squeeze breakdown — bandwidth expanded ${squeezeBreakout.priorBandwidth}% -> ${bb.bandwidth}%`);
+    reasons.push(`Close below BB lower ${bb.lower} — confirmed bearish breakdown`);
+    reasons.push(`Volume ${volRatio}x avg — institutional selling`);
   }
 
   // ── BB_SQUEEZE_WATCH: tight squeeze — flag pending breakout ──────
