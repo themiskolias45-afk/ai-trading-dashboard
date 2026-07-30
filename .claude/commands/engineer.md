@@ -1,104 +1,79 @@
-Spawn real parallel Claude sub-agents to build complex systems simultaneously. Usage: /engineer [task]
+Parallel AI engineering for SmartEntry Pro. Usage: /engineer [task]
 
-$ARGUMENTS is the task. You are the architect and integrator. Sub-agents build in parallel.
+$ARGUMENTS is the task. You are the architect. Sub-agents build in parallel using the Agent tool.
 
-═══ STEP 0 — DECIDE ═══
-Is this actually parallel work?
-- 1 file, 1 feature → do it yourself directly, skip the rest
-- 2+ independent components with no file overlap → use parallel agents
+═══ STEP 0 — SCOPE CHECK ═══
+- Single file, single function → do it yourself, skip parallel
+- 2+ independent components, no file overlap → use parallel agents below
+- Touches signal logic OR risk gate OR lot sizing → show plan and wait for approval first
 
-═══ STEP 1 — ARCHITECT FIRST ═══
+═══ STEP 1 — ARCHITECT ═══
 Before spawning anything:
-1. Read EVERY file that will be touched — full reads, no skimming
-2. Break into independent workstreams (2–5 max)
-3. Each workstream must own SPECIFIC FILES with ZERO overlap
-4. Define the exact interface between components (function names, API routes, data shapes)
-5. Write the plan to tasks/engineer-plan.md — include file ownership and interface contracts
-6. Create a TaskCreate for each workstream
+1. Read EVERY file that will be touched — full reads, front to back.
+2. Identify 2–5 independent workstreams. Each must own SPECIFIC files with ZERO overlap.
+3. Define the exact interface between them: function names, API routes, data shapes, return types.
+4. Write the plan to tasks/engineer-plan.md — file ownership + interface contracts.
+5. TaskCreate for each workstream. Set status: in_progress when spawning.
 
-Only spawn after the plan is written and every interface is defined.
+Only spawn after plan is written and every interface is defined.
 
 ═══ STEP 2 — SPAWN PARALLEL AGENTS ═══
-Each agent prompt MUST include built-in quality gates:
+Use the Agent tool to launch all workstreams simultaneously in a SINGLE response.
+Each agent uses subagent_type: "builder". Pass a self-contained prompt per agent.
 
-```powershell
-$workstreams = @(
-  @{
-    name  = "agent1"
-    files = "[exact files — space separated]"
-    task  = "[exactly what to build]"
-    check = "[exact verify command: e.g. node --check server/index.js]"
-  },
-  @{
-    name  = "agent2"
-    files = "[different files — no overlap with agent1]"
-    task  = "[exactly what to build]"
-    check = "[verify command]"
-  }
-)
+Each agent prompt must include:
 
-$jobs = @()
-foreach ($ws in $workstreams) {
-    $prompt = @"
-SmartEntry Pro sub-engineer. Single task, then stop.
+```
+SmartEntry Pro sub-engineer — one task, then stop.
 
-TASK: $($ws.task)
-YOUR FILES: $($ws.files)
+TASK: [exactly what to build — specific, not vague]
+YOUR FILES: [exact file paths — space separated]
 TOUCH NOTHING ELSE.
+INTERFACE CONTRACT: [function signatures / API shapes this agent must match]
+VERIFY COMMAND: [node --check file.js OR python -m py_compile file.py]
 
 MANDATORY STEPS IN ORDER:
-1. Read EVERY assigned file front to back before touching anything.
-2. Build the feature — minimal, correct, no bloat.
-3. Handle every failure case: null, empty, network down, file missing.
-4. After editing: run $($ws.check) — fix any error before proceeding.
-5. Scan for hardcoded secrets (sk-ant-, password=, apikey=) — use env vars only.
-6. git add $($ws.files) — only your files.
-7. git commit -m 'engineer: [what you built]'
-8. Run $($ws.check) one final time to confirm the committed code is clean.
+1. Read every assigned file front to back before writing one line.
+2. Write CHANGING/NOW/AFTER/RISK for each function you will edit.
+   If RISK touches signal generation, risk gate, lot sizing, or stop logic → output
+   "RISK-HIGH: [description]" and STOP. Do not implement.
+3. Implement — minimal and correct. No abstractions beyond what the task requires.
+4. Handle every failure: null, undefined, empty array, network timeout, file missing.
+5. Run VERIFY COMMAND — if it fails, fix and re-run. Never continue with broken syntax.
+6. Scan edited files for secrets (sk-ant-, AKIA, password=) — fix any found.
+7. git add [only YOUR FILES] && git commit -m "engineer: [what was built]"
+8. Run VERIFY COMMAND one final time on the committed code.
 
-REPORT FORMAT (required):
-STATUS: DONE / BLOCKED
-BUILT: [one line what was implemented]
-VERIFIED: [result of check command]
+REPORT (required — exact format):
+STATUS: DONE / BLOCKED / RISK-HIGH
+BUILT: [one line]
+VERIFIED: [exact output of verify command]
 COMMITTED: [git hash]
-ISSUES: [any problems found, or NONE]
-
-If BLOCKED: explain exactly why and what you need.
-"@
-    $jobs += Start-Job -Name $ws.name -ScriptBlock {
-        param($p)
-        Set-Location 'C:\Users\User\ai-trading-dashboard'
-        & claude -p $p --dangerously-skip-permissions 2>&1
-    } -ArgumentList $prompt
-}
-
-Write-Host "[$($jobs.Count) agents running in parallel]"
-$jobs | Wait-Job | Out-Null
-$results = @{}
-$jobs | ForEach-Object { $results[$_.Name] = Receive-Job $_; Remove-Job $_ }
-$results.GetEnumerator() | ForEach-Object { Write-Host "=== $($_.Key) ==="; Write-Host $_.Value }
-Write-Host "[All agents complete — now verifying]"
+RISK-NOTES: [anything to review, or NONE]
 ```
 
-═══ STEP 3 — VERIFY EVERY AGENT ═══
-For each agent result:
-1. Did it report DONE or BLOCKED?
-2. Run: node --check on every .js file touched
-3. Run: python -m py_compile on every .py file touched
-4. git log --oneline -10 to see what each agent committed
-5. If BLOCKED or broken code: fix it yourself immediately — never ship broken work
+Launch all agents in ONE response turn. Do not wait for one before spawning the next.
+Max 5 parallel agents.
 
-═══ STEP 4 — INTEGRATE & TEST ═══
-1. Wire all components together
-2. Test end-to-end: curl key endpoints, verify data flows correctly
-3. Final commit: "engineer: integrate [what was built]"
-4. Update all tasks to COMPLETED
-5. Report: what was built, verified, and committed
+═══ STEP 3 — VERIFY RESULTS ═══
+For each agent that reports DONE:
+1. Run node --check on every .js file it touched.
+2. Run python -m py_compile on every .py file it touched.
+3. git log --oneline -5 to confirm commit landed.
+4. If agent reported BLOCKED → fix it yourself immediately.
+5. If agent reported RISK-HIGH → review the specific concern, decide, then implement or reject.
+
+═══ STEP 4 — INTEGRATE & SHIP ═══
+1. Wire all components: import/require, route registration, data flows.
+2. End-to-end test: curl the affected API endpoints, verify response shape.
+3. git commit -m "engineer: integrate [what was built]"
+4. TaskUpdate all workstreams to completed.
+5. Final report: what was built, what was verified, what remains.
 
 ═══ RULES ═══
-- Never spawn without tasks/engineer-plan.md written first
-- Each agent owns specific files — zero overlap
-- Every agent must verify its own work before committing
-- If any agent produces broken syntax: fix before moving on
-- Never auto-apply changes to signal engine or risk management without approval
-- Max 5 parallel agents
+- Plan first. Never spawn without tasks/engineer-plan.md written.
+- Zero file overlap between agents — conflicts destroy work.
+- Every agent verifies its own syntax before committing.
+- Signal/risk/lot/stop logic always requires explicit approval before implementation.
+- If any agent produces broken syntax: fix before moving on.
+- Code-reviewer agent runs automatically on any server/index.js changes.

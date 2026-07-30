@@ -17,6 +17,16 @@ STEP 1 — SYSTEM HEALTH (deep check, parallel):
 
   Flag anything that fails as ERROR-[severity]: CRITICAL / HIGH / LOW
 
+  SIGNAL-DEAD CHECK (run immediately, per asset):
+    mcp__smartentry__get_journal limit=200 → find last trade date per asset (BTC, GOLD, SPX)
+    mcp__smartentry__get_signals → get current confidence per asset
+    Calculate: days since last confidence ≥ 65% per asset.
+    SIGNAL-DEAD = > 7 days without signal. Flag as CRITICAL.
+    SIGNAL-SLOW = 4-7 days. Flag as HIGH.
+    SIGNAL-OK = < 4 days. Log and continue.
+    If SIGNAL-DEAD: check if daily.signal=WAIT AND h4.signal=WAIT — market flat?
+    Or is confidence 40-64 (calibration borderline — near but not firing)?
+
 STEP 2 — DEEP ERROR SEARCH:
   Read the LAST 200 lines of each log that exists:
     tasks\logs\server_log.txt
@@ -111,6 +121,7 @@ DAILY REPORT FORMAT:
 DAILY CHECK — [date] [time]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 HEALTH:    [X/6 green] | Signals: [BTC/GOLD/SPX status] | Halted: [Y/N]
+SIGNAL AGE: BTC [N days] [DEAD/SLOW/OK] | GOLD [N days] | SPX [N days]
 ERRORS:    [X found — X TRADING-IMPACT, X SYSTEM, X COSMETIC]
 CODE:      [CLEAN / ERRORS: list files]
 
