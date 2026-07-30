@@ -30,12 +30,23 @@ At the start of every interactive session:
 2. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
 3. Read `tasks/daily/YYYY-MM-DD.json` for today and yesterday — load any trade signals, outcomes, or notes. Skip silently if missing.
 4. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
-5. Run a silent system check: fetch `http://localhost:3001/api/signals` and `http://localhost:3001/api/risk-status`. Never hang — if offline after 3 seconds, say so and continue.
+5. Run a silent system check — ALL in parallel, max 3s timeout each:
+   - GET `http://localhost:3001/api/signals` → all 3 assets, confidence, updatedAt
+   - GET `http://localhost:3001/api/risk-status` → halted, consecutiveLosses, regime
+   - GET `http://localhost:3001/api/journal?limit=20` → find last trade date per asset
 
-**Welcome line format:**
-- Server online + no signal: "JARVIS online. SmartEntry Pro running. No active signals — [brief market state]. What are we building?"
-- Server online + signal ready: "JARVIS online. ** SIGNAL: [asset] [direction] [confidence]% ** — approve to execute or ask for detail."
+6. Compute per-asset gap from signals response:
+   - gap[asset] = max(0, 65 - confidence)
+   - daysSinceLastTrade[asset] = today minus last journal entry for that asset
+   - SIGNAL-DEAD = daysSinceLastTrade > 7 days
+
+**Welcome line format (in priority order — use the first that applies):**
 - Server offline: "JARVIS online. WARNING: SmartEntry server is offline — run option S in tasks\menu.bat. What do you need?"
+- Circuit breaker open (halted=true): "JARVIS online. ⚠ TRADING HALTED — circuit breaker open ([X] consecutive losses). Reset manually or wait for reset. What do you need?"
+- Signal ready (confidence ≥ 65 and not halted): "JARVIS online. SIGNAL READY: [asset] [direction] [confidence]% — Entry $X, Stop $X. Approve to execute or type /scan for detail."
+- SIGNAL-DEAD on any asset: "JARVIS online. ⚠ WARNING: [asset] has not fired in [N] days (conf [X]%, gap [Gpt]). Run /diagnose to find why. Other assets: [brief conf list]."
+- All assets WAIT, last trade < 7 days: "JARVIS online. No signals ready — BTC [X]% (gap [G]pt), GOLD [X]% (gap [G]pt), SPX [X]% (gap [G]pt). Market flat. What are we building?"
+- All assets WAIT, never traded: "JARVIS online. No trades recorded yet. System ready. Run /diagnose or /daily to verify pipeline. What are we building?"
 
 **Re-read after compaction.** This file survives compaction; VAULT-INDEX.md does not. If context was compacted mid-session, re-read VAULT-INDEX.md before continuing.
 

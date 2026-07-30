@@ -7,6 +7,12 @@ STEP 1 — Load memory and yesterday (in parallel):
   mcp__smartentry__get_daily_note date=yesterday       → yesterday's session log
   mcp__smartentry__get_performance                     → recent performance stats
 
+STEP 1b — SIGNAL-DEAD CHECK (run immediately, before anything else):
+  mcp__smartentry__get_journal limit=200 → find last trade date per asset
+  Calculate days since last confidence ≥ 65% fired per asset.
+  If any asset > 5 days: flag — this goes at the TOP of the morning brief, not buried.
+  If any asset > 7 days: this is SIGNAL-DEAD — morning brief opens with a WARNING block.
+
 STEP 2 — Get live data (in parallel):
   mcp__smartentry__get_signals       → all three assets
   mcp__smartentry__get_risk_status   → regime, session, circuit breaker
@@ -23,6 +29,21 @@ STEP 4 — Deliver the brief:
 SMARTENTRY PRO — MORNING BRIEF [today's date]
 ---
 
+[If any asset is SIGNAL-DEAD (> 7 days) — show this block FIRST:]
+⚠ SIGNAL-DEAD: [asset] has not fired in [N] days. Run /diagnose to find root cause.
+
+SIGNAL STATUS:
+• BTC:  [conf]% | [READY/WAIT — gap Xpt] | last traded [N days ago]
+• GOLD: [conf]% | [READY/WAIT — gap Xpt] | last traded [N days ago]
+• SPX:  [conf]% | [READY/WAIT — gap Xpt] | last traded [N days ago]
+
+[Only show trade levels for assets where confidence ≥ 65%:]
+SIGNALS READY:
+• [ASSET]: [signal] [setup] [confidence]% — Entry $X | Stop $X | Target $X | R/R 1:X
+
+[If no signals ready:]
+NO SIGNALS READY — closest: [asset] at [conf]% ([gap]pt from threshold)
+
 FROM MEMORY:
 • [1-2 most relevant lessons or open setups from memory]
 
@@ -31,11 +52,6 @@ YESTERDAY RECAP:
 
 MARKET REGIME: [regime] | SESSION: [session] | News blackout: [YES/NO]
 PRE-MARKET: [key context from web search]
-
-SIGNALS READY:
-• BTC:  [signal] [setup] [confidence]% — Entry $X | Stop $X | Target $X (or WAIT)
-• GOLD: [signal] [setup] [confidence]% — Entry $X | Stop $X | Target $X (or WAIT)
-• SPX:  [signal] [setup] [confidence]% — Entry $X | Stop $X | Target $X (or WAIT)
 
 RECENT PERFORMANCE (last 10 trades):
 • Win rate: X% | P&L: $X | [streak if any]

@@ -52,7 +52,20 @@ Use when the system is running but not taking any trades. Traces the full signal
     Check tasks\logs\startup_log.txt for any crash patterns.
     If server is restarting every few minutes → it's not stable long enough to fire signals.
 
-  CAUSE H — API KEY EXPIRED OR INVALID:
+  CAUSE H — H4-ONLY CONFIDENCE BUG (old hardcoded value):
+    From signals: if any asset has confidence exactly = 25 while h4.signal ≠ WAIT:
+    → This is the H4-only bug — confidence was hardcoded to 25 (can never reach 65 gate).
+    → Fix: the asset-aware H4-only confidence patch must be applied in generateSignalMTF().
+    → Verify: server/index.js should have `isH4Only` variable and per-asset confidence values
+      (Gold STRONG→68, BTC STRONG→63, SPX→45). If not, the fix was not deployed.
+    → Resolution: git pull on the running server and restart it.
+
+  CAUSE I — H4-ONLY SIGNAL BUT SPX (by design):
+    SPX (^GSPC) H4-only confidence = 45 by design. It will NEVER reach 65% gate alone.
+    This is correct. SPX requires Daily+H4 agreement to fire.
+    If user is puzzled by SPX not trading on H4 momentum alone: explain this is intentional.
+
+  CAUSE J — API KEY EXPIRED OR INVALID:
     If signal generation requires the Claude API (for AI analysis):
     Check tasks\logs\server_log.txt for: 401, 403, "API key", "authentication"
     If API key expired → AI signals return error → system falls back to WAIT.
@@ -84,6 +97,8 @@ FIX APPLIED: [what was changed, or NONE NEEDED if market conditions]
 VERIFIED: [yes — signals now generating / no — still investigating]
 
 NEXT TRADE READINESS:
-  BTC:  confidence [X]% | [READY if ≥65 and not halted / WAITING]
-  GOLD: confidence [X]% | [READY / WAITING]
-  SPX:  confidence [X]% | [READY / WAITING]
+  BTC:  conf [X]% | gap [Gpt] | H4: [signal] | Daily: [signal] | [READY / WAITING — reason]
+  GOLD: conf [X]% | gap [Gpt] | H4: [signal] | Daily: [signal] | [READY / WAITING — reason]
+  SPX:  conf [X]% | gap [Gpt] | H4: [signal] | Daily: [signal] | [READY / WAITING — reason]
+
+  Closest to firing: [asset] at [X]% — needs [Gpt] more (approx [market condition needed])
