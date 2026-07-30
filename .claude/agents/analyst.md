@@ -45,6 +45,23 @@ PHASE 4 — REGIME ANALYSIS:
   Which regime has the best / worst WR?
   Is the system getting most trades in the wrong regime?
 
+PHASE 4b — SIGNAL-DEAD DETECTION:
+  For each asset (BTC/GC=F/^GSPC):
+    From journal: what was the last trade date?
+    From signals: what is the current confidence?
+    Calculate: days since last signal ≥ 65%.
+
+  SIGNAL-DEAD: asset has not generated confidence ≥ 65 in > 7 days.
+  SIGNAL-SLOW: 4-7 days without a signal.
+  SIGNAL-OK: < 4 days.
+
+  For any SIGNAL-DEAD asset:
+    - Is daily.signal always WAIT? (full trend absence)
+    - Is h4.signal always WAIT? (short-term flat)
+    - Is the confidence correct but blocked by regime halt?
+    - Is the confidence stuck below 65 (calibration issue vs market issue)?
+  Output: "SIGNAL-DEAD [asset] — last fired [N] days ago — cause: [one of above]"
+
 PHASE 5 — FAILURE PATTERN ANALYSIS:
   From journal: look at losing trades only.
   - What time of day / session did they occur?
@@ -67,6 +84,11 @@ PHASE 7 — SYNTHESIS:
   3. Calibration drift (wrong confidence = wrong position sizing)
   4. Degrading setups (will get worse if not fixed)
 
+PHASE 6b — SIGNAL-DEAD REPORT:
+  Include in report:
+    SIGNAL STATUS: [asset] [DEAD/SLOW/OK] — last fired [N] days ago — cause: [reason]
+  Any SIGNAL-DEAD asset is CRITICAL regardless of other findings.
+
 REPORT FORMAT:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ANALYSIS REPORT — [focus] — [timestamp]
@@ -84,6 +106,9 @@ CALIBRATION:
   75-84%: expected 75%    | actual [X]% | [status]
   85%+:   expected 85%    | actual [X]% | [status]
   Worst asset for calibration: [asset + tier]
+
+SIGNAL STATUS:
+  [asset]: [DEAD/SLOW/OK] — last fired [N] days ago | cause: [trend absent / regime halt / calibration]
 
 REGIME PERFORMANCE:
   Best:  [regime] — [WR]%

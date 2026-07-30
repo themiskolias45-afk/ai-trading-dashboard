@@ -38,6 +38,13 @@ CHECK 4 — SIGNAL INTEGRITY:
   - If confidence < 65 → direction MUST be WAIT
   Record any mismatch as SIGNAL-INTEGRITY-FAIL: [asset] confidence=[X] but signal=[Y]
 
+  H4-ONLY CONFIDENCE RANGE CHECK (for signals where daily=WAIT but h4≠WAIT):
+  - BTC/ETH H4-only: confidence must be 40-63 (STRONG→63, MODERATE→50, WEAK→40)
+  - GOLD H4-only:    confidence must be 40-68 (STRONG→68, MODERATE→55, WEAK→40)
+  - SPX H4-only:     confidence must be exactly 45 (never fires above 65 — by design)
+  - If any H4-only signal shows confidence 25: SIGNAL-INTEGRITY-FAIL — old hardcoded value
+  - If any H4-only signal shows confidence > 68: SIGNAL-INTEGRITY-FAIL — out of range
+
 CHECK 5 — DATA FRESHNESS:
   From get_signals: check updatedAt timestamp for each asset
   If any asset data is > 60 minutes old → flag as STALE: [asset] last updated [time]
@@ -53,7 +60,7 @@ QA REPORT — [timestamp]
 CHECK 1 SYNTAX:    PASS / FAIL [file: error]
 CHECK 2 SECRETS:   CLEAN / BREACH [file:line: what]
 CHECK 3 API:       PASS / FAIL / OFFLINE [endpoint: reason]
-CHECK 4 SIGNALS:   CALIBRATED / MISMATCH [asset: confidence vs signal]
+CHECK 4 SIGNALS:   CALIBRATED / MISMATCH [asset: confidence vs signal] | H4-ONLY: PASS/FAIL
 CHECK 5 FRESHNESS: FRESH / STALE [asset: age]
 CHECK 6 GIT:       CLEAN / DIRTY [count files]
 ---------------------------

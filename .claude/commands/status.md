@@ -16,9 +16,9 @@ STATUS — [HH:MM]
 SERVER   [ONLINE / OFFLINE]  uptime [Xh Xm]    healer [X/6]
 REGIME   [regime]  session [session]  halted [YES/NO]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-BTC      [signal] [confidence]%  entry $X  stop $X
-GOLD     [signal] [confidence]%  entry $X  stop $X
-SPX      [signal] [confidence]%  entry $X  stop $X
+BTC      [SIGNAL/WAIT] [confidence]%  [if WAIT: gap Xpt | last trade Nd ago]  [if SIGNAL: entry $X  stop $X]
+GOLD     [SIGNAL/WAIT] [confidence]%  [if WAIT: gap Xpt | last trade Nd ago]  [if SIGNAL: entry $X  stop $X]
+SPX      [SIGNAL/WAIT] [confidence]%  [if WAIT: gap Xpt | last trade Nd ago]  [if SIGNAL: entry $X  stop $X]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RISK     daily P&L $X  consecutive losses [X]  open risk [X]%
 CODE     [CLEAN / SYNTAX ERROR in [file]]
