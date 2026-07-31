@@ -326,10 +326,10 @@ indicator("JARVIS Daily Plan — {symbol}", overlay=true, max_lines_count=20, ma
 
 if barstate.islast
     // Draw levels
-    {chr(10)+"    ".join(lines)}
+    {(chr(10)+"    ").join(lines)}
 
     // Labels
-    {chr(10)+"    ".join(label_lines)}
+    {(chr(10)+"    ").join(label_lines)}
 """
     return pine
 
