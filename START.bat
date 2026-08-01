@@ -54,9 +54,17 @@ echo  [3] Opening JARVIS...
 start "" "http://localhost:3001/jarvis"
 timeout /t 2 /nobreak >nul
 
-REM ── Start watchdog ─────────────────────────────────────────────
-echo  [4] Starting watchdog (auto-restarts server if it crashes)...
-start "SmartEntry Watchdog" /min cmd /c "tasks\watchdog.bat"
+REM ── Start watchdog, under a guardian ───────────────────────────
+REM The watchdog restarts the server and the bridges; nothing used to restart the
+REM watchdog. It was launched fire-and-forget here and, once dead, stayed dead —
+REM on 2026-08-01 it lasted ~3 minutes and bridge A then ran blind for 28 while
+REM the healer flagged it correctly and nothing acted. The guardian relaunches it
+REM and is single-instanced by a lock file, so repeat runs of this script cannot
+REM stack supervisors. Its window title is deliberately outside the "SmartEntry
+REM Watchdog*" filter killed at [0] above.
+echo  [4] Starting watchdog guardian (keeps the watchdog alive)...
+taskkill /F /FI "WINDOWTITLE eq SmartEntry Guardian*" >nul 2>&1
+start "SmartEntry Guardian" /min cmd /c "%~dp0tasks\watchdog_guardian.bat"
 
 REM ── Launch both MT5 terminals (dual-account setup) ─────────────
 REM Launching terminal64.exe again when that specific install is already

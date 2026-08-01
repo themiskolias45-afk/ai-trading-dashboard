@@ -17,9 +17,27 @@ set BRIDGE_STARTUP_GRACE_CYCLES=3
 set /a COOL_A=0
 set /a COOL_B=0
 
+REM The watchdog is the thing that restarts everything else, so its own death is the
+REM most expensive silent failure on the box. It used to log only when it ACTED, which
+REM meant a dead watchdog and a perfectly healthy one produced identical logs: nothing.
+REM On 2026-08-01 it died within ~3 minutes of starting and bridge A then sat blind for
+REM 28 minutes with the healer correctly reporting it down and nobody acting on it.
+REM A heartbeat every N cycles makes silence mean death, which is the only way absence
+REM can be an alarm. Keep this well under any alert threshold that reads the log.
+set HEARTBEAT_EVERY_CYCLES=10
+set /a CYCLE=0
+
+REM How long a just-restarted bridge is left alone, in seconds. Must comfortably
+REM exceed a cold start: MT5 terminal launch plus the bridge's 6 x 15s connect retry
+REM loop. Enforced via a marker file so it survives a watchdog restart.
+set BRIDGE_RESTART_COOLDOWN_SEC=180
+
 echo [%date% %time%] Watchdog started. >> tasks\logs\watchdog_log.txt
 
 :loop
+set /a CYCLE+=1
+set /a HB=!CYCLE! %% !HEARTBEAT_EVERY_CYCLES!
+if !HB! EQU 1 echo [!date! !time!] heartbeat - cycle !CYCLE!, watchdog alive. >> tasks\logs\watchdog_log.txt
 REM Check if server responds (5 second timeout)
 curl -s --max-time 5 http://localhost:3001/api/signals >nul 2>&1
 
@@ -49,31 +67,48 @@ if errorlevel 1 (
 REM -- MT5 bridge watchdog - restart only the specific account that went stale --
 REM /api/mt5/health returns 503 only once a PREVIOUSLY-connected bridge goes silent
 REM (never-connected-yet is 200, so a slow first boot never triggers a false restart).
-if !COOL_A! GTR 0 (
+REM The cooldown is a FILE, not just the in-memory counter. COOL_A resets to 0 every
+REM time this script starts, so a watchdog that is itself churning would re-enter the
+REM restart branch on each fresh launch and stack duplicate bridges on a live account
+REM — every signal executed twice, at double risk. The marker file outlives the
+REM process, so the hold-off holds no matter how often the watchdog is restarted.
+call :recent_restart A
+if !RECENT! EQU 1 (
+    set /a COOL_A=0
+) else if !COOL_A! GTR 0 (
     set /a COOL_A-=1
 ) else (
     curl -sf --max-time 5 "http://localhost:3001/api/mt5/health?account=A" >nul 2>&1
     if errorlevel 1 (
         echo [!date! !time!] BRIDGE A DOWN - restarting... >> tasks\logs\watchdog_log.txt
         echo  [WATCHDOG] Bridge A down - restarting...
-        taskkill /f /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT A*" >nul 2>&1
+        REM /t or the cmd wrapper dies and its python child is orphaned: it keeps its
+        REM MT5 connection and its ACCOUNT_TAG, so the restart below stacks a SECOND
+        REM bridge on the same account and every signal executes twice. START.bat was
+        REM fixed for this in 12e0c12; this file was missed.
+        taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT A*" >nul 2>&1
         timeout /t 2 /nobreak >nul
         start "" /min cmd /k "tasks\start_bridge_A.bat"
+        echo restarted > "tasks\logs\.bridge_A_restart"
         set /a COOL_A=!BRIDGE_STARTUP_GRACE_CYCLES!
         echo [!date! !time!] Bridge A restart triggered - holding off !BRIDGE_STARTUP_GRACE_CYCLES! cycles. >> tasks\logs\watchdog_log.txt
     )
 )
 
-if !COOL_B! GTR 0 (
+call :recent_restart B
+if !RECENT! EQU 1 (
+    set /a COOL_B=0
+) else if !COOL_B! GTR 0 (
     set /a COOL_B-=1
 ) else (
     curl -sf --max-time 5 "http://localhost:3001/api/mt5/health?account=B" >nul 2>&1
     if errorlevel 1 (
         echo [!date! !time!] BRIDGE B DOWN - restarting... >> tasks\logs\watchdog_log.txt
         echo  [WATCHDOG] Bridge B down - restarting...
-        taskkill /f /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT B*" >nul 2>&1
+        taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT B*" >nul 2>&1
         timeout /t 2 /nobreak >nul
         start "" /min cmd /k "tasks\start_bridge_B.bat"
+        echo restarted > "tasks\logs\.bridge_B_restart"
         set /a COOL_B=!BRIDGE_STARTUP_GRACE_CYCLES!
         echo [!date! !time!] Bridge B restart triggered - holding off !BRIDGE_STARTUP_GRACE_CYCLES! cycles. >> tasks\logs\watchdog_log.txt
     )
@@ -82,3 +117,18 @@ if !COOL_B! GTR 0 (
 REM Check every 60 seconds
 timeout /t 60 /nobreak >nul
 goto loop
+
+
+REM ── Subroutines ───────────────────────────────────────────────────────────────
+:recent_restart
+REM %1 = account tag. Sets RECENT=1 if that bridge was restarted less than
+REM BRIDGE_RESTART_COOLDOWN_SEC ago, 0 otherwise.
+REM
+REM PowerShell rather than batch date arithmetic on purpose: %date%/%time% maths in
+REM cmd is locale-dependent and wrong across midnight and month boundaries, and a
+REM cooldown that silently fails open at midnight would stack duplicate bridges at
+REM exactly the hour nobody is watching.
+set RECENT=0
+if not exist "tasks\logs\.bridge_%~1_restart" exit /b 0
+for /f "usebackq delims=" %%R in (`powershell -NoProfile -Command "$f='tasks\logs\.bridge_%~1_restart'; $age=((Get-Date)-(Get-Item $f).LastWriteTime).TotalSeconds; if ($age -lt %BRIDGE_RESTART_COOLDOWN_SEC%) { '1' } else { '0' }"`) do set RECENT=%%R
+exit /b 0
