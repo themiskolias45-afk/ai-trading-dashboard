@@ -25,8 +25,12 @@ REM  login. Window-title scoping matches tasks\watchdog.bat's safe pattern.)
 echo  [0] Stopping previous SmartEntry processes...
 taskkill /F /FI "WINDOWTITLE eq SmartEntry Server*"    >nul 2>&1
 taskkill /F /FI "WINDOWTITLE eq SmartEntry Watchdog*"  >nul 2>&1
-taskkill /F /FI "WINDOWTITLE eq SmartEntry Bridge*"    >nul 2>&1
-taskkill /F /FI "WINDOWTITLE eq SmartEntry MT5 Bridge*" >nul 2>&1
+REM  /t is required on the bridge kills: without it the cmd wrapper dies and the
+REM  python child is orphaned, keeps its MT5 connection, and the next launch stacks
+REM  a second bridge on the same account. Scoped to bridge window titles only — the
+REM  server is killed above by its own filter and is not in these trees.
+taskkill /F /T /FI "WINDOWTITLE eq SmartEntry Bridge*"    >nul 2>&1
+taskkill /F /T /FI "WINDOWTITLE eq SmartEntry MT5 Bridge*" >nul 2>&1
 timeout /t 2 /nobreak >nul
 
 REM ── Skip git reset — system runs from local files ─────────────
