@@ -62,6 +62,20 @@ try {
   if (fs.existsSync(p)) Object.assign(settings, JSON.parse(fs.readFileSync(p, "utf8")));
 } catch (_) { /* defaults fine */ }
 
+// MEASUREMENT-ONLY override. Nothing on disk is touched; this only changes the
+// copy handed to the sandbox for this one replay.
+//
+// Without it the harness cannot see below the live gate at all. generateSignalMTF
+// returns signal:"WAIT" for anything under strategySettings.confidenceThreshold
+// (index.js:1276), so the `tradeThreshold` argument can only ever make the gate
+// STRICTER than 65 - every value below it produces an identical trade list. That
+// makes the sub-65 cohorts, which is where the "why does it never fire" question
+// lives, permanently invisible. Lower this to expose them, e.g. MTF_CONF_FLOOR=40.
+if (process.env.MTF_CONF_FLOOR) {
+  const floor = Number(process.env.MTF_CONF_FLOOR);
+  if (Number.isFinite(floor)) settings.confidenceThreshold = floor;
+}
+
 // Macro caches are empty and the learning boost is zero. Historical DXY/VIX/
 // Fear-and-Greed readings are not in the export, and setupStats is {} on the live
 // box anyway - so this measures the engine's own confidence, unmodified. Stated
@@ -77,6 +91,11 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(code, sandbox);
 const generateSignalMTF = sandbox.generateSignalMTF;
+// Also needed to label WHICH branch of the confidence ladder produced a step.
+// generateSignalMTF computes the daily and 4H signals internally but does not
+// expose which one it used, and that is the whole question when the engine fires
+// once a fortnight.
+const generateSignal = sandbox.generateSignal;
 
 // ── bars ─────────────────────────────────────────────────────────────────────
 function loadBars(tf) {
@@ -107,6 +126,14 @@ if (d1.length < 250 || h4.length < 300 || h1.length < 100) {
 const WINDOW   = 400;   // trailing bars per timeframe; EMA200 needs ~210
 const MAX_HOLD = 40;    // H4 bars, same as tasks/_replay_engine.cjs
 
+// Bar durations, used to turn a stored OPEN timestamp into a CLOSE timestamp.
+// Everything below advances on close times. The previous version compared OPEN
+// times (`d1[d1Ptr + 1].t <= h4[i].t`), which put the pointer on the daily bar
+// that had merely STARTED - so an 08:00 H4 step read a daily close, high and low
+// covering the rest of that same day. That is look-ahead, and it landed hardest
+// on the daily-driven cohorts, which are exactly the 72-95 confidence ones.
+const D1_SEC = 86400, H4_SEC = 14400, H1_SEC = 3600;
+
 function slice(bars, endIdx) {
   const from = Math.max(0, endIdx - WINDOW + 1);
   const w = bars.slice(from, endIdx + 1);
@@ -118,26 +145,74 @@ function slice(bars, endIdx) {
 // trade is still running. This matters because the two bandings are compared by
 // re-running the whole loop - a trade the lower band opens occupies the asset and
 // blocks a later entry, so the two runs are NOT filterable from one list.
+// Census of every step the replay could have traded on, grouped by which branch
+// of the confidence ladder produced it. Without this the harness can only answer
+// "what would threshold X have traded", never "why is the engine silent".
+const census = {};
+let stepsBlockedByOpenPosition = 0;
+
+function noteStep(cohort, conf, fired) {
+  const c = census[cohort] || (census[cohort] = {
+    steps: 0, fired: 0, maxConf: 0, sumConf: 0,
+    hist: { "0": 0, "1-39": 0, "40-49": 0, "50-59": 0, "60-64": 0, "65-74": 0, "75-89": 0, "90+": 0 },
+  });
+  c.steps++;
+  if (fired) c.fired++;
+  if (conf > c.maxConf) c.maxConf = conf;
+  c.sumConf += conf;
+  const b = conf === 0 ? "0" : conf < 40 ? "1-39" : conf < 50 ? "40-49" : conf < 60 ? "50-59"
+          : conf < 65 ? "60-64" : conf < 75 ? "65-74" : conf < 90 ? "75-89" : "90+";
+  c.hist[b]++;
+}
+
+function cohortOf(dailySig, h4Sig) {
+  const dWait = !dailySig || dailySig.signal === "WAIT";
+  const hWait = !h4Sig   || h4Sig.signal   === "WAIT";
+  if (!dWait && !hWait) return dailySig.signal === h4Sig.signal ? "DAILY+H4_AGREE" : "DAILY+H4_CONFLICT";
+  if (!dWait &&  hWait) return "DAILY_ONLY_H4_NEUTRAL";
+  if ( dWait && !hWait) return "H4_ONLY";
+  return "BOTH_WAIT";
+}
+
 const trades = [];
 let d1Ptr = 0, h1Ptr = 0;
 let openUntil = -1;
 
 for (let i = 0; i < h4.length - 1; i++) {
-  const t = h4[i].t;
-  while (d1Ptr + 1 < d1.length && d1[d1Ptr + 1].t <= t) d1Ptr++;
-  while (h1Ptr + 1 < h1.length && h1[h1Ptr + 1].t <= t) h1Ptr++;
+  // The step happens at the CLOSE of this H4 bar - that is the moment the live
+  // server would have recomputed - so every other timeframe may only contribute
+  // bars that have also closed by then.
+  const asOf = h4[i].t + H4_SEC;
+  while (d1Ptr + 1 < d1.length && d1[d1Ptr + 1].t + D1_SEC <= asOf) d1Ptr++;
+  while (h1Ptr + 1 < h1.length && h1[h1Ptr + 1].t + H1_SEC <= asOf) h1Ptr++;
 
   if (i < 250 || d1Ptr < 250 || h1Ptr < 60) continue;
-  if (i <= openUntil) continue;   // position still open
+  // The pointers land on the newest CLOSED bar, but on a ragged feed even that
+  // one may still be open - drop the step rather than peek at a live bar.
+  if (d1[d1Ptr].t + D1_SEC > asOf) continue;
+  if (h1[h1Ptr].t + H1_SEC > asOf) continue;
+  const dailyWin = slice(d1, d1Ptr), h4Win = slice(h4, i), h1Win = slice(h1, h1Ptr);
 
-  let sig;
+  let sig, dailySig = null, h4Sig = null;
   try {
-    sig = generateSignalMTF("replay", TICKER, slice(d1, d1Ptr), slice(h4, i), slice(h1, h1Ptr), null);
+    dailySig = generateSignal("replay", TICKER, dailyWin.closes, dailyWin.highs, dailyWin.lows, dailyWin.volumes);
+    h4Sig    = generateSignal("replay", TICKER, h4Win.closes,    h4Win.highs,    h4Win.lows,    h4Win.volumes);
+    sig = generateSignalMTF("replay", TICKER, dailyWin, h4Win, h1Win, null);
   } catch (_) { continue; }
+  if (!sig) continue;
 
-  if (!sig || sig.signal === "WAIT") continue;
-  if (sig.confidence < TRADE_THRESHOLD) continue;      // <- the banding under test
-  if (sig.stop == null || sig.target == null) continue;
+  const cohort = cohortOf(dailySig, h4Sig);
+  const conf = sig.confidence ?? 0;
+  const fired = sig.signal !== "WAIT" && conf >= TRADE_THRESHOLD
+             && sig.stop != null && sig.target != null;
+  // Counted on EVERY step, including ones where a position is already open.
+  // Gating the census on being flat would describe only the market states that
+  // happen to follow a closed trade - and since the high-confidence cohorts hold
+  // longest, they would be the most under-counted, which is backwards.
+  noteStep(cohort, conf, fired);
+
+  if (!fired) continue;                                // <- the banding under test
+  if (i <= openUntil) { stepsBlockedByOpenPosition++; continue; }   // position still open
 
   const entry = sig.entry, stop = sig.stop, target = sig.target;
   const risk = Math.abs(entry - stop);
@@ -160,11 +235,40 @@ for (let i = 0; i < h4.length - 1; i++) {
   openUntil = exitIdx;
 
   trades.push({
-    t, dir: sig.signal, setup: sig.setup, conf: sig.confidence,
+    t: h4[i].t, dir: sig.signal, setup: sig.setup, conf: sig.confidence,
     strength: sig.strength, h4dir: sig.h4 ? sig.h4.signal : null,
+    // Kept as-is so existing readers of this field keep working. `cohort` below
+    // is the accurate one - it comes from the daily and 4H signals themselves
+    // rather than inferring the branch from a confidence cutoff.
     h4only: sig.h4 && sig.h4.signal !== "WAIT" && sig.setup != null && sig.confidence < 72,
+    cohort,
+    dailyDir: dailySig ? dailySig.signal : null,
+    dailyStrength: dailySig ? dailySig.strength : null,
+    h4Strength: h4Sig ? h4Sig.strength : null,
     rr: Math.round(rr * 100) / 100, outcome,
   });
 }
+
+// stdout stays a bare trades array: tasks/compare_banding.py does
+// json.loads(out.stdout) and would break on any other shape. The census is
+// diagnostic, so it goes to stderr, which that caller reads only when the exit
+// code is non-zero.
+for (const c of Object.values(census)) {
+  c.avgConf = c.steps ? Math.round((c.sumConf / c.steps) * 10) / 10 : 0;
+  delete c.sumConf;
+}
+process.stderr.write("MTF_CENSUS " + JSON.stringify({
+  symbol: SYMBOL,
+  ticker: TICKER,
+  tradeThreshold: TRADE_THRESHOLD,
+  confidenceThreshold: settings.confidenceThreshold,
+  minStrength: settings.minStrength,
+  stubbed: ["priceCache.dxy", "priceCache.vix", "sentimentCache.fearGreed",
+            "signalCache (cross-asset)", "getLearningBoost -> 0"],
+  windowBars: WINDOW,
+  stepsBlockedByOpenPosition,
+  tradesTaken: trades.length,
+  census,
+}) + "\n");
 
 process.stdout.write(JSON.stringify(trades));
