@@ -5,6 +5,10 @@ if not exist tasks\logs mkdir tasks\logs
 
 set ACCOUNT_TAG=B
 set MT5_TERMINAL_PATH=C:\Users\User\AppData\Roaming\MetaTrader 5\terminal64.exe
+REM Pinning the terminal path pins the install, not the account — two installs can
+REM hold the same login. MT5_EXPECTED_LOGIN makes the bridge refuse to trade if this
+REM terminal is logged into anything other than account B.
+set MT5_EXPECTED_LOGIN=11581419
 
 echo.
 echo  SmartEntry MT5 Bridge - ACCOUNT B - FULL AUTO MODE
