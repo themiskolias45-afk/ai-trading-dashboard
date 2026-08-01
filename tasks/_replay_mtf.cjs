@@ -48,7 +48,36 @@ const NEEDED = [
   "function generateSignal(", "function generateSignalMTF(",
 ];
 
+// Top-level scalar consts the extracted functions REFERENCE but that live outside
+// every block in NEEDED. extractBlock() brace-matches, so it cannot pick these up:
+// `const X = 75;` has no braces and matching from it would run to the next unrelated
+// `{` and capture garbage.
+//
+// Missing one is not a small problem. SIZING_BOOST_MIN_CONFIDENCE is read at
+// index.js:1271 inside generateSignalMTF, on Gold's isDailyNeutralH4 branch. Without
+// it in the sandbox that branch threw ReferenceError, the caller's catch swallowed
+// it, and 1131 of 6225 Gold steps vanished from every replay - 18% of the asset's
+// history, and precisely the cohort the code comment calls "largest cohort in the
+// system". BTC and SPX were unaffected because `ticker === "GC=F"` short-circuits
+// first, so the harness looked healthy on two assets out of three. The signature was
+// tasks/analysis/walkforward-latest.json reporting exactly 260 Gold trades.
+//
+// Read from source rather than hardcoded on purpose: a literal copied to here would
+// silently drift the day someone retunes the server, reintroducing the same class of
+// bug with no error.
+const SCALAR_CONSTS = ["SIZING_BOOST_MIN_CONFIDENCE"];
+
 let code = "";
+for (const name of SCALAR_CONSTS) {
+  const m = serverSrc.match(new RegExp(`^const\\s+${name}\\s*=\\s*([^;]+);`, "m"));
+  if (!m) {
+    console.error(`could not extract const ${name} from server/index.js — refusing to ` +
+                  `replay, because a missing const throws inside the engine and the ` +
+                  `result silently looks like "this cohort never traded".`);
+    process.exit(1);
+  }
+  code += `const ${name} = ${m[1].trim()};\n`;
+}
 for (const marker of NEEDED) {
   const block = extractBlock(marker);
   if (!block) { console.error(`could not extract ${marker}`); process.exit(1); }
@@ -150,6 +179,9 @@ function slice(bars, endIdx) {
 // "what would threshold X have traded", never "why is the engine silent".
 const census = {};
 let stepsBlockedByOpenPosition = 0;
+// A step where the engine itself threw. Reported, never hidden — see the catch below.
+let engineThrows = 0;
+let firstEngineThrow = "";
 
 function noteStep(cohort, conf, fired) {
   const c = census[cohort] || (census[cohort] = {
@@ -198,7 +230,15 @@ for (let i = 0; i < h4.length - 1; i++) {
     dailySig = generateSignal("replay", TICKER, dailyWin.closes, dailyWin.highs, dailyWin.lows, dailyWin.volumes);
     h4Sig    = generateSignal("replay", TICKER, h4Win.closes,    h4Win.highs,    h4Win.lows,    h4Win.volumes);
     sig = generateSignalMTF("replay", TICKER, dailyWin, h4Win, h1Win, null);
-  } catch (_) { continue; }
+  } catch (err) {
+    // Never silent again. This catch hid a ReferenceError for the entire life of the
+    // harness and turned a broken cohort into a plausible-looking "it just never
+    // traded". Count them, keep the first message, and refuse to report a clean
+    // result at the end if any step threw.
+    engineThrows++;
+    if (!firstEngineThrow) firstEngineThrow = String(err && err.message || err);
+    continue;
+  }
   if (!sig) continue;
 
   const cohort = cohortOf(dailySig, h4Sig);
@@ -267,8 +307,22 @@ process.stderr.write("MTF_CENSUS " + JSON.stringify({
             "signalCache (cross-asset)", "getLearningBoost -> 0"],
   windowBars: WINDOW,
   stepsBlockedByOpenPosition,
+  engineThrows,
+  firstEngineThrow,
   tradesTaken: trades.length,
   census,
 }) + "\n");
 
+// A replay where the engine threw is not a measurement — it is a measurement with an
+// unknown slice deleted, which reads exactly like "that cohort does not trade". Exit
+// non-zero so a caller that checks its exit code cannot mistake it for a clean run.
+// The census and trades are still emitted so the failure can be diagnosed.
+if (engineThrows > 0) {
+  console.error(`MTF_REPLAY DEGRADED: the engine threw on ${engineThrows} step(s). ` +
+                `First error: ${firstEngineThrow}. These steps are MISSING from the ` +
+                `result below — do not treat it as a complete measurement.`);
+}
+
 process.stdout.write(JSON.stringify(trades));
+
+if (engineThrows > 0) process.exitCode = 3;
