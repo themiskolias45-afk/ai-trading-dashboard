@@ -106,6 +106,123 @@ MAX_CONSECUTIVE_LOSSES = int(os.environ.get("MAX_CONSEC_LOSSES", "3"))
 trading_halted   = False
 halt_reason      = ""
 
+# Where the breaker's counters survive a restart.
+#
+# They used to live only in the globals above, so every bridge start silently reset
+# the loss streak to zero. Two restarts in a day is normal here (watchdog, startup
+# scripts), which meant "3 consecutive losses" could not accumulate in practice —
+# the guardrail existed in config and nowhere else. Ticket #1682651222 proved the
+# other half of it: that loss closed while the bridge was down, reached the journal
+# and the learning engine, and never reached the breaker at all.
+#
+# One file per account tag, because each bridge halts its own execution and must
+# keep its own books. This deliberately does NOT solve two MACHINES sharing one
+# broker account — their state files sit on different disks and neither can see
+# the other's losses.
+BREAKER_STATE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "tasks",
+    f"breaker_state_{ACCOUNT_TAG or 'default'}.json",
+)
+
+# Close time of the most recent trade already folded into the counters above.
+# Startup reconciliation uses it to count only what it has not counted before.
+last_counted_close = ""
+
+
+def breaker_day():
+    """Local date the daily P&L counter is scoped to.
+
+    Local rather than UTC because close times come from datetime.fromtimestamp(),
+    which is local — scoping the counter in one zone and stamping the outcomes in
+    another would misfile every close in the offset window.
+    """
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def load_breaker_state():
+    """Restore the breaker counters from the previous run.
+
+    Fails open by design: an unreadable or corrupt file starts the bridge clean
+    rather than wedged, because a file that cannot be parsed is not evidence of a
+    loss streak. It is logged loudly so the failure is never silent.
+    """
+    global daily_pnl, consecutive_losses, trading_halted, halt_reason, last_counted_close
+    try:
+        with open(BREAKER_STATE_PATH, "r", encoding="utf-8") as state_file:
+            state = json.load(state_file)
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        log(f"Breaker state unreadable ({exc}) — starting with clean counters.", YELLOW)
+        return
+
+    # A streak is a streak, not a daily counter: it carries across days and restarts
+    # until a WIN clears it. Daily P&L is the opposite — scoped to one day, and
+    # dragging yesterday's losses into today's loss limit would halt on a day that
+    # never lost anything.
+    consecutive_losses = int(state.get("consecutiveLosses", 0) or 0)
+    last_counted_close = str(state.get("lastCountedClose", "") or "")
+    trading_halted     = bool(state.get("halted", False))
+    halt_reason        = str(state.get("haltReason", "") or "")
+
+    if state.get("day") == breaker_day():
+        daily_pnl = float(state.get("dailyPnl", 0.0) or 0.0)
+    else:
+        daily_pnl = 0.0
+        # A halt scoped to yesterday's daily loss limit expires with that day. A halt
+        # caused by the loss streak does not, because the streak itself survives.
+        if trading_halted and consecutive_losses < MAX_CONSECUTIVE_LOSSES:
+            trading_halted = False
+            halt_reason    = ""
+
+    log(f"Breaker state restored: streak {consecutive_losses}/{MAX_CONSECUTIVE_LOSSES}, "
+        f"daily P&L ${daily_pnl:.2f}, halted {trading_halted}", CYAN)
+
+
+def save_breaker_state():
+    """Persist the breaker counters. Never raises — a write failure must not stop trading."""
+    try:
+        os.makedirs(os.path.dirname(BREAKER_STATE_PATH), exist_ok=True)
+        with open(BREAKER_STATE_PATH, "w", encoding="utf-8") as state_file:
+            json.dump({
+                "account":           ACCOUNT_TAG or "default",
+                "day":               breaker_day(),
+                "dailyPnl":          round(daily_pnl, 2),
+                "consecutiveLosses": consecutive_losses,
+                "halted":            trading_halted,
+                "haltReason":        halt_reason,
+                "lastCountedClose":  last_counted_close,
+                "updatedAt":         datetime.utcnow().isoformat() + "Z",
+            }, state_file, indent=2)
+    except Exception as exc:
+        log(f"Could not persist breaker state ({exc}) — counters are memory-only this run.", YELLOW)
+
+
+def record_closed_outcome(pnl, close_time):
+    """Fold one closed trade into the breaker counters and persist the result.
+
+    Single entry point so the live close path and startup reconciliation cannot
+    drift apart, and so no counter change is left only in memory. A null P&L is
+    ignored rather than treated as a win: an outcome nobody could measure must not
+    be allowed to clear a loss streak.
+    """
+    global daily_pnl, consecutive_losses, last_counted_close
+    if pnl is None:
+        return
+    # P&L counts against the day it actually happened on. A close recovered from an
+    # outage that spanned midnight must still move the streak, but must not spend
+    # today's loss budget on yesterday's loss. An unknown close time is treated as
+    # today, which is the conservative reading.
+    if not close_time or close_time[:10] == breaker_day():
+        daily_pnl += pnl
+    if pnl < 0:
+        consecutive_losses += 1
+    else:
+        consecutive_losses = 0
+    if close_time and close_time > last_counted_close:
+        last_counted_close = close_time
+    save_breaker_state()
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 # Remote halt set from the dashboard. Separate from the local circuit breakers
@@ -157,12 +274,16 @@ def check_circuit_breaker():
             trading_halted = True
             halt_reason = f"Daily loss limit hit: -{loss_pct:.1f}% (limit {daily_loss_limit}%)"
             log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
+            # A halt that only exists in memory is undone by the next restart, which
+            # is the same defect that made the streak unaccumulable.
+            save_breaker_state()
             return True
     # Consecutive losses
     if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
         trading_halted = True
         halt_reason = f"{consecutive_losses} consecutive losses — pausing"
         log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
+        save_breaker_state()
         return True
     return False
 
@@ -1216,13 +1337,8 @@ def track_closed_positions():
             # it. Unlike the startup sweep, this path watched the ticket disappear.
             log(f"No closing deal on record for #{ticket} — reporting close with unknown P&L.", YELLOW)
 
-        global daily_pnl, consecutive_losses
-        if pnl is not None:
-            daily_pnl += pnl
-            if pnl < 0:
-                consecutive_losses += 1
-            else:
-                consecutive_losses = 0
+        # Counters and their on-disk copy move together — see record_closed_outcome.
+        record_closed_outcome(pnl, close_time)
 
         try:
             requests.post(f"{SERVER_URL}/api/trade-closed", json={
@@ -1342,11 +1458,14 @@ def report_reconciled_close(ticket, outcome):
 def reconcile_open_trades():
     """Record trades that ended while this bridge was not running.
 
-    Deliberately does NOT feed daily_pnl or consecutive_losses. Those two are
-    day-scoped and session-scoped counters — replaying a week of history into them
-    would halt a freshly started bridge on a daily loss limit it never incurred
-    today. The journal and the learning engine get the outcome; the live
-    track_closed_positions path stays the only thing that moves the breakers.
+    Closes newer than the last one already counted DO feed the breaker, gated on
+    last_counted_close. The original objection still stands — replaying a week of
+    history into a day-scoped counter would halt a freshly started bridge on a loss
+    limit it never incurred — and it is answered by that gate plus the per-day
+    scoping in record_closed_outcome, not by excluding these outcomes altogether.
+    Excluding them was the worse bug: a loss that lands while the bridge is down is
+    precisely the kind the breaker exists to catch, and #1682651222 reached the
+    journal and the learning engine while the breaker never saw it.
     """
     open_entries = fetch_open_journal_entries()
     if not open_entries:
@@ -1383,6 +1502,12 @@ def reconcile_open_trades():
             continue
         if report_reconciled_close(ticket, outcome):
             recovered += 1
+            reconciled_pnl, _, reconciled_close_time = outcome
+            # Only what the breaker has not already seen. Without this gate every
+            # restart would re-fold the same history into the streak; with it,
+            # exactly the closes that happened during the outage are counted.
+            if reconciled_close_time > last_counted_close:
+                record_closed_outcome(reconciled_pnl, reconciled_close_time)
 
     if recovered:
         log(f"Startup reconciliation recorded {recovered} close(s) missed while offline.", CYAN)
@@ -1423,6 +1548,11 @@ def main():
     # this process was down is recorded rather than quietly written off. Wrapped
     # because a reconciliation failure must never keep the bridge from trading.
     global known_positions
+
+    # Restore the breaker BEFORE reconciliation runs, so last_counted_close is known
+    # and the sweep can tell an outage close from history it has already counted.
+    load_breaker_state()
+
     try:
         reconcile_open_trades()
     except Exception as exc:

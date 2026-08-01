@@ -14,6 +14,9 @@ tasks/logs/
 tasks/backups/
 vps-backups/
 tasks/.tv_session.json
+# Per-machine, per-account circuit breaker counters. Live runtime state: tracking
+# it would let a git pull overwrite one machine's loss streak with another's.
+tasks/breaker_state_*.json
 tasks/*.pine
 
 # Exported MT5 bars — large and regenerable via tasks/export_mt5_history.py
