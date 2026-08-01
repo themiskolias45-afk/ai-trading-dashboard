@@ -21,6 +21,7 @@ Exit code 0 = a variant beat baseline out-of-sample. 1 = nothing did, keep curre
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -147,7 +148,8 @@ def variant_fingerprint(rows):
     that took the same number of trades but placed them differently are a real
     measurement, while two that match on both took literally the same trades.
     """
-    return [(label, train["n"], train["pf"], test["n"], test["pf"], test["R"])
+    return [(label, train["n"], train["pf"], train["R"],
+             test["n"], test["pf"], test["wr"], test["R"])
             for label, train, test in rows]
 
 
@@ -170,6 +172,19 @@ def is_degenerate(results):
     return all(fp == fingerprints[0] for fp in fingerprints[1:])
 
 
+def beats_baseline(variant_pf, baseline_pf):
+    """Whether a variant's profit factor is a real improvement on the baseline's.
+
+    Infinity needs its own case. A test half with zero losses scores pf = inf, and
+    `inf >= inf + MIN_PF_IMPROVEMENT` is True in IEEE arithmetic — so a variant
+    that is byte-identical to the baseline would score as beating it, and with
+    --apply that writes a config change backed by nothing.
+    """
+    if not math.isfinite(variant_pf) or not math.isfinite(baseline_pf):
+        return variant_pf > baseline_pf
+    return variant_pf >= baseline_pf + MIN_PF_IMPROVEMENT
+
+
 def decide(results, baseline_value):
     """A variant wins only if it beats baseline on the TEST half on a MAJORITY of
     assets. One asset improving while two get worse is not an improvement."""
@@ -177,20 +192,25 @@ def decide(results, baseline_value):
         return None, "baseline not evaluated"
 
     base = {label: test["pf"] for label, _, test in results[baseline_value]}
-    best, best_score = None, 0
+    best, best_score, best_total = None, 0, 0
 
     for value, rows in results.items():
         if value == baseline_value:
             continue
-        better = sum(1 for label, _, test in rows
-                     if test["pf"] >= base.get(label, 0) + MIN_PF_IMPROVEMENT)
-        worse = sum(1 for label, _, test in rows if test["pf"] < base.get(label, 0))
-        if better > worse and better > len(rows) / 2 and better > best_score:
-            best, best_score = value, better
+        # Only assets the BASELINE was actually measured on can be compared. A
+        # missing baseline used to read as pf 0.0, which made every variant look
+        # like a winner on precisely the assets there was no evidence for.
+        comparable = [(label, test) for label, _, test in rows if label in base]
+        if not comparable:
+            continue
+        better = sum(1 for label, test in comparable if beats_baseline(test["pf"], base[label]))
+        worse = sum(1 for label, test in comparable if test["pf"] < base[label])
+        if better > worse and better > len(comparable) / 2 and better > best_score:
+            best, best_score, best_total = value, better, len(comparable)
 
     if best is None:
         return None, "no variant beat the current setting on a majority of assets"
-    return best, f"beat baseline on {best_score}/{len(results[best])} assets"
+    return best, f"beat baseline on {best_score}/{best_total} assets"
 
 
 def apply_setting(setting, value):
@@ -254,8 +274,11 @@ def main():
     # Checked before any verdict is formed, so a meaningless sweep can never
     # reach --apply and write a config change it has no evidence for.
     if is_degenerate(results):
-        reason = (f"every tested value produced an identical trade set on every "
-                  f"asset — {args.setting} moved nothing")
+        # Say how many variants actually replayed. Claiming "every tested value"
+        # when half the sweep crashed would be the same overconfidence this guard
+        # exists to stop.
+        reason = (f"all {len(results)} of {len(values)} replayed values produced an "
+                  f"identical trade set on every asset — {args.setting} moved nothing")
         print("=" * 70)
         print(f"DEGENERATE SWEEP — no verdict. ({reason})")
         print("This run measured the harness, not the setting. A KEEP printed")
