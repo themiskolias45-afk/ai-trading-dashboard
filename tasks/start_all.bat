@@ -33,19 +33,31 @@ if errorlevel 1 (
     echo  [3/4] MT5: started - waiting 30s to connect...
     timeout /t 30 /nobreak >nul
   ) else (
-    echo  [3/4] MT5: NOT FOUND - open MT5 manually then run tasks\start_bridge.bat
+    echo  [3/4] MT5: NOT FOUND - open MT5 manually, then run tasks\start_bridge_A.bat and tasks\start_bridge_B.bat
     goto :summary
   )
 ) else (
   echo  [3/4] MT5: already running
 )
 
-REM 4 — Bridge
-echo  [4/4] Starting MT5 bridge...
-taskkill /f /fi "windowtitle eq SmartEntry Bridge" >nul 2>&1
-start "SmartEntry Bridge" /min cmd /c "python mt5_bridge.py --auto >> tasks\logs\bridge_log.txt 2>&1"
+REM 4 — Bridges: exactly one per real MT5 account, never an untagged extra.
+REM     An untagged "python mt5_bridge.py" auto-detects whichever terminal answers
+REM     first, which puts it on the same broker account as Bridge B. Two --auto
+REM     bridges on one account open every signal twice, and the 3-loss circuit
+REM     breaker counts per ACCOUNT_TAG, so neither tag ever reaches the halt.
+REM     Only the tagged scripts launch here — they pin terminal, tag and login.
+echo  [4/4] Starting MT5 bridges A and B...
+REM /T so the cmd wrapper's python child dies with it. Without /T the wrapper is
+REM killed and the bridge itself survives as an orphan, which is how a stray
+REM untagged bridge outlived a restart and kept trading.
+taskkill /f /t /fi "windowtitle eq SmartEntry Bridge" >nul 2>&1
+taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT A*" >nul 2>&1
+taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT B*" >nul 2>&1
+start "" /min cmd /k "tasks\start_bridge_A.bat"
+timeout /t 3 /nobreak >nul
+start "" /min cmd /k "tasks\start_bridge_B.bat"
 timeout /t 5 /nobreak >nul
-echo  [4/4] Bridge: OK - watching for signals
+echo  [4/4] Bridges: OK - A #25446287, B #11581419
 
 :summary
 echo.
@@ -53,7 +65,7 @@ echo  ==========================================
 echo   Done.
 echo   Server:    http://localhost:3001/dashboard
 echo   Logs:      tasks\logs\
-echo   Bridge:    tasks\logs\bridge_log.txt
+echo   Bridges:   tasks\logs\bridge_log_A.txt  tasks\logs\bridge_log_B.txt
 echo   Watchdog:  tasks\logs\watchdog_log.txt
 echo  ==========================================
 echo.

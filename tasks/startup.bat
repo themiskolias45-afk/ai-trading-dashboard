@@ -53,14 +53,27 @@ echo  Waiting 30 seconds for MT5 to connect...
 timeout /t 30 /nobreak >nul
 
 :start_bridge
-echo  Starting MT5 bridge...
-start "SmartEntry Bridge" /min cmd /c "python mt5_bridge.py --auto >> tasks\logs\bridge_log.txt 2>&1"
+REM Exactly one bridge per real MT5 account, never an untagged extra. An untagged
+REM "python mt5_bridge.py" auto-detects whichever terminal answers first, which puts
+REM it on the same broker account as Bridge B — two --auto bridges on one account
+REM open every signal twice, and the 3-loss circuit breaker counts per ACCOUNT_TAG,
+REM so neither tag ever reaches the halt. The tagged scripts pin terminal, tag and
+REM expected login; only they are launched here.
+echo  Starting MT5 bridges A and B...
+REM /T so the cmd wrapper's python child dies with it — killing the wrapper alone
+REM orphans the bridge, which then keeps trading across restarts.
+taskkill /f /t /fi "windowtitle eq SmartEntry Bridge" >nul 2>&1
+taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT A*" >nul 2>&1
+taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT B*" >nul 2>&1
+start "" /min cmd /k "tasks\start_bridge_A.bat"
+timeout /t 3 /nobreak >nul
+start "" /min cmd /k "tasks\start_bridge_B.bat"
 
 :done
 echo [%date% %time%] Startup complete. >> tasks\logs\startup_log.txt
 echo.
 echo  SmartEntry Pro is running.
 echo   Server:  http://localhost:3001/dashboard
-echo   Bridge:  check tasks\logs\bridge_log.txt
+echo   Bridges: check tasks\logs\bridge_log_A.txt and tasks\logs\bridge_log_B.txt
 echo   Logs:    tasks\logs\
 echo.
