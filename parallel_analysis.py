@@ -31,6 +31,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.request
 from collections import defaultdict
@@ -70,6 +71,23 @@ PROMPT_SIZE_LIMIT = 8000
 
 REPLAY_TIMEOUT_SEC = 900
 MAX_PARALLEL_REPLAYS = 6
+
+# The synthesiser is the single point of failure in the whole run: five analysts
+# can succeed and the night still yields nothing if it alone returns unusable
+# text. One retry with a stricter prompt is cheap insurance; more than one just
+# burns another ten minutes against an agent that is clearly not cooperating.
+SYNTH_MAX_ATTEMPTS = 2
+
+# How much of an unusable reply to keep in the report. Enough to see what the
+# agent actually said, not so much that a runaway reply bloats latest.json.
+RAW_EXCERPT_CHARS = 2000
+AGENT_ERROR_CHARS = 400
+
+# Exit codes. The nightly task branches on ERRORLEVEL, so a failed synthesis
+# must not come back as 0 — that is exactly how a broken run reported success.
+EXIT_OK = 0
+EXIT_NO_TRADES = 1
+EXIT_SYNTHESIS_FAILED = 2
 
 # Analysts run INSIDE the project. Starting them elsewhere was tried and is wrong:
 # Claude Code scopes file access to its working directory, so an agent launched in
@@ -308,6 +326,23 @@ ANALYSTS = [
      "the healer checks that is not ok."),
 ]
 
+# Held separately only so the retry prompt can restate the exact same shape
+# without a second copy that could drift from this one. The composed
+# SYNTHESISER string below is unchanged.
+SYNTH_JSON_SHAPE = (
+    "{\n"
+    '  "verdict": "one paragraph: what is actually wrong with this system right now",\n'
+    '  "actions": [\n'
+    '    {"rank": 1, "action": "...", "rationale": "...",\n'
+    '     "setting": "<setting name or null>", "suggestedValues": "<csv or null>",\n'
+    '     "measurable": "yes|no", "measurableWhy": "...",\n'
+    '     "agreement": "which analysts backed this", "risk": "..."}\n'
+    "  ],\n"
+    '  "disagreements": ["..."],\n'
+    '  "blindSpots": ["what these facts cannot tell you"]\n'
+    "}"
+)
+
 SYNTHESISER = (
     "You are the lead engineer of this trading system. You are given FACTS and the "
     "JSON reports of five independent analysts who all read the same FACTS.\n\n"
@@ -322,34 +357,125 @@ SYNTHESISER = (
     "but it cannot see confidenceThreshold, the multi-timeframe agreement in "
     "generateSignalMTF, or anything the MT5 bridge enforces such as position and trade "
     "caps.\n\n"
-    "Reply with ONLY a JSON object:\n"
-    "{\n"
-    '  "verdict": "one paragraph: what is actually wrong with this system right now",\n'
-    '  "actions": [\n'
-    '    {"rank": 1, "action": "...", "rationale": "...",\n'
-    '     "setting": "<setting name or null>", "suggestedValues": "<csv or null>",\n'
-    '     "measurable": "yes|no", "measurableWhy": "...",\n'
-    '     "agreement": "which analysts backed this", "risk": "..."}\n'
-    "  ],\n"
-    '  "disagreements": ["..."],\n'
-    '  "blindSpots": ["what these facts cannot tell you"]\n'
-    "}"
+    "Reply with ONLY a JSON object:\n" + SYNTH_JSON_SHAPE
 )
 
 
+# A byte-order mark survives an agent writing its file on Windows and makes the
+# very first character of an otherwise perfect object unparseable.
+BOM = "\ufeff"
+
+# A fenced block, with or without a language tag. The closing fence is optional
+# so a reply cut off mid-stream still yields its block instead of nothing.
+FENCED_BLOCK_RE = re.compile(r"```[ \t]*[A-Za-z0-9_+-]*[ \t]*\r?\n(.*?)(?:```|\Z)",
+                             re.DOTALL)
+
+
+def _fenced_blocks(text):
+    """Every fenced code block in the reply, in the order they appear."""
+    return [match.group(1).strip() for match in FENCED_BLOCK_RE.finditer(text)
+            if match.group(1).strip()]
+
+
+def _balanced_objects(text):
+    """Every top-level {...} region, ignoring braces inside string literals.
+
+    The naive first-brace/last-brace slice this replaces breaks on the two
+    things agents do most: a "}" inside a string value, and a sentence of
+    commentary after the object that happens to contain a brace.
+    """
+    spans, depth, start, in_string, escaped = [], 0, -1, False, False
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}" and depth > 0:
+            depth -= 1
+            if depth == 0:
+                spans.append((start, index + 1))
+    # Longest first: when prose contributes a stray {word}, the real report is
+    # the larger region.
+    spans.sort(key=lambda span: span[0] - span[1])
+    return [text[begin:end] for begin, end in spans]
+
+
+def _object_fragments(text):
+    """Substrings that might contain the agent's JSON object, best guess first.
+
+    Only used once the reply has failed to parse as a whole document, so these
+    are genuinely fragments carved out of surrounding prose.
+    """
+    fragments = _balanced_objects(text)
+    first, last = text.find("{"), text.rfind("}")
+    if first != -1 and last > first:
+        # The original greedy slice, kept last so nothing that parsed before can
+        # stop parsing now.
+        fragments.append(text[first:last + 1])
+    unique, seen = [], set()
+    for fragment in fragments:
+        if fragment not in seen:
+            seen.add(fragment)
+            unique.append(fragment)
+    return unique
+
+
+def _not_an_object_reason(parsed):
+    if isinstance(parsed, dict):
+        return "JSON object was empty"
+    return f"expected a JSON object, got {type(parsed).__name__}"
+
+
 def parse_agent_json(text):
-    """Pull the JSON object out of an agent reply. Agents sometimes wrap it in
-    prose or a code fence despite instructions; a failed parse must not lose the
-    output, so the raw text is kept."""
-    if not text:
+    """Pull the JSON object out of an agent reply.
+
+    Agents wrap the object in prose or a code fence despite instructions, so a
+    fenced block and then the whole reply are tried as complete documents, and
+    only if neither parses is an object carved out of the surrounding text.
+
+    Returns (object, None) only for a non-empty dict. A reply that parses
+    cleanly but is not an object — a bare list, a string, a number — is a
+    failure, not something to dig a fragment out of: the first object inside an
+    array is not the report the agent was asked for, and returning it would let
+    a broken run look like a good one.
+    """
+    body = (text or "").lstrip(BOM)
+    if not body.strip():
         return None, "empty response"
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
-        return None, "no JSON object in response"
-    try:
-        return json.loads(text[start:end + 1]), None
-    except json.JSONDecodeError as exc:
-        return None, f"invalid JSON: {exc}"
+
+    whole_document_error = None
+    for document in _fenced_blocks(body) + [body.strip()]:
+        try:
+            parsed = json.loads(document)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict) and parsed:
+            return parsed, None
+        whole_document_error = _not_an_object_reason(parsed)
+    if whole_document_error:
+        return None, whole_document_error
+
+    fragment_error = None
+    for fragment in _object_fragments(body):
+        try:
+            parsed = json.loads(fragment)
+        except json.JSONDecodeError as exc:
+            fragment_error = f"invalid JSON: {exc}"
+            continue
+        if isinstance(parsed, dict) and parsed:
+            return parsed, None
+        fragment_error = _not_an_object_reason(parsed)
+    return None, fragment_error or "no JSON object in response"
 
 
 def check_prompt_size(label, prompt):
@@ -361,30 +487,56 @@ def check_prompt_size(label, prompt):
     return prompt
 
 
+def read_agent_file(out_path):
+    """Read and parse the file an agent was told to write.
+
+    Returns (report, error, raw). All three are None/"" when no file exists,
+    which is not itself a failure — stdout is still worth trying.
+    """
+    if not os.path.exists(out_path):
+        return None, None, ""
+    try:
+        with open(out_path, encoding="utf-8-sig") as fh:
+            content = fh.read()
+    except OSError as exc:
+        return None, f"could not read {out_path}: {exc}", ""
+    report, err = parse_agent_json(content)
+    if report:
+        return report, None, ""
+    return None, f"output file was not valid JSON: {err}", content[:RAW_EXCERPT_CHARS]
+
+
 def collect_agent_output(label, result, out_path):
     """Prefer the file the agent was told to write; fall back to its stdout.
 
     Reading a file the agent produced is a far stronger contract than parsing
     what it printed: the nested session inherits the project's CLAUDE.md persona
-    and will happily wrap the answer in markdown, or open with a greeting."""
-    if os.path.exists(out_path):
-        try:
-            with open(out_path, encoding="utf-8-sig") as fh:
-                content = fh.read()
-        except OSError as exc:
-            return {"_error": f"could not read {out_path}: {exc}"}
-        parsed, err = parse_agent_json(content)
-        if parsed:
-            return parsed
-        return {"_error": f"output file was not valid JSON: {err}",
-                "_raw": content[:2000]}
-    if not result["success"]:
-        return {"_error": result["output"][:400]}
-    parsed, err = parse_agent_json(result["output"])
-    if parsed:
-        return parsed
-    return {"_error": f"no output file written and stdout unusable: {err}",
-            "_raw": result["output"][:2000]}
+    and will happily wrap the answer in markdown, or open with a greeting.
+
+    Both routes are tried before giving up. A file that exists but is malformed
+    used to end the attempt outright, throwing away a perfectly good copy of the
+    same report sitting in stdout — and a timed-out agent that had already
+    written its file was discarded for the same reason.
+    """
+    report, file_error, file_raw = read_agent_file(out_path)
+    if report:
+        return report
+
+    stdout_text = (result.get("output") or "") if isinstance(result, dict) else ""
+    report, stdout_error = parse_agent_json(stdout_text)
+    if report:
+        if file_error:
+            print(f"  [{label}] output file unusable ({file_error}) — "
+                  f"recovered the report from stdout")
+        return report
+
+    if file_error:
+        reason = file_error
+    elif not (isinstance(result, dict) and result.get("success")):
+        reason = f"agent did not complete: {stdout_text[:AGENT_ERROR_CHARS]}"
+    else:
+        reason = f"no output file written and stdout unusable: {stdout_error}"
+    return {"_error": reason, "_raw": file_raw or stdout_text[:RAW_EXCERPT_CHARS]}
 
 
 def run_analysts(facts_path, stamp):
@@ -412,24 +564,65 @@ def run_analysts(facts_path, stamp):
             for result in raw_results}
 
 
-def run_synthesiser(facts_path, reports_path, stamp):
-    print("[agents] synthesising...")
-    out_path = os.path.join(OUT_DIR, f"agent-synthesiser-{stamp}.json")
-    prompt = check_prompt_size("synthesiser", (
+def synthesiser_prompt(facts_path, reports_path, out_path, retry_reason):
+    """Build the synthesiser prompt. With a retry_reason, the output rules get
+    stricter: the shape is restated and stdout must carry the object too, so the
+    attempt survives either the file write or the reply failing, not only both
+    succeeding."""
+    if retry_reason:
+        output_rules = (
+            f"THIS IS A RETRY. The previous attempt produced nothing usable: "
+            f"{retry_reason}\n"
+            f"Follow these output rules exactly.\n"
+            f"1. Write the JSON object to OUTPUT_FILE.\n"
+            f"2. Then print that same JSON object as your entire reply.\n"
+            f"Your reply must start with {{ and end with }}. Nothing before the "
+            f"first brace and nothing after the last: no greeting, no explanation, "
+            f"no markdown code fence, no closing remark, and not the word DONE.\n"
+            f"The required shape again — every key present, actions may be an "
+            f"empty list:\n{SYNTH_JSON_SHAPE}\n")
+    else:
+        output_rules = (
+            "Write the JSON object described above to this file, then reply with the "
+            "single word DONE and nothing else.\n")
+    return check_prompt_size("synthesiser", (
         f"{SYNTHESISER}\n\n"
         f"You are running as a non-interactive subprocess. Ignore any persona or "
         f"greeting the project's CLAUDE.md asks for — a greeting where a result "
         f"belongs is a failed run.\n\n"
-        f"Write the JSON object described above to this file, then reply with the "
-        f"single word DONE and nothing else.\n"
+        f"{output_rules}"
         f"OUTPUT_FILE: {out_path}\n\n"
         f"The five analyst reports are at:\n{reports_path}\n"
         f"The measured fact pack they all read is at:\n{facts_path}\n"
         f"Read both files in full before answering. Do not edit any file other "
         f"than OUTPUT_FILE."))
-    result = run_agent({"label": "synthesiser", "prompt": prompt,
-                        "system": AGENT_SYSTEM_PROMPT})
-    return collect_agent_output("synthesiser", result, out_path)
+
+
+def run_synthesiser(facts_path, reports_path, stamp):
+    """Synthesise the analyst reports, retrying once with stricter output rules.
+
+    Each attempt writes to its own path: pointing a retry at the first attempt's
+    file would just re-read the malformed copy that failed. Nothing is deleted —
+    both attempts stay on disk for inspection.
+    """
+    synthesis = {"_error": "synthesiser was never run"}
+    retry_reason = None
+    for attempt in range(1, SYNTH_MAX_ATTEMPTS + 1):
+        suffix = "" if attempt == 1 else f"-retry{attempt}"
+        out_path = os.path.join(OUT_DIR, f"agent-synthesiser-{stamp}{suffix}.json")
+        print(f"[agents] synthesising (attempt {attempt} of {SYNTH_MAX_ATTEMPTS})...")
+        result = run_agent({
+            "label": f"synthesiser{suffix}",
+            "prompt": synthesiser_prompt(facts_path, reports_path, out_path, retry_reason),
+            "system": AGENT_SYSTEM_PROMPT,
+        })
+        synthesis = collect_agent_output("synthesiser", result, out_path)
+        if not synthesis.get("_error"):
+            return synthesis
+        retry_reason = synthesis["_error"]
+        print(f"  [synthesiser] attempt {attempt} unusable: {retry_reason}")
+    synthesis["_attempts"] = SYNTH_MAX_ATTEMPTS
+    return synthesis
 
 
 # ── evidence gate ────────────────────────────────────────────────────────────
@@ -494,7 +687,16 @@ def print_summary(payload):
             print(f"    - {err}")
 
     if synth.get("_error"):
-        print(f"\n  SYNTHESIS FAILED: {synth['_error']}")
+        print(f"\n  SYNTHESIS FAILED after {synth.get('_attempts', 1)} attempt(s): "
+              f"{synth['_error']}")
+        print("  The analyst reports below were still produced and are saved:")
+        for label, report in sorted(payload.get("analysts", {}).items()):
+            if not isinstance(report, dict):
+                print(f"    [{label}] unexpected report type {type(report).__name__}")
+            elif report.get("_error"):
+                print(f"    [{label}] FAILED: {report['_error']}")
+            else:
+                print(f"    [{label}] {report.get('headline', '(no headline)')}")
     else:
         print(f"\n  VERDICT: {synth.get('verdict', '(none)')}\n")
         for action in synth.get("actions", []):
@@ -527,11 +729,11 @@ def main():
         for err in facts["replayErrors"]:
             print(f"  {err}")
         print("Run tasks/export_mt5_history.py to refresh tasks/history/*.csv.")
-        return 1
+        return EXIT_NO_TRADES
 
     if args.facts_only:
         print(json.dumps(facts, indent=2)[:20000])
-        return 0
+        return EXIT_OK
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     facts_path = write_json(os.path.join(OUT_DIR, f"facts-{stamp}.json"), facts)
@@ -545,11 +747,21 @@ def main():
             action["gate"] = gate_action(action)
 
     payload = {"generatedAt": facts["generatedAt"], "facts": facts,
-               "analysts": reports, "synthesis": synthesis}
+               "analysts": reports, "synthesis": synthesis,
+               "analystReportsPath": reports_path}
     path = write_report(payload, stamp)
     print_summary(payload)
     print(f"\nWritten: {path}")
-    return 0
+
+    # The analysts' work is on disk either way — but the run must not report
+    # success when the merged action list is missing, or the scheduled task logs
+    # result=0 and nobody ever learns the night produced nothing actionable.
+    if synthesis.get("_error"):
+        print(f"Analyst reports preserved at: {reports_path}")
+        print(f"Exiting {EXIT_SYNTHESIS_FAILED}: synthesis failed after "
+              f"{SYNTH_MAX_ATTEMPTS} attempts.")
+        return EXIT_SYNTHESIS_FAILED
+    return EXIT_OK
 
 
 if __name__ == "__main__":
