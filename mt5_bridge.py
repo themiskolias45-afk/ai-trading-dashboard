@@ -405,6 +405,11 @@ def push_candles(force=False):
     now = time.time()
     if not force and now - _last_candle_push_at < CANDLE_PUSH_INTERVAL_SEC:
         return
+    # Stamp the ATTEMPT, not just the success. Setting this only after a 200 left every
+    # failure path below retrying on each 60s poll instead of backing off to the
+    # interval — which is why a broken push logged once a minute rather than once every
+    # five, and why the 413s came in a burst.
+    _last_candle_push_at = now
 
     timeframes = {"d1": mt5.TIMEFRAME_D1, "h4": mt5.TIMEFRAME_H4, "h1": mt5.TIMEFRAME_H1}
     assets = {}
@@ -434,7 +439,6 @@ def push_candles(force=False):
         )
         res.raise_for_status()
         accepted = res.json().get("accepted", {})
-        _last_candle_push_at = now
         # Only tickers the server actually ACCEPTED count — a payload it rejected
         # (too few bars, unusable series) leaves it correctly on Yahoo, and blocking
         # trades over a rejection we caused would be worse than the fallback.
@@ -481,6 +485,77 @@ def connect_mt5():
         log(f"MT5 connected: {acc.name} #{acc.login}", GREEN)
     log(f"Balance: ${acc.balance:.2f}  |  Equity: ${acc.equity:.2f}  |  Leverage: 1:{acc.leverage}", CYAN)
     return auto_detect_symbols()
+
+
+# How hard to retry a mid-session reconnect. Deliberately shorter than the startup
+# loop: the terminal is already installed and usually just restarting, and a long
+# blocking retry inside the poll cycle would stall trade management on the
+# positions that are still open.
+RECONNECT_RETRIES = 3
+RECONNECT_RETRY_DELAY_S = 10
+
+
+def mt5_handle_is_live():
+    """True when this process's IPC handle still reaches a logged-in terminal.
+
+    MT5 restarts its own terminal for a pending LiveUpdate, and it is most likely to
+    do so on a terminal that mt5.initialize() launched moments earlier. The python
+    client keeps a handle to the process that exited; from then on copy_rates_from_pos
+    and positions_get return None while nothing raises and nothing logs. This is
+    checked every cycle because that failure is completely silent — on 2026-08-01
+    bridge A ran blind for 28 minutes with a connected-looking banner in its log.
+
+    terminal_info().connected is the field that matters: initialize() succeeding only
+    proves a terminal answered once, not that it is still there.
+    """
+    try:
+        info = mt5.terminal_info()
+        if info is None or not getattr(info, "connected", False):
+            return False
+        return mt5.account_info() is not None
+    except Exception:
+        return False
+
+
+def ensure_mt5_connection():
+    """Re-establish the MT5 handle if it has gone stale. True when usable this cycle.
+
+    Order matters on recovery: reconcile FIRST (while known_positions still holds what
+    this bridge believed was open), then re-seed from live positions. Re-seeding first
+    would erase the evidence reconciliation needs, and skipping the re-seed entirely
+    would leave track_closed_positions diffing a stale set against a fresh one — every
+    tracked ticket reported closed with an unknown P&L, writing fictional outcomes into
+    the journal and the learning engine.
+    """
+    global known_positions
+    if mt5_handle_is_live():
+        return True
+
+    log(f"MT5 handle is stale ({mt5.last_error()}) — the terminal under this bridge "
+        f"has gone away. Reconnecting.", RED + BOLD)
+    try:
+        mt5.shutdown()
+    except Exception:
+        pass
+
+    for attempt in range(1, RECONNECT_RETRIES + 1):
+        if connect_mt5():
+            try:
+                reconcile_open_trades()
+            except Exception as exc:
+                log(f"Post-reconnect reconciliation failed ({exc}) — continuing.", YELLOW)
+            live_positions = mt5.positions_get()
+            known_positions = {p.ticket for p in live_positions if p.magic == MAGIC_NUMBER} \
+                if live_positions else set()
+            log(f"MT5 reconnected — tracking {len(known_positions)} open position(s) again.", GREEN)
+            return True
+        if attempt < RECONNECT_RETRIES:
+            log(f"Reconnect attempt {attempt}/{RECONNECT_RETRIES} failed — "
+                f"retrying in {RECONNECT_RETRY_DELAY_S}s…", YELLOW)
+            time.sleep(RECONNECT_RETRY_DELAY_S)
+
+    log("Could not reconnect to MT5 this cycle — retrying on the next poll.", RED)
+    return False
 
 
 def get_lot_size(symbol, entry, stop, risk_amount=None):
@@ -1017,7 +1092,13 @@ def report_positions():
     """Send open MT5 positions to SmartEntry server so the dashboard can display them."""
     try:
         positions = mt5.positions_get()
+        # None is an MT5 error, () is genuinely no positions. Returning silently on
+        # None made a live process with a dead terminal indistinguishable from a dead
+        # process: the heartbeat simply stopped and nothing said why, so the healer
+        # reported "A silent for 1268s" while the bridge was running normally.
         if positions is None:
+            log(f"positions_get() failed ({mt5.last_error()}) — heartbeat skipped, "
+                f"MT5 handle looks dead.", YELLOW)
             return
         data = []
         for p in positions:
@@ -1035,8 +1116,12 @@ def report_positions():
                 "openTime": datetime.fromtimestamp(p.time).strftime("%H:%M:%S"),
             })
         requests.post(f"{SERVER_URL}/api/mt5/positions", json={"positions": data, "account": ACCOUNT_TAG or "default"}, timeout=5)
-    except Exception:
-        pass
+    except Exception as exc:
+        # This POST is the ONLY thing that writes mt5LastSeenByAccount on the server,
+        # so swallowing its failure silently meant the single signal the healer watches
+        # could stop with no trace anywhere. Still non-fatal — a missed heartbeat must
+        # not stop trade management — but never again invisible.
+        log(f"Heartbeat POST failed ({exc}) — healer will read this bridge as silent.", YELLOW)
 
 
 def print_status(signals):
@@ -1316,11 +1401,16 @@ def track_closed_positions():
     global known_positions
 
     positions = mt5.positions_get()
-    current_tickets = set()
-    if positions:
-        for p in positions:
-            if p.magic == MAGIC_NUMBER:
-                current_tickets.add(p.ticket)
+    # None is an MT5 error; () is genuinely no open positions. Conflating them makes a
+    # dead handle look like "every position closed at once", and each tracked ticket
+    # would be written to the journal as closed with an unknown P&L — fictional
+    # outcomes that then feed the learning engine.
+    if positions is None:
+        log(f"positions_get() failed ({mt5.last_error()}) — skipping close detection "
+            f"this cycle rather than inferring closes from an error.", YELLOW)
+        return
+
+    current_tickets = {p.ticket for p in positions if p.magic == MAGIC_NUMBER}
 
     closed_tickets = known_positions - current_tickets
 
@@ -1579,6 +1669,12 @@ def main():
             # on the very next cycle rather than one cycle late. Existing positions
             # are still managed below either way — a halt stops new entries, it does
             # not abandon open trades.
+            # Everything below needs a working MT5 handle, and a handle can die
+            # silently mid-session. Skip the cycle rather than run the whole loop
+            # against a terminal that is no longer there.
+            if not ensure_mt5_connection():
+                time.sleep(POLL_INTERVAL)
+                continue
             check_remote_control()
             refresh_strategy_settings()
             # Before fetching signals, so the bars the server is about to compute
