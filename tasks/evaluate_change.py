@@ -16,6 +16,7 @@ setup logic through server/index.js via node, and reports each variant against t
 current baseline on a train/test split. Verdict is decided on the TEST half only.
 
 Exit code 0 = a variant beat baseline out-of-sample. 1 = nothing did, keep current.
+2 = the sweep measured nothing and its verdict is not evidence (see DEGENERATE).
 """
 
 import argparse
@@ -35,6 +36,16 @@ SYMBOLS = [("BTCUSD", "BTC"), ("XAUUSD", "Gold"), ("SP500", "SPX")]
 # touching a working system. Small wins are usually noise.
 MIN_PF_IMPROVEMENT = 0.10
 COST_R = 0.05
+
+# Exit codes. The third one exists because "no variant won" and "the harness
+# could not see this parameter at all" produced the same output for weeks, and a
+# caller cannot act on a verdict it cannot distinguish from a broken run.
+EXIT_VARIANT_WINS = 0
+EXIT_KEEP_CURRENT = 1
+EXIT_SWEEP_DEGENERATE = 2
+
+# A sweep needs at least two variants before "they all agree" means anything.
+MIN_VALUES_FOR_DEGENERACY_CHECK = 2
 
 # Settings this may change on its own.
 #
@@ -129,6 +140,36 @@ def evaluate(setting, values, tf):
     return results
 
 
+def variant_fingerprint(rows):
+    """Collapse one variant's per-asset results into a comparable signature.
+
+    Deliberately includes the trade counts as well as the metrics: two variants
+    that took the same number of trades but placed them differently are a real
+    measurement, while two that match on both took literally the same trades.
+    """
+    return [(label, train["n"], train["pf"], test["n"], test["pf"], test["R"])
+            for label, train, test in rows]
+
+
+def is_degenerate(results):
+    """True when every tested value produced an identical trade set on every asset.
+
+    A threshold sweep that does not move a single trade has not measured the
+    parameter — it has replayed one configuration N times. The verdict that comes
+    out is then a statement about the harness, not about the setting, and it is
+    printed in exactly the same words as a real one. That is how the weekly job
+    reported a confident KEEP every week while measuring nothing at all.
+
+    Conservative by construction: any difference anywhere, including one asset
+    whose replay failed under only some variants, makes the fingerprints differ
+    and leaves the normal verdict path alone.
+    """
+    if len(results) < MIN_VALUES_FOR_DEGENERACY_CHECK:
+        return False
+    fingerprints = [variant_fingerprint(rows) for rows in results.values()]
+    return all(fp == fingerprints[0] for fp in fingerprints[1:])
+
+
 def decide(results, baseline_value):
     """A variant wins only if it beats baseline on the TEST half on a MAJORITY of
     assets. One asset improving while two get worse is not an improvement."""
@@ -177,6 +218,21 @@ def apply_setting(setting, value):
         return False, str(exc)[:200]
 
 
+def write_log(setting, values, baseline, winner, reason, degenerate):
+    """Append one line to the improvement log. Never lets a logging failure mask
+    the verdict the caller actually ran for."""
+    try:
+        os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        with open(LOG, "a", encoding="ascii") as fh:
+            fh.write(json.dumps({
+                "at": datetime.utcnow().isoformat() + "Z",
+                "setting": setting, "tested": values, "baseline": baseline,
+                "winner": winner, "reason": reason, "degenerate": degenerate,
+            }) + "\n")
+    except Exception as exc:
+        print(f"WARNING: could not write {LOG}: {str(exc)[:200]}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--setting", required=True)
@@ -193,7 +249,23 @@ def main():
     results = evaluate(args.setting, values, args.tf)
     if not results:
         print("No results — nothing to decide.")
-        return 1
+        return EXIT_KEEP_CURRENT
+
+    # Checked before any verdict is formed, so a meaningless sweep can never
+    # reach --apply and write a config change it has no evidence for.
+    if is_degenerate(results):
+        reason = (f"every tested value produced an identical trade set on every "
+                  f"asset — {args.setting} moved nothing")
+        print("=" * 70)
+        print(f"DEGENERATE SWEEP — no verdict. ({reason})")
+        print("This run measured the harness, not the setting. A KEEP printed")
+        print("here would be indistinguishable from one backed by real evidence.")
+        print(f"Check that {args.setting} gates trade SELECTION in the replayed")
+        print("path: a setting that only relabels a signal the replay already")
+        print("accepts cannot move a single trade, however far you sweep it.")
+        print("=" * 70)
+        write_log(args.setting, values, baseline, None, reason, True)
+        return EXIT_SWEEP_DEGENERATE
 
     winner, reason = decide(results, baseline)
     print("=" * 70)
@@ -215,15 +287,9 @@ def main():
         print(f"KEEP {args.setting} = {baseline}   ({reason})")
     print("=" * 70)
 
-    os.makedirs(os.path.dirname(LOG), exist_ok=True)
-    with open(LOG, "a", encoding="ascii") as fh:
-        fh.write(json.dumps({
-            "at": datetime.utcnow().isoformat() + "Z",
-            "setting": args.setting, "tested": values, "baseline": baseline,
-            "winner": winner, "reason": reason,
-        }) + "\n")
+    write_log(args.setting, values, baseline, winner, reason, False)
 
-    return 0 if winner else 1
+    return EXIT_VARIANT_WINS if winner else EXIT_KEEP_CURRENT
 
 
 if __name__ == "__main__":
