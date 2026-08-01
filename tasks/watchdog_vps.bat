@@ -15,10 +15,25 @@ set BRIDGE_STARTUP_GRACE_CYCLES=3
 set /a COOL_A=0
 set /a COOL_B=0
 
+REM This watchdog only ever logged when it ACTED, so a dead watchdog and a perfectly
+REM healthy one produced byte-identical output: nothing. That is the worst property a
+REM monitor can have, and it is not hypothetical — the LOCAL watchdog died on
+REM 2026-08-01 and bridge A ran blind for 28 minutes with nobody able to tell from the
+REM log that the watcher itself was gone. A periodic heartbeat makes silence mean
+REM death, which is the only way an absence can raise an alarm.
+REM
+REM Unlike the local box this process is a Scheduled Task with RestartCount=3, so
+REM Windows already restarts it; the heartbeat is here to prove that actually happens.
+set HEARTBEAT_EVERY_CYCLES=10
+set /a CYCLE=0
+
 if not exist C:\ai-trading-dashboard\tasks\logs mkdir C:\ai-trading-dashboard\tasks\logs
 echo [%date% %time%] VPS Watchdog started. >> %LOG%
 
 :loop
+set /a CYCLE+=1
+set /a HB=!CYCLE! %% !HEARTBEAT_EVERY_CYCLES!
+if !HB! EQU 1 echo [!date! !time!] heartbeat - cycle !CYCLE!, VPS watchdog alive. >> !LOG!
 curl -s --max-time 5 http://localhost:3001/api/signals >nul 2>&1
 if errorlevel 1 (
     echo [!date! !time!] SERVER DOWN - restarting via Task Scheduler... >> !LOG!
