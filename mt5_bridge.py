@@ -1117,6 +1117,79 @@ def process_all_signals(data):
                 log(f"Signal processing error ({futures[future]}): {e}", RED)
 
 
+def deals_for_position(ticket):
+    """Every MT5 deal belonging to exactly this position id. [] when there are none.
+
+    history_deals_get has THREE mutually exclusive calling forms — a date range, an
+    order ticket, or a position id. Its own signature says so:
+    `history_deals_get([date_from, date_to, [group]],[position=...],[ticket=...])`.
+    Passing dates makes MT5 ignore the position keyword entirely and hand back every
+    deal in the window. Measured 2026-08-01 on account 25446287, which is shared with
+    five foreign EAs (magics 20002, 20003, 903110, 990011, 996142): the dated call
+    returned 28 deals, the position-only call returned the 2 that actually belong to
+    the position. The position_id re-check costs nothing and makes the regression
+    impossible to reintroduce.
+    """
+    try:
+        deals = mt5.history_deals_get(position=ticket)
+    except Exception as exc:
+        log(f"history lookup for #{ticket} raised: {exc}", YELLOW)
+        return []
+    if not deals:
+        return []
+    return [d for d in deals if d.position_id == ticket]
+
+
+CLOSING_DEAL_ENTRIES = (mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_BY)
+
+
+def summarize_closed_position(deals):
+    """Net outcome of one position's deals as (pnl, close_price, close_time_iso).
+
+    Returns None when the list holds no closing deal — the caller must never invent
+    an outcome, because a fabricated P&L feeds the circuit breaker and the learning
+    engine as if it were real.
+
+    Sums EVERY deal of the position rather than reading one of them: a position that
+    took profit at 1R closes in two OUT deals (see take_partial_profit), and reading
+    only the first books half the result as the whole. Commission and swap ride on the
+    same deals as separate fields and are real money, so they are part of the net.
+    """
+    if not deals:
+        return None
+    closing_deals = [d for d in deals if d.entry in CLOSING_DEAL_ENTRIES]
+    if not closing_deals:
+        return None
+    net_pnl = sum(float(d.profit) + float(d.commission) + float(d.swap) for d in deals)
+    final_deal = max(closing_deals, key=lambda d: d.time)
+    return (
+        round(net_pnl, 2),
+        float(final_deal.price),
+        datetime.fromtimestamp(final_deal.time).isoformat(),
+    )
+
+
+def opened_by_this_bridge(deals, expected_symbol):
+    """True when this position's OPENING deal is one of ours.
+
+    Only the IN side is tested. place_order stamps MAGIC_NUMBER on entry, but the
+    closing deal frequently carries magic 0 — a stop-out, a TP hit or a manual close
+    is not our order — so magic-filtering the OUT side would discard exactly the deals
+    that hold the P&L. Symbol is checked too: ticket ids are unique per account, not
+    across the fleet, and this is what stops one bridge reporting another account's
+    trade as its own.
+    """
+    for deal in deals:
+        if deal.entry != mt5.DEAL_ENTRY_IN:
+            continue
+        if deal.magic != MAGIC_NUMBER:
+            return False
+        if expected_symbol and deal.symbol.upper() != str(expected_symbol).upper():
+            return False
+        return True
+    return False
+
+
 def track_closed_positions():
     """Detect positions that closed since last check and POST to /api/trade-closed."""
     global known_positions
@@ -1133,21 +1206,15 @@ def track_closed_positions():
     for ticket in closed_tickets:
         pnl         = None
         close_price = None
-        try:
-            from datetime import timedelta
-            deals = mt5.history_deals_get(
-                datetime.now() - timedelta(days=1),
-                datetime.now(),
-                position=ticket
-            )
-            if deals:
-                for deal in deals:
-                    if deal.entry == mt5.DEAL_ENTRY_OUT:
-                        pnl         = round(deal.profit, 2)
-                        close_price = deal.price
-                        break
-        except Exception:
-            pass
+        close_time  = datetime.now().isoformat()
+        outcome = summarize_closed_position(deals_for_position(ticket))
+        if outcome:
+            pnl, close_price, close_time = outcome
+        else:
+            # The position is genuinely gone, so the journal must not keep calling it
+            # open — post the close with an unknown P&L rather than silently dropping
+            # it. Unlike the startup sweep, this path watched the ticket disappear.
+            log(f"No closing deal on record for #{ticket} — reporting close with unknown P&L.", YELLOW)
 
         global daily_pnl, consecutive_losses
         if pnl is not None:
@@ -1162,7 +1229,7 @@ def track_closed_positions():
                 "ticket":     ticket,
                 "pnl":        pnl,
                 "closePrice": close_price,
-                "closeTime":  datetime.now().isoformat(),
+                "closeTime":  close_time,
                 "account":    ACCOUNT_TAG or "default",
             }, timeout=5)
             color = GREEN if pnl and pnl > 0 else RED
@@ -1197,6 +1264,130 @@ def track_closed_positions():
     known_positions = current_tickets
 
 
+# ── Startup reconciliation ────────────────────────────────────────────────────
+# known_positions lives in memory only, and closes are computed as
+# `known_positions - current_tickets`. A position that closes while this process is
+# DOWN is in neither set, so it is never recorded: the journal keeps it OPEN with a
+# null P&L forever, the learning engine never receives the outcome, and the circuit
+# breaker never counts the loss. Proven on 2026-07-31: the machine was off from
+# 03:37 to 04:52 the next day, gold #1682651222 hit its stop at 12:12:45 inside that
+# window, and the journal still calls it open.
+#
+# The sweep below closes that hole once, before the main loop starts. It is
+# idempotent through the server's own state — a reconciled entry comes back from
+# /api/journal as status "CLOSED" and is not selected again — so a restart loop can
+# never double-count a trade into updateLearning.
+JOURNAL_FETCH_LIMIT       = 500
+JOURNAL_REQUEST_TIMEOUT_S = 15
+
+
+def fetch_open_journal_entries():
+    """Journal entries the server still believes are open. [] on any failure.
+
+    Empty rather than raising: the server being unreachable at startup is a reason to
+    skip reconciliation, never a reason to stop the bridge from trading.
+    """
+    try:
+        res = requests.get(
+            f"{SERVER_URL}/api/journal",
+            params={"limit": JOURNAL_FETCH_LIMIT},
+            timeout=JOURNAL_REQUEST_TIMEOUT_S,
+        )
+        res.raise_for_status()
+        entries = res.json().get("journal")
+    except Exception as exc:
+        log(f"Journal unreachable ({exc}) — skipping startup reconciliation.", YELLOW)
+        return []
+    if not isinstance(entries, list):
+        log("Journal response carried no entry list — skipping startup reconciliation.", YELLOW)
+        return []
+    return [e for e in entries if isinstance(e, dict) and e.get("status") == "OPEN"]
+
+
+def journal_entry_is_ours(journal_entry, deals):
+    """Does this open journal entry belong to THIS bridge's account?
+
+    Two independent tests, because neither is sufficient alone. The `account` field is
+    authoritative when present, but /api/trade-opened never persists one, so every
+    entry written to date lacks it and matching on it alone would reconcile nothing.
+    MT5 history is the standing proof: a ticket this account never held returns no
+    deals at all, and one it did hold returns an opening deal carrying our magic.
+    """
+    entry_account = journal_entry.get("account")
+    if entry_account and entry_account != (ACCOUNT_TAG or "default"):
+        return False
+    return opened_by_this_bridge(deals, journal_entry.get("symbol"))
+
+
+def report_reconciled_close(ticket, outcome):
+    """POST one recovered close to the server. True when the server accepted it."""
+    pnl, close_price, close_time = outcome
+    try:
+        res = requests.post(f"{SERVER_URL}/api/trade-closed", json={
+            "ticket":     ticket,
+            "pnl":        pnl,
+            "closePrice": close_price,
+            "closeTime":  close_time,
+            "account":    ACCOUNT_TAG or "default",
+        }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
+        res.raise_for_status()
+    except Exception as exc:
+        log(f"Could not report recovered close #{ticket}: {exc}", RED)
+        return False
+    log(f"RECOVERED close #{ticket}  P&L ${pnl:.2f} @ {close_price} ({close_time})",
+        GREEN if pnl > 0 else RED)
+    return True
+
+
+def reconcile_open_trades():
+    """Record trades that ended while this bridge was not running.
+
+    Deliberately does NOT feed daily_pnl or consecutive_losses. Those two are
+    day-scoped and session-scoped counters — replaying a week of history into them
+    would halt a freshly started bridge on a daily loss limit it never incurred
+    today. The journal and the learning engine get the outcome; the live
+    track_closed_positions path stays the only thing that moves the breakers.
+    """
+    open_entries = fetch_open_journal_entries()
+    if not open_entries:
+        return
+
+    positions = mt5.positions_get()
+    live_tickets = {p.ticket for p in positions} if positions else set()
+
+    recovered = 0
+    for journal_entry in open_entries:
+        try:
+            ticket = int(journal_entry.get("ticket"))
+        except (TypeError, ValueError):
+            continue
+        if ticket in live_tickets:
+            continue  # still open — nothing to reconcile
+
+        # One history lookup per ticket, shared by the ownership test and the P&L
+        # maths below. Empty means this terminal holds nothing for that id: on a
+        # multi-account fleet that is the normal answer for another bridge's trade,
+        # so it is stated plainly rather than warned about.
+        deals = deals_for_position(ticket)
+        if not deals:
+            log(f"#{ticket} ({journal_entry.get('symbol')}) reads OPEN but this account "
+                f"holds no deals for it — not reconciling.", CYAN)
+            continue
+        if not journal_entry_is_ours(journal_entry, deals):
+            continue  # another account's ticket, or a foreign EA's
+
+        outcome = summarize_closed_position(deals)
+        if outcome is None:
+            log(f"#{ticket} ({journal_entry.get('symbol')}) is ours and no longer open, but "
+                f"MT5 has no closing deal for it — leaving it for a human.", YELLOW)
+            continue
+        if report_reconciled_close(ticket, outcome):
+            recovered += 1
+
+    if recovered:
+        log(f"Startup reconciliation recorded {recovered} close(s) missed while offline.", CYAN)
+
+
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 def main():
@@ -1227,6 +1418,24 @@ def main():
     if not connected:
         log(f"Could not connect after {CONNECT_RETRIES} attempts — giving up.", RED)
         sys.exit(1)
+
+    # Settle the books BEFORE seeding known_positions, so anything that closed while
+    # this process was down is recorded rather than quietly written off. Wrapped
+    # because a reconciliation failure must never keep the bridge from trading.
+    global known_positions
+    try:
+        reconcile_open_trades()
+    except Exception as exc:
+        log(f"Startup reconciliation failed ({exc}) — continuing without it.", YELLOW)
+
+    # Adopt the positions already running under our magic, so the first loop sees them
+    # as open rather than as a fresh set to diff against nothing.
+    startup_positions = mt5.positions_get()
+    known_positions = {p.ticket for p in startup_positions if p.magic == MAGIC_NUMBER} \
+        if startup_positions else set()
+    if known_positions:
+        log(f"Tracking {len(known_positions)} open SmartEntry position(s): "
+            f"{', '.join('#' + str(t) for t in sorted(known_positions))}", CYAN)
 
     log("Bridge started — watching for signals…", GREEN)
 
