@@ -439,10 +439,22 @@ function clampStrategyValue(name, value) {
   return Math.round(bounded);
 }
 
+// Set when the settings file exists but could not be read, so the dashboard and
+// /api/healer can say so instead of the operator discovering it from lot sizes.
+let strategySettingsError = null;
+
 function loadStrategySettings() {
   try {
     if (!fs.existsSync(STRATEGY_SETTINGS_FILE)) return;
-    const saved = JSON.parse(fs.readFileSync(STRATEGY_SETTINGS_FILE, "utf8"));
+    // A UTF-8 BOM makes JSON.parse throw on the very first character, and the catch
+    // below then keeps DEFAULTS - which silently changed live sizing on the VPS on
+    // 2026-08-02: fixedLotSize 0.01 became 0, i.e. full risk-based sizing on a live
+    // account, from nothing louder than one log line. PowerShell's Set-Content
+    // -Encoding utf8 writes that BOM by default on 5.1, so any operator edit through
+    // PowerShell produces it. Stripped rather than rejected: the bytes after it are
+    // valid JSON and refusing them helps nobody.
+    const rawSettings = fs.readFileSync(STRATEGY_SETTINGS_FILE, "utf8").replace(/^﻿/, "");
+    const saved = JSON.parse(rawSettings);
     for (const name of Object.keys(STRATEGY_LIMITS)) {
       const clamped = clampStrategyValue(name, saved[name]);
       if (clamped !== null) strategySettings[name] = clamped;
@@ -450,10 +462,17 @@ function loadStrategySettings() {
     if (STRENGTH_LEVELS.includes(saved.minStrength)) strategySettings.minStrength = saved.minStrength;
     strategySettings.updatedAt = saved.updatedAt || null;
     strategySettings.updatedBy = saved.updatedBy || null;
+    strategySettingsError = null;
     console.log(`[strategy] Loaded: confidence>=${strategySettings.confidenceThreshold}%, max ${strategySettings.maxConcurrentPositions} positions, max ${strategySettings.maxTradesPerDay} trades/day`);
   } catch (e) {
-    // Keep the safe defaults rather than trading on a half-parsed config.
-    console.error(`[strategy] settings unreadable (${e.message}) — using defaults`);
+    // Keep the safe defaults rather than trading on a half-parsed config — but say
+    // so loudly. "Safe" defaults are not the operator's settings: fixedLotSize
+    // defaults to 0, which means size from risk, which is a far larger position
+    // than the 0.01 a machine configured for micro lots expects.
+    strategySettingsError = e.message;
+    console.error(`[strategy] SETTINGS UNREADABLE (${e.message}) — RUNNING ON DEFAULTS, ` +
+      `not your saved config. Live sizing and the confidence gate are the built-in ` +
+      `values, not ${path.basename(STRATEGY_SETTINGS_FILE)}. Fix the file and restart.`);
   }
 }
 
@@ -2293,7 +2312,14 @@ app.get("/api/mt5/control", (_, res) => res.json(tradingControl));
 // requires one, since raising the trade cap or lowering the confidence gate makes
 // the system trade more, and this server is reachable from the internet.
 app.get("/api/strategy-settings", (_, res) => {
-  res.json({ ...strategySettings, limits: STRATEGY_LIMITS });
+  // settingsError non-null means these values are the built-in defaults, NOT the
+  // saved file. Surfaced because the difference is invisible in the numbers alone
+  // and it changes live position sizing.
+  res.json({
+    ...strategySettings,
+    limits: STRATEGY_LIMITS,
+    settingsError: strategySettingsError,
+  });
 });
 
 app.post("/api/strategy-settings", (req, res) => {
