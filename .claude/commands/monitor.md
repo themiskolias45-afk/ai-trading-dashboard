@@ -14,7 +14,7 @@ Every N minutes, automatically:
 
 2. CHECK FOR ALERTS
    For each asset (BTC, Gold, SPX):
-   - confidence ≥ 65% AND signal is BUY or SELL → FIRE ALERT
+   - confidence ≥ the live gate AND signal is BUY or SELL → FIRE ALERT
    - confidence changed by ≥ 15% since last check → note the move
    - price moved > 1.5% since last check → note volatility spike
 
@@ -35,4 +35,4 @@ Every N minutes, automatically:
 - Never fire the same alert twice in a row for the same asset at the same confidence
 - If server is offline, report it once and keep trying — don't stop the loop
 - Keep output compact — one line per check unless an alert fires
-- If confidence drops below 65% after firing, note: "[ASSET] signal faded — [new conf]%"
+- If confidence drops below the live gate after firing, note: "[ASSET] signal faded — [new conf]%"

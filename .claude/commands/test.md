@@ -51,8 +51,8 @@ Run all of these in sequence. Stop and report if anything fails.
 
 4. SIGNAL INTEGRITY CHECK:
    From mcp__smartentry__get_signals: for each asset
-   - confidence ≥ 65 → signal should NOT be WAIT (if regime is not halted)
-   - confidence < 65 → signal MUST be WAIT
+   - confidence ≥ the live gate → signal should NOT be WAIT (if regime is not halted)
+   - confidence < the live gate → signal MUST be WAIT
    - Flag any mismatch as a CRITICAL failure
 
 5. GIT STATE:

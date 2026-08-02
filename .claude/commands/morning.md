@@ -9,7 +9,7 @@ STEP 1 — Load memory and yesterday (in parallel):
 
 STEP 1b — SIGNAL-DEAD CHECK (run immediately, before anything else):
   mcp__smartentry__get_journal limit=200 → find last trade date per asset
-  Calculate days since last confidence ≥ 65% fired per asset.
+  Calculate days since last confidence ≥ the live gate fired per asset.
   If any asset > 5 days: flag — this goes at the TOP of the morning brief, not buried.
   If any asset > 7 days: this is SIGNAL-DEAD — morning brief opens with a WARNING block.
 
@@ -37,7 +37,7 @@ SIGNAL STATUS:
 • GOLD: [conf]% | [READY/WAIT — gap Xpt] | last traded [N days ago]
 • SPX:  [conf]% | [READY/WAIT — gap Xpt] | last traded [N days ago]
 
-[Only show trade levels for assets where confidence ≥ 65%:]
+[Only show trade levels for assets where confidence ≥ the live gate:]
 SIGNALS READY:
 • [ASSET]: [signal] [setup] [confidence]% — Entry $X | Stop $X | Target $X | R/R 1:X
 

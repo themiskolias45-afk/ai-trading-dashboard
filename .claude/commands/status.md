@@ -29,7 +29,7 @@ ACTION   [one sentence — the one thing that needs attention right now, or "Not
 Rules:
 - If server is offline: ACTION = "Start server: tasks\menu.bat option S"
 - If healer < 4/6: ACTION = "Force heal: POST /api/healer/heal"
-- If any confidence ≥ 65 and not halted: ACTION = "SIGNAL READY: [asset] [direction]"
+- If any confidence ≥ the live gate and not halted: ACTION = "SIGNAL READY: [asset] [direction]"
 - If syntax error: ACTION = "SYNTAX ERROR — run /debug"
 - If consecutive losses = 3: ACTION = "CIRCUIT BREAKER — trading halted"
 - If git dirty: ACTION = "Uncommitted changes — run git commit"

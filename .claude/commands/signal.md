@@ -29,7 +29,7 @@ GAP ANALYSIS (for each asset showing WAIT):
   If no trade > 7 days: "⚠ SIGNAL-DEAD — run /diagnose"
 
 Rules:
-- If confidence ≥ 65%: show SIGNAL with full trade levels (no gap analysis needed)
-- If confidence < 65%: show WAIT + gap analysis line
+- If confidence ≥ the live gate: show SIGNAL with full trade levels (no gap analysis needed)
+- If confidence < the live gate: show WAIT + gap analysis line
 - If healer shows issues: "WARNING: [what's wrong]"
 - No fluff. Data only.

@@ -36,7 +36,7 @@ STEP 2 — CONFIDENCE CALIBRATION DEEP AUDIT:
     OVERCONFIDENT:   actual < expected by > 10% (system fires too often at wrong times)
     UNDERCONFIDENT:  actual > expected by > 10% (signals are stronger than scored — could scale)
 
-  If OVERCONFIDENT: the confidence threshold may need to raise (e.g., require ≥ 70 not ≥ 65)
+  If OVERCONFIDENT: the confidence threshold may need to raise further. It was already moved 65 -> 70 on 2026-08-02 (a0862d1), measured 5/5 folds positive; re-measure with run_walkforward before moving it again, and note that Gold's squeeze cohort is pinned to the gate and stops firing if it rises
   If UNDERCONFIDENT: could lower threshold or increase position size
 
 STEP 3 — CODE QUALITY AUDIT:

@@ -33,7 +33,7 @@ Fear & Greed: [score] ([classification]) | Regime: [regime] | Circuit breaker: [
 
 TOP PICK: [highest-scored asset] — [2-sentence rationale]
 
-If no signal ≥ 65%: "No setups ready — all assets below threshold. Regime: [regime]."
+If no signal ≥ the live gate: "No setups ready — all assets below threshold. Regime: [regime]."
 
 ═══ DEBATE MODE (--debate) ═══
 If --debate flag is passed AND top pick has confidence ≥ 70%:

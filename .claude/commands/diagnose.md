@@ -21,8 +21,8 @@ Use when the system is running but not taking any trades. Traces the full signal
 
   CAUSE B — CONFIDENCE NEVER REACHES THRESHOLD:
     From signals: what is the highest confidence seen across all 3 assets?
-    If max confidence < 65%: market conditions are not generating setups.
-    → Check: when was the last time confidence was ≥ 65%? (from journal timestamps)
+    If max confidence < the live gate: market conditions are not generating setups.
+    → Check: when was the last time confidence was ≥ the live gate? (from journal timestamps)
     → Is it a ranging market killing all setups, or is the signal logic broken?
 
   CAUSE C — SIGNAL STUCK IN WAIT:
@@ -61,7 +61,7 @@ Use when the system is running but not taking any trades. Traces the full signal
     → Resolution: git pull on the running server and restart it.
 
   CAUSE I — H4-ONLY SIGNAL BUT SPX (by design):
-    SPX (^GSPC) H4-only confidence = 45 by design. It will NEVER reach 65% gate alone.
+    SPX (^GSPC) H4-only confidence = 45 by design. It will NEVER reach the gate (70) alone.
     This is correct. SPX requires Daily+H4 agreement to fire.
     If user is puzzled by SPX not trading on H4 momentum alone: explain this is intentional.
 
@@ -84,7 +84,7 @@ Use when the system is running but not taking any trades. Traces the full signal
   - node --check server/index.js
   - Restart server if changed
   - Wait 60s for signal refresh
-  - Verify: mcp__smartentry__get_signals → confidence ≥ 65 on at least one asset?
+  - Verify: mcp__smartentry__get_signals → confidence ≥ the live gate on at least one asset?
 
 ═══ REPORT ═══
 TRADE DIAGNOSTIC — [timestamp]

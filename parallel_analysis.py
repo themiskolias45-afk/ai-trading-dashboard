@@ -73,9 +73,26 @@ parallel_agents.TIMEOUT = AGENT_TIMEOUT_SEC
 # project configuration outranks an instruction buried in a user turn. run_agent has
 # supported a cwd override for exactly this reason; it was simply never passed.
 #
-# The agents read and write absolute paths, so the working directory only decides
-# which CLAUDE.md they inherit - here, none.
-AGENT_CWD = tempfile.gettempdir()
+# Two further things this had to get right, both learned by running it:
+#
+# 1. The CLI scopes its file tools to the working directory, so an agent moved out of
+#    the project cannot read the fact pack or write its OUTPUT_FILE. It reported
+#    exactly that: "my file access here is sandboxed to the Temp directory only".
+#    Every task therefore also passes add_dirs=[ROOT].
+#
+# 2. The directory must be EMPTY, and tempfile.gettempdir() is the worst possible
+#    choice. It holds Claude Code's own per-session scratchpads, including old runs
+#    on this project, so the analysts globbed their cwd, found convincing stale
+#    lookalikes - mod_facts.json, backtest.json, a VPS snapshot from 2026-07-27 -
+#    and analysed those instead of the absolute path they were handed. One reported
+#    "dozens of leftover scratchpad JSON files from many past Claude Code sessions".
+#    Wrong numbers confidently presented is worse than no numbers.
+#
+# A dedicated empty directory outside the project satisfies both: nothing above it
+# defines a CLAUDE.md, and nothing inside it can be mistaken for input.
+AGENT_CWD = os.path.join(
+    os.environ.get("LOCALAPPDATA") or tempfile.gettempdir(), "SmartEntryAgentCwd")
+os.makedirs(AGENT_CWD, exist_ok=True)
 
 # A bucket below this many closed trades is noise. Reported, but never used as
 # the basis of a recommendation - the same 5-trade floor getLearningBoost uses.
@@ -565,6 +582,7 @@ def run_analysts(facts_path, stamp):
     tasks = [{
         "label": label,
         "cwd": AGENT_CWD,
+        "add_dirs": [ROOT],
         "system": AGENT_SYSTEM_PROMPT,
         "prompt": check_prompt_size(label, (
             f"{brief}\n\n{OUTPUT_CONTRACT}\n\n"
@@ -635,6 +653,7 @@ def run_synthesiser(facts_path, reports_path, stamp):
         result = run_agent({
             "label": f"synthesiser{suffix}",
             "cwd": AGENT_CWD,
+        "add_dirs": [ROOT],
             "prompt": synthesiser_prompt(facts_path, reports_path, out_path, retry_reason),
             "system": AGENT_SYSTEM_PROMPT,
         })

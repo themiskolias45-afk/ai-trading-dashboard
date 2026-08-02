@@ -10,7 +10,7 @@ SIGNALS & ANALYSIS
   /signal              Live signal — all 3 assets + Fear & Greed context
   /analyze [sym]       Deep analysis — technical + sentiment + live news — BTC, GOLD, or SPX
   /scan                Parallel market scan — all assets scored and ranked
-  /monitor             Continuous signal watcher — alerts when confidence ≥ 65%
+  /monitor             Continuous signal watcher — alerts when confidence ≥ the live gate
   /sentiment           Full sentiment brief — Fear & Greed + macro + asset outlook
   /news                Live market news briefing + trading impact
   /morning             Full morning brief — signals + sentiment + pre-market research

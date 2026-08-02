@@ -61,13 +61,21 @@ def run_agent(task: dict) -> dict:
                ones, which then greet instead of answering and refuse to write
                their own output file. Point this outside the project to get a
                plain agent.
+      add_dirs — extra directories the agent may read and write. REQUIRED whenever
+               cwd is outside the project: the CLI scopes file tools to the
+               working directory, so an agent moved to a temp dir to escape
+               CLAUDE.md loses access to the project and answers "my file access
+               here is sandboxed to the Temp directory only" instead of doing the
+               work. Verified 2026-08-02: temp cwd + --add-dir <project> reads
+               project files, writes its output file, and replies exactly DONE.
       system — extra system prompt, appended to the agent's own.
     """
-    label  = task.get("label", "Agent")
-    prompt = task["prompt"]
-    ctx    = task.get("context", "")
-    cwd    = task.get("cwd") or str(WORK_DIR)
-    system = task.get("system")
+    label    = task.get("label", "Agent")
+    prompt   = task["prompt"]
+    ctx      = task.get("context", "")
+    cwd      = task.get("cwd") or str(WORK_DIR)
+    system   = task.get("system")
+    add_dirs = task.get("add_dirs") or []
 
     full_prompt = f"{ctx}\n\n{prompt}".strip() if ctx else prompt
 
@@ -83,6 +91,8 @@ def run_agent(task: dict) -> dict:
             "--output-format", "text"]
     if system:
         argv += ["--append-system-prompt", system]
+    if add_dirs:
+        argv += ["--add-dir", *[str(d) for d in add_dirs]]
 
     try:
         proc = subprocess.run(

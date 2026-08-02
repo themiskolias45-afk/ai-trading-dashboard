@@ -20,7 +20,7 @@ STEP 1 — SYSTEM HEALTH (deep check, parallel):
   SIGNAL-DEAD CHECK (run immediately, per asset):
     mcp__smartentry__get_journal limit=200 → find last trade date per asset (BTC, GOLD, SPX)
     mcp__smartentry__get_signals → get current confidence per asset
-    Calculate: days since last confidence ≥ 65% per asset.
+    Calculate: days since last confidence ≥ the live gate per asset.
     SIGNAL-DEAD = > 7 days without signal. Flag as CRITICAL.
     SIGNAL-SLOW = 4-7 days. Flag as HIGH.
     SIGNAL-OK = < 4 days. Log and continue.

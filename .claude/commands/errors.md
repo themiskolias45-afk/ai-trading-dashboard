@@ -60,8 +60,8 @@ Call each endpoint and check for errors:
 
 ═══ SCAN 4 — SIGNAL INTEGRITY ═══
 From mcp__smartentry__get_signals:
-  For each asset: if confidence ≥ 65 AND not halted → direction must NOT be WAIT
-  For each asset: if confidence < 65 → direction MUST be WAIT
+  For each asset: if confidence ≥ the live gate AND not halted → direction must NOT be WAIT
+  For each asset: if confidence < the live gate → direction MUST be WAIT
   Flag MISMATCH: [asset] confidence=[X] but direction=[Y]
 
 Also: check that entry, stop, target are all non-zero and target > entry (for BUY) or target < entry (for SELL).
