@@ -10,10 +10,15 @@ if exist server\apikey.txt (
   set /p ANTHROPIC_API_KEY=<server\apikey.txt
 )
 
-REM ── Kill any previous instance ─────────────────────────────────
-taskkill /F /IM node.exe      /T >nul 2>&1
-taskkill /F /IM python.exe    /T >nul 2>&1
-taskkill /F /IM terminal64.exe /T >nul 2>&1
+REM ── Stop only our own previous processes ───────────────────────
+REM These three lines used to be `taskkill /F /IM node.exe /T` and the same for
+REM python.exe and terminal64.exe — by IMAGE NAME, which kills every node, every
+REM python and every MetaTrader on the machine: both live bridges, both terminals,
+REM every MCP server and any unrelated tool. START.bat had the identical bug removed
+REM already; this file was missed. Window-title scoping matches tasks\watchdog.bat.
+taskkill /F /FI "WINDOWTITLE eq SmartEntry Server*"     >nul 2>&1
+taskkill /F /T /FI "WINDOWTITLE eq SmartEntry Bridge*"     >nul 2>&1
+taskkill /F /T /FI "WINDOWTITLE eq SmartEntry MT5 Bridge*" >nul 2>&1
 timeout /t 2 /nobreak >nul
 
 REM ── Start MetaTrader 5 (try common install paths) ─────────────
@@ -44,8 +49,14 @@ REM ── Open dashboard in browser ──────────────�
 start "" "http://localhost:3001/dashboard"
 timeout /t 2 /nobreak >nul
 
-REM ── Start MT5 bridge — FULL AUTO ─────────────────────────────
-start "SmartEntry MT5 Bridge" cmd /k "cd /d C:\Users\User\ai-trading-dashboard && python mt5_bridge.py --auto"
+REM ── Start MT5 bridges — FULL AUTO, one per account ───────────
+REM Was a single untagged `python mt5_bridge.py --auto`, which auto-detects
+REM whichever terminal answers first, reports as account "default", and can open
+REM every qualifying signal a second time on an account a tagged bridge already
+REM owns. The tagged scripts pin terminal path and expected login.
+start "" /min cmd /k "C:\Users\User\ai-trading-dashboard\tasks\start_bridge_A.bat"
+timeout /t 3 /nobreak >nul
+start "" /min cmd /k "C:\Users\User\ai-trading-dashboard\tasks\start_bridge_B.bat"
 timeout /t 3 /nobreak >nul
 
 REM ── Start JARVIS command center ───────────────────────────────

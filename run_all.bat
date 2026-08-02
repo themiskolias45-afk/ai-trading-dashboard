@@ -40,10 +40,19 @@ echo.
 set /p MODE="  Enter 1 or 2 [default=1]: "
 
 echo.
+REM Both modes go through the tagged scripts. Calling mt5_bridge.py directly from
+REM here started an UNTAGGED bridge: it auto-detects whichever MT5 terminal answers
+REM first, reports as account "default", and can open every qualifying signal a
+REM second time on an account a tagged bridge already owns. BRIDGE_ARGS is the only
+REM difference between the two modes; account identity stays defined in one place.
 if "%MODE%"=="2" (
-  echo  [3/3] Starting MT5 bridge in FULL-AUTO mode...
-  python mt5_bridge.py --auto
+  echo  [3/3] Starting MT5 bridges A and B in FULL-AUTO mode...
+  set "BRIDGE_MODE=AUTO"
 ) else (
-  echo  [3/3] Starting MT5 bridge in SEMI-AUTO mode...
-  python mt5_bridge.py
+  echo  [3/3] Starting MT5 bridges A and B in SEMI-AUTO mode...
+  set "BRIDGE_MODE=SEMI"
 )
+start "" /min cmd /k "%~dp0tasks\start_bridge_A.bat"
+timeout /t 3 /nobreak >nul
+start "" /min cmd /k "%~dp0tasks\start_bridge_B.bat"
+echo  Bridges A and B: running in background.
