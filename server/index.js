@@ -2472,6 +2472,12 @@ app.post("/api/trade-opened", async (req, res) => {
       sl:        trade.sl,
       tp:        trade.tp,
       volume:    trade.volume,
+      // Which broker account owns this trade. The bridge has always sent it
+      // (mt5_bridge.py:863); this entry used to drop it, which is why every
+      // journal entry written before now is unattributable — and why closes
+      // could only be matched on a ticket id that is unique per account, not
+      // across the fleet.
+      account:   trade.account || "default",
       openTime:  new Date().toISOString(),
       closeTime: null,
       closePrice: null,
@@ -2504,10 +2510,18 @@ app.post("/api/trade-opened", async (req, res) => {
 
 // MT5 bridge notifies server when a trade is closed
 app.post("/api/trade-closed", (req, res) => {
-  const { ticket, pnl, closePrice, closeTime } = req.body;
+  const { ticket, pnl, closePrice, closeTime, account } = req.body;
   if (!ticket) return res.status(400).json({ error: "ticket required" });
-  const trade = tradeJournal.find(t => t.ticket === ticket);
+  // Ticket ids are unique per ACCOUNT, not across the fleet (mt5_bridge.py:1384),
+  // and accounts A, B and the VPS all post into this one journal. Prefer the exact
+  // pair. The ticket-only fallback is deliberately restricted to entries carrying
+  // no account — every entry written before this change — so a close can never be
+  // applied to a different account's trade, while old entries still reconcile.
+  const trade = tradeJournal.find(t => t.ticket === ticket && t.account === account)
+             ?? tradeJournal.find(t => t.ticket === ticket && !t.account);
   if (trade) {
+    // Stamp legacy entries so the next close matches on the exact pair.
+    if (!trade.account && account) trade.account = account;
     trade.status     = "CLOSED";
     trade.pnl        = pnl       ?? null;
     trade.closePrice = closePrice ?? null;

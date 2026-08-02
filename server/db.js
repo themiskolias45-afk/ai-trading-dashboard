@@ -32,7 +32,10 @@ CREATE TABLE IF NOT EXISTS trades (
   closed_at   TEXT,
   pnl         REAL,
   outcome     TEXT,
-  notes       TEXT
+  notes       TEXT,
+  -- Last, deliberately: ALTER TABLE can only append, so a database migrated by
+  -- ensureColumn() and one created fresh from this schema end up identical.
+  account     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS signals (
@@ -78,6 +81,24 @@ function notAvailable(fnName) {
   console.warn(`[DB] ${fnName}() called but better-sqlite3 is not available`);
 }
 
+/**
+ * Add a column to an existing table if it isn't there yet.
+ *
+ * CREATE TABLE IF NOT EXISTS never alters a table that already exists, so a
+ * column added to SCHEMA is invisible on every database created before it —
+ * init()'s docstring promised migrations that did not exist. Additive only:
+ * existing rows take NULL, nothing is rewritten, no data is dropped.
+ *
+ * Table and column names are hard-coded call-site literals, never user input.
+ */
+function ensureColumn(table, column, type) {
+  const present = db.prepare(`PRAGMA table_info(${table})`).all()
+    .some(col => col.name === column);
+  if (present) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  console.log(`[DB] Migrated: ${table}.${column} added`);
+}
+
 function isReady(fnName) {
   if (!Database) {
     notAvailable(fnName);
@@ -109,6 +130,10 @@ function buildWhereClause(filters) {
   if (filters.setup) {
     conditions.push('setup = ?');
     values.push(filters.setup);
+  }
+  if (filters.account) {
+    conditions.push('account = ?');
+    values.push(filters.account);
   }
   if (filters.from) {
     conditions.push('opened_at >= ?');
@@ -153,6 +178,9 @@ function init(dbPath) {
     // Create all tables in a single transaction
     db.exec(SCHEMA);
 
+    // Migrations for databases created before a column existed.
+    ensureColumn('trades', 'account', 'TEXT');
+
     console.log(`[DB] Opened: ${dbPath}`);
   } catch (err) {
     console.error('[DB] init() failed:', err.message);
@@ -171,10 +199,10 @@ function insertTrade(trade) {
   const sql = `
     INSERT INTO trades
       (symbol, direction, setup, entry, stop, target, size, confidence,
-       opened_at, closed_at, pnl, outcome, notes)
+       opened_at, closed_at, pnl, outcome, notes, account)
     VALUES
       (@symbol, @direction, @setup, @entry, @stop, @target, @size, @confidence,
-       @opened_at, @closed_at, @pnl, @outcome, @notes)
+       @opened_at, @closed_at, @pnl, @outcome, @notes, @account)
   `;
 
   try {
@@ -193,6 +221,7 @@ function insertTrade(trade) {
       pnl:        trade.pnl        ?? null,
       outcome:    trade.outcome    ?? null,
       notes:      trade.notes      ?? null,
+      account:    trade.account    ?? null,
     });
     return result.lastInsertRowid;
   } catch (err) {
@@ -217,6 +246,7 @@ function updateTrade(id, updates) {
   const ALLOWED = new Set([
     'symbol', 'direction', 'setup', 'entry', 'stop', 'target',
     'size', 'confidence', 'opened_at', 'closed_at', 'pnl', 'outcome', 'notes',
+    'account',
   ]);
 
   const fields = Object.keys(updates).filter(k => ALLOWED.has(k));
