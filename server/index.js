@@ -2514,16 +2514,32 @@ app.post("/api/trade-closed", (req, res) => {
     trade.closeTime  = closeTime  ?? new Date().toISOString();
     saveJournal();
     // Feed outcome to self-learning engine
-    if (trade.setup && pnl !== null) {
-      updateLearning(trade.setup, pnl);
+    const outcomeKnown = trade.pnl !== null;
+    // Same rule as updateLearning() at line 319 — a scratch counts as a loss in
+    // both stores, so learning.json and SQLite can never disagree on a trade.
+    const outcome = outcomeKnown ? (trade.pnl > 0 ? "WIN" : "LOSS") : null;
+    if (trade.setup && outcomeKnown) {
+      updateLearning(trade.setup, trade.pnl);
       const healthAlerts = checkSetupHealth();
       if (healthAlerts.length > 0) {
         riskStatus.setupAlerts = healthAlerts;
       }
+      // db.js counts on uppercase; lowercase silently incremented neither counter.
+      db.updateLearning(trade.setup, outcome, trade.pnl);
+    } else if (!outcomeKnown) {
+      console.warn(`[trade] #${ticket} closed with no P&L — recorded, not scored`);
     }
-    // Also update SQLite
-    db.updateLearning(trade.setup, pnl > 0 ? 'win' : 'loss', trade.pnl || 0);
-    db.insertTrade(trade);
+    // insertTrade reads stop/target/size/outcome/closed_at; the journal entry
+    // carries sl/tp/volume/status/closeTime. Mapped explicitly rather than
+    // renaming journal fields, which would break every existing journal.json.
+    db.insertTrade({
+      ...trade,
+      stop:      trade.sl,
+      target:    trade.tp,
+      size:      trade.volume,
+      outcome,
+      closed_at: trade.closeTime,
+    });
   }
   console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);
   res.json({ ok: true });
