@@ -65,7 +65,11 @@ const NEEDED = [
 // Read from source rather than hardcoded on purpose: a literal copied to here would
 // silently drift the day someone retunes the server, reintroducing the same class of
 // bug with no error.
-const SCALAR_CONSTS = ["SIZING_BOOST_MIN_CONFIDENCE"];
+const SCALAR_CONSTS = [
+  "SIZING_BOOST_MIN_CONFIDENCE",
+  "STRUCTURAL_STOP_MIN_ATR",
+  "GOLD_SQUEEZE_MODERATE_CONFIDENCE",
+];
 
 let code = "";
 for (const name of SCALAR_CONSTS) {

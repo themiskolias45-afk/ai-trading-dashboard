@@ -374,7 +374,14 @@ let riskStatus    = { dailyPnl: 0, consecutiveLosses: 0, halted: false, haltReas
 const STRATEGY_SETTINGS_FILE = path.join(__dirname, "strategy_settings.json");
 
 const STRATEGY_LIMITS = {
-  confidenceThreshold:    { min: 50, max: 95, def: 65 },
+  // 70, not 65. Measured 2026-08-01 on a repaired 5-fold walk-forward replay
+  // (tasks/mtf_walkforward.cjs, cost 0.05R): 70 is the only gate positive in 5 of
+  // 5 sequential out-of-sample folds AND with TEST expectancy above TRAIN. 75 is a
+  // train artifact (+0.358 TRAIN -> +0.054 TEST) and 80/85 go negative out of
+  // sample; 65 is positive but thinner and fails at least one fold. An earlier
+  // "edge lives above 75" conclusion is superseded - it was measured on the
+  // harness that silently dropped 18% of Gold's history, repaired in b55b5f5.
+  confidenceThreshold:    { min: 50, max: 95, def: 70 },
   maxConcurrentPositions: { min: 1,  max: 10, def: 3  },
   maxTradesPerDay:        { min: 1,  max: 50, def: 5  },
   // Lot controls. `decimals` matters: rounding these to whole numbers would turn
@@ -1003,12 +1010,37 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // the thesis is actually invalidated. Only adopted when it is TIGHTER than the
   // ATR stop, so this can reduce risk but never widen it beyond what the setup
   // already accepted. In testing, structural stops cut drawdown from ~12% to ~3%.
+  //
+  // The floor exists because "tighter than the ATR stop" had no lower bound. A
+  // swing point sitting a few ticks from entry produced a stop distance near zero,
+  // and since the target is unchanged, R/R is target-distance divided by that —
+  // one SPX trade in the walk-forward came out at R/R 55.24 and contributed +55.2R
+  // of a +39.5R cohort total. It WAS the result, and it flipped the cohort's sign.
+  // Those are not edge, they are a division artifact, and live they would size a
+  // position off a stop the next candle's noise removes.
+  //
+  // 0.5 ATR: still a 3x risk reduction against the 1.5 ATR stop, while anything
+  // tighter is inside a single average bar's range. Below the floor the ATR stop
+  // is kept, which is the pre-existing behaviour, so this can only reject a
+  // structural stop - it never widens one or invents a new price.
+  const structuralFloor = atrVal !== null ? atrVal * STRUCTURAL_STOP_MIN_ATR : null;
+  const structuralStopIsUsable = (candidatePrice) =>
+    structuralFloor === null || Math.abs(entry - candidatePrice) >= structuralFloor;
+
   if (stop !== null && signal === "BUY" && swingLow && swingLow.price < entry && swingLow.price > stop) {
-    stop = parseFloat(swingLow.price.toFixed(2));
-    reasons.push(`Stop at swing low ${stop} (${swingLow.barsAgo} bars ago) — structural, tighter than ATR`);
+    if (structuralStopIsUsable(swingLow.price)) {
+      stop = parseFloat(swingLow.price.toFixed(2));
+      reasons.push(`Stop at swing low ${stop} (${swingLow.barsAgo} bars ago) — structural, tighter than ATR`);
+    } else {
+      reasons.push(`Swing low ${swingLow.price.toFixed(2)} is inside ${STRUCTURAL_STOP_MIN_ATR} ATR of entry — keeping the ATR stop`);
+    }
   } else if (stop !== null && signal === "SELL" && swingHigh && swingHigh.price > entry && swingHigh.price < stop) {
-    stop = parseFloat(swingHigh.price.toFixed(2));
-    reasons.push(`Stop at swing high ${stop} (${swingHigh.barsAgo} bars ago) — structural, tighter than ATR`);
+    if (structuralStopIsUsable(swingHigh.price)) {
+      stop = parseFloat(swingHigh.price.toFixed(2));
+      reasons.push(`Stop at swing high ${stop} (${swingHigh.barsAgo} bars ago) — structural, tighter than ATR`);
+    } else {
+      reasons.push(`Swing high ${swingHigh.price.toFixed(2)} is inside ${STRUCTURAL_STOP_MIN_ATR} ATR of entry — keeping the ATR stop`);
+    }
   }
 
   const rr = (stop !== null && target !== null)
@@ -1090,8 +1122,46 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     if (ticker === "^GSPC") {
       confidence = 45; // SPX: needs exceptional quality boosts to clear 65 gate
     } else if (ticker === "GC=F") {
-      // Gold H4-only: PF 1.40 in held-out backtest — STRONG fires directly
-      confidence = h4.strength === "STRONG" ? 68 : h4.strength === "MODERATE" ? 55 : 40;
+      // Gold H4-only: PF 1.40 in held-out backtest — STRONG fires directly.
+      //
+      // MODERATE is split by what the DAILY was doing, because those are two
+      // different populations and averaging them hides both. Measured 2026-08-01 on
+      // a repaired walk-forward replay (60/40 chronological split, cost 0.05R, TEST
+      // = held-out half, engine's own targets):
+      //
+      //   daily setup BB_SQUEEZE_WATCH   TRAIN +0.179 (n=26)  TEST +0.607 (n=27)
+      //   daily setup WAIT               TRAIN -0.518 (n= 9)  TEST +0.366 (n=21)
+      //   both together, i.e. one flat   TRAIN -0.000 (n=35)  TEST +0.502 (n=48)
+      //   number for MODERATE
+      //
+      // Raising MODERATE unconditionally nets EXACTLY ZERO in the train half — the
+      // squeeze cohort's edge pays for the WAIT cohort's losses. Gated to the
+      // squeeze it is positive in both halves, which is the only form of this
+      // change worth shipping. Revert by deleting the ternary, nothing else.
+      //
+      // Why a squeeze is different: BB_SQUEEZE_WATCH means the daily has compressed
+      // and has no directional opinion yet, so an H4 setup is the first read on
+      // which way it resolves. A plain daily WAIT means the daily looked and found
+      // nothing — a weaker thing for H4 to disagree with.
+      //
+      // These numbers came from a harness that was itself repaired the same day
+      // (b55b5f5); every earlier Gold measurement dropped this cohort entirely.
+      //
+      // GOLD_SQUEEZE_MODERATE_CONFIDENCE is 70 to sit exactly on the live gate.
+      // It is a pinned constant rather than `strategySettings.confidenceThreshold`
+      // on purpose: the walk-forward harness lowers that threshold to 40 to expose
+      // sub-gate cohorts, so a follower would have been REPLAYED at 40 and dropped
+      // from the very gate-70 population it needs to be measured inside. Pinned, the
+      // replay sees exactly what live sees.
+      //
+      // The coupling is real and load-bearing: raise confidenceThreshold above 70
+      // and this cohort stops firing entirely. Re-measure it then, do not carry it.
+      const goldSqueezeModerate = daily.setup === "BB_SQUEEZE_WATCH"
+        ? GOLD_SQUEEZE_MODERATE_CONFIDENCE
+        : 55;
+      confidence = h4.strength === "STRONG" ? 68
+                 : h4.strength === "MODERATE" ? goldSqueezeModerate
+                 : 40;
     } else {
       // BTC H4-only: PF 1.08 (marginal) — STRONG needs a small quality boost to clear gate
       confidence = h4.strength === "STRONG" ? 63 : h4.strength === "MODERATE" ? 50 : 40;
@@ -1365,6 +1435,19 @@ const DAILY_RANGE_BY_SYMBOL = { "GC=F": "300d" };
 // here because generateSignalMTF has to know where that boundary is to avoid
 // handing a size multiplier to a cohort that was measured at constant risk.
 const SIZING_BOOST_MIN_CONFIDENCE = 75;
+
+// Minimum distance, in ATR, between entry and a structural stop before that stop
+// is allowed to replace the ATR stop. Without a floor a swing point sitting a few
+// ticks from entry produced a near-zero stop distance and an R/R in the dozens:
+// one SPX walk-forward trade came out at 55.24 and was +55.2R of a +39.5R cohort.
+// 0.5 is still a 3x risk reduction against the 1.5 ATR stop; anything tighter sits
+// inside one average bar's range.
+const STRUCTURAL_STOP_MIN_ATR = 0.5;
+
+// Confidence given to Gold H4 MODERATE when the DAILY is in a BB squeeze. Sits on
+// the live gate (confidenceThreshold 70) so the cohort trades; see the block in
+// generateSignalMTF for why this is pinned rather than following the setting.
+const GOLD_SQUEEZE_MODERATE_CONFIDENCE = 70;
 
 async function fetchCandles(symbol) {
   const range = DAILY_RANGE_BY_SYMBOL[symbol] ?? DAILY_RANGE_DEFAULT;
