@@ -1930,14 +1930,41 @@ app.get("/api/signal-history", (_, res) => res.json({ history: signalHistory.sli
 // server must report whatever is currently on disk, including nothing at all.
 // The full fact pack is several hundred KB, so it is only included on request.
 const ANALYSIS_FILE = require("path").join(__dirname, "..", "tasks", "analysis", "latest.json");
+
+// This route serves TWO different things on purpose, because two consumers ask for
+// "the analysis" and mean different reports:
+//
+//   verdict/actions/blindSpots  the deep parallel_analysis.py run, from disk, hours
+//                               or days old - what the /analysis skill reads
+//   btc/gold/spx                the three live per-asset AI brains from
+//                               refreshAnalysis(), seconds old - what the dashboard's
+//                               AI Brain panel renders
+//
+// They used to be two separate app.get("/api/analysis") registrations. Express takes
+// the FIRST match, so the second one - the brains - was unreachable dead code, and
+// the dashboard's `[d.btc,d.gold,d.spx].filter(Boolean)` came back empty on every
+// load. The panel had been rendering blank while three Claude calls per cycle
+// produced output nobody could read. Merged rather than renamed so neither consumer
+// has to change, and so a future duplicate route is a merge conflict here instead of
+// a silent shadow.
 app.get("/api/analysis", (req, res) => {
+  // The brains are independent of the report file and must survive its absence.
+  if (!analysisCache.updatedAt) refreshAnalysis();
+  const brains = {
+    btc:  analysisCache.btc,
+    gold: analysisCache.gold,
+    spx:  analysisCache.spx,
+    brainsUpdatedAt: analysisCache.updatedAt,
+    aiEnhanced: analysisCache.aiEnhanced ?? false,
+  };
   try {
     if (!fs.existsSync(ANALYSIS_FILE)) {
-      return res.json({ available: false, reason: "no analysis has been run yet — run: python parallel_analysis.py" });
+      return res.json({ ...brains, available: false, reason: "no deep analysis has been run yet — run: python parallel_analysis.py" });
     }
     const report = JSON.parse(fs.readFileSync(ANALYSIS_FILE, "utf8"));
     const ageHours = (Date.now() - new Date(report.generatedAt).getTime()) / 3_600_000;
     res.json({
+      ...brains,
       available:   true,
       generatedAt: report.generatedAt,
       ageHours:    parseFloat(ageHours.toFixed(1)),
@@ -1948,7 +1975,8 @@ app.get("/api/analysis", (req, res) => {
       facts:       req.query.full === "1" ? report.facts : undefined,
     });
   } catch (e) {
-    res.status(500).json({ available: false, error: `could not read analysis: ${e.message}` });
+    // A corrupt report file must not take the live brains down with it.
+    res.status(200).json({ ...brains, available: false, error: `could not read deep analysis: ${e.message}` });
   }
 });
 
@@ -2475,10 +2503,9 @@ app.get("/api/stats/by-setup", (_, res) => {
   res.json({ totalClosed: closed.length, setupStats, calibration });
 });
 
-app.get("/api/analysis", (_, res) => {
-  if (!analysisCache.updatedAt) refreshAnalysis();
-  res.json(analysisCache);
-});
+// The second app.get("/api/analysis") lived here and was never reachable — Express
+// had already matched the one at the top of this file. Its payload (the three live
+// AI brains) is now folded into that route; see the comment there.
 
 app.post("/api/chat", async (req, res) => {
   const { message, history } = req.body;
