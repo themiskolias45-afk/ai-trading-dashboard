@@ -27,7 +27,10 @@ set VPS=administrator@169.58.74.133
 set LOCAL_PORT=3002
 set REMOTE_PORT=3001
 
-echo Forwarding localhost:%LOCAL_PORT%  ->  VPS localhost:%REMOTE_PORT%
+REM The arrow must be escaped: cmd reads a bare > as a redirect, so this line used
+REM to create a 45-byte file literally named "VPS" in the project root on every
+REM tunnel start instead of printing anything.
+echo Forwarding localhost:%LOCAL_PORT%  -^>  VPS localhost:%REMOTE_PORT%
 echo Open http://localhost:%LOCAL_PORT%/dashboard/jarvis.html
 echo Leave this window open. Close it to stop the tunnel.
 echo.
