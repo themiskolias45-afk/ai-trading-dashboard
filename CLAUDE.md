@@ -36,14 +36,18 @@ At the start of every interactive session:
    - GET `http://localhost:3001/api/journal?limit=20` → find last trade date per asset
 
 6. Compute per-asset gap from signals response:
-   - gap[asset] = max(0, 65 - confidence)
+   - Read the live gate from `GET /api/strategy-settings` (`confidenceThreshold`) —
+     never hardcode it here. It moved 65 → 70 on 2026-08-02 and this file was the
+     last thing still claiming 65. If `settingsError` is non-null, the server is
+     running on built-in defaults, NOT the saved config — say so before anything else.
+   - gap[asset] = max(0, confidenceThreshold - confidence)
    - daysSinceLastTrade[asset] = today minus last journal entry for that asset
    - SIGNAL-DEAD = daysSinceLastTrade > 7 days
 
 **Welcome line format (in priority order — use the first that applies):**
 - Server offline: "JARVIS online. WARNING: SmartEntry server is offline — run option S in tasks\menu.bat. What do you need?"
 - Circuit breaker open (halted=true): "JARVIS online. ⚠ TRADING HALTED — circuit breaker open ([X] consecutive losses). Reset manually or wait for reset. What do you need?"
-- Signal ready (confidence ≥ 65 and not halted): "JARVIS online. SIGNAL READY: [asset] [direction] [confidence]% — Entry $X, Stop $X. Approve to execute or type /scan for detail."
+- Signal ready (confidence ≥ the live gate and not halted): "JARVIS online. SIGNAL READY: [asset] [direction] [confidence]% — Entry $X, Stop $X. Approve to execute or type /scan for detail."
 - SIGNAL-DEAD on any asset: "JARVIS online. ⚠ WARNING: [asset] has not fired in [N] days (conf [X]%, gap [Gpt]). Run /diagnose to find why. Other assets: [brief conf list]."
 - All assets WAIT, last trade < 7 days: "JARVIS online. No signals ready — BTC [X]% (gap [G]pt), GOLD [X]% (gap [G]pt), SPX [X]% (gap [G]pt). Market flat. What are we building?"
 - All assets WAIT, never traded: "JARVIS online. No trades recorded yet. System ready. Run /diagnose or /daily to verify pipeline. What are we building?"
@@ -94,6 +98,15 @@ To use full power: open `claude` interactively. Say what you want — JARVIS bui
 | `memory` | Persistent memory across sessions |
 | `brave-search` | Real-time web search |
 | `puppeteer` | **Full browser control** — navigate, click, fill, screenshot, run JS on any page |
+| `exa` | Second web-search provider, for research the Brave index misses |
+| `smartentry` | **The trading system itself — 22 tools.** Declared in `.mcp.json`, not settings.json |
+
+The three most load-bearing `smartentry` tools, all added 2026-08-02:
+- `get_strategy_settings` — the config actually in force. Check `settingsError` first;
+  non-null means defaults are running, not the saved file.
+- `get_mt5_health` — the only authoritative bridge liveness test, per account tag.
+- `run_walkforward` — settles an edge claim with 5 out-of-sample folds. Slow (~90s).
+  A `DEGRADED` warning means the table is incomplete, not merely noisy.
 
 **Puppeteer is the most powerful.** It gives JARVIS eyes and hands in a real browser.
 Use it via `/web [task]` or directly in any command that needs browser interaction.
@@ -136,12 +149,34 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - `keys.env` — **never commit it**
 - Git branch for development: `claude/backup-deploy-server-FWgpv` (push here, then merge to main)
 - MT5 bridge: `python mt5_bridge.py --auto` for full-auto, no `--auto` for semi-auto
-- Model: always `claude-opus-4-8` for AI analysis
-- Signal fires only when confidence ≥ 65% across Daily + 4H + 1H timeframes
+- Models: `claude-opus-5` for the JARVIS brain and the /engineer workstream split;
+  `claude-sonnet-5` for per-asset commentary, summaries and analysis. Do not
+  reintroduce `claude-opus-4-8` — both remaining call sites were upgraded 2026-08-02.
+- Signal fires only at or above the live `confidenceThreshold` across Daily + 4H + 1H.
+  It is **70** as of 2026-08-02 (a0862d1) — the only gate positive in 5 of 5
+  out-of-sample walk-forward folds. 65 is 3/5 and 85 is negative in 4 of 4.
+  Re-measure with `run_walkforward` (MCP) or `node tasks/mtf_walkforward.cjs`
+  before changing it, and read `tasks/logs/mtf_walkforward.txt` timestamps — that
+  file also holds a superseded run from the pre-b55b5f5 broken harness.
+- **Gold's squeeze cohort is pinned to exactly the gate** (`GOLD_SQUEEZE_MODERATE_CONFIDENCE`
+  = 70). Raise `confidenceThreshold` above 70 and that cohort silently stops firing.
+- `strategy_settings.json` is per-machine and untracked, so a shared commit does NOT
+  mean shared behaviour — change it on the laptop AND the VPS. Never write it with
+  PowerShell `Set-Content -Encoding utf8`: that emits a UTF-8 BOM and on 2026-08-02 it
+  silently reset the VPS to defaults, turning fixedLotSize 0.01 into full risk-based
+  sizing. Use `[System.IO.File]::WriteAllText($p,$json,(New-Object System.Text.UTF8Encoding($false)))`.
 - Auto-healer: monitors server health every 30s, auto-recovers stale data
 - Healer status: GET http://localhost:3001/api/healer
 - Force heal: POST http://localhost:3001/api/healer/heal
 - Performance dashboard: http://localhost:3001/dashboard/performance.html
+  (the page, not an endpoint — there is no `/api/performance`, and nothing calls one)
+- Autostart: `tasks\install_autostart.ps1` registers "SmartEntry Ensure Running" on
+  logon + workstation unlock + every 10 min. Logon-only triggers never fire when a
+  laptop lid is opened. `tasks\ensure_running.ps1` fills gaps and never kills, so it
+  is safe to run any time; check `tasks\logs\ensure_running.txt`.
+- Bridge liveness is `GET /api/mt5/health?account=A|B` — NOT a process check. Windows
+  returns an empty command line for the bridge python processes, so they look absent
+  while trading normally.
 - Chart vision: python chart_vision.py [BTC|GOLD|SPX]
 - Voice: python voice.py --loop
 - Signal debate: python debate_agents.py [SYMBOL] [DIRECTION] [confidence] [entry] [stop] [target]

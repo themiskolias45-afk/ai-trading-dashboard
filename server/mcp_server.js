@@ -39,6 +39,10 @@ const { execFile } = require('child_process');
 const ROOT       = path.join(__dirname, '..');
 const SERVER_URL = 'http://localhost:3001';
 const PYTHON     = process.platform === 'win32' ? 'python' : 'python3';
+// The walk-forward replays 5 folds x 3 assets through the live engine. Measured at
+// roughly 90s on this machine; 10 minutes leaves headroom for a slower VPS without
+// letting a hung run hold an MCP call open indefinitely.
+const WALKFORWARD_TIMEOUT_MS = 10 * 60 * 1000;
 
 // ── Cache (30 s TTL for frequently-polled endpoints) ─────────────────────────
 
@@ -742,6 +746,77 @@ const TOOLS = [
         execute: execResult,
         log,
       };
+    },
+  },
+
+  {
+    name: 'get_strategy_settings',
+    description:
+      'Get the LIVE trading configuration actually in force: confidence gate, max positions, ' +
+      'max trades per day, fixed lot size, min strength, plus the allowed range for each. ' +
+      'ALWAYS check settingsError before trusting the numbers - if it is non-null the server ' +
+      'could not read strategy_settings.json and these are built-in DEFAULTS, not the saved ' +
+      'config, which silently changes live position sizing. Use before answering any question ' +
+      'about why a signal did or did not fire.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      return cached('strategy-settings', 15000, () => fetchJSON('/api/strategy-settings'));
+    },
+  },
+
+  {
+    name: 'get_mt5_health',
+    description:
+      'Check whether a specific MT5 bridge is alive, by ACCOUNT TAG (A, B, or default). ' +
+      'This is the only authoritative test: the field is written solely by POST /api/mt5/positions, ' +
+      'so connected=true proves that bridge is talking to BOTH MetaTrader and the server. ' +
+      'Process lists are NOT a substitute - Windows returns an empty command line for these ' +
+      'python processes, so they can look absent while trading normally. A "default" tag that ' +
+      'is connected means an UNTAGGED bridge is running, which can double positions on an ' +
+      'account a tagged bridge already owns.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        account: { type: 'string', description: 'Account tag: A, B, or default. Omitting it reports a tag no bridge uses.' },
+      },
+      required: ['account'],
+    },
+    async handler({ account }) {
+      const tag = String(account || '').trim();
+      if (!tag) throw new Error('account tag required (A, B, or default)');
+      return fetchJSON(`/api/mt5/health?account=${encodeURIComponent(tag)}`);
+    },
+  },
+
+  {
+    name: 'run_walkforward',
+    description:
+      'Run the 5-fold walk-forward validation of the confidence gate against the LIVE signal ' +
+      'engine and return the fold-by-fold expectancy table. This is how an edge claim gets ' +
+      'settled: a gate is only worth acting on if it is positive in MOST folds, because one ' +
+      'lucky stretch carrying a strong average is the exact failure this catches. Deterministic, ' +
+      'no network, writes only under tasks/analysis. SLOW - takes minutes. Watch for a DEGRADED ' +
+      'line in the output: it means the engine threw on some steps and the table is incomplete, ' +
+      'usually because a new module-level constant is missing from SCALAR_CONSTS in _replay_mtf.cjs.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      const stdout = await new Promise((resolve, reject) => {
+        execFile(
+          process.execPath, [path.join(ROOT, 'tasks', 'mtf_walkforward.cjs')],
+          { cwd: ROOT, timeout: WALKFORWARD_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024,
+            env: { ...process.env, NO_COLOR: '1' } },
+          (err, out, stderr) => {
+            const text = (out || '').trim() || (stderr || '').trim();
+            if (err && !text) reject(new Error(stderr || err.message));
+            else resolve(text);
+          }
+        );
+      });
+      // The census lines are one huge JSON blob per asset and swamp the table that
+      // actually answers the question. Kept only as a degraded/throw indicator.
+      const degraded = stdout.split('\n').filter(l => l.includes('DEGRADED'));
+      const table    = stdout.split('\n').filter(l => !l.startsWith('MTF_CENSUS'));
+      return { degraded: degraded.length > 0, warnings: degraded, report: table.join('\n') };
     },
   },
 ];

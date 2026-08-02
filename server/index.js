@@ -3392,7 +3392,11 @@ async function askClaude(question, history = []) {
       .map(m => ({ role: m.role, content: m.content }));
     msgs.push({ role: "user", content: `[Live system state]\n${context}\n\n[Question]\n${question}` });
 
-    const callOpts = { model: "claude-opus-4-8", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL, WEB_SEARCH_TOOL, PLAY_VIDEO_TOOL, FORCE_HEAL_TOOL, LIST_PROPOSALS_TOOL, APPROVE_PROPOSAL_TOOL] };
+    // Opus 5, not 4.8: this is the JARVIS brain, the one path that reasons over live
+    // system state with tools in hand. Everything narrower (commentary, summaries,
+    // per-asset analysis) stays on sonnet-5 where the cost/latency matters more than
+    // the last increment of reasoning.
+    const callOpts = { model: "claude-opus-5", max_tokens: 1024, system: JARVIS_SYSTEM_PROMPT, tools: [MEMORY_TOOL, WEB_SEARCH_TOOL, PLAY_VIDEO_TOOL, FORCE_HEAL_TOOL, LIST_PROPOSALS_TOOL, APPROVE_PROPOSAL_TOOL] };
     let response = await anthropic.messages.create({ ...callOpts, messages: msgs });
 
     // Tool-use loop: let JARVIS actually save memories, search the web, and open videos mid-conversation.
@@ -4220,7 +4224,9 @@ app.post("/api/engineer/architect", requireLocalOnly, async (req, res) => {
       `instructions for this agent, written as if briefing a colleague with no other context"}]}`;
 
     const msg = await anthropic.messages.create({
-      model: "claude-opus-4-8",
+      // Opus 5: this call decides how work is split across parallel agents, and a
+      // bad split costs every downstream agent's time plus a merge conflict.
+      model: "claude-opus-5",
       max_tokens: 1500,
       messages: [{ role: "user", content: prompt }]
     });
