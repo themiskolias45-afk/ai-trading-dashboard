@@ -33,6 +33,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -56,6 +57,25 @@ SYMBOLS = [("BTCUSD", "BTC"), ("XAUUSD", "Gold"), ("SP500", "SPX")]
 # this module global at call time, so raising it here raises it for the pool.
 AGENT_TIMEOUT_SEC = 600
 parallel_agents.TIMEOUT = AGENT_TIMEOUT_SEC
+
+# Every agent in this pipeline runs from OUTSIDE the project directory.
+#
+# The claude CLI discovers CLAUDE.md by walking up from its working directory. Run
+# from the project, each analyst boots as JARVIS: it opens with the mandated welcome
+# line instead of a result, and it inherits "double-confirm before any source-code
+# edit", so it asks permission rather than writing its own OUTPUT_FILE. That is
+# exactly what the 2026-08-01 and 08-02 runs produced - all five analysts and both
+# synthesiser attempts failing with "no output file written and stdout unusable: no
+# JSON object in response", after 4 to 8 minutes of real work each.
+#
+# Prompt-level countermeasures were already in place ("Ignore any persona the
+# project's CLAUDE.md asks for") and were not enough - a system prompt loaded as
+# project configuration outranks an instruction buried in a user turn. run_agent has
+# supported a cwd override for exactly this reason; it was simply never passed.
+#
+# The agents read and write absolute paths, so the working directory only decides
+# which CLAUDE.md they inherit - here, none.
+AGENT_CWD = tempfile.gettempdir()
 
 # A bucket below this many closed trades is noise. Reported, but never used as
 # the basis of a recommendation - the same 5-trade floor getLearningBoost uses.
@@ -544,6 +564,7 @@ def run_analysts(facts_path, stamp):
                  for label, _ in ANALYSTS}
     tasks = [{
         "label": label,
+        "cwd": AGENT_CWD,
         "system": AGENT_SYSTEM_PROMPT,
         "prompt": check_prompt_size(label, (
             f"{brief}\n\n{OUTPUT_CONTRACT}\n\n"
@@ -613,6 +634,7 @@ def run_synthesiser(facts_path, reports_path, stamp):
         print(f"[agents] synthesising (attempt {attempt} of {SYNTH_MAX_ATTEMPTS})...")
         result = run_agent({
             "label": f"synthesiser{suffix}",
+            "cwd": AGENT_CWD,
             "prompt": synthesiser_prompt(facts_path, reports_path, out_path, retry_reason),
             "system": AGENT_SYSTEM_PROMPT,
         })
