@@ -5,10 +5,15 @@
       "ts": "2026-07-30T12:31:32.383606+00:00",
       "tag": "NOTE",
       "text": "DAILY-CHECK 2026-07-30: 0 errors in logs, syntax clean, no secrets tracked. CRITICAL - duplicate auto-bridge on account 11581419 (untagged + B) = double risk per signal; root cause is the no-op Get-Process CommandLine guard in tasks/startup_all.ps1. Learning engine still empty: 0 setups, 0 closed trades, 54 sessions."
+    },
+    {
+      "ts": "2026-07-30T16:05:05.992354+00:00",
+      "tag": "NOTE",
+      "text": "SESSION 2026-07-30: ROOT CAUSE FOUND - signals were computed from Yahoo (GC=F/BTC-USD/^GSPC) while fills happened on broker symbols (XAUUSD/BTCUSD/SP500). mt5_bridge.py had zero copy_rates calls. Measured same-minute: Gold Yahoo 4156.10 BUY conf 85 vs MT5 XAUUSD 4104.72 WAIT conf 0 - a 51 dollar basis and the H4 BREAKOUT did not exist on the traded instrument. Gold 19x volume was contract-vs-continuous noise, real ratio 0.9, and it supplied 12 of that phantom 85. SHIPPED: MT5 candle feed (push_candles + POST /api/mt5/candles, requireLocalOnly, Yahoo fallback), SQUEEZE_BREAKOUT swallow hoisted (Gold reasons no longer empty), three dead confidence cohorts unblocked (BTC H4-only was pinned at 63 vs a 65 gate with no reachable boost), 413 body-limit fix. VPS Claude CLI logged in - claude -p returns LOGIN OK, AI parallel unblocked after weeks of Not logged in. Local bridges 3 -> 1. FIRST TRADE IN 14 DAYS: ticket 1682651222 XAUUSD BUY 0.14 @ 4104.01 SL 4061.59 TP 4382.92 on account 25446287. OPEN: candle push does not trigger signal recompute (this is how the first trade took a stale Yahoo signal); engineer workers inherit CLAUDE.md persona and exit 0 doing nothing; MCP tools documented but configured on neither box."
     }
   ],
   "signals": [],
   "trades": [],
   "created_at": "2026-07-30T12:31:32.383606+00:00",
-  "updated_at": "2026-07-30T12:31:32.383606+00:00"
+  "updated_at": "2026-07-30T16:05:05.992354+00:00"
 }

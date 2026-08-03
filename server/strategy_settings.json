@@ -1,0 +1,11 @@
+{
+  "confidenceThreshold": 70,
+  "maxConcurrentPositions": 3,
+  "maxTradesPerDay": 5,
+  "fixedLotSize": 0.01,
+  "maxLotSize": 10,
+  "adxTrendingMin": 20,
+  "minStrength": "MODERATE",
+  "updatedAt": "2026-08-02T15:04:16.438Z",
+  "updatedBy": "walkforward-5fold"
+}

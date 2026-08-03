@@ -2,6 +2,22 @@
   "version": 1,
   "entries": [
     {
+      "key": "DAILY_20260803",
+      "value": "Daily check 2026-08-03. Health 7/7 green, gate 70 live, settingsError null, not halted, bridges A+B both reporting, node --check clean on index.js + autohealer.js, no secrets tracked. 5 findings: (1) CRITICAL journal .rr = signal's PLANNED rr stored against BROKER's realized prices (index.js:2590) — avgRR +2.5 reported on a 0% WR trade that closed at its stop; (2) HIGH saveLearning() index.js:313 empty catch, silent learning-write loss; (3) HIGH two watchdogs alive, one orphaned, watchdog.bat has no single-instance guard; (4) MED startup_all.ps1 untagged-bridge warning is a permanent false positive (flags tagged bridges' own grandchildren); (5) MED Brave + Exa API keys invalid. Setups: BB_SQUEEZE_WATCH 0W/1L -449.72, LEARNING only (n=1). Only 1 trade in 30 days; BTC and SPX have never fired.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-03T02:34:42.259415+00:00",
+      "updated_at": "2026-08-03T02:34:42.259415+00:00"
+    },
+    {
+      "key": "daily-2026-08-01",
+      "value": "Errors: 0 syntax, 0 secrets, 6 bridge procs (3 real: default+A+B, default duplicates B on #11581419). Top rec: fix mt5_bridge.py:1138 history_deals_get position filter (ignored - returns all 28 deals, books foreign EA fills) + add startup reconciliation of OPEN journal entries. Setups: none classifiable - learning setupStats={} after 66 sessions because the only trade ever (gold #1682651222, -441.84, stopped 07-31 12:12) is stranded as OPEN. 4 tasks created.",
+      "category": "DAILY",
+      "source": "manual",
+      "updated_at": "2026-08-01T04:00:18.490189+00:00",
+      "created_at": "2026-08-01T03:58:44.067Z"
+    },
+    {
       "key": "DAILY_2026-07-30",
       "value": "CRITICAL: untagged bridge (startup_all.ps1) + Bridge B both --auto on SAME account 11581419 = 2x risk per signal, invisible to per-account risk gate. Root cause: startup_all.ps1 guard uses Get-Process CommandLine which is always null in PS 5.1, so it starts a duplicate bridge every boot. Healer reported green (2/2) with undeclared 'default' tag as cosmetic note only. Learning engine still 0 setups / 0 closed trades after 54 sessions.",
       "category": "SYSTEM",
@@ -26,5 +42,5 @@
       "updated_at": "2026-07-25T05:45:00.852793+00:00"
     }
   ],
-  "last_updated": "2026-07-30T12:31:32.254648+00:00"
+  "last_updated": "2026-08-03T02:34:42.259415+00:00"
 }

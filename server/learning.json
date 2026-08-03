@@ -1,5 +1,11 @@
 {
-  "setupStats": {},
-  "sessionCount": 54,
-  "updatedAt": "2026-07-30T12:26:07.837Z"
+  "setupStats": {
+    "BB_SQUEEZE_WATCH": {
+      "wins": 0,
+      "losses": 1,
+      "totalPnl": -449.72
+    }
+  },
+  "sessionCount": 79,
+  "updatedAt": "2026-08-03T02:44:56.594Z"
 }
