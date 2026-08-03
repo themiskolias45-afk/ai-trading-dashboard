@@ -22,8 +22,7 @@ Why it is built this way:
   separate, deliberate act.
 
 Usage:
-  python parallel_analysis.py                      # full run, D1 + H4
-  python parallel_analysis.py --tf D1              # faster, daily bars only
+  python parallel_analysis.py                      # full run on the live MTF path
   python parallel_analysis.py --facts-only         # build the fact pack, no agents
   python parallel_analysis.py --no-gate            # skip the replay verdicts
 """
@@ -42,7 +41,23 @@ from datetime import datetime, timezone
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HIST_DIR = os.path.join(ROOT, "tasks", "history")
 OUT_DIR = os.path.join(ROOT, "tasks", "analysis")
-REPLAY = os.path.join(ROOT, "tasks", "_replay_engine.cjs")
+# The MTF replay, not _replay_engine.cjs.
+#
+# _replay_engine.cjs replays single-timeframe generateSignal. That is not the path
+# the live system trades: production runs generateSignalMTF, which only fires when
+# the daily and 4H signals combine. So every finding drawn from the old fact pack
+# described a population the live gate can never take, and it recorded no per-trade
+# confidence at all — which is why the 2026-08-03 synthesis had to list "the
+# multi-timeframe agreement step is invisible" and "confidenceThreshold is invisible
+# and possibly decisive" among its own blind spots.
+REPLAY = os.path.join(ROOT, "tasks", "_replay_mtf.cjs")
+
+# Lowered so sub-gate cohorts exist in the pack at all. generateSignalMTF returns
+# WAIT below strategySettings.confidenceThreshold, so at the live value the fact
+# pack could never show what the gate is rejecting — and "why does it never fire"
+# is precisely the question the analysts are asked. The trades ARE labelled with
+# their confidence, so any analyst can restrict itself to the live population.
+REPLAY_CONF_FLOOR = 40
 SERVER_URL = "http://localhost:3001"
 
 sys.path.insert(0, os.path.join(ROOT, "tasks"))
@@ -51,7 +66,14 @@ from evaluate_change import summarise, COST_R, AUTO_TUNABLE  # noqa: E402
 import parallel_agents  # noqa: E402
 from parallel_agents import run_agent  # noqa: E402
 
-SYMBOLS = [("BTCUSD", "BTC"), ("XAUUSD", "Gold"), ("SP500", "SPX")]
+# (broker symbol, label, Yahoo ticker). The ticker is needed because the engine
+# branches on it — `ticker === "GC=F"` selects Gold's DXY-divergence path — so a
+# replay that passed the wrong one would silently measure a different engine.
+SYMBOLS = [
+    ("BTCUSD", "BTC",  "BTC-USD"),
+    ("XAUUSD", "Gold", "GC=F"),
+    ("SP500",  "SPX",  "^GSPC"),
+]
 
 # Analysts think for longer than the 300s a build agent needs. run_agent reads
 # this module global at call time, so raising it here raises it for the pool.
@@ -126,7 +148,10 @@ EXIT_OK = 0
 EXIT_NO_TRADES = 1
 EXIT_SYNTHESIS_FAILED = 2
 
-# Analysts run INSIDE the project. Starting them elsewhere was tried and is wrong:
+# SUPERSEDED 2026-08-02 - kept for the reasoning, not the conclusion. Analysts now
+# run OUTSIDE the project (see AGENT_CWD above). The file-access problem described
+# below is real but is solved by add_dirs=[ROOT], not by moving back into the
+# project, which reintroduces the JARVIS persona that made every run fail:
 # Claude Code scopes file access to its working directory, so an agent launched in
 # a scratch dir cannot read the fact pack at all — it replies "could you paste
 # them?" and, finding only whatever else is lying in that directory, returns the
@@ -146,17 +171,24 @@ AGENT_SYSTEM_PROMPT = (
 
 # ── fact pack ────────────────────────────────────────────────────────────────
 
-def run_replay(symbol, timeframe):
-    """Replay one symbol/timeframe. Returns (trades, error)."""
+def run_replay(symbol, ticker):
+    """Replay one asset on the LIVE multi-timeframe path. Returns (trades, error).
+
+    The MTF replay reads D1, H4 and H1 for the symbol itself, so there is no
+    per-timeframe job any more — the timeframe combination IS the thing under test.
+    """
     import subprocess
-    path = os.path.join(HIST_DIR, f"{symbol}_{timeframe}.csv")
-    if not os.path.exists(path):
-        return [], f"no history file {symbol}_{timeframe}.csv"
+    missing = [tf for tf in ("D1", "H4", "H1")
+               if not os.path.exists(os.path.join(HIST_DIR, f"{symbol}_{tf}.csv"))]
+    if missing:
+        return [], f"{symbol}: missing history for {', '.join(missing)}"
     try:
-        proc = subprocess.run(["node", REPLAY, path], capture_output=True, text=True,
-                              timeout=REPLAY_TIMEOUT_SEC, cwd=ROOT)
+        proc = subprocess.run(
+            ["node", REPLAY, ROOT, symbol, ticker, str(REPLAY_CONF_FLOOR)],
+            capture_output=True, text=True, timeout=REPLAY_TIMEOUT_SEC, cwd=ROOT,
+            env={**os.environ, "MTF_CONF_FLOOR": str(REPLAY_CONF_FLOOR)})
     except subprocess.TimeoutExpired:
-        return [], f"{symbol} {timeframe} replay timed out after {REPLAY_TIMEOUT_SEC}s"
+        return [], f"{symbol} MTF replay timed out after {REPLAY_TIMEOUT_SEC}s"
     except FileNotFoundError:
         return [], "node not found on PATH"
     if proc.returncode != 0:
@@ -181,6 +213,10 @@ def bucket_of(trade, field, edges):
 
 ADX_EDGES = [(20, "adx<20"), (30, "adx20-30"), (float("inf"), "adx>=30")]
 RSI_EDGES = [(35, "rsi<35"), (50, "rsi35-50"), (65, "rsi50-65"), (float("inf"), "rsi>=65")]
+# Bands straddle the live gate (70) so "what the gate rejects" and "what it admits"
+# are separate rows rather than a judgement the analyst has to make itself.
+CONF_EDGES = [(50, "conf<50"), (65, "conf50-64"), (70, "conf65-69"),
+              (80, "conf70-79"), (float("inf"), "conf>=80")]
 VOL_EDGES = [(0.8, "vol<0.8x"), (1.5, "vol0.8-1.5x"), (float("inf"), "vol>=1.5x")]
 
 
@@ -227,25 +263,25 @@ def read_json_file(path, default):
     return default
 
 
-def build_fact_pack(timeframes):
-    jobs = [(sym, label, tf) for sym, label in SYMBOLS for tf in timeframes]
-    print(f"[facts] replaying {len(jobs)} symbol/timeframe combinations in parallel...")
+def build_fact_pack():
+    print(f"[facts] replaying {len(SYMBOLS)} assets on the LIVE MTF path "
+          f"(confidence floor {REPLAY_CONF_FLOOR}) in parallel...")
 
     results, errors = {}, []
-    with ThreadPoolExecutor(max_workers=min(len(jobs), MAX_PARALLEL_REPLAYS)) as pool:
-        futures = {pool.submit(run_replay, sym, tf): (label, tf) for sym, label, tf in jobs}
+    with ThreadPoolExecutor(max_workers=min(len(SYMBOLS), MAX_PARALLEL_REPLAYS)) as pool:
+        futures = {pool.submit(run_replay, sym, ticker): label
+                   for sym, label, ticker in SYMBOLS}
         for future in futures:
-            label, tf = futures[future]
+            label = futures[future]
             trades, err = future.result()
             if err:
-                errors.append(f"{label} {tf}: {err}")
-                print(f"  [{label} {tf}] {err}")
+                errors.append(f"{label}: {err}")
+                print(f"  [{label}] {err}")
                 continue
             for trade in trades:
                 trade["asset"] = label
-                trade["timeframe"] = tf
-            results[f"{label}_{tf}"] = trades
-            print(f"  [{label} {tf}] {len(trades)} trades")
+            results[label] = trades
+            print(f"  [{label}] {len(trades)} trades")
 
     every_trade = [t for rows in results.values() for t in rows]
 
@@ -269,7 +305,15 @@ def build_fact_pack(timeframes):
         "byTrend": group_stats(every_trade, lambda t: t.get("trend")),
         "byDirection": group_stats(every_trade, lambda t: t.get("dir")),
         "byAsset": group_stats(every_trade, lambda t: t.get("asset")),
-        "byTimeframe": group_stats(every_trade, lambda t: t.get("timeframe")),
+        # Replaces byTimeframe, which no longer means anything: the MTF path always
+        # reads D1+H4+H1. cohort says WHICH combination produced the entry —
+        # DAILY+H4_AGREE, DAILY_ONLY_H4_NEUTRAL, H4_ONLY or DAILY+H4_CONFLICT —
+        # the question no previous analysis could ask.
+        "byCohort": group_stats(every_trade, lambda t: t.get("cohort")),
+        # The gate itself, finally visible. The pack is built at a floor of
+        # REPLAY_CONF_FLOOR, so it deliberately contains signals the live gate
+        # rejects; this is how an analyst tells the two populations apart.
+        "byConfidence": group_stats(every_trade, lambda t: bucket_of(t, "conf", CONF_EDGES)),
         "byAdx": group_stats(every_trade, lambda t: bucket_of(t, "adx", ADX_EDGES)),
         "byRsi": group_stats(every_trade, lambda t: bucket_of(t, "rsi", RSI_EDGES)),
         "byVolume": group_stats(every_trade, lambda t: bucket_of(t, "volRatio", VOL_EDGES)),
@@ -350,7 +394,7 @@ ANALYSTS = [
     ("loss-autopsy",
      "You are a trading post-mortem analyst. Look at the individual rows in trades "
      "with outcome LOSS and find what they have in common that the WIN rows do not - "
-     "in regime, adx, rsi, volRatio, direction, asset or timeframe. Name the single "
+     "in regime, adx, rsi, volRatio, direction, asset or cohort. Name the single "
      "most common avoidable failure pattern and the filter that would have removed it. "
      "Check your pattern against the WIN rows before claiming it: a feature present in "
      "losses AND wins is not a pattern."),
@@ -755,15 +799,15 @@ def print_summary(payload):
 def main():
     parser = argparse.ArgumentParser(description="Parallel analysis of the trading engine")
     parser.add_argument("--tf", default="D1,H4",
-                        help="comma separated timeframes to replay (default D1,H4)")
+                        help="timeframes for the auto-tune subprocess only. The fact pack no "
+                             "longer uses this: the MTF replay always reads D1+H4+H1.")
     parser.add_argument("--facts-only", action="store_true",
                         help="build and print the fact pack, run no agents")
     parser.add_argument("--no-gate", action="store_true",
                         help="skip running proposals through evaluate_change.py")
     args = parser.parse_args()
 
-    timeframes = [tf.strip() for tf in args.tf.split(",") if tf.strip()]
-    facts = build_fact_pack(timeframes)
+    facts = build_fact_pack()
 
     if facts["overall"]["trades"] == 0:
         print("\nNo trades replayed — nothing to analyse.")
