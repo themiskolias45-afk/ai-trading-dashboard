@@ -86,7 +86,21 @@ def run_agent(task: dict) -> dict:
     print(f"  [{label}] starting...")
     t0 = time.time()
 
-    argv = [CLAUDE_CMD, "-p", full_prompt,
+    # The prompt goes in on STDIN, never as an argv element.
+    #
+    # find_claude() resolves to claude.CMD, a batch wrapper. subprocess.run executes
+    # a .CMD through cmd.exe, which RE-PARSES the arguments — and cmd.exe treats a
+    # newline as a command separator, so everything after the first line of a
+    # multi-line prompt was silently discarded. Measured 2026-08-03 with a 3-marker
+    # probe: the agent received LINE_ONE_MARKER and nothing else.
+    #
+    # That is the whole reason the analysis pipeline has never produced output. The
+    # analyst briefs put OUTPUT_FILE and the FACTS path after blank lines, so every
+    # agent got only the first line of its brief: it knew the topic, never learned
+    # where the data was or where to write, and replied "I don't have the data,
+    # could you paste it?" — which the harness then reported as "no JSON object in
+    # response". Piping on stdin verified to deliver all three markers intact.
+    argv = [CLAUDE_CMD, "-p",
             "--dangerously-skip-permissions",
             "--output-format", "text"]
     if system:
@@ -97,6 +111,7 @@ def run_agent(task: dict) -> dict:
     try:
         proc = subprocess.run(
             argv,
+            input=full_prompt,
             capture_output=True,
             text=True,
             cwd=cwd,
@@ -170,17 +185,22 @@ if __name__ == "__main__":
 
         if CLAUDE_CMD is None:
             CLAUDE_CMD = find_claude()
-        planner_result = subprocess.run(
-            [CLAUDE_CMD, "-p",
-             f"""You are a senior engineer and architect.
+        # Same stdin rule as run_agent: this prompt is multi-line, so passing it as
+        # an argv element to claude.CMD meant the planner only ever received
+        # "You are a senior engineer and architect." — which is why /engineer --plan
+        # never produced a workstream array.
+        planner_prompt = f"""You are a senior engineer and architect.
 Break this task into independent parallel workstreams that can be built simultaneously with NO file conflicts between them.
 Output ONLY a JSON array. Each item: {{"label": "short name", "prompt": "complete self-contained task for one engineer"}}.
 Max 6 workstreams. Each prompt must be 100% self-contained — the engineer has no other context.
 Working directory: C:\\Users\\User\\ai-trading-dashboard
 
-TASK: {plan_prompt}""",
+TASK: {plan_prompt}"""
+        planner_result = subprocess.run(
+            [CLAUDE_CMD, "-p",
              "--dangerously-skip-permissions",
              "--output-format", "text"],
+            input=planner_prompt,
             capture_output=True, text=True, cwd=str(WORK_DIR), timeout=60
         )
 
