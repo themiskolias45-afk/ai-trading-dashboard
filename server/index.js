@@ -2466,18 +2466,36 @@ app.get("/api/stats/by-setup", (_, res) => {
   const bySetup = {};
   for (const t of closed) {
     const key = t.setup || "UNKNOWN";
-    if (!bySetup[key]) bySetup[key] = { setup: key, trades: 0, wins: 0, losses: 0, totalPnl: 0, totalRR: 0 };
+    if (!bySetup[key]) bySetup[key] = {
+      setup: key, trades: 0, wins: 0, losses: 0, totalPnl: 0,
+      totalRR: 0, rrTrades: 0, totalRealizedR: 0, realizedRTrades: 0,
+    };
     const s = bySetup[key];
     s.trades++;
     if (t.pnl > 0) s.wins++; else s.losses++;
     s.totalPnl  += t.pnl;
-    s.totalRR   += (t.rr ?? 0);
+
+    // Derive both figures from the row's own prices rather than trusting the
+    // stored rr. Journal rows written before this change hold the signal's
+    // planned R:R, which describes a trade that was never taken — reading
+    // through the prices corrects them without rewriting protected history.
+    const impliedRR = impliedRRFromPrices(t.entry, t.sl, t.tp);
+    if (impliedRR !== null) { s.totalRR += impliedRR; s.rrTrades++; }
+
+    const realizedR = realizedRFromPrices(t.direction, t.entry, t.sl, t.closePrice);
+    if (realizedR !== null) { s.totalRealizedR += realizedR; s.realizedRTrades++; }
   }
   const setupStats = Object.values(bySetup).map(s => ({
     ...s,
     winRate:  s.trades > 0 ? parseFloat((s.wins / s.trades * 100).toFixed(1)) : 0,
     avgPnl:   parseFloat((s.totalPnl / s.trades).toFixed(2)),
-    avgRR:    parseFloat((s.totalRR  / s.trades).toFixed(1))
+    // What the setup aimed for...
+    avgRR:    s.rrTrades > 0 ? parseFloat((s.totalRR / s.rrTrades).toFixed(1)) : null,
+    // ...and what it actually delivered. A setup whose avgRR is high while
+    // avgRealizedR is negative is losing money on paper-good geometry.
+    avgRealizedR: s.realizedRTrades > 0
+      ? parseFloat((s.totalRealizedR / s.realizedRTrades).toFixed(2))
+      : null,
   })).sort((a, b) => b.winRate - a.winRate);
 
   // Confidence calibration — do higher confidence scores actually win more?
@@ -2574,6 +2592,32 @@ function getSignalKeyForSymbol(symbol) {
   return null;
 }
 
+// R:R implied by a trade's OWN prices. The journal used to copy the signal's
+// planned rr into the row next to the broker's fill prices, so the number and
+// the prices beside it described different trades — the only real trade stored
+// rr 2.5 while its own entry/sl/tp imply 6.57. That gap is the mechanism behind
+// the "rr-artifact" inflation in the performance figures.
+function impliedRRFromPrices(entryPrice, stopPrice, targetPrice) {
+  const prices = [entryPrice, stopPrice, targetPrice];
+  if (!prices.every(p => typeof p === "number" && Number.isFinite(p))) return null;
+  const riskDistance = Math.abs(entryPrice - stopPrice);
+  if (riskDistance === 0) return null;
+  return parseFloat((Math.abs(targetPrice - entryPrice) / riskDistance).toFixed(2));
+}
+
+// Realized R for a closed trade: how far price actually travelled, in units of
+// the risk that was on the table. Direction-signed, so a BUY closed at its stop
+// is exactly -1.00R rather than a positive "R:R" the trade never earned.
+function realizedRFromPrices(direction, entryPrice, stopPrice, closePrice) {
+  const prices = [entryPrice, stopPrice, closePrice];
+  if (!prices.every(p => typeof p === "number" && Number.isFinite(p))) return null;
+  const riskDistance = Math.abs(entryPrice - stopPrice);
+  if (riskDistance === 0) return null;
+  const isShort  = String(direction || "").toUpperCase().startsWith("S");
+  const movement = isShort ? entryPrice - closePrice : closePrice - entryPrice;
+  return parseFloat((movement / riskDistance).toFixed(2));
+}
+
 app.post("/api/trade-opened", async (req, res) => {
   const trade = req.body;
   if (!trade || !trade.ticket) return res.status(400).json({ error: "invalid trade data" });
@@ -2587,7 +2631,6 @@ app.post("/api/trade-opened", async (req, res) => {
     confidence: sig.confidence,
     strength:   sig.strength,
     regime:     sig.regime,
-    rr:         sig.rr,
     atr:        sig.atr
   } : null;
 
@@ -2620,6 +2663,11 @@ app.post("/api/trade-opened", async (req, res) => {
       pnl:       null,
       status:    "OPEN",
       ...signalContext,
+      // rr describes THIS row's prices; plannedRr preserves what the signal
+      // intended, so a fill that slipped away from the plan stays visible
+      // instead of overwriting the record of it.
+      rr:        impliedRRFromPrices(trade.price, trade.sl, trade.tp),
+      plannedRr: sig ? sig.rr : null,
       commentary
     };
     tradeJournal.unshift(entry);
