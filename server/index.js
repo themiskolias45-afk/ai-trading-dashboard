@@ -281,6 +281,18 @@ let mt5Positions  = [];   // flattened across all accounts (each position tagged
 let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
 let tradeJournal  = [];   // trade journal entries (max 200)
 
+// Both files below hold data that cannot be reconstructed from anything else:
+// journal.json is the trade record, learning.json is weeks of accumulated edge.
+// A plain writeFileSync truncates the target before it writes, so a crash or a
+// full disk mid-write leaves a half-file where the history used to be. Write a
+// sibling temp file and rename it into place instead — the rename is atomic, so
+// the old file survives intact if anything goes wrong.
+function writeJsonAtomic(filePath, value) {
+  const tempPath = `${filePath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(value, null, 2));
+  fs.renameSync(tempPath, filePath);
+}
+
 // ── Persistent journal ────────────────────────────────────────
 const JOURNAL_FILE = require("path").join(__dirname, "journal.json");
 function loadJournal() {
@@ -292,7 +304,8 @@ function loadJournal() {
   } catch (e) { console.error("[journal] Load error:", e.message); }
 }
 function saveJournal() {
-  try { fs.writeFileSync(JOURNAL_FILE, JSON.stringify(tradeJournal, null, 2)); } catch (e) { console.error("[journal] Save error:", e.message); }
+  try { writeJsonAtomic(JOURNAL_FILE, tradeJournal); }
+  catch (e) { console.error(`[journal] SAVE FAILED — ${tradeJournal.length} entries are in memory only and will be lost on restart:`, e.message); }
 }
 loadJournal();
 
@@ -310,7 +323,11 @@ function loadLearning() {
 }
 function saveLearning() {
   learning.updatedAt = new Date().toISOString();
-  try { fs.writeFileSync(LEARNING_FILE, JSON.stringify(learning, null, 2)); } catch (e) {}
+  // Never silent. This used to be `catch (e) {}`, so a locked or unwritable
+  // learning.json discarded every recorded outcome with nothing in the log to
+  // show for it — the one failure mode that costs real edge rather than uptime.
+  try { writeJsonAtomic(LEARNING_FILE, learning); }
+  catch (e) { console.error("[learning] SAVE FAILED — this outcome was NOT recorded and the edge it carried is lost:", e.message); }
 }
 function updateLearning(setup, pnl) {
   if (!setup || pnl === null || pnl === undefined) return;
