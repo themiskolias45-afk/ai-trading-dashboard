@@ -54,6 +54,7 @@ const state = {
     memory:          { ok: true, lastChecked: null, detail: null },
     errorRate:       { ok: true, lastChecked: null, detail: null },
     mt5Bridge:       { ok: true, lastChecked: null, detail: null },
+    aiFilter:        { ok: true, lastChecked: null, detail: null },
   },
 };
 
@@ -400,6 +401,40 @@ function checkJournalFile() {
 let consecutiveCriticalMemoryHits = 0;
 const CRITICAL_MEMORY_RESTART_THRESHOLD = 3;
 
+// The AI trade filter fails OPEN by design — a blip must not freeze trading. The
+// price of that is a broken filter looking exactly like a working one: every trade
+// is approved either way. So report it here, where a degraded safety layer becomes
+// visible instead of silent.
+//
+// Deliberately NOT auto-healed. There is nothing to restart; the causes are an
+// expired key, exhausted credit or an upstream outage, all of which need a human.
+// Reporting it is the whole job.
+function checkAiFilter() {
+  const name = 'aiFilter';
+  const read = ctx && typeof ctx.getAiFilterHealth === 'function'
+    ? ctx.getAiFilterHealth() : null;
+
+  if (!read) {
+    updateCheck(name, true, 'AI filter health not reported by this server build');
+    return;
+  }
+  if (read.totalCalls === 0) {
+    // Never exercised is not the same as healthy, and saying so is the point:
+    // the filter only runs when a signal clears the gate, which on this engine
+    // can be days apart.
+    updateCheck(name, true, 'no trade has been evaluated yet — filter unexercised');
+    return;
+  }
+  if (read.consecutiveFailures > 0) {
+    updateCheck(name, false,
+      `AI trade filter FAILING (${read.consecutiveFailures} consecutive) — every trade is ` +
+      `being auto-approved with no AI review: ${read.lastError || 'unknown error'}`);
+    return;
+  }
+  updateCheck(name, true, `AI filter OK — last success ${read.lastOkAt}`);
+}
+
+
 function checkMemory() {
   const name = 'memory';
   try {
@@ -499,6 +534,7 @@ async function runHealCycle() {
   // Run sync checks first
   try { checkMemory();    } catch (e) { logError(`checkMemory threw: ${e.message}`);    anyFail = true; }
   try { checkErrorRate(); } catch (e) { logError(`checkErrorRate threw: ${e.message}`); anyFail = true; }
+  try { checkAiFilter();  } catch (e) { logError(`checkAiFilter threw: ${e.message}`);  anyFail = true; }
   try { checkLearningFile(); } catch (e) { logError(`checkLearningFile threw: ${e.message}`); anyFail = true; }
   try { checkJournalFile();  } catch (e) { logError(`checkJournalFile threw: ${e.message}`);  anyFail = true; }
   try { checkMt5Bridge();    } catch (e) { logError(`checkMt5Bridge threw: ${e.message}`);    anyFail = true; }

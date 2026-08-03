@@ -3979,9 +3979,38 @@ app.get("/api/backtest", async (req, res) => {
 });
 
 // Claude AI trade approval — called by MT5 bridge before executing any order
+// Health of the AI trade filter.
+//
+// The filter deliberately FAILS OPEN: a network blip or an expired key must not
+// freeze trading. The cost of that choice is that a permanently broken filter is
+// indistinguishable from a working one — every trade is approved either way, and
+// the only trace is one line in server_log.txt. Confirmed 2026-08-03 with the API
+// credit exhausted: every call returned {approved:true, "AI error — proceeding"}
+// while the healer still reported green.
+//
+// This is the same shape as the bug where checkMt5Bridge reported "1/1 accounts"
+// while half the system was dead: a safety layer that is absent and invisible.
+// Fail open, but say so.
+let aiFilterHealth = {
+  lastOkAt: null,
+  lastFailAt: null,
+  lastError: null,
+  consecutiveFailures: 0,
+  totalCalls: 0,
+};
+
 app.post("/api/claude-approve-trade", async (req, res) => {
   const { signal, symbol, entry, stop, target } = req.body ?? {};
-  if (!anthropic || !signal) return res.json({ approved: true, reason: "No AI available — proceeding", risk: "UNKNOWN" });
+  if (!anthropic || !signal) {
+    if (!anthropic) {
+      aiFilterHealth.totalCalls++;
+      aiFilterHealth.consecutiveFailures++;
+      aiFilterHealth.lastFailAt = new Date().toISOString();
+      aiFilterHealth.lastError = "no Anthropic client configured (missing API key)";
+    }
+    return res.json({ approved: true, reason: "No AI available — proceeding", risk: "UNKNOWN" });
+  }
+  aiFilterHealth.totalCalls++;
 
   const rr = (entry && stop && target)
     ? (Math.abs(target - entry) / Math.abs(entry - stop)).toFixed(1)
@@ -4008,8 +4037,20 @@ app.post("/api/claude-approve-trade", async (req, res) => {
   try {
     const msg = await anthropic.messages.create({
       model: "claude-opus-5",
-      max_tokens: 1200,
-      thinking: { type: "enabled", budget_tokens: 800 },
+      // Adaptive thinking, NOT { type: "enabled", budget_tokens: N }. The fixed
+      // thinking-budget form is removed on claude-opus-5 and returns a 400 — depth
+      // is controlled by output_config.effort instead. Because this endpoint fails
+      // open, that 400 meant every trade was auto-approved with no AI review and
+      // nothing surfaced it; found 2026-08-03 the moment the healer's new aiFilter
+      // check started reporting the error text.
+      //
+      // effort "low" is deliberate: this is a short, scoped verdict on a prompt
+      // that already contains every number, and the bridge abandons the call after
+      // 25s. max_tokens has to cover thinking AND the reply, hence the headroom
+      // over the ~50 tokens of JSON actually wanted.
+      max_tokens: 2048,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
       messages: [{ role: "user", content: prompt }]
     });
     const text = (msg.content ?? []).find(b => b.type === "text")?.text ?? "";
@@ -4018,9 +4059,15 @@ app.post("/api/claude-approve-trade", async (req, res) => {
     const approved = parsed?.approved ?? true;
     const reason   = parsed?.reason   ?? "No reason given";
     const risk     = parsed?.risk     ?? "MEDIUM";
+    aiFilterHealth.lastOkAt = new Date().toISOString();
+    aiFilterHealth.consecutiveFailures = 0;
+    aiFilterHealth.lastError = null;
     console.log(`[AI-filter] ${symbol} ${signal.signal}: ${approved ? "APPROVED" : "REJECTED"} — ${reason}`);
     res.json({ approved, reason, risk });
   } catch (e) {
+    aiFilterHealth.lastFailAt = new Date().toISOString();
+    aiFilterHealth.consecutiveFailures++;
+    aiFilterHealth.lastError = String(e.message || e).slice(0, 200);
     console.error("[AI-filter] Error:", e.message);
     res.json({ approved: true, reason: "AI error — proceeding", risk: "MEDIUM" });
   }
@@ -4550,6 +4597,7 @@ app.listen(PORT, async () => {
     learning: _learning,
     tradeJournal: (typeof tradeJournal !== "undefined") ? tradeJournal : [],
     mt5LastSeenByAccount,
+    getAiFilterHealth: () => aiFilterHealth,
     TELEGRAM_TOKEN,
     knownChatIds,
     refreshSignals,
