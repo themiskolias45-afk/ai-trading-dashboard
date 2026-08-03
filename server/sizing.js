@@ -166,17 +166,36 @@ function calcPortfolioRisk(positions, accountBalance) {
   return { totalRiskPct, safeToAdd, maxNewRisk };
 }
 
-function validateTrade(signal, accountBalance, openPositions) {
+// options.minConfidence — the live confidenceThreshold, passed in by the caller.
+//
+// This used to be the hardcoded MIN_CONFIDENCE (65) and nothing else, which made it
+// a second, invisible copy of the confidence gate that no amount of configuration
+// could move. The bridge calls /api/size before every trade and fails closed on
+// rejection, so the EFFECTIVE live gate was max(confidenceThreshold, 65) no matter
+// what the dashboard said. Measured 2026-08-03: with confidenceThreshold set to 50,
+// signals at 52 and 60 were approved by the engine and then rejected here with
+// "Confidence 52% below minimum 65%" — so lowering the gate below 65 did nothing at
+// all, while the one band it did newly admit (65-69) is the only negative one in the
+// table at PF 0.91.
+//
+// MIN_CONFIDENCE stays as the default so the module's existing tests and any caller
+// that does not supply a threshold behave exactly as before.
+function validateTrade(signal, accountBalance, openPositions, options = {}) {
   if (!signal || !Number.isFinite(accountBalance) || accountBalance <= 0) {
     return { approved: false, reason: 'Invalid inputs', suggestedSize: 0 };
   }
 
+  const suppliedMin = Number(options.minConfidence);
+  const minConfidence = Number.isFinite(suppliedMin) && suppliedMin >= 0
+    ? suppliedMin
+    : MIN_CONFIDENCE;
+
   const { entry, stop, target, confidence, symbol, direction } = signal;
 
-  if (typeof confidence !== 'number' || confidence < MIN_CONFIDENCE) {
+  if (typeof confidence !== 'number' || confidence < minConfidence) {
     return {
       approved: false,
-      reason: `Confidence ${confidence}% below minimum ${MIN_CONFIDENCE}%`,
+      reason: `Confidence ${confidence}% below minimum ${minConfidence}%`,
       suggestedSize: 0
     };
   }

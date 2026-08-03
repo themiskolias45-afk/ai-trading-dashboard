@@ -4261,7 +4261,13 @@ app.post("/api/size", (req, res) => {
     if (!accountBalance || !signal) {
       return res.status(400).json({ error: "accountBalance and signal required" });
     }
-    const validation = sizing.validateTrade(signal, accountBalance, openPositions || []);
+    // Hand the risk engine the SAME gate the signal engine used. Without this it
+    // applies its own hardcoded 65 and silently overrides confidenceThreshold —
+    // the bridge fails closed on rejection, so every signal below 65 was approved
+    // upstream and killed here with nothing on the dashboard to explain it.
+    const validation = sizing.validateTrade(signal, accountBalance, openPositions || [], {
+      minConfidence: strategySettings.confidenceThreshold,
+    });
     res.json(validation);
   } catch (e) {
     res.status(500).json({ error: e.message });
