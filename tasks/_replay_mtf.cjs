@@ -225,6 +225,20 @@ function cohortOf(dailySig, h4Sig) {
   return "BOTH_WAIT";
 }
 
+// Read a field from whichever timeframe actually produced the entry. On an H4_ONLY
+// cohort the daily signal is WAIT by definition, so its indicators describe a signal
+// that was never taken — the same principle entry/stop/target already follow.
+// Returns null rather than undefined so the value survives JSON.stringify and shows
+// up as a real "missing" bucket downstream instead of vanishing from the object.
+function pickTf(cohort, dailySig, h4Sig, read) {
+  const source = cohort === "H4_ONLY" ? h4Sig : dailySig;
+  if (!source) return null;
+  let value;
+  try { value = read(source); } catch (_) { return null; }
+  if (value === undefined || value === null) return null;
+  return typeof value === "number" && !Number.isFinite(value) ? null : value;
+}
+
 const trades = [];
 let d1Ptr = 0, h1Ptr = 0;
 let openUntil = -1;
@@ -304,6 +318,31 @@ for (let i = 0; i < h4.length - 1; i++) {
     dailyDir: dailySig ? dailySig.signal : null,
     dailyStrength: dailySig ? dailySig.strength : null,
     h4Strength: h4Sig ? h4Sig.strength : null,
+    // Entry RSI, recorded per timeframe and resolved to the one that actually
+    // produced the entry. Without this nothing downstream can check an RSI-shaped
+    // claim against the LIVE path: the 2026-08-03 analysis found entries below RSI
+    // 50 cost -78.4R, but it measured tasks/_replay_engine.cjs — single-timeframe
+    // generateSignal — so its population was not the one the MTF gate trades.
+    // `rsi` follows the signal timeframe for the same reason entry/stop/target do:
+    // on an H4-only cohort the daily is WAIT by definition and its RSI describes a
+    // signal that was never taken.
+    rsiDaily: dailySig && Number.isFinite(dailySig.indicators?.rsi) ? dailySig.indicators.rsi : null,
+    rsiH4:    h4Sig    && Number.isFinite(h4Sig.indicators?.rsi)    ? h4Sig.indicators.rsi    : null,
+    rsi: pickTf(cohort, dailySig, h4Sig, s => s.indicators?.rsi),
+    // The remaining dimensions the fact pack groups by, resolved to the same
+    // timeframe as the entry. tasks/_replay_engine.cjs supplies these today, but it
+    // replays single-timeframe generateSignal — a path the live MTF gate can never
+    // take — so every regime/ADX/trend conclusion drawn from it describes a
+    // different population than the one that trades. Carrying them here is what
+    // lets the fact pack move onto the live path without losing dimensions.
+    // regime is computed in generateSignalMTF, not in the per-timeframe signal, so
+    // it comes off the MTF result. Resolving it through pickTf returned null on
+    // every row — caught by checking the populated count rather than assuming.
+    regime:    sig.regime ?? null,
+    trend:     pickTf(cohort, dailySig, h4Sig, s => s.trend),
+    adx:       pickTf(cohort, dailySig, h4Sig, s => s.indicators?.adx),
+    bandwidth: pickTf(cohort, dailySig, h4Sig, s => s.indicators?.bb?.bandwidth),
+    volRatio:  pickTf(cohort, dailySig, h4Sig, s => s.volume?.ratio),
     rr: Math.round(rr * 100) / 100, outcome,
   });
 }
