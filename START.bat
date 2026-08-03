@@ -84,13 +84,38 @@ if exist "C:\Users\User\AppData\Roaming\MetaTrader 5\terminal64.exe" (
 echo  [5] Waiting 30 seconds for terminals to connect...
 timeout /t 30 /nobreak >nul
 
-REM ── Start both MT5 bridges, each pinned to its own terminal/account ────
-echo  [6] Starting MT5 bridges A and B (full-auto, one per account)...
-start "" /min cmd /k "%~dp0tasks\start_bridge_A.bat"
-timeout /t 3 /nobreak >nul
-start "" /min cmd /k "%~dp0tasks\start_bridge_B.bat"
-timeout /t 3 /nobreak >nul
-echo  [6] Bridges A and B: running in background.
+REM ── Start the MT5 bridges this machine owns ────────────────────
+REM Which tags belong here comes from MT5_EXPECTED_ACCOUNTS in keys.env - the same
+REM single source of truth the server's healer, tasks\ensure_running.ps1 and
+REM tasks\watchdog.bat read. This file used to start A and B unconditionally, and
+REM on 2026-08-03 that became a live hazard: local Bridge B and the VPS's Bridge A
+REM are both pinned to login 11581419, so a logon here would have re-created a
+REM second --auto bridge on an account the VPS already trades, each with its own
+REM circuit breaker. Absent or unreadable value means A,B - never an empty list.
+REM
+REM /c: on findstr is required. Without it findstr splits the pattern on spaces and
+REM searches each piece separately, so "[ ]*=" matches any line containing "=".
+set "EXPECTED_TAGS=A,B"
+for /f "tokens=2 delims==" %%T in ('findstr /r /c:"^ *MT5_EXPECTED_ACCOUNTS *=" "%~dp0keys.env" 2^>nul') do set "EXPECTED_TAGS=%%T"
+if "%EXPECTED_TAGS%"=="" set "EXPECTED_TAGS=A,B"
+echo  [6] Starting MT5 bridges for tag(s) %EXPECTED_TAGS% (full-auto, one per account)...
+
+echo %EXPECTED_TAGS% | findstr /i "A" >nul
+if not errorlevel 1 (
+  start "" /min cmd /k "%~dp0tasks\start_bridge_A.bat"
+  timeout /t 3 /nobreak >nul
+) else (
+  echo  [6] Bridge A not owned by this machine - skipped.
+)
+
+echo %EXPECTED_TAGS% | findstr /i "B" >nul
+if not errorlevel 1 (
+  start "" /min cmd /k "%~dp0tasks\start_bridge_B.bat"
+  timeout /t 3 /nobreak >nul
+) else (
+  echo  [6] Bridge B not owned by this machine - skipped.
+)
+echo  [6] Bridges: running in background.
 
 REM ── Open JARVIS (Claude AI session) ────────────────────────────
 echo  [7] Opening JARVIS...
