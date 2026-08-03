@@ -89,7 +89,7 @@ for (const marker of NEEDED) {
 }
 
 // Live strategy settings, so the confidence gate matches the running server.
-let settings = { confidenceThreshold: 65, minStrength: "MODERATE" };
+let settings = { confidenceThreshold: 65, minStrength: "MODERATE", minEntryRsi: 0 };
 try {
   const p = path.join(ROOT, "server", "strategy_settings.json");
   if (fs.existsSync(p)) Object.assign(settings, JSON.parse(fs.readFileSync(p, "utf8")));
@@ -107,6 +107,21 @@ try {
 if (process.env.MTF_CONF_FLOOR) {
   const floor = Number(process.env.MTF_CONF_FLOOR);
   if (Number.isFinite(floor)) settings.confidenceThreshold = floor;
+}
+
+// MEASUREMENT-ONLY override for the entry-RSI floor, same contract as the gate
+// above: nothing on disk changes, only this replay's copy.
+//
+// This one CANNOT be applied by filtering the resulting trade list, which is how
+// mtf_walkforward.cjs sweeps confidence. The gate lives inside generateSignal and
+// therefore runs on the daily AND 4H signals independently, so raising it does not
+// merely delete rows — it changes which multi-timeframe combinations form at all.
+// A daily signal suppressed by the floor turns an agreeing pair into an H4-only
+// entry with different levels. Sweeping it honestly means re-running the replay per
+// value, which is what tasks/rsi_walkforward.cjs does.
+if (process.env.MTF_MIN_ENTRY_RSI) {
+  const floor = Number(process.env.MTF_MIN_ENTRY_RSI);
+  if (Number.isFinite(floor)) settings.minEntryRsi = floor;
 }
 
 // Macro caches are empty and the learning boost is zero. Historical DXY/VIX/

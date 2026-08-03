@@ -442,6 +442,19 @@ const STRATEGY_LIMITS = {
   // account's own 5 years: >=20 lifted swing-pullback win rate 52%->65% on Gold
   // and 42%->54% on SPX.
   adxTrendingMin: { min: 10, max: 40, def: 20 },
+  // Minimum RSI on the signal's own timeframe for an entry to be allowed at all.
+  //
+  // DEFAULT 0 = OFF, deliberately. Measured 2026-08-03 across 2381 replayed trades
+  // (2021-09..2026-07): entries below RSI 50 account for 459 closed trades worth
+  // -78.4R, while the remaining 1796 make +159.9R at PF 1.22 — and the split
+  // improves all four time quartiles, so it is not one lucky stretch. That is the
+  // whole reason the book's overall expectancy (0.036R) sits under its own cost
+  // assumption (0.05R).
+  //
+  // It ships OFF because turning it on removes roughly a fifth of all signals, and
+  // that number comes from a replay, not from live fills. Set it only after
+  // tasks/rsi_walkforward.cjs shows a value positive in most out-of-sample folds.
+  minEntryRsi: { min: 0, max: 60, def: 0 },
 };
 
 // Minimum signal strength AUTO mode will trade.
@@ -467,6 +480,7 @@ let strategySettings = {
   fixedLotSize:           STRATEGY_LIMITS.fixedLotSize.def,
   maxLotSize:             STRATEGY_LIMITS.maxLotSize.def,
   adxTrendingMin:         STRATEGY_LIMITS.adxTrendingMin.def,
+  minEntryRsi:            STRATEGY_LIMITS.minEntryRsi.def,
   minStrength:            "MODERATE",
   updatedAt: null,
   updatedBy: null,
@@ -1048,6 +1062,25 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
       stop = null; target = null;
       reasons = [`Setup detected but R:R ${badRR} below minimum ${MIN_RR} — skip`];
     }
+  }
+
+  // ── Minimum entry RSI gate ──────────────────────────────────
+  // Runs on the signal's own timeframe, after the setups have resolved and before
+  // any confidence scoring, so it can only ever remove an entry — never create or
+  // promote one. Both directions: the measured population is "entries below RSI N",
+  // not "longs below RSI N", and a breakdown short taken into an already-oversold
+  // tape lost money the same way a counter-trend long did.
+  //
+  // Off when minEntryRsi is 0, which is the shipped default. Reading it from
+  // strategySettings rather than a constant is what lets the walk-forward vary it;
+  // it must NOT be pinned to another setting for the reason GOLD_SQUEEZE_MODERATE_
+  // CONFIDENCE is not pinned to confidenceThreshold — the harness moves those and a
+  // follower silently leaves the population being measured.
+  const minEntryRsi = Number(strategySettings?.minEntryRsi) || 0;
+  if (signal !== "WAIT" && minEntryRsi > 0 && rsi !== null && rsi < minEntryRsi) {
+    reasons = [`Entry RSI ${rsi} below minimum ${minEntryRsi} — skip`];
+    setup = "WAIT"; signal = "WAIT"; strength = "NONE";
+    stop = null; target = null;
   }
 
   // ── Trend-strength gate ─────────────────────────────────────
