@@ -40,6 +40,36 @@ $BRIDGE_STALE_S    = 180
 # still looks "not reporting", so a second run must not start another one.
 $BRIDGE_START_COOLDOWN_S = 120
 
+# Which bridge tags this machine owns. Single source of truth is
+# MT5_EXPECTED_ACCOUNTS in keys.env -- the same variable the server's healer reads,
+# so "what we start" and "what we alarm about missing" can never disagree.
+#
+# Local Bridge B and the VPS's Bridge A were both pinned to login 11581419 and both
+# running --auto against separate circuit breakers, so that one account absorbed six
+# consecutive losses before both halted, allowed 15 trades a day across the two caps,
+# and had its trade record split in half between two journals. One bridge per account
+# across the fleet is the fix; this is what stops the laptop restarting the duplicate.
+#
+# Falls back to 'A,B' on a missing file, an unreadable one, or an empty value. Never
+# falls back to an empty list: that would silently start no bridges at all, which is a
+# worse failure than starting one too many.
+function Get-ExpectedBridgeTags {
+    $fallback = @('A', 'B')
+    try {
+        $envFile = Join-Path $Proj 'keys.env'
+        if (-not (Test-Path $envFile)) { return $fallback }
+        $line = Select-String -Path $envFile -Pattern '^\s*MT5_EXPECTED_ACCOUNTS\s*=' -ErrorAction Stop |
+                Select-Object -First 1
+        if (-not $line) { return $fallback }
+        $tags = ($line.Line -replace '^\s*MT5_EXPECTED_ACCOUNTS\s*=', '').Trim() -split ',' |
+                ForEach-Object { $_.Trim().ToUpper() } | Where-Object { $_ }
+        if (-not $tags -or $tags.Count -eq 0) { return $fallback }
+        return $tags
+    } catch {
+        return $fallback
+    }
+}
+
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 
 function Write-Log($msg) {
@@ -165,7 +195,9 @@ elseif ($null -ne ($strayAge = Get-BridgeAge 'default') -and $strayAge -lt $BRID
     Write-Log "BRIDGES: an UNTAGGED bridge is reporting (last seen ${strayAge}s ago) -- skipping A and B entirely"
     Write-Log 'BRIDGES: stop it, then this script will start the tagged pair'
 } else {
-    foreach ($tag in @('A', 'B')) {
+    $expectedTags = Get-ExpectedBridgeTags
+    Write-Log "BRIDGES: this machine owns tag(s) $($expectedTags -join ',')"
+    foreach ($tag in $expectedTags) {
         $age = Get-BridgeAge $tag
         if ($null -ne $age -and $age -lt $BRIDGE_STALE_S) {
             Write-Log "BRIDGE $($tag): reporting (${age}s ago)"

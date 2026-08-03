@@ -95,6 +95,21 @@ if !RECENT! EQU 1 (
     )
 )
 
+REM Bridge B only exists on machines that own tag B. MT5_EXPECTED_ACCOUNTS in
+REM keys.env is the single source of truth, shared with the server's healer and
+REM ensure_running.ps1. Local B and the VPS's A were both pinned to login 11581419
+REM with separate circuit breakers; without this check the watchdog restarts that
+REM duplicate within 60 seconds of it being stopped. Absent or unreadable value
+REM means A,B -- never an empty list, which would stop watching every bridge.
+set "EXPECTED_TAGS=A,B"
+REM /c: is required. Without it findstr splits the pattern on spaces and treats each
+REM piece as its own search term, so "[ ]*=" alone matched any line containing "=" --
+REM a keys.env holding FOO=bar set EXPECTED_TAGS to "bar". Caught in trace, not live.
+for /f "tokens=2 delims==" %%T in ('findstr /r /c:"^ *MT5_EXPECTED_ACCOUNTS *=" keys.env 2^>nul') do set "EXPECTED_TAGS=%%T"
+if "!EXPECTED_TAGS!"=="" set "EXPECTED_TAGS=A,B"
+echo !EXPECTED_TAGS! | findstr /i "B" >nul
+if errorlevel 1 goto :skip_bridge_b
+
 call :recent_restart B
 if !RECENT! EQU 1 (
     set /a COOL_B=0
@@ -113,6 +128,8 @@ if !RECENT! EQU 1 (
         echo [!date! !time!] Bridge B restart triggered - holding off !BRIDGE_STARTUP_GRACE_CYCLES! cycles. >> tasks\logs\watchdog_log.txt
     )
 )
+
+:skip_bridge_b
 
 REM Check every 60 seconds
 timeout /t 60 /nobreak >nul
