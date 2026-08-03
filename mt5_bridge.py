@@ -340,6 +340,15 @@ def process_signal(key, sig):
         executed_signals[key] = cache_key
         return
 
+    # Portfolio-level risk gate — blocks a duplicate same-symbol/direction position
+    # and trades that would push total portfolio risk above the 6% cap. Runs in both
+    # modes: this is a hard risk limit, not an AI discretion call like the check below.
+    risk_ok, risk_reason = check_portfolio_risk(sig, symbol, entry, stop, target)
+    if not risk_ok:
+        log(f"BLOCKED by portfolio risk check — {ticker}: {risk_reason}", RED)
+        executed_signals[key] = cache_key
+        return
+
     # Claude AI approval (only in AUTO mode — in semi-auto the human decides)
     if AUTO_MODE:
         ai_ok = claude_approves_trade(sig, symbol, entry, stop, target)
@@ -405,6 +414,47 @@ def check_news_blackout():
         return data.get("blackout", False), data.get("reason", None)
     except Exception:
         return False, None  # fail open — don't block trades if server unreachable
+
+
+def check_portfolio_risk(sig, symbol, entry, stop, target):
+    """Ask the server's Kelly/portfolio-risk engine (server/sizing.js validateTrade,
+    exposed at /api/size) to approve this trade. Catches what this bridge cannot see
+    on its own: a duplicate position already open on the same symbol+direction, or a
+    new trade that would push total portfolio risk above the 6% cap. Fails open on
+    network errors, matching check_news_blackout()/claude_approves_trade() below —
+    a server hiccup should not stop trading outright."""
+    try:
+        acc = mt5.account_info()
+        if not acc:
+            return True, ""
+        open_positions = []
+        for p in (mt5.positions_get() or []):
+            if p.magic != MAGIC_NUMBER:
+                continue
+            open_positions.append({
+                "symbol":    p.symbol,
+                "direction": "BUY" if p.type == 0 else "SELL",
+                "entry":     p.price_open,
+                "stop":      p.sl,
+                "lots":      p.volume,
+            })
+        res = requests.post(f"{SERVER_URL}/api/size", json={
+            "accountBalance": acc.balance,
+            "signal": {
+                "symbol":     symbol,
+                "direction":  sig.get("signal"),
+                "entry":      entry,
+                "stop":       stop,
+                "target":     target,
+                "confidence": sig.get("confidence"),
+            },
+            "openPositions": open_positions,
+        }, timeout=10)
+        data = res.json()
+        return data.get("approved", True), data.get("reason", "")
+    except Exception as e:
+        log(f"Portfolio risk check unavailable ({e}) — proceeding", YELLOW)
+        return True, ""
 
 
 def claude_approves_trade(sig, symbol, entry, stop, target):
