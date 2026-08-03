@@ -27,7 +27,12 @@ const ASSETS = [
   ["BTCUSD", "BTC-USD"],
   ["SP500",  "^GSPC"],
 ];
-const GATES = [65, 70, 75, 80, 85];
+// Extended below 65 on 2026-08-03. The question changed: with one closed trade
+// in the journal and the learning engine needing five per setup, trade FLOW is
+// the binding constraint, not per-trade edge. The MTF fact pack showed conf50-64
+// is net positive (195 closed, PF 1.06, +8.2R), so the sub-65 range had to be
+// measured per-fold rather than assumed bad.
+const GATES = [45, 50, 55, 60, 65, 70, 75, 80, 85];
 const FOLDS = 5;         // sequential out-of-sample periods
 const COST_R = 0.05;     // same cost basis the rest of the project uses
 const CONF_FLOOR = 40;   // expose sub-65 cohorts
