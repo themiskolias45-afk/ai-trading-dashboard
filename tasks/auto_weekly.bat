@@ -7,8 +7,12 @@ REM the agent loads CLAUDE.md, boots as JARVIS and refuses to work unattended. T
 REM only weekly report ever produced (26/07, 75 bytes) contains nothing but the two
 REM header lines this script echoed - the agent contributed zero bytes.
 setlocal
-set PROJ=C:\Users\User\ai-trading-dashboard
-set AGENTCWD=C:\Users\User\AppData\Local\SmartEntryAgentCwd
+REM PROJ comes from this file's own location (%~dp0 is tasks\, so .. is the
+REM project root) and AGENTCWD from %LOCALAPPDATA% - never hardcoded. The laptop
+REM keeps the project under C:\Users\User and the VPS at C:\ai-trading-dashboard,
+REM so a hardcoded path silently breaks on the other box.
+for %%I in ("%~dp0..") do set "PROJ=%%~fI"
+set "AGENTCWD=%LOCALAPPDATA%\SmartEntryAgentCwd"
 set NONINTERACTIVE=You are a non-interactive subprocess in an automated pipeline. There is no human reading your output and no one to answer a question. Never greet, never introduce yourself, never ask for confirmation. Write the file you are asked to write, then stop.
 
 if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"

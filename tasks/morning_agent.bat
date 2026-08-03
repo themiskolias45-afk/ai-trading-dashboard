@@ -14,8 +14,12 @@ REM    reaches a running account. It now writes a proposal for a human to apply.
 REM
 REM Note: no bare percent signs in the prompt - cmd eats them. Say "percent".
 setlocal
-set PROJ=C:\Users\User\ai-trading-dashboard
-set AGENTCWD=C:\Users\User\AppData\Local\SmartEntryAgentCwd
+REM PROJ comes from this file's own location (%~dp0 is tasks\, so .. is the
+REM project root) and AGENTCWD from %LOCALAPPDATA% - never hardcoded. The laptop
+REM keeps the project under C:\Users\User and the VPS at C:\ai-trading-dashboard,
+REM so a hardcoded path silently breaks on the other box.
+for %%I in ("%~dp0..") do set "PROJ=%%~fI"
+set "AGENTCWD=%LOCALAPPDATA%\SmartEntryAgentCwd"
 set NONINTERACTIVE=You are a non-interactive subprocess in an automated pipeline. There is no human reading your output and no one to answer a question. Never greet, never introduce yourself, never ask for confirmation. Write the file you are asked to write, then stop.
 
 if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"

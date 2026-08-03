@@ -10,8 +10,12 @@ REM its summary file was never created. --add-dir gives the clean-room agent
 REM read/write access back to the project; --append-system-prompt is what
 REM actually stops it greeting and asking.
 setlocal
-set PROJ=C:\Users\User\ai-trading-dashboard
-set AGENTCWD=C:\Users\User\AppData\Local\SmartEntryAgentCwd
+REM PROJ comes from this file's own location (%~dp0 is tasks\, so .. is the
+REM project root) and AGENTCWD from %LOCALAPPDATA% - never hardcoded. The laptop
+REM keeps the project under C:\Users\User and the VPS at C:\ai-trading-dashboard,
+REM so a hardcoded path silently breaks on the other box.
+for %%I in ("%~dp0..") do set "PROJ=%%~fI"
+set "AGENTCWD=%LOCALAPPDATA%\SmartEntryAgentCwd"
 set NONINTERACTIVE=You are a non-interactive subprocess in an automated pipeline. There is no human reading your output and no one to answer a question. Never greet, never introduce yourself, never ask for confirmation. Do the work and report, then stop.
 
 if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"

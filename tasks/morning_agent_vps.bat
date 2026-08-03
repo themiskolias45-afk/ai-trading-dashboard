@@ -1,24 +1,39 @@
 @echo off
-REM JARVIS autonomous morning cycle — VPS version.
+REM JARVIS autonomous morning cycle - VPS.
 REM
-REM This ran only on the local PC, which is off most of the time, so the daily
-REM improvement loop fired only when someone happened to be at the keyboard. The
-REM VPS runs 24/7 and is where the system actually lives, so it belongs here.
+REM Machine-agnostic by construction: PROJ is derived from this file's own location
+REM (%~dp0 is tasks\, so .. is the project root), never hardcoded. The laptop keeps
+REM the project at C:\Users\User\ai-trading-dashboard and the VPS at
+REM C:\ai-trading-dashboard, so a hardcoded path silently breaks on the other box.
+REM AGENTCWD likewise comes from %LOCALAPPDATA% - the VPS runs as Administrator.
 REM
-REM Requires the claude CLI (installed on the VPS 2026-07-26) and the Anthropic
-REM key, which is read from server\apikey.txt the same way start_server_vps.bat
-REM does it — a Scheduled Task gets no inherited environment.
+REM The claude call runs from a CLEAN ROOM, not the project directory. Launched
+REM inside the project it loads CLAUDE.md, boots as JARVIS and obeys "one question
+REM at a time - then stop". The VPS log shows exactly that: a run ending with
+REM "Which do you want me to chase first?" instead of writing its output.
+REM --add-dir restores project access; --append-system-prompt stops the asking.
+REM
+REM ANTHROPIC_API_KEY is CLEARED, not set. These scripts used to load it from
+REM server\apikey.txt on the reasoning that a Scheduled Task inherits no
+REM environment - but with the key set the CLI ignores the claude.ai subscription
+REM and bills pay-as-you-go API credit. On 2026-08-03 that credit ran out and both
+REM VPS agents failed with "Credit balance is too low". The subscription login is
+REM what these should use.
+setlocal
+for %%I in ("%~dp0..") do set "PROJ=%%~fI"
+set "AGENTCWD=%LOCALAPPDATA%\SmartEntryAgentCwd"
+set "ANTHROPIC_API_KEY="
+set "NONINTERACTIVE=You are a non-interactive subprocess in an automated pipeline. There is no human reading your output and no one to answer a question. Never greet, never introduce yourself, never ask for confirmation. Do the work and report, then stop."
 
-cd /d C:\ai-trading-dashboard
-if not exist tasks\logs mkdir tasks\logs
+if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"
+if not exist "%PROJ%\tasks\logs" mkdir "%PROJ%\tasks\logs"
 
-if exist keys.env (
-  for /f "usebackq tokens=1,* delims==" %%a in ("keys.env") do set "%%a=%%b"
-)
-if exist server\apikey.txt set /p ANTHROPIC_API_KEY=<server\apikey.txt
+echo [%date% %time%] JARVIS morning agent starting... >> "%PROJ%\tasks\logs\agent_log.txt"
 
-echo [%date% %time%] JARVIS morning agent starting (VPS)... >> tasks\logs\agent_log.txt
+pushd "%AGENTCWD%"
+claude -p "Run the SmartEntry Pro morning cycle. 1) Fetch http://localhost:3001/api/checksystem and note any problems. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number; if settingsError is not null report that first, because the server is then running on defaults rather than the saved config. 3) Fetch http://localhost:3001/api/signals and list any asset at or above that live gate, with its dataSource and updatedAt. If two assets show indicators identical to the previous run while a third moved, say so explicitly - that is a frozen feed, not a flat market. 4) Fetch http://localhost:3001/api/learning and report setupStats progress toward the 5-closed-trades-per-setup threshold; if a setup has fewer than 5 draw no conclusion from it. 5) Do NOT edit any source file and do NOT commit. If you find a clear low-risk improvement, append it to %PROJ%\tasks\logs\morning_proposals.txt naming the file, the function, the exact change and the evidence. 6) Write a one-paragraph summary to %PROJ%\tasks\logs\morning_summary.txt: date, signals found, learning state, proposals made, system status. No fluff." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul >> "%PROJ%\tasks\logs\agent_log.txt" 2>&1
+set CLAUDE_RC=%ERRORLEVEL%
+popd
 
-claude --dangerously-skip-permissions -p "You are JARVIS, SmartEntry Pro trading system engineer, running unattended on the VPS. Run a full autonomous morning cycle: 1) Fetch http://localhost:3001/api/checksystem and note any problems. 2) Fetch http://localhost:3001/api/signals - list any signals with confidence >= 65%%. 3) Fetch http://localhost:3001/api/learning - report setupStats; if any setup has WR < 40%% over 5+ trades, say so. 4) Fetch http://localhost:3001/api/strategy-settings and report the live limits. 5) Write a summary to tasks/logs/morning_summary.txt: date, signals found, learning state, system status. One paragraph, no fluff. DO NOT edit source code or commit - report only." >> tasks\logs\agent_log.txt 2>&1
-
-echo [%date% %time%] JARVIS morning agent complete. >> tasks\logs\agent_log.txt
+echo [%date% %time%] JARVIS morning agent complete (exit %CLAUDE_RC%). >> "%PROJ%\tasks\logs\agent_log.txt"
+endlocal & exit /b %CLAUDE_RC%
