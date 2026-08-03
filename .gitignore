@@ -30,3 +30,9 @@ tasks/analysis/
 # Per-machine live state: a halt is a local safety decision and must never
 # deploy from one box to another, and the VPS keeps its own copy untracked.
 server/trading_control.json
+
+# Per-machine live state. strategy_settings.json in particular must stay untracked:
+# it carries fixedLotSize, and a shared commit would push this machine's position
+# sizing onto the VPS. A BOM in this file already reset VPS sizing once (2026-08-02).
+server/strategy_settings.json
+server/journal.json
