@@ -12,6 +12,37 @@ const fs         = require("fs");
 const path       = require("path");
 const { YouTube } = require("youtube-sr");
 
+// keys.env -> process.env, and it MUST happen here, above the local requires.
+//
+// keys.env has always been the documented place to configure this system and
+// readKeysEnv() has always parsed it, but nothing ever copied the result into
+// process.env — so every `process.env.X` lookup silently used its default no
+// matter what the file said. Loading it lower down was not enough either:
+// autohealer.js:33 captures EXPECTED_MT5_ACCOUNTS at module-load time, so a
+// loader placed after `require("./autohealer")` runs too late to be seen. That
+// is why keys.env said MT5_EXPECTED_ACCOUNTS=A while the healer went on
+// reporting "1/2 expected account(s) — B has never connected" on a machine
+// that deliberately owns one bridge.
+//
+// Any module that reads config at load time has the same requirement, so this
+// stays first. A real environment variable still wins: only unset keys are
+// filled, so a launcher or scheduled task can always override the file.
+(function loadKeysEnvIntoProcessEnv() {
+  const keysEnvPath = path.join(__dirname, "..", "keys.env");
+  try {
+    if (!fs.existsSync(keysEnvPath)) return;
+    for (const line of fs.readFileSync(keysEnvPath, "utf8").split(/\r?\n/)) {
+      const separatorIndex = line.indexOf("=");
+      if (separatorIndex === -1) continue;
+      const key = line.slice(0, separatorIndex).trim();
+      const value = line.slice(separatorIndex + 1).trim();
+      if (key && value !== "" && process.env[key] === undefined) process.env[key] = value;
+    }
+  } catch (e) {
+    console.error("[boot] keys.env could not be loaded, running on defaults:", e.message);
+  }
+})();
+
 // ── New modules ───────────────────────────────────────────────
 const autohealer = require("./autohealer");
 const db         = require("./db");
