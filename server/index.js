@@ -455,6 +455,26 @@ const STRATEGY_LIMITS = {
   // that number comes from a replay, not from live fills. Set it only after
   // tasks/rsi_walkforward.cjs shows a value positive in most out-of-sample folds.
   minEntryRsi: { min: 0, max: 60, def: 0 },
+  // A separate, higher confidence floor for the DAILY_ONLY_H4_NEUTRAL cohort —
+  // a daily signal firing while the 4H is neutral.
+  //
+  // DEFAULT 0 = OFF (the cohort uses the normal gate, i.e. today's behaviour).
+  //
+  // Measured 2026-08-03 on the live MTF path: that cohort is -41.2R over 113
+  // closed at PF 0.56, almost the mirror image of H4_ONLY at +44.8R over 478.
+  // Nearly all the book's profit comes from H4-only entries and an equal amount
+  // is handed back by daily-only ones. Two independent methods agreed — the
+  // byCohort axis and the loss-autopsy analyst, which had no knowledge of it.
+  //
+  // Expressed as a floor rather than an on/off switch because the analysts'
+  // proposal was "suppress OR require materially higher confidence", and a number
+  // covers both: 0 is off, a value above the cohort's ceiling suppresses it
+  // outright. Those ceilings are 55 on BTC and SPX and 74 on Gold, so 75+
+  // suppresses everywhere while 60 mutes BTC/SPX and keeps Gold's top end.
+  //
+  // This matters MORE since the gate moved to 50: at 70 the cohort could not fire
+  // on BTC or SPX at all, and now it can.
+  dailyOnlyMinConfidence: { min: 0, max: 100, def: 0 },
 };
 
 // Minimum signal strength AUTO mode will trade.
@@ -481,6 +501,7 @@ let strategySettings = {
   maxLotSize:             STRATEGY_LIMITS.maxLotSize.def,
   adxTrendingMin:         STRATEGY_LIMITS.adxTrendingMin.def,
   minEntryRsi:            STRATEGY_LIMITS.minEntryRsi.def,
+  dailyOnlyMinConfidence: STRATEGY_LIMITS.dailyOnlyMinConfidence.def,
   minStrength:            "MODERATE",
   updatedAt: null,
   updatedBy: null,
@@ -1442,17 +1463,24 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     confidence = SIZING_BOOST_MIN_CONFIDENCE - 1;
   }
 
-  // Require confidence ≥ 65 for a signal to fire
-  finalSignal = confidence >= strategySettings.confidenceThreshold ? signalDir : "WAIT";
-  // Banded off the same threshold that decides whether the signal fires at all.
-  // With a fixed 70 here, anything landing 65-69 fired as a real BUY/SELL carrying
-  // strength NONE — which mt5_bridge.py drops in AUTO mode. The signal showed on
-  // the dashboard and the trade silently never happened. Tying the MODERATE band
-  // to confidenceThreshold makes "fires => tradeable" an invariant that survives
-  // the threshold being changed from the dashboard.
-  const finalStrength = confidence >= 90 ? "STRONG"
-                      : confidence >= strategySettings.confidenceThreshold ? "MODERATE"
-                      : "NONE";
+  // The gate a signal must clear. Normally confidenceThreshold, but the
+  // DAILY_ONLY_H4_NEUTRAL cohort can be held to a higher floor of its own — see
+  // dailyOnlyMinConfidence in STRATEGY_LIMITS. Math.max, so the cohort floor can
+  // only ever be STRICTER than the global gate, never a way to sneak under it.
+  const cohortFloor = isDailyNeutralH4
+    ? (Number(strategySettings?.dailyOnlyMinConfidence) || 0)
+    : 0;
+  const effectiveThreshold = Math.max(strategySettings.confidenceThreshold, cohortFloor);
+
+  finalSignal = confidence >= effectiveThreshold ? signalDir : "WAIT";
+  // "fires => tradeable" is an invariant. With a fixed 70 here, anything landing
+  // 65-69 fired as a real BUY/SELL carrying strength NONE — which mt5_bridge.py
+  // drops in AUTO mode, so the signal showed on the dashboard and the trade
+  // silently never happened. Deriving strength from finalSignal rather than
+  // re-testing a threshold keeps that invariant true no matter which gate applied.
+  const finalStrength = finalSignal === "WAIT" ? "NONE"
+                      : confidence >= 90 ? "STRONG"
+                      : "MODERATE";
 
   // Market regime
   const bbW = daily.indicators?.bb?.bandwidth;

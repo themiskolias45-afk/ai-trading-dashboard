@@ -124,6 +124,20 @@ if (process.env.MTF_MIN_ENTRY_RSI) {
   if (Number.isFinite(floor)) settings.minEntryRsi = floor;
 }
 
+// MEASUREMENT-ONLY override for the DAILY_ONLY_H4_NEUTRAL cohort floor.
+//
+// Unlike minEntryRsi this one COULD be approximated by filtering the output — it
+// applies at the final gate in generateSignalMTF, after the cohort is already
+// decided, so it only ever removes rows. It is still swept by re-replaying,
+// because removing a trade frees the occupancy window (`openUntil`) and lets a
+// later signal through that was previously blocked. Filtering afterwards would
+// miss those, and on this engine they are not rare: the census reports 2270 steps
+// blocked by an open position on BTC and 2549 on SPX.
+if (process.env.MTF_DAILY_ONLY_MIN_CONF) {
+  const floor = Number(process.env.MTF_DAILY_ONLY_MIN_CONF);
+  if (Number.isFinite(floor)) settings.dailyOnlyMinConfidence = floor;
+}
+
 // Macro caches are empty and the learning boost is zero. Historical DXY/VIX/
 // Fear-and-Greed readings are not in the export, and setupStats is {} on the live
 // box anyway - so this measures the engine's own confidence, unmodified. Stated
