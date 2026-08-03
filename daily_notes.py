@@ -37,17 +37,29 @@ def _load_note(date_str: str) -> dict:
             "trades":    [],
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+    # Never swallow a parse failure here. _load_note feeds a read-modify-write
+    # (log_entry, auto_log), so returning an empty note for an unreadable file
+    # means the very next write silently overwrites a whole day's history.
+    # 2026-08-02's note was hand-edited with a missing comma and was one
+    # `daily_notes.py log` away from being wiped. Fail loud instead.
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {"date": date_str, "entries": [], "signals": [], "trades": []}
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"[DAILY] {path} is corrupt and was NOT overwritten: {exc}\n"
+            f"[DAILY] Repair the JSON by hand, then re-run. The file is untouched."
+        ) from exc
 
 
 def _save_note(note: dict):
     date_str = note["date"]
     path = _note_path(date_str)
     note["updated_at"] = datetime.now(timezone.utc).isoformat()
-    path.write_text(json.dumps(note, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Write to a sibling temp file and rename, so a crash or a full disk mid-write
+    # cannot leave a truncated note behind — the same class of loss as above.
+    tmp_path = path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(note, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp_path.replace(path)
 
 
 def log_entry(text: str, tag: str = "NOTE", date_str: str = None) -> dict:
@@ -94,9 +106,13 @@ def auto_log() -> dict:
             "text": f"Pulled {len(note['signals'])} signal(s) from server",
         })
 
-    trades = _fetch_json("/api/journal")
+    # /api/journal answers {"journal": [...]}, not a bare list, and its entries
+    # carry openTime — not opened_at. Both mismatches were silent: the isinstance
+    # check failed first, so no trade has ever been written to a daily note.
+    journal_response = _fetch_json("/api/journal")
+    trades = journal_response.get("journal") if isinstance(journal_response, dict) else journal_response
     if trades and isinstance(trades, list):
-        today_trades = [t for t in trades if (t.get("opened_at") or "")[:10] == date_str]
+        today_trades = [t for t in trades if (t.get("openTime") or t.get("opened_at") or "")[:10] == date_str]
         note["trades"] = today_trades
         note["entries"].append({
             "ts":  datetime.now(timezone.utc).isoformat(),

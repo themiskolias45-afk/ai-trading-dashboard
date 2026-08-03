@@ -1,0 +1,14 @@
+{
+  "date": "2026-08-03",
+  "entries": [
+    {
+      "ts": "2026-08-03T02:34:34.308913+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-03: health 7/7 green, gate 70 live (settingsError null), no halt, A+B bridges reporting, syntax clean, no secrets tracked. TOP ISSUE: journal .rr stores the SIGNAL's planned R:R next to the BROKER's realized prices (index.js:2590) — the single journal trade records rr 2.5 while its own prices imply 6.57 and it closed at exactly its stop (-1.0R); get_performance therefore reports avgRR +2.5 on a 0% win rate. This is the mechanism behind the known \"rr-artifact\" inflation. Also: 2 watchdogs alive (one orphaned, paired heartbeats since 02/08 15:51), saveLearning() swallows all write errors, startup_all.ps1 untagged-bridge warning is a permanent false positive, Brave+Exa API keys invalid."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-03T02:34:34.308913+00:00",
+  "updated_at": "2026-08-03T02:34:44.088011+00:00"
+}
