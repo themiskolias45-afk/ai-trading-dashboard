@@ -25,6 +25,11 @@ echo ========================================== >> "%LOGFILE%"
 REM The confidence gate is NOT hardcoded here. It moved 65 -> 70 on 2026-08-02 and
 REM this file was still asking about 65, so it would have flagged sub-gate signals
 REM as ready. The agent reads the live value instead.
+REM Use the claude.ai subscription, not pay-as-you-go API credit. With
+REM ANTHROPIC_API_KEY set the CLI ignores the subscription entirely and bills API
+REM credit - on 2026-08-03 that ran out and every agent died in seconds with
+REM "Credit balance is too low". Cleared inside setlocal, so only this process.
+set "ANTHROPIC_API_KEY="
 pushd "%AGENTCWD%"
 claude -p "Daily SmartEntry Pro automated check. 1) Read %PROJ%\server\journal.json - last 5 trades with outcome and P&L. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number. If settingsError is not null, say so first: the server is on built-in defaults, not the saved config. 3) Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence, setup, dataSource. 4) Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses, halted. 5) Any signal at or above the live gate must be marked ** SIGNAL READY **. 6) One-line verdict: TRADE TODAY or WAIT. Keep under 25 lines." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul >> "%LOGFILE%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%

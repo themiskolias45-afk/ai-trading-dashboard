@@ -18,6 +18,11 @@ set REPORT=%PROJ%\tasks\logs\weekly_%date:~-4,4%%date:~-10,2%%date:~-7,2%.txt
 echo Weekly Analysis - %date% > "%REPORT%"
 echo ========================================= >> "%REPORT%"
 
+REM Use the claude.ai subscription, not pay-as-you-go API credit. With
+REM ANTHROPIC_API_KEY set the CLI ignores the subscription entirely and bills API
+REM credit - on 2026-08-03 that ran out and every agent died in seconds with
+REM "Credit balance is too low". Cleared inside setlocal, so only this process.
+set "ANTHROPIC_API_KEY="
 pushd "%AGENTCWD%"
 claude -p "Weekly SmartEntry Pro review. Read %PROJ%\server\journal.json and consult http://localhost:3001/api/stats/by-setup. Append to %REPORT% : 1) Week trade summary - total trades, wins, losses, total P&L, win rate. 2) Best and worst performing asset. 3) Read avgRealizedR next to avgRR: a setup whose avgRR is high while avgRealizedR is negative is losing money on geometry that only looked good on paper - call that out. 4) One algorithm weakness supported by the trades actually in the journal; if there are too few closed trades to support any conclusion, say exactly that and stop rather than inventing one. 5) One specific proposed fix - which file, which function, what change, what evidence. Mark it clearly as PROPOSED FIX: so it can be found later. Do NOT edit source and do NOT commit. Max 40 lines." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul >> "%REPORT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%

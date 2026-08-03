@@ -23,6 +23,11 @@ if not exist "%PROJ%\tasks\logs" mkdir "%PROJ%\tasks\logs"
 
 echo [%date% %time%] JARVIS morning agent starting... >> "%PROJ%\tasks\logs\agent_log.txt"
 
+REM Use the claude.ai subscription, not pay-as-you-go API credit. With
+REM ANTHROPIC_API_KEY set the CLI ignores the subscription entirely and bills API
+REM credit - on 2026-08-03 that ran out and every agent died in seconds with
+REM "Credit balance is too low". Cleared inside setlocal, so only this process.
+set "ANTHROPIC_API_KEY="
 pushd "%AGENTCWD%"
 claude -p "Run the SmartEntry Pro morning cycle. 1) Fetch http://localhost:3001/api/checksystem and note any problems. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number; if settingsError is not null, report that first because the server is then running on defaults rather than the saved config. 3) Fetch http://localhost:3001/api/signals and list any asset at or above that live gate, with its dataSource. 4) Fetch http://localhost:3001/api/learning and name any setup under 40 percent win rate over 5 or more closed trades; if a setup has fewer than 5 closed trades say so and draw no conclusion from it. 5) Do NOT edit any source file and do NOT commit. If you find a clear low-risk improvement, append it to %PROJ%\tasks\logs\morning_proposals.txt naming the file, the function, the exact change and the evidence for it. 6) Write a one-paragraph summary to %PROJ%\tasks\logs\morning_summary.txt: date, signals found, proposals made, system status. No fluff." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul >> "%PROJ%\tasks\logs\agent_log.txt" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%

@@ -50,6 +50,28 @@ def find_claude() -> str:
 
 CLAUDE_CMD = None  # resolved lazily on first use
 
+def agent_env() -> dict:
+    """Environment for a nested `claude` CLI call.
+
+    ANTHROPIC_API_KEY is REMOVED, and that is the whole point. When it is set the
+    CLI bills pay-as-you-go API credit and ignores the claude.ai subscription — it
+    even says so on every run: "claude.ai connectors are disabled because
+    ANTHROPIC_API_KEY or another auth source is set and takes precedence over your
+    claude.ai login". On 2026-08-03 that credit ran out and all five analysts plus
+    both synthesiser attempts died in 5-9 seconds with "Credit balance is too low",
+    while the same prompt with the key unset returned normally. A whole analysis run
+    was lost to a billing route nobody chose.
+
+    The server keeps its own ANTHROPIC_API_KEY for the SDK calls in server/index.js;
+    this only affects agents spawned through the CLI. Set
+    SMARTENTRY_AGENT_USE_API_KEY=1 to restore the old behaviour deliberately.
+    """
+    env = {**os.environ, "NO_COLOR": "1"}
+    if os.environ.get("SMARTENTRY_AGENT_USE_API_KEY") != "1":
+        env.pop("ANTHROPIC_API_KEY", None)
+    return env
+
+
 def run_agent(task: dict) -> dict:
     """Run one agent.
 
@@ -116,7 +138,7 @@ def run_agent(task: dict) -> dict:
             text=True,
             cwd=cwd,
             timeout=TIMEOUT,
-            env={**os.environ, "NO_COLOR": "1"}
+            env=agent_env()
         )
         output  = proc.stdout.strip() or proc.stderr.strip()
         success = proc.returncode == 0
@@ -201,7 +223,8 @@ TASK: {plan_prompt}"""
              "--dangerously-skip-permissions",
              "--output-format", "text"],
             input=planner_prompt,
-            capture_output=True, text=True, cwd=str(WORK_DIR), timeout=60
+            capture_output=True, text=True, cwd=str(WORK_DIR), timeout=60,
+            env=agent_env()
         )
 
         raw = planner_result.stdout.strip()
