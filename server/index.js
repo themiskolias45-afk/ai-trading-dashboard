@@ -324,6 +324,40 @@ const MT5_MIN_BARS = { d1: 200, h4: 50, h1: 50 };
 // Past this age the bridge is assumed down or wedged and Yahoo takes over. Signals
 // refresh far more often than this, so a healthy bridge never comes close.
 const MT5_CANDLE_MAX_AGE_MS = 15 * 60 * 1000;
+
+// ── R:R rejection shadow log ──────────────────────────────────
+// Every setup killed by the minimum-R:R gate, recorded with the levels it would have
+// traded. MIN_RR has never been measured - the walk-forward harness sweeps confidence
+// gates only - so this is how the 1.35-1.49 band gets evidence instead of a guess.
+//
+// A rejection is a complete trade: entry, stop and target are all computed before the
+// gate fires. Scored later against actual price, each row answers "would this have
+// won" at zero risk.
+const RR_REJECTED_PATH = path.join(__dirname, "..", "tasks", "rr_rejected.jsonl");
+
+// The gate re-fires on every refresh and once per timeframe. Without deduping on the
+// levels themselves the file would fill with ~144 near-identical rows a day and the
+// dataset would be useless for measuring anything.
+const rrRejectedLastSignature = new Map();
+
+function logRrRejection(record) {
+  try {
+    // Keyed per instrument AND timeframe: the same asset can reject a D1 and an H1
+    // setup in one pass, and a shared key would silently drop the second.
+    const scope = `${record.ticker}|${record.timeframe ?? "?"}`;
+    const signature = [
+      record.setup, record.direction,
+      record.entry, record.stop, record.target,
+    ].join("|");
+    if (rrRejectedLastSignature.get(scope) === signature) return;
+    rrRejectedLastSignature.set(scope, signature);
+    fs.appendFileSync(RR_REJECTED_PATH, JSON.stringify(record) + "\n");
+  } catch (e) {
+    // Never let a logging fault reach signal generation - this is observability,
+    // not a trading path.
+    console.error("[rr-reject] could not record rejection:", e.message);
+  }
+}
 let dailyPlan     = null;
 let tvAlerts      = [];
 let congressCache = null;
@@ -740,7 +774,7 @@ function findSwingHigh(highs, lookback = 3) {
 }
 
 // ── Core signal generator ─────────────────────────────────────
-function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyCloses = null) {
+function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyCloses = null, barSource = null) {
   if (!closes || closes.length < 50) return null;
 
   const price  = closes[closes.length - 1];
@@ -1116,6 +1150,32 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   if (stop !== null && target !== null && signal !== "WAIT") {
     const calcRR = Math.abs(target - entry) / Math.abs(entry - stop);
     if (calcRR < MIN_RR) {
+      logRrRejection({
+        ts:        new Date().toISOString(),
+        ticker,
+        label,
+        // The instrument these levels were priced on. `ticker` is always the Yahoo
+        // symbol regardless of feed, so on its own it would mislabel MT5-derived
+        // levels - GC=F futures and XAUUSD spot differ by tens of dollars.
+        dataSource:   barSource?.dataSource ?? null,
+        sourceSymbol: barSource?.sourceSymbol ?? null,
+        // Which chart produced this. A daily setup and an H1 setup have completely
+        // different hold times, so without this "would it have won" is unanswerable.
+        timeframe:    barSource?.timeframe ?? null,
+        setup,
+        direction: signal,
+        entry:     Number(entry.toFixed(2)),
+        stop:      Number(stop.toFixed(2)),
+        target:    Number(target.toFixed(2)),
+        rr:        Number(calcRR.toFixed(3)),
+        minRr:     MIN_RR,
+        // Only variables provably in scope in generateSignal: rsi (declared L747) and
+        // trend (L760). regime and adx live on the MTF wrapper, not here - referencing
+        // them would be a ReferenceError that node --check cannot catch and that would
+        // take down signal generation for every asset.
+        trend:     trend ?? null,
+        rsi:       rsi ?? null,
+      });
       reasons = [
         `${setup} rejected: R:R ${calcRR.toFixed(2)} below minimum ${MIN_RR} — no trade`,
         `Rejected levels: entry ${entry.toFixed(2)} stop ${stop.toFixed(2)} target ${target.toFixed(2)}`,
@@ -1240,20 +1300,20 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
 }
 
 // ── Multi-timeframe wrapper ───────────────────────────────────
-function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyDailyCloses = null) {
-  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? [], dxyDailyCloses);
+function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyDailyCloses = null, barSource = null) {
+  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? [], dxyDailyCloses, { ...(barSource ?? {}), timeframe: "D1" });
   if (!daily) return null;
 
   let h4 = null;
   try {
     if (h4Data?.closes?.length >= 50)
-      h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows, h4Data.volumes ?? []);
+      h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows, h4Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H4" });
   } catch (e) {}
 
   let h1 = null;
   try {
     if (h1Data?.closes?.length >= 50)
-      h1 = generateSignal(label, ticker, h1Data.closes, h1Data.highs, h1Data.lows, h1Data.volumes ?? []);
+      h1 = generateSignal(label, ticker, h1Data.closes, h1Data.highs, h1Data.lows, h1Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H1" });
   } catch (e) {}
 
   // Confidence: rises when both timeframes agree
@@ -1790,7 +1850,9 @@ async function refreshSignals() {
 
       if (!dailyData) { console.error(`[signals] ${a.label}: no daily data`); return; }
       const dxyForAsset = a.key === "gold" ? dxyDailyCloses : null;
-      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data, dxyForAsset);
+      // barSource carries the instrument these levels were actually computed from.
+      // Without it the R:R shadow log records GC=F while holding XAUUSD prices.
+      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data, dxyForAsset, { dataSource, sourceSymbol });
       // Stamped on the signal so every consumer — dashboard, bridge, daily plan —
       // can tell which instrument produced these levels. Without this, a Gold
       // signal carrying futures levels is indistinguishable from one carrying spot
