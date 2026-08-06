@@ -1605,6 +1605,26 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     ...daily,
     signal:     finalSignal,
     strength:   finalStrength,
+    // The setup that actually produced these levels. On an H4-only entry
+    // daily.setup is "WAIT" by definition — that is what isH4Only MEANS — so
+    // spreading ...daily named a setup that was never taken, right beside an entry,
+    // stop, target, strength and confidence all taken from H4.
+    //
+    // It is not only cosmetic. getLearningBoost above already reads signalTf.setup,
+    // i.e. the H4 name, so the engine was boosting one bucket and journalling the
+    // outcome under another: the learning loop could never close for this cohort,
+    // and every H4-only trade would have landed in a "WAIT" bucket that describes
+    // no setup at all. The live Gold position opened 2026-08-05 is journalled
+    // exactly that way — setup "WAIT" with strength "MODERATE" and confidence 70.
+    //
+    // Same principle entry/stop/target already follow since 910f0ba: every leg of
+    // an H4-only trade comes from the H4 timeframe. This changes no gate, no level
+    // and no sizing input; nothing in the codebase branches on setup === "WAIT".
+    setup:      (isH4Only && h4?.setup) ? h4.setup : daily.setup,
+    // Which chart produced the setup above. Without it the name alone cannot say
+    // whether a trade was a daily or a 4H entry, and those have completely
+    // different hold times.
+    setupTimeframe: isH4Only ? "H4" : "D1",
     confidence,
     regime,
     // H4-only entries take stop/target from h4 below, so entry has to come from h4
@@ -2888,6 +2908,10 @@ app.post("/api/trade-opened", async (req, res) => {
   const sig    = sigKey ? signalCache[sigKey] : null;
   const signalContext = sig ? {
     setup:      sig.setup,
+    // Carried into the journal so a closed trade says which chart produced it. A
+    // daily setup and a 4H setup of the same name are different trades with
+    // different hold times, and the learning engine buckets on name alone.
+    setupTimeframe: sig.setupTimeframe ?? null,
     confidence: sig.confidence,
     strength:   sig.strength,
     regime:     sig.regime,
