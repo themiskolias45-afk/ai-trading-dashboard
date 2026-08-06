@@ -320,8 +320,12 @@ const TOOLS = [
       const sig  = signals[key] || {};
       const setup = sig.setup || '';
 
-      // Win rate for this setup
-      const setups = (learning?.setups) || {};
+      // Win rate for this setup.
+      // /api/learning serialises this map as `setupStats` and always has —
+      // `learning?.setups` is undefined on every call, so `wr` below was
+      // permanently null and analyze_symbol has never reported a win rate.
+      // `setups` is kept as a fallback for any older payload still in flight.
+      const setups = (learning?.setupStats) || (learning?.setups) || {};
       const st     = setups[setup] || {};
       const total  = (st.wins || 0) + (st.losses || 0);
       const wr     = total ? Math.round((st.wins || 0) / total * 100) : null;

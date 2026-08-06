@@ -194,6 +194,13 @@ const API_NO_LOGIN_REQUIRED = new Set([
 const API_NO_LOGIN_GET_ONLY = new Set([
   "/api/mt5/control",
   "/api/strategy-settings",
+  // The only source of per-setup win rate and confidence calibration, and the MCP
+  // tools have no browser session — so get_performance returned
+  // setups: {"error":"Not logged in."} and /daily STEP 3 has never once had data.
+  // Read-only aggregate: setup names, win rates, P&L sums, confidence tiers. No
+  // keys, no account numbers, no open positions. There is no POST at this path,
+  // and if one is ever added it stays behind the session check.
+  "/api/stats/by-setup",
 ]);
 
 app.use((req, res, next) => {
