@@ -48,6 +48,34 @@ except ImportError:
 SERVER_URL     = os.environ.get("SMARTENTRY_URL", "http://localhost:3001")
 RISK_PERCENT   = float(os.environ.get("RISK_PERCENT", "1.0"))   # % of balance per trade
 MAX_SPREAD_PTS = int(os.environ.get("MAX_SPREAD",    "50"))      # reject trade if spread > this
+
+
+def max_spread_for(symbol):
+    """Spread cap for one symbol, falling back to the global MAX_SPREAD.
+
+    A single points cap cannot work across instruments with different tick sizes
+    and price scales. On the VPS's Vantage feed a normal BTCUSD spread of ~$17
+    reads as ~1700 ticks while XAUUSD is 22 and SP500 is 36, so a cap tuned for
+    metals silently made BTC untradeable - every attempt was skipped at the gate
+    before an order was ever sent, which looks identical to "no signal fired".
+
+    Override per symbol with MAX_SPREAD_BTCUSD, MAX_SPREAD_XAUUSD, etc. Unset
+    means the global value, so behaviour is unchanged wherever no override exists.
+    """
+    raw = os.environ.get("MAX_SPREAD_" + symbol.upper())
+    if raw is None or raw.strip() == "":
+        return MAX_SPREAD_PTS
+    try:
+        value = int(raw)
+    except ValueError:
+        log(f"MAX_SPREAD_{symbol.upper()}={raw!r} is not an integer - "
+            f"falling back to global {MAX_SPREAD_PTS}", YELLOW)
+        return MAX_SPREAD_PTS
+    if value <= 0:
+        log(f"MAX_SPREAD_{symbol.upper()}={value} is not positive - "
+            f"falling back to global {MAX_SPREAD_PTS}", YELLOW)
+        return MAX_SPREAD_PTS
+    return value
 POLL_INTERVAL  = int(os.environ.get("POLL_INTERVAL", "60"))      # seconds between signal checks
 MAGIC_NUMBER   = 20250101                                         # unique ID for SmartEntry orders
 AUTO_MODE      = "--auto" in sys.argv
@@ -783,11 +811,12 @@ def check_strategy_limits():
 def check_spread(symbol):
     tick = mt5.symbol_info_tick(symbol)
     if not tick:
-        return False, 0
+        return False, 0, MAX_SPREAD_PTS
     info  = mt5.symbol_info(symbol)
     spread = (tick.ask - tick.bid) / info.trade_tick_size if info else 0
-    ok = spread <= MAX_SPREAD_PTS
-    return ok, spread
+    cap = max_spread_for(symbol)
+    ok = spread <= cap
+    return ok, spread, cap
 
 
 def build_order_comment(setup, confidence):
@@ -819,9 +848,9 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
     """Place a market order. risk_amount is the dollar budget the server's risk
     engine approved; without it the flat RISK_PERCENT is used, which ignores how
     much of the portfolio is already exposed."""
-    spread_ok, spread = check_spread(symbol)
+    spread_ok, spread, spread_cap = check_spread(symbol)
     if not spread_ok:
-        log(f"Spread too wide on {symbol}: {spread:.0f} pts (max {MAX_SPREAD_PTS}) — skipping", YELLOW)
+        log(f"Spread too wide on {symbol}: {spread:.0f} pts (max {spread_cap}) — skipping", YELLOW)
         return False
 
     order_type = mt5.ORDER_TYPE_BUY if signal_type == "BUY" else mt5.ORDER_TYPE_SELL
