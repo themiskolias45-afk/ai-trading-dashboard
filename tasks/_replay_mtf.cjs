@@ -138,6 +138,66 @@ if (process.env.MTF_DAILY_ONLY_MIN_CONF) {
   if (Number.isFinite(floor)) settings.dailyOnlyMinConfidence = floor;
 }
 
+// MEASUREMENT-ONLY override for the ADX trending floor. Same contract: nothing on
+// disk changes, only this replay's copy of the settings.
+//
+// Re-replayed rather than filtered, because adxTrendingMin does not delete rows —
+// it decides which setups are allowed to form and whether one is STRONG or
+// MODERATE, and strength feeds confidence, which feeds the gate. There is no field
+// on the emitted trade that a filter could reconstruct that from.
+if (process.env.MTF_ADX_TRENDING_MIN) {
+  const floor = Number(process.env.MTF_ADX_TRENDING_MIN);
+  if (Number.isFinite(floor)) settings.adxTrendingMin = floor;
+}
+
+// MEASUREMENT-ONLY override for the minimum R:R bar.
+//
+// This one cannot go through `settings`, because MIN_RR is not a setting. It is a
+// literal, and there are TWO of them in the engine: `const MIN_RR = 1.5` inside
+// generateSignal, which rejects the setup outright, and a bare `refinedRR < 1.5` in
+// generateSignalMTF, which decides whether the pivot-refined stop and target are
+// kept. (sizing.js holds a third and the AI-filter prompt a fourth, but neither is
+// on this replay's path.) Rewriting only the first would measure a lower bar that
+// still discards its own refined levels — a different engine from the one the
+// number is supposed to describe.
+//
+// So the substitution is textual, on the extracted source, before it is compiled.
+// It is verified rather than trusted: each pattern must match EXACTLY once or the
+// replay refuses to run. A silently failed substitution is the dangerous outcome
+// here — it reports the baseline under a different label, which reads as "the R:R
+// bar makes no difference" when in fact it was never moved.
+if (process.env.MTF_MIN_RR) {
+  const wanted = Number(process.env.MTF_MIN_RR);
+  if (!Number.isFinite(wanted) || wanted <= 0) {
+    console.error(`MTF_MIN_RR=${process.env.MTF_MIN_RR} is not a positive number — refusing ` +
+                  `to replay. Ignoring it would report the baseline under this label.`);
+    process.exit(1);
+  }
+
+  const patterns = [
+    { name: "generateSignal const MIN_RR", re: /const MIN_RR = ([\d.]+);/g, to: `const MIN_RR = ${wanted};` },
+    { name: "generateSignalMTF pivot refine", re: /refinedRR < ([\d.]+)/g, to: `refinedRR < ${wanted}` },
+  ];
+  const found = [];
+  for (const p of patterns) {
+    const matches = [...code.matchAll(p.re)];
+    if (matches.length !== 1) {
+      console.error(`MTF_MIN_RR: expected exactly one "${p.name}" in the extracted engine, ` +
+                    `found ${matches.length}. The engine has changed shape; fix this harness ` +
+                    `rather than reporting a number it did not measure.`);
+      process.exit(1);
+    }
+    found.push(Number(matches[0][1]));
+    code = code.replace(p.re, p.to);
+  }
+  if (found[0] !== found[1]) {
+    console.error(`MTF_MIN_RR: the two copies of the R:R bar in server/index.js disagree ` +
+                  `(${found[0]} vs ${found[1]}). That is a live bug, not a harness one — ` +
+                  `report it before trusting any sweep of this parameter.`);
+  }
+  settings.minRrReplayed = wanted;
+}
+
 // Macro caches are empty and the learning boost is zero. Historical DXY/VIX/
 // Fear-and-Greed readings are not in the export, and setupStats is {} on the live
 // box anyway - so this measures the engine's own confidence, unmodified. Stated
@@ -148,6 +208,23 @@ const sandbox = {
   sentimentCache: {},
   signalCache: {},
   getLearningBoost: () => 0,
+  // The R:R shadow log, stubbed out. generateSignal calls logRrRejection on every
+  // rejected setup, but the real one lives outside the extracted block and closes
+  // over fs, path and a module-level Map — none of which exist in this sandbox. So
+  // without this stub the call is a ReferenceError, the catch below swallows it,
+  // and the step disappears from the replay.
+  //
+  // Measured 2026-08-06, immediately after the shadow log was ported here: 1006
+  // dropped steps on XAUUSD alone, i.e. exactly the population whose R:R was
+  // marginal — the one any sweep of MIN_RR is trying to measure. This is the same
+  // failure the SIZING_BOOST_MIN_CONFIDENCE note above describes, and it is why
+  // that note says to read consts from source rather than assume the sandbox is
+  // complete.
+  //
+  // A no-op is correct, not a shortcut: the replay must not append to the live
+  // evidence file. Writing there would contaminate real rejections with thousands
+  // of synthetic ones and destroy the dataset's provenance.
+  logRrRejection: () => {},
   console,
 };
 vm.createContext(sandbox);
@@ -375,6 +452,11 @@ process.stderr.write("MTF_CENSUS " + JSON.stringify({
   tradeThreshold: TRADE_THRESHOLD,
   confidenceThreshold: settings.confidenceThreshold,
   minStrength: settings.minStrength,
+  // Stated on every run so a stored census can never be mistaken for the baseline.
+  // null means "engine default, untouched".
+  minEntryRsi: settings.minEntryRsi ?? null,
+  adxTrendingMin: settings.adxTrendingMin ?? null,
+  minRrReplayed: settings.minRrReplayed ?? null,
   stubbed: ["priceCache.dxy", "priceCache.vix", "sentimentCache.fearGreed",
             "signalCache (cross-asset)", "getLearningBoost -> 0"],
   windowBars: WINDOW,
