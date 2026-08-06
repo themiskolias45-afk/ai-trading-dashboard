@@ -6,6 +6,12 @@ set ACCOUNT_TAG=A
 set MT5_TERMINAL_PATH=C:\Program Files\MetaTrader 5\terminal64.exe
 set BRIDGE_LOG=tasks\logs\bridge_log_A.txt
 
+REM Per-symbol spread cap. Vantage quotes BTCUSD with a ~$17 spread, which the
+REM bridge measures as ~1700 ticks - against the global cap of 50 that rejected
+REM every BTC trade before an order was sent, and read as 'no signal' in the logs.
+REM Gold (22) and SP500 (36) stay on the global cap and are unaffected.
+set MAX_SPREAD_BTCUSD=2500
+
 REM Pin to the account, not just the install. The terminal path alone does not stop
 REM this bridge trading whatever login the terminal happens to hold, and two
 REM bridges on one account place every trade twice at double risk. This is the only
