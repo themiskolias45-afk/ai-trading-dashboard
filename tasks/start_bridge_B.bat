@@ -10,6 +10,12 @@ REM hold the same login. MT5_EXPECTED_LOGIN makes the bridge refuse to trade if 
 REM terminal is logged into anything other than account B.
 set MT5_EXPECTED_LOGIN=11581419
 
+REM Per-symbol spread cap. Vantage quotes BTCUSD with a ~$17 spread that the bridge
+REM measures as ~1700 ticks, against a global cap of 50 - so every BTC trade was
+REM skipped before an order was built, and it read as 'no signal' in the log. 55 such
+REM skips were recorded on this laptop. Gold (22) and SP500 (36) stay on the global cap.
+set MAX_SPREAD_BTCUSD=2500
+
 REM Full-auto unless the caller explicitly asks for SEMI. This is the single place
 REM account B's identity is defined, so semi-auto callers set BRIDGE_MODE=SEMI and
 REM come through here rather than invoking mt5_bridge.py themselves — an untagged
