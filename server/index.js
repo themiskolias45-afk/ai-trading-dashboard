@@ -286,6 +286,29 @@ let mt5CandleCache = {};
 // could stack refreshes on top of each other.
 let signalRefreshInFlight = false;
 
+// Serialises EVERY caller of the refresh. The flag above only ever guarded the
+// candle-ingest path against itself, while refreshSignals is called from six places.
+// Two passes running concurrently means last-writer-wins on signalCache, per asset,
+// decided by network latency.
+//
+// That is not theoretical. On 2026-08-06 the server booted with an empty candle cache
+// so its startup pass took the slow Yahoo path; the bridge pushed candles seconds
+// later and the flip handler started a second pass that wrote gold=mt5 conf 0; then
+// the boot pass's GC=F fetch - the slowest call in either pass - resolved and
+// overwrote gold with yahoo conf 74. Gold then served futures-derived levels while the
+// account fills spot, which is precisely the ambiguity dataSource exists to stop.
+//
+// Chained, NOT coalesced: a caller must never join an in-flight pass, because the
+// candle-flip trigger exists specifically to recompute with bars the running pass did
+// not have. The .catch keeps one failed refresh from breaking the chain forever.
+let signalRefreshChain = Promise.resolve();
+function queueSignalRefresh() {
+  signalRefreshChain = signalRefreshChain
+    .catch(() => {})
+    .then(() => refreshSignals());
+  return signalRefreshChain;
+}
+
 // Yahoo tickers the signal engine is written against → asset keys used everywhere
 // else. Declared once so the ingest endpoint and refreshSignals agree; a mismatch
 // here would silently route XAUUSD bars into the BTC signal.
@@ -1075,13 +1098,31 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   }
 
   // ── Minimum R:R gate ─────────────────────────────────────────
+  // Rejects the trade, but no longer erases the evidence that a setup existed.
+  //
+  // This used to overwrite the whole reasons array and null the levels, so a setup
+  // missing the bar by 0.05 scored confidence 0 and read exactly like "no setup
+  // formed". Gold sat at conf 0 for a full day on 2026-08-06 with one line of
+  // explanation, no setup name and no levels - nothing for a human to judge and
+  // nothing for the learning engine to see. A near miss and a non-event are not the
+  // same fact and must not serialise to the same payload.
+  //
+  // RISK POLICY IS UNCHANGED: signal still becomes WAIT, so nothing new is tradeable.
+  // Only the diagnostics survive.
+  //
+  // toFixed(2), not toFixed(1): a real 1.45 rendered as "R:R 1.5 below minimum 1.5",
+  // a sentence that cannot be true, which is what sent this morning's Gold
+  // investigation down the wrong path.
   if (stop !== null && target !== null && signal !== "WAIT") {
     const calcRR = Math.abs(target - entry) / Math.abs(entry - stop);
     if (calcRR < MIN_RR) {
-      const badRR = calcRR.toFixed(1);
+      reasons = [
+        `${setup} rejected: R:R ${calcRR.toFixed(2)} below minimum ${MIN_RR} — no trade`,
+        `Rejected levels: entry ${entry.toFixed(2)} stop ${stop.toFixed(2)} target ${target.toFixed(2)}`,
+        ...reasons,
+      ];
       setup = "WAIT"; signal = "WAIT"; strength = "NONE";
       stop = null; target = null;
-      reasons = [`Setup detected but R:R ${badRR} below minimum ${MIN_RR} — skip`];
     }
   }
 
@@ -1944,20 +1985,20 @@ async function handleMessage(message) {
       await sendTelegram(chatId, planToTelegram(dailyPlan));
     },
     "/btc": async () => {
-      if (!signalCache.btc) await refreshSignals();
+      if (!signalCache.btc) await queueSignalRefresh();
       await sendTelegram(chatId, signalToTelegram(signalCache.btc));
     },
     "/gold": async () => {
-      if (!signalCache.gold) await refreshSignals();
+      if (!signalCache.gold) await queueSignalRefresh();
       await sendTelegram(chatId, signalToTelegram(signalCache.gold));
     },
     "/spx": async () => {
-      if (!signalCache.spx) await refreshSignals();
+      if (!signalCache.spx) await queueSignalRefresh();
       await sendTelegram(chatId, signalToTelegram(signalCache.spx));
     },
     "/signals": async () => {
       await sendTelegram(chatId, "🔄 Refreshing signals — takes ~15 seconds…");
-      await refreshSignals();
+      await queueSignalRefresh();
       generateDailyPlan();
       for (const s of [signalCache.btc, signalCache.gold, signalCache.spx]) {
         if (s) await sendTelegram(chatId, signalToTelegram(s));
@@ -2135,7 +2176,7 @@ app.get("/api/plan",    (_, res) => {
   res.json(dailyPlan);
 });
 app.post("/api/plan/refresh", async (_, res) => {
-  await refreshSignals();
+  await queueSignalRefresh();
   generateDailyPlan();
   res.json({ ok: true, plan: dailyPlan });
 });
@@ -2261,7 +2302,7 @@ app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
     // Deliberately not awaited: the bridge is waiting on this response and a signal
     // refresh takes ~15s. Errors are swallowed into a log because a failed refresh
     // must not fail the candle ingest — the bars are already stored either way.
-    refreshSignals()
+    queueSignalRefresh()
       .catch(e => console.error("[mt5-candles] post-ingest refresh failed:", e.message))
       .finally(() => { signalRefreshInFlight = false; });
   }
@@ -3166,7 +3207,7 @@ app.get("/api/newsfilter", (_, res) => {
 // 6:45 AM — refresh signals + run full morning plan
 cron.schedule("45 6 * * *", async () => {
   await fetchPrices();
-  await refreshSignals();
+  await queueSignalRefresh();
   await fetchCongress();
   await fetchFlow();
   generateDailyPlan();
@@ -3190,7 +3231,7 @@ cron.schedule("0 7 * * *", async () => {
 // Every 30 min — refresh signals (4h was too slow; catches intraday setups and regime changes)
 cron.schedule("*/30 * * * *", async () => {
   await fetchPrices();
-  await refreshSignals();
+  await queueSignalRefresh();
   generateDailyPlan();
   // Alert if strong signal appeared
   if (TELEGRAM_TOKEN) {
@@ -4642,7 +4683,7 @@ app.listen(PORT, async () => {
   db.init(dbPath);
 
   await fetchPrices();
-  await refreshSignals();
+  await queueSignalRefresh();
   await fetchCongress();
   await fetchFlow();
   await fetchEconomicCalendar();
