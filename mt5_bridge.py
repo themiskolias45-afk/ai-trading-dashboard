@@ -136,24 +136,37 @@ position_partial_taken = set()  # tickets where 50% has already been closed at 1
 #   profit 1.5R → SL at entry + 1.0R
 #   profit 2.0R → SL at entry + 1.5R   …and so on, in 0.5R steps.
 #
-# GIVE-BACK IS 0.5, AND IT WAS MEASURED. Walk-forward over 5 out-of-sample folds at
-# gate 70, all three assets (tasks/analysis/trail-walkforward-2026-08-07.txt):
+# THE LADDER IS OFF, AND THAT IS THE MEASURED ANSWER.
 #
-#   give-back   closed   totalR   folds        verdict
-#   off (fixed)    198    +28.2   4/5, one neg MOSTLY POSITIVE
-#   0.5            284    +61.9   5/5, none neg ROBUST      <- shipped
-#   1.0            247    +24.5   4/5, one neg MOSTLY POSITIVE
-#   1.5            236    +34.7   4/5, one neg MOSTLY POSITIVE
+# It was promoted on 2026-08-07 on one in-sample run at give-back 1.0, then moved to
+# 0.5 when five out-of-sample folds made 0.5 look ROBUST at 5/5. A pre-registered
+# re-test at DIFFERENT fold boundaries killed it the same day:
 #
-# 1.0 shipped first on one in-sample run and is WORSE out-of-sample than no ladder
-# at all. 0.5 is the only value clearing the project's bar — positive in every fold,
-# negative in none, better R/trade (0.218 vs 0.143) on MORE trades, not fewer, which
-# matters because sample size is the binding constraint here.
+#   give-back   5 folds        7 folds                4 folds
+#   off         4/5 one neg    6/7 one neg            4/4 NONE neg  ROBUST
+#   0.5         5/5 none neg   5/7 two neg (-0.275,   2/4 two neg   UNSTABLE
+#                              -0.028)                (-0.036, -0.139)
+#   1.0         4/5 one neg    6/7                    2/4           UNSTABLE
+#   1.5         4/5 one neg    5/7                    3/4
 #
-# Hold it as champion-on-watch, not settled: fold 2 (+0.797) carries most of the
-# edge and the other four are +0.021/+0.132/+0.008/+0.033 — positive, but thin
-# enough that a different fold boundary could flip one. Re-measure with
-# `node tasks/param_walkforward.cjs . --param trail` before moving it again.
+# 0.5 went negative in FOUR folds across the two re-cuts. Its 5/5 was the cut, not
+# the edge: one window carried it every single time (+0.797 at 5 folds, +1.247 at 7,
+# +0.720 at 4). `off` is the only setting that is never negative under any scheme,
+# and it is ROBUST at 4 folds.
+#
+# The pre-registered rule said revert to `off` on a single negative fold. It got
+# four. Total R still favours 0.5 (+61.9 vs +28.2) and that is exactly the number
+# not to trade on — it comes from more trades and one lucky window, while the
+# per-fold stability that the promotion bar actually tests fails.
+#
+# What OFF means: the stop never moves. No breakeven, no ratchet. A trade at +3R can
+# give all of it back to its original stop. Five years of held-out data say that is
+# net better than any give-back tried, because capping the runners costs more than
+# the give-back saves.
+#
+# Set TRAIL_LADDER_ENABLED=1 to turn it back on, and re-measure at more than one
+# fold count before believing any result.
+TRAIL_LADDER_ENABLED = os.environ.get("TRAIL_LADDER_ENABLED", "0") == "1"
 TRAIL_ARM_R      = float(os.environ.get("TRAIL_ARM_R", "1.0"))      # profit needed before the stop moves at all
 TRAIL_STEP_R     = float(os.environ.get("TRAIL_STEP_R", "0.5"))     # granularity of each ratchet step
 TRAIL_GIVEBACK_R = float(os.environ.get("TRAIL_GIVEBACK_R", "0.5")) # how far behind price the stop sits
@@ -1743,8 +1756,26 @@ def broker_stop_limit(symbol, price, is_buy):
     return price - min_distance if is_buy else price + min_distance
 
 
+_trail_disabled_logged = False
+
+
 def manage_trailing_stops():
-    """Ratchet each open stop up the profit ladder. Never widens a stop."""
+    """Ratchet each open stop up the profit ladder. Never widens a stop.
+
+    Disabled by default since 2026-08-07 — see TRAIL_LADDER_ENABLED above. Stops that
+    the ladder ALREADY moved stay where they are: they live at the broker, and this
+    function is the only thing that would advance them. Disabling it freezes those
+    stops rather than resetting them, so locked profit is not given back.
+    """
+    global _trail_disabled_logged
+    if not TRAIL_LADDER_ENABLED:
+        if not _trail_disabled_logged:
+            _trail_disabled_logged = True
+            log("Trailing ladder OFF (measured: `off` is the only give-back never "
+                "negative across 4/5/7-fold walk-forwards). Stops already moved stay "
+                "put; new ones will not advance. TRAIL_LADDER_ENABLED=1 re-enables.", CYAN)
+        return
+
     try:
         res  = requests.get(f"{SERVER_URL}/api/features", timeout=5)
         feat = res.json().get("features", {})
