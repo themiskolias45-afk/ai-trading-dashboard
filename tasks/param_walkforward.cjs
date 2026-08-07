@@ -85,7 +85,24 @@ const STRENGTH_CANDIDATES = [BASE_STRENGTH, "STRONG"];
 const BASE_TRAIL = "off";
 const TRAIL_CANDIDATES = [BASE_TRAIL, 0.5, 1.0, 1.5];
 
-const FOLDS      = 5;
+// 5 by default — the number every previous verdict in this project was reached with,
+// so changing the default would silently make old and new tables incomparable.
+//
+// Overridable because a candidate that wins under ONE set of fold boundaries has not
+// been shown to win: it may simply have had a good cut. The trailing give-back of 0.5
+// is exactly that case — 5/5 positive, but folds 1/3/4/5 are +0.021/+0.132/+0.008/
+// +0.033 and fold 2 alone is +0.797. Re-running at a different fold count moves every
+// boundary, which is the cheapest available test of whether the edge is real or is one
+// lucky window. Measurement-only: nothing here can reach the live engine.
+const FOLDS = (() => {
+  const raw = Number(process.env.PARAM_WF_FOLDS);
+  if (!Number.isFinite(raw)) return 5;
+  if (!Number.isInteger(raw) || raw < 3 || raw > 12) {
+    console.error(`PARAM_WF_FOLDS=${process.env.PARAM_WF_FOLDS} must be an integer 3-12 — using 5`);
+    return 5;
+  }
+  return raw;
+})();
 const COST_R     = 0.05;   // same cost basis the rest of the project uses
 const CONF_FLOOR = 40;     // expose sub-gate cohorts so the replay emits them
 const GATE       = Number(process.env.PARAM_WF_GATE) > 0 ? Number(process.env.PARAM_WF_GATE) : 70;
