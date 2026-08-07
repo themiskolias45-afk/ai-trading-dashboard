@@ -3432,9 +3432,46 @@ app.get("/api/learning", (_, res) => {
         status: total < 5 ? "learning" : s.wins / total > 0.55 ? "boosted" : s.wins / total < 0.45 ? "penalised" : "neutral"
       };
     }
-    res.json({ setupStats: summary, sessionCount: learning.sessionCount, updatedAt: learning.updatedAt });
+    // Shadow evidence rides ALONGSIDE, never merged in.
+    //
+    // setupStats counts real fills, and there is exactly one of them in this
+    // system's history, so getLearningBoost() can never reach its 5-trade floor.
+    // tasks/learning_from_rejections.py walks the rejection ledger forward on real
+    // broker bars and produces per-setup outcomes that already have. Until this was
+    // exposed here, that evidence was readable by exactly one consumer -- the daily
+    // agent, which reads the file directly -- so the dashboard, the MCP get_learning
+    // tool and JARVIS itself could not see it at all.
+    //
+    // Kept as a separate key on purpose. These are forgone PAPER trades: no
+    // slippage, no spread, on an entry that was never filled. Folding them into
+    // setupStats would make a paper result indistinguishable from a real loss, which
+    // is the same class of mistake as the setup mislabelling that put a live -449.72
+    // fill under a watch-only setup name. They do NOT feed getLearningBoost().
+    let shadow = null;
+    try {
+      const shadowPath = path.join(__dirname, "learning_shadow.json");
+      if (fs.existsSync(shadowPath)) {
+        const raw = JSON.parse(fs.readFileSync(shadowPath, "utf8"));
+        shadow = {
+          stats:       raw.shadowStats || {},
+          generatedAt: raw.generatedAt || null,
+          whatTheseAre: raw.basis?.whatTheseAre || null,
+          feedsTheGate: false,
+        };
+      }
+    } catch (shadowError) {
+      // Observability must never take the endpoint down.
+      console.error(`[learning] shadow evidence unreadable (${shadowError.message})`);
+    }
+
+    res.json({
+      setupStats: summary,
+      sessionCount: learning.sessionCount,
+      updatedAt: learning.updatedAt,
+      shadow,
+    });
   } catch (e) {
-    res.json({ setupStats: {}, sessionCount: 0, updatedAt: null });
+    res.json({ setupStats: {}, sessionCount: 0, updatedAt: null, shadow: null });
   }
 });
 
