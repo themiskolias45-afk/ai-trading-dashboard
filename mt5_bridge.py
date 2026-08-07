@@ -132,16 +132,31 @@ position_partial_taken = set()  # tickets where 50% has already been closed at 1
 # Once a trade reaches TRAIL_ARM_R in profit, the stop ratchets up behind price in
 # TRAIL_STEP_R increments, always TRAIL_GIVEBACK_R behind the step it is locking:
 #
-#   profit 1.0R → SL at entry        (risk-free)
-#   profit 1.5R → SL at entry + 0.5R
-#   profit 2.0R → SL at entry + 1.0R   …and so on, in 0.5R steps.
+#   profit 1.0R → SL at entry + 0.5R
+#   profit 1.5R → SL at entry + 1.0R
+#   profit 2.0R → SL at entry + 1.5R   …and so on, in 0.5R steps.
 #
-# Env-tunable so the give-back can be tightened without a code change. This ladder
-# is NOT yet measured against the backtest harness — it is a reasonable default,
-# not a validated edge, and tightening a trail converts runners into small wins.
+# GIVE-BACK IS 0.5, AND IT WAS MEASURED. Walk-forward over 5 out-of-sample folds at
+# gate 70, all three assets (tasks/analysis/trail-walkforward-2026-08-07.txt):
+#
+#   give-back   closed   totalR   folds        verdict
+#   off (fixed)    198    +28.2   4/5, one neg MOSTLY POSITIVE
+#   0.5            284    +61.9   5/5, none neg ROBUST      <- shipped
+#   1.0            247    +24.5   4/5, one neg MOSTLY POSITIVE
+#   1.5            236    +34.7   4/5, one neg MOSTLY POSITIVE
+#
+# 1.0 shipped first on one in-sample run and is WORSE out-of-sample than no ladder
+# at all. 0.5 is the only value clearing the project's bar — positive in every fold,
+# negative in none, better R/trade (0.218 vs 0.143) on MORE trades, not fewer, which
+# matters because sample size is the binding constraint here.
+#
+# Hold it as champion-on-watch, not settled: fold 2 (+0.797) carries most of the
+# edge and the other four are +0.021/+0.132/+0.008/+0.033 — positive, but thin
+# enough that a different fold boundary could flip one. Re-measure with
+# `node tasks/param_walkforward.cjs . --param trail` before moving it again.
 TRAIL_ARM_R      = float(os.environ.get("TRAIL_ARM_R", "1.0"))      # profit needed before the stop moves at all
 TRAIL_STEP_R     = float(os.environ.get("TRAIL_STEP_R", "0.5"))     # granularity of each ratchet step
-TRAIL_GIVEBACK_R = float(os.environ.get("TRAIL_GIVEBACK_R", "1.0")) # how far behind price the stop sits
+TRAIL_GIVEBACK_R = float(os.environ.get("TRAIL_GIVEBACK_R", "0.5")) # how far behind price the stop sits
 
 # Where each position's TRUE initial risk survives a restart.
 #
