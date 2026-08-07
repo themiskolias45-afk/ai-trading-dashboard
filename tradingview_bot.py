@@ -371,9 +371,15 @@ TICKER_TESTS = {
 }
 
 # Fixed row order, so every symbol fills the same table shape.
-PLAN_ROWS = ["Date", "Setup", "Strength", "Confidence", "Levels", "R:R", "Regime",
-             "Session", "Trend D1", "Trend H4", "Trend H1", "RSI / ADX", "Volume",
-             "Swing", "Feed", "Why 1", "Why 2", "Why 3"]
+#
+# Entry / SL / TP lead, and they are rows in their own right. They used to exist
+# only as line labels out on the price scale, which made the panel useless for the
+# one thing it is looked at for. The context rows below them earn their place by
+# explaining the trade; everything that did not (session, volume, swing, feed,
+# strength, two spare reason lines) is gone, because a cluttered panel over a
+# chart that already carries ten indicators is worse than no panel.
+PLAN_ROWS = ["Entry", "SL", "TP", "R:R", "Levels", "Confidence", "Setup",
+             "Regime", "Trend D1", "Trend H4", "Trend H1", "Note"]
 
 LEVEL_SPECS = [
     ("entry",         "color.new(color.green, 0)",  2, "line.style_dashed"),
@@ -447,7 +453,9 @@ def generate_pine(plans):
 
     cells = [
         "    table.cell(planTable, 0, 0, " + _ternary(
-            plans, lambda p: _pine_str("JARVIS PLAN - " + p["symbol"]), '"JARVIS PLAN"')
+            plans,
+            lambda p: _pine_str("JARVIS " + p["symbol"] + "  " + p["generated_at"][-5:]),
+            '"JARVIS PLAN"')
         + ", text_color=color.white, text_size=size.normal, text_halign=text.align_left)",
         "    table.cell(planTable, 1, 0, " + _ternary(
             plans, lambda p: _pine_str(p.get("bias") or "WAIT"), '"-"')
@@ -720,10 +728,8 @@ def build_plan(symbol, asset, gate=None, overrides=None):
     overrides = overrides or {}
     indicators = asset.get("indicators") or {}
     pivots     = asset.get("pivots") or {}
-    structure  = asset.get("structure") or {}
     h4         = asset.get("h4") or {}
     h1         = asset.get("h1") or {}
-    volume     = asset.get("volume") or {}
 
     price    = asset.get("price")
     decimals = _decimals_for(price)
@@ -760,29 +766,25 @@ def build_plan(symbol, asset, gate=None, overrides=None):
     bias = {"BUY": "LONG", "SELL": "SHORT"}.get(bias, "WAIT")
 
     reasons = (asset.get("reasons") or [])
+    is_setup = levels_from == "engine"
     rows = {
-        "Date":       time.strftime("%Y-%m-%d %H:%M"),
-        "Setup":      f'{asset.get("setup", "-")} ({asset.get("setupTimeframe", "-")})',
-        "Strength":   asset.get("strength") or "-",
+        # The pivot fallback is not a trade, so its prices must not be dressed up
+        # as one. They are shown, but named for what they are.
+        "Entry":      _fmt(entry, decimals) + ("" if is_setup else "  (price)"),
+        "SL":         _fmt(stop, decimals) + ("" if is_setup else "  (S2 pivot)"),
+        "TP":         _fmt(target, decimals) + ("" if is_setup else "  (R2 pivot)"),
+        "R:R":        f'{rr}' if rr else "n/a - no setup",
+        "Levels":     "engine setup" if is_setup else "PIVOT BAND - not a trade",
         "Confidence": f'{confidence} vs gate {gate}'
                       + (f'  gap {gap}pt' if gap else '  MEETS GATE'),
-        "Levels":     "engine setup" if levels_from == "engine"
-                      else "PIVOT BAND - not a setup",
-        "R:R":        f'{rr}' if rr else "n/a (no setup)",
-        "Regime":     asset.get("regime") or "-",
-        "Session":    (asset.get("session") or {}).get("name") or "-",
+        "Setup":      f'{asset.get("setup", "-")} ({asset.get("setupTimeframe", "-")})',
+        "Regime":     f'{asset.get("regime") or "-"}  '
+                      f'RSI {indicators.get("rsi", "-")} ADX {indicators.get("adx", "-")}',
         "Trend D1":   asset.get("trend") or "-",
         "Trend H4":   f'{h4.get("trend", "-")} (RSI {h4.get("rsi", "-")})',
         "Trend H1":   f'{h1.get("trend", "-")} (RSI {h1.get("rsi", "-")})',
-        "RSI / ADX":  f'{indicators.get("rsi", "-")} / {indicators.get("adx", "-")}',
-        "Volume":     f'{volume.get("ratio", "-")}x avg'
-                      + ("" if volume.get("confirmed") else " (unconfirmed)"),
-        "Swing":      f'{_fmt(structure.get("swingLow"), decimals)} - '
-                      f'{_fmt(structure.get("swingHigh"), decimals)}',
-        "Feed":       f'{asset.get("dataSource", "-")}:{asset.get("sourceSymbol", "-")}',
+        "Note":       (reasons[0][:64] if reasons else "-"),
     }
-    for i in range(3):
-        rows[f"Why {i + 1}"] = reasons[i][:70] if i < len(reasons) else "-"
 
     plan = {
         "symbol": symbol,
