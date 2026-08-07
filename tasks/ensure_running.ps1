@@ -262,4 +262,46 @@ if (-not (Test-Path $TunnelKey)) {
     }
 }
 
+#  6. JARVIS window (the interactive claude CLI session)
+#
+# This was the last gap, and the reason "some of it starts and some of it doesn't".
+# Only START.bat ever opened a JARVIS window, and START.bat runs from SmartEntryPro,
+# which fires on LOGON ONLY and (until fixed) refused to start on battery. Opening a
+# laptop lid is a resume, not a logon, so the trading stack came back here every ten
+# minutes while JARVIS did not come back at all. The stack looked healthy and the
+# thing the operator actually talks to was simply absent.
+#
+# DETECTION IS BY "Claude Code", NOT "JARVIS". START.bat launches the window as
+# `start "JARVIS" cmd /k ... claude`, but the CLI immediately retitles it to
+# "* Claude Code". Matching on JARVIS finds nothing and would open a fresh window
+# every ten minutes, forever. Measured on this machine: the live session's title is
+# "Claude Code".
+#
+# Deliberately conservative: ANY Claude Code window counts, even one opened for a
+# different project. A false positive costs a missing JARVIS window that the user
+# can open by hand; a false negative spawns duplicate sessions against the same
+# subscription every ten minutes. Those are not symmetric.
+$jarvisRunning = $false
+try {
+    $claudeWindows = @(Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle -match 'Claude Code' })
+    $jarvisRunning = $claudeWindows.Count -gt 0
+} catch {
+    # Fail SAFE: an unreadable process list must not spawn a session.
+    $jarvisRunning = $true
+    Write-Log "JARVIS: window check failed ($($_.Exception.Message)) -- assuming one is open"
+}
+
+if ($jarvisRunning) {
+    Write-Log 'JARVIS: window open'
+} elseif (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+    Write-Log 'JARVIS: claude CLI not on PATH -- skipped'
+} else {
+    Write-Log 'JARVIS: no window -- opening'
+    # Inside the project on purpose. Unlike the unattended agents in claude_agent.py,
+    # which run OUTSIDE it to avoid booting as JARVIS, this is the session that is
+    # supposed to be JARVIS and load CLAUDE.md.
+    Start-Process -FilePath 'cmd' -ArgumentList '/k', 'claude' -WorkingDirectory $Proj
+}
+
 Write-Log '--- ensure_running done ---'
