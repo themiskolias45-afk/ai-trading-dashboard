@@ -94,9 +94,18 @@ LIMIT_MARKERS = (
 # treated as a limit notice.
 LIMIT_NOTICE_MAX_CHARS = 400
 
-# Stop a permanently broken job from being retried forever. Reaching this means the
-# failure is not a limit and needs a human.
+# Stop a permanently broken job from being retried forever. This counts REAL failures
+# only — a run that came back rate-limited never got to do the work, so it must not
+# burn an attempt. Counting limit hits here would have been the original bug wearing a
+# different hat: six limits across a couple of days on Pro is ordinary, and the job
+# would have gone permanently un-due without ever failing at anything.
 MAX_QUEUE_ATTEMPTS = 6
+
+# A brief is a snapshot of a market. Resuming a three-day-old daily proposal would
+# answer a question about prices that have since moved, confidently and wrongly, so an
+# expired brief is dropped rather than run. Not losing work is the goal; producing
+# stale analysis and calling it work is not the same thing.
+MAX_JOB_AGE_DAYS = 2
 
 # The queue is a safety net, not a database. If it ever grows past this something is
 # wrong upstream and silently hoarding briefs would hide it.
@@ -199,16 +208,26 @@ def _write_queue(jobs):
         return False
 
 
-def queue_job(prompt, label, timeout, needs_project, system, require, reset_at):
-    """Park one brief so the limit costs a delay instead of the work. Returns the id."""
+def queue_job(prompt, label, timeout, needs_project, system, require, reset_at,
+              is_limit=True):
+    """Park one brief so the limit costs a delay instead of the work. Returns the id.
+
+    is_limit — True when the run was rate-limited (the normal case). False when it
+        failed for a real reason, which is the only thing that counts toward
+        MAX_QUEUE_ATTEMPTS.
+    """
     jobs = load_queue()
     job_id = _job_id(label, prompt)
+    now_iso = datetime.now().isoformat()
 
     for job in jobs:
         if job["id"] == job_id:
-            job["attempts"] = int(job.get("attempts", 0)) + 1
+            if is_limit:
+                job["limitHits"] = int(job.get("limitHits", 0)) + 1
+            else:
+                job["attempts"] = int(job.get("attempts", 0)) + 1
             job["resetAt"] = reset_at
-            job["lastSeen"] = datetime.now().isoformat()
+            job["lastSeen"] = now_iso
             _write_queue(jobs)
             return job_id
 
@@ -221,12 +240,23 @@ def queue_job(prompt, label, timeout, needs_project, system, require, reset_at):
         "system":       system,
         "require":      require,
         "resetAt":      reset_at,
-        "attempts":     1,
-        "queuedAt":     datetime.now().isoformat(),
-        "lastSeen":     datetime.now().isoformat(),
+        "attempts":     0 if is_limit else 1,
+        "limitHits":    1 if is_limit else 0,
+        "queuedAt":     now_iso,
+        "lastSeen":     now_iso,
     })
     _write_queue(jobs)
     return job_id
+
+
+def job_is_stale(job, now=None):
+    """Has this brief aged past the market it describes?"""
+    now = now or datetime.now()
+    try:
+        queued = datetime.fromisoformat(job.get("queuedAt", ""))
+    except (TypeError, ValueError):
+        return False   # unparseable timestamp is not evidence of staleness
+    return (now - queued) > timedelta(days=MAX_JOB_AGE_DAYS)
 
 
 def drop_job(job_id):
@@ -265,6 +295,15 @@ def drain_queue(verbose=True):
 
     summary = []
     for job in list(jobs):
+        if job_is_stale(job):
+            drop_job(job["id"])
+            summary.append({"label": job["label"], "status": "stale-dropped",
+                            "queuedAt": job.get("queuedAt")})
+            print(f"[agent-queue] {job['label']} was queued {job.get('queuedAt')} and is "
+                  f"older than {MAX_JOB_AGE_DAYS} days — dropped rather than answering a "
+                  f"question about prices that have since moved.")
+            continue
+
         if not job_is_due(job):
             summary.append({"label": job["label"], "status": "waiting",
                             "resetAt": job.get("resetAt"),
@@ -294,9 +333,11 @@ def drain_queue(verbose=True):
 
         attempts = int(job.get("attempts", 0)) + 1
         if result.get("limited"):
+            # Still limited: refresh the reset time, do NOT burn an attempt. The job
+            # never ran, so it has not failed at anything.
             queue_job(job["prompt"], job["label"], job.get("timeout"),
                       job.get("needsProject", True), job.get("system"),
-                      job.get("require"), result.get("resetAt"))
+                      job.get("require"), result.get("resetAt"), is_limit=True)
             summary.append({"label": job["label"], "status": "still-limited",
                             "resetAt": result.get("resetAt")})
         elif attempts >= MAX_QUEUE_ATTEMPTS:
@@ -441,8 +482,14 @@ def _print_status():
     print(f"{len(jobs)} brief(s) parked:")
     now = datetime.now()
     for job in jobs:
-        due = "DUE NOW" if job_is_due(job, now) else f"waits until {job.get('resetAt')}"
-        print(f"  {job['label']:<20} attempts={job.get('attempts', 0)}  {due}"
+        if job_is_stale(job, now):
+            due = f"STALE (queued {job.get('queuedAt')}) — will be dropped on next drain"
+        elif job_is_due(job, now):
+            due = "DUE NOW"
+        else:
+            due = f"waits until {job.get('resetAt')}"
+        print(f"  {job['label']:<20} limits={job.get('limitHits', 0)} "
+              f"failures={job.get('attempts', 0)}/{MAX_QUEUE_ATTEMPTS}  {due}"
               f"  ({len(job.get('prompt', ''))} chars of brief held)")
 
 
