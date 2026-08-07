@@ -3115,20 +3115,69 @@ app.post("/api/trade-opened", async (req, res) => {
   if (!trade || !trade.ticket) return res.status(400).json({ error: "invalid trade data" });
   console.log(`[trade] Opened: ${trade.type} ${trade.symbol} @ $${trade.price} #${trade.ticket}`);
 
-  // Capture signal context at the moment the trade opens
+  // Which signal produced this trade.
+  //
+  // This used to read signalCache at journal-write time, which is a DIFFERENT moment
+  // from the one the trade was decided in. The cache refreshes between a signal
+  // firing and the bridge's POST landing, so the journal recorded whatever the cache
+  // had moved on to. Both bad rows in the journal came from here: #1682651222 was
+  // stamped BB_SQUEEZE_WATCH — a setup that hardcodes signal:"WAIT" at index.js:1139
+  // and is skipped as "watch-only, not an entry" at hermes.js:125, so it can never
+  // open a trade — and #1713655080 was stamped "WAIT" itself.
+  //
+  // That name is the bucket key updateLearning() counts under. With one closed trade
+  // in the system's history, 100% of the learning data was filed under a setup the
+  // engine will never take again.
+  //
+  // The bridge now sends the signal it actually acted on. The cache is only a
+  // fallback, and only when it CORROBORATES the executed direction — an
+  // uncorroborated cache records null, because a missing setup is a gap the learning
+  // engine can skip whereas a wrong one silently poisons a bucket forever.
   const sigKey = getSignalKeyForSymbol(trade.symbol);
   const sig    = sigKey ? signalCache[sigKey] : null;
-  const signalContext = sig ? {
-    setup:      sig.setup,
-    // Carried into the journal so a closed trade says which chart produced it. A
-    // daily setup and a 4H setup of the same name are different trades with
-    // different hold times, and the learning engine buckets on name alone.
-    setupTimeframe: sig.setupTimeframe ?? null,
-    confidence: sig.confidence,
-    strength:   sig.strength,
-    regime:     sig.regime,
-    atr:        sig.atr
-  } : null;
+  const fromBridge = trade.signalContext && typeof trade.signalContext === "object"
+    ? trade.signalContext : null;
+
+  // plannedRr rides the same evidence as the setup. Read from the cache at write
+  // time it describes whichever signal happened to be cached then, not this trade's
+  // plan — the same defect one line apart.
+  let plannedRr = null;
+  let signalContext = null;
+  if (fromBridge && fromBridge.setup) {
+    signalContext = {
+      setup:          fromBridge.setup,
+      // Carried into the journal so a closed trade says which chart produced it. A
+      // daily setup and a 4H setup of the same name are different trades with
+      // different hold times, and the learning engine buckets on name alone.
+      setupTimeframe: fromBridge.setupTimeframe ?? null,
+      confidence:     fromBridge.confidence,
+      strength:       fromBridge.strength,
+      regime:         fromBridge.regime,
+      atr:            fromBridge.atr,
+      setupSource:    "bridge",
+    };
+    plannedRr = Number.isFinite(fromBridge.rr) ? fromBridge.rr : null;
+  } else if (sig && sig.setup && sig.signal === trade.type) {
+    // Older bridge, or one that had no signal in scope. The cache agrees with the
+    // direction actually executed, so it is corroborated evidence rather than a guess.
+    signalContext = {
+      setup:          sig.setup,
+      setupTimeframe: sig.setupTimeframe ?? null,
+      confidence:     sig.confidence,
+      strength:       sig.strength,
+      regime:         sig.regime,
+      atr:            sig.atr,
+      setupSource:    "cache-corroborated",
+    };
+    plannedRr = Number.isFinite(sig.rr) ? sig.rr : null;
+  } else {
+    console.warn(
+      `[trade] #${trade.ticket} ${trade.symbol} ${trade.type}: no trustworthy setup. ` +
+      `Bridge sent ${fromBridge ? JSON.stringify(fromBridge.setup) : "nothing"}; ` +
+      `cache holds ${sig ? `${JSON.stringify(sig.setup)} (signal ${sig.signal})` : "nothing"}. ` +
+      `Recording setup null rather than a name this trade did not come from.`
+    );
+  }
 
   // Generate Claude commentary if feature enabled
   let commentary = null;
@@ -3163,7 +3212,7 @@ app.post("/api/trade-opened", async (req, res) => {
       // intended, so a fill that slipped away from the plan stays visible
       // instead of overwriting the record of it.
       rr:        impliedRRFromPrices(trade.price, trade.sl, trade.tp),
-      plannedRr: sig ? sig.rr : null,
+      plannedRr,
       commentary
     };
     tradeJournal.unshift(entry);
