@@ -54,8 +54,25 @@ if ($tasks.Count -eq 0) {
         $ranEver = $i.LastRunTime -and $i.LastRunTime.Year -gt 1999
         $ageH    = if ($ranEver) { [math]::Round(($now - $i.LastRunTime).TotalHours, 1) } else { $null }
 
+        # "Never run" only means something once you know what would have run it.
+        # A Boot-triggered task that has never fired just means the box has not
+        # rebooted, which is not a fault -- calling it RED trains the reader to
+        # ignore the summary, and then the real ones go unread too. A LOGON-
+        # triggered task on a box nobody logs into is the opposite: it will never
+        # fire, and that is exactly how the VPS ended up with its whole stack
+        # waiting on a human who never arrives.
+        $trigKinds = @($t.Triggers | ForEach-Object { $_.CimClass.CimClassName })
+        $bootOnly  = ($trigKinds.Count -gt 0) -and -not ($trigKinds | Where-Object { $_ -notmatch 'Boot' })
+        $logonOnly = ($trigKinds.Count -gt 0) -and -not ($trigKinds | Where-Object { $_ -notmatch 'Logon' })
+
         if (-not $ranEver -or $i.LastTaskResult -eq 267011) {
-            Add-Check 'tasks' $t.TaskName 'RED' 'registered but has NEVER run'
+            if ($bootOnly) {
+                Add-Check 'tasks' $t.TaskName 'INFO' 'boot-triggered, never fired - this box has not rebooted since it was registered'
+            } elseif ($logonOnly -and -not [Environment]::UserInteractive) {
+                Add-Check 'tasks' $t.TaskName 'RED' 'LOGON-triggered on a headless box - it will never fire'
+            } else {
+                Add-Check 'tasks' $t.TaskName 'RED' 'registered but has NEVER run'
+            }
         } elseif ($i.LastTaskResult -ne 0 -and $i.LastTaskResult -ne 267009) {
             Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
         } elseif ($t.State -eq 'Running') {
