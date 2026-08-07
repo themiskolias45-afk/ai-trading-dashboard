@@ -48,6 +48,10 @@ const autohealer = require("./autohealer");
 const db         = require("./db");
 const sizing     = require("./sizing");
 const hermes     = require("./hermes");
+// Universal rejection ledger — see tasks/REJECTION-LEDGER-SPEC.md. Pure
+// observability: every function here swallows its own failure and returns, so it
+// can never reach the trading path.
+const { logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt } = require("./rejection_log");
 
 const app = express();
 
@@ -184,6 +188,11 @@ const API_NO_LOGIN_REQUIRED = new Set([
   // the VPS, so the localhost restriction is the control that matters here; the
   // bridge always runs on the same machine as the server.
   "/api/mt5/candles",
+  // Bridge-side gate rejections. Session-free because the bridge has no browser,
+  // and requireLocalOnly on the route itself for the same reason /api/mt5/candles
+  // carries it. Append-only observability: it writes a log file and touches no
+  // signal, position or setting.
+  "/api/rejections",
 ]);
 
 // Paths the MT5 bridge must READ without a browser session, but which must never
@@ -201,6 +210,12 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // keys, no account numbers, no open positions. There is no POST at this path,
   // and if one is ever added it stays behind the session check.
   "/api/stats/by-setup",
+  // Per-gate kill/pass counts. The MCP tools and tasks/gate_health.cjs carry no
+  // browser cookie, and this is aggregate diagnostic data: gate names and two
+  // integers each. No keys, no account numbers, no positions, no levels. The POST
+  // that writes rejections lives at /api/rejections and is separately
+  // requireLocalOnly — there is no POST at this path.
+  "/api/gate-health",
 ]);
 
 app.use((req, res, next) => {
@@ -287,6 +302,11 @@ let signalHistory = [];   // last 100 signal cycles — full confidence + reason
 // which the signal engine can read the instrument it actually trades. Preferred
 // over Yahoo when fresh and deep enough; see pickCandleSource().
 let mt5CandleCache = {};
+// Broker contract specs keyed by MT5 symbol, pushed by the bridge alongside the
+// candles. Sizing has no MT5 access of its own and cannot guess these: XAUUSD is
+// 100 oz per lot and the account settles in GBP, so one lot moves 74.33 per point,
+// not 1. Populated on every candle push (60s), empty until the first one lands.
+let mt5SymbolSpecs = {};
 
 // Guards the candle-ingest recompute against overlapping with itself. Three assets
 // arrive in one payload and a refresh takes ~15s; without this, a bridge restart
@@ -332,39 +352,15 @@ const MT5_MIN_BARS = { d1: 200, h4: 50, h1: 50 };
 // refresh far more often than this, so a healthy bridge never comes close.
 const MT5_CANDLE_MAX_AGE_MS = 15 * 60 * 1000;
 
-// ── R:R rejection shadow log ──────────────────────────────────
-// Every setup killed by the minimum-R:R gate, recorded with the levels it would have
-// traded. MIN_RR has never been measured - the walk-forward harness sweeps confidence
-// gates only - so this is how the 1.35-1.49 band gets evidence instead of a guess.
+// The R:R shadow log used to live here as an inline logRrRejection() writing to
+// tasks/rr_rejected.jsonl. It has been superseded by server/rejection_log.js, which
+// records every gate rather than just this one, under the shared schema in
+// tasks/REJECTION-LEDGER-SPEC.md.
 //
-// A rejection is a complete trade: entry, stop and target are all computed before the
-// gate fires. Scored later against actual price, each row answers "would this have
-// won" at zero risk.
-const RR_REJECTED_PATH = path.join(__dirname, "..", "tasks", "rr_rejected.jsonl");
-
-// The gate re-fires on every refresh and once per timeframe. Without deduping on the
-// levels themselves the file would fill with ~144 near-identical rows a day and the
-// dataset would be useless for measuring anything.
-const rrRejectedLastSignature = new Map();
-
-function logRrRejection(record) {
-  try {
-    // Keyed per instrument AND timeframe: the same asset can reject a D1 and an H1
-    // setup in one pass, and a shared key would silently drop the second.
-    const scope = `${record.ticker}|${record.timeframe ?? "?"}`;
-    const signature = [
-      record.setup, record.direction,
-      record.entry, record.stop, record.target,
-    ].join("|");
-    if (rrRejectedLastSignature.get(scope) === signature) return;
-    rrRejectedLastSignature.set(scope, signature);
-    fs.appendFileSync(RR_REJECTED_PATH, JSON.stringify(record) + "\n");
-  } catch (e) {
-    // Never let a logging fault reach signal generation - this is observability,
-    // not a trading path.
-    console.error("[rr-reject] could not record rejection:", e.message);
-  }
-}
+// tasks/rr_rejected.jsonl is FROZEN, not migrated: it holds real evidence written
+// under the old schema (11 rows on the laptop, 8 on the VPS) and the scorer reads
+// both files and normalises. Nothing appends to it any more — that is the point of
+// deleting the writer rather than repointing it.
 let dailyPlan     = null;
 let tvAlerts      = [];
 let congressCache = null;
@@ -1157,8 +1153,19 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   if (stop !== null && target !== null && signal !== "WAIT") {
     const calcRR = Math.abs(target - entry) / Math.abs(entry - stop);
     if (calcRR < MIN_RR) {
-      logRrRejection({
-        ts:        new Date().toISOString(),
+      // typeof-guarded, and so is every other ledger call in this file. This
+      // function is extracted TEXTUALLY into a bare vm sandbox by
+      // tasks/_replay_mtf.cjs and tasks/_replay_engine.cjs, where a free variable
+      // the sandbox does not define is a ReferenceError — the harness catch
+      // swallows it and the whole cohort silently disappears from every
+      // measurement. That has already happened twice (SIZING_BOOST_MIN_CONFIDENCE,
+      // 1131 Gold steps; logRrRejection, 1006). The guard makes a missing binding a
+      // no-op instead of a deletion. In the live server the require sits at the top
+      // of this file and a failed require crashes at boot, so it is always true
+      // here and no evidence is lost.
+      if (typeof logGateRejection === "function") logGateRejection({
+        gate:      "MIN_RR",
+        side:      "engine",
         ticker,
         label,
         // The instrument these levels were priced on. `ticker` is always the Yahoo
@@ -1175,13 +1182,19 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
         stop:      Number(stop.toFixed(2)),
         target:    Number(target.toFixed(2)),
         rr:        Number(calcRR.toFixed(3)),
-        minRr:     MIN_RR,
-        // Only variables provably in scope in generateSignal: rsi (declared L747) and
-        // trend (L760). regime and adx live on the MTF wrapper, not here - referencing
-        // them would be a ReferenceError that node --check cannot catch and that would
-        // take down signal generation for every asset.
+        // The bar it had to clear, and what it actually came in at, so a sweep can
+        // ask "what if the bar had been X" without re-deriving anything.
+        threshold: MIN_RR,
+        actual:    Number(calcRR.toFixed(3)),
+        strength,
+        // Only variables provably in scope in generateSignal: rsi and trend.
+        // confidence, regime and adx live on the MTF wrapper, not here -
+        // referencing them would be a ReferenceError that node --check cannot catch
+        // and that would take down signal generation for every asset.
+        confidence: null,
         trend:     trend ?? null,
         rsi:       rsi ?? null,
+        account:   null,
       });
       reasons = [
         `${setup} rejected: R:R ${calcRR.toFixed(2)} below minimum ${MIN_RR} — no trade`,
@@ -1190,6 +1203,10 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
       ];
       setup = "WAIT"; signal = "WAIT"; strength = "NONE";
       stop = null; target = null;
+    } else if (typeof noteGatePass === "function") {
+      // The denominator. Rejections alone cannot tell you a gate is dead; a gate
+      // with a healthy kill count and zero passes is the alarm.
+      noteGatePass("MIN_RR");
     }
   }
 
@@ -1206,10 +1223,43 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // CONFIDENCE is not pinned to confidenceThreshold — the harness moves those and a
   // follower silently leaves the population being measured.
   const minEntryRsi = Number(strategySettings?.minEntryRsi) || 0;
-  if (signal !== "WAIT" && minEntryRsi > 0 && rsi !== null && rsi < minEntryRsi) {
+  const entryRsiGateArmed = signal !== "WAIT" && minEntryRsi > 0 && rsi !== null;
+  if (entryRsiGateArmed && rsi < minEntryRsi) {
+    // Levels recorded here are the ones the gate killed, which is BEFORE the
+    // structural-stop block below narrows the stop. That is the correct paper trade
+    // for this gate — it is what existed at the moment of the kill — but a scorer
+    // must not expect it to match a live fill.
+    if (typeof logGateRejection === "function") logGateRejection({
+      gate:      "ENTRY_RSI",
+      side:      "engine",
+      ticker,
+      label,
+      dataSource:   barSource?.dataSource ?? null,
+      sourceSymbol: barSource?.sourceSymbol ?? null,
+      timeframe:    barSource?.timeframe ?? null,
+      setup,
+      direction: signal,
+      entry:     Number(entry.toFixed(2)),
+      stop:      stop   !== null ? Number(stop.toFixed(2))   : null,
+      target:    target !== null ? Number(target.toFixed(2)) : null,
+      rr:        (stop !== null && target !== null && entry !== stop)
+                   ? Number((Math.abs(target - entry) / Math.abs(entry - stop)).toFixed(3))
+                   : null,
+      threshold: minEntryRsi,
+      actual:    rsi,
+      strength,
+      confidence: null,
+      trend:     trend ?? null,
+      rsi,
+      account:   null,
+    });
     reasons = [`Entry RSI ${rsi} below minimum ${minEntryRsi} — skip`];
     setup = "WAIT"; signal = "WAIT"; strength = "NONE";
     stop = null; target = null;
+  } else if (entryRsiGateArmed && typeof noteGatePass === "function") {
+    // Only counted while the gate is ARMED. minEntryRsi ships at 0, and counting a
+    // pass for a disarmed gate would make the zero-pass alarm unreadable.
+    noteGatePass("ENTRY_RSI");
   }
 
   // ── Trend-strength gate ─────────────────────────────────────
@@ -1601,6 +1651,75 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     ? parseFloat((Math.abs(refinedTarget - daily.entry) / Math.abs(daily.entry - refinedStop)).toFixed(1))
     : daily.rr;
 
+  // ── The signal's final identity, resolved once ───────────────
+  // These five expressions were previously written inline in the return object.
+  // They are hoisted so the rejection ledger below records EXACTLY the trade this
+  // function returns — a second copy of these fallback chains would drift, and a
+  // ledger row holding different levels from the signal it describes is worse than
+  // no row at all. The expressions themselves are unchanged, so the returned object
+  // is byte-for-byte what it was.
+  const finalSetup = (isH4Only && h4?.setup) ? h4.setup : daily.setup;
+  // Which chart produced the setup above. Without it the name alone cannot say
+  // whether a trade was a daily or a 4H entry, and those have completely different
+  // hold times.
+  const finalSetupTimeframe = isH4Only ? "H4" : "D1";
+  // H4-only entries take stop/target from h4 below, so entry has to come from h4
+  // too. Spreading ...daily leaves entry on the daily close while the stop sits on
+  // the 4H close; when those diverge |entry - stop| collapses, which inflated
+  // replayed R:R as far as 24R and — under risk-based sizing, which divides by stop
+  // distance — would size the position into the maxLotSize ceiling.
+  const finalEntry  = (isH4Only && h4?.entry != null) ? h4.entry : daily.entry;
+  const finalStop   = (refinedStop   != null && refinedStop   !== 0) ? parseFloat(refinedStop.toFixed(2))   : (daily.stop   ?? (h4?.stop   != null ? parseFloat(h4.stop.toFixed(2))   : null));
+  const finalTarget = (refinedTarget != null && refinedTarget !== 0) ? parseFloat(refinedTarget.toFixed(2)) : (daily.target ?? (h4?.target != null ? parseFloat(h4.target.toFixed(2)) : null));
+
+  // ── Confidence gate ledger — CONFIDENCE and COHORT_FLOOR ─────
+  // Reads only. Nothing below assigns to finalSignal, confidence, or any level; the
+  // decision was made above and is not revisited here.
+  //
+  // The two gates are the SAME comparison, and recording them separately is the
+  // entire reason this ledger exists. COHORT_FLOOR means the setup cleared the
+  // global confidence gate and died on a floor that applies only to its cohort —
+  // that is precisely what hid Gold's DAILY_ONLY_H4_NEUTRAL cohort, which sat
+  // capped at 74 against a floor of 75 for 1131 steps with nothing reporting it.
+  // Rolled together, that reads as "the confidence gate is working".
+  //
+  // Only a setup that FORMED is logged: signalDir is "WAIT" on a BOTH_WAIT step,
+  // and XAUUSD alone has 3799 of those in a 5-year replay.
+  if (signalDir === "BUY" || signalDir === "SELL") {
+    const cohortFloorDecided = effectiveThreshold > strategySettings.confidenceThreshold;
+    const clearedGlobalGate  = confidence >= strategySettings.confidenceThreshold;
+    const gateUnderTest = (cohortFloorDecided && clearedGlobalGate) ? "COHORT_FLOOR" : "CONFIDENCE";
+    if (finalSignal === "WAIT") {
+      if (typeof logGateRejection === "function") logGateRejection({
+        gate:      gateUnderTest,
+        side:      "engine",
+        ticker,
+        label,
+        dataSource:   barSource?.dataSource ?? null,
+        sourceSymbol: barSource?.sourceSymbol ?? null,
+        timeframe:    finalSetupTimeframe,
+        setup:     finalSetup,
+        direction: signalDir,
+        entry:     finalEntry,
+        stop:      finalStop,
+        target:    finalTarget,
+        rr:        finalRR ?? h4?.rr ?? null,
+        confidence,
+        // The per-timeframe strength that produced this, not finalStrength —
+        // finalStrength is "NONE" by definition on anything the gate killed, which
+        // would tell a scorer nothing about the setup's quality.
+        strength:  signalTf?.strength ?? null,
+        threshold: effectiveThreshold,
+        actual:    confidence,
+        trend:     signalTf?.trend ?? null,
+        rsi:       signalTf?.indicators?.rsi ?? null,
+        account:   null,
+      });
+    } else if (typeof noteGatePass === "function") {
+      noteGatePass(gateUnderTest);
+    }
+  }
+
   return {
     ...daily,
     signal:     finalSignal,
@@ -1620,21 +1739,13 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     // Same principle entry/stop/target already follow since 910f0ba: every leg of
     // an H4-only trade comes from the H4 timeframe. This changes no gate, no level
     // and no sizing input; nothing in the codebase branches on setup === "WAIT".
-    setup:      (isH4Only && h4?.setup) ? h4.setup : daily.setup,
-    // Which chart produced the setup above. Without it the name alone cannot say
-    // whether a trade was a daily or a 4H entry, and those have completely
-    // different hold times.
-    setupTimeframe: isH4Only ? "H4" : "D1",
+    setup:      finalSetup,
+    setupTimeframe: finalSetupTimeframe,
     confidence,
     regime,
-    // H4-only entries take stop/target from h4 below, so entry has to come from h4
-    // too. Spreading ...daily leaves entry on the daily close while the stop sits
-    // on the 4H close; when those diverge |entry - stop| collapses, which inflated
-    // replayed R:R as far as 24R and — under risk-based sizing, which divides by
-    // stop distance — would size the position into the maxLotSize ceiling.
-    entry:      (isH4Only && h4?.entry != null) ? h4.entry : daily.entry,
-    stop:       (refinedStop   != null && refinedStop   !== 0) ? parseFloat(refinedStop.toFixed(2))   : (daily.stop   ?? (h4?.stop   != null ? parseFloat(h4.stop.toFixed(2))   : null)),
-    target:     (refinedTarget != null && refinedTarget !== 0) ? parseFloat(refinedTarget.toFixed(2)) : (daily.target ?? (h4?.target != null ? parseFloat(h4.target.toFixed(2)) : null)),
+    entry:      finalEntry,
+    stop:       finalStop,
+    target:     finalTarget,
     rr:         finalRR ?? h4?.rr ?? null,
     h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi } : null,
     h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi } : null,
@@ -2348,6 +2459,22 @@ app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
       ? payload.symbol.trim() : null;
     if (!symbol) { rejected[ticker] = "missing broker symbol"; continue; }
 
+    // What one lot of this symbol is worth per 1.0 of price movement, in account
+    // currency. Recorded even when the bars below are rejected: sizing needs it and
+    // it does not depend on the candles being usable. Without it the sizer assumed
+    // 1.0 and returned a Gold size 74x too large.
+    const pointValue = Number(payload?.spec?.valuePerPoint);
+    if (Number.isFinite(pointValue) && pointValue > 0) {
+      mt5SymbolSpecs[symbol] = {
+        valuePerPoint: pointValue,
+        contractSize:  Number(payload.spec.contractSize) || null,
+        minLot:        Number(payload.spec.minLot) || null,
+        lotStep:       Number(payload.spec.lotStep) || null,
+        account,
+        updatedAt:     new Date().toISOString(),
+      };
+    }
+
     const daily = sanitizeBars(payload?.bars?.d1, MT5_MIN_BARS.d1);
     if (!daily) {
       rejected[ticker] = `daily series unusable or under ${MT5_MIN_BARS.d1} bars`;
@@ -2423,6 +2550,67 @@ app.get("/api/mt5/candles", (_, res) => {
     };
   }
   res.json({ sources, maxAgeMs: MT5_CANDLE_MAX_AGE_MS, minBars: MT5_MIN_BARS });
+});
+
+// ── Rejection ledger ──────────────────────────────────────────
+// See tasks/REJECTION-LEDGER-SPEC.md. Every gate that kills a fully-priced setup
+// leaves a row in tasks/rejections.jsonl; the engine's four gates write directly,
+// the bridge's five POST here.
+
+// Kill/pass counts per gate since this process started. Read-only, and derivable
+// from the ledger itself — this is a convenience, not a source of truth, which is
+// why it is not persisted.
+//
+// The number that matters is the DENOMINATOR. A gate with a healthy kill count and
+// ZERO passes is the alarm: Gold's DAILY_ONLY_H4_NEUTRAL cohort was capped at
+// confidence 74 by SIZING_BOOST_MIN_CONFIDENCE - 1 while its floor demanded 75, for
+// 1131 steps over months, and nothing anywhere reported it. Rejections alone could
+// not have found that; rejections against passes do it immediately.
+app.get("/api/gate-health", (_, res) => {
+  res.json({ ok: true, since: countersStartedAt, gates: gateStats });
+});
+
+// Bridge-side rejections. Same protection as /api/mt5/candles — requireLocalOnly,
+// since the bridge always runs on the same machine as the server — and in the
+// no-login allowlist for the same reason, because the bridge has no browser
+// session. Unlike the candle route this one feeds nothing but a log file, so the
+// worst a local caller can do is write junk rows; the gate enum below is what stops
+// even that.
+const REJECTIONS_MAX_ROWS_PER_REQUEST = 500;
+const KNOWN_GATE_NAMES = new Set(GATE_NAMES);
+
+app.post("/api/rejections", requireLocalOnly, (req, res) => {
+  const body = req.body;
+  const rows = Array.isArray(body) ? body : Array.isArray(body?.rows) ? body.rows : [body];
+  if (!rows.length || rows.some(r => !r || typeof r !== "object")) {
+    return res.status(400).json({ ok: false, error: "expected a rejection row, an array of rows, or { rows: [...] }" });
+  }
+  if (rows.length > REJECTIONS_MAX_ROWS_PER_REQUEST) {
+    return res.status(400).json({ ok: false, error: `at most ${REJECTIONS_MAX_ROWS_PER_REQUEST} rows per request` });
+  }
+
+  let written = 0;
+  const unknownGates = [];
+  for (const row of rows) {
+    // Validated here as well as inside the ledger so the caller is TOLD which gate
+    // name was dropped. A bridge silently posting a typo'd gate would look exactly
+    // like a gate that never fires, which is the failure this whole system exists
+    // to make impossible.
+    if (!KNOWN_GATE_NAMES.has(row.gate)) {
+      if (!unknownGates.includes(row.gate)) unknownGates.push(String(row.gate));
+      continue;
+    }
+    // Rows arriving over HTTP are bridge-side unless they say otherwise; nothing
+    // in the engine posts to itself.
+    if (logGateRejection({ ...row, side: row.side ?? "bridge" })) written++;
+  }
+  if (unknownGates.length) {
+    console.warn(`[rejections] dropped unknown gate(s): ${unknownGates.join(", ")}`);
+  }
+  // `written` counts lines appended. Rows suppressed by the dedupe (spec §3.2) are
+  // not errors and are not counted — a caller re-posting an unchanged setup is
+  // behaving correctly.
+  res.json({ ok: true, written, received: rows.length, unknownGates });
 });
 
 // MT5 bridge endpoints — each bridge instance tags its posts with its own account
@@ -4510,8 +4698,21 @@ app.post("/api/size", (req, res) => {
     // applies its own hardcoded 65 and silently overrides confidenceThreshold —
     // the bridge fails closed on rejection, so every signal below 65 was approved
     // upstream and killed here with nothing on the dashboard to explain it.
+    // Price per point comes from the broker via the bridge, never a constant. The
+    // signal's symbol is the SmartEntry ticker; the spec is keyed by the MT5 symbol,
+    // so accept either and fall back to the whole map for the open positions.
+    const valuePerPointBySymbol = {};
+    for (const [mt5Symbol, spec] of Object.entries(mt5SymbolSpecs)) {
+      valuePerPointBySymbol[mt5Symbol] = spec.valuePerPoint;
+    }
+    for (const [assetKey, cached] of Object.entries(mt5CandleCache)) {
+      const spec = cached?.symbol ? mt5SymbolSpecs[cached.symbol] : null;
+      if (spec) valuePerPointBySymbol[assetKey.toUpperCase()] = spec.valuePerPoint;
+    }
+
     const validation = sizing.validateTrade(signal, accountBalance, openPositions || [], {
       minConfidence: strategySettings.confidenceThreshold,
+      valuePerPointBySymbol,
     });
     res.json(validation);
   } catch (e) {
