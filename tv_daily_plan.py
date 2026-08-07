@@ -8,15 +8,17 @@ What it does:
   3. Generates a structured daily plan JSON
   4. Saves the plan to tasks/daily_plan_YYYYMMDD.json
   5. Optionally takes TradingView chart screenshots (node tv_screenshot.js)
-  6. Logs to daily notes + sends morning notification
+  6. Draws the plan onto the TradingView charts (tradingview_bot.py plan)
+  7. Logs to daily notes + sends morning notification
 
 Usage:
-  python tv_daily_plan.py                # full plan + notification
+  python tv_daily_plan.py                # full plan + draw + notification
   python tv_daily_plan.py --no-tv        # skip TV screenshots
+  python tv_daily_plan.py --no-draw      # skip drawing on the charts
   python tv_daily_plan.py --silent       # no toast
   python tv_daily_plan.py --4h           # include 4H screenshots
 """
-import sys, os, json, subprocess, math
+import sys, os, json, subprocess, math, time, socket
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -190,6 +192,50 @@ def run_tv_screenshots(do_4h: bool = False):
         print(f"[plan] Screenshot error: {e}")
 
 
+def _cdp_is_up(port: int = 9222) -> bool:
+    """tradingview_bot drives Edge over CDP, so the port is the real precondition."""
+    with socket.socket() as probe:
+        probe.settimeout(2)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def run_tv_draw():
+    """
+    Draw the plan onto the TradingView charts.
+
+    Starts the debugging Edge if it is not already up, because an unattended
+    morning run has nobody to launch it. Skips rather than fails: a missing chart
+    drawing must never take down the plan, the notes, or the notification.
+    """
+    if not (ROOT / "tradingview_bot.py").exists():
+        print("[plan] tradingview_bot.py not found — skipping chart drawing")
+        return
+
+    if not _cdp_is_up():
+        launcher = TASKS_DIR / "launch_chrome_tv.bat"
+        if not launcher.exists():
+            print("[plan] Edge is not on CDP 9222 and launch_chrome_tv.bat is missing — skipping")
+            return
+        print("[plan] Edge not on 9222 — launching it…")
+        try:
+            subprocess.Popen(["cmd", "/c", str(launcher)], cwd=str(ROOT),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as exc:
+            print(f"[plan] Could not launch Edge: {exc}")
+            return
+        for _ in range(20):
+            time.sleep(2)
+            if _cdp_is_up():
+                break
+        else:
+            print("[plan] Edge never opened port 9222 — skipping chart drawing")
+            return
+
+    print("[plan] Drawing the daily plan on TradingView…")
+    output = _run("tradingview_bot.py", ["plan"], timeout=420)
+    print(output[-600:] if output else "  [no output]")
+
+
 def notify(plan: dict, silent: bool = False):
     if silent:
         return
@@ -226,12 +272,16 @@ def main():
     argv    = sys.argv[1:]
     silent  = "--silent" in argv
     no_tv   = "--no-tv" in argv
+    no_draw = "--no-draw" in argv
     do_4h   = "--4h" in argv
 
     plan = build_plan()
 
     if not no_tv:
         run_tv_screenshots(do_4h=do_4h)
+
+    if not no_draw:
+        run_tv_draw()
 
     log_to_notes(plan)
     notify(plan, silent=silent)
