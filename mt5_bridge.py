@@ -1188,6 +1188,40 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
         log(f"Ticket: #{result.order}", GREEN)
         # Notify server so it can generate commentary and log the trade
         try:
+            # The signal this order was ACTUALLY placed on, sent with it.
+            #
+            # The server used to re-derive the setup by reading signalCache at
+            # journal-write time, which is a different moment: the cache refreshes
+            # between a signal firing and this POST landing, so the journal recorded
+            # whatever the cache had moved on to. It produced both bad rows in the
+            # journal — #1682651222 stamped BB_SQUEEZE_WATCH, a setup that hardcodes
+            # signal="WAIT" and can never open a trade, and #1713655080 stamped
+            # "WAIT" itself. That name is the bucket key updateLearning() counts
+            # under, so with one closed trade in history, 100% of the learning data
+            # was filed under a setup the engine will never take.
+            #
+            # `sig` is the originating signal and is already in scope. Sending
+            # `direction` lets the server corroborate rather than trust blindly.
+            signal_context = None
+            if isinstance(sig, dict):
+                signal_context = {
+                    "setup":          sig.get("setup") or setup,
+                    "setupTimeframe": sig.get("setupTimeframe"),
+                    "confidence":     sig.get("confidence", confidence),
+                    "strength":       sig.get("strength"),
+                    "regime":         sig.get("regime"),
+                    "atr":            sig.get("atr"),
+                    "direction":      sig.get("signal"),
+                    # The R:R the signal PLANNED. Sent for the same reason as the
+                    # setup: read from the cache at write time it describes whichever
+                    # signal happened to be cached then, not this trade's plan.
+                    "rr":             sig.get("rr"),
+                }
+            elif setup:
+                # No full signal, but the caller still knew the setup it traded.
+                signal_context = {"setup": setup, "confidence": confidence,
+                                  "direction": signal_type}
+
             requests.post(f"{SERVER_URL}/api/trade-opened", json={
                 "ticket": result.order,
                 "symbol": symbol,
@@ -1197,6 +1231,7 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
                 "tp":     target,
                 "volume": lots,
                 "account": ACCOUNT_TAG or "default",
+                "signalContext": signal_context,
             }, timeout=5)
         except Exception as e:
             log(f"Could not POST trade-opened to server: {e}", YELLOW)
