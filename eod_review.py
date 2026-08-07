@@ -19,6 +19,9 @@ import sys, os, json, subprocess
 from pathlib import Path
 from datetime import datetime, timezone
 
+from claude_agent import make_console_utf8
+make_console_utf8()
+
 ROOT       = Path(__file__).parent
 TASKS_DIR  = ROOT / "tasks"
 SERVER_URL = "http://localhost:3001"
@@ -47,19 +50,16 @@ def _run(script: str, args: list = [], timeout: int = 30) -> str:
 
 
 def _call_claude(prompt: str) -> str:
-    import shutil
-    claude = shutil.which("claude") or shutil.which("claude.cmd") or ""
-    if not claude:
-        return "[claude CLI not found]"
-    try:
-        result = subprocess.run(
-            [claude, "-p", prompt, "--dangerously-skip-permissions", "--output-format", "text"],
-            capture_output=True, text=True, timeout=60,
-            cwd=str(ROOT), env={**os.environ, "NO_COLOR": "1"},
-        )
-        return (result.stdout or result.stderr or "").strip()
-    except Exception as e:
-        return f"[ERROR: {e}]"
+    """
+    Ask an agent for the end-of-day insight.
+
+    Delegated to claude_agent.run_claude. The old inline version put the prompt in
+    argv, where cmd.exe cut it at the first newline — the agent got the instruction
+    and none of the day's trades — and it kept ANTHROPIC_API_KEY, which bills
+    credit rather than the subscription.
+    """
+    from claude_agent import run_claude
+    return run_claude(prompt, timeout=60, label="eod-review")["output"]
 
 
 def review(target_date: str = None, silent: bool = False):

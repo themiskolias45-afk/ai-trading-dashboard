@@ -13,6 +13,9 @@ import sys, os, json, ast, re, subprocess, time
 from pathlib import Path
 from datetime import datetime, timezone
 
+from claude_agent import make_console_utf8
+make_console_utf8()
+
 ROOT      = Path(__file__).parent
 TASKS_DIR = ROOT / "tasks"
 REPORT_DIR = TASKS_DIR / "improvement_reports"
@@ -272,12 +275,12 @@ def _run_propose(report: dict):
 
     print("[IMPROVE] Asking claude for upgrade proposals...")
     try:
-        result = subprocess.run(
-            [claude, "-p", prompt, "--dangerously-skip-permissions", "--output-format", "text"],
-            capture_output=True, text=True, timeout=120,
-            env={**os.environ, "NO_COLOR": "1"},
-        )
-        print("\n" + (result.stdout.strip() or result.stderr.strip()))
+        # Delegated to claude_agent.run_claude: the prompt used to go in argv, where
+        # cmd.exe truncated it at the first newline, so the agent never saw the scan
+        # findings it was asked to fix — and ANTHROPIC_API_KEY was left set, billing
+        # credit instead of the subscription.
+        from claude_agent import run_claude
+        print("\n" + run_claude(prompt, timeout=120, label="self-improve")["output"])
     except subprocess.TimeoutExpired:
         print("[IMPROVE] AI proposal timed out")
     except FileNotFoundError:
@@ -295,10 +298,13 @@ def main():
     if cmd == "scan":
         print("[IMPROVE] Scanning codebase...")
         report = full_scan()
+        # Save BEFORE printing. Printing first meant a console that could not encode
+        # a star character killed the run before the report was written, so the file
+        # `propose` needs never appeared and the whole improve loop was dead.
+        saved_path = _save_report(report) if "--save" in argv else None
         print(format_report(report))
-        if "--save" in argv:
-            path = _save_report(report)
-            print(f"[IMPROVE] Report saved: {path}")
+        if saved_path:
+            print(f"[IMPROVE] Report saved: {saved_path}")
 
     elif cmd == "last":
         report = _last_report()

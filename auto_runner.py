@@ -18,6 +18,9 @@ import sys, os, json, time, subprocess
 from pathlib import Path
 from datetime import datetime, timezone
 
+from claude_agent import make_console_utf8
+make_console_utf8()
+
 ROOT       = Path(__file__).parent
 TASKS_DIR  = ROOT / "tasks"
 SERVER_URL = "http://localhost:3001"
@@ -47,28 +50,20 @@ def _run(script: str, args: list = [], timeout: int = 120) -> str:
         return f"[ERROR: {exc}]"
 
 
-def _find_claude():
-    import shutil
-    return shutil.which("claude") or shutil.which("claude.cmd") or ""
-
-
 def _call_claude(prompt: str, timeout: int = 90) -> str:
-    claude = _find_claude()
-    if not claude:
-        return "[claude CLI not found]"
-    try:
-        result = subprocess.run(
-            [claude, "-p", prompt,
-             "--dangerously-skip-permissions",
-             "--output-format", "text"],
-            capture_output=True, text=True, timeout=timeout,
-            cwd=str(ROOT), env={**os.environ, "NO_COLOR": "1"},
-        )
-        return (result.stdout or result.stderr or "").strip()
-    except subprocess.TimeoutExpired:
-        return "[AI proposal timed out]"
-    except Exception as exc:
-        return f"[ERROR: {exc}]"
+    """
+    Ask an agent for the daily proposal.
+
+    Delegated to claude_agent.run_claude. The old inline version passed the prompt
+    as an argv element, which cmd.exe truncated at the first newline, so the agent
+    received the opening line and none of the health, performance or research data
+    underneath it — and it kept ANTHROPIC_API_KEY, billing credit that ran dry.
+    """
+    from claude_agent import run_claude
+    result = run_claude(prompt, timeout=timeout, label="daily-proposal")
+    return result["output"]
+
+
 
 
 def _brave_search(query: str) -> str:

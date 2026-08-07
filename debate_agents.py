@@ -8,7 +8,7 @@ Usage:
   python debate_agents.py BTC LONG 87 105000 103500 107000
   python debate_agents.py --from-api  # read latest signal from server
 """
-import sys, os, json, subprocess, time, tempfile
+import sys, os, json, subprocess, time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -24,104 +24,37 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-# ─── Claude CLI resolution ────────────────────────────────────────────────────
-
-_CLAUDE_CMD = None  # resolved lazily on first use
-
-
-def find_claude() -> str:
-    """Find the claude CLI executable — checks PATH, APPDATA/npm, and a known fallback."""
-    import shutil
-
-    found = shutil.which("claude") or shutil.which("claude.cmd")
-    if found:
-        return found
-
-    appdata = os.environ.get("APPDATA", "")
-    if appdata:
-        p = Path(appdata) / "npm" / "claude.cmd"
-        if p.exists():
-            return str(p)
-
-    # Hardcoded known path for this machine
-    p = Path(r"C:\Users\User\AppData\Roaming\npm\claude.cmd")
-    if p.exists():
-        return str(p)
-
-    raise FileNotFoundError(
-        "claude CLI not found. Run: npm install -g @anthropic-ai/claude-code"
-    )
-
-
-def _claude() -> str:
-    global _CLAUDE_CMD
-    if _CLAUDE_CMD is None:
-        _CLAUDE_CMD = find_claude()
-    return _CLAUDE_CMD
-
+# CLI discovery, environment and working directory all live in claude_agent now —
+# they were duplicated across five files and four copies were wrong.
 
 # ─── Single agent runner ──────────────────────────────────────────────────────
 
-def _agent_cwd() -> str:
-    """
-    A working directory OUTSIDE the project tree.
-
-    Claude Code walks up from cwd looking for CLAUDE.md. Run an agent from the
-    project root and it boots as JARVIS — persona, welcome line, double-confirm
-    rule — and answers conversationally instead of voting. Every agent in the
-    last debate opened with "JARVIS online. SmartEntry Pro — what are we
-    building?" for exactly this reason.
-    """
-    path = Path(tempfile.gettempdir()) / "jarvis_debate_agents"
-    path.mkdir(parents=True, exist_ok=True)
-    return str(path)
-
-
 def _run_agent(role: str, prompt: str) -> dict:
-    """Call the claude CLI with the given prompt and return raw output."""
+    """
+    Run one debate agent.
+
+    All the CLI handling lives in claude_agent so it cannot drift again: prompt on
+    stdin (cmd.exe truncates argv at the first newline), ANTHROPIC_API_KEY stripped
+    (it bills credit that has already run dry once), and a working directory
+    outside the project (otherwise the agent boots as JARVIS and greets instead of
+    voting). needs_project is False — the whole market picture is in the prompt.
+
+    require="VERDICT:" because a clean exit code proves nothing: all three agents
+    exited 0 while two of them were answering "I don't have the trade to analyse".
+    """
+    from claude_agent import run_claude
+
     print(f"  [{role}] starting...")
-    t0 = time.time()
+    result = run_claude(prompt, timeout=TIMEOUT, needs_project=False,
+                        label=role, require="VERDICT:")
 
-    try:
-        # The prompt goes on STDIN, never as an argv element. `claude` resolves to
-        # claude.cmd, a batch file, so Python launches it through cmd.exe — which
-        # truncates a multi-line argument at the first newline. Every agent was
-        # receiving its one-line role brief and none of the trade or market data,
-        # then replying "I don't have the trade to analyse".
-        proc = subprocess.run(
-            [_claude(), "-p",
-             "--dangerously-skip-permissions",
-             "--output-format", "text"],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=_agent_cwd(),
-            timeout=TIMEOUT,
-            env={**os.environ, "NO_COLOR": "1"},
-        )
-        output  = (proc.stdout or "").strip() or (proc.stderr or "").strip()
-        success = proc.returncode == 0
-    except subprocess.TimeoutExpired:
-        output  = f"[TIMEOUT after {TIMEOUT}s]"
-        success = False
-    except FileNotFoundError:
-        output  = "[ERROR: claude CLI not found — run from JARVIS terminal]"
-        success = False
-
-    # A clean exit code is not evidence the agent understood the brief. The last
-    # run returned 0 for all three while two of them had no trade data at all, so
-    # require the verdict line the prompt asks for.
-    if success and "VERDICT:" not in output.upper():
-        success = False
+    if not result["success"] and "VERDICT" not in result["output"].upper():
         print(f"  [{role}] returned no VERDICT line — prompt may not have arrived")
+    status = "done" if result["success"] else "failed"
+    print(f"  [{role}] {status} in {result['elapsed']:.0f}s")
 
-    elapsed = time.time() - t0
-    status  = "done" if success else "failed"
-    print(f"  [{role}] {status} in {elapsed:.0f}s")
-
-    return {"role": role, "output": output, "elapsed": elapsed, "success": success}
+    return {"role": role, "output": result["output"],
+            "elapsed": result["elapsed"], "success": result["success"]}
 
 
 # ─── Verdict parser ───────────────────────────────────────────────────────────
