@@ -14,6 +14,7 @@ import sys
 import os
 import time
 import json
+import math
 import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
@@ -126,6 +127,50 @@ executed_signals  = {}   # key → signal updatedAt string (deduplication)
 known_positions   = set()  # set of open SmartEntry position tickets
 position_initial_r = {}  # ticket → initial risk (|entry - original_sl|) for trailing stop logic
 position_partial_taken = set()  # tickets where 50% has already been closed at 1R
+
+# ── Trailing stop ladder ──────────────────────────────────────────────────────
+# Once a trade reaches TRAIL_ARM_R in profit, the stop ratchets up behind price in
+# TRAIL_STEP_R increments, always TRAIL_GIVEBACK_R behind the step it is locking:
+#
+#   profit 1.0R → SL at entry        (risk-free)
+#   profit 1.5R → SL at entry + 0.5R
+#   profit 2.0R → SL at entry + 1.0R   …and so on, in 0.5R steps.
+#
+# Env-tunable so the give-back can be tightened without a code change. This ladder
+# is NOT yet measured against the backtest harness — it is a reasonable default,
+# not a validated edge, and tightening a trail converts runners into small wins.
+TRAIL_ARM_R      = float(os.environ.get("TRAIL_ARM_R", "1.0"))      # profit needed before the stop moves at all
+TRAIL_STEP_R     = float(os.environ.get("TRAIL_STEP_R", "0.5"))     # granularity of each ratchet step
+TRAIL_GIVEBACK_R = float(os.environ.get("TRAIL_GIVEBACK_R", "1.0")) # how far behind price the stop sits
+
+# Where each position's TRUE initial risk survives a restart.
+#
+# This existed only in the in-memory dict above, and was re-derived on every start
+# from the position's CURRENT stop — the very value manage_trailing_stops mutates.
+# So the moment a stop moved, by this code or by hand, the next restart recorded a
+# corrupted "initial risk", and this bridge restarts dozens of times a day. Two
+# measured failure modes on 2026-08-07, both silent:
+#
+#   • after a move to breakeven, sl == entry → r = 0 → `if r > 0` fails → the
+#     ticket is never recorded and every later poll hits `continue`. Trailing is
+#     dead for the rest of that position's life, with nothing logged.
+#   • Gold #1713655080, stop moved by hand to 4276.25 → r re-derived as 34.52
+#     instead of 75.69, which put the stop at exactly the fake `entry + 1R`. The
+#     ladder condition could then never be true again. Frozen at +83 while price
+#     ran 30 points past the real 1R trigger.
+#
+# One file per account tag, matching BREAKER_STATE_PATH, because each bridge keeps
+# its own books.
+POSITION_R_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "tasks",
+    f"position_r_{ACCOUNT_TAG or 'default'}.json",
+)
+
+# Tickets already reported as having no recoverable R, so the warning below is loud
+# once per position rather than once per 60s poll forever.
+trail_unresolved_logged = set()
+# Tickets already reported as too small to take a partial on. Same reasoning.
+partial_too_small_logged = set()
 
 # ── Risk circuit breaker ───────────────────────────────────────
 daily_pnl        = 0.0      # cumulative P&L today
@@ -1481,8 +1526,175 @@ def claude_approves_trade(sig, symbol, entry, stop, target):
         return True  # fail open so network issues don't block all trades
 
 
+def load_position_r():
+    """Restore each open position's true initial risk from the previous run.
+
+    Fails open: an unreadable file leaves the dict empty and every ticket falls
+    through to the journal lookup below, which is the more authoritative source
+    anyway. Logged loudly so a corrupt file is never silent.
+    """
+    try:
+        with open(POSITION_R_PATH, "r", encoding="utf-8") as r_file:
+            stored = json.load(r_file)
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        log(f"Position risk store unreadable ({exc}) — will re-derive from the journal.", YELLOW)
+        return
+
+    if not isinstance(stored, dict):
+        log("Position risk store is not an object — ignoring it.", YELLOW)
+        return
+
+    # JSON object keys are always strings; tickets are ints everywhere else.
+    for ticket_key, risk in stored.items():
+        try:
+            risk_value = float(risk)
+        except (TypeError, ValueError):
+            continue
+        if risk_value > 0:
+            position_initial_r[int(ticket_key)] = risk_value
+
+    if position_initial_r:
+        log(f"Restored initial risk for {len(position_initial_r)} position(s).", CYAN)
+
+
+def save_position_r():
+    """Persist the initial-risk map. Never raises — a write failure must not stop trading."""
+    try:
+        with open(POSITION_R_PATH, "w", encoding="utf-8") as r_file:
+            json.dump({str(t): v for t, v in position_initial_r.items()}, r_file, indent=2)
+    except Exception as exc:
+        log(f"Could not persist position risk ({exc}) — trailing may reset on restart.", YELLOW)
+
+
+def initial_r_from_journal(ticket, symbol):
+    """This position's ORIGINAL risk distance, from the journal row written at entry.
+
+    The journal stores the entry and stop the signal was actually filled with, and
+    nothing ever rewrites them, so it is the one record a later stop move cannot
+    corrupt. Returns None when the row is missing or unusable — never a guess.
+    """
+    try:
+        res = requests.get(
+            f"{SERVER_URL}/api/journal",
+            params={"limit": JOURNAL_FETCH_LIMIT},
+            timeout=JOURNAL_REQUEST_TIMEOUT_S,
+        )
+        res.raise_for_status()
+        entries = res.json().get("journal")
+    except Exception as exc:
+        log(f"Journal unreachable ({exc}) — cannot recover initial risk for #{ticket}.", YELLOW)
+        return None
+
+    if not isinstance(entries, list):
+        return None
+
+    for entry_row in entries:
+        if not isinstance(entry_row, dict) or entry_row.get("ticket") != ticket:
+            continue
+        if entry_row.get("symbol") != symbol:
+            # Same ticket id on a different instrument is a different trade entirely.
+            continue
+        try:
+            journal_entry = float(entry_row.get("entry"))
+            journal_stop  = float(entry_row.get("sl"))
+        except (TypeError, ValueError):
+            return None
+        risk = abs(journal_entry - journal_stop)
+        return risk if risk > 0 else None
+
+    return None
+
+
+def resolve_initial_r(position):
+    """The risk distance the ladder measures profit in. None when it cannot be trusted.
+
+    Three sources, in descending order of authority:
+
+      1. the persisted store — written once, never recomputed from a live stop
+      2. the journal row for this ticket — the levels the trade was opened with
+      3. the live stop, but ONLY while it still sits on the losing side of entry,
+         which proves nothing has moved it yet
+
+    Deliberately no fourth fallback. Guessing R from a stop that has already been
+    moved is exactly the bug this replaces; refusing to act and saying so is the
+    correct behaviour when the true risk is unknown.
+    """
+    ticket = position.ticket
+    known  = position_initial_r.get(ticket)
+    if known and known > 0:
+        return known
+
+    from_journal = initial_r_from_journal(ticket, position.symbol)
+    if from_journal:
+        position_initial_r[ticket] = from_journal
+        save_position_r()
+        log(f"Initial risk for #{ticket} {position.symbol} recovered from journal: "
+            f"{from_journal:.5g}", CYAN)
+        return from_journal
+
+    entry  = position.price_open
+    stop   = position.sl
+    is_buy = (position.type == 0)
+    stop_is_untouched = stop != 0 and ((is_buy and stop < entry) or (not is_buy and stop > entry))
+    if stop_is_untouched:
+        risk = abs(entry - stop)
+        if risk > 0:
+            position_initial_r[ticket] = risk
+            save_position_r()
+            return risk
+
+    if ticket not in trail_unresolved_logged:
+        trail_unresolved_logged.add(ticket)
+        log(f"NO TRAIL #{ticket} {position.symbol}: initial risk unknown — no stored "
+            f"value, no journal row, and the live stop ({stop}) has already moved off "
+            f"the risk side of entry ({entry}). Stop will NOT be managed.", RED)
+    return None
+
+
+def ladder_stop_price(entry, risk, price, is_buy):
+    """Where the ratchet says the stop belongs right now. None below the arm level.
+
+    Steps are floored, not rounded, so the stop only ever locks in profit the trade
+    has actually already made.
+    """
+    # Binary floating point puts an exact 1.0R at 0.9999999999999995, which floors to
+    # the step below and arms the ladder a tick later than the table above promises.
+    # One part in a billion is far finer than any instrument's tick, so absorbing it
+    # can never bring a step forward by a real price increment.
+    step_epsilon = 1e-9
+
+    profit_r = (price - entry) / risk if is_buy else (entry - price) / risk
+    if profit_r < TRAIL_ARM_R - step_epsilon:
+        return None
+
+    steps_taken = math.floor((profit_r - TRAIL_ARM_R) / TRAIL_STEP_R + step_epsilon)
+    locked_r    = steps_taken * TRAIL_STEP_R + TRAIL_ARM_R - TRAIL_GIVEBACK_R
+    # Once armed the stop is never worse than breakeven, whatever the env vars say.
+    locked_r    = max(locked_r, 0.0)
+
+    return entry + locked_r * risk if is_buy else entry - locked_r * risk
+
+
+def broker_stop_limit(symbol, price, is_buy):
+    """The closest a stop may legally sit to `price`. None when the broker is silent.
+
+    MT5 rejects a stop inside trade_stops_level with retcode 10016, and the previous
+    implementation never checked, so a step landing near price failed instead of
+    being placed at the nearest legal level.
+    """
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        return None
+    min_distance = info.trade_stops_level * info.point
+    if min_distance <= 0:
+        return None
+    return price - min_distance if is_buy else price + min_distance
+
+
 def manage_trailing_stops():
-    """Move SL to breakeven at 1R profit; trail to entry+1R at 2R profit."""
+    """Ratchet each open stop up the profit ladder. Never widens a stop."""
     try:
         res  = requests.get(f"{SERVER_URL}/api/features", timeout=5)
         feat = res.json().get("features", {})
@@ -1492,6 +1704,9 @@ def manage_trailing_stops():
         pass  # if server unreachable, run anyway (trailing stops are safety-critical)
 
     positions = mt5.positions_get()
+    if positions is None:
+        log(f"positions_get() failed ({mt5.last_error()}) — stops not managed this cycle.", YELLOW)
+        return
     if not positions:
         return
 
@@ -1499,64 +1714,75 @@ def manage_trailing_stops():
         if p.magic != MAGIC_NUMBER:
             continue
 
+        risk = resolve_initial_r(p)
+        if not risk:
+            continue
+
         ticket = p.ticket
         entry  = p.price_open
-        sl     = p.sl
-        tp     = p.tp
+        stop   = p.sl
         price  = p.price_current
         is_buy = (p.type == 0)
         symbol = p.symbol
 
-        # Record initial R on first encounter with this position
-        if ticket not in position_initial_r and sl != 0:
-            r = abs(entry - sl)
-            if r > 0:
-                position_initial_r[ticket] = r
-
-        r = position_initial_r.get(ticket)
-        if not r or r == 0:
+        target_stop = ladder_stop_price(entry, risk, price, is_buy)
+        if target_stop is None:
             continue
 
-        new_sl = None
-        if is_buy:
-            # 1R profit → move SL to breakeven
-            if price >= entry + r and sl < entry - 0.0001:
-                new_sl = round(entry, 5)
-                log(f"Breakeven triggered: #{ticket} {symbol} SL → {new_sl}", CYAN)
-            # 2R profit → trail SL to entry + 1R (lock in 1R)
-            elif price >= entry + 2 * r and sl < round(entry + r, 5) - 0.0001:
-                new_sl = round(entry + r, 5)
-                log(f"Trail 2R: #{ticket} {symbol} SL → {new_sl}", CYAN)
-        else:  # SELL
-            # 1R profit → move SL to breakeven
-            if price <= entry - r and sl > entry + 0.0001:
-                new_sl = round(entry, 5)
-                log(f"Breakeven triggered: #{ticket} {symbol} SL → {new_sl}", CYAN)
-            # 2R profit → trail SL to entry - 1R
-            elif price <= entry - 2 * r and sl > round(entry - r, 5) + 0.0001:
-                new_sl = round(entry - r, 5)
-                log(f"Trail 2R: #{ticket} {symbol} SL → {new_sl}", CYAN)
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            log(f"symbol_info({symbol}) unavailable — #{ticket} stop not managed.", YELLOW)
+            continue
+        tick_size = info.point
 
-        if new_sl is not None:
-            req = {
-                "action":   mt5.TRADE_ACTION_SLTP,
-                "position": ticket,
-                "symbol":   symbol,
-                "sl":       new_sl,
-                "tp":       tp,
-                "magic":    MAGIC_NUMBER,
-            }
-            result = mt5.order_send(req)
-            if result.retcode == mt5.TRADE_RETCODE_DONE:
-                log(f"SL updated to {new_sl} for #{ticket}", GREEN)
-            else:
-                log(f"SL update failed #{ticket}: {result.comment}", RED)
+        # Clamp into the broker's legal zone rather than sending a stop it will reject.
+        legal_stop = broker_stop_limit(symbol, price, is_buy)
+        if legal_stop is not None:
+            target_stop = min(target_stop, legal_stop) if is_buy else max(target_stop, legal_stop)
+
+        target_stop = round(target_stop, info.digits)
+
+        # Never widen. A stop of 0 means no protection at all, so anything beats it.
+        if stop == 0:
+            improves = True
+        elif is_buy:
+            improves = target_stop > stop + tick_size
+        else:
+            improves = target_stop < stop - tick_size
+        if not improves:
+            continue
+
+        locked_r = (target_stop - entry) / risk if is_buy else (entry - target_stop) / risk
+        result = mt5.order_send({
+            "action":   mt5.TRADE_ACTION_SLTP,
+            "position": ticket,
+            "symbol":   symbol,
+            "sl":       target_stop,
+            "tp":       p.tp,
+            "magic":    MAGIC_NUMBER,
+        })
+        if result is None:
+            log(f"SL update returned nothing for #{ticket} ({mt5.last_error()})", RED)
+        elif result.retcode == mt5.TRADE_RETCODE_DONE:
+            log(f"TRAIL #{ticket} {symbol}: SL {stop} → {target_stop} "
+                f"(locks {locked_r:+.2f}R)", GREEN + BOLD)
+        else:
+            log(f"SL update failed #{ticket}: [{result.retcode}] {result.comment}", RED)
 
 
 def take_partial_profit():
-    """At 1R profit: close 50% of the position, move SL to breakeven."""
+    """At 1R profit: close 50% of the position, move SL to breakeven.
+
+    Dormant at the lot size this system actually trades. `fixedLotSize` is 0.01,
+    which IS the broker minimum on all three instruments, so there is no half to
+    close — a position of one minimum lot cannot be split at all. It used to reach
+    that conclusion silently, via `round(0.5)` returning 0 under banker's rounding,
+    so the function had never executed once in the system's life and nothing said
+    why. Banking profit at these sizes is the trailing ladder's job; this stays for
+    the day position sizes are large enough to scale out of, and now says so.
+    """
     positions = mt5.positions_get()
-    if not positions:
+    if positions is None or not positions:
         return
 
     for p in positions:
@@ -1582,10 +1808,17 @@ def take_partial_profit():
         sym_info = mt5.symbol_info(p.symbol)
         if not sym_info:
             continue
-        half_vol = round(p.volume / 2 / sym_info.volume_step) * sym_info.volume_step
-        half_vol = max(half_vol, sym_info.volume_min)
-        if half_vol >= p.volume:
-            continue  # too small to split
+        # Floor to the volume step: rounding could ask the broker to close MORE than
+        # half, and round(0.5) is 0 in Python, which silently zeroed this entirely.
+        half_vol = math.floor(p.volume / 2 / sym_info.volume_step) * sym_info.volume_step
+        half_vol = round(half_vol, 8)  # kill float dust like 0.30000000000000004
+        if half_vol < sym_info.volume_min or half_vol >= p.volume:
+            if ticket not in partial_too_small_logged:
+                partial_too_small_logged.add(ticket)
+                log(f"Partial profit skipped #{ticket} {p.symbol}: {p.volume} lots cannot "
+                    f"be split (min {sym_info.volume_min}). Trailing ladder handles this "
+                    f"trade instead.", YELLOW)
+            continue
 
         tick       = mt5.symbol_info_tick(p.symbol)
         close_type = mt5.ORDER_TYPE_SELL if is_buy else mt5.ORDER_TYPE_BUY
@@ -1779,7 +2012,13 @@ def track_closed_positions():
         except Exception:
             pass
 
+        # Drop every per-position record together, or the next trade to be handed
+        # this ticket id inherits a stale risk figure and a suppressed warning.
         position_initial_r.pop(ticket, None)
+        position_partial_taken.discard(ticket)
+        trail_unresolved_logged.discard(ticket)
+        partial_too_small_logged.discard(ticket)
+        save_position_r()
 
     known_positions = current_tickets
 
@@ -1956,6 +2195,11 @@ def main():
     # Restore the breaker BEFORE reconciliation runs, so last_counted_close is known
     # and the sweep can tell an outage close from history it has already counted.
     load_breaker_state()
+
+    # Before the first manage_trailing_stops() call, so a position whose stop this
+    # bridge already moved is measured against its TRUE risk rather than against the
+    # stop the last run left behind.
+    load_position_r()
 
     try:
         reconcile_open_trades()
