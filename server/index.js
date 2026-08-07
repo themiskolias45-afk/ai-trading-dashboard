@@ -51,7 +51,31 @@ const hermes     = require("./hermes");
 // Universal rejection ledger — see tasks/REJECTION-LEDGER-SPEC.md. Pure
 // observability: every function here swallows its own failure and returns, so it
 // can never reach the trading path.
-const { logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt } = require("./rejection_log");
+//
+// The require itself was the one exception to that promise. rejection_log.js was
+// untracked from the day it was written until 2026-08-07, so this line ran only
+// because the file happened to sit on the same disk — deploying index.js to the VPS
+// carried the require and not the file, and the server died on boot with
+// MODULE_NOT_FOUND. Every fresh checkout of this branch had the same dead server.
+//
+// Observability degrades to silence; it does not take the process down. A missing or
+// broken ledger now falls back to no-ops of the same shape and says so loudly.
+let logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt;
+try {
+  ({ logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt } =
+    require("./rejection_log"));
+} catch (ledgerError) {
+  console.error(
+    `[rejections] LEDGER UNAVAILABLE (${ledgerError.message}) — the server is running ` +
+    `WITHOUT rejection logging. Gate kills will not be recorded and /api/rejections ` +
+    `will reject every row. Trading is unaffected.`
+  );
+  logGateRejection  = () => false;
+  noteGatePass      = () => {};
+  gateStats         = {};
+  GATE_NAMES        = [];
+  countersStartedAt = new Date().toISOString();
+}
 
 const app = express();
 
