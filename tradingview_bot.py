@@ -363,100 +363,144 @@ def _fmt(price, decimals):
     return "-" if price is None else f"{price:,.{decimals}f}"
 
 
-def generate_pine(plan):
-    """
-    Build ONE daily-plan indicator for a symbol.
+# Substrings matched against syminfo.ticker to pick which plan a chart shows.
+TICKER_TESTS = {
+    "BTC":  ["BTC"],
+    "GOLD": ["XAU", "GOLD"],
+    "SPX":  ["SPX", "SP500", "US500"],
+}
 
-    plan is the dict from build_plan(): levels plus the analysis that justifies
-    them. Everything the plan claims is rendered, so the chart and the engine can
-    never disagree — if a field is missing it prints as "-" rather than being
-    quietly dropped.
-    """
-    symbol   = plan["symbol"]
-    decimals = plan["decimals"]
-    bias     = plan.get("bias") or "WAIT"
+# Fixed row order, so every symbol fills the same table shape.
+PLAN_ROWS = ["Date", "Setup", "Strength", "Confidence", "Levels", "R:R", "Regime",
+             "Session", "Trend D1", "Trend H4", "Trend H1", "RSI / ADX", "Volume",
+             "Swing", "Feed", "Why 1", "Why 2", "Why 3"]
 
-    bias_color = {"LONG": "color.new(color.green, 0)",
-                  "SHORT": "color.new(color.red, 0)"}.get(bias, "color.new(color.gray, 0)")
+LEVEL_SPECS = [
+    ("entry",         "color.new(color.green, 0)",  2, "line.style_dashed"),
+    ("stop",          "color.new(color.red, 0)",    2, "line.style_dashed"),
+    ("target",        "color.new(color.blue, 0)",   2, "line.style_dashed"),
+    ("resistance",    "color.new(#EF9A9A, 0)",      1, "line.style_dotted"),
+    ("support",       "color.new(#64B5F6, 0)",      1, "line.style_dotted"),
+    ("breakout_up",   "color.new(color.olive, 0)",  1, "line.style_dotted"),
+    ("breakout_down", "color.new(color.maroon, 0)", 1, "line.style_dotted"),
+]
 
-    lines, labels = [], []
+BIAS_COLOURS = {"LONG": "color.new(color.green, 0)",
+                "SHORT": "color.new(color.red, 0)"}
 
-    def level(price, colour, width, style, text):
-        if price is None:
-            return
-        lines.append(
-            f'    line.new(bar_index - 120, {price}, bar_index + 20, {price}, '
-            f'extend=extend.right, color={colour}, width={width}, style={style})'
-        )
-        labels.append(
-            f'    label.new(bar_index + 20, {price}, {_pine_str(text)}, '
-            f'color={colour}, textcolor=color.white, '
-            f'style=label.style_label_left, size=size.small)'
-        )
 
-    # A pivot fallback is not a trade, so it must not be labelled like one.
+def _level_label(plan, key):
+    """A pivot fallback is not a trade, so it must not be labelled like one."""
     is_setup = plan.get("levels_from", "engine") == "engine"
-    tag = {"entry": "Entry" if is_setup else "Price",
-           "stop":  "Stop"  if is_setup else "S2",
-           "target": "Target" if is_setup else "R2"}
+    names = {"entry":  "Entry" if is_setup else "Price",
+             "stop":   "Stop"  if is_setup else "S2",
+             "target": "Target" if is_setup else "R2",
+             "resistance": "R1", "support": "S1",
+             "breakout_up": "Break BUY", "breakout_down": "Break SELL"}
+    return names[key] + " " + _fmt(plan.get(key), plan["decimals"])
 
-    level(plan.get("entry"),  "color.new(color.green, 0)", 2, "line.style_dashed",
-          f'{tag["entry"]} {_fmt(plan.get("entry"), decimals)}')
-    level(plan.get("stop"),   "color.new(color.red, 0)",   2, "line.style_dashed",
-          f'{tag["stop"]} {_fmt(plan.get("stop"), decimals)}')
-    level(plan.get("target"), "color.new(color.blue, 0)",  2, "line.style_dashed",
-          f'{tag["target"]} {_fmt(plan.get("target"), decimals)}')
-    level(plan.get("resistance"), "color.new(#EF9A9A, 0)", 1, "line.style_dotted",
-          f'R1 {_fmt(plan.get("resistance"), decimals)}')
-    level(plan.get("support"),    "color.new(#64B5F6, 0)", 1, "line.style_dotted",
-          f'S1 {_fmt(plan.get("support"), decimals)}')
 
-    # Breakout triggers only exist for a squeeze watch, so they are optional.
-    level(plan.get("breakout_up"),   "color.new(color.olive, 0)", 1, "line.style_dotted",
-          f'Break BUY {_fmt(plan.get("breakout_up"), decimals)}')
-    level(plan.get("breakout_down"), "color.new(color.maroon, 0)", 1, "line.style_dotted",
-          f'Break SELL {_fmt(plan.get("breakout_down"), decimals)}')
+def _ternary(plans, value_of, default):
+    """Build `_isBTC ? v1 : _isGOLD ? v2 : ... : default` for a single field."""
+    chain = ["_is" + plan["symbol"] + " ? " + str(value_of(plan)) for plan in plans]
+    return " : ".join(chain) + " : " + default
 
-    rows = plan["table_rows"]
-    cells = []
-    for i, (key, value) in enumerate(rows):
+
+def generate_pine(plans):
+    """
+    Build ONE daily-plan indicator covering every symbol.
+
+    This has to be a single script rather than one per symbol. All three charts
+    live in the same saved TradingView layout, and a layout holds one chart state,
+    so a per-symbol study applied in one tab propagated to the others and the last
+    one won — the Gold chart ended up rendering BTC's plan, levels and all.
+    Selecting on syminfo.ticker works with that model instead of against it: apply
+    once, correct on whichever symbol the chart is showing, and a second copy of
+    the plan becomes impossible to create.
+    """
+    if isinstance(plans, dict):          # single plan, from cmd_pine
+        plans = [plans]
+
+    flags = []
+    for plan in plans:
+        tests = TICKER_TESTS.get(plan["symbol"], [plan["symbol"]])
+        checks = " or ".join('str.contains(_sym, "%s")' % t for t in tests)
+        flags.append("_is" + plan["symbol"] + " = " + checks)
+
+    live_keys = [spec for spec in LEVEL_SPECS
+                 if any(plan.get(spec[0]) is not None for plan in plans)]
+
+    level_vars, draw_block = [], []
+    for key, colour, width, style in live_keys:
+        level_vars.append("_" + key + " = " + _ternary(
+            plans, lambda p, k=key: p.get(k) if p.get(k) is not None else "na", "na"))
+        level_vars.append("_" + key + "Txt = " + _ternary(
+            plans, lambda p, k=key: _pine_str(_level_label(p, k)), '""'))
+        draw_block.append(
+            "    if not na(_%s)\n"
+            "        line.new(bar_index - 120, _%s, bar_index + 20, _%s, "
+            "extend=extend.right, color=%s, width=%d, style=%s)\n"
+            "        label.new(bar_index + 20, _%s, _%sTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.small)"
+            % (key, key, key, colour, width, style, key, key, colour)
+        )
+
+    cells = [
+        "    table.cell(planTable, 0, 0, " + _ternary(
+            plans, lambda p: _pine_str("JARVIS PLAN - " + p["symbol"]), '"JARVIS PLAN"')
+        + ", text_color=color.white, text_size=size.normal, text_halign=text.align_left)",
+        "    table.cell(planTable, 1, 0, " + _ternary(
+            plans, lambda p: _pine_str(p.get("bias") or "WAIT"), '"-"')
+        + ", text_color=color.white, text_size=size.normal, text_halign=text.align_left"
+        + ", bgcolor=" + _ternary(
+            plans,
+            lambda p: BIAS_COLOURS.get(p.get("bias"), "color.new(color.gray, 0)"),
+            "color.new(color.gray, 0)") + ")",
+    ]
+    for i, key in enumerate(PLAN_ROWS):
         cells.append(
-            f'    table.cell(planTable, 0, {i + 1}, {_pine_str(key)}, '
-            f'text_color=color.gray, text_size=size.small, text_halign=text.align_left)'
+            "    table.cell(planTable, 0, %d, %s, text_color=color.gray, "
+            "text_size=size.small, text_halign=text.align_left)" % (i + 1, _pine_str(key))
         )
         cells.append(
-            f'    table.cell(planTable, 1, {i + 1}, {_pine_str(value)}, '
-            f'text_color=color.white, text_size=size.small, text_halign=text.align_left)'
+            "    table.cell(planTable, 1, %d, %s, text_color=color.white, "
+            "text_size=size.small, text_halign=text.align_left)"
+            % (i + 1, _ternary(plans,
+                               lambda p, k=key: _pine_str(p["rows"].get(k, "-")), '"-"'))
         )
-
-    if not lines:
-        lines.append("    // no levels available for this asset today")
 
     newline = chr(10)
-    return f"""//@version=5
-indicator({_pine_str(f"JARVIS Daily Plan - {symbol}")}, overlay=true, max_lines_count=40, max_labels_count=40)
+    return """//@version=5
+indicator("JARVIS Daily Plan", overlay=true, max_lines_count=40, max_labels_count=40)
 
-// Generated by JARVIS - {plan["generated_at"]}
-// Source: {plan["source_note"]}
-// Bias: {bias} | Setup: {plan.get("setup")} | Confidence: {plan.get("confidence")} vs gate {plan.get("gate")}
+// Generated by JARVIS - %s
+// Covers: %s
+// Levels come from the SmartEntry engine, not from this chart's own feed.
 
-var table planTable = table.new(position.top_right, 2, {len(rows) + 1},
+_sym = syminfo.ticker
+%s
+_known = %s
+
+%s
+
+var table planTable = table.new(position.top_right, 2, %d,
      border_width=1, frame_width=1, frame_color=color.new(color.gray, 40),
      bgcolor=color.new(color.black, 15))
 
-if barstate.islast
-    table.cell(planTable, 0, 0, {_pine_str(f"JARVIS PLAN - {symbol}")},
-         text_color=color.white, text_size=size.normal, text_halign=text.align_left)
-    table.cell(planTable, 1, 0, {_pine_str(bias)},
-         text_color=color.white, bgcolor={bias_color},
-         text_size=size.normal, text_halign=text.align_left)
+if barstate.islast and _known
+%s
 
-{newline.join(cells)}
-
-{newline.join(lines)}
-
-{newline.join(labels)}
-"""
+%s
+""" % (
+        plans[0]["generated_at"],
+        ", ".join(p["symbol"] for p in plans),
+        newline.join(flags),
+        " or ".join("_is" + p["symbol"] for p in plans),
+        newline.join(level_vars),
+        len(PLAN_ROWS) + 1,
+        newline.join(cells),
+        newline.join(draw_block),
+    )
 
 # ── Pine Editor auto-paste ────────────────────────────────────────────────────
 def _editor_text(page):
@@ -475,6 +519,69 @@ def _editor_text(page):
 def _scroll_editor_top(page):
     page.keyboard.press("Control+Home")
     page.wait_for_timeout(800)
+
+
+PLAN_NAME_PREFIX = "JARVIS Daily Plan"
+
+
+def list_plan_studies(page):
+    """Titles of JARVIS plan studies currently on the layout, read from the Object Tree."""
+    # The Object Tree button TOGGLES, so clicking unconditionally closed the panel
+    # on every second call and made the study list read as empty. Only open it when
+    # it is not already showing rows.
+    try:
+        if page.locator('.title-quatTGAC').count() == 0:
+            page.click('[data-name="object_tree"]', timeout=8000)
+            page.wait_for_timeout(2500)
+    except Exception:
+        pass
+    try:
+        text = page.evaluate(
+            "() => (document.querySelector('[data-name=\"widgetbar-wrap\"]') || document.body)"
+            ".innerText.replace(/\\u00a0/g, ' ')"
+        )
+    except Exception:
+        return []
+    return [line.strip() for line in text.split("\n")
+            if line.strip().startswith(PLAN_NAME_PREFIX)]
+
+
+def remove_plan_studies(page, limit=12):
+    """
+    Delete every JARVIS plan study from the layout.
+
+    Necessary because a saved TradingView layout autosaves its studies: they
+    survive navigation, so re-running stacked a new copy each time instead of
+    replacing. Worse, the earlier per-symbol scripts carried no symbol guard and
+    drew their table on every chart in the layout, which is how BTC's plan ended
+    up covering the Gold chart.
+
+    The title guard is strict on purpose. This layout also holds the user's own
+    work — APEX SMC, Clean Structure PRO, TK Swing Trend Pullback and others — and
+    nothing without the JARVIS prefix may ever be touched.
+    """
+    removed = []
+    for _ in range(limit):
+        titles = list_plan_studies(page)
+        if not titles:
+            break
+        title = titles[0]
+        if not title.startswith(PLAN_NAME_PREFIX):
+            break                 # belt and braces: never touch a foreign study
+        try:
+            row = page.locator(f'text="{title}"').first
+            row.hover(timeout=8000)
+            page.wait_for_timeout(600)
+            row.locator('xpath=ancestor::*[.//*[@aria-label="Remove"]][1]') \
+               .locator('[aria-label="Remove"]').first.click(timeout=8000)
+            page.wait_for_timeout(1800)
+            removed.append(title)
+        except Exception as exc:
+            print(f"[TV] could not remove {title!r}: {exc}")
+            break
+    if removed:
+        print(f"[TV] Removed {len(removed)} stale plan study(ies): {removed}")
+    return removed
 
 
 def apply_pine(page, pine, symbol):
@@ -652,29 +759,30 @@ def build_plan(symbol, asset, gate=None, overrides=None):
     bias = signal if signal in ("BUY", "SELL") else "WAIT"
     bias = {"BUY": "LONG", "SELL": "SHORT"}.get(bias, "WAIT")
 
-    rows = [
-        ("Date",       time.strftime("%Y-%m-%d %H:%M")),
-        ("Setup",      f'{asset.get("setup", "-")} ({asset.get("setupTimeframe", "-")})'),
-        ("Strength",   asset.get("strength") or "-"),
-        ("Confidence", f'{confidence} vs gate {gate}'
-                       + (f'  gap {gap}pt' if gap else '  MEETS GATE')),
-        ("Levels",     "engine setup" if levels_from == "engine"
-                       else "PIVOT BAND - not a setup"),
-        ("R:R",        f'{rr}' if rr else "n/a (no setup)"),
-        ("Regime",     asset.get("regime") or "-"),
-        ("Session",    (asset.get("session") or {}).get("name") or "-"),
-        ("Trend D1",   asset.get("trend") or "-"),
-        ("Trend H4",   f'{h4.get("trend", "-")} (RSI {h4.get("rsi", "-")})'),
-        ("Trend H1",   f'{h1.get("trend", "-")} (RSI {h1.get("rsi", "-")})'),
-        ("RSI / ADX",  f'{indicators.get("rsi", "-")} / {indicators.get("adx", "-")}'),
-        ("Volume",     f'{volume.get("ratio", "-")}x avg'
-                       + ("" if volume.get("confirmed") else " (unconfirmed)")),
-        ("Swing",      f'{_fmt(structure.get("swingLow"), decimals)} - '
-                       f'{_fmt(structure.get("swingHigh"), decimals)}'),
-        ("Feed",       f'{asset.get("dataSource", "-")}:{asset.get("sourceSymbol", "-")}'),
-    ]
-    for i, reason in enumerate((asset.get("reasons") or [])[:3]):
-        rows.append((f"Why {i + 1}", reason[:70]))
+    reasons = (asset.get("reasons") or [])
+    rows = {
+        "Date":       time.strftime("%Y-%m-%d %H:%M"),
+        "Setup":      f'{asset.get("setup", "-")} ({asset.get("setupTimeframe", "-")})',
+        "Strength":   asset.get("strength") or "-",
+        "Confidence": f'{confidence} vs gate {gate}'
+                      + (f'  gap {gap}pt' if gap else '  MEETS GATE'),
+        "Levels":     "engine setup" if levels_from == "engine"
+                      else "PIVOT BAND - not a setup",
+        "R:R":        f'{rr}' if rr else "n/a (no setup)",
+        "Regime":     asset.get("regime") or "-",
+        "Session":    (asset.get("session") or {}).get("name") or "-",
+        "Trend D1":   asset.get("trend") or "-",
+        "Trend H4":   f'{h4.get("trend", "-")} (RSI {h4.get("rsi", "-")})',
+        "Trend H1":   f'{h1.get("trend", "-")} (RSI {h1.get("rsi", "-")})',
+        "RSI / ADX":  f'{indicators.get("rsi", "-")} / {indicators.get("adx", "-")}',
+        "Volume":     f'{volume.get("ratio", "-")}x avg'
+                      + ("" if volume.get("confirmed") else " (unconfirmed)"),
+        "Swing":      f'{_fmt(structure.get("swingLow"), decimals)} - '
+                      f'{_fmt(structure.get("swingHigh"), decimals)}',
+        "Feed":       f'{asset.get("dataSource", "-")}:{asset.get("sourceSymbol", "-")}',
+    }
+    for i in range(3):
+        rows[f"Why {i + 1}"] = reasons[i][:70] if i < len(reasons) else "-"
 
     plan = {
         "symbol": symbol,
@@ -696,7 +804,7 @@ def build_plan(symbol, asset, gate=None, overrides=None):
         "source_note": f'{asset.get("dataSource", "unknown")} '
                        f'{asset.get("sourceSymbol", "")} '
                        f'updated {asset.get("updatedAt", "?")}',
-        "table_rows": rows,
+        "rows": rows,
     }
 
     # A squeeze watch publishes its triggers in the reason text rather than as
@@ -800,45 +908,67 @@ def cmd_plan(which="all", shoot=True):
     wanted = list(API_ASSETS) if which.lower() == "all" else [which.upper()]
     results = {}
 
+    plans = []
+    for name in wanted:
+        key = API_ASSETS.get(name)
+        asset = signals.get(key) if key else None
+        if not asset:
+            print(f"[TV] {name}: not in /api/signals — skipped")
+            continue
+        plans.append(build_plan(name, asset, gate))
+
+    if not plans:
+        print("[TV] Nothing to draw")
+        return 1
+
+    pine = generate_pine(plans)
+
     try:
         with sync_playwright() as pw:
             browser, ctx = make_context(pw)
             SHOT_DIR.mkdir(parents=True, exist_ok=True)
 
-            # One tab per symbol, held open: a plan lives only on the chart it was
-            # applied to, so reusing a single tab would discard each plan as the
-            # next symbol loaded. Existing TV tabs are reused rather than added to,
-            # because TradingView counts every tab against the plan's connection
-            # limit and refuses new ones once it is hit.
-            spare = [p for p in ctx.pages if "tradingview.com" in p.url]
-            for name in wanted:
-                key = API_ASSETS.get(name)
-                asset = signals.get(key) if key else None
-                if not asset:
-                    print(f"[TV] {name}: not in /api/signals — skipped")
-                    results[name] = False
-                    continue
-
-                page = spare.pop(0) if spare else ctx.new_page()
+            # ONE tab, ONE apply. Every chart shares a single saved layout, so a
+            # study applied anywhere shows up everywhere — which is exactly why a
+            # per-symbol script put BTC's plan on the Gold chart. The script picks
+            # its own symbol, so applying it once covers all of them.
+            tabs = [p for p in ctx.pages if "tradingview.com" in p.url]
+            page = tabs[0] if tabs else ctx.new_page()
+            for extra in tabs[1:]:
                 try:
-                    plan = build_plan(name, asset, gate)
-                    # open_chart navigates, and unsaved studies do not survive a
-                    # navigation — that is what stops a re-run stacking a second
-                    # copy of the plan on top of the first.
-                    open_chart(page, name)
-                    results[name] = apply_pine(page, generate_pine(plan), name)
-                    if shoot:
-                        page.screenshot(path=str(SHOT_DIR / f"plan_{name.lower()}.png"))
-                except Exception as exc:
-                    print(f"[TV] {name}: {type(exc).__name__}: {exc}")
-                    results[name] = False
-
-            # Any TV tabs beyond the ones we just used are leftovers.
-            for stale in spare:
-                try:
-                    stale.close()
+                    extra.close()      # TradingView counts every tab against the plan limit
                 except Exception:
                     pass
+
+            open_chart(page, plans[0]["symbol"])
+            # Clear yesterday's/this morning's plans before adding today's, or they
+            # stack and the unguarded older ones draw on every symbol.
+            remove_plan_studies(page)
+            applied = apply_pine(page, pine, "ALL")
+
+            # The canvas drawing is invisible to the DOM, but the study LIST is not:
+            # the Object Tree is real DOM, so it can prove the plan reached the chart.
+            on_chart = list_plan_studies(page)
+            print(f"[TV] Plan studies on layout: {on_chart or 'NONE'}")
+            if not on_chart:
+                print("[TV] The study did not attach to the chart")
+                applied = False
+
+            if applied and shoot:
+                # Same tab, same study — switch symbols only to capture each chart.
+                for plan in plans:
+                    try:
+                        open_chart(page, plan["symbol"])
+                        page.wait_for_timeout(4000)
+                        page.screenshot(
+                            path=str(SHOT_DIR / f"plan_{plan['symbol'].lower()}.png"))
+                        results[plan["symbol"]] = True
+                    except Exception as exc:
+                        print(f"[TV] {plan['symbol']} screenshot: {exc}")
+                        results[plan["symbol"]] = True   # the plan is applied regardless
+            else:
+                for plan in plans:
+                    results[plan["symbol"]] = applied
     except Exception as exc:
         print(f"[TV] Cannot connect to Edge: {exc}")
         print("[TV] Run: tasks\\launch_chrome_tv.bat")
