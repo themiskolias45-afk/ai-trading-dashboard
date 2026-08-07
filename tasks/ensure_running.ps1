@@ -21,14 +21,30 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Proj    = 'C:\Users\User\ai-trading-dashboard'
+# Derived from this file's own location, never hardcoded. The laptop keeps the
+# project under C:\Users\User and the VPS at C:\ai-trading-dashboard, and a hardcoded
+# path is why this script could only ever run on one of the two boxes -- leaving the
+# VPS, a headless server nobody logs into, with no gap-filler at all.
+$Proj    = Split-Path -Parent $PSScriptRoot
 $LogDir  = Join-Path $Proj 'tasks\logs'
 $LogFile = Join-Path $LogDir 'ensure_running.txt'
 $LOG_MAX_BYTES = 2MB
 
-$TerminalA = 'C:\Program Files\MetaTrader 5\terminal64.exe'
-$TerminalB = 'C:\Users\User\AppData\Roaming\MetaTrader 5\terminal64.exe'
-$TunnelKey = 'C:\Users\User\.ssh\contabo_smartentry'
+# Terminals are DETECTED, not assumed. The VPS has one MT5 install and the laptop
+# two; naming a path that does not exist on this box would log a permanent false
+# alarm, and the whole point of this script is that nothing is blind.
+$TerminalCandidates = @(
+    'C:\Program Files\MetaTrader 5\terminal64.exe',
+    (Join-Path $env:APPDATA 'MetaTrader 5\terminal64.exe')
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+# Laptop-only: the tunnel that serves the VPS dashboard on a localhost origin. Absent
+# key means this box does not own the tunnel, which is not a fault.
+$TunnelKey = Join-Path $env:USERPROFILE '.ssh\contabo_smartentry'
+
+# A headless server has no desktop to open a JARVIS window on. Session 0 / no
+# interactive desktop must skip that step rather than fail it forever.
+$IsInteractive = [Environment]::UserInteractive
 $TUNNEL_LOCAL_PORT = 3002
 $SERVER_URL        = 'http://localhost:3001/api/signals'
 $SERVER_TIMEOUT_S  = 6
@@ -120,11 +136,13 @@ $procs = Get-ProcTable
 # A bridge with no terminal is a bridge that logs "no bars" forever, so terminals
 # come first. MT5 is single-instance per install: launching one that is already
 # running just activates its window.
-foreach ($term in @(@{ Tag = 'A'; Path = $TerminalA }, @{ Tag = 'B'; Path = $TerminalB })) {
-    if (-not (Test-Path $term.Path)) {
-        Write-Log "TERMINAL $($term.Tag): not installed at $($term.Path) -- skipped"
-        continue
-    }
+if ($TerminalCandidates.Count -eq 0) {
+    Write-Log 'TERMINALS: no MT5 install found on this box -- nothing to start'
+}
+$terminalIndex = 0
+foreach ($termPath in $TerminalCandidates) {
+    $terminalIndex++
+    $term = @{ Tag = "$terminalIndex"; Path = $termPath }
     if ($null -eq $procs) {
         Write-Log "TERMINAL $($term.Tag): process list unreadable -- not starting blind"
         continue
@@ -281,6 +299,14 @@ if (-not (Test-Path $TunnelKey)) {
 # different project. A false positive costs a missing JARVIS window that the user
 # can open by hand; a false negative spawns duplicate sessions against the same
 # subscription every ten minutes. Those are not symmetric.
+if (-not $IsInteractive) {
+    # The VPS is headless. Opening a console session nobody can see would burn
+    # subscription on a window that never gets read.
+    Write-Log 'JARVIS: no interactive desktop on this box -- skipped'
+    Write-Log '--- ensure_running done ---'
+    return
+}
+
 $jarvisRunning = $false
 try {
     $claudeWindows = @(Get-Process -ErrorAction SilentlyContinue |
