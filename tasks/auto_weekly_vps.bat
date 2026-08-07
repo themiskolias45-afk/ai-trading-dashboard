@@ -7,7 +7,9 @@ if exist keys.env (
 )
 if exist server\apikey.txt set /p ANTHROPIC_API_KEY=<server\apikey.txt
 
-set REPORT=tasks\logs\weekly_%date:~-4,4%%date:~-10,2%%date:~-7,2%.txt
+REM Locale-independent date — see the note in tasks\auto_weekly.bat.
+for /f %%D in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "TODAY=%%D"
+set REPORT=tasks\logs\weekly_%TODAY%.txt
 echo Weekly Analysis - %date% > %REPORT%
 echo ========================================= >> %REPORT%
 
