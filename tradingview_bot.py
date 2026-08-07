@@ -533,25 +533,20 @@ PLAN_NAME_PREFIX = "JARVIS Daily Plan"
 
 
 def list_plan_studies(page):
-    """Titles of JARVIS plan studies currently on the layout, read from the Object Tree."""
-    # The Object Tree button TOGGLES, so clicking unconditionally closed the panel
-    # on every second call and made the study list read as empty. Only open it when
-    # it is not already showing rows.
+    """
+    Titles of the JARVIS plan studies attached to the layout.
+
+    Reads the legend rows directly. They keep their text in the DOM even when the
+    legend is collapsed to its counter — which it is on this layout, and which is
+    why every attempt to hover or click them failed with "element is not visible".
+    Counting still works, so study growth stays detectable even where removal
+    through the UI does not.
+    """
     try:
-        if page.locator('.title-quatTGAC').count() == 0:
-            page.click('[data-name="object_tree"]', timeout=8000)
-            page.wait_for_timeout(2500)
-    except Exception:
-        pass
-    try:
-        text = page.evaluate(
-            "() => (document.querySelector('[data-name=\"widgetbar-wrap\"]') || document.body)"
-            ".innerText.replace(/\\u00a0/g, ' ')"
-        )
+        return [t.strip() for t in page.locator(".title-quatTGAC").all_inner_texts()
+                if t.strip().startswith(PLAN_NAME_PREFIX)]
     except Exception:
         return []
-    return [line.strip() for line in text.split("\n")
-            if line.strip().startswith(PLAN_NAME_PREFIX)]
 
 
 def remove_plan_studies(page, limit=12):
@@ -568,6 +563,15 @@ def remove_plan_studies(page, limit=12):
     work — APEX SMC, Clean Structure PRO, TK Swing Trend Pullback and others — and
     nothing without the JARVIS prefix may ever be touched.
     """
+    # When the legend is collapsed its rows are zero-size, so nothing can be hovered
+    # or clicked and every removal attempt just burns its timeout. Detect that and
+    # say so, rather than failing slowly on each run.
+    rows = page.locator(".title-quatTGAC")
+    if rows.count() and not rows.first.is_visible():
+        print("[TV] Legend is collapsed — studies cannot be removed programmatically. "
+              "Expand the legend on the chart and delete them by hand, or they stack.")
+        return []
+
     removed = []
     for _ in range(limit):
         titles = list_plan_studies(page)
