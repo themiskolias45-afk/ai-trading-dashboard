@@ -30,6 +30,22 @@ echo ========================================== >> "%LOGFILE%"
 echo  SmartEntry Daily Check - %date% %time% >> "%LOGFILE%"
 echo ========================================== >> "%LOGFILE%"
 
+REM ── Compound the free evidence, before the agent reads anything ───────────────
+REM The rejection ledger is the only source of outcome data that grows without
+REM risking money, and the binding constraint on this system is sample size. Scoring
+REM it by hand "weekly" meant it was scored once. These two steps are deterministic -
+REM no AI, no network - and are run BEFORE the agent so its report reflects today's
+REM evidence rather than whenever someone last remembered.
+REM
+REM Their exit codes are deliberately NOT captured: CLAUDE_RC below is the task's
+REM result, and a thin ledger returning nothing to score is a normal early state, not
+REM a failed daily check.
+echo. >> "%LOGFILE%"
+echo --- rejection ledger --- >> "%LOGFILE%"
+python "%PROJ%\tasks\score_rr_rejections.py" >> "%LOGFILE%" 2>&1
+python "%PROJ%\tasks\learning_from_rejections.py" >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM The confidence gate is NOT hardcoded here. It moved 65 -> 70 on 2026-08-02 and
 REM this file was still asking about 65, so it would have flagged sub-gate signals
 REM as ready. The agent reads the live value instead.
@@ -39,7 +55,7 @@ REM credit - on 2026-08-03 that ran out and every agent died in seconds with
 REM "Credit balance is too low". Cleared inside setlocal, so only this process.
 set "ANTHROPIC_API_KEY="
 pushd "%AGENTCWD%"
-claude -p "Daily SmartEntry Pro automated check. 1) Read %PROJ%\server\journal.json - last 5 trades with outcome and P&L. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number. If settingsError is not null, say so first: the server is on built-in defaults, not the saved config. 3) Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence, setup, dataSource. 4) Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses, halted. 5) Any signal at or above the live gate must be marked ** SIGNAL READY **. 6) One-line verdict: TRADE TODAY or WAIT. Keep under 25 lines." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul >> "%LOGFILE%" 2>&1
+claude -p "Daily SmartEntry Pro automated check. 1) Read %PROJ%\server\journal.json - last 5 trades with outcome and P&L. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number. If settingsError is not null, say so first: the server is on built-in defaults, not the saved config. 3) Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence, setup, dataSource. 4) Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses, halted. 5) Any signal at or above the live gate must be marked ** SIGNAL READY **. 6) Read %PROJ%\server\learning_shadow.json if it exists - per-setup evidence from REJECTED setups walked forward on real bars. These are paper results with no slippage, and they do NOT feed the live gate. Name any setup whose enoughForReading is true and say what its rPerEpisode implies. If the file is absent or every setup is still insufficient, say exactly that. 7) One-line verdict: TRADE TODAY or WAIT. Keep under 30 lines." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul >> "%LOGFILE%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
 popd
 
