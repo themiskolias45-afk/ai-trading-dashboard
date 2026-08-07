@@ -78,10 +78,20 @@ if ($tasks.Count -eq 0) {
             } else {
                 Add-Check 'tasks' $t.TaskName 'RED' 'registered, never run, and nothing scheduled to run it'
             }
+        } elseif ($t.State -eq 'Running') {
+            # Checked BEFORE LastTaskResult on purpose. For the long-running services
+            # -- server, bridge, watchdog -- LastTaskResult describes the PREVIOUS
+            # instance, so a task that is serving traffic right now was being reported
+            # RED because the instance before it had been force-stopped. Measured on
+            # the VPS: SmartEntryServer showed "last exit 2147946720" while answering
+            # every request and passing every other check. Running now is healthy now;
+            # the old exit is history, and is carried in the detail rather than lost.
+            $prior = if ($i.LastTaskResult -ne 0 -and $i.LastTaskResult -ne 267009) {
+                " (previous instance exited $($i.LastTaskResult))"
+            } else { '' }
+            Add-Check 'tasks' $t.TaskName 'GREEN' "running (started ${ageH}h ago)$prior"
         } elseif ($i.LastTaskResult -ne 0 -and $i.LastTaskResult -ne 267009) {
             Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
-        } elseif ($t.State -eq 'Running') {
-            Add-Check 'tasks' $t.TaskName 'GREEN' "running (started ${ageH}h ago)"
         } elseif ($null -eq $i.NextRunTime) {
             # No next run and not running: only a trigger nothing will fire can do this.
             Add-Check 'tasks' $t.TaskName 'AMBER' "ok ${ageH}h ago but NO next run scheduled - trigger may never fire again"
