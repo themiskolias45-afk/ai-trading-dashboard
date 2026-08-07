@@ -65,6 +65,13 @@ SEL_SIGN_IN     = '[data-name="header-user-menu-sign-in"], button:has-text("Sign
 # errors instead of testing whether the study reached the chart.
 SEL_APPLY       = '[data-tooltip="Update on chart"], [aria-label="Update on chart"]'
 SEL_COLLAPSE    = '[data-tooltip="Collapse panel"], [aria-label="Collapse panel"]'
+# Exact labels only. A loose button:has-text("Save") fallback matched the
+# "All changes saved" status chip first and clicking it timed out every run.
+SEL_SAVE        = ('[title="Save script"], [data-tooltip="Save script"], '
+                   '[aria-label="Save script"]')
+# The plan lives as ONE saved script. Saving it pushes the new source into every
+# chart already using it, which is how the plan updates without adding a study.
+SAVED_SCRIPT_NAME = "JARVIS Daily Plan"
 # What the applied study actually renders on the chart is the table header, which
 # reads "JARVIS PLAN - <SYMBOL>". The indicator's own name ("JARVIS Daily Plan - X")
 # lives in the legend and is not reliably in the DOM text.
@@ -596,14 +603,12 @@ def remove_plan_studies(page, limit=12):
     return removed
 
 
-def apply_pine(page, pine, symbol):
+def paste_pine(page, pine, label):
     """
-    Put one Pine script on the chart currently open in `page`.
+    Open the Pine editor and put `pine` in it. Returns True when the source landed.
 
-    Applying is Ctrl+Enter: a signed-in session has no "Add to chart" button. Every
-    apply adds ANOTHER copy of the indicator, which is why the caller reloads the
-    chart first — unsaved studies do not survive a reload, so a re-run replaces the
-    plan instead of stacking a second one on top of it.
+    Shared by both paths: applying the script as a new study, and saving it so that
+    every chart already using it picks the change up.
     """
     page.bring_to_front()
     page.wait_for_selector(SEL_PINE_BUTTON, timeout=45000)
@@ -641,7 +646,64 @@ def apply_pine(page, pine, symbol):
 
     landed = _editor_text(page).lstrip()
     if not landed.startswith("//@version=5"):
-        print(f"[TV] {symbol}: script did not land cleanly; editor starts {landed[:60]!r}")
+        print(f"[TV] {label}: script did not land cleanly; editor starts {landed[:60]!r}")
+        return False
+    return True
+
+
+def save_pine(page, pine, name=SAVED_SCRIPT_NAME):
+    """
+    Update the plan by SAVING the script, not by adding it to the chart.
+
+    This is the whole point of the saved-script design. "Update on chart" still
+    creates another study on some runs — two consecutive runs measured 4 then 5 —
+    and the layout's collapsed legend makes the extras unremovable from here. Saving
+    a named script instead pushes the new source into every chart already using it,
+    so the plan refreshes in place and the study count never moves.
+    """
+    if not paste_pine(page, pine, name):
+        return False
+
+    try:
+        page.click(SEL_SAVE, timeout=10000)
+    except Exception as exc:
+        print(f"[TV] Save control not found: {exc}")
+        return False
+    page.wait_for_timeout(3000)
+
+    # The first save asks for a script name; later saves go straight through.
+    try:
+        field = page.locator('input[type="text"]:visible').last
+        if field.count() and field.is_visible():
+            field.fill(name)
+            page.wait_for_timeout(500)
+            for sel in ('button:has-text("Save")', 'button:has-text("Ok")',
+                        'button[type="submit"]'):
+                try:
+                    page.click(sel, timeout=4000)
+                    break
+                except Exception:
+                    continue
+            page.wait_for_timeout(3000)
+            print(f"[TV] Saved new script as {name!r}")
+        else:
+            print(f"[TV] Saved {name!r} (existing script updated)")
+    except Exception:
+        print(f"[TV] Saved {name!r} (no name dialog)")
+
+    errors = [e.strip() for e in
+              page.locator('[class*="errorMessage"], .tv-script-console__error')
+                  .all_inner_texts()
+              if e.strip() and "opened" not in e.lower()]
+    if errors:
+        print(f"[TV] Pine reported {errors[:2]}")
+        return False
+    return True
+
+
+def apply_pine(page, pine, symbol):
+    """Add the script to the chart as a study. Prefer save_pine — this one stacks."""
+    if not paste_pine(page, pine, symbol):
         return False
 
     try:
@@ -947,18 +1009,19 @@ def cmd_plan(which="all", shoot=True):
                     pass
 
             open_chart(page, plans[0]["symbol"])
-            # Clear yesterday's/this morning's plans before adding today's, or they
-            # stack and the unguarded older ones draw on every symbol.
-            remove_plan_studies(page)
-            applied = apply_pine(page, pine, "ALL")
 
-            # The canvas drawing is invisible to the DOM, but the study LIST is not:
-            # the Object Tree is real DOM, so it can prove the plan reached the chart.
-            on_chart = list_plan_studies(page)
-            print(f"[TV] Plan studies on layout: {on_chart or 'NONE'}")
-            if not on_chart:
-                print("[TV] The study did not attach to the chart")
-                applied = False
+            before = list_plan_studies(page)
+            applied = save_pine(page, pine)
+            after = list_plan_studies(page)
+
+            # The count is the proof. Saving must refresh the plan in place; if the
+            # study list grew, this run added a duplicate and the design is broken.
+            print(f"[TV] Plan studies: {len(before)} before, {len(after)} after")
+            if len(after) > len(before):
+                print("[TV] WARNING: a duplicate study was added — do not schedule this")
+            if not after:
+                print(f"[TV] No plan study on the chart yet. Add {SAVED_SCRIPT_NAME!r} "
+                      "to the chart once by hand; every run after that updates it.")
 
             if applied and shoot:
                 # Same tab, same study — switch symbols only to capture each chart.
