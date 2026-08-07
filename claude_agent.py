@@ -29,11 +29,15 @@ This module exists so the three lessons below live in exactly one place:
 Verified end to end 2026-08-07.
 """
 
+import hashlib
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -58,6 +62,257 @@ PROJECT_DIR = Path(__file__).parent
 DEFAULT_TIMEOUT = 300
 
 _CLAUDE_CMD = None
+
+# ── Lesson 4: a subscription limit is a PAUSE, not a failure ──────────────────
+#
+# Hitting the claude.ai session limit used to destroy the job. run_claude returned
+# success=False, the caller printed the error and moved on, and the brief — which is
+# the expensive part, assembled from the journal, the learning file and live prices —
+# was gone. The next scheduled run rebuilt it from scratch and, if the limit was still
+# in force, threw it away again. Whole days of agent output were lost this way while
+# every component reported itself healthy.
+#
+# A limited run now parks its FULL brief here and says when it can be retried.
+AGENT_QUEUE_PATH = PROJECT_DIR / "tasks" / "agent_queue.jsonl"
+
+# Phrases the CLI uses when the subscription window is exhausted. Matched only
+# alongside the length check below.
+LIMIT_MARKERS = (
+    "session limit",
+    "usage limit",
+    "rate limit",
+    "limit reached",
+    "limit will reset",
+    "resets at",
+    "try again later",
+    "too many requests",
+)
+
+# A limit notice is a short line. An agent that actually did its work and happened to
+# discuss rate limiting in prose is not limited, and parking that output would lose a
+# real answer — the opposite of the bug being fixed. Nothing longer than this is ever
+# treated as a limit notice.
+LIMIT_NOTICE_MAX_CHARS = 400
+
+# Stop a permanently broken job from being retried forever. Reaching this means the
+# failure is not a limit and needs a human.
+MAX_QUEUE_ATTEMPTS = 6
+
+# The queue is a safety net, not a database. If it ever grows past this something is
+# wrong upstream and silently hoarding briefs would hide it.
+MAX_QUEUED_JOBS = 200
+
+
+def looks_rate_limited(output: str, success: bool) -> bool:
+    """True when this run was stopped by the subscription window rather than failing.
+
+    Requires BOTH a known marker and a short body: a successful agent essay that
+    mentions rate limiting must never be mistaken for a limit notice.
+    """
+    if success or not output:
+        return False
+    if len(output) > LIMIT_NOTICE_MAX_CHARS:
+        return False
+    lowered = output.lower()
+    return any(marker in lowered for marker in LIMIT_MARKERS)
+
+
+def parse_reset_at(output: str, now=None):
+    """Best-effort reset time from a limit notice, as an ISO string. None if absent.
+
+    The CLI phrases it as a wall-clock time ("resets 10:10am"), so a time already past
+    today means tomorrow. Returns None rather than guessing when nothing parses — the
+    drain pass then falls back to its own retry delay.
+    """
+    if not output:
+        return None
+    now = now or datetime.now()
+
+    match = re.search(r"reset[a-z]*\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
+                      output, re.IGNORECASE)
+    if not match:
+        return None
+
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    meridiem = (match.group(3) or "").lower()
+
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        return None
+    if meridiem == "pm" and hour < 12:
+        hour += 12
+    elif meridiem == "am" and hour == 12:
+        hour = 0
+
+    reset = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if reset <= now:
+        reset += timedelta(days=1)
+    return reset.isoformat()
+
+
+def _job_id(label: str, prompt: str) -> str:
+    """Stable id for one brief, so a repeated run updates its row instead of adding one."""
+    digest = hashlib.sha256(prompt.encode("utf-8", "replace")).hexdigest()[:16]
+    return f"{label}:{digest}"
+
+
+def load_queue():
+    """Every parked job. [] when the file is absent or unreadable.
+
+    A corrupt LINE is skipped, never the whole file: one bad row must not discard
+    every other brief waiting behind it.
+    """
+    if not AGENT_QUEUE_PATH.exists():
+        return []
+    jobs = []
+    try:
+        with open(AGENT_QUEUE_PATH, "r", encoding="utf-8") as queue_file:
+            for line in queue_file:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(row, dict) and row.get("id"):
+                    jobs.append(row)
+    except OSError as exc:
+        print(f"[agent-queue] unreadable ({exc}) — treating as empty")
+        return []
+    return jobs
+
+
+def _write_queue(jobs):
+    """Replace the queue file. Never raises — losing the net must not stop the job."""
+    try:
+        AGENT_QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # Write-then-replace, so a crash mid-write cannot truncate the queue to nothing.
+        temp_path = AGENT_QUEUE_PATH.with_suffix(".jsonl.tmp")
+        with open(temp_path, "w", encoding="utf-8") as queue_file:
+            for job in jobs[-MAX_QUEUED_JOBS:]:
+                queue_file.write(json.dumps(job) + "\n")
+        os.replace(temp_path, AGENT_QUEUE_PATH)
+        return True
+    except OSError as exc:
+        print(f"[agent-queue] could not save ({exc}) — this brief is not protected")
+        return False
+
+
+def queue_job(prompt, label, timeout, needs_project, system, require, reset_at):
+    """Park one brief so the limit costs a delay instead of the work. Returns the id."""
+    jobs = load_queue()
+    job_id = _job_id(label, prompt)
+
+    for job in jobs:
+        if job["id"] == job_id:
+            job["attempts"] = int(job.get("attempts", 0)) + 1
+            job["resetAt"] = reset_at
+            job["lastSeen"] = datetime.now().isoformat()
+            _write_queue(jobs)
+            return job_id
+
+    jobs.append({
+        "id":           job_id,
+        "label":        label,
+        "prompt":       prompt,
+        "timeout":      timeout,
+        "needsProject": needs_project,
+        "system":       system,
+        "require":      require,
+        "resetAt":      reset_at,
+        "attempts":     1,
+        "queuedAt":     datetime.now().isoformat(),
+        "lastSeen":     datetime.now().isoformat(),
+    })
+    _write_queue(jobs)
+    return job_id
+
+
+def drop_job(job_id):
+    """Remove one finished brief from the queue."""
+    jobs = [job for job in load_queue() if job["id"] != job_id]
+    _write_queue(jobs)
+
+
+def job_is_due(job, now=None):
+    """Is this brief allowed to run yet?"""
+    now = now or datetime.now()
+    if int(job.get("attempts", 0)) >= MAX_QUEUE_ATTEMPTS:
+        return False
+    reset_at = job.get("resetAt")
+    if not reset_at:
+        return True  # nothing parsed a time — let the caller's schedule pace it
+    try:
+        return datetime.fromisoformat(reset_at) <= now
+    except (TypeError, ValueError):
+        return True
+
+
+def drain_queue(verbose=True):
+    """Re-run every parked brief that is due. Returns a per-job summary.
+
+    Called by the scheduled runner. A job that succeeds leaves the queue; one that is
+    limited again stays with a fresh reset time; one that fails for any other reason
+    keeps its attempt count and is dropped once MAX_QUEUE_ATTEMPTS is reached, because
+    at that point it is not a limit and retrying forever hides a real fault.
+    """
+    jobs = load_queue()
+    if not jobs:
+        if verbose:
+            print("[agent-queue] empty — nothing to resume")
+        return []
+
+    summary = []
+    for job in list(jobs):
+        if not job_is_due(job):
+            summary.append({"label": job["label"], "status": "waiting",
+                            "resetAt": job.get("resetAt"),
+                            "attempts": job.get("attempts", 0)})
+            continue
+
+        if verbose:
+            print(f"[agent-queue] resuming {job['label']} "
+                  f"(attempt {int(job.get('attempts', 0)) + 1})")
+
+        result = run_claude(
+            job["prompt"],
+            timeout=int(job.get("timeout") or DEFAULT_TIMEOUT),
+            needs_project=bool(job.get("needsProject", True)),
+            system=job.get("system"),
+            label=job["label"],
+            require=job.get("require"),
+            persist_on_limit=False,      # handled below, so the row is updated not duplicated
+        )
+
+        if result["success"]:
+            drop_job(job["id"])
+            summary.append({"label": job["label"], "status": "done",
+                            "elapsed": result["elapsed"],
+                            "output": result["output"]})
+            continue
+
+        attempts = int(job.get("attempts", 0)) + 1
+        if result.get("limited"):
+            queue_job(job["prompt"], job["label"], job.get("timeout"),
+                      job.get("needsProject", True), job.get("system"),
+                      job.get("require"), result.get("resetAt"))
+            summary.append({"label": job["label"], "status": "still-limited",
+                            "resetAt": result.get("resetAt")})
+        elif attempts >= MAX_QUEUE_ATTEMPTS:
+            drop_job(job["id"])
+            summary.append({"label": job["label"], "status": "abandoned",
+                            "attempts": attempts, "output": result["output"][:200]})
+            print(f"[agent-queue] {job['label']} failed {attempts}x and is NOT a limit "
+                  f"— dropped. Last error: {result['output'][:200]}")
+        else:
+            job["attempts"] = attempts
+            job["lastSeen"] = datetime.now().isoformat()
+            _write_queue(jobs)
+            summary.append({"label": job["label"], "status": "retry-later",
+                            "attempts": attempts})
+
+    return summary
 
 
 def find_claude() -> str:
@@ -108,9 +363,10 @@ def run_claude(prompt,
                needs_project=True,
                system=None,
                label="agent",
-               require=None):
+               require=None,
+               persist_on_limit=True):
     """
-    Run one agent and return {output, success, elapsed}.
+    Run one agent and return {output, success, elapsed, limited, resetAt}.
 
     needs_project — True (default) gives the agent read/write access to the repo
         via --add-dir while still running outside it, which is what almost every
@@ -119,6 +375,8 @@ def run_claude(prompt,
     require — a string that must appear in the output for the run to count as a
         success. A clean exit code proves nothing: the debate agents all exited 0
         while answering "I don't have the trade to analyse".
+    persist_on_limit — park the brief in the queue when the subscription window is
+        exhausted, so the limit costs a delay and not the work. See lesson 4.
     """
     import time
     started = time.time()
@@ -154,9 +412,52 @@ def run_claude(prompt,
         success = False
         output = f"[INCOMPLETE: no {require!r} in response]\n\n{output}"
 
+    # A subscription limit is a pause, not a failure. Park the brief before returning,
+    # because the caller's next move is to discard it.
+    limited = looks_rate_limited(output, success)
+    reset_at = parse_reset_at(output) if limited else None
+    if limited and persist_on_limit:
+        queue_job(prompt, label, timeout, needs_project, system, require, reset_at)
+        when = reset_at or "unknown — will retry on the next drain"
+        print(f"[agent-queue] {label} hit the subscription limit. Brief saved, "
+              f"resumes after {when}. Nothing was lost.")
+
     return {
         "label": label,
         "output": output,
         "success": success,
         "elapsed": time.time() - started,
+        "limited": limited,
+        "resetAt": reset_at,
     }
+
+
+def _print_status():
+    """What is parked, and when each brief can run again."""
+    jobs = load_queue()
+    if not jobs:
+        print("Agent queue empty — no work is waiting.")
+        return
+    print(f"{len(jobs)} brief(s) parked:")
+    now = datetime.now()
+    for job in jobs:
+        due = "DUE NOW" if job_is_due(job, now) else f"waits until {job.get('resetAt')}"
+        print(f"  {job['label']:<20} attempts={job.get('attempts', 0)}  {due}"
+              f"  ({len(job.get('prompt', ''))} chars of brief held)")
+
+
+if __name__ == "__main__":
+    make_console_utf8()
+    command = sys.argv[1] if len(sys.argv) > 1 else "status"
+
+    if command in ("--status", "status"):
+        _print_status()
+    elif command in ("--drain", "drain"):
+        results = drain_queue()
+        for entry in results:
+            print(f"  {entry['label']:<20} {entry['status']}")
+        if not results:
+            print("Nothing was due.")
+    else:
+        print("Usage: python claude_agent.py [status|drain]")
+        sys.exit(1)
