@@ -174,7 +174,33 @@ foreach ($f in @(
     }
 }
 
-# ── 6. Can this box raise an alarm at all? ────────────────────────────────────
+# ── 6. The OTHER box ──────────────────────────────────────────────────────────
+#
+# Only meaningful on the box that RECEIVES heartbeats. The laptop pushes one every 5
+# minutes from vps_monitor.ps1; the VPS is always on and always reachable, so it is
+# the one that can notice the laptop going quiet. A box that has never reported is
+# not an alarm -- it may simply not be configured to -- but one that reported and
+# then stopped is exactly the failure nothing used to catch.
+$peers = Get-Json '/api/peer-heartbeat'
+if ($null -eq $peers) {
+    Add-Check 'peers' 'peer heartbeat' 'UNKNOWN' 'endpoint unreachable'
+} elseif (-not $peers.peers -or @($peers.peers).Count -eq 0) {
+    Add-Check 'peers' 'peer heartbeat' 'INFO' 'no peer has reported to this box yet'
+} else {
+    foreach ($p in @($peers.peers)) {
+        if ($p.box -eq $env:COMPUTERNAME) { continue }   # our own reflection is not evidence
+        $mins = [math]::Round($p.ageSeconds / 60, 1)
+        if ($p.ageSeconds -gt 1800) {
+            Add-Check 'peers' "peer $($p.box)" 'RED' "silent for ${mins} min - that box has stopped reporting"
+        } elseif ($p.status -ne 'ok') {
+            Add-Check 'peers' "peer $($p.box)" 'AMBER' "reporting '$($p.status)': $($p.detail)"
+        } else {
+            Add-Check 'peers' "peer $($p.box)" 'GREEN' "reported ${mins} min ago"
+        }
+    }
+}
+
+# ── 7. Can this box raise an alarm at all? ────────────────────────────────────
 #
 # Checked LAST and treated as the most serious kind of failure, because every green
 # above is worth very little if the answer is no. tasks/vps_monitor.ps1 is the
@@ -198,7 +224,7 @@ $out += "=======================================================================
 $out += " SmartEntry COVERAGE AUDIT - $stamp"
 $out += " box: $env:COMPUTERNAME   project: $Proj"
 $out += "=========================================================================="
-foreach ($area in @('tasks','server','bridge','agents','learning','alerting')) {
+foreach ($area in @('tasks','server','bridge','agents','learning','peers','alerting')) {
     $rows = @($results | Where-Object { $_.Area -eq $area })
     if ($rows.Count -eq 0) { continue }
     $out += ''

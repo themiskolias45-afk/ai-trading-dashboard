@@ -198,6 +198,10 @@ const API_NO_LOGIN_REQUIRED = new Set([
   "/api/trade-opened", "/api/trade-closed",
   "/api/tv-alert", "/api/claude-approve-trade",
   "/api/agent/notify", "/api/mt5/health", "/api/status",
+  // Peer liveness between the two boxes. The POST carries AGENT_RELAY_SECRET; the
+  // GET only reports which box last checked in and how long ago, which is the thing
+  // a health check needs to read without a browser session.
+  "/api/peer-heartbeat",
   "/api/checksystem", "/api/journal", "/api/backtest", "/api/learning",
   "/api/healer", "/api/healer/heal",
   // The bridge must call this before every trade and has no browser session.
@@ -4810,6 +4814,48 @@ function saveProposals(data) {
   fs.mkdirSync(path.dirname(PROPOSALS_PATH), { recursive: true });
   fs.writeFileSync(PROPOSALS_PATH, JSON.stringify(data, null, 2));
 }
+
+// ── Peer heartbeat: so each box can notice the OTHER one dying ────────────────
+//
+// The VPS has an external watcher -- tasks/vps_monitor.ps1 runs on the laptop
+// precisely so a powered-off VPS still raises an alarm. The laptop had none. If it
+// sleeps, crashes or is simply shut, Bridge A on account 25446287 stops trading and
+// nothing anywhere says so; the absence of trades looks exactly like a quiet market.
+//
+// The laptop cannot be reached from outside, so the direction has to be push: the
+// laptop reports in, and the VPS -- which is always on and always reachable -- is the
+// one that notices when it stops.
+//
+// Guarded by AGENT_RELAY_SECRET, the same shared secret /api/agent/notify already
+// uses, because this endpoint is reachable from the internet on the VPS. It records a
+// timestamp and a status string and touches nothing else: no signal, no position, no
+// setting. The worst a caller with the secret can do is lie about being alive.
+const peerHeartbeats = {};
+
+app.post("/api/peer-heartbeat", (req, res) => {
+  const { secret, box, status, detail } = req.body || {};
+  if (!AGENT_RELAY_SECRET || secret !== AGENT_RELAY_SECRET) {
+    return res.status(403).json({ error: "invalid or missing secret" });
+  }
+  const name = typeof box === "string" && box.trim() ? box.trim().slice(0, 64) : "unknown";
+  peerHeartbeats[name] = {
+    box:    name,
+    status: typeof status === "string" ? status.slice(0, 32) : "unknown",
+    detail: typeof detail === "string" ? detail.slice(0, 300) : null,
+    at:     new Date().toISOString(),
+  };
+  res.json({ ok: true, recorded: name });
+});
+
+app.get("/api/peer-heartbeat", (_, res) => {
+  const now = Date.now();
+  res.json({
+    peers: Object.values(peerHeartbeats).map(p => ({
+      ...p,
+      ageSeconds: Math.round((now - new Date(p.at).getTime()) / 1000),
+    })),
+  });
+});
 
 // Cloud research agent calls this to report findings and/or register a proposed change.
 app.post("/api/agent/notify", (req, res) => {
