@@ -295,7 +295,10 @@ const TRAIL_LADDER   = process.env.MTF_TRAIL_LADDER === "1";
 const EMIT_R         = TRAIL_LADDER || process.env.MTF_EMIT_R === "1";
 const TRAIL_ARM_R    = Number(process.env.MTF_TRAIL_ARM_R      || "1.0");
 const TRAIL_STEP_R   = Number(process.env.MTF_TRAIL_STEP_R     || "0.5");
-const TRAIL_GIVEBACK = Number(process.env.MTF_TRAIL_GIVEBACK_R || "1.0");
+// 0.5 to match the shipped bridge default — see the walk-forward table in
+// mt5_bridge.py. A harness whose default disagrees with the engine measures a
+// configuration nothing is running.
+const TRAIL_GIVEBACK = Number(process.env.MTF_TRAIL_GIVEBACK_R || "0.5");
 const TRAIL_EPSILON  = 1e-9;   // same float-dust guard as the bridge
 
 if (TRAIL_LADDER && !(TRAIL_STEP_R > 0)) {
