@@ -15,6 +15,7 @@ import os
 import time
 import json
 import math
+import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -377,6 +378,182 @@ def fetch_signals():
         return None
 
 
+# ── Universal rejection ledger (client) ───────────────────────────────────────
+# Contract: tasks/REJECTION-LEDGER-SPEC.md. Every gate that kills a fully specified
+# setup leaves a row, so a rejection becomes a scoreable paper trade instead of a
+# console line nobody reads. Before this, an AI-filter veto and "no signal fired at
+# all" produced byte-identical evidence: nothing.
+#
+# This is observability. It changes NOTHING about what trades. Every skip and return
+# below stays exactly where it was; a row is posted beside it, never instead of it,
+# and a ledger failure is swallowed into one log line.
+REJECTION_ENDPOINT       = f"{SERVER_URL}/api/rejections"
+# Short on purpose: this runs on the polling thread, and a trading bridge must not
+# stall behind a logging endpoint.
+REJECTION_POST_TIMEOUT_S = 3
+REJECTION_SIDE           = "bridge"
+
+# The gates the endpoint accepts (spec section 2). Posting anything else makes the
+# server drop the row with a warning, so unknown gates are filtered here instead —
+# maxTradesPerDay is a real cap with no gate name, and posting it would emit a
+# deliberate warning on every poll forever.
+LEDGER_GATES = frozenset((
+    "MIN_RR", "ENTRY_RSI", "CONFIDENCE", "COHORT_FLOOR", "SPREAD",
+    "AI_FILTER", "NEWS_BLACKOUT", "STALE_SOURCE", "DUPLICATE", "MAX_POSITIONS",
+))
+
+# server/sizing.js returns only a prose reason, so its duplicate-position guard can
+# only be told apart from the portfolio cap and its own MIN_RR by this prefix —
+# `Already holding ${symbol} ${direction}` at server/sizing.js:232. Changing that
+# string there silently stops DUPLICATE rows being written here.
+RISK_ENGINE_DUPLICATE_PREFIX = "already holding"
+
+# Last level signature recorded per (gate, sourceSymbol, timeframe). Spec 3.2: gates
+# re-fire on every poll, and without this the ledger would take thousands of near
+# identical rows a day for one drifting setup. A volume control, not a correctness
+# mechanism — losing it on restart costs nothing.
+_rejection_signatures  = {}
+_rejection_lock        = threading.Lock()
+_rejection_last_error  = ""
+
+
+def _as_number(value):
+    """`value` as a finite float, or None when it is not a usable number.
+
+    Levels arrive from a JSON payload where a null or a string is entirely possible,
+    and a row must never carry a level that cannot be compared arithmetically. bool
+    is excluded explicitly because float(True) is 1.0, which would write a price of 1.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
+
+
+def _rejection_is_scoreable(setup, entry, stop, target):
+    """Spec 3.1: only a setup that FORMED and was then killed is a rejection.
+
+    A step where nothing formed is a non-event — XAUUSD alone has 3799 of them in a
+    five-year replay — and logging those buries the rows that answer something. There
+    must be a real setup name and a real entry/stop/target triple.
+    """
+    if not setup or str(setup).upper() == "WAIT":
+        return False
+    return None not in (entry, stop, target)
+
+
+def _rejection_is_new(gate, source_symbol, timeframe, signature):
+    """False when this exact setup was already recorded for this gate and instrument.
+
+    Scoped per gate + sourceSymbol + timeframe because the same asset legitimately
+    rejects a D1 and an H1 setup independently. Locked because process_all_signals
+    runs three assets on three threads.
+    """
+    scope = (gate, source_symbol, timeframe)
+    with _rejection_lock:
+        if _rejection_signatures.get(scope) == signature:
+            return False
+        _rejection_signatures[scope] = signature
+        return True
+
+
+def _note_rejection_failure(gate, message):
+    """Report a ledger failure once per distinct message, not once per poll.
+
+    Same reasoning as last_rejection: an alarm that repeats every cycle is one you
+    stop reading, and an undeployed endpoint would otherwise log three lines a minute.
+    """
+    global _rejection_last_error
+    if message == _rejection_last_error:
+        return
+    _rejection_last_error = message
+    log(f"Rejection ledger: {gate} row not recorded ({message}) — trading unaffected.", YELLOW)
+
+
+def log_rejection(gate, sig, broker_symbol, entry, stop, target,
+                  threshold=None, actual=None, reason=None):
+    """Record one bridge-side gate rejection. Never raises, never blocks a decision.
+
+    The whole body sits inside one try/except on purpose. Two of the call sites are
+    inside functions that fail OPEN on exception — claude_approves_trade returns True
+    so a network problem cannot block every trade — so an exception escaping here
+    would turn a REJECTED verdict into a silent approval. A logging bug must never be
+    able to open a position.
+
+    `threshold` and `actual` are numeric-or-null throughout the ledger so a sweep can
+    compare them without type-checking every row; anything non-numeric that explains
+    the kill (a news headline, Claude's risk grade) goes in `reason`.
+    """
+    global _rejection_last_error
+    try:
+        if gate not in LEDGER_GATES:
+            return
+        signal_dict  = sig if isinstance(sig, dict) else {}
+        entry_price  = _as_number(entry)
+        stop_price   = _as_number(stop)
+        target_price = _as_number(target)
+        setup        = signal_dict.get("setup")
+        direction    = signal_dict.get("signal")
+        if not _rejection_is_scoreable(setup, entry_price, stop_price, target_price):
+            return
+
+        # The instrument the LEVELS were priced on, which is NOT always the instrument
+        # this bridge would have filled — STALE_SOURCE fires on exactly that gap. The
+        # broker symbol is never substituted here: a guessed sourceSymbol scores GC=F
+        # futures levels against XAUUSD spot bars, ~$51 apart when last measured, and
+        # produces a confidently wrong verdict rather than an honest null.
+        source_symbol = signal_dict.get("sourceSymbol") or None
+        # setupTimeframe names the chart the levels came from (server/index.js:1627);
+        # a top-level `timeframe` is not stamped on the MTF signal at all.
+        timeframe     = signal_dict.get("setupTimeframe") or None
+
+        signature = "|".join(str(part) for part in
+                             (setup, direction, entry_price, stop_price, target_price))
+        if not _rejection_is_new(gate, source_symbol, timeframe, signature):
+            return
+
+        indicators = signal_dict.get("indicators")
+        row = {
+            "ts":           datetime.utcnow().isoformat() + "Z",
+            "gate":         gate,
+            "side":         REJECTION_SIDE,
+            "ticker":       signal_dict.get("ticker"),
+            "label":        signal_dict.get("label"),
+            "dataSource":   signal_dict.get("dataSource"),
+            "sourceSymbol": source_symbol,
+            # The instrument this bridge would have FILLED. Equal to sourceSymbol on a
+            # healthy MT5-fed signal and deliberately different on a STALE_SOURCE row,
+            # which is the whole content of that rejection.
+            "brokerSymbol": broker_symbol or None,
+            "timeframe":    timeframe,
+            "setup":        setup,
+            "direction":    direction,
+            "entry":        entry_price,
+            "stop":         stop_price,
+            "target":       target_price,
+            "rr":           _as_number(signal_dict.get("rr")),
+            "confidence":   _as_number(signal_dict.get("confidence")),
+            "strength":     signal_dict.get("strength"),
+            "threshold":    threshold,
+            "actual":       actual,
+            "reason":       reason or None,
+            "trend":        signal_dict.get("trend"),
+            "rsi":          _as_number(indicators.get("rsi")) if isinstance(indicators, dict) else None,
+            "account":      ACCOUNT_TAG or "default",
+        }
+
+        res = requests.post(REJECTION_ENDPOINT, json=row, timeout=REJECTION_POST_TIMEOUT_S)
+        res.raise_for_status()
+        _rejection_last_error = ""
+    except Exception as exc:
+        _note_rejection_failure(gate, str(exc))
+
+
 def auto_detect_symbols():
     """Auto-detect available MT5 symbols by checking broker's symbol list."""
     global SYMBOL_MAP, MIN_LOT
@@ -465,6 +642,39 @@ def _rates_to_bars(rates):
     return bars
 
 
+def _symbol_spec(mt5_symbol):
+    """
+    What one lot of this symbol is actually worth, per 1.0 of price movement.
+
+    The server sizes positions but has no MT5 access, so it was assuming 1.0 —
+    correct for nothing here. XAUUSD is 100 oz per lot and the account is
+    denominated in GBP, so a 1.0 move is 74.33 GBP per lot, and the old formula
+    returned a size 74x too large. tick_value/tick_size is the right source
+    because it already carries the contract size AND the account-currency
+    conversion; a hardcoded table would carry neither and would drift with FX.
+
+    Returns None on any failure — the server then refuses to size rather than
+    sizing on a guess.
+    """
+    try:
+        info = mt5.symbol_info(mt5_symbol)
+        if not info or not info.trade_tick_size:
+            return None
+        value_per_point = info.trade_tick_value / info.trade_tick_size
+        if not value_per_point or value_per_point <= 0:
+            return None
+        return {
+            "valuePerPoint": value_per_point,
+            "contractSize":  info.trade_contract_size,
+            "minLot":        info.volume_min,
+            "lotStep":       info.volume_step,
+            "digits":        info.digits,
+        }
+    except Exception as exc:
+        log(f"symbol_info({mt5_symbol}) for spec failed: {exc}", YELLOW)
+        return None
+
+
 def push_candles(force=False):
     """Push native D1/H4/H1 bars for every mapped symbol to the server.
 
@@ -499,6 +709,9 @@ def push_candles(force=False):
                 bars_by_tf[tf_name] = converted
         if bars_by_tf:
             assets[se_ticker] = {"symbol": mt5_symbol, "bars": bars_by_tf}
+            spec = _symbol_spec(mt5_symbol)
+            if spec:
+                assets[se_ticker]["spec"] = spec
 
     if not assets:
         log("No MT5 bars available to push — server stays on its Yahoo fallback.", YELLOW)
@@ -825,7 +1038,7 @@ def count_open_positions():
 
 
 def check_strategy_limits():
-    """Enforce the slot and daily-trade caps. Returns (allowed, reason).
+    """Enforce the slot and daily-trade caps. Returns (allowed, reason, limit_detail).
 
     Neither of these limits existed before: nothing capped concurrent positions,
     so the system could hold every asset at once, and nothing capped trades per
@@ -833,6 +1046,12 @@ def check_strategy_limits():
     bounds total money at risk, which is related but not the same thing — three
     small positions can pass a risk cap and still be three ways of making the same
     bet.
+
+    limit_detail is None when allowed and otherwise names WHICH cap fired, with the
+    bar and the value that hit it. One prose reason covered both caps, so the
+    rejection ledger would have had to re-parse an English sentence to find out
+    which one — and would have recorded no number a sweep could ask "what if the
+    cap had been 4" of.
     """
     global trades_opened_today, trades_count_date
 
@@ -844,13 +1063,23 @@ def check_strategy_limits():
     max_positions = strategy_settings.get("maxConcurrentPositions", 3)
     open_count = count_open_positions()
     if open_count >= max_positions:
-        return False, f"{open_count} positions already open (limit {max_positions})"
+        return (
+            False,
+            f"{open_count} positions already open (limit {max_positions})",
+            {"gate": "MAX_POSITIONS", "threshold": max_positions, "actual": open_count},
+        )
 
     max_trades = strategy_settings.get("maxTradesPerDay", 5)
     if trades_opened_today >= max_trades:
-        return False, f"{trades_opened_today} trades opened today (limit {max_trades})"
+        return (
+            False,
+            f"{trades_opened_today} trades opened today (limit {max_trades})",
+            # MAX_TRADES_PER_DAY is not in the ledger's gate enum, so LEDGER_GATES at
+            # the call site drops it rather than making the server warn every poll.
+            {"gate": "MAX_TRADES_PER_DAY", "threshold": max_trades, "actual": trades_opened_today},
+        )
 
-    return True, ""
+    return True, "", None
 
 
 def check_spread(symbol):
@@ -889,13 +1118,31 @@ def build_order_comment(setup, confidence):
 
 
 def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
-                setup=None, confidence=None):
+                setup=None, confidence=None, sig=None):
     """Place a market order. risk_amount is the dollar budget the server's risk
     engine approved; without it the flat RISK_PERCENT is used, which ignores how
-    much of the portfolio is already exposed."""
+    much of the portfolio is already exposed.
+
+    `sig` is the originating signal, carried purely so a spread rejection can be
+    written to the ledger with its ticker, source instrument and timeframe. It is
+    never read on the execution path — passing None only costs the ledger row.
+    """
     spread_ok, spread, spread_cap = check_spread(symbol)
     if not spread_ok:
         log(f"Spread too wide on {symbol}: {spread:.0f} pts (max {spread_cap}) — skipping", YELLOW)
+        # check_spread returns (False, 0, cap) when the symbol has no tick at all.
+        # A quote outage is not a wide spread: recording actual=0 would file a row
+        # asserting 0 points exceeded a 50-point cap, which cannot be true. The cap
+        # is still recorded; the measurement is honestly null.
+        spread_was_measured = spread > 0
+        log_rejection(
+            "SPREAD", sig, symbol, entry, stop, target,
+            threshold=spread_cap,
+            actual=round(float(spread), 1) if spread_was_measured else None,
+            reason=(f"spread {spread:.0f} pts exceeds cap {spread_cap} pts"
+                    if spread_was_measured
+                    else f"no tick for {symbol} — spread could not be measured"),
+        )
         return False
 
     order_type = mt5.ORDER_TYPE_BUY if signal_type == "BUY" else mt5.ORDER_TYPE_SELL
@@ -1061,12 +1308,27 @@ def process_signal(key, sig):
         log(f"STALE SOURCE: {ticker} signal was computed from Yahoo, but MT5 bars for "
             f"{symbol} have been pushed — refusing to trade another instrument's levels. "
             f"Waiting for the server to recompute.", YELLOW)
+        # The one gate where sourceSymbol and brokerSymbol provably differ — that gap
+        # IS the rejection. The levels below come straight off the signal because the
+        # entry/stop/target guard has not run yet; log_rejection drops the row if any
+        # of them is missing rather than inventing one.
+        log_rejection(
+            "STALE_SOURCE", sig, symbol,
+            sig.get("entry"), sig.get("stop"), sig.get("target"),
+            reason=f"levels priced on {sig.get('sourceSymbol') or ticker} (yahoo) while "
+                   f"MT5 bars for {symbol} are already pushed",
+        )
         return
 
     # Check news blackout before executing
     blackout, blackout_reason = check_news_blackout()
     if blackout:
         log(f"NEWS BLACKOUT — skipping {ticker}: {blackout_reason}", YELLOW)
+        log_rejection(
+            "NEWS_BLACKOUT", sig, symbol,
+            sig.get("entry"), sig.get("stop"), sig.get("target"),
+            reason=blackout_reason,
+        )
         return
 
     # Check symbol is tradeable
@@ -1084,11 +1346,20 @@ def process_signal(key, sig):
         return
 
     # Slot and daily-trade caps. Cheapest checks first — both are local counts.
-    limits_ok, limits_reason = check_strategy_limits()
+    limits_ok, limits_reason, limit_detail = check_strategy_limits()
     if not limits_ok:
         if last_rejection.get(key) != limits_reason:
             log(f"STRATEGY LIMIT blocked {direction} {symbol}: {limits_reason}", YELLOW)
             last_rejection[key] = limits_reason
+        # Only MAX_POSITIONS has a gate name in the ledger enum; log_rejection drops
+        # the daily-trade cap silently rather than making the endpoint warn per poll.
+        if limit_detail:
+            log_rejection(
+                limit_detail["gate"], sig, symbol, entry, stop, target,
+                threshold=limit_detail["threshold"],
+                actual=limit_detail["actual"],
+                reason=limits_reason,
+            )
         return
 
     # Portfolio risk gate. Runs BEFORE the AI filter so a trade that breaches the
@@ -1106,6 +1377,12 @@ def process_signal(key, sig):
         if last_rejection.get(key) != risk_reason:
             log(f"RISK ENGINE blocked {direction} {symbol}: {risk_reason}", RED)
             last_rejection[key] = risk_reason
+        # Only the duplicate-position guard has a gate in the ledger enum. The
+        # portfolio cap, the single-trade cap and sizing.js's own MIN_RR do not — and
+        # MIN_RR is already recorded engine-side, so posting it here would count one
+        # rejection twice and inflate whatever the scorer concludes about that gate.
+        if risk_reason and risk_reason.strip().lower().startswith(RISK_ENGINE_DUPLICATE_PREFIX):
+            log_rejection("DUPLICATE", sig, symbol, entry, stop, target, reason=risk_reason)
         return
     if last_rejection.pop(key, None):
         log(f"Risk engine now allows {symbol} — {risk_reason}", GREEN)
@@ -1121,7 +1398,7 @@ def process_signal(key, sig):
     confirmed = prompt_confirm(sig, symbol)
     if confirmed:
         ok = place_order(symbol, direction, entry, stop, target, risk_amount=approved_risk_usd,
-                         setup=sig.get("setup"), confidence=sig.get("confidence"))
+                         setup=sig.get("setup"), confidence=sig.get("confidence"), sig=sig)
         if ok:
             executed_signals[key] = cache_key
             global trades_opened_today
@@ -1235,6 +1512,14 @@ def claude_approves_trade(sig, symbol, entry, stop, target):
         risk     = data.get("risk", "MEDIUM")
         color = GREEN if approved else RED
         log(f"Claude AI: {'APPROVED' if approved else 'REJECTED'} [{risk}] — {reason}", color)
+        if not approved:
+            # Until now this log line was the ONLY trace of an AI veto anywhere in the
+            # system: a setup blocked here and a setup that never formed produced
+            # identical evidence, so the filter could never be scored against what
+            # price actually did. There is no numeric bar to clear, so threshold and
+            # actual stay null and the grade rides in `reason`.
+            log_rejection("AI_FILTER", sig, symbol, entry, stop, target,
+                          reason=f"[{risk}] {reason}" if reason else f"[{risk}] no reason given")
         return approved
     except Exception as e:
         log(f"AI approval unavailable ({e}) — proceeding", YELLOW)

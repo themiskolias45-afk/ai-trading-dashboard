@@ -31,7 +31,16 @@ function calcKelly(winRate, avgWin, avgLoss) {
   return Math.min(MAX_KELLY, Math.max(MIN_KELLY, halfKelly));
 }
 
-function calcATRSize(accountBalance, entry, stop, atrValue, riskPct) {
+// What one lot is worth per 1.0 of price movement, in account currency. There is
+// deliberately no default: this module has no way to know it, and assuming 1.0 is
+// what produced a Gold size 74x too large. Callers pass the broker's own figure
+// (tick_value / tick_size, pushed by the bridge), or get no size at all.
+function resolveValuePerPoint(valuePerPoint) {
+  const value = Number(valuePerPoint);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function calcATRSize(accountBalance, entry, stop, atrValue, riskPct, valuePerPoint) {
   const riskAmount = accountBalance * riskPct;
   let stopDistance = Math.abs(entry - stop);
   let atrAdjusted = false;
@@ -45,13 +54,20 @@ function calcATRSize(accountBalance, entry, stop, atrValue, riskPct) {
     return { lots: 0, stopDistance: 0, riskAmount, atrAdjusted: false };
   }
 
-  const lots = riskAmount / stopDistance;
+  const pointValue = resolveValuePerPoint(valuePerPoint);
+  if (pointValue === null) {
+    return { lots: 0, stopDistance, riskAmount, atrAdjusted, valueUnknown: true };
+  }
+
+  // Risk per lot is the stop distance PRICED in account currency, not the raw
+  // price distance. XAUUSD moves 100 oz per lot; the account settles in GBP.
+  const lots = riskAmount / (stopDistance * pointValue);
 
   return { lots, stopDistance, riskAmount, atrAdjusted };
 }
 
 function calcSize(opts) {
-  const { accountBalance, signal, learningStats, atrValue } = opts;
+  const { accountBalance, signal, learningStats, atrValue, valuePerPoint } = opts;
 
   if (!accountBalance || !signal) {
     return { lots: 0, riskPct: 0, riskAmount: 0, reasoning: 'Missing required inputs' };
@@ -104,16 +120,21 @@ function calcSize(opts) {
   }
 
   const effectiveAtr = typeof atrValue === 'number' && atrValue > 0 ? atrValue : 0;
-  const { lots, stopDistance, riskAmount, atrAdjusted } = calcATRSize(
+  const { lots, stopDistance, riskAmount, atrAdjusted, valueUnknown } = calcATRSize(
     accountBalance,
     entry,
     stop,
     effectiveAtr,
-    riskPct
+    riskPct,
+    valuePerPoint
   );
 
   if (atrAdjusted) {
     reasoningParts.push('Stop widened to 0.5x ATR (original stop too tight)');
+  }
+
+  if (valueUnknown) {
+    reasoningParts.push('No valuePerPoint for this symbol — refusing to size');
   }
 
   return {
@@ -125,20 +146,32 @@ function calcSize(opts) {
   };
 }
 
-function calcPortfolioRisk(positions, accountBalance) {
+function calcPortfolioRisk(positions, accountBalance, valuePerPointBySymbol = {}) {
   if (!Array.isArray(positions) || !accountBalance || accountBalance <= 0) {
-    return { totalRiskPct: 0, safeToAdd: true, maxNewRisk: MAX_PORTFOLIO_RISK };
+    return { totalRiskPct: 0, safeToAdd: true, maxNewRisk: MAX_PORTFOLIO_RISK, unpriced: 0 };
   }
 
   const directionMap = {};
   let totalRisk = 0;
+  let unpriced = 0;
 
   for (const pos of positions) {
     if (!pos || typeof pos.entry !== 'number' || typeof pos.stop !== 'number' || typeof pos.lots !== 'number') {
       continue;
     }
 
-    const posRisk = Math.abs(pos.entry - pos.stop) * pos.lots;
+    // Exposure has to be priced in account currency, exactly as the sizing does.
+    // Multiplying raw price distance by lots under-counted an open Gold position
+    // by ~74x, so the portfolio cap was measuring something that was not money.
+    const pointValue = resolveValuePerPoint(
+      pos.valuePerPoint !== undefined ? pos.valuePerPoint : valuePerPointBySymbol[pos.symbol]
+    );
+    if (pointValue === null) {
+      unpriced += 1;
+      continue;
+    }
+
+    const posRisk = Math.abs(pos.entry - pos.stop) * pos.lots * pointValue;
     totalRisk += posRisk;
 
     if (pos.symbol && pos.direction) {
@@ -163,7 +196,7 @@ function calcPortfolioRisk(positions, accountBalance) {
   const maxNewRisk = Math.max(0, MAX_PORTFOLIO_RISK - totalRiskPct);
   const safeToAdd = totalRiskPct < MAX_PORTFOLIO_RISK;
 
-  return { totalRiskPct, safeToAdd, maxNewRisk };
+  return { totalRiskPct, safeToAdd, maxNewRisk, unpriced };
 }
 
 // options.minConfidence — the live confidenceThreshold, passed in by the caller.
@@ -235,7 +268,9 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
     }
   }
 
-  const { totalRiskPct, safeToAdd, maxNewRisk } = calcPortfolioRisk(positions, accountBalance);
+  const { totalRiskPct, safeToAdd, maxNewRisk, unpriced } = calcPortfolioRisk(
+    positions, accountBalance, options.valuePerPointBySymbol || {}
+  );
 
   if (!safeToAdd) {
     return {
@@ -247,7 +282,6 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
 
   const suggestedRiskPct = Math.min(BASE_RISK_PCT, maxNewRisk);
   const suggestedRiskAmount = accountBalance * suggestedRiskPct;
-  const suggestedSize = stopDistance > 0 ? suggestedRiskAmount / stopDistance : 0;
 
   const projectedTotalRisk = totalRiskPct + (suggestedRiskAmount / accountBalance);
   if (projectedTotalRisk > MAX_PORTFOLIO_RISK) {
@@ -258,9 +292,29 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
     };
   }
 
+  // A wrong lot size is worse than no lot size, so this returns 0 rather than a
+  // guess when the symbol's value per point is unknown. The approve/reject gate
+  // above is unchanged either way — refusing to size must not refuse the trade.
+  const pointValue = resolveValuePerPoint(
+    options.valuePerPoint !== undefined
+      ? options.valuePerPoint
+      : (options.valuePerPointBySymbol || {})[symbol]
+  );
+  const suggestedSize = pointValue === null
+    ? 0
+    : suggestedRiskAmount / (stopDistance * pointValue);
+
+  const notes = [`R:R ${rr.toFixed(2)}`, `portfolio risk ${(totalRiskPct * 100).toFixed(2)}%`];
+  if (pointValue === null) {
+    notes.push(`no valuePerPoint for ${symbol || 'symbol'} — size not calculated`);
+  }
+  if (unpriced) {
+    notes.push(`${unpriced} open position(s) unpriced, portfolio risk understated`);
+  }
+
   return {
     approved: true,
-    reason: `All checks passed — R:R ${rr.toFixed(2)}, portfolio risk ${(totalRiskPct * 100).toFixed(2)}%`,
+    reason: `All checks passed — ${notes.join(', ')}`,
     suggestedSize
   };
 }
