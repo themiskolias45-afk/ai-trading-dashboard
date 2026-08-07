@@ -133,6 +133,40 @@ if ($reachable -and $problems.Count -eq 0) {
     }
 }
 
+# --- report THIS box as alive, while we are already talking to the VPS ------
+#
+# The watching is one-directional and always was: this script exists so a dead VPS
+# raises an alarm, and nothing at all notices a dead LAPTOP. If this machine sleeps
+# or is shut, Bridge A on account 25446287 stops trading and the absence of trades
+# looks exactly like a quiet market.
+#
+# The laptop cannot be reached from outside, so the direction has to be push. This
+# runs every 5 minutes and is already in conversation with the VPS, so it is the
+# natural place. Best-effort by design: failing to report in must never affect the
+# VPS alarm above, which is the more important job.
+try {
+    $relaySecret = $null
+    if (Test-Path $keysFile) {
+        $relaySecret = (((Get-Content $keysFile -ErrorAction SilentlyContinue) |
+            Where-Object { $_ -like 'AGENT_RELAY_SECRET=*' }) -replace '^AGENT_RELAY_SECRET=', '').Trim()
+    }
+    if ($relaySecret) {
+        $peerUrl = ($vpsUrl -replace '/api/healer$', '/api/peer-heartbeat')
+        $payload = @{
+            secret = $relaySecret
+            box    = $env:COMPUTERNAME
+            status = $(if ($reachable -and $problems.Count -eq 0) { 'ok' } else { 'degraded' })
+            detail = $(if ($problems.Count) { ($problems -join '; ') } else { 'laptop monitor reporting in' })
+        } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Uri $peerUrl -Method Post -ContentType 'application/json; charset=utf-8' `
+            -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 10 | Out-Null
+    } else {
+        Write-MonitorLog 'peer heartbeat skipped - no AGENT_RELAY_SECRET in keys.env'
+    }
+} catch {
+    Write-MonitorLog ('peer heartbeat not delivered - ' + $_.Exception.Message)
+}
+
 # --- persist --------------------------------------------------------------
 $state = @{
     consecutiveFailures = $consecutiveFailures
