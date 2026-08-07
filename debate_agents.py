@@ -8,12 +8,21 @@ Usage:
   python debate_agents.py BTC LONG 87 105000 103500 107000
   python debate_agents.py --from-api  # read latest signal from server
 """
-import sys, os, json, subprocess, time
+import sys, os, json, subprocess, time, tempfile
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 WORK_DIR = Path(__file__).parent
 TIMEOUT  = 300
+
+# The agents answer in prose and use unicode freely (minus signs, em dashes,
+# arrows). A Windows console defaults to cp1252 and raises on all of them, so
+# make stdout tolerant rather than losing a run to a display character.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 # ─── Claude CLI resolution ────────────────────────────────────────────────────
 
@@ -53,23 +62,46 @@ def _claude() -> str:
 
 # ─── Single agent runner ──────────────────────────────────────────────────────
 
+def _agent_cwd() -> str:
+    """
+    A working directory OUTSIDE the project tree.
+
+    Claude Code walks up from cwd looking for CLAUDE.md. Run an agent from the
+    project root and it boots as JARVIS — persona, welcome line, double-confirm
+    rule — and answers conversationally instead of voting. Every agent in the
+    last debate opened with "JARVIS online. SmartEntry Pro — what are we
+    building?" for exactly this reason.
+    """
+    path = Path(tempfile.gettempdir()) / "jarvis_debate_agents"
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
 def _run_agent(role: str, prompt: str) -> dict:
     """Call the claude CLI with the given prompt and return raw output."""
     print(f"  [{role}] starting...")
     t0 = time.time()
 
     try:
+        # The prompt goes on STDIN, never as an argv element. `claude` resolves to
+        # claude.cmd, a batch file, so Python launches it through cmd.exe — which
+        # truncates a multi-line argument at the first newline. Every agent was
+        # receiving its one-line role brief and none of the trade or market data,
+        # then replying "I don't have the trade to analyse".
         proc = subprocess.run(
-            [_claude(), "-p", prompt,
+            [_claude(), "-p",
              "--dangerously-skip-permissions",
              "--output-format", "text"],
+            input=prompt,
             capture_output=True,
             text=True,
-            cwd=str(WORK_DIR),
+            encoding="utf-8",
+            errors="replace",
+            cwd=_agent_cwd(),
             timeout=TIMEOUT,
             env={**os.environ, "NO_COLOR": "1"},
         )
-        output  = proc.stdout.strip() or proc.stderr.strip()
+        output  = (proc.stdout or "").strip() or (proc.stderr or "").strip()
         success = proc.returncode == 0
     except subprocess.TimeoutExpired:
         output  = f"[TIMEOUT after {TIMEOUT}s]"
@@ -77,6 +109,13 @@ def _run_agent(role: str, prompt: str) -> dict:
     except FileNotFoundError:
         output  = "[ERROR: claude CLI not found — run from JARVIS terminal]"
         success = False
+
+    # A clean exit code is not evidence the agent understood the brief. The last
+    # run returned 0 for all three while two of them had no trade data at all, so
+    # require the verdict line the prompt asks for.
+    if success and "VERDICT:" not in output.upper():
+        success = False
+        print(f"  [{role}] returned no VERDICT line — prompt may not have arrived")
 
     elapsed = time.time() - t0
     status  = "done" if success else "failed"
@@ -490,16 +529,19 @@ def main():
     # ── Run the debate ──
     result = debate_signal(symbol, direction, confidence, entry, stop, target)
 
-    # ── Print formatted output ──
-    print(format_debate(result))
-
-    # ── Save JSON to tasks/ ──
+    # ── Save JSON to tasks/ FIRST ──
+    # Printing used to come first, and a console that could not encode a unicode
+    # minus sign took the whole run down before anything was written — three
+    # agents and two minutes of work discarded over a display character.
     tasks_dir = WORK_DIR / "tasks"
     tasks_dir.mkdir(exist_ok=True)
 
     timestamp   = time.strftime("%Y%m%d_%H%M%S")
     output_path = tasks_dir / f"debate_{symbol}_{timestamp}.json"
     output_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+    # ── Then print ──
+    print(format_debate(result))
     print(f"[SAVED] {output_path}")
 
     # ── Exit code reflects verdict for scripted callers ──
