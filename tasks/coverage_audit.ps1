@@ -108,6 +108,24 @@ if ($null -eq $settings) {
     }
 }
 
+# How long the server has been up. Bridge and peer liveness both live in the
+# server's MEMORY, so a restart empties them and everything looks dead for about a
+# minute. Auditing inside that window reports RED for things that are fine and fires
+# a Telegram alert for nothing -- and a false alarm is the one thing that makes the
+# real ones get ignored. Measured on the VPS at 16:02: immediately after a restart
+# the audit called bridge A "not connected"; 75s later it was connected with a 19s
+# heartbeat, having never actually stopped.
+$serverAgeS = [int]::MaxValue
+$status = Get-Json '/api/status'
+if ($status -and $status.startedAt) {
+    try { $serverAgeS = [int]((Get-Date).ToUniversalTime() - ([datetime]$status.startedAt).ToUniversalTime()).TotalSeconds } catch { }
+}
+$SERVER_WARMUP_S = 120
+$inWarmup = $serverAgeS -lt $SERVER_WARMUP_S
+if ($inWarmup) {
+    Add-Check 'server' 'warmup' 'INFO' "server started ${serverAgeS}s ago - in-memory liveness not yet repopulated, holding fire on bridge/peer"
+}
+
 $healer = Get-Json '/api/healer'
 if ($null -eq $healer) { Add-Check 'server' 'healer' 'UNKNOWN' 'endpoint unreachable' }
 elseif ($healer.healthy) { Add-Check 'server' 'healer' 'GREEN' "healthy, $($healer.healCount) heals" }
@@ -129,7 +147,11 @@ if (Test-Path $envFile) {
 foreach ($tag in $tags) {
     $h = Get-Json "/api/mt5/health?account=$tag"
     if ($null -eq $h) { Add-Check 'bridge' "tag $tag" 'UNKNOWN' 'server not answering' ; continue }
-    if (-not $h.connected) { Add-Check 'bridge' "tag $tag" 'RED' 'not connected'; continue }
+    if (-not $h.connected) {
+        if ($inWarmup) { Add-Check 'bridge' "tag $tag" 'INFO' 'not connected yet - server restarted moments ago' }
+        else           { Add-Check 'bridge' "tag $tag" 'RED'  'not connected' }
+        continue
+    }
     $ageS = [math]::Round($h.ageMs / 1000, 0)
     if ($ageS -gt 180) { Add-Check 'bridge' "tag $tag" 'RED' "last heartbeat ${ageS}s ago (3 missed reports)" }
     elseif ($ageS -gt 90) { Add-Check 'bridge' "tag $tag" 'AMBER' "last heartbeat ${ageS}s ago" }
@@ -185,7 +207,9 @@ $peers = Get-Json '/api/peer-heartbeat'
 if ($null -eq $peers) {
     Add-Check 'peers' 'peer heartbeat' 'UNKNOWN' 'endpoint unreachable'
 } elseif (-not $peers.peers -or @($peers.peers).Count -eq 0) {
-    Add-Check 'peers' 'peer heartbeat' 'INFO' 'no peer has reported to this box yet'
+    $why = if ($inWarmup) { 'server restarted moments ago - peers report every 5 min' }
+           else { 'no peer has reported to this box yet' }
+    Add-Check 'peers' 'peer heartbeat' 'INFO' $why
 } else {
     foreach ($p in @($peers.peers)) {
         if ($p.box -eq $env:COMPUTERNAME) { continue }   # our own reflection is not evidence
