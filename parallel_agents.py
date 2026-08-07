@@ -242,7 +242,7 @@ if __name__ == "__main__":
 Break this task into independent parallel workstreams that can be built simultaneously with NO file conflicts between them.
 Output ONLY a JSON array. Each item: {{"label": "short name", "prompt": "complete self-contained task for one engineer"}}.
 Max 6 workstreams. Each prompt must be 100% self-contained — the engineer has no other context.
-Working directory: C:\\Users\\User\\ai-trading-dashboard
+Working directory: {WORK_DIR}
 
 TASK: {plan_prompt}"""
         planner_result = subprocess.run(
@@ -254,11 +254,28 @@ TASK: {plan_prompt}"""
             env=agent_env()
         )
 
-        raw = planner_result.stdout.strip()
+        raw = (planner_result.stdout or "").strip() or (planner_result.stderr or "").strip()
         # Extract JSON from output
         start = raw.find("[")
         end   = raw.rfind("]") + 1
         if start == -1 or end == 0:
+            # A session limit lands here too, and used to be reported as "could not
+            # parse workstreams" — which blames the model for a rate limit and throws
+            # the task away. The planner is the FIRST thing /engineer does, so losing
+            # it loses the whole run before a single agent starts.
+            try:
+                from claude_agent import looks_rate_limited, parse_reset_at, queue_job
+                if looks_rate_limited(raw, planner_result.returncode == 0):
+                    reset_at = parse_reset_at(raw)
+                    queue_job(planner_prompt, "engineer-planner", 60, True, None, "[",
+                              reset_at, is_limit=True, kind="parallel",
+                              extra={"cwd": str(WORK_DIR), "addDirs": []})
+                    print(f"[PLAN] Subscription limit reached — the plan brief is saved and "
+                          f"resumes after {reset_at or 'the next drain'}. Nothing was lost. "
+                          f"Run `python claude_agent.py drain` once the window reopens.")
+                    sys.exit(2)
+            except ImportError:
+                pass
             print("[PLAN] Could not parse workstreams — raw output:")
             print(raw)
             sys.exit(1)
