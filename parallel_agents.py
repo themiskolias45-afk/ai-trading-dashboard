@@ -150,10 +150,37 @@ def run_agent(task: dict) -> dict:
         success = False
 
     elapsed = time.time() - t0
-    status  = "done" if success else "failed"
+
+    # A session limit is a pause, not a failure — and this path had no protection at
+    # all until 2026-08-07. It is the one that most needed it: /engineer and /analysis
+    # both run through here, N agents at a time, each holding a brief that took real
+    # work to assemble. Running N agents concurrently is also precisely what TRIPS the
+    # limit, so the most expensive runs were the likeliest to be destroyed by it.
+    #
+    # Parked with kind="parallel" plus this task's cwd and add_dirs, because those
+    # decide whether the agent boots as JARVIS or as a plain worker. Resuming through
+    # run_claude would silently swap one for the other.
+    limited = False
+    if not success and not task.get("_from_queue"):
+        try:
+            from claude_agent import looks_rate_limited, parse_reset_at, queue_job
+            limited = looks_rate_limited(output, success)
+            if limited:
+                reset_at = parse_reset_at(output)
+                queue_job(full_prompt, label, TIMEOUT, True, system, None, reset_at,
+                          is_limit=True, kind="parallel",
+                          extra={"cwd": cwd, "addDirs": [str(d) for d in add_dirs]})
+                print(f"  [{label}] hit the subscription limit — brief saved, resumes "
+                      f"after {reset_at or 'the next drain'}. Nothing was lost.")
+        except Exception as exc:
+            # Never let the safety net break the run it is protecting.
+            print(f"  [{label}] could not park brief ({exc})")
+
+    status = "limited" if limited else ("done" if success else "failed")
     print(f"  [{label}] {status} in {elapsed:.0f}s")
 
-    return {"label": label, "output": output, "elapsed": elapsed, "success": success}
+    return {"label": label, "output": output, "elapsed": elapsed,
+            "success": success, "limited": limited}
 
 
 def run_parallel(tasks: list) -> list:

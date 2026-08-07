@@ -75,6 +75,16 @@ const MIN_RR_CANDIDATES = [1.2, 1.35, BASE_MIN_RR, 1.75, 2.0];
 const ADX_CANDIDATES    = [15, BASE_ADX, 25, 30];
 const STRENGTH_CANDIDATES = [BASE_STRENGTH, "STRONG"];
 
+// The trailing ladder. "off" is the shipped exit logic — a fixed stop held to target
+// or stop — and is the baseline here, because that is what these folds were built to
+// judge everything else against. The candidates are give-back distances: how far
+// behind price the ratchet sits once it arms at 1R.
+//
+// It went live on both boxes on 2026-08-07 on ONE in-sample run, which is not the
+// bar this project promotes on. This is that measurement.
+const BASE_TRAIL = "off";
+const TRAIL_CANDIDATES = [BASE_TRAIL, 0.5, 1.0, 1.5];
+
 const FOLDS      = 5;
 const COST_R     = 0.05;   // same cost basis the rest of the project uses
 const CONF_FLOOR = 40;     // expose sub-gate cohorts so the replay emits them
@@ -91,14 +101,22 @@ const replayCache = new Map();
 // baseline for BOTH sweeps, so without the cache the shipped engine would be
 // replayed twice per asset for no reason.
 function replay(symbol, ticker, overrides) {
-  const env = { ...process.env, MTF_CONF_FLOOR: String(CONF_FLOOR) };
+  // MTF_EMIT_R on every run, including the baseline, so both sides of every
+  // comparison are scored by the same measured field. Deriving one side from
+  // `outcome` and measuring the other is how a trailing backtest flatters itself.
+  const env = { ...process.env, MTF_CONF_FLOOR: String(CONF_FLOOR), MTF_EMIT_R: "1" };
   if (overrides.minRr !== undefined && overrides.minRr !== BASE_MIN_RR) {
     env.MTF_MIN_RR = String(overrides.minRr);
   }
   if (overrides.adx !== undefined && overrides.adx !== BASE_ADX) {
     env.MTF_ADX_TRENDING_MIN = String(overrides.adx);
   }
-  const key = `${symbol}|${env.MTF_MIN_RR ?? "-"}|${env.MTF_ADX_TRENDING_MIN ?? "-"}`;
+  if (overrides.trail !== undefined && overrides.trail !== BASE_TRAIL) {
+    env.MTF_TRAIL_LADDER   = "1";
+    env.MTF_TRAIL_GIVEBACK_R = String(overrides.trail);
+  }
+  const key = `${symbol}|${env.MTF_MIN_RR ?? "-"}|${env.MTF_ADX_TRENDING_MIN ?? "-"}` +
+              `|${env.MTF_TRAIL_GIVEBACK_R ?? "-"}`;
   if (replayCache.has(key)) return replayCache.get(key);
 
   let trades = [];
@@ -129,18 +147,37 @@ function replayAll(overrides) {
   return trades;
 }
 
+// Scored off realisedR, which the replay emits for every trade under MTF_EMIT_R.
+//
+// This is arithmetically IDENTICAL to the old WIN/LOSS formula on a fixed-stop run —
+// realisedR is exactly `rr` for a WIN and exactly -1 for a LOSS, so
+// sum(realisedR - cost) equals sum(rr - cost) - sum(1 + cost). Nothing about the
+// existing minRr/adx/minStrength tables moves.
+//
+// It exists because the trailing ladder produces a third outcome. A TRAILED exit
+// lands anywhere between -1 and +rr, and the old formula counted it in `closed`
+// while adding it to neither grossWin nor grossLoss — every trailed trade would have
+// diluted the per-trade figure toward zero and the ladder would have looked
+// worthless for a reason that was purely an accounting gap.
 function stat(trades) {
   const closed = trades.filter(t => t.outcome !== "EXPIRED");
-  const wins   = closed.filter(t => t.outcome === "WIN");
-  const losses = closed.filter(t => t.outcome === "LOSS");
-  const grossWin  = wins.reduce((a, t) => a + t.rr - COST_R, 0);
-  const grossLoss = losses.reduce(a => a + 1 + COST_R, 0);
+  if (!closed.length) return { closed: 0, wr: 0, pf: 0, R: 0, rpt: 0 };
+
+  const realised = t => (typeof t.realisedR === "number"
+    ? t.realisedR
+    : (t.outcome === "WIN" ? t.rr : -1));          // fallback for a pre-MTF_EMIT_R run
+
+  let grossWin = 0, grossLoss = 0, wins = 0;
+  for (const t of closed) {
+    const net = realised(t) - COST_R;
+    if (net > 0) { grossWin += net; wins++; } else { grossLoss += -net; }
+  }
   return {
     closed: closed.length,
-    wr: closed.length ? (wins.length / closed.length) * 100 : 0,
+    wr: (wins / closed.length) * 100,
     pf: grossLoss ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0),
     R: grossWin - grossLoss,
-    rpt: closed.length ? (grossWin - grossLoss) / closed.length : 0,
+    rpt: (grossWin - grossLoss) / closed.length,
   };
 }
 
@@ -190,7 +227,7 @@ const report = {
   generatedAt: new Date().toISOString(),
   basis: {
     path: "generateSignalMTF",
-    settings: ["minRr", "adxTrendingMin", "minStrength"],
+    settings: ["minRr", "adxTrendingMin", "minStrength", "trailGiveback"],
     costR: COST_R,
     confFloor: CONF_FLOOR,
     scoredAtGate: GATE,
@@ -268,6 +305,22 @@ function sweep(name, candidates, baseValue, tradesFor) {
 const runMinRr    = WHICH === "all" || WHICH === "minRr";
 const runAdx      = WHICH === "all" || WHICH === "adx";
 const runStrength = WHICH === "all" || WHICH === "minStrength";
+const runTrail    = WHICH === "all" || WHICH === "trail";
+
+if (runTrail) {
+  process.stderr.write(`  sweeping trailing ladder across ${TRAIL_CANDIDATES.length} values…\n`);
+  const rows = sweep("trailGiveback", TRAIL_CANDIDATES, BASE_TRAIL,
+    value => replayAll({ minRr: BASE_MIN_RR, adx: BASE_ADX, trail: value }));
+  renderTable("TRAILING LADDER (give-back R)", "trail", rows, [
+    "'off' is the shipped fixed stop. Numbers are how far behind price the ratchet",
+    "sits once it arms at 1R - smaller is tighter, banking sooner and capping runners.",
+    "This is LIVE on both boxes already, promoted on one in-sample run. If 'off' beats",
+    "every candidate here, the honest move is to turn it off, not to keep it because",
+    "it is already deployed.",
+    "Trade counts move: a trailed exit lands earlier, frees the occupancy window and",
+    "lets through signals an open position used to block. Read closed, not only R.",
+  ]);
+}
 
 if (runMinRr) {
   process.stderr.write(`  sweeping minRr across ${MIN_RR_CANDIDATES.length} values…\n`);

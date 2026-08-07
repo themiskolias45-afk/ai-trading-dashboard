@@ -209,12 +209,20 @@ def _write_queue(jobs):
 
 
 def queue_job(prompt, label, timeout, needs_project, system, require, reset_at,
-              is_limit=True):
+              is_limit=True, kind="claude", extra=None):
     """Park one brief so the limit costs a delay instead of the work. Returns the id.
 
     is_limit — True when the run was rate-limited (the normal case). False when it
         failed for a real reason, which is the only thing that counts toward
         MAX_QUEUE_ATTEMPTS.
+    kind — which runner reproduces this brief. "claude" is run_claude here.
+        "parallel" is parallel_agents.run_agent, which /engineer and /analysis use
+        and which takes a per-task cwd and add_dirs that run_claude has no concept
+        of: a build agent runs INSIDE the project on purpose so it boots as JARVIS,
+        while an analyst runs outside so it does not. Resuming one through the wrong
+        runner would silently change what the agent is.
+    extra — kind-specific fields carried through the queue so the resumed run is the
+        same run, not an approximation of it.
     """
     jobs = load_queue()
     job_id = _job_id(label, prompt)
@@ -234,11 +242,13 @@ def queue_job(prompt, label, timeout, needs_project, system, require, reset_at,
     jobs.append({
         "id":           job_id,
         "label":        label,
+        "kind":         kind,
         "prompt":       prompt,
         "timeout":      timeout,
         "needsProject": needs_project,
         "system":       system,
         "require":      require,
+        "extra":        extra or {},
         "resetAt":      reset_at,
         "attempts":     0 if is_limit else 1,
         "limitHits":    1 if is_limit else 0,
@@ -279,6 +289,51 @@ def job_is_due(job, now=None):
         return True
 
 
+def _resume(job):
+    """Re-run one parked brief through the runner that produced it.
+
+    A /engineer build agent and an /analysis analyst both come from
+    parallel_agents.run_agent and carry a cwd and add_dirs that decide whether the
+    agent boots as JARVIS or as a plain worker. Resuming those through run_claude
+    would quietly turn one into the other, so they go back the way they came.
+    """
+    kind = job.get("kind", "claude")
+
+    if kind == "parallel":
+        extra = job.get("extra") or {}
+        # Imported here, not at module scope: parallel_agents imports this module for
+        # the queue, so a top-level import would be circular.
+        try:
+            from parallel_agents import run_agent
+        except ImportError as exc:
+            return {"label": job["label"], "output": f"[cannot resume: {exc}]",
+                    "success": False, "elapsed": 0.0, "limited": False, "resetAt": None}
+        result = run_agent({
+            "label":    job["label"],
+            "prompt":   job["prompt"],
+            "cwd":      extra.get("cwd"),
+            "add_dirs": extra.get("addDirs") or [],
+            "system":   job.get("system"),
+            "_from_queue": True,      # stop it re-parking itself; drain owns the row
+        })
+        output = result.get("output", "")
+        success = bool(result.get("success"))
+        limited = looks_rate_limited(output, success)
+        return {**result,
+                "limited": limited,
+                "resetAt": parse_reset_at(output) if limited else None}
+
+    return run_claude(
+        job["prompt"],
+        timeout=int(job.get("timeout") or DEFAULT_TIMEOUT),
+        needs_project=bool(job.get("needsProject", True)),
+        system=job.get("system"),
+        label=job["label"],
+        require=job.get("require"),
+        persist_on_limit=False,      # drain owns the row; run_claude must not duplicate it
+    )
+
+
 def drain_queue(verbose=True):
     """Re-run every parked brief that is due. Returns a per-job summary.
 
@@ -314,15 +369,7 @@ def drain_queue(verbose=True):
             print(f"[agent-queue] resuming {job['label']} "
                   f"(attempt {int(job.get('attempts', 0)) + 1})")
 
-        result = run_claude(
-            job["prompt"],
-            timeout=int(job.get("timeout") or DEFAULT_TIMEOUT),
-            needs_project=bool(job.get("needsProject", True)),
-            system=job.get("system"),
-            label=job["label"],
-            require=job.get("require"),
-            persist_on_limit=False,      # handled below, so the row is updated not duplicated
-        )
+        result = _resume(job)
 
         if result["success"]:
             drop_job(job["id"])
@@ -337,7 +384,8 @@ def drain_queue(verbose=True):
             # never ran, so it has not failed at anything.
             queue_job(job["prompt"], job["label"], job.get("timeout"),
                       job.get("needsProject", True), job.get("system"),
-                      job.get("require"), result.get("resetAt"), is_limit=True)
+                      job.get("require"), result.get("resetAt"), is_limit=True,
+                      kind=job.get("kind", "claude"), extra=job.get("extra"))
             summary.append({"label": job["label"], "status": "still-limited",
                             "resetAt": result.get("resetAt")})
         elif attempts >= MAX_QUEUE_ATTEMPTS:
