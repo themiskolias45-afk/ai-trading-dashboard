@@ -177,7 +177,14 @@ const TOOLS = [
     description:
       'Get self-learning engine data: per-setup win rates, confidence calibration ' +
       '(does 85% confidence really produce 85% WR?), boost/penalty applied to each setup, ' +
-      'and total sessions tracked.',
+      'and total sessions tracked. ' +
+      'setupStats counts REAL FILLS and is tiny - one closed trade in this system\'s ' +
+      'history - so most setups sit below the 5-trade floor and carry boost 0. ' +
+      'The separate `shadow` key holds per-setup outcomes from REJECTED setups walked ' +
+      'forward on real broker bars: far more of them, but they are forgone PAPER trades ' +
+      'with no slippage and no spread, on entries that were never filled. ' +
+      'Never present shadow numbers as realised edge and never merge the two - ' +
+      'shadow.feedsTheGate is false, meaning it changes no confidence and no signal.',
     inputSchema: { type: 'object', properties: {} },
     async handler() {
       return cached('learning', 60000, () => fetchJSON('/api/learning'));
