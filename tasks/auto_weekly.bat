@@ -17,7 +17,19 @@ set NONINTERACTIVE=You are a non-interactive subprocess in an automated pipeline
 
 if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"
 if not exist "%PROJ%\tasks\logs" mkdir "%PROJ%\tasks\logs"
-set REPORT=%PROJ%\tasks\logs\weekly_%date:~-4,4%%date:~-10,2%%date:~-7,2%.txt
+REM Date from PowerShell, not from slicing %date%.
+REM
+REM %date% is LOCALE-dependent and the two boxes disagree. The VPS gives
+REM "Fri 08/07/2026" (US, with a weekday prefix) where the old slices
+REM %date:~-10,2%%date:~-7,2% land on MM then DD and are correct. This laptop gives
+REM "07/08/2026" (UK, no prefix) where the same slices land on DD then MM, so every
+REM filename came out with day and month transposed: the report written on 7 August
+REM was named weekly_20260708 and reads as 8 July. Worse on two-digit days -
+REM weekly_20262607 (26 July) and daily_20262107 (21 July) carry month "26" and "21"
+REM and no date parser will take them. The Python-written daily_runner_* files next
+REM to them are correct, which is what makes the .bat ones obviously wrong.
+for /f %%D in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "TODAY=%%D"
+set REPORT=%PROJ%\tasks\logs\weekly_%TODAY%.txt
 
 echo Weekly Analysis - %date% > "%REPORT%"
 echo ========================================= >> "%REPORT%"

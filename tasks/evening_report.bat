@@ -20,7 +20,9 @@ claude --dangerously-skip-permissions -p "JARVIS: Evening trading review. Read t
 
 echo.
 echo  Opening report in Notepad...
-set LOGFILE=tasks\logs\evening_%date:~-4,4%%date:~-10,2%%date:~-7,2%.txt
+REM Locale-independent date — see the note in tasks\auto_weekly.bat.
+for /f %%D in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "TODAY=%%D"
+set LOGFILE=tasks\logs\evening_%TODAY%.txt
 if exist "%LOGFILE%" start notepad "%LOGFILE%"
 echo.
 

@@ -20,7 +20,11 @@ set NONINTERACTIVE=You are a non-interactive subprocess in an automated pipeline
 
 if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"
 if not exist "%PROJ%\tasks\logs" mkdir "%PROJ%\tasks\logs"
-set LOGFILE=%PROJ%\tasks\logs\daily_%date:~-4,4%%date:~-10,2%%date:~-7,2%.txt
+REM Locale-independent date — see the note in tasks\auto_weekly.bat. Slicing %date%
+REM lands on MM,DD on the VPS ("Fri 08/07/2026") and DD,MM on this laptop
+REM ("07/08/2026"), so every filename here had day and month transposed.
+for /f %%D in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "TODAY=%%D"
+set LOGFILE=%PROJ%\tasks\logs\daily_%TODAY%.txt
 
 echo ========================================== >> "%LOGFILE%"
 echo  SmartEntry Daily Check - %date% %time% >> "%LOGFILE%"
