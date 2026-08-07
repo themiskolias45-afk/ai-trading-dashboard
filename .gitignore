@@ -36,3 +36,7 @@ server/trading_control.json
 # sizing onto the VPS. A BOM in this file already reset VPS sizing once (2026-08-02).
 server/strategy_settings.json
 server/journal.json
+
+# Derived from each box's own rejection ledger by tasks/learning_from_rejections.py.
+# Regenerable, per-machine, and would conflict on every sync if tracked.
+server/learning_shadow.json
