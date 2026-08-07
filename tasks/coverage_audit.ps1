@@ -62,16 +62,21 @@ if ($tasks.Count -eq 0) {
         # fire, and that is exactly how the VPS ended up with its whole stack
         # waiting on a human who never arrives.
         $trigKinds = @($t.Triggers | ForEach-Object { $_.CimClass.CimClassName })
-        $bootOnly  = ($trigKinds.Count -gt 0) -and -not ($trigKinds | Where-Object { $_ -notmatch 'Boot' })
-        $logonOnly = ($trigKinds.Count -gt 0) -and -not ($trigKinds | Where-Object { $_ -notmatch 'Logon' })
+        $hasBoot   = @($trigKinds | Where-Object { $_ -match 'Boot' }).Count -gt 0
+        $logonOnly = ($trigKinds.Count -gt 0) -and -not (@($trigKinds | Where-Object { $_ -notmatch 'Logon' }).Count)
 
         if (-not $ranEver -or $i.LastTaskResult -eq 267011) {
-            if ($bootOnly) {
-                Add-Check 'tasks' $t.TaskName 'INFO' 'boot-triggered, never fired - this box has not rebooted since it was registered'
+            # The question is not "has it run" but "will it". A scheduled next run
+            # answers that outright, and a boot trigger answers it for the next
+            # reboot. Only a task with neither is genuinely stranded.
+            if ($null -ne $i.NextRunTime) {
+                Add-Check 'tasks' $t.TaskName 'INFO' "not run yet, first run $($i.NextRunTime.ToString('MM-dd HH:mm'))"
+            } elseif ($hasBoot) {
+                Add-Check 'tasks' $t.TaskName 'INFO' 'boot-triggered, will fire on the next reboot'
             } elseif ($logonOnly -and -not [Environment]::UserInteractive) {
                 Add-Check 'tasks' $t.TaskName 'RED' 'LOGON-triggered on a headless box - it will never fire'
             } else {
-                Add-Check 'tasks' $t.TaskName 'RED' 'registered but has NEVER run'
+                Add-Check 'tasks' $t.TaskName 'RED' 'registered, never run, and nothing scheduled to run it'
             }
         } elseif ($i.LastTaskResult -ne 0 -and $i.LastTaskResult -ne 267009) {
             Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
