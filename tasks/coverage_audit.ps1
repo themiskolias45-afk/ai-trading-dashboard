@@ -174,6 +174,23 @@ foreach ($f in @(
     }
 }
 
+# ── 6. Can this box raise an alarm at all? ────────────────────────────────────
+#
+# Checked LAST and treated as the most serious kind of failure, because every green
+# above is worth very little if the answer is no. tasks/vps_monitor.ps1 is the
+# external dead-man's switch -- it runs on the laptop precisely so a powered-off VPS
+# still produces an alert -- and on 2026-08-07 it was found to have never sent one
+# and to be incapable of it: the laptop's keys.env has no TELEGRAM_TOKEN. Armed and
+# mute, with nothing reporting that, because "no alert arrived" is indistinguishable
+# from "nothing went wrong".
+. (Join-Path $PSScriptRoot 'notify.ps1')
+$notifierOk = Test-NotifierConfigured
+if ($notifierOk) {
+    Add-Check 'alerting' 'notifier' 'GREEN' (Get-NotifierStatus)
+} else {
+    Add-Check 'alerting' 'notifier' 'RED' (Get-NotifierStatus)
+}
+
 # ── report ────────────────────────────────────────────────────────────────────
 $stamp = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
 $out = @()
@@ -181,7 +198,7 @@ $out += "=======================================================================
 $out += " SmartEntry COVERAGE AUDIT - $stamp"
 $out += " box: $env:COMPUTERNAME   project: $Proj"
 $out += "=========================================================================="
-foreach ($area in @('tasks','server','bridge','agents','learning')) {
+foreach ($area in @('tasks','server','bridge','agents','learning','alerting')) {
     $rows = @($results | Where-Object { $_.Area -eq $area })
     if ($rows.Count -eq 0) { continue }
     $out += ''
@@ -204,5 +221,34 @@ $out | ForEach-Object { Write-Output $_ }
 $logPath = Join-Path $LogDir 'coverage_audit.txt'
 try { $out | Out-File -FilePath $logPath -Encoding utf8 -Append } catch { }
 
-if ($red.Count -gt 0) { exit 1 }
+# ── tell someone, but only on a CHANGE ────────────────────────────────────────
+#
+# On transition into RED and again on recovery, never every run. A 12-hourly job
+# that re-sends the same alarm becomes noise you learn to ignore, which is the same
+# as having no alarm -- the lesson tasks/vps_monitor.ps1 already encodes.
+$statePath = Join-Path $LogDir 'coverage_audit_state.json'
+$wasRed = $false
+if (Test-Path $statePath) {
+    try { $wasRed = [bool](Get-Content $statePath -Raw | ConvertFrom-Json).red } catch { $wasRed = $false }
+}
+$isRed = $red.Count -gt 0
+
+if ($isRed -ne $wasRed) {
+    $names = ($red | ForEach-Object { "$($_.Name) - $($_.Detail)" }) -join "`n  "
+    $msg = if ($isRed) {
+        "SmartEntry COVERAGE RED on $env:COMPUTERNAME`n  $names"
+    } else {
+        "SmartEntry coverage RECOVERED on $env:COMPUTERNAME - all checks green again"
+    }
+    if ($notifierOk) {
+        if (Send-Notification $msg) { Write-Output ' (alert sent)' }
+        else { Write-Output ' (ALERT SEND FAILED - the transition was not delivered)' }
+    } else {
+        # Say it in the report rather than swallowing it. This box cannot tell anyone.
+        Write-Output ' (NO ALERT SENT - this box has no notifier configured)'
+    }
+}
+try { @{ red = $isRed; at = $stamp } | ConvertTo-Json | Out-File -FilePath $statePath -Encoding utf8 } catch { }
+
+if ($isRed) { exit 1 }
 exit 0
