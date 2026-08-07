@@ -208,23 +208,33 @@ const sandbox = {
   sentimentCache: {},
   signalCache: {},
   getLearningBoost: () => 0,
-  // The R:R shadow log, stubbed out. generateSignal calls logRrRejection on every
-  // rejected setup, but the real one lives outside the extracted block and closes
-  // over fs, path and a module-level Map — none of which exist in this sandbox. So
-  // without this stub the call is a ReferenceError, the catch below swallows it,
-  // and the step disappears from the replay.
+  // The rejection ledger, stubbed out. generateSignal and generateSignalMTF call
+  // logGateRejection on every killed setup and noteGatePass on every survivor, but
+  // the real ones live in server/rejection_log.js — outside every block this
+  // harness extracts, closing over fs, path and module-level Maps, none of which
+  // exist in this sandbox. Without these stubs each call is a ReferenceError, the
+  // catch below swallows it, and the step disappears from the replay.
   //
-  // Measured 2026-08-06, immediately after the shadow log was ported here: 1006
-  // dropped steps on XAUUSD alone, i.e. exactly the population whose R:R was
-  // marginal — the one any sweep of MIN_RR is trying to measure. This is the same
-  // failure the SIZING_BOOST_MIN_CONFIDENCE note above describes, and it is why
-  // that note says to read consts from source rather than assume the sandbox is
-  // complete.
+  // This has already happened twice and cost real measurements. Measured
+  // 2026-08-06 on the predecessor of this stub (logRrRejection): 1006 dropped steps
+  // on XAUUSD alone — exactly the population whose R:R was marginal, the one any
+  // sweep of MIN_RR is trying to measure. Before that, a missing
+  // SIZING_BOOST_MIN_CONFIDENCE deleted 1131 Gold steps, 18% of the asset's
+  // history. The engine's call sites are additionally typeof-guarded so a missing
+  // binding degrades to a no-op rather than a deletion, but that guard is a safety
+  // net, not a substitute for stubbing: keep these in step with the engine.
   //
-  // A no-op is correct, not a shortcut: the replay must not append to the live
+  // noteGatePass matters MORE than the rejection stub, not less. It runs on the
+  // PASS path, i.e. on nearly every step that forms a setup, so an unstubbed
+  // version would not shave a marginal cohort — it would gut the whole replay.
+  //
+  // No-ops are correct, not shortcuts: the replay must never append to the live
   // evidence file. Writing there would contaminate real rejections with thousands
-  // of synthetic ones and destroy the dataset's provenance.
-  logRrRejection: () => {},
+  // of synthetic ones and destroy the dataset's provenance. The counters are
+  // equally worthless here — a census of 5 years of replayed steps says nothing
+  // about whether a gate is live right now.
+  logGateRejection: () => false,
+  noteGatePass: () => {},
   console,
 };
 vm.createContext(sandbox);
@@ -264,6 +274,43 @@ if (d1.length < 250 || h4.length < 300 || h1.length < 100) {
 
 const WINDOW   = 400;   // trailing bars per timeframe; EMA200 needs ~210
 const MAX_HOLD = 40;    // H4 bars, same as tasks/_replay_engine.cjs
+
+// ── Trailing-stop ladder, OFF by default ──────────────────────────────────────
+//
+// The live ladder in mt5_bridge.py arms at 1R and then trails 1R behind price in
+// 0.5R steps. It went live on 2026-08-07 unmeasured, which is the open question it
+// was shipped with: tightening a trail buys a higher win rate and pays for it by
+// capping the runners, and nothing here had ever scored that trade-off.
+//
+// Gated on MTF_TRAIL_LADDER so the DEFAULT run stays byte-identical. Both boxes are
+// verified equal by comparing this script's output hash, and silently changing the
+// baseline would destroy that check.
+//
+// Values mirror TRAIL_ARM_R / TRAIL_STEP_R / TRAIL_GIVEBACK_R in mt5_bridge.py.
+const TRAIL_LADDER   = process.env.MTF_TRAIL_LADDER === "1";
+// Emit realisedR without arming the ladder, so the fixed-stop baseline and the
+// trailed run are scored by the same field instead of one being inferred from
+// `outcome` and the other measured. Comparing a derived number against a measured
+// one is how a trailing backtest flatters itself.
+const EMIT_R         = TRAIL_LADDER || process.env.MTF_EMIT_R === "1";
+const TRAIL_ARM_R    = Number(process.env.MTF_TRAIL_ARM_R      || "1.0");
+const TRAIL_STEP_R   = Number(process.env.MTF_TRAIL_STEP_R     || "0.5");
+const TRAIL_GIVEBACK = Number(process.env.MTF_TRAIL_GIVEBACK_R || "1.0");
+const TRAIL_EPSILON  = 1e-9;   // same float-dust guard as the bridge
+
+if (TRAIL_LADDER && !(TRAIL_STEP_R > 0)) {
+  console.error(`MTF_TRAIL_STEP_R=${process.env.MTF_TRAIL_STEP_R} must be positive — refusing to run`);
+  process.exit(1);
+}
+
+// Where the ladder puts the stop for a trade currently `profitR` in front. Returns
+// null below the arm level. Floored, so it only ever locks in profit already made.
+function ladderStop(entry, risk, profitR, isBuy) {
+  if (profitR < TRAIL_ARM_R - TRAIL_EPSILON) return null;
+  const steps  = Math.floor((profitR - TRAIL_ARM_R) / TRAIL_STEP_R + TRAIL_EPSILON);
+  const locked = Math.max(steps * TRAIL_STEP_R + TRAIL_ARM_R - TRAIL_GIVEBACK, 0);
+  return isBuy ? entry + locked * risk : entry - locked * risk;
+}
 
 // Bar durations, used to turn a stored OPEN timestamp into a CLOSE timestamp.
 // Everything below advances on close times. The previous version compared OPEN
@@ -384,17 +431,56 @@ for (let i = 0; i < h4.length - 1; i++) {
   const rr = Math.abs(target - entry) / risk;
   if (rr < 1) continue;
 
+  const isBuy = sig.signal === "BUY";
   let outcome = "EXPIRED";
   let exitIdx = Math.min(h4.length - 1, i + MAX_HOLD);
+  // Realised R. Fixed-stop trades are ±1 / +rr and the reader can derive that from
+  // `outcome`, but a trailed exit lands anywhere between, so it has to be carried.
+  let realisedR = null;
+  let liveStop  = stop;
+
   for (let j = i + 1; j <= exitIdx; j++) {
     const b = h4[j];
-    if (sig.signal === "BUY") {
-      if (b.l <= stop)   { outcome = "LOSS"; exitIdx = j; break; }
-      if (b.h >= target) { outcome = "WIN";  exitIdx = j; break; }
+
+    // ORDER MATTERS, and it is the whole reason a trailed backtest can lie.
+    //
+    // One H4 bar gives a high and a low with no way to know which came first, so
+    // the stop is tested against the ADVERSE extreme BEFORE the ladder is allowed
+    // to see the favourable one. Ratcheting first would let the stop climb on the
+    // strength of a high that may have happened after the low already took the
+    // trade out — the trail would be reading the future inside its own bar and
+    // every result would come back flatteringly good.
+    if (isBuy) {
+      if (b.l <= liveStop) {
+        outcome   = liveStop > stop ? "TRAILED" : "LOSS";
+        realisedR = (liveStop - entry) / risk;
+        exitIdx = j; break;
+      }
+      if (b.h >= target) { outcome = "WIN"; realisedR = rr; exitIdx = j; break; }
     } else {
-      if (b.h >= stop)   { outcome = "LOSS"; exitIdx = j; break; }
-      if (b.l <= target) { outcome = "WIN";  exitIdx = j; break; }
+      if (b.h >= liveStop) {
+        outcome   = liveStop < stop ? "TRAILED" : "LOSS";
+        realisedR = (entry - liveStop) / risk;
+        exitIdx = j; break;
+      }
+      if (b.l <= target) { outcome = "WIN"; realisedR = rr; exitIdx = j; break; }
     }
+
+    if (TRAIL_LADDER) {
+      // Survived the bar — now the favourable extreme may move the stop up.
+      const profitR = isBuy ? (b.h - entry) / risk : (entry - b.l) / risk;
+      const wanted  = ladderStop(entry, risk, profitR, isBuy);
+      if (wanted !== null) {
+        liveStop = isBuy ? Math.max(liveStop, wanted) : Math.min(liveStop, wanted);
+      }
+    }
+  }
+
+  if (realisedR === null) {
+    // EXPIRED — closed at the last bar's close rather than scored as a full loss,
+    // which is what the fixed-stop path already implies by leaving outcome EXPIRED.
+    const last = h4[exitIdx];
+    realisedR = isBuy ? (last.c - entry) / risk : (entry - last.c) / risk;
   }
   openUntil = exitIdx;
 
@@ -435,6 +521,10 @@ for (let i = 0; i < h4.length - 1; i++) {
     bandwidth: pickTf(cohort, dailySig, h4Sig, s => s.indicators?.bb?.bandwidth),
     volRatio:  pickTf(cohort, dailySig, h4Sig, s => s.volume?.ratio),
     rr: Math.round(rr * 100) / 100, outcome,
+    // Only under the ladder. Adding a field to the default run would change the
+    // output hash the two-box parity check compares, for no benefit to a fixed-stop
+    // trade whose R is already implied by `outcome`.
+    ...(EMIT_R ? { realisedR: Math.round(realisedR * 1000) / 1000 } : {}),
   });
 }
 
