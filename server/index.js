@@ -48,6 +48,9 @@ const autohealer = require("./autohealer");
 const db         = require("./db");
 const sizing     = require("./sizing");
 const hermes     = require("./hermes");
+// Cohort reachability table. Shared with tasks/cohort_reachability.cjs so the audit
+// script and the server can never describe two different systems.
+const cohortTable = require("./cohort_table");
 // Universal rejection ledger — see tasks/REJECTION-LEDGER-SPEC.md. Pure
 // observability: every function here swallows its own failure and returns, so it
 // can never reach the trading path.
@@ -655,7 +658,43 @@ function saveStrategySettings() {
   }
 }
 
+// Say out loud which signal cohorts cannot reach the current gate.
+//
+// The engine expresses "this cohort has poor edge" as a low confidence number rather
+// than an explicit block, so moving confidenceThreshold silently kills cohorts. It
+// has happened three times; the most recent was 65 -> 70 on 2026-08-02, which killed
+// BTC H4-only MODERATE (ceiling 65) without a word. A dead cohort makes no trades, so
+// it writes nothing to the journal, nothing to the learning table and no error — it
+// is indistinguishable from a quiet market.
+//
+// Reports only. It must never change a signal, and a fault here must never stop the
+// server booting: an unreadable table is a lost warning, not a reason to stop
+// trading. Called at load and again on every settings change, because a gate edit
+// from the dashboard is the exact moment a cohort dies.
+function reportCohortReachability(context) {
+  try {
+    const rows = cohortTable.computeReachability(strategySettings.confidenceThreshold);
+    const dead = rows.filter(row => row.status === 'DEAD');
+    if (dead.length === 0) {
+      console.log(`[cohorts] ${context}: all ${rows.length} cohorts can reach gate ${strategySettings.confidenceThreshold}`);
+      return;
+    }
+    console.warn(
+      `[cohorts] ⚠ ${context}: ${dead.length} of ${rows.length} cohort(s) CANNOT reach gate ` +
+      `${strategySettings.confidenceThreshold} even at maximum boost (+${cohortTable.MAX_BOOST}). ` +
+      `They will never fire and will look like a quiet market:`
+    );
+    for (const row of dead) {
+      console.warn(`[cohorts]   ${row.name} — base ${row.base}, ceiling ${row.ceiling}, ${row.short} short`);
+    }
+    console.warn('[cohorts]   Run `node tasks/cohort_reachability.cjs` for the full table.');
+  } catch (e) {
+    console.error(`[cohorts] reachability check failed (${e.message}) — continuing`);
+  }
+}
+
 loadStrategySettings();
+reportCohortReachability('startup');
 
 // ══════════════════════════════════════════════════════════════
 //  TECHNICAL ANALYSIS
@@ -2885,6 +2924,10 @@ app.post("/api/strategy-settings", (req, res) => {
   strategySettings.updatedBy = "dashboard";
   saveStrategySettings();
   console.log(`[strategy] Updated from dashboard: ${JSON.stringify(applied)}`);
+  // A gate edit is the exact moment a cohort dies, so say so now rather than at the
+  // next restart. Moving 65 -> 70 on 2026-08-02 killed BTC H4-only MODERATE and
+  // nothing reported it for six days.
+  if (applied.confidenceThreshold !== undefined) reportCohortReachability('gate changed from dashboard');
   res.json({ ok: true, settings: strategySettings, applied, notes: rejected });
 });
 
