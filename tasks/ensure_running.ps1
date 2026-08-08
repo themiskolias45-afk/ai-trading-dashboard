@@ -69,21 +69,19 @@ $BRIDGE_START_COOLDOWN_S = 120
 # Falls back to 'A,B' on a missing file, an unreadable one, or an empty value. Never
 # falls back to an empty list: that would silently start no bridges at all, which is a
 # worse failure than starting one too many.
-function Get-ExpectedBridgeTags {
-    $fallback = @('A', 'B')
-    try {
-        $envFile = Join-Path $Proj 'keys.env'
-        if (-not (Test-Path $envFile)) { return $fallback }
-        $line = Select-String -Path $envFile -Pattern '^\s*MT5_EXPECTED_ACCOUNTS\s*=' -ErrorAction Stop |
-                Select-Object -First 1
-        if (-not $line) { return $fallback }
-        $tags = ($line.Line -replace '^\s*MT5_EXPECTED_ACCOUNTS\s*=', '').Trim() -split ',' |
-                ForEach-Object { $_.Trim().ToUpper() } | Where-Object { $_ }
-        if (-not $tags -or $tags.Count -eq 0) { return $fallback }
-        return $tags
-    } catch {
-        return $fallback
-    }
+#
+# The function itself moved to tasks\bridge_tags.ps1 on 2026-08-08. It used to live
+# here only, and startup_all.ps1 hardcoded @('A','B') rather than calling it -- so this
+# script honoured the flag while the logon script beside it restarted B anyway. If the
+# dot-source fails, define the fallback rather than leaving the name undefined, or the
+# bridge block below would throw and this box would lose its gap-filler entirely.
+try {
+    . (Join-Path $PSScriptRoot 'bridge_tags.ps1')
+} catch {
+    function Get-ExpectedBridgeTags { return @('A', 'B') }
+}
+if (-not (Get-Command Get-ExpectedBridgeTags -ErrorAction SilentlyContinue)) {
+    function Get-ExpectedBridgeTags { return @('A', 'B') }
 }
 
 New-Item -ItemType Directory -Force $LogDir | Out-Null

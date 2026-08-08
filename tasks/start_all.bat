@@ -55,9 +55,27 @@ taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT A*" >nul 2>&1
 taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT B*" >nul 2>&1
 start "" /min cmd /k "tasks\start_bridge_A.bat"
 timeout /t 3 /nobreak >nul
-start "" /min cmd /k "tasks\start_bridge_B.bat"
-timeout /t 5 /nobreak >nul
-echo  [4/4] Bridges: OK - A #25446287, B #11581419
+
+REM Bridge B only on machines that own tag B. MT5_EXPECTED_ACCOUNTS in keys.env is the
+REM single source of truth, shared with the server's healer, ensure_running.ps1 and
+REM tasks\bridge_tags.ps1. Local B and the VPS's A are both pinned to login 11581419;
+REM without this check, starting everything here puts two --auto bridges on that one
+REM account, and the 3-loss breaker counts per ACCOUNT_TAG so neither tag ever halts.
+REM /c: is required -- without it findstr splits the pattern on spaces and any line
+REM containing "=" matches, so a keys.env holding FOO=bar sets EXPECTED_TAGS to "bar".
+REM Absent or unreadable value means A,B, never an empty list.
+set "EXPECTED_TAGS=A,B"
+for /f "tokens=2 delims==" %%T in ('findstr /r /c:"^ *MT5_EXPECTED_ACCOUNTS *=" keys.env 2^>nul') do set "EXPECTED_TAGS=%%T"
+if "%EXPECTED_TAGS%"=="" set "EXPECTED_TAGS=A,B"
+echo %EXPECTED_TAGS% | findstr /i "B" >nul
+if errorlevel 1 (
+  echo  [4/4] Bridge B: not owned by this machine ^(MT5_EXPECTED_ACCOUNTS=%EXPECTED_TAGS%^) - skipped
+  echo  [4/4] Bridges: OK - A #25446287
+) else (
+  start "" /min cmd /k "tasks\start_bridge_B.bat"
+  timeout /t 5 /nobreak >nul
+  echo  [4/4] Bridges: OK - A #25446287, B #11581419
+)
 
 :summary
 echo.

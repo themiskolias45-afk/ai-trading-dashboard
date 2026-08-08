@@ -45,7 +45,23 @@ if ($serverRunning) {
 # and opened every qualifying signal a second time. The 3-loss circuit breaker counts
 # per ACCOUNT_TAG, so the duplicate split the loss count across two tags and neither
 # ever reached the halt. Win32_Process is the only place PS 5.1 exposes a command line.
+#
+# The tag list is NOT hardcoded. It was @('A','B') until 2026-08-08, which meant this
+# script started Bridge B on every logon no matter what MT5_EXPECTED_ACCOUNTS said --
+# so stopping B never stuck, and account 11581419 kept ending up traded by this box and
+# the VPS at once. tasks\bridge_tags.ps1 is the one parser; ensure_running.ps1 reads the
+# same file, so the logon script and the scheduled safety net cannot disagree.
+#
+# A failed dot-source must not stop the bridges starting: falling back to @('A','B') is
+# exactly the old behaviour, whereas an empty list would silently trade nothing.
 $bridgeAccounts = @('A', 'B')
+try {
+    . (Join-Path $PSScriptRoot 'bridge_tags.ps1')
+    $bridgeAccounts = Get-ExpectedBridgeTags -ProjectRoot $proj
+} catch {
+    Log "MT5 BRIDGE: cannot read bridge_tags.ps1 ($($_.Exception.Message)) -- assuming A,B"
+}
+Log "MT5 BRIDGE: this machine owns tag(s) $($bridgeAccounts -join ',')"
 
 $bridgeProcs   = @()
 $canReadProcs  = $true
