@@ -223,7 +223,9 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
     ? suppliedMin
     : MIN_CONFIDENCE;
 
-  const { entry, stop, target, confidence, symbol, direction } = signal;
+  // No `direction` here on purpose: the duplicate guard below matches on symbol
+  // alone, so the incoming signal's direction no longer decides anything.
+  const { entry, stop, target, confidence, symbol } = signal;
 
   if (typeof confidence !== 'number' || confidence < minConfidence) {
     return {
@@ -255,14 +257,36 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
 
   const positions = Array.isArray(openPositions) ? openPositions : [];
 
-  if (symbol && direction) {
-    const duplicate = positions.find(
-      p => p && p.symbol === symbol && p.direction === direction
-    );
-    if (duplicate) {
+  // Matches on SYMBOL ALONE. It used to require symbol AND direction, which meant an
+  // opposite-direction entry passed every gate: on 2026-08-08 account A was found
+  // holding XAUUSD BUY #1713655080 @4241.74 (opened 08-05) and XAUUSD SELL
+  // #1726672007 @4296.78 (opened 08-07) at the same time. The MT5 accounts are in
+  // HEDGING mode, so the platform is happy to carry both sides and nothing
+  // downstream objects — this check is the only thing that could have stopped it.
+  //
+  // The cost is not the doubled spread on 0.01 lots. It is that one market state
+  // then writes two opposing outcomes into the learning tables under two different
+  // setup names, and the journal has three entries in its whole life. That is a
+  // permanently corrupted per-setup win rate.
+  //
+  // The reason string MUST keep starting with "Already holding":
+  // mt5_bridge.py:437 (RISK_ENGINE_DUPLICATE_PREFIX) matches that literal prefix to
+  // decide whether to write a DUPLICATE row to the rejection ledger. Reword it and
+  // the gate silently stops being recorded.
+  //
+  // If a deliberate reversal is ever wanted, it belongs here as an explicit
+  // close-then-open, not as a second position that happens to face the other way.
+  if (symbol) {
+    const held = positions.find(p => p && p.symbol === symbol);
+    if (held) {
+      // Never interpolate a missing direction — "Already holding XAUUSD undefined"
+      // is what the operator would have to debug from.
+      const heldDirection = typeof held.direction === 'string' && held.direction
+        ? held.direction
+        : 'UNKNOWN';
       return {
         approved: false,
-        reason: `Already holding ${symbol} ${direction}`,
+        reason: `Already holding ${symbol} ${heldDirection}`,
         suggestedSize: 0
       };
     }

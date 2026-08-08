@@ -584,6 +584,75 @@ assert(
   'validateTrade duplicate rejection says "Already holding" (got "' + duplicatePosition.reason + '")'
 );
 
+// The duplicate guard matches on SYMBOL ALONE, not symbol+direction. Requiring both
+// let an opposite-direction entry through every gate, and on 2026-08-08 account A was
+// found holding XAUUSD BUY #1713655080 and XAUUSD SELL #1726672007 at once. The MT5
+// accounts are in hedging mode, so nothing downstream would ever have objected.
+const oppositeDirection = validateTrade(
+  { symbol: 'BTC', direction: 'SHORT', entry: 100000, stop: 102000, target: 96000, confidence: 80 },
+  NORMAL_BALANCE,
+  [{ symbol: 'BTC', direction: 'LONG', entry: 99000, stop: 97000, lots: 0.05 }]
+);
+assert(oppositeDirection.approved === false, 'validateTrade rejects a BTC SHORT while a BTC LONG is open');
+assert(
+  oppositeDirection.reason === 'Already holding BTC LONG',
+  'validateTrade opposite-direction rejection names the direction HELD, not the one requested (got "' + oppositeDirection.reason + '")'
+);
+assert(oppositeDirection.suggestedSize === 0, 'validateTrade opposite-direction rejection suggests size 0');
+
+// The live pair that exposed this, with real prices off the 2026-08-08 journal.
+const goldHedge = validateTrade(
+  { symbol: 'XAUUSD', direction: 'SELL', entry: 4296.78, stop: 4431.30, target: 4083.07, confidence: 73 },
+  NORMAL_BALANCE,
+  [{ symbol: 'XAUUSD', direction: 'BUY', entry: 4241.74, stop: 4166.05, lots: 0.01 }]
+);
+assert(goldHedge.approved === false, 'validateTrade blocks the real Gold SELL that hedged an open Gold BUY');
+assert(
+  goldHedge.reason === 'Already holding XAUUSD BUY',
+  'validateTrade Gold hedge rejection reads "Already holding XAUUSD BUY" (got "' + goldHedge.reason + '")'
+);
+
+// mt5_bridge.py:437 matches this literal lowercase prefix to write a DUPLICATE row to
+// the rejection ledger. If this assertion fails, that gate stops being recorded and
+// the ledger silently loses a whole category of rejection.
+assert(
+  goldHedge.reason.trim().toLowerCase().indexOf('already holding') === 0,
+  'validateTrade duplicate reason keeps the "already holding" prefix the bridge ledger matches on'
+);
+
+// A position with no direction must not interpolate `undefined` into the reason —
+// that string is what an operator would have to debug from.
+const heldWithoutDirection = validateTrade(
+  NORMAL_SIGNAL,
+  NORMAL_BALANCE,
+  [{ symbol: 'BTC', entry: 99000, stop: 97000, lots: 0.05 }]
+);
+assert(heldWithoutDirection.approved === false, 'validateTrade rejects a same-symbol position that carries no direction');
+assert(
+  heldWithoutDirection.reason.indexOf('undefined') === -1,
+  'validateTrade never leaks "undefined" into the duplicate reason (got "' + heldWithoutDirection.reason + '")'
+);
+assert(
+  heldWithoutDirection.reason === 'Already holding BTC UNKNOWN',
+  'validateTrade names an unknown held direction explicitly (got "' + heldWithoutDirection.reason + '")'
+);
+
+// A different symbol must still pass — the guard is per-instrument, not a global stop.
+const differentSymbol = validateTrade(
+  NORMAL_SIGNAL,
+  NORMAL_BALANCE,
+  [{ symbol: 'GOLD', direction: 'LONG', entry: 2000, stop: 1980, lots: 0.01, valuePerPoint: 1 }]
+);
+assert(differentSymbol.approved === true, 'validateTrade still approves BTC while only GOLD is held (got "' + differentSymbol.reason + '")');
+
+// Malformed entries in the position list must not throw or match.
+const malformedHeld = validateTrade(
+  NORMAL_SIGNAL,
+  NORMAL_BALANCE,
+  [null, undefined, { direction: 'LONG' }, {}]
+);
+assert(malformedHeld.approved === true, 'validateTrade ignores null/empty positions in the duplicate scan (got "' + malformedHeld.reason + '")');
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
