@@ -29,6 +29,20 @@ const MAX_SINGLE_TRADE_RISK = 0.03;
 const MAX_PORTFOLIO_RISK = 0.06;
 const FLOAT_TOLERANCE = 1e-9;
 
+// What one lot of the test instrument is worth per 1.0 of price movement.
+//
+// sizing.js has no default for this ON PURPOSE: assuming 1.0 is what once sized Gold
+// 74x too large, so a missing value now yields zero lots rather than a guess. These
+// tests predate that change and passed no value at all, which is why 18 assertions
+// here sat red for weeks — every one of them was asserting a lot size against a
+// function that had correctly refused to produce one.
+//
+// 1 is chosen so the arithmetic stays checkable by eye ($100 risk / 2000 stop = 0.05
+// lots), NOT because 1.0 is a safe default. It is not. The non-unit case below
+// exists to prove the multiplication actually happens, and the unpriced case to
+// prove the refusal still works.
+const UNIT_POINT_VALUE = 1;
+
 let total = 0;
 let failures = 0;
 let knownIssues = 0;
@@ -100,7 +114,7 @@ assert(
 );
 assert(nearly(kellyMid, (0.3 - 0.7 / 3) / 2), 'calcKelly interior value equals half-kelly exactly');
 
-const atrSizeNormal = calcATRSize(NORMAL_BALANCE, 100000, 98000, 0, 0.01);
+const atrSizeNormal = calcATRSize(NORMAL_BALANCE, 100000, 98000, 0, 0.01, UNIT_POINT_VALUE);
 assert(isCleanNumber(atrSizeNormal.lots), 'calcATRSize normal returns finite lots (got ' + atrSizeNormal.lots + ')');
 assert(atrSizeNormal.lots > 0, 'calcATRSize normal lots are positive (got ' + atrSizeNormal.lots + ')');
 assert(nearly(atrSizeNormal.riskAmount, 100), 'calcATRSize risks 1% of $10,000 = $100');
@@ -108,7 +122,11 @@ assert(nearly(atrSizeNormal.stopDistance, 2000), 'calcATRSize stopDistance = |10
 assert(nearly(atrSizeNormal.lots, 0.05), 'calcATRSize lots = $100 risk / 2000 stop = 0.05');
 assert(atrSizeNormal.atrAdjusted === false, 'calcATRSize does not ATR-adjust when atrValue is 0');
 
-const sizeNormal = calcSize({ accountBalance: NORMAL_BALANCE, signal: NORMAL_SIGNAL });
+const sizeNormal = calcSize({
+  accountBalance: NORMAL_BALANCE,
+  signal: NORMAL_SIGNAL,
+  valuePerPoint: UNIT_POINT_VALUE
+});
 assert(isCleanNumber(sizeNormal.lots), 'calcSize normal returns finite lots (got ' + sizeNormal.lots + ')');
 assert(sizeNormal.lots > 0, 'calcSize normal lots are positive (got ' + sizeNormal.lots + ')');
 assert(
@@ -126,7 +144,8 @@ assert(
 // High confidence gets the 1.5x multiplier, still under the 3% single-trade cap.
 const sizeHighConf = calcSize({
   accountBalance: NORMAL_BALANCE,
-  signal: Object.assign({}, NORMAL_SIGNAL, { confidence: 92 })
+  signal: Object.assign({}, NORMAL_SIGNAL, { confidence: 92 }),
+  valuePerPoint: UNIT_POINT_VALUE
 });
 assert(nearly(sizeHighConf.riskPct, 0.015), 'calcSize applies the 1.5x multiplier at 92% confidence (1% -> 1.5%)');
 assert(
@@ -139,7 +158,8 @@ assert(sizeHighConf.lots > sizeNormal.lots, 'calcSize scales lots up with confid
 const sizeWithKelly = calcSize({
   accountBalance: NORMAL_BALANCE,
   signal: NORMAL_SIGNAL,
-  learningStats: { tradeCount: 40, winRate: 0.6, avgWin: 200, avgLoss: 100 }
+  learningStats: { tradeCount: 40, winRate: 0.6, avgWin: 200, avgLoss: 100 },
+  valuePerPoint: UNIT_POINT_VALUE
 });
 assert(isCleanNumber(sizeWithKelly.lots), 'calcSize with Kelly stats returns finite lots');
 assert(
@@ -164,7 +184,7 @@ assert(
 );
 assert(nearly(sizeThinSample.riskPct, 0.0125), 'calcSize keeps base risk when the trade sample is too thin');
 
-const validNormal = validateTrade(NORMAL_SIGNAL, NORMAL_BALANCE, []);
+const validNormal = validateTrade(NORMAL_SIGNAL, NORMAL_BALANCE, [], { valuePerPoint: UNIT_POINT_VALUE });
 assert(validNormal.approved === true, 'validateTrade approves a clean 2:1 trade at 75% confidence');
 assert(isCleanNumber(validNormal.suggestedSize), 'validateTrade approved suggestedSize is a finite number');
 assert(validNormal.suggestedSize > 0, 'validateTrade approved suggestedSize is positive (got ' + validNormal.suggestedSize + ')');
@@ -176,7 +196,8 @@ assert(
 
 const portfolioNormal = calcPortfolioRisk(
   [{ symbol: 'BTC', direction: 'LONG', entry: 100000, stop: 98000, lots: 0.05 }],
-  NORMAL_BALANCE
+  NORMAL_BALANCE,
+  { BTC: UNIT_POINT_VALUE }
 );
 assert(isCleanNumber(portfolioNormal.totalRiskPct), 'calcPortfolioRisk returns a finite totalRiskPct');
 assert(nearly(portfolioNormal.totalRiskPct, 0.01), 'calcPortfolioRisk: one 0.05-lot BTC position on $10k = 1% risk');
@@ -189,7 +210,8 @@ const portfolioCorrelated = calcPortfolioRisk(
     { symbol: 'BTC', direction: 'LONG', entry: 100000, stop: 98000, lots: 0.1 },
     { symbol: 'GOLD', direction: 'LONG', entry: 2000, stop: 1980, lots: 10 }
   ],
-  NORMAL_BALANCE
+  NORMAL_BALANCE,
+  { BTC: UNIT_POINT_VALUE, GOLD: UNIT_POINT_VALUE }
 );
 assert(nearly(portfolioCorrelated.totalRiskPct, 0.048), 'calcPortfolioRisk adds a 20% correlation penalty (4% -> 4.8%)');
 assert(portfolioCorrelated.safeToAdd === true, 'calcPortfolioRisk still safe at 4.8% total risk');
@@ -239,7 +261,7 @@ assert(atrZeroStop.stopDistance === 0, 'calcATRSize entry == stop reports zero s
 assert(atrZeroStop.atrAdjusted === false, 'calcATRSize entry == stop with no ATR does not claim an ATR adjustment');
 
 // With a real ATR the too-tight stop is widened to 0.5x ATR instead of dividing by zero.
-const atrZeroStopWithAtr = calcATRSize(NORMAL_BALANCE, 100000, 100000, 1500, 0.01);
+const atrZeroStopWithAtr = calcATRSize(NORMAL_BALANCE, 100000, 100000, 1500, 0.01, UNIT_POINT_VALUE);
 assert(isCleanNumber(atrZeroStopWithAtr.lots), 'calcATRSize entry == stop with ATR returns finite lots (got ' + atrZeroStopWithAtr.lots + ')');
 assert(atrZeroStopWithAtr.atrAdjusted === true, 'calcATRSize widens a zero-width stop using ATR');
 assert(nearly(atrZeroStopWithAtr.stopDistance, 750), 'calcATRSize widened stopDistance = 0.5 x 1500 ATR = 750');
@@ -515,7 +537,8 @@ const malformedPositions = calcPortfolioRisk(
     { symbol: 'GOLD', direction: 'LONG', entry: 2000, stop: 1980, lots: 'ten' },
     { symbol: 'SPX', direction: 'LONG', entry: 5000, stop: 4950, lots: 1 }
   ],
-  NORMAL_BALANCE
+  NORMAL_BALANCE,
+  { BTC: UNIT_POINT_VALUE, GOLD: UNIT_POINT_VALUE, SPX: UNIT_POINT_VALUE }
 );
 assert(isCleanNumber(malformedPositions.totalRiskPct), 'calcPortfolioRisk skips malformed positions without producing NaN');
 assert(nearly(malformedPositions.totalRiskPct, 0.005), 'calcPortfolioRisk counts only the one well-formed position (0.5%)');
@@ -543,11 +566,63 @@ const badLearningStats = calcSize({
 assert(isCleanNumber(badLearningStats.riskPct), 'calcSize ignores a malformed learningStats block (riskPct stays finite)');
 assert(nearly(badLearningStats.riskPct, 0.0125), 'calcSize keeps base risk when learningStats is malformed');
 
+// --- valuePerPoint actually multiplies, and its absence actually refuses ----------
+//
+// The 18 assertions above were red for weeks because they passed no valuePerPoint and
+// asserted a lot size anyway. Making them green by handing over a 1 would be a
+// hollow fix: 1 is the exact assumption that once sized Gold 74x too large. These two
+// cases are the ones that would have caught it.
+
+// XAUUSD moves 100 oz per lot, so the same $100 of risk over the same stop must buy
+// exactly 1/100th of the position. If sizing ever silently defaults to 1.0 again,
+// this is the assertion that fails.
+const pricedAtOne     = calcATRSize(NORMAL_BALANCE, 2000, 1980, 0, 0.01, 1);
+const pricedAtHundred = calcATRSize(NORMAL_BALANCE, 2000, 1980, 0, 0.01, 100);
+assert(nearly(pricedAtOne.lots, 5), 'calcATRSize at pointValue 1: $100 / 20 stop = 5 lots');
+assert(nearly(pricedAtHundred.lots, 0.05), 'calcATRSize at pointValue 100: $100 / (20 x 100) = 0.05 lots');
+assert(
+  nearly(pricedAtOne.lots / pricedAtHundred.lots, 100),
+  'calcATRSize lot size scales inversely with value per point (the 74x Gold bug)'
+);
+
+// No value per point means no size — a wrong lot is worse than no lot.
+const unpricedAtr = calcATRSize(NORMAL_BALANCE, 100000, 98000, 0, 0.01);
+assert(unpricedAtr.lots === 0, 'calcATRSize with no valuePerPoint returns zero lots rather than guessing');
+assert(unpricedAtr.valueUnknown === true, 'calcATRSize flags valueUnknown when it cannot price the instrument');
+assert(isCleanNumber(unpricedAtr.lots), 'calcATRSize unpriced lots stay finite');
+
+const unpricedSize = calcSize({ accountBalance: NORMAL_BALANCE, signal: NORMAL_SIGNAL });
+assert(unpricedSize.lots === 0, 'calcSize with no valuePerPoint returns zero lots');
+assert(
+  unpricedSize.reasoning.indexOf('valuePerPoint') !== -1,
+  'calcSize says WHY it refused to size (got "' + unpricedSize.reasoning + '")'
+);
+
+// An unpriced OPEN position must not silently count as zero exposure — the portfolio
+// cap would then be measuring less money than is actually at risk.
+const unpricedPortfolio = calcPortfolioRisk(
+  [{ symbol: 'XAUUSD', direction: 'BUY', entry: 4241.74, stop: 4166.05, lots: 0.01 }],
+  NORMAL_BALANCE
+);
+assert(unpricedPortfolio.unpriced === 1, 'calcPortfolioRisk counts an unpriced open position rather than ignoring it silently');
+assert(unpricedPortfolio.totalRiskPct === 0, 'calcPortfolioRisk cannot price it, so it contributes 0 - the unpriced count is the warning');
+
+// validateTrade must still APPROVE on the gate while refusing to size, so an unknown
+// point value never becomes an invisible extra rejection.
+const approvedButUnsized = validateTrade(NORMAL_SIGNAL, NORMAL_BALANCE, []);
+assert(approvedButUnsized.approved === true, 'validateTrade still approves when it cannot price the instrument');
+assert(approvedButUnsized.suggestedSize === 0, 'validateTrade suggests size 0 when the instrument is unpriced');
+assert(
+  approvedButUnsized.reason.indexOf('no valuePerPoint') !== -1,
+  'validateTrade names the missing price in its reason (got "' + approvedButUnsized.reason + '")'
+);
+
 // A negative ATR must not widen the stop or flip the sizing.
 const negativeAtr = calcSize({
   accountBalance: NORMAL_BALANCE,
   signal: NORMAL_SIGNAL,
-  atrValue: -500
+  atrValue: -500,
+  valuePerPoint: UNIT_POINT_VALUE
 });
 assert(negativeAtr.lots > 0, 'calcSize ignores a negative atrValue and still sizes the trade');
 assert(nearly(negativeAtr.stopDistance, 2000), 'calcSize with a negative atrValue keeps the raw 2000 stop distance');
@@ -558,7 +633,8 @@ assert(nearly(negativeAtr.stopDistance, 2000), 'calcSize with a negative atrValu
 section('6. Portfolio risk limits');
 
 const overExposed = [{ symbol: 'BTC', direction: 'LONG', entry: 100000, stop: 98000, lots: 0.35 }];
-const overExposedRisk = calcPortfolioRisk(overExposed, NORMAL_BALANCE);
+const OVEREXPOSED_PRICES = { BTC: UNIT_POINT_VALUE, GOLD: UNIT_POINT_VALUE };
+const overExposedRisk = calcPortfolioRisk(overExposed, NORMAL_BALANCE, OVEREXPOSED_PRICES);
 assert(nearly(overExposedRisk.totalRiskPct, 0.07), 'calcPortfolioRisk reports 7% risk for a 0.35-lot BTC position on $10k');
 assert(overExposedRisk.safeToAdd === false, 'calcPortfolioRisk blocks new trades above the 6% ceiling');
 assert(overExposedRisk.maxNewRisk === 0, 'calcPortfolioRisk clamps maxNewRisk to 0 when over the limit');
@@ -566,7 +642,8 @@ assert(overExposedRisk.maxNewRisk === 0, 'calcPortfolioRisk clamps maxNewRisk to
 const rejectedForPortfolio = validateTrade(
   { symbol: 'GOLD', direction: 'SHORT', entry: 2000, stop: 2020, target: 1940, confidence: 90 },
   NORMAL_BALANCE,
-  overExposed
+  overExposed,
+  { valuePerPointBySymbol: OVEREXPOSED_PRICES }
 );
 assert(rejectedForPortfolio.approved === false, 'validateTrade rejects a new trade when portfolio risk is already 7%');
 assert(
