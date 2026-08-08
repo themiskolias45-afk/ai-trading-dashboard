@@ -40,8 +40,20 @@ set /a HB=!CYCLE! %% !HEARTBEAT_EVERY_CYCLES!
 if !HB! EQU 1 echo [!date! !time!] heartbeat - cycle !CYCLE!, watchdog alive. >> tasks\logs\watchdog_log.txt
 REM Check if server responds (5 second timeout)
 curl -s --max-time 5 http://localhost:3001/api/signals >nul 2>&1
+if errorlevel 1 (set SERVER_DOWN=1) else (set SERVER_DOWN=0)
 
-if errorlevel 1 (
+REM The server branch needs the same cooldown the bridge branches have, and for a
+REM sharper reason: the bridges are serialised by their marker file, this was not
+REM serialised by anything. On 2026-08-08 two watchdogs ran side by side for 40
+REM minutes - one orphaned, one owned by the guardian - and had the server gone down
+REM in that window, BOTH would have taskkilled it and BOTH would have started node.
+REM The loser takes EADDRINUSE and dies, which is already a familiar line in
+REM tasks\logs\server_err.txt. The marker is written BEFORE the taskkill so the race
+REM window is as small as it can be, and it is a FILE so it outlives a watchdog that
+REM is itself churning.
+call :recent_restart SERVER
+if !SERVER_DOWN! EQU 1 if !RECENT! EQU 0 (
+    echo restarted > "tasks\logs\.restart_SERVER"
     echo [!date! !time!] SERVER DOWN - restarting... >> tasks\logs\watchdog_log.txt
     echo  [WATCHDOG] Server down - restarting...
 
@@ -62,6 +74,12 @@ if errorlevel 1 (
         echo [!date! !time!] Server recovered OK. >> tasks\logs\watchdog_log.txt
         echo  [WATCHDOG] Server back online.
     )
+) else (
+    REM Chained `if A if B (...) else (...)` binds this else to the INNER if, so it is
+    REM reached only when the server is down AND a restart is still in cooldown. A
+    REM healthy server skips the whole construct and logs nothing, which is correct --
+    REM do not add a re-test of SERVER_DOWN here, it can only ever be true.
+    echo [!date! !time!] SERVER DOWN but a restart is still within cooldown - waiting. >> tasks\logs\watchdog_log.txt
 )
 
 REM -- MT5 bridge watchdog - restart only the specific account that went stale --
@@ -89,7 +107,7 @@ if !RECENT! EQU 1 (
         taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT A*" >nul 2>&1
         timeout /t 2 /nobreak >nul
         start "" /min cmd /k "tasks\start_bridge_A.bat"
-        echo restarted > "tasks\logs\.bridge_A_restart"
+        echo restarted > "tasks\logs\.restart_A"
         set /a COOL_A=!BRIDGE_STARTUP_GRACE_CYCLES!
         echo [!date! !time!] Bridge A restart triggered - holding off !BRIDGE_STARTUP_GRACE_CYCLES! cycles. >> tasks\logs\watchdog_log.txt
     )
@@ -123,7 +141,7 @@ if !RECENT! EQU 1 (
         taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT B*" >nul 2>&1
         timeout /t 2 /nobreak >nul
         start "" /min cmd /k "tasks\start_bridge_B.bat"
-        echo restarted > "tasks\logs\.bridge_B_restart"
+        echo restarted > "tasks\logs\.restart_B"
         set /a COOL_B=!BRIDGE_STARTUP_GRACE_CYCLES!
         echo [!date! !time!] Bridge B restart triggered - holding off !BRIDGE_STARTUP_GRACE_CYCLES! cycles. >> tasks\logs\watchdog_log.txt
     )
@@ -138,14 +156,19 @@ goto loop
 
 REM ── Subroutines ───────────────────────────────────────────────────────────────
 :recent_restart
-REM %1 = account tag. Sets RECENT=1 if that bridge was restarted less than
-REM BRIDGE_RESTART_COOLDOWN_SEC ago, 0 otherwise.
+REM %1 = what was restarted: an account tag (A, B) or SERVER. Sets RECENT=1 if it was
+REM restarted less than BRIDGE_RESTART_COOLDOWN_SEC ago, 0 otherwise.
+REM
+REM Marker files are .restart_%1, renamed from .bridge_%1_restart on 2026-08-08 when
+REM the server started using this too and ".bridge_SERVER_restart" would have been a
+REM lie. The markers are transient - they only matter for
+REM BRIDGE_RESTART_COOLDOWN_SEC - so no old file needed migrating.
 REM
 REM PowerShell rather than batch date arithmetic on purpose: %date%/%time% maths in
 REM cmd is locale-dependent and wrong across midnight and month boundaries, and a
 REM cooldown that silently fails open at midnight would stack duplicate bridges at
 REM exactly the hour nobody is watching.
 set RECENT=0
-if not exist "tasks\logs\.bridge_%~1_restart" exit /b 0
-for /f "usebackq delims=" %%R in (`powershell -NoProfile -Command "$f='tasks\logs\.bridge_%~1_restart'; $age=((Get-Date)-(Get-Item $f).LastWriteTime).TotalSeconds; if ($age -lt %BRIDGE_RESTART_COOLDOWN_SEC%) { '1' } else { '0' }"`) do set RECENT=%%R
+if not exist "tasks\logs\.restart_%~1" exit /b 0
+for /f "usebackq delims=" %%R in (`powershell -NoProfile -Command "$f='tasks\logs\.restart_%~1'; $age=((Get-Date)-(Get-Item $f).LastWriteTime).TotalSeconds; if ($age -lt %BRIDGE_RESTART_COOLDOWN_SEC%) { '1' } else { '0' }"`) do set RECENT=%%R
 exit /b 0
