@@ -40,3 +40,4 @@ server/journal.json
 # Derived from each box's own rejection ledger by tasks/learning_from_rejections.py.
 # Regenerable, per-machine, and would conflict on every sync if tracked.
 server/learning_shadow.json
+tasks/ai_brief.md

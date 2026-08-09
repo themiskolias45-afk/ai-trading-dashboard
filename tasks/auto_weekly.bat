@@ -49,11 +49,19 @@ REM retries on Edit, Add-Content and bash >> before giving up and writing the re
 REM to weekly_20260807_review.txt instead -- the analysis was fine, the delivery was
 REM impossible. The redirect below is the whole delivery mechanism; the agent just
 REM has to print.
+REM Brief the agent before it works. On 2026-08-09 this review proposed a fix to
+REM /api/trade-opened that was ALREADY IMPLEMENTED, more thoroughly than it asked
+REM for -- sound reasoning, code-cited, and wasted, because it had no way to see
+REM what it had proposed before or what was decided. It also emitted the same
+REM finding three times across two files. The brief carries prior decisions, open
+REM proposals, what is already measured, and the live config.
+node "%PROJ%\tasks\ai_brief.cjs" --write >> "%REPORT%" 2>&1
+
 REM CALL, not a bare invocation — see the same fix in auto_daily.bat. `claude` is
 REM claude.cmd, and a .CMD run from a .BAT without CALL never returns, so every
 REM line after this was dead: no [exit N] marker, no cleanup, no exit code of our
 REM own. The scheduled task's result came from claude.cmd by accident, not design.
-call claude -p "Weekly SmartEntry Pro review. Read %PROJ%\server\journal.json and consult http://localhost:3001/api/stats/by-setup. Print your review to standard output only - do NOT write, edit or append to any file, they are locked by this script. Cover: 1) Week trade summary - total trades, wins, losses, total P&L, win rate. 2) Best and worst performing asset. 3) Read avgRealizedR next to avgRR: a setup whose avgRR is high while avgRealizedR is negative is losing money on geometry that only looked good on paper - call that out. 4) One algorithm weakness supported by the trades actually in the journal; if there are too few closed trades to support any conclusion, say exactly that and stop rather than inventing one. 5) One specific proposed fix - which file, which function, what change, what evidence. Mark it clearly as PROPOSED FIX: so it can be found later. Do NOT edit source and do NOT commit. Max 40 lines." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul >> "%REPORT%" 2>&1
+call claude -p "FIRST read %PROJ%\tasks\ai_brief.md in full - it lists what you have already proposed, what was decided, what is already measured, and the live config. Do NOT re-raise anything it marks as decided; if your finding matches one, say so in one line and move on. Weekly SmartEntry Pro review. Read %PROJ%\server\journal.json and consult http://localhost:3001/api/stats/by-setup. Print your review to standard output only - do NOT write, edit or append to any file, they are locked by this script. Cover: 1) Week trade summary - total trades, wins, losses, total P&L, win rate. 2) Best and worst performing asset. 3) Read avgRealizedR next to avgRR: a setup whose avgRR is high while avgRealizedR is negative is losing money on geometry that only looked good on paper - call that out. 4) One algorithm weakness supported by the trades actually in the journal; if there are too few closed trades to support any conclusion, say exactly that and stop rather than inventing one. 5) One specific proposed fix - which file, which function, what change, what evidence. Mark it clearly as PROPOSED FIX: so it can be found later. Do NOT edit source and do NOT commit. Max 40 lines." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul >> "%REPORT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
 popd
 
