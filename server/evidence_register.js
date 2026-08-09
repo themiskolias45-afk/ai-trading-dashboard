@@ -114,8 +114,13 @@ const CLAIMS = [
       + "sweep is 4 years out-of-sample. THE WALK-FORWARD WINS. Neither has moved the "
       + "setting. The ledger's real signal is a DIRECTION SPLIT: RANGE_TRADE_LONG "
       + "59W/11L and BUY_OVERSOLD 8W/0L, but RANGE_TRADE_SHORT 0W/8L.",
-    changesTheAnswer: "A per-direction or per-setup experiment, never a global MIN_RR "
-      + "move — a blanket change would take the losing shorts along with the winning longs.",
+    changesTheAnswer: "The per-direction experiment has now RUN and did not support the "
+      + "ledger. tasks/minrr_direction_walkforward.cjs, 5 folds at gate 70: the best "
+      + "candidate (1.35 long / 1.50 short) shows +0.158R/trade overall but 109% of that "
+      + "gain is a SINGLE fold — better in only 3/5, worse in folds 1, 3 and 5. Loosening "
+      + "longs further (1.25) is better in just 2/5. Touching shorts alone does nothing. "
+      + "Verdict NOT PROVEN; the bar stays at 1.5 both ways. To move it now you would need "
+      + "a candidate that improves in most folds without one fold carrying it.",
     feedsTheGate: true,
   },
   {

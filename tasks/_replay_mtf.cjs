@@ -171,6 +171,53 @@ if (process.env.MTF_ADX_TRENDING_MIN) {
 // replay refuses to run. A silently failed substitution is the dangerous outcome
 // here — it reports the baseline under a different label, which reads as "the R:R
 // bar makes no difference" when in fact it was never moved.
+// PER-DIRECTION R:R bar. A global MIN_RR move was already measured and rejected
+// (lowering to 1.35 buys 3 trades in 4 years and costs 6.6R), but the rejection
+// ledger says the constraint is wrong in ONE DIRECTION ONLY: on the VPS sample of
+// 86 resolved episodes, RANGE_TRADE_LONG rejections would have gone 59W/11L and
+// BUY_OVERSOLD 8W/0L, while RANGE_TRADE_SHORT went 0W/8L. Rejecting longs costs
+// money; rejecting shorts saves it. A blanket change takes both, which is very
+// likely why the global sweep came out negative.
+//
+// Substituted at the USE sites rather than the declarations, because that is where
+// the direction is in scope: `signal` at the generateSignal check, `daily.signal`
+// at the pivot-refine check. Same discipline as MTF_MIN_RR below — each pattern
+// must match EXACTLY once or the replay refuses, because a silently failed
+// substitution reports the baseline under a candidate's label.
+//
+// REPLAY ONLY. server/index.js is untouched; this measures a split bar without
+// shipping one.
+if (process.env.MTF_MIN_RR_LONG || process.env.MTF_MIN_RR_SHORT) {
+  if (process.env.MTF_MIN_RR) {
+    console.error("MTF_MIN_RR cannot be combined with MTF_MIN_RR_LONG/SHORT — " +
+                  "one would silently overwrite the other.");
+    process.exit(1);
+  }
+  const longRr  = Number(process.env.MTF_MIN_RR_LONG);
+  const shortRr = Number(process.env.MTF_MIN_RR_SHORT);
+  if (!Number.isFinite(longRr) || longRr <= 0 || !Number.isFinite(shortRr) || shortRr <= 0) {
+    console.error(`MTF_MIN_RR_LONG=${process.env.MTF_MIN_RR_LONG} / ` +
+                  `MTF_MIN_RR_SHORT=${process.env.MTF_MIN_RR_SHORT} must both be positive numbers.`);
+    process.exit(1);
+  }
+  const dirPatterns = [
+    { name: "generateSignal calcRR check", re: /calcRR < MIN_RR/g,
+      to: `calcRR < (signal === "SELL" ? ${shortRr} : ${longRr})` },
+    { name: "generateSignalMTF pivot refine", re: /refinedRR < ([\d.]+)/g,
+      to: `refinedRR < (daily.signal === "SELL" ? ${shortRr} : ${longRr})` },
+  ];
+  for (const p of dirPatterns) {
+    const matches = [...code.matchAll(p.re)];
+    if (matches.length !== 1) {
+      console.error(`MTF_MIN_RR_LONG/SHORT: expected exactly one "${p.name}" in the extracted ` +
+                    `engine, found ${matches.length}. Fix this harness rather than reporting ` +
+                    `a number it did not measure.`);
+      process.exit(1);
+    }
+    code = code.replace(p.re, p.to);
+  }
+}
+
 if (process.env.MTF_MIN_RR) {
   const wanted = Number(process.env.MTF_MIN_RR);
   if (!Number.isFinite(wanted) || wanted <= 0) {
