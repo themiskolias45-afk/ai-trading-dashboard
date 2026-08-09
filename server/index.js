@@ -229,6 +229,10 @@ const API_NO_LOGIN_REQUIRED = new Set([
   // the VPS, so the localhost restriction is the control that matters here; the
   // bridge always runs on the same machine as the server.
   "/api/mt5/candles",
+  // Raw OHLC for offline analysis. Session-free for the same reason as the line
+  // above — no browser is involved — and separately requireLocalOnly on the route,
+  // which is the control that matters on an internet-facing box.
+  "/api/mt5/candles/raw",
   // Bridge-side gate rejections. Session-free because the bridge has no browser,
   // and requireLocalOnly on the route itself for the same reason /api/mt5/candles
   // carries it. Append-only observability: it writes a log file and touches no
@@ -2744,6 +2748,30 @@ app.get("/api/mt5/candles", (_, res) => {
     };
   }
   res.json({ sources, maxAgeMs: MT5_CANDLE_MAX_AGE_MS, minBars: MT5_MIN_BARS });
+});
+
+// Raw OHLC out of the in-memory MT5 cache, for offline analysis of the instrument
+// the engine ACTUALLY trades rather than the Yahoo proxy. Every geometry result so
+// far was measured on GC=F futures while the engine trades XAUUSD spot, and that
+// basis has already produced one phantom signal in this project.
+//
+// requireLocalOnly: this is a bulk dump of ~1100 bars x 3 symbols and the VPS is
+// internet-facing. The same protection the candle POST carries, for the same reason.
+app.get("/api/mt5/candles/raw", requireLocalOnly, (req, res) => {
+  const wanted = String(req.query.asset || "").toLowerCase();
+  const out = {};
+  for (const assetKey of Object.keys(mt5CandleCache)) {
+    if (wanted && assetKey !== wanted) continue;
+    const entry = mt5CandleCache[assetKey];
+    if (!entry || !entry.bars) continue;
+    out[assetKey] = {
+      symbol: entry.symbol,
+      receivedAt: entry.receivedAt,
+      ageMs: Date.now() - new Date(entry.receivedAt).getTime(),
+      bars: entry.bars,
+    };
+  }
+  res.json({ assets: out, note: "oldest-first, as pushed by mt5_bridge.py" });
 });
 
 // ── Rejection ledger ──────────────────────────────────────────

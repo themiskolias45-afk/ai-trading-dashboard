@@ -37,23 +37,24 @@ const CLAIMS = [
     title: "CRT (Candle Range Theory) — Gold and SPX",
     status: STATUS.CANDIDATE,
     measuredOn: "2026-08-09",
-    evidence: "Walk-forward WITH costs, 5 sequential out-of-sample folds x 3 assets: "
-      + "15 of 15 folds positive gross. Break-even round-trip cost — GOLD $2.95 (13.0% "
-      + "of an average bar range, 5/5 folds still positive at 10% cost), SPX 3.68 index "
-      + "points (8.2%, 3/5 at 10%), BTC $29.91 (2.1%, 0/5 at 10%). Pooled 1135 trades, "
-      + "74.8% win, +0.10R gross and still +0.04R at a 5% cost.",
-    caveat: "Typical XAUUSD spread is $0.20–0.50 against a $2.95 break-even, and SP500 "
-      + "0.4–1.0 points against 3.68 — both clear. BTC's break-even is 0.047% of price, "
-      + "inside the range of real crypto CFD spreads, and a ~1700-point BTCUSD spread is "
-      + "already on record here: treat BTC as dead. Measured on Yahoo bars, so Gold is "
-      + "GC=F futures and not the XAUUSD spot the engine trades. Slippage beyond spread "
-      + "is not modelled, and 74.8% wins at R<1 is the profile that dies from a few "
-      + "oversized losses.",
-    changesTheAnswer: "Re-measure on MT5 XAUUSD bars rather than GC=F, and price the "
-      + "break-even against the broker's actual round-trip spread. If Gold still clears "
-      + "on the traded instrument, this is the first thing in the system with a "
-      + "cost-surviving out-of-sample edge and deserves a wiring discussion.",
-    harness: "node tasks/crt_walkforward.cjs --folds 5 --years 10",
+    evidence: "Walk-forward WITH costs on Yahoo, 5 sequential out-of-sample folds x 3 "
+      + "assets: 15 of 15 folds positive gross. THEN re-measured on the instruments the "
+      + "engine actually trades (MT5 bars, ~300 D1 / 400 H1): GOLD XAUUSD D1 +0.097R, "
+      + "break-even $6.19 (52 trades); SPX SP500 D1 +0.074R, break-even 4.92 pts, and H1 "
+      + "+0.156R, break-even 2.27 pts; BTC BTCUSD D1 +0.047R and H1 NEGATIVE.",
+    caveat: "The Yahoo proxy OVERSTATED Gold badly — GC=F showed +0.269R and break-even "
+      + "$14.10 where real XAUUSD gives +0.097R and $6.19, roughly a third of the edge. "
+      + "It also found only 30 patterns to XAUUSD's 52 on the same window, so the two "
+      + "instruments genuinely present different structure. Gold still clears a "
+      + "$0.20–0.50 spread against a $6.19 break-even, and SPX clears comfortably; BTC "
+      + "is dead. The MT5 sample is 1-2 years and UNFOLDED (the bridge caches 300 daily "
+      + "bars), windows are matched by bar count not calendar, and slippage beyond "
+      + "spread is unmodelled.",
+    changesTheAnswer: "More broker history. Raising BAR_COUNT_BY_TIMEFRAME would allow a "
+      + "real folded walk-forward on XAUUSD itself — note the candle payload already hit "
+      + "a 413 at ~240kb, so that is a deliberate change. Until then the strongest single "
+      + "cell is SPX H1 on broker bars (+0.156R, break-even 13.2% of bar range).",
+    harness: "node tasks/crt_walkforward.cjs --folds 5 --years 10  ·  node tasks/crt_mt5_transfer.cjs",
     feedsTheGate: false,
   },
   {
