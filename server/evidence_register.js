@@ -54,7 +54,16 @@ const CLAIMS = [
       + "real folded walk-forward on XAUUSD itself — note the candle payload already hit "
       + "a 413 at ~240kb, so that is a deliberate change. Until then the strongest single "
       + "cell is SPX H1 on broker bars (+0.156R, break-even 13.2% of bar range).",
-    harness: "node tasks/crt_walkforward.cjs --folds 5 --years 10  ·  node tasks/crt_mt5_transfer.cjs",
+    harness: "node tasks/crt_walkforward.cjs  ·  node tasks/crt_mt5_transfer.cjs  ·  node tasks/crt_as_setup_walkforward.cjs",
+    // Added after the setup test. CRT stands up as a pattern and falls over as an
+    // engine setup, and those are different claims — keeping only the first would
+    // read as an unexploited opportunity when it has in fact been tried.
+    asEngineSetup: "REJECTED 2026-08-09. Injected at the end of the setup chain and "
+      + "replayed over 5 folds at gate 70: +3 trades for -0.054R, better in 0/5 folds. "
+      + "It also is not cleanly additive — 19 CRT trades appeared while the total rose "
+      + "by 3, because setting the daily leg to BUY/SELL moves the step out of the "
+      + "H4_ONLY cohort and suppresses entries that used to clear the gate. A genuinely "
+      + "additive test would need CRT to enter as its own timeframe leg.",
     feedsTheGate: false,
   },
   {
