@@ -219,6 +219,22 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
   could erase; it needs a walk-forward WITH COSTS before it earns a vote. **AMD**
   is unmeasurable until the bridge sends bar timestamps, and carries
   `sessionAligned:false` until then. None of the three feeds confidence or sizing.
+- **AI Brain page = the control surface.** `GET /api/evidence-board` (what the
+  system KNOWS vs assumes — every claim carries its verdict, evidence, caveat and
+  **what would change the answer**, joined to live gate verdicts) and
+  `GET /api/ai-registry` (44 skills, 6 agents, 23 MCP tools each tagged
+  read-only / writes / **TRADES**, plus the guardrails marked ENFORCED IN CODE vs
+  PROCEDURAL). Curated claims live in `server/evidence_register.js` — **update it
+  whenever something is measured**, or the board goes stale and starts lying.
+  Reading surfaces only: nothing there runs a skill, spawns an agent or calls a tool.
+- **The gate funnel dies at CONFIDENCE, and that is why 6 of 10 gates look silent.**
+  Verified 2026-08-09: MIN_RR killed 3 / passed 11, CONFIDENCE killed 5 / **passed 1**.
+  `ENTRY_RSI` is disarmed by config (`minEntryRsi: 0`) and only counts passes while
+  armed, by design. `COHORT_FLOOR` only records when a setup CLEARS the global gate
+  then dies on a higher cohort floor — nothing gets near 70, so it never decides.
+  The bridge gates fire only on a real trade attempt, so they are silent on the
+  laptop and NOT on the VPS, which has `MAX_POSITIONS` evidence. **None of the ten
+  gates is broken.** Do not "fix" them.
 - Setup health: GET http://localhost:3001/api/setup-health (which setups to take or avoid today)
 - Daily plan API: GET http://localhost:3001/api/daily-plan (structured JSON for all assets)
 - TV screenshots: node tv_screenshot.js [--4h] [--symbol btc|gold|spx] → dashboard/screenshots/
