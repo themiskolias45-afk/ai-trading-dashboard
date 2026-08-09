@@ -621,7 +621,16 @@ def auto_detect_symbols():
 # bars can come from. SYMBOL_MAP is already resolved by auto_detect_symbols(), so
 # this reuses the mapping the executor itself trades on — the feed and the fill can
 # never drift apart.
-BAR_COUNT_BY_TIMEFRAME = {"d1": 300, "h4": 400, "h1": 400}
+# d1 raised 300 -> 600 on 2026-08-09. EMA200 seeded on 300 bars carried ~5% of the
+# oldest close inside today's value (Gold's EMA200 was $21 out against a converged
+# reference); at 600 bars that is 0.25%. The walk-forward that validated gate 70
+# replays a 400-bar window, so production was running on FEWER bars than the
+# measurement that blessed it — at 300 bars gate 70 is 4/5, not the 5/5 on record.
+#
+# Payload is not the constraint any more: the full raw dump measured 101kb against
+# express's 2mb limit, so +300 daily bars x 3 symbols costs ~18kb. The 413 in the
+# _rates_to_bars comment below predates that limit being raised.
+BAR_COUNT_BY_TIMEFRAME = {"d1": 600, "h4": 400, "h1": 400}
 
 # Pushed on its own clock rather than every poll: 1100 bars x 3 symbols is a real
 # payload, and the daily bar the signal engine cares about only closes once a day.

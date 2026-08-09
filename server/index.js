@@ -778,10 +778,56 @@ reportCohortReachability('startup');
 //  TECHNICAL ANALYSIS
 // ══════════════════════════════════════════════════════════════
 
+// SMA-seeded, because seeding on a single close leaves that one bar inside the
+// answer for a very long time. The residual weight of the seed after n bars is
+// (1 - 2/(period+1))^n, so for EMA200:
+//
+//     145 bars (Yahoo 210d)  23.5% of the value is still the oldest close
+//     205 bars (Yahoo 300d)  12.9%
+//     300 bars (MT5 bridge)   5.0%
+//     600 bars                0.25%
+//
+// Measured 2026-08-09 against a converged reference: Gold's EMA200 was +$111 out
+// on the Yahoo path and +$21 on the MT5 path, and the price-above-or-below-EMA200
+// call — which drives trend classification — disagreed with the converged value
+// on 1.3-2.3% of days. Seeding on the mean of the first `period` closes removes
+// almost all of that without needing more history.
+//
+// SMA seeding is ONLY used when there is real runway behind it, and that
+// condition is not cosmetic — measured against a converged reference on
+// 2026-08-09, seeding on an SMA with too little history is WORSE than seeding on
+// a single close:
+//
+//   bars   GOLD closes[0] err   GOLD SMA err      BTC closes[0]   BTC SMA
+//    300        +21.22            -50.16             +254           +672
+//    400         +2.87             -6.34             +256           +867
+//    600         +0.41             +0.02              +67            +20
+//
+// The reason is runway. With 300 bars and period 200 the SMA seed leaves only 100
+// recursion steps, so 37% of the answer is still an average of 200 OLD closes —
+// a heavy drag in a trend. Seeding on closes[0] gets all 300 steps and tracks
+// recent price better despite starting from a worse guess.
+//
+// So the real fix for EMA accuracy is BAR COUNT, not seeding: DAILY_RANGE_* and
+// mt5_bridge.py BAR_COUNT_BY_TIMEFRAME were both raised alongside this. Past
+// 3x the period the two methods agree to within a rounding error and SMA is
+// marginally better, so that is where the switch sits.
+const EMA_SMA_SEED_MIN_MULTIPLE = 3;
 function emaSeries(closes, period) {
   const k = 2 / (period + 1);
-  const out = [closes[0]];
-  for (let i = 1; i < closes.length; i++) out.push(closes[i] * k + out[i - 1] * (1 - k));
+  if (closes.length < period * EMA_SMA_SEED_MIN_MULTIPLE) {
+    const short = [closes[0]];
+    for (let i = 1; i < closes.length; i++) short.push(closes[i] * k + short[i - 1] * (1 - k));
+    return short;
+  }
+  let seed = 0;
+  for (let i = 0; i < period; i++) seed += closes[i];
+  seed /= period;
+  // The first `period` entries are the seed itself: an EMA is not defined before
+  // its own period has elapsed, and emitting a rising ramp there would invent
+  // structure the data does not contain.
+  const out = new Array(period).fill(seed);
+  for (let i = period; i < closes.length; i++) out.push(closes[i] * k + out[i - 1] * (1 - k));
   return out;
 }
 
@@ -1940,8 +1986,14 @@ function calcPivots(high, low, close) {
 // Deliberately per-symbol rather than a global bump: only Gold's cohorts were
 // validated on held-out data. Widening BTC and SPX would shift their EMA200 and
 // swing points and change signals nobody has measured.
-const DAILY_RANGE_DEFAULT = "210d";
-const DAILY_RANGE_BY_SYMBOL = { "GC=F": "300d" };
+// 210d is ~145 trading bars, which is fewer bars than the 200-period EMA needs.
+// The engine was asking for EMA200 from 145 closes and getting a number that was
+// 23% the oldest bar — Gold's EMA200 came out $185 above its converged value on
+// that path. Raised to 900d (~620 bars) so EMA200 converges on the FALLBACK path
+// too; the per-symbol override stays because GC=F has thinner coverage.
+// See emaSeries() for the measurement.
+const DAILY_RANGE_DEFAULT = "900d";
+const DAILY_RANGE_BY_SYMBOL = { "GC=F": "900d" };
 
 // The confidence at which server/sizing.js starts scaling risk above 1.0x. Kept
 // here because generateSignalMTF has to know where that boundary is to avoid

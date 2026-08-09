@@ -69,6 +69,11 @@ const SCALAR_CONSTS = [
   "SIZING_BOOST_MIN_CONFIDENCE",
   "STRUCTURAL_STOP_MIN_ATR",
   "GOLD_SQUEEZE_MODERATE_CONFIDENCE",
+  // Added 2026-08-09 with the EMA seeding guard. emaSeries reads it, so omitting
+  // it threw on every step of all three assets — 6225/9101/6211 — and the
+  // DEGRADED banner below is the only reason that surfaced instead of reading as
+  // "no trades produced". Exactly the failure this list exists to prevent.
+  "EMA_SMA_SEED_MIN_MULTIPLE",
 ];
 
 let code = "";
