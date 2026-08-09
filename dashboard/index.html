@@ -180,6 +180,22 @@
     .lg-badge { font-size:.52rem; font-weight:800; padding:2px 6px; border-radius:3px; white-space:nowrap; }
     .lg-usable { background:#0d2010; color:var(--green); }
     .lg-waiting { background:#201a0d; color:var(--yellow); }
+
+    /* ── AI employee ── */
+    .aw-job { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:start; padding:7px 0; border-bottom:1px solid var(--border); }
+    .aw-job:last-child { border-bottom:none; }
+    .aw-verdict { font-size:.52rem; font-weight:800; padding:2px 7px; border-radius:3px; white-space:nowrap; }
+    .aw-ok      { background:#0d2010; color:var(--green); }
+    .aw-bad     { background:#2d0d0d; color:var(--red); border:1px solid rgba(239,68,68,.5); }
+    .aw-warn    { background:#201a0d; color:var(--yellow); }
+    .aw-unknown { background:#1a1a2e; color:var(--muted); }
+    .aw-name { font-size:.72rem; font-weight:700; }
+    .aw-detail { font-size:.6rem; color:var(--muted); line-height:1.5; margin-top:2px; }
+    .aw-meta { font-size:.55rem; color:var(--muted); text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+    .aw-prop { border-left:2px solid var(--yellow); padding:6px 0 6px 9px; margin-bottom:8px; }
+    .aw-prop.reviewed { border-left-color:var(--green); }
+    .aw-prop-text { font-size:.65rem; line-height:1.5; }
+    .aw-prop-meta { font-size:.55rem; color:var(--muted); margin-top:3px; font-family:'Courier New',monospace; }
     .fvg-reading { border-left:2px solid var(--muted); padding:2px 0 6px 8px; margin-bottom:8px; }
     .fvg-verdict { font-size:.66rem; font-weight:800; letter-spacing:.03em; }
     .fvg-note    { font-size:.6rem; color:var(--muted); line-height:1.55; margin-top:3px; }
@@ -1260,6 +1276,24 @@
     </div>
   </div>
 
+  <!-- ── AI EMPLOYEE ─────────────────────────────────────────────────────────
+       The timesheet and the appraisal. Scheduled agents ran daily and nobody
+       could see whether they succeeded or whether anything they proposed was
+       ever read — a weekly review failed silently and three PROPOSED FIX lines
+       sat unread in logs. -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">👔 AI Employee — did it work, and did anyone read it?</div>
+      <span id="aw-summary" style="font-size:.6rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none;padding:12px 14px">
+      <div id="aw-jobs"><div class="ai-empty">Loading…</div></div>
+      <div class="ai-sec-title" style="margin-top:14px">Proposals it made — and what you decided</div>
+      <div id="aw-proposals"><div class="ai-empty">Loading…</div></div>
+      <div id="aw-note" class="fvg-unmeasured" style="margin-top:10px"></div>
+    </div>
+  </div>
+
   <!-- ── LEARNING GROWTH ─────────────────────────────────────────────────────
        The Performance tab tracks P&L growth and is blank on one closed fill.
        This tracks the curve that is actually moving: resolved paper episodes per
@@ -2284,6 +2318,74 @@ function renderRegistry(data) {
   }
 }
 
+// ── AI employee: timesheet and appraisal ─────────────────────
+// A job that runs and fails is worse than one that is late; a job producing
+// recommendations nobody reads costs the same as one that failed. The verdict
+// colours reflect that ordering rather than treating every non-HEALTHY the same.
+const AW_TONE = {
+  "FAILING":              "aw-bad",
+  "OUTPUT IGNORED":       "aw-bad",
+  "STALE":                "aw-warn",
+  "INCOMPLETE":           "aw-warn",
+  "NEVER PRODUCED OUTPUT":"aw-warn",
+  "NO COMPLETION MARKER": "aw-unknown",
+  "HEALTHY":              "aw-ok",
+};
+
+function renderAiWork(data) {
+  const jobsEl  = document.getElementById("aw-jobs");
+  const propsEl = document.getElementById("aw-proposals");
+  const sumEl   = document.getElementById("aw-summary");
+  const noteEl  = document.getElementById("aw-note");
+  if (!jobsEl) return;
+
+  if (!data || !data.available) {
+    jobsEl.innerHTML = '<div class="ai-empty">' + ((data && data.reason) || "unavailable") + "</div>";
+    if (propsEl) propsEl.innerHTML = "";
+    return;
+  }
+
+  const t = data.totals;
+  if (sumEl) {
+    const bad = t.failing + (t.proposals - t.reviewed > 0 ? 1 : 0);
+    sumEl.innerHTML = t.jobs + " jobs · "
+      + '<span style="color:' + (t.failing ? "var(--red)" : "var(--muted)") + '">' + t.failing + " failing</span> · "
+      + '<span style="color:' + (t.unreviewed ? "var(--yellow)" : "var(--green)") + '">'
+      + t.unreviewed + " unreviewed proposal" + (t.unreviewed === 1 ? "" : "s") + "</span>";
+  }
+
+  jobsEl.innerHTML = (data.jobs || []).map(job => {
+    const tone = AW_TONE[job.verdict] || "aw-unknown";
+    return '<div class="aw-job">'
+      + '<span class="aw-verdict ' + tone + '">' + escapeHtml(job.verdict) + "</span>"
+      + '<div><div class="aw-name">' + escapeHtml(job.label)
+      + '<span style="font-weight:400;color:var(--muted);font-size:.58rem"> · ' + escapeHtml(job.script) + "</span></div>"
+      + '<div class="aw-detail">' + escapeHtml(job.detail) + "</div></div>"
+      + '<div class="aw-meta">' + job.runs + " run" + (job.runs === 1 ? "" : "s")
+      + (job.ageHours == null ? "" : "<br>" + job.ageHours + "h ago")
+      + (job.proposals ? "<br>" + job.proposalsDecided + "/" + job.proposals + " reviewed" : "")
+      + "</div></div>";
+  }).join("") || '<div class="ai-empty">No jobs registered.</div>';
+
+  if (propsEl) {
+    propsEl.innerHTML = (data.proposals || []).map(p => {
+      const reviewed = p.status !== "UNREVIEWED";
+      return '<div class="aw-prop' + (reviewed ? " reviewed" : "") + '">'
+        + '<div class="aw-prop-text">' + escapeHtml(p.text) + "</div>"
+        + '<div class="aw-prop-meta">' + escapeHtml(p.id) + " · " + escapeHtml(p.file) + ":" + p.line
+        + " · " + p.ageDays + "d old · <b>" + escapeHtml(p.status) + "</b>"
+        + (p.note ? " — " + escapeHtml(p.note) : "") + "</div></div>";
+    }).join("")
+      + (data.proposals && data.proposals.length
+          ? '<div style="font-size:.58rem;color:var(--muted);margin-top:6px">Record a decision: <code style="color:var(--accent)">'
+            + escapeHtml(data.howToDecide) + "</code></div>"
+          : "")
+      || '<div class="ai-empty">No proposals found in the job logs.</div>';
+  }
+
+  if (noteEl) noteEl.textContent = data.note || "";
+}
+
 // ── Learning growth ──────────────────────────────────────────
 // Cumulative resolved episodes as a filled area, with each day's contribution as
 // a bar. Drawn as SVG rather than pulled from a chart library because the whole
@@ -2384,11 +2486,14 @@ function renderLearningGrowth(data) {
 
 async function loadAIBrainTab() {
   // Independent so a failure in one panel cannot blank the other.
-  const [boardRes, registryRes, growthRes] = await Promise.allSettled([
+  const [boardRes, registryRes, growthRes, workRes] = await Promise.allSettled([
     fetch(API + "/evidence-board",  { cache: "no-store" }).then(r => r.json()),
     fetch(API + "/ai-registry",     { cache: "no-store" }).then(r => r.json()),
     fetch(API + "/learning-growth", { cache: "no-store" }).then(r => r.json()),
+    fetch(API + "/ai-work",         { cache: "no-store" }).then(r => r.json()),
   ]);
+  try { renderAiWork(workRes.status === "fulfilled" ? workRes.value : null); }
+  catch (e) { console.error("ai work:", e); }
   if (growthRes.status === "fulfilled") {
     try { renderLearningGrowth(growthRes.value); } catch (e) { console.error("learning growth:", e); }
   } else {

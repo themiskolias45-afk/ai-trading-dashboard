@@ -61,6 +61,9 @@ const evidenceRegister = require("./evidence_register");
 // Evidence-accumulation curve. The Performance tab tracks P&L growth, which is
 // blank on one closed fill; this tracks the thing that is actually moving.
 const learningGrowth  = require("./learning_growth");
+// The AI employee's timesheet: did the scheduled agents run, did they succeed,
+// and has anything they proposed ever been read. Read-only over their own logs.
+const aiWorkLedger    = require("./ai_work_ledger");
 // Cohort reachability table. Shared with tasks/cohort_reachability.cjs so the audit
 // script and the server can never describe two different systems.
 const cohortTable = require("./cohort_table");
@@ -282,6 +285,10 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // Daily evidence-accumulation curve, derived from the scored ledger. Counts and
   // dates only. No POST at this path.
   "/api/learning-growth",
+  // AI job health and unreviewed proposals, read from the logs those jobs already
+  // write. Decisions are recorded by tasks/ai_decide.cjs, not over HTTP — there is
+  // no POST at this path.
+  "/api/ai-work",
 ]);
 
 app.use((req, res, next) => {
@@ -2882,6 +2889,19 @@ app.get("/api/ai-registry", (_, res) => {
 // fill and will stay blank for months, so it cannot answer that. Evidence growth
 // can: resolved paper episodes per day, per-setup progress toward the threshold
 // that unlocks the live learning engine, and whether the rate is accelerating.
+// Did the AI employee show up, did it succeed, and did anyone read what it wrote?
+// A failing weekly review and three unreviewed PROPOSED FIX lines were both
+// invisible before this. Runs nothing and spends no tokens — it reads the logs
+// the jobs already produce.
+app.get("/api/ai-work", (_, res) => {
+  try {
+    res.json(aiWorkLedger.build());
+  } catch (e) {
+    console.error("[ai-work]", e.message);
+    res.status(500).json({ available: false, reason: e.message, jobs: [], proposals: [] });
+  }
+});
+
 app.get("/api/learning-growth", (_, res) => {
   try {
     res.json(learningGrowth.build());
