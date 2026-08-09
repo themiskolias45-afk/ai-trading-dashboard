@@ -61,14 +61,38 @@
     .bias-SELL,.bias-STRONG_SELL { background:#200d0d; color:var(--red); }
     .bias-NEUTRAL { background:#1a1a2e; color:var(--muted); }
 
-    /* Charts */
+    /* Charts.
+       Height is driven by the layout, not fixed. The widget used to be a hard
+       height:520 inside a min-height:560 wrapper, so layout-1 gave a full-width
+       panel a squat 520px chart with 40px of dead space under it, and resizing
+       the window changed nothing at all. */
     .charts-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
-    .charts-grid.layout-1 { grid-template-columns:1fr; }
-    .charts-grid.layout-2 { grid-template-columns:1fr 1fr; }
-    .charts-grid.layout-3 { grid-template-columns:repeat(3,1fr); }
+    .charts-grid.layout-1 { grid-template-columns:1fr;            --chart-h:640px; }
+    .charts-grid.layout-2 { grid-template-columns:1fr 1fr;        --chart-h:520px; }
+    .charts-grid.layout-3 { grid-template-columns:repeat(3,1fr);  --chart-h:440px; }
     .charts-grid .chart-wrap.chart-hidden { display:none; }
-    .charts-grid .chart-wrap { min-height:560px; }
     .chart-wrap { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+
+    /* Chart body = TradingView pane + our own to-scale level rail.
+       The rail exists because the tv.js embed is cross-origin: we can neither draw
+       the engine's entry/stop/target onto its canvas nor read its price scale to
+       overlay them. Rendering our own ladder from /api/signals is the only version
+       of this that is genuinely aligned to the numbers we actually trade. */
+    .chart-body { display:flex; align-items:stretch; }
+    .tv-holder  { flex:1; min-width:0; height:var(--chart-h,440px); }
+    .level-rail { width:120px; flex-shrink:0; border-left:1px solid var(--border); background:var(--bg); }
+    .level-rail svg { width:100%; height:100%; display:block; }
+    .rail-empty { font-size:.58rem; color:var(--muted); padding:10px 9px; line-height:1.6; }
+    @media (max-width:900px) { .level-rail { display:none; } }
+
+    /* Feed provenance. Every price on this page came from somewhere, and until now
+       none of them said where. The strip reads CoinGecko/Yahoo, the engine trades
+       MT5, and on Gold those are different instruments tens of dollars apart. */
+    .feed-tag  { font-size:.55rem; color:var(--muted); letter-spacing:.04em; margin-top:3px; display:flex; align-items:center; gap:5px; }
+    .feed-dot  { width:5px; height:5px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+    .feed-stale{ color:var(--yellow); }
+    .feed-stale .feed-dot { background:var(--yellow); }
+    .basis-flag{ font-size:.55rem; color:var(--yellow); margin-top:2px; line-height:1.4; }
     .chart-header { padding:10px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); }
     .chart-title { font-size:.75rem; font-weight:600; letter-spacing:.05em; }
     .chart-sub   { font-size:.65rem; color:var(--muted); }
@@ -352,6 +376,8 @@
         <div class="price-label">Bitcoin</div>
         <div class="price-value" id="btc-price">—</div>
         <div class="price-change" id="btc-change">—</div>
+        <div class="feed-tag" id="btc-feed"><span class="feed-dot"></span><span>feed…</span></div>
+        <div class="basis-flag" id="btc-basis" style="display:none"></div>
       </div>
       <div class="price-bias bias-NEUTRAL" id="btc-bias">—</div>
     </div>
@@ -361,6 +387,8 @@
         <div class="price-label">Gold / XAUUSD</div>
         <div class="price-value" id="gold-price">—</div>
         <div class="price-change" id="gold-change">—</div>
+        <div class="feed-tag" id="gold-feed"><span class="feed-dot"></span><span>feed…</span></div>
+        <div class="basis-flag" id="gold-basis" style="display:none"></div>
       </div>
       <div class="price-bias bias-NEUTRAL" id="gold-bias">—</div>
     </div>
@@ -370,6 +398,8 @@
         <div class="price-label">S&amp;P 500</div>
         <div class="price-value" id="spx-price">—</div>
         <div class="price-change" id="spx-change">—</div>
+        <div class="feed-tag" id="spx-feed"><span class="feed-dot"></span><span>feed…</span></div>
+        <div class="basis-flag" id="spx-basis" style="display:none"></div>
       </div>
       <div class="price-bias bias-NEUTRAL" id="spx-bias">—</div>
     </div>
@@ -419,36 +449,45 @@
   <div class="charts-grid" id="charts-grid">
     <div class="chart-wrap" data-chart-asset="btc">
       <div class="chart-header">
-        <div><div class="chart-title">BTC / USD</div><div class="chart-sub">Bitstamp</div></div>
+        <div><div class="chart-title">BTC / USD</div><div class="chart-sub" id="sub-btc">BITSTAMP:BTCUSD</div></div>
         <div class="tf-btns">
           <button class="tf-btn" data-asset="btc" data-interval="60"  onclick="switchChart('btc','60')">1H</button>
           <button class="tf-btn" data-asset="btc" data-interval="240" onclick="switchChart('btc','240')">4H</button>
           <button class="tf-btn active" data-asset="btc" data-interval="D" onclick="switchChart('btc','D')">1D</button>
         </div>
       </div>
-      <div id="tv-btc"></div>
+      <div class="chart-body">
+        <div class="tv-holder" id="tv-btc"></div>
+        <div class="level-rail" id="rail-btc"><div class="rail-empty">levels appear with the signal</div></div>
+      </div>
     </div>
     <div class="chart-wrap" data-chart-asset="gold">
       <div class="chart-header">
-        <div><div class="chart-title">GOLD / XAUUSD</div><div class="chart-sub">Comex</div></div>
+        <div><div class="chart-title">GOLD / XAUUSD</div><div class="chart-sub" id="sub-gold">OANDA:XAUUSD</div></div>
         <div class="tf-btns">
           <button class="tf-btn" data-asset="gold" data-interval="60"  onclick="switchChart('gold','60')">1H</button>
           <button class="tf-btn" data-asset="gold" data-interval="240" onclick="switchChart('gold','240')">4H</button>
           <button class="tf-btn active" data-asset="gold" data-interval="D" onclick="switchChart('gold','D')">1D</button>
         </div>
       </div>
-      <div id="tv-gold"></div>
+      <div class="chart-body">
+        <div class="tv-holder" id="tv-gold"></div>
+        <div class="level-rail" id="rail-gold"><div class="rail-empty">levels appear with the signal</div></div>
+      </div>
     </div>
     <div class="chart-wrap" data-chart-asset="spx">
       <div class="chart-header">
-        <div><div class="chart-title">S&amp;P 500 Index</div><div class="chart-sub">FOREXCOM:SPXUSD</div></div>
+        <div><div class="chart-title">S&amp;P 500 Index</div><div class="chart-sub" id="sub-spx">FOREXCOM:SPXUSD</div></div>
         <div class="tf-btns">
           <button class="tf-btn" data-asset="spx" data-interval="60"  onclick="switchChart('spx','60')">1H</button>
           <button class="tf-btn" data-asset="spx" data-interval="240" onclick="switchChart('spx','240')">4H</button>
           <button class="tf-btn active" data-asset="spx" data-interval="D" onclick="switchChart('spx','D')">1D</button>
         </div>
       </div>
-      <div id="tv-spx"></div>
+      <div class="chart-body">
+        <div class="tv-holder" id="tv-spx"></div>
+        <div class="level-rail" id="rail-spx"><div class="rail-empty">levels appear with the signal</div></div>
+      </div>
     </div>
   </div>
 
@@ -1191,26 +1230,193 @@ const CHART_ASSETS = {
   spx:  { symbol:"FOREXCOM:SPXUSD", containerId:"tv-spx"  },
 };
 
-function mkChart(containerId, symbol, interval="D") {
-  if (typeof TradingView === "undefined") return;
-  const container = document.getElementById(containerId);
+// EMA200 and Bollinger are what the engine actually scores on, so the chart plots
+// the same two rather than a bare candle series. Both are price overlays and cost
+// no vertical space; RSI opens its own pane and is only worth it on a tall chart.
+const EMA_PERIOD = 200;
+const RSI_MIN_CHART_HEIGHT = 600;
+const VALID_INTERVALS = ["60", "240", "D"];
+
+// Last payloads from /api/signals and /api/status. Held because three things on
+// this page — the rail, the feed tags and the basis flag — need to compare them
+// against each other, and they arrive on different timers.
+let _lastSignals = null;
+let _lastStatus  = null;
+
+// Which interval each asset is showing. Persisted — layout and asset order already
+// were, so a reload used to restore your columns but silently snap every chart
+// back to 1D.
+const chartIntervals = { btc:"D", gold:"D", spx:"D" };
+// Built widgets, keyed by asset. A hidden TradingView iframe keeps streaming, so
+// layout-1 used to run three live charts to show you one.
+const chartWidgets = {};
+
+function chartHeight() {
+  const grid = document.getElementById("charts-grid");
+  if (!grid) return 440;
+  const declared = getComputedStyle(grid).getPropertyValue("--chart-h").trim();
+  return parseInt(declared, 10) || 440;
+}
+
+function mkChart(assetKey) {
+  const asset = CHART_ASSETS[assetKey];
+  if (!asset || typeof TradingView === "undefined") return;
+  const container = document.getElementById(asset.containerId);
+  if (!container) return;
+  container.innerHTML = "";
+
+  const studies = ["BB@tv-basicstudies", "MAExp@tv-basicstudies"];
+  if (chartHeight() >= RSI_MIN_CHART_HEIGHT) studies.push("RSI@tv-basicstudies");
+
+  try {
+    chartWidgets[assetKey] = new TradingView.widget({
+      autosize:true,
+      symbol:asset.symbol, interval:chartIntervals[assetKey],
+      timezone:"Etc/UTC", theme:"dark", style:"1", locale:"en",
+      toolbar_bg:"#0f1520", enable_publishing:false, hide_top_toolbar:false,
+      hide_side_toolbar:true, withdateranges:true, details:false,
+      // The engine trades one instrument per panel. Letting the chart be switched
+      // to another one turns this into a picture of something we do not trade.
+      allow_symbol_change:false,
+      save_image:false, container_id:asset.containerId,
+      backgroundColor:"#0f1520", gridColor:"rgba(26,34,53,0.5)",
+      studies,
+      studies_overrides:{ "moving average exponential.length": EMA_PERIOD },
+    });
+  } catch (e) {
+    console.error("mkChart " + assetKey + ":", e);
+    container.innerHTML = '<div class="rail-empty">Chart failed to load — TradingView unreachable.</div>';
+  }
+}
+
+function destroyChart(assetKey) {
+  const asset = CHART_ASSETS[assetKey];
+  if (!asset) return;
+  const container = document.getElementById(asset.containerId);
   if (container) container.innerHTML = "";
-  new TradingView.widget({
-    autosize:false, width:"100%", height:520,
-    symbol, interval, timezone:"Etc/UTC", theme:"dark", style:"1", locale:"en",
-    toolbar_bg:"#0f1520", enable_publishing:false, hide_top_toolbar:false,
-    save_image:false, container_id:containerId,
-    backgroundColor:"#0f1520", gridColor:"rgba(26,34,53,0.5)"
+  delete chartWidgets[assetKey];
+}
+
+function markIntervalButtons(assetKey) {
+  document.querySelectorAll(`.tf-btn[data-asset="${assetKey}"]`).forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.interval === chartIntervals[assetKey]);
   });
 }
 
 function switchChart(assetKey, interval) {
-  const asset = CHART_ASSETS[assetKey];
-  if (!asset) return;
-  mkChart(asset.containerId, asset.symbol, interval);
-  document.querySelectorAll(`.tf-btn[data-asset="${assetKey}"]`).forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.interval === interval);
+  if (!CHART_ASSETS[assetKey]) return;
+  chartIntervals[assetKey] = interval;
+  try { localStorage.setItem("chartIntervals", JSON.stringify(chartIntervals)); } catch {}
+  mkChart(assetKey);
+  markIntervalButtons(assetKey);
+}
+
+// ── Level rail — the engine's own numbers, drawn to scale ─────
+// Everything here comes from the /api/signals payload this page already polls, so
+// the rail costs no extra request and can never disagree with the signal card
+// beside it.
+const RAIL_WIDTH = 120;
+const RAIL_PAD_FRACTION = 0.06;   // headroom so the outermost level is not on the edge
+const RAIL_LABEL_SPACING = 11;    // px between label baselines before nudging
+
+function railRows(signal) {
+  const pivots     = signal.pivots || {};
+  const indicators = signal.indicators || {};
+  return [
+    { label:"TGT",    value:signal.target,     color:"#22c55e", bold:true  },
+    { label:"R1",     value:pivots.r1,         color:"#64748b", bold:false },
+    { label:"ENTRY",  value:signal.entry,      color:"#3b82f6", bold:true  },
+    { label:"PP",     value:pivots.pp,         color:"#64748b", bold:false },
+    { label:"EMA200", value:indicators.ema200, color:"#a78bfa", bold:false },
+    { label:"S1",     value:pivots.s1,         color:"#64748b", bold:false },
+    { label:"STOP",   value:signal.stop,       color:"#ef4444", bold:true  },
+    { label:"LAST",   value:signal.price,      color:"#e2e8f0", bold:true  },
+  ].filter(row => Number.isFinite(row.value));
+}
+
+// Labels are nudged apart rather than allowed to overlap; the tick line stays at
+// the true price so the drawing never lies about where a level sits.
+function spreadLabels(rows, height) {
+  const sorted = rows.slice().sort((a, b) => a.y - b.y);
+  let lowestUsed = -Infinity;
+  sorted.forEach(row => {
+    row.labelY = Math.max(row.y, lowestUsed + RAIL_LABEL_SPACING);
+    lowestUsed = row.labelY;
   });
+  const overflow = lowestUsed - (height - 4);
+  if (overflow > 0) sorted.forEach(row => { row.labelY -= overflow; });
+  return sorted;
+}
+
+function priceDecimals(value) {
+  return Math.abs(value) >= 10000 ? 0 : Math.abs(value) >= 100 ? 2 : 2;
+}
+
+function renderLevelRail(assetKey, signal) {
+  const rail = document.getElementById("rail-" + assetKey);
+  if (!rail) return;
+  if (!signal) { rail.innerHTML = '<div class="rail-empty">No signal data.</div>'; return; }
+
+  const rows = railRows(signal);
+  if (rows.length < 2) { rail.innerHTML = '<div class="rail-empty">No levels published for this asset yet.</div>'; return; }
+
+  const height = rail.clientHeight || chartHeight();
+  const values = rows.map(row => row.value);
+  const low    = Math.min(...values);
+  const high   = Math.max(...values);
+  const span   = (high - low) || Math.abs(high) * 0.01 || 1;
+  const pad    = span * RAIL_PAD_FRACTION;
+  const top    = high + pad;
+  const bottom = low - pad;
+  const toY    = value => 6 + (height - 12) * (1 - (value - bottom) / (top - bottom));
+
+  rows.forEach(row => { row.y = toY(row.value); });
+
+  // Risk and reward as filled bands, so R:R reads at a glance instead of from
+  // arithmetic on three numbers.
+  let bands = "";
+  const entry = signal.entry, stop = signal.stop, target = signal.target;
+  if (Number.isFinite(entry) && Number.isFinite(stop)) {
+    const a = toY(entry), b = toY(stop);
+    bands += `<rect x="2" y="${Math.min(a,b).toFixed(1)}" width="17" height="${Math.abs(b-a).toFixed(1)}" fill="#ef4444" opacity=".16"/>`;
+  }
+  if (Number.isFinite(entry) && Number.isFinite(target)) {
+    const a = toY(entry), b = toY(target);
+    bands += `<rect x="2" y="${Math.min(a,b).toFixed(1)}" width="17" height="${Math.abs(b-a).toFixed(1)}" fill="#22c55e" opacity=".16"/>`;
+  }
+
+  const laidOut = spreadLabels(rows, height);
+  const marks = laidOut.map(row => {
+    const y      = row.y.toFixed(1);
+    const labelY = (row.labelY + 2.5).toFixed(1);
+    const price  = row.value.toLocaleString("en-US", {
+      minimumFractionDigits: priceDecimals(row.value),
+      maximumFractionDigits: priceDecimals(row.value),
+    });
+    // Leader line from the true price across to the nudged label.
+    const leader = Math.abs(row.labelY - row.y) > 1.5
+      ? `<line x1="19" y1="${y}" x2="23" y2="${(row.labelY).toFixed(1)}" stroke="${row.color}" stroke-width="1" opacity=".5"/>` : "";
+    return `<line x1="2" y1="${y}" x2="19" y2="${y}" stroke="${row.color}" stroke-width="${row.bold ? 2 : 1}" opacity="${row.bold ? 1 : .65}"/>
+      ${leader}
+      <text x="24" y="${labelY}" font-family="Segoe UI,system-ui,sans-serif" font-size="7.5" fill="${row.color}" font-weight="${row.bold ? 700 : 500}">${row.label}</text>
+      <text x="${RAIL_WIDTH - 4}" y="${labelY}" text-anchor="end" font-family="Segoe UI,system-ui,sans-serif" font-size="7.5" fill="${row.color}" font-weight="${row.bold ? 700 : 400}" opacity="${row.bold ? 1 : .8}">${price}</text>`;
+  }).join("");
+
+  rail.innerHTML = `<svg viewBox="0 0 ${RAIL_WIDTH} ${height}" width="100%" height="100%" preserveAspectRatio="none" role="img" aria-label="Engine price levels">
+    ${bands}${marks}
+  </svg>`;
+}
+
+// The chart's symbol and the engine's symbol are two different instruments on Gold
+// (COMEX futures vs spot), so the panel names both instead of implying one.
+function setChartSubtitle(assetKey, signal) {
+  const el = document.getElementById("sub-" + assetKey);
+  if (!el) return;
+  const chartSymbol = CHART_ASSETS[assetKey] ? CHART_ASSETS[assetKey].symbol : "";
+  const engine = signal && signal.sourceSymbol
+    ? ` · engine: ${signal.dataSource === "mt5" ? "MT5 " : ""}${signal.sourceSymbol}`
+    : "";
+  el.textContent = chartSymbol + engine;
 }
 
 // ── Chart layout — how many chart panels, and which assets ───
@@ -1241,6 +1447,30 @@ function applyChartLayout() {
   document.querySelectorAll(".tf-btn[data-layout]").forEach(btn => {
     btn.classList.toggle("active", Number(btn.dataset.layout) === currentChartLayout);
   });
+
+  syncChartWidgets(visible);
+}
+
+// Build only what is on screen, tear down what is not. Also rebuilds a visible
+// chart when the layout crosses the height at which RSI earns its pane, since a
+// widget's studies are fixed when it is constructed.
+let chartBuiltTall = {};
+function syncChartWidgets(visible) {
+  const wantTall = chartHeight() >= RSI_MIN_CHART_HEIGHT;
+  Object.keys(CHART_ASSETS).forEach(assetKey => {
+    const shown = visible.has(assetKey);
+    const built = Object.prototype.hasOwnProperty.call(chartWidgets, assetKey);
+    if (shown && (!built || chartBuiltTall[assetKey] !== wantTall)) {
+      mkChart(assetKey);
+      chartBuiltTall[assetKey] = wantTall;
+      markIntervalButtons(assetKey);
+    } else if (!shown && built) {
+      destroyChart(assetKey);
+      delete chartBuiltTall[assetKey];
+    }
+  });
+  // Rail geometry is a function of panel height, so redraw against the new one.
+  if (_lastSignals) Object.keys(CHART_ASSETS).forEach(k => renderLevelRail(k, _lastSignals[k]));
 }
 
 function setChartLayout(n) {
@@ -1256,17 +1486,35 @@ function selectChartAsset(assetKey) {
 }
 
 window.addEventListener("load", () => {
-  Object.entries(CHART_ASSETS).forEach(([key, a]) => mkChart(a.containerId, a.symbol, "D"));
-
+  // Restore saved preferences BEFORE building anything: the old order built three
+  // widgets at 1D and then applied the layout, so a saved 1-chart layout still
+  // paid for three iframes and any saved timeframe was overwritten on every load.
   try {
     currentChartLayout = Number(localStorage.getItem("chartLayout")) || 3;
     const savedOrder = JSON.parse(localStorage.getItem("chartAssetOrder"));
     if (Array.isArray(savedOrder) && savedOrder.length === 3 && savedOrder.every(a => CHART_ASSETS[a])) {
       chartAssetOrder = savedOrder;
     }
+    const savedIntervals = JSON.parse(localStorage.getItem("chartIntervals"));
+    if (savedIntervals && typeof savedIntervals === "object") {
+      Object.keys(CHART_ASSETS).forEach(key => {
+        if (VALID_INTERVALS.indexOf(savedIntervals[key]) !== -1) chartIntervals[key] = savedIntervals[key];
+      });
+    }
   } catch {}
 
   applyChartLayout();
+  Object.keys(CHART_ASSETS).forEach(markIntervalButtons);
+});
+
+// Panels reflow on resize; the rail is drawn at a fixed pixel height and would
+// otherwise keep the height it had when the window was a different size.
+let railRedrawTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(railRedrawTimer);
+  railRedrawTimer = setTimeout(() => {
+    if (_lastSignals) Object.keys(CHART_ASSETS).forEach(k => renderLevelRail(k, _lastSignals[k]));
+  }, 200);
 });
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -1274,7 +1522,22 @@ function fmt(n, d=2)    { if(n==null)return"N/A"; return"$"+Number(n).toLocaleSt
 function fmtChange(c)   { if(c==null)return"—"; return(c>=0?"+":"")+c.toFixed(2)+"%"; }
 function biasClass(b)   { return"bias-"+(b??"NEUTRAL").replace(" ","_"); }
 function changeClass(c) { return c==null?"flat":c>0?"up":c<0?"down":"flat"; }
-function confColor(c)   { if(!c)return"#64748b"; if(c>=85)return"#22c55e"; if(c>=65)return"#3b82f6"; if(c>=40)return"#eab308"; return"#64748b"; }
+// The gate is a live setting, not a constant. It was written into this page as a
+// literal 65 in five places while the configured gate has been 70 since 2026-08-02,
+// so every "need 65% — gap N" on the dashboard was understating the real distance
+// by 5 points. Populated by loadStrategySettings(); null until it answers, and
+// rendered as unknown rather than guessed.
+let liveGate = null;
+function gateText() { return liveGate == null ? "—" : liveGate + "%"; }
+function confColor(c) {
+  if(!c) return "#64748b";
+  const gate = liveGate;
+  if (gate == null) return c>=85?"#22c55e":c>=40?"#eab308":"#64748b";
+  if (c >= gate)      return "#22c55e";   // at or above the gate — this can fire
+  if (c >= gate - 10) return "#3b82f6";   // close
+  if (c >= gate - 30) return "#eab308";
+  return "#64748b";
+}
 function rsiColor(r)    { if(!r)return""; return r<35?"bull":r>65?"bear":""; }
 function mdToHtml(t) {
   return t.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
@@ -1282,10 +1545,66 @@ function mdToHtml(t) {
            .replace(/\n/g,"<br>");
 }
 
+// ── Feed provenance & basis ──────────────────────────────────
+// The price strip and the signal engine read different feeds. On Gold they read
+// different INSTRUMENTS — Yahoo GC=F is the COMEX future, the engine trades spot
+// XAUUSD — and the two sat side by side on this page tens of dollars apart with
+// nothing saying so. Sizing and stops come from the engine's number, so the strip
+// now names its source and flags the gap rather than leaving it to be discovered.
+const STRIP_FEEDS = {
+  btc:  "CoinGecko BTC/USD",
+  gold: "Yahoo GC=F (COMEX future)",
+  spx:  "Yahoo ^GSPC",
+};
+const PRICE_STALE_MS      = 5 * 60_000;
+const BASIS_FLAG_FRACTION = 0.0025;   // 0.25% — beyond routine feed jitter
+
+function describeSeconds(ms) {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 90)   return seconds + "s ago";
+  if (seconds < 5400) return Math.round(seconds / 60) + "m ago";
+  return Math.round(seconds / 3600) + "h ago";
+}
+
+function renderFeedTags() {
+  const stripUpdated = _lastStatus && _lastStatus.updated ? new Date(_lastStatus.updated).getTime() : null;
+  ["btc", "gold", "spx"].forEach(assetKey => {
+    const tagEl   = document.getElementById(assetKey + "-feed");
+    const basisEl = document.getElementById(assetKey + "-basis");
+    if (!tagEl) return;
+
+    const age   = stripUpdated ? Date.now() - stripUpdated : null;
+    const stale = age != null && age > PRICE_STALE_MS;
+    tagEl.className = "feed-tag" + (stale ? " feed-stale" : "");
+    tagEl.innerHTML = '<span class="feed-dot"></span><span>'
+      + STRIP_FEEDS[assetKey] + (age != null ? " · " + describeSeconds(age) : " · age unknown")
+      + "</span>";
+
+    if (!basisEl) return;
+    const signal      = _lastSignals ? _lastSignals[assetKey] : null;
+    const stripPrice  = _lastStatus ? _lastStatus[assetKey] : null;
+    const enginePrice = signal ? signal.price : null;
+    if (!Number.isFinite(stripPrice) || !Number.isFinite(enginePrice) || enginePrice === 0) {
+      basisEl.style.display = "none";
+      return;
+    }
+    const gap = (stripPrice - enginePrice) / enginePrice;
+    if (Math.abs(gap) < BASIS_FLAG_FRACTION) { basisEl.style.display = "none"; return; }
+    const engineName = signal.sourceSymbol
+      ? (signal.dataSource === "mt5" ? "MT5 " : "") + signal.sourceSymbol
+      : "engine";
+    basisEl.style.display = "block";
+    basisEl.textContent = "⚠ engine trades " + engineName + " @ "
+      + enginePrice.toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 })
+      + " (" + (gap > 0 ? "−" : "+") + Math.abs(gap * 100).toFixed(2) + "% vs this)";
+  });
+}
+
 // ── Prices ───────────────────────────────────────────────────
 async function loadPrices() {
   try {
     const d = await fetch(API+"/status",{cache:"no-store"}).then(r=>r.json());
+    _lastStatus = d;
     const setPrice = (id,val,dec) => document.getElementById(id).textContent = fmt(val,dec);
     const setChange = (id,c) => { const el=document.getElementById(id); el.textContent=fmtChange(c); el.className="price-change "+changeClass(c); };
     const setBias = (id,c) => { const el=document.getElementById(id); const t=(c??0)>2?"STRONG BUY":(c??0)>0?"BUY":(c??0)<-2?"STRONG SELL":(c??0)<0?"SELL":"NEUTRAL"; el.textContent=t; el.className="price-bias "+biasClass(t); };
@@ -1308,6 +1627,7 @@ async function loadPrices() {
       else{vb.textContent="CALM";vb.style.cssText="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#0d2010;color:var(--green)";vl.textContent="Normal conditions";vl.style.color="var(--green)";}
     }
     document.getElementById("conn-status").textContent="Live";
+    renderFeedTags();
     if(d.updated) document.getElementById("last-update").textContent="Updated "+new Date(d.updated).toLocaleTimeString();
     if(d.session) {
       const pill=document.getElementById("session-pill"),dot=document.getElementById("session-dot"),nm=document.getElementById("session-name");
@@ -1384,7 +1704,19 @@ function renderSignalCard(id,s) {
   el.className=`signal-card sig-${s.signal}`;
   const conf=s.confidence??0, cc=confColor(conf);
   let h=`<div class="sig-header"><div class="sig-label">${s.label}</div><div style="display:flex;align-items:center;gap:6px">${conf>0?`<span style="font-size:.65rem;font-weight:700;color:${cc}">${conf}%</span>`:""}<div class="sig-badge sig-badge-${s.signal}">${s.strength!=="NONE"?s.strength+" ":""}${s.signal}</div></div></div>`;
-  if(conf>0) h+=`<div class="conf-bar-wrap"><div class="conf-bar" style="width:${conf}%;background:${cc}"></div></div>`;
+  if(conf>0){
+    // Gate marker on the bar itself: how far this asset is from firing is the one
+    // thing the overview never showed, and it is the reason nothing trades.
+    const gateMark = liveGate == null ? "" :
+      `<div style="position:absolute;left:${Math.min(100,liveGate)}%;top:-3px;width:2px;height:10px;background:var(--text);opacity:.75"></div>`;
+    h+=`<div class="conf-bar-wrap" style="position:relative"><div class="conf-bar" style="width:${conf}%;background:${cc}"></div>${gateMark}</div>`;
+    const gap = liveGate == null ? null : Math.max(0, liveGate - conf);
+    h+=`<div style="font-size:.6rem;margin-bottom:6px;color:${gap===0?'var(--green)':'var(--muted)'}">`
+      + (liveGate == null ? `gate loading…`
+        : gap === 0 ? `at or above gate ${gateText()} — can fire`
+        : `gate ${gateText()} · gap ${gap}pt`)
+      + `</div>`;
+  }
   if(s.regime){const rc=s.regime==="TRENDING"?"var(--green)":s.regime==="SQUEEZE"?"var(--blue)":s.regime==="VOLATILE"?"var(--red)":"var(--muted)";h+=`<div style="margin-bottom:6px"><span style="font-size:.6rem;padding:2px 8px;border-radius:4px;border:1px solid ${rc};color:${rc};font-weight:700">${s.regime}</span></div>`;}
   h+=`<div class="sig-mtf"><span class="sig-tf-pill" style="color:${s.signal==="BUY"?"var(--green)":s.signal==="SELL"?"var(--red)":"var(--yellow)"}">D: ${s.trend?.replace("STRONG ","")?.replace("TREND","")??"?"}</span>`;
   if(s.h4){const hc=s.h4.signal==="BUY"?"var(--green)":s.h4.signal==="SELL"?"var(--red)":"var(--yellow)";h+=`<span class="sig-tf-pill" style="color:${hc}">4H: ${s.h4.trend?.replace("STRONG ","")?.replace("TREND","")||s.h4.signal}</span>`;if(s.h4.rsi)h+=`<span class="sig-tf-pill" style="color:var(--muted)">4H RSI ${s.h4.rsi}</span>`;}
@@ -1405,7 +1737,17 @@ function renderSignalCard(id,s) {
 async function loadSignals() {
   try {
     const d=await fetch(API+"/signals",{cache:"no-store"}).then(r=>r.json());
+    _lastSignals = d;
     renderSignalCard("sig-btc",d.btc); renderSignalCard("sig-gold",d.gold); renderSignalCard("sig-spx",d.spx);
+    // Each renderer is guarded on its own: one malformed asset must not take the
+    // other two charts, the rails and the feed tags down with it.
+    Object.keys(CHART_ASSETS).forEach(assetKey => {
+      try { renderLevelRail(assetKey, d[assetKey]); }
+      catch (e) { console.error("renderLevelRail " + assetKey + ":", e); }
+      try { setChartSubtitle(assetKey, d[assetKey]); }
+      catch (e) { console.error("setChartSubtitle " + assetKey + ":", e); }
+    });
+    try { renderFeedTags(); } catch (e) { console.error("renderFeedTags:", e); }
   } catch { ["sig-btc","sig-gold","sig-spx"].forEach(id=>{document.getElementById(id).innerHTML=`<div class="sig-loading">Server offline</div>`;});}
 }
 
@@ -1906,8 +2248,11 @@ function buildSCCard(sig, key){
   const cf=_scConf(c);
   const borderColor=s==='BUY'?'rgba(34,197,94,.35)':s==='SELL'?'rgba(239,68,68,.35)':'var(--border)';
   const badgeClass=`sig-badge sig-badge-${s}`;
-  const threshold=c<65?`<div style="font-size:.6rem;color:var(--muted);margin-top:4px">Need 65% — gap: ${65-c}%</div>`
-                       :`<div style="font-size:.6rem;color:var(--green);margin-top:4px">Above threshold — signal active</div>`;
+  const threshold = liveGate == null
+    ? `<div style="font-size:.6rem;color:var(--muted);margin-top:4px">Gate loading…</div>`
+    : c < liveGate
+      ? `<div style="font-size:.6rem;color:var(--muted);margin-top:4px">Need ${liveGate}% — gap: ${liveGate-c}%</div>`
+      : `<div style="font-size:.6rem;color:var(--green);margin-top:4px">Above threshold — signal active</div>`;
   let entryHtml='';
   if(sig.entry&&sig.stop&&sig.target){
     const rr=sig.rr||((Math.abs(sig.target-sig.entry)/Math.abs(sig.entry-sig.stop)).toFixed(1));
@@ -1964,7 +2309,7 @@ async function loadSignalsTab(){
           const col=r.startsWith('✅')?'#16a34a':r.startsWith('⚠')?'#ca8a04':r.startsWith('❌')?'#dc2626':'var(--muted)';
           return`<div style="font-size:.67rem;color:${col};padding:1px 0">${r}</div>`;
         }).join('');
-        const gap=s.confidence<65?`<div style="font-size:.62rem;color:var(--yellow);margin-top:4px">Missing: 4H must confirm Daily for signal to fire.</div>`:'';
+        const gap=(liveGate!=null&&s.confidence<liveGate)?`<div style="font-size:.62rem;color:var(--yellow);margin-top:4px">Missing: 4H must confirm Daily for signal to fire.</div>`:'';
         return`<div style="margin-bottom:12px">
           <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:6px">${k.toUpperCase()} — ${s.signal} ${s.confidence}%</div>
           ${reasons||'<div style="color:var(--muted);font-size:.65rem">No reasons available</div>'}
@@ -1982,17 +2327,20 @@ async function loadSignalsTab(){
     if(hBody){
       if(!history.length){hBody.innerHTML=`<tr><td colspan="8" style="color:var(--muted);font-size:.72rem;padding:16px;text-align:center">No history yet — populates after first 30-min refresh cycle</td></tr>`;
       }else{
-        const cColor=c=>c>=65?'var(--green)':c>=50?'var(--yellow)':'var(--red)';
+        const cColor=c=>(liveGate!=null&&c>=liveGate)?'var(--green)':c>=50?'var(--yellow)':'var(--red)';
         const sColor=s=>s==='BUY'?'var(--green)':s==='SELL'?'var(--red)':'var(--muted)';
         hBody.innerHTML=history.slice(0,40).map(h=>{
-          const fired=['btc','gold','spx'].some(k=>h[k]&&h[k].s!=='WAIT'&&(h[k].c||0)>=65);
+          // Judged against the gate in force now. Marking rows with an unknown gate
+          // as "wait" would claim a cycle did not fire when we cannot yet tell.
+          const fired=liveGate!=null&&['btc','gold','spx'].some(k=>h[k]&&h[k].s!=='WAIT'&&(h[k].c||0)>=liveGate);
+          const firedLabel=liveGate==null?'…':fired?'SIGNAL':'wait';
           const d=new Date(h.t);
           const ts=d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});
           const cell=(k)=>h[k]?`<td style="padding:5px 8px;color:${sColor(h[k].s)};font-weight:700;font-size:.62rem">${h[k].s}</td><td style="padding:5px 8px;font-weight:700;font-size:.62rem;color:${cColor(h[k].c||0)}">${h[k].c||0}%</td>`:'<td colspan="2" style="color:var(--muted);padding:5px 8px">—</td>';
           return`<tr style="border-bottom:1px solid rgba(26,34,53,.5)">
             <td style="padding:5px 10px;color:var(--muted);font-size:.62rem;font-variant-numeric:tabular-nums;white-space:nowrap">${ts}</td>
             ${cell('btc')}${cell('gold')}${cell('spx')}
-            <td style="padding:5px 8px;font-size:.6rem;font-weight:700;color:${fired?'var(--green)':'var(--dim)'}">${fired?'SIGNAL':'wait'}</td>
+            <td style="padding:5px 8px;font-size:.6rem;font-weight:700;color:${fired?'var(--green)':'var(--muted)'}">${firedLabel}</td>
           </tr>`;
         }).join('');
       }
@@ -2306,6 +2654,22 @@ async function loadStrategySettings() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const s = await r.json();
     strategyLimits = s.limits || null;
+    // One source of truth for the gate across every panel on this page.
+    if (Number.isFinite(s.confidenceThreshold)) {
+      liveGate = s.confidenceThreshold;
+      // Re-render anything already drawn against a gate we did not yet know.
+      if (_lastSignals) {
+        renderSignalCard("sig-btc", _lastSignals.btc);
+        renderSignalCard("sig-gold", _lastSignals.gold);
+        renderSignalCard("sig-spx", _lastSignals.spx);
+      }
+    }
+    // settingsError means the server fell back to built-in defaults and is NOT
+    // running the saved config. That has to be visible, not buried in a log.
+    if (s.settingsError) {
+      const status = document.getElementById('ss-status');
+      if (status) { status.textContent = 'SAVED CONFIG NOT LOADED — running built-in defaults'; status.style.color = 'var(--red)'; }
+    }
 
     document.getElementById('ss-confidence').value = s.confidenceThreshold;
     document.getElementById('ss-slots').value      = s.maxConcurrentPositions;
