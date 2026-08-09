@@ -48,6 +48,9 @@ const autohealer = require("./autohealer");
 const db         = require("./db");
 const sizing     = require("./sizing");
 const hermes     = require("./hermes");
+// Fair Value Gap geometry. Pure functions over the bar arrays the engine already
+// holds — no I/O, no state, and nothing it exports can reach the trading path.
+const fvg        = require("./fvg");
 // Cohort reachability table. Shared with tasks/cohort_reachability.cjs so the audit
 // script and the server can never describe two different systems.
 const cohortTable = require("./cohort_table");
@@ -247,6 +250,10 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // that writes rejections lives at /api/rejections and is separately
   // requireLocalOnly — there is no POST at this path.
   "/api/gate-health",
+  // Fair Value Gap zones, derived from the same bars /api/signals already exposes
+  // publicly. Read-only geometry: price bands and how far price has eaten into
+  // them. Nothing here is not already implied by the candles. No POST at this path.
+  "/api/fvg",
 ]);
 
 app.use((req, res, next) => {
@@ -451,8 +458,31 @@ function saveLearning() {
   try { writeJsonAtomic(LEARNING_FILE, learning); }
   catch (e) { console.error("[learning] SAVE FAILED — this outcome was NOT recorded and the edge it carried is lost:", e.message); }
 }
+// Names that mean "there was no setup", not "the setup was called this".
+//
+// `setup` and `signal` are separate fields, so a real row can read
+// setup:"MOMENTUM" signal:"WAIT". A row where the SETUP itself is "WAIT" is the
+// fingerprint of the H4-only naming bug (fixed in 1047a20), where the setup name was
+// taken from the daily leg while the trade came from H4. One such row is sitting in
+// the journal right now — the open Gold BUY #1713655080, opened 2026-08-05 — and it
+// would have created a tracked setup called "WAIT" the moment it closed.
+//
+// That matters beyond tidiness: getLearningBoost reads this table, so once a phantom
+// setup reaches 5 closed trades it starts adjusting live confidence using the pooled
+// result of unrelated trades. Refusing the attribution is strictly better than
+// inventing one — the trade's P&L is still recorded in the journal either way.
+const NON_SETUP_NAMES = new Set(["WAIT", "NONE", "UNKNOWN"]);
+
 function updateLearning(setup, pnl) {
   if (!setup || pnl === null || pnl === undefined) return;
+  if (NON_SETUP_NAMES.has(String(setup).trim().toUpperCase())) {
+    console.warn(
+      `[learning] REFUSED to attribute a closed trade to "${setup}" — that is the ` +
+      `absence of a setup, not a setup. P&L ${pnl} stays in the journal but is not ` +
+      `learned from. A row like this means the setup name was lost upstream.`
+    );
+    return;
+  }
   if (!learning.setupStats[setup]) learning.setupStats[setup] = { wins: 0, losses: 0, totalPnl: 0 };
   const s = learning.setupStats[setup];
   if (pnl > 0) s.wins++; else s.losses++;
@@ -673,23 +703,49 @@ function saveStrategySettings() {
 // from the dashboard is the exact moment a cohort dies.
 function reportCohortReachability(context) {
   try {
-    const rows = cohortTable.computeReachability(strategySettings.confidenceThreshold);
+    // dailyOnlyMinConfidence is a real gate for the neutral-H4 cohorts — the engine
+    // uses max(confidenceThreshold, cohortFloor) at index.js:1721, not the threshold
+    // alone. Measuring against the threshold only would call those cohorts alive at
+    // the moment a dashboard edit killed them.
+    const rows = cohortTable.computeReachability(
+      strategySettings.confidenceThreshold,
+      strategySettings.dailyOnlyMinConfidence
+    );
+
+    // Validate the table against the engine BEFORE trusting its verdicts. Without
+    // this the boot log announces conclusions from a table that may no longer
+    // describe the code beside it — the audit script checked this and the server,
+    // which is what anyone actually reads, did not.
+    try {
+      const drifted = cohortTable.findTableDrift(fs.readFileSync(__filename, 'utf8'));
+      for (const row of drifted) {
+        console.warn(`[cohorts] ⚠ TABLE DRIFT: "${row.name}" no longer matches this file (missing: ${row.missing.join(' | ')})`);
+      }
+      if (drifted.length > 0) console.warn('[cohorts]   Verdicts below may be wrong. Fix server/cohort_table.js.');
+    } catch (driftErr) {
+      console.warn(`[cohorts] could not verify table against source (${driftErr?.message ?? String(driftErr)})`);
+    }
+
     const dead = rows.filter(row => row.status === 'DEAD');
     if (dead.length === 0) {
-      console.log(`[cohorts] ${context}: all ${rows.length} cohorts can reach gate ${strategySettings.confidenceThreshold}`);
+      console.log(`[cohorts] ${context}: all ${rows.length} cohorts can reach their gate`);
       return;
     }
     console.warn(
-      `[cohorts] ⚠ ${context}: ${dead.length} of ${rows.length} cohort(s) CANNOT reach gate ` +
-      `${strategySettings.confidenceThreshold} even at maximum boost (+${cohortTable.MAX_BOOST}). ` +
+      `[cohorts] ⚠ ${context}: ${dead.length} of ${rows.length} cohort(s) CANNOT reach their gate ` +
+      `even at maximum boost (+${cohortTable.MAX_BOOST}). ` +
       `They will never fire and will look like a quiet market:`
     );
     for (const row of dead) {
-      console.warn(`[cohorts]   ${row.name} — base ${row.base}, ceiling ${row.ceiling}, ${row.short} short`);
+      const capNote = row.cappedByEngine ? `, capped by the engine at ${row.ceiling}` : '';
+      console.warn(`[cohorts]   ${row.name} — base ${row.base}, ceiling ${row.ceiling}${capNote}, ${row.short} short of gate ${row.effectiveGate}`);
     }
     console.warn('[cohorts]   Run `node tasks/cohort_reachability.cjs` for the full table.');
   } catch (e) {
-    console.error(`[cohorts] reachability check failed (${e.message}) — continuing`);
+    // A thrown non-Error has no .message, and dereferencing it here would make the
+    // catch itself throw — killing boot at startup, and hanging the settings request
+    // after the setting had already been saved. A lost warning must never do that.
+    console.error(`[cohorts] reachability check failed (${e?.message ?? String(e)}) — continuing`);
   }
 }
 
@@ -2382,6 +2438,50 @@ app.post("/api/shutdown", requireLocalOnly, (_, res) => {
 });
 app.get("/api/health",  (_, res) => res.json({ ok: true, version: 9, ts: Date.now(), healer: autohealer.getStatus() }));
 app.get("/api/signals",        (_, res) => res.json(signalCache));
+
+// ── Fair Value Gaps ───────────────────────────────────────────
+// Unfilled three-candle imbalances per asset, per timeframe.
+//
+// Computed on demand rather than cached: detection is O(bars) over at most 400
+// bars x3 timeframes x3 assets, which is far cheaper than the staleness bugs a
+// second cache would introduce. Deliberately NOT wired into confidence or any
+// gate — this is an observability layer, and an unmeasured geometry must not
+// move a number that sizes a trade.
+//
+// MT5 bars only. The Yahoo fallback series is a different instrument on Gold
+// (COMEX future vs spot), and a gap drawn from futures bars would be at prices
+// the traded symbol never visited. Reports the gap honestly instead of quietly
+// substituting a feed — see the ~5-minute Yahoo window after any restart.
+const FVG_TIMEFRAMES = ["daily", "h4", "h1"];
+app.get("/api/fvg", (req, res) => {
+  const requested = Number(req.query.maxZones);
+  const maxZones = Number.isFinite(requested) && requested > 0 && requested <= 20
+    ? Math.floor(requested) : 4;
+
+  const assets = {};
+  for (const assetKey of ["btc", "gold", "spx"]) {
+    const barSet = mt5BarsFor(assetKey);
+    if (!barSet) {
+      assets[assetKey] = { available: false, reason: "no fresh MT5 bars", source: null, timeframes: {} };
+      continue;
+    }
+    const timeframes = {};
+    for (const timeframe of FVG_TIMEFRAMES) {
+      const bars = barSet[timeframe];
+      if (!bars) { timeframes[timeframe] = { error: "no bars for this timeframe", zones: [] }; continue; }
+      try {
+        timeframes[timeframe] = fvg.detectFVGs(bars, { maxZones });
+      } catch (e) {
+        // One bad series must not take the whole endpoint down.
+        console.error(`[fvg] ${assetKey}/${timeframe}: ${e.message}`);
+        timeframes[timeframe] = { error: e.message, zones: [] };
+      }
+    }
+    assets[assetKey] = { available: true, source: "mt5", sourceSymbol: barSet.symbol, timeframes };
+  }
+
+  res.json({ assets, minGapRangeFraction: fvg.DEFAULT_MIN_GAP_RANGE_FRACTION, updatedAt: new Date().toISOString() });
+});
 app.get("/api/signal-history", (_, res) => res.json({ history: signalHistory.slice(0, 50) }));
 // Latest parallel_analysis.py run. Served from disk rather than held in memory:
 // the analysis is produced by a separate process on its own schedule, so the
@@ -2927,7 +3027,12 @@ app.post("/api/strategy-settings", (req, res) => {
   // A gate edit is the exact moment a cohort dies, so say so now rather than at the
   // next restart. Moving 65 -> 70 on 2026-08-02 killed BTC H4-only MODERATE and
   // nothing reported it for six days.
-  if (applied.confidenceThreshold !== undefined) reportCohortReachability('gate changed from dashboard');
+  // dailyOnlyMinConfidence is a real gate too — it raises the bar for the neutral-H4
+  // cohorts only (index.js:1718). Watching confidenceThreshold alone would stay
+  // silent through the one edit that kills exactly those two cohorts.
+  if (applied.confidenceThreshold !== undefined || applied.dailyOnlyMinConfidence !== undefined) {
+    reportCohortReachability('gate changed from dashboard');
+  }
   res.json({ ok: true, settings: strategySettings, applied, notes: rejected });
 });
 

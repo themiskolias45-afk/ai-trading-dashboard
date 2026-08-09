@@ -107,6 +107,29 @@
     .feed-stale{ color:var(--yellow); }
     .feed-stale .feed-dot { background:var(--yellow); }
     .basis-flag{ font-size:.55rem; color:var(--yellow); margin-top:2px; line-height:1.4; }
+
+    /* Fair Value Gaps */
+    .fvg-row { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+    @media (max-width:900px) { .fvg-row { grid-template-columns:1fr; } }
+    .fvg-panel .panel-title { text-transform:none; letter-spacing:.04em; }
+    .fvg-meta { font-size:.6rem; color:var(--muted); }
+    .fvg-body { max-height:none; padding:8px 12px 10px; }
+    .fvg-zone {
+      display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center;
+      padding:5px 0; border-bottom:1px solid var(--border); font-size:.68rem;
+    }
+    .fvg-zone:last-child { border-bottom:none; }
+    .fvg-dir { font-size:.55rem; font-weight:800; letter-spacing:.06em; padding:2px 6px; border-radius:3px; white-space:nowrap; }
+    .fvg-bull { background:rgba(34,197,94,.12);  color:var(--green); }
+    .fvg-bear { background:rgba(239,68,68,.12);  color:var(--red); }
+    .fvg-range { font-variant-numeric:tabular-nums; color:var(--text); }
+    .fvg-sub   { font-size:.58rem; color:var(--muted); margin-top:1px; }
+    .fvg-dist  { font-variant-numeric:tabular-nums; font-weight:700; text-align:right; white-space:nowrap; }
+    /* Price standing inside an unfilled gap is the one state worth interrupting for. */
+    .fvg-inside { border:1px solid rgba(59,130,246,.45); border-radius:5px; background:rgba(59,130,246,.06); padding:5px 7px; }
+    .fvg-fillbar { height:3px; background:var(--border); border-radius:2px; margin-top:3px; overflow:hidden; }
+    .fvg-fillbar > div { height:100%; border-radius:2px; }
+    .fvg-empty { font-size:.65rem; color:var(--muted); padding:6px 0; line-height:1.6; }
     .chart-header { padding:10px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); }
     .chart-title { font-size:.75rem; font-weight:600; letter-spacing:.05em; }
     .chart-sub   { font-size:.65rem; color:var(--muted); }
@@ -508,6 +531,35 @@
         <div class="tv-holder" id="tv-spx"></div>
         <div class="level-rail" id="rail-spx"><div class="rail-empty">levels appear with the signal</div></div>
       </div>
+    </div>
+  </div>
+
+  <!-- Fair Value Gaps.
+       Not on the rail alone: the rail is zoomed to the traded levels (BTC's spans
+       ~450 points) while real gaps sit percent away (BTC's nearest are +6.5% to
+       +18%), so most would be off-scale arrows. In-range zones shade the rail;
+       this row is where they are actually readable. -->
+  <div class="fvg-row">
+    <div class="panel fvg-panel">
+      <div class="panel-header">
+        <div class="panel-title">₿ BTC — Fair Value Gaps</div>
+        <span class="fvg-meta" id="fvg-btc-meta">—</span>
+      </div>
+      <div class="panel-body fvg-body" id="fvg-btc">Loading…</div>
+    </div>
+    <div class="panel fvg-panel">
+      <div class="panel-header">
+        <div class="panel-title">🥇 GOLD — Fair Value Gaps</div>
+        <span class="fvg-meta" id="fvg-gold-meta">—</span>
+      </div>
+      <div class="panel-body fvg-body" id="fvg-gold">Loading…</div>
+    </div>
+    <div class="panel fvg-panel">
+      <div class="panel-header">
+        <div class="panel-title">📈 SPX — Fair Value Gaps</div>
+        <span class="fvg-meta" id="fvg-spx-meta">—</span>
+      </div>
+      <div class="panel-body fvg-body" id="fvg-spx">Loading…</div>
     </div>
   </div>
 
@@ -1329,6 +1381,12 @@ function switchChart(assetKey, interval) {
   try { localStorage.setItem("chartIntervals", JSON.stringify(chartIntervals)); } catch {}
   mkChart(assetKey);
   markIntervalButtons(assetKey);
+  // FVG zones are per-timeframe and follow the chart, so both the panel and the
+  // rail shading have to move with it.
+  try { renderFVGPanel(assetKey); } catch (e) { console.error("renderFVGPanel:", e); }
+  if (_lastSignals) {
+    try { renderLevelRail(assetKey, _lastSignals[assetKey]); } catch (e) { console.error("renderLevelRail:", e); }
+  }
 }
 
 // ── Fullscreen ────────────────────────────────────────────────
@@ -1451,6 +1509,24 @@ function renderLevelRail(assetKey, signal) {
     else                         { row.y = toY(row.value); row.offScale = null; }
   });
 
+  // FVG zones that intersect the visible range, clipped to it and drawn full
+  // width behind everything so they read as background, not as another level.
+  // Zones outside the range are simply absent here — the FVG panel below the
+  // charts is what carries the ones that are percent away.
+  let gapBands = "";
+  const fvgZones = fvgZonesFor(assetKey);
+  if (fvgZones) {
+    fvgZones.forEach(zone => {
+      if (!(zone.top > bottom && zone.bottom < top)) return;
+      const yTop    = toY(Math.min(zone.top, top));
+      const yBottom = toY(Math.max(zone.bottom, bottom));
+      const bandHeight = Math.abs(yBottom - yTop);
+      if (!(bandHeight > 0.5)) return;
+      const colour = zone.direction === "bullish" ? "#22c55e" : "#ef4444";
+      gapBands += `<rect x="2" y="${Math.min(yTop,yBottom).toFixed(1)}" width="${RAIL_WIDTH - 4}" height="${bandHeight.toFixed(1)}" fill="${colour}" opacity="${zone.status === "PARTIAL" ? ".07" : ".13"}"/>`;
+    });
+  }
+
   // Risk and reward as filled bands, so R:R reads at a glance instead of from
   // arithmetic on three numbers.
   let bands = "";
@@ -1489,7 +1565,7 @@ function renderLevelRail(assetKey, signal) {
     <line x1="2" y1="13" x2="${RAIL_WIDTH - 2}" y2="13" stroke="#1a2235" stroke-width="1"/>`;
 
   rail.innerHTML = `<svg viewBox="0 0 ${RAIL_WIDTH} ${height}" width="100%" height="100%" preserveAspectRatio="none" role="img" aria-label="Engine price levels, on its own scale">
-    ${header}${bands}${marks}
+    ${gapBands}${header}${bands}${marks}
   </svg>`;
 }
 
@@ -1683,6 +1759,93 @@ function renderFeedTags() {
     basisEl.textContent = "⚠ engine trades " + engineName + " @ "
       + enginePrice.toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 })
       + " (" + (gap > 0 ? "−" : "+") + Math.abs(gap * 100).toFixed(2) + "% vs this)";
+  });
+}
+
+// ── Fair Value Gaps ──────────────────────────────────────────
+// Detection runs server-side on the MT5 bars the engine already holds; the page
+// has no OHLC of its own. Purely observational — no gate, no confidence, no
+// sizing reads any of this.
+const FVG_REFRESH_MS = 60_000;
+// Which bar series to show: follow the chart's own timeframe so the panel and the
+// candles beside it are describing the same thing.
+const FVG_TIMEFRAME_FOR_INTERVAL = { "60":"h1", "240":"h4", "D":"daily" };
+let _lastFVG = null;
+
+function fvgTimeframeFor(assetKey) {
+  return FVG_TIMEFRAME_FOR_INTERVAL[chartIntervals[assetKey]] || "daily";
+}
+
+function fvgZonesFor(assetKey) {
+  if (!_lastFVG || !_lastFVG.assets) return null;
+  const asset = _lastFVG.assets[assetKey];
+  if (!asset || !asset.available) return null;
+  const frame = asset.timeframes && asset.timeframes[fvgTimeframeFor(assetKey)];
+  return frame && Array.isArray(frame.zones) ? frame.zones : null;
+}
+
+function renderFVGPanel(assetKey) {
+  const body = document.getElementById("fvg-" + assetKey);
+  const meta = document.getElementById("fvg-" + assetKey + "-meta");
+  if (!body) return;
+
+  const asset = _lastFVG && _lastFVG.assets ? _lastFVG.assets[assetKey] : null;
+  const label = { "h1":"1H", "h4":"4H", "daily":"1D" }[fvgTimeframeFor(assetKey)];
+
+  if (!asset) { body.innerHTML = '<div class="fvg-empty">Waiting for the server…</div>'; if (meta) meta.textContent = "—"; return; }
+  if (!asset.available) {
+    // Says why rather than showing an empty box that reads like "no gaps".
+    body.innerHTML = '<div class="fvg-empty">Unavailable — ' + (asset.reason || "no bars")
+      + '.<br>FVGs are read from MT5 bars only; the Yahoo fallback is a different instrument on Gold.</div>';
+    if (meta) meta.textContent = label;
+    return;
+  }
+
+  const frame = asset.timeframes[fvgTimeframeFor(assetKey)] || {};
+  const zones = Array.isArray(frame.zones) ? frame.zones : [];
+  if (meta) meta.textContent = label + " · " + (frame.totalFound || 0) + " unfilled";
+
+  if (frame.error) { body.innerHTML = '<div class="fvg-empty">' + frame.error + '</div>'; return; }
+  if (!zones.length) { body.innerHTML = '<div class="fvg-empty">No unfilled gaps on ' + label + '.</div>'; return; }
+
+  const decimals = zones[0].top >= 10000 ? 0 : 2;
+  const money = v => v.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+
+  body.innerHTML = zones.map(zone => {
+    const bull = zone.direction === "bullish";
+    const colour = bull ? "var(--green)" : "var(--red)";
+    const distance = zone.distancePct == null ? "—"
+      : (zone.distancePct >= 0 ? "+" : "") + zone.distancePct.toFixed(2) + "%";
+    const fillPct = Math.round((zone.fillPercent || 0) * 100);
+    const fillBar = zone.status === "PARTIAL"
+      ? '<div class="fvg-fillbar"><div style="width:' + fillPct + '%;background:' + colour + ';opacity:.55"></div></div>' : "";
+    return '<div class="fvg-zone' + (zone.priceInside ? " fvg-inside" : "") + '">'
+      + '<span class="fvg-dir ' + (bull ? "fvg-bull" : "fvg-bear") + '">' + (bull ? "BULL" : "BEAR") + '</span>'
+      + '<div><div class="fvg-range">' + money(zone.bottom) + " – " + money(zone.top) + '</div>'
+      + '<div class="fvg-sub">' + zone.heightInRanges.toFixed(1) + '× bar range · ' + zone.barsAgo + ' bars ago'
+      + (zone.status === "PARTIAL" ? ' · ' + fillPct + '% filled' : ' · untouched')
+      + (zone.priceInside ? ' · <b style="color:var(--blue)">price inside</b>' : '')
+      + '</div>' + fillBar + '</div>'
+      + '<span class="fvg-dist" style="color:' + colour + '">' + distance + '</span>'
+      + '</div>';
+  }).join("");
+}
+
+async function loadFVG() {
+  try {
+    const response = await fetch(API + "/fvg", { cache: "no-store" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    _lastFVG = await response.json();
+  } catch (e) {
+    console.error("loadFVG:", e);
+    _lastFVG = null;
+  }
+  Object.keys(CHART_ASSETS).forEach(assetKey => {
+    try { renderFVGPanel(assetKey); } catch (e) { console.error("renderFVGPanel " + assetKey + ":", e); }
+    // In-range zones shade the rail; the rail redraws itself against them.
+    if (_lastSignals) {
+      try { renderLevelRail(assetKey, _lastSignals[assetKey]); } catch (e) { console.error("rail fvg:", e); }
+    }
   });
 }
 
@@ -2466,7 +2629,7 @@ async function loadSignalsTab(){
 
 // ── Boot ─────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadPrices(),loadSignals(),loadPlan(),loadAlerts(),loadCongress(),loadAnalysis(),loadMT5(),loadFeatures(),loadRiskStatus(),loadUptime()]);
+  await Promise.all([loadPrices(),loadSignals(),loadPlan(),loadAlerts(),loadCongress(),loadAnalysis(),loadMT5(),loadFeatures(),loadRiskStatus(),loadUptime(),loadFVG()]);
 }
 init();
 // ── Data Feed Tab ──────────────────────────────────────────────
@@ -2980,6 +3143,7 @@ setInterval(loadTrust, TRUST_REFRESH_MS);
 
 setInterval(loadPrices,    REFRESH_MS);
 setInterval(loadSignals,   60_000);
+setInterval(loadFVG,       FVG_REFRESH_MS);
 setInterval(loadAlerts,    15_000);
 setInterval(loadCongress,  5*60_000);
 setInterval(()=>loadPlan(),5*60_000);
