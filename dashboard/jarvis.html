@@ -74,6 +74,35 @@ header{
 .tick-major{stroke:rgba(230,235,255,.95);stroke-width:1.2;stroke-linecap:round}
 .tick-minor{stroke:rgba(167,139,250,.55);stroke-width:.6;stroke-linecap:round}
 .crosshair{stroke:rgba(230,235,255,.8);stroke-width:1;stroke-linecap:round}
+/* One moving part. A 3/4 gap in the dash pattern reads as a single arc sweeping
+   the ring rather than as a dashed circle spinning. */
+.ring-scan{
+  fill:none;stroke-width:2.4;stroke-linecap:round;
+  stroke-dasharray:62 221;                 /* ~22% of a 283px circumference */
+  transform-origin:50px 50px;animation:spinRing 7s linear infinite;
+}
+/* Hexagonal aperture. Straight edges survive downscaling; the old radial-gradient
+   core did not — a gradient has no edge left to resolve at 52px. */
+.logo-aperture{
+  fill:rgba(124,58,237,.16);
+  stroke:rgba(196,181,253,.75);stroke-width:1.6;stroke-linejoin:round;
+}
+/* The J. Flat cap, generous weight — this is the part that has to read at 24px
+   in a browser tab, so it gets the strongest contrast in the mark. */
+.logo-j{
+  fill:none;stroke:#fff;stroke-width:5.2;stroke-linecap:square;
+  filter:drop-shadow(0 0 4px rgba(196,181,253,.9));
+}
+.core-dot{
+  fill:#c4b5fd;opacity:.9;
+}
+/* ── HERO MARK ──────────────────────────────────────────────────────────────
+   The big centre HUD keeps the busy version, and these rules exist for it alone.
+   The header mark was simplified because eleven elements do not survive 52px;
+   the hero renders around 400px, where the counter-rotating facets and orbiting
+   dots are legible and are the point. Same identity, drawn for its own size —
+   deleting these with the header redesign would have left the hero unstyled,
+   which is what the class audit after that edit caught. */
 .ring-dash{
   fill:none;stroke-width:2.6;stroke-dasharray:9 6;stroke-linecap:round;
   transform-origin:50px 50px;animation:spinRing 12s linear infinite;
@@ -86,7 +115,6 @@ header{
   fill:#60a5fa;filter:drop-shadow(0 0 4px #60a5fa) drop-shadow(0 0 9px #3b82f6);
   transform-origin:50px 50px;animation:spinRing 4s linear infinite reverse;
 }
-.logo-core{fill:url(#coreGrad)}
 .core-facet-fill{
   fill:rgba(124,58,237,.22);stroke:rgba(196,181,253,.55);stroke-width:.9;
   transform-origin:50px 50px;animation:spinRing 15s linear infinite;
@@ -95,10 +123,8 @@ header{
   fill:none;stroke:rgba(255,255,255,.7);stroke-width:1.2;
   transform-origin:50px 50px;animation:spinRing 8s linear infinite reverse;
 }
-.core-dot{
-  fill:#fff;filter:drop-shadow(0 0 7px #fff) drop-shadow(0 0 16px #c4b5fd);
-  animation:corePulse 2.2s ease-in-out infinite;
-}
+/* corePulse's element is gone from the header, but the hero still animates its
+   own core dot through .core-dot, so the keyframe stays. */
 @keyframes corePulse{0%,100%{r:3.6;opacity:.85}50%{r:5.8;opacity:1}}
 @keyframes logoPulse{
   0%,100%{filter:drop-shadow(0 0 8px rgba(124,58,237,.65)) drop-shadow(0 0 20px rgba(124,58,237,.4))}
@@ -527,17 +553,26 @@ body.focus-mode .focus-exit{display:block}
             <stop offset="100%" stop-color="#c4b5fd"/>
           </linearGradient>
         </defs>
-        <circle cx="50" cy="50" r="46" class="ring-glow"/>
-        <circle cx="50" cy="50" r="46" class="ring-outer"/>
-        <circle cx="50" cy="50" r="40" class="ring-tick"/>
-        <circle cx="50" cy="50" r="22" class="logo-core"/>
-        <circle cx="50" cy="50" r="22" class="core-edge"/>
-        <circle cx="50" cy="50" r="34" class="ring-dash" stroke="url(#ringGradHeader)"/>
-        <circle cx="50" cy="4" r="2.6" class="orbit-dot"/>
-        <circle cx="88" cy="50" r="1.7" class="orbit-dot2"/>
-        <polygon points="50,36 64,50 50,64 36,50" class="core-facet-fill"/>
-        <polygon points="50,42 58,50 50,58 42,50" class="core-facet"/>
-        <circle cx="50" cy="50" r="3.6" class="core-dot"/>
+        <!-- Redrawn 2026-08-09. The previous mark stacked eleven elements and four
+             simultaneous animations — two counter-rotating facets, two orbiting
+             dots, a spinning dashed ring, a pulsing core — into 52 CSS pixels,
+             where it resolved to a purple blob. The soft radial-gradient core was
+             the worst of it: a gradient with no hard edge has nothing left to
+             read at that size.
+
+             This keeps the identity (ring, aperture, bright centre) and cuts to
+             five shapes with ONE motion. A hexagonal aperture has straight edges,
+             so it stays crisp small; the "J" arc makes it a monogram rather than
+             a generic sci-fi reticle. -->
+        <circle cx="50" cy="50" r="45" class="ring-glow"/>
+        <circle cx="50" cy="50" r="45" class="ring-outer"/>
+        <!-- The single moving part: one scanning arc. -->
+        <circle cx="50" cy="50" r="45" class="ring-scan" stroke="url(#ringGradHeader)"/>
+        <!-- Aperture: hexagon, hard edges, legible at 52px. -->
+        <polygon points="50,22 74,36 74,64 50,78 26,64 26,36" class="logo-aperture"/>
+        <!-- J monogram: descender + hook, drawn as one stroke. -->
+        <path d="M56 34 L56 56 A9 9 0 0 1 38 56" class="logo-j"/>
+        <circle cx="50" cy="50" r="2.6" class="core-dot"/>
       </svg>
     </div>
     <div class="logo-text">
@@ -836,47 +871,76 @@ body.focus-mode .focus-exit{display:block}
     w = canvas.width  = window.innerWidth;
     h = canvas.height = window.innerHeight;
   }
+  // A market field, not a constellation.
+  //
+  // The old background was the particle-network effect every crypto landing page
+  // ships: 190 nodes joined by lines, which is an O(n^2) pass — 18,000 distance
+  // checks every frame at 60fps — and thematically it says "tech startup" rather
+  // than "instrument". This draws a slow price grid with drifting tick marks
+  // instead: O(n), and it belongs on a trading terminal.
+  //
+  // Deliberately very low contrast. It is texture behind the panels; if you
+  // notice it while reading a number, it is too strong.
   function makeParticles() {
-    const count = Math.min(190, Math.floor((w * h) / 9000));
+    const count = Math.min(70, Math.floor((w * h) / 26000));
     particles = Array.from({ length: count }, () => ({
-      x: Math.random() * w, y: Math.random() * h,
-      vx: (Math.random() - 0.5) * 0.32, vy: (Math.random() - 0.5) * 0.32,
-      r: Math.random() * 1.8 + 0.7,
-      tw: Math.random() * Math.PI * 2,   // twinkle phase
-      tws: 0.015 + Math.random() * 0.025 // twinkle speed
+      x: Math.random() * w,
+      y: Math.random() * h,
+      // Drift right-and-slightly-up, like a tape scrolling.
+      vx: 0.10 + Math.random() * 0.22,
+      len: 6 + Math.random() * 22,          // tick length
+      r: Math.random() < 0.16 ? 1.6 : 0,    // a few marks get a dot
+      tw: Math.random() * Math.PI * 2,
+      tws: 0.006 + Math.random() * 0.012
     }));
   }
+  const GRID = 68;          // px between grid lines
+  let scan = 0;             // slow horizontal sweep, in px
+
   function step() {
     ctx.clearRect(0, 0, w, h);
+
+    // 1. The grid. Two weights so it reads as a chart surface rather than paper.
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(120,150,220,.045)";
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += GRID) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); }
+    for (let y = 0; y <= h; y += GRID) { ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); }
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(130,160,235,.085)";
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += GRID * 5) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); }
+    for (let y = 0; y <= h; y += GRID * 5) { ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); }
+    ctx.stroke();
+
+    // 2. A sweep, the way a radar or a live tape moves. One gradient, no per-pixel work.
+    scan = (scan + 0.55) % (w + 420);
+    const sweep = ctx.createLinearGradient(scan - 420, 0, scan, 0);
+    sweep.addColorStop(0,   "rgba(139,92,246,0)");
+    sweep.addColorStop(0.82,"rgba(139,92,246,.030)");
+    sweep.addColorStop(1,   "rgba(167,139,250,.055)");
+    ctx.fillStyle = sweep;
+    ctx.fillRect(scan - 420, 0, 420, h);
+
+    // 3. Tick marks drifting like a tape. O(n) — no pairwise pass.
     for (const p of particles) {
-      p.x += p.vx; p.y += p.vy;
+      p.x += p.vx;
       p.tw += p.tws;
-      if (p.x < 0 || p.x > w) p.vx *= -1;
-      if (p.y < 0 || p.y > h) p.vy *= -1;
-    }
-    const LINK_DIST = 150;
-    for (let i = 0; i < particles.length; i++) {
-      for (let j = i + 1; j < particles.length; j++) {
-        const a = particles[i], b = particles[j];
-        const dist = Math.hypot(a.x - b.x, a.y - b.y);
-        if (dist < LINK_DIST) {
-          const t = 1 - dist / LINK_DIST;
-          ctx.strokeStyle = `rgba(150,110,255,${0.4 * t * t})`;
-          ctx.lineWidth = t > 0.6 ? 1.3 : 0.8;
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-        }
+      if (p.x - p.len > w) { p.x = -p.len; p.y = Math.random() * h; }
+      const fade = 0.30 + 0.30 * (0.5 + 0.5 * Math.sin(p.tw));
+      ctx.strokeStyle = `rgba(150,175,240,${fade * 0.5})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x - p.len, p.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      if (p.r) {
+        ctx.fillStyle = `rgba(196,181,253,${fade * 0.8})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
-    ctx.shadowColor = "rgba(180,150,255,0.95)";
-    for (const p of particles) {
-      const twinkle = 0.5 + 0.45 * (0.5 + 0.5 * Math.sin(p.tw));
-      ctx.shadowBlur = 5 + twinkle * 6;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(210,195,255,${twinkle})`;
-      ctx.fill();
-    }
-    ctx.shadowBlur = 0;
     requestAnimationFrame(step);
   }
   window.addEventListener("resize", () => { resize(); makeParticles(); });
