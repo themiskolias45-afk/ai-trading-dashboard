@@ -34,18 +34,26 @@ const STATUS = {
 const CLAIMS = [
   {
     id: "crt",
-    title: "CRT (Candle Range Theory)",
+    title: "CRT (Candle Range Theory) — Gold and SPX",
     status: STATUS.CANDIDATE,
     measuredOn: "2026-08-09",
-    evidence: "Ahead of a matched control in all 6 asset/timeframe cells. Daily 10y: "
-      + "973 trades, +0.084R vs control −0.110R (+0.194R). Hourly 730d: 5840 trades, "
-      + "+0.089R vs control −0.074R (+0.163R).",
-    caveat: "Absolute expectancy is only +0.089R/trade while spread+commission is "
-      + "plausibly 0.05–0.15R, so costs alone could erase it. Profile is 73% wins at "
-      + "R<1 — the shape that dies from a few oversized losses.",
-    changesTheAnswer: "A walk-forward WITH costs modelled. If expectancy after costs "
-      + "is not clearly positive out-of-sample, it stays off.",
-    harness: "node tasks/geometry_measure.cjs [--interval 1h]",
+    evidence: "Walk-forward WITH costs, 5 sequential out-of-sample folds x 3 assets: "
+      + "15 of 15 folds positive gross. Break-even round-trip cost — GOLD $2.95 (13.0% "
+      + "of an average bar range, 5/5 folds still positive at 10% cost), SPX 3.68 index "
+      + "points (8.2%, 3/5 at 10%), BTC $29.91 (2.1%, 0/5 at 10%). Pooled 1135 trades, "
+      + "74.8% win, +0.10R gross and still +0.04R at a 5% cost.",
+    caveat: "Typical XAUUSD spread is $0.20–0.50 against a $2.95 break-even, and SP500 "
+      + "0.4–1.0 points against 3.68 — both clear. BTC's break-even is 0.047% of price, "
+      + "inside the range of real crypto CFD spreads, and a ~1700-point BTCUSD spread is "
+      + "already on record here: treat BTC as dead. Measured on Yahoo bars, so Gold is "
+      + "GC=F futures and not the XAUUSD spot the engine trades. Slippage beyond spread "
+      + "is not modelled, and 74.8% wins at R<1 is the profile that dies from a few "
+      + "oversized losses.",
+    changesTheAnswer: "Re-measure on MT5 XAUUSD bars rather than GC=F, and price the "
+      + "break-even against the broker's actual round-trip spread. If Gold still clears "
+      + "on the traded instrument, this is the first thing in the system with a "
+      + "cost-surviving out-of-sample edge and deserves a wiring discussion.",
+    harness: "node tasks/crt_walkforward.cjs --folds 5 --years 10",
     feedsTheGate: false,
   },
   {
