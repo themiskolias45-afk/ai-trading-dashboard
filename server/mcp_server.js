@@ -192,6 +192,31 @@ const TOOLS = [
   },
 
   {
+    name: 'get_rejection_evidence',
+    description:
+      'Per-gate verdict on every setup the gates threw away: did rejecting it SAVE ' +
+      'money or COST money? Each rejection is a fully priced paper trade walked ' +
+      'forward on real broker bars, so a gate whose rejections would have LOST is ' +
+      'earning its keep and one whose rejections would have WON is charging the ' +
+      'account for nothing. ' +
+      'Returns per gate: resolved count, would-have-won %, net R, pending, and a ' +
+      'verdict of EARNING ITS KEEP / COSTING MONEY / NO MEASURABLE COST / TOO FEW ' +
+      'TO JUDGE (floor is 5 resolved). Also a cross-gate per-setup view showing ' +
+      'which setups are being discarded regardless of which gate killed them. ' +
+      'THIS IS THE ANSWER TO "why does the system never trade" — use it before ' +
+      'proposing any threshold change. ' +
+      'These are forgone PAPER trades: no spread, no slippage, entries never ' +
+      'filled, fixed scoring horizon. Never present them as realised P&L, never ' +
+      'merge them with get_performance, and where they contradict a walk-forward ' +
+      'the walk-forward wins. feedsTheGate is false — this changes no threshold ' +
+      'and no signal.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      return cached('rejectionEvidence', 60000, () => fetchJSON('/api/rejection-evidence'));
+    },
+  },
+
+  {
     name: 'get_performance',
     description:
       'Get aggregate trading performance: total trades, win rate %, gross and net P&L, ' +

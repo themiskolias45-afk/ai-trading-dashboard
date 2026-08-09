@@ -189,6 +189,36 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - Auto-runner runs automatically once per day at session start (flag in tasks/.auto_runner_YYYYMMDD)
 - Daily plan: python tv_daily_plan.py (signals + levels + calendar + TV screenshots → http://localhost:3001/daily-plan)
 - EOD review: python eod_review.py (today's trades → P&L + insight + notes — also auto-runs 10 PM UTC)
+- **Rejection ledger — the answer to "why does it never trade".** The binding
+  constraint on this system is sample size: **one** closed fill in its whole life,
+  across 119 sessions. Every gate rejection is a fully priced paper trade, so the
+  ledger manufactures evidence at zero risk. Read it before proposing ANY threshold
+  change.
+  - `GET /api/gate-health` — kill/pass counts per gate. Says a gate is FIRING.
+  - `GET /api/rejection-evidence` — says whether it SHOULD have. Per gate:
+    resolved, would-have-won %, net R, and a verdict of EARNING ITS KEEP /
+    COSTING MONEY / NO MEASURABLE COST / TOO FEW TO JUDGE (floor 5 resolved).
+  - MCP: `get_rejection_evidence`. Never merge it with `get_performance`.
+  - Pipeline, already automated nightly by `tasks/auto_daily.bat`:
+    `rejection_log.js` writes → `tasks/score_rr_rejections.py` walks each row
+    forward on real broker bars → `tasks/learning_from_rejections.py` builds
+    shadow stats. Contract: `tasks/REJECTION-LEDGER-SPEC.md` — read it first.
+  - **These are forgone PAPER trades**: no spread, no slippage, entries never
+    filled, fixed horizon. A screening signal for which gate to investigate, not
+    realised P&L. **Where it contradicts a walk-forward, the walk-forward wins** —
+    as of 2026-08-09 the ledger says MIN_RR rejections returned +7.14R over 22
+    episodes while the 4-year sweep says lowering it costs 6.6R. Both are on
+    record; neither has moved a setting.
+  - **It must never change what trades.** No gate logic, no threshold, no signal
+    admitted or suppressed. `feedsTheGate` is false everywhere and stays false.
+- Price geometry (FVG / CRT / AMD): `server/fvg.js`, `server/structure.js`,
+  `GET /api/fvg`. Measured against a matched control by
+  `node tasks/geometry_measure.cjs [--interval 1h]`. **FVG has NO edge** — 6.9pp
+  worse than random over ~6,800 samples; kept as context only. **CRT** is ahead of
+  its control in 6/6 asset-timeframe cells but only +0.089R/trade, which costs
+  could erase; it needs a walk-forward WITH COSTS before it earns a vote. **AMD**
+  is unmeasurable until the bridge sends bar timestamps, and carries
+  `sessionAligned:false` until then. None of the three feeds confidence or sizing.
 - Setup health: GET http://localhost:3001/api/setup-health (which setups to take or avoid today)
 - Daily plan API: GET http://localhost:3001/api/daily-plan (structured JSON for all assets)
 - TV screenshots: node tv_screenshot.js [--4h] [--symbol btc|gold|spx] → dashboard/screenshots/

@@ -51,6 +51,9 @@ const hermes     = require("./hermes");
 // Fair Value Gap geometry. Pure functions over the bar arrays the engine already
 // holds — no I/O, no state, and nothing it exports can reach the trading path.
 const fvg        = require("./fvg");
+// Per-gate verdicts over the scored rejection ledger. Reads one file, aggregates,
+// returns. Cannot reach the trading path — see the header of that module.
+const rejectionEvidence = require("./rejection_evidence");
 // Cohort reachability table. Shared with tasks/cohort_reachability.cjs so the audit
 // script and the server can never describe two different systems.
 const cohortTable = require("./cohort_table");
@@ -254,6 +257,11 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // publicly. Read-only geometry: price bands and how far price has eaten into
   // them. Nothing here is not already implied by the candles. No POST at this path.
   "/api/fvg",
+  // Per-gate verdicts from the scored rejection ledger. Aggregate only: gate
+  // names, counts and R sums over setups the gates already threw away. The POST
+  // that WRITES rejections is /api/rejections and stays separately
+  // requireLocalOnly — there is no POST at this path.
+  "/api/rejection-evidence",
 ]);
 
 app.use((req, res, next) => {
@@ -2744,6 +2752,22 @@ app.get("/api/mt5/candles", (_, res) => {
 // not have found that; rejections against passes do it immediately.
 app.get("/api/gate-health", (_, res) => {
   res.json({ ok: true, since: countersStartedAt, gates: gateStats });
+});
+
+// The verdict /api/gate-health cannot give. Kill counts say a gate is FIRING;
+// only walking the rejections forward says whether it should have. The ledger and
+// the scorer already produced that evidence nightly and nothing read it.
+//
+// Read-only over tasks/rejections_scored.jsonl. Changes no threshold and admits
+// no signal — a route that grades the gates is precisely where the ledger's
+// "observability must never alter what trades" rule would be easiest to break.
+app.get("/api/rejection-evidence", (_, res) => {
+  try {
+    res.json(rejectionEvidence.buildEvidence());
+  } catch (e) {
+    console.error("[rejection-evidence]", e.message);
+    res.status(500).json({ available: false, reason: e.message, gates: {}, setups: {} });
+  }
 });
 
 // Bridge-side rejections. Same protection as /api/mt5/candles — requireLocalOnly,
