@@ -1823,8 +1823,15 @@ function renderFVGPanel(assetKey) {
     readingHtml = '<div class="fvg-reading" style="border-left-color:' + tone + '">'
       + '<div class="fvg-verdict" style="color:' + tone + '">' + reading.headline + '</div>'
       + reading.notes.map(n => '<div class="fvg-note">' + n + '</div>').join("")
-      + '<div class="fvg-unmeasured">Advisory only — this geometry is unmeasured on our data '
-      + 'and feeds nothing: not confidence, not the gate, not sizing.</div>'
+      // Measured 2026-08-09 and it did NOT beat a matched control: ~6,800 trades
+      // across 10y daily and 730d hourly, three assets. Daily was 6.9pp WORSE than
+      // random, hourly identical. Leaving this panel looking tradeable would be the
+      // dishonest option, so the panel states its own verdict.
+      + '<div class="fvg-unmeasured">Context only — <b>measured, no edge</b>. Traded as '
+      + 'support/resistance over ~6,800 samples it did not beat a matched random control '
+      + '(daily −0.14R worse, hourly ±0.00R). Useful for seeing where price was skipped; '
+      + 'not a reason to take a trade. Feeds nothing: not confidence, not the gate, not sizing. '
+      + 'Re-check with <code>node tasks/geometry_measure.cjs</code>.</div>'
       + '</div>';
   }
 
