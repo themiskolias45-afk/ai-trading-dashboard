@@ -58,6 +58,9 @@ const rejectionEvidence = require("./rejection_evidence");
 // register of what has actually been measured. Both read-only and fail-soft.
 const aiRegistry      = require("./ai_registry");
 const evidenceRegister = require("./evidence_register");
+// Evidence-accumulation curve. The Performance tab tracks P&L growth, which is
+// blank on one closed fill; this tracks the thing that is actually moving.
+const learningGrowth  = require("./learning_growth");
 // Cohort reachability table. Shared with tasks/cohort_reachability.cjs so the audit
 // script and the server can never describe two different systems.
 const cohortTable = require("./cohort_table");
@@ -276,6 +279,9 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // levels. Neither has a POST.
   "/api/ai-registry",
   "/api/evidence-board",
+  // Daily evidence-accumulation curve, derived from the scored ledger. Counts and
+  // dates only. No POST at this path.
+  "/api/learning-growth",
 ]);
 
 app.use((req, res, next) => {
@@ -2869,6 +2875,19 @@ app.get("/api/ai-registry", (_, res) => {
   } catch (e) {
     console.error("[ai-registry]", e.message);
     res.status(500).json({ skills: [], agents: [], tools: [], guardrails: [], error: e.message });
+  }
+});
+
+// Is the system getting smarter, and how fast? P&L growth is blank on one closed
+// fill and will stay blank for months, so it cannot answer that. Evidence growth
+// can: resolved paper episodes per day, per-setup progress toward the threshold
+// that unlocks the live learning engine, and whether the rate is accelerating.
+app.get("/api/learning-growth", (_, res) => {
+  try {
+    res.json(learningGrowth.build());
+  } catch (e) {
+    console.error("[learning-growth]", e.message);
+    res.status(500).json({ available: false, reason: e.message, days: [], setups: [] });
   }
 });
 

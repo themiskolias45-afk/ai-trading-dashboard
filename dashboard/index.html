@@ -165,6 +165,21 @@
     .guard-proc { background:#201a0d; color:var(--yellow); border:1px solid rgba(234,179,8,.3); }
     .guard-rule { font-size:.7rem; font-weight:600; }
     .guard-detail { font-size:.6rem; color:var(--muted); line-height:1.55; margin-top:2px; }
+
+    /* ── Learning growth ── */
+    .lg-summary { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    @media (max-width:900px) { .lg-summary { grid-template-columns:repeat(2,1fr); } }
+    .lg-cell { background:var(--surface); padding:9px 12px; }
+    .lg-cell-label { font-size:.55rem; color:var(--muted); text-transform:uppercase; letter-spacing:.09em; }
+    .lg-cell-val { font-size:1.05rem; font-weight:800; margin-top:2px; font-variant-numeric:tabular-nums; }
+    .lg-cell-sub { font-size:.55rem; color:var(--muted); margin-top:1px; }
+    .lg-row { display:grid; grid-template-columns:150px 1fr auto; gap:10px; align-items:center; padding:5px 0; border-bottom:1px solid var(--border); font-size:.68rem; }
+    .lg-row:last-child { border-bottom:none; }
+    .lg-bar { height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+    .lg-bar > div { height:100%; border-radius:3px; }
+    .lg-badge { font-size:.52rem; font-weight:800; padding:2px 6px; border-radius:3px; white-space:nowrap; }
+    .lg-usable { background:#0d2010; color:var(--green); }
+    .lg-waiting { background:#201a0d; color:var(--yellow); }
     .fvg-reading { border-left:2px solid var(--muted); padding:2px 0 6px 8px; margin-bottom:8px; }
     .fvg-verdict { font-size:.66rem; font-weight:800; letter-spacing:.03em; }
     .fvg-note    { font-size:.6rem; color:var(--muted); line-height:1.55; margin-top:3px; }
@@ -1245,6 +1260,25 @@
     </div>
   </div>
 
+  <!-- ── LEARNING GROWTH ─────────────────────────────────────────────────────
+       The Performance tab tracks P&L growth and is blank on one closed fill.
+       This tracks the curve that is actually moving: resolved paper episodes per
+       day, and how far each setup is from the threshold that unlocks the live
+       learning engine. -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">📈 Learning Growth — is it getting smarter?</div>
+      <span id="lg-velocity" style="font-size:.6rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none;padding:12px 14px">
+      <div id="lg-summary" class="lg-summary"></div>
+      <div id="lg-chart" style="margin:10px 0"></div>
+      <div class="ai-sec-title" style="margin-top:12px">Setups vs the 5-episode threshold that unlocks the engine</div>
+      <div id="lg-setups"><div class="ai-empty">Loading…</div></div>
+      <div id="lg-note" class="fvg-unmeasured" style="margin-top:10px"></div>
+    </div>
+  </div>
+
   <!-- ── SKILLS / AGENTS / TOOLS ─────────────────────────────────────────── -->
   <div class="ai-three">
     <div class="panel">
@@ -2250,12 +2284,116 @@ function renderRegistry(data) {
   }
 }
 
+// ── Learning growth ──────────────────────────────────────────
+// Cumulative resolved episodes as a filled area, with each day's contribution as
+// a bar. Drawn as SVG rather than pulled from a chart library because the whole
+// page is offline-capable and one <svg> is cheaper than a dependency.
+function renderLearningGrowth(data) {
+  const summary = document.getElementById("lg-summary");
+  const chart   = document.getElementById("lg-chart");
+  const setupsEl = document.getElementById("lg-setups");
+  const velocityEl = document.getElementById("lg-velocity");
+  const noteEl = document.getElementById("lg-note");
+  if (!summary) return;
+
+  if (!data || !data.available) {
+    summary.innerHTML = "";
+    if (chart) chart.innerHTML = '<div class="ai-empty">' + ((data && data.reason) || "unavailable") + "</div>";
+    if (setupsEl) setupsEl.innerHTML = "";
+    return;
+  }
+
+  const t = data.totals, v = data.velocity;
+  const trendColour = v.trend === "ACCELERATING" ? "var(--green)"
+                    : v.trend === "SLOWING" ? "var(--yellow)" : "var(--text)";
+  if (velocityEl) {
+    velocityEl.innerHTML = '<span style="color:' + trendColour + ';font-weight:700">' + escapeHtml(v.trend)
+      + "</span> · " + v.resolvedPerDayRecent + "/day recent vs " + v.resolvedPerDayAllTime + " all-time";
+  }
+
+  const cell = (label, value, sub, colour) =>
+    '<div class="lg-cell"><div class="lg-cell-label">' + escapeHtml(label) + '</div>'
+    + '<div class="lg-cell-val"' + (colour ? ' style="color:' + colour + '"' : "") + '>' + escapeHtml(value) + '</div>'
+    + '<div class="lg-cell-sub">' + escapeHtml(sub) + '</div></div>';
+
+  summary.innerHTML =
+      cell("Resolved episodes", String(t.resolved), "paper trades walked forward", "var(--green)")
+    + cell("Still pending", String(t.pending), "inside their scoring horizon")
+    + cell("Setups usable", t.usableSetups + " / " + t.setupsTracked, "at or above " + data.learningThreshold + " episodes")
+    + cell("Days tracked", String(t.trackedDays), "since the ledger began");
+
+  // Chart
+  const days = data.days || [];
+  if (chart) {
+    if (days.length < 2) {
+      chart.innerHTML = '<div class="ai-empty">Need two days of history to draw a curve.</div>';
+    } else {
+      const W = 100, H = 34, pad = 2;
+      const maxCum = Math.max(...days.map(d => d.cumulativeResolved), 1);
+      const maxDay = Math.max(...days.map(d => d.resolved), 1);
+      const x = i => pad + (W - pad * 2) * (days.length === 1 ? 0 : i / (days.length - 1));
+      const y = val => H - pad - (H - pad * 2) * (val / maxCum);
+      const line = days.map((d, i) => (i ? "L" : "M") + x(i).toFixed(2) + "," + y(d.cumulativeResolved).toFixed(2)).join(" ");
+      const area = line + " L" + x(days.length - 1).toFixed(2) + "," + (H - pad) + " L" + pad + "," + (H - pad) + " Z";
+      const barW = Math.max(0.8, (W - pad * 2) / days.length * 0.55);
+      const bars = days.map((d, i) => {
+        const h = (H - pad * 2) * (d.resolved / maxDay) * 0.55;
+        return '<rect x="' + (x(i) - barW / 2).toFixed(2) + '" y="' + (H - pad - h).toFixed(2)
+          + '" width="' + barW.toFixed(2) + '" height="' + h.toFixed(2) + '" fill="#3b82f6" opacity=".35"/>';
+      }).join("");
+      chart.innerHTML =
+        '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" height="120" preserveAspectRatio="none" role="img" aria-label="Cumulative resolved episodes">'
+        + '<defs><linearGradient id="lg-grad" x1="0" y1="0" x2="0" y2="1">'
+        + '<stop offset="0%" stop-color="#22c55e" stop-opacity=".35"/><stop offset="100%" stop-color="#22c55e" stop-opacity="0"/></linearGradient></defs>'
+        + bars
+        + '<path d="' + area + '" fill="url(#lg-grad)"/>'
+        + '<path d="' + line + '" fill="none" stroke="#22c55e" stroke-width="0.7" stroke-linejoin="round"/>'
+        + "</svg>"
+        + '<div style="display:flex;justify-content:space-between;font-size:.55rem;color:var(--muted);margin-top:2px">'
+        + "<span>" + escapeHtml(days[0].date) + "</span>"
+        + '<span>green = cumulative resolved · blue bars = that day</span>'
+        + "<span>" + escapeHtml(days[days.length - 1].date) + "</span></div>";
+    }
+  }
+
+  // Per-setup progress toward the threshold
+  if (setupsEl) {
+    const projections = {};
+    (data.projections || []).forEach(p => { projections[p.setup] = p; });
+    setupsEl.innerHTML = (data.setups || []).map(s => {
+      const pct = Math.min(100, (s.resolved / data.learningThreshold) * 100);
+      const colour = s.usable ? "var(--green)" : "var(--yellow)";
+      const proj = projections[s.setup];
+      const right = s.usable
+        ? '<span class="lg-badge lg-usable">USABLE</span>'
+        : '<span class="lg-badge lg-waiting">needs ' + s.stillNeeded
+          + (proj && proj.daysAtCurrentRate ? " · ~" + proj.daysAtCurrentRate + "d" : "") + "</span>";
+      return '<div class="lg-row">'
+        + '<span style="font-weight:700;font-family:\'Courier New\',monospace">' + escapeHtml(s.setup) + "</span>"
+        + '<div><div class="lg-bar"><div style="width:' + pct + "%;background:" + colour + '"></div></div>'
+        + '<div style="font-size:.55rem;color:var(--muted);margin-top:2px">'
+        + s.resolved + " resolved · " + s.wins + "W/" + s.losses + "L · "
+        + (s.winRate == null ? "—" : s.winRate + "% win") + " · netR "
+        + (s.netR >= 0 ? "+" : "") + s.netR.toFixed(2) + "</div></div>"
+        + right + "</div>";
+    }).join("") || '<div class="ai-empty">No resolved setups yet.</div>';
+  }
+
+  if (noteEl) noteEl.textContent = data.note || "";
+}
+
 async function loadAIBrainTab() {
   // Independent so a failure in one panel cannot blank the other.
-  const [boardRes, registryRes] = await Promise.allSettled([
-    fetch(API + "/evidence-board", { cache: "no-store" }).then(r => r.json()),
-    fetch(API + "/ai-registry",    { cache: "no-store" }).then(r => r.json()),
+  const [boardRes, registryRes, growthRes] = await Promise.allSettled([
+    fetch(API + "/evidence-board",  { cache: "no-store" }).then(r => r.json()),
+    fetch(API + "/ai-registry",     { cache: "no-store" }).then(r => r.json()),
+    fetch(API + "/learning-growth", { cache: "no-store" }).then(r => r.json()),
   ]);
+  if (growthRes.status === "fulfilled") {
+    try { renderLearningGrowth(growthRes.value); } catch (e) { console.error("learning growth:", e); }
+  } else {
+    try { renderLearningGrowth(null); } catch (e) {}
+  }
   if (boardRes.status === "fulfilled") {
     try { renderEvidenceBoard(boardRes.value); } catch (e) { console.error("evidence board:", e); }
   } else {
