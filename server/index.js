@@ -2465,12 +2465,21 @@ app.get("/api/fvg", (req, res) => {
       assets[assetKey] = { available: false, reason: "no fresh MT5 bars", source: null, timeframes: {} };
       continue;
     }
+    // The live signal for this asset, so each timeframe can be read against the
+    // entry, stop and target actually on the table rather than reported as a
+    // bare list of price bands.
+    const liveSignal = signalCache[assetKey] || null;
     const timeframes = {};
     for (const timeframe of FVG_TIMEFRAMES) {
       const bars = barSet[timeframe];
       if (!bars) { timeframes[timeframe] = { error: "no bars for this timeframe", zones: [] }; continue; }
       try {
-        timeframes[timeframe] = fvg.detectFVGs(bars, { maxZones });
+        const detected = fvg.detectFVGs(bars, { maxZones });
+        // Read against ALL zones found, not just the capped display list: an
+        // obstruction that fell outside the top 4 still obstructs.
+        const everything = fvg.detectFVGs(bars, { maxZones: 500 }).zones;
+        detected.reading = fvg.interpretZones(liveSignal, everything);
+        timeframes[timeframe] = detected;
       } catch (e) {
         // One bad series must not take the whole endpoint down.
         console.error(`[fvg] ${assetKey}/${timeframe}: ${e.message}`);

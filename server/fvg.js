@@ -174,13 +174,221 @@ function detectFVGs(bars, options) {
   };
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * INTERPRETATION — what a zone actually means for the trade on the table.
+ *
+ * Detection alone is decoration. A list of price bands changes no decision
+ * unless something states how it bears on the entry, the stop and the target
+ * that the engine has already published. This section is that statement.
+ *
+ * Two established and genuinely competing behaviours are modelled, and neither
+ * is treated as settled fact:
+ *
+ *   MAGNET     an unfilled gap is skipped price. Markets tend to revisit it, so
+ *              an unfilled zone is a plausible destination.
+ *   BARRIER    when price arrives back at a gap it often reacts, because the
+ *              gap marks where one side moved with force. A bullish gap below
+ *              price reads as support; a bearish gap above reads as resistance.
+ *
+ * They pull in opposite directions on purpose — a zone ahead of your target is
+ * both a reason price might travel there and a reason it might stall on the way.
+ * The reading reports both rather than pretending one wins.
+ *
+ * NOTHING HERE IS MEASURED on our own data yet. Every verdict is advisory and
+ * carries `measured:false`. It must not feed confidence, the gate or sizing
+ * until walk-forward says it earns a vote.
+ * ───────────────────────────────────────────────────────────── */
+
+// A stop sitting inside an unfilled gap is the one structural warning here that
+// costs money rather than opportunity: the reaction that the zone predicts is
+// exactly what takes the stop out before the trade can work.
+const VERDICT_NO_SIGNAL   = "NO SIGNAL";
+const VERDICT_STOP_IN_GAP = "STOP INSIDE A GAP";
+const VERDICT_ENTRY_INTO  = "ENTRY INTO OPPOSING ZONE";
+const VERDICT_OBSTRUCTED  = "PATH OBSTRUCTED";
+const VERDICT_CLEAR       = "PATH CLEAR";
+
+function zoneContains(zone, price) {
+  return price >= zone.bottom && price <= zone.top;
+}
+
+/** Zones ordered by how close they sit to `price`, nearest first. */
+function byProximity(zones, price) {
+  return zones.slice().sort((a, b) =>
+    Math.abs(a.midpoint - price) - Math.abs(b.midpoint - price));
+}
+
+/**
+ * Describe the landscape when there is no live trade — which is most of the
+ * time. "12 unfilled zones" says nothing; "3 unfilled bearish zones overhead,
+ * nearest +1.09%" is something you can act on.
+ */
+function describeLandscape(zones, price) {
+  const above = zones.filter(z => z.bottom > price);
+  const below = zones.filter(z => z.top < price);
+  const nearestAbove = byProximity(above, price)[0] || null;
+  const nearestBelow = byProximity(below, price)[0] || null;
+  const inside = zones.filter(z => zoneContains(z, price));
+  return {
+    countAbove: above.length,
+    countBelow: below.length,
+    nearestAbove,
+    nearestBelow,
+    inside,
+    // Which side holds more unfilled space. Not a forecast — a description of
+    // where the skipped price sits.
+    lean: above.length === below.length ? "BALANCED"
+        : above.length > below.length ? "MORE UNFILLED ABOVE" : "MORE UNFILLED BELOW",
+  };
+}
+
+/**
+ * Read the zones against the engine's current signal.
+ *
+ * @param {object|null} signal a /api/signals entry: needs signal, entry, stop, target, price
+ * @param {Array} zones        detectFVGs() output for the timeframe being read
+ * @returns {object} reading — always safe to render, never throws on partial input
+ */
+function interpretZones(signal, zones) {
+  const usable = Array.isArray(zones) ? zones : [];
+  const price = signal && Number.isFinite(signal.price) ? signal.price : null;
+
+  const base = {
+    measured: false,
+    verdict: VERDICT_NO_SIGNAL,
+    headline: "",
+    notes: [],
+    obstructions: [],
+    support: [],
+    entryZone: null,
+    stopZone: null,
+    magnet: null,
+    landscape: price != null ? describeLandscape(usable, price) : null,
+  };
+
+  if (price == null) {
+    base.headline = "No price available.";
+    return base;
+  }
+
+  const direction = signal.signal;
+  const isBuy  = direction === "BUY";
+  const isSell = direction === "SELL";
+
+  // ── No live trade: describe where the skipped price sits ────────────────
+  if (!isBuy && !isSell) {
+    const land = base.landscape;
+    const parts = [];
+    if (land.inside.length) {
+      parts.push("price is inside " + land.inside.length + " unfilled zone"
+        + (land.inside.length > 1 ? "s" : ""));
+    }
+    if (land.nearestAbove) {
+      parts.push("nearest overhead " + land.nearestAbove.direction + " "
+        + land.nearestAbove.distancePct.toFixed(2) + "%");
+    }
+    if (land.nearestBelow) {
+      parts.push("nearest below " + land.nearestBelow.direction + " "
+        + land.nearestBelow.distancePct.toFixed(2) + "%");
+    }
+    base.headline = parts.length
+      ? (land.countAbove + " unfilled above / " + land.countBelow + " below — " + parts.join(", "))
+      : "No unfilled zones near price.";
+    base.magnet = byProximity(usable, price)[0] || null;
+    if (land.inside.length) {
+      base.notes.push("Price is trading inside an unfilled gap — the zone is being "
+        + "mitigated right now, so treat its edges as live, not as a level to lean on.");
+    }
+    return base;
+  }
+
+  // ── Live trade: read entry, stop and target against the zones ───────────
+  const entry  = Number.isFinite(signal.entry)  ? signal.entry  : null;
+  const stop   = Number.isFinite(signal.stop)   ? signal.stop   : null;
+  const target = Number.isFinite(signal.target) ? signal.target : null;
+
+  // "Opposing" means the zone would push back against this trade: overhead
+  // supply for a BUY, underlying demand for a SELL.
+  const opposingDirection = isBuy ? "bearish" : "bullish";
+  const sameDirection     = isBuy ? "bullish" : "bearish";
+
+  if (entry != null) {
+    base.entryZone = usable.find(z => z.direction === opposingDirection && zoneContains(z, entry)) || null;
+  }
+  if (stop != null) {
+    base.stopZone = usable.find(z => zoneContains(z, stop)) || null;
+  }
+
+  // Anything opposing that lies between entry and target is a place the move can
+  // stall before it pays.
+  if (entry != null && target != null) {
+    const low  = Math.min(entry, target);
+    const high = Math.max(entry, target);
+    base.obstructions = usable
+      .filter(z => z.direction === opposingDirection && z.top > low && z.bottom < high)
+      .sort((a, b) => isBuy ? a.bottom - b.bottom : b.top - a.top);
+  }
+
+  // Same-direction zones behind the entry are the structure the trade is
+  // leaning on: below for a BUY, above for a SELL.
+  if (entry != null) {
+    base.support = usable
+      .filter(z => z.direction === sameDirection && (isBuy ? z.top <= entry : z.bottom >= entry))
+      .sort((a, b) => Math.abs(a.midpoint - entry) - Math.abs(b.midpoint - entry))
+      .slice(0, 2);
+  }
+
+  base.magnet = byProximity(usable.filter(z => isBuy ? z.bottom > price : z.top < price), price)[0] || null;
+
+  // Verdict, most consequential first.
+  if (base.stopZone) {
+    base.verdict = VERDICT_STOP_IN_GAP;
+    base.notes.push("The stop at " + stop + " sits inside an unfilled "
+      + base.stopZone.direction + " gap (" + base.stopZone.bottom + "–" + base.stopZone.top
+      + "). Price reacting in that zone is the expected behaviour, and the reaction "
+      + "would take the stop out. Consider placing it beyond the far edge.");
+  } else if (base.entryZone) {
+    base.verdict = VERDICT_ENTRY_INTO;
+    base.notes.push("Entry is inside an unfilled " + base.entryZone.direction
+      + " gap that opposes this " + direction + ". That zone is where the other side "
+      + "last moved with force.");
+  } else if (base.obstructions.length) {
+    base.verdict = VERDICT_OBSTRUCTED;
+    base.notes.push(base.obstructions.length + " unfilled " + opposingDirection
+      + " zone" + (base.obstructions.length > 1 ? "s" : "") + " between entry and target"
+      + " — first at " + base.obstructions[0].bottom + "–" + base.obstructions[0].top + ".");
+  } else {
+    base.verdict = VERDICT_CLEAR;
+    base.notes.push("No unfilled opposing zone between entry and target.");
+  }
+
+  if (base.support.length) {
+    base.notes.push("Leaning on " + base.support.length + " same-direction zone"
+      + (base.support.length > 1 ? "s" : "") + " behind entry, nearest "
+      + base.support[0].bottom + "–" + base.support[0].top + ".");
+  }
+
+  base.headline = base.verdict + (base.obstructions.length
+    ? " · " + base.obstructions.length + " in the way" : "")
+    + (base.support.length ? " · " + base.support.length + " behind" : "");
+  return base;
+}
+
 module.exports = {
   detectFVGs,
+  interpretZones,
+  describeLandscape,
   averageBarRange,
   buildSuffixExtremes,
   judgeFill,
+  zoneContains,
   STATUS_FRESH,
   STATUS_PARTIAL,
   STATUS_FILLED,
   DEFAULT_MIN_GAP_RANGE_FRACTION,
+  VERDICT_NO_SIGNAL,
+  VERDICT_STOP_IN_GAP,
+  VERDICT_ENTRY_INTO,
+  VERDICT_OBSTRUCTED,
+  VERDICT_CLEAR,
 };

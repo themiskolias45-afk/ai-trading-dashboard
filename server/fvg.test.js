@@ -283,6 +283,132 @@ test("averageBarRange actually averages", () => {
   assert.strictEqual(averageBarRange([10, 20], [0, 0], 1),  20, "sample size must window the tail");
 });
 
+console.log("\n── interpretation: what it means for the trade ──────────────");
+
+const {
+  interpretZones, describeLandscape,
+  VERDICT_NO_SIGNAL, VERDICT_STOP_IN_GAP, VERDICT_ENTRY_INTO, VERDICT_OBSTRUCTED, VERDICT_CLEAR,
+} = require("./fvg");
+
+/** Build a zone the way detectFVGs emits one. */
+function zone(direction, bottom, top, extra) {
+  return Object.assign({
+    direction, bottom, top,
+    midpoint: (bottom + top) / 2,
+    height: top - bottom,
+    heightInRanges: 1,
+    status: "FRESH", fillPercent: 0,
+    barIndex: 0, barsAgo: 1,
+    distancePct: 0, priceInside: false,
+  }, extra || {});
+}
+
+test("a BUY with nothing opposing between entry and target reads CLEAR", () => {
+  const signal = { signal: "BUY", price: 100, entry: 100, stop: 95, target: 120 };
+  const reading = interpretZones(signal, [zone("bullish", 90, 94)]);
+  assert.strictEqual(reading.verdict, VERDICT_CLEAR);
+  assert.strictEqual(reading.obstructions.length, 0);
+  assert.strictEqual(reading.measured, false, "must never claim to be measured");
+});
+
+test("a bearish zone between entry and target OBSTRUCTS a BUY", () => {
+  const signal = { signal: "BUY", price: 100, entry: 100, stop: 95, target: 120 };
+  const reading = interpretZones(signal, [zone("bearish", 108, 112)]);
+  assert.strictEqual(reading.verdict, VERDICT_OBSTRUCTED);
+  assert.strictEqual(reading.obstructions.length, 1);
+});
+
+test("a bearish zone BEYOND the target does not obstruct", () => {
+  const signal = { signal: "BUY", price: 100, entry: 100, stop: 95, target: 120 };
+  const reading = interpretZones(signal, [zone("bearish", 130, 135)]);
+  assert.strictEqual(reading.verdict, VERDICT_CLEAR);
+});
+
+test("a BULLISH zone in a BUY's path is not an obstruction — it is the same side", () => {
+  const signal = { signal: "BUY", price: 100, entry: 100, stop: 95, target: 120 };
+  const reading = interpretZones(signal, [zone("bullish", 108, 112)]);
+  assert.strictEqual(reading.obstructions.length, 0,
+    "only OPPOSING zones obstruct; same-direction gaps are thin air, not supply");
+});
+
+test("obstruction direction is mirrored for a SELL", () => {
+  const sell = { signal: "SELL", price: 100, entry: 100, stop: 105, target: 80 };
+  // A bullish zone below is underlying demand — it opposes a SELL.
+  assert.strictEqual(interpretZones(sell, [zone("bullish", 88, 92)]).verdict, VERDICT_OBSTRUCTED);
+  // A bearish zone below does not oppose a SELL.
+  assert.strictEqual(interpretZones(sell, [zone("bearish", 88, 92)]).verdict, VERDICT_CLEAR);
+});
+
+test("a stop inside a gap outranks every other verdict", () => {
+  const signal = { signal: "BUY", price: 100, entry: 100, stop: 95, target: 120 };
+  const reading = interpretZones(signal, [zone("bullish", 93, 97), zone("bearish", 108, 112)]);
+  assert.strictEqual(reading.verdict, VERDICT_STOP_IN_GAP,
+    "a stop that the zone predicts will be hit matters more than an obstructed target");
+  assert.ok(reading.stopZone);
+  assert.ok(reading.notes[0].includes("stop"));
+});
+
+test("entry inside an opposing zone is flagged", () => {
+  const signal = { signal: "BUY", price: 100, entry: 100, stop: 90, target: 120 };
+  const reading = interpretZones(signal, [zone("bearish", 98, 104)]);
+  assert.strictEqual(reading.verdict, VERDICT_ENTRY_INTO);
+  assert.ok(reading.entryZone);
+});
+
+test("entry inside a SAME-direction zone is support, not a warning", () => {
+  const signal = { signal: "BUY", price: 100, entry: 100, stop: 90, target: 120 };
+  const reading = interpretZones(signal, [zone("bullish", 98, 104)]);
+  assert.notStrictEqual(reading.verdict, VERDICT_ENTRY_INTO);
+});
+
+test("same-direction zones behind entry are counted as support", () => {
+  const signal = { signal: "BUY", price: 100, entry: 100, stop: 85, target: 120 };
+  const reading = interpretZones(signal, [zone("bullish", 92, 96), zone("bullish", 88, 91)]);
+  assert.strictEqual(reading.support.length, 2);
+  assert.strictEqual(reading.support[0].top, 96, "nearest support first");
+});
+
+test("WAIT describes the landscape instead of a verdict", () => {
+  const signal = { signal: "WAIT", price: 100 };
+  const reading = interpretZones(signal, [zone("bearish", 110, 115), zone("bullish", 80, 85), zone("bearish", 120, 125)]);
+  assert.strictEqual(reading.verdict, VERDICT_NO_SIGNAL);
+  assert.strictEqual(reading.landscape.countAbove, 2);
+  assert.strictEqual(reading.landscape.countBelow, 1);
+  assert.strictEqual(reading.landscape.lean, "MORE UNFILLED ABOVE");
+  assert.ok(reading.headline.length > 0, "WAIT must still say something useful");
+});
+
+test("WAIT with price inside a zone says so", () => {
+  const signal = { signal: "WAIT", price: 100 };
+  const reading = interpretZones(signal, [zone("bearish", 98, 104)]);
+  assert.strictEqual(reading.landscape.inside.length, 1);
+  assert.ok(reading.notes.some(n => n.includes("inside an unfilled gap")));
+});
+
+test("missing price never throws", () => {
+  assert.strictEqual(interpretZones({ signal: "BUY" }, [zone("bearish", 1, 2)]).verdict, VERDICT_NO_SIGNAL);
+  assert.strictEqual(interpretZones(null, []).verdict, VERDICT_NO_SIGNAL);
+});
+
+test("missing zones array never throws", () => {
+  const reading = interpretZones({ signal: "BUY", price: 100, entry: 100, stop: 95, target: 120 }, null);
+  assert.strictEqual(reading.verdict, VERDICT_CLEAR);
+});
+
+test("a BUY with no target cannot be obstructed, and does not pretend otherwise", () => {
+  const signal = { signal: "BUY", price: 100, entry: 100, stop: 95, target: null };
+  const reading = interpretZones(signal, [zone("bearish", 108, 112)]);
+  assert.strictEqual(reading.obstructions.length, 0);
+  assert.strictEqual(reading.verdict, VERDICT_CLEAR);
+});
+
+test("describeLandscape counts sides correctly and never double-counts", () => {
+  const land = describeLandscape([zone("bearish", 110, 115), zone("bullish", 85, 90), zone("bearish", 98, 102)], 100);
+  assert.strictEqual(land.countAbove, 1);
+  assert.strictEqual(land.countBelow, 1);
+  assert.strictEqual(land.inside.length, 1, "a zone containing price is inside, neither above nor below");
+});
+
 console.log("\n" + (failed === 0
   ? passed + " passed, 0 failed"
   : passed + " passed, " + failed + " FAILED"));

@@ -130,6 +130,10 @@
     .fvg-fillbar { height:3px; background:var(--border); border-radius:2px; margin-top:3px; overflow:hidden; }
     .fvg-fillbar > div { height:100%; border-radius:2px; }
     .fvg-empty { font-size:.65rem; color:var(--muted); padding:6px 0; line-height:1.6; }
+    .fvg-reading { border-left:2px solid var(--muted); padding:2px 0 6px 8px; margin-bottom:8px; }
+    .fvg-verdict { font-size:.66rem; font-weight:800; letter-spacing:.03em; }
+    .fvg-note    { font-size:.6rem; color:var(--muted); line-height:1.55; margin-top:3px; }
+    .fvg-unmeasured { font-size:.55rem; color:var(--muted); opacity:.75; margin-top:5px; font-style:italic; line-height:1.45; }
     .chart-header { padding:10px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); }
     .chart-title { font-size:.75rem; font-weight:600; letter-spacing:.05em; }
     .chart-sub   { font-size:.65rem; color:var(--muted); }
@@ -1806,12 +1810,33 @@ function renderFVGPanel(assetKey) {
   if (meta) meta.textContent = label + " · " + (frame.totalFound || 0) + " unfilled";
 
   if (frame.error) { body.innerHTML = '<div class="fvg-empty">' + frame.error + '</div>'; return; }
-  if (!zones.length) { body.innerHTML = '<div class="fvg-empty">No unfilled gaps on ' + label + '.</div>'; return; }
+
+  // The reading comes first. A list of price bands changes no decision; what the
+  // bands mean for the entry, stop and target already on the table does.
+  const reading = frame.reading;
+  let readingHtml = "";
+  if (reading) {
+    const tone = reading.verdict === "STOP INSIDE A GAP" ? "var(--red)"
+               : reading.verdict === "ENTRY INTO OPPOSING ZONE" ? "var(--red)"
+               : reading.verdict === "PATH OBSTRUCTED" ? "var(--yellow)"
+               : reading.verdict === "PATH CLEAR" ? "var(--green)" : "var(--muted)";
+    readingHtml = '<div class="fvg-reading" style="border-left-color:' + tone + '">'
+      + '<div class="fvg-verdict" style="color:' + tone + '">' + reading.headline + '</div>'
+      + reading.notes.map(n => '<div class="fvg-note">' + n + '</div>').join("")
+      + '<div class="fvg-unmeasured">Advisory only — this geometry is unmeasured on our data '
+      + 'and feeds nothing: not confidence, not the gate, not sizing.</div>'
+      + '</div>';
+  }
+
+  if (!zones.length) {
+    body.innerHTML = readingHtml + '<div class="fvg-empty">No unfilled gaps on ' + label + '.</div>';
+    return;
+  }
 
   const decimals = zones[0].top >= 10000 ? 0 : 2;
   const money = v => v.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 
-  body.innerHTML = zones.map(zone => {
+  body.innerHTML = readingHtml + zones.map(zone => {
     const bull = zone.direction === "bullish";
     const colour = bull ? "var(--green)" : "var(--red)";
     const distance = zone.distancePct == null ? "—"
