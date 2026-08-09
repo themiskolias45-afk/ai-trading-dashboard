@@ -2128,7 +2128,7 @@ async function fetchPrices() {
 // structural stop. Length equality is checked, not assumed.
 function sanitizeBars(bars, minBars) {
   if (!bars || typeof bars !== "object") return null;
-  const { closes, highs, lows, volumes } = bars;
+  const { closes, highs, lows, volumes, times } = bars;
   const usable = (series) => Array.isArray(series)
     && series.length >= minBars
     && series.every(v => typeof v === "number" && Number.isFinite(v));
@@ -2138,7 +2138,49 @@ function sanitizeBars(bars, minBars) {
   // An empty array makes volRatio null and volConfirmed false, which disables the
   // volume-confirmed setups rather than inventing confirmation from zeros.
   const alignedVolumes = (usable(volumes) && volumes.length === closes.length) ? volumes : [];
-  return { closes, highs, lows, volumes: alignedVolumes };
+  // Bar open times, unix seconds. OPTIONAL and must stay optional: a bridge that
+  // has not restarted since this shipped sends none, and rejecting those bars
+  // would take the live feed down to fix a diagnostic. Absent means the staleness
+  // check below cannot run and says so, rather than passing silently.
+  const alignedTimes = (usable(times) && times.length === closes.length) ? times : null;
+  return { closes, highs, lows, volumes: alignedVolumes, times: alignedTimes };
+}
+
+// How old the NEWEST bar may be before the series is stale, per timeframe. Two
+// periods of slack: one for the bar still forming, one for weekend and holiday
+// gaps, which are normal and must not read as a fault.
+const BAR_MAX_AGE_MS = { d1: 4 * 24 * 3600e3, h4: 16 * 3600e3, h1: 5 * 3600e3 };
+
+/**
+ * Is this series actually current, judged on the BARS rather than on when the
+ * push arrived?
+ *
+ * This is the gap that made the check worth building. Freshness was decided by
+ * `receivedAt` alone — the moment the HTTP POST landed. If MT5 hands the bridge a
+ * stale array (the documented failure mode: the terminal restarts underneath a
+ * running bridge and calls quietly return nothing useful), the bridge keeps
+ * posting on schedule, receivedAt is always seconds old, and the engine computes
+ * signals on old prices forever with every health check green.
+ *
+ * Returns { checked, stale, ageMs, lastBarAt, reason }.
+ */
+function judgeBarFreshness(bars, timeframe) {
+  if (!bars || !Array.isArray(bars.times) || !bars.times.length) {
+    return { checked: false, stale: false, ageMs: null, lastBarAt: null,
+             reason: "no bar timestamps — bridge predates this check, so staleness is UNVERIFIED" };
+  }
+  const lastSec = bars.times[bars.times.length - 1];
+  const ageMs = Date.now() - lastSec * 1000;
+  const limit = BAR_MAX_AGE_MS[timeframe] ?? BAR_MAX_AGE_MS.h1;
+  return {
+    checked: true,
+    stale: ageMs > limit,
+    ageMs,
+    lastBarAt: new Date(lastSec * 1000).toISOString(),
+    reason: ageMs > limit
+      ? `newest ${timeframe} bar is ${Math.round(ageMs / 3600e3)}h old, limit ${Math.round(limit / 3600e3)}h`
+      : "current",
+  };
 }
 
 // Returns the MT5 bar set for an asset, or null to mean "use Yahoo". Bars are
@@ -2147,6 +2189,20 @@ function mt5BarsFor(assetKey) {
   const entry = mt5CandleCache[assetKey];
   if (!entry) return null;
   if (Date.now() - new Date(entry.receivedAt).getTime() > MT5_CANDLE_MAX_AGE_MS) return null;
+  // Push freshness is not bar freshness. A wedged terminal keeps the push on
+  // schedule while the bars stop moving, so the daily series is checked on its own
+  // timestamps too. Falls back to Yahoo rather than trading old prices — and only
+  // when timestamps are actually present, so a pre-timestamp bridge is unaffected.
+  const dailyFreshness = judgeBarFreshness(entry.bars?.d1, "d1");
+  if (dailyFreshness.checked && dailyFreshness.stale) {
+    if (!mt5BarsFor._warned || Date.now() - mt5BarsFor._warned > 600000) {
+      mt5BarsFor._warned = Date.now();
+      console.warn(`[mt5] ${assetKey} ${entry.symbol}: STALE BARS — ${dailyFreshness.reason}. `
+        + `The push is current (${Math.round((Date.now() - new Date(entry.receivedAt).getTime()) / 1000)}s ago) `
+        + `but the data is not. Falling back to Yahoo.`);
+    }
+    return null;
+  }
   // No usable daily series means no signal at all — generateSignalMTF requires it —
   // so there is nothing to gain from taking H4/H1 from MT5 and daily from Yahoo.
   // Mixing feeds across timeframes is also how entry and stop ended up on
@@ -2810,9 +2866,21 @@ app.get("/api/mt5/candles", (_, res) => {
       } : null,
       inUse: Boolean(live),
       activeSource: live ? "mt5" : "yahoo",
+      // Bar freshness, judged on the bars rather than on when the push landed.
+      // "unverified" is a real answer here, not a missing one.
+      barFreshness: entry ? {
+        d1: judgeBarFreshness(entry.bars?.d1, "d1"),
+        h4: judgeBarFreshness(entry.bars?.h4, "h4"),
+        h1: judgeBarFreshness(entry.bars?.h1, "h1"),
+      } : null,
     };
   }
-  res.json({ sources, maxAgeMs: MT5_CANDLE_MAX_AGE_MS, minBars: MT5_MIN_BARS });
+  const anyVerified = Object.values(sources).some(s => s.barFreshness && s.barFreshness.d1.checked);
+  res.json({
+    sources, maxAgeMs: MT5_CANDLE_MAX_AGE_MS, minBars: MT5_MIN_BARS,
+    barMaxAgeMs: BAR_MAX_AGE_MS,
+    staleDetection: anyVerified ? "active" : "UNVERIFIED — bridge sends no bar timestamps yet",
+  });
 });
 
 // Raw OHLC out of the in-memory MT5 cache, for offline analysis of the instrument

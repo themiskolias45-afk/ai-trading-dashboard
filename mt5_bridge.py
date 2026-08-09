@@ -666,6 +666,18 @@ def _rates_to_bars(rates):
             "highs":   [round(float(r["high"]),  PRICE_DECIMALS) for r in rates],
             "lows":    [round(float(r["low"]),   PRICE_DECIMALS) for r in rates],
             "volumes": [float(int(r["tick_volume"]))             for r in rates],
+            # Bar OPEN times, unix seconds. Added 2026-08-09 and the reason is not
+            # cosmetic: the server judged freshness purely on when the push landed,
+            # so a terminal that wedges and returns the same stale array forever
+            # kept every health check green while the engine priced signals off old
+            # bars. Push freshness is not data freshness, and without these the
+            # difference is invisible. Also what AMD needs for real session
+            # boundaries -- see the AMD entry in server/evidence_register.js.
+            #
+            # Costs one integer array per timeframe. The full raw dump measured
+            # 101kb against express's 2mb limit, so this is not near the 413 that
+            # shaped the original payload.
+            "times":   [int(r["time"])                           for r in rates],
         }
     except (KeyError, ValueError, TypeError) as exc:
         log(f"Rate conversion failed: {exc}", YELLOW)
