@@ -125,6 +125,9 @@ header{
 .status-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex-shrink:0}
 .status-dot.online{background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 2s ease-in-out infinite}
 .status-dot.offline{background:var(--red)}
+/* Amber, not red: the server is fine, this browser's session is not. Sending
+   someone to check the server when they need to press reload wastes the alarm. */
+.status-dot.auth{background:var(--yellow);box-shadow:0 0 6px var(--yellow);animation:blink 1.4s ease-in-out infinite}
 
 /* ── LAYOUT ── */
 .layout{flex:1;display:flex;min-height:0;position:relative;z-index:1}
@@ -1479,16 +1482,22 @@ function closeVideoModal() {
 // ══════════════════════════════════════════
 async function fetchData() {
   try {
-    const [pr, si] = await Promise.all([
-      fetch("/api/prices").then(r=>r.json()).catch(()=>null),
-      fetch("/api/signals").then(r=>r.json()).catch(()=>null)
+    const [priceRes, signalRes] = await Promise.all([
+      getJson("/api/prices"),
+      getJson("/api/signals")
     ]);
+    const pr = priceRes.data || null;
+    const si = signalRes.data || null;
 
     if (pr) {
       setOnline(true);
       setPP("pp-btc",  "BTC",  pr.btc,  pr.btcChange);
       setPP("pp-gold", "GOLD", pr.gold, pr.goldChange);
       setPP("pp-spx",  "SPX",  pr.spx,  pr.spxChange);
+    } else if (priceRes.authError) {
+      // /api/prices is NOT in the server's no-login allowlist (unlike
+      // /api/status), so an expired cookie kills exactly this call.
+      setOnline("auth");
     } else setOnline(false);
 
     if (si) {
@@ -1500,11 +1509,37 @@ async function fetchData() {
   } catch { setOnline(false); }
 }
 
-function setOnline(on) {
-  const dot  = document.getElementById("sdot");
-  const txt  = document.getElementById("stext");
-  dot.className = "status-dot " + (on ? "online" : "offline");
-  txt.textContent = on ? "Server Online" : "Server Offline";
+// Three states, not two. "Signed out" was previously indistinguishable from
+// healthy: a 401 returns valid JSON, so .json() resolved, .catch never fired, the
+// object was truthy, and the header went green "Server Online" beside three
+// blank prices. A status light that reads healthy while showing nothing is worse
+// than one that reads offline — it tells you to trust the blanks.
+function setOnline(state) {
+  const dot = document.getElementById("sdot");
+  const txt = document.getElementById("stext");
+  const mode = state === true ? "online" : state === "auth" ? "auth" : "offline";
+  dot.className = "status-dot " + mode;
+  txt.textContent = mode === "online" ? "Server Online"
+                  : mode === "auth"   ? "Signed out — reload to sign in"
+                  : "Server Offline";
+  if (mode === "auth") txt.title = "The server is up. This browser's session has expired, so it is refusing to send data.";
+  else txt.removeAttribute("title");
+}
+
+/**
+ * Fetch JSON and tell the three states apart.
+ * Returns { data } | { authError:true } | { offline:true }.
+ * A 401 body parses cleanly, so the status code is the only reliable signal —
+ * checking r.ok is the whole fix.
+ */
+async function getJson(url) {
+  let response;
+  try { response = await fetch(url, { cache: "no-store" }); }
+  catch (e) { return { offline: true }; }
+  if (response.status === 401 || response.status === 403) return { authError: true };
+  if (!response.ok) return { offline: true };
+  try { return { data: await response.json() }; }
+  catch (e) { return { offline: true }; }
 }
 
 function setPP(id, lbl, price, chg) {
