@@ -235,6 +235,17 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
   The bridge gates fire only on a real trade attempt, so they are silent on the
   laptop and NOT on the VPS, which has `MAX_POSITIONS` evidence. **None of the ten
   gates is broken.** Do not "fix" them.
+- **Run `node tasks/vps_parity.cjs` after ANY deploy, and before trusting a number
+  that pools both boxes.** It answers the one question hand-patching cannot: do the
+  two boxes run the same engine? Compares the 11 engine functions, 7 behavioural
+  constants, the route surface and 16 tracked files, with line endings normalised
+  and `strategy_settings.json` excluded (per-machine BY DESIGN). Exit 2 = engines
+  diverge. The VPS carries commits this repo has never seen, so `index.js` is
+  PATCHED not copied — on 2026-08-09 that took SEVEN hand-written patches and left
+  nine `.bak-*` files, and nothing verified the result until this existed.
+  First run found `server/cohort_table.js` absent on the VPS: consistent there (its
+  index.js does not require it) but it means **the VPS never reports dead cohorts** —
+  and it is the box that trades continuously. See [[dead_cohorts_are_why_it_never_trades]].
 - **Never restart a bridge by hand — use `node tasks/safe_bridge_restart.cjs`.**
   Default is REFUSE. It checks the server is up, trading is not halted, the bridge
   is currently reporting, **every open position has a broker-side SL**, and that no
