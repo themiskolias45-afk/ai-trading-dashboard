@@ -8,35 +8,50 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{height:100%}
 :root{
-  --bg:#04070f;
-  --surface:#0a0f1e;
-  --surface2:#0d1428;
-  --border:#1a2540;
-  --border2:#243060;
-  --text:#e2e8f0;
-  --muted:#4a6080;
-  --accent:#7c3aed;
+  /* Deeper, cooler base. The old #04070f sat under four purple gradients at up to
+     .32 alpha, so the "background" was really a purple wash and every surface
+     floated on it with no separation. Surfaces are now opaque enough to read as
+     panels, and the glow is scenery behind them rather than the substrate. */
+  --bg:#03060d;
+  --surface:#0a1020;
+  --surface2:#0e1628;
+  --surface3:#121c33;      /* raised: inputs, hovered rows */
+  --border:#1b2742;
+  --border2:#2a3a5e;
+  --text:#e6edf7;
+  --muted:#5b7096;         /* lifted from #4a6080 — the old one failed contrast on labels */
+  --accent:#8b5cf6;
   --accent2:#4f46e5;
+  --accent-dim:rgba(139,92,246,.14);
   --green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6;
   --font:'Segoe UI',system-ui,Arial,sans-serif;
 }
 body{background:var(--bg);color:var(--text);font-family:var(--font);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
 /* ── ANIMATED BACKGROUND ── */
-#bg-fx{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.85;animation:hueShift 22s ease-in-out infinite}
+/* NO hue-rotate. It was running on three layers at ±30 degrees over 22s, which
+   means the page's colours were never the same twice. On a terminal where green
+   and red carry the meaning, a hue that drifts is a hue you cannot trust — and it
+   dragged the purple through blue and magenta on every cycle. The glow now sits
+   still and the drift is positional only.
+   Alphas roughly halved: this is scenery behind the panels, not the substrate. */
+#bg-fx{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.55}
 body::before{
   content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   background:
-    radial-gradient(ellipse 70% 60% at 15% -5%,rgba(139,92,246,.32) 0%,transparent 65%),
-    radial-gradient(ellipse 55% 50% at 85% 105%,rgba(59,130,246,.24) 0%,transparent 65%),
-    radial-gradient(ellipse 45% 55% at 50% 50%,rgba(124,58,237,.13) 0%,transparent 75%),
-    radial-gradient(ellipse 40% 40% at 90% 10%,rgba(96,165,250,.15) 0%,transparent 70%);
+    radial-gradient(ellipse 70% 60% at 15% -5%,rgba(139,92,246,.16) 0%,transparent 62%),
+    radial-gradient(ellipse 55% 50% at 85% 105%,rgba(59,130,246,.12) 0%,transparent 62%),
+    radial-gradient(ellipse 45% 55% at 50% 50%,rgba(124,58,237,.06) 0%,transparent 72%),
+    radial-gradient(ellipse 40% 40% at 90% 10%,rgba(96,165,250,.07) 0%,transparent 68%);
   background-size:140% 140%;
-  animation:bgPulse 10s ease-in-out infinite, bgDrift 26s ease-in-out infinite, hueShift 22s ease-in-out infinite;
+  /* Positional drift only, and slower. Three simultaneous animations on a
+     full-viewport gradient is also the most expensive thing on this page. */
+  animation:bgDrift 40s ease-in-out infinite;
 }
 @keyframes bgPulse{0%,100%{opacity:1}50%{opacity:.75}}
 @keyframes bgDrift{0%,100%{background-position:0% 0%}50%{background-position:8% 6%}}
-@keyframes hueShift{0%,100%{filter:hue-rotate(0deg)}33%{filter:hue-rotate(-28deg)}66%{filter:hue-rotate(32deg)}}
+/* hueShift deliberately removed — see the note on #bg-fx. Kept as a comment so a
+   future session does not "restore" it thinking it was lost in an edit. */
 
 /* ── HEADER ── */
 header{
@@ -125,10 +140,50 @@ header{
 .sb-title{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 
 /* Signal cards */
+/* Depth instead of a flat fill. A 1px top highlight and a soft drop reads as a
+   raised panel; the old flat rectangle on a purple wash read as a coloured area. */
 .sig-card{
-  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-  padding:10px 12px;margin-bottom:6px;transition:border-color .4s,background .4s;
+  background:linear-gradient(180deg,var(--surface3) 0%,var(--surface2) 100%);
+  border:1px solid var(--border);border-radius:9px;
+  padding:10px 12px;margin-bottom:6px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.045), 0 1px 3px rgba(0,0,0,.4);
+  transition:border-color .3s,background .3s,transform .15s;
 }
+.sig-card:hover{ transform:translateY(-1px); border-color:var(--border2); }
+
+/* ── CAPABILITIES: what JARVIS can actually do ──────────────────────────────
+   This page IS JARVIS and listed none of its own skills, agents or tools — 44
+   commands, 6 agents and 23 MCP tools existed on disk and the page that runs
+   them showed zero of them. Served by /api/ai-registry, the same endpoint the
+   dashboard's AI Brain tab uses, so the two can never disagree. */
+.cap-tabs{display:flex;gap:4px;margin-bottom:8px}
+.cap-tab{
+  flex:1;padding:4px 0;text-align:center;font-size:.58rem;font-weight:700;
+  letter-spacing:.06em;border-radius:6px;cursor:pointer;
+  background:var(--surface2);border:1px solid var(--border);color:var(--muted);
+  transition:all .15s;
+}
+.cap-tab:hover{color:var(--text);border-color:var(--border2)}
+.cap-tab.on{background:var(--accent-dim);border-color:var(--accent);color:#c4b5fd}
+.cap-list{max-height:190px;overflow-y:auto;padding-right:2px}
+.cap-item{
+  padding:5px 8px;border-radius:6px;cursor:pointer;margin-bottom:3px;
+  border:1px solid transparent;transition:all .12s;
+}
+.cap-item:hover{background:var(--surface3);border-color:var(--border2)}
+.cap-name{font-size:.66rem;font-weight:700;font-family:'Courier New',monospace;color:var(--text)}
+.cap-desc{font-size:.55rem;color:var(--muted);line-height:1.4;margin-top:1px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* A tool that can open a position must never look like one that reads a number. */
+.cap-flag{font-size:.48rem;font-weight:800;padding:1px 4px;border-radius:3px;margin-left:5px;vertical-align:middle}
+.cap-trades{background:#2d0d0d;color:var(--red);border:1px solid rgba(239,68,68,.55)}
+.cap-writes{background:#2d220a;color:var(--yellow)}
+.cap-empty{font-size:.6rem;color:var(--muted);padding:6px 2px}
+.engineer-btn{
+  background:linear-gradient(135deg,rgba(139,92,246,.16),rgba(79,70,229,.10));
+  border-color:rgba(139,92,246,.45)!important;
+}
+.engineer-btn:hover{border-color:var(--accent)!important;background:linear-gradient(135deg,rgba(139,92,246,.26),rgba(79,70,229,.16))}
 .sig-card.buy {border-color:rgba(34,197,94,.4);background:rgba(13,28,18,.6)}
 .sig-card.sell{border-color:rgba(239,68,68,.4);background:rgba(28,13,13,.6)}
 .sc-row1{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
@@ -652,6 +707,17 @@ body.focus-mode .focus-exit{display:block}
       </div>
     </div>
 
+    <!-- What JARVIS can actually do. Click anything to load it into the prompt. -->
+    <div class="sb-section">
+      <div class="sb-title"><span>Capabilities</span><span id="cap-count" style="font-weight:400;letter-spacing:0">—</span></div>
+      <div class="cap-tabs">
+        <div class="cap-tab on" id="captab-skills" onclick="setCapTab('skills')">SKILLS</div>
+        <div class="cap-tab"    id="captab-agents" onclick="setCapTab('agents')">AGENTS</div>
+        <div class="cap-tab"    id="captab-tools"  onclick="setCapTab('tools')">TOOLS</div>
+      </div>
+      <div class="cap-list" id="cap-list"><div class="cap-empty">Loading…</div></div>
+    </div>
+
     <div class="sb-section">
       <div class="sb-title"><span>Self-Learning</span></div>
       <div id="learn-box"><div class="learn-empty">Loading…</div></div>
@@ -659,6 +725,13 @@ body.focus-mode .focus-exit{display:block}
 
     <div class="sb-section">
       <div class="sb-title"><span>System</span></div>
+      <!-- /engineer is the flagship capability — parallel agents, wall time = the
+           slowest one rather than the sum — and it was indistinguishable from the
+           other 43 skills in an alphabetical list. Loads the prompt, never fires it:
+           it spawns real workers that write code. -->
+      <div class="sysbtn engineer-btn" onclick="loadPrompt('/engineer ')">
+        <span>🧩 Engineer — parallel build</span><span class="arrow">compose</span>
+      </div>
       <div class="sysbtn" onclick="forceHeal()"><span>🩺 Force Heal</span><span class="arrow">run</span></div>
       <div class="sysbtn" onclick="sq('Give me setup health — which setups should I take or avoid right now?')"><span>📊 Setup Health</span><span class="arrow">ask</span></div>
       <a class="sysbtn" href="/daily-plan"><span>📅 Daily Plan</span><span class="arrow">open</span></a>
@@ -1277,6 +1350,83 @@ async function send() {
 }
 
 function sq(text) { document.getElementById("inp").value = text; send(); }
+
+// ══════════════════════════════════════════
+//  CAPABILITIES — 44 skills, 6 agents, 23 MCP tools
+//
+//  This page IS JARVIS and listed none of them. They were all on disk and the
+//  only way to discover one was to already know its name. Served by
+//  /api/ai-registry — the same endpoint the dashboard's AI Brain tab reads, so
+//  the two can never drift apart.
+//
+//  Clicking LOADS the prompt without sending. A skill can be destructive and a
+//  mis-click that fires /execute is not a UI I want to ship; you get to see the
+//  text and press enter yourself.
+// ══════════════════════════════════════════
+let capData = null;
+let capTab  = "skills";
+
+function loadPrompt(text) {
+  const input = document.getElementById("inp");
+  if (!input) return;
+  input.value = text;
+  input.focus();
+  if (typeof resize === "function") resize(input);
+}
+
+function setCapTab(tab) {
+  capTab = tab;
+  ["skills", "agents", "tools"].forEach(t => {
+    const el = document.getElementById("captab-" + t);
+    if (el) el.classList.toggle("on", t === tab);
+  });
+  renderCaps();
+}
+
+function renderCaps() {
+  const list = document.getElementById("cap-list");
+  if (!list) return;
+  if (!capData) { list.innerHTML = '<div class="cap-empty">Registry unavailable — is the server up?</div>'; return; }
+
+  const items = capData[capTab] || [];
+  if (!items.length) { list.innerHTML = '<div class="cap-empty">None found.</div>'; return; }
+
+  list.innerHTML = items.map(item => {
+    let display, prompt, flag = "";
+    if (capTab === "skills") {
+      display = "/" + item.name;
+      prompt  = "/" + item.name + " ";
+    } else if (capTab === "agents") {
+      display = item.name;
+      // Agents are spawned by describing the work, not by typing a name.
+      prompt  = "Use the " + item.name + " agent to ";
+    } else {
+      display = item.name;
+      prompt  = "Use the " + item.name + " tool";
+      if (item.mutates === "TRADES") flag = '<span class="cap-flag cap-trades">TRADES</span>';
+      else if (item.mutates === "writes") flag = '<span class="cap-flag cap-writes">writes</span>';
+    }
+    return '<div class="cap-item" onclick="loadPrompt(' + JSON.stringify(prompt).replace(/"/g, "&quot;") + ')">'
+      + '<div class="cap-name">' + esc(display) + flag + "</div>"
+      + '<div class="cap-desc">' + esc(item.description || "") + "</div></div>";
+  }).join("");
+}
+
+async function loadCapabilities() {
+  try {
+    const r = await fetch("/api/ai-registry", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    capData = await r.json();
+    const c = capData.counts || {};
+    const el = document.getElementById("cap-count");
+    if (el) el.textContent = (c.skills || 0) + "·" + (c.agents || 0) + "·" + (c.tools || 0);
+  } catch (e) {
+    console.error("loadCapabilities:", e);
+    capData = null;
+  }
+  renderCaps();
+}
+loadCapabilities();
 function hkey(e)  { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }
 function resize(el){ el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 function esc(s)   { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
