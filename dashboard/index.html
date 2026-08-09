@@ -85,6 +85,20 @@
     .rail-empty { font-size:.58rem; color:var(--muted); padding:10px 9px; line-height:1.6; }
     @media (max-width:900px) { .level-rail { display:none; } }
 
+    /* Fullscreen. The panel itself goes fullscreen rather than the iframe, so the
+       level rail stays beside the chart instead of being left behind on the page. */
+    .chart-wrap:fullscreen { border-radius:0; border:none; display:flex; flex-direction:column; background:var(--surface); }
+    .chart-wrap:fullscreen .chart-body { flex:1; min-height:0; }
+    .chart-wrap:fullscreen .tv-holder  { height:100%; }
+    .chart-wrap:fullscreen .level-rail { width:190px; display:block; }
+    .icon-btn {
+      background:var(--bg); border:1px solid var(--border2); color:var(--muted);
+      font-size:.7rem; padding:3px 8px; border-radius:5px; cursor:pointer;
+      transition:all .15s; font-family:var(--font); line-height:1.2;
+    }
+    .icon-btn:hover { border-color:var(--accent); color:var(--text); }
+    .icon-btn.tv-link:hover { border-color:var(--blue); color:var(--blue); }
+
     /* Feed provenance. Every price on this page came from somewhere, and until now
        none of them said where. The strip reads CoinGecko/Yahoo, the engine trades
        MT5, and on Gold those are different instruments tens of dollars apart. */
@@ -454,6 +468,8 @@
           <button class="tf-btn" data-asset="btc" data-interval="60"  onclick="switchChart('btc','60')">1H</button>
           <button class="tf-btn" data-asset="btc" data-interval="240" onclick="switchChart('btc','240')">4H</button>
           <button class="tf-btn active" data-asset="btc" data-interval="D" onclick="switchChart('btc','D')">1D</button>
+          <button class="icon-btn tv-link" onclick="openInTradingView('btc')" title="Open in TradingView — your account, your drawings">↗ TV</button>
+          <button class="icon-btn" onclick="toggleChartFullscreen('btc')" title="Fullscreen (Esc to exit)">⛶</button>
         </div>
       </div>
       <div class="chart-body">
@@ -468,6 +484,8 @@
           <button class="tf-btn" data-asset="gold" data-interval="60"  onclick="switchChart('gold','60')">1H</button>
           <button class="tf-btn" data-asset="gold" data-interval="240" onclick="switchChart('gold','240')">4H</button>
           <button class="tf-btn active" data-asset="gold" data-interval="D" onclick="switchChart('gold','D')">1D</button>
+          <button class="icon-btn tv-link" onclick="openInTradingView('gold')" title="Open in TradingView — your account, your drawings">↗ TV</button>
+          <button class="icon-btn" onclick="toggleChartFullscreen('gold')" title="Fullscreen (Esc to exit)">⛶</button>
         </div>
       </div>
       <div class="chart-body">
@@ -482,6 +500,8 @@
           <button class="tf-btn" data-asset="spx" data-interval="60"  onclick="switchChart('spx','60')">1H</button>
           <button class="tf-btn" data-asset="spx" data-interval="240" onclick="switchChart('spx','240')">4H</button>
           <button class="tf-btn active" data-asset="spx" data-interval="D" onclick="switchChart('spx','D')">1D</button>
+          <button class="icon-btn tv-link" onclick="openInTradingView('spx')" title="Open in TradingView — your account, your drawings">↗ TV</button>
+          <button class="icon-btn" onclick="toggleChartFullscreen('spx')" title="Fullscreen (Esc to exit)">⛶</button>
         </div>
       </div>
       <div class="chart-body">
@@ -1311,6 +1331,45 @@ function switchChart(assetKey, interval) {
   markIntervalButtons(assetKey);
 }
 
+// ── Fullscreen ────────────────────────────────────────────────
+// The whole panel goes fullscreen, not the iframe, so the level rail stays next
+// to the chart. Rails are redrawn on the way in and out because their geometry is
+// computed in pixels against the panel height.
+function toggleChartFullscreen(assetKey) {
+  const wrap = document.querySelector(`.chart-wrap[data-chart-asset="${assetKey}"]`);
+  if (!wrap) return;
+  if (document.fullscreenElement === wrap) { document.exitFullscreen(); return; }
+  const request = wrap.requestFullscreen || wrap.webkitRequestFullscreen;
+  if (!request) { alert("This browser will not allow fullscreen here."); return; }
+  Promise.resolve(request.call(wrap)).catch(e => console.error("fullscreen:", e));
+}
+
+document.addEventListener("fullscreenchange", () => {
+  // Let the browser finish resizing before measuring the rail.
+  setTimeout(() => {
+    if (!_lastSignals) return;
+    Object.keys(CHART_ASSETS).forEach(k => {
+      try { renderLevelRail(k, _lastSignals[k]); } catch (e) { console.error("rail refresh:", e); }
+    });
+  }, 250);
+});
+
+// ── Open in TradingView ───────────────────────────────────────
+// The embedded widget is an anonymous public embed on a cross-origin iframe: it
+// carries no TradingView session, so your account, saved layouts, indicators and
+// drawings can never appear inside it, and there is no way to log in through it.
+// This hands the same symbol and timeframe to tradingview.com, where you ARE
+// logged in and your own chart setup is waiting.
+const TRADINGVIEW_INTERVALS = { "60":"60", "240":"240", "D":"D" };
+function openInTradingView(assetKey) {
+  const asset = CHART_ASSETS[assetKey];
+  if (!asset) return;
+  const interval = TRADINGVIEW_INTERVALS[chartIntervals[assetKey]] || "D";
+  const url = "https://www.tradingview.com/chart/?symbol="
+    + encodeURIComponent(asset.symbol) + "&interval=" + encodeURIComponent(interval);
+  window.open(url, "_blank", "noopener");
+}
+
 // ── Level rail — the engine's own numbers, drawn to scale ─────
 // Everything here comes from the /api/signals payload this page already polls, so
 // the rail costs no extra request and can never disagree with the signal card
@@ -1318,19 +1377,29 @@ function switchChart(assetKey, interval) {
 const RAIL_WIDTH = 120;
 const RAIL_PAD_FRACTION = 0.06;   // headroom so the outermost level is not on the edge
 const RAIL_LABEL_SPACING = 11;    // px between label baselines before nudging
+// The rail sits flush against TradingView's own price axis but is zoomed to the
+// traded levels, so the two scales rarely match — BTC's chart axis spans 20,000
+// points while its rail spans 450. It has to say so, or it reads as a continuation
+// of the axis next to it.
+const RAIL_TOP = 20;
 
+// EMA200 is context, not a level we trade against, so it does not get a vote on
+// the scale. BTC's EMA200 sits 12% from spot; letting it set the axis squashed
+// entry, stop and all three pivots into the bottom 45px of a 440px rail. Context
+// levels that fall outside the traded range are pinned to the edge with an arrow
+// instead, which says "far above" without destroying the resolution below.
 function railRows(signal) {
   const pivots     = signal.pivots || {};
   const indicators = signal.indicators || {};
   return [
-    { label:"TGT",    value:signal.target,     color:"#22c55e", bold:true  },
-    { label:"R1",     value:pivots.r1,         color:"#64748b", bold:false },
-    { label:"ENTRY",  value:signal.entry,      color:"#3b82f6", bold:true  },
-    { label:"PP",     value:pivots.pp,         color:"#64748b", bold:false },
-    { label:"EMA200", value:indicators.ema200, color:"#a78bfa", bold:false },
-    { label:"S1",     value:pivots.s1,         color:"#64748b", bold:false },
-    { label:"STOP",   value:signal.stop,       color:"#ef4444", bold:true  },
-    { label:"LAST",   value:signal.price,      color:"#e2e8f0", bold:true  },
+    { label:"TGT",    value:signal.target,     color:"#22c55e", bold:true,  context:false },
+    { label:"R1",     value:pivots.r1,         color:"#64748b", bold:false, context:false },
+    { label:"ENTRY",  value:signal.entry,      color:"#3b82f6", bold:true,  context:false },
+    { label:"PP",     value:pivots.pp,         color:"#64748b", bold:false, context:false },
+    { label:"EMA200", value:indicators.ema200, color:"#a78bfa", bold:false, context:true  },
+    { label:"S1",     value:pivots.s1,         color:"#64748b", bold:false, context:false },
+    { label:"STOP",   value:signal.stop,       color:"#ef4444", bold:true,  context:false },
+    { label:"LAST",   value:signal.price,      color:"#e2e8f0", bold:true,  context:false },
   ].filter(row => Number.isFinite(row.value));
 }
 
@@ -1361,16 +1430,26 @@ function renderLevelRail(assetKey, signal) {
   if (rows.length < 2) { rail.innerHTML = '<div class="rail-empty">No levels published for this asset yet.</div>'; return; }
 
   const height = rail.clientHeight || chartHeight();
-  const values = rows.map(row => row.value);
+  // Scale off the traded levels only; fall back to everything if that leaves too
+  // little to draw a range from.
+  let scaleRows = rows.filter(row => !row.context);
+  if (scaleRows.length < 2) scaleRows = rows;
+  const values = scaleRows.map(row => row.value);
   const low    = Math.min(...values);
   const high   = Math.max(...values);
   const span   = (high - low) || Math.abs(high) * 0.01 || 1;
   const pad    = span * RAIL_PAD_FRACTION;
   const top    = high + pad;
   const bottom = low - pad;
-  const toY    = value => 6 + (height - 12) * (1 - (value - bottom) / (top - bottom));
+  const toY    = value => RAIL_TOP + (height - RAIL_TOP - 6) * (1 - (value - bottom) / (top - bottom));
 
-  rows.forEach(row => { row.y = toY(row.value); });
+  // Anything outside the scaled range is clamped to the edge and marked, so it is
+  // visible as direction-and-distance rather than silently drawn off-panel.
+  rows.forEach(row => {
+    if (row.value > top)         { row.y = RAIL_TOP;   row.offScale = "above"; }
+    else if (row.value < bottom) { row.y = height - 6; row.offScale = "below"; }
+    else                         { row.y = toY(row.value); row.offScale = null; }
+  });
 
   // Risk and reward as filled bands, so R:R reads at a glance instead of from
   // arithmetic on three numbers.
@@ -1396,14 +1475,21 @@ function renderLevelRail(assetKey, signal) {
     // Leader line from the true price across to the nudged label.
     const leader = Math.abs(row.labelY - row.y) > 1.5
       ? `<line x1="19" y1="${y}" x2="23" y2="${(row.labelY).toFixed(1)}" stroke="${row.color}" stroke-width="1" opacity=".5"/>` : "";
-    return `<line x1="2" y1="${y}" x2="19" y2="${y}" stroke="${row.color}" stroke-width="${row.bold ? 2 : 1}" opacity="${row.bold ? 1 : .65}"/>
+    // Dashed tick + arrow: this level is off the traded range, not sitting at the edge.
+    const dash  = row.offScale ? ' stroke-dasharray="2 2"' : "";
+    const arrow = row.offScale === "above" ? "↑ " : row.offScale === "below" ? "↓ " : "";
+    return `<line x1="2" y1="${y}" x2="19" y2="${y}" stroke="${row.color}" stroke-width="${row.bold ? 2 : 1}" opacity="${row.bold ? 1 : .65}"${dash}/>
       ${leader}
-      <text x="24" y="${labelY}" font-family="Segoe UI,system-ui,sans-serif" font-size="7.5" fill="${row.color}" font-weight="${row.bold ? 700 : 500}">${row.label}</text>
+      <text x="24" y="${labelY}" font-family="Segoe UI,system-ui,sans-serif" font-size="7.5" fill="${row.color}" font-weight="${row.bold ? 700 : 500}">${arrow}${row.label}</text>
       <text x="${RAIL_WIDTH - 4}" y="${labelY}" text-anchor="end" font-family="Segoe UI,system-ui,sans-serif" font-size="7.5" fill="${row.color}" font-weight="${row.bold ? 700 : 400}" opacity="${row.bold ? 1 : .8}">${price}</text>`;
   }).join("");
 
-  rail.innerHTML = `<svg viewBox="0 0 ${RAIL_WIDTH} ${height}" width="100%" height="100%" preserveAspectRatio="none" role="img" aria-label="Engine price levels">
-    ${bands}${marks}
+  const header = `<text x="4" y="9" font-family="Segoe UI,system-ui,sans-serif" font-size="6.5" fill="#4a6080" letter-spacing=".6">ENGINE LEVELS</text>
+    <text x="${RAIL_WIDTH - 4}" y="9" text-anchor="end" font-family="Segoe UI,system-ui,sans-serif" font-size="6.5" fill="#4a6080">own scale</text>
+    <line x1="2" y1="13" x2="${RAIL_WIDTH - 2}" y2="13" stroke="#1a2235" stroke-width="1"/>`;
+
+  rail.innerHTML = `<svg viewBox="0 0 ${RAIL_WIDTH} ${height}" width="100%" height="100%" preserveAspectRatio="none" role="img" aria-label="Engine price levels, on its own scale">
+    ${header}${bands}${marks}
   </svg>`;
 }
 
