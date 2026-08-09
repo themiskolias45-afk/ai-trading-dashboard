@@ -235,6 +235,19 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
   The bridge gates fire only on a real trade attempt, so they are silent on the
   laptop and NOT on the VPS, which has `MAX_POSITIONS` evidence. **None of the ten
   gates is broken.** Do not "fix" them.
+- **Never restart a bridge by hand — use `node tasks/safe_bridge_restart.cjs`.**
+  Default is REFUSE. It checks the server is up, trading is not halted, the bridge
+  is currently reporting, **every open position has a broker-side SL**, and that no
+  position is large enough to be partial-closed — then requires an explicit
+  `--allow-open-positions` if any trade is open. `--dry-run` first, always.
+  Why it matters: `position_partial_taken` (mt5_bridge.py:129) is IN-MEMORY and not
+  persisted, so a restart forgets which trades already took 50% at 1R. At the fixed
+  0.01 sizing the partial is skipped by `volume_min` so it cannot bite — but that is
+  a property of the LOT SIZE, not of the code, and it stops being true the moment
+  sizing changes. The tool checks it rather than assuming it.
+  Shutdown itself closes nothing (`mt5.shutdown(); sys.exit(0)`), and broker SL/TP
+  stay live through the gap — a position is unmanaged for those seconds, never
+  unprotected.
 - Setup health: GET http://localhost:3001/api/setup-health (which setups to take or avoid today)
 - Daily plan API: GET http://localhost:3001/api/daily-plan (structured JSON for all assets)
 - TV screenshots: node tv_screenshot.js [--4h] [--symbol btc|gold|spx] → dashboard/screenshots/
