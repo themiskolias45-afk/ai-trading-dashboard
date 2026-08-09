@@ -933,4 +933,7 @@ rl.on('line', async (line) => {
   send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
 });
 
-process.stderr.write('[SmartEntry MCP v2] Started — 19 tools ready\n');
+// Counted, not hardcoded. This banner read "19 tools" while 23 were registered —
+// a number that only drifts in one direction and misreports the surface area of
+// everything the AI can reach.
+process.stderr.write(`[SmartEntry MCP v2] Started — ${TOOLS.length} tools ready\n`);

@@ -54,6 +54,10 @@ const fvg        = require("./fvg");
 // Per-gate verdicts over the scored rejection ledger. Reads one file, aggregates,
 // returns. Cannot reach the trading path — see the header of that module.
 const rejectionEvidence = require("./rejection_evidence");
+// AI Brain reading surfaces: the skill/agent/tool catalogue and the curated
+// register of what has actually been measured. Both read-only and fail-soft.
+const aiRegistry      = require("./ai_registry");
+const evidenceRegister = require("./evidence_register");
 // Cohort reachability table. Shared with tasks/cohort_reachability.cjs so the audit
 // script and the server can never describe two different systems.
 const cohortTable = require("./cohort_table");
@@ -262,6 +266,12 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // that WRITES rejections is /api/rejections and stays separately
   // requireLocalOnly — there is no POST at this path.
   "/api/rejection-evidence",
+  // AI Brain catalogue and the measured-claims register. Both are descriptions of
+  // this repo's own contents — skill names, agent names, tool names, and
+  // conclusions already written into commit messages. No keys, no positions, no
+  // levels. Neither has a POST.
+  "/api/ai-registry",
+  "/api/evidence-board",
 ]);
 
 app.use((req, res, next) => {
@@ -2767,6 +2777,49 @@ app.get("/api/rejection-evidence", (_, res) => {
   } catch (e) {
     console.error("[rejection-evidence]", e.message);
     res.status(500).json({ available: false, reason: e.message, gates: {}, setups: {} });
+  }
+});
+
+// What the AI side of this system is MADE OF — 44 skills, 6 agents, the MCP tool
+// catalogue and the guardrails. All of it was on disk and none of it was visible
+// from the page that runs the AI.
+app.get("/api/ai-registry", (_, res) => {
+  try {
+    res.json(aiRegistry.getRegistry());
+  } catch (e) {
+    console.error("[ai-registry]", e.message);
+    res.status(500).json({ skills: [], agents: [], tools: [], guardrails: [], error: e.message });
+  }
+});
+
+// What the system KNOWS versus what it assumes. Curated measured claims joined to
+// the live per-gate verdicts, so a number on this dashboard can always be traced
+// to whether it was ever tested.
+app.get("/api/evidence-board", (_, res) => {
+  try {
+    const register = evidenceRegister.getRegister();
+    let gates = {};
+    let gateTotals = null;
+    try {
+      const evidence = rejectionEvidence.buildEvidence();
+      gates = evidence.gates || {};
+      gateTotals = evidence.totals || null;
+    } catch (e) {
+      // The curated half must still render if the ledger is unreadable.
+      console.error("[evidence-board] gates:", e.message);
+    }
+    res.json({
+      claims: register.claims,
+      claimCounts: register.counts,
+      curatedNote: register.note,
+      gates,
+      gateTotals,
+      feedsTheGate: false,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("[evidence-board]", e.message);
+    res.status(500).json({ claims: [], gates: {}, error: e.message });
   }
 });
 

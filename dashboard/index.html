@@ -130,6 +130,41 @@
     .fvg-fillbar { height:3px; background:var(--border); border-radius:2px; margin-top:3px; overflow:hidden; }
     .fvg-fillbar > div { height:100%; border-radius:2px; }
     .fvg-empty { font-size:.65rem; color:var(--muted); padding:6px 0; line-height:1.6; }
+
+    /* ── AI BRAIN: evidence board, catalogue, guardrails ── */
+    .ai-three { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:14px; }
+    @media (max-width:900px) { .ai-three { grid-template-columns:1fr; } }
+    .ai-scroll { max-height:300px; overflow-y:auto; padding:8px 12px; }
+    .ai-empty { font-size:.68rem; color:var(--muted); padding:8px 0; }
+    .ai-sec-title { font-size:.6rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:8px; }
+    .ai-item { padding:6px 0; border-bottom:1px solid var(--border); }
+    .ai-item:last-child { border-bottom:none; }
+    .ai-item-name { font-size:.72rem; font-weight:700; font-family:'Courier New',monospace; }
+    .ai-item-desc { font-size:.6rem; color:var(--muted); line-height:1.5; margin-top:2px; }
+    .ai-tag { font-size:.52rem; font-weight:800; letter-spacing:.05em; padding:1px 5px; border-radius:3px; margin-left:6px; vertical-align:middle; }
+    /* A tool that can open a position must never look like a tool that reads a number. */
+    .tag-trades   { background:#2d0d0d; color:var(--red);    border:1px solid rgba(239,68,68,.5); }
+    .tag-writes   { background:#2d220a; color:var(--yellow); }
+    .tag-read     { background:#0d1a2d; color:var(--muted); }
+    /* Claim status colours: green only where something is genuinely established. */
+    .claim { border-left:3px solid var(--border); padding:8px 0 8px 10px; margin-bottom:10px; }
+    .claim:last-child { margin-bottom:0; }
+    .claim-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+    .claim-title { font-size:.76rem; font-weight:700; }
+    .claim-status { font-size:.55rem; font-weight:800; letter-spacing:.06em; padding:2px 7px; border-radius:3px; }
+    .claim-row { font-size:.62rem; color:var(--muted); line-height:1.55; margin-top:4px; }
+    .claim-row b { color:var(--text); font-weight:600; }
+    .claim-harness { font-size:.58rem; font-family:'Courier New',monospace; color:var(--accent); margin-top:4px; }
+    .gate-line { display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:5px 0; border-bottom:1px solid var(--border); font-size:.68rem; }
+    .gate-line:last-child { border-bottom:none; }
+    .gate-verdict { font-size:.58rem; font-weight:800; letter-spacing:.04em; }
+    .guard { display:grid; grid-template-columns:auto 1fr; gap:10px; padding:6px 0; border-bottom:1px solid var(--border); align-items:start; }
+    .guard:last-child { border-bottom:none; }
+    .guard-badge { font-size:.52rem; font-weight:800; padding:2px 6px; border-radius:3px; white-space:nowrap; }
+    .guard-code { background:#0d2010; color:var(--green); border:1px solid rgba(34,197,94,.35); }
+    .guard-proc { background:#201a0d; color:var(--yellow); border:1px solid rgba(234,179,8,.3); }
+    .guard-rule { font-size:.7rem; font-weight:600; }
+    .guard-detail { font-size:.6rem; color:var(--muted); line-height:1.55; margin-top:2px; }
     .fvg-reading { border-left:2px solid var(--muted); padding:2px 0 6px 8px; margin-bottom:8px; }
     .fvg-verdict { font-size:.66rem; font-weight:800; letter-spacing:.03em; }
     .fvg-note    { font-size:.6rem; color:var(--muted); line-height:1.55; margin-top:3px; }
@@ -1190,6 +1225,62 @@
 <div id="tab-aibrain" class="tab-panel">
 <div class="container">
 
+  <!-- ── EVIDENCE BOARD ──────────────────────────────────────────────────────
+       The point of this whole tab. Every number this dashboard shows used to
+       appear without any indication of whether it had ever been tested. FVG sat
+       on the Overview looking tradeable for hours before measurement showed it
+       was worse than random. This board answers, for each claim: measured or
+       assumed, on what evidence, and what would change the answer. -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">🧾 Evidence Board — what this system actually knows</div>
+      <span id="eb-counts" style="font-size:.6rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none;padding:12px 14px">
+      <div id="eb-claims"><div class="ai-empty">Loading…</div></div>
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
+        <div class="ai-sec-title">Live gate verdicts — from the rejection ledger</div>
+        <div id="eb-gates"><div class="ai-empty">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SKILLS / AGENTS / TOOLS ─────────────────────────────────────────── -->
+  <div class="ai-three">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">⚡ Skills</div>
+        <span id="ai-skills-count" style="font-size:.6rem;color:var(--muted)">—</span>
+      </div>
+      <div class="panel-body ai-scroll" id="ai-skills"><div class="ai-empty">Loading…</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">🤖 Agents</div>
+        <span id="ai-agents-count" style="font-size:.6rem;color:var(--muted)">—</span>
+      </div>
+      <div class="panel-body ai-scroll" id="ai-agents"><div class="ai-empty">Loading…</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">🔧 MCP Tools</div>
+        <span id="ai-tools-count" style="font-size:.6rem;color:var(--muted)">—</span>
+      </div>
+      <div class="panel-body ai-scroll" id="ai-tools"><div class="ai-empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- ── GUARDRAILS ──────────────────────────────────────────────────────── -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">🛡️ Guardrails — what the AI may not do</div>
+      <span style="font-size:.6rem;color:var(--muted)">ENFORCED IN CODE vs PROCEDURAL</span>
+    </div>
+    <div class="panel-body" style="max-height:none;padding:10px 14px" id="ai-guardrails">
+      <div class="ai-empty">Loading…</div>
+    </div>
+  </div>
+
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
 
     <!-- AI Brain -->
@@ -1279,6 +1370,7 @@ function switchTab(name) {
   if (name === "journal")     loadJournalTab();
   if (name === "signals")     loadSignalsTab();
   if (name === "feed")        loadFeedTab();
+  if (name === "aibrain")     loadAIBrainTab();
 }
 
 // ── Mode toggle ──────────────────────────────────────────────
@@ -2030,6 +2122,154 @@ async function loadSignals() {
     });
     try { renderFeedTags(); } catch (e) { console.error("renderFeedTags:", e); }
   } catch { ["sig-btc","sig-gold","sig-spx"].forEach(id=>{document.getElementById(id).innerHTML=`<div class="sig-loading">Server offline</div>`;});}
+}
+
+// ── AI Brain: evidence board, catalogue, guardrails ──────────
+// Everything here is a READING surface. Nothing on this tab executes a skill,
+// spawns an agent or calls a tool — the catalogue exists so the surface area of
+// what the AI can reach is visible, which it was not.
+function escapeHtml(text) {
+  return String(text == null ? "" : text)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Green is reserved for claims that are genuinely established. A candidate that
+// has not survived a walk-forward must not look the same as gate 70.
+const CLAIM_TONE = {
+  "MEASURED — ROBUST":              { colour: "var(--green)",  bg: "#0d2010" },
+  "CANDIDATE — NEEDS WALK-FORWARD": { colour: "var(--blue)",   bg: "#0d1a2d" },
+  "MEASURED — NO EDGE":             { colour: "var(--red)",    bg: "#2d0d0d" },
+  "CONTRADICTED — TWO SOURCES DISAGREE": { colour: "var(--yellow)", bg: "#2d220a" },
+  "BLOCKED — CANNOT MEASURE YET":   { colour: "var(--muted)",  bg: "#1a1a2e" },
+  "UNMEASURED":                     { colour: "var(--muted)",  bg: "#1a1a2e" },
+};
+
+const GATE_TONE = {
+  "COSTING MONEY":      "var(--red)",
+  "EARNING ITS KEEP":   "var(--green)",
+  "NO MEASURABLE COST": "var(--muted)",
+  "TOO FEW TO JUDGE":   "var(--muted)",
+};
+
+function renderEvidenceBoard(data) {
+  const claimsEl = document.getElementById("eb-claims");
+  const gatesEl  = document.getElementById("eb-gates");
+  const countsEl = document.getElementById("eb-counts");
+  if (!claimsEl) return;
+
+  const claims = data.claims || [];
+  if (countsEl) {
+    countsEl.textContent = Object.entries(data.claimCounts || {})
+      .map(([status, n]) => n + " " + status.split(" — ")[0].toLowerCase()).join(" · ") || "—";
+  }
+
+  claimsEl.innerHTML = claims.length ? claims.map(claim => {
+    const tone = CLAIM_TONE[claim.status] || { colour: "var(--muted)", bg: "#1a1a2e" };
+    return '<div class="claim" style="border-left-color:' + tone.colour + '">'
+      + '<div class="claim-head">'
+      + '<span class="claim-title">' + escapeHtml(claim.title) + '</span>'
+      + '<span class="claim-status" style="background:' + tone.bg + ';color:' + tone.colour + '">'
+      + escapeHtml(claim.status) + '</span>'
+      + (claim.feedsTheGate
+          ? '<span class="ai-tag tag-writes">FEEDS THE GATE</span>'
+          : '<span class="ai-tag tag-read">no vote</span>')
+      + '<span style="font-size:.55rem;color:var(--muted);margin-left:auto">' + escapeHtml(claim.measuredOn) + '</span>'
+      + '</div>'
+      + '<div class="claim-row"><b>Evidence:</b> ' + escapeHtml(claim.evidence) + '</div>'
+      + (claim.caveat ? '<div class="claim-row"><b>Caveat:</b> ' + escapeHtml(claim.caveat) + '</div>' : '')
+      + '<div class="claim-row"><b>What would change the answer:</b> ' + escapeHtml(claim.changesTheAnswer) + '</div>'
+      + (claim.harness ? '<div class="claim-harness">' + escapeHtml(claim.harness) + '</div>' : '')
+      + '</div>';
+  }).join("") : '<div class="ai-empty">No claims registered.</div>';
+
+  const gates = data.gates || {};
+  const gateNames = Object.keys(gates);
+  if (gatesEl) {
+    gatesEl.innerHTML = gateNames.length ? gateNames.map(name => {
+      const gate = gates[name];
+      const tone = GATE_TONE[gate.verdict] || "var(--muted)";
+      return '<div class="gate-line">'
+        + '<span style="font-weight:700;font-family:\'Courier New\',monospace">' + escapeHtml(name) + '</span>'
+        + '<span style="color:var(--muted);font-size:.6rem;flex:1">' + escapeHtml(gate.detail || "") + '</span>'
+        + '<span class="gate-verdict" style="color:' + tone + '">' + escapeHtml(gate.verdict) + '</span>'
+        + '</div>';
+    }).join("")
+      + (data.gateTotals
+          ? '<div style="font-size:.58rem;color:var(--muted);margin-top:6px">'
+            + data.gateTotals.resolved + ' resolved · ' + data.gateTotals.pending
+            + ' pending · forgone PAPER trades, not realised P&amp;L. Where this '
+            + 'contradicts a walk-forward, the walk-forward wins.</div>'
+          : "")
+      : '<div class="ai-empty">No scored rejections yet.</div>';
+  }
+}
+
+function renderRegistry(data) {
+  const put = (id, items, renderItem, countId, countText) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = (items && items.length)
+      ? items.map(renderItem).join("")
+      : '<div class="ai-empty">None found.</div>';
+    const countEl = document.getElementById(countId);
+    if (countEl) countEl.textContent = countText;
+  };
+
+  put("ai-skills", data.skills, s =>
+    '<div class="ai-item"><div class="ai-item-name">/' + escapeHtml(s.name) + '</div>'
+    + '<div class="ai-item-desc">' + escapeHtml(s.description) + '</div></div>',
+    "ai-skills-count", (data.counts ? data.counts.skills : 0) + " available");
+
+  put("ai-agents", data.agents, a =>
+    '<div class="ai-item"><div class="ai-item-name">' + escapeHtml(a.name) + '</div>'
+    + '<div class="ai-item-desc">' + escapeHtml(a.description) + '</div></div>',
+    "ai-agents-count", (data.counts ? data.counts.agents : 0) + " spawnable");
+
+  put("ai-tools", data.tools, t => {
+    const cls = t.mutates === "TRADES" ? "tag-trades" : t.mutates === "writes" ? "tag-writes" : "tag-read";
+    return '<div class="ai-item"><div class="ai-item-name">' + escapeHtml(t.name)
+      + '<span class="ai-tag ' + cls + '">' + escapeHtml(t.mutates) + '</span></div>'
+      + '<div class="ai-item-desc">' + escapeHtml(t.description) + '</div></div>';
+  }, "ai-tools-count",
+    (data.counts ? data.counts.tools : 0) + " tools · "
+    + (data.counts ? data.counts.toolsThatTrade : 0) + " can trade");
+
+  const guardEl = document.getElementById("ai-guardrails");
+  if (guardEl) {
+    const rails = data.guardrails || [];
+    guardEl.innerHTML = rails.length ? rails.map(g => {
+      const enforced = g.enforcement === "ENFORCED IN CODE";
+      return '<div class="guard">'
+        + '<span class="guard-badge ' + (enforced ? "guard-code" : "guard-proc") + '">'
+        + escapeHtml(enforced ? "IN CODE" : "PROCEDURAL") + '</span>'
+        + '<div><div class="guard-rule">' + escapeHtml(g.rule) + '</div>'
+        + '<div class="guard-detail">' + escapeHtml(g.detail) + '</div></div>'
+        + '</div>';
+    }).join("") : '<div class="ai-empty">No guardrails registered.</div>';
+  }
+}
+
+async function loadAIBrainTab() {
+  // Independent so a failure in one panel cannot blank the other.
+  const [boardRes, registryRes] = await Promise.allSettled([
+    fetch(API + "/evidence-board", { cache: "no-store" }).then(r => r.json()),
+    fetch(API + "/ai-registry",    { cache: "no-store" }).then(r => r.json()),
+  ]);
+  if (boardRes.status === "fulfilled") {
+    try { renderEvidenceBoard(boardRes.value); } catch (e) { console.error("evidence board:", e); }
+  } else {
+    const el = document.getElementById("eb-claims");
+    if (el) el.innerHTML = '<div class="ai-empty">Evidence board unavailable — server offline?</div>';
+  }
+  if (registryRes.status === "fulfilled") {
+    try { renderRegistry(registryRes.value); } catch (e) { console.error("ai registry:", e); }
+  } else {
+    ["ai-skills","ai-agents","ai-tools","ai-guardrails"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '<div class="ai-empty">Catalogue unavailable.</div>';
+    });
+  }
 }
 
 // ── AI Brain ─────────────────────────────────────────────────
