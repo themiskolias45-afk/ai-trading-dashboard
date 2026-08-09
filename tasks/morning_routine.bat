@@ -26,7 +26,7 @@ echo  ==========================================
 set /p AIASK=" Want AI commentary? (Y/N): "
 if /i "%AIASK%"=="Y" (
   echo  Running AI analysis...
-  claude --dangerously-skip-permissions -p "JARVIS: Read tasks/logs/morning_latest.txt. Give a 5-line trading brief: market regime, best opportunity today, main risk, one key price level to watch, one-line verdict."
+  call claude --dangerously-skip-permissions -p "JARVIS: Read tasks/logs/morning_latest.txt. Give a 5-line trading brief: market regime, best opportunity today, main risk, one key price level to watch, one-line verdict."
 )
 echo.
 echo  Report saved to: tasks\logs\morning_latest.txt

@@ -14,7 +14,7 @@ REM space -- "signals_20260708_ 905.txt". One format string fixes both.
 for /f %%D in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmm"') do set "STAMP=%%D"
 set LOGFILE=tasks\logs\signals_%STAMP%.txt
 
-claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/signals.json. If any asset has confidence >= 65, output: SIGNAL ALERT - [asset] [direction] [setup] conf:[N]%% entry:[price] stop:[price] target:[price] R:R:[N]. If nothing actionable, output: NO SIGNAL. One line only." > %LOGFILE% 2>&1
+call claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/signals.json. If any asset has confidence >= 65, output: SIGNAL ALERT - [asset] [direction] [setup] conf:[N]%% entry:[price] stop:[price] target:[price] R:R:[N]. If nothing actionable, output: NO SIGNAL. One line only." > %LOGFILE% 2>&1
 
 REM If an actionable signal was found, pop up a notification
 findstr /i "SIGNAL ALERT" %LOGFILE% >nul

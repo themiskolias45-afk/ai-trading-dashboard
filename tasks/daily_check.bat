@@ -18,11 +18,11 @@ echo  Data fetched. Running Claude analysis...
 echo.
 
 REM Claude reads the saved files - no HTTP permission needed
-claude --dangerously-skip-permissions -p "JARVIS: Analyse this SmartEntry Pro data. Read these files: tasks/temp/signals.json (live signals), tasks/temp/risk.json (risk status), tasks/temp/prices.json (prices), server/journal.json (trade history - may not exist yet). Report: 1) Live prices for BTC/Gold/SPY. 2) Each signal: direction, confidence, setup, entry/stop/target, R:R. Mark ** ACTIONABLE ** if confidence >= 65. 3) Risk status: daily P&L, consecutive losses, halted. 4) Last 3 journal trades if available. 5) One-line verdict: TRADE TODAY or WAIT. Max 30 lines."
+call claude --dangerously-skip-permissions -p "JARVIS: Analyse this SmartEntry Pro data. Read these files: tasks/temp/signals.json (live signals), tasks/temp/risk.json (risk status), tasks/temp/prices.json (prices), server/journal.json (trade history - may not exist yet). Report: 1) Live prices for BTC/Gold/SPY. 2) Each signal: direction, confidence, setup, entry/stop/target, R:R. Mark ** ACTIONABLE ** if confidence >= 65. 3) Risk status: daily P&L, consecutive losses, halted. 4) Last 3 journal trades if available. 5) One-line verdict: TRADE TODAY or WAIT. Max 30 lines."
 
 echo.
 echo  Report saved to: tasks\logs\
-claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/signals.json and tasks/temp/risk.json. Write a one-paragraph summary to tasks/logs/daily_%DATE:~-4,4%%DATE:~-10,2%%DATE:~-7,2%.txt with today's signal status, risk status, and recommendation. No more than 5 sentences."
+call claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/signals.json and tasks/temp/risk.json. Write a one-paragraph summary to tasks/logs/daily_%DATE:~-4,4%%DATE:~-10,2%%DATE:~-7,2%.txt with today's signal status, risk status, and recommendation. No more than 5 sentences."
 
 echo.
 pause
