@@ -5498,6 +5498,42 @@ function deriveActionItems(context) {
       detail: `Last check-in is older than ${heartbeats.staleAfterMinutes} minutes. It was reporting and is not now — check whether the machine is asleep, shut, or has lost its network.`,
     });
   }
+  // Divergence detected from a PUSH. The always-on box cannot pull from the laptop,
+  // so until the check-in carried state, the one box that runs continuously could
+  // never tell that its partner was gating trades differently.
+  for (const beat of heartbeats.seen) {
+    const reported = beat.state;
+    if (!reported || beat.stale) continue;
+    if (reported.gate !== null && localGate !== null && reported.gate !== localGate) {
+      actionItems.push({
+        severity: "high",
+        title: `Confidence gate differs — ${localGate} here, ${reported.gate} on ${beat.box}`,
+        detail: "Reported by that box's own check-in. strategy_settings.json is per-machine and untracked, so a shared commit does not mean shared behaviour: the two boxes admit different trades from identical bars and their journals cannot be pooled.",
+      });
+    }
+    if (reported.halted) {
+      actionItems.push({
+        severity: "high",
+        title: `Circuit breaker open on ${beat.box}`,
+        detail: (reported.haltReason || "Trading is halted there.") + " Reported by its own check-in — nothing here can reach that box to ask.",
+      });
+    }
+    if (reported.settingsError) {
+      actionItems.push({
+        severity: "high",
+        title: `${beat.box} is running built-in defaults, not its saved config`,
+        detail: `Its strategy_settings.json did not load (${reported.settingsError}). It is sizing and gating on defaults right now.`,
+      });
+    }
+    if ((reported.bridgesSilent || []).length > 0) {
+      actionItems.push({
+        severity: "high",
+        title: `Bridge ${reported.bridgesSilent.join(", ")} silent on ${beat.box}`,
+        detail: "That box declares the account and reports no heartbeat from its bridge. Its trades are not being placed.",
+      });
+    }
+  }
+
   if (heartbeats.expected.length === 0) {
     standingNotes.push({
       severity: "low",
@@ -5819,8 +5855,38 @@ function saveProposals(data) {
 // setting. The worst a caller with the secret can do is lie about being alive.
 const peerHeartbeats = {};
 
+/**
+ * What the reporting box is RUNNING, not merely that it is running.
+ *
+ * The pull probe cannot work in this direction — the laptop is not addressable from
+ * outside — so without this the always-on box knows its peer is alive and nothing
+ * else: not its gate, not whether its breaker is open, not whether its bridges are
+ * armed. That is the same single-box blindness the Systems Plan was built to end,
+ * left standing in the one direction that could not be fixed by pulling.
+ *
+ * Whitelisted and bounded field by field. The caller is already authenticated by
+ * AGENT_RELAY_SECRET and this is display-only — it feeds no gate, sizes nothing,
+ * and arms nothing. Unknown keys are dropped rather than stored.
+ */
+function sanitizeHeartbeatState(state) {
+  if (!state || typeof state !== "object") return null;
+  const finiteOrNull = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  const shortTags = (value) => (Array.isArray(value) ? value.slice(0, 8).map(tag => String(tag).slice(0, 16)) : []);
+  return {
+    gate:                finiteOrNull(state.gate),
+    dailyPnl:            finiteOrNull(state.dailyPnl),
+    unreviewedProposals: finiteOrNull(state.unreviewedProposals),
+    halted:              state.halted === true,
+    haltReason:          typeof state.haltReason === "string" ? state.haltReason.slice(0, 120) : "",
+    settingsError:       typeof state.settingsError === "string" ? state.settingsError.slice(0, 120) : null,
+    bridgesLive:         shortTags(state.bridgesLive),
+    bridgesSilent:       shortTags(state.bridgesSilent),
+    armed:               shortTags(state.armed),
+  };
+}
+
 app.post("/api/peer-heartbeat", (req, res) => {
-  const { secret, box, status, detail } = req.body || {};
+  const { secret, box, status, detail, state } = req.body || {};
   if (!AGENT_RELAY_SECRET || secret !== AGENT_RELAY_SECRET) {
     return res.status(403).json({ error: "invalid or missing secret" });
   }
@@ -5829,9 +5895,10 @@ app.post("/api/peer-heartbeat", (req, res) => {
     box:    name,
     status: typeof status === "string" ? status.slice(0, 32) : "unknown",
     detail: typeof detail === "string" ? detail.slice(0, 300) : null,
+    state:  sanitizeHeartbeatState(state),
     at:     new Date().toISOString(),
   };
-  res.json({ ok: true, recorded: name });
+  res.json({ ok: true, recorded: name, stateAccepted: peerHeartbeats[name].state !== null });
 });
 
 app.get("/api/peer-heartbeat", (_, res) => {

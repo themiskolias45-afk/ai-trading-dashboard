@@ -258,7 +258,9 @@ function renderComponents(data) {
     names.forEach(name => {
       const beat = seenByName[name.toUpperCase()];
       const declared = expectedBoxes.some(n => n.toUpperCase() === name.toUpperCase());
-      let cls, value, detail;
+      // detail is plain text and gets escaped at render; detailExtraHtml is already
+      // escaped and carries its own markup, so the two are concatenated separately.
+      let cls, value, detail, detailExtraHtml = '';
       if (!beat) {
         cls = declared ? 'bad' : 'idle';
         value = declared ? 'SILENT' : 'NOT SEEN';
@@ -270,9 +272,23 @@ function renderComponents(data) {
         value = beat.stale ? 'STALE' : String(beat.status || 'seen').toUpperCase();
         detail = (beat.detail || 'reported in') + ' · ' + beat.ageSeconds + 's ago'
           + (declared ? '' : ' · not declared, informational only');
+        // What that box is RUNNING, self-reported. This is the only way the
+        // always-on machine learns its partner's gate — it cannot pull from it.
+        const reported = beat.state;
+        if (reported) {
+          const facts = [];
+          if (reported.gate !== null && reported.gate !== undefined) facts.push('gate ' + reported.gate);
+          facts.push(reported.halted ? 'BREAKER OPEN' : 'breaker closed');
+          if ((reported.armed || []).length) facts.push('armed ' + reported.armed.join(','));
+          else facts.push('nothing armed');
+          if ((reported.bridgesSilent || []).length) facts.push('SILENT ' + reported.bridgesSilent.join(','));
+          if (reported.settingsError) facts.push('RUNNING DEFAULTS');
+          if (reported.unreviewedProposals) facts.push(reported.unreviewedProposals + ' unreviewed');
+          detailExtraHtml = '<br>it reports: ' + esc(facts.join(' · '));
+        }
       }
       parts.push('<div class="row"><div><div class="row-label">Check-in ' + esc(name) + '</div>'
-        + '<div class="row-detail">' + esc(detail) + '</div></div>'
+        + '<div class="row-detail">' + esc(detail) + detailExtraHtml + '</div></div>'
         + '<div class="row-value ' + cls + '">' + esc(value) + '</div></div>');
     });
   }
