@@ -18,7 +18,12 @@ Log "=== SmartEntry Pro Auto-Start ==="
 Log "Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 
 # 2. START NODE SERVER
-$serverRunning = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
+# /api/status, NOT /api/health. Both exist, but /api/health is not in the server's
+# no-login allowlist, so once DASHBOARD_USERNAME/PASSWORD were set it began answering
+# 401 to this probe. Invoke-WebRequest THROWS on 401, the catch returns $false, and a
+# healthy server read as absent — so this guard failed open and started a second node
+# on every run, exactly like the Get-Process CommandLine guard below it.
+$serverRunning = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/status' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
 if ($serverRunning) {
     Log "SERVER: already running on port 3001"
 } else {
@@ -30,7 +35,7 @@ if ($serverRunning) {
         -RedirectStandardError  "$proj\tasks\logs\server_err.txt" `
         -NoNewWindow
     Start-Sleep 3
-    $check = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
+    $check = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/status' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
     if ($check) { Log "SERVER: started OK" } else { Log "SERVER: FAILED TO START -- check tasks\logs\server_err.txt" }
 }
 
@@ -131,10 +136,13 @@ try {
 
 # 5. CHECK LAST TRADE DATE
 try {
+    # { journal: [...] }, never { trades: [...] }, and entries carry openTime, not
+    # timestamp. Both field names were wrong, so this logged "no trades in journal"
+    # on every startup and the NO TRADE IN N DAYS alert could never fire.
     $journal = Invoke-RestMethod -Uri 'http://localhost:3001/api/journal' -TimeoutSec 5
-    $trades = $journal.trades
+    $trades = $journal.journal
     if ($trades -and $trades.Count -gt 0) {
-        $lastTrade = $trades[0].timestamp -replace 'T.*',''
+        $lastTrade = $trades[0].openTime -replace 'T.*',''
         $daysSince = ((Get-Date) - [DateTime]$lastTrade).Days
         if ($daysSince -ge 3) {
             Log "TRADE ALERT: !!! NO TRADE IN $daysSince DAYS (last: $lastTrade) -- run /daily immediately"
