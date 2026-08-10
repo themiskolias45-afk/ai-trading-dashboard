@@ -72,11 +72,37 @@ consecutive_losses = 0
 MAX_CONSECUTIVE_LOSSES = int(os.environ.get("MAX_CONSEC_LOSSES", "3"))
 trading_halted   = False
 halt_reason      = ""
+daily_pnl_date   = datetime.now().date()   # calendar day daily_pnl belongs to
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def reset_daily_risk_if_new_day():
+    """Roll daily_pnl and consecutive_losses over at the day boundary, and auto-clear
+    any halt caused by the daily loss limit.
+
+    The bridge is a long-running process (days/weeks between restarts), but nothing
+    was ever zeroing these counters. That meant daily_pnl was actually cumulative
+    P&L since process start, so a bad day early in the bridge's uptime could trip
+    the "daily" loss limit and leave trading_halted permanently stuck — even on a
+    later, healthy trading day — with no automatic recovery.
+    """
+    global daily_pnl, consecutive_losses, trading_halted, halt_reason, daily_pnl_date
+    today = datetime.now().date()
+    if today == daily_pnl_date:
+        return
+    log(f"New trading day ({today}) — resetting daily P&L (was ${daily_pnl:.2f}) and loss streak", CYAN)
+    daily_pnl_date = today
+    daily_pnl = 0.0
+    consecutive_losses = 0
+    if trading_halted:
+        log("Circuit breaker auto-cleared for new trading day", GREEN + BOLD)
+        trading_halted = False
+        halt_reason = ""
+
+
 def check_circuit_breaker():
     global trading_halted, halt_reason
+    reset_daily_risk_if_new_day()
     if trading_halted:
         return True
     acc = mt5.account_info()
