@@ -1565,17 +1565,29 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? [], dxyDailyCloses, { ...(barSource ?? {}), timeframe: "D1" });
   if (!daily) return null;
 
+  // A throw here is NOT the same as "not enough bars" and NOT the same as "H4 had
+  // no opinion" — see the h4 === null note in the confidence block below. All three
+  // land on null, and only this log tells them apart. Without it a broken helper
+  // silently demotes every setup on this ticker to daily-only, drops confidence
+  // under the gate, and reads as a quiet market. The fallback is unchanged: null
+  // still means "could not compute", so nothing is blocked that would have fired.
   let h4 = null;
   try {
     if (h4Data?.closes?.length >= 50)
       h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows, h4Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H4" });
-  } catch (e) {}
+  } catch (e) {
+    console.error(`[signals] ${label} (${ticker}) H4 leg threw — confidence collapses to daily-only 40: ${e && e.message ? e.message : String(e)}`);
+  }
 
   let h1 = null;
   try {
     if (h1Data?.closes?.length >= 50)
       h1 = generateSignal(label, ticker, h1Data.closes, h1Data.highs, h1Data.lows, h1Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H1" });
-  } catch (e) {}
+  } catch (e) {
+    // NOT daily-only: h4 is untouched. Only the triple-alignment boost at the
+    // `h4 && h1` check below is lost, which is worth up to 16 points (88 -> 72).
+    console.error(`[signals] ${label} (${ticker}) H1 leg threw — triple-alignment boost unavailable: ${e && e.message ? e.message : String(e)}`);
+  }
 
   // Confidence: rises when both timeframes agree
   const isH4Only = h4 && h4.signal !== "WAIT" && daily.signal === "WAIT";
