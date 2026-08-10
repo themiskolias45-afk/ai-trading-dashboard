@@ -34,6 +34,11 @@ At the start of every interactive session:
    - GET `http://localhost:3001/api/signals` → all 3 assets, confidence, updatedAt
    - GET `http://localhost:3001/api/risk-status` → halted, consecutiveLosses, regime
    - GET `http://localhost:3001/api/journal?limit=20` → find last trade date per asset
+   - `get_fleet_status` (MCP) → **both boxes**, not this one. This system runs on two
+     machines and the VPS is the one that trades continuously. Every expensive failure
+     has been a divergence while both boxes reported healthy, so a check that reads one
+     machine is not a check. Read `verdict`, `divergence.gate`, `parity`, and
+     `unreviewedProposals.fleetUnreviewed`.
 
 6. Compute per-asset gap from signals response:
    - Read the live gate from `GET /api/strategy-settings` (`confidenceThreshold`) —
@@ -46,6 +51,8 @@ At the start of every interactive session:
 
 **Welcome line format (in priority order — use the first that applies):**
 - Server offline: "JARVIS online. WARNING: SmartEntry server is offline — run option S in tasks\menu.bat. What do you need?"
+- Fleet diverges (`get_fleet_status` verdict is FLEET DIVERGES or PEER UNREACHABLE):
+  "JARVIS online. ⚠ FLEET SPLIT: [what differs — gate X here vs Y there / engines diverge / VPS not answering]. Numbers that pool both boxes are unattributable until this is reconciled. What do you need?"
 - Circuit breaker open (halted=true): "JARVIS online. ⚠ TRADING HALTED — circuit breaker open ([X] consecutive losses). Reset manually or wait for reset. What do you need?"
 - Signal ready (confidence ≥ the live gate and not halted): "JARVIS online. SIGNAL READY: [asset] [direction] [confidence]% — Entry $X, Stop $X. Approve to execute or type /scan for detail."
 - SIGNAL-DEAD on any asset: "JARVIS online. ⚠ WARNING: [asset] has not fired in [N] days (conf [X]%, gap [Gpt]). Run /diagnose to find why. Other assets: [brief conf list]."
@@ -99,9 +106,15 @@ To use full power: open `claude` interactively. Say what you want — JARVIS bui
 | `brave-search` | Real-time web search |
 | `puppeteer` | **Full browser control** — navigate, click, fill, screenshot, run JS on any page |
 | `exa` | Second web-search provider, for research the Brave index misses |
-| `smartentry` | **The trading system itself — 22 tools.** Declared in `.mcp.json`, not settings.json |
+| `smartentry` | **The trading system itself.** Declared in `.mcp.json`, not settings.json. Never write the tool count here — it was stale within a week, twice; `get_ai_registry` counts them live |
 
-The three most load-bearing `smartentry` tools, all added 2026-08-02:
+The most load-bearing `smartentry` tools:
+- `get_fleet_status` — **both boxes in one call** (added 2026-08-10). What is ARMED per
+  account per box, both confidence gates, engine-parity verdict with its age, peer
+  check-ins, and unreviewed AI-employee proposals on BOTH machines. Every other health
+  tool describes one machine while sounding like it describes the system. Reaches
+  session-gated routes; the MCP server holds its own login rather than the routes
+  being opened — see [[keep_everything_login_gated_until_stable]].
 - `get_strategy_settings` — the config actually in force. Check `settingsError` first;
   non-null means defaults are running, not the saved file.
 - `get_mt5_health` — the only authoritative bridge liveness test, per account tag.
@@ -136,6 +149,18 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - **Verify the date.** Check actual system date before writing dates into anything permanent.
 - **Locked decisions stay locked.** If an instruction contradicts a rule marked "Locked" or a prior decision, surface it instead of silently overriding.
 - **Memory is mandatory.** After every session where something new was built, learned, or fixed — call `mcp__memory__create_entities` to persist it. A fact not in memory is lost on next session.
+- **A setting with no reader is decoration.** Before trusting any control, grep the
+  state it writes and count the READERS. The Auto Trade mode cards wrote
+  `localStorage` that nothing read: clicking "Semi Auto" turned a card blue while every
+  bridge kept auto-executing. A decoration shaped like a safety switch is worse than no
+  switch. Same question retires stale status text: what reads this, and what would
+  make it change?
+- **Restarting the server: the documented process filter is not enough.**
+  `CommandLine -like '*index.js*'` also matches every npx-launched node process
+  (`_npx\<hash>\node_modules\.bin\...\index.js`) — sixteen matches on this laptop.
+  Exclude `*_npx*`, `*npm-cache*`, `*node_modules*`, assert exactly one match before
+  killing, and confirm the new `startedAt` from `/api/status`. A restart that silently
+  no-opped looks exactly like the code change not working.
 - **Test before done.** Never say a task is complete without verifying the changed code actually runs. Run `node --check` on JS, `python -m py_compile` on Python, hit the relevant API endpoint. If it can't be verified, say so explicitly.
 - **Security before commit.** Every file edit: check it contains no API keys, passwords, or tokens. If a pattern like `sk-ant-` or `password=` appears, stop and fix it first.
 - **Tasks for multi-step work.** Any task with 3+ steps: create a task with TaskCreate, update status at each step, mark complete when verified working — not when code is written.
@@ -222,11 +247,25 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - **AI Brain page = the control surface.** `GET /api/evidence-board` (what the
   system KNOWS vs assumes — every claim carries its verdict, evidence, caveat and
   **what would change the answer**, joined to live gate verdicts) and
-  `GET /api/ai-registry` (44 skills, 6 agents, 23 MCP tools each tagged
+  `GET /api/ai-registry` (skills, agents and MCP tools each tagged
   read-only / writes / **TRADES**, plus the guardrails marked ENFORCED IN CODE vs
-  PROCEDURAL). Curated claims live in `server/evidence_register.js` — **update it
-  whenever something is measured**, or the board goes stale and starts lying.
+  PROCEDURAL — counts are live, never quote them from memory). Curated claims live in
+  `server/evidence_register.js` — **update it whenever something is measured**, or the
+  board goes stale and starts lying.
   Reading surfaces only: nothing there runs a skill, spawns an agent or calls a tool.
+- **The fleet is two boxes, and a page that shows one is not a status page.**
+  `GET /api/system-plan` (this box beside the peer: health, gate, breaker, bridges,
+  config source, engine parity, check-ins, plus action items that CAN clear and
+  standing notes that are true-but-accepted) and `GET /api/fleet` (what is armed per
+  account per box, settings compared field by field, both AI-employee ledgers). Both
+  session-gated. Config lives in each machine's `keys.env`, which is gitignored:
+  - Laptop: `PEER_SERVER_URL=http://169.58.74.133:3001` — it pulls and compares.
+  - VPS: `PEER_HEARTBEAT_EXPECT=THEMIS` — the laptop cannot be reached from outside,
+    so the only signal it is alive is its own 5-minute push. Silent >15 min is a
+    high action item there. See [[peer_heartbeat_was_401_for_a_week]].
+  **An action item that cannot clear is worse than none** — it trains you to skim past
+  the one that matters. Every item must state the condition that retires it; anything
+  permanent belongs in standing notes.
 - **The gate funnel dies at CONFIDENCE, and that is why 6 of 10 gates look silent.**
   Verified 2026-08-09: MIN_RR killed 3 / passed 11, CONFIDENCE killed 5 / **passed 1**.
   `ENTRY_RSI` is disarmed by config (`minEntryRsi: 0`) and only counts passes while
