@@ -59,6 +59,16 @@ const TRACKED = [
   "server/evidence_register.js", "server/ai_registry.js", "server/mcp_server.js",
   "mt5_bridge.py",
   "dashboard/index.html", "dashboard/jarvis.html",
+  "dashboard/plan.html", "dashboard/system.html",
+  // The job scripts. Omitting these is how the two boxes' schedulers drifted apart
+  // unnoticed: the VPS runs auto_weekly_vps.bat, which lacked the completion marker
+  // its laptop twin has had since 2026-08-09, so every VPS weekly reported
+  // unconfirmable completion while the scheduler recorded success. A file nothing
+  // compares is a file that diverges. The _vps variants are listed BECAUSE they are
+  // per-machine — MISSING on the laptop is expected and reads as such.
+  "tasks/auto_weekly.bat", "tasks/auto_daily.bat", "tasks/drain_agents.bat",
+  "tasks/auto_weekly_vps.bat", "tasks/auto_daily_vps.bat",
+  "tasks/vps_monitor.ps1", "tasks/vps_parity.cjs",
 ];
 
 // The functions that decide whether a trade happens. If these agree, the two

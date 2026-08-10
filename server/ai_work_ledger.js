@@ -89,8 +89,17 @@ function describeTaskResult(code) {
   return TASK_RESULT_MEANING[code] ? `${code} (${TASK_RESULT_MEANING[code]})` : String(code);
 }
 
-/** A result the scheduler itself considers a failure. Running and never-run are not. */
-function taskResultIsFailure(code) {
+/**
+ * A result the scheduler itself considers a failure. Running and never-run are not.
+ *
+ * A DISABLED task is never failing, whatever its last result says. SmartEntryBridgeB
+ * is disabled deliberately — that box holds one broker account and a second bridge
+ * would double every trade — and its last recorded result is 267014, "terminated by
+ * user", from the day it was switched off. Reporting that as FAILING would put a
+ * permanent red row in a list whose whole purpose is that a red row means something.
+ */
+function taskResultIsFailure(code, state) {
+  if (String(state || "").toLowerCase() === "disabled") return false;
   return code !== null && code !== undefined && code !== 0 && code !== 267009 && code !== 267011;
 }
 
@@ -155,7 +164,8 @@ function summariseUnappraised(scheduledTasks, linkedTaskNames) {
       lastRun: task.lastRun || null,
       lastResult: task.lastResult ?? null,
       resultMeaning: describeTaskResult(task.lastResult),
-      failing: taskResultIsFailure(task.lastResult),
+      failing: taskResultIsFailure(task.lastResult, task.status),
+      disabled: String(task.status || "").toLowerCase() === "disabled",
       runs: task.taskToRun || null,
     }))
     // Failures first: this list exists to surface them, not to be scrolled past.
@@ -191,7 +201,7 @@ function build(options = {}) {
               nextRun: linkedTask.nextRun || null,
               lastResult: linkedTask.lastResult ?? null,
               resultMeaning: describeTaskResult(linkedTask.lastResult),
-              failing: taskResultIsFailure(linkedTask.lastResult),
+              failing: taskResultIsFailure(linkedTask.lastResult, linkedTask.status),
               runs: linkedTask.taskToRun || null,
             }
           : { known: true, found: false, declaredName: job.task })

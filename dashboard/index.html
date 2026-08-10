@@ -2428,8 +2428,8 @@ function renderAiWork(data) {
         + others.length + ' task' + (others.length === 1 ? '' : 's')
         + (failing ? ', <span style="color:var(--red)">' + failing + ' failing</span>' : '') + '</div>'
         + others.map(t => '<div class="aw-job">'
-            + '<span class="aw-verdict ' + (t.failing ? "aw-bad" : "aw-ok") + '">'
-            + escapeHtml(t.failing ? "FAILING" : "ok") + "</span>"
+            + '<span class="aw-verdict ' + (t.failing ? "aw-bad" : t.disabled ? "aw-unknown" : "aw-ok") + '">'
+            + escapeHtml(t.failing ? "FAILING" : t.disabled ? "disabled" : "ok") + "</span>"
             + '<div><div class="aw-name">' + escapeHtml(t.name) + "</div>"
             + '<div class="aw-detail">' + escapeHtml(t.runs || "—") + "</div></div>"
             + '<div class="aw-meta">rc ' + escapeHtml(t.resultMeaning)

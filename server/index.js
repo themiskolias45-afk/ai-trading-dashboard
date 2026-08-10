@@ -5177,7 +5177,12 @@ const BACKUP_DIRS = [
 // Slower than the plain query (it returns every column for every task), so it gets
 // its own cache. Windows-only, like the query above; anything else reports null and
 // the ledger falls back to reading log files alone.
-const VERBOSE_TASK_CACHE_MS = 60 * 1000;
+// The verbose query returns EVERY column for every task — 326 lines and 150KB on the
+// VPS, measured at 7.3s there against a shared 8s budget it kept losing by a whisker.
+// It gets its own, larger timeout and a long cache: scheduled-task results change on
+// the order of hours, so paying this once every five minutes is right.
+const VERBOSE_TASK_TIMEOUT_MS = 25 * 1000;
+const VERBOSE_TASK_CACHE_MS   = 5 * 60 * 1000;
 let verboseTaskCache = { at: 0, value: null };
 
 function readScheduledTasksVerbose() {
@@ -5196,7 +5201,7 @@ function readScheduledTasksVerbose() {
       if (value) verboseTaskCache = { at: Date.now(), value };
       resolve(value);
     };
-    const timer = setTimeout(() => { child.kill(); finish(null); }, TASK_QUERY_TIMEOUT_MS);
+    const timer = setTimeout(() => { child.kill(); finish(null); }, VERBOSE_TASK_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
     child.on("error", () => { clearTimeout(timer); finish(null); });
