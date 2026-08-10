@@ -5776,6 +5776,150 @@ app.get("/api/system-plan", async (_, res) => {
   }
 });
 
+// ── /api/now — what time it is, and how long ago everything happened ─────────
+//
+// Nothing here ever answered "when". The logs are LOCAL time, every API is UTC, and
+// on 2026-08-10 that cost a near-miss: bridge_log_A.txt read 16:17 while /api/status
+// said 13:38Z and the log looked corrupt or the clock wrong. It was BST. A system
+// that reasons about market sessions, bar staleness and "has this fired in 7 days"
+// cannot hold time as an afterthought.
+//
+// Ages are the point. "Signal cache updated 2026-08-10T13:38Z" needs arithmetic to
+// act on; "4 minutes ago" does not — and the mistakes this system has actually made
+// were staleness mistakes: a wedged terminal staying green, positions reading zero
+// after a restart, a bridge that had not pushed in an hour looking identical to a
+// quiet market.
+const MS = { minute: 60000, hour: 3600000, day: 86400000 };
+
+/** "3h 12m ago" — the form a human acts on, alongside the ISO the machine needs. */
+function humanAge(ms) {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return null;
+  if (ms < 0) return "in the future";
+  if (ms < 45 * 1000) return "just now";
+  const days = Math.floor(ms / MS.day);
+  const hours = Math.floor((ms % MS.day) / MS.hour);
+  const minutes = Math.floor((ms % MS.hour) / MS.minute);
+  if (days > 0)  return `${days}d ${hours}h ago`;
+  if (hours > 0) return `${hours}h ${minutes}m ago`;
+  return `${minutes}m ago`;
+}
+
+/** Every timestamp on this system is reported the same way: when, how long, in words. */
+function ageOf(timestamp) {
+  if (!timestamp) return { at: null, ageMs: null, human: "never" };
+  const at = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  if (isNaN(at.getTime())) return { at: null, ageMs: null, human: "unreadable" };
+  const ageMs = Date.now() - at.getTime();
+  return { at: at.toISOString(), ageMs, human: humanAge(ageMs) };
+}
+
+/** ISO-8601 week number — the unit weekly jobs and weekly reviews are keyed to. */
+function isoWeek(date) {
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNumber = (target.getUTCDay() + 6) % 7;          // Monday = 0
+  target.setUTCDate(target.getUTCDate() - dayNumber + 3);  // nearest Thursday
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+  const firstDayNumber = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNumber + 3);
+  return 1 + Math.round((target - firstThursday) / (7 * MS.day));
+}
+
+// UTC hour boundaries, matching getCurrentSession above so the two can never drift.
+const SESSION_SCHEDULE = [
+  { name: "ASIAN",      startUtcHour: 22, endUtcHour: 7  },
+  { name: "PRE-LONDON", startUtcHour: 7,  endUtcHour: 9  },
+  { name: "LONDON",     startUtcHour: 9,  endUtcHour: 12 },
+  { name: "OVERLAP",    startUtcHour: 12, endUtcHour: 13 },
+  { name: "NEW YORK",   startUtcHour: 13, endUtcHour: 17 },
+  { name: "AFTER HOURS",startUtcHour: 17, endUtcHour: 22 },
+];
+
+function nextSessionTransition(now) {
+  const boundaries = [...new Set(SESSION_SCHEDULE.map(s => s.startUtcHour))].sort((a, b) => a - b);
+  const hour = now.getUTCHours();
+  const nextHour = boundaries.find(h => h > hour);
+  const at = new Date(now);
+  at.setUTCMinutes(0, 0, 0);
+  if (nextHour === undefined) { at.setUTCDate(at.getUTCDate() + 1); at.setUTCHours(boundaries[0]); }
+  else at.setUTCHours(nextHour);
+  const session = SESSION_SCHEDULE.find(s => s.startUtcHour === at.getUTCHours());
+  return { name: session ? session.name : "unknown", atUtc: at.toISOString(), inMinutes: Math.round((at - now) / MS.minute) };
+}
+
+app.get("/api/now", (_, res) => {
+  try {
+    const now = new Date();
+    const localOffsetMinutes = -now.getTimezoneOffset();   // JS reports the inverse
+    // DST by comparison with January and July — no library, no assumption about
+    // which hemisphere this box is in.
+    const january = new Date(now.getFullYear(), 0, 1).getTimezoneOffset();
+    const july    = new Date(now.getFullYear(), 6, 1).getTimezoneOffset();
+    const isDST   = now.getTimezoneOffset() < Math.max(january, july);
+
+    const dayMs = MS.day;
+    const isoDate = (d) => d.toISOString().slice(0, 10);
+    const weekday = now.toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
+    const utcDay = now.getUTCDay();
+
+    const newestTrade = Array.isArray(tradeJournal) && tradeJournal.length
+      ? tradeJournal[0].openTime || tradeJournal[0].closeTime || null
+      : null;
+    const parity = readParityResult();
+    const backup = readLatestBackup();
+
+    res.json({
+      // Both clocks, always, and the offset between them — because every log on
+      // this machine is local and every API on it is UTC.
+      now: {
+        utc: now.toISOString(),
+        local: now.toLocaleString("en-GB", { hour12: false }),
+        localTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        utcOffsetMinutes: localOffsetMinutes,
+        isDST,
+        epochMs: now.getTime(),
+        unix: Math.floor(now.getTime() / 1000),
+      },
+      calendar: {
+        year: now.getUTCFullYear(),
+        month: now.getUTCMonth() + 1,
+        monthName: now.toLocaleDateString("en-GB", { month: "long", timeZone: "UTC" }),
+        day: now.getUTCDate(),
+        weekday,
+        isoWeek: isoWeek(now),
+        quarter: Math.floor(now.getUTCMonth() / 3) + 1,
+        dayOfYear: Math.floor((now - new Date(Date.UTC(now.getUTCFullYear(), 0, 0))) / dayMs),
+        today:     isoDate(now),
+        yesterday: isoDate(new Date(now.getTime() - dayMs)),
+        tomorrow:  isoDate(new Date(now.getTime() + dayMs)),
+        isWeekend: utcDay === 0 || utcDay === 6,
+      },
+      session: {
+        current: getCurrentSession(),
+        next: nextSessionTransition(now),
+        schedule: SESSION_SCHEDULE,
+        // Clock-derived, NOT broker-verified. Bar freshness below is the evidence.
+        note: "Sessions are UTC clock boundaries. Whether a market is actually trading is answered by feed freshness, not by this schedule.",
+      },
+      // How long ago everything happened, in one place, in both forms.
+      ages: {
+        serverStarted:  ageOf(SERVER_START),
+        signalCache:    ageOf(signalCache?.updatedAt),
+        bridges: Object.fromEntries(
+          Object.entries(mt5LastSeenByAccount).map(([tag, seenAt]) => [tag, ageOf(seenAt)])
+        ),
+        lastTrade:      ageOf(newestTrade),
+        lastParityRun:  ageOf(parity.available ? parity.ranAt : null),
+        lastBackup:     ageOf(backup ? backup.modified : null),
+      },
+      uptimeSeconds: Math.round(process.uptime()),
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[now]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── /api/fleet — both boxes, for the panels that decide what is armed ────────
 //
 // The Auto Trade tab and the AI Employee panel each described ONE machine while

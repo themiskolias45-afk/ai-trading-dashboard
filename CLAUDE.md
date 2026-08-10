@@ -30,7 +30,19 @@ At the start of every interactive session:
 2. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
 3. Read `tasks/daily/YYYY-MM-DD.json` for today and yesterday — load any trade signals, outcomes, or notes. Skip silently if missing.
 4. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
-5. Run a silent system check — ALL in parallel, max 3s timeout each:
+5. **Call `get_brain_status` first.** One call composes the time context, the fleet
+   verdict across both boxes, live signals against the live gate, risk state, the AI
+   employee's verdicts and unread proposals, and the evidence board. Read its
+   `blocking` field: the constraint on this system is sample size, not ideas.
+   **Know what time it is before reasoning about "when".** `get_time_context` returns
+   both clocks and the offset, because every log on these machines is LOCAL and every
+   API is UTC — on 2026-08-10 that read as a corrupt log file (16:17 in the log vs
+   13:38Z from the API; the difference was BST). It also gives ISO week, quarter,
+   day-of-year, weekday, today/yesterday/tomorrow, the live session with minutes to
+   the next, and the AGE of every moving part in words. Never compute a staleness by
+   hand from a raw timestamp.
+
+6. Then the endpoint-level check — ALL in parallel, max 3s timeout each:
    - GET `http://localhost:3001/api/signals` → all 3 assets, confidence, updatedAt
    - GET `http://localhost:3001/api/risk-status` → halted, consecutiveLosses, regime
    - GET `http://localhost:3001/api/journal?limit=20` → find last trade date per asset
@@ -40,7 +52,7 @@ At the start of every interactive session:
      machine is not a check. Read `verdict`, `divergence.gate`, `parity`, and
      `unreviewedProposals.fleetUnreviewed`.
 
-6. Compute per-asset gap from signals response:
+7. Compute per-asset gap from signals response:
    - Read the live gate from `GET /api/strategy-settings` (`confidenceThreshold`) —
      never hardcode it here. It moved 65 → 70 on 2026-08-02 and this file was the
      last thing still claiming 65. If `settingsError` is non-null, the server is

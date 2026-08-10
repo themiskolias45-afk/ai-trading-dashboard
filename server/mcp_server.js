@@ -892,6 +892,129 @@ const TOOLS = [
   },
 
   {
+    name: 'get_time_context',
+    description:
+      'WHAT TIME IT IS, and how long ago everything happened. Call this before any ' +
+      'reasoning that involves when: staleness, "has this fired in N days", which ' +
+      'session is live, whether it is the weekend, what yesterday\'s date was for a ' +
+      'daily-note lookup. This system stores LOCAL time in its logs and UTC in every ' +
+      'API, and on 2026-08-10 that read as a corrupt log — bridge_log_A.txt said ' +
+      '16:17 while /api/status said 13:38Z, and the difference was BST. Both clocks, ' +
+      'the offset and the DST state are returned together so that cannot happen ' +
+      'again. Also returns year, month, ISO week, quarter, day-of-year, weekday, ' +
+      'today/yesterday/tomorrow as ISO dates, the current and next trading session ' +
+      'with minutes until it changes, and the age of every moving part — signal ' +
+      'cache, each bridge heartbeat, last trade, last parity run, last backup, ' +
+      'server uptime — each as a timestamp, a millisecond age, AND in words. ' +
+      'Sessions here are UTC clock boundaries; whether a market is really trading is ' +
+      'answered by feed freshness, not by that schedule.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      return cached('now', 5000, () => fetchJSON('/api/now'));
+    },
+  },
+
+  {
+    name: 'get_brain_status',
+    description:
+      'EVERYTHING, IN ONE CALL — the widest read available, for the start of a ' +
+      'session or any question of the form "what is going on". Composes: the time ' +
+      'context; the fleet verdict across BOTH boxes (what is armed, both gates, ' +
+      'engine parity, peer check-ins); live signals and the confidence gate they are ' +
+      'measured against; risk and circuit-breaker state; the AI employee\'s verdicts ' +
+      'and anything it proposed that nobody has read; and the evidence board\'s ' +
+      'account of what is MEASURED versus merely assumed. Every part is read-only ' +
+      'and none of it feeds the gate. Prefer this over firing six tools separately, ' +
+      'and read the `blocking` field first: it names the constraint that actually ' +
+      'limits this system, which is sample size, not ideas.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        full: { type: 'boolean', description: 'Include the raw payloads as well as the summary' },
+      },
+    },
+    async handler({ full } = {}) {
+      const [now, plan, fleet, signals, risk, work, board, settings] = await fetchParallel([
+        '/api/now', '/api/system-plan', '/api/fleet', '/api/signals',
+        '/api/risk-status', '/api/ai-work', '/api/evidence-board', '/api/strategy-settings',
+      ]);
+
+      const gate = typeof settings?.confidenceThreshold === 'number' ? settings.confidenceThreshold : null;
+      const assets = ['btc', 'gold', 'spx'];
+      const signalSummary = {};
+      for (const asset of assets) {
+        const s = signals?.[asset];
+        if (!s) continue;
+        signalSummary[asset] = {
+          signal: s.signal ?? null,
+          confidence: s.confidence ?? null,
+          gapToGate: gate !== null && typeof s.confidence === 'number'
+            ? Math.max(0, gate - s.confidence) : null,
+          setup: s.setup ?? null,
+        };
+      }
+
+      const peer = fleet?.peer ?? plan?.peer ?? {};
+      const divergence = plan?.divergence ?? {};
+
+      // The honest constraint. This system has one closed fill in its whole life;
+      // every threshold argument is under-powered until that changes, and the
+      // rejection ledger is the only thing manufacturing evidence at zero risk.
+      const blocking = {
+        constraint: 'sample size',
+        detail: 'Threshold and edge claims are under-powered until far more trades resolve. '
+              + 'The rejection ledger prices every gate rejection as a paper trade at zero risk — '
+              + 'read it before proposing any threshold change, and remember a walk-forward '
+              + 'beats it wherever they disagree.',
+        unreviewedProposals: fleet?.proposals?.fleetUnreviewed ?? null,
+      };
+
+      const summary = {
+        time: now?.error ? { error: now.error } : {
+          utc: now?.now?.utc, local: now?.now?.local, timeZone: now?.now?.localTimeZone,
+          weekday: now?.calendar?.weekday, today: now?.calendar?.today,
+          isWeekend: now?.calendar?.isWeekend, isoWeek: now?.calendar?.isoWeek,
+          session: now?.session?.current?.name, nextSession: now?.session?.next,
+          ages: now?.ages,
+        },
+        fleet: {
+          verdict: !peer.configured ? 'SINGLE BOX'
+                 : !peer.reachable ? 'PEER UNREACHABLE'
+                 : (divergence.gate?.differs || divergence.engine?.differs) ? 'FLEET DIVERGES'
+                 : 'FLEET AGREES',
+          thisBoxGate: plan?.thisBox?.gate ?? null,
+          peerGate: peer.gate ?? null,
+          parity: plan?.parity ?? null,
+          heartbeats: plan?.heartbeats ?? null,
+          actionItems: (plan?.actionItems || []).map(i => `[${i.severity}] ${i.title}`),
+        },
+        trading: {
+          gate,
+          minStrength: settings?.minStrength ?? null,
+          halted: risk?.halted ?? null,
+          haltReason: risk?.haltReason || '',
+          dailyPnl: risk?.dailyPnl ?? null,
+          consecutiveLosses: risk?.consecutiveLosses ?? null,
+          signals: signalSummary,
+        },
+        employee: {
+          jobs: (work?.jobs || []).map(j => `${j.label}: ${j.verdict}`),
+          unreviewedHere: work?.totals?.unreviewed ?? null,
+          unappraisedTasks: work?.totals?.unappraisedTasks ?? null,
+        },
+        evidence: {
+          claims: Array.isArray(board?.claims) ? board.claims.length : null,
+          note: 'Each claim carries its verdict, evidence, caveat and what would change the answer.',
+        },
+        blocking,
+        feedsTheGate: false,
+      };
+
+      return full ? { summary, now, plan, fleet, signals, risk, work, board, settings } : summary;
+    },
+  },
+
+  {
     name: 'get_fleet_status',
     description:
       'THE FLEET, BOTH BOXES, IN ONE CALL — the tool to reach for before trusting any number ' +
