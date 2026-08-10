@@ -1,0 +1,79 @@
+{
+  "date": "2026-08-10",
+  "entries": [
+    {
+      "ts": "2026-08-10T03:19:04.271393+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-10: health 8/8 green, not halted, gate 70, settingsError null. Gold fired BUY conf 72 at 04:16:33 and was killed by the DUPLICATE gate — account A already holds an XAUUSD BUY (#1713655080, 2026-08-05) plus an opposite XAUUSD SELL (#1726672007, 2026-08-07), a hedged pair with ~zero net exposure paying both spreads. Top rec: close the counter-trend SELL to unblock Gold. Also: 5 of 15 cohorts unreachable at gate 70; the improved reachability model (Gold neutral-H4 cap 74) is still uncommitted. No trades in last 24h; 1 closed trade lifetime."
+    },
+    {
+      "ts": "2026-08-10T03:20:57.555437+00:00",
+      "tag": "DAILY-CHECK",
+      "text": "Daily 2026-08-10: health 8/8 green, gate 70, no halt. Gold BUY conf 72 is above the gate but blocked by DUPLICATE (already holding XAUUSD BUY). Top issue: 5 of 15 cohorts cannot reach gate 70 and three are BTC/SPX — both assets have never traded in 129 sessions (journal = 3 entries, all XAUUSD). Also live: account A holds an XAUUSD BUY and SELL simultaneously (hedging, self-cancelling, paying spread both ways). Yahoo restart window recurred at 03:11 — Gold read STRONG conf 98 on GC=F then MODERATE conf 72 on XAUUSD once MT5 bars landed; STALE_SOURCE caught it. Exa search API returning 401."
+    },
+    {
+      "ts": "2026-08-10T03:52:11.695783+00:00",
+      "tag": "SYSTEM",
+      "text": "Decision 2026-08-10: entire site stays behind /login until the trading system is stable. Owner does not want anyone near the dashboard yet. /investment goes public at a later date — it was deliberately built with no dashboard link, so it can be published alone without advertising that a dashboard exists. Auth middleware (server/index.js:294-308) is NOT to be loosened without asking again. Note for the record: a link is not access — the Open Dashboard button is a plain anchor and /dashboard is gated by the same middleware regardless."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "SESSION 6 HANDOVER - LEFT TO FINISH (1/7, highest first): GOLD BUY 72% vs gate 70 on the VPS is NOT executing, last trade 2026-08-07. Live example of 'why does it never trade' - trace via /api/gate-health then the bridge-side gates (spread, duplicate-direction, MAX_POSITIONS) which only fire on a real trade attempt. Account A already holds an XAUUSD BUY and SELL; the duplicate guard matches symbol AND direction."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "LEFT TO FINISH (2/7): two AI-employee proposals unread on the VPS. weekly-w2y9d2 'block RANGE_TRADE_SHORT when regime is RANGING' (about Gold, the asset now signalling) and weekly-bvyb3l 'generateSignalMTF after the confidence gate'. Decide ON THAT BOX: node tasks/ai_decide.cjs <id> implemented|rejected|ignored. Gate logic = owner's call."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "LEFT TO FINISH (3/7): job verdicts that clear THEMSELVES - verify, do not fix. Laptop Weekly=FAILING (real, session limit 08-09; parking now built, confirm it parks Sunday). VPS Weekly=NO COMPLETION MARKER (clears Sunday with the new [exit N] line). Laptop coverage audit LATCHES on its own previous exit 1 - only goes green after the weekly succeeds."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "LEFT TO FINISH (4/7): SmartEntryBootAlert unproven - only a real reboot exercises it (VPS up since 2026-07-26). SmartEntryAutoStart WAS fixed and proven this session (rc=0)."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "LEFT TO FINISH (5/7): EMA200 seed contamination still needs a bridge restart; laptop bridge is elevated so Stop-Process is denied - waits on a human."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "LEFT TO FINISH (6/7): brave-search and exa are wired but nothing feeds server/evidence_register.js, so external research evaporates and the evidence board goes stale. Next real build after item 1."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "LEFT TO FINISH (7/7): profitability is blocked on SAMPLE SIZE, not ideas - one closed fill in the system's life. The rejection ledger manufactures evidence at zero risk; RANGE_TRADE_LONG already flagged USABLE. Walk-forward beats the ledger wherever they disagree."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "CARRY FORWARD: the two boxes are in DIFFERENT TIMEZONES - laptop Europe/London +60, VPS Europe/Berlin +120. Local-time logs are an hour apart for the same instant; use get_time_context (MCP) or /api/now, never compare timestamps by eye."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "CARRY FORWARD: /api/health EXISTS but is NOT in the no-login allowlist - it answers 401 and Invoke-WebRequest THROWS on that, so a healthy server reads as dead. Every liveness probe must use /api/status. This silently broke both boxes' startup scripts."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "CARRY FORWARD: restarting the server - the documented '*index.js*' process filter also matches npx shims (16 matches on the laptop). Exclude *_npx*, *npm-cache*, *node_modules* and assert exactly ONE match before killing, then confirm the new startedAt."
+    },
+    {
+      "time": "2026-08-10T18:27:49.455922",
+      "type": "note",
+      "text": "STATE AT SESSION END: both boxes healer HEALTHY 8/8, 0 action items each, parity 25/25 files + 88/88 routes ENGINES AGREE, bridges A live on both, breakers clear. VPS coverage audit 27 checks 0 RED. Laptop coverage 2 RED (the real weekly failure + the audit's self-latch)."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-10T03:19:04.271393+00:00",
+  "updated_at": "2026-08-10T18:27:49.455922"
+}
