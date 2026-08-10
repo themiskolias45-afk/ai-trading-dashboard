@@ -1,18 +1,27 @@
 'use strict';
 /**
  * SmartEntry Pro — MCP Server v2
- * 19 native tools. Claude calls these directly — no HTTP fetches, no subprocesses in prompts.
+ * Claude calls these directly — no HTTP fetches, no subprocesses in prompts. The tool
+ * count is not written here on purpose: it was stale within a week last time, and
+ * /api/ai-registry counts the catalogue below by parsing this file.
  *
  * READ TOOLS (instant):
  *   get_signals          — live BTC / GOLD / SPX (S&P 500) signals
  *   get_risk_status      — regime, circuit breaker, daily P&L, news blackout
  *   get_healer           — 6-point system health check
+ *   get_fleet_status     — BOTH boxes: what is armed, both gates, parity, check-ins
  *   get_journal          — trade history with filters
  *   get_learning         — setup win rates and calibration
  *   get_performance      — aggregate stats: WR, P&L, best/worst setup, equity curve
+ *   get_gate_health      — per-gate kill/pass counts (FIRING, not whether it should)
+ *   get_evidence_board   — what is measured vs assumed, and what would change it
+ *   get_ai_work          — did the scheduled agents run, and did anyone read them
  *   read_memory          — search JARVIS persistent memory
  *   get_daily_note       — read today's or any date's session log
  *   analyze_symbol       — deep compound analysis (signals + learning + journal in 1 call)
+ *
+ * Every tool above is READ-ONLY. The four that describe fleet state reach
+ * session-gated routes and this process logs itself in — see the HTTP helper.
  *
  * WRITE TOOLS:
  *   write_memory         — store a fact / lesson / decision permanently
@@ -55,20 +64,46 @@ function cached(key, ttlMs, fn) {
 }
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
+//
+// Session-aware. Half the interesting state on this server — the Systems Plan, the
+// fleet comparison — sits behind the dashboard login, and the owner's standing
+// decision is that it STAYS there until the system is stable. So the fix for an MCP
+// session that could not see them is for this process to hold a login, not for the
+// server to open a route. Credentials come from keys.env, the same file the server
+// reads, and this process only ever runs on the same machine as the server.
+//
+// A 401 that parses cleanly reads as a successful response, so status is checked
+// here rather than left to each caller.
+let _sessionCookie = null;
 
-function fetchJSON(urlPath, opts = {}) {
+function readKeysEnvValue(key) {
+  try {
+    const text = fs.readFileSync(path.join(ROOT, 'keys.env'), 'utf8');
+    for (const line of text.split(/\r?\n/)) {
+      const idx = line.indexOf('=');
+      if (idx === -1) continue;
+      if (line.slice(0, idx).trim() === key) return line.slice(idx + 1).trim();
+    }
+  } catch (_) { /* no keys.env — treated as unconfigured */ }
+  return null;
+}
+
+function httpRequest(urlPath, opts = {}) {
   return new Promise((resolve, reject) => {
     const fullUrl = SERVER_URL + urlPath;
     const lib     = fullUrl.startsWith('https') ? https : http;
-    const req     = lib.request(
+    const headers = { 'Content-Type': 'application/json' };
+    if (_sessionCookie) headers.Cookie = _sessionCookie;
+    const req = lib.request(
       fullUrl,
-      { method: opts.method || 'GET', headers: { 'Content-Type': 'application/json' }, timeout: 6000 },
+      { method: opts.method || 'GET', headers, timeout: opts.timeout || 6000 },
       (res) => {
         let body = '';
         res.on('data', d => (body += d));
         res.on('end', () => {
-          try { resolve(JSON.parse(body)); }
-          catch (_) { resolve({ _raw: body }); }
+          let data;
+          try { data = JSON.parse(body); } catch (_) { data = { _raw: body }; }
+          resolve({ status: res.statusCode, headers: res.headers, data });
         });
       }
     );
@@ -77,6 +112,38 @@ function fetchJSON(urlPath, opts = {}) {
     if (opts.body) req.write(JSON.stringify(opts.body));
     req.end();
   });
+}
+
+async function ensureSession() {
+  const username = readKeysEnvValue('DASHBOARD_USERNAME');
+  const password = readKeysEnvValue('DASHBOARD_PASSWORD');
+  if (!username || !password) return false;
+  try {
+    const res = await httpRequest('/api/login', { method: 'POST', body: { username, password } });
+    const setCookie = res.headers && res.headers['set-cookie'];
+    if (res.status === 200 && setCookie && setCookie.length) {
+      _sessionCookie = String(setCookie[0]).split(';')[0];
+      return true;
+    }
+  } catch (_) { /* fall through to the explicit error below */ }
+  return false;
+}
+
+async function fetchJSON(urlPath, opts = {}) {
+  let res = await httpRequest(urlPath, opts);
+  // One retry, and only on 401: a stale SESSION_SECRET (the server regenerates it
+  // when apikey.txt is deleted) looks identical to never having logged in.
+  if (res.status === 401 && await ensureSession()) {
+    res = await httpRequest(urlPath, opts);
+  }
+  if (res.status === 401) {
+    return {
+      error: 'Not logged in, and this MCP server could not obtain a session.',
+      detail: 'Set DASHBOARD_USERNAME and DASHBOARD_PASSWORD in keys.env. The route is deliberately session-gated — do not expect it to be public.',
+      path: urlPath,
+    };
+  }
+  return res.data;
 }
 
 // ── Python runner ─────────────────────────────────────────────────────────────
@@ -821,6 +888,131 @@ const TOOLS = [
       const tag = String(account || '').trim();
       if (!tag) throw new Error('account tag required (A, B, or default)');
       return fetchJSON(`/api/mt5/health?account=${encodeURIComponent(tag)}`);
+    },
+  },
+
+  {
+    name: 'get_fleet_status',
+    description:
+      'THE FLEET, BOTH BOXES, IN ONE CALL — the tool to reach for before trusting any number ' +
+      'that pools the laptop and the VPS. Every other health tool here describes ONE machine ' +
+      'while presenting itself as the system, and every expensive failure this system has had ' +
+      'was a divergence while both boxes reported healthy: AutoTrading disabled on the VPS for ' +
+      '11 days behind green checks, a per-machine strategy_settings.json running a different ' +
+      'gate off the same commit, cohort_table.js absent so the box that trades was the one box ' +
+      'that never named a dead cohort. Returns: a one-word verdict, what is ARMED per account ' +
+      'per box (config.autoMode, reported by the bridge that enforces it), the confidence gate ' +
+      'on each box, circuit-breaker state, engine-parity verdict with its age, peer check-ins, ' +
+      'unreviewed AI-employee proposals across BOTH boxes, and the action items that can ' +
+      'actually clear. A gate mismatch means the two boxes admit different trades from ' +
+      'identical bars and their journals cannot be pooled.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        full: { type: 'boolean', description: 'Return the raw plan and fleet payloads as well as the summary' },
+      },
+    },
+    async handler({ full } = {}) {
+      const [plan, fleet] = await fetchParallel(['/api/system-plan', '/api/fleet']);
+      if (plan && plan.error) return { error: plan.error, detail: plan.detail ?? null };
+
+      const peer = fleet && fleet.peer ? fleet.peer : (plan.peer || {});
+      const divergence = plan.divergence || {};
+      const gateDiffers = !!(divergence.gate && divergence.gate.differs);
+      const engineDiffers = !!(divergence.engine && divergence.engine.differs);
+
+      let verdict;
+      if (!peer.configured)            verdict = 'SINGLE BOX — no peer configured, everything below is one machine';
+      else if (!peer.reachable)        verdict = 'PEER UNREACHABLE — the other box did not answer';
+      else if (gateDiffers || engineDiffers) verdict = 'FLEET DIVERGES — the two boxes do not agree';
+      else                             verdict = 'FLEET AGREES';
+
+      const summary = {
+        verdict,
+        actionItems: (plan.actionItems || []).map(i => `[${i.severity}] ${i.title}`),
+        standingNotes: (plan.standingNotes || []).length,
+        thisBox: {
+          label: plan.thisBox?.label ?? null,
+          gate: plan.thisBox?.gate ?? null,
+          halted: plan.thisBox?.halted ?? null,
+          settingsError: plan.thisBox?.settingsError ?? null,
+          bridgesLive: plan.thisBox?.bridges?.reporting ?? [],
+          bridgesSilent: plan.thisBox?.bridges?.silent ?? [],
+          armed: (fleet?.thisBox?.arming || []).filter(a => a.autoMode).map(a => a.tag),
+        },
+        peer: {
+          url: peer.url ?? null,
+          reachable: peer.reachable ?? false,
+          gate: peer.gate ?? null,
+          halted: peer.halted ?? null,
+          settingsError: peer.settingsError ?? null,
+          bridgesLive: peer.bridges?.reporting ?? [],
+          bridgesSilent: peer.bridges?.silent ?? [],
+          armed: (peer.arming || []).filter(a => a.autoMode).map(a => a.tag),
+        },
+        divergence,
+        parity: plan.parity ?? null,
+        heartbeats: plan.heartbeats ?? null,
+        unreviewedProposals: fleet?.proposals ?? null,
+        settingsComparison: (fleet?.settingsComparison || []).filter(f => f.differs),
+        feedsTheGate: false,
+      };
+      return full ? { summary, plan, fleet } : summary;
+    },
+  },
+
+  {
+    name: 'get_ai_work',
+    description:
+      'The AI employee\'s timesheet and appraisal: did the scheduled agents run, did they ' +
+      'succeed, and did anyone read what they wrote. Verdict per job — HEALTHY, FAILING, STALE, ' +
+      'INCOMPLETE, NO COMPLETION MARKER, or OUTPUT IGNORED, which means the agent is working and ' +
+      'nobody is reading it and costs exactly what failing costs. Also lists every PROPOSED FIX ' +
+      'harvested from the job logs with its decision status. Read-only over logs those jobs ' +
+      'already write: runs nothing, spawns nothing, spends no tokens. NOTE this covers THIS box ' +
+      'only — use get_fleet_status for the other box\'s unreviewed proposals, which is where they ' +
+      'have historically piled up unseen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        unreviewedOnly: { type: 'boolean', description: 'Return only proposals nobody has decided on yet' },
+      },
+    },
+    async handler({ unreviewedOnly } = {}) {
+      const data = await cached('ai-work', 30000, () => fetchJSON('/api/ai-work'));
+      if (!unreviewedOnly || !data || !Array.isArray(data.proposals)) return data;
+      return { ...data, proposals: data.proposals.filter(p => p.status === 'UNREVIEWED') };
+    },
+  },
+
+  {
+    name: 'get_gate_health',
+    description:
+      'Per-gate kill/pass counts — which gate is actually stopping trades. Says a gate is FIRING; ' +
+      'it does NOT say whether it should have, which is get_rejection_evidence\'s job. Never merge ' +
+      'the two. Known and verified 2026-08-09: the funnel dies at CONFIDENCE (killed 5, passed 1) ' +
+      'and 6 of the 10 gates look silent for correct reasons — ENTRY_RSI is disarmed by config, ' +
+      'COHORT_FLOOR only records when a setup CLEARS the global gate first, and the bridge gates ' +
+      'fire only on a real trade attempt so they are silent on the laptop and not on the VPS. ' +
+      'NONE of the ten gates is broken. Do not "fix" them.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      return cached('gate-health', 30000, () => fetchJSON('/api/gate-health'));
+    },
+  },
+
+  {
+    name: 'get_evidence_board',
+    description:
+      'What this system KNOWS versus what it merely assumes. Every curated claim carries its ' +
+      'verdict, the evidence behind it, its caveat, and WHAT WOULD CHANGE THE ANSWER — joined to ' +
+      'the live per-gate verdicts, so any number on the dashboard can be traced to whether it was ' +
+      'ever tested. Read this before proposing a threshold change or repeating a claim about this ' +
+      'system\'s edge. Curated claims live in server/evidence_register.js and MUST be updated ' +
+      'whenever something new is measured, or the board goes stale and starts lying.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      return cached('evidence-board', 60000, () => fetchJSON('/api/evidence-board'));
     },
   },
 
