@@ -310,5 +310,10 @@ if ($isRed -ne $wasRed) {
 }
 try { @{ red = $isRed; at = $stamp } | ConvertTo-Json | Out-File -FilePath $statePath -Encoding utf8 } catch { }
 
-if ($isRed) { exit 1 }
-exit 0
+# Completion marker, so the AI-employee ledger can tell a finished audit from one
+# that was killed mid-run. Without it this job reads NO COMPLETION MARKER forever,
+# whatever the scheduler recorded. Note 1 here means A RED FINDING, not a crash —
+# the ledger knows that and reports REPORTS RED rather than FAILING.
+$exitCode = if ($isRed) { 1 } else { 0 }
+Write-Output "[exit $exitCode]"
+exit $exitCode
