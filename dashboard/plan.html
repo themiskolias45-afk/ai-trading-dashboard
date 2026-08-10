@@ -239,6 +239,44 @@ function renderComponents(data) {
       + '<div class="row-value idle">N/A</div></div>');
   }
 
+  // Check-ins. The only liveness signal that survives a box this one cannot reach:
+  // the laptop is not addressable from outside, so if it sleeps, its bridge stops
+  // trading and nothing else anywhere would say so.
+  const beats = data.heartbeats || { expected: [], seen: [], missing: [], stale: [] };
+  const expectedBoxes = beats.expected || [];
+  if (expectedBoxes.length === 0 && (beats.seen || []).length === 0) {
+    parts.push('<div class="row"><div><div class="row-label">Peer check-ins</div>'
+      + '<div class="row-detail">no box declared in PEER_HEARTBEAT_EXPECT — nothing here raises an alarm if the other machine goes quiet</div></div>'
+      + '<div class="row-value idle">NONE</div></div>');
+  } else {
+    const seenByName = {};
+    (beats.seen || []).forEach(beat => { seenByName[String(beat.box).toUpperCase()] = beat; });
+    const names = expectedBoxes.slice();
+    (beats.seen || []).forEach(beat => {
+      if (!names.some(n => n.toUpperCase() === String(beat.box).toUpperCase())) names.push(beat.box);
+    });
+    names.forEach(name => {
+      const beat = seenByName[name.toUpperCase()];
+      const declared = expectedBoxes.some(n => n.toUpperCase() === name.toUpperCase());
+      let cls, value, detail;
+      if (!beat) {
+        cls = declared ? 'bad' : 'idle';
+        value = declared ? 'SILENT' : 'NOT SEEN';
+        detail = beats.withinStartupGrace
+          ? 'expected, nothing yet — still inside the startup window after a restart'
+          : 'declared in PEER_HEARTBEAT_EXPECT and has not reported in';
+      } else {
+        cls = beat.stale ? 'bad' : (beat.status === 'ok' ? 'ok' : 'warn');
+        value = beat.stale ? 'STALE' : String(beat.status || 'seen').toUpperCase();
+        detail = (beat.detail || 'reported in') + ' · ' + beat.ageSeconds + 's ago'
+          + (declared ? '' : ' · not declared, informational only');
+      }
+      parts.push('<div class="row"><div><div class="row-label">Check-in ' + esc(name) + '</div>'
+        + '<div class="row-detail">' + esc(detail) + '</div></div>'
+        + '<div class="row-value ' + cls + '">' + esc(value) + '</div></div>');
+    });
+  }
+
   const backup = data.latestBackup;
   parts.push('<div class="row"><div><div class="row-label">Latest backup</div>'
     + '<div class="row-detail">' + (backup

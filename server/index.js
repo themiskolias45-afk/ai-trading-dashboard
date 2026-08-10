@@ -5201,6 +5201,45 @@ const PEER_PROBE_CACHE_MS   = 30 * 1000;
 const BACKUP_STALE_HOURS    = 24;
 const LOG_DIR_WARN_MB       = 500;
 const PARITY_STALE_DAYS     = 7;
+// tasks/vps_monitor.ps1 pushes every 5 minutes, so three missed pushes is a real
+// silence rather than one unlucky timeout.
+const HEARTBEAT_STALE_MINUTES = 15;
+
+/**
+ * Boxes that MUST check in, declared rather than discovered — you cannot notice
+ * the absence of something you never declared, which is the same reasoning that
+ * put MT5_EXPECTED_ACCOUNTS in keys.env. peerHeartbeats is in-memory, so an
+ * undeclared box that has simply never pushed is indistinguishable from one that
+ * died; declaring it is what makes the silence mean something.
+ *
+ * Unset (the laptop, which nothing can push to) => no alarm, a standing note.
+ */
+function expectedHeartbeatBoxes() {
+  return String(process.env.PEER_HEARTBEAT_EXPECT || "")
+    .split(",").map(name => name.trim()).filter(Boolean);
+}
+
+function assessHeartbeats(uptimeSeconds) {
+  const now = Date.now();
+  const expected = expectedHeartbeatBoxes();
+  const seen = Object.values(peerHeartbeats).map(beat => {
+    const ageSeconds = Math.round((now - new Date(beat.at).getTime()) / 1000);
+    return { ...beat, ageSeconds, stale: ageSeconds > HEARTBEAT_STALE_MINUTES * 60 };
+  });
+  const byName = new Map(seen.map(beat => [beat.box.toUpperCase(), beat]));
+
+  // A restart empties the in-memory store, so nothing is "missing" until a full
+  // stale window has passed since boot — otherwise every restart invents an alarm.
+  const withinStartupGrace = uptimeSeconds < HEARTBEAT_STALE_MINUTES * 60;
+
+  const missing = [], stale = [];
+  for (const name of expected) {
+    const beat = byName.get(name.toUpperCase());
+    if (!beat) { if (!withinStartupGrace) missing.push(name); }
+    else if (beat.stale) stale.push(name);
+  }
+  return { expected, seen, missing, stale, withinStartupGrace, staleAfterMinutes: HEARTBEAT_STALE_MINUTES };
+}
 
 let peerProbeCache = { at: 0, value: null };
 
@@ -5342,7 +5381,7 @@ function deriveActionItems(context) {
   const {
     expectedAccounts, reportingAccounts,
     localHalted, localHaltReason, localGate, localSettingsError,
-    peer, parity, backup, logDirSizeMB,
+    peer, parity, backup, logDirSizeMB, heartbeats,
   } = context;
 
   const actionItems   = [];
@@ -5439,6 +5478,34 @@ function deriveActionItems(context) {
     });
   }
 
+  // A box that stops checking in. This is the ONLY signal that survives a machine
+  // the other one cannot reach — the laptop is not addressable from outside, so if
+  // it sleeps, Bridge A stops trading and the absence of trades looks exactly like
+  // a quiet market. The channel existed since 2026-08-03 and delivered nothing
+  // until 2026-08-10: every push was rejected 401 by the auth middleware on the
+  // receiving box, and the only record was one line in a monitor log.
+  if (heartbeats.missing.length > 0) {
+    actionItems.push({
+      severity: "high",
+      title: `${heartbeats.missing.join(", ")} has not checked in`,
+      detail: `Declared in PEER_HEARTBEAT_EXPECT and silent for more than ${heartbeats.staleAfterMinutes} minutes. That box cannot be reached from here, so its silence is the only symptom you get — and a sleeping machine's bridge stops trading without anything looking wrong.`,
+    });
+  }
+  if (heartbeats.stale.length > 0) {
+    actionItems.push({
+      severity: "high",
+      title: `${heartbeats.stale.join(", ")} stopped checking in`,
+      detail: `Last check-in is older than ${heartbeats.staleAfterMinutes} minutes. It was reporting and is not now — check whether the machine is asleep, shut, or has lost its network.`,
+    });
+  }
+  if (heartbeats.expected.length === 0) {
+    standingNotes.push({
+      severity: "low",
+      title: "No box is expected to check in here",
+      detail: "PEER_HEARTBEAT_EXPECT is unset, so nothing raises an alarm if the other machine goes quiet. Correct on a box nothing can push to; on the always-on box, list the machines that must report in.",
+    });
+  }
+
   const backupAgeHours = backup ? (Date.now() - new Date(backup.modified).getTime()) / 3600000 : null;
   if (!backup) {
     actionItems.push({
@@ -5506,6 +5573,7 @@ app.get("/api/system-plan", async (_, res) => {
     const parity        = readParityResult();
     const backup        = readLatestBackup();
     const logDirSizeMB  = readLogDirSizeMB();
+    const heartbeats    = assessHeartbeats(Math.round(process.uptime()));
 
     const { actionItems, standingNotes } = deriveActionItems({
       expectedAccounts,
@@ -5514,7 +5582,7 @@ app.get("/api/system-plan", async (_, res) => {
       localHaltReason:    riskStatus.haltReason || "",
       localGate,
       localSettingsError: strategySettingsError || null,
-      peer, parity, backup, logDirSizeMB,
+      peer, parity, backup, logDirSizeMB, heartbeats,
     });
 
     res.json({
@@ -5573,10 +5641,7 @@ app.get("/api/system-plan", async (_, res) => {
       parity,
       // Push liveness, kept alongside the pull probe: this is the only signal that
       // survives a box the other one cannot reach.
-      heartbeats: Object.values(peerHeartbeats).map(beat => ({
-        ...beat,
-        ageSeconds: Math.round((Date.now() - new Date(beat.at).getTime()) / 1000),
-      })),
+      heartbeats,
       actionItems,
       standingNotes,
     });
