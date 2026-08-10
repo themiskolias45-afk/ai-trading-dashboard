@@ -62,7 +62,7 @@
   .hero-title { font-size: 1.6rem; font-weight: 800; margin-bottom: 6px; }
   .hero-title span { background: linear-gradient(135deg, #00ff88, #4488ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .hero-sub { font-size: .85rem; color: var(--muted2); max-width: 640px; }
-  .hero-stats { display: flex; gap: 22px; }
+  .hero-stats { display: flex; gap: 22px; flex-wrap: wrap; }
   .hero-stat { text-align: center; }
   .hero-stat-val { font-size: 1.4rem; font-weight: 800; color: var(--green); font-variant-numeric: tabular-nums; }
   .hero-stat-label { font-size: .62rem; color: var(--muted2); text-transform: uppercase; letter-spacing: .1em; margin-top: 2px; }
@@ -158,6 +158,30 @@
 
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin .75s linear infinite; }
 
+  /* ── Registry tags: what a tool can do to the account ── */
+  .cap-tag {
+    display: inline-block; font-size: .58rem; font-weight: 800; letter-spacing: .06em;
+    padding: 2px 7px; border-radius: 20px; margin-left: 6px; vertical-align: middle; text-transform: uppercase;
+  }
+  .cap-read  { background: rgba(74,136,255,.12);  color: var(--blue); }
+  .cap-write { background: rgba(255,184,48,.14);  color: var(--yellow); }
+  .cap-trade { background: rgba(255,68,68,.16);   color: var(--red); }
+  .cap-enforced   { background: rgba(0,255,136,.12); color: var(--green); }
+  .cap-procedural { background: rgba(255,184,48,.14); color: var(--yellow); }
+
+  .tool-row { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .tool-name { font-size: .76rem; font-weight: 700; font-family: var(--mono); }
+  .tool-desc { font-size: .68rem; color: var(--muted2); margin-top: 5px; line-height: 1.5; }
+
+  .rail { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 13px 16px; margin-bottom: 9px; }
+  .rail-rule { font-size: .78rem; font-weight: 600; }
+  .rail-detail { font-size: .68rem; color: var(--muted2); margin-top: 5px; line-height: 1.55; }
+
+  .page-banner { border-radius: 10px; padding: 12px 16px; margin-bottom: 20px; font-size: .76rem; line-height: 1.6; border: 1px solid; }
+  .page-banner strong { display: block; margin-bottom: 3px; }
+  .banner-warn { background: rgba(255,184,48,.07); border-color: rgba(255,184,48,.35); color: #fde047; }
+  .banner-bad  { background: rgba(255,68,68,.07);  border-color: rgba(255,68,68,.4);   color: #fca5a5; }
+
   footer { text-align: center; padding: 16px; font-size: .63rem; color: var(--muted); border-top: 1px solid var(--border); }
 
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
@@ -202,12 +226,20 @@
       <div class="hero-title">A <span>professional investment system</span>, built to compound</div>
       <div class="hero-sub">Multi-timeframe signal engine, autonomous risk management, self-learning calibration, and parallel AI engineering — one system, continuously improving itself.</div>
     </div>
+    <!-- Every number here starts as an em dash and is filled from the running
+         system. The old hero shipped a hardcoded "65%" gate that was five points
+         wrong for a week: a page that states a number it never read is not a
+         status page, it is a rumour. -->
     <div class="hero-stats">
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-conf">65%</div><div class="hero-stat-label">Min Confidence Gate</div></div>
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-tools">13</div><div class="hero-stat-label">Automation Tools</div></div>
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-agents">33</div><div class="hero-stat-label">Agent Commands</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-conf">—</div><div class="hero-stat-label">Min Confidence Gate</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-skills">—</div><div class="hero-stat-label">Skills</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-agents">—</div><div class="hero-stat-label">Agents</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-mcp">—</div><div class="hero-stat-label">MCP Tools</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-tools">—</div><div class="hero-stat-label">Scripts</div></div>
     </div>
   </div>
+
+  <div id="config-banner"></div>
 
   <!-- ═══ SKILLS ═══ -->
   <div class="section-label">Core Skills</div>
@@ -216,7 +248,7 @@
     <div class="card">
       <div class="card-icon">🎯</div>
       <div class="card-title">Multi-Timeframe Confluence</div>
-      <div class="card-body-text">A signal only fires when confidence is ≥65% across Daily, 4H, and 1H simultaneously — filters out noise from any single timeframe.</div>
+      <div class="card-body-text">A signal only fires when confidence is ≥<span id="gate-inline">the live gate</span> across Daily, 4H, and 1H simultaneously — filters out noise from any single timeframe.</div>
       <div class="card-tag">/api/signals</div>
     </div>
     <div class="card">
@@ -258,11 +290,33 @@
     <!-- filled by JS -->
   </div>
 
-  <!-- ═══ AGENTS ═══ -->
-  <div class="section-label">Agents</div>
-  <div class="section-desc">Slash-command agents grouped by job — each is a Claude Code command in .claude/commands.</div>
+  <!-- ═══ SKILLS & AGENTS ═══ -->
+  <div class="section-label">Skills &amp; Agents</div>
+  <div class="section-desc" id="registry-desc">Read live from /api/ai-registry — the same endpoint the AI Brain tab uses — and grouped by job. A skill added to .claude/commands appears here without anyone editing this page.</div>
+  <div id="registry-banner"></div>
   <div class="grid grid-2" id="agents-grid">
-    <!-- filled by JS -->
+    <div class="empty-state">Reading the live registry…</div>
+  </div>
+
+  <!-- ═══ SUB-AGENTS ═══ -->
+  <div class="section-label">Sub-Agents</div>
+  <div class="section-desc">Specialist agents /engineer and the commands can spawn, each with its own brief.</div>
+  <div class="grid grid-3" id="subagents-grid">
+    <div class="empty-state">Reading the live registry…</div>
+  </div>
+
+  <!-- ═══ MCP TOOLS ═══ -->
+  <div class="section-label">MCP Tools</div>
+  <div class="section-desc">Every tool the AI can call, tagged by what it can do to the account. The distinction that matters is not how many there are — it is which of them can place a trade.</div>
+  <div class="grid grid-3" id="mcp-grid">
+    <div class="empty-state">Reading the live registry…</div>
+  </div>
+
+  <!-- ═══ GUARDRAILS ═══ -->
+  <div class="section-label">Guardrails</div>
+  <div class="section-desc">ENFORCED IN CODE means a code path prevents it. PROCEDURAL means only a rule does — and a rule is not a control.</div>
+  <div id="guardrails-wrap">
+    <div class="empty-state">Reading the live registry…</div>
   </div>
 
   <!-- ═══ AI PARALLEL ═══ -->
@@ -343,6 +397,25 @@ function el(id) { return document.getElementById(id); }
 function text(id, t) { const e = el(id); if (e) e.textContent = t; }
 function html(id, h) { const e = el(id); if (e) e.innerHTML = h; }
 
+// Everything below interpolates server-supplied strings — skill names, tool
+// descriptions, setup names — straight into innerHTML. plan.html has always
+// escaped; this page never did.
+function esc(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
+// r.ok, not just a successful parse. A 401 returns perfectly valid JSON and the
+// old code read that as a healthy response and painted the page "Live".
+async function getJson(route) {
+  const response = await fetch(API + route, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(route + ' → HTTP ' + response.status + (response.status === 401 ? ' (not logged in)' : ''));
+  }
+  return response.json();
+}
+
 (function tickClock() {
   text('clock', new Date().toLocaleTimeString('en-US', { hour12: false }));
   setTimeout(tickClock, 1000);
@@ -377,13 +450,17 @@ const TOOLS = [
 html('tools-grid', TOOLS.map(t => `
   <div class="card">
     <div class="card-icon">${t.icon}</div>
-    <div class="card-title">${t.name}</div>
-    <div class="card-body-text" style="font-family:var(--mono);font-size:.68rem;word-break:break-word">${t.cmd}</div>
+    <div class="card-title">${esc(t.name)}</div>
+    <div class="card-body-text" style="font-family:var(--mono);font-size:.68rem;word-break:break-word">${esc(t.cmd)}</div>
   </div>
 `).join(''));
 text('hero-tools', TOOLS.length.toString());
 
-// ── AGENTS ─────────────────────────────────────────────────────
+// ── SKILL GROUPING ─────────────────────────────────────────────
+// The curation stays; the LIST does not. These groups say which job each command
+// belongs to, which no endpoint knows — but the membership is now applied to the
+// live registry, so a new skill lands in "Other" instead of being invisible. The
+// page previously hardcoded 33 commands while 44 existed.
 const AGENT_GROUPS = [
   { title: 'Research & Market Read', cmds: ['analyze', 'research', 'news', 'scan', 'tv', 'draw'] },
   { title: 'Execution & Risk',       cmds: ['execute', 'trade', 'risk', 'portfolio'] },
@@ -393,22 +470,135 @@ const AGENT_GROUPS = [
   { title: 'Improvement',            cmds: ['improve', 'backtest', 'web', 'agent'] },
 ];
 
-html('agents-grid', AGENT_GROUPS.map(g => `
-  <div class="agent-group">
-    <div class="agent-group-title">${g.title}</div>
-    <div class="agent-chips">${g.cmds.map(c => `<span class="agent-chip">/${c}</span>`).join('')}</div>
-  </div>
-`).join(''));
+function renderSkillGroups(skillNames) {
+  const grouped = AGENT_GROUPS.map(group => ({
+    title: group.title,
+    cmds: group.cmds.filter(cmd => skillNames.includes(cmd)),
+  }));
+  const claimed = new Set(AGENT_GROUPS.flatMap(group => group.cmds));
+  const ungrouped = skillNames.filter(name => !claimed.has(name)).sort();
+  if (ungrouped.length) grouped.push({ title: 'Other', cmds: ungrouped });
 
-const totalAgents = AGENT_GROUPS.reduce((s, g) => s + g.cmds.length, 0);
-text('hero-agents', totalAgents.toString());
+  html('agents-grid', grouped.filter(g => g.cmds.length).map(g => `
+    <div class="agent-group">
+      <div class="agent-group-title">${esc(g.title)} <span style="color:var(--muted);font-weight:600">${g.cmds.length}</span></div>
+      <div class="agent-chips">${g.cmds.map(c => `<span class="agent-chip">/${esc(c)}</span>`).join('')}</div>
+    </div>
+  `).join(''));
+}
+
+// Shown only when the registry cannot be read. Keeping the hand-written list as a
+// FALLBACK rather than as a second source of truth is the whole point: two lists
+// rendered side by side would diverge, and the stale one would look just as
+// confident as the live one.
+function renderStaticFallback(reason) {
+  renderSkillGroups(AGENT_GROUPS.flatMap(group => group.cmds));
+  html('registry-banner', `<div class="page-banner banner-warn"><strong>Live registry unreachable — showing the hand-written fallback</strong>
+    ${esc(reason)}. These groups are a snapshot, not the running system: the counts below are what someone last typed into this page, and the real number is whatever is in .claude/ right now.</div>`);
+  html('subagents-grid', '<div class="empty-state">Sub-agent list needs the live registry.</div>');
+  html('mcp-grid', '<div class="empty-state">MCP tool list needs the live registry.</div>');
+  html('guardrails-wrap', '<div class="empty-state">Guardrail list needs the live registry.</div>');
+  const fallbackCount = AGENT_GROUPS.reduce((sum, group) => sum + group.cmds.length, 0);
+  text('hero-skills', fallbackCount + '*');
+}
+
+// ── LIVE REGISTRY ──────────────────────────────────────────────
+const CAPABILITY_CLASS = { 'read-only': 'cap-read', 'writes': 'cap-write', 'TRADES': 'cap-trade' };
+
+async function loadRegistry() {
+  let registry;
+  try {
+    registry = await getJson('/ai-registry');
+  } catch (e) {
+    renderStaticFallback(e.message);
+    return;
+  }
+
+  html('registry-banner', '');
+  const skills = Array.isArray(registry.skills) ? registry.skills : [];
+  const agents = Array.isArray(registry.agents) ? registry.agents : [];
+  const tools  = Array.isArray(registry.tools)  ? registry.tools  : [];
+  const rails  = Array.isArray(registry.guardrails) ? registry.guardrails : [];
+  const counts = registry.counts || {};
+
+  text('hero-skills', String(counts.skills ?? skills.length));
+  text('hero-agents', String(counts.agents ?? agents.length));
+  text('hero-mcp',    String(counts.tools  ?? tools.length));
+
+  renderSkillGroups(skills.map(skill => skill.name));
+
+  html('subagents-grid', agents.length
+    ? agents.map(agent => `
+        <div class="card">
+          <div class="card-title">${esc(agent.name)}</div>
+          <div class="card-body-text">${esc(agent.description)}</div>
+          <div class="card-tag">${esc(agent.file || '')}</div>
+        </div>`).join('')
+    : '<div class="empty-state">No sub-agents reported.</div>');
+
+  // Trading tools first. Reading order should match the order in which these
+  // things can hurt you.
+  const rank = { 'TRADES': 0, 'writes': 1, 'read-only': 2 };
+  const orderedTools = [...tools].sort((a, b) =>
+    (rank[a.mutates] ?? 3) - (rank[b.mutates] ?? 3) || String(a.name).localeCompare(String(b.name)));
+
+  html('mcp-grid', orderedTools.length
+    ? orderedTools.map(tool => `
+        <div class="tool-row">
+          <div class="tool-name">${esc(tool.name)}<span class="cap-tag ${CAPABILITY_CLASS[tool.mutates] || 'cap-read'}">${esc(tool.mutates || 'unknown')}</span></div>
+          <div class="tool-desc">${esc(tool.description)}</div>
+        </div>`).join('')
+    : '<div class="empty-state">No MCP tools reported.</div>');
+
+  html('guardrails-wrap', rails.length
+    ? rails.map(rail => {
+        const enforced = String(rail.enforcement || '').toUpperCase().includes('ENFORCED');
+        return `<div class="rail">
+          <div class="rail-rule">${esc(rail.rule)}<span class="cap-tag ${enforced ? 'cap-enforced' : 'cap-procedural'}">${esc(rail.enforcement)}</span></div>
+          <div class="rail-detail">${esc(rail.detail)}</div>
+        </div>`;
+      }).join('')
+    : '<div class="empty-state">No guardrails reported.</div>');
+
+  const registryErrors = [registry.skillsError, registry.agentsError, registry.toolsError].filter(Boolean);
+  if (registryErrors.length) {
+    html('registry-banner', `<div class="page-banner banner-warn"><strong>The registry could not read part of itself</strong>
+      ${registryErrors.map(esc).join('<br>')} — the counts above are therefore a floor, not a total.</div>`);
+  }
+}
+
+// ── LIVE GATE ──────────────────────────────────────────────────
+// The one number this page most needs to be right, read from the config actually
+// in force rather than written into the HTML.
+async function loadGate() {
+  try {
+    const settings = await getJson('/strategy-settings');
+    const gate = typeof settings.confidenceThreshold === 'number' ? settings.confidenceThreshold : null;
+    text('hero-conf',   gate === null ? '—' : gate + '%');
+    text('gate-inline', gate === null ? 'the live gate' : gate + '%');
+
+    // settingsError non-null means these are built-in defaults, NOT the saved
+    // file — the difference is invisible in the numbers and it changes live sizing.
+    if (settings.settingsError) {
+      html('config-banner', `<div class="page-banner banner-bad"><strong>This box is running built-in defaults, not its saved config</strong>
+        strategy_settings.json did not load: ${esc(settings.settingsError)}. Every number on this page describes the defaults, and live position sizing is not what the file says.</div>`);
+    } else {
+      html('config-banner', '');
+    }
+  } catch (e) {
+    text('hero-conf', '—');
+    text('gate-inline', 'the live gate');
+    html('config-banner', `<div class="page-banner banner-warn"><strong>Could not read the live confidence gate</strong>
+      ${esc(e.message)}. No gate is shown rather than a remembered one — this page used to claim 65% while the engine ran 70.</div>`);
+  }
+}
 
 // ── LIVE SETUP PERFORMANCE ────────────────────────────────────
 async function loadLiveProfit() {
   try {
     const [statsRes, learnRes] = await Promise.all([
-      fetch(API + '/stats/by-setup', { cache: 'no-store' }).then(r => r.json()),
-      fetch(API + '/learning',       { cache: 'no-store' }).then(r => r.json())
+      getJson('/stats/by-setup'),
+      getJson('/learning')
     ]);
     markOnline(true);
 
@@ -429,7 +619,7 @@ async function loadLiveProfit() {
       const pnlColor = s.totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
       return `<tr class="${i === 0 ? 'top-rank' : ''}">
         <td>${rankCls ? `<span class="rank-badge ${rankCls}">${i + 1}</span>` : (i + 1)}</td>
-        <td style="font-weight:600">${s.setup.replace(/_/g, ' ')}</td>
+        <td style="font-weight:600">${esc(String(s.setup).replace(/_/g, ' '))}</td>
         <td>${s.trades}</td>
         <td>${s.winRate}%</td>
         <td style="color:${pnlColor};font-weight:700">${s.totalPnl >= 0 ? '+' : ''}$${s.totalPnl.toFixed(2)}</td>
@@ -455,7 +645,7 @@ async function runBacktest() {
   html('backtest-wrap', `<div class="empty-state"><span class="spinner"></span> Testing 5 years of BTC, Gold, and S&amp;P 500 data — up to 30s…</div>`);
 
   try {
-    const d = await fetch(API + '/backtest?years=5', { cache: 'no-store' }).then(r => r.json());
+    const d = await getJson('/backtest?years=5');
     const assets = [
       { key: 'btc',  icon: '₿',  color: '#f7931a' },
       { key: 'gold', icon: '🥇', color: '#eab308' },
@@ -478,7 +668,7 @@ async function runBacktest() {
       const wc = a.r.winRate >= 55 ? 'var(--green)' : a.r.winRate >= 45 ? 'var(--yellow)' : 'var(--red)';
       return `<tr class="${i === 0 ? 'top-rank' : ''}">
         <td><span class="rank-badge ${rankCls}">${i + 1}</span></td>
-        <td style="font-weight:600">${a.icon} ${a.r.label}</td>
+        <td style="font-weight:600">${a.icon} ${esc(a.r.label)}</td>
         <td>${a.r.totalTrades}</td>
         <td style="color:${wc}">${a.r.winRate}%</td>
         <td>${a.r.profitFactor ?? 'N/A'}</td>
@@ -493,12 +683,22 @@ async function runBacktest() {
     </table>`;
 
     if (d.claudeVerdict) {
-      out += `<div class="verdict-box"><strong>Claude verdict:</strong><br>${d.claudeVerdict.replace(/\n/g, '<br>')}</div>`;
+      out += `<div class="verdict-box"><strong>Claude verdict:</strong><br>${esc(d.claudeVerdict).replace(/\n/g, '<br>')}</div>`;
     }
+
+    // Say what this actually replayed. The table ranks by return %, which reads as
+    // the system's edge — but this harness replays the single-timeframe path, not
+    // the multi-timeframe gate that decides live trades. The measurement that set
+    // the live gate was a walk-forward, and it is not this.
+    out += `<div class="verdict-box" style="background:rgba(255,184,48,.06);border-color:rgba(255,184,48,.3)">
+      <strong style="color:var(--yellow)">What this replayed:</strong><br>
+      Single-timeframe signal generation over ${esc(d.years)} years of history. The live system requires
+      confluence across Daily, 4H and 1H, so these returns describe a related path, not the traded one.
+      The live gate was set by walk-forward validation (5 of 5 out-of-sample folds positive), not by this table.</div>`;
 
     html('backtest-wrap', out);
   } catch (e) {
-    html('backtest-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Backtest failed: ${e.message}</div>`);
+    html('backtest-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Backtest failed: ${esc(e.message)}</div>`);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Run Backtest';
@@ -531,9 +731,9 @@ async function architectTask() {
     html('eng-plan-wrap', `<div style="font-size:.72rem;color:var(--muted2);margin-bottom:8px">
       ${d.plan.length} workstream${d.plan.length === 1 ? '' : 's'} — review, then launch:</div>` +
       d.plan.map(w => `<div class="worker-card">
-        <div class="worker-head"><span class="worker-name">${w.name}</span></div>
-        <div class="worker-files">Files: ${w.files}</div>
-        <div style="font-size:.72rem;color:var(--text)">${w.task}</div>
+        <div class="worker-head"><span class="worker-name">${esc(w.name)}</span></div>
+        <div class="worker-files">Files: ${esc(w.files)}</div>
+        <div style="font-size:.72rem;color:var(--text)">${esc(w.task)}</div>
       </div>`).join(''));
 
     text('eng-run-meta', 'Plan ready — awaiting launch');
@@ -573,17 +773,17 @@ async function launchTask() {
 async function pollEngineerStatus() {
   if (!engCurrentRunId) return;
   try {
-    const d = await fetch(API + '/engineer/status/' + engCurrentRunId, { cache: 'no-store' }).then(r => r.json());
+    const d = await getJson('/engineer/status/' + engCurrentRunId);
 
     html('eng-status-wrap', d.workers.map(w => {
-      const cls = 'w-' + w.status;
+      const cls = 'w-' + String(w.status).replace(/[^a-z]/gi, '');
       return `<div class="worker-card">
         <div class="worker-head">
-          <span class="worker-name">${w.name}</span>
-          <span class="w-status ${cls}">${w.status}</span>
+          <span class="worker-name">${esc(w.name)}</span>
+          <span class="w-status ${cls}">${esc(w.status)}</span>
         </div>
-        <div class="worker-files">Files: ${w.files}</div>
-        ${w.outputTail ? `<div class="worker-log">${w.outputTail.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>` : ''}
+        <div class="worker-files">Files: ${esc(w.files)}</div>
+        ${w.outputTail ? `<div class="worker-log">${esc(w.outputTail)}</div>` : ''}
       </div>`;
     }).join(''));
 
@@ -601,16 +801,22 @@ async function pollEngineerStatus() {
 // ── STATUS ─────────────────────────────────────────────────────
 async function loadStatus() {
   try {
-    await fetch(API + '/status', { cache: 'no-store' }).then(r => r.json());
+    await getJson('/status');
     markOnline(true);
   } catch { markOnline(false); }
 }
 
 // ── BOOT ───────────────────────────────────────────────────────
 loadStatus();
+loadGate();
+loadRegistry();
 loadLiveProfit();
 setInterval(loadLiveProfit, 60_000);
 setInterval(loadStatus, 30_000);
+// The gate and the registry both change under this page — a threshold edit or a
+// new skill file — so neither is read once at boot and trusted for the session.
+setInterval(loadGate, 60_000);
+setInterval(loadRegistry, 300_000);
 text('footer-ts', 'Loaded ' + new Date().toLocaleTimeString('en-US', { hour12: false }));
 </script>
 </body>

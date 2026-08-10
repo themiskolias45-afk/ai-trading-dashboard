@@ -79,6 +79,35 @@
     .footnote { font-size:.66rem; color:var(--muted); text-align:center; margin-top:18px; line-height:1.6; }
     /* Wide content must scroll inside its own box, never the page body. */
     .scroll-x { overflow-x:auto; }
+
+    /* ── Fleet: this box beside the other one ── */
+    .banner {
+      border-radius:10px; padding:12px 16px; margin-bottom:14px;
+      font-size:.78rem; line-height:1.6; border:1px solid;
+    }
+    .banner-bad  { background:rgba(239,68,68,.08);  border-color:rgba(239,68,68,.45);  color:#fca5a5; }
+    .banner-ok   { background:rgba(34,197,94,.06);  border-color:rgba(34,197,94,.3);   color:#86efac; }
+    .banner-warn { background:rgba(234,179,8,.07);  border-color:rgba(234,179,8,.35);  color:#fde047; }
+    .banner strong { display:block; font-size:.82rem; margin-bottom:3px; color:inherit; }
+
+    .fleet-table { width:100%; border-collapse:collapse; font-size:.76rem; }
+    .fleet-table th {
+      text-align:left; padding:9px 12px; font-size:.62rem; text-transform:uppercase;
+      letter-spacing:.1em; color:var(--muted); border-bottom:1px solid var(--border); font-weight:600;
+    }
+    .fleet-table th.col-box { color:var(--text); font-size:.72rem; text-transform:none; letter-spacing:0; }
+    .fleet-table td { padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+    .fleet-table tbody tr:last-child td { border-bottom:none; }
+    .fleet-table tr.differs { background:rgba(239,68,68,.06); }
+    .fleet-table tr.by-design { background:rgba(234,179,8,.04); }
+    .fleet-row-label { color:var(--muted); }
+    .fleet-note { font-size:.66rem; color:var(--muted); margin-top:3px; }
+    .tag {
+      display:inline-block; font-size:.6rem; font-weight:700; letter-spacing:.06em;
+      padding:2px 7px; border-radius:20px; margin-left:6px; vertical-align:middle;
+    }
+    .tag-differs   { background:rgba(239,68,68,.15); color:#fca5a5; }
+    .tag-bydesign  { background:rgba(234,179,8,.12); color:#fde047; }
   </style>
 </head>
 <body>
@@ -107,6 +136,13 @@
       <div class="pill pill-muted" id="uptime-pill">uptime --</div>
     </div>
 
+    <div id="divergence-banner"></div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-head">THE FLEET &mdash; DO THE TWO BOXES AGREE?</div>
+      <div class="card-body scroll-x" id="fleet"><div class="empty">Loading...</div></div>
+    </div>
+
     <div class="grid2">
       <div class="card">
         <div class="card-head">HEALTH CHECKS</div>
@@ -121,6 +157,11 @@
     <div class="card" style="margin-bottom:16px;">
       <div class="card-head">NEEDS A HUMAN</div>
       <div class="card-body" id="actions"><div class="empty">Loading...</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-head">KNOWN &amp; ACCEPTED</div>
+      <div class="card-body" id="standing"><div class="empty">Loading...</div></div>
     </div>
 
     <div class="footnote">
@@ -209,6 +250,164 @@ function renderComponents(data) {
   host.innerHTML = parts.join('');
 }
 
+// ── The fleet ────────────────────────────────────────────────────────────────
+// This box beside the other one, one row per fact that decides what trades. The
+// comparison is done here rather than left to the eye, because the failures that
+// have cost the most were both boxes reporting healthy while disagreeing about
+// what a signal is.
+function valueOrDash(value) {
+  return value === null || value === undefined || value === '' ? '—' : String(value);
+}
+
+function renderFleet(data) {
+  const host = document.getElementById('fleet');
+  const here = data.thisBox || {};
+  const peer = data.peer || { configured: false };
+  const div  = data.divergence || {};
+  const parity = data.parity || { available: false };
+
+  const peerLabel = peer.configured
+    ? (peer.reachable ? peer.url : peer.url + ' (unreachable)')
+    : 'no peer configured';
+
+  const bridgeText = (box) => {
+    const bridges = box.bridges || { reporting: [], silent: [] };
+    const live    = (bridges.reporting || []).join(', ');
+    const silent  = (bridges.silent || []).join(', ');
+    if (!live && !silent) return '—';
+    return (live ? live + ' live' : 'none live') + (silent ? ' · ' + silent + ' SILENT' : '');
+  };
+
+  const haltText = (box) => {
+    if (box.halted === null || box.halted === undefined) return '—';
+    return box.halted ? 'OPEN — ' + (box.haltReason || 'halted') : 'closed';
+  };
+
+  const rows = [
+    { label: 'Health',
+      local: here.healthy === null || here.healthy === undefined ? '—' : (here.healthy ? 'Healthy' : 'Degraded'),
+      peer:  peer.healthy === null || peer.healthy === undefined ? '—' : (peer.healthy ? 'Healthy' : 'Degraded'),
+      bad:   here.healthy === false || peer.healthy === false },
+
+    { label: 'Confidence gate',
+      local: valueOrDash(here.gate),
+      peer:  valueOrDash(peer.gate),
+      bad:   !!(div.gate && div.gate.differs),
+      note:  div.gate && div.gate.differs
+               ? 'strategy_settings.json is per-machine and untracked — the same commit is running two different gates.'
+               : '' },
+
+    { label: 'Circuit breaker',
+      local: haltText(here),
+      peer:  haltText(peer),
+      bad:   here.halted === true || peer.halted === true },
+
+    { label: 'Bridges',
+      local: bridgeText(here),
+      peer:  peer.reachable ? bridgeText(peer) : '—',
+      bad:   (here.bridges && (here.bridges.silent || []).length > 0)
+             || (peer.bridges && (peer.bridges.silent || []).length > 0) },
+
+    { label: 'Fixed lot size',
+      local: valueOrDash(here.fixedLotSize),
+      peer:  valueOrDash(peer.fixedLotSize),
+      byDesign: !!(div.fixedLotSize && div.fixedLotSize.differs),
+      note:  div.fixedLotSize && div.fixedLotSize.differs
+               ? 'Per-machine by design — the VPS deliberately runs a fixed lot. Shown so it is visible, not raised as a fault.'
+               : '' },
+
+    { label: 'Daily P&L',
+      local: valueOrDash(here.dailyPnl),
+      peer:  valueOrDash(peer.dailyPnl) },
+
+    { label: 'Config source',
+      local: here.settingsError ? 'DEFAULTS — ' + here.settingsError : 'saved file',
+      peer:  peer.reachable ? (peer.settingsError ? 'DEFAULTS — ' + peer.settingsError : 'saved file') : '—',
+      bad:   !!here.settingsError || !!peer.settingsError },
+
+    { label: 'Engine parity',
+      local: parity.available
+               ? parity.verdict + (parity.ageHours !== null ? ' · ' + parity.ageHours + 'h ago' : '')
+               : 'never recorded',
+      peer:  parity.available && (parity.fileDrift || 0) > 0 ? parity.fileDrift + ' non-engine file(s) differ' : '—',
+      bad:   !!(div.engine && div.engine.differs),
+      note:  parity.available
+               ? ''
+               : 'Nothing here proves the two boxes share a trading engine — only that both are up. Run node tasks/vps_parity.cjs --emit.' },
+  ];
+
+  host.innerHTML =
+    '<table class="fleet-table"><thead><tr>'
+    + '<th>Fact that decides what trades</th>'
+    + '<th class="col-box">' + esc(here.label || 'this box') + '</th>'
+    + '<th class="col-box">' + esc(peerLabel) + '</th>'
+    + '</tr></thead><tbody>'
+    + rows.map(row => {
+        const cls = row.bad ? 'differs' : (row.byDesign ? 'by-design' : '');
+        const tag = row.bad ? '<span class="tag tag-differs">DIFFERS</span>'
+                  : row.byDesign ? '<span class="tag tag-bydesign">BY DESIGN</span>' : '';
+        return '<tr class="' + cls + '">'
+             + '<td class="fleet-row-label">' + esc(row.label) + tag
+             + (row.note ? '<div class="fleet-note">' + esc(row.note) + '</div>' : '') + '</td>'
+             + '<td>' + esc(row.local) + '</td>'
+             + '<td>' + esc(row.peer) + '</td>'
+             + '</tr>';
+      }).join('')
+    + '</tbody></table>';
+}
+
+function renderDivergenceBanner(data) {
+  const host   = document.getElementById('divergence-banner');
+  const peer   = data.peer || { configured: false };
+  const div    = data.divergence || {};
+  const parity = data.parity || { available: false };
+  const splits = [];
+
+  if (peer.configured && !peer.reachable) {
+    splits.push('The other box did not answer (' + (peer.error || 'no response') + '). It is the box that trades continuously.');
+  }
+  if (div.gate && div.gate.differs) {
+    splits.push('Confidence gate is ' + div.gate.local + ' here and ' + div.gate.peer + ' there — the two boxes admit different trades from identical bars.');
+  }
+  if (div.engine && div.engine.differs) {
+    splits.push('Engine parity failed: ' + div.engine.engineDrift + ' function(s) and ' + div.engine.scalarDrift + ' constant(s) differ.');
+  }
+  if (peer.halted === true) splits.push('Circuit breaker is OPEN on the other box.');
+
+  if (!peer.configured) {
+    host.innerHTML = '<div class="banner banner-warn"><strong>Single-box view</strong>'
+      + 'No peer is configured, so everything below describes this machine only. Set PEER_SERVER_URL in keys.env to the other box to compare them.</div>';
+    return;
+  }
+  if (splits.length > 0) {
+    host.innerHTML = '<div class="banner banner-bad"><strong>The fleet does not agree with itself</strong>'
+      + splits.map(esc).join('<br />')
+      + '<br />Any number that pools both boxes is unattributable until this is reconciled.</div>';
+    return;
+  }
+  host.innerHTML = '<div class="banner banner-ok"><strong>Both boxes agree</strong>'
+    + 'Same gate, both answering, neither halted'
+    + (parity.available && !(div.engine && div.engine.differs)
+        ? ' — and the last engine-parity run said ' + esc(parity.verdict) + (parity.ageHours !== null ? ' (' + esc(parity.ageHours) + 'h ago).' : '.')
+        : '. Engine parity has not been recorded, so this is agreement on config, not proof of a shared engine.')
+    + '</div>';
+}
+
+function renderStanding(items) {
+  const host = document.getElementById('standing');
+  if (!items || items.length === 0) {
+    host.innerHTML = '<div class="empty">Nothing standing.</div>';
+    return;
+  }
+  host.innerHTML = '<div class="row-detail" style="padding-bottom:8px">'
+    + 'True, accepted, and waiting on nobody today. Each states what would retire it.</div>'
+    + items.map(item =>
+        '<div class="action"><div class="sev sev-' + esc(item.severity) + '"></div>'
+        + '<div><div class="action-title">' + esc(item.title) + '</div>'
+        + '<div class="action-detail">' + esc(item.detail) + '</div></div></div>'
+      ).join('');
+}
+
 function renderActions(items) {
   const host = document.getElementById('actions');
   if (!items || items.length === 0) {
@@ -237,15 +436,25 @@ async function loadPlan() {
     document.getElementById('uptime-pill').textContent = 'server up ' + hours + 'h ' + mins + 'm';
 
     setStatus(data.healthy, data.healthy ? 'Healthy' : 'Needs attention');
+    renderDivergenceBanner(data);
+    renderFleet(data);
     renderChecks(data.checks);
     renderComponents(data);
     renderActions(data.actionItems);
+    renderStanding(data.standingNotes);
   } catch (err) {
     // Never fail silently the way daily-plan.html used to: an empty console and a
     // red pill gave nothing to debug from.
     console.error('[plan] loadPlan failed:', err);
     setStatus(false, 'Offline');
     document.getElementById('plan-meta').textContent = 'Could not read system state - ' + err.message;
+    // Say nothing rather than leave the fleet card at "Loading..." — a stalled
+    // comparison must not read as a comparison that passed.
+    document.getElementById('divergence-banner').innerHTML =
+      '<div class="banner banner-warn"><strong>Comparison unavailable</strong>'
+      + 'This server did not answer, so neither box can be compared right now.</div>';
+    document.getElementById('fleet').innerHTML = '<div class="empty">Unreachable.</div>';
+    document.getElementById('standing').innerHTML = '<div class="empty">Unreachable.</div>';
   }
 }
 

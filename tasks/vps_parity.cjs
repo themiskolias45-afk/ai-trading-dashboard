@@ -19,11 +19,16 @@
  * The same probe runs on both sides, so the methodology cannot differ between
  * them. That is the whole reason it is one file rather than two.
  *
- * READ-ONLY on both boxes. Opens files, hashes them, prints. Writes nothing,
- * restarts nothing, changes no setting.
+ * READ-ONLY on both boxes by default. Opens files, hashes them, prints. Restarts
+ * nothing, changes no setting. The one exception is opt-in: --emit additionally
+ * writes the verdict to tasks/logs/vps_parity_last.json so /api/system-plan can
+ * show it on the Systems Plan page. Without that flag it still writes nothing —
+ * the write is opt-in precisely so this tool's read-only promise stays true for
+ * anyone who runs it the way the line above describes.
  *
  * Usage:
  *   node tasks/vps_parity.cjs                 compare this box against the VPS
+ *   node tasks/vps_parity.cjs --emit          ...and record the verdict for the page
  *   node tasks/vps_parity.cjs --probe         emit this box's fingerprint as JSON
  *   node tasks/vps_parity.cjs --host H --key K --user U
  */
@@ -180,8 +185,10 @@ if (!onlyLocal.length && !onlyRemote.length) console.log("  identical route surf
 onlyLocal.forEach(r  => console.log("  LOCAL ONLY  " + r));
 onlyRemote.forEach(r => console.log("  VPS ONLY    " + r));
 
+const agree = !engineDrift && !scalarDrift;
+
 console.log("\nVERDICT");
-if (!engineDrift && !scalarDrift) {
+if (agree) {
   console.log("  ENGINES AGREE — same signal from the same bars.");
   if (drift) console.log("  " + drift + " non-engine file(s) differ (dashboards, tooling). Cosmetic or pending deploy.");
 } else {
@@ -191,4 +198,27 @@ if (!engineDrift && !scalarDrift) {
   console.log("  the combined journal and learning data unattributable. Reconcile before");
   console.log("  drawing any conclusion that pools both boxes.");
 }
+
+// Opt-in only. An answer that lives solely in a terminal is an answer nobody
+// re-reads: this is what puts the verdict on /plan, with its own age attached so a
+// stale check cannot pass itself off as a current one.
+if (process.argv.includes("--emit")) {
+  const outPath = path.join(ROOT, "tasks", "logs", "vps_parity_last.json");
+  const record = {
+    ranAt: new Date().toISOString(),
+    host: HOST,
+    engineDrift, scalarDrift, fileDrift: drift,
+    routesOnlyLocal: onlyLocal,
+    routesOnlyRemote: onlyRemote,
+    verdict: agree ? "ENGINES AGREE" : "ENGINES DIVERGE",
+  };
+  try {
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, JSON.stringify(record, null, 2), "utf8");
+    console.log("\n  recorded -> " + outPath);
+  } catch (e) {
+    console.error("\n  could not record verdict: " + e.message);
+  }
+}
+
 process.exit(engineDrift || scalarDrift ? 2 : 0);

@@ -10,6 +10,7 @@ const cron       = require("node-cron");
 const Anthropic  = require("@anthropic-ai/sdk");
 const fs         = require("fs");
 const path       = require("path");
+const os         = require("os");
 const { YouTube } = require("youtube-sr");
 
 // keys.env -> process.env, and it MUST happen here, above the local requires.
@@ -5170,47 +5171,307 @@ function readLatestBackup() {
   }
 }
 
-// Things only a human can clear. Derived from configuration, so an item disappears
-// when it is genuinely resolved rather than when someone remembers to delete it.
-function deriveActionItems(expectedAccounts, reportingAccounts) {
-  const items = [];
+// ── Fleet view: pull what the OTHER box actually believes ─────────────────────
+//
+// /api/peer-heartbeat already answers "is the other box alive", but liveness has
+// never been the expensive failure. Every expensive failure has been a DIVERGENCE
+// while both boxes looked healthy: AutoTrading disabled on the VPS for 11 days
+// behind green health checks; strategy_settings.json never syncing, so the same
+// commit ran a different gate; cohort_table.js absent, so the box that trades
+// continuously was the one box that never reported a dead cohort. This pulls the
+// peer's own public state and compares it, so a split shows up on a screen instead
+// of in the journal weeks later.
+//
+// Read-only and out of band: three GETs against endpoints that are already public,
+// writing nothing and feeding no gate. With PEER_SERVER_URL unset it reports
+// configured:false and this endpoint behaves exactly as it did before.
+const PEER_PROBE_TIMEOUT_MS = 3000;
+const PEER_PROBE_CACHE_MS   = 30 * 1000;
+const BACKUP_STALE_HOURS    = 24;
+const LOG_DIR_WARN_MB       = 500;
+const PARITY_STALE_DAYS     = 7;
+
+let peerProbeCache = { at: 0, value: null };
+
+async function probePeer() {
+  const base = String(process.env.PEER_SERVER_URL || "").trim().replace(/\/+$/, "");
+  if (!base) return { configured: false, reachable: false, url: null, error: null };
+  if (peerProbeCache.value && Date.now() - peerProbeCache.at < PEER_PROBE_CACHE_MS) {
+    return peerProbeCache.value;
+  }
+
+  const getJson = (route) => axios
+    .get(base + route, { timeout: PEER_PROBE_TIMEOUT_MS, validateStatus: (status) => status === 200 })
+    .then((response) => response.data);
+
+  const peer = {
+    configured: true, url: base, reachable: false, probedAt: new Date().toISOString(), error: null,
+    healthy: null, checks: null,
+    gate: null, fixedLotSize: null, settingsError: null,
+    halted: null, haltReason: "", dailyPnl: null, consecutiveLosses: null,
+    accountTags: [], bridges: { reporting: [], silent: [] },
+  };
+
+  // allSettled, never all: a peer that answers two of three questions is far more
+  // useful than a probe that throws away both answers because the third timed out.
+  const [healerResult, riskResult, settingsResult] = await Promise.allSettled([
+    getJson("/api/healer"),
+    getJson("/api/risk-status"),
+    getJson("/api/strategy-settings"),
+  ]);
+
+  if (healerResult.status === "fulfilled") {
+    peer.reachable = true;
+    peer.healthy = healerResult.value?.healthy === true;
+    peer.checks  = healerResult.value?.checks ?? null;
+  }
+  if (riskResult.status === "fulfilled") {
+    peer.reachable = true;
+    const remoteRisk = riskResult.value || {};
+    peer.halted            = remoteRisk.halted === true;
+    peer.haltReason        = typeof remoteRisk.haltReason === "string" ? remoteRisk.haltReason : "";
+    peer.dailyPnl          = typeof remoteRisk.dailyPnl === "number" ? remoteRisk.dailyPnl : null;
+    peer.consecutiveLosses = typeof remoteRisk.consecutiveLosses === "number" ? remoteRisk.consecutiveLosses : null;
+    peer.accountTags       = Object.keys(remoteRisk.accounts || {});
+  }
+  if (settingsResult.status === "fulfilled") {
+    peer.reachable = true;
+    const remoteSettings = settingsResult.value || {};
+    peer.gate          = typeof remoteSettings.confidenceThreshold === "number" ? remoteSettings.confidenceThreshold : null;
+    peer.fixedLotSize  = typeof remoteSettings.fixedLotSize === "number" ? remoteSettings.fixedLotSize : null;
+    peer.settingsError = remoteSettings.settingsError || null;
+  }
+  if (!peer.reachable) {
+    const firstFailure = [healerResult, riskResult, settingsResult].find(r => r.status === "rejected");
+    peer.error = firstFailure
+      ? String(firstFailure.reason?.message || firstFailure.reason).slice(0, 200)
+      : "no response";
+  }
+
+  // Bridge liveness per account tag, using the same authoritative heartbeat test
+  // this box uses on itself — a process list is not a substitute on either machine.
+  if (peer.reachable && peer.accountTags.length > 0) {
+    const bridgeResults = await Promise.allSettled(
+      peer.accountTags.map(tag => getJson("/api/mt5/health?account=" + encodeURIComponent(tag)))
+    );
+    bridgeResults.forEach((result, index) => {
+      const tag = peer.accountTags[index];
+      if (result.status === "fulfilled" && result.value?.connected === true) peer.bridges.reporting.push(tag);
+      else peer.bridges.silent.push(tag);
+    });
+  }
+
+  peerProbeCache = { at: Date.now(), value: peer };
+  return peer;
+}
+
+// Last engine-parity verdict, written only when vps_parity.cjs is run with --emit.
+// The comparison itself stays a deliberate manual act; this just stops its answer
+// from living exclusively in a terminal scrollback nobody re-reads.
+function readParityResult() {
+  const parityPath = path.join(__dirname, "..", "tasks", "logs", "vps_parity_last.json");
+  try {
+    if (!fs.existsSync(parityPath)) {
+      return { available: false, reason: "never run — node tasks/vps_parity.cjs --emit" };
+    }
+    const saved = JSON.parse(fs.readFileSync(parityPath, "utf8"));
+    const ranAt = saved.ranAt ? new Date(saved.ranAt) : null;
+    const ageHours = ranAt && !isNaN(ranAt.getTime()) ? (Date.now() - ranAt.getTime()) / 3600000 : null;
+    return {
+      available:   true,
+      ranAt:       saved.ranAt ?? null,
+      ageHours:    ageHours === null ? null : Math.round(ageHours * 10) / 10,
+      engineDrift: saved.engineDrift ?? null,
+      scalarDrift: saved.scalarDrift ?? null,
+      fileDrift:   saved.fileDrift ?? null,
+      verdict:     saved.verdict ?? null,
+    };
+  } catch (e) {
+    return { available: false, reason: "unreadable: " + e.message };
+  }
+}
+
+// Measured, so "no log rotation" can carry a number and stop being a permanent
+// line of furniture on the page.
+function readLogDirSizeMB() {
+  const logDir = path.join(__dirname, "..", "tasks", "logs");
+  try {
+    const totalBytes = fs.readdirSync(logDir).reduce((sum, name) => {
+      try {
+        const stat = fs.statSync(path.join(logDir, name));
+        return sum + (stat.isFile() ? stat.size : 0);
+      } catch (_) { return sum; }
+    }, 0);
+    return Math.round(totalBytes / (1024 * 1024) * 10) / 10;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Things only a human can clear, split two ways.
+//
+// actionItems are conditions that CAN clear; standingNotes are true, accepted and
+// waiting on nobody today. The split exists because three of the four items here
+// were previously unconditional — "Bridge B disabled" fires forever on a box that
+// deliberately runs one account — so the panel meant to demand attention sat
+// permanently at three and taught you to skim past the one that mattered.
+// Nothing was dropped in the split: every original item is still produced, and
+// each now states the condition that would retire it.
+function deriveActionItems(context) {
+  const {
+    expectedAccounts, reportingAccounts,
+    localHalted, localHaltReason, localGate, localSettingsError,
+    peer, parity, backup, logDirSizeMB,
+  } = context;
+
+  const actionItems   = [];
+  const standingNotes = [];
 
   const missingBridges = expectedAccounts.filter(tag => !reportingAccounts.includes(tag));
   if (missingBridges.length > 0) {
-    items.push({
+    actionItems.push({
       severity: "high",
       title: `Bridge ${missingBridges.join(", ")} expected but not reporting`,
       detail: "A bridge this deployment declares as required is silent. Check its terminal login and the bridge log.",
     });
   }
 
-  if (!expectedAccounts.includes("B")) {
-    items.push({
-      severity: "medium",
-      title: "Bridge B disabled — needs a second demo account",
-      detail: "This machine holds one broker account. Two bridges on one account would place every trade twice at double risk, so B stays off until a second account exists. Then set MT5_EXPECTED_LOGIN in start_bridge_B_vps.bat and MT5_EXPECTED_ACCOUNTS=A,B.",
+  if (localHalted) {
+    actionItems.push({
+      severity: "high",
+      title: "Circuit breaker open on this box",
+      detail: (localHaltReason || "Trading is halted here.") + " Nothing on this box trades until it is cleared, and an absence of trades looks exactly like a quiet market.",
     });
   }
 
-  items.push({
-    severity: "low",
-    title: "No log rotation",
-    detail: "tasks/logs grows without bound. Not urgent at current disk headroom, but nothing trims it.",
-  });
+  if (localSettingsError) {
+    actionItems.push({
+      severity: "high",
+      title: "This box is running built-in defaults, not the saved config",
+      detail: `strategy_settings.json did not load (${localSettingsError}). Every number on every page describes defaults, and live position sizing is not what the file says.`,
+    });
+  }
 
-  items.push({
+  if (peer.configured && !peer.reachable) {
+    actionItems.push({
+      severity: "high",
+      title: "The other box is not answering",
+      detail: `${peer.url} did not respond (${peer.error || "no response"}). That is the box trading continuously, so its silence is not a quiet market — check it before reading any number here as the fleet's.`,
+    });
+  }
+
+  if (peer.reachable) {
+    if (peer.halted) {
+      actionItems.push({
+        severity: "high",
+        title: "Circuit breaker open on the other box",
+        detail: (peer.haltReason || "Trading is halted there.") + " The box that trades continuously is not trading, and nothing on this machine would have told you.",
+      });
+    }
+    if (peer.settingsError) {
+      actionItems.push({
+        severity: "high",
+        title: "The other box is running built-in defaults, not its saved config",
+        detail: `Its strategy_settings.json did not load (${peer.settingsError}). It is sizing and gating on defaults right now.`,
+      });
+    }
+    if (peer.gate !== null && localGate !== null && peer.gate !== localGate) {
+      actionItems.push({
+        severity: "high",
+        title: `Confidence gate differs across the fleet — ${localGate} here, ${peer.gate} there`,
+        detail: "strategy_settings.json is per-machine and untracked, so a shared commit does not mean shared behaviour. The two boxes will admit different trades from identical bars, and any conclusion pooling their journals is unattributable.",
+      });
+    }
+    if (peer.bridges.silent.length > 0) {
+      actionItems.push({
+        severity: "high",
+        title: `Bridge ${peer.bridges.silent.join(", ")} silent on the other box`,
+        detail: "That box declares the account but no heartbeat is arriving from its bridge. Check its MT5 terminal login and bridge log.",
+      });
+    }
+    if (peer.healthy === false) {
+      actionItems.push({
+        severity: "medium",
+        title: "The other box reports degraded health",
+        detail: "Its own healer is not returning healthy. Open its /plan or /api/healer for which check is failing.",
+      });
+    }
+  }
+
+  if (parity.available && (parity.engineDrift > 0 || parity.scalarDrift > 0)) {
+    actionItems.push({
+      severity: "high",
+      title: "The two boxes do not run the same engine",
+      detail: `${parity.engineDrift} engine function(s) and ${parity.scalarDrift} constant(s) differ as of the last parity run${parity.ageHours !== null ? ` (${parity.ageHours}h ago)` : ""}. They can produce different signals from identical bars — reconcile before drawing any conclusion that pools both boxes.`,
+    });
+  } else if (!parity.available) {
+    actionItems.push({
+      severity: "low",
+      title: "Engine parity has never been recorded",
+      detail: `${parity.reason}. Until it runs, nothing on this page proves the two boxes share a trading engine — only that both are up.`,
+    });
+  } else if (parity.ageHours !== null && parity.ageHours > PARITY_STALE_DAYS * 24) {
+    actionItems.push({
+      severity: "low",
+      title: `Engine parity last checked ${Math.round(parity.ageHours / 24)} days ago`,
+      detail: "The VPS carries commits this repo has never seen and its index.js is patched by hand, so parity decays with every deploy. Re-run node tasks/vps_parity.cjs --emit.",
+    });
+  }
+
+  const backupAgeHours = backup ? (Date.now() - new Date(backup.modified).getTime()) / 3600000 : null;
+  if (!backup) {
+    actionItems.push({
+      severity: "medium",
+      title: "No backup found",
+      detail: "Nothing in the backup directory. The learning data and journal represent weeks of real trades and exist on one disk right now.",
+    });
+  } else if (backupAgeHours !== null && backupAgeHours > BACKUP_STALE_HOURS) {
+    actionItems.push({
+      severity: "medium",
+      title: `Latest backup is ${Math.round(backupAgeHours)}h old`,
+      detail: `Newest archive is ${backup.name}. Anything learned since then exists on one disk only.`,
+    });
+  }
+
+  if (logDirSizeMB !== null && logDirSizeMB > LOG_DIR_WARN_MB) {
+    actionItems.push({
+      severity: "medium",
+      title: `tasks/logs has reached ${logDirSizeMB} MB and nothing trims it`,
+      detail: `Past the ${LOG_DIR_WARN_MB} MB mark this raises at. Rotate or archive it.`,
+    });
+  } else {
+    standingNotes.push({
+      severity: "low",
+      title: "No log rotation",
+      detail: `tasks/logs grows without bound — ${logDirSizeMB === null ? "size unreadable" : logDirSizeMB + " MB"} today, under the ${LOG_DIR_WARN_MB} MB mark that turns this into an action. Nothing trims it.`,
+    });
+  }
+
+  if (!expectedAccounts.includes("B")) {
+    standingNotes.push({
+      severity: "low",
+      title: "Bridge B disabled — needs a second demo account",
+      detail: "This machine holds one broker account. Two bridges on one account would place every trade twice at double risk, so B stays off until a second account exists. Then set MT5_EXPECTED_LOGIN in start_bridge_B_vps.bat and MT5_EXPECTED_ACCOUNTS=A,B. Deliberate, not a fault — it retires itself the moment that variable lists B.",
+    });
+  }
+
+  standingNotes.push({
     severity: "low",
     title: "Voice needs a trusted origin",
     detail: "Chrome allows the microphone only on HTTPS or localhost. Use the SSH tunnel at localhost:3002, or finish the cloudflared tunnel for a real HTTPS URL that also works on a phone.",
   });
 
-  return items;
+  return { actionItems, standingNotes };
 }
 
 app.get("/api/system-plan", async (_, res) => {
   try {
-    const healer   = autohealer.getStatus();
-    const taskInfo = await readScheduledTasks();
+    const healer = autohealer.getStatus();
+
+    // Both are slow and independent, so neither should wait on the other. Each
+    // resolves to an "unavailable" shape rather than rejecting, so a dead peer or a
+    // schtasks timeout degrades one card instead of 500-ing the page.
+    const [taskInfo, peer] = await Promise.all([readScheduledTasks(), probePeer()]);
 
     const reportingAccounts = Object.entries(mt5LastSeenByAccount)
       .filter(([, seenAt]) => Date.now() - new Date(seenAt).getTime() < MT5_HEARTBEAT_STALE_MS)
@@ -5218,6 +5479,22 @@ app.get("/api/system-plan", async (_, res) => {
 
     const expectedAccounts = (process.env.MT5_EXPECTED_ACCOUNTS ?? "A,B")
       .split(",").map(tag => tag.trim()).filter(Boolean);
+
+    const localGate     = typeof strategySettings?.confidenceThreshold === "number" ? strategySettings.confidenceThreshold : null;
+    const localLotSize  = typeof strategySettings?.fixedLotSize === "number" ? strategySettings.fixedLotSize : null;
+    const parity        = readParityResult();
+    const backup        = readLatestBackup();
+    const logDirSizeMB  = readLogDirSizeMB();
+
+    const { actionItems, standingNotes } = deriveActionItems({
+      expectedAccounts,
+      reportingAccounts,
+      localHalted:        riskStatus.halted === true,
+      localHaltReason:    riskStatus.haltReason || "",
+      localGate,
+      localSettingsError: strategySettingsError || null,
+      peer, parity, backup, logDirSizeMB,
+    });
 
     res.json({
       generatedAt: new Date().toISOString(),
@@ -5230,8 +5507,57 @@ app.get("/api/system-plan", async (_, res) => {
         reporting: reportingAccounts,
       },
       scheduledTasks: taskInfo,
-      latestBackup: readLatestBackup(),
-      actionItems: deriveActionItems(expectedAccounts, reportingAccounts),
+      latestBackup: backup,
+      logDirSizeMB,
+      // What THIS box believes, stated in the same shape as the peer so the page can
+      // put them side by side and the comparison is not done by eye across two cards.
+      thisBox: {
+        label: os.hostname(),
+        healthy: healer.healthy,
+        gate: localGate,
+        fixedLotSize: localLotSize,
+        settingsError: strategySettingsError || null,
+        halted: riskStatus.halted === true,
+        haltReason: riskStatus.haltReason || "",
+        dailyPnl: riskStatus.dailyPnl ?? null,
+        consecutiveLosses: riskStatus.consecutiveLosses ?? null,
+        bridges: {
+          reporting: reportingAccounts,
+          silent: expectedAccounts.filter(tag => !reportingAccounts.includes(tag)),
+        },
+      },
+      peer,
+      divergence: {
+        // The gate lives in a per-machine file, which is exactly why a mismatch is
+        // dangerous rather than expected: it decides what trades, and no commit syncs it.
+        gate: peer.reachable && peer.gate !== null && localGate !== null
+          ? { local: localGate, peer: peer.gate, differs: peer.gate !== localGate }
+          : null,
+        // Per-machine BY DESIGN — the VPS deliberately runs a fixed 0.01. Reported so
+        // it is visible, never raised as a fault.
+        fixedLotSize: peer.reachable && peer.fixedLotSize !== null && localLotSize !== null
+          ? { local: localLotSize, peer: peer.fixedLotSize, differs: peer.fixedLotSize !== localLotSize, byDesign: true }
+          : null,
+        engine: parity.available
+          ? {
+              differs: (parity.engineDrift > 0 || parity.scalarDrift > 0),
+              engineDrift: parity.engineDrift,
+              scalarDrift: parity.scalarDrift,
+              fileDrift: parity.fileDrift,
+              ranAt: parity.ranAt,
+              ageHours: parity.ageHours,
+            }
+          : null,
+      },
+      parity,
+      // Push liveness, kept alongside the pull probe: this is the only signal that
+      // survives a box the other one cannot reach.
+      heartbeats: Object.values(peerHeartbeats).map(beat => ({
+        ...beat,
+        ageSeconds: Math.round((Date.now() - new Date(beat.at).getTime()) / 1000),
+      })),
+      actionItems,
+      standingNotes,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
