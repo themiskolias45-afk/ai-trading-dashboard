@@ -361,6 +361,22 @@
     .mode-card:hover { border-color:var(--border2); }
     .mode-title { font-size:.88rem; font-weight:800; margin-bottom:4px; }
     .mode-desc  { font-size:.72rem; color:var(--muted); line-height:1.5; }
+    .mode-state { margin-top:10px; padding-top:9px; border-top:1px solid var(--border); font-size:.68rem; line-height:1.7; color:var(--muted); }
+    .mode-foot  { font-size:.66rem; color:var(--muted); margin:-6px 0 16px; line-height:1.6; }
+    .mode-foot code { color:var(--accent); font-family:'Courier New',monospace; }
+    .arm-badge { display:inline-block; font-size:.58rem; font-weight:800; letter-spacing:.06em; padding:2px 7px; border-radius:20px; margin-left:6px; }
+    .arm-on   { background:rgba(34,197,94,.15); color:var(--green); }
+    .arm-off  { background:rgba(74,96,128,.18); color:var(--muted); }
+    .arm-halt { background:rgba(239,68,68,.15); color:var(--red); }
+    /* Fleet comparison — same vocabulary as the Systems Plan page. */
+    .fleet-cmp { width:100%; border-collapse:collapse; font-size:.7rem; margin-top:6px; }
+    .fleet-cmp th { text-align:left; padding:6px 10px; font-size:.58rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); border-bottom:1px solid var(--border); }
+    .fleet-cmp td { padding:6px 10px; border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; }
+    .fleet-cmp tr.differs { background:rgba(239,68,68,.06); }
+    .fleet-cmp tr.by-design { background:rgba(234,179,8,.04); }
+    .fleet-scope { font-size:.64rem; color:var(--yellow); margin-top:8px; line-height:1.6; }
+    .aw-box-title { font-size:.66rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--muted2,#6b88a8); margin:12px 0 6px; display:flex; align-items:center; gap:8px; }
+    .aw-box-title::after { content:''; flex:1; height:1px; background:var(--border); }
     .circuit-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
     .circuit-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px 18px; text-align:center; }
     .circuit-label { font-size:.62rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:6px; }
@@ -881,16 +897,29 @@
     <div style="margin-left:auto;font-size:.78rem;color:var(--muted);font-weight:400" id="at-pnl-display"></div>
   </div>
 
-  <!-- Mode selector -->
+  <!-- Mode selector. These two cards used to be a lie: setMode() wrote a
+       localStorage key and swapped a CSS class, and nothing else in the system ever
+       read it — clicking "Semi Auto" turned the card blue while every bridge went
+       on auto-executing. Whether a bridge arms trades is config.autoMode, reported
+       by the bridge that enforces it, and this page already received it and threw
+       it away. The cards now show that state, per account, on BOTH boxes. They are
+       status, not switches: the click that promised a safety action is gone rather
+       than left to be trusted. -->
   <div class="mode-grid">
-    <div class="mode-card active-auto" id="mode-auto" onclick="setMode('auto')">
+    <div class="mode-card" id="mode-auto">
       <div class="mode-title" style="color:var(--green)">⚡ Full Auto</div>
       <div class="mode-desc">Claude Opus reviews signals and executes trades automatically via MT5 bridge. No manual approval required.</div>
+      <div class="mode-state" id="mode-auto-state">reading bridge state…</div>
     </div>
-    <div class="mode-card" id="mode-semi" onclick="setMode('semi')">
+    <div class="mode-card" id="mode-semi">
       <div class="mode-title" style="color:var(--blue)">🔒 Semi Auto</div>
       <div class="mode-desc">Claude Opus reviews signals and flags high-confidence setups. You approve each trade before execution.</div>
+      <div class="mode-state" id="mode-semi-state">reading bridge state…</div>
     </div>
+  </div>
+  <div class="mode-foot" id="mode-foot">
+    Mode is set by each bridge's <code>--auto</code> launch flag; the dashboard cannot change it.
+    What it <i>can</i> do is stop new entries — Trading Control, below.
   </div>
 
   <!-- Kill switch. The only "control" here used to be "Stop Server", which kills
@@ -965,6 +994,11 @@
         <button onclick="saveStrategySettings()" style="padding:8px 18px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.45);color:var(--blue);border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer">Save Settings</button>
         <span id="ss-msg" style="font-size:.7rem;color:var(--muted)"></span>
       </div>
+      <!-- What the OTHER box is running. These inputs write this machine's
+           strategy_settings.json, which is untracked and per-machine — so the same
+           commit on both boxes does NOT mean the same behaviour, and the box that
+           trades continuously is the one not shown here. -->
+      <div style="grid-column:1/-1" id="ss-fleet"></div>
     </div>
   </div>
 
@@ -1290,6 +1324,10 @@
       <div id="aw-jobs"><div class="ai-empty">Loading…</div></div>
       <div class="ai-sec-title" style="margin-top:14px">Proposals it made — and what you decided</div>
       <div id="aw-proposals"><div class="ai-empty">Loading…</div></div>
+      <!-- The other box's employee. This panel read local tasks/logs only, so on
+           2026-08-10 it reported 0 unreviewed proposals while the VPS — the machine
+           that trades continuously — had 2 nobody had ever seen. -->
+      <div id="aw-fleet"></div>
       <div id="aw-note" class="fvg-unmeasured" style="margin-top:10px"></div>
     </div>
   </div>
@@ -2494,6 +2532,9 @@ async function loadAIBrainTab() {
   ]);
   try { renderAiWork(workRes.status === "fulfilled" ? workRes.value : null); }
   catch (e) { console.error("ai work:", e); }
+  // Then the other box's employee. Deliberately after renderAiWork, which rewrites
+  // aw-summary — the fleet total is appended to it, not replaced by it.
+  try { await loadFleet(); } catch (e) { console.error("fleet:", e); }
   if (growthRes.status === "fulfilled") {
     try { renderLearningGrowth(growthRes.value); } catch (e) { console.error("learning growth:", e); }
   } else {
@@ -2669,9 +2710,13 @@ async function loadRiskStatus() {
       if (riskVal)   riskVal.textContent   = "—";
       if (riskSub)   riskSub.textContent   = "no bridge check-in yet";
     }
-    if(d.halted){banner.className="at-banner at-banner-HALTED";dot.style.background="var(--red)";document.getElementById("at-status-text").textContent="TRADING HALTED";document.getElementById("at-status-sub").textContent=d.haltReason||"Circuit breaker triggered";}
-    else if(d.dailyPnl<0){banner.className="at-banner at-banner-PAUSED";dot.style.background="var(--yellow)";document.getElementById("at-status-text").textContent="RUNNING — CAUTION";document.getElementById("at-status-sub").textContent="Daily P&L negative — monitor closely";}
-    else{banner.className="at-banner at-banner-RUNNING";dot.style.background="var(--green)";document.getElementById("at-status-text").textContent="SYSTEM RUNNING";document.getElementById("at-status-sub").textContent="Full-auto mode · Claude Opus approves every trade";}
+    // The sub-line used to assert "Full-auto mode · Claude Opus approves every
+    // trade" in this branch no matter what was actually running. It now states what
+    // the bridges report, and says so is unknown until they have.
+    const sub=document.getElementById("at-status-sub");
+    if(d.halted){banner.className="at-banner at-banner-HALTED";dot.style.background="var(--red)";document.getElementById("at-status-text").textContent="TRADING HALTED";sub.dataset.mode="halted";sub.textContent=d.haltReason||"Circuit breaker triggered";}
+    else if(d.dailyPnl<0){banner.className="at-banner at-banner-PAUSED";dot.style.background="var(--yellow)";document.getElementById("at-status-text").textContent="RUNNING — CAUTION";sub.dataset.mode="caution";sub.textContent="Daily P&L negative — monitor closely";}
+    else{banner.className="at-banner at-banner-RUNNING";dot.style.background="var(--green)";document.getElementById("at-status-text").textContent="SYSTEM RUNNING";sub.dataset.mode="running";sub.textContent=_fleetArmedSummary||"Reading which bridges are armed…";}
     // At-risk bar
     const rb=document.getElementById("at-risk-bar");
     if(d.halted){rb.style.display="block";rb.textContent="🛑 HALTED: "+d.haltReason+"  |  Daily P&L: "+(d.dailyPnl>=0?"+":"")+"$"+Number(d.dailyPnl).toFixed(2);}
@@ -2679,9 +2724,177 @@ async function loadRiskStatus() {
   } catch {}
 }
 
+// ── The fleet: what is actually armed, on both boxes ─────────
+// One fetch feeds three panels that were each single-box before — the mode cards,
+// the strategy-settings comparison, and the AI employee's peer timesheet. All three
+// were describing this laptop while presenting themselves as "the system".
+let _fleetArmedSummary = null;   // read by loadRiskStatus so the banner stops asserting a mode
+
+function armBadge(kind, label) {
+  return '<span class="arm-badge ' + kind + '">' + escapeHtml(label) + "</span>";
+}
+
+function boxDisplayName(box, isPeer) {
+  if (!isPeer) return escapeHtml(box.label || "this box") + " (this box)";
+  return escapeHtml(box.url || "peer") + (box.reachable ? "" : " — UNREACHABLE");
+}
+
+function renderArmingCards(fleet) {
+  const autoEl = document.getElementById("mode-auto-state");
+  const semiEl = document.getElementById("mode-semi-state");
+  if (!autoEl || !semiEl) return;
+
+  const boxes = [{ box: fleet.thisBox, isPeer: false }];
+  if (fleet.peer && fleet.peer.configured) boxes.push({ box: fleet.peer, isPeer: true });
+
+  const autoLines = [], semiLines = [];
+  let armedCount = 0;
+
+  boxes.forEach(entry => {
+    const name = boxDisplayName(entry.box, entry.isPeer);
+    const arming = entry.box && Array.isArray(entry.box.arming) ? entry.box.arming : [];
+    if (entry.isPeer && !entry.box.reachable) { autoLines.push(name + armBadge("arm-off", "unknown")); return; }
+    if (!arming.length) { autoLines.push(name + " — no bridge reporting"); return; }
+    arming.forEach(account => {
+      const label = name + " · " + escapeHtml(account.tag);
+      const stopped = account.halted || account.remoteHalted;
+      if (account.autoMode) {
+        armedCount++;
+        autoLines.push(label + armBadge(stopped ? "arm-halt" : "arm-on", stopped ? "ARMED · HALTED" : "ARMED"));
+      } else {
+        semiLines.push(label + armBadge("arm-off", "not auto"));
+      }
+    });
+  });
+
+  autoEl.innerHTML = autoLines.length ? autoLines.join("<br>") : "nothing armed";
+  semiEl.innerHTML = semiLines.length ? semiLines.join("<br>")
+    : '<span style="opacity:.65">no bridge is running in semi-auto</span>';
+
+  // The highlight now follows the bridges rather than a click. setMode still owns
+  // the styling and still remembers the last known state, so a reload paints the
+  // last truth instead of a default guess.
+  setMode(armedCount > 0 ? "auto" : "semi");
+
+  _fleetArmedSummary = armedCount > 0
+    ? armedCount + " bridge" + (armedCount === 1 ? "" : "s") + " armed for automatic execution"
+    : "No bridge is armed — nothing will execute automatically";
+  const sub = document.getElementById("at-status-sub");
+  if (sub && sub.dataset.mode === "running") sub.textContent = _fleetArmedSummary;
+}
+
+function renderSettingsComparison(fleet) {
+  const host = document.getElementById("ss-fleet");
+  if (!host) return;
+  const peer = fleet.peer || { configured: false };
+
+  if (!peer.configured) {
+    host.innerHTML = '<div class="fleet-scope">' + escapeHtml(fleet.settingsScope || "") + "</div>";
+    return;
+  }
+  if (!peer.reachable) {
+    host.innerHTML = '<div class="fleet-scope">' + escapeHtml(peer.url) + " did not answer ("
+      + escapeHtml(peer.error || "no response") + ") — cannot show what it is running. "
+      + escapeHtml(fleet.settingsScope || "") + "</div>";
+    return;
+  }
+
+  const rows = (fleet.settingsComparison || []).map(field => {
+    const cls = field.differs ? (field.byDesign ? "by-design" : "differs") : "";
+    const tag = field.differs
+      ? (field.byDesign ? armBadge("arm-off", "BY DESIGN") : armBadge("arm-halt", "DIFFERS"))
+      : "";
+    return '<tr class="' + cls + '"><td>' + escapeHtml(field.label) + tag + "</td>"
+      + "<td>" + escapeHtml(field.local === null ? "—" : field.local) + "</td>"
+      + "<td>" + escapeHtml(field.peer === null ? "—" : field.peer) + "</td></tr>";
+  }).join("");
+
+  host.innerHTML = '<table class="fleet-cmp"><thead><tr>'
+    + "<th>Setting</th><th>" + escapeHtml(fleet.thisBox.label) + " (editing this)</th>"
+    + "<th>" + escapeHtml(peer.url) + "</th></tr></thead><tbody>" + rows + "</tbody></table>"
+    + '<div class="fleet-scope">' + escapeHtml(fleet.settingsScope || "") + "</div>";
+}
+
+function renderPeerAiWork(fleet) {
+  const host = document.getElementById("aw-fleet");
+  if (!host) return;
+  const peer = fleet.peer || { configured: false };
+
+  if (!peer.configured) { host.innerHTML = ""; return; }
+  if (!peer.reachable) {
+    host.innerHTML = '<div class="aw-box-title">' + escapeHtml(peer.url) + "</div>"
+      + '<div class="ai-empty">Unreachable (' + escapeHtml(peer.error || "no response")
+      + ") — its employee cannot be appraised from here.</div>";
+    return;
+  }
+  const work = peer.aiWork;
+  if (!work || !work.available) {
+    host.innerHTML = '<div class="aw-box-title">' + escapeHtml(peer.url) + "</div>"
+      + '<div class="ai-empty">' + escapeHtml((work && work.reason) || "no ledger reported") + "</div>";
+    return;
+  }
+
+  const jobs = (work.jobs || []).map(job => {
+    const tone = AW_TONE[job.verdict] || "aw-unknown";
+    return '<div class="aw-job">'
+      + '<span class="aw-verdict ' + tone + '">' + escapeHtml(job.verdict) + "</span>"
+      + '<div><div class="aw-name">' + escapeHtml(job.label)
+      + '<span style="font-weight:400;color:var(--muted);font-size:.58rem"> · ' + escapeHtml(job.script) + "</span></div>"
+      + '<div class="aw-detail">' + escapeHtml(job.detail) + "</div></div>"
+      + '<div class="aw-meta">' + job.runs + " run" + (job.runs === 1 ? "" : "s")
+      + (job.ageHours == null ? "" : "<br>" + job.ageHours + "h ago")
+      + (job.proposals ? "<br>" + job.proposalsDecided + "/" + job.proposals + " reviewed" : "")
+      + "</div></div>";
+  }).join("") || '<div class="ai-empty">No jobs registered there.</div>';
+
+  const unread = (work.proposals || []).filter(p => p.status === "UNREVIEWED");
+  const props = unread.length
+    ? unread.map(p => '<div class="aw-prop">'
+        + '<div class="aw-prop-text">' + escapeHtml(p.text) + "</div>"
+        + '<div class="aw-prop-meta">' + escapeHtml(p.id) + " · " + escapeHtml(p.file) + ":" + p.line
+        + " · " + p.ageDays + "d old · <b>UNREVIEWED</b> · on " + escapeHtml(peer.url) + "</div></div>").join("")
+      + '<div style="font-size:.58rem;color:var(--muted);margin-top:6px">Decide these ON THAT BOX: <code style="color:var(--accent)">'
+      + escapeHtml(work.howToDecide || "") + "</code></div>"
+    : '<div class="ai-empty">Nothing unreviewed there.</div>';
+
+  host.innerHTML = '<div class="aw-box-title">' + escapeHtml(peer.url)
+    + " — the box that trades continuously</div>" + jobs
+    + '<div class="ai-sec-title" style="margin-top:10px">Unreviewed proposals on that box</div>' + props;
+
+  // Fold the peer into the headline count. Showing "0 unreviewed" while two sit
+  // unread on the other machine is the exact failure this ledger exists to prevent.
+  const sumEl = document.getElementById("aw-summary");
+  if (sumEl && fleet.proposals && fleet.proposals.fleetUnreviewed != null) {
+    const total = fleet.proposals.fleetUnreviewed;
+    sumEl.innerHTML += ' · <span style="color:' + (total ? "var(--yellow)" : "var(--green)") + '">'
+      + total + " unreviewed across the fleet</span>";
+  }
+}
+
+async function loadFleet() {
+  try {
+    const response = await fetch(API + "/fleet", { cache: "no-store" });
+    if (!response.ok) throw new Error("HTTP " + response.status + (response.status === 401 ? " (log in first)" : ""));
+    const fleet = await response.json();
+    renderArmingCards(fleet);
+    renderSettingsComparison(fleet);
+    renderPeerAiWork(fleet);
+  } catch (e) {
+    console.error("loadFleet:", e);
+    // Never leave the arming cards mid-sentence: an unknown state must read as
+    // unknown, not as the last thing that happened to be painted there.
+    const autoEl = document.getElementById("mode-auto-state");
+    const semiEl = document.getElementById("mode-semi-state");
+    if (autoEl) autoEl.textContent = "could not read bridge state — " + e.message;
+    if (semiEl) semiEl.textContent = "";
+    const fleetEl = document.getElementById("ss-fleet");
+    if (fleetEl) fleetEl.innerHTML = '<div class="fleet-scope">Could not read the other box: ' + escapeHtml(e.message) + "</div>";
+  }
+}
+
 // ── Auto Trade tab refresh ────────────────────────────────────
 async function refreshAutoTradeTab() {
-  await Promise.all([loadRiskStatus(), loadMT5(), loadFeatures(), loadJournalExecLog()]);
+  await Promise.all([loadRiskStatus(), loadMT5(), loadFeatures(), loadJournalExecLog(), loadFleet()]);
 }
 
 // ── MT5 terminal login (local-only endpoint) ──────────────────

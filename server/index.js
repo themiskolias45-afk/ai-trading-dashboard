@@ -5220,15 +5220,17 @@ async function probePeer() {
     healthy: null, checks: null,
     gate: null, fixedLotSize: null, settingsError: null,
     halted: null, haltReason: "", dailyPnl: null, consecutiveLosses: null,
-    accountTags: [], bridges: { reporting: [], silent: [] },
+    accountTags: [], accounts: {}, bridges: { reporting: [], silent: [] },
+    settings: null, aiWork: null,
   };
 
-  // allSettled, never all: a peer that answers two of three questions is far more
-  // useful than a probe that throws away both answers because the third timed out.
-  const [healerResult, riskResult, settingsResult] = await Promise.allSettled([
+  // allSettled, never all: a peer that answers three of four questions is far more
+  // useful than a probe that throws away every answer because the fourth timed out.
+  const [healerResult, riskResult, settingsResult, aiWorkResult] = await Promise.allSettled([
     getJson("/api/healer"),
     getJson("/api/risk-status"),
     getJson("/api/strategy-settings"),
+    getJson("/api/ai-work"),
   ]);
 
   if (healerResult.status === "fulfilled") {
@@ -5244,6 +5246,9 @@ async function probePeer() {
     peer.dailyPnl          = typeof remoteRisk.dailyPnl === "number" ? remoteRisk.dailyPnl : null;
     peer.consecutiveLosses = typeof remoteRisk.consecutiveLosses === "number" ? remoteRisk.consecutiveLosses : null;
     peer.accountTags       = Object.keys(remoteRisk.accounts || {});
+    // Kept whole: config.autoMode per account is the only honest answer to "is that
+    // box actually arming trades", and it is reported by the bridge that enforces it.
+    peer.accounts          = remoteRisk.accounts || {};
   }
   if (settingsResult.status === "fulfilled") {
     peer.reachable = true;
@@ -5251,9 +5256,14 @@ async function probePeer() {
     peer.gate          = typeof remoteSettings.confidenceThreshold === "number" ? remoteSettings.confidenceThreshold : null;
     peer.fixedLotSize  = typeof remoteSettings.fixedLotSize === "number" ? remoteSettings.fixedLotSize : null;
     peer.settingsError = remoteSettings.settingsError || null;
+    peer.settings      = remoteSettings;
+  }
+  if (aiWorkResult.status === "fulfilled") {
+    peer.reachable = true;
+    peer.aiWork = aiWorkResult.value || null;
   }
   if (!peer.reachable) {
-    const firstFailure = [healerResult, riskResult, settingsResult].find(r => r.status === "rejected");
+    const firstFailure = [healerResult, riskResult, settingsResult, aiWorkResult].find(r => r.status === "rejected");
     peer.error = firstFailure
       ? String(firstFailure.reason?.message || firstFailure.reason).slice(0, 200)
       : "no response";
@@ -5571,6 +5581,107 @@ app.get("/api/system-plan", async (_, res) => {
       standingNotes,
     });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── /api/fleet — both boxes, for the panels that decide what is armed ────────
+//
+// The Auto Trade tab and the AI Employee panel each described ONE machine while
+// presenting themselves as the system. Two measured consequences:
+//
+//   - The mode cards read a browser localStorage value. Whether a bridge actually
+//     arms trades is config.autoMode, reported by the bridge that enforces it, and
+//     the page never looked at it — on either box.
+//   - The AI-employee ledger reads local tasks/logs only. On 2026-08-10 it showed
+//     0 unreviewed proposals while the VPS — the box that trades continuously —
+//     had 2 sitting unread. An unread recommendation does not stop mattering
+//     because it is on the other machine.
+//
+// Read-only: it composes state this server already holds with a cached pull of the
+// peer's public endpoints. Writes nothing, arms nothing, feeds no gate.
+const FLEET_COMPARED_SETTINGS = [
+  { key: "confidenceThreshold",    label: "Confidence gate",  byDesign: false },
+  { key: "minStrength",            label: "Min strength",     byDesign: false },
+  { key: "maxConcurrentPositions", label: "Position slots",   byDesign: false },
+  { key: "maxTradesPerDay",        label: "Max trades/day",   byDesign: false },
+  // Per-machine on purpose: the VPS deliberately runs a fixed 0.01 lot.
+  { key: "fixedLotSize",           label: "Fixed lot size",   byDesign: true  },
+  { key: "maxLotSize",             label: "Max lot size",     byDesign: true  },
+];
+
+/** Arming state per account tag, from the bridge's own reported config. */
+function armingFromAccounts(accounts) {
+  return Object.entries(accounts || {}).map(([tag, account]) => ({
+    tag,
+    autoMode:     account?.config?.autoMode === true,
+    remoteHalted: account?.config?.remoteHalted === true,
+    halted:       account?.halted === true,
+    haltReason:   account?.haltReason || "",
+    expectedLogin: account?.config?.expectedLogin ?? null,
+  }));
+}
+
+app.get("/api/fleet", async (_, res) => {
+  try {
+    const peer = await probePeer();
+
+    let localAiWork = null;
+    try { localAiWork = aiWorkLedger.build(); }
+    catch (e) { localAiWork = { available: false, reason: e.message, jobs: [], proposals: [] }; }
+
+    const thisBox = {
+      label: os.hostname(),
+      url: "this box",
+      reachable: true,
+      settings: { ...strategySettings, settingsError: strategySettingsError || null },
+      arming: armingFromAccounts(riskStatusByAccount),
+      halted: riskStatus.halted === true,
+      haltReason: riskStatus.haltReason || "",
+      aiWork: localAiWork,
+    };
+
+    // Settings compared field by field, so "the same commit" never gets mistaken
+    // for "the same behaviour" — strategy_settings.json is untracked per machine.
+    const settingsComparison = FLEET_COMPARED_SETTINGS.map(field => {
+      const localValue = strategySettings ? strategySettings[field.key] : null;
+      const peerValue  = peer.reachable && peer.settings ? peer.settings[field.key] : null;
+      const comparable = localValue !== undefined && localValue !== null
+                      && peerValue  !== undefined && peerValue  !== null;
+      return {
+        key: field.key,
+        label: field.label,
+        local: localValue ?? null,
+        peer: peerValue ?? null,
+        differs: comparable ? localValue !== peerValue : false,
+        byDesign: field.byDesign,
+        comparable,
+      };
+    });
+
+    const localUnreviewed = localAiWork?.totals?.unreviewed ?? 0;
+    const peerUnreviewed  = peer.aiWork?.totals?.unreviewed ?? 0;
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      thisBox,
+      // Shallow copy: probePeer's result is cached and shared, so the derived
+      // arming list is added to the response rather than written back into it.
+      peer: { ...peer, arming: armingFromAccounts(peer.accounts) },
+      settingsComparison,
+      // The number that was wrong: the panel showed only the left-hand side.
+      proposals: {
+        local: localUnreviewed,
+        peer: peer.reachable ? peerUnreviewed : null,
+        fleetUnreviewed: localUnreviewed + (peer.reachable ? peerUnreviewed : 0),
+      },
+      // Editing settings on this page writes THIS box's strategy_settings.json and
+      // nothing else. Stated in the payload so the page cannot forget to say it.
+      settingsScope: "Saving writes " + os.hostname() + " only. strategy_settings.json is per-machine and untracked — the other box keeps its own.",
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[fleet]", e.message);
     res.status(500).json({ error: e.message });
   }
 });
