@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartEntry Pro — Investment &amp; Methodology</title>
+  <meta name="description" content="The research standard behind SmartEntry Pro: how a trading rule earns the right to risk capital, what has been measured, and what has been rejected." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #070d1a;
+      --surface:   #0d1526;
+      --surface-2: #111c31;
+      --border:    #1a2540;
+      --accent:    #f7931a;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --blue:      #3b82f6;
+      --amber:     #eab308;
+      --violet:    #a78bfa;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --dim:       #94a3b8;
+      --subtle:    #1e2d4a;
+      --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 40px;
+      background: rgba(7,13,26,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 1.05rem; font-weight: 700; letter-spacing: .03em;
+      color: var(--text); text-decoration: none;
+    }
+    .nav-logo-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent), #ff6b00);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; color: #000; font-weight: 800;
+    }
+    .nav-links { display: flex; gap: 28px; }
+    .nav-links a {
+      color: var(--muted); text-decoration: none; font-size: .88rem;
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      background: transparent; color: var(--accent);
+      border: 1px solid var(--accent);
+      padding: 8px 18px; border-radius: 6px;
+      font-weight: 600; font-size: .85rem; text-decoration: none;
+      transition: background .2s, color .2s;
+    }
+    .nav-cta:hover { background: var(--accent); color: #000; }
+
+    /* ── LAYOUT ── */
+    section { padding: 88px 24px; }
+    .container { max-width: 1080px; margin: 0 auto; }
+    .narrow { max-width: 760px; }
+
+    .section-tag {
+      font-size: .7rem; font-weight: 700; letter-spacing: .14em;
+      text-transform: uppercase; color: var(--accent);
+      margin-bottom: 14px;
+    }
+    h2 {
+      font-size: clamp(1.7rem, 3.6vw, 2.5rem);
+      font-weight: 800; line-height: 1.15;
+      letter-spacing: -.02em; margin-bottom: 16px;
+    }
+    .section-sub { color: var(--dim); font-size: 1.02rem; max-width: 620px; line-height: 1.75; }
+
+    /* ── HERO ── */
+    .hero {
+      min-height: 88vh;
+      display: flex; flex-direction: column; justify-content: center;
+      padding: 140px 24px 72px;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse 70% 55% at 25% 15%, rgba(247,147,26,.09), transparent 70%);
+      pointer-events: none;
+    }
+    .hero-inner { max-width: 1080px; margin: 0 auto; width: 100%; position: relative; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(100,116,139,.12); border: 1px solid var(--subtle);
+      color: var(--dim); padding: 6px 14px; border-radius: 20px;
+      font-size: .74rem; font-weight: 600; letter-spacing: .08em;
+      text-transform: uppercase; margin-bottom: 30px;
+    }
+    .hero-badge span { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+    h1 {
+      font-size: clamp(2.3rem, 5.6vw, 4rem);
+      font-weight: 800; line-height: 1.08;
+      letter-spacing: -.025em;
+      max-width: 780px;
+      margin-bottom: 24px;
+    }
+    h1 span { color: var(--accent); }
+    .hero-sub {
+      font-size: clamp(1rem, 1.6vw, 1.15rem);
+      color: var(--dim); max-width: 620px;
+      margin-bottom: 40px; line-height: 1.75;
+    }
+    .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn-primary {
+      background: var(--accent); color: #000;
+      padding: 13px 28px; border-radius: 8px;
+      font-weight: 700; font-size: .95rem; text-decoration: none;
+      transition: opacity .2s;
+    }
+    .btn-primary:hover { opacity: .85; }
+    .btn-secondary {
+      background: transparent; color: var(--text);
+      padding: 13px 28px; border-radius: 8px; border: 1px solid var(--border);
+      font-weight: 600; font-size: .95rem; text-decoration: none;
+      transition: border-color .2s;
+    }
+    .btn-secondary:hover { border-color: var(--muted); }
+
+    /* ── DISCLOSURE BAND ── */
+    .disclosure {
+      background: linear-gradient(135deg, rgba(234,179,8,.07), var(--surface));
+      border-top: 1px solid rgba(234,179,8,.28);
+      border-bottom: 1px solid rgba(234,179,8,.28);
+      padding: 40px 24px;
+    }
+    .disclosure-inner {
+      max-width: 1080px; margin: 0 auto;
+      display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: start;
+    }
+    .disclosure-mark {
+      font-size: .68rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--amber); border: 1px solid rgba(234,179,8,.4);
+      padding: 6px 12px; border-radius: 5px; white-space: nowrap;
+    }
+    .disclosure h3 { font-size: 1.08rem; font-weight: 700; margin-bottom: 10px; }
+    .disclosure p { color: var(--dim); font-size: .92rem; line-height: 1.7; max-width: 780px; }
+    .disclosure p + p { margin-top: 10px; }
+    .disclosure strong { color: var(--text); font-weight: 700; }
+
+    /* ── LIVE STATE ── */
+    .live-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px; margin-bottom: 28px;
+    }
+    .live-stamp { font-family: var(--mono); font-size: .74rem; color: var(--muted); }
+    .asset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    .asset {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px;
+    }
+    .asset-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .asset-name { font-size: .82rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
+    .pill {
+      font-size: .66rem; font-weight: 800; padding: 3px 9px; border-radius: 4px;
+      text-transform: uppercase; letter-spacing: .07em;
+    }
+    .pill-buy  { background: rgba(34,197,94,.15);  color: var(--green); }
+    .pill-sell { background: rgba(239,68,68,.15);  color: var(--red); }
+    .pill-wait { background: rgba(100,116,139,.16); color: var(--muted); }
+    .asset-price { font-family: var(--mono); font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; }
+    .asset-meta { font-size: .74rem; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
+
+    .conf-row { margin-top: 18px; }
+    .conf-label {
+      display: flex; justify-content: space-between;
+      font-size: .7rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .07em; margin-bottom: 7px;
+    }
+    .conf-label b { color: var(--text); font-family: var(--mono); font-weight: 700; }
+    .conf-track {
+      position: relative; height: 7px; border-radius: 4px;
+      background: var(--subtle); overflow: visible;
+    }
+    .conf-fill { height: 100%; border-radius: 4px; background: var(--muted); transition: width .5s ease; }
+    .conf-fill.over { background: var(--green); }
+    .conf-gate {
+      position: absolute; top: -4px; bottom: -4px; width: 2px;
+      background: var(--accent); border-radius: 1px;
+    }
+    .conf-foot { font-size: .7rem; color: var(--muted); margin-top: 8px; font-family: var(--mono); }
+
+    /* ── CONFIG STRIP ── */
+    .config-bg { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .config { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+    .config-item { padding: 34px 26px; text-align: center; border-right: 1px solid var(--border); }
+    .config-item:last-child { border-right: none; }
+    .config-value { font-family: var(--mono); font-size: 1.9rem; font-weight: 800; color: var(--accent); letter-spacing: -.02em; }
+    .config-label { font-size: .76rem; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+
+    /* ── PIPELINE ── */
+    .pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px; margin-top: 52px; }
+    .stage {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; position: relative;
+    }
+    .stage-num {
+      font-family: var(--mono); font-size: .72rem; font-weight: 800;
+      color: var(--accent); letter-spacing: .1em; margin-bottom: 12px;
+    }
+    .stage h3 { font-size: .95rem; font-weight: 700; margin-bottom: 8px; }
+    .stage p { color: var(--muted); font-size: .84rem; line-height: 1.6; }
+    .stage-kill {
+      margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+      font-size: .74rem; color: var(--red); font-weight: 600;
+    }
+
+    /* ── EVIDENCE ── */
+    .evidence-list { display: flex; flex-direction: column; gap: 16px; margin-top: 48px; }
+    .claim {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 26px;
+      border-left: 3px solid var(--muted);
+    }
+    .claim.st-robust      { border-left-color: var(--green); }
+    .claim.st-noedge      { border-left-color: var(--red); }
+    .claim.st-candidate   { border-left-color: var(--amber); }
+    .claim.st-blocked     { border-left-color: var(--blue); }
+    .claim.st-contradicted{ border-left-color: #fb923c; }
+    .claim.st-unmeasured  { border-left-color: var(--muted); }
+
+    .claim-head {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap; margin-bottom: 16px;
+    }
+    .claim-title { font-size: 1.02rem; font-weight: 700; }
+    .claim-status {
+      font-size: .66rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+      padding: 5px 11px; border-radius: 5px; white-space: nowrap;
+      background: rgba(100,116,139,.16); color: var(--muted);
+    }
+    .st-robust      .claim-status { background: rgba(34,197,94,.14);  color: var(--green); }
+    .st-noedge      .claim-status { background: rgba(239,68,68,.14);  color: var(--red); }
+    .st-candidate   .claim-status { background: rgba(234,179,8,.14);  color: var(--amber); }
+    .st-blocked     .claim-status { background: rgba(59,130,246,.14); color: var(--blue); }
+    .st-contradicted.claim .claim-status { background: rgba(251,146,60,.14); color: #fb923c; }
+
+    .claim-field { margin-top: 13px; }
+    .claim-field dt {
+      font-size: .66rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 4px;
+    }
+    .claim-field dd { font-size: .88rem; color: var(--dim); line-height: 1.66; }
+    .claim-foot {
+      margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border);
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+      font-family: var(--mono); font-size: .72rem; color: var(--muted);
+    }
+    .feeds {
+      font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 4px; font-size: .64rem;
+    }
+    .feeds-yes { background: rgba(247,147,26,.14); color: var(--accent); }
+    .feeds-no  { background: rgba(100,116,139,.14); color: var(--muted); }
+
+    .load-state { color: var(--muted); font-size: .9rem; padding: 28px 0; font-family: var(--mono); }
+    .load-fail  { color: var(--red); }
+
+    /* ── RISK ── */
+    .risk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 18px; margin-top: 48px; }
+    .risk-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px;
+    }
+    .risk-item h3 { font-size: .93rem; font-weight: 700; margin-bottom: 8px; }
+    .risk-item p { color: var(--muted); font-size: .85rem; line-height: 1.65; }
+    .enforced {
+      display: inline-block; margin-bottom: 12px;
+      font-size: .62rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 4px;
+      background: rgba(34,197,94,.13); color: var(--green);
+    }
+
+    /* ── WON'T CLAIM ── */
+    .wont-bg { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .wont-list { list-style: none; margin-top: 40px; display: grid; gap: 2px; }
+    .wont-list li {
+      display: flex; align-items: flex-start; gap: 14px;
+      padding: 17px 20px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 8px;
+      font-size: .91rem; color: var(--dim); line-height: 1.6;
+    }
+    .wont-list li::before {
+      content: '\00d7'; color: var(--red); font-weight: 800; font-size: 1.1rem;
+      flex-shrink: 0; line-height: 1.4;
+    }
+    .wont-list b { color: var(--text); font-weight: 700; }
+
+    /* ── CONTACT ── */
+    .contact-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 52px 44px; text-align: center;
+      max-width: 640px; margin: 0 auto;
+    }
+    .contact-box h2 { margin-bottom: 14px; }
+    .contact-box > p { color: var(--dim); margin-bottom: 30px; font-size: .96rem; line-height: 1.7; }
+    .contact-note {
+      font-size: .78rem; color: var(--muted); margin-top: 20px; line-height: 1.6;
+    }
+
+    /* ── FOOTER ── */
+    footer { border-top: 1px solid var(--border); padding: 44px 24px; }
+    .footer-inner {
+      max-width: 1080px; margin: 0 auto;
+      display: flex; align-items: flex-start; justify-content: space-between;
+      flex-wrap: wrap; gap: 28px;
+    }
+    .footer-logo { font-size: .95rem; font-weight: 700; margin-bottom: 10px; }
+    .footer-note { font-size: .76rem; color: var(--muted); max-width: 560px; line-height: 1.65; }
+    .footer-note + .footer-note { margin-top: 10px; }
+    .footer-links { display: flex; flex-direction: column; gap: 9px; }
+    .footer-links a { color: var(--muted); text-decoration: none; font-size: .82rem; }
+    .footer-links a:hover { color: var(--text); }
+
+    @media (max-width: 720px) {
+      nav { padding: 13px 18px; }
+      .nav-links { display: none; }
+      section { padding: 60px 18px; }
+      .hero { padding: 120px 18px 56px; min-height: auto; }
+      .disclosure-inner { grid-template-columns: 1fr; gap: 16px; }
+      .config-item { padding: 26px 18px; border-right: none; border-bottom: 1px solid var(--border); }
+      .config-item:last-child { border-bottom: none; }
+      .contact-box { padding: 34px 22px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-logo">
+    <div class="nav-logo-icon">S</div>
+    SmartEntry Pro
+  </a>
+  <div class="nav-links">
+    <a href="#method">Method</a>
+    <a href="#evidence">Evidence</a>
+    <a href="#risk">Risk</a>
+    <a href="#limits">Limits</a>
+  </div>
+  <a href="#interest" class="nav-cta">Register interest</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge"><span></span> Private beta &middot; not open for investment</div>
+    <h1>Evidence before<br><span>capital.</span></h1>
+    <p class="hero-sub">
+      SmartEntry Pro is an algorithmic trading system with one governing rule: no strategy
+      may risk money until it has survived out-of-sample testing. Most do not survive. This
+      page publishes what has been measured — including everything that failed.
+    </p>
+    <div class="hero-ctas">
+      <a href="#evidence" class="btn-primary">See the evidence board</a>
+      <a href="#limits" class="btn-secondary">What we won't claim</a>
+    </div>
+  </div>
+</section>
+
+<!-- DISCLOSURE — deliberately above everything else -->
+<div class="disclosure">
+  <div class="disclosure-inner">
+    <div class="disclosure-mark">Read this first</div>
+    <div>
+      <h3>There is no track record yet.</h3>
+      <p>
+        As of <span id="disc-date">10 August 2026</span> this system has <strong>one closed
+        trade in its entire operating life</strong> — a loss of <strong>449.72</strong> on a
+        BB_SQUEEZE_WATCH setup — across 129 sessions. Two positions are currently open and
+        unrealised.
+      </p>
+      <p>
+        <strong>All activity to date has been on demo accounts.</strong> No client capital has
+        ever been deployed. Win rate, calibration and per-setup edge all rest on a sample of
+        one, which means none of them mean anything yet. A credible track record needs on the
+        order of a hundred closed trades; this is one.
+      </p>
+      <p>
+        That number is on this page, at the top, because a system that hides its sample size
+        is the thing you should actually be afraid of.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- LIVE STATE -->
+<section id="live">
+  <div class="container">
+    <div class="live-head">
+      <div>
+        <div class="section-tag">Live system state</div>
+        <h2>Read directly from the engine.</h2>
+      </div>
+      <div class="live-stamp" id="live-stamp">loading…</div>
+    </div>
+    <p class="section-sub" style="margin-bottom:34px">
+      Not a screenshot and not a marketing figure — these values are fetched from the running
+      system when you load this page. The orange marker is the confidence gate a setup must
+      clear before it is allowed to trade.
+    </p>
+    <div id="assets" class="asset-grid">
+      <div class="load-state">fetching live signals…</div>
+    </div>
+  </div>
+</section>
+
+<!-- CONFIG -->
+<div class="config-bg">
+  <div class="container">
+    <div class="config" id="config">
+      <div class="config-item"><div class="config-value" id="cfg-gate">—</div><div class="config-label">Confidence gate<br>to fire a trade</div></div>
+      <div class="config-item"><div class="config-value" id="cfg-pos">—</div><div class="config-label">Maximum concurrent<br>positions</div></div>
+      <div class="config-item"><div class="config-value" id="cfg-day">—</div><div class="config-label">Maximum trades<br>per day</div></div>
+      <div class="config-item"><div class="config-value" id="cfg-str">—</div><div class="config-label">Minimum setup<br>strength</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- METHOD -->
+<section id="method">
+  <div class="container">
+    <div class="section-tag">Method</div>
+    <h2>How a rule earns the right<br>to risk money.</h2>
+    <p class="section-sub">
+      An idea is not a strategy. Between the two sits a pipeline designed to kill things, and
+      it usually succeeds. Rejection is the expected outcome, not a failure of the process.
+    </p>
+    <div class="pipeline">
+      <div class="stage">
+        <div class="stage-num">STAGE 01</div>
+        <h3>Proposed</h3>
+        <p>A pattern is implemented and detected on live bars, but has no vote in any decision. It is observability only.</p>
+        <div class="stage-kill">Cannot influence a trade</div>
+      </div>
+      <div class="stage">
+        <div class="stage-num">STAGE 02</div>
+        <h3>Measured against control</h3>
+        <p>Scored against a matched random control on thousands of samples. If it cannot beat coin-flip entries, it stops here.</p>
+        <div class="stage-kill">FVG died at this stage</div>
+      </div>
+      <div class="stage">
+        <div class="stage-num">STAGE 03</div>
+        <h3>Walk-forward, with costs</h3>
+        <p>Five sequential out-of-sample folds. Spread and slippage are charged. A result that only works gross does not count.</p>
+        <div class="stage-kill">CRT-as-setup died 0 of 5</div>
+      </div>
+      <div class="stage">
+        <div class="stage-num">STAGE 04</div>
+        <h3>Live, and reversible</h3>
+        <p>Only now does it affect confidence, sizing or the gate — and every live constant records the measurement that justified it.</p>
+        <div class="stage-kill">Re-measured on contradiction</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- EVIDENCE -->
+<section id="evidence" style="background:var(--surface); border-top:1px solid var(--border); border-bottom:1px solid var(--border)">
+  <div class="container">
+    <div class="section-tag">Evidence board</div>
+    <h2>What the system knows,<br>and what it merely assumes.</h2>
+    <p class="section-sub">
+      Every claim below carries its verdict, the evidence behind it, the caveat that weakens
+      it, and what would change the answer. Loaded live from the same register the engineering
+      team works from — including the claims that were rejected and the one where two sources
+      still disagree.
+    </p>
+    <div id="claims" class="evidence-list">
+      <div class="load-state">fetching evidence register…</div>
+    </div>
+  </div>
+</section>
+
+<!-- RISK -->
+<section id="risk">
+  <div class="container">
+    <div class="section-tag">Risk architecture</div>
+    <h2>Capital protection is<br>enforced in code.</h2>
+    <p class="section-sub">
+      Every control below is a hard stop in the execution path, not a guideline a human is
+      trusted to follow.
+    </p>
+    <div class="risk-grid">
+      <div class="risk-item">
+        <span class="enforced">Enforced in code</span>
+        <h3>Consecutive-loss circuit breaker</h3>
+        <p>Trading halts automatically after three consecutive losses on an account. Resuming requires deliberate human action — the system will not quietly restart itself.</p>
+      </div>
+      <div class="risk-item">
+        <span class="enforced">Enforced in code</span>
+        <h3>Daily loss ceiling</h3>
+        <p>A 3% daily drawdown on an account closes the door for that day, independent of how many setups qualify afterwards.</p>
+      </div>
+      <div class="risk-item">
+        <span class="enforced">Enforced in code</span>
+        <h3>Fixed position sizing</h3>
+        <p>Live sizing is pinned to a fixed lot rather than scaled by conviction. Sizing was the source of a historical 74&times; oversize defect, and it is deliberately kept boring.</p>
+      </div>
+      <div class="risk-item">
+        <span class="enforced">Enforced in code</span>
+        <h3>Stale-source refusal</h3>
+        <p>If a signal was computed from a different instrument's price feed than the one being traded, the bridge refuses the order outright rather than trading the wrong levels.</p>
+      </div>
+      <div class="risk-item">
+        <span class="enforced">Enforced in code</span>
+        <h3>Concurrent position cap</h3>
+        <p>A hard ceiling on simultaneously open positions, checked at order time, so a burst of qualifying signals cannot compound into concentrated exposure.</p>
+      </div>
+      <div class="risk-item">
+        <span class="enforced">Enforced in code</span>
+        <h3>Broker-side stops</h3>
+        <p>Every position carries a stop loss held at the broker, so protection survives a crash, a restart or a network partition on our side.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LIMITS -->
+<div class="wont-bg">
+  <section id="limits">
+    <div class="container narrow">
+      <div class="section-tag">Limits</div>
+      <h2>What we won't claim.</h2>
+      <p class="section-sub">
+        The fastest way to judge a trading system is by what its marketing refuses to say.
+        Here is ours, in writing.
+      </p>
+      <ul class="wont-list">
+        <li><span><b>No projected or target returns.</b> We will not publish a percentage we have not earned, and we do not have one to publish.</span></li>
+        <li><span><b>No backtested equity curve presented as performance.</b> A curve fitted in hindsight is a drawing, not a result.</span></li>
+        <li><span><b>No Sharpe, CAGR or max-drawdown figures.</b> All three are undefined at a sample of one, and quoting them would be arithmetic theatre.</span></li>
+        <li><span><b>No testimonials or client results.</b> There are no clients. Inventing either would be fraud, not marketing.</span></li>
+        <li><span><b>No claim that live results will resemble any test.</b> Out-of-sample testing reduces self-deception; it does not predict the future.</span></li>
+        <li><span><b>No suggestion this is safe.</b> Algorithmic trading can lose money faster than manual trading, precisely because it does not hesitate.</span></li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<!-- INTEREST -->
+<section id="interest">
+  <div class="container">
+    <div class="contact-box">
+      <div class="section-tag" style="text-align:center">Register interest</div>
+      <h2>Follow the evidence.</h2>
+      <p>
+        SmartEntry Pro is not currently accepting investment and is not offering any security
+        or managed product. If you want to be contacted when there is a real track record to
+        review, get in touch and say so.
+      </p>
+      <a class="btn-primary" id="interest-link" href="#">Contact us by email</a>
+      <div class="contact-note">
+        This opens your own email client — there is no form here, nothing is stored on this
+        page, and no list is being built behind your back.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <div>
+      <div class="footer-logo">SmartEntry Pro</div>
+      <p class="footer-note">
+        SmartEntry Pro is a software tool. It is not a financial advisor, not a broker, and not
+        a regulated investment product. Nothing on this page is investment advice, an offer to
+        sell, or a solicitation of an offer to buy any security or interest.
+      </p>
+      <p class="footer-note">
+        Trading involves substantial risk of loss and is not suitable for everyone. Past
+        performance does not guarantee future results. All figures shown are from demo accounts.
+        Only risk capital you can afford to lose entirely.
+      </p>
+    </div>
+    <div class="footer-links">
+      <a href="/">Overview</a>
+      <a href="#method">Method</a>
+      <a href="#evidence">Evidence</a>
+      <a href="#risk">Risk</a>
+      <a href="#limits">Limits</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  // Contact address assembled at runtime so it is not sitting in the page source
+  // as a plain mailto for scrapers to harvest.
+  var INBOX_USER = "themis13melpw";
+  var INBOX_HOST = "gmail.com";
+  var link = document.getElementById("interest-link");
+  link.href = "mailto:" + INBOX_USER + "@" + INBOX_HOST +
+              "?subject=" + encodeURIComponent("SmartEntry Pro — registering interest");
+
+  // ── helpers ──────────────────────────────────────────────────
+  // Check r.ok, never just the parse: an auth failure returns valid JSON and
+  // would otherwise read as a successful load.
+  function getJson(url) {
+    return fetch(url, { headers: { "Accept": "application/json" } })
+      .then(function (r) {
+        if (!r.ok) throw new Error(url + " returned HTTP " + r.status);
+        return r.json();
+      });
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = String(text);
+    return n;
+  }
+
+  function fail(container, message) {
+    container.innerHTML = "";
+    container.appendChild(el("div", "load-state load-fail", message));
+  }
+
+  function num(v) {
+    return (typeof v === "number" && isFinite(v)) ? v : null;
+  }
+
+  function fmtPrice(v) {
+    var n = num(v);
+    if (n === null) return "—";
+    return n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // ── live signals + gate ──────────────────────────────────────
+  var assetsBox = document.getElementById("assets");
+  var stamp     = document.getElementById("live-stamp");
+
+  Promise.all([getJson("/api/signals"), getJson("/api/strategy-settings")])
+    .then(function (res) {
+      var signals  = res[0];
+      var settings = res[1];
+
+      // settingsError non-null means the server fell back to built-in defaults
+      // rather than the saved config, so the gate shown would not be the live one.
+      var gate = (settings && settings.settingsError === null) ? num(settings.confidenceThreshold) : null;
+
+      document.getElementById("cfg-gate").textContent = gate === null ? "—" : gate + "%";
+      document.getElementById("cfg-pos").textContent  = num(settings.maxConcurrentPositions) === null ? "—" : settings.maxConcurrentPositions;
+      document.getElementById("cfg-day").textContent  = num(settings.maxTradesPerDay) === null ? "—" : settings.maxTradesPerDay;
+      document.getElementById("cfg-str").textContent  = settings.minStrength || "—";
+
+      var order = [["btc", "Bitcoin"], ["gold", "Gold / XAUUSD"], ["spx", "S&P 500"]];
+      assetsBox.innerHTML = "";
+
+      order.forEach(function (pair) {
+        var key = pair[0];
+        var a   = signals && signals[key];
+        if (!a) return;
+
+        var card = el("div", "asset");
+
+        var top = el("div", "asset-top");
+        top.appendChild(el("div", "asset-name", pair[1]));
+        var sig = String(a.signal || "WAIT").toUpperCase();
+        var cls = sig === "BUY" ? "pill pill-buy" : sig === "SELL" ? "pill pill-sell" : "pill pill-wait";
+        top.appendChild(el("span", cls, sig));
+        card.appendChild(top);
+
+        card.appendChild(el("div", "asset-price", fmtPrice(a.price)));
+        card.appendChild(el("div", "asset-meta",
+          (a.sourceSymbol || a.ticker || "—") + " · " + (a.dataSource === "mt5" ? "broker feed" : "fallback feed")));
+
+        var conf = num(a.confidence);
+        var row  = el("div", "conf-row");
+        var lab  = el("div", "conf-label");
+        lab.appendChild(el("span", null, "Confidence"));
+        var b = el("b", null, conf === null ? "—" : conf + "%");
+        lab.appendChild(b);
+        row.appendChild(lab);
+
+        var track = el("div", "conf-track");
+        var fillPct = conf === null ? 0 : Math.max(0, Math.min(100, conf));
+        var fill = el("div", "conf-fill");
+        fill.style.width = fillPct + "%";
+        if (gate !== null && conf !== null && conf >= gate) fill.className = "conf-fill over";
+        track.appendChild(fill);
+
+        if (gate !== null) {
+          var marker = el("div", "conf-gate");
+          marker.style.left = Math.max(0, Math.min(100, gate)) + "%";
+          marker.title = "Gate " + gate + "%";
+          track.appendChild(marker);
+        }
+        row.appendChild(track);
+
+        var footText;
+        if (conf === null || gate === null) {
+          footText = "gate unavailable";
+        } else if (conf >= gate) {
+          footText = "at or above the " + gate + "% gate";
+        } else {
+          footText = (gate - conf) + " points below the " + gate + "% gate";
+        }
+        row.appendChild(el("div", "conf-foot", footText));
+        card.appendChild(row);
+        assetsBox.appendChild(card);
+      });
+
+      if (!assetsBox.children.length) fail(assetsBox, "no assets returned by the engine");
+
+      var when = signals && signals.updatedAt ? new Date(signals.updatedAt) : null;
+      stamp.textContent = when && !isNaN(when.getTime())
+        ? "signals computed " + when.toUTCString()
+        : "timestamp unavailable";
+    })
+    .catch(function (e) {
+      fail(assetsBox, "Live state unavailable — " + e.message);
+      stamp.textContent = "offline";
+    });
+
+  // ── evidence board ───────────────────────────────────────────
+  var STATUS_CLASS = [
+    [/ROBUST/i,        "st-robust"],
+    [/NO EDGE/i,       "st-noedge"],
+    [/CANDIDATE/i,     "st-candidate"],
+    [/BLOCKED/i,       "st-blocked"],
+    [/CONTRADICTED/i,  "st-contradicted"],
+    [/UNMEASURED/i,    "st-unmeasured"]
+  ];
+
+  function statusClass(status) {
+    var s = String(status || "");
+    for (var i = 0; i < STATUS_CLASS.length; i++) {
+      if (STATUS_CLASS[i][0].test(s)) return STATUS_CLASS[i][1];
+    }
+    return "st-unmeasured";
+  }
+
+  function addField(dl, label, value) {
+    if (!value) return;
+    var wrap = el("div", "claim-field");
+    wrap.appendChild(el("dt", null, label));
+    wrap.appendChild(el("dd", null, value));
+    dl.appendChild(wrap);
+  }
+
+  var claimsBox = document.getElementById("claims");
+
+  getJson("/api/evidence-board")
+    .then(function (board) {
+      var claims = (board && board.claims) || [];
+      if (!claims.length) { fail(claimsBox, "evidence register returned no claims"); return; }
+
+      claimsBox.innerHTML = "";
+      claims.forEach(function (c) {
+        var card = el("div", "claim " + statusClass(c.status));
+
+        var head = el("div", "claim-head");
+        head.appendChild(el("div", "claim-title", c.title || c.id || "untitled claim"));
+        head.appendChild(el("span", "claim-status", c.status || "UNMEASURED"));
+        card.appendChild(head);
+
+        var dl = el("dl");
+        addField(dl, "Evidence", c.evidence);
+        addField(dl, "Caveat", c.caveat);
+        addField(dl, "What would change the answer", c.changesTheAnswer);
+        addField(dl, "As an engine setup", c.asEngineSetup);
+        card.appendChild(dl);
+
+        var foot = el("div", "claim-foot");
+        var feeds = el("span", "feeds " + (c.feedsTheGate ? "feeds-yes" : "feeds-no"),
+                       c.feedsTheGate ? "affects live trading" : "no vote in trading");
+        foot.appendChild(feeds);
+        if (c.measuredOn) foot.appendChild(el("span", null, "measured " + c.measuredOn));
+        card.appendChild(foot);
+
+        claimsBox.appendChild(card);
+      });
+    })
+    .catch(function (e) {
+      fail(claimsBox, "Evidence board unavailable — " + e.message);
+    });
+})();
+</script>
+
+</body>
+</html>

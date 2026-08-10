@@ -5094,6 +5094,10 @@ app.get("/plan",       (_, res) => res.sendFile(path.join(__dirname, "..", "dash
 app.use("/screenshots", express.static(path.join(__dirname, "..", "dashboard", "screenshots")));
 app.use(express.static(path.join(__dirname, "..", "commercial")));
 app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
+// Public. Reads only /api/signals, /api/strategy-settings and /api/evidence-board,
+// all of which already answer 200 unauthenticated. Deliberately NOT /api/risk-status,
+// which returns the MT5 login in its account config.
+app.get("/investment", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "investment.html")));
 
 // ── /api/healer ───────────────────────────────────────────────
 app.get("/api/healer", (_, res) => {
