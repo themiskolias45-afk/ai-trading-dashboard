@@ -243,7 +243,8 @@ function renderComponents(data) {
   parts.push('<div class="row"><div><div class="row-label">Latest backup</div>'
     + '<div class="row-detail">' + (backup
         ? esc(backup.name) + ' &middot; ' + esc(backup.sizeKB) + ' KB'
-        : 'none found') + '</div></div>'
+          + (backup.dir ? ' &middot; ' + esc(backup.dir) : '')
+        : 'none found in any backup directory') + '</div></div>'
     + '<div class="row-value ' + (backup ? 'ok' : 'bad') + '">'
     + (backup ? new Date(backup.modified).toLocaleString() : 'MISSING') + '</div></div>');
 

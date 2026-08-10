@@ -5154,21 +5154,32 @@ function readScheduledTasks() {
   });
 }
 
+// Both boxes, because the archive lands in a different place on each. vps_backup.ps1
+// writes C:\ai-trading-dashboard-backups on the VPS; pull_vps_backup.bat copies the
+// newest one down to <repo>\vps-backups on the laptop. Checking only the first path
+// made this read MISSING forever on the laptop — a permanently red row is one you
+// stop reading, which is the exact failure this page exists to avoid.
+const BACKUP_DIRS = [
+  path.join(__dirname, "..", "vps-backups"),
+  "C:\\ai-trading-dashboard-backups",
+];
+
 function readLatestBackup() {
-  const backupDir = "C:\\ai-trading-dashboard-backups";
-  try {
-    if (!fs.existsSync(backupDir)) return null;
-    const newest = fs.readdirSync(backupDir)
-      .filter(name => name.toLowerCase().endsWith(".zip"))
-      .map(name => {
-        const stat = fs.statSync(path.join(backupDir, name));
-        return { name, sizeKB: Math.round(stat.size / 1024), modified: stat.mtime.toISOString() };
-      })
-      .sort((a, b) => new Date(b.modified) - new Date(a.modified))[0];
-    return newest || null;
-  } catch (_) {
-    return null;
+  const found = [];
+  for (const backupDir of BACKUP_DIRS) {
+    try {
+      if (!fs.existsSync(backupDir)) continue;
+      for (const name of fs.readdirSync(backupDir)) {
+        if (!name.toLowerCase().endsWith(".zip")) continue;
+        try {
+          const stat = fs.statSync(path.join(backupDir, name));
+          found.push({ name, sizeKB: Math.round(stat.size / 1024), modified: stat.mtime.toISOString(), dir: backupDir });
+        } catch (_) { /* a file that vanished mid-scan is not a missing backup */ }
+      }
+    } catch (_) { /* unreadable directory — try the next one */ }
   }
+  if (found.length === 0) return null;
+  return found.sort((a, b) => new Date(b.modified) - new Date(a.modified))[0];
 }
 
 // ── Fleet view: pull what the OTHER box actually believes ─────────────────────
