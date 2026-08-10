@@ -2974,9 +2974,14 @@ app.get("/api/ai-registry", (_, res) => {
 // A failing weekly review and three unreviewed PROPOSED FIX lines were both
 // invisible before this. Runs nothing and spends no tokens — it reads the logs
 // the jobs already produce.
-app.get("/api/ai-work", (_, res) => {
+app.get("/api/ai-work", async (_, res) => {
   try {
-    res.json(aiWorkLedger.build());
+    // Verbose task list, so the ledger can check the job it appraises actually has
+    // a task, what that task returned, and which of the other scheduled jobs nobody
+    // is appraising at all. Degrades to the previous file-only behaviour if the
+    // scheduler cannot be read.
+    const scheduledTasks = await readScheduledTasksVerbose();
+    res.json(aiWorkLedger.build({ scheduledTasks }));
   } catch (e) {
     console.error("[ai-work]", e.message);
     res.status(500).json({ available: false, reason: e.message, jobs: [], proposals: [] });
@@ -5163,6 +5168,86 @@ const BACKUP_DIRS = [
   path.join(__dirname, "..", "vps-backups"),
   "C:\\ai-trading-dashboard-backups",
 ];
+
+// Verbose task query — the non-verbose one above returns name, next run and status
+// only, which cannot answer "did it succeed" or "what does it actually run". Both
+// of those are what let the AI-employee ledger match a job to its task across two
+// machines that name the same job differently.
+//
+// Slower than the plain query (it returns every column for every task), so it gets
+// its own cache. Windows-only, like the query above; anything else reports null and
+// the ledger falls back to reading log files alone.
+const VERBOSE_TASK_CACHE_MS = 60 * 1000;
+let verboseTaskCache = { at: 0, value: null };
+
+function readScheduledTasksVerbose() {
+  return new Promise((resolve) => {
+    if (process.platform !== "win32") return resolve(null);
+    if (verboseTaskCache.value && Date.now() - verboseTaskCache.at < VERBOSE_TASK_CACHE_MS) {
+      return resolve(verboseTaskCache.value);
+    }
+
+    const child = require("child_process").spawn("schtasks", ["/query", "/fo", "csv", "/v"], { windowsHide: true });
+    let stdout = "";
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (value) verboseTaskCache = { at: Date.now(), value };
+      resolve(value);
+    };
+    const timer = setTimeout(() => { child.kill(); finish(null); }, TASK_QUERY_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.on("error", () => { clearTimeout(timer); finish(null); });
+    child.on("close", () => {
+      clearTimeout(timer);
+      try {
+        const rows = stdout.split(/\r?\n/)
+          .map(line => line.split('","').map(cell => cell.replace(/^"|"$/g, "").trim()))
+          .filter(cells => cells.length > 3);
+        // Keep the header rather than using /nh: column ORDER is not contractual
+        // across Windows builds, and reading by index without a header is how a
+        // parser silently starts reporting the wrong field.
+        const header = rows.find(cells => cells.includes("TaskName"));
+        if (!header) return finish(null);
+        const col = (name) => header.indexOf(name);
+        const idxName = col("TaskName"), idxStatus = col("Status"), idxNext = col("Next Run Time");
+        const idxLastRun = col("Last Run Time"), idxResult = col("Last Result"), idxRuns = col("Task To Run");
+        if (idxName === -1) return finish(null);
+
+        // One ROW PER TRIGGER, not per task: "SmartEntry Ensure Running" has three
+        // triggers and appeared three times in the first run of this. Keyed by name
+        // so a multi-trigger task is one job, with the soonest next-run kept.
+        const byName = new Map();
+        for (const cells of rows) {
+          if (cells === header || cells.includes("TaskName")) continue;
+          const name = (cells[idxName] || "").replace(/^\\+/, "");
+          if (!name || !name.startsWith(SCHEDULED_TASK_PREFIX)) continue;
+          const rawResult = idxResult === -1 ? null : Number(cells[idxResult]);
+          const task = {
+            name,
+            status:    idxStatus  === -1 ? null : cells[idxStatus],
+            nextRun:   idxNext    === -1 ? null : cells[idxNext],
+            lastRun:   idxLastRun === -1 ? null : cells[idxLastRun],
+            lastResult: Number.isFinite(rawResult) ? rawResult : null,
+            taskToRun: idxRuns    === -1 ? null : cells[idxRuns],
+          };
+          const existing = byName.get(name);
+          if (!existing) { byName.set(name, task); continue; }
+          // Same task, different trigger: the run history is identical, so keep the
+          // earliest upcoming run as the one worth showing.
+          const a = Date.parse(existing.nextRun || ""), b = Date.parse(task.nextRun || "");
+          if (Number.isFinite(b) && (!Number.isFinite(a) || b < a)) existing.nextRun = task.nextRun;
+        }
+        finish([...byName.values()]);
+      } catch (e) {
+        console.error("[tasks] verbose query parse failed:", e.message);
+        finish(null);
+      }
+    });
+  });
+}
 
 function readLatestBackup() {
   const found = [];
