@@ -2364,6 +2364,10 @@ function renderRegistry(data) {
 const AW_TONE = {
   "FAILING":              "aw-bad",
   "OUTPUT IGNORED":       "aw-bad",
+  // The job worked and is reporting something red. Red, because the finding is —
+  // but distinct from FAILING, which would blame the messenger.
+  "REPORTS RED":          "aw-bad",
+  "NO SCHEDULED TASK":    "aw-bad",
   "STALE":                "aw-warn",
   "INCOMPLETE":           "aw-warn",
   "NEVER PRODUCED OUTPUT":"aw-warn",

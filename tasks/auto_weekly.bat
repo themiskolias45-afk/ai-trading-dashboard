@@ -69,5 +69,25 @@ REM msg.exe fails in a non-interactive session; never let it decide the exit cod
 REM That is why this task reported FAILED(1) on 26/07 while its report was written.
 msg * "SmartEntry Weekly Report ready. Check tasks\logs\ for the report and proposed improvement." >nul 2>&1
 
+REM Park the brief when the subscription window closed, instead of losing the week.
+REM On 2026-08-09 this job wrote a 136-byte "You've hit your session limit" stub and
+REM exited 1, and the work was simply gone until someone noticed — which nothing did.
+REM claude_agent.py park refuses anything that is not a genuine limit notice, so a
+REM real failure still surfaces as a failure instead of retrying forever. The brief
+REM goes in on STDIN because cmd.exe truncates an argument at the first newline.
+if not "%CLAUDE_RC%"=="0" (
+  (
+    echo Weekly SmartEntry Pro review, resumed after a session limit.
+    echo FIRST read %PROJ%\tasks\ai_brief.md in full - do NOT re-raise anything it marks as decided.
+    echo Read %PROJ%\server\journal.json and consult http://localhost:3001/api/stats/by-setup.
+    echo Print to standard output only. Cover: week trade summary; best and worst asset;
+    echo avgRealizedR next to avgRR - a setup with high avgRR and negative avgRealizedR is
+    echo losing money on geometry that only looked good on paper; one algorithm weakness
+    echo supported by trades actually in the journal, or say plainly there are too few;
+    echo and one specific proposed fix marked PROPOSED FIX: naming file, function and evidence.
+    echo Do NOT edit source and do NOT commit. Max 40 lines.
+  ) | python "%PROJ%\claude_agent.py" park "Weekly Algo Review" --output-file "%REPORT%" >> "%REPORT%" 2>&1
+)
+
 echo [exit %CLAUDE_RC%] >> "%REPORT%"
 endlocal & exit /b %CLAUDE_RC%

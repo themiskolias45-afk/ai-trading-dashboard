@@ -72,6 +72,24 @@ const JOBS = [
     cadenceHours: DAILY_STALE_HOURS,
     markers: [],
   },
+  {
+    // Undeclared until 2026-08-10, so it sat in the unappraised list being reported
+    // as FAILING on both boxes — when rc=1 is how coverage_audit.ps1 SAYS SOMETHING
+    // IS RED. The job was doing its job. Calling a finding a failure is the same
+    // error as calling a deliberately disabled task a failure, and it buries the
+    // one thing this audit exists to tell you.
+    id: "coverage",
+    label: "Coverage Audit",
+    task: "SmartEntryCoverageAudit",
+    script: "tasks/coverage_audit.ps1",
+    taskMatch: /coverage_audit\.ps1/i,
+    pattern: /^coverage_audit\.txt$/,
+    cadenceHours: 24,
+    markers: [],
+    // rc=1 is a RED finding, not a crash. Its report names what is red.
+    exitOneIsFinding: true,
+    findingPattern: /^\s*RED\s*:\s*(.+)$/m,
+  },
 ];
 
 // Windows scheduler result codes worth naming. Anything else is shown raw rather
@@ -282,6 +300,14 @@ function build(options = {}) {
     if (scheduler.known && !scheduler.found) {
       verdict = "NO SCHEDULED TASK";
       detail = `logs exist but nothing in the scheduler runs ${job.script} — the output below is from a job that can no longer fire`;
+    } else if (job.exitOneIsFinding && scheduler.found && scheduler.lastResult === 1) {
+      // The job ran correctly and is telling you something. Show WHAT, from its own
+      // report — a verdict of "FAILING" here would hide the only line that matters.
+      const found = job.findingPattern ? text.match(job.findingPattern) : null;
+      verdict = "REPORTS RED";
+      detail = found
+        ? `coverage is RED: ${found[1].trim()} — reported ${Math.round(ageHours)}h ago`
+        : `exited 1, which this job uses to mean a RED finding — see ${newest.name}`;
     } else if (scheduler.found && scheduler.failing) {
       verdict = "FAILING";
       detail = `the scheduler reports last result ${scheduler.resultMeaning} for task "${scheduler.taskName}"`

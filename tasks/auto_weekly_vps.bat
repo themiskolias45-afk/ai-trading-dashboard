@@ -23,5 +23,23 @@ REM Completion marker. Without it the ledger cannot tell a run that finished fro
 REM that was killed, and every VPS weekly has read "NO COMPLETION MARKER" since the
 REM job was created — while the scheduler recorded rc=0 the whole time.
 set CLAUDE_RC=%ERRORLEVEL%
+
+REM Same parking as the laptop twin: a closed subscription window costs a delay, not
+REM the week's review. claude_agent.py park refuses anything that is not a genuine
+REM limit notice, so a real failure still reads as a failure. STDIN, never argv —
+REM cmd.exe truncates an argument at the first newline.
+if not "%CLAUDE_RC%"=="0" (
+  (
+    echo Weekly SmartEntry Pro review on the VPS, resumed after a session limit.
+    echo Read server/journal.json and server/learning.json. Print to standard output only.
+    echo Cover: week trade summary - trades, wins, losses, P&L, win rate; if there are no
+    echo closed trades say so plainly and state how many more are needed before the
+    echo learning engine can act ^(it needs 5 per setup^); best and worst asset; one
+    echo weakness from actual results, not speculation; and one specific proposed fix
+    echo marked PROPOSED FIX: naming the function and change. Max 40 lines.
+    echo Do NOT edit code and do NOT commit - propose only.
+  ) | python claude_agent.py park "Weekly Algo Review" --output-file "%REPORT%" >> %REPORT% 2>&1
+)
+
 echo [exit %CLAUDE_RC%] >> %REPORT%
 exit /b %CLAUDE_RC%

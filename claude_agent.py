@@ -553,6 +553,54 @@ if __name__ == "__main__":
             print(f"  {entry['label']:<20} {entry['status']}")
         if not results:
             print("Nothing was due.")
+    elif command in ("--park", "park"):
+        # Park a brief that a scheduled .bat could not finish because the
+        # subscription window closed. queue_job has existed since 2026-08-06 and
+        # nothing outside this file could reach it, so the weekly review has been
+        # writing a 136-byte "You've hit your session limit" stub and exiting 1 —
+        # the work simply lost, once a week, with the queue sitting right there.
+        #
+        # The prompt arrives on STDIN, never argv: cmd.exe truncates an argument at
+        # the first newline, which is the single cause of every dead AI job on this
+        # machine, and run_claude feeds its own prompts the same way for the same
+        # reason.
+        label = sys.argv[2] if len(sys.argv) > 2 else "unlabelled brief"
+        output_path = None
+        if "--output-file" in sys.argv:
+            idx = sys.argv.index("--output-file")
+            if idx + 1 < len(sys.argv):
+                output_path = sys.argv[idx + 1]
+
+        prompt = sys.stdin.read().strip()
+        if not prompt:
+            print("park: nothing on stdin — a brief with no prompt cannot be resumed")
+            sys.exit(1)
+
+        run_output = ""
+        if output_path:
+            try:
+                with open(output_path, "r", encoding="utf-8", errors="replace") as handle:
+                    run_output = handle.read()
+            except OSError as exc:
+                print(f"park: could not read {output_path} ({exc})")
+
+        # Only park a genuine limit. Parking a real failure would retry a broken job
+        # forever and hide the breakage, which is the opposite of the point.
+        if output_path and not looks_rate_limited(run_output, success=False):
+            print("park: that run was not stopped by the session limit — not queued")
+            sys.exit(2)
+
+        job_id = queue_job(
+            prompt=prompt,
+            label=label,
+            timeout=DEFAULT_TIMEOUT,
+            needs_project=True,
+            system=None,
+            require=None,
+            reset_at=parse_reset_at(run_output),
+            is_limit=True,
+        )
+        print(f"park: queued {label} as {job_id} — the next drain resumes it")
     else:
-        print("Usage: python claude_agent.py [status|drain]")
+        print("Usage: python claude_agent.py [status|drain|park <label> [--output-file PATH]]")
         sys.exit(1)
