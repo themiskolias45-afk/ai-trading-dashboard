@@ -18,7 +18,6 @@
       --red:       #ef4444;
       --blue:      #3b82f6;
       --amber:     #eab308;
-      --violet:    #a78bfa;
       --text:      #e2e8f0;
       --muted:     #64748b;
       --dim:       #94a3b8;
@@ -72,7 +71,7 @@
     .nav-cta:hover { background: var(--accent); color: #000; }
 
     /* ── LAYOUT ── */
-    section { padding: 88px 24px; }
+    section { padding: 92px 24px; }
     .container { max-width: 1080px; margin: 0 auto; }
     .narrow { max-width: 760px; }
 
@@ -90,7 +89,7 @@
 
     /* ── HERO ── */
     .hero {
-      min-height: 88vh;
+      min-height: 86vh;
       display: flex; flex-direction: column; justify-content: center;
       padding: 140px 24px 72px;
       position: relative; overflow: hidden;
@@ -139,26 +138,46 @@
     }
     .btn-secondary:hover { border-color: var(--muted); }
 
-    /* ── DISCLOSURE BAND ── */
-    .disclosure {
+    /* ── TRACK RECORD (live) ── */
+    .record {
       background: linear-gradient(135deg, rgba(234,179,8,.07), var(--surface));
       border-top: 1px solid rgba(234,179,8,.28);
       border-bottom: 1px solid rgba(234,179,8,.28);
-      padding: 40px 24px;
+      padding: 56px 24px;
     }
-    .disclosure-inner {
-      max-width: 1080px; margin: 0 auto;
-      display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: start;
-    }
-    .disclosure-mark {
+    .record-inner { max-width: 1080px; margin: 0 auto; }
+    .record-mark {
+      display: inline-block;
       font-size: .68rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
       color: var(--amber); border: 1px solid rgba(234,179,8,.4);
-      padding: 6px 12px; border-radius: 5px; white-space: nowrap;
+      padding: 6px 12px; border-radius: 5px; margin-bottom: 20px;
     }
-    .disclosure h3 { font-size: 1.08rem; font-weight: 700; margin-bottom: 10px; }
-    .disclosure p { color: var(--dim); font-size: .92rem; line-height: 1.7; max-width: 780px; }
-    .disclosure p + p { margin-top: 10px; }
-    .disclosure strong { color: var(--text); font-weight: 700; }
+    .record h3 { font-size: clamp(1.3rem, 2.6vw, 1.8rem); font-weight: 800; margin-bottom: 24px; letter-spacing: -.015em; }
+    .record-stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1px; background: var(--border);
+      border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+      margin-bottom: 26px;
+    }
+    .rstat { background: var(--bg); padding: 20px 18px; }
+    .rstat-value { font-family: var(--mono); font-size: 1.7rem; font-weight: 800; letter-spacing: -.02em; }
+    .rstat-label {
+      font-size: .68rem; color: var(--muted); margin-top: 4px;
+      text-transform: uppercase; letter-spacing: .09em;
+    }
+    .v-pos { color: var(--green); }
+    .v-neg { color: var(--red); }
+    .v-neutral { color: var(--text); }
+    .record p { color: var(--dim); font-size: .93rem; line-height: 1.75; max-width: 800px; }
+    .record p + p { margin-top: 12px; }
+    .record strong { color: var(--text); font-weight: 700; }
+    .record-suppressed {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: rgba(239,68,68,.07); border: 1px solid rgba(239,68,68,.25);
+      border-radius: 8px; padding: 15px 18px; margin-bottom: 22px;
+      font-size: .88rem; color: var(--dim); line-height: 1.65; max-width: 800px;
+    }
+    .record-suppressed::before { content: '\00d7'; color: var(--red); font-weight: 800; font-size: 1.1rem; line-height: 1.3; }
 
     /* ── LIVE STATE ── */
     .live-head {
@@ -190,16 +209,10 @@
       letter-spacing: .07em; margin-bottom: 7px;
     }
     .conf-label b { color: var(--text); font-family: var(--mono); font-weight: 700; }
-    .conf-track {
-      position: relative; height: 7px; border-radius: 4px;
-      background: var(--subtle); overflow: visible;
-    }
+    .conf-track { position: relative; height: 7px; border-radius: 4px; background: var(--subtle); }
     .conf-fill { height: 100%; border-radius: 4px; background: var(--muted); transition: width .5s ease; }
     .conf-fill.over { background: var(--green); }
-    .conf-gate {
-      position: absolute; top: -4px; bottom: -4px; width: 2px;
-      background: var(--accent); border-radius: 1px;
-    }
+    .conf-gate { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--accent); border-radius: 1px; }
     .conf-foot { font-size: .7rem; color: var(--muted); margin-top: 8px; font-family: var(--mono); }
 
     /* ── CONFIG STRIP ── */
@@ -212,25 +225,26 @@
 
     /* ── PIPELINE ── */
     .pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px; margin-top: 52px; }
-    .stage {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; padding: 24px; position: relative;
-    }
-    .stage-num {
-      font-family: var(--mono); font-size: .72rem; font-weight: 800;
-      color: var(--accent); letter-spacing: .1em; margin-bottom: 12px;
-    }
+    .stage { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+    .stage-num { font-family: var(--mono); font-size: .72rem; font-weight: 800; color: var(--accent); letter-spacing: .1em; margin-bottom: 12px; }
     .stage h3 { font-size: .95rem; font-weight: 700; margin-bottom: 8px; }
     .stage p { color: var(--muted); font-size: .84rem; line-height: 1.6; }
-    .stage-kill {
-      margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
-      font-size: .74rem; color: var(--red); font-weight: 600;
-    }
+    .stage-kill { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: .74rem; color: var(--red); font-weight: 600; }
 
     /* ── EVIDENCE ── */
-    .evidence-list { display: flex; flex-direction: column; gap: 16px; margin-top: 48px; }
+    .claim-counts {
+      display: flex; gap: 10px; flex-wrap: wrap; margin-top: 34px;
+    }
+    .cc {
+      font-family: var(--mono); font-size: .74rem; font-weight: 700;
+      padding: 7px 13px; border-radius: 6px;
+      background: var(--bg); border: 1px solid var(--border); color: var(--dim);
+    }
+    .cc b { color: var(--text); }
+
+    .evidence-list { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
     .claim {
-      background: var(--surface); border: 1px solid var(--border);
+      background: var(--bg); border: 1px solid var(--border);
       border-radius: 12px; padding: 26px;
       border-left: 3px solid var(--muted);
     }
@@ -241,10 +255,7 @@
     .claim.st-contradicted{ border-left-color: #fb923c; }
     .claim.st-unmeasured  { border-left-color: var(--muted); }
 
-    .claim-head {
-      display: flex; align-items: flex-start; justify-content: space-between;
-      gap: 16px; flex-wrap: wrap; margin-bottom: 16px;
-    }
+    .claim-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
     .claim-title { font-size: 1.02rem; font-weight: 700; }
     .claim-status {
       font-size: .66rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
@@ -255,35 +266,26 @@
     .st-noedge      .claim-status { background: rgba(239,68,68,.14);  color: var(--red); }
     .st-candidate   .claim-status { background: rgba(234,179,8,.14);  color: var(--amber); }
     .st-blocked     .claim-status { background: rgba(59,130,246,.14); color: var(--blue); }
-    .st-contradicted.claim .claim-status { background: rgba(251,146,60,.14); color: #fb923c; }
+    .st-contradicted .claim-status { background: rgba(251,146,60,.14); color: #fb923c; }
 
     .claim-field { margin-top: 13px; }
-    .claim-field dt {
-      font-size: .66rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
-      color: var(--muted); margin-bottom: 4px;
-    }
+    .claim-field dt { font-size: .66rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
     .claim-field dd { font-size: .88rem; color: var(--dim); line-height: 1.66; }
     .claim-foot {
       margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border);
       display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
       font-family: var(--mono); font-size: .72rem; color: var(--muted);
     }
-    .feeds {
-      font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
-      padding: 3px 8px; border-radius: 4px; font-size: .64rem;
-    }
+    .feeds { font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; font-size: .64rem; }
     .feeds-yes { background: rgba(247,147,26,.14); color: var(--accent); }
     .feeds-no  { background: rgba(100,116,139,.14); color: var(--muted); }
 
-    .load-state { color: var(--muted); font-size: .9rem; padding: 28px 0; font-family: var(--mono); }
+    .load-state { color: var(--muted); font-size: .9rem; padding: 26px 0; font-family: var(--mono); }
     .load-fail  { color: var(--red); }
 
     /* ── RISK ── */
     .risk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 18px; margin-top: 48px; }
-    .risk-item {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; padding: 24px;
-    }
+    .risk-item { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
     .risk-item h3 { font-size: .93rem; font-weight: 700; margin-bottom: 8px; }
     .risk-item p { color: var(--muted); font-size: .85rem; line-height: 1.65; }
     .enforced {
@@ -302,10 +304,7 @@
       border: 1px solid var(--border); border-radius: 8px;
       font-size: .91rem; color: var(--dim); line-height: 1.6;
     }
-    .wont-list li::before {
-      content: '\00d7'; color: var(--red); font-weight: 800; font-size: 1.1rem;
-      flex-shrink: 0; line-height: 1.4;
-    }
+    .wont-list li::before { content: '\00d7'; color: var(--red); font-weight: 800; font-size: 1.1rem; flex-shrink: 0; line-height: 1.4; }
     .wont-list b { color: var(--text); font-weight: 700; }
 
     /* ── CONTACT ── */
@@ -316,17 +315,19 @@
     }
     .contact-box h2 { margin-bottom: 14px; }
     .contact-box > p { color: var(--dim); margin-bottom: 30px; font-size: .96rem; line-height: 1.7; }
-    .contact-note {
-      font-size: .78rem; color: var(--muted); margin-top: 20px; line-height: 1.6;
+    .contact-note { font-size: .78rem; color: var(--muted); margin-top: 20px; line-height: 1.6; }
+
+    /* ── PROVENANCE ── */
+    .provenance {
+      border-top: 1px solid var(--border);
+      padding: 22px 24px; text-align: center;
+      font-family: var(--mono); font-size: .72rem; color: var(--muted);
+      line-height: 1.7;
     }
 
     /* ── FOOTER ── */
     footer { border-top: 1px solid var(--border); padding: 44px 24px; }
-    .footer-inner {
-      max-width: 1080px; margin: 0 auto;
-      display: flex; align-items: flex-start; justify-content: space-between;
-      flex-wrap: wrap; gap: 28px;
-    }
+    .footer-inner { max-width: 1080px; margin: 0 auto; display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 28px; }
     .footer-logo { font-size: .95rem; font-weight: 700; margin-bottom: 10px; }
     .footer-note { font-size: .76rem; color: var(--muted); max-width: 560px; line-height: 1.65; }
     .footer-note + .footer-note { margin-top: 10px; }
@@ -339,7 +340,7 @@
       .nav-links { display: none; }
       section { padding: 60px 18px; }
       .hero { padding: 120px 18px 56px; min-height: auto; }
-      .disclosure-inner { grid-template-columns: 1fr; gap: 16px; }
+      .record { padding: 40px 18px; }
       .config-item { padding: 26px 18px; border-right: none; border-bottom: 1px solid var(--border); }
       .config-item:last-child { border-bottom: none; }
       .contact-box { padding: 34px 22px; }
@@ -355,6 +356,7 @@
     SmartEntry Pro
   </a>
   <div class="nav-links">
+    <a href="#record">Record</a>
     <a href="#method">Method</a>
     <a href="#evidence">Evidence</a>
     <a href="#risk">Risk</a>
@@ -380,29 +382,26 @@
   </div>
 </section>
 
-<!-- DISCLOSURE — deliberately above everything else -->
-<div class="disclosure">
-  <div class="disclosure-inner">
-    <div class="disclosure-mark">Read this first</div>
-    <div>
-      <h3>There is no track record yet.</h3>
-      <p>
-        As of <span id="disc-date">10 August 2026</span> this system has <strong>one closed
-        trade in its entire operating life</strong> — a loss of <strong>449.72</strong> on a
-        BB_SQUEEZE_WATCH setup — across 129 sessions. Two positions are currently open and
-        unrealised.
-      </p>
-      <p>
-        <strong>All activity to date has been on demo accounts.</strong> No client capital has
-        ever been deployed. Win rate, calibration and per-setup edge all rest on a sample of
-        one, which means none of them mean anything yet. A credible track record needs on the
-        order of a hundred closed trades; this is one.
-      </p>
-      <p>
-        That number is on this page, at the top, because a system that hides its sample size
-        is the thing you should actually be afraid of.
-      </p>
-    </div>
+<!-- TRACK RECORD — read live, never hardcoded -->
+<div class="record" id="record">
+  <div class="record-inner">
+    <div class="record-mark">Read this first</div>
+    <h3 id="rec-head">Reading the track record from the engine…</h3>
+
+    <div class="record-stats" id="rec-stats"></div>
+
+    <div class="record-suppressed" id="rec-suppressed" hidden></div>
+
+    <p id="rec-body"></p>
+    <p>
+      <strong>All activity to date has been on demo accounts.</strong> No client capital has
+      ever been deployed, and no third party has ever had money in this system.
+    </p>
+    <p>
+      These figures are read from the running engine each time this page loads. They are not
+      typed into the page and cannot be edited without editing the trade log itself. A system
+      that hides its sample size is the thing you should actually be afraid of.
+    </p>
   </div>
 </div>
 
@@ -417,9 +416,8 @@
       <div class="live-stamp" id="live-stamp">loading…</div>
     </div>
     <p class="section-sub" style="margin-bottom:34px">
-      Not a screenshot and not a marketing figure — these values are fetched from the running
-      system when you load this page. The orange marker is the confidence gate a setup must
-      clear before it is allowed to trade.
+      Not a screenshot and not a marketing figure. The orange marker is the confidence gate a
+      setup must clear before it is allowed to trade.
     </p>
     <div id="assets" class="asset-grid">
       <div class="load-state">fetching live signals…</div>
@@ -430,7 +428,7 @@
 <!-- CONFIG -->
 <div class="config-bg">
   <div class="container">
-    <div class="config" id="config">
+    <div class="config">
       <div class="config-item"><div class="config-value" id="cfg-gate">—</div><div class="config-label">Confidence gate<br>to fire a trade</div></div>
       <div class="config-item"><div class="config-value" id="cfg-pos">—</div><div class="config-label">Maximum concurrent<br>positions</div></div>
       <div class="config-item"><div class="config-value" id="cfg-day">—</div><div class="config-label">Maximum trades<br>per day</div></div>
@@ -483,11 +481,12 @@
     <div class="section-tag">Evidence board</div>
     <h2>What the system knows,<br>and what it merely assumes.</h2>
     <p class="section-sub">
-      Every claim below carries its verdict, the evidence behind it, the caveat that weakens
-      it, and what would change the answer. Loaded live from the same register the engineering
-      team works from — including the claims that were rejected and the one where two sources
-      still disagree.
+      Every claim carries its verdict, the evidence behind it, the caveat that weakens it, and
+      what would change the answer. Loaded live from the same register the engineering team
+      works from — including the claims that were rejected and the one where two sources still
+      disagree.
     </p>
+    <div class="claim-counts" id="claim-counts"></div>
     <div id="claims" class="evidence-list">
       <div class="load-state">fetching evidence register…</div>
     </div>
@@ -551,7 +550,8 @@
       <ul class="wont-list">
         <li><span><b>No projected or target returns.</b> We will not publish a percentage we have not earned, and we do not have one to publish.</span></li>
         <li><span><b>No backtested equity curve presented as performance.</b> A curve fitted in hindsight is a drawing, not a result.</span></li>
-        <li><span><b>No Sharpe, CAGR or max-drawdown figures.</b> All three are undefined at a sample of one, and quoting them would be arithmetic theatre.</span></li>
+        <li><span><b>No Sharpe, CAGR or max-drawdown figures.</b> All three are undefined at this sample size, and quoting them would be arithmetic theatre.</span></li>
+        <li><span><b>No win rate computed from a handful of trades.</b> The page suppresses its own win rate below the stated threshold, even when that rate would flatter us.</span></li>
         <li><span><b>No testimonials or client results.</b> There are no clients. Inventing either would be fraud, not marketing.</span></li>
         <li><span><b>No claim that live results will resemble any test.</b> Out-of-sample testing reduces self-deception; it does not predict the future.</span></li>
         <li><span><b>No suggestion this is safe.</b> Algorithmic trading can lose money faster than manual trading, precisely because it does not hesitate.</span></li>
@@ -580,6 +580,9 @@
   </div>
 </section>
 
+<!-- PROVENANCE -->
+<div class="provenance" id="provenance">every figure on this page is read from the engine at load time</div>
+
 <!-- FOOTER -->
 <footer>
   <div class="footer-inner">
@@ -598,6 +601,7 @@
     </div>
     <div class="footer-links">
       <a href="/index.html">Overview</a>
+      <a href="#record">Record</a>
       <a href="#method">Method</a>
       <a href="#evidence">Evidence</a>
       <a href="#risk">Risk</a>
@@ -610,17 +614,22 @@
 (function () {
   "use strict";
 
-  // Contact address assembled at runtime so it is not sitting in the page source
-  // as a plain mailto for scrapers to harvest.
+  // Below this many closed trades the page refuses to print a win rate. A rate from
+  // a handful of trades is noise, and it is just as likely to flatter as to damn —
+  // this box has shown both a lone loss and a lone win depending which machine you
+  // asked. Suppressing it in BOTH directions is the only version that is honest.
+  var MIN_TRADES_FOR_WIN_RATE = 30;
+  // Below this, the word "track record" does not apply at all.
+  var MIN_TRADES_FOR_TRACK_RECORD = 100;
+
   var INBOX_USER = "themis13melpw";
   var INBOX_HOST = "gmail.com";
-  var link = document.getElementById("interest-link");
-  link.href = "mailto:" + INBOX_USER + "@" + INBOX_HOST +
-              "?subject=" + encodeURIComponent("SmartEntry Pro — registering interest");
+  document.getElementById("interest-link").href =
+    "mailto:" + INBOX_USER + "@" + INBOX_HOST +
+    "?subject=" + encodeURIComponent("SmartEntry Pro — registering interest");
 
-  // ── helpers ──────────────────────────────────────────────────
-  // Check r.ok, never just the parse: an auth failure returns valid JSON and
-  // would otherwise read as a successful load.
+  // Check r.ok, never just the parse: an auth failure returns valid JSON and would
+  // otherwise read as a successful load.
   function getJson(url) {
     return fetch(url, { headers: { "Accept": "application/json" } })
       .then(function (r) {
@@ -635,21 +644,90 @@
     if (text !== undefined && text !== null) n.textContent = String(text);
     return n;
   }
-
   function fail(container, message) {
     container.innerHTML = "";
     container.appendChild(el("div", "load-state load-fail", message));
   }
-
-  function num(v) {
-    return (typeof v === "number" && isFinite(v)) ? v : null;
-  }
-
-  function fmtPrice(v) {
+  function num(v) { return (typeof v === "number" && isFinite(v)) ? v : null; }
+  function fmt(v, dp) {
     var n = num(v);
     if (n === null) return "—";
-    return n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return n.toLocaleString("en-GB", { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 });
   }
+
+  function addStat(host, value, label, cls) {
+    var box = el("div", "rstat");
+    box.appendChild(el("div", "rstat-value " + (cls || "v-neutral"), value));
+    box.appendChild(el("div", "rstat-label", label));
+    host.appendChild(box);
+  }
+
+  // ── track record, read live ──────────────────────────────────
+  var recHead  = document.getElementById("rec-head");
+  var recStats = document.getElementById("rec-stats");
+  var recBody  = document.getElementById("rec-body");
+  var recSupp  = document.getElementById("rec-suppressed");
+
+  Promise.all([getJson("/api/stats/by-setup"), getJson("/api/learning")])
+    .then(function (res) {
+      var stats    = res[0] || {};
+      var learning = res[1] || {};
+      var setups   = Array.isArray(stats.setupStats) ? stats.setupStats : [];
+
+      var closed = num(stats.totalClosed);
+      if (closed === null) throw new Error("engine returned no totalClosed");
+
+      var wins = 0, losses = 0, pnl = 0;
+      setups.forEach(function (s) {
+        wins   += num(s.wins) || 0;
+        losses += num(s.losses) || 0;
+        pnl    += num(s.totalPnl) || 0;
+      });
+      var sessions = num(learning.sessionCount);
+
+      recStats.innerHTML = "";
+      addStat(recStats, fmt(closed), "Closed trades");
+      addStat(recStats, fmt(wins), "Wins", wins > 0 ? "v-pos" : "v-neutral");
+      addStat(recStats, fmt(losses), "Losses", losses > 0 ? "v-neg" : "v-neutral");
+      addStat(recStats, (pnl >= 0 ? "+" : "") + fmt(pnl, 2), "Net P&L",
+              pnl > 0 ? "v-pos" : pnl < 0 ? "v-neg" : "v-neutral");
+      if (sessions !== null) addStat(recStats, fmt(sessions), "Sessions run");
+
+      if (closed >= MIN_TRADES_FOR_TRACK_RECORD) {
+        recHead.textContent = "The track record so far.";
+      } else if (closed === 0) {
+        recHead.textContent = "No trade has closed yet.";
+      } else {
+        recHead.textContent = "There is no track record yet.";
+      }
+
+      if (closed > 0 && closed < MIN_TRADES_FOR_WIN_RATE) {
+        recSupp.hidden = false;
+        recSupp.appendChild(el("span", null,
+          "A win rate is deliberately not shown. With " + closed +
+          (closed === 1 ? " closed trade" : " closed trades") +
+          " any percentage would be noise — and at this sample it would read as " +
+          (losses === 0 ? "100%, which would flatter us badly." : "0%, which is equally meaningless.") +
+          " The threshold for printing one is " + MIN_TRADES_FOR_WIN_RATE + " closed trades."));
+      }
+
+      var parts = [];
+      parts.push("This system has recorded ");
+      parts.push(closed === 0 ? "no closed trades" :
+                 closed === 1 ? "a single closed trade" :
+                 closed + " closed trades");
+      if (sessions !== null) parts.push(" across " + sessions + " operating sessions");
+      parts.push(". A credible track record needs on the order of " +
+                 MIN_TRADES_FOR_TRACK_RECORD + " closed trades; ");
+      parts.push(closed === 0 ? "there are none." : "there " + (closed === 1 ? "is one." : "are " + closed + "."));
+      parts.push(" Win rate, calibration and per-setup edge therefore rest on a sample far too small to mean anything.");
+      recBody.textContent = parts.join("");
+    })
+    .catch(function (e) {
+      recHead.textContent = "Track record unavailable.";
+      recBody.textContent = "The engine did not answer, so nothing is shown here rather than a " +
+                            "figure that could not be verified. (" + e.message + ")";
+    });
 
   // ── live signals + gate ──────────────────────────────────────
   var assetsBox = document.getElementById("assets");
@@ -657,11 +735,10 @@
 
   Promise.all([getJson("/api/signals"), getJson("/api/strategy-settings")])
     .then(function (res) {
-      var signals  = res[0];
-      var settings = res[1];
+      var signals = res[0], settings = res[1];
 
-      // settingsError non-null means the server fell back to built-in defaults
-      // rather than the saved config, so the gate shown would not be the live one.
+      // settingsError non-null means the server fell back to built-in defaults rather
+      // than the saved config, so the gate shown would not be the live one.
       var gate = (settings && settings.settingsError === null) ? num(settings.confidenceThreshold) : null;
 
       document.getElementById("cfg-gate").textContent = gate === null ? "—" : gate + "%";
@@ -673,20 +750,17 @@
       assetsBox.innerHTML = "";
 
       order.forEach(function (pair) {
-        var key = pair[0];
-        var a   = signals && signals[key];
+        var a = signals && signals[pair[0]];
         if (!a) return;
 
         var card = el("div", "asset");
-
-        var top = el("div", "asset-top");
+        var top  = el("div", "asset-top");
         top.appendChild(el("div", "asset-name", pair[1]));
         var sig = String(a.signal || "WAIT").toUpperCase();
-        var cls = sig === "BUY" ? "pill pill-buy" : sig === "SELL" ? "pill pill-sell" : "pill pill-wait";
-        top.appendChild(el("span", cls, sig));
+        top.appendChild(el("span", "pill " + (sig === "BUY" ? "pill-buy" : sig === "SELL" ? "pill-sell" : "pill-wait"), sig));
         card.appendChild(top);
 
-        card.appendChild(el("div", "asset-price", fmtPrice(a.price)));
+        card.appendChild(el("div", "asset-price", fmt(a.price, 2)));
         card.appendChild(el("div", "asset-meta",
           (a.sourceSymbol || a.ticker || "—") + " · " + (a.dataSource === "mt5" ? "broker feed" : "fallback feed")));
 
@@ -694,17 +768,14 @@
         var row  = el("div", "conf-row");
         var lab  = el("div", "conf-label");
         lab.appendChild(el("span", null, "Confidence"));
-        var b = el("b", null, conf === null ? "—" : conf + "%");
-        lab.appendChild(b);
+        lab.appendChild(el("b", null, conf === null ? "—" : conf + "%"));
         row.appendChild(lab);
 
         var track = el("div", "conf-track");
-        var fillPct = conf === null ? 0 : Math.max(0, Math.min(100, conf));
-        var fill = el("div", "conf-fill");
-        fill.style.width = fillPct + "%";
+        var fill  = el("div", "conf-fill");
+        fill.style.width = (conf === null ? 0 : Math.max(0, Math.min(100, conf))) + "%";
         if (gate !== null && conf !== null && conf >= gate) fill.className = "conf-fill over";
         track.appendChild(fill);
-
         if (gate !== null) {
           var marker = el("div", "conf-gate");
           marker.style.left = Math.max(0, Math.min(100, gate)) + "%";
@@ -713,15 +784,10 @@
         }
         row.appendChild(track);
 
-        var footText;
-        if (conf === null || gate === null) {
-          footText = "gate unavailable";
-        } else if (conf >= gate) {
-          footText = "at or above the " + gate + "% gate";
-        } else {
-          footText = (gate - conf) + " points below the " + gate + "% gate";
-        }
-        row.appendChild(el("div", "conf-foot", footText));
+        row.appendChild(el("div", "conf-foot",
+          (conf === null || gate === null) ? "gate unavailable"
+            : conf >= gate ? "at or above the " + gate + "% gate"
+            : (gate - conf) + " points below the " + gate + "% gate"));
         card.appendChild(row);
         assetsBox.appendChild(card);
       });
@@ -729,9 +795,8 @@
       if (!assetsBox.children.length) fail(assetsBox, "no assets returned by the engine");
 
       var when = signals && signals.updatedAt ? new Date(signals.updatedAt) : null;
-      stamp.textContent = when && !isNaN(when.getTime())
-        ? "signals computed " + when.toUTCString()
-        : "timestamp unavailable";
+      stamp.textContent = (when && !isNaN(when.getTime()))
+        ? "signals computed " + when.toUTCString() : "timestamp unavailable";
     })
     .catch(function (e) {
       fail(assetsBox, "Live state unavailable — " + e.message);
@@ -740,22 +805,14 @@
 
   // ── evidence board ───────────────────────────────────────────
   var STATUS_CLASS = [
-    [/ROBUST/i,        "st-robust"],
-    [/NO EDGE/i,       "st-noedge"],
-    [/CANDIDATE/i,     "st-candidate"],
-    [/BLOCKED/i,       "st-blocked"],
-    [/CONTRADICTED/i,  "st-contradicted"],
-    [/UNMEASURED/i,    "st-unmeasured"]
+    [/ROBUST/i, "st-robust"], [/NO EDGE/i, "st-noedge"], [/CANDIDATE/i, "st-candidate"],
+    [/BLOCKED/i, "st-blocked"], [/CONTRADICTED/i, "st-contradicted"], [/UNMEASURED/i, "st-unmeasured"]
   ];
-
   function statusClass(status) {
     var s = String(status || "");
-    for (var i = 0; i < STATUS_CLASS.length; i++) {
-      if (STATUS_CLASS[i][0].test(s)) return STATUS_CLASS[i][1];
-    }
+    for (var i = 0; i < STATUS_CLASS.length; i++) if (STATUS_CLASS[i][0].test(s)) return STATUS_CLASS[i][1];
     return "st-unmeasured";
   }
-
   function addField(dl, label, value) {
     if (!value) return;
     var wrap = el("div", "claim-field");
@@ -765,16 +822,22 @@
   }
 
   var claimsBox = document.getElementById("claims");
+  var countsBox = document.getElementById("claim-counts");
 
   getJson("/api/evidence-board")
     .then(function (board) {
       var claims = (board && board.claims) || [];
       if (!claims.length) { fail(claimsBox, "evidence register returned no claims"); return; }
 
+      var feeding = claims.filter(function (c) { return c.feedsTheGate; }).length;
+      countsBox.innerHTML = "";
+      countsBox.appendChild(el("span", "cc", claims.length + " claims on record"));
+      countsBox.appendChild(el("span", "cc", feeding + " affect live trading"));
+      countsBox.appendChild(el("span", "cc", (claims.length - feeding) + " carry no vote"));
+
       claimsBox.innerHTML = "";
       claims.forEach(function (c) {
         var card = el("div", "claim " + statusClass(c.status));
-
         var head = el("div", "claim-head");
         head.appendChild(el("div", "claim-title", c.title || c.id || "untitled claim"));
         head.appendChild(el("span", "claim-status", c.status || "UNMEASURED"));
@@ -788,18 +851,19 @@
         card.appendChild(dl);
 
         var foot = el("div", "claim-foot");
-        var feeds = el("span", "feeds " + (c.feedsTheGate ? "feeds-yes" : "feeds-no"),
-                       c.feedsTheGate ? "affects live trading" : "no vote in trading");
-        foot.appendChild(feeds);
+        foot.appendChild(el("span", "feeds " + (c.feedsTheGate ? "feeds-yes" : "feeds-no"),
+                            c.feedsTheGate ? "affects live trading" : "no vote in trading"));
         if (c.measuredOn) foot.appendChild(el("span", null, "measured " + c.measuredOn));
         card.appendChild(foot);
-
         claimsBox.appendChild(card);
       });
     })
-    .catch(function (e) {
-      fail(claimsBox, "Evidence board unavailable — " + e.message);
-    });
+    .catch(function (e) { fail(claimsBox, "Evidence board unavailable — " + e.message); });
+
+  // ── provenance ───────────────────────────────────────────────
+  document.getElementById("provenance").textContent =
+    "Every figure above was read from " + window.location.host +
+    " at " + new Date().toUTCString() + ". Reload to re-read them.";
 })();
 </script>
 
