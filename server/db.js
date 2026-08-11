@@ -336,10 +336,23 @@ function insertSignal(signal) {
  * @param {'WIN'|'LOSS'|'BREAKEVEN'} outcome
  * @param {number} pnl
  */
+// Names that mean "there was no setup", not "the setup was called this". Mirrors
+// NON_SETUP_NAMES in server/index.js — both write paths are fed from the same closed
+// trade, so guarding only one of them would leave the SQLite table corrupted while
+// learning.json stayed clean, and the two would silently disagree.
+const NON_SETUP_NAMES = new Set(['WAIT', 'NONE', 'UNKNOWN']);
+
 function updateLearning(setup, outcome, pnl) {
   if (!isReady('updateLearning')) return;
   if (!setup) {
     console.warn('[DB] updateLearning() requires a setup name');
+    return;
+  }
+  if (NON_SETUP_NAMES.has(String(setup).trim().toUpperCase())) {
+    console.warn(
+      `[DB] updateLearning() refused "${setup}" — that is the absence of a setup, ` +
+      `not a setup name. The trade stays in the journal; it is not learned from.`
+    );
     return;
   }
 
