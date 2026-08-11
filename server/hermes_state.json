@@ -1,6 +1,92 @@
 {
   "inceptionAt": "2026-07-25T09:55:01.910Z",
-  "open": [],
-  "closed": [],
+  "open": [
+    {
+      "id": "gold-MOMENTUM-1786021528901",
+      "asset": "gold",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 4320.7,
+      "stop": 4216.64,
+      "target": 4528.82,
+      "rr": 2,
+      "confidence": 74,
+      "openedAt": "2026-08-06T13:05:28.901Z"
+    },
+    {
+      "id": "gold-SQUEEZE_BREAKOUT-1786104008880",
+      "asset": "gold",
+      "geometry": "SQUEEZE_BREAKOUT",
+      "dir": "BUY",
+      "entry": 4383.1,
+      "stop": 4232.93,
+      "target": 4758.53,
+      "rr": 2.5,
+      "confidence": 74,
+      "openedAt": "2026-08-07T12:00:08.880Z"
+    }
+  ],
+  "closed": [
+    {
+      "id": "gold-RANGE_TRADE_SHORT-1786086000268",
+      "asset": "gold",
+      "geometry": "RANGE_TRADE_SHORT",
+      "dir": "SELL",
+      "entry": 4296.93,
+      "stop": 4431.3,
+      "target": 4083.07,
+      "rr": 1.6,
+      "confidence": 73,
+      "openedAt": "2026-08-07T07:00:00.268Z",
+      "closedAt": "2026-08-11T03:16:12.804Z",
+      "r": -1.05,
+      "result": "LOSS"
+    },
+    {
+      "id": "gold-WAIT-1785947400611",
+      "asset": "gold",
+      "geometry": "WAIT",
+      "dir": "BUY",
+      "entry": 4241.52,
+      "stop": 4166.05,
+      "target": 4430.2,
+      "rr": 2.5,
+      "confidence": 70,
+      "openedAt": "2026-08-05T16:30:00.611Z",
+      "closedAt": "2026-08-11T03:16:12.804Z",
+      "r": 2.45,
+      "result": "WIN"
+    },
+    {
+      "id": "btc-MOMENTUM-1786114512254",
+      "asset": "btc",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 64971.3,
+      "stop": 64200.53,
+      "target": 66512.84,
+      "rr": 2,
+      "confidence": 73,
+      "openedAt": "2026-08-07T14:55:12.254Z",
+      "closedAt": "2026-08-10T15:56:30.083Z",
+      "r": -1.05,
+      "result": "LOSS"
+    },
+    {
+      "id": "gold-RANGE_TRADE_SHORT-1786075780213",
+      "asset": "gold",
+      "geometry": "RANGE_TRADE_SHORT",
+      "dir": "SELL",
+      "entry": 4242,
+      "stop": 4340.82,
+      "target": 4072.93,
+      "rr": 1.7,
+      "confidence": 72,
+      "openedAt": "2026-08-07T04:09:40.213Z",
+      "closedAt": "2026-08-07T07:00:00.267Z",
+      "r": -1.05,
+      "result": "LOSS"
+    }
+  ],
   "rejections": []
 }

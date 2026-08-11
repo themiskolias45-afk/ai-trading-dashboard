@@ -2,6 +2,174 @@
   "version": 1,
   "entries": [
     {
+      "key": "SESSION_7_HANDOVER_2026_08_11",
+      "value": "Deferred to next season by owner instruction. SHIPPED: trade recording fixed both boxes (4ad41b8) — reconcile_open_trades ran once 22s after terminal launch before MT5 downloaded history, now repeats every 300s; /api/trade-opened acknowledges before generating commentary; both outcome POSTs use JOURNAL_REQUEST_TIMEOUT_S; both endpoints idempotent. It immediately recovered #1713655080 +135.91 (FIRST EVER WINNING TRADE) and #1726672007 -99.10, taking realized sample 1 -> 3. SPX H4-only blocked by name (88067e0) after measuring every slice negative out of sample; SPX_H4_ONLY_BLOCKED_FLOOR=101 blocks at any legal gate, behaviour-neutral, ledger still logs at true confidence. New tools: tasks/diagnose_orphan_close.py, tasks/cohort_walkforward.cjs. VPS got tasks/cohort_reachability.cjs for the first time ever. OPEN: bridge died silently 37min unexplained (HIGHEST); SP500 10x lot size; BTC H4-only recheck at n=50 act only at 5/5; recovered closeTime off by ~4h; 4 cohorts still dead by arithmetic; weekly review RED until 16/08; EXA_API_KEY unset; VPS breaker at 2/3. Parity 25/25 ENGINES AGREE.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-11T04:42:57.215550+00:00",
+      "updated_at": "2026-08-11T04:42:57.215550+00:00"
+    },
+    {
+      "key": "daily-2026-08-11",
+      "value": "Errors found: 2 TRADING-IMPACT, 2 SYSTEM, 1 scheduler AMBER. Top rec: recover the two Gold positions (#1713655080, #1726672007) that closed at the broker but still read OPEN with null P&L — equity==balance exactly at bridge start proves the account was flat; MT5 held deals for both but no closing deal, so nothing was posted. Likely a close-by whose OUT_BY deal carries the counterpart position_id and is discarded by the strict position_id==ticket filter. Recovering them triples the realized sample (1 -> 3). Second: 3 of 4 fills ever taken timed out POSTing /api/trade-opened (timeout=5 hardcoded vs an awaited LLM commentary call in the handler); all landed by luck, a lost one would be invisible forever. Setups: BB_SQUEEZE_WATCH LEARNING (1 trade, -449.72, and it is a watch-only setup that can never open a trade); MOMENTUM LEARNING (1 open). No KILL, no STRONG — one closed trade in the system's life. Calibration impossible. New fill: Gold BUY #1742893638 @4414.05 conf 72.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-11T03:26:58.375102+00:00",
+      "updated_at": "2026-08-11T03:26:58.375102+00:00"
+    },
+    {
+      "key": "daily-2026-08-10",
+      "value": "Errors found: 3 real (5-of-15 dead cohorts / direction-blind duplicate guard / swallowed H4-H1 catch) + 2 minor (EADDRINUSE duplicate server launch, Exa 401). Top rec: decide the 5 dead cohorts — SPX H4-only is unreachable at ANY strength and BTC H4-only is dead at NONE and MODERATE, which is why BTC and SPX have zero trades in 129 sessions. Setups: BB_SQUEEZE_WATCH is the only tracked setup (0W/1L, -449.72) and is LEARNING; nothing is STRONG or KILL yet at 1 closed trade. Shadow ledger is the only real sample: 30 resolved, +9.95R, BUY_OVERSOLD 8W/0L on BTCUSD+SP500 all killed by MIN_RR.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-10T03:19:09.214350+00:00",
+      "updated_at": "2026-08-10T03:21:06.599739+00:00"
+    },
+    {
+      "key": "ai-work-ledger-and-bat-call-bug",
+      "value": "2026-08-09 commits f98235b + 8e59d48 — AI EMPLOYEE ACCOUNTABILITY. server/ai_work_ledger.js + GET /api/ai-work + AI Brain panel + tasks/ai_decide.cjs. Publishes a verdict per scheduled AI job: FAILING / STALE / OUTPUT IGNORED / NO COMPLETION MARKER / HEALTHY, and lists every PROPOSED FIX the weekly review emitted with its review status. OUTPUT IGNORED is as loud as FAILING because an agent nobody reads costs the same as a broken one. Decisions are recorded by CLI (append-only tasks/ai_decisions.jsonl), never HTTP, so the server keeps no write path; the CLI refuses unknown ids. Round-trip verified: 3 unreviewed -> recorded one ignored -> 2 unreviewed. IT IMMEDIATELY FOUND A SYSTEMIC BUG: claude resolves to claude.cmd and a .CMD run from a .BAT WITHOUT `call` never returns, so 19 invocations across 17 files had dead code after them — 16 losing real work. improve_algo.bat lost 25 lines (its whole apply flow), daily_check.bat's SECOND claude call never ran at all, and NO script in this project had ever written its [exit N] completion marker. Fixed uniformly with `call`; 19 insertions/19 deletions touching only claude lines; re-audit clean. Sibling of the cmd_exe_truncates_agent_prompts bug — both cmd.exe semantics silently destroying agent automation with no error.",
+      "category": "CODE",
+      "source": "manual",
+      "created_at": "2026-08-09T11:25:05.131377+00:00",
+      "updated_at": "2026-08-09T11:25:05.131377+00:00"
+    },
+    {
+      "key": "ema200-seed-fix",
+      "value": "2026-08-09 commit e432acc — EMA200 was contaminated by its seed. emaSeries seeded on closes[0] with too little history: residual seed weight (1-k)^n meant 23.5% at 145 bars (Yahoo 210d default), 12.9% at 205 (GC=F 300d), 5.0% at 300 (MT5). Gold's EMA200 was $185 out on the Yahoo default path, $111 on GC=F, $21 on MT5, and the price-vs-EMA200 call that drives trend disagreed with converged on 1.3-2.3% of days. I FIRST TRIED SMA SEEDING AND IT WAS WORSE: at 300 bars Gold err went +21 -> -50 and BTC +254 -> +672, because with period 200 an SMA seed leaves only 100 recursion steps so 37% of the value is an average of OLD closes. Had already restarted the local server on that bad build; verification against a converged reference caught it and it was reverted. REAL FIX IS BAR COUNT: SMA seed only at >=3*period (EMA_SMA_SEED_MIN_MULTIPLE), DAILY_RANGE 210d/300d -> 900d, BAR_COUNT_BY_TIMEFRAME d1 300 -> 600. The 413 that shaped the old bar counts is stale — raw dump is 101kb vs a 2mb limit. IMPORTANT: gate 70 was validated on a 400-bar replay while production ran 300, so it was blessed on a different indicator; at the production window it is 4/5 not 5/5, and with the corrected build the replay stays 5/5 ROBUST. The new const also broke the replay sandbox on all 21537 steps until registered in SCALAR_CONSTS. BAR COUNT ONLY TAKES EFFECT ON BRIDGE RESTART — not yet done on either box.",
+      "category": "CODE",
+      "source": "manual",
+      "created_at": "2026-08-09T10:51:14.037886+00:00",
+      "updated_at": "2026-08-09T10:51:14.037886+00:00"
+    },
+    {
+      "key": "crt-transfer-test",
+      "value": "2026-08-09 commit 5788efe — CRT TRANSFER TEST: the Yahoo proxy OVERSTATED Gold by ~3x. Re-measured on the instruments the engine actually trades via new local-only GET /api/mt5/candles/raw. GOLD D1: broker XAUUSD +0.097R break-even $6.19 from 52 patterns, vs Yahoo GC=F +0.269R break-even $14.10 from only 30 patterns. GC=F finding 30 patterns where XAUUSD finds 52 on the same window means the detector sees genuinely different structure — treat ANY Gold number measured on GC=F as describing a different instrument. Gold still clears ($6.19 vs a $0.20-0.50 spread) but three times less comfortably than the walk-forward implied. SPX transfers cleanly and SPX H1 on broker bars is now the strongest cell in the project (+0.156R, break-even 13.2% of bar range). BTC confirmed dead: D1 thin +0.047R, H1 NEGATIVE on both series. Caught a labelling defect in my own harness: the verdict said \"DOES NOT TRANSFER - opposite sign\" even when the BROKER was the profitable side, flagging Gold H1 as a failure when the traded instrument was the winner. STILL NO VOTE: MT5 sample is 1-2 years and UNFOLDED because the bridge caches 300 daily bars. Unlock is raising BAR_COUNT_BY_TIMEFRAME, but the candle payload already hit a 413 at ~240kb.",
+      "category": "LEARNING",
+      "source": "manual",
+      "created_at": "2026-08-09T10:22:17.264346+00:00",
+      "updated_at": "2026-08-09T10:22:17.264346+00:00"
+    },
+    {
+      "key": "crt-walkforward-costs",
+      "value": "2026-08-09 commit 7cb17de — CRT walk-forward WITH COSTS. 15/15 sequential out-of-sample folds positive gross (5 folds x 3 assets, 10y). Costs charged per trade as costR = costPrice/riskDistance because CRT stops sit at the sweep extreme and are tight. No observed spread is logged anywhere in the repo, so the harness sweeps cost and reports BREAK-EVEN: GOLD $2.95 round trip = 13.0% of avg bar range, 5/5 folds still positive at 10% cost; SPX 3.68 index pts = 8.2%, 3/5 at 10%; BTC $29.91 = 2.1%, 0/5 at 10%. Against real spreads XAUUSD ($0.20-0.50) and SP500 (0.4-1.0 pts) clear comfortably; BTC's break-even is 0.047% of price which is inside ordinary crypto CFD spreads and a ~1700pt BTCUSD spread is already on record — BTC is dead. Pooled 1135 trades 74.8% win, +0.10R gross, +0.04R at 5% cost. HARNESS BUG I CAUGHT: the first pooled sweep averaged bar ranges across assets and charged one price to all three, reporting -0.1377R at 2% when the correct per-asset charge gives +0.0775R — sign wrong, not just magnitude; every cross-instrument pooled stat in this project is suspect until you check the normalisation. STILL NO VOTE: Yahoo data means Gold is GC=F futures not the XAUUSD spot the engine trades. Next: re-measure on MT5 XAUUSD bars and price against the broker's actual spread.",
+      "category": "LEARNING",
+      "source": "manual",
+      "created_at": "2026-08-09T10:10:03.206988+00:00",
+      "updated_at": "2026-08-09T10:10:03.206988+00:00"
+    },
+    {
+      "key": "ai-brain-control-surface",
+      "value": "2026-08-09 commit 3cb5cea — AI Brain tab rebuilt as a control surface, live on BOTH boxes. GET /api/evidence-board = what the system KNOWS vs assumes: 6 curated claims each with verdict, evidence, caveat, date and WHAT WOULD CHANGE THE ANSWER, joined to live per-gate verdicts. Green reserved for genuinely established claims so a CANDIDATE can never be mistaken for gate 70; each claim tagged FEEDS THE GATE or \"no vote\". GET /api/ai-registry = 44 skills (.claude/commands), 6 agents (.claude/agents), 23 MCP tools parsed from mcp_server.js source, each tagged read-only/writes/TRADES with execute_trade and full_trade_workflow flagged red; plus 7 guardrails labelled ENFORCED IN CODE (4) vs PROCEDURAL (3). Curated claims live in server/evidence_register.js — UPDATE IT whenever something is measured or the board goes stale. mcp_server.js is parsed as TEXT not required, because requiring it registers a stdin handler and would start a second MCP server in-process. Also fixed: MCP banner hardcoded \"19 tools ready\" while 23 were registered; now TOOLS.length. All reading surfaces — nothing runs a skill, spawns an agent or calls a tool. index.js diff: 53 lines, zero deletions, zero gate-related.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-09T10:01:36.734986+00:00",
+      "updated_at": "2026-08-09T10:01:36.734986+00:00"
+    },
+    {
+      "key": "gate-verdicts-live",
+      "value": "2026-08-09 commit 5887961 — gate verdict layer LIVE on both boxes. server/rejection_evidence.js + GET /api/rejection-evidence + MCP get_rejection_evidence. The ledger/scorer/shadow-learning already existed and run nightly via auto_daily.bat; only the VERDICT was missing. CRITICAL: the two boxes keep SEPARATE ledgers and the VPS is 4x richer (86 resolved MIN_RR episodes vs laptop 22, +22.47R vs +7.14R) because it runs continuously — always query the VPS for gate questions. THE REAL FINDING IS A DIRECTION SPLIT, not the headline: RANGE_TRADE_LONG 59W/11L and BUY_OVERSOLD 8W/0L, but RANGE_TRADE_SHORT 0W/8L. MIN_RR rejecting longs costs money, rejecting shorts saves it — so any experiment must be per-direction/per-setup, never a global MIN_RR move. Contradicts param_walkforward (lowering to 1.35 costs 6.6R over 4 years); walk-forward wins, nothing moved. Verified non-invasive: index.js diff is 24 lines, all additions, zero mentioning confidenceThreshold/MIN_RR/gateStats/finalSignal. Still silent: 6 of 10 gates, including COHORT_FLOOR which the spec calls the highest-value consumer.",
+      "category": "LEARNING",
+      "source": "manual",
+      "created_at": "2026-08-09T07:30:09.466519+00:00",
+      "updated_at": "2026-08-09T07:30:09.466519+00:00"
+    },
+    {
+      "key": "geometry-measured",
+      "value": "2026-08-09 commit 1ae053f — FVG/CRT/AMD measured against a MATCHED CONTROL (same direction, same stop/target distances, entered 37 bars earlier for no reason). Both-hit-in-one-bar = LOSS. Harness self-validates: pooled daily control = 50.0% win, -0.001R. RESULTS: FVG has NO EDGE — daily 10y 1081 trades -0.137R vs control -0.001R (6.9pp WORSE than random), hourly 730d 5736 trades no difference; dashboard panel now says so itself. CRT is AHEAD IN ALL 6 asset/timeframe cells — daily +0.194R, hourly +0.163R, ~6800 trades, every cell same direction; but absolute expectancy is only +0.089R/trade and costs of 0.05-0.15R could erase it, so it has earned a walk-forward WITH COSTS, not a vote. AMD: 33 trades pooled, no claim — blocked because the bridge sends no timestamps, so AMD is bar-window shaped and carries sessionAligned:false. Nothing wired into confidence/gate/sizing.",
+      "category": "LEARNING",
+      "source": "manual",
+      "created_at": "2026-08-09T07:15:57.801578+00:00",
+      "updated_at": "2026-08-09T07:15:57.801578+00:00"
+    },
+    {
+      "key": "fvg-live",
+      "value": "2026-08-09 commit 66f66f8 — Fair Value Gap detection LIVE. server/fvg.js (pure, 29 tests) + GET /api/fvg (public GET, MT5 bars only) + Overview FVG panel row + rail shading. NOT wired into confidence/gate/sizing — unmeasured geometry, observability only until walk-forward tested. First live read: BTC 11 unfilled daily / 4 h4 / 5 h1 with a bearish h4 gap 64822-64928 formed 0 bars ago and PRICE INSIDE; GOLD 8/8/8 with bearish daily 4353-4424 41% filled; SPX 12/7/10 all bullish below price. Correctness proof: 0 fresh bullish gaps above price and 0 fresh bearish gaps below price across all assets — impossible if direction or fill logic were inverted. CORRECTION to the earlier version of this note: there is NO duplicate bridge. The two python PIDs matching mt5_bridge.py are a PATH shim plus the uv CPython child it re-execs (child's parent IS the shim, identical start time, shim at 0s CPU). One bridge, tag A. Also corrected: killing only the server PID (no /T) did NOT leave the standalone bridge untouched — it bounced at 06:15:06Z, one second after the server kill, and relaunched; a PID check taken seconds after the kill wrongly showed it surviving. Verify by the bridge_log_A.txt startup banner, not a PID check.",
+      "category": "CODE",
+      "source": "manual",
+      "created_at": "2026-08-09T06:23:04.401336+00:00",
+      "updated_at": "2026-08-09T06:36:14.864080+00:00"
+    },
+    {
+      "key": "last-improvement",
+      "value": "2026-08-09, commit 46f2f25 — Overview page quality upgrade (dashboard/index.html, display-only, no trading logic touched). Fixed: (1) three different gold prices on one screen with no provenance — strip Yahoo GC=F 4399.70 vs engine MT5 XAUUSD 4341.28, $58.42 apart; every price now names source + age and flags strip/engine divergence >0.25% (Gold +1.346% flagged, BTC/SPX inside tolerance). (2) TradingView chart drew none of the engine's levels — each panel now has a to-scale level rail (TGT/R1/ENTRY/PP/EMA200/S1/STOP/LAST) with risk+reward bands, rendered by us because tv.js is cross-origin and its price scale cannot be read. (3) Chart now plots EMA200+BB (what the engine scores on), RSI only when tall. (4) All 3 iframes loaded even in layout-1 — now lazy build/destroy on visibility. (5) height:520 in a min-height:560 wrapper — now layout-driven + autosize. (6) Timeframe now persisted. (7) Gold panel said \"Comex\" while showing OANDA. (8) allow_symbol_change disabled. (9) THE CONFIDENCE GATE WAS HARDCODED 65 IN FIVE PLACES while the live gate has been 70 since 2026-08-02 — every gap shown was 5pt short (Gold read 10pt, actually 15pt); now read from /api/strategy-settings, shown as unknown until it answers, settingsError surfaced. (10) var(--dim) was undefined. Verified: node --check on extracted script + 19 geometry traces (normal/edge/failure).",
+      "category": "CODE",
+      "source": "manual",
+      "created_at": "2026-08-09T05:44:06.250687+00:00",
+      "updated_at": "2026-08-09T05:44:06.250687+00:00"
+    },
+    {
+      "key": "daily-2026-08-08",
+      "value": "Errors: 3 TRADING-IMPACT (Bridge B relaunched against expected-accounts flag; opposite-direction guard missing in sizing.js; local journal blind to 3 VPS positions), 2 SYSTEM (startup log false 'SERVER FAILED TO START' on EADDRINUSE while server healthy, false 'no trades in journal'), 1 LOW (Exa MCP 401 invalid API key). Top rec: make startup_all.ps1 read MT5_EXPECTED_ACCOUNTS instead of hardcoding @('A','B') at line 48. Setups: BB_SQUEEZE_WATCH LEARNING (1 trade, -449.72); no setup has enough real fills to classify. Journal total = 3 entries, all XAUUSD; BTC and SPX have never traded.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-08T05:05:46.320328+00:00",
+      "updated_at": "2026-08-08T05:05:57.873672+00:00"
+    },
+    {
+      "key": "PLAN_20260808",
+      "value": "Daily Plan 2026-08-08: |   BTC WAIT |   GOLD WAIT |   SPX WAIT",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-08-08T05:03:54.988705+00:00",
+      "updated_at": "2026-08-08T05:03:54.988705+00:00"
+    },
+    {
+      "key": "daily-2026-08-07",
+      "value": "Errors found: 1 CRITICAL (local Bridge B re-launched by startup_all in --auto on shared account 11581419, adopted VPS position #1718720224 via shared MAGIC_NUMBER 20250101), 1 HIGH (healer expects A only so B is unmonitored while trading), 3 LOW (EADDRINUSE from startup_all racing ensure_running at 05:15, startup_all reports \"no trades in journal\" with 2 present, Exa MCP key 401). Top rec: kill local Bridge B, make legacy .bat launchers read MT5_EXPECTED_ACCOUNTS, give each machine its own MAGIC_NUMBER. Setups: BB_SQUEEZE_WATCH LEARNING only (1 trade, -449.72). BTC and SPX have never traded. Gate 70, settingsError null.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-07T04:19:15.573209+00:00",
+      "updated_at": "2026-08-07T04:20:48.907477+00:00"
+    },
+    {
+      "key": "PLAN_EVIDENCE_COURT",
+      "value": "NEXT-SEASON PLAN, agreed 2026-08-06. Document: tasks/PLAN-evidence-court.md (local commit 4cc60dd, copied to VPS). Tasks: [PLAN] Evidence Court umbrella + 5 phase tasks. PRINCIPLE: no config change without a verdict, no verdict without evidence, no evidence without provenance. ARCHITECTURE: append-only evidence/ledger.jsonl with provenance (harness+commit+data window+sample size); evidence/champion.json per parameter with value, installing verdict, evidence refs and per-box inSync flag; pre-declared challengers; deterministic judge (burden on challenger, ties to champion, >=4/5 out-of-sample folds and never negative in any single fold); adversarial cross-examination via code-reviewer/analyst; permanent verdicts.jsonl. WEEKEND CYCLE on VPS: Sat 08:00 evidence, 12:00 challengers, 16:00 court, Sun 09:00 apply to BOTH boxes + parity check, 10:00 report with a mandatory \"still unmeasured\" section. PHASE 0 IS A HARD PREREQUISITE (R:R scorer, allowlist /api/stats/by-setup, fix mcp_server.js:324 setups vs setupStats, extend walk-forward beyond confidence gates, port the 4 VPS fixes to local) — a court with no evidence is theatre. NAMED WEAKNESS: sample size is binding and no process manufactures it; 2 lifetime trades means INSUFFICIENT EVIDENCE for weeks and that verdict COUNTS AS SUCCESS. Guard against loosening a gate just to make something happen.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-06T08:17:57.108166+00:00",
+      "updated_at": "2026-08-06T08:17:57.108166+00:00"
+    },
+    {
+      "key": "VPS_ALL_FIXED_20260806",
+      "value": "VPS Contabo fully fixed 2026-08-06, commit 12c4491 (committed on the VPS; push blocked, no GitHub creds there). Three execution blockers, all verified end-to-end: (1) MT5 AutoTrading OFF since 07-26 — every order died on retcode 10027, fixed via [Experts] Enabled=1 + ELEVATED taskkill restart (/RL HIGHEST; unelevated returns Access is denied and silently no-ops); (2) global spread cap 50 vs BTCUSD ~1700 ticks — added max_spread_for() per-symbol override, MAX_SPREAD_BTCUSD=2500, 6/6 unit tests pass; (3) AI filter prompt hardcoded \"confidence >= 60%\" — third invisible copy of the gate, now reads live confidenceThreshold with fallback 70. PROOF: 09:08:45 VPS placed BUY 0.01 BTCUSD @ 64857.38, first order since 07-26, journaled correctly as BB_SQUEEZE_WATCH conf 50 rr 1.94; duplicate suppression fired on the next poll. Also added tasks/rotate_logs.ps1 + daily 04:30 task — server_log.txt was 15.6 MB, rotation tested live (15.63 MB archived, live file 1200 b, server healthy, bridge PID 4200 survived). AUDIT RESULT: VPS was never missing features — identical 6 agents, 43 commands, 7 MCP servers, byte-identical CLAUDE.md, working Claude CLI, all AI jobs running daily. LOCAL STILL HAS THE HARDCODED 60.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-06T07:18:49.198643+00:00",
+      "updated_at": "2026-08-06T07:18:49.198643+00:00"
+    },
+    {
+      "key": "daily-2026-08-06",
+      "value": "Errors: 0 in logs, 4 code defects found (gate doc mismatch, journal setup attribution, stats/by-setup 401, analyze_symbol reads learning.setups instead of setupStats). Top rec: confirm or revert live gate 50 vs documented 70 — 50 only became effective at d320785. Setups: BB_SQUEEZE_WATCH is LEARNING (1 trade, 0W/1L, -$449.72); nothing else has data. BTC and SPX have never traded — SIGNAL-DEAD. Calibration unmeasurable (endpoint 401s). Exa MCP returning 401 invalid API key.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-06T06:25:17.123210+00:00",
+      "updated_at": "2026-08-06T06:25:17.123210+00:00"
+    },
+    {
+      "key": "PLAN_20260806",
+      "value": "Daily Plan 2026-08-06: |   BTC BUY 50% entry:64880.68 stop:64067.72 target:66506.6 |   GOLD WAIT |   SPX WAIT",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-08-06T05:45:01.348530+00:00",
+      "updated_at": "2026-08-06T05:45:01.348530+00:00"
+    },
+    {
+      "key": "PLAN_20260804",
+      "value": "Daily Plan 2026-08-04: |   BTC WAIT |   GOLD WAIT |   SPX WAIT",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-08-04T05:45:01.152392+00:00",
+      "updated_at": "2026-08-04T05:45:01.152392+00:00"
+    },
+    {
+      "key": "PLAN_20260803",
+      "value": "Daily Plan 2026-08-03: |   BTC WAIT |   GOLD WAIT |   SPX WAIT",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-08-03T05:45:00.853760+00:00",
+      "updated_at": "2026-08-03T05:45:00.853760+00:00"
+    },
+    {
       "key": "DAILY_20260803",
       "value": "Daily check 2026-08-03. Health 7/7 green, gate 70 live, settingsError null, not halted, bridges A+B both reporting, node --check clean on index.js + autohealer.js, no secrets tracked. 5 findings: (1) CRITICAL journal .rr = signal's PLANNED rr stored against BROKER's realized prices (index.js:2590) — avgRR +2.5 reported on a 0% WR trade that closed at its stop; (2) HIGH saveLearning() index.js:313 empty catch, silent learning-write loss; (3) HIGH two watchdogs alive, one orphaned, watchdog.bat has no single-instance guard; (4) MED startup_all.ps1 untagged-bridge warning is a permanent false positive (flags tagged bridges' own grandchildren); (5) MED Brave + Exa API keys invalid. Setups: BB_SQUEEZE_WATCH 0W/1L -449.72, LEARNING only (n=1). Only 1 trade in 30 days; BTC and SPX have never fired.",
       "category": "SYSTEM",
@@ -42,5 +210,5 @@
       "updated_at": "2026-07-25T05:45:00.852793+00:00"
     }
   ],
-  "last_updated": "2026-08-03T02:34:42.259415+00:00"
+  "last_updated": "2026-08-11T04:42:57.215550+00:00"
 }

@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-11",
+  "entries": [
+    {
+      "ts": "2026-08-11T03:26:52.721853+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY 2026-08-11: Gold BUY #1742893638 filled 03:17:53Z @4414.05 (MOMENTUM D1, conf 72, 0.01 lot) — second-ever fill. TOP ISSUE: #1713655080 and #1726672007 are closed at the broker (equity==balance $94556.57 exactly at 04:16:35) but the journal still calls them OPEN with null P&L — MT5 returned deals but no closing deal, so reconcile_open_trades left them \"for a human\". Leading hypothesis: close-by on a hedging account, whose OUT_BY deal carries the counterpart position_id and is dropped by the strict position_id==ticket filter at mt5_bridge.py:1995. Recovering them takes the realized sample from 1 to 3. Second issue: 3 of 4 fills ever taken timed out POSTing to /api/trade-opened (hardcoded timeout=5 at mt5_bridge.py:1269 vs an awaited LLM call at index.js:3628). Health 8/8 green, fleet AGREES at gate 70, no halt."
+    },
+    {
+      "ts": "2026-08-11T04:07:12.230965+00:00",
+      "tag": "SYSTEM",
+      "text": "DEPLOYED both boxes 2026-08-11 04:05Z. Root cause of the missing trades: reconcile_open_trades() ran ONCE, 22s after the terminal launched, before MT5 had downloaded trade history — positions_get() was already correct but history_deals_get returned only the opening deal, so it refused to invent a P&L and never asked again. Fix: sweep now repeats every 300s; /api/trade-opened writes and acknowledges before generating commentary; both outcome POSTs use JOURNAL_REQUEST_TIMEOUT_S; both endpoints made idempotent so retries cannot double-write or double-score. On restart the bridge immediately RECOVERED #1713655080 +135.91 (first win this system has ever had) and #1726672007 -99.10. Journal now 3 closed / 1 open, breaker correctly at consecutiveLosses 1, calibration tier 65-74% has its first 2 trades. VPS patched via git apply, both restarted, parity now 25/25 files identical, FLEET AGREES. NOTE: VPS is at consecutiveLosses 2 of 3."
+    },
+    {
+      "ts": "2026-08-11T04:37:29.746294+00:00",
+      "tag": "SYSTEM",
+      "text": "SPX H4-only now BLOCKED BY NAME on both boxes (88067e0). Measured first: cohort_walkforward.cjs over 914 trades / 5 folds says every SPX H4-only slice is negative out of sample (STRONG -0.196 1/5, NONE -0.065 2/5, MODERATE -0.039 2/5), so the original plan to RAISE its base from 45 would have bought losing trades. Blocked via SPX_H4_ONLY_BLOCKED_FLOOR=101, a cohort floor above max attainable confidence — the hazard was that confidenceThreshold is settable to 50 and 45+15 boost clears any gate 50-60. Behaviour-neutral at gate 70 (verified: spx WAIT 40, btc WAIT 0, gold BUY 72 identical before/after). Rejection ledger still logs it at TRUE confidence so shadow learning keeps accumulating the evidence that could overturn it. Reachability report now says 4 dead + 1 deliberate block instead of 5 dead. BTC H4-only NONE (+0.277, 3/5) NOT acted on — gate 70 was adopted at 5/5 and 3/5 is a weaker bar. Also found: the VPS had NEVER had tasks/cohort_reachability.cjs, so it could not run the audit at all; copied over and run there for the first time. Parity 25/25 identical, exit 0."
+    },
+    {
+      "ts": "2026-08-11T04:42:50.816874+00:00",
+      "tag": "SYSTEM",
+      "text": "SESSION 7 HANDOVER — owner deferred remaining work to next season, nothing abandoned. LEFT TO FINISH, in order: (1) HIGHEST/NEW/UNEXPLAINED — the laptop bridge died silently at ~04:55Z and nothing alerted for 37 min until ensure_running restarted it at 05:32:49; I never found out why, and the bridge survives server outages by design so that is not the cause. (2) SP500 trades at 10x the configured lot — volume_min 0.1 vs fixedLotSize 0.01, floored silently at mt5_bridge.py:951 while only the ceiling logs. (3) BTC H4-only: +0.277 R/trade over 34 closed at 3/5 folds, corroborating the +0.294/n=38 in cohort_table.js — NOT acted on because gate 70 was adopted at 5/5; re-run cohort_walkforward.cjs at n=50 and act only at 5/5. (4) Recovered closeTime values wrong by ~4h (broker clock UTC+3 read as local epoch). (5) Four cohorts still dead by arithmetic. (6) Weekly review RED until 16/08, park fix postdates the failure so unproven. (7) EXA_API_KEY unset, SmartEntryPro logon-only with no next run, two unread VPS proposals. STATE: parity 25/25 ENGINES AGREE exit 0, gate 70 both, bridge A live both, laptop breaker 1/3, VPS breaker 2/3 — one loss from halting. Full detail in Active Priorities.md session-7 block."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-11T03:26:52.721853+00:00",
+  "updated_at": "2026-08-11T04:42:50.816874+00:00"
+}

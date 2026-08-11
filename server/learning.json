@@ -4,8 +4,13 @@
       "wins": 0,
       "losses": 1,
       "totalPnl": -449.72
+    },
+    "RANGE_TRADE_SHORT": {
+      "wins": 0,
+      "losses": 1,
+      "totalPnl": -99.1
     }
   },
-  "sessionCount": 79,
-  "updatedAt": "2026-08-03T02:44:56.594Z"
+  "sessionCount": 149,
+  "updatedAt": "2026-08-11T04:32:09.437Z"
 }
