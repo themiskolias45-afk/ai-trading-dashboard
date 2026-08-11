@@ -3622,13 +3622,33 @@ app.post("/api/trade-opened", async (req, res) => {
     );
   }
 
-  // Generate Claude commentary if feature enabled
-  let commentary = null;
-  if (features.autoCommentary) {
-    commentary = await generateTradeCommentary(trade);
+  // A ticket already journalled and still open is a REPEAT of a POST that already
+  // succeeded, not a second trade. The bridge cannot tell a slow success from a
+  // lost write — it gave up on three of the first four fills while the server
+  // finished the work anyway — so any retry it makes must land on an endpoint that
+  // cannot double-write. Matched on the account too, because MT5 ticket ids are
+  // unique per account and A, B and the VPS all post into this one journal. Only
+  // OPEN rows match: a closed row is history and must never absorb a new fill.
+  const alreadyJournalled = tradeJournal.find(
+    t => t.ticket === trade.ticket
+      && t.status === "OPEN"
+      && (t.account ?? "default") === (trade.account || "default")
+  );
+  if (alreadyJournalled) {
+    console.log(`[trade] #${trade.ticket} already journalled and open — treating as a repeat POST.`);
+    return res.json({ ok: true, duplicate: true });
   }
 
   // Add to trade journal
+  //
+  // Written and acknowledged BEFORE the commentary is generated. This used to
+  // `await generateTradeCommentary(trade)` first, putting an LLM round trip inside
+  // the acknowledgement path: the bridge waits 5s (mt5_bridge.py), the model takes
+  // longer, and 3 of the 4 fills in this system's history timed out client-side.
+  // They were recorded anyway only because the server kept working after the bridge
+  // stopped listening, which is luck. The record is the part that must be durable;
+  // the prose is decoration and can arrive late.
+  let journalEntry = null;
   if (features.tradeJournal) {
     const entry = {
       id:        Date.now(),
@@ -3656,29 +3676,62 @@ app.post("/api/trade-opened", async (req, res) => {
       // instead of overwriting the record of it.
       rr:        impliedRRFromPrices(trade.price, trade.sl, trade.tp),
       plannedRr,
-      commentary
+      // Filled in after the response by addCommentaryLater(). Present as null from
+      // the start so the shape never changes underneath a reader.
+      commentary: null
     };
     tradeJournal.unshift(entry);
     if (tradeJournal.length > 200) tradeJournal = tradeJournal.slice(0, 200);
     saveJournal();
+    journalEntry = entry;
   }
 
-  // Post commentary to alerts panel
-  if (commentary && features.autoCommentary) {
-    const alert = {
+  // The fill is on disk. Answer the bridge now — everything below is enrichment.
+  res.json({ ok: true });
+
+  if (features.autoCommentary) addCommentaryLater(trade, journalEntry);
+});
+
+// Generate the commentary for a fill and attach it, after the bridge has already
+// been told the trade is recorded.
+//
+// Deliberately not awaited by the route: nothing here is allowed to delay or fail
+// the acknowledgement. It is also the reason this is a named function rather than a
+// floating promise — an unhandled rejection terminates Node by default, and this
+// process is a trading server, so the catch is load-bearing rather than tidy.
+async function addCommentaryLater(trade, journalEntry) {
+  // ONE try around everything, not just the model call. After res.json() has gone
+  // out there is no request left to fail, so anything that escapes here is an
+  // unhandled rejection — and Node terminates the process on those by default.
+  // saveJournal() is the realistic thrower: this repo has a history of the journal
+  // file being locked mid-write. Losing a paragraph of commentary must never cost
+  // the trading server.
+  try {
+    const commentary = await generateTradeCommentary(trade);
+    if (!commentary) return;
+
+    // The entry object is the same one held in tradeJournal, so mutating it IS the
+    // update — but only if it is still there. The 200-row cap could in principle
+    // have evicted it while the model was thinking, and writing the array back
+    // after that would resurrect a dropped row.
+    if (journalEntry && tradeJournal.includes(journalEntry)) {
+      journalEntry.commentary = commentary;
+      saveJournal();
+    }
+
+    tvAlerts.unshift({
       id:      Date.now(),
       ts:      new Date().toISOString(),
       ticker:  trade.symbol,
       action:  `${trade.type} OPENED`,
       price:   trade.price,
       message: commentary
-    };
-    tvAlerts.unshift(alert);
+    });
     if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+  } catch (e) {
+    console.warn(`[trade] commentary for #${trade.ticket} failed: ${e.message}`);
   }
-
-  res.json({ ok: true, commentary });
-});
+}
 
 // MT5 bridge notifies server when a trade is closed
 app.post("/api/trade-closed", (req, res) => {
@@ -3692,6 +3745,24 @@ app.post("/api/trade-closed", (req, res) => {
   const trade = tradeJournal.find(t => t.ticket === ticket && t.account === account)
              ?? tradeJournal.find(t => t.ticket === ticket && !t.account);
   if (trade) {
+    // Has this outcome already been counted?
+    //
+    // updateLearning() and db.updateLearning() below are both INCREMENTS, so a
+    // second POST for the same ticket books the same win or loss twice and there is
+    // no way to tell afterwards. Nothing used to stop that. It matters more now that
+    // the bridge sweeps for unsettled trades every RECONCILE_INTERVAL_S instead of
+    // once at startup.
+    //
+    // A close carrying a real P&L on top of one recorded with pnl null is NOT a
+    // repeat — track_closed_positions() posts an unknown P&L when it watched a
+    // ticket vanish without a closing deal, and that entry was recorded but never
+    // scored. Letting the real number land is the whole point of retrying.
+    const alreadyScored = trade.status === "CLOSED" && trade.pnl !== null;
+    if (alreadyScored) {
+      console.log(`[trade] #${ticket} already closed and scored — ignoring repeat close.`);
+      return res.json({ ok: true, duplicate: true });
+    }
+
     // Stamp legacy entries so the next close matches on the exact pair.
     if (!trade.account && account) trade.account = account;
     trade.status     = "CLOSED";

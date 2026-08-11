@@ -1266,7 +1266,7 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
                 "volume": lots,
                 "account": ACCOUNT_TAG or "default",
                 "signalContext": signal_context,
-            }, timeout=5)
+            }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
         except Exception as e:
             log(f"Could not POST trade-opened to server: {e}", YELLOW)
         known_positions.add(result.order)
@@ -2086,7 +2086,7 @@ def track_closed_positions():
                 "closePrice": close_price,
                 "closeTime":  close_time,
                 "account":    ACCOUNT_TAG or "default",
-            }, timeout=5)
+            }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
             color = GREEN if pnl and pnl > 0 else RED
             log(f"Trade closed #{ticket}  P&L ${pnl}", color)
         except Exception as e:
@@ -2140,6 +2140,28 @@ def track_closed_positions():
 # never double-count a trade into updateLearning.
 JOURNAL_FETCH_LIMIT       = 500
 JOURNAL_REQUEST_TIMEOUT_S = 15
+
+# How often the sweep runs AFTER the startup pass.
+#
+# Running it once was the whole defect. On 2026-08-11 the sweep fired 22 seconds
+# after the terminal launched: positions_get() was already correct — #1713655080 and
+# #1726672007 really had closed, at 01:53:41Z and 01:54:13Z, 83 minutes earlier —
+# but history_deals_get(position=...) returned only the OPENING deal for each,
+# because the terminal downloads trade history from the broker asynchronously and
+# had not finished. summarize_closed_position() saw no closing deal, correctly
+# refused to invent a P&L, and nothing ever asked again. Nineteen minutes later the
+# identical query returned both closing deals in full. A +135.91 win — the first
+# this system has ever had — and a -99.10 loss the breaker never counted sat in the
+# journal as OPEN with a null P&L.
+#
+# Repeating it also makes the sweep a standing backstop under track_closed_positions(),
+# whose known_positions set is in memory: a close that slips past the live diff is now
+# picked up on the next pass instead of being lost for good.
+RECONCILE_INTERVAL_S = 300
+
+# Tickets already reported as unresolvable, so a retry every 5 minutes does not
+# reprint the same warning forever. Cleared per ticket the moment it reconciles.
+reconcile_warned = set()
 
 
 def fetch_open_journal_entries():
@@ -2242,11 +2264,20 @@ def reconcile_open_trades():
 
         outcome = summarize_closed_position(deals)
         if outcome is None:
-            log(f"#{ticket} ({journal_entry.get('symbol')}) is ours and no longer open, but "
-                f"MT5 has no closing deal for it — leaving it for a human.", YELLOW)
+            # A position that is not open MUST have a closing deal somewhere, so
+            # this is history that has not downloaded yet rather than a trade with
+            # no ending. Say so once and let the next sweep ask again — the earlier
+            # wording ("leaving it for a human") described a one-shot check and was
+            # true of one, but no human was ever told.
+            if ticket not in reconcile_warned:
+                log(f"#{ticket} ({journal_entry.get('symbol')}) is ours and no longer open, "
+                    f"but MT5 has not returned a closing deal for it yet — trade history is "
+                    f"still downloading. Retrying every {RECONCILE_INTERVAL_S}s.", YELLOW)
+                reconcile_warned.add(ticket)
             continue
         if report_reconciled_close(ticket, outcome):
             recovered += 1
+            reconcile_warned.discard(ticket)
             reconciled_pnl, _, reconciled_close_time = outcome
             # Only what the breaker has not already seen. Without this gate every
             # restart would re-fold the same history into the streak; with it,
@@ -2303,10 +2334,16 @@ def main():
     # stop the last run left behind.
     load_position_r()
 
+    # The startup pass is kept because it is the only one that runs BEFORE
+    # known_positions is seeded, but it is no longer the only pass — see
+    # RECONCILE_INTERVAL_S. At this moment the terminal has been up for seconds and
+    # its trade history may still be downloading, so this call is expected to come
+    # up empty sometimes; the loop below is what makes that harmless.
     try:
         reconcile_open_trades()
     except Exception as exc:
         log(f"Startup reconciliation failed ({exc}) — continuing without it.", YELLOW)
+    last_reconcile_at = time.time()
 
     # Adopt the positions already running under our magic, so the first loop sees them
     # as open rather than as a fresh set to diff against nothing.
@@ -2349,6 +2386,17 @@ def main():
             manage_trailing_stops()
             take_partial_profit()
             track_closed_positions()
+
+            # Settle anything the live diff above could not see. track_closed_positions()
+            # compares against an IN-MEMORY set, so it is blind to a trade that ended
+            # while this process was down, and the startup sweep may have run before
+            # MT5 finished downloading history. This is the pass that catches both.
+            if time.time() - last_reconcile_at >= RECONCILE_INTERVAL_S:
+                last_reconcile_at = time.time()
+                try:
+                    reconcile_open_trades()
+                except Exception as exc:
+                    log(f"Reconciliation sweep failed ({exc}) — will retry.", YELLOW)
         except KeyboardInterrupt:
             log("Shutting down MT5 bridge…", YELLOW)
             mt5.shutdown()
