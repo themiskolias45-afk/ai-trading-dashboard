@@ -19,82 +19,167 @@
 // market, which is exactly how it was read for weeks.
 //
 // This file exists so the table has ONE home. It was briefly duplicated between
-// tasks/cohort_reachability.cjs and the server, which is the same
-// copy-then-drift bug that put the bridge-tag parser in two places and let one of
-// them go stale — see tasks/bridge_tags.ps1.
+// tasks/cohort_reachability.cjs and the server, which is the same copy-then-drift bug
+// that put the bridge-tag parser in two places — see tasks/bridge_tags.ps1.
 
-// ── The boost stack, mirrored from server/index.js:1505-1527 ──────────────────
-// A signal has exactly ONE setup, so only ONE setup bonus can ever apply. The best
-// available is SQUEEZE_BREAKOUT at +10, and it requires confirmed volume, which is
-// the same condition the +5 volume boost needs. Best case is therefore +15, and it
-// requires a SQUEEZE_BREAKOUT on confirmed volume.
+// ── The boost stack, mirrored from server/index.js:1545-1555 ──────────────────
+// A signal has exactly ONE setup, so only ONE setup bonus can ever apply: those are
+// six independent `if`s on distinct string values of signalTf.setup. The best is
+// SQUEEZE_BREAKOUT at +10 and it requires confirmed volume, which is the same
+// condition the +5 volume boost needs, so +15 is jointly attainable.
 const VOLUME_BOOST     = 5;
 const BEST_SETUP_BOOST = 10;
 
 // Deliberately 0, not 15.
 //
-// getLearningBoost (server/index.js:460) returns 0 until a setup has 5 CLOSED trades
+// getLearningBoost (server/index.js:463) returns 0 until a setup has 5 CLOSED trades
 // and can then add at most +/-15. So the learning engine can only ever amplify a
 // cohort that is ALREADY firing — it cannot rescue a dead one, because the cohort
-// needs trades to earn the boost and needs the boost to make trades. Any reachability
-// maths that counts on the learning boost is wrong.
+// needs trades to earn the boost and needs the boost to make trades.
 const LEARNING_BOOST_WHEN_COLD = 0;
 
 const MAX_BOOST = VOLUME_BOOST + BEST_SETUP_BOOST + LEARNING_BOOST_WHEN_COLD;
 
-// ── The cohort table, mirrored from server/index.js:1404-1484 ─────────────────
-// `guard` is a literal that MUST still be present in server/index.js. If someone
-// retunes a base confidence and forgets this table, the drift check reports it
-// rather than letting the audit quietly describe a system that no longer exists.
+// Gold's daily-neutral-H4 cohorts are HARD CAPPED after every boost is applied and
+// before the gate is tested (server/index.js:1710):
+//
+//   if (isDailyNeutralH4 && ticker === "GC=F" && confidence >= SIZING_BOOST_MIN_CONFIDENCE)
+//     confidence = SIZING_BOOST_MIN_CONFIDENCE - 1;
+//
+// SIZING_BOOST_MIN_CONFIDENCE is 75 (index.js:1894), so their true ceiling is 74 no
+// matter what the boost stack computes. Omitting this cap is how the first incident
+// happened at all — capped at 74, floored at 75, 1131 steps and zero fires — and a
+// reachability model that ignores it would print a false ALIVE on the exact case it
+// exists to catch.
+const GOLD_NEUTRAL_H4_CEILING = 74;
+
+// Mirrors SPX_H4_ONLY_BLOCKED_FLOOR in server/index.js. A floor above the maximum
+// attainable confidence, so a cohort held under it cannot fire at any legal gate —
+// as opposed to one that merely falls short of the gate currently configured.
+const BLOCKED_BY_DESIGN_FLOOR = 101;
+
+// ── The cohort table, mirrored from server/index.js:1449-1523 ─────────────────
+//
+// `guards` are literals that MUST all still be present in server/index.js. They pin
+// VALUES, not just identifiers: guarding on a bare `GOLD_SQUEEZE_MODERATE_CONFIDENCE`
+// would still match after someone changed that constant from 70 to 75, and the table
+// would report clean while being wrong.
+//
+// `ceilingCap` is an absolute post-boost ceiling where the engine imposes one.
+// `usesDailyOnlyFloor` marks cohorts whose gate is raised by dailyOnlyMinConfidence
+// (index.js:1718) rather than being confidenceThreshold alone.
 const COHORTS = [
-  { name: 'Daily+H4 agree, both STRONG',          base: 95, guard: 'confidence = 95' },
-  { name: 'Triple alignment, all STRONG',         base: 97, guard: 'allStrong ? 97 : 88' },
-  { name: 'Daily+H4 agree, one STRONG',           base: 88, guard: '? 88 : 72' },
-  { name: 'Daily+H4 agree, both MODERATE',        base: 72, guard: '? 88 : 72' },
-  { name: 'Gold daily-neutral-H4, MODERATE',      base: 72, guard: 'daily.strength === "MODERATE" ? 72' },
-  { name: 'Gold daily-neutral-H4, STRONG',        base: 70, guard: 'daily.strength === "STRONG"   ? 70' },
-  { name: 'Gold H4-only, STRONG',                 base: 68, guard: 'h4.strength === "STRONG" ? 68' },
-  { name: 'Gold H4-only, MODERATE + squeeze',     base: 70, guard: 'GOLD_SQUEEZE_MODERATE_CONFIDENCE' },
-  { name: 'Gold H4-only, MODERATE non-squeeze',   base: 55, guard: ': 55;' },
-  { name: 'BTC H4-only, STRONG',                  base: 63, guard: 'h4.strength === "STRONG" ? 63' },
-  { name: 'BTC H4-only, MODERATE',                base: 50, guard: 'h4.strength === "MODERATE" ? 50' },
-  { name: 'SPX H4-only (any strength)',           base: 45, guard: 'confidence = 45' },
-  { name: 'Daily fires, H4 disagrees (non-Gold)', base: 40, guard: 'daily.signal === "WAIT" ? 0 : 40' },
+  { name: 'Daily+H4 agree, both STRONG',          base: 95, guards: ['confidence = 95'] },
+  { name: 'Triple alignment, all STRONG',         base: 97, guards: ['allStrong ? 97 : 88'] },
+  { name: 'Daily+H4 agree, one STRONG',           base: 88, guards: ['? 88 : 72'] },
+  { name: 'Daily+H4 agree, both MODERATE',        base: 72, guards: ['? 88 : 72'] },
+  {
+    name: 'Gold daily-neutral-H4, MODERATE', base: 72,
+    guards: ['daily.strength === "MODERATE" ? 72', 'const SIZING_BOOST_MIN_CONFIDENCE = 75'],
+    ceilingCap: GOLD_NEUTRAL_H4_CEILING, usesDailyOnlyFloor: true,
+  },
+  {
+    name: 'Gold daily-neutral-H4, STRONG', base: 70,
+    guards: ['daily.strength === "STRONG"   ? 70', 'const SIZING_BOOST_MIN_CONFIDENCE = 75'],
+    ceilingCap: GOLD_NEUTRAL_H4_CEILING, usesDailyOnlyFloor: true,
+  },
+  { name: 'Gold H4-only, STRONG',                 base: 68, guards: ['h4.strength === "STRONG" ? 68'] },
+  {
+    name: 'Gold H4-only, MODERATE + squeeze', base: 70,
+    guards: ['const GOLD_SQUEEZE_MODERATE_CONFIDENCE = 70', 'daily.setup === "BB_SQUEEZE_WATCH"'],
+  },
+  { name: 'Gold H4-only, MODERATE non-squeeze',   base: 55, guards: ['const goldSqueezeModerate', ': 55;'] },
+  { name: 'BTC H4-only, STRONG',                  base: 63, guards: ['h4.strength === "STRONG" ? 63'] },
+  { name: 'BTC H4-only, MODERATE',                base: 50, guards: ['h4.strength === "MODERATE" ? 50'] },
+  // The `: 40` tails of the two H4-only ternaries. These were folded into the
+  // "Daily fires, H4 disagrees" row until 2026-08-08, which hid them: they are
+  // separate populations reached by a different branch, and BTC H4-only NONE
+  // measures +0.294 R/trade over n=38 (4/5 folds, positive in TRAIN and TEST
+  // independently) — the best-performing dead slice in the system. A table that
+  // does not name a cohort cannot report it dead.
+  { name: 'BTC H4-only, NONE',                    base: 40, guards: ['h4.strength === "MODERATE" ? 50 : 40'] },
+  { name: 'Gold H4-only, NONE',                   base: 40, guards: ['h4.strength === "STRONG" ? 68'] },
+  // BLOCKED BY MEASUREMENT, not by arithmetic — the distinction this table exists to
+  // make. Every SPX H4-only slice is negative out of sample (tasks/cohort_walkforward.cjs,
+  // 2026-08-11: STRONG -0.196 over 47, NONE -0.065 over 28, MODERATE -0.039 over 91).
+  // The engine holds it under a floor of 101, above the maximum attainable confidence,
+  // so it cannot fire at ANY legal gate rather than merely failing to reach 70.
+  // Reported separately from DEAD so a deliberate block never lands in a findings
+  // count that someone then learns to skim past.
+  {
+    name: 'SPX H4-only (any strength)', base: 45, blockedByDesign: true,
+    guards: ['confidence = 45', 'const SPX_H4_ONLY_BLOCKED_FLOOR = 101',
+             'isSpxH4Only ? SPX_H4_ONLY_BLOCKED_FLOOR'],
+  },
+  { name: 'Daily fires, H4 disagrees (non-Gold)', base: 40, guards: ['daily.signal === "WAIT" ? 0 : 40'] },
 ];
 
-// Rows sorted lowest base first, each labelled against the supplied gate.
-//   FIRES AT BASE — clears the gate with no help at all
-//   NEEDS BOOST   — reachable, but only with volume and/or setup quality
-//   DEAD          — cannot reach the gate even at maximum boost
-function computeReachability(gate) {
+// Rows sorted lowest base first, each labelled against the gate it actually faces.
+//
+//   FIRES AT BASE — clears its gate before any boost. NOT a promise that it fires:
+//                   macro penalties are applied after this point and can total -30
+//                   (DXY -10, VIX -8, Fear&Greed -7, cross-asset -12), so a base-72
+//                   cohort can still finish below a gate of 70. Penalties only ever
+//                   SUBTRACT, so they cannot rescue a DEAD row — the DEAD verdict is
+//                   sound, the ALIVE labels are optimistic.
+//   NEEDS BOOST   — reachable only with volume and/or setup quality.
+//   DEAD          — cannot reach its gate even at maximum boost.
+//
+// `dailyOnlyMinConfidence` is the dashboard-settable floor that applies to the
+// neutral-H4 cohorts only. Passing it matters: it is 0 today, but setting it to 80
+// kills both Gold neutral-H4 cohorts, and a model measuring against
+// confidenceThreshold alone would call them alive.
+function computeReachability(gate, dailyOnlyMinConfidence = 0) {
   const threshold = Number(gate);
   if (!Number.isFinite(threshold)) {
     throw new TypeError(`computeReachability needs a finite gate, got ${gate}`);
   }
+  const floor = Number(dailyOnlyMinConfidence);
+  const dailyFloor = Number.isFinite(floor) && floor > 0 ? floor : 0;
+
   return COHORTS
     .map(cohort => {
-      const ceiling = Math.min(100, cohort.base + MAX_BOOST);
+      const effectiveGate = cohort.blockedByDesign
+        // The engine holds these under a floor no confidence can reach, so the gate
+        // they actually face is that floor and not the global threshold. Modelling
+        // them against the threshold would report them DEAD-by-5-points and invite
+        // exactly the base raise the measurement says not to make.
+        ? BLOCKED_BY_DESIGN_FLOOR
+        : cohort.usesDailyOnlyFloor
+          ? Math.max(threshold, dailyFloor)
+          : threshold;
+      const uncapped = cohort.base + MAX_BOOST;
+      const ceiling = Math.min(100, uncapped, cohort.ceilingCap ?? Infinity);
       return {
         ...cohort,
+        effectiveGate,
         ceiling,
-        status: cohort.base >= threshold ? 'FIRES AT BASE'
-              : ceiling >= threshold ? 'NEEDS BOOST'
+        // True when the engine's own post-boost cap, not the boost stack, is what
+        // limits this cohort. Worth surfacing: it is invisible in the base number.
+        cappedByEngine: cohort.ceilingCap !== undefined && cohort.ceilingCap < uncapped,
+        // BLOCKED BY DESIGN is not a milder DEAD, it is a different fact. DEAD means
+        // nobody chose this and the arithmetic did it; BLOCKED means it was measured
+        // and refused. Collapsing them is what let a deliberate refusal sit in a
+        // "5 cohorts cannot fire" list and read as four accidents plus one more.
+        status: cohort.blockedByDesign ? 'BLOCKED (MEASURED)'
+              : cohort.base >= effectiveGate ? 'FIRES AT BASE'
+              : ceiling >= effectiveGate ? 'NEEDS BOOST'
               : 'DEAD',
-        // How far the ceiling falls short. Only meaningful when DEAD.
-        short: threshold - ceiling,
-        // How much boost is required to clear the gate. Only meaningful when
-        // NEEDS BOOST. Above BEST_SETUP_BOOST means it needs the setup bonus AND
-        // confirmed volume together, i.e. a perfect storm.
-        boostNeeded: threshold - cohort.base,
+        short: effectiveGate - ceiling,
+        boostNeeded: effectiveGate - cohort.base,
       };
     })
     .sort((a, b) => a.base - b.base);
 }
 
-// Cohorts named in this table whose guard literal is no longer in server/index.js.
+// Cohorts with a guard literal no longer present in server/index.js. Each returned
+// row carries `missing` so the caller can say WHICH literal went stale.
 function findTableDrift(indexSource) {
   if (typeof indexSource !== 'string') return [];
-  return COHORTS.filter(cohort => !indexSource.includes(cohort.guard));
+  return COHORTS
+    .map(cohort => ({ cohort, missing: cohort.guards.filter(g => !indexSource.includes(g)) }))
+    .filter(entry => entry.missing.length > 0)
+    .map(entry => ({ ...entry.cohort, missing: entry.missing }));
 }
 
 module.exports = {
@@ -102,6 +187,8 @@ module.exports = {
   BEST_SETUP_BOOST,
   LEARNING_BOOST_WHEN_COLD,
   MAX_BOOST,
+  GOLD_NEUTRAL_H4_CEILING,
+  BLOCKED_BY_DESIGN_FLOOR,
   COHORTS,
   computeReachability,
   findTableDrift,

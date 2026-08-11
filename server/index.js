@@ -1842,9 +1842,14 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   // DAILY_ONLY_H4_NEUTRAL cohort can be held to a higher floor of its own — see
   // dailyOnlyMinConfidence in STRATEGY_LIMITS. Math.max, so the cohort floor can
   // only ever be STRICTER than the global gate, never a way to sneak under it.
-  const cohortFloor = isDailyNeutralH4
-    ? (Number(strategySettings?.dailyOnlyMinConfidence) || 0)
-    : 0;
+  // SPX H4-only is blocked by measurement at every legal gate — see
+  // SPX_H4_ONLY_BLOCKED_FLOOR. Checked first because it is unconditional: unlike the
+  // neutral-H4 floor it is not a setting anyone can turn off from the dashboard.
+  const isSpxH4Only = isH4Only && ticker === "^GSPC";
+  const cohortFloor = isSpxH4Only ? SPX_H4_ONLY_BLOCKED_FLOOR
+    : isDailyNeutralH4
+      ? (Number(strategySettings?.dailyOnlyMinConfidence) || 0)
+      : 0;
   const effectiveThreshold = Math.max(strategySettings.confidenceThreshold, cohortFloor);
 
   finalSignal = confidence >= effectiveThreshold ? signalDir : "WAIT";
@@ -2038,6 +2043,39 @@ const STRUCTURAL_STOP_MIN_ATR = 0.5;
 // the live gate (confidenceThreshold 70) so the cohort trades; see the block in
 // generateSignalMTF for why this is pinned rather than following the setting.
 const GOLD_SQUEEZE_MODERATE_CONFIDENCE = 70;
+
+// SPX H4-only is BLOCKED BY MEASUREMENT, not by arithmetic.
+//
+// Its base of 45 reads like a leftover from the gate moving 65 -> 70, and the
+// reachability report listed it beside four cohorts that ARE accidents. It is not
+// one. Every SPX H4-only slice is negative out of sample — measured 2026-08-11 by
+// tasks/cohort_walkforward.cjs over 914 trades, 5 equal-count folds, cost 0.05R:
+//
+//   SP500/H4_ONLY/STRONG      47 closed  -0.196 R/trade  1/5 folds
+//   SP500/H4_ONLY/NONE        28 closed  -0.065          2/5 folds
+//   SP500/H4_ONLY/MODERATE    91 closed  -0.039          2/5 folds
+//
+// which agrees with the held-out result already cited at the isH4Only branch.
+//
+// Encoding that as a low number was the hazard. confidenceThreshold is settable
+// down to 50 (STRATEGY_LIMITS), and this system HAS run at 50 before — at any gate
+// from 50 to 60 the cohort's 45 + 15 boost stack clears it and SPX starts trading a
+// measured loser, silently, with nothing in the change saying so.
+//
+// A floor above the maximum attainable confidence blocks it at EVERY legal gate.
+// 101 rather than 100 because confidence is clamped to 100 and `>=` would let a
+// perfect score through. Deliberately expressed as a cohort FLOOR so it flows
+// through the single `confidence >= effectiveThreshold` comparison the ledger block
+// depends on — a separate boolean would create a second decision path and break the
+// invariant that comment relies on.
+//
+// This does NOT silence the cohort. logGateRejection fires on signalDir, before the
+// gate, so every SPX H4-only setup still lands in the rejection ledger at its TRUE
+// confidence and is still walked forward on real bars by the shadow scorer. That is
+// the point: if SPX H4-only ever turns positive, the evidence to overturn this is
+// still being collected. Re-measure with tasks/cohort_walkforward.cjs before
+// removing it.
+const SPX_H4_ONLY_BLOCKED_FLOOR = 101;
 
 async function fetchCandles(symbol) {
   const range = DAILY_RANGE_BY_SYMBOL[symbol] ?? DAILY_RANGE_DEFAULT;

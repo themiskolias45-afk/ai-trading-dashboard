@@ -28,14 +28,26 @@ const SETTINGS     = path.join(PROJECT_ROOT, 'server', 'strategy_settings.json')
 function readGate() {
   // Mirrors the server's own loader: strip a UTF-8 BOM, and treat an unreadable file
   // as the built-in default, because that is what the server itself would be running.
+  //
+  // dailyOnlyMinConfidence matters as much as the threshold: for the neutral-H4
+  // cohorts the engine gates on max(confidenceThreshold, cohortFloor) at
+  // index.js:1721, so reading only the threshold would call those cohorts alive at
+  // the exact moment a dashboard edit killed them.
   try {
     const raw = fs.readFileSync(SETTINGS, 'utf8').replace(/^﻿/, '');
-    const gate = Number(JSON.parse(raw).confidenceThreshold);
-    if (Number.isFinite(gate)) return { gate, source: path.basename(SETTINGS) };
+    const parsed = JSON.parse(raw);
+    const gate = Number(parsed.confidenceThreshold);
+    if (Number.isFinite(gate)) {
+      return {
+        gate,
+        dailyOnlyMinConfidence: Number(parsed.dailyOnlyMinConfidence) || 0,
+        source: path.basename(SETTINGS),
+      };
+    }
   } catch (e) {
     // fall through to the default
   }
-  return { gate: 70, source: 'BUILT-IN DEFAULT (strategy_settings.json unreadable)' };
+  return { gate: 70, dailyOnlyMinConfidence: 0, source: 'BUILT-IN DEFAULT (strategy_settings.json unreadable)' };
 }
 
 function main() {
@@ -47,21 +59,24 @@ function main() {
     process.exit(2);
   }
 
-  const { gate, source: gateSource } = readGate();
+  const { gate, dailyOnlyMinConfidence, source: gateSource } = readGate();
   const drifted = findTableDrift(indexSource);
-  const rows    = computeReachability(gate);
+  const rows    = computeReachability(gate, dailyOnlyMinConfidence);
 
   console.log('='.repeat(78));
   console.log('COHORT REACHABILITY — can each cohort mathematically reach the gate?');
   console.log('='.repeat(78));
   console.log(`gate           ${gate}   (from ${gateSource})`);
+  console.log(`daily-only floor ${dailyOnlyMinConfidence}   (raises the gate for the neutral-H4 cohorts only)`);
   console.log(`max boost      +${MAX_BOOST}   (+${VOLUME_BOOST} volume, +${BEST_SETUP_BOOST} best setup, +${LEARNING_BOOST_WHEN_COLD} learning)`);
   console.log('learning boost 0 until a setup has 5 CLOSED trades — it cannot rescue a dead cohort');
+  console.log('NOTE: macro penalties of up to -30 apply AFTER this point, so FIRES AT BASE');
+  console.log('      is not a promise. Penalties only subtract, so a DEAD verdict still holds.');
   console.log('');
 
   if (drifted.length > 0) {
     console.log('!! TABLE DRIFT — these cohorts no longer match server/index.js:');
-    for (const d of drifted) console.log(`     ${d.name}  (expected to find: ${d.guard})`);
+    for (const d of drifted) console.log(`     ${d.name}  (missing: ${d.missing.join(' | ')})`);
     console.log('   The report below may describe a system that no longer exists.');
     console.log('   Fix server/cohort_table.js.');
     console.log('');
@@ -72,13 +87,19 @@ function main() {
   console.log('-'.repeat(78));
   for (const row of rows) {
     let note = '';
-    if (row.status === 'DEAD') note = `unreachable — ${row.short} short of the gate`;
+    if (row.status === 'BLOCKED (MEASURED)') note = 'refused on out-of-sample evidence, not arithmetic — floor 101';
+    else if (row.status === 'DEAD') note = `unreachable — ${row.short} short of gate ${row.effectiveGate}`;
     else if (row.status === 'NEEDS BOOST') note = `needs +${row.boostNeeded} of the +${MAX_BOOST} available`;
-    console.log(pad(row.name, 42) + pad(row.base, 6) + pad(row.ceiling, 9) + pad(row.status, 15) + note);
+    if (row.cappedByEngine) note += `${note ? '; ' : ''}engine caps it at ${row.ceiling}`;
+    console.log(pad(row.name, 42) + pad(row.base, 6) + pad(row.ceiling, 9) + pad(row.status, 19) + note);
   }
 
-  const dead  = rows.filter(r => r.status === 'DEAD');
-  const tight = rows.filter(r => r.status === 'NEEDS BOOST' && r.boostNeeded > BEST_SETUP_BOOST);
+  // A deliberate block is NOT a finding. Counting it as one is how a report trains
+  // its reader to skim: the list says "5 cohorts cannot fire" and four of them are
+  // accidents while the fifth is a decision someone already made on evidence.
+  const dead    = rows.filter(r => r.status === 'DEAD');
+  const blocked = rows.filter(r => r.status === 'BLOCKED (MEASURED)');
+  const tight   = rows.filter(r => r.status === 'NEEDS BOOST' && r.boostNeeded > BEST_SETUP_BOOST);
 
   console.log('');
   console.log('-'.repeat(78));
@@ -102,6 +123,14 @@ function main() {
     console.log(`${tight.length} cohort(s) need MORE than the best single setup bonus (+${BEST_SETUP_BOOST}),`);
     console.log('so they fire only on a perfect storm of setup type AND confirmed volume:');
     for (const t of tight) console.log(`  ${t.name}: base ${t.base}, needs +${t.boostNeeded}`);
+  }
+  if (blocked.length > 0) {
+    console.log('');
+    console.log(`${blocked.length} cohort(s) are BLOCKED ON PURPOSE and are not a finding:`);
+    for (const b of blocked) console.log(`  ${b.name}: measured negative out of sample; held under floor ${b.effectiveGate}`);
+    console.log('These still reach the rejection ledger at their true confidence, so the');
+    console.log('evidence that could overturn the decision keeps accumulating at zero risk.');
+    console.log('Re-measure with `node tasks/cohort_walkforward.cjs` before unblocking one.');
   }
   console.log('='.repeat(78));
 
