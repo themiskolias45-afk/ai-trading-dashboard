@@ -84,15 +84,23 @@ Start-Sleep -Seconds 3
 # minute later when ssh disconnected. The task scheduler owns a detached session and
 # does not have that problem. Falling back to Start-Process is still right for a local
 # console, where nothing is about to disconnect.
-$task = Get-ScheduledTask -TaskName 'SmartEntryServer' -ErrorAction SilentlyContinue
-if ($task) {
+# The two boxes name this differently: the VPS has a dedicated SmartEntryServer task,
+# the laptop does not and relies on 'SmartEntry Ensure Running', which starts the
+# server when it is down and never kills anything. Either is preferable to
+# Start-Process, which is only reached when neither exists.
+$serverTask = Get-ScheduledTask -TaskName 'SmartEntryServer' -ErrorAction SilentlyContinue
+$ensureTask = Get-ScheduledTask -TaskName 'SmartEntry Ensure Running' -ErrorAction SilentlyContinue
+if ($serverTask) {
     Write-Host "starting server via scheduled task SmartEntryServer (survives an SSH disconnect)"
     try { Stop-ScheduledTask -TaskName 'SmartEntryServer' -ErrorAction Stop } catch { }
     Start-Sleep -Seconds 2
     Start-ScheduledTask -TaskName 'SmartEntryServer'
+} elseif ($ensureTask) {
+    Write-Host "starting server via scheduled task 'SmartEntry Ensure Running' (detached, also refills bridges)"
+    Start-ScheduledTask -TaskName 'SmartEntry Ensure Running'
 } else {
-    Write-Host "no SmartEntryServer task on this box, starting a detached process"
-    Write-Host "  NOTE: if you are on SSH, this dies with the session. Run it locally."
+    Write-Host "no scheduled task on this box, starting a detached process"
+    Write-Host "  NOTE: over SSH this dies with the session. Run it locally."
     Start-Process -FilePath 'cmd' `
         -ArgumentList '/c', 'cd server && node index.js >> ..\tasks\logs\server_log.txt 2>&1' `
         -WorkingDirectory $proj -WindowStyle Minimized
