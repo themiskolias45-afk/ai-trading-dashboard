@@ -24,6 +24,13 @@
 
 const fs   = require("fs");
 const path = require("path");
+const { checkCitations, createContext } = require("./proposal_citations");
+
+// A PROPOSED FIX: marker is one line; the file paths and line numbers that make it
+// actionable are on the lines UNDER it. Checking only the marker line would have found
+// nothing at all in the 2026-08-09 review, whose every reference sat in the four lines
+// below "PROPOSED FIX: block RANGE_TRADE_SHORT when regime is RANGING".
+const PROPOSAL_CONTEXT_LINES = 12;
 
 const ROOT      = path.join(__dirname, "..");
 const LOGS_DIR  = path.join(ROOT, "tasks", "logs");
@@ -200,6 +207,9 @@ function build(options = {}) {
   const jobs = [];
   const proposals = [];
   const linkedTaskNames = new Set();
+  // Built once and shared by every citation check below: without it each proposal
+  // re-reads every source file under server/ and tasks/.
+  const citationContext = createContext();
 
   // Job -> the scheduled task that actually runs its script. Held in a Map rather
   // than written onto JOBS, which is exported and must not accumulate per-call state.
@@ -272,14 +282,29 @@ function build(options = {}) {
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].indexOf("PROPOSED FIX:") === -1) continue;
         const raw = lines[i].trim();
+        // The id stays keyed on the marker line alone. Folding the context in would
+        // change every existing id and silently orphan every recorded decision in
+        // tasks/ai_decisions.jsonl.
         const id = proposalId(job.id, file.name, i + 1, raw);
         const decision = decisions[id] || null;
         jobProposals++;
         if (decision) jobDecided++;
+        const contextEnd = Math.min(lines.length, i + 1 + PROPOSAL_CONTEXT_LINES);
+        const contextLines = [lines[i]];
+        for (let k = i + 1; k < contextEnd; k++) {
+          // Stop at the next proposal so one block never claims the next one's
+          // references and report them as its own broken citations.
+          if (lines[k].indexOf("PROPOSED FIX:") !== -1) break;
+          contextLines.push(lines[k]);
+        }
         proposals.push({
           id, job: job.id, jobLabel: job.label,
           file: "tasks/logs/" + file.name, line: i + 1,
           text: raw.length > 300 ? raw.slice(0, 297) + "…" : raw,
+          // Do the cited files, lines and functions actually exist? A proposal whose
+          // reasoning is sound and whose references are fiction is the most expensive
+          // kind to receive, because the reasoning earns trust the references spend.
+          citations: checkCitations(contextLines.join("\n"), citationContext),
           when: new Date(file.mtime).toISOString(),
           ageDays: Math.floor((now - file.mtime) / 86400000),
           status: decision ? decision.status : "UNREVIEWED",
@@ -395,6 +420,10 @@ function build(options = {}) {
       proposals: proposals.length,
       unreviewed,
       reviewed: proposals.length - unreviewed,
+      // An unreviewed proposal you cannot follow as written is worse than one you have
+      // simply not got to yet, so it gets its own count rather than hiding inside
+      // `unreviewed`.
+      proposalsWithBrokenRefs: proposals.filter(p => p.citations && p.citations.broken.length > 0).length,
     },
     decisionsFile: "tasks/ai_decisions.jsonl",
     howToDecide: "node tasks/ai_decide.cjs <id> implemented|rejected|ignored [note]",

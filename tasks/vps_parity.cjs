@@ -56,6 +56,10 @@ const TRACKED = [
   "server/index.js", "server/sizing.js", "server/hermes.js", "server/cohort_table.js",
   "server/fvg.js", "server/structure.js", "server/rejection_log.js",
   "server/rejection_evidence.js", "server/learning_growth.js", "server/ai_work_ledger.js",
+  // ai_work_ledger.js requires this one. A required module that drifts or is missing
+  // on one box takes that box's server down at boot, which is how server/rejection_log.js
+  // killed the VPS on deploy — so it is tracked beside its caller, not left implicit.
+  "server/proposal_citations.js",
   "server/evidence_register.js", "server/ai_registry.js", "server/mcp_server.js",
   "mt5_bridge.py",
   "dashboard/index.html", "dashboard/jarvis.html",
