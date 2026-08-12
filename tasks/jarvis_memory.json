@@ -2,6 +2,30 @@
   "version": 1,
   "entries": [
     {
+      "key": "DAILY_AUTORUN_TASKS_EVAPORATE",
+      "value": "The nightly auto-run of /daily reports \"TASKS CREATED: N\" but those tasks do not survive. It runs as a separate `claude -p` session and the task list is session-scoped, so TaskList in the next interactive session is empty. Verified 2026-08-12: the 05:55 run claimed 3 tasks created; TaskList returned \"No tasks found\". Its findings only survive because it ALSO writes the daily note, JARVIS memory and MCP entities. Treat the auto-run's task line as decoration; re-create anything actionable in the interactive session, or have the runner append to a durable file instead.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-12T06:08:16.797403+00:00",
+      "updated_at": "2026-08-12T06:08:16.797403+00:00"
+    },
+    {
+      "key": "daily-2026-08-12",
+      "value": "Daily check 2026-08-12. Errors: 3 HIGH, 3 LOW. (1) ensure_running.ps1 SERVER_SETTLE_S=8 is too short for a ~15s server boot — on every cold boot it logs \"still not answering\" and then refuses to start bridges (\"not starting blind\"); today that left tag A down 05:52-05:55 with 2 open positions, closed only because START.bat happened to run. The line-51 comment claiming the constant is \"only used to label the log line\" is false: $serverUp gates the whole bridge block. (2) server/ai_work_ledger.js:306 uses a non-global /^\\s*RED\\s*:\\s*(.+)$/m against the append-only coverage_audit.txt, so it reports the FIRST/OLDEST red — says \"notifier\" (GREEN now) while hiding \"SmartEntry - Weekly Algo Review\". 9 RED lines in file; first=notifier, last=Weekly. Same defect recorded 08-11, still unfixed. (3) Weekly Algo Review exit 1 since 08-09, root cause is the Claude session limit written into weekly_20260809.txt; weekly trigger means no retry until 08-16 and the agent_queue parking did not catch it. LOW: exa search returns 401 invalid API key; SmartEntryPro task has no next run scheduled; backup 26h, parity 35.5h old. Evidence board liveconfig claim still says \"one closed fill / 119 sessions\" — actual 3 closed / 153 sessions. Setups: all LEARNING (n=1 each), nothing judgeable at 3 closed trades. Top opportunity: BUY_OVERSOLD rejections are 18W-0L +16.07R, all killed by MIN_RR alone — but a 100%-win paper ledger on never-filled mean-reversion entries is the textbook shape of fill-selection bias, so this needs a walk-forward, not a threshold change.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-12T04:59:03.630122+00:00",
+      "updated_at": "2026-08-12T04:59:03.630122+00:00"
+    },
+    {
+      "key": "DAILY_20260811",
+      "value": "Daily check 2026-08-11. BTC's FIRST EVER trade fired mid-check: SELL 0.01 BTCUSD #1748614350 @ 63527.78 conf 81% SQUEEZE_BREAKOUT H4, 16:42:28Z. System now has 3 closed fills (1W/2L, -412.91) + 2 open, not the \"one fill in its life\" the evidence board still claims. Errors: 0 real error patterns in server_log (the 3611 \"500\" and 60 \"429\" hits were price-string false positives except 3 genuine [news] calendar 429s). Setups: all LEARNING (n<5); the one WIN is unattributable because its setup name was \"WAIT\" and NON_SETUP_NAMES correctly refuses it. Top rec: fix server/ai_work_ledger.js:306 — non-global text.match on an append-only log returns the OLDEST \"RED :\" line, so the health surface names notifier (GREEN 7 runs) while hiding a failing weekly job and a down bridge. Also: MIN_RR's \"COSTING MONEY\" aggregate is a Simpson's-paradox artifact (BUY_OVERSOLD 18W/0L +16.07R vs RANGE_TRADE_SHORT 0W/12L -12.6R) and has decayed +7.14R/22ep -> +1.70R/65ep as n grew. Exa MCP returns 401 Invalid API key.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-11T16:46:07.226200+00:00",
+      "updated_at": "2026-08-11T16:46:07.226200+00:00"
+    },
+    {
       "key": "SESSION_7_HANDOVER_2026_08_11",
       "value": "Deferred to next season by owner instruction. SHIPPED: trade recording fixed both boxes (4ad41b8) — reconcile_open_trades ran once 22s after terminal launch before MT5 downloaded history, now repeats every 300s; /api/trade-opened acknowledges before generating commentary; both outcome POSTs use JOURNAL_REQUEST_TIMEOUT_S; both endpoints idempotent. It immediately recovered #1713655080 +135.91 (FIRST EVER WINNING TRADE) and #1726672007 -99.10, taking realized sample 1 -> 3. SPX H4-only blocked by name (88067e0) after measuring every slice negative out of sample; SPX_H4_ONLY_BLOCKED_FLOOR=101 blocks at any legal gate, behaviour-neutral, ledger still logs at true confidence. New tools: tasks/diagnose_orphan_close.py, tasks/cohort_walkforward.cjs. VPS got tasks/cohort_reachability.cjs for the first time ever. OPEN: bridge died silently 37min unexplained (HIGHEST); SP500 10x lot size; BTC H4-only recheck at n=50 act only at 5/5; recovered closeTime off by ~4h; 4 cohorts still dead by arithmetic; weekly review RED until 16/08; EXA_API_KEY unset; VPS breaker at 2/3. Parity 25/25 ENGINES AGREE.",
       "category": "SYSTEM",
@@ -210,5 +234,5 @@
       "updated_at": "2026-07-25T05:45:00.852793+00:00"
     }
   ],
-  "last_updated": "2026-08-11T04:42:57.215550+00:00"
+  "last_updated": "2026-08-12T06:08:16.797403+00:00"
 }

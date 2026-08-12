@@ -1,0 +1,304 @@
+{
+  "date": "2026-08-07",
+  "entries": [
+    {
+      "ts": "2026-08-07T04:19:10.887798+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-07: healer 8/8 green, syntax clean, no secrets tracked, not halted. TOP ISSUE — local Bridge B is auto-trading account 11581419 at the same time as the VPS: live BTCUSD #1718720224 sits in /api/mt5/positions on account B but this box never opened it and it has no journal or DB row. Root cause is start_all/start_bridge/startup/watchdog.bat launching tag B while ensure_running.ps1 correctly honours MT5_EXPECTED_ACCOUNTS=A. Also: 273 lines of rejection-ledger work uncommitted in server/index.js; open gold #1713655080 still named setup \"WAIT\" (pre-1047a20). 3 tasks created."
+    },
+    {
+      "ts": "2026-08-07T04:20:44.948189+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-07: health 8/8 green but startup_all re-launched local Bridge B in --auto on shared account 11581419, ignoring MT5_EXPECTED_ACCOUNTS=A. Bridge B adopted VPS position #1718720224 (same MAGIC_NUMBER 20250101) and will trail/partial-close it in parallel with the VPS. Top rec: kill local Bridge B and make the legacy .bat launchers honour the flag."
+    },
+    {
+      "ts": "2026-08-07T04:24:49.149778+00:00",
+      "tag": "AUTO",
+      "text": "Pulled 1 signal(s) from server"
+    },
+    {
+      "ts": "2026-08-07T04:24:49.151443+00:00",
+      "tag": "AUTO",
+      "text": "Pulled 0 trade(s) for today"
+    },
+    {
+      "ts": "2026-08-07T04:24:49.151443+00:00",
+      "tag": "HEALER",
+      "text": "System status: HEALTHY | checks: {'signalFreshness': {'ok': True, 'lastChecked': '2026-08-07T04:24:44.430Z', 'detail': 'signal cache age 10.3min'}, 'priceFreshness': {'ok': True, 'lastChecked': '2026-08-07T04:24:44.430Z', 'detail': 'price cache age 0.7min'}, 'learningFile': {'ok': True, 'lastChecked': '2026-08-07T04:24:44.428Z', 'detail': '1 setups on disk'}, 'journalFile': {'ok': True, 'lastChecked': '2026-08-07T04:24:44.429Z', 'detail': '2 journal entries on disk'}, 'memory': {'ok': True, 'lastChecked': '2026-08-07T04:24:44.428Z', 'detail': 'heap=18MB rss=46MB'}, 'errorRate': {'ok': True, 'lastChecked': '2026-08-07T04:24:44.428Z', 'detail': '0 errors in last 5min'}, 'mt5Bridge': {'ok': True, 'lastChecked': '2026-08-07T04:24:44.430Z', 'detail': '1/1 expected account(s) reporting | undeclared account(s) reporting: B — check ACCOUNT_TAG'}, 'aiFilter': {'ok': True, 'lastChecked': '2026-08-07T04:24:44.428Z', 'detail': 'no trade has been evaluated yet — filter unexercised'}}"
+    },
+    {
+      "ts": "2026-08-07T06:47:02.950384+00:00",
+      "tag": "SYSTEM",
+      "text": "PENDING RESTART 2026-08-07: sizing contract-size fix is committed+pushed (9493541) but NOT LIVE. server/index.js, server/sizing.js and mt5_bridge.py all changed; the running server is the old build and the bridge is not yet pushing symbol specs. Deliberate call to wait for the next natural restart rather than pay the ~5min Yahoo window, since fixedLotSize 0.01 means no live position size changes today. After ANY restart, verify: curl POST /api/size with XAUUSD entry 4288.40 stop 4411.31 target 4082.16 conf 70 -> suggestedSize should be ~0.0985, not 7.32. Also fixed today: debate_agents.py (831cae0) prompts were truncated by cmd.exe so agents got no trade data."
+    },
+    {
+      "ts": "2026-08-07T06:54:50.271044+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-07: No trades today — rest day."
+    }
+  ],
+  "signals": [
+    {
+      "btc": {
+        "label": "Bitcoin",
+        "ticker": "BTC-USD",
+        "price": 64297.5,
+        "signal": "WAIT",
+        "setup": "BB_SQUEEZE_WATCH",
+        "strength": "NONE",
+        "entry": 64297.5,
+        "stop": null,
+        "target": null,
+        "rr": null,
+        "atr": 1298.29,
+        "indicators": {
+          "rsi": 50.8,
+          "ema20": 64130.13,
+          "ema50": 64647.44,
+          "ema200": 72598.91,
+          "bb": {
+            "upper": 66204.03,
+            "middle": 64418.15,
+            "lower": 62632.27,
+            "bandwidth": 5.5
+          },
+          "macd": {
+            "macd": 48.16,
+            "signal": 42.86,
+            "histogram": 5.3,
+            "crossed": true,
+            "bullish": true
+          },
+          "adx": 12.7,
+          "plusDI": 19,
+          "minusDI": 17.6
+        },
+        "structure": {
+          "swingLow": 62264.29,
+          "swingHigh": 65405.55,
+          "trending": false
+        },
+        "trend": "DOWNTREND",
+        "volume": {
+          "last": 28105,
+          "avg": 102919,
+          "ratio": 0.3,
+          "confirmed": false
+        },
+        "reasons": [
+          "BB bandwidth 5.5% — extreme squeeze, breakout imminent",
+          "Watch for break above 66336.44 (BUY) or below 62507.01 (SELL)",
+          "RSI 50.8 — position neutral, waiting for direction",
+          "Volume 0.3x avg — low volume confirms squeeze"
+        ],
+        "updatedAt": "2026-08-07T04:14:27.307Z",
+        "setupTimeframe": "D1",
+        "confidence": 0,
+        "regime": "SQUEEZE",
+        "h4": {
+          "signal": "WAIT",
+          "trend": "STRONG UPTREND",
+          "rsi": 49.4
+        },
+        "h1": {
+          "signal": "WAIT",
+          "trend": "MIXED",
+          "rsi": 27
+        },
+        "pivots": {
+          "pp": 64527.64,
+          "r1": 64892.29,
+          "r2": 65355.81,
+          "s1": 64064.12,
+          "s2": 63699.47
+        },
+        "session": {
+          "name": "ASIAN",
+          "color": "#eab308"
+        },
+        "dataSource": "mt5",
+        "sourceSymbol": "BTCUSD",
+        "bars": {
+          "d1": 300,
+          "h4": 400,
+          "h1": 400
+        }
+      },
+      "gold": {
+        "label": "Gold/XAUUSD",
+        "ticker": "GC=F",
+        "price": 4266.56,
+        "signal": "WAIT",
+        "setup": "WAIT",
+        "strength": "NONE",
+        "entry": 4266.56,
+        "stop": null,
+        "target": null,
+        "rr": null,
+        "atr": 87.55,
+        "indicators": {
+          "rsi": 70,
+          "ema20": 4121.15,
+          "ema50": 4191.51,
+          "ema200": 4306.18,
+          "bb": {
+            "upper": 4239.31,
+            "middle": 4081.55,
+            "lower": 3923.8,
+            "bandwidth": 7.7
+          },
+          "macd": {
+            "macd": 14.08,
+            "signal": -17.88,
+            "histogram": 31.96,
+            "crossed": false,
+            "bullish": true
+          },
+          "adx": 26.4,
+          "plusDI": 25.7,
+          "minusDI": 14.5
+        },
+        "structure": {
+          "swingLow": 3995.95,
+          "swingHigh": 4120.15,
+          "trending": true
+        },
+        "trend": "MIXED",
+        "volume": {
+          "last": 127550,
+          "avg": 541151,
+          "ratio": 0.2,
+          "confirmed": false
+        },
+        "reasons": [
+          "RANGE_TRADE_SHORT rejected: R:R 1.41 below minimum 1.5 — no trade",
+          "Rejected levels: entry 4266.56 stop 4397.89 target 4081.55",
+          "Price at BB upper band — ranging market resistance",
+          "RSI 70 — overbought within range",
+          "Target: BB middle (mean reversion)"
+        ],
+        "updatedAt": "2026-08-07T04:14:27.310Z",
+        "setupTimeframe": "D1",
+        "confidence": 0,
+        "regime": "SQUEEZE",
+        "h4": {
+          "signal": "WAIT",
+          "trend": "STRONG UPTREND",
+          "rsi": 77.4
+        },
+        "h1": {
+          "signal": "WAIT",
+          "trend": "STRONG UPTREND",
+          "rsi": 49.8
+        },
+        "pivots": {
+          "pp": 4255.9,
+          "r1": 4288.4,
+          "r2": 4336.58,
+          "s1": 4207.72,
+          "s2": 4175.22
+        },
+        "session": {
+          "name": "ASIAN",
+          "color": "#eab308"
+        },
+        "dataSource": "mt5",
+        "sourceSymbol": "XAUUSD",
+        "bars": {
+          "d1": 300,
+          "h4": 400,
+          "h1": 400
+        }
+      },
+      "spx": {
+        "label": "S&P500",
+        "ticker": "^GSPC",
+        "price": 7745.36,
+        "signal": "WAIT",
+        "setup": "MOMENTUM",
+        "strength": "NONE",
+        "entry": 7745.36,
+        "stop": 7591.64,
+        "target": 8052.8,
+        "rr": 2,
+        "atr": 102.48,
+        "indicators": {
+          "rsi": 68,
+          "ema20": 7546.56,
+          "ema50": 7471.02,
+          "ema200": 7097.51,
+          "bb": {
+            "upper": 7755.4,
+            "middle": 7525.53,
+            "lower": 7295.67,
+            "bandwidth": 6.1
+          },
+          "macd": {
+            "macd": 51.53,
+            "signal": 18.1,
+            "histogram": 33.43,
+            "crossed": false,
+            "bullish": true
+          },
+          "adx": 21.3,
+          "plusDI": 26.2,
+          "minusDI": 14.7
+        },
+        "structure": {
+          "swingLow": 7299.55,
+          "swingHigh": 7595.43,
+          "trending": true
+        },
+        "trend": "STRONG UPTREND",
+        "volume": {
+          "last": 21770,
+          "avg": 96385,
+          "ratio": 0.2,
+          "confirmed": false
+        },
+        "reasons": [
+          "All EMAs aligned — trend structure intact",
+          "MACD bullish (histogram +33.43)",
+          "Volume 0.2x avg (monitoring for breakout confirmation)",
+          "ADX 21.3 — trend confirmed"
+        ],
+        "updatedAt": "2026-08-07T04:14:27.313Z",
+        "setupTimeframe": "D1",
+        "confidence": 40,
+        "regime": "TRENDING",
+        "h4": {
+          "signal": "WAIT",
+          "trend": "STRONG UPTREND",
+          "rsi": 77
+        },
+        "h1": {
+          "signal": "WAIT",
+          "trend": "UPTREND",
+          "rsi": 38.5
+        },
+        "pivots": {
+          "pp": 7756.68,
+          "r1": 7785.67,
+          "r2": 7830.93,
+          "s1": 7711.42,
+          "s2": 7682.43
+        },
+        "session": {
+          "name": "ASIAN",
+          "color": "#eab308"
+        },
+        "dataSource": "mt5",
+        "sourceSymbol": "SP500",
+        "bars": {
+          "d1": 300,
+          "h4": 400,
+          "h1": 400
+        }
+      },
+      "updatedAt": "2026-08-07T04:14:27.317Z"
+    }
+  ],
+  "trades": [],
+  "created_at": "2026-08-07T04:19:10.887798+00:00",
+  "updated_at": "2026-08-07T06:54:50.271044+00:00"
+}

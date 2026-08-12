@@ -1,0 +1,19 @@
+{
+  "date": "2026-08-12",
+  "entries": [
+    {
+      "ts": "2026-08-12T04:58:54.308464+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-12: health 8/8 green, fleet AGREES (gate 70 both boxes), 2 positions open, 0 closes in 24h. Top issue: ensure_running.ps1 SERVER_SETTLE_S=8 vs ~15s server boot — at 05:52:20 it declared the server down and refused to start bridge A; tag A was only rescued by START.bat at 05:55:02, leaving a 3.5min window with 2 open positions unmanaged. Also confirmed still-live: ai_work_ledger.js:306 non-global regex reports the OLDEST coverage RED (\"notifier\", now GREEN) and hides the real one (Weekly Algo Review, dead since 08-09 on a session limit, no retry until 08-16). Evidence board still claims n=1 closed fill; actual is 3. 3 tasks created."
+    },
+    {
+      "ts": "2026-08-12T06:08:13.780635+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK (interactive, 06:0xZ) — confirms the 05:55 auto-run. New this pass: VPS parity re-run CLEAN (25/25 files, 11/11 engine fns, 7/7 constants, 89 routes — ENGINES AGREE), clearing the 35.5h-stale item. Verified both HIGH findings in source: ensure_running.ps1:168 is a single 8s sleep + one retest vs a ~15s boot (line-51 comment is false), and ai_work_ledger.js:91 findingPattern lacks the g flag so line 306 returns the OLDEST RED. Also found: the auto-run's \"TASKS CREATED: 3\" evaporate — it runs as claude -p with a session-scoped task list, so nobody ever sees them. Top rec unchanged: fix the ensure_running settle race."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-12T04:58:54.308464+00:00",
+  "updated_at": "2026-08-12T06:08:13.780635+00:00"
+}

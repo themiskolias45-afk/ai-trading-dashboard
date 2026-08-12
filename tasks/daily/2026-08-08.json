@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-08",
+  "entries": [
+    {
+      "ts": "2026-08-08T05:03:54.789422+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-08: |   BTC WAIT |   GOLD WAIT |   SPX WAIT"
+    },
+    {
+      "ts": "2026-08-08T05:05:39.702858+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-08: health 6/6 green, no halt, syntax clean, no secrets tracked. CRITICAL — local Bridge B came back in --auto at 06:00 (start_all.bat ignores MT5_EXPECTED_ACCOUNTS=A) and is double-executing account 11581419 alongside VPS Bridge A; both health endpoints connected. HIGH — account A holds XAUUSD BUY #1713655080 and SELL #1726672007 simultaneously, netted flat. HIGH — /api/ai-brain 400s on stale thinking:{type:enabled,budget_tokens:500} at index.js:4630 and Promise.allSettled swallows it. BTC and SPX have never traded (conf 40 vs gate 70). 3 tasks created."
+    },
+    {
+      "ts": "2026-08-08T05:05:53.635604+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-08: health 8/8 green, gate 70, settingsError null, not halted, all 3 assets WAIT (BTC 40 / GOLD 55 / SPX 40). Top issue: startup_all.ps1:48 hardcodes bridgeAccounts=@('A','B') and ignores MT5_EXPECTED_ACCOUNTS=A, so local Bridge B relaunched in --auto at 06:00 on account 11581419 which the VPS also trades in --auto — duplicate orders, and the 3-loss breaker splits across two ACCOUNT_TAGs so it needs 6 losses to halt. Second: sizing.js:260 matches symbol AND direction, so account A holds both a Gold BUY (#1713655080) and a Gold SELL (#1726672007) open simultaneously. Third: Bridge B tracks 3 VPS-opened tickets absent from the local journal. 3 tasks created."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-08T05:03:54.789422+00:00",
+  "updated_at": "2026-08-08T05:05:53.635604+00:00"
+}
