@@ -77,10 +77,23 @@ AGENT_QUEUE_PATH = PROJECT_DIR / "tasks" / "agent_queue.jsonl"
 
 # Phrases the CLI uses when the subscription window is exhausted. Matched only
 # alongside the length check below.
+#
+# The weekly/monthly/daily entries are not hypothetical. On 2026-08-12 the VPS morning
+# agent died on "You've hit your weekly limit - resets Aug 13, 11am (Europe/Berlin)"
+# and NONE of the original markers matched it: the list only knew "session limit", and
+# "resets Aug" is not "resets at". So park() refused, called a subscription ceiling a
+# hard failure, and destroyed the brief — the exact bug the queue was built to fix,
+# surviving in the one wording nobody had seen yet. The lesson is that this list is a
+# guess about someone else's copy: keep it broad and let LIMIT_NOTICE_MAX_CHARS do the
+# discriminating, because a short body is the reliable signal and the phrasing is not.
 LIMIT_MARKERS = (
     "session limit",
     "usage limit",
     "rate limit",
+    "weekly limit",
+    "monthly limit",
+    "daily limit",
+    "hit your limit",
     "limit reached",
     "limit will reset",
     "resets at",
@@ -126,19 +139,75 @@ def looks_rate_limited(output: str, success: bool) -> bool:
     return any(marker in lowered for marker in LIMIT_MARKERS)
 
 
+MONTH_NAMES = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+               "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
+
+def _reset_from_dated(output: str, now):
+    """Reset time from a notice that names a DATE as well as a clock time.
+
+    A weekly ceiling says "resets Aug 13, 11am" where a session one says "resets 11am".
+    The time-only pattern cannot read the first form — it wants digits straight after
+    "resets" and finds a month name — so without this a weekly limit parked with no
+    reset time and the drain retried it hourly for a day and a half.
+    """
+    match = re.search(
+        r"reset[a-z]*\s*(?:at\s*)?([A-Za-z]{3,9})\s+(\d{1,2})\s*,?\s*"
+        r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
+        output, re.IGNORECASE)
+    if not match:
+        return None
+    month = MONTH_NAMES.get(match.group(1)[:3].lower())
+    if not month:
+        return None
+
+    day, hour = int(match.group(2)), int(match.group(3))
+    minute = int(match.group(4) or 0)
+    meridiem = (match.group(5) or "").lower()
+    if not 1 <= day <= 31 or not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        return None
+    if meridiem == "pm" and hour < 12:
+        hour += 12
+    elif meridiem == "am" and hour == 12:
+        hour = 0
+
+    for year in (now.year, now.year + 1):
+        try:
+            reset = datetime(year, month, day, hour, minute)
+        except ValueError:
+            return None          # 31 February and friends
+        if reset > now:
+            return reset.isoformat()
+    return None
+
+
 def parse_reset_at(output: str, now=None):
     """Best-effort reset time from a limit notice, as an ISO string. None if absent.
 
-    The CLI phrases it as a wall-clock time ("resets 10:10am"), so a time already past
-    today means tomorrow. Returns None rather than guessing when nothing parses — the
-    drain pass then falls back to its own retry delay.
+    Two shapes, because the CLI uses both: "resets Aug 13, 11am" for a weekly ceiling
+    and "resets 10:10am" for a session one. The dated form is tried first; a time
+    already past today means tomorrow. Returns None rather than guessing when nothing
+    parses — the drain pass then falls back to its own retry delay.
     """
     if not output:
         return None
     now = now or datetime.now()
 
-    match = re.search(r"reset[a-z]*\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
-                      output, re.IGNORECASE)
+    dated = _reset_from_dated(output, now)
+    if dated:
+        return dated
+
+    # "resets tomorrow at 11am" — a word between the verb and the time, which the
+    # strict pattern below cannot cross. Anchored on a literal "at" on purpose: let it
+    # wander over arbitrary words without that anchor and it will happily read the 5 in
+    # "limit reached, 5 attempts" as an hour. A WRONG reset time is worse than none,
+    # because none simply falls back to the drain's own retry delay.
+    match = re.search(
+        r"reset[a-z]*\s+(?:\w+\s+){1,2}at\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
+        output, re.IGNORECASE)
+    if not match:
+        match = re.search(r"reset[a-z]*\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?",
+                          output, re.IGNORECASE)
     if not match:
         return None
 
