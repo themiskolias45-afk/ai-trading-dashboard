@@ -1315,9 +1315,21 @@ async function loadFleetPerf() {
       .sort((a, b) => a[1].netPnl - b[1].netPnl)
       .map(([name, s]) => {
         const c = s.netPnl > 0 ? 'var(--green)' : 'var(--red)';
+        const ind = s.independent || {};
+        const collapsed = ind.duplicatesCollapsed || 0;
+        // The two counts side by side. Where they differ, the difference IS the finding:
+        // it is the amount a naive pool would have overstated the evidence by.
+        const floor = '<span style="font-weight:600">' + esc(s.towardLearningFloor) + '</span>'
+          + (collapsed
+              ? ' <span style="color:var(--red);font-size:11px">(' + esc(s.towardLearningFloorRawFills)
+                + ' raw, −' + collapsed + ' dup)</span>'
+              : '');
+        const split = ind.split
+          ? ' <span style="color:var(--red);font-size:11px">' + ind.split + ' SPLIT</span>' : '';
         return '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
-          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + esc(s.towardLearningFloor) + '</td>'
-          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + s.wins + 'W / ' + s.losses + 'L</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + floor + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">'
+            + (ind.wins || 0) + 'W / ' + (ind.losses || 0) + 'L' + split + '</td>'
           + '<td style="padding:6px 10px;text-align:right;color:' + c + '">'
           + (s.netPnl >= 0 ? '+' : '') + s.netPnl + '</td>'
           + '<td style="padding:6px 10px;color:var(--dim);font-size:11px">' + esc(s.boxes.join(' + ')) + '</td></tr>';
@@ -1332,9 +1344,12 @@ async function loadFleetPerf() {
       + row('this box', d.byBox && d.byBox['this box'])
       + row('peer', d.byBox && d.byBox.peer)
       + '</table></div>'
-      + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per setup — the column that matters is '
-      + 'progress toward the learning engine\'s 5-closed-trades floor, which is what it needs in ONE bucket '
-      + 'before it will adjust anything. No single box is close; pooled, two setups are at 2/5.</div>'
+      + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per setup, counted in INDEPENDENT '
+      + 'market events. Both boxes run the same engine on the same bars, so they take the same trade — fills '
+      + 'with overlapping exposure on one symbol, direction and setup are one observation, not two. Where a '
+      + 'row shows a raw count in red, that gap is what a naive pool would have overstated the evidence by. '
+      + '<strong>Nothing here feeds live confidence</strong>: getLearningBoost still reads this box\'s '
+      + 'learning.json alone.</div>'
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
       + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">setup</th>'
       + '<th style="padding:6px 10px;text-align:right">toward floor</th><th style="padding:6px 10px;text-align:right">record</th>'

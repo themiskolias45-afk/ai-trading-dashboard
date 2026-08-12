@@ -6269,6 +6269,77 @@ app.get("/api/measurements", (_, res) => {
 // populations that are not comparable.
 const FLEET_PERF_PARITY_STALE_HOURS = 48;
 
+/**
+ * Collapse fills that are the SAME market event seen on two boxes.
+ *
+ * Both machines run the same engine on the same bars, so they take the same trade.
+ * Verified 2026-08-07: XAUUSD RANGE_TRADE_SHORT opened 07:00 here and 08:00 there,
+ * entries $6 apart, losses of -99.10 and -98.31. That is one Gold short observed
+ * twice, and counting it as two samples would reach the learning engine's 5-trade
+ * floor on half the real information.
+ *
+ * The rule is OVERLAPPING EXPOSURE, not a time bucket: same symbol, same direction,
+ * same setup, and the two positions open at the same time. An earlier draft used "same
+ * H4 bar" and would have missed this exact pair, because 07:00 and 08:00 fall in
+ * different H4 bars while describing one trade.
+ *
+ * Different instrument or non-overlapping windows stay separate — BB_SQUEEZE_WATCH is
+ * XAUUSD on 07-30 here and BTCUSD on 08-06 there, which are genuinely two observations.
+ *
+ * A cluster whose fills disagree is reported as SPLIT rather than silently averaged:
+ * the same setup on the same instrument at the same time resolving differently on two
+ * boxes is an execution divergence, and that is worth seeing, not smoothing.
+ */
+function collapseCorrelated(trades) {
+  const windowOf = (t) => {
+    const open = Date.parse(t.openTime);
+    const close = t.closeTime ? Date.parse(t.closeTime) : Number.POSITIVE_INFINITY;
+    return Number.isFinite(open) ? [open, close] : null;
+  };
+  const groups = new Map();
+  for (const t of trades) {
+    const key = `${t.symbol}|${t.direction}|${t.setup}`;
+    (groups.get(key) || groups.set(key, []).get(key)).push(t);
+  }
+
+  const clusters = [];
+  for (const [, rows] of groups) {
+    const dated = rows.map(t => ({ t, w: windowOf(t) })).filter(x => x.w);
+    const undated = rows.filter(t => !windowOf(t));
+    dated.sort((a, b) => a.w[0] - b.w[0]);
+
+    let current = null;
+    for (const { t, w } of dated) {
+      // Overlap, not adjacency: [openA, closeA] must intersect [openB, closeB].
+      if (current && w[0] <= current.end) {
+        current.fills.push(t);
+        current.end = Math.max(current.end, w[1]);
+      } else {
+        current = { fills: [t], end: w[1] };
+        clusters.push(current);
+      }
+    }
+    // A fill with no readable open time cannot be proven correlated with anything, so
+    // it stands alone rather than being folded in on a guess.
+    for (const t of undated) clusters.push({ fills: [t], end: 0 });
+  }
+
+  return clusters.map(c => {
+    const wins = c.fills.filter(t => t.pnl > 0).length;
+    const outcome = wins === c.fills.length ? "WIN" : wins === 0 ? "LOSS" : "SPLIT";
+    return {
+      setup: c.fills[0].setup, symbol: c.fills[0].symbol, direction: c.fills[0].direction,
+      fills: c.fills.length,
+      boxes: [...new Set(c.fills.map(t => t.box))],
+      outcome,
+      // The representative P&L of one observation is the mean of the fills that
+      // reported it. Summing would restate one event's cost as two.
+      pnl: +(c.fills.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0) / c.fills.length).toFixed(2),
+      openedAt: c.fills[0].openTime,
+    };
+  });
+}
+
 function poolStats(trades) {
   const wins = trades.filter(t => t.pnl > 0);
   const losses = trades.filter(t => t.pnl <= 0);
@@ -6351,13 +6422,38 @@ app.get("/api/fleet-performance", async (_, res) => {
         "this box": poolStats(localClosed),
         peer: peerClosed ? poolStats(peerClosed) : null,
       },
-      bySetup: Object.fromEntries(Object.entries(bySetup).map(([k, v]) => [k, {
-        ...poolStats(v),
-        boxes: [...new Set(v.map(t => t.box))],
-        // The learning engine's own floor, restated so a reader knows what the number
-        // is short of rather than guessing.
-        towardLearningFloor: `${v.length}/5`,
-      }])),
+      bySetup: Object.fromEntries(Object.entries(bySetup).map(([k, v]) => {
+        const clusters = collapseCorrelated(v);
+        const wins = clusters.filter(c => c.outcome === "WIN").length;
+        const losses = clusters.filter(c => c.outcome === "LOSS").length;
+        const split = clusters.filter(c => c.outcome === "SPLIT").length;
+        return [k, {
+          ...poolStats(v),
+          boxes: [...new Set(v.map(t => t.box))],
+          // RAW is fills; INDEPENDENT is market events. The gap between them is the
+          // amount by which a naive pool would have overstated the evidence.
+          independent: {
+            observations: clusters.length,
+            wins, losses, split,
+            duplicatesCollapsed: v.length - clusters.length,
+            clusters: clusters.map(c => ({
+              symbol: c.symbol, direction: c.direction, fills: c.fills,
+              boxes: c.boxes, outcome: c.outcome, pnl: c.pnl, openedAt: c.openedAt,
+            })),
+          },
+          // The learning engine's floor, measured in INDEPENDENT observations. Counting
+          // fills here is how one Gold short would fill the bucket twice as fast.
+          towardLearningFloor: `${clusters.length}/5`,
+          towardLearningFloorRawFills: `${v.length}/5`,
+        }];
+      })),
+      // Stated once, at the top level, because it is the reason this endpoint does not
+      // simply feed getLearningBoost: the raw pooled counts are not what they look like.
+      dedupNote: "towardLearningFloor counts INDEPENDENT market events. Both boxes run "
+        + "the same engine on the same bars, so they take the same trade — fills with "
+        + "overlapping exposure on one symbol, direction and setup collapse to one "
+        + "observation. Nothing here feeds live confidence; getLearningBoost still reads "
+        + "this box's learning.json only.",
       // Said out loud, every time. Six closed trades cannot support a claim about edge,
       // and a win rate printed without this line invites exactly that claim.
       sampleWarning: all.length < 30
