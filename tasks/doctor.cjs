@@ -84,7 +84,12 @@ function human(h) {
   return (h / 24).toFixed(1) + "d";
 }
 
-const findings = [];
+// Reset by diagnose() on entry rather than being local, so the check functions below
+// stay readable instead of threading an accumulator through every signature. That
+// makes diagnose() non-reentrant: the HTTP caller in server/index.js serialises with a
+// single in-flight promise for exactly this reason, and two concurrent callers would
+// otherwise interleave into one list.
+let findings = [];
 /**
  * @param remedy  the EXACT command a human would run. Never a description of one:
  *                "investigate the bridge" is what this tool exists to replace.
@@ -286,7 +291,13 @@ function checkLearningIntegrity() {
     "compare server/journal.json against server/learning.json");
 }
 
-(async () => {
+/**
+ * Run every check and return the findings, worst first. The ONLY entry point: the CLI
+ * below and server/index.js both call this, so the terminal and the dashboard can
+ * never drift into disagreeing about the fleet's state.
+ */
+async function diagnose() {
+  findings = [];
   const peer = readEnv("PEER_SERVER_URL");
   const boxes = [["this box", "http://localhost:3001", true]];
   if (peer) boxes.push(["peer", peer, false]);
@@ -312,6 +323,17 @@ function checkLearningIntegrity() {
 
   const rank = { RED: 0, AMBER: 1, INFO: 2 };
   findings.sort((a, b) => rank[a.severity] - rank[b.severity]);
+  return {
+    generatedAt: new Date().toISOString(),
+    findings,
+    counts: findings.reduce((acc, f) => (acc[f.severity] = (acc[f.severity] || 0) + 1, acc), {}),
+    feedsTheGate: false,
+  };
+}
+
+async function runCli() {
+  const report = await diagnose();
+  const findings = report.findings;
 
   if (AS_JSON) {
     console.log(JSON.stringify({ generatedAt: new Date().toISOString(), findings, feedsTheGate: false }, null, 2));
@@ -353,4 +375,16 @@ function checkLearningIntegrity() {
 
   // Exit code so a scheduled task can act on it: 1 means something is RED.
   process.exit(findings.some(f => f.severity === "RED") ? 1 : 0);
-})();
+}
+
+// Only run as a CLI when invoked directly. Required as a module — which is how
+// server/index.js serves /api/doctor — it must define diagnose() and do nothing else,
+// or requiring it would print a report and kill the server with process.exit.
+if (require.main === module) {
+  runCli().catch(err => {
+    console.error("doctor: " + String(err && err.message || err));
+    process.exit(1);
+  });
+}
+
+module.exports = { diagnose };

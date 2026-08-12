@@ -65,6 +65,9 @@ const learningGrowth  = require("./learning_growth");
 // The AI employee's timesheet: did the scheduled agents run, did they succeed,
 // and has anything they proposed ever been read. Read-only over their own logs.
 const aiWorkLedger    = require("./ai_work_ledger");
+// The fleet doctor. Same module the CLI runs, so `node tasks/doctor.cjs` and the
+// dashboard can never drift into disagreeing about the state of the two boxes.
+const fleetDoctor     = require("../tasks/doctor.cjs");
 // Cohort reachability table. Shared with tasks/cohort_reachability.cjs so the audit
 // script and the server can never describe two different systems.
 const cohortTable = require("./cohort_table");
@@ -6127,6 +6130,47 @@ app.get("/api/fleet", async (_, res) => {
   } catch (e) {
     console.error("[fleet]", e.message);
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ── /api/doctor — the fleet's findings, each with the command that fixes it ──
+//
+// READ-ONLY. This serves the diagnosis; it never heals. --heal stays on the CLI
+// deliberately: a button that restarts things is a different risk from a page that
+// lists them, and nothing on a dashboard should be one click from touching a bridge.
+//
+// Cached, and single-flight. Two reasons, both measured: a full pass makes ~10 HTTP
+// calls across both boxes and /api/ai-work alone can take 30s, so an uncached panel
+// refresh would pile passes on top of each other; and diagnose() accumulates into a
+// module-level array, so two concurrent runs would interleave into one list. The
+// in-flight promise below means a burst of readers all wait on the SAME pass.
+const DOCTOR_CACHE_MS = 60000;
+let doctorCache = { at: 0, report: null };
+let doctorInFlight = null;
+
+app.get("/api/doctor", async (_, res) => {
+  try {
+    const fresh = Date.now() - doctorCache.at < DOCTOR_CACHE_MS;
+    if (fresh && doctorCache.report) {
+      return res.json({ ...doctorCache.report, cached: true,
+                        ageMs: Date.now() - doctorCache.at });
+    }
+    if (!doctorInFlight) {
+      doctorInFlight = fleetDoctor.diagnose()
+        .then(report => { doctorCache = { at: Date.now(), report }; return report; })
+        .finally(() => { doctorInFlight = null; });
+    }
+    const report = await doctorInFlight;
+    res.json({ ...report, cached: false, ageMs: 0 });
+  } catch (e) {
+    // A doctor that 500s tells you nothing about the thing it was asked to inspect,
+    // which is the one moment you need it. Serve the last good pass and say it is old.
+    console.error("[doctor]", e.message);
+    if (doctorCache.report) {
+      return res.json({ ...doctorCache.report, cached: true, stale: true,
+                        ageMs: Date.now() - doctorCache.at, error: e.message });
+    }
+    res.status(500).json({ error: e.message, findings: [] });
   }
 });
 

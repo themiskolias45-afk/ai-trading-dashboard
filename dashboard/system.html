@@ -290,6 +290,16 @@
     <!-- filled by JS -->
   </div>
 
+  <!-- ═══ FLEET DOCTOR ═══ -->
+  <div class="section-label">Fleet Doctor</div>
+  <div class="section-desc" id="doctor-desc">Both boxes in one view, worst first, and every finding carries the exact command that
+    fixes it. Read-only: healing stays on the CLI (<code>node tasks/doctor.cjs --heal</code>) because a
+    button that restarts things is a different risk from a page that lists them.</div>
+  <div id="doctor-banner"></div>
+  <div id="doctor-list">
+    <div class="empty-state">Running the fleet check…</div>
+  </div>
+
   <!-- ═══ SKILLS & AGENTS ═══ -->
   <div class="section-label">Skills &amp; Agents</div>
   <div class="section-desc" id="registry-desc">Read live from /api/ai-registry — the same endpoint the AI Brain tab uses — and grouped by job. A skill added to .claude/commands appears here without anyone editing this page.</div>
@@ -807,10 +817,73 @@ async function loadStatus() {
 }
 
 // ── BOOT ───────────────────────────────────────────────────────
+// ── FLEET DOCTOR ───────────────────────────────────────────────
+// The whole point of this panel is that a finding arrives WITH its remedy. A status
+// board that says "bridge silent" and leaves you to work out what to run is the thing
+// the doctor was written to replace, so the fix line is never truncated or hidden.
+const DOCTOR_COLOUR = {
+  RED:   { border: 'rgba(255,68,68,.35)',  bg: 'rgba(255,68,68,.06)',  text: 'var(--red)' },
+  AMBER: { border: 'rgba(255,184,0,.35)',  bg: 'rgba(255,184,0,.06)',  text: '#ffb800' },
+  INFO:  { border: 'rgba(255,255,255,.12)', bg: 'rgba(255,255,255,.03)', text: 'var(--dim)' },
+};
+
+async function loadDoctor() {
+  const list = el('doctor-list'), banner = el('doctor-banner');
+  try {
+    const data = await getJson('/doctor');
+    const findings = data.findings || [];
+    const counts = data.counts || {};
+
+    // A cached answer is still an answer, but its age has to be visible: this panel
+    // exists to be trusted in the moment something is wrong.
+    const age = data.ageMs > 1000 ? Math.round(data.ageMs / 1000) + 's old' : 'just now';
+    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
+      + '<span style="color:var(--red);font-weight:600">' + (counts.RED || 0) + ' RED</span> · '
+      + '<span style="color:#ffb800;font-weight:600">' + (counts.AMBER || 0) + ' AMBER</span> · '
+      + (counts.INFO || 0) + ' INFO &nbsp;—&nbsp; ' + esc(age)
+      + (data.stale ? ' <span style="color:var(--red)">(stale: the last pass failed)</span>' : '')
+      + '</div>';
+
+    if (!findings.length) {
+      list.innerHTML = '<div class="empty-state">Nothing to report. Both boxes healthy.</div>';
+      return;
+    }
+
+    list.innerHTML = findings.map(f => {
+      const c = DOCTOR_COLOUR[f.severity] || DOCTOR_COLOUR.INFO;
+      return '<div style="border:1px solid ' + c.border + ';background:' + c.bg
+        + ';border-radius:10px;padding:14px 16px;margin-bottom:10px">'
+        + '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">'
+        + '<span style="color:' + c.text + ';font-weight:700;font-size:11px;letter-spacing:.08em">'
+        + esc(f.severity) + '</span>'
+        + '<span style="color:var(--dim);font-size:11px;letter-spacing:.06em">' + esc(f.box) + '</span>'
+        + (f.healable ? '<span style="font-size:10px;color:var(--green);border:1px solid rgba(0,255,136,.3);'
+            + 'border-radius:4px;padding:1px 6px">HEALABLE</span>' : '')
+        + '</div>'
+        + '<div style="margin-top:6px;font-size:14px;font-weight:600">' + esc(f.what) + '</div>'
+        + '<div style="margin-top:4px;font-size:12px;color:var(--dim);line-height:1.5">' + esc(f.why) + '</div>'
+        + '<div style="margin-top:8px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'
+        + 'background:rgba(0,0,0,.25);border-radius:6px;padding:7px 9px;overflow-x:auto;white-space:pre">'
+        + esc(f.remedy) + '</div>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    // Say which check failed and why. "Unavailable" on a health panel is the same
+    // failure as a green light that means nothing.
+    banner.innerHTML = '';
+    list.innerHTML = '<div class="empty-state" style="color:var(--red)">Fleet check unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
 loadStatus();
 loadGate();
 loadRegistry();
+loadDoctor();
 loadLiveProfit();
+// Every 2 minutes: the server caches a pass for 60s, so this cannot stampede it, and
+// the fleet's state is the one thing on this page worth re-reading often.
+setInterval(loadDoctor, 120_000);
 setInterval(loadLiveProfit, 60_000);
 setInterval(loadStatus, 30_000);
 // The gate and the registry both change under this page — a threshold edit or a
