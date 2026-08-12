@@ -4543,6 +4543,22 @@ async function loadDeepPlan() {
         + 'points — the same $40 gap is close on Gold and enormous on SPX. Green above spot, red below.</div>');
     }
 
+    // ---- the whole document, collapsed ----
+    // The console version is the richest thing this system produces — the overnight
+    // review, per-asset alignment, cohorts, the record and the invalidation — and it
+    // lived only in a log file and a Telegram message. Collapsed by default so the panel
+    // above stays scannable; a wall of monospace nobody opened would be no better than
+    // the log it replaces.
+    if (p.text) {
+      out.push('<details style="margin-top:14px">'
+        + '<summary style="cursor:pointer;font-size:.68rem;text-transform:uppercase;'
+        + 'letter-spacing:.12em;color:var(--muted)">Full document '
+        + '(' + Math.round(p.text.length / 1024) + 'KB)</summary>'
+        + '<pre style="overflow-x:auto;font-size:.66rem;line-height:1.45;margin-top:8px;'
+        + 'padding:12px;border:1px solid var(--border2);border-radius:6px;background:var(--bg);'
+        + 'white-space:pre;color:var(--text)">' + escapeHtml(p.text) + '</pre></details>');
+    }
+
     body.innerHTML = out.join('');
   } catch (e) {
     ageEl.textContent = '';

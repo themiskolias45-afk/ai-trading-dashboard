@@ -946,10 +946,16 @@ if (require.main === module) {
     // would disagree with the document built seconds earlier.
     base.writeArtifacts(built);
 
+    // Render ALWAYS, even under --json, and carry the text in the artifact. The full
+    // document previously existed only in a log file and a Telegram message — the
+    // console version is the richest thing this system produces and no screen could
+    // show it. ~8KB inside a 60KB artifact is a cheap price for that.
+    const text = renderDeep(doc);
+    doc.text = text;
+
     if (AS_JSON) {
       console.log(JSON.stringify(doc, null, 2));
     } else {
-      const text = renderDeep(doc);
       fs.appendFileSync(path.join(ROOT, "tasks", "logs", "deep_plan.txt"), text + "\n");
       process.stdout.write(text);
     }
