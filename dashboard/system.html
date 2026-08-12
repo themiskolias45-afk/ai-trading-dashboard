@@ -300,6 +300,16 @@
     <div class="empty-state">Running the fleet check…</div>
   </div>
 
+  <!-- ═══ EVIDENCE BOARD ═══ -->
+  <div class="section-label">What this system knows, and what it only assumes</div>
+  <div class="section-desc">Every claim carries its verdict, the evidence behind it, its caveat, and — the part that
+    matters most — what would change the answer. A measurement with no stated falsifier is an opinion with a
+    number attached. Curated in server/evidence_register.js and updated whenever something is measured; the
+    per-gate verdicts underneath come from the rejection ledger and update themselves.</div>
+  <div id="evidence-banner"></div>
+  <div id="evidence-claims"></div>
+  <div id="evidence-gates"></div>
+
   <!-- ═══ MEASUREMENTS ═══ -->
   <div class="section-label">Measurements — when this system wins</div>
   <div class="section-desc">Out-of-sample, at the LIVE gate, from the replay the engine actually trades. Sessions
@@ -1087,10 +1097,97 @@ async function loadMeasurements() {
   }
 }
 
+// ── EVIDENCE BOARD ─────────────────────────────────────────────
+// The status word is the headline, but `changesTheAnswer` is the field worth reading:
+// it is what stops a claim from being permanent. FVG shipped to the Overview looking
+// tradeable and sat there for hours before anyone measured it; it turned out to be
+// worse than random. This board exists so that cannot happen silently again.
+const CLAIM_COLOUR = {
+  'MEASURED — ROBUST':                 'var(--green)',
+  'MEASURED — NO EDGE':                'var(--dim)',
+  'CANDIDATE — NEEDS WALK-FORWARD':    '#ffb800',
+  'CONTRADICTED — TWO SOURCES DISAGREE':'var(--red)',
+  'BLOCKED — CANNOT MEASURE YET':      '#ffb800',
+  'UNMEASURED':                        'var(--red)',
+};
+const GATE_COLOUR = {
+  'EARNING ITS KEEP':   'var(--green)',
+  'COSTING MONEY':      'var(--red)',
+  'NO MEASURABLE COST': 'var(--dim)',
+  'TOO FEW TO JUDGE':   'var(--dim)',
+};
+
+async function loadEvidence() {
+  const banner = el('evidence-banner'), claimsEl = el('evidence-claims'), gatesEl = el('evidence-gates');
+  try {
+    const d = await getJson('/evidence-board');
+    const claims = d.claims || [];
+
+    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
+      + claims.length + ' curated claims · '
+      + Object.entries(d.claimCounts || {}).map(([k, v]) =>
+          '<span style="color:' + (CLAIM_COLOUR[k] || 'var(--dim)') + '">' + v + ' ' + esc(k.replace(/^.*— /, '')) + '</span>'
+        ).join(' · ') + '</div>';
+
+    claimsEl.innerHTML = claims.map(c => {
+      const colour = CLAIM_COLOUR[c.status] || 'var(--dim)';
+      return '<div style="border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);'
+        + 'border-radius:10px;padding:14px 16px;margin-bottom:10px">'
+        + '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">'
+        + '<span style="font-size:14px;font-weight:600">' + esc(c.title) + '</span>'
+        + '<span style="color:' + colour + ';font-size:11px;font-weight:700;letter-spacing:.05em">'
+        + esc(c.status) + '</span>'
+        + '<span style="font-size:11px;color:var(--dim)">measured ' + esc(c.measuredOn) + '</span>'
+        + (c.feedsTheGate
+            ? '<span style="font-size:10px;color:#ffb800;border:1px solid rgba(255,184,0,.3);border-radius:4px;padding:1px 6px">FEEDS THE GATE</span>'
+            : '') + '</div>'
+        + '<div style="margin-top:8px;font-size:12px;line-height:1.6">' + esc(c.evidence) + '</div>'
+        + (c.caveat ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--dim)">'
+            + '<strong style="color:#ffb800">Caveat:</strong> ' + esc(c.caveat) + '</div>' : '')
+        + (c.changesTheAnswer ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--dim)">'
+            + '<strong style="color:var(--green)">What would change it:</strong> ' + esc(c.changesTheAnswer) + '</div>' : '')
+        + (c.harness ? '<div style="margin-top:8px;font-size:11px;font-family:ui-monospace,monospace;'
+            + 'background:rgba(0,0,0,.25);border-radius:6px;padding:6px 9px;overflow-x:auto;white-space:pre">'
+            + esc(c.harness) + '</div>' : '')
+        + '</div>';
+    }).join('');
+
+    // The live half. These update themselves from the rejection ledger, so they are
+    // labelled as forgone PAPER trades — never realised P&L, and never merged with
+    // performance.
+    const gates = d.gates || {};
+    const rows = Object.entries(gates).map(([name, g]) =>
+      '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + (g.resolved ?? '—') + '</td>'
+      + '<td style="padding:6px 10px;text-align:right">' + (g.wouldHaveWonPct == null ? '—' : g.wouldHaveWonPct + '%') + '</td>'
+      + '<td style="padding:6px 10px;text-align:right">' + rptCell(g.netR) + '</td>'
+      + '<td style="padding:6px 10px;color:' + (GATE_COLOUR[g.verdict] || 'var(--dim)') + '">'
+      + esc(g.verdict || '') + '</td></tr>').join('');
+    gatesEl.innerHTML = !rows ? '' : '<div style="margin:14px 0 22px">'
+      + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per-gate verdicts from the rejection '
+      + 'ledger — forgone PAPER trades with no spread or slippage on entries that were never filled. A '
+      + 'screening signal for which gate to investigate, not realised P&amp;L, and where this contradicts a '
+      + 'walk-forward the walk-forward wins.</div>'
+      + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">gate</th>'
+      + '<th style="padding:6px 10px;text-align:right">resolved</th>'
+      + '<th style="padding:6px 10px;text-align:right">would have won</th>'
+      + '<th style="padding:6px 10px;text-align:right">net R</th>'
+      + '<th style="padding:6px 10px">verdict</th></tr>' + rows + '</table></div></div>';
+  } catch (e) {
+    banner.innerHTML = '';
+    claimsEl.innerHTML = '<div class="empty-state" style="color:var(--red)">Evidence board unavailable — '
+      + esc(e.message) + '</div>';
+    gatesEl.innerHTML = '';
+  }
+}
+
 loadStatus();
 loadGate();
 loadRegistry();
 loadDoctor();
+loadEvidence();
+setInterval(loadEvidence, 600_000);
 loadMeasurements();
 setInterval(loadMeasurements, 600_000);
 loadAiWork();
