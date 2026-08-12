@@ -4400,12 +4400,32 @@ cron.schedule("0 21 * * 0", async () => {
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
   if (closed.length < 5) { console.log("[agent] Not enough trades for improvement analysis"); return; }
 
-  // Find worst setup
+  // Find worst setup.
+  //
+  // NON_SETUP_NAMES excluded, and here it matters more than anywhere else this guard
+  // appears: this cron does not merely REPORT the worst bucket, it writes a proposal
+  // recommending "tighten entry criteria or disable" and reads getLearningBoost() for
+  // it. Without the guard a run of WAIT-named fills could be nominated as the worst
+  // "setup", producing a proposal to disable the ABSENCE of a setup — a recommendation
+  // a human might reasonably act on.
+  //
+  // Nothing is dropped: the skipped rows are counted and travel with the proposal, so
+  // the reader can see that some closed trades were not attributable rather than
+  // wondering why the totals do not add up.
   const bySetup = {};
+  let unattributedClosed = 0;
   for (const t of closed) {
-    const s = t.setup || "UNKNOWN";
+    if (!t.setup || NON_SETUP_NAMES.has(String(t.setup).trim().toUpperCase())) {
+      unattributedClosed++;
+      continue;
+    }
+    const s = t.setup;
     if (!bySetup[s]) bySetup[s] = { wins: 0, losses: 0 };
     if (t.pnl > 0) bySetup[s].wins++; else bySetup[s].losses++;
+  }
+  if (unattributedClosed) {
+    console.warn(`[agent] ${unattributedClosed} closed trade(s) carry no real setup name and were ` +
+      `excluded from the worst-setup search. Their P&L is still in the journal.`);
   }
   let worstSetup = null, worstWR = 1;
   for (const [setup, stats] of Object.entries(bySetup)) {
@@ -4422,7 +4442,13 @@ cron.schedule("0 21 * * 0", async () => {
     winRate: parseFloat((worstWR * 100).toFixed(1)),
     trades: bySetup[worstSetup],
     learningBoost: getLearningBoost(worstSetup),
+    // Carried so the reader can reconcile the totals rather than wonder why closed
+    // trades outnumber the ones behind this verdict.
+    closedConsidered: closed.length - unattributedClosed,
+    closedTotal: closed.length,
+    unattributedClosed,
     recommendation: `${worstSetup} has ${(worstWR * 100).toFixed(1)}% WR — review and tighten entry criteria or disable. Learning engine has already applied ${getLearningBoost(worstSetup)} confidence adjustment.`
+      + (unattributedClosed ? ` (${unattributedClosed} closed trade(s) carry no real setup name and were not considered.)` : "")
   };
 
   const proposalPath = require("path").join(__dirname, "..", "tasks", "improvement_proposal.json");
@@ -6579,10 +6605,21 @@ app.get("/api/fleet-performance", async (_, res) => {
     // Per setup, across whatever population is legitimate. This is the number the
     // learning engine starves for: it needs 5 closed trades in ONE setup bucket before
     // it will act, and no single box is close.
+    // NON_SETUP_NAMES excluded here too. This table is explicitly the one read to judge
+    // how close a setup is to the 5-closed-trade threshold the learning engine needs, so
+    // a phantom bucket does not just look wrong — it makes a non-setup appear to be
+    // approaching the bar, on the one screen that pools BOTH boxes.
+    //
+    // Reported, never dropped: the fleet and per-box totals below still count these
+    // trades, and `unattributed` names them.
     const bySetup = {};
+    const unattributedFleet = [];
     for (const t of all) {
-      const key = t.setup || "UNNAMED";
-      (bySetup[key] = bySetup[key] || []).push(t);
+      if (!t.setup || NON_SETUP_NAMES.has(String(t.setup).trim().toUpperCase())) {
+        unattributedFleet.push(t);
+        continue;
+      }
+      (bySetup[t.setup] = bySetup[t.setup] || []).push(t);
     }
 
     res.json({
@@ -6598,6 +6635,16 @@ app.get("/api/fleet-performance", async (_, res) => {
         ageHours: parityAgeHours === null ? null : +parityAgeHours.toFixed(1),
       } : null,
       fleet: poolStats(all),
+      // Counted in `fleet` and `byBox` above, excluded from bySetup below. Named here so
+      // the two can be reconciled instead of read as a discrepancy.
+      unattributed: {
+        count: unattributedFleet.length,
+        totalPnl: parseFloat(unattributedFleet.reduce((sum, t) => sum + (t.pnl || 0), 0).toFixed(2)),
+        why: "Closed trades whose setup name is missing or is WAIT/NONE/UNKNOWN — the absence "
+           + "of a setup, not a setup. Included in the fleet and per-box totals, excluded from "
+           + "bySetup so nothing counts toward a setup's progress to the 5-trade threshold "
+           + "that did not come from that setup.",
+      },
       byBox: {
         "this box": poolStats(localClosed),
         peer: peerClosed ? poolStats(peerClosed) : null,
