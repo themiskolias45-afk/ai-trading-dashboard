@@ -6254,6 +6254,124 @@ app.get("/api/measurements", (_, res) => {
   res.json(out);
 });
 
+// ── /api/fleet-performance — the whole record, both boxes, POOLED ───────────
+//
+// The binding constraint on this system is sample size, and every surface halves it.
+// Each box journals its OWN fills, so the laptop shows 3 closed trades and the VPS
+// shows 3, and the fleet's actual record of 6 appears nowhere. Doubling the visible
+// evidence changes nothing about the trading and quite a lot about what can be said.
+//
+// POOLING IS GATED ON ENGINE PARITY, and that is not a formality. The standing rule
+// here is that numbers pooling both boxes are unattributable while the engines differ:
+// two boxes running different code admit different trades from identical bars, so
+// their fills are not samples of one thing. If parity is missing, stale or divergent
+// this returns the boxes SEPARATELY and says why, rather than quietly averaging two
+// populations that are not comparable.
+const FLEET_PERF_PARITY_STALE_HOURS = 48;
+
+function poolStats(trades) {
+  const wins = trades.filter(t => t.pnl > 0);
+  const losses = trades.filter(t => t.pnl <= 0);
+  const net = trades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
+  return {
+    closed: trades.length,
+    wins: wins.length,
+    losses: losses.length,
+    winRatePct: trades.length ? +((wins.length / trades.length) * 100).toFixed(1) : null,
+    netPnl: +net.toFixed(2),
+    // Expectancy over six trades is a number, not a fact. It is returned because the
+    // caller will compute it anyway, and withheld from meaning by sampleWarning below.
+    expectancy: trades.length ? +(net / trades.length).toFixed(2) : null,
+  };
+}
+
+app.get("/api/fleet-performance", async (_, res) => {
+  try {
+    const localClosed = tradeJournal
+      .filter(t => t && t.status === "CLOSED" && typeof t.pnl === "number")
+      .map(t => ({ ...t, box: "this box" }));
+
+    let parity = null;
+    try {
+      parity = JSON.parse(fs.readFileSync(
+        path.join(__dirname, "..", "tasks", "logs", "vps_parity_last.json"), "utf8"));
+    } catch (e) { parity = null; }
+    const parityAgeHours = parity && parity.ranAt
+      ? (Date.now() - Date.parse(parity.ranAt)) / 3600000 : null;
+    const enginesAgree = Boolean(parity && parity.verdict === "ENGINES AGREE");
+    const parityFresh = Number.isFinite(parityAgeHours) && parityAgeHours <= FLEET_PERF_PARITY_STALE_HOURS;
+
+    // axios with an explicit 200-only validator, matching probePeer(). A 401 or a 502
+    // parses cleanly as JSON and would otherwise be pooled as if it were a journal.
+    const peerUrl = String(process.env.PEER_SERVER_URL || "").trim().replace(/\/+$/, "");
+    let peerClosed = null, peerError = null;
+    if (peerUrl) {
+      try {
+        const response = await axios.get(peerUrl + "/api/journal?limit=100",
+          { timeout: 8000, validateStatus: (status) => status === 200 });
+        const rows = response.data && response.data.journal;
+        if (Array.isArray(rows)) {
+          peerClosed = rows
+            .filter(t => t && t.status === "CLOSED" && typeof t.pnl === "number")
+            .map(t => ({ ...t, box: "peer" }));
+        } else {
+          peerError = "peer returned no journal array";
+        }
+      } catch (e) {
+        peerError = e.message;
+      }
+    }
+
+    const poolable = enginesAgree && parityFresh && Array.isArray(peerClosed);
+    const all = poolable ? [...localClosed, ...peerClosed] : localClosed;
+
+    // Per setup, across whatever population is legitimate. This is the number the
+    // learning engine starves for: it needs 5 closed trades in ONE setup bucket before
+    // it will act, and no single box is close.
+    const bySetup = {};
+    for (const t of all) {
+      const key = t.setup || "UNNAMED";
+      (bySetup[key] = bySetup[key] || []).push(t);
+    }
+
+    res.json({
+      pooled: poolable,
+      whyNotPooled: poolable ? null
+        : !peerUrl ? "no PEER_SERVER_URL on this box, so the peer cannot be read from here"
+        : peerError ? `peer unreachable: ${peerError}`
+        : !parity ? "engine parity has never been recorded, so the two records are not known to be comparable"
+        : !enginesAgree ? `engine parity says ${parity.verdict} — the boxes admit different trades from identical bars`
+        : `engine parity is ${parityAgeHours.toFixed(1)}h old, past the ${FLEET_PERF_PARITY_STALE_HOURS}h freshness bar`,
+      parity: parity ? {
+        verdict: parity.verdict, ranAt: parity.ranAt,
+        ageHours: parityAgeHours === null ? null : +parityAgeHours.toFixed(1),
+      } : null,
+      fleet: poolStats(all),
+      byBox: {
+        "this box": poolStats(localClosed),
+        peer: peerClosed ? poolStats(peerClosed) : null,
+      },
+      bySetup: Object.fromEntries(Object.entries(bySetup).map(([k, v]) => [k, {
+        ...poolStats(v),
+        boxes: [...new Set(v.map(t => t.box))],
+        // The learning engine's own floor, restated so a reader knows what the number
+        // is short of rather than guessing.
+        towardLearningFloor: `${v.length}/5`,
+      }])),
+      // Said out loud, every time. Six closed trades cannot support a claim about edge,
+      // and a win rate printed without this line invites exactly that claim.
+      sampleWarning: all.length < 30
+        ? `${all.length} closed trades across the fleet. Far too few for any claim about edge — `
+          + "read this as a record of what happened, not as a measurement of what works."
+        : null,
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[fleet-performance]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── /api/cohort-reachability — which cohorts can reach the gate AT ALL ──────
 //
 // The answer to "why does it so rarely trade" is often not that the market is quiet:

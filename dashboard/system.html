@@ -300,6 +300,15 @@
     <div class="empty-state">Running the fleet check…</div>
   </div>
 
+  <!-- ═══ FLEET RECORD ═══ -->
+  <div class="section-label">The whole record — both boxes</div>
+  <div class="section-desc">Each box journals its own fills, so every other surface shows half the evidence. This
+    pools them — but only while engine parity says the two boxes run the same code, because two engines admit
+    different trades from identical bars and their fills are then not samples of one thing. When parity is
+    stale or divergent this refuses to pool and says so.</div>
+  <div id="fleetperf-banner"></div>
+  <div id="fleetperf-body"></div>
+
   <!-- ═══ EVIDENCE BOARD ═══ -->
   <div class="section-label">What this system knows, and what it only assumes</div>
   <div class="section-desc">Every claim carries its verdict, the evidence behind it, its caveat, and — the part that
@@ -1267,10 +1276,83 @@ async function loadEvidence() {
   }
 }
 
+// ── FLEET RECORD ───────────────────────────────────────────────
+// Six closed trades is a record, not a measurement. The sample warning is rendered
+// FIRST and in the same weight as the numbers, because a win rate printed alone
+// invites exactly the claim the sample cannot support.
+async function loadFleetPerf() {
+  const banner = el('fleetperf-banner'), body = el('fleetperf-body');
+  try {
+    const d = await getJson('/fleet-performance');
+    const f = d.fleet || {};
+
+    banner.innerHTML =
+      (d.sampleWarning
+        ? '<div style="border:1px solid rgba(255,184,0,.35);background:rgba(255,184,0,.06);border-radius:8px;'
+          + 'padding:10px 12px;margin-bottom:12px;font-size:12px;color:#ffb800">' + esc(d.sampleWarning) + '</div>'
+        : '')
+      + '<div style="margin:0 0 12px;font-size:13px;color:var(--dim)">'
+      + (d.pooled
+          ? '<span style="color:var(--green);font-weight:600">POOLED</span> — engine parity '
+            + esc(d.parity.verdict) + ', ' + d.parity.ageHours + 'h old'
+          : '<span style="color:var(--red);font-weight:600">NOT POOLED</span> — ' + esc(d.whyNotPooled || ''))
+      + '</div>';
+
+    const row = (label, s, strong) => {
+      if (!s) return '<tr><td style="padding:6px 10px">' + esc(label)
+        + '</td><td colspan="4" style="padding:6px 10px;color:var(--dim)">unavailable</td></tr>';
+      const c = s.netPnl > 0 ? 'var(--green)' : s.netPnl < 0 ? 'var(--red)' : 'var(--dim)';
+      return '<tr' + (strong ? ' style="font-weight:600"' : '') + '>'
+        + '<td style="padding:6px 10px">' + esc(label) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + s.closed + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + s.wins + 'W / ' + s.losses + 'L</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + (s.winRatePct === null ? '—' : s.winRatePct + '%') + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:' + c + '">'
+        + (s.netPnl >= 0 ? '+' : '') + s.netPnl + '</td></tr>';
+    };
+
+    const setups = Object.entries(d.bySetup || {})
+      .sort((a, b) => a[1].netPnl - b[1].netPnl)
+      .map(([name, s]) => {
+        const c = s.netPnl > 0 ? 'var(--green)' : 'var(--red)';
+        return '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + esc(s.towardLearningFloor) + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + s.wins + 'W / ' + s.losses + 'L</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:' + c + '">'
+          + (s.netPnl >= 0 ? '+' : '') + s.netPnl + '</td>'
+          + '<td style="padding:6px 10px;color:var(--dim);font-size:11px">' + esc(s.boxes.join(' + ')) + '</td></tr>';
+      }).join('');
+
+    body.innerHTML =
+      '<div style="overflow-x:auto;margin-bottom:16px"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">scope</th>'
+      + '<th style="padding:6px 10px;text-align:right">closed</th><th style="padding:6px 10px;text-align:right">record</th>'
+      + '<th style="padding:6px 10px;text-align:right">win rate</th><th style="padding:6px 10px;text-align:right">net</th></tr>'
+      + row('FLEET', f, true)
+      + row('this box', d.byBox && d.byBox['this box'])
+      + row('peer', d.byBox && d.byBox.peer)
+      + '</table></div>'
+      + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per setup — the column that matters is '
+      + 'progress toward the learning engine\'s 5-closed-trades floor, which is what it needs in ONE bucket '
+      + 'before it will adjust anything. No single box is close; pooled, two setups are at 2/5.</div>'
+      + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">setup</th>'
+      + '<th style="padding:6px 10px;text-align:right">toward floor</th><th style="padding:6px 10px;text-align:right">record</th>'
+      + '<th style="padding:6px 10px;text-align:right">net</th><th style="padding:6px 10px">seen on</th></tr>'
+      + setups + '</table></div>';
+  } catch (e) {
+    banner.innerHTML = '';
+    body.innerHTML = '<div class="empty-state" style="color:var(--red)">Fleet record unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
 loadStatus();
 loadGate();
 loadRegistry();
 loadDoctor();
+loadFleetPerf();
+setInterval(loadFleetPerf, 300_000);
 loadEvidence();
 setInterval(loadEvidence, 600_000);
 loadMeasurements();
