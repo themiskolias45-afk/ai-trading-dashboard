@@ -90,11 +90,40 @@ if ($tasks.Count -eq 0) {
                 " (previous instance exited $($i.LastTaskResult))"
             } else { '' }
             Add-Check 'tasks' $t.TaskName 'GREEN' "running (started ${ageH}h ago)$prior"
+        } elseif ($t.TaskName -match 'CoverageAudit' -and $i.LastTaskResult -eq 1) {
+            # THIS AUDIT, JUDGING ITSELF. Exit 1 is how this script SAYS SOMETHING IS
+            # RED -- server/ai_work_ledger.js already encodes that as exitOneIsFinding.
+            # The task loop did not, so the first RED it ever reported set its own
+            # LastTaskResult to 1, which it then read back as a crash and reported as a
+            # RED, which made it exit 1 again. A permanent alarm that could never clear,
+            # and the report's one RED line became the audit's own name rather than the
+            # thing actually broken -- burying the finding this audit exists to surface.
+            #
+            # Only rc=1 is exempted, and only for this task. A real crash here (2, or a
+            # PowerShell fault code) still reads RED.
+            Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 1 = a RED finding in its own last report, not a crash)"
         } elseif ($i.LastTaskResult -ne 0 -and $i.LastTaskResult -ne 267009) {
             Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
         } elseif ($null -eq $i.NextRunTime) {
-            # No next run and not running: only a trigger nothing will fire can do this.
-            Add-Check 'tasks' $t.TaskName 'AMBER' "ok ${ageH}h ago but NO next run scheduled - trigger may never fire again"
+            # No next run, and it is not running. The same reasoning the never-run branch
+            # above already applies was missing here, so every boot- and logon-triggered
+            # task that had ever run reported AMBER forever: those triggers have no
+            # scheduled next time by definition, not because they are broken.
+            #
+            # THE FACT THAT IT HAS RUN IS THE EVIDENCE. A logon-triggered task that has
+            # actually fired proves logons happen on this box, which is stronger than
+            # inferring it from [Environment]::UserInteractive -- that reads the session
+            # the AUDIT runs in, not the one the other task runs in.
+            if ($hasBoot) {
+                Add-Check 'tasks' $t.TaskName 'INFO' "ok ${ageH}h ago, boot-triggered - fires again on the next reboot"
+            } elseif ($logonOnly) {
+                # Not silent: logon-only is thin coverage even where it works. It is the
+                # exact shape that left the VPS dead after a reboot, and on a laptop it
+                # never fires on a lid-open. Named as a limitation, not a fault.
+                Add-Check 'tasks' $t.TaskName 'INFO' "ok ${ageH}h ago, LOGON-only - fires again at next logon, and never on lid-open or unlock"
+            } else {
+                Add-Check 'tasks' $t.TaskName 'AMBER' "ok ${ageH}h ago but NO next run scheduled and no boot/logon trigger - nothing will fire it again"
+            }
         } else {
             Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago, next $($i.NextRunTime.ToString('MM-dd HH:mm'))"
         }
