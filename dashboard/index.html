@@ -656,6 +656,20 @@
     <div class="signal-card" id="sig-spx"><div class="sig-loading">Loading S&P500 signal…</div></div>
   </div>
 
+  <!-- The economic week. 74 events were fetched from ForexFactory every run and
+       rendered on none of the eight dashboards, so "is CPI in twenty minutes" was a
+       question this system could answer internally and never showed anyone. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Economic Calendar</div>
+      <span id="cal-next" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="cal-warn"></div>
+      <div id="cal-body" style="font-size:.75rem;color:var(--muted)">reading the calendar…</div>
+    </div>
+  </div>
+
   <!-- Bottom panels -->
   <div class="bottom-grid">
     <div class="panel">
@@ -943,20 +957,6 @@
       <div id="ctl-detail" style="font-size:.7rem;color:var(--muted);flex:1;min-width:200px">
         Halts new entries only. Open positions keep their stops and targets and are still managed.
       </div>
-    </div>
-  </div>
-
-  <!-- The economic week. 74 events were fetched from ForexFactory every run and
-       rendered on none of the eight dashboards, so "is CPI in twenty minutes" was a
-       question this system could answer internally and never showed anyone. -->
-  <div class="panel" style="margin-bottom:16px">
-    <div class="panel-header">
-      <div class="panel-title">Economic Calendar</div>
-      <span id="cal-next" style="font-size:.68rem;color:var(--muted)">loading…</span>
-    </div>
-    <div class="panel-body" style="max-height:none">
-      <div id="cal-warn"></div>
-      <div id="cal-body" style="font-size:.75rem;color:var(--muted)">reading the calendar…</div>
     </div>
   </div>
 
