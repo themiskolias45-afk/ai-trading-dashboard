@@ -1,6 +1,12 @@
-// Would EXCLUDING a trading session have improved the book, out of sample?
+// Would EXCLUDING a slice have improved the book, out of sample?
 //
-//   node tasks/session_walkforward.cjs [projRoot]
+//   node tasks/session_walkforward.cjs [projRoot]                 fold by SESSION
+//   node tasks/session_walkforward.cjs [projRoot] --by setup      fold by SETUP
+//
+// The slice differs; the question does not, which is why this is one tool and not two.
+// "Is BUY_OVERSOLD worth keeping" and "is OVERLAP worth excluding" are the same
+// arithmetic over a different grouping, and duplicating the harness would let the two
+// answers drift apart while both kept printing R/trade as if they meant the same thing.
 //
 // WHY THIS AND NOT THE HEAT MAP
 // tasks/time_heatmap.cjs says OVERLAP is -0.641R/trade and PRE-LONDON +1.399 at the
@@ -30,7 +36,13 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const ROOT = process.argv[2] || path.join(__dirname, "..");
+const ROOT = process.argv[2] && !process.argv[2].startsWith("--")
+  ? process.argv[2] : path.join(__dirname, "..");
+
+// What to slice by. Anything other than "setup" folds by session, so a typo degrades
+// to the default rather than silently measuring nothing.
+const BY_INDEX = process.argv.indexOf("--by");
+const SLICE_BY = BY_INDEX !== -1 && process.argv[BY_INDEX + 1] === "setup" ? "setup" : "session";
 
 const ASSETS = [
   ["XAUUSD", "GC=F"],
@@ -156,11 +168,21 @@ const incompleteBanner = failedAssets.length ? [
 if (incompleteBanner) console.error(incompleteBanner);
 
 all.sort((a, b) => a.t - b.t);
-const dated = all.map(t => ({ ...t, session: sessionOf(t.t) })).filter(t => t.session);
+// `slice` is whichever dimension is being folded. Folding by session still requires a
+// readable timestamp; folding by setup does not, so a trade with no setup name is
+// dropped instead of being pooled into a phantom bucket.
+const dated = SLICE_BY === "setup"
+  ? all.filter(t => t.setup).map(t => ({ ...t, slice: t.setup }))
+  : all.map(t => ({ ...t, slice: sessionOf(t.t) })).filter(t => t.slice);
 if (!dated.length) {
-  console.error("session-walkforward: no trade carried a readable timestamp — refusing to report");
+  console.error(`session-walkforward: no trade carried a readable ${SLICE_BY} — refusing to report`);
   process.exit(3);
 }
+// Fold by every slice actually present, in a stable order. For sessions that is the
+// declared list; for setups it is whatever the engine produced.
+const SLICE_NAMES = SLICE_BY === "setup"
+  ? [...new Set(dated.map(t => t.slice))].sort()
+  : SESSIONS.map(([name]) => name);
 
 /**
  * For one population, fold it and ask of each session: what happens to R/trade if
@@ -171,17 +193,17 @@ function analyse(rows, label) {
   const foldCount = rows.length >= FOLDS_FULL * MIN_CLOSED_PER_FOLD ? FOLDS_FULL
                   : rows.length >= FOLDS_THIN * MIN_CLOSED_PER_FOLD ? FOLDS_THIN : 0;
   const baseline = stat(rows);
-  const out = { label, trades: rows.length, foldCount, baseline, sessions: [] };
+  const out = { label, trades: rows.length, foldCount, baseline, slices: [] };
   if (!foldCount) return out;
 
   const folds = foldsOf(rows, foldCount);
-  for (const [name] of SESSIONS) {
-    const own = rows.filter(t => t.session === name);
+  for (const name of SLICE_NAMES) {
+    const own = rows.filter(t => t.slice === name);
     if (!own.length) continue;
 
     const perFold = folds.map(fold => {
       const withAll = stat(fold);
-      const without = stat(fold.filter(t => t.session !== name));
+      const without = stat(fold.filter(t => t.slice !== name));
       return {
         closed: withAll.closed,
         removed: withAll.closed - without.closed,
@@ -193,10 +215,10 @@ function analyse(rows, label) {
     });
     const scored = perFold.filter(f => f.delta !== null && f.closed >= MIN_CLOSED_PER_FOLD && f.removed > 0);
     const improved = scored.filter(f => f.delta > 0).length;
-    const withoutAll = stat(rows.filter(t => t.session !== name));
+    const withoutAll = stat(rows.filter(t => t.slice !== name));
 
-    out.sessions.push({
-      session: name,
+    out.slices.push({
+      slice: name,
       own: { closed: own.length, wr: +stat(own).wr.toFixed(1), rpt: +stat(own).rpt.toFixed(3) },
       pooledDelta: +(withoutAll.rpt - baseline.rpt).toFixed(4),
       perFold: perFold.map((f, i) => ({
@@ -208,7 +230,7 @@ function analyse(rows, label) {
       verdict: verdictOf(scored.length, improved),
     });
   }
-  out.sessions.sort((a, b) => b.pooledDelta - a.pooledDelta);
+  out.slices.sort((a, b) => b.pooledDelta - a.pooledDelta);
   return out;
 }
 
@@ -242,11 +264,11 @@ for (const view of [atFloor, atGate]) {
     lines.push("  Three folds is weak evidence and cannot clear this project's 5-of-5 bar.");
   }
   lines.push("");
-  lines.push("  session        own n   own R/t   pooled delta   folds improved   verdict");
+  lines.push("  " + SLICE_BY.toUpperCase().padEnd(20) + "own n   own R/t   pooled delta   folds improved   verdict");
   lines.push("  " + "-".repeat(W - 4));
-  for (const s of view.sessions) {
+  for (const s of view.slices) {
     lines.push(
-      "  " + s.session.padEnd(14) +
+      "  " + String(s.slice).padEnd(20) +
       String(s.own.closed).padStart(6) +
       ((s.own.rpt >= 0 ? "+" : "") + s.own.rpt.toFixed(3)).padStart(10) +
       ((s.pooledDelta >= 0 ? "+" : "") + s.pooledDelta.toFixed(4)).padStart(15) +
