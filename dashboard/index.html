@@ -946,6 +946,26 @@
     </div>
   </div>
 
+  <!-- Why nothing fired. This page could show a signal, a confidence and a mode, and
+       still not answer the only question anyone actually asks of it: why did nothing
+       trade. This system has three closed fills in its entire life, so where each
+       candidate DIED is the most useful thing on the screen.
+
+       Two different sources sit side by side on purpose. Kill counts say a gate is
+       FIRING and reset on every server restart, so they carry their window. The ledger
+       verdict says whether rejecting there COST money, is all-time, and is built from
+       forgone PAPER trades on entries that were never filled. Merging them would
+       produce a number that means neither thing. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Why Nothing Fired</div>
+      <span id="gf-window" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="gf-body" style="font-size:.75rem;color:var(--muted)">reading the gate funnel…</div>
+    </div>
+  </div>
+
   <!-- Strategy settings. Confidence was a literal 65 in three places in
        server/index.js; slots and the daily trade cap did not exist at all. -->
   <div class="panel" style="margin-bottom:16px">
@@ -3904,6 +3924,95 @@ async function loadTrust() {
 
 loadTrust();
 setInterval(loadTrust, TRUST_REFRESH_MS);
+
+// ── WHY NOTHING FIRED ──────────────────────────────────────────
+// Kill counts and ledger verdicts answer two different questions and are shown as
+// two columns for that reason. "This gate is firing" and "this gate should have
+// fired" are not the same claim, and a single blended number would state neither.
+const GATE_LEDGER_COLOUR = {
+  "EARNING ITS KEEP":   "var(--green)",
+  "COSTING MONEY":      "var(--red)",
+  "NO MEASURABLE COST": "var(--muted)",
+  "TOO FEW TO JUDGE":   "var(--muted)",
+};
+
+function humanAge(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "unknown";
+  const m = Math.round(ms / 60000);
+  if (m < 60) return m + "m";
+  const h = m / 60;
+  return h < 48 ? h.toFixed(1) + "h" : (h / 24).toFixed(1) + "d";
+}
+
+async function loadGateFunnel() {
+  const body = document.getElementById("gf-body");
+  const win  = document.getElementById("gf-window");
+  if (!body) return;
+  try {
+    // The evidence half is optional: it is a separate ledger and may be unavailable
+    // on a box that has never scored a rejection. Its absence must not blank the
+    // funnel, which is the part that answers today's question.
+    const [health, evidence] = await Promise.all([
+      fetch(API + "/gate-health", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(API + "/rejection-evidence", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+    if (!health || !health.gates) {
+      body.innerHTML = '<span style="color:var(--red)">Gate funnel unavailable.</span>';
+      win.textContent = "";
+      return;
+    }
+
+    const sinceMs = Date.parse(health.since);
+    win.textContent = "counts since server start · " + humanAge(Date.now() - sinceMs) + " ago";
+
+    const rows = Object.entries(health.gates)
+      .map(([name, g]) => ({ name, killed: g.killed || 0, passed: g.passed || 0 }))
+      .sort((a, b) => (b.killed - a.killed) || (b.passed - a.passed));
+
+    const ev = (evidence && evidence.gates) || {};
+    const anyActivity = rows.some(r => r.killed || r.passed);
+
+    body.innerHTML =
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.72rem">'
+      + '<tr style="color:var(--muted);text-align:left">'
+      + '<th style="padding:5px 8px">gate</th>'
+      + '<th style="padding:5px 8px;text-align:right">killed</th>'
+      + '<th style="padding:5px 8px;text-align:right">passed</th>'
+      + '<th style="padding:5px 8px;text-align:right">ledger n</th>'
+      + '<th style="padding:5px 8px;text-align:right">net R</th>'
+      + '<th style="padding:5px 8px">was rejecting right?</th></tr>'
+      + rows.map(r => {
+          const e = ev[r.name];
+          const dim = r.killed === 0 && r.passed === 0;
+          const netR = e && typeof e.netR === "number" ? e.netR : null;
+          return '<tr style="opacity:' + (dim ? ".45" : "1") + '">'
+            + '<td style="padding:5px 8px">' + escapeHtml(r.name) + '</td>'
+            + '<td style="padding:5px 8px;text-align:right;color:' + (r.killed ? "var(--red)" : "var(--muted)") + '">' + r.killed + '</td>'
+            + '<td style="padding:5px 8px;text-align:right;color:' + (r.passed ? "var(--green)" : "var(--muted)") + '">' + r.passed + '</td>'
+            + '<td style="padding:5px 8px;text-align:right;color:var(--muted)">' + (e ? e.resolved : "—") + '</td>'
+            + '<td style="padding:5px 8px;text-align:right;color:'
+              + (netR === null ? "var(--muted)" : netR > 0 ? "var(--red)" : "var(--green)") + '">'
+              + (netR === null ? "—" : (netR >= 0 ? "+" : "") + netR.toFixed(2)) + '</td>'
+            + '<td style="padding:5px 8px;color:' + (e ? (GATE_LEDGER_COLOUR[e.verdict] || "var(--muted)") : "var(--muted)") + '">'
+              + escapeHtml(e ? e.verdict : "not scored") + '</td></tr>';
+        }).join("")
+      + '</table></div>'
+      + (anyActivity ? "" :
+          '<div style="margin-top:8px;color:var(--muted)">No candidate has reached a gate since the server '
+          + 'started. That is a quiet market or a fresh restart, not a broken gate.</div>')
+      + '<div style="margin-top:8px;color:var(--muted);line-height:1.6">'
+      + '<strong>killed / passed</strong> reset on every server restart — read them with the window above, '
+      + 'never as all-time. <strong>net R</strong> is the rejection ledger: forgone PAPER trades on entries '
+      + 'that were never filled, no spread and no slippage, so a POSITIVE net R means the gate threw away '
+      + 'setups that would have paid. It is a screening signal for which gate to investigate, not realised '
+      + 'P&amp;L — where it contradicts a walk-forward, the walk-forward wins.</div>';
+  } catch (e) {
+    body.innerHTML = '<span style="color:var(--red)">Gate funnel unavailable — ' + escapeHtml(e.message) + '</span>';
+    win.textContent = "";
+  }
+}
+loadGateFunnel();
+setInterval(loadGateFunnel, 60_000);
 
 setInterval(loadPrices,    REFRESH_MS);
 setInterval(loadSignals,   60_000);
