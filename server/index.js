@@ -6213,7 +6213,25 @@ app.get("/api/measurements", (_, res) => {
       if (key === "timeHeatmap") {
         entry.atGateTrades = raw.basis && raw.basis.atGateTrades;
         entry.entryHoursUtc = raw.basis && raw.basis.entryHoursUtc;
+        entry.minClosedPerCell = raw.basis && raw.basis.minClosedPerCell;
         entry.sessions = (raw.atLiveGate && raw.atLiveGate.session) || {};
+        // The grid itself, both populations. At the live gate most cells are under the
+        // per-cell floor, so the floor population is served alongside it — without that
+        // the grid is nearly empty and reads as "no data" rather than "too thin to
+        // score", which are different statements.
+        entry.grid = {
+          atGate: {
+            blockByDay: (raw.atLiveGate && raw.atLiveGate.blockByDay) || {},
+            block: (raw.atLiveGate && raw.atLiveGate.block) || {},
+            day: (raw.atLiveGate && raw.atLiveGate.day) || {},
+          },
+          atFloor: {
+            blockByDay: (raw.atConfFloor && raw.atConfFloor.blockByDay) || {},
+            block: (raw.atConfFloor && raw.atConfFloor.block) || {},
+            day: (raw.atConfFloor && raw.atConfFloor.day) || {},
+          },
+          confFloor: raw.basis && raw.basis.confFloor,
+        };
       } else {
         const view = raw.atLiveGate || {};
         entry.baseline = view.baseline && view.baseline.rpt;

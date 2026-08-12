@@ -317,6 +317,7 @@
     fold count, not the pooled number: with this many cells you should expect one or two to look strong by
     chance, and this project's bar for changing a gate is 5 of 5 folds.</div>
   <div id="measure-banner"></div>
+  <div id="measure-heatmap"></div>
   <div id="measure-sessions"></div>
   <div id="measure-folds"></div>
 
@@ -1045,6 +1046,88 @@ function foldTable(m, title) {
     + rows + '</table></div></div>';
 }
 
+// Six rows, not twenty-four. Entries are taken on H4 bars, so a trade can only open at
+// 00/04/08/12/16/20 UTC — an hourly grid would be eighteen structurally empty columns
+// presented as data, which invents a question the engine cannot answer.
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const HEAT_BLOCK_SESSION = { 0: 'ASIAN', 4: 'ASIAN', 8: 'PRE-LONDON', 12: 'OVERLAP', 16: 'NEW YORK', 20: 'AFTER HOURS' };
+let heatPopulation = 'atGate';   // toggled by the buttons below
+
+// Fixed thresholds, not relative to the current data: a relative scale would repaint
+// the same numbers differently as the sample grows, so two visits would disagree.
+function heatCell(cell, minClosed) {
+  if (!cell || !cell.closed) {
+    return { bg: 'rgba(255,255,255,.02)', fg: 'var(--dim)', label: '·', title: 'no trades' };
+  }
+  const thin = cell.closed < minClosed;
+  const r = cell.rpt;
+  const title = cell.closed + ' trades · ' + cell.wr.toFixed(1) + '% win · '
+    + (r >= 0 ? '+' : '') + r.toFixed(3) + 'R/trade' + (thin ? ' · too thin to score' : '');
+  if (thin) return { bg: 'rgba(255,255,255,.04)', fg: 'var(--dim)', label: '~', title };
+  const a = Math.min(Math.abs(r) / 0.5, 1) * 0.5 + 0.12;
+  return {
+    bg: r >= 0 ? 'rgba(0,255,136,' + a.toFixed(2) + ')' : 'rgba(255,68,68,' + a.toFixed(2) + ')',
+    fg: '#fff',
+    label: (r >= 0 ? '+' : '') + r.toFixed(2),
+    title,
+  };
+}
+
+function renderHeatmap(hm) {
+  const host = el('measure-heatmap');
+  if (!hm || !hm.available || !hm.grid) {
+    host.innerHTML = '<div class="empty-state">Heat map not run on this box.<br>'
+      + '<span style="font-family:ui-monospace,monospace;font-size:11px">'
+      + esc((hm && hm.command) || 'node tasks/time_heatmap.cjs') + '</span></div>';
+    return;
+  }
+  const pop = hm.grid[heatPopulation] || hm.grid.atGate;
+  const minClosed = hm.minClosedPerCell || 8;
+  const hours = (hm.entryHoursUtc || [0, 4, 8, 12, 16, 20]);
+  const days = [1, 2, 3, 4, 5, 0, 6].filter(d => pop.day && pop.day[d]);
+
+  const head = '<tr><th style="padding:6px 8px;font-size:11px;color:var(--dim);text-align:left">UTC</th>'
+    + days.map(d => '<th style="padding:6px 8px;font-size:11px;color:var(--dim)">' + DAY_NAMES[d] + '</th>').join('')
+    + '<th style="padding:6px 8px;font-size:11px;color:var(--dim);text-align:right">block</th></tr>';
+
+  const rows = hours.map(h => {
+    const cells = days.map(d => {
+      const c = heatCell(pop.blockByDay[h + '|' + d], minClosed);
+      return '<td title="' + esc(c.title) + '" style="padding:0 3px 3px 0">'
+        + '<div style="background:' + c.bg + ';color:' + c.fg + ';border-radius:5px;padding:9px 4px;'
+        + 'text-align:center;font-size:11px;font-weight:600;min-width:52px">' + c.label + '</div></td>';
+    }).join('');
+    const tot = pop.block[h];
+    return '<tr><td style="padding:6px 8px;font-size:11px;color:var(--dim);white-space:nowrap">'
+      + String(h).padStart(2, '0') + 'h <span style="opacity:.6">' + (HEAT_BLOCK_SESSION[h] || '') + '</span></td>'
+      + cells
+      + '<td style="padding:6px 8px;text-align:right;font-size:11px;white-space:nowrap">'
+      + (tot ? 'n=' + tot.closed + '  ' + ((tot.rpt >= 0 ? '+' : '') + tot.rpt.toFixed(3)) : '—')
+      + '</td></tr>';
+  }).join('');
+
+  const btn = (key, label) => '<button data-heatpop="' + key + '" style="cursor:pointer;font-size:11px;'
+    + 'padding:4px 10px;border-radius:6px;border:1px solid ' + (heatPopulation === key ? 'rgba(0,255,136,.4)' : 'rgba(255,255,255,.15)')
+    + ';background:' + (heatPopulation === key ? 'rgba(0,255,136,.1)' : 'transparent')
+    + ';color:' + (heatPopulation === key ? 'var(--green)' : 'var(--dim)') + '">' + label + '</button>';
+
+  host.innerHTML = '<div style="margin:10px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + btn('atGate', 'At the live gate (' + hm.atGateTrades + ')')
+    + btn('atFloor', 'All setups, conf ≥ ' + hm.grid.confFloor + ' (' + hm.totalTrades + ')')
+    + '<span style="font-size:11px;color:var(--dim)">R/trade per cell · hover for detail · '
+    + hm.ageHours + 'h old</span></div>'
+    + '<div style="overflow-x:auto"><table style="border-collapse:collapse">' + head + rows + '</table></div>'
+    + '<div style="font-size:11px;color:var(--dim);margin-top:6px">'
+    + 'green = positive, red = negative, intensity by size · <strong>~</strong> = under '
+    + minClosed + ' trades, no verdict · <strong>·</strong> = no trades. '
+    + 'Six rows because entries are H4 bar opens — no trade can start at any other hour.</div>';
+
+  host.querySelectorAll('[data-heatpop]').forEach(b => b.addEventListener('click', () => {
+    heatPopulation = b.getAttribute('data-heatpop');
+    renderHeatmap(hm);
+  }));
+}
+
 async function loadMeasurements() {
   const banner = el('measure-banner'), sess = el('measure-sessions'), folds = el('measure-folds');
   try {
@@ -1060,6 +1143,8 @@ async function loadMeasurements() {
         + esc(incomplete[0].failedAssets.join(', ')) + ' produced no trades. Every number below '
         + 'describes the remaining assets only.</div>'
       : '';
+
+    renderHeatmap(hm);
 
     if (hm && hm.available) {
       const order = ['ASIAN', 'PRE-LONDON', 'LONDON', 'OVERLAP', 'NEW YORK', 'AFTER HOURS'];
