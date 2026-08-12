@@ -133,17 +133,59 @@ const CLAIMS = [
     feedsTheGate: true,
   },
   {
+    // The proposal this settles came from the AI employee, not a human, and it was
+    // right about the individual trade while being wrong about the population. Both
+    // halves are recorded deliberately: dropping the first would read as the agent
+    // being unreliable, and dropping the second would license the change.
+    id: "regimeveto",
+    title: "Veto RANGE_TRADE_SHORT when regime is RANGING",
+    status: STATUS.MEASURED_NO_EDGE,
+    measuredOn: "2026-08-12",
+    evidence: "Proposed by the VPS weekly review of 2026-08-09. Year-split cross-tab of "
+      + "the MTF replay, 2022-07 to 2026-07. At conf floor 40 the cell is 23 closed, "
+      + "30.4% WR, −0.150R/trade — but only 2023 (n=8) clears the 8-trade-per-year "
+      + "floor, and 2022 (+0.353) and 2024 (+0.286) are POSITIVE, so the pooled "
+      + "negative is essentially one year. At the live gate (conf ≥ 70) the population "
+      + "a veto would actually change is ONE closed trade, in 2022, which WON (+1.56R).",
+    caveat: "The review named this exact risk itself — n is thin and short-side bans are "
+      + "usually bull-sample bias — so the proposal fails its own stated test. Two things "
+      + "still stand and neither licenses the change: it named the trade that closed "
+      + "−$99.10 two days before it closed, and the rejection ledger has this setup at "
+      + "0W/12L, the only setup on the board with zero wins. It also cited −13.59R over "
+      + "24 closed where the MTF replay gives −3.5R over 23 — comparable n, very "
+      + "different R — so its headline number came off a different replay path and it "
+      + "never named the harness. Per the MTF/single-timeframe split, the "
+      + "_replay_engine.cjs population is not the one the live gate trades.",
+    changesTheAnswer: "Sample at the gate. The at-gate population is n=1; a verdict there "
+      + "needs enough trades to score more than one year. Re-run the harness as closed "
+      + "fills accumulate. A candidate would have to be negative in EVERY scorable year "
+      + "at the gate, not merely negative when pooled.",
+    harness: "node tasks/regime_xtab.cjs",
+    feedsTheGate: false,
+  },
+  {
     id: "liveconfig",
     title: "Live config expectancy",
     status: STATUS.UNMEASURED,
-    measuredOn: "2026-07-28",
-    evidence: "One closed fill in the system's entire life (−$449.72, BB_SQUEEZE_WATCH) "
-      + "across 119 sessions. Win rate, calibration and per-setup edge all rest on n=1.",
+    measuredOn: "2026-08-12",
+    evidence: "Three closed fills in the system's entire life across 154 server "
+      + "sessions: −$449.72 (BB_SQUEEZE_WATCH), −$99.10 (RANGE_TRADE_SHORT) and "
+      + "+$135.91, gross −$412.91, expectancy −$137.64/trade. Two positions are open. "
+      + "Win rate, calibration and per-setup edge still rest on n=3, which is one trade "
+      + "per setup — below the 5-trade floor the learning engine itself requires before "
+      + "it will act.",
     caveat: "The 2026-07-28 decision to trade a measured-negative edge in order to feed "
-      + "the learning engine was deliberate and informed. It has produced one trade — "
-      + "the sample it was meant to generate has not arrived.",
+      + "the learning engine was deliberate and informed. Two of the three closes only "
+      + "arrived because reconciliation was repaired on 2026-08-11; before that they sat "
+      + "OPEN indefinitely. The single WIN is not in learning.json at all — its setup "
+      + "name was recorded as \"WAIT\", which updateLearning refuses to attribute rather "
+      + "than invent a bucket for, so the learning engine's own record reads 0W/2L while "
+      + "the journal reads 1W/2L. Any calibration claim must say which of the two it "
+      + "means.",
     changesTheAnswer: "Sample. The rejection ledger is the only route that produces it "
-      + "without funding the experiment.",
+      + "without funding the experiment. This claim's numbers must be re-read from "
+      + "get_performance whenever it is cited — it has been stale before, stating n=1 "
+      + "and 119 sessions long after both had moved.",
     feedsTheGate: true,
   },
 ];
