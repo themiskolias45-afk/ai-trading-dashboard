@@ -440,6 +440,122 @@ function checkAiCapacity() {
   }
 }
 
+// ── the market-hour jobs ────────────────────────────────────────────────────
+//
+// Two scheduled jobs now run on market time: the post-close analysis at 21:30 UTC and
+// the pre-open plan at a slot computed nightly. Nothing watched either of them, and the
+// history of this fleet is jobs that stop silently — VPS AutoTrading was off for 11
+// days behind green checks, the peer heartbeat 401'd for a week, the weekly review sat
+// unread for three days. A scheduled job with no health check is decoration.
+//
+// Checked through ARTIFACTS and LOGS rather than the Task Scheduler, deliberately.
+// schtasks output is localised and the two boxes are in different locales — %date%
+// already differs between them — so parsing status text would work here and quietly
+// mis-parse there. An artifact with a timestamp inside it means the job actually
+// COMPLETED, which is the thing worth knowing; a task reporting "Ready" does not.
+const DEEP_PLAN_STALE_HOURS = 26;     // one daily cycle plus slack for a missed run
+const PREOPEN_DRIFT_MINUTES = 5;      // trigger vs computed slot; below this is rounding
+
+// `root` is a parameter purely so the branches below can be exercised against a scratch
+// directory. A check that has never been seen to FIRE is not a verified check, and this
+// one only fires on a day something has already gone wrong.
+function checkMarketJobs(root = ROOT) {
+  const planFile = path.join(root, "tasks", "analysis", "deep-plan-latest.json");
+
+  let plan = null;
+  try {
+    plan = JSON.parse(fs.readFileSync(planFile, "utf8"));
+  } catch (e) {
+    finding("AMBER", "local", "no deep plan has ever been built on this box",
+      "the pre-open document and its Telegram message are the only daily statement of what "
+      + "the gate would need, what the calendar blocks and where the levels are",
+      "node tasks\\deep_plan.cjs",
+      ["node", [path.join(root, "tasks", "deep_plan.cjs")]]);
+    return;
+  }
+
+  const age = ageHours(Date.parse(plan.generatedAt));
+  if (!Number.isFinite(age)) {
+    finding("AMBER", "local", "the deep plan carries no readable generatedAt",
+      "its age cannot be judged, so a stale plan would look current",
+      "node tasks\\deep_plan.cjs");
+  } else if (age > DEEP_PLAN_STALE_HOURS) {
+    finding("AMBER", "local", `deep plan is ${human(age)} old`,
+      "the post-close job has not completed since then, so this morning's levels, blackouts "
+      + "and distance-to-fire all describe a session that has already happened",
+      "powershell -File tasks\\postclose_analysis.ps1",
+      ["powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                      path.join(root, "tasks", "postclose_analysis.ps1")]]);
+  }
+
+  // Did the last post-close run finish clean? Its own last line carries the count.
+  try {
+    const lines = fs.readFileSync(path.join(root, "tasks", "logs", "postclose_analysis.txt"), "utf8")
+      .split(/\r?\n/).filter(Boolean);
+    const lastDone = [...lines].reverse().find(l => l.includes("POST-CLOSE ANALYSIS DONE"));
+    const failed = lastDone && /- (\d+) failed/.exec(lastDone);
+    if (failed && Number(failed[1]) > 0) {
+      finding("AMBER", "local", `last post-close analysis had ${failed[1]} failed harness(es)`,
+        "the walk-forward and heat-map artifacts the morning plan reads may be stale or partial, "
+        + "and a partial table reads exactly like a complete one",
+        "powershell -File tasks\\postclose_analysis.ps1");
+    }
+  } catch (e) { /* no log yet is covered by the artifact check above */ }
+
+  // THE CHECK THAT MATTERS. The pre-open job is triggered by the Task Scheduler, but the
+  // slot it SHOULD fire at is recomputed nightly from the calendar. If the rescheduler
+  // failed, the trigger sits at yesterday's time — which is a deliberate failure mode
+  // (late beats never) but becomes invisible unless something compares the two. On the
+  // day this was built the computed slot moved to 11:45 because PPI blacked out
+  // 12:00-13:00, the exact hour the job exists to prepare for.
+  const slot = plan.preOpenSlot;
+  if (!slot || !slot.at) return;
+
+  let moved = null;
+  try {
+    const lines = fs.readFileSync(path.join(root, "tasks", "logs", "reschedule_preopen.txt"), "utf8")
+      .split(/\r?\n/).filter(Boolean);
+    moved = [...lines].reverse().find(l => /moved '|no move needed|NO CHANGE/.test(l)) || null;
+  } catch (e) { moved = null; }
+
+  if (!moved) {
+    finding("AMBER", "local", "the pre-open trigger has never been reconciled with the computed slot",
+      "the job may fire inside a news blackout — the hour before the open is exactly when a "
+      + "high-impact release is most likely to sit",
+      "powershell -File tasks\\reschedule_preopen.ps1",
+      ["powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                      path.join(root, "tasks", "reschedule_preopen.ps1")]]);
+    return;
+  }
+
+  if (/NO CHANGE/.test(moved)) {
+    finding("AMBER", "local", "the last attempt to move the pre-open trigger failed",
+      "the trigger is left at its previous time by design, so the plan still runs — but it "
+      + "may now fire inside a blackout: " + moved.slice(0, 120),
+      "powershell -File tasks\\reschedule_preopen.ps1",
+      ["powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                      path.join(root, "tasks", "reschedule_preopen.ps1")]]);
+    return;
+  }
+
+  // The rescheduler ran, but was it for THIS plan? A move recorded before the current
+  // plan was built was computed from yesterday's calendar.
+  const movedAt = /^\[([\d-]+ [\d:]+)\]/.exec(moved);
+  if (movedAt && Date.parse(movedAt[1].replace(" ", "T") + "Z") < Date.parse(plan.generatedAt)) {
+    finding("AMBER", "local", "the pre-open trigger was last set before the current plan was built",
+      "it was computed from an older calendar, so today's blackouts have not been applied to it",
+      "powershell -File tasks\\reschedule_preopen.ps1",
+      ["powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                      path.join(root, "tasks", "reschedule_preopen.ps1")]]);
+  }
+
+  if (slot.confident === false) {
+    finding("INFO", "local", "the pre-open slot was not chosen from a clean calendar read",
+      slot.reason || "the calendar could not be read, or every candidate slot was blacked out",
+      "check /api/calendar, then: node tasks\\deep_plan.cjs");
+  }
+}
+
 function checkBackup() {
   const file = path.join(ROOT, "tasks", "logs", "backup_log.txt");
   try {
@@ -590,6 +706,7 @@ async function diagnose() {
   checkParity(Boolean(peer));
   checkAgentQueue();
   checkAiCapacity();
+  checkMarketJobs();
   checkBackup();
   checkLearningIntegrity();
 
@@ -662,4 +779,4 @@ if (require.main === module) {
 // checkPeerViaHeartbeat is exported for testing. On a healthy fleet it produces NO
 // findings, which is indistinguishable from never having run — so it needs to be
 // callable with a deliberately wrong gate to prove it evaluates at all.
-module.exports = { diagnose, checkPeerViaHeartbeat, _findings: () => findings, _reset: () => { findings = []; } };
+module.exports = { diagnose, checkPeerViaHeartbeat, checkMarketJobs, _findings: () => findings, _reset: () => { findings = []; } };
