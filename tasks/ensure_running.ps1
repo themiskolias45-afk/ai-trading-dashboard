@@ -48,8 +48,12 @@ $IsInteractive = [Environment]::UserInteractive
 $TUNNEL_LOCAL_PORT = 3002
 $SERVER_URL        = 'http://localhost:3001/api/signals'
 $SERVER_TIMEOUT_S  = 6
-# The server needs a moment before it answers; only used to label the log line.
-$SERVER_SETTLE_S   = 8
+# The server needs a moment before it answers. This is a real wait, not a label:
+# $serverUp gates the bridge start below, so declaring the server down too early
+# leaves open positions with no bridge. Polled, because a cold boot took 15s on
+# 2026-08-12 and a flat 8s sleep missed it by 3 seconds.
+$SERVER_SETTLE_TIMEOUT_S = 45
+$SERVER_SETTLE_POLL_S    = 3
 # A bridge reports every 60s. Three missed reports is dead, not merely slow.
 $BRIDGE_STALE_S    = 180
 # A bridge needs ~30s to connect to MT5 and post its first heartbeat. Until then it
@@ -165,10 +169,14 @@ if ($serverUp) {
     Start-Process -FilePath 'cmd' `
         -ArgumentList '/c', 'cd server && node index.js >> ..\tasks\logs\server_log.txt 2>&1' `
         -WorkingDirectory $Proj -WindowStyle Minimized
-    Start-Sleep -Seconds $SERVER_SETTLE_S
-    $serverUp = Test-ServerUp
-    if ($serverUp) { Write-Log 'SERVER: up' }
-    else { Write-Log 'SERVER: still not answering -- see tasks\logs\server_log.txt' }
+    $waited = 0
+    while (-not $serverUp -and $waited -lt $SERVER_SETTLE_TIMEOUT_S) {
+        Start-Sleep -Seconds $SERVER_SETTLE_POLL_S
+        $waited += $SERVER_SETTLE_POLL_S
+        $serverUp = Test-ServerUp
+    }
+    if ($serverUp) { Write-Log "SERVER: up (answered after ${waited}s)" }
+    else { Write-Log "SERVER: still not answering after ${waited}s -- see tasks\logs\server_log.txt" }
 }
 
 #  3. Bridges A and B
