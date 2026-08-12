@@ -49,6 +49,10 @@ const PARITY_STALE_HOURS  = 24;
 const BACKUP_STALE_HOURS  = 26;
 const BRIDGE_STALE_SEC    = 180;
 const BREAKER_WARN_AT     = 2;   // of 3 — one more loss halts the box
+// The position cache is bridge-populated and reads EMPTY for roughly a minute after a
+// server restart, which looks identical to every position ghosting at once. Below this
+// uptime, an empty broker list is treated as "not filled yet" rather than a fault.
+const POSITION_CACHE_WARM_MS = 120000;
 
 function get(url) {
   return new Promise(resolve => {
@@ -112,12 +116,13 @@ async function checkBox(label, base, isLocal) {
     return null;
   }
 
-  const [settings, risk, healer, work, positions] = await Promise.all([
+  const [settings, risk, healer, work, positions, journal] = await Promise.all([
     get(base + "/api/strategy-settings"),
     get(base + "/api/risk-status"),
     get(base + "/api/healer"),
     get(base + "/api/ai-work"),
     get(base + "/api/mt5/positions"),
+    get(base + "/api/journal?limit=100"),
   ]);
 
   // The worst state this system can be in, and nothing anywhere reported it. A stop
@@ -202,6 +207,57 @@ async function checkBox(label, base, isLocal) {
       finding("AMBER", label, `${totals.proposalsWithBrokenRefs} proposal(s) cite things that do not resolve`,
         "sound reasoning earns trust that bad citations spend — these cannot be followed as written",
         "node tasks/ai_decide.cjs --list  and check the citations block before acting");
+    }
+  }
+
+  // Does what this box BELIEVES match what the broker actually holds?
+  //
+  // This is the failure class with the longest history here and nothing was watching
+  // it. A -$441.84 loss once sat in the journal as OPEN forever because the close
+  // never reached it, and a separate bug asked MT5 for history 22 seconds after launch,
+  // got nothing, and never asked again — that one hid the first WIN this system ever
+  // had until reconciliation was repaired. Both were found by hand, long after.
+  //
+  // GHOST and ORPHAN are opposite faults and get different remedies:
+  //   GHOST  journal says open, broker does not — the trade CLOSED and the record
+  //          never learned. Its P&L is missing and the learning engine never sees the
+  //          outcome, which is exactly the -441.84 case.
+  //   ORPHAN broker holds a position the journal does not know — nothing in this
+  //          system is managing it: no trailing, no partial, no journal entry when it
+  //          finally closes.
+  //
+  // GUARDED, because a false RED here is expensive. The position cache is
+  // bridge-populated, so for roughly a minute after a restart the broker list reads
+  // EMPTY while the journal still shows opens — which looks exactly like every
+  // position ghosting at once. The check therefore stays silent while the server is
+  // young or the cache has not been filled yet.
+  const journalRows = (journal.data && journal.data.journal) || [];
+  const journalOpen = journalRows.filter(t => t && t.status === "OPEN" && t.ticket);
+  const startedAt = status.data && status.data.startedAt ? Date.parse(status.data.startedAt) : null;
+  const uptimeMs = startedAt ? Date.now() - startedAt : null;
+  const cacheWarm = open.length > 0 || (Number.isFinite(uptimeMs) && uptimeMs > POSITION_CACHE_WARM_MS);
+
+  if (journalRows.length && cacheWarm) {
+    const brokerTickets = new Set(open.map(p => String(p.ticket)));
+    const journalTickets = new Set(journalOpen.map(t => String(t.ticket)));
+    const ghosts = journalOpen.filter(t => !brokerTickets.has(String(t.ticket)));
+    const orphans = open.filter(p => !journalTickets.has(String(p.ticket)));
+
+    if (ghosts.length) {
+      finding("RED", label, `${ghosts.length} position(s) OPEN in the journal that the broker does not hold`,
+        ghosts.map(t => `#${t.ticket} ${t.symbol} ${t.direction}`).join(", ")
+        + " — these closed and the journal never recorded it, so their P&L is missing from "
+        + "the record and the learning engine will never see the outcome",
+        "check MT5 history for those tickets and let reconciliation re-run, then confirm "
+        + "they appear CLOSED in server/journal.json");
+    }
+    if (orphans.length) {
+      finding("RED", label, `${orphans.length} broker position(s) the journal does not know about`,
+        orphans.map(p => `#${p.ticket} ${p.symbol} ${p.type} ${p.volume} lot`).join(", ")
+        + " — nothing in this system is managing these: no trailing, no partial, and no "
+        + "journal entry when they close",
+        "confirm whether these were opened outside SmartEntry; if they are ours, the "
+        + "journal write on fill did not land");
     }
   }
 
