@@ -946,6 +946,20 @@
     </div>
   </div>
 
+  <!-- The economic week. 74 events were fetched from ForexFactory every run and
+       rendered on none of the eight dashboards, so "is CPI in twenty minutes" was a
+       question this system could answer internally and never showed anyone. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Economic Calendar</div>
+      <span id="cal-next" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="cal-warn"></div>
+      <div id="cal-body" style="font-size:.75rem;color:var(--muted)">reading the calendar…</div>
+    </div>
+  </div>
+
   <!-- How far each asset is from firing, and whether its cohort could fire at all.
        The funnel below explains where a candidate DIED; this explains why most never
        form. Both numbers come from the server — the gate from /api/strategy-settings
@@ -4148,6 +4162,102 @@ async function loadDistanceToFire() {
 }
 loadDistanceToFire();
 setInterval(loadDistanceToFire, 60_000);
+
+// ── ECONOMIC CALENDAR ──────────────────────────────────────────
+// Ordered by what a trader actually needs: what is NEXT, then the rest of today, then
+// the remaining week. Times are UTC because every other clock in this system is, and
+// the two boxes sit in different timezones — a local-time calendar would read
+// differently on each machine for the same event.
+const IMPACT_COLOUR = { high: 'var(--red)', medium: 'var(--yellow, #eab308)', low: 'var(--muted)' };
+
+function whenText(mins) {
+  if (mins >= 0) {
+    if (mins < 60) return 'in ' + mins + 'm';
+    if (mins < 1440) return 'in ' + Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm';
+    return 'in ' + Math.floor(mins / 1440) + 'd';
+  }
+  const a = Math.abs(mins);
+  if (a < 60) return a + 'm ago';
+  if (a < 1440) return Math.floor(a / 60) + 'h ago';
+  return Math.floor(a / 1440) + 'd ago';
+}
+
+function calRow(e) {
+  const colour = IMPACT_COLOUR[String(e.impact).toLowerCase()] || 'var(--muted)';
+  const soon = e.minutesFromNow >= 0 && e.minutesFromNow <= 60 && e.high && e.watched;
+  return '<tr style="' + (soon ? 'background:rgba(239,68,68,.08)' : '') + '">'
+    + '<td style="padding:4px 8px;white-space:nowrap;color:var(--muted)">'
+      + escapeHtml(e.at.slice(11, 16)) + '</td>'
+    + '<td style="padding:4px 8px;white-space:nowrap">' + escapeHtml(e.country) + '</td>'
+    + '<td style="padding:4px 8px;color:' + colour + ';font-weight:' + (e.high ? '700' : '400') + '">'
+      + escapeHtml(e.impact) + '</td>'
+    + '<td style="padding:4px 8px">' + escapeHtml(e.title) + '</td>'
+    + '<td style="padding:4px 8px;text-align:right;color:var(--muted);white-space:nowrap">'
+      + whenText(e.minutesFromNow) + '</td>'
+    + '<td style="padding:4px 8px;text-align:right;color:var(--muted);white-space:nowrap">'
+      + (e.forecast ? 'fc ' + escapeHtml(e.forecast) : '') + '</td></tr>';
+}
+
+async function loadCalendar() {
+  const body = document.getElementById('cal-body');
+  const nextEl = document.getElementById('cal-next');
+  const warn = document.getElementById('cal-warn');
+  if (!body) return;
+  try {
+    const d = await getJson('/calendar');
+    const events = d.events || [];
+    if (!events.length) {
+      nextEl.textContent = '';
+      body.innerHTML = 'No calendar events loaded. The feed is fetched hourly from ForexFactory.';
+      return;
+    }
+
+    nextEl.textContent = d.next
+      ? 'next high-impact: ' + d.next.title + ' (' + d.next.country + ') ' + whenText(d.next.minutesFromNow)
+      : 'no high-impact ' + (d.watchedCountries || []).join('/') + ' events left this week';
+
+    // The panel must not imply protection the system is not providing. newsFilter
+    // reports enabled while isNewsBlackout() filters on a field the feed does not have,
+    // so it has never blocked a trade — saying so here is the whole point of showing
+    // the calendar next to a switch that claims to act on it.
+    warn.innerHTML = d.blackoutFieldBug
+      ? '<div style="border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.06);'
+        + 'border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:.7rem;color:var(--red)">'
+        + 'News filter reports <strong>' + (d.newsFilterEnabled ? 'ENABLED' : 'disabled')
+        + '</strong> but does not block: ' + escapeHtml(d.blackoutFieldBug) + '</div>'
+      : '';
+
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    const today = events.filter(e => e.at.slice(0, 10) === todayUtc);
+    const laterHigh = events.filter(e => e.at.slice(0, 10) > todayUtc && e.high);
+
+    const table = rows => '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.7rem">'
+      + '<tr style="color:var(--muted);text-align:left"><th style="padding:4px 8px">UTC</th>'
+      + '<th style="padding:4px 8px">ccy</th><th style="padding:4px 8px">impact</th>'
+      + '<th style="padding:4px 8px">event</th><th style="padding:4px 8px;text-align:right">when</th>'
+      + '<th style="padding:4px 8px;text-align:right">forecast</th></tr>'
+      + rows + '</table></div>';
+
+    body.innerHTML =
+      '<div style="margin-bottom:6px;color:var(--muted)">Today (' + todayUtc + ' UTC) — '
+        + today.length + ' event(s), ' + today.filter(e => e.high).length + ' high impact</div>'
+      + (today.length ? table(today.map(calRow).join('')) : '<div style="color:var(--muted)">nothing scheduled today</div>')
+      + (laterHigh.length
+          ? '<div style="margin:12px 0 6px;color:var(--muted)">Rest of the week — high impact only</div>'
+            + table(laterHigh.map(calRow).join(''))
+          : '')
+      + '<div style="margin-top:8px;color:var(--muted);line-height:1.6">'
+      + 'All times UTC — the two boxes are in different timezones, so a local-time calendar '
+      + 'would show the same event at two different clock readings. Rows highlighted red are '
+      + 'high-impact ' + (d.watchedCountries || []).join('/') + ' events inside the next hour.</div>';
+  } catch (e) {
+    nextEl.textContent = '';
+    warn.innerHTML = '';
+    body.innerHTML = '<span style="color:var(--red)">Calendar unavailable — ' + escapeHtml(e.message) + '</span>';
+  }
+}
+loadCalendar();
+setInterval(loadCalendar, 5 * 60_000);
 
 setInterval(loadPrices,    REFRESH_MS);
 setInterval(loadSignals,   60_000);

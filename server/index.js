@@ -4190,6 +4190,62 @@ app.post("/api/features/:name/toggle", requireLocalOnly, (req, res) => {
   res.json({ feature: name, enabled: features[name] });
 });
 
+// ── /api/calendar — the economic week, which was fetched and never shown ──
+//
+// 74 events are pulled from ForexFactory every run and appear on NONE of the eight
+// dashboards. /api/newsfilter returns only a COUNT, and /api/daily-plan buries today's
+// high-impact rows inside a larger payload. For a system trading Gold and the dollar,
+// "what is coming and when" is not decoration.
+//
+// Uses ev.country, which is the field the feed actually has. There is no `currency`
+// field on any of the 74 events — a detail that matters far more than this endpoint,
+// because isNewsBlackout() reads ev.currency and therefore never matches anything. That
+// is REPORTED here as blackoutFieldBug rather than fixed silently: repairing it changes
+// what trades, and that is not a reporting endpoint's decision to make.
+app.get("/api/calendar", (_, res) => {
+  try {
+    const WATCHED = ["USD", "XAU"];
+    const now = Date.now();
+
+    const rows = newsCache.map(ev => {
+      const at = Date.parse(ev.date);
+      if (!Number.isFinite(at)) return null;      // a row with no readable time is not a plan
+      const country = String(ev.country ?? "").toUpperCase();
+      return {
+        title: ev.title,
+        country,
+        impact: ev.impact || "Unknown",
+        at: new Date(at).toISOString(),
+        minutesFromNow: Math.round((at - now) / 60000),
+        forecast: ev.forecast || null,
+        previous: ev.previous || null,
+        high: String(ev.impact || "").toLowerCase() === "high",
+        watched: WATCHED.includes(country),
+      };
+    }).filter(Boolean).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+
+    const highWatched = rows.filter(r => r.high && r.watched);
+    res.json({
+      total: rows.length,
+      events: rows,
+      next: rows.find(r => r.minutesFromNow >= 0 && r.high && r.watched) || null,
+      highImpactWatched: highWatched.length,
+      watchedCountries: WATCHED,
+      newsFilterEnabled: features.newsFilter,
+      // Stated plainly so nobody reads "newsFilter: true" as protection.
+      blackoutFieldBug: "isNewsBlackout() filters on ev.currency, a field this feed does "
+        + "not have (0 of " + newsCache.length + " events carry it); the field is "
+        + "ev.country. The blackout therefore never fires, and newsFilter reports enabled "
+        + "while doing nothing. Not fixed here because it changes what trades.",
+      feedsTheGate: false,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("[calendar]", e.message);
+    res.status(500).json({ error: e.message, events: [] });
+  }
+});
+
 // News blackout status (used by MT5 bridge before placing orders)
 app.get("/api/newsfilter", (_, res) => {
   const status = isNewsBlackout();
