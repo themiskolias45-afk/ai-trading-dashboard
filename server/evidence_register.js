@@ -155,7 +155,11 @@ const CLAIMS = [
       + "24 closed where the MTF replay gives −3.5R over 23 — comparable n, very "
       + "different R — so its headline number came off a different replay path and it "
       + "never named the harness. Per the MTF/single-timeframe split, the "
-      + "_replay_engine.cjs population is not the one the live gate trades.",
+      + "_replay_engine.cjs population is not the one the live gate trades. Its four "
+      + "cited line numbers are all wrong on both boxes (generateSignalMTF is at 1565, "
+      + "not 1413), but the script it told you to run, tasks/_regime_xtab.cjs, is REAL "
+      + "and lives on the VPS — an earlier note here called it fabricated on the "
+      + "strength of a broken directory check.",
     changesTheAnswer: "Sample at the gate. The at-gate population is n=1; a verdict there "
       + "needs enough trades to score more than one year. Re-run the harness as closed "
       + "fills accumulate. A candidate would have to be negative in EVERY scorable year "

@@ -6,8 +6,11 @@
 // The VPS weekly review of 2026-08-09 proposed vetoing RANGE_TRADE_SHORT whenever
 // regime is RANGING, and named its own precondition: n=24 is thin, short-side bans
 // are usually bull-sample bias, so split by year AND setup and ship only if it stays
-// negative across years. It prescribed `tasks/_regime_xtab.cjs` — a file that has
-// never existed on either box. This is that check, actually written.
+// negative across years. It prescribed `tasks/_regime_xtab.cjs`, which exists on the
+// VPS but not on this box, and which slices a PRECOMPUTED parallel_analysis fact pack
+// rather than generating its own population. This is the self-contained version: it
+// drives the MTF replay itself, so it needs no fact pack, and it splits the conf-floor
+// population from the at-gate one — the distinction the proposal turns on.
 //
 // The proposal deserves the work: it named journal trade XAUUSD RANGE_TRADE_SHORT in
 // RANGING (opened 2026-08-07) as the week's weakness two days before that trade closed

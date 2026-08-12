@@ -3,17 +3,22 @@
  * Does a proposal's evidence actually exist?
  *
  * The VPS weekly review of 2026-08-09 proposed a real change for real reasons and
- * called a −$99.10 loss two days before it closed. Every concrete reference it gave
- * you was fiction: it said to run `tasks/_regime_xtab.cjs`, which has never existed on
- * either box, and put generateSignalMTF() at index.js:1413 (really 1565), regime at
- * :1698 (1867), finalSetup at :1714 (1883) and generateSignal() at :833 (985). All
- * four line numbers are wrong on BOTH boxes — the files are line-aligned, so this is
- * not fleet drift.
+ * called a −$99.10 loss two days before it closed. Then it put generateSignalMTF() at
+ * index.js:1413 (really 1565), regime at :1698 (1867), finalSetup at :1714 (1883) and
+ * generateSignal() at :833 (985) — all four wrong on BOTH boxes, which are
+ * line-aligned, so this is not fleet drift.
  *
- * That combination is the expensive one. Sound reasoning earns trust and the citations
- * then spend it: anyone following those instructions runs a missing script and edits a
- * line that is not the one described. Finding this out took a manual investigation,
- * which is precisely the work a machine should be doing.
+ * It also told you to run `tasks/_regime_xtab.cjs`. That one is REAL: it exists on the
+ * VPS, dated 2026-07-31, and is simply absent from the laptop. The first pass of this
+ * investigation called it fabricated on the strength of a malformed `dir` that failed
+ * for an unrelated reason and reported "none". So the review cited four bad line
+ * numbers and one perfectly good box-local path, and a human reading it fast got that
+ * ratio backwards.
+ *
+ * That is the whole argument for doing this mechanically. Sound reasoning earns trust
+ * that the citations then spend, and checking them by hand produces its own errors in
+ * both directions — a real file called missing is as costly as a missing one called
+ * real, because it discredits a proposal that deserved acting on.
  *
  * So: the same move that turned the trading gates from opinion into evidence. Log the
  * claim, check it, publish the verdict. A proposal whose references do not resolve is
