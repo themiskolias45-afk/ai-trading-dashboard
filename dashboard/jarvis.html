@@ -1666,7 +1666,17 @@ function showToast(msg) {
 // ══════════════════════════════════════════
 async function loadLearning() {
   try {
-    const learning = await fetch("/api/learning").then(r => r.json());
+    // Through the page's own getJson, which this call was bypassing. A 401 body parses
+    // cleanly, so `learning?.setupStats || {}` turned an auth failure into "nothing
+    // learned so far" — the one message that looks identical to this system's real
+    // state, and so could never be noticed.
+    const learnRes = await getJson("/api/learning");
+    if (learnRes.authError || learnRes.offline) {
+      document.getElementById("learn-box").innerHTML =
+        `<div class="learn-empty">${learnRes.authError ? "Not logged in — cannot read the learning engine." : "Learning engine unreachable."}</div>`;
+      return;
+    }
+    const learning = learnRes.data;
     const stats = learning?.setupStats || {};
     const entries = Object.entries(stats);
     const box = document.getElementById("learn-box");
@@ -1716,7 +1726,15 @@ function closeSettings() { document.getElementById("settings-overlay").classList
 
 async function loadSettings() {
   try {
-    const s = await fetch("/api/settings").then(r => r.json());
+    const settingsRes = await getJson("/api/settings");
+    if (settingsRes.authError || settingsRes.offline) {
+      // Without this a 401 renders every key as UNSET, which reads as "nothing is
+      // configured" — the opposite of the truth, on the panel used to configure it.
+      setFieldStatus("st-anthropic", null, "in-anthropic");
+      alert(settingsRes.authError ? "Not logged in — settings cannot be read." : "Settings unreachable.");
+      return;
+    }
+    const s = settingsRes.data;
     setFieldStatus("st-anthropic", s.anthropicKey, "in-anthropic");
     setFieldStatus("st-openai",    s.openaiKey,    "in-openai");
     setFieldStatus("st-tgtoken",   s.telegramToken,"in-tgtoken");
@@ -1810,7 +1828,13 @@ function closeHermes() { document.getElementById("hermes-overlay").classList.rem
 
 async function loadHermes() {
   try {
-    const d = await fetch("/api/hermes").then(r => r.json());
+    const hermesRes = await getJson("/api/hermes");
+    if (hermesRes.authError || hermesRes.offline) {
+      document.getElementById("hermes-inception").textContent =
+        hermesRes.authError ? "Not logged in — Hermes cannot be read." : "Hermes unreachable.";
+      return;
+    }
+    const d = hermesRes.data;
     renderHermesPulse(d.pulse);
     renderHermesDuel(d);
     renderHermesLeaderboard(d.leaderboard);

@@ -374,7 +374,17 @@ function renderHealth(alerts) {
 
 async function loadPlan() {
   try {
-    const plan = await fetch(BASE + '/api/daily-plan').then(r => r.json());
+    // r.ok, not just a successful parse. A 401 returns valid JSON, so without this
+    // `plan.date` is undefined and the header renders "Daily Plan — undefined" with
+    // every level blank: a plan that looks generated and is not. The single existing
+    // check on this page was already doing exactly this for screenshots, forty lines
+    // below — the pattern was known here and simply not applied to the data call.
+    const response = await fetch(BASE + '/api/daily-plan', { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error('daily-plan -> HTTP ' + response.status
+        + (response.status === 401 ? ' (log in first)' : ''));
+    }
+    const plan = await response.json();
 
     // Date bar
     document.getElementById('plan-date').textContent = 'Daily Plan — ' + plan.date;
