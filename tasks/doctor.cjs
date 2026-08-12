@@ -292,6 +292,75 @@ function checkLearningIntegrity() {
 }
 
 /**
+ * The peer as seen through its own HEARTBEAT, for the box that cannot reach it.
+ *
+ * This asymmetry is real and not an oversight: the laptop sets PEER_SERVER_URL and
+ * pulls the VPS, but the laptop is not reachable from the internet, so the VPS can
+ * never pull back. Left there, the doctor on the box that TRADES was single-box —
+ * exactly the one-box blindness this tool exists to end. The laptop already pushes a
+ * 5-minute heartbeat carrying its gate, breaker, bridges and unreviewed proposals, so
+ * the information was arriving and being ignored.
+ *
+ * Everything here is therefore AS OF the last check-in, and its age is stated on every
+ * finding: a heartbeat is a claim about the past, and treating it as live state is how
+ * a dead box looks healthy.
+ */
+async function checkPeerViaHeartbeat(localGate) {
+  const res = await get("http://localhost:3001/api/peer-heartbeat");
+  if (res.error || !res.data || !Array.isArray(res.data.peers)) return;
+  if (!res.data.peers.length) {
+    finding("AMBER", "peer", "no peer has ever checked in",
+      "this box cannot reach the peer directly and has received no heartbeat either, so " +
+      "the other half of the fleet is entirely unobserved from here",
+      "confirm the peer is running and that its monitor is pointed at this box");
+    return;
+  }
+
+  for (const peer of res.data.peers) {
+    const box = `peer ${peer.box || ""}`.trim();
+    const age = Number(peer.ageSeconds);
+    const asOf = Number.isFinite(age) ? `as of ${Math.round(age / 60)}m ago` : "age unknown";
+
+    // 15 minutes is the standing staleness bar for this channel. Past it, the absence
+    // of news is not good news.
+    if (Number.isFinite(age) && age > 15 * 60) {
+      finding("RED", box, `heartbeat silent for ${Math.round(age / 60)}m`,
+        "this box cannot poll the peer, so the heartbeat is the ONLY evidence it is alive; " +
+        "silence here is indistinguishable from the peer being down",
+        "check the peer is running and that its monitor task is still scheduled");
+      continue;                       // everything below would be stale beyond use
+    }
+
+    const state = peer.state || {};
+    if (state.halted) {
+      finding("RED", box, `TRADING HALTED — ${state.haltReason || "circuit breaker open"} (${asOf})`,
+        "the peer is taking no new trades", "review the losses, then reset the breaker deliberately");
+    }
+    if (state.settingsError) {
+      finding("RED", box, `running on BUILT-IN DEFAULTS (${asOf})`,
+        `settingsError: ${state.settingsError}. The peer's gate and sizing are not what its ` +
+        "saved config says", "fix or restore strategy_settings.json on the peer, then restart it");
+    }
+    if (Array.isArray(state.bridgesSilent) && state.bridgesSilent.length) {
+      finding("RED", box, `bridge(s) silent: ${state.bridgesSilent.join(", ")} (${asOf})`,
+        "a silent bridge means the peer is not trading and not managing its open positions",
+        "on the peer: powershell -File tasks\\ensure_running.ps1");
+    }
+    if (Number.isFinite(localGate) && Number.isFinite(state.gate) && state.gate !== localGate) {
+      finding("RED", "fleet", `confidence gate DIFFERS: this box=${localGate} vs ${peer.box}=${state.gate} (${asOf})`,
+        "the two boxes admit different trades from the same bars; pooled performance numbers " +
+        "are meaningless until this is reconciled",
+        "set both to the intended gate in each box's server/strategy_settings.json");
+    }
+    if (state.unreviewedProposals > 0) {
+      finding("AMBER", box, `${state.unreviewedProposals} AI proposal(s) nobody has decided (${asOf})`,
+        "an agent whose correct call goes unread costs exactly what a failing agent costs",
+        "on the peer: node tasks/ai_decide.cjs --list");
+    }
+  }
+}
+
+/**
  * Run every check and return the findings, worst first. The ONLY entry point: the CLI
  * below and server/index.js both call this, so the terminal and the dashboard can
  * never drift into disagreeing about the fleet's state.
@@ -304,6 +373,13 @@ async function diagnose() {
 
   const seen = [];
   for (const [label, base, isLocal] of boxes) seen.push([label, await checkBox(label, base, isLocal)]);
+
+  // No PEER_SERVER_URL means this box cannot pull the other one. Fall back to what the
+  // peer pushes, rather than reporting on half a fleet and calling it a fleet check.
+  if (!peer) {
+    const local = seen[0] && seen[0][1];
+    await checkPeerViaHeartbeat(local && local.settings && local.settings.confidenceThreshold);
+  }
 
   // Cross-box comparison. A gate mismatch means the two boxes admit different trades
   // from identical bars and their journals cannot be pooled — the single most
@@ -387,4 +463,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { diagnose };
+// checkPeerViaHeartbeat is exported for testing. On a healthy fleet it produces NO
+// findings, which is indistinguishable from never having run — so it needs to be
+// callable with a deliberately wrong gate to prove it evaluates at all.
+module.exports = { diagnose, checkPeerViaHeartbeat, _findings: () => findings, _reset: () => { findings = []; } };
