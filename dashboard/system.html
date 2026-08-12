@@ -1388,13 +1388,32 @@ async function loadLearning() {
     const realTotal = Object.values(real).reduce((a, s) => a + (s.wins || 0) + (s.losses || 0), 0);
     const shadowTotal = Object.values(shadow).reduce((a, s) => a + (s.episodes || 0), 0);
 
+    const rec = d.reconciliation, un = d.unattributed;
     banner.innerHTML = '<div style="margin:0 0 12px;font-size:13px;color:var(--dim)">'
       + '<span style="color:' + (realTotal >= 5 ? 'var(--green)' : '#ffb800') + ';font-weight:600">'
       + realTotal + ' real closed fills</span> across ' + Object.keys(real).length + ' setup(s)'
       + ' · <span style="color:var(--dim)">' + shadowTotal + ' shadow episodes across '
       + Object.keys(shadow).length + '</span>'
       + (d.shadow ? ' · shadow generated ' + esc(String(d.shadow.generatedAt).slice(0, 16)) : '')
-      + ' · session ' + d.sessionCount + '</div>';
+      + ' · session ' + d.sessionCount + '</div>'
+      // The gap between the journal and what the engine can learn from. Without this
+      // the engine reads 0 wins while the system's only WIN sits in the journal, and
+      // anything calibrating off setupStats alone is skewed pessimistic with no sign.
+      + (un && un.count ? '<div style="border:1px solid rgba(255,184,0,.35);background:rgba(255,184,0,.06);'
+        + 'border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px">'
+        + '<div style="color:#ffb800;font-weight:600;margin-bottom:4px">'
+        + rec.closedFills + ' closed fills — the engine can learn from ' + rec.attributedToSetups
+        + ', and is refusing ' + un.count
+        + ' (' + un.wins + 'W / ' + un.losses + 'L, net ' + (un.netPnl >= 0 ? '+' : '') + un.netPnl + ')</div>'
+        + '<div style="color:var(--dim);line-height:1.6">'
+        + un.fills.map(f => esc(f.symbol) + ' ' + esc(f.direction) + ' '
+            + (f.pnl >= 0 ? '+' : '') + f.pnl + ' — conf ' + f.confidence + ' ' + esc(f.strength || '')
+            + ' ' + esc(f.regime || '') + ', recorded as "' + esc(f.recordedSetup) + '"').join('<br>')
+        + '<br><br>' + esc(un.why) + '</div></div>' : '')
+      + (rec && !rec.complete ? '<div style="color:var(--red);font-size:12px;margin-bottom:10px">'
+        + 'RECONCILIATION FAILED — ' + rec.closedFills + ' closed fills but '
+        + (rec.attributedToSetups + rec.unattributed) + ' accounted for. Some fill is neither '
+        + 'learned from nor listed as refused.</div>' : '');
 
     const names = [...new Set([...Object.keys(real), ...Object.keys(shadow)])].sort();
     if (!names.length) {

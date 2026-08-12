@@ -4015,14 +4015,64 @@ app.get("/api/learning", (_, res) => {
       console.error(`[learning] shadow evidence unreadable (${shadowError.message})`);
     }
 
+    // The fills the engine is REFUSING to attribute, stated instead of merely absent.
+    //
+    // updateLearning() will not put a trade under a name like "WAIT", and that refusal
+    // is right: inventing a bucket is worse than admitting a gap, and a phantom setup
+    // reaching 5 trades would start adjusting live confidence using the pooled result
+    // of unrelated trades. But the SILENCE was wrong. setupStats reads 0 wins and 2
+    // losses while the journal holds 3 closed fills including the only WIN this system
+    // has ever had (+135.91, 2026-08-05), so anything calibrating off setupStats alone
+    // is skewed pessimistic and cannot tell that a win exists.
+    //
+    // Checked before writing this: the name is genuinely unrecoverable. The bridge log
+    // for that fill reads "Gold/XAUUSD - MODERATE BUY (WAIT)" at the moment of
+    // execution, so the setup arrived as WAIT in the signal payload itself rather than
+    // being lost at journalling. There is nothing to recover and nothing to guess.
+    //
+    // So it is REPORTED, not attributed. Nothing is written to learning.json, no bucket
+    // is created, and getLearningBoost() is untouched — a reader can now see the whole
+    // record and which part of it the engine is allowed to learn from.
+    const unattributedFills = tradeJournal.filter(t =>
+      t && t.status === "CLOSED" && typeof t.pnl === "number" &&
+      (!t.setup || NON_SETUP_NAMES.has(String(t.setup).trim().toUpperCase())));
+    const attributedCount = Object.values(learning.setupStats)
+      .reduce((sum, s) => sum + (s.wins || 0) + (s.losses || 0), 0);
+    const closedFills = tradeJournal.filter(t =>
+      t && t.status === "CLOSED" && typeof t.pnl === "number").length;
+
     res.json({
       setupStats: summary,
       sessionCount: learning.sessionCount,
       updatedAt: learning.updatedAt,
       shadow,
+      unattributed: {
+        count: unattributedFills.length,
+        wins: unattributedFills.filter(t => t.pnl > 0).length,
+        losses: unattributedFills.filter(t => t.pnl <= 0).length,
+        netPnl: +unattributedFills.reduce((sum, t) => sum + t.pnl, 0).toFixed(2),
+        fills: unattributedFills.map(t => ({
+          symbol: t.symbol, direction: t.direction, pnl: t.pnl,
+          openTime: t.openTime, confidence: t.confidence, strength: t.strength,
+          regime: t.regime, recordedSetup: t.setup || null,
+        })),
+        why: "updateLearning refuses to attribute a fill to a name that means "
+           + "\"there was no setup\". The name is not recoverable for these: the bridge "
+           + "log shows the setup already arrived as WAIT in the signal payload, so it "
+           + "was never produced rather than lost. Reported here so the record is "
+           + "complete; nothing is written and no bucket is invented.",
+      },
+      // The one number that says whether the engine can see the whole record.
+      reconciliation: {
+        closedFills,
+        attributedToSetups: attributedCount,
+        unattributed: unattributedFills.length,
+        complete: closedFills === attributedCount + unattributedFills.length,
+      },
     });
   } catch (e) {
-    res.json({ setupStats: {}, sessionCount: 0, updatedAt: null, shadow: null });
+    res.json({ setupStats: {}, sessionCount: 0, updatedAt: null, shadow: null,
+               unattributed: null, reconciliation: null });
   }
 });
 
