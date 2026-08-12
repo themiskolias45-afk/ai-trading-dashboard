@@ -418,6 +418,58 @@
       .price-strip,.charts-grid,.bottom-grid,.perf-stats-grid,.mode-grid,.circuit-grid,.perf-two-col { grid-template-columns:1fr; }
       .bt-grid { grid-template-columns:1fr; }
     }
+    /* ── ECONOMIC CALENDAR ──────────────────────────────────────
+       Built as classes rather than inline styles so it uses the page's own tokens and
+       stays consistent if those change. The colour carries meaning and nothing else:
+       red is reserved for high-impact events in the markets this system trades, and a
+       low-impact JPY print is deliberately grey no matter how many there are. */
+    .cal-hero { display:flex; align-items:center; gap:14px; padding:12px 14px; border-radius:8px;
+                border:1px solid var(--border2); background:var(--bg); margin-bottom:12px; flex-wrap:wrap; }
+    .cal-hero.imminent { border-color:rgba(239,68,68,.5); background:rgba(239,68,68,.07); }
+    .cal-hero.soon     { border-color:rgba(234,179,8,.45); background:rgba(234,179,8,.06); }
+    .cal-hero-clock { font-size:1.5rem; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; }
+    .cal-hero.imminent .cal-hero-clock { color:var(--red); }
+    .cal-hero.soon     .cal-hero-clock { color:var(--yellow); }
+    .cal-hero-title { font-size:.9rem; font-weight:700; }
+    .cal-hero-sub   { font-size:.68rem; color:var(--muted); margin-top:2px; }
+
+    .cal-status { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:6px;
+                  font-size:.7rem; margin-bottom:12px; border:1px solid transparent; }
+    .cal-status.on   { border-color:rgba(34,197,94,.3);  background:rgba(34,197,94,.06);  color:var(--green); }
+    .cal-status.off  { border-color:rgba(234,179,8,.35);  background:rgba(234,179,8,.06);  color:var(--yellow); }
+    .cal-status.bad  { border-color:rgba(239,68,68,.35);  background:rgba(239,68,68,.06);  color:var(--red); }
+
+    .cal-day { font-size:.62rem; text-transform:uppercase; letter-spacing:.12em; color:var(--muted);
+               margin:14px 0 6px; display:flex; align-items:center; gap:10px; }
+    .cal-day::after { content:''; flex:1; height:1px; background:var(--border); }
+
+    .cal-table { width:100%; border-collapse:collapse; font-size:.72rem; }
+    .cal-table td { padding:7px 8px; border-bottom:1px solid rgba(26,34,53,.6); vertical-align:middle; }
+    .cal-table tr:last-child td { border-bottom:none; }
+    .cal-table tr.past td { opacity:.42; }
+    /* The only row treatment that shouts. A high-impact event in a traded market inside
+       the next hour is the one thing on this panel that should change a decision. */
+    .cal-table tr.imminent td { background:rgba(239,68,68,.09); }
+    .cal-time { font-variant-numeric:tabular-nums; color:var(--muted); white-space:nowrap; width:52px; }
+    .cal-when { font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap; color:var(--muted); width:74px; }
+    .cal-fc   { text-align:right; white-space:nowrap; color:var(--muted); font-size:.66rem; }
+    .cal-title { font-weight:500; }
+    .cal-table tr.high .cal-title { font-weight:700; color:var(--text); }
+
+    .cal-ccy { display:inline-block; min-width:34px; text-align:center; padding:2px 6px; border-radius:4px;
+               font-size:.6rem; font-weight:700; letter-spacing:.04em;
+               background:rgba(255,255,255,.04); color:var(--muted); border:1px solid var(--border2); }
+    /* Only the markets this system actually trades get a colour. */
+    .cal-ccy.watched { background:rgba(59,130,246,.12); color:var(--blue); border-color:rgba(59,130,246,.3); }
+
+    .cal-impact { display:inline-block; min-width:52px; text-align:center; padding:2px 7px; border-radius:10px;
+                  font-size:.58rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+    .cal-impact.high   { background:rgba(239,68,68,.14); color:var(--red); }
+    .cal-impact.medium { background:rgba(234,179,8,.12); color:var(--yellow); }
+    .cal-impact.low    { background:rgba(74,96,128,.12); color:var(--muted); }
+
+    .cal-foot { font-size:.65rem; color:var(--muted); line-height:1.6; margin-top:10px;
+                padding-top:10px; border-top:1px solid var(--border); }
   </style>
 </head>
 <body>
@@ -4168,34 +4220,45 @@ setInterval(loadDistanceToFire, 60_000);
 // the remaining week. Times are UTC because every other clock in this system is, and
 // the two boxes sit in different timezones — a local-time calendar would read
 // differently on each machine for the same event.
-const IMPACT_COLOUR = { high: 'var(--red)', medium: 'var(--yellow, #eab308)', low: 'var(--muted)' };
-
+// ── ECONOMIC CALENDAR ──────────────────────────────────────────
+// Ordered by what a trader needs in order: what is NEXT and how long away, whether the
+// filter will actually stop an entry, then today, then the rest of the week.
+//
+// Times are UTC throughout. The two boxes sit in different timezones, so a local-time
+// calendar would show the same CPI print at two different clock readings depending on
+// which machine you opened.
 function whenText(mins) {
   if (mins >= 0) {
-    if (mins < 60) return 'in ' + mins + 'm';
-    if (mins < 1440) return 'in ' + Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm';
-    return 'in ' + Math.floor(mins / 1440) + 'd';
+    if (mins < 60)   return 'in ' + mins + 'm';
+    if (mins < 1440) return 'in ' + Math.floor(mins / 60) + 'h ' + String(mins % 60).padStart(2, '0') + 'm';
+    return 'in ' + Math.floor(mins / 1440) + 'd ' + Math.floor((mins % 1440) / 60) + 'h';
   }
   const a = Math.abs(mins);
-  if (a < 60) return a + 'm ago';
+  if (a < 60)   return a + 'm ago';
   if (a < 1440) return Math.floor(a / 60) + 'h ago';
   return Math.floor(a / 1440) + 'd ago';
 }
 
-function calRow(e) {
-  const colour = IMPACT_COLOUR[String(e.impact).toLowerCase()] || 'var(--muted)';
-  const soon = e.minutesFromNow >= 0 && e.minutesFromNow <= 60 && e.high && e.watched;
-  return '<tr style="' + (soon ? 'background:rgba(239,68,68,.08)' : '') + '">'
-    + '<td style="padding:4px 8px;white-space:nowrap;color:var(--muted)">'
-      + escapeHtml(e.at.slice(11, 16)) + '</td>'
-    + '<td style="padding:4px 8px;white-space:nowrap">' + escapeHtml(e.country) + '</td>'
-    + '<td style="padding:4px 8px;color:' + colour + ';font-weight:' + (e.high ? '700' : '400') + '">'
-      + escapeHtml(e.impact) + '</td>'
-    + '<td style="padding:4px 8px">' + escapeHtml(e.title) + '</td>'
-    + '<td style="padding:4px 8px;text-align:right;color:var(--muted);white-space:nowrap">'
-      + whenText(e.minutesFromNow) + '</td>'
-    + '<td style="padding:4px 8px;text-align:right;color:var(--muted);white-space:nowrap">'
-      + (e.forecast ? 'fc ' + escapeHtml(e.forecast) : '') + '</td></tr>';
+function calRow(e, windowMins) {
+  const impact = String(e.impact || '').toLowerCase();
+  // "imminent" means it would actually stop a trade: high impact, a market we trade,
+  // and inside the blackout window. Anything else is information, not a constraint.
+  const imminent = e.high && e.watched && e.minutesFromNow >= -windowMins && e.minutesFromNow <= windowMins;
+  const cls = [e.minutesFromNow < 0 ? 'past' : '', e.high ? 'high' : '', imminent ? 'imminent' : '']
+    .filter(Boolean).join(' ');
+  return '<tr class="' + cls + '">'
+    + '<td class="cal-time">' + escapeHtml(e.at.slice(11, 16)) + '</td>'
+    + '<td><span class="cal-ccy' + (e.watched ? ' watched' : '') + '">' + escapeHtml(e.country) + '</span></td>'
+    + '<td><span class="cal-impact ' + escapeHtml(impact) + '">' + escapeHtml(e.impact) + '</span></td>'
+    + '<td class="cal-title">' + escapeHtml(e.title) + '</td>'
+    + '<td class="cal-when">' + whenText(e.minutesFromNow) + '</td>'
+    + '<td class="cal-fc">' + (e.forecast ? 'fc ' + escapeHtml(e.forecast) : '') + '</td>'
+    + '</tr>';
+}
+
+function calTable(rows, windowMins) {
+  return '<div style="overflow-x:auto"><table class="cal-table">'
+    + rows.map(e => calRow(e, windowMins)).join('') + '</table></div>';
 }
 
 async function loadCalendar() {
@@ -4206,64 +4269,66 @@ async function loadCalendar() {
   try {
     const d = await getJson('/calendar');
     const events = d.events || [];
+    const windowMins = d.blackoutWindowMinutes || 30;
+    const watched = (d.watchedCountries || []).join('/');
+
     if (!events.length) {
       nextEl.textContent = '';
-      body.innerHTML = 'No calendar events loaded. The feed is fetched hourly from ForexFactory.';
+      warn.innerHTML = '';
+      body.innerHTML = '<div style="color:var(--muted)">No events loaded. The feed is fetched from ForexFactory each cycle.</div>';
       return;
     }
 
-    nextEl.textContent = d.next
-      ? 'next high-impact: ' + d.next.title + ' (' + d.next.country + ') ' + whenText(d.next.minutesFromNow)
-      : 'no high-impact ' + (d.watchedCountries || []).join('/') + ' events left this week';
+    // HERO — the next thing that can stop a trade, sized so it reads at a glance.
+    const n = d.next;
+    const heroCls = !n ? '' : n.minutesFromNow <= windowMins ? 'imminent'
+                   : n.minutesFromNow <= 120 ? 'soon' : '';
+    nextEl.textContent = events.length + ' events this week';
+    const hero = n
+      ? '<div class="cal-hero ' + heroCls + '">'
+        + '<div><div class="cal-hero-clock">' + whenText(n.minutesFromNow) + '</div></div>'
+        + '<div style="flex:1;min-width:180px">'
+        + '<div class="cal-hero-title">' + escapeHtml(n.title) + '</div>'
+        + '<div class="cal-hero-sub">' + escapeHtml(n.country) + ' · high impact · '
+        + escapeHtml(n.at.slice(0, 16).replace('T', ' ')) + ' UTC'
+        + (n.forecast ? ' · forecast ' + escapeHtml(n.forecast) : '')
+        + (n.previous ? ' · previous ' + escapeHtml(n.previous) : '')
+        + '</div></div>'
+        + (heroCls === 'imminent'
+            ? '<div style="color:var(--red);font-weight:700;font-size:.7rem">INSIDE BLACKOUT WINDOW</div>' : '')
+        + '</div>'
+      : '<div class="cal-hero"><div class="cal-hero-title" style="color:var(--muted)">No high-impact '
+        + escapeHtml(watched) + ' events left this week</div></div>';
 
-    // The panel must not imply protection the system is not providing. newsFilter
-    // reports enabled while isNewsBlackout() filters on a field the feed does not have,
-    // so it has never blocked a trade — saying so here is the whole point of showing
-    // the calendar next to a switch that claims to act on it.
-    warn.innerHTML = d.blackoutFieldBug
-      ? '<div style="border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.06);'
-        + 'border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:.7rem;color:var(--red)">'
-        + 'News filter reports <strong>' + (d.newsFilterEnabled ? 'ENABLED' : 'disabled')
-        + '</strong> but does not block: ' + escapeHtml(d.blackoutFieldBug) + '</div>'
-      // Repaired, so say what it now DOES rather than going quiet. A panel that simply
-      // stops warning leaves you unable to tell "fixed" from "the check was removed".
-      : '<div style="border:1px solid rgba(34,197,94,.3);background:rgba(34,197,94,.06);'
-        + 'border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:.7rem;color:var(--green)">'
-        + 'News filter <strong>' + (d.newsFilterEnabled ? 'ACTIVE' : 'OFF') + '</strong>'
-        + (d.newsFilterEnabled
-            ? ' — new entries are refused within ' + (d.blackoutWindowMinutes || 30)
-              + ' minutes either side of high-impact '
-              + (d.watchedCountries || []).join('/') + ' events'
-            : ' — high-impact events will NOT stop an entry')
-        + (d.blackoutRepairedAt
-            ? ' (repaired ' + escapeHtml(d.blackoutRepairedAt)
-              + '; before that it read a field the feed does not have and never fired)'
-            : '')
-        + '</div>';
+    // STATUS — what the filter will actually do. Never implies protection it lacks.
+    const status = d.blackoutFieldBug
+      ? '<div class="cal-status bad">News filter reports '
+        + (d.newsFilterEnabled ? 'ENABLED' : 'disabled') + ' but does not block — '
+        + escapeHtml(d.blackoutFieldBug) + '</div>'
+      : d.newsFilterEnabled
+        ? '<div class="cal-status on">News filter ACTIVE — new entries refused within ' + windowMins
+          + ' minutes either side of high-impact ' + escapeHtml(watched) + ' events'
+          + (d.blackoutRepairedAt ? ' (repaired ' + escapeHtml(d.blackoutRepairedAt)
+             + ', before which it read a field the feed does not have and never fired)' : '')
+          + '</div>'
+        : '<div class="cal-status off">News filter OFF — high-impact events will not stop an entry</div>';
 
     const todayUtc = new Date().toISOString().slice(0, 10);
     const today = events.filter(e => e.at.slice(0, 10) === todayUtc);
-    const laterHigh = events.filter(e => e.at.slice(0, 10) > todayUtc && e.high);
+    const later = events.filter(e => e.at.slice(0, 10) > todayUtc && e.high);
 
-    const table = rows => '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.7rem">'
-      + '<tr style="color:var(--muted);text-align:left"><th style="padding:4px 8px">UTC</th>'
-      + '<th style="padding:4px 8px">ccy</th><th style="padding:4px 8px">impact</th>'
-      + '<th style="padding:4px 8px">event</th><th style="padding:4px 8px;text-align:right">when</th>'
-      + '<th style="padding:4px 8px;text-align:right">forecast</th></tr>'
-      + rows + '</table></div>';
-
-    body.innerHTML =
-      '<div style="margin-bottom:6px;color:var(--muted)">Today (' + todayUtc + ' UTC) — '
-        + today.length + ' event(s), ' + today.filter(e => e.high).length + ' high impact</div>'
-      + (today.length ? table(today.map(calRow).join('')) : '<div style="color:var(--muted)">nothing scheduled today</div>')
-      + (laterHigh.length
-          ? '<div style="margin:12px 0 6px;color:var(--muted)">Rest of the week — high impact only</div>'
-            + table(laterHigh.map(calRow).join(''))
+    body.innerHTML = hero + status
+      + '<div class="cal-day">Today · ' + todayUtc + ' UTC · ' + today.length + ' events, '
+        + today.filter(e => e.high).length + ' high impact</div>'
+      + (today.length ? calTable(today, windowMins)
+                      : '<div style="color:var(--muted);font-size:.72rem">Nothing scheduled today.</div>')
+      + (later.length
+          ? '<div class="cal-day">Rest of the week · high impact only</div>' + calTable(later, windowMins)
           : '')
-      + '<div style="margin-top:8px;color:var(--muted);line-height:1.6">'
-      + 'All times UTC — the two boxes are in different timezones, so a local-time calendar '
-      + 'would show the same event at two different clock readings. Rows highlighted red are '
-      + 'high-impact ' + (d.watchedCountries || []).join('/') + ' events inside the next hour.</div>';
+      + '<div class="cal-foot">All times UTC — the two boxes are in different timezones, so a local-time '
+      + 'calendar would show one event at two clock readings. Blue currency = a market this system trades. '
+      + 'Red rows are high-impact ' + escapeHtml(watched) + ' events inside the '
+      + windowMins + '-minute blackout window; those are the ones that stop an entry.</div>';
   } catch (e) {
     nextEl.textContent = '';
     warn.innerHTML = '';
@@ -4271,7 +4336,8 @@ async function loadCalendar() {
   }
 }
 loadCalendar();
-setInterval(loadCalendar, 5 * 60_000);
+setInterval(loadCalendar, 60_000);
+
 
 setInterval(loadPrices,    REFRESH_MS);
 setInterval(loadSignals,   60_000);
