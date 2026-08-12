@@ -88,7 +88,9 @@ const JOBS = [
     markers: [],
     // rc=1 is a RED finding, not a crash. Its report names what is red.
     exitOneIsFinding: true,
-    findingPattern: /^\s*RED\s*:\s*(.+)$/m,
+    // Global ON PURPOSE: the log is append-only and the lookup below takes the LAST
+    // match. Removing the g flag makes matchAll throw, not merely misreport.
+    findingPattern: /^\s*RED\s*:\s*(.+)$/gm,
   },
 ];
 
@@ -303,7 +305,14 @@ function build(options = {}) {
     } else if (job.exitOneIsFinding && scheduler.found && scheduler.lastResult === 1) {
       // The job ran correctly and is telling you something. Show WHAT, from its own
       // report — a verdict of "FAILING" here would hide the only line that matters.
-      const found = job.findingPattern ? text.match(job.findingPattern) : null;
+      // The coverage log is APPEND-ONLY and every run adds one RED line, so a
+      // non-global .match() returned the OLDEST finding ever recorded — `notifier`,
+      // green again since — while the live one went unmentioned. That named a healthy
+      // component and hid a dead bridge on 2026-08-11, and a dead weekly job on
+      // 2026-08-12. Take the newest, the same way exitCodeFrom() takes the last
+      // [exit N]. Needs the g flag on findingPattern: matchAll throws without it.
+      const findings = job.findingPattern ? [...text.matchAll(job.findingPattern)] : [];
+      const found = findings.length ? findings[findings.length - 1] : null;
       verdict = "REPORTS RED";
       detail = found
         ? `coverage is RED: ${found[1].trim()} — reported ${Math.round(ageHours)}h ago`
