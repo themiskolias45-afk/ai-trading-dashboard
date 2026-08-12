@@ -309,6 +309,12 @@ function build(options = {}) {
           ageDays: Math.floor((now - file.mtime) / 86400000),
           status: decision ? decision.status : "UNREVIEWED",
           note: decision ? (decision.note || "") : "",
+          // Whether the agent's DIAGNOSIS held up, separate from what was done with its
+          // fix. A proposal can be rejected and still have been right — the 2026-08-09
+          // review called a -$99.10 loss two days early and its remedy still failed a
+          // walk-forward — and without this the ledger records only the rejection and
+          // the agent reads as wrong when it was the most useful thing written that week.
+          call: decision && decision.call ? decision.call : null,
         });
       }
     }
@@ -424,6 +430,13 @@ function build(options = {}) {
       // simply not got to yet, so it gets its own count rather than hiding inside
       // `unreviewed`.
       proposalsWithBrokenRefs: proposals.filter(p => p.citations && p.citations.broken.length > 0).length,
+      // The appraisal this ledger's own header promises. "An employee you cannot
+      // appraise is not an employee" — and until now it could only report whether the
+      // agent RAN and whether anyone READ it, never whether it was RIGHT.
+      callsRight:    proposals.filter(p => p.call === "right").length,
+      callsWrong:    proposals.filter(p => p.call === "wrong").length,
+      callsUnproven: proposals.filter(p => p.call === "unproven").length,
+      callsUnscored: proposals.filter(p => !p.call).length,
     },
     decisionsFile: "tasks/ai_decisions.jsonl",
     howToDecide: "node tasks/ai_decide.cjs <id> implemented|rejected|ignored [note]",

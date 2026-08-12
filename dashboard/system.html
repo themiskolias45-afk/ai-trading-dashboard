@@ -972,6 +972,14 @@ async function loadAiWork() {
       + (t.proposalsWithBrokenRefs
           ? ' · <span style="color:var(--red);font-weight:600">' + t.proposalsWithBrokenRefs
             + ' with broken refs</span>' : '')
+      // Was the agent RIGHT — the appraisal, kept separate from what was done with its
+      // fix. A rejected proposal whose diagnosis held up is the agent earning its keep.
+      + (t.callsRight || t.callsWrong || t.callsUnproven
+          ? ' · diagnosis <span style="color:var(--green)">' + (t.callsRight || 0) + ' right</span>'
+            + ' / <span style="color:var(--red)">' + (t.callsWrong || 0) + ' wrong</span>'
+            + (t.callsUnproven ? ' / ' + t.callsUnproven + ' unproven' : '')
+            + (t.callsUnscored ? ' · <span style="color:var(--dim)">' + t.callsUnscored + ' unscored</span>' : '')
+          : ' · <span style="color:var(--dim)">no diagnosis scored yet</span>')
       + '</div>';
 
     jobsEl.innerHTML = (d.jobs || []).map(j => {
@@ -995,6 +1003,13 @@ async function loadAiWork() {
             + '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">'
             + '<span style="font-size:10px;font-weight:700;letter-spacing:.06em;color:'
             + (reviewed ? 'var(--green)' : '#ffb800') + '">' + esc(p.status || 'UNREVIEWED') + '</span>'
+            + (p.call
+                ? '<span style="font-size:10px;border-radius:4px;padding:1px 6px;border:1px solid '
+                  + (p.call === 'right' ? 'rgba(0,255,136,.35);color:var(--green)'
+                     : p.call === 'wrong' ? 'rgba(255,68,68,.35);color:var(--red)'
+                     : 'rgba(255,255,255,.15);color:var(--dim)')
+                  + '">CALL ' + esc(p.call.toUpperCase()) + '</span>'
+                : '')
             + citationBadge(p.citations)
             + '<span style="font-size:11px;color:var(--dim)">' + esc(p.jobLabel) + ' · '
             + p.ageDays + 'd old</span></div>'
