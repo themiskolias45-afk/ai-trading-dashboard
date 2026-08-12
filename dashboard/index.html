@@ -1501,6 +1501,24 @@
 <script src="https://s3.tradingview.com/tv.js"></script>
 <script>
 const API = "/api";
+
+// r.ok, not just a successful parse.
+//
+// 34 fetches on this page were .then(r=>r.json()) with no status check. A 401 returns
+// perfectly valid JSON, so an expired session renders as DATA: zero positions, no
+// alerts, a blank journal, all indistinguishable from a quiet market. The same bug
+// once painted a status page "Live" while it was reading an auth error.
+//
+// POST sites are deliberately NOT routed through this - they carry bodies and their
+// own error semantics, and a blanket rewrite of a mutating call is not a cleanup.
+async function getJson(route) {
+  const response = await fetch(API + route, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(route + " -> HTTP " + response.status
+      + (response.status === 401 ? " (log in first)" : ""));
+  }
+  return response.json();
+}
 const REFRESH_MS = 30_000;
 
 // ── Tab switching ────────────────────────────────────────────
@@ -2120,7 +2138,7 @@ async function loadFVG() {
 // ── Prices ───────────────────────────────────────────────────
 async function loadPrices() {
   try {
-    const d = await fetch(API+"/status",{cache:"no-store"}).then(r=>r.json());
+    const d = await getJson("/status");
     _lastStatus = d;
     const setPrice = (id,val,dec) => document.getElementById(id).textContent = fmt(val,dec);
     const setChange = (id,c) => { const el=document.getElementById(id); el.textContent=fmtChange(c); el.className="price-change "+changeClass(c); };
@@ -2187,7 +2205,7 @@ function renderPlan(plan) {
 // ── Alerts ───────────────────────────────────────────────────
 async function loadAlerts() {
   try {
-    const {alerts}=await fetch(API+"/alerts",{cache:"no-store"}).then(r=>r.json());
+    const {alerts}=await getJson("/alerts");
     const el=document.getElementById("alerts-body");
     if(!alerts||alerts.length===0){el.innerHTML=`<div class="alert-empty">No alerts yet.<br><br><code style="color:var(--accent)">/api/tv-alert</code> for TradingView webhooks.</div>`;return;}
     el.innerHTML=alerts.slice(0,20).map(a=>{
@@ -2202,7 +2220,7 @@ async function loadAlerts() {
 // ── Congress ─────────────────────────────────────────────────
 async function loadCongress() {
   try {
-    const data=await fetch(API+"/congress",{cache:"no-store"}).then(r=>r.json());
+    const data=await getJson("/congress");
     const el=document.getElementById("congress-body");
     const trades=data?.data??(Array.isArray(data)?data:[]);
     if(!trades.length){el.innerHTML=`<div style="color:var(--muted);font-size:.78rem">No recent congressional trades.</div>`;return;}
@@ -2253,7 +2271,7 @@ function renderSignalCard(id,s) {
 
 async function loadSignals() {
   try {
-    const d=await fetch(API+"/signals",{cache:"no-store"}).then(r=>r.json());
+    const d=await getJson("/signals");
     _lastSignals = d;
     renderSignalCard("sig-btc",d.btc); renderSignalCard("sig-gold",d.gold); renderSignalCard("sig-spx",d.spx);
     // Each renderer is guarded on its own: one malformed asset must not take the
@@ -2598,10 +2616,10 @@ function renderLearningGrowth(data) {
 async function loadAIBrainTab() {
   // Independent so a failure in one panel cannot blank the other.
   const [boardRes, registryRes, growthRes, workRes] = await Promise.allSettled([
-    fetch(API + "/evidence-board",  { cache: "no-store" }).then(r => r.json()),
-    fetch(API + "/ai-registry",     { cache: "no-store" }).then(r => r.json()),
-    fetch(API + "/learning-growth", { cache: "no-store" }).then(r => r.json()),
-    fetch(API + "/ai-work",         { cache: "no-store" }).then(r => r.json()),
+    getJson("/evidence-board"),
+    getJson("/ai-registry"),
+    getJson("/learning-growth"),
+    getJson("/ai-work"),
   ]);
   try { renderAiWork(workRes.status === "fulfilled" ? workRes.value : null); }
   catch (e) { console.error("ai work:", e); }
@@ -2632,7 +2650,7 @@ async function loadAIBrainTab() {
 // ── AI Brain ─────────────────────────────────────────────────
 async function loadAnalysis() {
   try {
-    const d=await fetch(API+"/analysis",{cache:"no-store"}).then(r=>r.json());
+    const d=await getJson("/analysis");
     const el=document.getElementById("analysis-body");
     const all=[d.btc,d.gold,d.spx].filter(Boolean);
     el.innerHTML=all.map(a=>`<div style="margin-bottom:12px;font-size:.78rem;line-height:1.6">${mdToHtml(a)}</div>`).join("<hr style='border-color:var(--border);margin:10px 0'>");
@@ -2691,7 +2709,7 @@ async function runBacktest() {
   status.textContent="Running… (up to 30s)";
   body.innerHTML=`<div style="color:var(--muted);font-size:.78rem;padding:20px 0;text-align:center">Testing ${years} years of data…</div>`;
   try {
-    const d=await fetch(`${API}/backtest?years=${years}`,{cache:"no-store"}).then(r=>r.json());
+    const d=await getJson(`/backtest?years=${years}`);
     status.textContent=`Last run: ${new Date(d.runAt).toLocaleString()}`;
     renderBacktest(d);
   } catch(e) { status.textContent=""; body.innerHTML=`<div style="color:var(--red);font-size:.78rem">Backtest failed: ${e.message}</div>`; }
@@ -2716,7 +2734,7 @@ function renderBacktest(d) {
 let _lastMT5 = [];
 async function loadMT5() {
   try {
-    const {positions}=await fetch(API+"/mt5/positions",{cache:"no-store"}).then(r=>r.json());
+    const {positions}=await getJson("/mt5/positions");
     _lastMT5=positions||[];
     const render=(id)=>{
       const el=document.getElementById(id); if(!el)return;
@@ -2736,7 +2754,7 @@ async function loadMT5() {
 const FEAT_LABELS={autoCommentary:"Auto Commentary",trailingStop:"Trailing Stop",newsFilter:"News Filter",tradeJournal:"Trade Journal",positionReview:"Position Review",weeklyReport:"Weekly Report"};
 async function loadFeatures() {
   try {
-    const {features}=await fetch(API+"/features",{cache:"no-store"}).then(r=>r.json());
+    const {features}=await getJson("/features");
     const html=Object.entries(FEAT_LABELS).map(([k,l])=>`<button onclick="toggleFeature('${k}')" class="feature-toggle ${features[k]?"feature-on":"feature-off"}">${l}: ${features[k]?"ON":"OFF"}</button>`).join("");
     ["feature-toggles","feature-toggles-at"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=html;});
     loadNewsFilterStatus();
@@ -2745,7 +2763,7 @@ async function loadFeatures() {
 async function toggleFeature(name) { try { await fetch(API+"/features/"+name+"/toggle",{method:"POST"}); await loadFeatures(); } catch {} }
 async function loadNewsFilterStatus() {
   try {
-    const d=await fetch(API+"/newsfilter",{cache:"no-store"}).then(r=>r.json());
+    const d=await getJson("/newsfilter");
     const setIt=(id,b)=>{const el=document.getElementById(id);if(!el)return;el.style.display="inline-block";el.textContent=b?"NEWS BLACKOUT":"MARKET CLEAR";el.style.background=b?"#200d0d":"#0d2010";el.style.color=b?"var(--red)":"var(--green)";el.style.border=b?"1px solid var(--red)":"1px solid var(--green)";};
     setIt("news-bb-at",d.blackout);
   } catch {}
@@ -2754,7 +2772,7 @@ async function loadNewsFilterStatus() {
 // ── Risk status ──────────────────────────────────────────────
 async function loadRiskStatus() {
   try {
-    const d=await fetch(API+"/risk-status",{cache:"no-store"}).then(r=>r.json());
+    const d=await getJson("/risk-status");
     // Auto trade tab banner
     const banner=document.getElementById("at-banner"), dot=document.getElementById("at-dot");
     const pnlEl=document.getElementById("at-pnl-display");
@@ -3011,7 +3029,7 @@ async function mt5Login(account) {
 
 async function loadJournalExecLog() {
   try {
-    const {journal}=await fetch(API+"/journal",{cache:"no-store"}).then(r=>r.json());
+    const {journal}=await getJson("/journal");
     const el=document.getElementById("exec-log"); if(!el)return;
     if(!journal||journal.length===0){el.innerHTML=`<span class="log-info">System ready. No trades recorded yet.</span>`;return;}
     el.innerHTML=[...journal].reverse().slice(0,30).map(t=>{
@@ -3028,7 +3046,7 @@ async function loadJournalExecLog() {
 let _startTime=null;
 async function loadUptime() {
   try {
-    const d=await fetch(API+"/status",{cache:"no-store"}).then(r=>r.json());
+    const d=await getJson("/status");
     if(d.startedAt&&!_startTime)_startTime=new Date(d.startedAt);
     if(_startTime){const sec=Math.floor((Date.now()-_startTime)/1000);const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;const txt=`Uptime ${h}h ${m}m ${s}s`;["server-uptime-at"].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=txt;});}
   } catch {}
@@ -3044,7 +3062,7 @@ async function stopServer() {
 // ── PERFORMANCE TAB ──────────────────────────────────────────
 async function loadPerformance() {
   try {
-    const {journal}=await fetch(API+"/journal",{cache:"no-store"}).then(r=>r.json());
+    const {journal}=await getJson("/journal");
     const closed=(journal||[]).filter(t=>t.status!=="OPEN"&&t.pnl!=null);
     if(closed.length===0){
       document.getElementById("p-winrate").textContent="—";
@@ -3173,7 +3191,7 @@ async function loadPerformance() {
 
 async function loadHealerPanel() {
   try {
-    const h = await fetch(API+"/healer",{cache:"no-store"}).then(r=>r.json());
+    const h = await getJson("/healer");
     const checks = h.checks||{};
     document.getElementById("healer-summary").textContent =
       `${h.healthy?"🟢 Healthy":"🔴 Issues"} | Heals: ${h.healCount||0} | Last: ${h.lastHealAt?new Date(h.lastHealAt).toLocaleTimeString():"never"}`;
@@ -3193,9 +3211,9 @@ async function loadHealerPanel() {
 
   try {
     const [healRes, sigRes, checkRes] = await Promise.allSettled([
-      fetch(API+"/healer",{cache:"no-store"}).then(r=>r.json()),
-      fetch(API+"/signals",{cache:"no-store"}).then(r=>r.json()),
-      fetch(API+"/checksystem",{cache:"no-store"}).then(r=>r.json()),
+      getJson("/healer"),
+      getJson("/signals"),
+      getJson("/checksystem"),
     ]);
     const h2   = healRes.status==="fulfilled" ? healRes.value : null;
     const sigs = sigRes.status==="fulfilled" ? sigRes.value : null;
@@ -3236,7 +3254,7 @@ function setJFilter(f) {
 }
 async function loadJournalTab() {
   try {
-    const {journal}=await fetch(API+"/journal",{cache:"no-store"}).then(r=>r.json());
+    const {journal}=await getJson("/journal");
     _jData=journal||[];
     document.getElementById("journal-count-tab").textContent=_jData.length+" trade"+(_jData.length!==1?"s":"");
     renderJournalTab();
@@ -3338,9 +3356,9 @@ function buildSCCard(sig, key){
 async function loadSignalsTab(){
   try{
     const[sRes,hRes,lRes]=await Promise.allSettled([
-      fetch(API+'/signals',{cache:'no-store'}).then(r=>r.json()),
-      fetch(API+'/signal-history',{cache:'no-store'}).then(r=>r.json()),
-      fetch(API+'/learning',{cache:'no-store'}).then(r=>r.json()),
+      getJson('/signals'),
+      getJson('/signal-history'),
+      getJson('/learning'),
     ]);
     const sig  =sRes.status==='fulfilled'?sRes.value:{};
     const hist =hRes.status==='fulfilled'?hRes.value:{};
@@ -3437,12 +3455,12 @@ init();
 async function loadFeedTab() {
   try {
     const [priceRes, sigRes, posRes, alertRes, setupRes, riskRes] = await Promise.allSettled([
-      fetch('/api/prices').then(r=>r.json()),
-      fetch('/api/signals').then(r=>r.json()),
-      fetch('/api/mt5/positions').then(r=>r.json()),
-      fetch('/api/alerts').then(r=>r.json()),
-      fetch('/api/setup-health').then(r=>r.json()),
-      fetch('/api/risk-status').then(r=>r.json()),
+      getJson('/prices'),
+      getJson('/signals'),
+      getJson('/mt5/positions'),
+      getJson('/alerts'),
+      getJson('/setup-health'),
+      getJson('/risk-status'),
     ]);
 
     const prices = priceRes.status === 'fulfilled' ? priceRes.value : null;
