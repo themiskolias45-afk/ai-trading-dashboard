@@ -98,6 +98,12 @@ const JOBS = [
     // Global ON PURPOSE: the log is append-only and the lookup below takes the LAST
     // match. Removing the g flag makes matchAll throw, not merely misreport.
     findingPattern: /^\s*RED\s*:\s*(.+)$/gm,
+    // Scopes the finding search to the NEWEST run. "Take the last match" is only the
+    // same thing as "take the newest finding" while every run writes one — a run that
+    // reports zero REDs writes none, so the last match then comes from a SUPERSEDED
+    // run and reports a problem that is already fixed. Verified on this log: the newest
+    // run has no RED line while line 752 still holds one from the run before it.
+    runDelimiter: / SmartEntry COVERAGE AUDIT - /g,
   },
 ];
 
@@ -342,7 +348,14 @@ function build(options = {}) {
       // component and hid a dead bridge on 2026-08-11, and a dead weekly job on
       // 2026-08-12. Take the newest, the same way exitCodeFrom() takes the last
       // [exit N]. Needs the g flag on findingPattern: matchAll throws without it.
-      const findings = job.findingPattern ? [...text.matchAll(job.findingPattern)] : [];
+      // Narrow to the newest run before looking, when the job declares how its runs are
+      // separated. Without this the "newest finding" is only newest by accident.
+      let searchIn = text;
+      if (job.runDelimiter) {
+        const runs = [...text.matchAll(job.runDelimiter)];
+        if (runs.length) searchIn = text.slice(runs[runs.length - 1].index);
+      }
+      const findings = job.findingPattern ? [...searchIn.matchAll(job.findingPattern)] : [];
       const found = findings.length ? findings[findings.length - 1] : null;
       verdict = "REPORTS RED";
       detail = found
