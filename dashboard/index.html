@@ -495,6 +495,39 @@
     .pop-alarm   { padding:8px 12px; border-radius:6px; font-size:.72rem; font-weight:700; margin:6px 0;
                    border:1px solid rgba(239,68,68,.4); background:rgba(239,68,68,.08); color:var(--red); }
     .pop-dead { font-size:.66rem; color:var(--muted); font-variant-numeric:tabular-nums; padding:2px 0 2px 12px; }
+
+    /* ── LEVEL LADDER + DAY TIMELINE ────────────────────────────
+       The ladder is read vertically like a chart: highest price at the top, spot marked
+       in the middle. Distance is shown in ATR multiples as well as points because a $40
+       gap is close on Gold and enormous on SPX, and a ladder in raw points invites
+       exactly that mistake. */
+    .lad-wrap { display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:14px; }
+    .lad-box { border:1px solid var(--border2); border-radius:8px; background:var(--bg); padding:10px 12px; }
+    .lad-head { font-size:.72rem; font-weight:700; margin-bottom:2px; }
+    .lad-sub { font-size:.62rem; color:var(--muted); margin-bottom:8px; }
+    .lad-row { display:flex; gap:8px; font-size:.66rem; font-variant-numeric:tabular-nums;
+               padding:2px 0; border-bottom:1px solid rgba(26,34,53,.45); }
+    .lad-row:last-child { border-bottom:none; }
+    .lad-name { flex:1; color:var(--muted); }
+    .lad-px   { width:82px; text-align:right; }
+    .lad-atr  { width:52px; text-align:right; color:var(--muted); }
+    .lad-row.above .lad-px { color:var(--green); }
+    .lad-row.below .lad-px { color:var(--red); }
+    /* Spot is the reference every other rung is measured from, so it reads as a rule
+       across the ladder rather than as one more level in the list. */
+    .lad-row.spot { background:rgba(59,130,246,.10); border-top:1px solid rgba(59,130,246,.45);
+                    border-bottom:1px solid rgba(59,130,246,.45); font-weight:700; }
+    .lad-row.spot .lad-name, .lad-row.spot .lad-px, .lad-row.spot .lad-atr { color:var(--blue); }
+
+    .day-row { display:flex; gap:10px; font-size:.68rem; padding:4px 0;
+               border-bottom:1px solid rgba(26,34,53,.5); font-variant-numeric:tabular-nums; }
+    .day-row:last-child { border-bottom:none; }
+    .day-row.blocks { background:rgba(239,68,68,.09); }
+    .day-row.past { opacity:.45; }
+    .day-t { width:46px; color:var(--muted); }
+    .day-s { width:92px; color:var(--muted); font-size:.62rem; }
+    .day-e { flex:1; }
+    .day-b { color:var(--red); font-weight:700; font-size:.62rem; white-space:nowrap; }
   </style>
 </head>
 <body>
@@ -744,6 +777,18 @@
     </div>
     <div class="panel-body" style="max-height:none">
       <div id="pop-body" style="font-size:.75rem;color:var(--muted)">reading the plan…</div>
+    </div>
+  </div>
+
+  <!-- The deep plan's two exclusives: the day's blackout timeline, and the level ladder
+       per asset. Both existed only in a console document until now. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Levels &amp; The Trading Day</div>
+      <span id="deep-age" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="deep-body" style="font-size:.75rem;color:var(--muted)">reading the deep plan…</div>
     </div>
   </div>
 
@@ -4390,6 +4435,122 @@ async function loadPreopenPlan() {
 }
 loadPreopenPlan();
 setInterval(loadPreopenPlan, PREOPEN_POLL_MS);
+
+// ── LEVELS & THE TRADING DAY ───────────────────────────────────
+// The two things the deep plan had that no screen did: the day's blackout timeline, and
+// the level ladder per asset. Reads the artifact via /api/deep-plan — never rebuilds it,
+// because building the deep plan sends a Telegram message and nobody wants one per tab.
+function ladderRows(a) {
+  if (!a.ladder || !a.ladder.length) return '<div style="color:var(--muted);font-size:.66rem">No levels computed.</div>';
+  const spot = Number(a.price);
+  const out = [];
+  let spotPlaced = false;
+  for (const l of a.ladder) {
+    // Drop the ladder's own "Entry" rung when it merely repeats spot; the spot rule
+    // below already carries that price and two identical rows read as two levels.
+    if (l.name === 'Entry' && Math.abs(l.level - spot) < 1e-9) continue;
+    if (!spotPlaced && l.level < spot) {
+      out.push('<div class="lad-row spot"><span class="lad-name">SPOT</span>'
+        + '<span class="lad-px">' + fmtLevel(spot) + '</span><span class="lad-atr"></span></div>');
+      spotPlaced = true;
+    }
+    out.push('<div class="lad-row ' + l.side + '">'
+      + '<span class="lad-name">' + escapeHtml(l.name) + '</span>'
+      + '<span class="lad-px">' + fmtLevel(l.level) + '</span>'
+      + '<span class="lad-atr">' + (l.atrMultiple === null ? '—'
+          : (l.atrMultiple >= 0 ? '+' : '') + l.atrMultiple.toFixed(2)) + '</span></div>');
+  }
+  if (!spotPlaced) {
+    out.push('<div class="lad-row spot"><span class="lad-name">SPOT</span>'
+      + '<span class="lad-px">' + fmtLevel(spot) + '</span><span class="lad-atr"></span></div>');
+  }
+  return out.join('');
+}
+
+function fmtLevel(v) {
+  if (!Number.isFinite(Number(v))) return '—';
+  const n = Number(v);
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+async function loadDeepPlan() {
+  const body = document.getElementById('deep-body');
+  const ageEl = document.getElementById('deep-age');
+  if (!body) return;
+  try {
+    const d = await getJson('/deep-plan');
+    if (!d.available) {
+      ageEl.textContent = '';
+      body.innerHTML = '<div class="pop-unavail">No deep plan yet — ' + escapeHtml(d.reason || '') + '</div>';
+      return;
+    }
+    const p = d.plan;
+    ageEl.innerHTML = 'built ' + escapeHtml(popAgeText(d.ageMinutes))
+      + (d.stale ? ' · <span style="color:var(--yellow);font-weight:700">STALE</span>' : '');
+
+    const out = [];
+    if (d.stale) {
+      out.push('<div class="pop-unavail">This plan is ' + escapeHtml(popAgeText(d.ageMinutes))
+        + ' — the levels below describe a session that has already happened.</div>');
+    }
+
+    // ---- the day ----
+    out.push('<div class="pop-sec">The trading day · UTC</div>');
+    if (p.clock.unavailable) {
+      out.push('<div class="pop-unavail">Calendar was unreachable when this plan was built — '
+        + 'it cannot say which hours are blocked. Not the same as "nothing is blocked".</div>');
+    } else if (!p.clock.events.length) {
+      out.push('<div class="pop-line" style="color:var(--muted)">No events between the build time and the close of New York.</div>');
+    } else {
+      const nowIso = new Date().toISOString();
+      out.push(p.clock.events.slice(0, 20).map(e =>
+        '<div class="day-row ' + (e.blocks ? 'blocks ' : '') + (e.at < nowIso ? 'past' : '') + '">'
+        + '<span class="day-t">' + escapeHtml(e.at.slice(11, 16)) + '</span>'
+        + '<span class="day-s">' + escapeHtml(e.session) + '</span>'
+        + '<span class="day-e">' + escapeHtml(e.country) + ' ' + escapeHtml(e.title) + '</span>'
+        + (e.blocks ? '<span class="day-b">BLOCKS ' + escapeHtml(e.blocksFrom.slice(11, 16))
+            + '-' + escapeHtml(e.blocksUntil.slice(11, 16)) + '</span>' : '')
+        + '</div>').join(''));
+      out.push('<div class="cal-foot">Only high-impact events in a market this system trades stop an '
+        + 'entry — those are the red rows. Blackout window is '
+        + p.clock.windowMinutes + ' minutes either side.</div>');
+    }
+
+    if (p.preOpenSlot) {
+      out.push('<div class="pop-line" style="margin-top:8px">Pre-open plan runs <span class="pop-num">'
+        + escapeHtml(p.preOpenSlot.at.slice(11, 16)) + ' UTC</span> ('
+        + p.preOpenSlot.minutesBeforeOpen + 'min before the open) — '
+        + escapeHtml(p.preOpenSlot.reason) + '</div>');
+      if (!p.preOpenSlot.confident) {
+        out.push('<div class="pop-unavail">That slot was not chosen from a clean calendar read — '
+          + 'treat the timing as provisional.</div>');
+      }
+    }
+
+    // ---- the ladders ----
+    out.push('<div class="pop-sec">Levels</div>');
+    const withLadders = (p.assets || []).filter(a => !a.unavailable && a.ladder && a.ladder.length);
+    if (!withLadders.length) {
+      out.push('<div class="pop-line" style="color:var(--muted)">No levels available.</div>');
+    } else {
+      out.push('<div class="lad-wrap">' + withLadders.map(a =>
+        '<div class="lad-box">'
+        + '<div class="lad-head">' + escapeHtml(a.label) + '</div>'
+        + '<div class="lad-sub">' + escapeHtml(a.trend || '') + ' · ATR '
+        + fmtLevel(a.atr) + ' · ' + (a.ready ? 'READY' : a.gap + 'pt short') + '</div>'
+        + ladderRows(a) + '</div>').join('') + '</div>');
+      out.push('<div class="cal-foot">Right-hand column is distance from spot in ATR multiples, not '
+        + 'points — the same $40 gap is close on Gold and enormous on SPX. Green above spot, red below.</div>');
+    }
+
+    body.innerHTML = out.join('');
+  } catch (e) {
+    ageEl.textContent = '';
+    body.innerHTML = '<span style="color:var(--red)">Deep plan unavailable — ' + escapeHtml(e.message) + '</span>';
+  }
+}
+loadDeepPlan();
+setInterval(loadDeepPlan, PREOPEN_POLL_MS);
 
 // ── ECONOMIC CALENDAR ──────────────────────────────────────────
 // Ordered by what a trader needs in order: what is NEXT and how long away, whether the

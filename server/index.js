@@ -6690,6 +6690,39 @@ app.get("/api/preopen-plan", (_, res) => {
   }
 });
 
+// ── /api/deep-plan — the full document, as data ─────────────────────────────
+//
+// Same artifact-not-on-demand rule as /api/preopen-plan, and for a stronger reason: the
+// deep plan makes eleven HTTP calls back to this server and sends a Telegram message.
+// Rebuilding it on a dashboard poll would message the user every time someone opened a
+// browser tab.
+const DEEP_PLAN_STALE_MINUTES = 24 * 60;
+app.get("/api/deep-plan", (_, res) => {
+  const file = path.join(__dirname, "..", "tasks", "analysis", "deep-plan-latest.json");
+  try {
+    if (!fs.existsSync(file)) {
+      return res.json({
+        available: false,
+        reason: "no deep plan yet — runs nightly after the close, or: node tasks/deep_plan.cjs",
+        feedsTheGate: false,
+      });
+    }
+    const plan = JSON.parse(fs.readFileSync(file, "utf8"));
+    const ageMinutes = Math.round((Date.now() - Date.parse(plan.generatedAt)) / 60000);
+    res.json({
+      available: true,
+      ageMinutes,
+      stale: !Number.isFinite(ageMinutes) || ageMinutes > DEEP_PLAN_STALE_MINUTES,
+      staleAfterMinutes: DEEP_PLAN_STALE_MINUTES,
+      plan,
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[deep-plan]", e.message);
+    res.status(500).json({ available: false, error: e.message, feedsTheGate: false });
+  }
+});
+
 // ── /api/size — Kelly-based position sizing ───────────────────
 app.post("/api/size", (req, res) => {
   try {
