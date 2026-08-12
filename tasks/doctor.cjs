@@ -191,17 +191,30 @@ async function checkBox(label, base, isLocal) {
   return { settings: settings.data, risk: risk.data };
 }
 
-function checkParity() {
+/**
+ * @param canReachPeer  whether this box can pull the other one at all.
+ *
+ * Parity is only runnable from the box that can reach BOTH. The laptop can pull the
+ * VPS; the VPS cannot pull back, because the laptop is not reachable from the
+ * internet. So on the VPS a stale-parity warning is an item that CAN NEVER CLEAR, and
+ * CLAUDE.md is explicit that such an item is worse than none — it trains you to skim
+ * past the one that matters. On that box it is reported as a standing INFO naming
+ * where the check actually lives, not as a chore nobody there can do.
+ */
+function checkParity(canReachPeer) {
   const file = path.join(ROOT, "tasks", "logs", "vps_parity_last.json");
   let record = null;
   try { record = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { record = null; }
   const healCmd = ["node", [path.join(ROOT, "tasks", "vps_parity.cjs"), "--emit"]];
 
   if (!record) {
-    finding("AMBER", "fleet", "engine parity has never been recorded",
+    finding(canReachPeer ? "AMBER" : "INFO", "fleet", "engine parity has never been recorded here",
       "nothing has confirmed the two boxes run the same engine, so any number pooling " +
-      "them is unattributable",
-      "node tasks/vps_parity.cjs --emit", healCmd);
+      "them is unattributable" + (canReachPeer ? "" :
+        ". This box cannot reach its peer, so it cannot run the check — it belongs on the box that can"),
+      canReachPeer ? "node tasks/vps_parity.cjs --emit"
+                   : "run it on the box that can reach both: node tasks/vps_parity.cjs --emit",
+      canReachPeer ? healCmd : null);
     return;
   }
   if (record.verdict !== "ENGINES AGREE") {
@@ -213,10 +226,18 @@ function checkParity() {
   }
   const age = ageHours(Date.parse(record.ranAt));
   if (age > PARITY_STALE_HOURS) {
-    finding("AMBER", "fleet", `engine parity last confirmed ${human(age)} ago`,
-      "the verdict is stale, and it is only meaningful right after a deploy. Note a plain " +
-      "run records NOTHING — the --emit flag is what clears this",
-      "node tasks/vps_parity.cjs --emit", healCmd);
+    if (canReachPeer) {
+      finding("AMBER", "fleet", `engine parity last confirmed ${human(age)} ago`,
+        "the verdict is stale, and it is only meaningful right after a deploy. Note a plain " +
+        "run records NOTHING — the --emit flag is what clears this",
+        "node tasks/vps_parity.cjs --emit", healCmd);
+    } else {
+      finding("INFO", "fleet", `engine parity here last confirmed ${human(age)} ago (run from the peer)`,
+        "this box cannot reach its peer, so it can never refresh this itself — the check runs " +
+        "from the box that can reach both, and the copy here only updates when that box deploys " +
+        "to this one. Nothing to do here; it is not a fault on this machine",
+        "on the box that can reach both: node tasks/vps_parity.cjs --emit");
+    }
   }
 }
 
@@ -392,7 +413,7 @@ async function diagnose() {
       "set both to the intended gate in each box's server/strategy_settings.json");
   }
 
-  checkParity();
+  checkParity(Boolean(peer));
   checkAgentQueue();
   checkBackup();
   checkLearningIntegrity();
