@@ -6254,6 +6254,45 @@ app.get("/api/measurements", (_, res) => {
   res.json(out);
 });
 
+// ── /api/cohort-reachability — which cohorts can reach the gate AT ALL ──────
+//
+// The answer to "why does it so rarely trade" is often not that the market is quiet:
+// it is that the cohort a setup lands in has a ceiling BELOW the gate, so it could
+// never have fired however good the setup was. The boot log has said this for a while
+// and nothing on a screen did.
+//
+// Computed by cohort_table.computeReachability — the SAME call the boot check makes,
+// with the SAME live settings. Deliberately not re-derived here and emphatically not
+// re-derived in the dashboard: index.html once hardcoded 65 in five places while the
+// gate was 70 and every displayed gap was 5pt short. One implementation, or it drifts.
+app.get("/api/cohort-reachability", (_, res) => {
+  try {
+    const rows = cohortTable.computeReachability(
+      strategySettings.confidenceThreshold,
+      strategySettings.dailyOnlyMinConfidence
+    );
+    const blocking = rows.filter(r => r.status === "DEAD" || r.status === "BLOCKED (MEASURED)");
+    res.json({
+      gate: strategySettings.confidenceThreshold,
+      dailyOnlyMinConfidence: strategySettings.dailyOnlyMinConfidence,
+      maxBoost: cohortTable.MAX_BOOST,
+      total: rows.length,
+      unreachable: blocking.length,
+      rows,
+      // Stated rather than implied: a DEAD cohort is not necessarily a WRONG one. SPX
+      // H4-only is blocked deliberately because every slice measured negative
+      // out-of-sample, and that is a different fact from a cohort dying by accident.
+      note: "DEAD = ceiling below the gate, so it can never fire however good the setup. "
+          + "BLOCKED (MEASURED) = deliberately floored after measuring negative. "
+          + "Dead does not imply wrongly dead.",
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[cohort-reachability]", e.message);
+    res.status(500).json({ error: e.message, rows: [] });
+  }
+});
+
 // ── /api/size — Kelly-based position sizing ───────────────────
 app.post("/api/size", (req, res) => {
   try {

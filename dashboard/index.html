@@ -946,6 +946,23 @@
     </div>
   </div>
 
+  <!-- How far each asset is from firing, and whether its cohort could fire at all.
+       The funnel below explains where a candidate DIED; this explains why most never
+       form. Both numbers come from the server — the gate from /api/strategy-settings
+       and reachability from the same computeReachability() the boot check runs —
+       because this page once hardcoded 65 in five places while the gate was 70 and
+       every displayed gap was 5pt short. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Distance To Fire</div>
+      <span id="dtf-gate" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="dtf-assets" style="font-size:.75rem"></div>
+      <div id="dtf-cohorts" style="font-size:.72rem;margin-top:12px"></div>
+    </div>
+  </div>
+
   <!-- Why nothing fired. This page could show a signal, a confidence and a mode, and
        still not answer the only question anyone actually asks of it: why did nothing
        trade. This system has three closed fills in its entire life, so where each
@@ -4013,6 +4030,106 @@ async function loadGateFunnel() {
 }
 loadGateFunnel();
 setInterval(loadGateFunnel, 60_000);
+
+// ── DISTANCE TO FIRE ───────────────────────────────────────────
+// Two different reasons a thing does not trade, kept apart: the GAP is "this setup is
+// not good enough yet", the cohort STATUS is "this shape could never have fired".
+// Only the second is a system problem, and pooling them hides it.
+const COHORT_STATUS_COLOUR = {
+  "DEAD":               "var(--red)",
+  "BLOCKED (MEASURED)": "var(--muted)",
+  "NEEDS BOOST":        "var(--amber, #f59e0b)",
+  "FIRES AT BASE":      "var(--green)",
+};
+
+function legPill(label, sig) {
+  const firing = sig && sig !== "WAIT";
+  return '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:.62rem;'
+    + 'border:1px solid ' + (firing ? "rgba(34,197,94,.4)" : "var(--border2)") + ';'
+    + 'color:' + (firing ? "var(--green)" : "var(--muted)") + ';margin-right:4px">'
+    + escapeHtml(label) + ' ' + escapeHtml(sig || "—") + '</span>';
+}
+
+async function loadDistanceToFire() {
+  const assetsEl = document.getElementById("dtf-assets");
+  const cohortsEl = document.getElementById("dtf-cohorts");
+  const gateEl = document.getElementById("dtf-gate");
+  if (!assetsEl) return;
+  try {
+    const [signals, settings, reach] = await Promise.all([
+      fetch(API + "/signals", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(API + "/strategy-settings", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(API + "/cohort-reachability", { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+    if (!signals || !settings) {
+      assetsEl.innerHTML = '<span style="color:var(--red)">Signals or settings unavailable.</span>';
+      return;
+    }
+    // Never assume the gate. If the server could not read its own config it is running
+    // on defaults, and every gap below would be measured against a number nobody chose.
+    const gate = settings.confidenceThreshold;
+    gateEl.innerHTML = settings.settingsError
+      ? '<span style="color:var(--red)">settings unreadable — running on DEFAULTS, gate ' + gate + '</span>'
+      : 'live gate ' + gate + '%';
+
+    assetsEl.innerHTML = ["btc", "gold", "spx"].map(key => {
+      const a = signals[key];
+      if (!a) return "";
+      const conf = Number(a.confidence) || 0;
+      const gap = Math.max(0, gate - conf);
+      const ready = gap === 0 && a.signal && a.signal !== "WAIT";
+      const barPct = Math.max(2, Math.min(100, (conf / gate) * 100));
+      return '<div style="margin-bottom:10px">'
+        + '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">'
+        + '<strong style="min-width:52px;display:inline-block">' + escapeHtml(a.label || key.toUpperCase()) + '</strong>'
+        + '<span style="color:' + (ready ? "var(--green)" : "var(--muted)") + ';font-weight:700">'
+        + conf + '%</span>'
+        + '<span style="color:var(--muted)">' + (ready ? "READY" : gap + 'pt short') + '</span>'
+        + '<span style="margin-left:auto">'
+        + legPill("D1", a.signal) + legPill("4H", a.h4 && a.h4.signal) + legPill("1H", a.h1 && a.h1.signal)
+        + '</span></div>'
+        + '<div style="height:4px;background:var(--border2);border-radius:3px;margin-top:4px;overflow:hidden">'
+        + '<div style="height:100%;width:' + barPct.toFixed(0) + '%;background:'
+        + (ready ? "var(--green)" : "rgba(148,163,184,.5)") + '"></div></div>'
+        + '<div style="color:var(--muted);margin-top:3px;font-size:.66rem">'
+        + escapeHtml(a.setup || "no setup") + ' · ' + escapeHtml(a.dataSource || "?") + '</div>'
+        + '</div>';
+    }).join("");
+
+    if (reach && reach.rows) {
+      const blocked = reach.rows.filter(r => r.status === "DEAD" || r.status === "BLOCKED (MEASURED)");
+      cohortsEl.innerHTML =
+        '<div style="color:var(--muted);margin-bottom:5px">'
+        + '<strong style="color:' + (reach.unreachable ? "var(--red)" : "var(--green)") + '">'
+        + reach.unreachable + ' of ' + reach.total + '</strong> cohorts cannot reach gate '
+        + reach.gate + ' even at maximum boost (+' + reach.maxBoost + '). A setup landing in one of '
+        + 'these could never have fired, however good it was.</div>'
+        + (blocked.length ? '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.68rem">'
+          + '<tr style="color:var(--muted);text-align:left"><th style="padding:4px 8px">cohort</th>'
+          + '<th style="padding:4px 8px;text-align:right">base</th>'
+          + '<th style="padding:4px 8px;text-align:right">ceiling</th>'
+          + '<th style="padding:4px 8px;text-align:right">short by</th>'
+          + '<th style="padding:4px 8px">status</th></tr>'
+          + blocked.map(r => '<tr>'
+            + '<td style="padding:4px 8px">' + escapeHtml(r.name) + '</td>'
+            + '<td style="padding:4px 8px;text-align:right;color:var(--muted)">' + r.base + '</td>'
+            + '<td style="padding:4px 8px;text-align:right;color:var(--muted)">' + r.ceiling + '</td>'
+            + '<td style="padding:4px 8px;text-align:right;color:var(--red)">' + r.short + '</td>'
+            + '<td style="padding:4px 8px;color:' + (COHORT_STATUS_COLOUR[r.status] || "var(--muted)") + '">'
+            + escapeHtml(r.status) + '</td></tr>').join("")
+          + '</table></div>' : "")
+        + '<div style="color:var(--muted);margin-top:6px;line-height:1.6">'
+        + escapeHtml(reach.note || "") + '</div>';
+    } else {
+      cohortsEl.innerHTML = '<div style="color:var(--muted)">Cohort reachability unavailable.</div>';
+    }
+  } catch (e) {
+    assetsEl.innerHTML = '<span style="color:var(--red)">Distance to fire unavailable — '
+      + escapeHtml(e.message) + '</span>';
+  }
+}
+loadDistanceToFire();
+setInterval(loadDistanceToFire, 60_000);
 
 setInterval(loadPrices,    REFRESH_MS);
 setInterval(loadSignals,   60_000);
