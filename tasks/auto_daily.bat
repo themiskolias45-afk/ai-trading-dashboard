@@ -25,6 +25,12 @@ REM lands on MM,DD on the VPS ("Fri 08/07/2026") and DD,MM on this laptop
 REM ("07/08/2026"), so every filename here had day and month transposed.
 for /f %%D in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "TODAY=%%D"
 set LOGFILE=%PROJ%\tasks\logs\daily_%TODAY%.txt
+REM The claude call writes HERE first, then gets appended to LOGFILE. park decides by
+REM READING the file it is given and refuses anything over 400 chars, so handing it
+REM LOGFILE would never park: by the time the agent runs, LOGFILE already holds the
+REM rejection-scoring and shadow-learning output and yesterday's ran to 14KB. LOGFILE
+REM still receives exactly what it always did.
+set RUNOUT=%PROJ%\tasks\logs\daily_run_%RANDOM%%RANDOM%.tmp
 
 echo ========================================== >> "%LOGFILE%"
 echo  SmartEntry Daily Check - %date% %time% >> "%LOGFILE%"
@@ -65,13 +71,43 @@ REM .CMD from a .BAT without CALL transfers control and never comes back — eve
 REM line below this one was dead. No [exit N] marker has ever been written to any
 REM log in this project, the completion notification never fired, and endlocal
 REM never ran. Found 2026-08-09 by the AI work ledger looking for the marker.
-call claude -p "FIRST read %PROJ%\tasks\ai_brief.md - prior decisions, open proposals, what is already measured, and the live config. Never re-raise a decided item. Daily SmartEntry Pro automated check. 1) Read %PROJ%\server\journal.json - last 5 trades with outcome and P&L. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number. If settingsError is not null, say so first: the server is on built-in defaults, not the saved config. 3) Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence, setup, dataSource. 4) Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses, halted. 5) Any signal at or above the live gate must be marked ** SIGNAL READY **. 6) Read %PROJ%\server\learning_shadow.json if it exists - per-setup evidence from REJECTED setups walked forward on real bars. These are paper results with no slippage, and they do NOT feed the live gate. Name any setup whose enoughForReading is true and say what its rPerEpisode implies. If the file is absent or every setup is still insufficient, say exactly that. 7) One-line verdict: TRADE TODAY or WAIT. Keep under 30 lines." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul >> "%LOGFILE%" 2>&1
+call claude -p "FIRST read %PROJ%\tasks\ai_brief.md - prior decisions, open proposals, what is already measured, and the live config. Never re-raise a decided item. Daily SmartEntry Pro automated check. 1) Read %PROJ%\server\journal.json - last 5 trades with outcome and P&L. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number. If settingsError is not null, say so first: the server is on built-in defaults, not the saved config. 3) Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence, setup, dataSource. 4) Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses, halted. 5) Any signal at or above the live gate must be marked ** SIGNAL READY **. 6) Read %PROJ%\server\learning_shadow.json if it exists - per-setup evidence from REJECTED setups walked forward on real bars. These are paper results with no slippage, and they do NOT feed the live gate. Name any setup whose enoughForReading is true and say what its rPerEpisode implies. If the file is absent or every setup is still insufficient, say exactly that. 7) One-line verdict: TRADE TODAY or WAIT. Keep under 30 lines." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
 popd
+type "%RUNOUT%" >> "%LOGFILE%"
 
 REM Notify, but never let the notifier decide this task's exit code - msg.exe
 REM fails in a non-interactive session and would report a healthy run as failed.
 msg * "SmartEntry: Daily check complete. See tasks\logs\ for report." >nul 2>&1
+
+REM Park the brief when the subscription window is closed, instead of losing the day.
+REM On 2026-08-12 the VPS morning agent died on "You have hit your weekly limit -
+REM resets Aug 13, 11am" and threw its work away; a weekly ceiling kills every claude
+REM job on the box at once, so this one would have gone the same way. park refuses
+REM anything that is not a genuine limit notice, so a real failure still surfaces as a
+REM failure. The brief goes in on STDIN because cmd.exe truncates an argument at the
+REM first newline.
+if not "%CLAUDE_RC%"=="0" (
+  (
+    echo Daily SmartEntry Pro automated check, resumed after a subscription limit.
+    echo FIRST read %PROJ%\tasks\ai_brief.md - prior decisions, open proposals, what is
+    echo already measured, and the live config. Never re-raise a decided item.
+    echo Read %PROJ%\server\journal.json - last 5 trades with outcome and P&L.
+    echo Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold
+    echo as THE gate, never an assumed number. If settingsError is not null say so first:
+    echo the server is then on built-in defaults, not the saved config.
+    echo Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence,
+    echo setup, dataSource. Mark any signal at or above the live gate SIGNAL READY.
+    echo Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses,
+    echo halted.
+    echo Read %PROJ%\server\learning_shadow.json if it exists - per-setup evidence from
+    echo REJECTED setups walked forward on real bars. These are paper results with no
+    echo slippage and they do NOT feed the live gate. Name any setup whose
+    echo enoughForReading is true and say what its rPerEpisode implies.
+    echo End with a one-line verdict: TRADE TODAY or WAIT. Keep under 30 lines.
+  ) | python "%PROJ%\claude_agent.py" park "Daily Check" --output-file "%RUNOUT%" >> "%LOGFILE%" 2>&1
+)
+del "%RUNOUT%" 2>nul
 
 echo [exit %CLAUDE_RC%] >> "%LOGFILE%"
 endlocal & exit /b %CLAUDE_RC%
