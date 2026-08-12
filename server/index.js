@@ -6648,6 +6648,48 @@ app.get("/api/cohort-reachability", (_, res) => {
   }
 });
 
+// ── /api/preopen-plan — the plan the 12:00 UTC job produced ─────────────────
+//
+// Serves the ARTIFACT, and deliberately does not build the plan on demand.
+// tasks/preopen_plan.cjs makes seven HTTP calls back to this same server plus a
+// login; running it inside a route would mean the dashboard's poll fires eight
+// self-requests through the event loop it is already occupying. The plan is a
+// point-in-time statement about the session ahead anyway — recomputing it on every
+// dashboard refresh would produce a different "distance to fire" each poll and
+// destroy the one property that makes a plan useful, which is that it does not move
+// while you are reading it.
+//
+// AGE IS PART OF THE ANSWER. A plan from three days ago is not a plan, and the whole
+// point of surfacing this is that a stale read must never look like a fresh one.
+const PREOPEN_PLAN_STALE_MINUTES = 24 * 60;   // one trading day; the job runs daily
+app.get("/api/preopen-plan", (_, res) => {
+  const file = path.join(__dirname, "..", "tasks", "analysis", "preopen-plan-latest.json");
+  try {
+    if (!fs.existsSync(file)) {
+      // Not an error: the job has simply never run on this box. Say which job, or the
+      // reader has no way to act on it.
+      return res.json({
+        available: false,
+        reason: "no plan artifact yet — runs daily at 12:00 UTC, or: node tasks/preopen_plan.cjs",
+        feedsTheGate: false,
+      });
+    }
+    const plan = JSON.parse(fs.readFileSync(file, "utf8"));
+    const ageMinutes = Math.round((Date.now() - Date.parse(plan.generatedAt)) / 60000);
+    res.json({
+      available: true,
+      ageMinutes,
+      stale: !Number.isFinite(ageMinutes) || ageMinutes > PREOPEN_PLAN_STALE_MINUTES,
+      staleAfterMinutes: PREOPEN_PLAN_STALE_MINUTES,
+      plan,
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[preopen-plan]", e.message);
+    res.status(500).json({ available: false, error: e.message, feedsTheGate: false });
+  }
+});
+
 // ── /api/size — Kelly-based position sizing ───────────────────
 app.post("/api/size", (req, res) => {
   try {

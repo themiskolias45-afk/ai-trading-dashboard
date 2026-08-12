@@ -470,6 +470,31 @@
 
     .cal-foot { font-size:.65rem; color:var(--muted); line-height:1.6; margin-top:10px;
                 padding-top:10px; border-top:1px solid var(--border); }
+
+    /* ── PRE-OPEN PLAN ──────────────────────────────────────────
+       Reuses the calendar's tokens on purpose: the two panels sit together and a
+       second colour language would imply a second meaning for the same red. */
+    .pop-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin-bottom:12px; }
+    .pop-card { padding:10px 12px; border-radius:8px; border:1px solid var(--border2); background:var(--bg); }
+    .pop-card.ready { border-color:rgba(34,197,94,.45); background:rgba(34,197,94,.07); }
+    .pop-asset { font-size:.62rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+    .pop-gap   { font-size:1.35rem; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.25; }
+    .pop-card.ready .pop-gap { color:var(--green); }
+    .pop-legs  { font-size:.63rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .pop-setup { font-size:.63rem; color:var(--muted); margin-top:3px; }
+
+    .pop-sec { font-size:.62rem; text-transform:uppercase; letter-spacing:.12em; color:var(--muted);
+               margin:14px 0 6px; display:flex; align-items:center; gap:10px; }
+    .pop-sec::after { content:''; flex:1; height:1px; background:var(--border); }
+    .pop-line { font-size:.72rem; line-height:1.65; }
+    .pop-num  { font-variant-numeric:tabular-nums; font-weight:700; color:var(--text); }
+    /* A read that FAILED. Distinct from a read that returned bad news, because this
+       panel's whole reason for existing is that a 401 once rendered as reassurance. */
+    .pop-unavail { padding:8px 12px; border-radius:6px; font-size:.7rem; margin:6px 0;
+                   border:1px solid rgba(234,179,8,.35); background:rgba(234,179,8,.06); color:var(--yellow); }
+    .pop-alarm   { padding:8px 12px; border-radius:6px; font-size:.72rem; font-weight:700; margin:6px 0;
+                   border:1px solid rgba(239,68,68,.4); background:rgba(239,68,68,.08); color:var(--red); }
+    .pop-dead { font-size:.66rem; color:var(--muted); font-variant-numeric:tabular-nums; padding:2px 0 2px 12px; }
   </style>
 </head>
 <body>
@@ -706,6 +731,20 @@
     <div class="signal-card" id="sig-btc"><div class="sig-loading">Loading BTC signal…</div></div>
     <div class="signal-card" id="sig-gold"><div class="sig-loading">Loading Gold signal…</div></div>
     <div class="signal-card" id="sig-spx"><div class="sig-loading">Loading S&P500 signal…</div></div>
+  </div>
+
+  <!-- The pre-open plan. Sits ABOVE the calendar because it says what the calendar
+       MEANS for today: which hour is blacked out, how far each asset is from firing,
+       and what the record says about the session ahead. Produced at 12:00 UTC by
+       tasks\preopen_plan.cjs, one hour before the NEW YORK open. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Pre-Open Plan</div>
+      <span id="pop-age" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="pop-body" style="font-size:.75rem;color:var(--muted)">reading the plan…</div>
+    </div>
   </div>
 
   <!-- The economic week. 74 events were fetched from ForexFactory every run and
@@ -4215,11 +4254,143 @@ async function loadDistanceToFire() {
 loadDistanceToFire();
 setInterval(loadDistanceToFire, 60_000);
 
-// ── ECONOMIC CALENDAR ──────────────────────────────────────────
-// Ordered by what a trader actually needs: what is NEXT, then the rest of today, then
-// the remaining week. Times are UTC because every other clock in this system is, and
-// the two boxes sit in different timezones — a local-time calendar would read
-// differently on each machine for the same event.
+// ── PRE-OPEN PLAN ──────────────────────────────────────────────
+// Renders the artifact written at 12:00 UTC, one hour before the NEW YORK open.
+//
+// Two rules this panel exists to obey, both learned the hard way today:
+//  1. A read that FAILED never renders as good news. The plan script printed "0 of 15
+//     cohorts cannot reach the gate" (real: 5) and "no high-impact events left this
+//     week" on the eve of PPI, because two 401s were rendered as data.
+//  2. AGE IS PART OF THE ANSWER. A plan from three days ago describes a session that
+//     has already happened, so a stale one is greyed and labelled, never shown plain.
+const PREOPEN_POLL_MS = 120_000;   // the artifact changes once a day; polling harder buys nothing
+
+function popAgeText(mins) {
+  if (!Number.isFinite(mins)) return 'age unknown';
+  if (mins < 60) return mins + 'm ago';
+  if (mins < 1440) return Math.floor(mins / 60) + 'h ' + String(mins % 60).padStart(2, '0') + 'm ago';
+  return Math.floor(mins / 1440) + 'd ago';
+}
+
+function popAssetCard(a) {
+  if (a.unavailable) {
+    return '<div class="pop-card"><div class="pop-asset">' + escapeHtml(a.key.toUpperCase()) + '</div>'
+      + '<div class="pop-gap" style="color:var(--muted)">?</div>'
+      + '<div class="pop-legs">signal unavailable</div></div>';
+  }
+  const legs = ['D1=' + (a.legs.d1 || '?'), '4H=' + (a.legs.h4 || '?'), '1H=' + (a.legs.h1 || '?')].join('  ');
+  return '<div class="pop-card' + (a.ready ? ' ready' : '') + '">'
+    + '<div class="pop-asset">' + escapeHtml(a.label) + '</div>'
+    + '<div class="pop-gap">' + (a.ready ? 'READY' : a.gap + 'pt short') + '</div>'
+    + '<div class="pop-legs">conf ' + a.confidence + '%  ·  ' + escapeHtml(legs) + '</div>'
+    + '<div class="pop-setup">' + escapeHtml(a.setup || 'no setup') + ' ('
+    + escapeHtml(a.dataSource || '?') + ')</div>'
+    + '</div>';
+}
+
+async function loadPreopenPlan() {
+  const body = document.getElementById('pop-body');
+  const ageEl = document.getElementById('pop-age');
+  if (!body) return;
+  try {
+    const d = await getJson('/preopen-plan');
+
+    if (!d.available) {
+      ageEl.textContent = '';
+      body.innerHTML = '<div class="pop-unavail">No plan yet — ' + escapeHtml(d.reason || 'not run on this box')
+        + '</div>';
+      return;
+    }
+
+    const p = d.plan;
+    ageEl.innerHTML = 'built ' + escapeHtml(popAgeText(d.ageMinutes)) + ' · gate ' + p.gate
+      + (d.stale ? ' · <span style="color:var(--yellow);font-weight:700">STALE</span>' : '');
+
+    const out = [];
+
+    if (d.stale) {
+      out.push('<div class="pop-unavail">This plan is ' + escapeHtml(popAgeText(d.ageMinutes))
+        + ' — it describes a session that has already happened. Re-run: node tasks/preopen_plan.cjs</div>');
+    }
+    if (p.settingsError) {
+      out.push('<div class="pop-alarm">Server was running on DEFAULT settings when this was built — '
+        + escapeHtml(p.settingsError) + '</div>');
+    }
+    if (p.risk && p.risk.halted) {
+      out.push('<div class="pop-alarm">TRADING HALTED — ' + escapeHtml(p.risk.haltReason || 'circuit breaker')
+        + '. Nothing below can fire.</div>');
+    }
+    if (p.unprotectedPositions > 0) {
+      out.push('<div class="pop-alarm">' + p.unprotectedPositions
+        + ' open position(s) with NO broker-side stop — deal with this first.</div>');
+    }
+
+    out.push('<div class="pop-sec">Distance to fire</div>');
+    out.push('<div class="pop-grid">' + (p.assets || []).map(popAssetCard).join('') + '</div>');
+
+    out.push('<div class="pop-sec">The session ahead</div>');
+    if (p.sessionEvidence) {
+      const s = p.sessionEvidence, pl = s.pooled;
+      out.push('<div class="pop-line">'
+        + '<span class="pop-num">NEW YORK</span> — '
+        + (pl ? '<span class="pop-num">' + pl.closed + '</span> trades, <span class="pop-num">'
+                + pl.winRatePct + '%</span> win, <span class="pop-num">'
+                + (pl.rPerTrade >= 0 ? '+' : '') + pl.rPerTrade + 'R</span>/trade'
+              : 'no pooled figure')
+        + '<br>Removing it improves <span class="pop-num">' + escapeHtml(s.removingItImproves)
+        + '</span> — ' + escapeHtml(s.verdict)
+        + '<br><span style="color:var(--muted)">' + escapeHtml(s.caveat) + '</span>'
+        + '<br><span style="color:var(--muted)">The only session positive at the gate. ASIAN, OVERLAP '
+        + 'and AFTER HOURS all improve the book when removed — which is why this plan is built for '
+        + 'the NY open and not for the hours the other scheduled jobs run in.</span>'
+        + '</div>');
+    } else {
+      out.push('<div class="pop-unavail">No session walk-forward on this box — '
+        + 'run: node tasks/session_walkforward.cjs</div>');
+    }
+
+    out.push('<div class="pop-sec">What will be blocked</div>');
+    if (p.calendarUnavailable) {
+      out.push('<div class="pop-unavail">Calendar was unreachable when this plan was built — '
+        + 'it CANNOT say what will be blocked. Not the same as "nothing is blocked".</div>');
+    } else if (!(p.blackouts || []).length) {
+      out.push('<div class="pop-line" style="color:var(--muted)">No high-impact watched events left this week.</div>');
+    } else {
+      out.push('<div class="pop-line">' + p.blackouts.slice(0, 6).map(b =>
+        '<span class="pop-num">' + escapeHtml(b.at.slice(5, 16).replace('T', ' ')) + '</span> '
+        + escapeHtml(b.country) + ' ' + escapeHtml(b.title)
+        + ' — blocks <span class="pop-num">' + escapeHtml(b.blocksFrom.slice(11, 16)) + '-'
+        + escapeHtml(b.blocksUntil.slice(11, 16)) + ' UTC</span>'
+        + (b.inNewYork ? ' <span style="color:var(--red);font-weight:700">inside NEW YORK</span>' : '')
+      ).join('<br>') + '</div>');
+    }
+
+    out.push('<div class="pop-sec">Structural limits</div>');
+    if (p.cohortsUnavailable) {
+      out.push('<div class="pop-unavail">Cohort reachability was unreachable when this plan was built — '
+        + 'it cannot say which cohorts are dead.</div>');
+    } else {
+      out.push('<div class="pop-line"><span class="pop-num">' + p.deadCohorts
+        + '</span> cohorts cannot reach gate <span class="pop-num">' + p.gate
+        + '</span> at maximum boost — a setup landing in one of those could not fire however good '
+        + 'it was.</div>');
+      out.push((p.deadCohortNames || []).map(n => '<div class="pop-dead">· ' + escapeHtml(n) + '</div>').join(''));
+    }
+
+    out.push('<div class="cal-foot">Built ' + escapeHtml(String(p.generatedAt).replace('T', ' ').slice(0, 16))
+      + ' UTC by the 12:00 UTC job, one hour before the NEW YORK open. Every figure is read live or from '
+      + 'a walk-forward artifact and carries the sample it rests on. This plan cannot open a trade, move '
+      + 'a threshold or admit a setup — it states what the gate would need and what the record says.</div>');
+
+    body.innerHTML = out.join('');
+  } catch (e) {
+    ageEl.textContent = '';
+    body.innerHTML = '<span style="color:var(--red)">Pre-open plan unavailable — ' + escapeHtml(e.message) + '</span>';
+  }
+}
+loadPreopenPlan();
+setInterval(loadPreopenPlan, PREOPEN_POLL_MS);
+
 // ── ECONOMIC CALENDAR ──────────────────────────────────────────
 // Ordered by what a trader needs in order: what is NEXT and how long away, whether the
 // filter will actually stop an entry, then today, then the rest of the week.
