@@ -142,11 +142,76 @@ function detectCRT(bars, options) {
  *                 inside it
  *   DISTRIBUTION  the bar after closes beyond the opposite side of the span
  *
- * sessionAligned is ALWAYS false. Without bar timestamps this is a bar-window
- * pattern that has AMD's shape, not a verified Asia-accumulation / London-sweep /
- * NY-expansion sequence. Treating the two as the same thing would be the kind of
- * quiet substitution that makes a number untrustworthy.
+ * SESSION ALIGNMENT. This used to be impossible: the note here said the bridge sent
+ * no timestamps, so every pattern was a bar-window shape rather than a verified
+ * Asia-accumulation / London-sweep / NY-expansion sequence. That stopped being true on
+ * 2026-08-09, when mt5_bridge.py started sending bar OPEN times, and nothing here was
+ * updated to use them — so the block outlived its cause by three days and the evidence
+ * register still described it as unmeasurable.
+ *
+ * When `bars.times` is present each phase is now tagged with the session it actually
+ * happened in, and `classicAMD` marks the textbook sequence: accumulation in ASIA,
+ * the sweep in LONDON, distribution in NEW YORK. Without times the behaviour is
+ * exactly as before — sessionAligned:false and no session fields — because a pattern
+ * that quietly claims a session it cannot know is worse than one that admits it.
  * ───────────────────────────────────────────────────────────── */
+
+// The system's own UTC session boundaries, matching get_time_context, so a session
+// named here means the same thing as a session named anywhere else in the project.
+const SESSION_BOUNDS = [
+  ["ASIAN",       22, 7],
+  ["PRE-LONDON",   7, 9],
+  ["LONDON",       9, 12],
+  ["OVERLAP",     12, 13],
+  ["NEW YORK",    13, 17],
+  ["AFTER HOURS", 17, 22],
+];
+
+// The coarse three the AMD narrative is actually told in. LONDON here spans
+// pre-London through the overlap, and NEW YORK runs to the Asian open, because the
+// classic sequence is about which desk is active, not about the finer labels above.
+const MACRO_BOUNDS = [
+  ["ASIA",     22, 7],
+  ["LONDON",    7, 13],
+  ["NEW YORK", 13, 22],
+];
+
+// Bar times arrive as UNIX SECONDS from the bridge. Read as milliseconds they land in
+// 1970 and every session tag would be wrong but plausible. Any real ms epoch after
+// 1973 exceeds 1e11; a seconds epoch does not reach it until the year 5138.
+const MS_EPOCH_FLOOR = 1e11;
+
+function hourOf(t) {
+  if (!Number.isFinite(t)) return null;
+  const date = new Date(t < MS_EPOCH_FLOOR ? t * 1000 : t);
+  const year = date.getUTCFullYear();
+  if (year < 2000 || year > 2100) return null;
+  return date.getUTCHours();
+}
+
+function inBand(hour, from, to) {
+  return from < to ? hour >= from && hour < to : hour >= from || hour < to;
+}
+
+function sessionOf(t, bands) {
+  const hour = hourOf(t);
+  if (hour === null) return null;
+  const found = bands.find(([, from, to]) => inBand(hour, from, to));
+  return found ? found[0] : null;
+}
+
+/**
+ * Are these timestamps usable? One per bar, all readable, or none of it is trusted.
+ * A partially-valid array is refused rather than half-used: a pattern tagged from a
+ * gap in the series would be confidently mislabelled, which is the failure this whole
+ * block exists to avoid.
+ */
+function usableTimes(bars) {
+  const times = bars && bars.times;
+  if (!Array.isArray(times) || times.length !== bars.highs.length) return null;
+  for (const t of times) if (hourOf(t) === null) return null;
+  return times;
+}
 function detectAMD(bars, options) {
   const settings = options || {};
   const window = Number.isFinite(settings.window) && settings.window >= 3
@@ -162,6 +227,7 @@ function detectAMD(bars, options) {
   const barCount = highs.length;
   const lastIndex = barCount - 1;
   const averageRange = averageBarRange(highs, lows, RANGE_SAMPLE_BARS);
+  const times = usableTimes(bars);
 
   const patterns = [];
   // i indexes the DISTRIBUTION bar; the manipulation is i-1; accumulation is the
@@ -188,7 +254,7 @@ function detectAMD(bars, options) {
     const distributed = sweptHigh ? closes[i] < accLow : closes[i] > accHigh;
     if (!distributed) continue;
 
-    patterns.push({
+    const pattern = {
       direction: sweptHigh ? "bearish" : "bullish",
       sweptSide: sweptHigh ? "high" : "low",
       accumulationHigh: accHigh,
@@ -201,20 +267,56 @@ function detectAMD(bars, options) {
       invalidation: sweptHigh ? highs[m] : lows[m],
       barIndex: i,
       barsAgo: lastIndex - i,
-      sessionAligned: false,
-    });
+      sessionAligned: Boolean(times),
+    };
+
+    if (times) {
+      // Which desk was actually active for each phase. The accumulation window can
+      // straddle sessions, so it reports the session it STARTED in plus whether it
+      // stayed there — a window labelled "ASIA" that spent half its bars in London is
+      // the sort of quiet half-truth that makes a pattern library untrustworthy.
+      const accSessions = new Set();
+      for (let k = accStart; k <= accEnd; k++) accSessions.add(sessionOf(times[k], MACRO_BOUNDS));
+      const accMacro = sessionOf(times[accStart], MACRO_BOUNDS);
+      const manipMacro = sessionOf(times[m], MACRO_BOUNDS);
+      const distMacro = sessionOf(times[i], MACRO_BOUNDS);
+
+      pattern.accumulationSession   = sessionOf(times[accStart], SESSION_BOUNDS);
+      pattern.manipulationSession   = sessionOf(times[m], SESSION_BOUNDS);
+      pattern.distributionSession   = sessionOf(times[i], SESSION_BOUNDS);
+      pattern.accumulationMacro     = accMacro;
+      pattern.manipulationMacro     = manipMacro;
+      pattern.distributionMacro     = distMacro;
+      pattern.accumulationSpansSessions = accSessions.size > 1;
+      pattern.manipulationTimeUtc   = new Date(
+        times[m] < MS_EPOCH_FLOOR ? times[m] * 1000 : times[m]).toISOString();
+      // The textbook sequence, and the only one that earns the name: the range builds
+      // in Asia, London sweeps a side of it, New York expands away. Anything else is a
+      // real AMD shape that simply did not happen on that schedule.
+      pattern.classicAMD = accMacro === "ASIA" && manipMacro === "LONDON" && distMacro === "NEW YORK";
+    }
+
+    patterns.push(pattern);
   }
 
   patterns.sort((a, b) => a.barsAgo - b.barsAgo);
+  const kept = patterns.slice(0, maxPatterns);
   return {
-    patterns: patterns.slice(0, maxPatterns),
+    patterns: kept,
     totalFound: patterns.length,
     averageRange,
     barsScanned: barCount,
     // Surfaced at the top level too, so a consumer cannot miss it.
-    sessionAligned: false,
-    sessionNote: "Bar-window pattern. The bridge sends no timestamps, so this is "
-      + "not verified against real trading sessions.",
+    sessionAligned: Boolean(times),
+    // Counted over EVERY pattern found, not just the ones returned: maxPatterns is a
+    // display cap, and a ratio computed off a truncated list would drift with it.
+    classicCount: times ? patterns.filter(p => p.classicAMD).length : 0,
+    sessionNote: times
+      ? "Session-aligned against bar open times. classicAMD marks accumulation in "
+        + "ASIA, the sweep in LONDON and distribution in NEW YORK; the rest are real "
+        + "AMD shapes that did not happen on that schedule."
+      : "Bar-window pattern. No usable bar times were supplied, so this is NOT "
+        + "verified against real trading sessions.",
   };
 }
 

@@ -162,12 +162,62 @@ test("a TRENDING window is not accumulation", () => {
     "a trend must not be mistaken for a consolidation");
 });
 
-test("sessionAligned is false everywhere, always", () => {
+test("without bar times, sessionAligned is false and says why", () => {
   const bars = series([...calm(25), ...tight(12, 99, 101), [100, 106, 100], [92, 100, 95]]);
   const out = detectAMD(bars, { window: 12 });
   assert.strictEqual(out.sessionAligned, false, "top level must disclaim session alignment");
   assert.strictEqual(out.patterns[0].sessionAligned, false, "and so must every pattern");
-  assert.ok(out.sessionNote.includes("no timestamps"), "the reason must be stated");
+  assert.ok(out.sessionNote.includes("NOT"), "the reason must be stated");
+  assert.strictEqual(out.patterns[0].accumulationSession, undefined,
+    "a pattern must not invent a session it cannot know");
+});
+
+// Bar times let each phase name the desk that was actually active. The whole point of
+// AMD is the ASIA -> LONDON -> NEW YORK sequence, and a shape without that sequence is
+// not the same claim.
+function timedSeries(rows, startUnixSec, stepSec) {
+  const bars = series(rows);
+  bars.times = rows.map((_, k) => startUnixSec + k * stepSec);
+  return bars;
+}
+
+test("with bar times, each phase is tagged with its real session", () => {
+  // Hourly bars. 39 bars back from a distribution bar placed in NEW YORK.
+  const rows = [...calm(25), ...tight(12, 99, 101), [100, 106, 100], [92, 100, 95]];
+  // 2026-08-10T00:00:00Z is a Monday. Accumulation starts at index 25 -> 01:00 UTC
+  // (ASIA), manipulation at index 37 -> 13:00 (LONDON is 7-13, so 13:00 is NEW YORK).
+  // Shift the start so manipulation lands inside LONDON and distribution inside NY.
+  const start = Date.UTC(2026, 7, 10, 0, 0, 0) / 1000 - 25 * 3600 + 22 * 3600;
+  const bars = timedSeries(rows, start, 3600);
+  const out = detectAMD(bars, { window: 12 });
+  assert.ok(out.patterns.length > 0, "the pattern must still be found");
+  assert.strictEqual(out.sessionAligned, true, "times were supplied, so it is aligned");
+  const p = out.patterns[0];
+  assert.strictEqual(p.sessionAligned, true);
+  assert.ok(p.accumulationSession, "accumulation must name a session");
+  assert.ok(p.manipulationSession, "manipulation must name a session");
+  assert.ok(p.distributionSession, "distribution must name a session");
+  assert.ok(["ASIA", "LONDON", "NEW YORK"].includes(p.accumulationMacro));
+  assert.ok(typeof p.classicAMD === "boolean", "the textbook sequence is a yes or no");
+  assert.ok(p.manipulationTimeUtc.endsWith("Z"), "the sweep must carry a real UTC time");
+  assert.ok(out.sessionNote.includes("classicAMD"), "the note must explain the flag");
+});
+
+test("a broken times array is refused rather than half-used", () => {
+  const rows = [...calm(25), ...tight(12, 99, 101), [100, 106, 100], [92, 100, 95]];
+  const start = Date.UTC(2026, 7, 10, 0, 0, 0) / 1000;
+  for (const [label, mutate] of [
+    ["wrong length", t => t.slice(0, t.length - 3)],
+    ["a null in the series", t => { const c = [...t]; c[5] = null; return c; }],
+    ["a nonsense epoch", t => { const c = [...t]; c[5] = -1; return c; }],
+  ]) {
+    const bars = timedSeries(rows, start, 3600);
+    bars.times = mutate(bars.times);
+    const out = detectAMD(bars, { window: 12 });
+    assert.strictEqual(out.sessionAligned, false, `${label} must disable alignment entirely`);
+    assert.strictEqual(out.patterns[0] && out.patterns[0].accumulationSession, undefined,
+      `${label} must not produce a half-tagged pattern`);
+  }
 });
 
 test("too few bars for the window returns an error, not a silent empty", () => {

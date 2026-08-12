@@ -78,10 +78,27 @@ function fetchBars(ticker) {
       res.on("data", c => { body += c; });
       res.on("end", () => {
         try {
-          const q = JSON.parse(body).chart.result[0].indicators.quote[0];
-          const rows = q.high.map((h, i) => [h, q.low[i], q.close[i]])
-            .filter(r => r.every(v => typeof v === "number" && Number.isFinite(v)));
-          resolve({ highs: rows.map(r => r[0]), lows: rows.map(r => r[1]), closes: rows.map(r => r[2]) });
+          const result = JSON.parse(body).chart.result[0];
+          const q = result.indicators.quote[0];
+          // Carry the bar OPEN times through. Dropping them here is what kept AMD
+          // session-BLIND long after the bridge started sending timestamps: detectAMD
+          // can align phases to ASIA/LONDON/NEW YORK, but only if it is given the
+          // times, and this loader silently threw them away. The timestamp is filtered
+          // alongside its own row so a dropped bar cannot shift every later bar's
+          // session by one — an off-by-one here would mislabel the whole series
+          // plausibly, which is worse than not labelling it at all.
+          const stamps = result.timestamp || [];
+          const rows = q.high.map((h, i) => [h, q.low[i], q.close[i], stamps[i]])
+            .filter(r => r.slice(0, 3).every(v => typeof v === "number" && Number.isFinite(v)));
+          const bars = {
+            highs:  rows.map(r => r[0]),
+            lows:   rows.map(r => r[1]),
+            closes: rows.map(r => r[2]),
+          };
+          // Only attach times when every surviving row has one; a partial array is
+          // refused by detectAMD anyway, and passing one would just look like a bug.
+          if (rows.length && rows.every(r => Number.isFinite(r[3]))) bars.times = rows.map(r => r[3]);
+          resolve(bars);
         } catch (e) { reject(new Error("parse " + ticker + ": " + e.message)); }
       });
     }).on("error", reject);

@@ -85,14 +85,23 @@ const CLAIMS = [
     id: "amd",
     title: "AMD (Accumulation / Manipulation / Distribution)",
     status: STATUS.BLOCKED,
-    measuredOn: "2026-08-09",
-    evidence: "33 resolved trades pooled across three assets even on hourly bars — "
-      + "far below any threshold for a claim.",
-    caveat: "mt5_bridge.py `_rates_to_bars` sends no timestamps, so AMD is detected "
-      + "on a bar WINDOW and carries sessionAligned:false. It has AMD's shape but is "
-      + "not a verified Asia-accumulation / London-sweep sequence.",
-    changesTheAnswer: "Add `times` to the bridge bar payload, then re-measure with "
-      + "real session boundaries. Note the payload already hit a 413 at ~240kb once.",
+    measuredOn: "2026-08-12",
+    evidence: "NOW SESSION-ALIGNED, and still far too thin to judge. On 13,757 real "
+      + "Gold hourly bars (2 years) the detector finds 16 patterns, of which only 3 are "
+      + "the textbook ASIA accumulation → LONDON sweep → NEW YORK distribution. The "
+      + "most common sequence is ASIA → NEW YORK → NEW YORK (6). An earlier run that "
+      + "pooled every shape together reported 33 resolved trades across three assets.",
+    caveat: "The block has MOVED and its old reason was stale. The bridge has sent bar "
+      + "open times since 2026-08-09; what was actually missing is that detectAMD never "
+      + "read them and hardcoded sessionAligned:false, while geometry_measure.cjs threw "
+      + "the timestamps away in its own loader. Both fixed 2026-08-12. What blocks AMD "
+      + "now is SAMPLE SIZE, not missing data: 16 patterns in two years, 3 of them "
+      + "classic, cannot support any claim about edge.",
+    changesTheAnswer: "More patterns — which means more history, or a looser window, and "
+      + "loosening the window changes what the pattern IS so it would need its own "
+      + "control. Measure the classic subset SEPARATELY from the rest: pooling a 19% "
+      + "minority with shapes that merely resemble it is what made the earlier number "
+      + "uninterpretable.",
     harness: "node tasks/geometry_measure.cjs --interval 1h",
     feedsTheGate: false,
   },
