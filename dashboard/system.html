@@ -690,7 +690,19 @@ async function loadLiveProfit() {
       <thead><tr><th>#</th><th>Setup</th><th>Trades</th><th>Win Rate</th><th>Net P&amp;L</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`);
-    text('live-meta', `${statsRes.totalClosed} closed trades`);
+    // Say BOTH numbers when they differ. The table above counts only trades with a real
+    // setup name; totalClosed counts every closed trade. Printing just the larger figure
+    // over a shorter table invites the reader to assume rows are missing, and printing
+    // just the smaller one hides real P&L. The unattributed trades are excluded from the
+    // table because "WAIT" is the absence of a setup — one such fill used to sit at the
+    // top of it with a 100% win rate.
+    const attributed = Number.isFinite(statsRes.attributedClosed)
+      ? statsRes.attributedClosed : statsRes.totalClosed;
+    const unattributed = (statsRes.unattributed && statsRes.unattributed.count) || 0;
+    text('live-meta', unattributed > 0
+      ? `${attributed} attributed of ${statsRes.totalClosed} closed — `
+        + `${unattributed} carry no setup name (P&L ${statsRes.unattributed.totalPnl})`
+      : `${statsRes.totalClosed} closed trades`);
   } catch {
     markOnline(false);
     html('live-profit-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Server offline — cannot load live performance.</div>`);

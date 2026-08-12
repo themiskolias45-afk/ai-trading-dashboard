@@ -3438,10 +3438,32 @@ app.get("/api/stats/by-setup", (_, res) => {
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
   if (!closed.length) return res.json({ noData: true, message: "No closed trades yet" });
 
-  // Group by setup
+  // Group by setup.
+  //
+  // NON_SETUP_NAMES is excluded here for the same reason updateLearning() refuses it:
+  // "WAIT" is the ABSENCE of a setup, not a setup. Without this the journal's one
+  // WAIT-named filled trade surfaced as its own bucket reading
+  // {setup:"WAIT", trades:1, wins:1, winRate:100, avgRealizedR:2.49} — a phantom
+  // setup with a perfect record, sorted to the top of the table by winRate. Found by
+  // the weekly review on 2026-08-12, which noted that updateLearning already guards
+  // this at the point of learning while this endpoint, which is what a human actually
+  // reads, did not.
+  //
+  // They are REPORTED, never dropped. The P&L is real money and belongs on screen;
+  // what it must not do is masquerade as a setup's track record. Same shape as the
+  // `unattributed` block already served by /api/learning.
   const bySetup = {};
+  const unattributedTrades = [];
   for (const t of closed) {
-    const key = t.setup || "UNKNOWN";
+    const rawSetup = String(t.setup || "").trim().toUpperCase();
+    if (!t.setup || NON_SETUP_NAMES.has(rawSetup)) {
+      unattributedTrades.push({
+        id: t.id, symbol: t.symbol, direction: t.direction,
+        setup: t.setup || null, pnl: t.pnl, closedAt: t.closedAt || null,
+      });
+      continue;
+    }
+    const key = t.setup;
     if (!bySetup[key]) bySetup[key] = {
       setup: key, trades: 0, wins: 0, losses: 0, totalPnl: 0,
       totalRR: 0, rrTrades: 0, totalRealizedR: 0, realizedRTrades: 0,
@@ -3494,7 +3516,24 @@ app.get("/api/stats/by-setup", (_, res) => {
     };
   }).filter(t => t.trades > 0);
 
-  res.json({ totalClosed: closed.length, setupStats, calibration });
+  // totalClosed counts EVERY closed trade, while setupStats now covers only the
+  // attributed ones. Stating both, plus the difference, so the two numbers can never be
+  // read as disagreeing — the same discipline /api/learning uses for its own split.
+  res.json({
+    totalClosed: closed.length,
+    attributedClosed: closed.length - unattributedTrades.length,
+    setupStats,
+    calibration,
+    unattributed: {
+      count: unattributedTrades.length,
+      totalPnl: parseFloat(unattributedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0).toFixed(2)),
+      trades: unattributedTrades,
+      why: "Closed trades whose setup name is missing or is WAIT/NONE/UNKNOWN. That is the "
+         + "absence of a setup, not a setup, so they are excluded from setupStats rather than "
+         + "bucketed into a phantom one. Their P&L is real and is counted in totalClosed. "
+         + "A row like this means the setup name was lost upstream.",
+    },
+  });
 });
 
 // The second app.get("/api/analysis") lived here and was never reachable — Express
