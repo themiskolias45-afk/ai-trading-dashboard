@@ -274,6 +274,74 @@ function relevantCohorts(asset, cohortRows) {
     short: r.short, effectiveGate: r.effectiveGate })) };
 }
 
+// ── what happened since the last plan ───────────────────────────────────────
+//
+// A document that only ever looks forward is never wrong, because nothing it says is
+// ever checked. This reads the PREVIOUS plan artifact and scores it against what the
+// market actually did: which of the levels it named were crossed, whether the gap to
+// the gate narrowed or widened, and what fired.
+//
+// It is a review, not a verdict. Crossing a level is not a prediction coming true — the
+// ladder names levels, it does not forecast them — but "R1 was taken out overnight" is
+// the single most useful sentence a morning plan can open with, and until now nothing
+// anywhere produced it.
+function reviewSincePrevious(previous, assets, journal) {
+  if (!previous || !previous.generatedAt) return null;
+
+  const sincePlan = Date.parse(previous.generatedAt);
+  if (!Number.isFinite(sincePlan)) return null;
+  const hoursAgo = (Date.now() - sincePlan) / 3600000;
+
+  const perAsset = assets.map(now => {
+    const before = (previous.assets || []).find(a => a.key === now.key);
+    if (!before || now.unavailable || before.unavailable) {
+      return { key: now.key, label: now.label, unavailable: true };
+    }
+    const from = Number(before.price), to = Number(now.price);
+    const moved = isPrice(from) && isPrice(to) ? to - from : null;
+
+    // A level counts as CROSSED when it sits between the two prices. Using the previous
+    // plan's ladder, not today's: the question is what the last document told you to
+    // watch, and today's ladder has already moved with the price.
+    const crossed = !isPrice(from) || !isPrice(to) ? [] :
+      (before.ladder || [])
+        .filter(l => isPrice(l.level))
+        .filter(l => (l.level > Math.min(from, to) && l.level < Math.max(from, to)))
+        .map(l => ({ name: l.name, level: l.level, direction: to > from ? "up through" : "down through" }));
+
+    return {
+      key: now.key, label: now.label,
+      priceFrom: from, priceTo: to, moved,
+      movedAtr: moved !== null && Number.isFinite(Number(now.atr)) && Number(now.atr) > 0
+        ? moved / Number(now.atr) : null,
+      confidenceFrom: before.confidence, confidenceTo: now.confidence,
+      gapFrom: before.gap, gapTo: now.gap,
+      // Named plainly. "gap narrowed" is the only forward-looking thing in this section
+      // and it is a fact about two readings, not a forecast.
+      gapDirection: !Number.isFinite(before.gap) || !Number.isFinite(now.gap) ? null
+        : now.gap < before.gap ? "narrowed" : now.gap > before.gap ? "widened" : "unchanged",
+      crossed,
+      trendFrom: before.trend, trendTo: now.trend,
+      trendFlipped: before.trend !== now.trend,
+    };
+  });
+
+  // Anything that actually traded in the window. This is the part that would matter most
+  // and almost always reads zero: one closed fill in this system's whole life.
+  const trades = (Array.isArray(journal) ? journal : []).filter(t => {
+    const t0 = Date.parse(t.openedAt || t.timestamp || t.date || "");
+    return Number.isFinite(t0) && t0 >= sincePlan;
+  });
+
+  // Blackouts the previous plan warned about that have now passed.
+  const passed = ((previous.clock && previous.clock.blackouts) || [])
+    .filter(b => Date.parse(b.blocksUntil) < Date.now())
+    .map(b => ({ title: b.title, country: b.country, at: b.at }));
+
+  return { previousAt: previous.generatedAt, hoursAgo, perAsset, trades, blackoutsPassed: passed,
+           previousSlot: previous.preOpenSlot ? previous.preOpenSlot.at : null };
+}
+
 // ── what the record says about this setup ───────────────────────────────────
 function setupRecord(asset, learning) {
   const setup = asset.setup;
@@ -364,6 +432,12 @@ const esc = s => String(s === null || s === undefined ? "" : s)
 
 // ── build the whole document ────────────────────────────────────────────────
 async function buildDeep() {
+  // Read the PREVIOUS plan before anything in this run overwrites it. Once
+  // writeArtifacts runs, deep-plan-latest.json is this plan and the comparison is gone.
+  let previous = null;
+  try { previous = JSON.parse(fs.readFileSync(path.join(OUT_DIR, "deep-plan-latest.json"), "utf8")); }
+  catch (e) { previous = null; }
+
   const built = await base.buildPlan();          // gate, distance to fire, cohorts, blackouts
   const cookie = await (async () => {
     // buildPlan already logged in; re-login here only to get a cookie this module can
@@ -388,9 +462,10 @@ async function buildDeep() {
     });
   })();
 
-  const [learning, gateHealth, rejection, measurements] = await Promise.all([
+  const [learning, gateHealth, rejection, measurements, journal] = await Promise.all([
     getJson("/api/learning", cookie), getJson("/api/gate-health", cookie),
     getJson("/api/rejection-evidence", cookie), getJson("/api/measurements", cookie),
+    getJson("/api/journal?limit=50", cookie),
   ]);
 
   const clock = buildDayClock(built);
@@ -445,6 +520,8 @@ async function buildDeep() {
     newYorkOpen: built.plan.nextNewYorkOpen,
     minutesToNewYork: built.plan.minutesToNewYork,
     preOpenSlot: slot,
+    since: reviewSincePrevious(previous, assets,
+      (journal.data && (journal.data.trades || journal.data.entries || journal.data)) || []),
     clock: { windowMinutes: clock.windowMins, unavailable: clock.unavailable, error: clock.error,
              events: clock.events, blackouts: clock.blackouts,
              preOpenBlockedBy: clock.preOpenBlocked.map(b => b.title) },
@@ -503,6 +580,55 @@ function renderDeep(doc) {
   if (doc.unavailable.length) {
     push("", `  ** ${doc.unavailable.length} SOURCE(S) UNREADABLE: ${doc.unavailable.join("; ")}`,
              `     Sections below that depend on them say so; none of them is reported as zero. **`);
+  }
+
+  // ---- 0. what happened since the last plan ----
+  //
+  // First, because it is the only section that can tell you the previous document was
+  // wrong. A plan that only looks forward is never checked and therefore never improves.
+  if (doc.since) {
+    push(...heading("Since the last plan"));
+    push(`    Previous plan built ${doc.since.previousAt.replace("T", " ").slice(0, 16)} UTC`
+      + `, ${doc.since.hoursAgo.toFixed(1)}h ago.`);
+    push("");
+    for (const a of doc.since.perAsset) {
+      if (a.unavailable) { push(`    ${pad(a.label || a.key, 14)} not comparable`); continue; }
+      const dir = a.moved === null ? "" : a.moved >= 0 ? "up" : "down";
+      push(`    ${pad(a.label, 14)}${num(a.priceFrom)} -> ${num(a.priceTo)}`
+        + (a.moved === null ? "" : `  ${dir} ${num(Math.abs(a.moved))}`
+            + (a.movedAtr === null ? "" : ` (${num(Math.abs(a.movedAtr), 2)}x ATR)`)));
+      if (a.gapDirection && a.gapDirection !== "unchanged") {
+        push(`                  gap to gate ${a.gapDirection}: ${a.gapFrom}pt -> ${a.gapTo}pt`);
+      }
+      if (a.trendFlipped) {
+        push(`                  ** TREND FLIPPED: ${a.trendFrom} -> ${a.trendTo} — anything the last`);
+        push(`                     plan said about ${a.label} was written under the old regime. **`);
+      }
+      for (const c of a.crossed.slice(0, 6)) {
+        push(`                  crossed ${c.direction} ${c.name} at ${num(c.level)}`);
+      }
+      if (!a.crossed.length && a.moved !== null) {
+        push(`                  no level from the last ladder was crossed`);
+      }
+    }
+    push("");
+    if (doc.since.trades.length) {
+      push(`    ${doc.since.trades.length} trade(s) since that plan:`);
+      for (const t of doc.since.trades.slice(0, 8)) {
+        push(`      ${pad(t.symbol || t.asset || "?", 10)} ${pad(t.direction || t.type || "", 6)}`
+          + ` ${t.status || (t.closedAt ? "closed" : "open")}`
+          + (t.pnl !== undefined ? `  P&L ${num(t.pnl)}` : ""));
+      }
+    } else {
+      push("    Nothing traded in that window.");
+    }
+    if (doc.since.blackoutsPassed.length) {
+      push(`    ${doc.since.blackoutsPassed.length} blackout(s) the last plan flagged have now passed: `
+        + doc.since.blackoutsPassed.map(b => b.title).slice(0, 4).join(", "));
+    }
+    push("");
+    push("    A crossed level is not a forecast coming true — the ladder names levels, it does");
+    push("    not predict them. This section exists so the previous document can be checked.");
   }
 
   // ---- 1. the day's clock ----
@@ -742,6 +868,24 @@ function renderTelegram(doc) {
   if (doc.unavailable.length) alarms.push("⚠️ unreadable: " + esc(doc.unavailable.join("; ")));
   if (alarms.length) P.push(alarms.join("\n"));
 
+  // Overnight first on the phone too — what moved is the thing you want before the
+  // forward-looking part, and only the entries that actually say something go in.
+  if (doc.since) {
+    const notable = doc.since.perAsset.filter(a => !a.unavailable
+      && (a.trendFlipped || (a.crossed && a.crossed.length) || a.gapDirection === "narrowed"));
+    if (notable.length || doc.since.trades.length) {
+      const bits = notable.map(a => {
+        const parts = [];
+        if (a.trendFlipped) parts.push(`trend ${esc(a.trendFrom)} → ${esc(a.trendTo)}`);
+        if (a.crossed && a.crossed.length) parts.push(`crossed ${a.crossed.map(c => esc(c.name)).join(", ")}`);
+        if (a.gapDirection === "narrowed") parts.push(`gap ${a.gapFrom}→${a.gapTo}pt`);
+        return `• <b>${esc(a.label)}</b> ${parts.join(" · ")}`;
+      });
+      if (doc.since.trades.length) bits.push(`• ${doc.since.trades.length} trade(s) since`);
+      P.push(`<b>Since the last plan</b> (${doc.since.hoursAgo.toFixed(1)}h)\n` + bits.join("\n"));
+    }
+  }
+
   const lines = doc.assets.map(a => {
     if (a.unavailable) return `• <b>${esc(a.key.toUpperCase())}</b> — unavailable`;
     const head = a.ready
@@ -833,6 +977,7 @@ if (require.main === module) {
 module.exports = {
   buildDeep, renderDeep, renderTelegram,
   buildDayClock, computePreOpenSlot, buildLadder, relevantCohorts, setupRecord, isPrice,
+  reviewSincePrevious,
   telegramSend, splitForTelegram,
   PREOPEN_TARGET_MINUTES_BEFORE, PREOPEN_EARLIEST_MINUTES_BEFORE, NEW_YORK_OPEN_UTC_HOUR,
 };
