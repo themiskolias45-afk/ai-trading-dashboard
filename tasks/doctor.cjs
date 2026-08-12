@@ -382,6 +382,64 @@ function checkAgentQueue() {
   }
 }
 
+/**
+ * Can the AI actually work right now, and if not, when can it again?
+ *
+ * On 2026-08-12 every claude job on the VPS died on "You've hit your weekly limit -
+ * resets Aug 13, 11am". Four jobs — morning, daily, analysis, weekly — stopped at once
+ * behind a ceiling nothing surfaced, and the only trace was a line in an append-only
+ * log. The doctor found the resulting RED hours later and by symptom, not by cause.
+ *
+ * The two halves are read from the source that is authoritative for each. The LOG says
+ * a limit was hit and quotes the notice verbatim, wording and reset time included. The
+ * QUEUE says whether the brief survived, and its resetAt was parsed by claude_agent.py
+ * at park time rather than re-parsed here.
+ *
+ * Deliberately does NOT parse the log's own timestamps. Those come from cmd's %date%,
+ * which is locale-dependent and differs between these two boxes — the VPS writes US
+ * order and the laptop writes UK — so a date read from there is a coin flip. Recency is
+ * judged by position in the file instead.
+ */
+const LIMIT_LOG_TAIL_LINES = 40;
+
+function checkAiCapacity() {
+  const logPath = path.join(ROOT, "tasks", "logs", "agent_log.txt");
+  let tail = [];
+  try {
+    tail = fs.readFileSync(logPath, "utf8").split(/\r?\n/).slice(-LIMIT_LOG_TAIL_LINES);
+  } catch (e) { return; }                 // no agent log on this box is not a fault
+
+  const limitLine = [...tail].reverse().find(l => /hit your .*limit|usage limit|rate limit/i.test(l));
+  if (!limitLine) return;                 // nothing recent — the AI is working
+
+  let parked = [];
+  try {
+    parked = fs.readFileSync(path.join(ROOT, "tasks", "agent_queue.jsonl"), "utf8")
+      .split(/\r?\n/).filter(Boolean)
+      .map(l => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
+  } catch (e) { parked = []; }
+
+  const notice = limitLine.trim().slice(0, 160);
+  if (parked.length) {
+    const next = parked.map(j => j.resetAt).filter(Boolean).sort()[0];
+    finding("INFO", "local", `AI subscription limit hit — ${parked.length} brief(s) parked, not lost`,
+      `"${notice}". The queue holds them and the hourly drain resumes them`
+      + (next ? ` from ${next}` : " once the window reopens"),
+      "python claude_agent.py status");
+  } else {
+    // A limit with nothing parked is the failure mode this system had until today: the
+    // brief was thrown away rather than queued. It is AMBER rather than RED because an
+    // OLD notice from before parking existed looks identical from here, and crying RED
+    // over history would be its own kind of noise.
+    finding("AMBER", "local", "an AI job hit a subscription limit and nothing is parked",
+      `"${notice}". Either that brief was lost, or the notice predates the parking fix. `
+      + "Every claude job on a box shares one ceiling, so a burst of RED scheduled tasks "
+      + "with no other symptom usually means this and not four broken jobs",
+      "check tasks/logs/agent_log.txt, then confirm the job's .bat has a "
+      + "claude_agent.py park block");
+  }
+}
+
 function checkBackup() {
   const file = path.join(ROOT, "tasks", "logs", "backup_log.txt");
   try {
@@ -531,6 +589,7 @@ async function diagnose() {
   checkFleetExposure(seen);
   checkParity(Boolean(peer));
   checkAgentQueue();
+  checkAiCapacity();
   checkBackup();
   checkLearningIntegrity();
 
