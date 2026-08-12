@@ -309,6 +309,16 @@
   <div id="fleetperf-banner"></div>
   <div id="fleetperf-body"></div>
 
+  <!-- ═══ LEARNING ═══ -->
+  <div class="section-label">What the learning engine has to work with</div>
+  <div class="section-desc">Real fills on the left, forgone paper episodes on the right. The engine needs 5 CLOSED
+    trades in ONE bucket before it adjusts anything, and it has 2 in total — the rejection ledger has 26
+    episodes it is not allowed to use. They are kept apart on purpose: shadow episodes are entries that were
+    never filled, with no spread and no slippage, so they are evidence about geometry and not about execution.
+    Nothing on this panel feeds the gate.</div>
+  <div id="learn-banner"></div>
+  <div id="learn-body"></div>
+
   <!-- ═══ EVIDENCE BOARD ═══ -->
   <div class="section-label">What this system knows, and what it only assumes</div>
   <div class="section-desc">Every claim carries its verdict, the evidence behind it, its caveat, and — the part that
@@ -1362,10 +1372,99 @@ async function loadFleetPerf() {
   }
 }
 
+// ── LEARNING ───────────────────────────────────────────────────
+// The two halves are never summed. setupStats counts REAL FILLS and is what moves
+// live confidence; shadow counts rejected setups walked forward on real broker bars,
+// which is a claim about geometry on entries that were never filled. Merging them
+// would make a paper result indistinguishable from a real loss — and today the two
+// disagree outright: BUY_OVERSOLD is 5W/1L on paper and -0.332R/trade in the fills the
+// gate actually took. Where they conflict, the walk-forward wins.
+async function loadLearning() {
+  const banner = el('learn-banner'), body = el('learn-body');
+  try {
+    const d = await getJson('/learning');
+    const real = d.setupStats || {};
+    const shadow = (d.shadow && d.shadow.stats) || {};
+    const realTotal = Object.values(real).reduce((a, s) => a + (s.wins || 0) + (s.losses || 0), 0);
+    const shadowTotal = Object.values(shadow).reduce((a, s) => a + (s.episodes || 0), 0);
+
+    banner.innerHTML = '<div style="margin:0 0 12px;font-size:13px;color:var(--dim)">'
+      + '<span style="color:' + (realTotal >= 5 ? 'var(--green)' : '#ffb800') + ';font-weight:600">'
+      + realTotal + ' real closed fills</span> across ' + Object.keys(real).length + ' setup(s)'
+      + ' · <span style="color:var(--dim)">' + shadowTotal + ' shadow episodes across '
+      + Object.keys(shadow).length + '</span>'
+      + (d.shadow ? ' · shadow generated ' + esc(String(d.shadow.generatedAt).slice(0, 16)) : '')
+      + ' · session ' + d.sessionCount + '</div>';
+
+    const names = [...new Set([...Object.keys(real), ...Object.keys(shadow)])].sort();
+    if (!names.length) {
+      body.innerHTML = '<div class="empty-state">No setups tracked yet.</div>';
+      return;
+    }
+
+    const rows = names.map(n => {
+      const r = real[n], s = shadow[n];
+      const realCell = r
+        ? (r.wins + 'W / ' + r.losses + 'L')
+        : '<span style="color:var(--dim)">—</span>';
+      const boostCell = r
+        ? (r.total >= 5
+            ? '<span style="color:' + (r.boost > 0 ? 'var(--green)' : r.boost < 0 ? 'var(--red)' : 'var(--dim)') + '">'
+              + (r.boost > 0 ? '+' : '') + r.boost + '</span>'
+            : '<span style="color:var(--dim)">0 — under floor</span>')
+        : '<span style="color:var(--dim)">—</span>';
+      const shadowCell = s
+        ? s.wins + 'W / ' + s.losses + 'L'
+          + '<span style="color:var(--dim)"> (' + s.episodes + ' ep)</span>'
+        : '<span style="color:var(--dim)">—</span>';
+      const rpe = s
+        ? '<span style="color:' + (s.rPerEpisode > 0 ? 'var(--green)' : 'var(--red)') + '">'
+          + (s.rPerEpisode >= 0 ? '+' : '') + Number(s.rPerEpisode).toFixed(3) + '</span>'
+          + (s.enoughForReading ? '' : ' <span style="color:var(--dim);font-size:11px">too few</span>')
+        : '<span style="color:var(--dim)">—</span>';
+      return '<tr>'
+        + '<td style="padding:6px 10px">' + esc(n) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + (r ? r.total + '/5' : '—') + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + realCell + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + boostCell + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + shadowCell + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + rpe + '</td>'
+        + '<td style="padding:6px 10px;color:var(--dim);font-size:11px">'
+        + esc(s && s.gates ? s.gates.join(', ') : '') + '</td></tr>';
+    }).join('');
+
+    body.innerHTML =
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<tr style="color:var(--dim);font-size:11px;text-align:left">'
+      + '<th style="padding:6px 10px">setup</th>'
+      + '<th style="padding:6px 10px;text-align:right">toward floor</th>'
+      + '<th style="padding:6px 10px;text-align:right">REAL fills</th>'
+      + '<th style="padding:6px 10px;text-align:right">live boost</th>'
+      + '<th style="padding:6px 10px;text-align:right">SHADOW episodes</th>'
+      + '<th style="padding:6px 10px;text-align:right">R/episode</th>'
+      + '<th style="padding:6px 10px">rejected by</th></tr>'
+      + rows + '</table></div>'
+      + '<div style="font-size:12px;color:var(--dim);margin-top:8px;line-height:1.6">'
+      + '<strong>The two columns are never summed.</strong> REAL fills are what move live confidence — a '
+      + 'boost only applies once a bucket reaches 5. SHADOW episodes are setups a gate rejected, walked '
+      + 'forward on real broker bars: no spread, no slippage, entries never filled, so they are evidence '
+      + 'about geometry and not about execution. They feed nothing. Where the two disagree the walk-forward '
+      + 'wins — BUY_OVERSOLD reads 5W/1L on paper and −0.332R/trade in the fills the gate actually took.</div>'
+      + (d.shadow ? '' : '<div style="font-size:12px;color:#ffb800;margin-top:6px">No shadow block on this '
+        + 'box — the rejection ledger has not produced stats here yet.</div>');
+  } catch (e) {
+    banner.innerHTML = '';
+    body.innerHTML = '<div class="empty-state" style="color:var(--red)">Learning state unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
 loadStatus();
 loadGate();
 loadRegistry();
 loadDoctor();
+loadLearning();
+setInterval(loadLearning, 300_000);
 loadFleetPerf();
 setInterval(loadFleetPerf, 300_000);
 loadEvidence();
