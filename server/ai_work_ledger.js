@@ -442,7 +442,25 @@ function build(options = {}) {
       // An unreviewed proposal you cannot follow as written is worse than one you have
       // simply not got to yet, so it gets its own count rather than hiding inside
       // `unreviewed`.
-      proposalsWithBrokenRefs: proposals.filter(p => p.citations && p.citations.broken.length > 0).length,
+      // UNREVIEWED only. This check exists to protect someone about to ACT on a
+      // proposal they have not yet judged — bad citations cannot be followed as
+      // written. Once a proposal is decided it is history, and its note already
+      // records what was and was not done.
+      //
+      // Counting reviewed ones produced an alarm that could never clear: weekly-bvyb3l
+      // proposed CREATING server/shadow_journal.json, the file was deliberately never
+      // created (the rejection ledger delivered the capability instead, as its review
+      // note says), and the checker read the proposed path as a dangling reference. A
+      // path a proposal asks to create is not a citation that fails to resolve.
+      //
+      // The per-proposal `citations` block is untouched, so nothing is hidden — only
+      // the tally that raises the alarm is scoped.
+      // Matches line 420's test exactly. `status` is always set — to the string
+      // "UNREVIEWED" when there is no decision — so a truthiness check like !p.status
+      // would be false for every proposal and disable this check outright rather than
+      // scope it.
+      proposalsWithBrokenRefs: proposals.filter(p =>
+        p.status === "UNREVIEWED" && p.citations && p.citations.broken.length > 0).length,
       // The appraisal this ledger's own header promises. "An employee you cannot
       // appraise is not an employee" — and until now it could only report whether the
       // agent RAN and whether anyone READ it, never whether it was RIGHT.
