@@ -3504,8 +3504,38 @@ app.get("/api/stats/by-setup", (_, res) => {
     { label: "65-74%",  min: 65, max: 74  },
     { label: "<65%",    min: 0,  max: 64  }
   ];
+  // A trade with NO recorded confidence is not a 0%-confidence trade. `?? 0` sent it
+  // into the "<65%" bucket, where it would silently drag that tier's win rate while
+  // looking like evidence about low-confidence setups. Both journals happen to carry a
+  // confidence on every closed row today, so this is a trap being closed rather than a
+  // live corruption being fixed — but the rows that lose a field upstream are exactly
+  // the rows that already lost a setup name upstream.
+  //
+  // Calibration DELIBERATELY still includes trades whose setup name was lost. This
+  // measures whether the confidence NUMBER predicts wins, and that number was really
+  // produced by the engine regardless of what happened to the setup label. Dropping
+  // those rows would discard genuine evidence about calibration.
+  // null and undefined must be rejected BEFORE the numeric test: Number(null) is 0 and
+  // 0 is finite, so an isFinite check alone lets a null confidence through into the
+  // "<65%" tier — which is the very bug this is closing, reintroduced one line later.
+  // The same trap produced "stop 0.00" in the deep plan.
+  // Every value JavaScript coerces to 0 has to be rejected explicitly, not just null:
+  // Number(null), Number(undefined-via-default), Number("") and Number("   ") all
+  // produce a finite 0. A legitimate numeric string like "72" is still accepted.
+  // Accept a number, or a string that is entirely a number. Nothing else. Blacklisting
+  // the coercion traps one at a time does not converge — Number(false), Number([]) and
+  // Number("") are all a finite 0, and Number(true) is 1, so a boolean or an empty array
+  // in this field would have been scored as a real confidence reading. A confidence of
+  // 0 IS legitimate and is kept; /api/signals returns exactly that today.
+  const hasConfidence = (v) => {
+    if (typeof v === "number") return Number.isFinite(v);
+    if (typeof v === "string" && v.trim() !== "") return Number.isFinite(Number(v));
+    return false;
+  };
+  const scored = closed.filter(t => hasConfidence(t.confidence));
+  const unscored = closed.length - scored.length;
   const calibration = tiers.map(tier => {
-    const group = closed.filter(t => (t.confidence ?? 0) >= tier.min && (t.confidence ?? 0) <= tier.max);
+    const group = scored.filter(t => Number(t.confidence) >= tier.min && Number(t.confidence) <= tier.max);
     const wins  = group.filter(t => t.pnl > 0).length;
     return {
       tier:     tier.label,
@@ -3524,6 +3554,20 @@ app.get("/api/stats/by-setup", (_, res) => {
     attributedClosed: closed.length - unattributedTrades.length,
     setupStats,
     calibration,
+    // The population behind `calibration`, stated rather than inferred. It is a
+    // different population from setupStats: calibration keeps trades whose setup name
+    // was lost (the confidence reading is still real) and drops trades with no
+    // confidence recorded (there is no reading to calibrate).
+    calibrationBasis: {
+      scored: scored.length,
+      unscored,
+      note: unscored
+        ? `${unscored} closed trade(s) carry no confidence value and are excluded from the `
+          + `tiers — a missing confidence is not a confidence of zero. They remain in `
+          + `totalClosed and in setupStats.`
+        : "every closed trade carries a confidence value",
+      includesUnattributedSetups: true,
+    },
     unattributed: {
       count: unattributedTrades.length,
       totalPnl: parseFloat(unattributedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0).toFixed(2)),
