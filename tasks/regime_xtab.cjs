@@ -205,6 +205,23 @@ if (all.length === 0) {
   process.exit(1);
 }
 
+// A missing asset must be impossible to miss. On 2026-08-12 SP500 threw on every step
+// (SPX_H4_ONLY_BLOCKED_FLOOR was absent from the replay's const list), the failure went
+// to STDERR, and stdout carried a complete-looking table built from two assets out of
+// three. The verdict was read and reported before anyone noticed. A banner in the
+// report itself is the only version of this warning that travels with the numbers.
+const failedAssets = Object.entries(perAsset).filter(([, v]) => v && v.error).map(([k]) => k);
+if (failedAssets.length) {
+  const banner = [
+    "!".repeat(108),
+    `  INCOMPLETE: ${failedAssets.join(", ")} produced NO trades — the replay failed for ${failedAssets.length} of ${ASSETS.length} assets.`,
+    "  Every number below describes the remaining assets only. Fix the replay before quoting any of it.",
+    "!".repeat(108),
+  ].join("\n");
+  console.error(banner);
+  process.stdout.write(banner + "\n");
+}
+
 all.sort((a, b) => a.t - b.t);
 
 const withRegime = all.filter(t => t.regime != null && t.regime !== "");

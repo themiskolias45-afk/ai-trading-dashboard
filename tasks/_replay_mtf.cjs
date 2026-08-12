@@ -74,6 +74,14 @@ const SCALAR_CONSTS = [
   // DEGRADED banner below is the only reason that surfaced instead of reading as
   // "no trades produced". Exactly the failure this list exists to prevent.
   "EMA_SMA_SEED_MIN_MULTIPLE",
+  // Added 2026-08-12. index.js:1849 reads it unconditionally on the SPX H4-only
+  // branch, so its absence threw on 1114 SP500 steps and the asset dropped OUT of
+  // every replay entirely — cohort_walkforward, regime_xtab and the time heatmap all
+  // silently measured two assets out of three. Nothing in their headline output said
+  // so: the failure went to stderr while stdout carried a complete-looking table.
+  // Third occurrence of this exact bug, which is why the list is read from source and
+  // why callers must check perAsset for an `error` key rather than trusting the total.
+  "SPX_H4_ONLY_BLOCKED_FLOOR",
 ];
 
 let code = "";
