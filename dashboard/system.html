@@ -300,6 +300,16 @@
     <div class="empty-state">Running the fleet check…</div>
   </div>
 
+  <!-- ═══ AI EMPLOYEE ═══ -->
+  <div class="section-label">AI Employee</div>
+  <div class="section-desc">Did the scheduled agents run, did they succeed, and has anyone read what they wrote.
+    Each proposal is checked against the repo: a citation badge means the files, lines and functions it
+    names were actually resolved, so a recommendation that cannot be followed as written says so before
+    you act on it.</div>
+  <div id="aiwork-banner"></div>
+  <div id="aiwork-jobs" class="grid grid-2"></div>
+  <div id="aiwork-proposals"></div>
+
   <!-- ═══ SKILLS & AGENTS ═══ -->
   <div class="section-label">Skills &amp; Agents</div>
   <div class="section-desc" id="registry-desc">Read live from /api/ai-registry — the same endpoint the AI Brain tab uses — and grouped by job. A skill added to .claude/commands appears here without anyone editing this page.</div>
@@ -876,10 +886,102 @@ async function loadDoctor() {
   }
 }
 
+// ── AI EMPLOYEE ────────────────────────────────────────────────
+// OUTPUT IGNORED is the verdict this whole surface exists for: an agent that works and
+// is never read costs exactly what a failing one costs, so an unreviewed proposal is
+// styled as loudly as a failing job rather than tucked into a count.
+const JOB_COLOUR = {
+  'HEALTHY':              'var(--green)',
+  'REPORTS RED':          '#ffb800',
+  'STALE':                '#ffb800',
+  'INCOMPLETE':           '#ffb800',
+  'NO COMPLETION MARKER': '#ffb800',
+  'OUTPUT IGNORED':       '#ffb800',
+  'FAILING':              'var(--red)',
+  'NO SCHEDULED TASK':    'var(--red)',
+  'NEVER PRODUCED OUTPUT':'var(--red)',
+};
+
+function citationBadge(c) {
+  if (!c || !c.checked) {
+    return '<span style="font-size:10px;color:var(--dim);border:1px solid rgba(255,255,255,.15);'
+      + 'border-radius:4px;padding:1px 6px">NO REFERENCES</span>';
+  }
+  const broken = (c.broken || []).length;
+  const good = broken === 0;
+  return '<span style="font-size:10px;color:' + (good ? 'var(--green)' : 'var(--red)')
+    + ';border:1px solid ' + (good ? 'rgba(0,255,136,.3)' : 'rgba(255,68,68,.35)')
+    + ';border-radius:4px;padding:1px 6px">'
+    + (good ? 'REFS OK ' + c.resolved + '/' + c.checked
+            : broken + ' BROKEN REF' + (broken === 1 ? '' : 'S'))
+    + '</span>';
+}
+
+async function loadAiWork() {
+  const banner = el('aiwork-banner'), jobsEl = el('aiwork-jobs'), propEl = el('aiwork-proposals');
+  try {
+    const d = await getJson('/ai-work');
+    const t = d.totals || {};
+
+    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
+      + t.jobs + ' jobs · '
+      + '<span style="color:' + (t.failing ? 'var(--red)' : 'var(--green)') + ';font-weight:600">'
+      + t.failing + ' failing</span> · '
+      + '<span style="color:' + (t.unreviewed ? '#ffb800' : 'var(--dim)') + ';font-weight:600">'
+      + t.unreviewed + ' unreviewed</span> of ' + t.proposals + ' proposals'
+      + (t.proposalsWithBrokenRefs
+          ? ' · <span style="color:var(--red);font-weight:600">' + t.proposalsWithBrokenRefs
+            + ' with broken refs</span>' : '')
+      + '</div>';
+
+    jobsEl.innerHTML = (d.jobs || []).map(j => {
+      const colour = JOB_COLOUR[j.verdict] || 'var(--dim)';
+      return '<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;gap:8px">'
+        + '<span>' + esc(j.label) + '</span>'
+        + '<span style="color:' + colour + ';font-size:11px;font-weight:700">' + esc(j.verdict) + '</span>'
+        + '</div>'
+        + '<div class="card-body-text">' + esc(j.detail || '') + '</div>'
+        + '<div class="card-tag">' + esc(j.lastFile || j.script) + '</div></div>';
+    }).join('');
+
+    const proposals = d.proposals || [];
+    propEl.innerHTML = !proposals.length
+      ? '<div class="empty-state">No proposals harvested yet.</div>'
+      : '<div style="margin-top:6px">' + proposals.map(p => {
+          const reviewed = p.status && p.status !== 'UNREVIEWED';
+          return '<div style="border:1px solid ' + (reviewed ? 'rgba(255,255,255,.12)' : 'rgba(255,184,0,.35)')
+            + ';background:' + (reviewed ? 'rgba(255,255,255,.03)' : 'rgba(255,184,0,.06)')
+            + ';border-radius:10px;padding:12px 14px;margin-bottom:8px">'
+            + '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">'
+            + '<span style="font-size:10px;font-weight:700;letter-spacing:.06em;color:'
+            + (reviewed ? 'var(--green)' : '#ffb800') + '">' + esc(p.status || 'UNREVIEWED') + '</span>'
+            + citationBadge(p.citations)
+            + '<span style="font-size:11px;color:var(--dim)">' + esc(p.jobLabel) + ' · '
+            + p.ageDays + 'd old</span></div>'
+            + '<div style="margin-top:6px;font-size:13px;line-height:1.5">' + esc(p.text) + '</div>'
+            + ((p.citations && p.citations.broken || []).length
+                ? '<div style="margin-top:6px;font-size:11px;color:var(--red)">'
+                  + p.citations.broken.map(b => esc(b.ref) + ' — ' + esc(b.why)).join('<br>') + '</div>'
+                : '')
+            + (p.note ? '<div style="margin-top:6px;font-size:11px;color:var(--dim)">' + esc(p.note) + '</div>' : '')
+            + '<div style="margin-top:6px;font-size:11px;color:var(--dim);font-family:ui-monospace,monospace">'
+            + esc(p.file) + ':' + p.line + '</div>'
+            + '</div>';
+        }).join('') + '</div>';
+  } catch (e) {
+    banner.innerHTML = '';
+    jobsEl.innerHTML = '';
+    propEl.innerHTML = '<div class="empty-state" style="color:var(--red)">AI work ledger unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
 loadStatus();
 loadGate();
 loadRegistry();
 loadDoctor();
+loadAiWork();
+setInterval(loadAiWork, 300_000);
 loadLiveProfit();
 // Every 2 minutes: the server caches a pass for 60s, so this cannot stampede it, and
 // the fleet's state is the one thing on this page worth re-reading often.

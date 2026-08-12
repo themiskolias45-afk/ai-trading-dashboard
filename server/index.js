@@ -6139,11 +6139,15 @@ app.get("/api/fleet", async (_, res) => {
 // deliberately: a button that restarts things is a different risk from a page that
 // lists them, and nothing on a dashboard should be one click from touching a bridge.
 //
-// Cached, and single-flight. Two reasons, both measured: a full pass makes ~10 HTTP
-// calls across both boxes and /api/ai-work alone can take 30s, so an uncached panel
-// refresh would pile passes on top of each other; and diagnose() accumulates into a
-// module-level array, so two concurrent runs would interleave into one list. The
-// in-flight promise below means a burst of readers all wait on the SAME pass.
+// Cached, and single-flight. The cache is the lesser reason: a full pass measures
+// ~150-215ms locally, so this is not about latency, and an earlier note here claiming
+// /api/ai-work takes 30s was wrong — that was one MCP client timing out, not the
+// endpoint, which answers in ~150ms. What the cache actually buys is not hammering the
+// PEER on every panel refresh across two boxes.
+//
+// The single-flight is the load-bearing part and is about CORRECTNESS: diagnose()
+// accumulates into a module-level array, so two concurrent runs would interleave into
+// one list. The in-flight promise means a burst of readers all wait on the SAME pass.
 const DOCTOR_CACHE_MS = 60000;
 let doctorCache = { at: 0, report: null };
 let doctorInFlight = null;
