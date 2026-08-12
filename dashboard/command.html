@@ -442,7 +442,7 @@ function renderLearning(learning) {
     const pnl = s.totalPnl||s.total_pnl||0;
     const pnlColor = pnl>=0?'var(--green)':'var(--red)';
     return `<tr>
-      <td><span class="setup-name">${name}</span>${tag}</td>
+      <td><span class="setup-name">${escapeHtml(name)}</span>${tag}</td>
       <td style="color:var(--muted)">${w}W / ${l}L</td>
       <td><div class="wr-bar"><div class="wr-track"><div class="wr-fill ${wrCls}" style="width:${wr}%"></div></div><span class="wr-num" style="color:${wr>=65?'var(--green)':wr>=50?'var(--yellow)':'var(--red)'}">${wr}%</span></div></td>
       <td style="color:${pnlColor};font-variant-numeric:tabular-nums">${pnl>=0?'+':''}${pnl.toFixed(2)}</td>
@@ -469,16 +469,18 @@ function renderJournal(journal) {
   document.getElementById('st-pnl').style.color   = gross>=0 ? 'var(--green)' : 'var(--red)';
 
   if (!closed.length) {
-    document.getElementById('journal-panel').innerHTML = `<div class="empty">No closed trades yet.<br><br>Signals fire when confidence ≥ 65% on 2+ timeframes. Once the MT5 bridge is running with <code>--auto</code>, trades will appear here.</div>`;
+    // The gate comes from the server. The old text said 65% on "2+ timeframes"; the
+    // gate is 70 and the rule is confluence across Daily, 4H AND 1H, not any two.
+    document.getElementById('journal-panel').innerHTML = `<div class="empty">No closed trades yet.<br><br>A signal fires only when confidence reaches ${gateText()} across Daily, 4H and 1H together. Once the MT5 bridge is running with <code>--auto</code>, trades will appear here.</div>`;
     return;
   }
 
   const recent = closed.slice(0,15);
   const rows = recent.map(t => {
     const pnl = t.pnl||0;
-    const sym  = (t.symbol||'?').toUpperCase();
-    const dir  = t.direction||t.dir||'?';
-    const setup = t.setup||'';
+    const sym  = escapeHtml((t.symbol||'?').toUpperCase());
+    const dir  = escapeHtml(t.direction||t.dir||'?');
+    const setup = escapeHtml(t.setup||'');
     const date  = fmtDateTime(t.closed_at||t.closeTime||t.opened_at||t.openTime);
     return `<div class="trade-row">
       <div style="display:flex;align-items:center;gap:8px">
@@ -514,15 +516,58 @@ function renderMacro(prices) {
   }
 }
 
+// r.ok, not just a successful parse. A 401 returns perfectly valid JSON, so
+// Promise.allSettled below records it as FULFILLED and the page renders an auth error
+// as data — the same failure that once painted a status page "Live".
+async function getJson(route) {
+  const response = await fetch(API + route, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(route + ' → HTTP ' + response.status
+      + (response.status === 401 ? ' (not logged in)' : ''));
+  }
+  return response.json();
+}
+
+// Values from the journal and the learning file reach innerHTML through template
+// literals below. They come from broker and engine data rather than from a person, but
+// that is an assumption about upstream and not a property of this page.
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// The live gate, read from the server and never assumed.
+//
+// This page told everyone "signals fire when confidence >= 65%" while the gate was 70,
+// and it never read /api/strategy-settings at all. index.html had the identical bug in
+// five places and was fixed; this page was missed, so it has been quietly stating the
+// wrong entry condition ever since the gate moved on 2026-08-02.
+//
+// Null until the first successful read, and the text says "the live gate" rather than
+// inventing a number while it is unknown — a wrong number is worse than an honest gap.
+let LIVE_GATE = null;
+async function loadGate() {
+  try {
+    const settings = await getJson('/api/strategy-settings');
+    if (Number.isFinite(settings.confidenceThreshold)) LIVE_GATE = settings.confidenceThreshold;
+    // settingsError means the server is running on built-in defaults, so the number is
+    // real but is not the saved config. Saying so beats printing it bare.
+    if (settings.settingsError) LIVE_GATE = null;
+  } catch (e) { LIVE_GATE = null; }
+}
+function gateText() { return LIVE_GATE === null ? 'the live gate' : LIVE_GATE + '%'; }
+
 async function loadAll() {
   document.getElementById('loading-ring').style.display = 'inline-block';
   try {
+    await loadGate();
     const [sigRes, histRes, learnRes, journalRes, priceRes] = await Promise.allSettled([
-      fetch(API+'/api/signals').then(r=>r.json()),
-      fetch(API+'/api/signal-history').then(r=>r.json()),
-      fetch(API+'/api/learning').then(r=>r.json()),
-      fetch(API+'/api/journal?limit=50').then(r=>r.json()),
-      fetch(API+'/api/prices').then(r=>r.json()),
+      getJson('/api/signals'),
+      getJson('/api/signal-history'),
+      getJson('/api/learning'),
+      getJson('/api/journal?limit=50'),
+      getJson('/api/prices'),
     ]);
 
     const signals  = sigRes.status==='fulfilled'   ? sigRes.value   : {};
