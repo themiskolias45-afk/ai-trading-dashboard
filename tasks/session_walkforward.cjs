@@ -242,7 +242,7 @@ const W = 104;
 const generatedAt = new Date().toISOString();
 if (incompleteBanner) lines.push(incompleteBanner);
 lines.push("=".repeat(W));
-lines.push(`  SESSION WALK-FORWARD — would excluding a session have helped? — ${generatedAt}`);
+lines.push(`  ${SLICE_BY.toUpperCase()} WALK-FORWARD — would excluding a ${SLICE_BY} have helped? — ${generatedAt}`);
 lines.push(`  ${dated.length} trades, cost ${COST_R}R, conf floor ${CONF_FLOOR}, gate ${gate} (${gateSource})`);
 lines.push("=".repeat(W));
 
@@ -304,8 +304,13 @@ const report = {
 };
 
 const stamp = generatedAt.replace(/[-:]/g, "").slice(0, 15);
-fs.writeFileSync(path.join(OUT_DIR, `session-walkforward-${stamp}.json`), JSON.stringify(report, null, 2));
-fs.writeFileSync(path.join(OUT_DIR, "session-walkforward-latest.json"), JSON.stringify(report, null, 2));
+// The slice dimension is IN the filename. Both modes used to write
+// session-walkforward-latest.json, so running --by setup silently destroyed the
+// session run's latest and anything reading that file got setup rows under a session
+// name. One tool with two outputs must name them separately or it is two tools sharing
+// a bug.
+fs.writeFileSync(path.join(OUT_DIR, `${SLICE_BY}-walkforward-${stamp}.json`), JSON.stringify(report, null, 2));
+fs.writeFileSync(path.join(OUT_DIR, `${SLICE_BY}-walkforward-latest.json`), JSON.stringify(report, null, 2));
 const text = lines.join("\n") + "\n";
-fs.appendFileSync(path.join(ROOT, "tasks", "logs", "session_walkforward.txt"), text + "\n");
+fs.appendFileSync(path.join(ROOT, "tasks", "logs", SLICE_BY + "_walkforward.txt"), text + "\n");
 process.stdout.write(text);

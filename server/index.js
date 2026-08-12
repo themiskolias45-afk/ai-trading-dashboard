@@ -6178,6 +6178,64 @@ app.get("/api/doctor", async (_, res) => {
   }
 });
 
+// ── /api/measurements — what the harnesses actually found ───────────────────
+//
+// The measurement work lived only in tasks/analysis/*.json and terminal scrollback, so
+// the answer to "when does this system make money" existed and was invisible. This
+// serves the LATEST run of each harness, and its AGE, because a measurement whose date
+// is hidden is how a stale number gets quoted as current.
+//
+// Read-only over files the harnesses already write. It runs nothing: these replays take
+// minutes and an HTTP request must never kick one off.
+const MEASUREMENT_FILES = [
+  ["timeHeatmap",  "time-heatmap-latest.json",        "node tasks/time_heatmap.cjs"],
+  ["sessionFolds", "session-walkforward-latest.json", "node tasks/session_walkforward.cjs"],
+  ["setupFolds",   "setup-walkforward-latest.json",   "node tasks/session_walkforward.cjs --by setup"],
+];
+
+app.get("/api/measurements", (_, res) => {
+  const out = { generatedAt: new Date().toISOString(), measurements: {}, feedsTheGate: false };
+  for (const [key, file, command] of MEASUREMENT_FILES) {
+    const full = path.join(__dirname, "..", "tasks", "analysis", file);
+    try {
+      const raw = JSON.parse(fs.readFileSync(full, "utf8"));
+      const ranAt = raw.generatedAt || null;
+      const entry = {
+        available: true, ranAt, command,
+        ageHours: ranAt ? +(((Date.now() - Date.parse(ranAt)) / 3600000).toFixed(1)) : null,
+        gate: raw.basis && raw.basis.gate,
+        totalTrades: raw.basis && raw.basis.totalTrades,
+        // An incomplete replay must travel with the numbers, not sit in a log. SP500
+        // silently produced nothing for three harnesses before this was caught.
+        failedAssets: Object.entries(raw.perAsset || {})
+          .filter(([, v]) => v && v.error).map(([k]) => k),
+      };
+      if (key === "timeHeatmap") {
+        entry.atGateTrades = raw.basis && raw.basis.atGateTrades;
+        entry.entryHoursUtc = raw.basis && raw.basis.entryHoursUtc;
+        entry.sessions = (raw.atLiveGate && raw.atLiveGate.session) || {};
+      } else {
+        const view = raw.atLiveGate || {};
+        entry.baseline = view.baseline && view.baseline.rpt;
+        entry.foldCount = view.foldCount;
+        entry.trades = view.trades;
+        entry.slices = (view.slices || []).map(s => ({
+          slice: s.slice, closed: s.own && s.own.closed, rpt: s.own && s.own.rpt,
+          pooledDelta: s.pooledDelta, foldsImproved: s.foldsImproved,
+          foldsScored: s.foldsScored, verdict: s.verdict,
+        }));
+      }
+      out.measurements[key] = entry;
+    } catch (e) {
+      // Absent is a legitimate state — the harness may simply never have run here — so
+      // it reports the command that would produce it rather than an error.
+      out.measurements[key] = { available: false, command, reason: e.code === "ENOENT"
+        ? "never run on this box" : e.message };
+    }
+  }
+  res.json(out);
+});
+
 // ── /api/size — Kelly-based position sizing ───────────────────
 app.post("/api/size", (req, res) => {
   try {

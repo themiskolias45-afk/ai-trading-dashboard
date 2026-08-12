@@ -300,6 +300,16 @@
     <div class="empty-state">Running the fleet check…</div>
   </div>
 
+  <!-- ═══ MEASUREMENTS ═══ -->
+  <div class="section-label">Measurements — when this system wins</div>
+  <div class="section-desc">Out-of-sample, at the LIVE gate, from the replay the engine actually trades. Sessions
+    are six 4-hour blocks because entries are taken on H4 bars — no trade can open at any other hour. Read the
+    fold count, not the pooled number: with this many cells you should expect one or two to look strong by
+    chance, and this project's bar for changing a gate is 5 of 5 folds.</div>
+  <div id="measure-banner"></div>
+  <div id="measure-sessions"></div>
+  <div id="measure-folds"></div>
+
   <!-- ═══ AI EMPLOYEE ═══ -->
   <div class="section-label">AI Employee</div>
   <div class="section-desc">Did the scheduled agents run, did they succeed, and has anyone read what they wrote.
@@ -976,10 +986,113 @@ async function loadAiWork() {
   }
 }
 
+// ── MEASUREMENTS ───────────────────────────────────────────────
+// Every number here carries its age and its fold count. A pooled R/trade with no fold
+// count is how PRE-LONDON's +1.399 nearly became a proposal: it improves in 1 of 5
+// folds, which the pooled figure cannot show and this table must.
+const VERDICT_COLOUR = {
+  'ROBUST':                'var(--green)',
+  'CONSISTENTLY NEGATIVE': 'var(--green)',   // consistently bad to REMOVE = the slice earns its place
+  'MOSTLY POSITIVE':       '#ffb800',
+  'UNSTABLE':              'var(--dim)',
+  'TOO FEW FOLDS':         'var(--dim)',
+};
+
+function rptCell(v) {
+  if (v === null || v === undefined) return '<span style="color:var(--dim)">—</span>';
+  const c = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--dim)';
+  return '<span style="color:' + c + '">' + (v >= 0 ? '+' : '') + v.toFixed(3) + '</span>';
+}
+
+function foldTable(m, title) {
+  if (!m || !m.available) {
+    return '<div class="empty-state">' + esc(title) + ' — not run on this box.<br>'
+      + '<span style="font-family:ui-monospace,monospace;font-size:11px">'
+      + esc((m && m.command) || '') + '</span></div>';
+  }
+  const rows = (m.slices || []).map(s =>
+    '<tr>'
+    + '<td style="padding:6px 10px">' + esc(s.slice) + '</td>'
+    + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + s.closed + '</td>'
+    + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.rpt) + '</td>'
+    + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.pooledDelta) + '</td>'
+    + '<td style="padding:6px 10px;text-align:right;font-weight:600">'
+      + s.foldsImproved + '/' + s.foldsScored + '</td>'
+    + '<td style="padding:6px 10px;color:' + (VERDICT_COLOUR[s.verdict] || 'var(--dim)') + '">'
+      + esc(s.verdict) + '</td></tr>').join('');
+  return '<div style="margin:10px 0 22px">'
+    + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">' + esc(title)
+    + ' — ' + m.trades + ' trades at gate ' + m.gate + ', ' + m.foldCount + ' folds, baseline '
+    + (m.baseline >= 0 ? '+' : '') + (m.baseline || 0).toFixed(3) + 'R/trade · '
+    + m.ageHours + 'h old</div>'
+    + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<tr style="color:var(--dim);font-size:11px;text-align:left">'
+    + '<th style="padding:6px 10px">slice</th><th style="padding:6px 10px;text-align:right">n</th>'
+    + '<th style="padding:6px 10px;text-align:right">own R/t</th>'
+    + '<th style="padding:6px 10px;text-align:right">delta if removed</th>'
+    + '<th style="padding:6px 10px;text-align:right">folds</th>'
+    + '<th style="padding:6px 10px">verdict</th></tr>'
+    + rows + '</table></div></div>';
+}
+
+async function loadMeasurements() {
+  const banner = el('measure-banner'), sess = el('measure-sessions'), folds = el('measure-folds');
+  try {
+    const d = await getJson('/measurements');
+    const m = d.measurements || {};
+    const hm = m.timeHeatmap;
+
+    // An incomplete replay invalidates every cell below it, so it goes at the top.
+    const incomplete = Object.values(m).filter(x => x && (x.failedAssets || []).length);
+    banner.innerHTML = incomplete.length
+      ? '<div style="border:1px solid rgba(255,68,68,.35);background:rgba(255,68,68,.06);border-radius:8px;'
+        + 'padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--red)">INCOMPLETE — '
+        + esc(incomplete[0].failedAssets.join(', ')) + ' produced no trades. Every number below '
+        + 'describes the remaining assets only.</div>'
+      : '';
+
+    if (hm && hm.available) {
+      const order = ['ASIAN', 'PRE-LONDON', 'LONDON', 'OVERLAP', 'NEW YORK', 'AFTER HOURS'];
+      const rows = order.map(name => {
+        const s = hm.sessions[name];
+        if (!s) return '<tr><td style="padding:6px 10px">' + esc(name)
+          + '</td><td colspan="3" style="padding:6px 10px;color:var(--dim)">no trades</td></tr>';
+        return '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + s.closed + '</td>'
+          + '<td style="padding:6px 10px;text-align:right">' + s.wr.toFixed(1) + '%</td>'
+          + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.rpt) + '</td></tr>';
+      }).join('');
+      sess.innerHTML = '<div style="margin:10px 0 22px">'
+        + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per session at the live gate — '
+        + hm.atGateTrades + ' of ' + hm.totalTrades + ' trades cleared gate ' + hm.gate
+        + ' · entry hours ' + (hm.entryHoursUtc || []).map(h => String(h).padStart(2, '0')).join(', ')
+        + ' UTC · ' + hm.ageHours + 'h old</div>'
+        + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+        + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">session</th>'
+        + '<th style="padding:6px 10px;text-align:right">n</th><th style="padding:6px 10px;text-align:right">win rate</th>'
+        + '<th style="padding:6px 10px;text-align:right">R/trade</th></tr>' + rows + '</table></div></div>';
+    } else {
+      sess.innerHTML = '<div class="empty-state">Heat map not run on this box.<br>'
+        + '<span style="font-family:ui-monospace,monospace;font-size:11px">'
+        + esc((hm && hm.command) || 'node tasks/time_heatmap.cjs') + '</span></div>';
+    }
+
+    folds.innerHTML = foldTable(m.sessionFolds, 'Would excluding a SESSION have helped?')
+                    + foldTable(m.setupFolds,   'Would excluding a SETUP have helped?');
+  } catch (e) {
+    banner.innerHTML = '';
+    sess.innerHTML = '';
+    folds.innerHTML = '<div class="empty-state" style="color:var(--red)">Measurements unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
 loadStatus();
 loadGate();
 loadRegistry();
 loadDoctor();
+loadMeasurements();
+setInterval(loadMeasurements, 600_000);
 loadAiWork();
 setInterval(loadAiWork, 300_000);
 loadLiveProfit();
