@@ -4233,10 +4233,14 @@ app.get("/api/calendar", (_, res) => {
       watchedCountries: WATCHED,
       newsFilterEnabled: features.newsFilter,
       // Stated plainly so nobody reads "newsFilter: true" as protection.
-      blackoutFieldBug: "isNewsBlackout() filters on ev.currency, a field this feed does "
-        + "not have (0 of " + newsCache.length + " events carry it); the field is "
-        + "ev.country. The blackout therefore never fires, and newsFilter reports enabled "
-        + "while doing nothing. Not fixed here because it changes what trades.",
+      // Repaired 2026-08-12: isNewsBlackout() read ev.currency, a field this feed does
+      // not carry, so the blackout had never fired once. Kept as a field rather than
+      // deleted so the panel states the CURRENT truth instead of silently dropping a
+      // warning it used to show.
+      blackoutFieldBug: null,
+      blackoutRepairedAt: "2026-08-12",
+      // What the repaired filter is actually watching, so the panel can say it.
+      blackoutWindowMinutes: 30,
       feedsTheGate: false,
       updatedAt: new Date().toISOString(),
     });
@@ -4249,7 +4253,25 @@ app.get("/api/calendar", (_, res) => {
 // News blackout status (used by MT5 bridge before placing orders)
 app.get("/api/newsfilter", (_, res) => {
   const status = isNewsBlackout();
-  res.json({ enabled: features.newsFilter, ...status, events: newsCache.length });
+  // `watching` is the number this endpoint was missing.
+  //
+  // It reported enabled:true, blackout:false and events:74 for months while matching
+  // NOTHING, because the filter read a field the feed does not carry. Every one of
+  // those numbers was true and the conclusion drawn from them was false. A count of
+  // events the filter can actually SEE makes that failure loud: watching:0 with a
+  // non-zero events count is the signature of exactly that bug returning.
+  const watching = newsCache.filter(ev => {
+    if (!ev.impact || ev.impact.toLowerCase() !== "high") return false;
+    const market = String(ev.country ?? ev.currency ?? "").toUpperCase();
+    return market === "USD" || market === "XAU";
+  }).length;
+  res.json({
+    enabled: features.newsFilter, ...status,
+    events: newsCache.length,
+    watching,
+    windowMinutes: 30,
+    healthy: newsCache.length === 0 || watching > 0,
+  });
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -4824,8 +4846,21 @@ function isNewsBlackout() {
   const WINDOW_MS = 30 * 60 * 1000;  // 30 minutes either side
   const relevant = newsCache.filter(ev => {
     if (!ev.impact || ev.impact.toLowerCase() !== "high") return false;
-    const cur = (ev.currency ?? "").toUpperCase();
-    return cur === "USD" || cur === "XAU";
+    // ev.COUNTRY, not ev.currency.
+    //
+    // This filter read ev.currency, which does not exist on this feed: 0 of 74 events
+    // carry it and all 74 carry ev.country. `relevant` was therefore always empty and
+    // the blackout NEVER FIRED — not once in this system's life — while
+    // /api/newsfilter reported enabled:true and the bridge treated that as protection.
+    // Found 2026-08-12, a day with four high-impact USD CPI prints at 12:30 UTC that it
+    // was completely blind to.
+    //
+    // Both fields are read so a feed that renames it back cannot silently re-break
+    // this. XAU is kept in the watch list but never matches: the feed's country codes
+    // are AUD CAD CHF CNY EUR GBP JPY NZD USD, with no metals. USD is what actually
+    // moves XAUUSD, so USD coverage is the point.
+    const market = String(ev.country ?? ev.currency ?? "").toUpperCase();
+    return market === "USD" || market === "XAU";
   });
   for (const ev of relevant) {
     try {

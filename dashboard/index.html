@@ -4225,7 +4225,21 @@ async function loadCalendar() {
         + 'border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:.7rem;color:var(--red)">'
         + 'News filter reports <strong>' + (d.newsFilterEnabled ? 'ENABLED' : 'disabled')
         + '</strong> but does not block: ' + escapeHtml(d.blackoutFieldBug) + '</div>'
-      : '';
+      // Repaired, so say what it now DOES rather than going quiet. A panel that simply
+      // stops warning leaves you unable to tell "fixed" from "the check was removed".
+      : '<div style="border:1px solid rgba(34,197,94,.3);background:rgba(34,197,94,.06);'
+        + 'border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:.7rem;color:var(--green)">'
+        + 'News filter <strong>' + (d.newsFilterEnabled ? 'ACTIVE' : 'OFF') + '</strong>'
+        + (d.newsFilterEnabled
+            ? ' — new entries are refused within ' + (d.blackoutWindowMinutes || 30)
+              + ' minutes either side of high-impact '
+              + (d.watchedCountries || []).join('/') + ' events'
+            : ' — high-impact events will NOT stop an entry')
+        + (d.blackoutRepairedAt
+            ? ' (repaired ' + escapeHtml(d.blackoutRepairedAt)
+              + '; before that it read a field the feed does not have and never fired)'
+            : '')
+        + '</div>';
 
     const todayUtc = new Date().toISOString().slice(0, 10);
     const today = events.filter(e => e.at.slice(0, 10) === todayUtc);
