@@ -80,9 +80,12 @@ Register-MarketTask -Name 'SmartEntry Post-Close Analysis' `
     -Script 'tasks\postclose_analysis.ps1' -UtcHour 21 -UtcMinute 30 `
     -Why 'Regenerates walk-forward and heat-map evidence after the daily close.'
 
+# Registered at the DEFAULT slot. tasks\reschedule_preopen.ps1 moves this trigger each
+# night to whatever moment the fresh plan found outside the day's blackout windows -
+# 12:00 UTC is only where it sits on a clear day.
 Register-MarketTask -Name 'SmartEntry Pre-Open Plan' `
-    -Script 'tasks\preopen_plan.cjs' -UtcHour 12 -UtcMinute 0 `
-    -Why 'Deterministic entry plan one hour before the NEW YORK open.'
+    -Script 'tasks\deep_plan.cjs' -UtcHour 12 -UtcMinute 0 `
+    -Why 'Deep entry plan before the NEW YORK open; trigger is moved nightly out of news blackouts.'
 
 Write-Host ""
 Write-Host "Verifying:" -ForegroundColor Cyan

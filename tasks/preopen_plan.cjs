@@ -131,7 +131,11 @@ function nextSessionStart(name, from) {
   return start;
 }
 
-(async () => {
+// Exported so tasks/deep_plan.cjs builds ON this rather than beside it. The deep plan
+// needs every figure here plus the raw payloads, and a second script re-deriving
+// "distance to fire" is exactly how index.html came to hardcode 65 while the gate was
+// 70. One implementation, or the two documents disagree in front of you.
+async function buildPlan() {
   const now = new Date();
   await login();
   const [settings, signals, risk, calendar, newsfilter, cohorts, positions] = await Promise.all([
@@ -142,9 +146,10 @@ function nextSessionStart(name, from) {
 
   // Refuse rather than guess. Every gap figure below is measured against the gate, and
   // a plan built on an assumed threshold is worse than no plan.
+  // Throws rather than exits: a caller (deep_plan) must be able to report the failure
+  // in its own document instead of having the process vanish underneath it.
   if (settings.error || !settings.data || !Number.isFinite(settings.data.confidenceThreshold)) {
-    console.error("preopen-plan: cannot read the live gate — " + (settings.error || "no confidenceThreshold"));
-    process.exit(2);
+    throw new Error("cannot read the live gate — " + (settings.error || "no confidenceThreshold"));
   }
   const gate = settings.data.confidenceThreshold;
   const sessionWf = readJson("session-walkforward-latest.json");
@@ -236,9 +241,23 @@ function nextSessionStart(name, from) {
     feedsTheGate: false,
   };
 
-  if (AS_JSON) {
-    console.log(JSON.stringify(plan, null, 2));
-  } else {
+  // Raw payloads travel with the plan so the deep document can read levels, indicators
+  // and per-setup history without a second round of seven HTTP calls.
+  return { plan, raw: { settings, signals, risk, calendar, newsfilter, cohorts, positions },
+           now, gate, sessionWf, heatmap, deadCohorts, blackouts, naked, open,
+           cohortsUnavailable, calendarUnavailable };
+}
+
+function renderPlan(built) {
+  const { plan, raw, now, gate, deadCohorts, blackouts, naked, open,
+          cohortsUnavailable, calendarUnavailable } = built;
+  const { calendar, cohorts } = raw;
+  const assets = plan.assets;
+  const sessionEvidence = plan.sessionEvidence;
+  const nyStart = new Date(plan.nextNewYorkOpen);
+  const currentSession = plan.currentSession;
+  const minutesToNy = plan.minutesToNewYork;
+  {
     const W = 92;
     const L = [];
     L.push("=".repeat(W));
@@ -331,12 +350,34 @@ function nextSessionStart(name, from) {
     L.push("  the calendar will block, and what the record says about the hours ahead.");
     L.push("=".repeat(W));
 
-    const text = L.join("\n") + "\n";
-    fs.appendFileSync(path.join(ROOT, "tasks", "logs", "preopen_plan.txt"), text + "\n");
-    process.stdout.write(text);
+    return L.join("\n") + "\n";
   }
+}
 
+function writeArtifacts(built) {
+  const { plan, now } = built;
   const stamp = now.toISOString().replace(/[-:]/g, "").slice(0, 15);
   fs.writeFileSync(path.join(OUT_DIR, `preopen-plan-${stamp}.json`), JSON.stringify(plan, null, 2));
   fs.writeFileSync(path.join(OUT_DIR, "preopen-plan-latest.json"), JSON.stringify(plan, null, 2));
-})();
+}
+
+// CLI only when run directly, so `require`ing this from deep_plan.cjs does not fire a
+// second plan and overwrite the artifact with a near-duplicate a few seconds newer.
+if (require.main === module) {
+  (async () => {
+    const built = await buildPlan();
+    if (AS_JSON) {
+      console.log(JSON.stringify(built.plan, null, 2));
+    } else {
+      const text = renderPlan(built);
+      fs.appendFileSync(path.join(ROOT, "tasks", "logs", "preopen_plan.txt"), text + "\n");
+      process.stdout.write(text);
+    }
+    writeArtifacts(built);
+  })().catch(e => {
+    console.error("preopen-plan: " + e.message);
+    process.exit(2);
+  });
+}
+
+module.exports = { buildPlan, renderPlan, writeArtifacts, sessionAt, nextSessionStart, get, login, SESSIONS, OUT_DIR };

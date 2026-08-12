@@ -65,6 +65,27 @@ foreach ($j in $jobs) {
     }
 }
 
+# The deep plan LAST, so it reads the artifacts the harnesses above just regenerated
+# rather than yesterday's. It also sends the Telegram message and writes the pre-open
+# artifact the dashboard panel reads.
+$t0 = Get-Date
+try {
+    $null = & node 'tasks/deep_plan.cjs' 2>&1
+    $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+    if ($LASTEXITCODE -eq 0) { Say ("  OK      {0,-22} {1}s" -f 'deep plan', $secs) }
+    else { Say ("  FAILED  {0,-22} exit {1}" -f 'deep plan', $LASTEXITCODE); $failed++ }
+} catch { Say ("  FAILED  {0,-22} {1}" -f 'deep plan', $_.Exception.Message); $failed++ }
+
+# Then move tomorrow's pre-open trigger out of any blackout the fresh plan found. This
+# is the step that stops the pre-open job firing into the hour it exists to prepare for.
+# Its own failure mode is to leave the existing trigger alone, so a failure here delays
+# the plan rather than cancelling it - which is why it does not increment $failed.
+try {
+    $null = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $proj 'tasks\reschedule_preopen.ps1') 2>&1
+    if ($LASTEXITCODE -eq 0) { Say "  OK      reschedule pre-open" }
+    else { Say "  WARN    reschedule pre-open left the existing trigger in place (see reschedule_preopen.txt)" }
+} catch { Say ("  WARN    reschedule pre-open: {0}" -f $_.Exception.Message) }
+
 # The daily P&L review, if the interpreter is present. Kept separate from the harnesses
 # above because it reports on TRADES rather than measuring the engine, and its absence
 # is not a failure of the analysis.
