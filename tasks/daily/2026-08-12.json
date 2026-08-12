@@ -10,10 +10,50 @@
       "ts": "2026-08-12T06:08:13.780635+00:00",
       "tag": "SYSTEM",
       "text": "DAILY-CHECK (interactive, 06:0xZ) — confirms the 05:55 auto-run. New this pass: VPS parity re-run CLEAN (25/25 files, 11/11 engine fns, 7/7 constants, 89 routes — ENGINES AGREE), clearing the 35.5h-stale item. Verified both HIGH findings in source: ensure_running.ps1:168 is a single 8s sleep + one retest vs a ~15s boot (line-51 comment is false), and ai_work_ledger.js:91 findingPattern lacks the g flag so line 306 returns the OLDEST RED. Also found: the auto-run's \"TASKS CREATED: 3\" evaporate — it runs as claude -p with a session-scoped task list, so nobody ever sees them. Top rec unchanged: fix the ensure_running settle race."
+    },
+    {
+      "ts": "2026-08-12T06:37:57.995320+00:00",
+      "tag": "ALERT",
+      "text": "Weekly review was NOT dead fleet-wide: laptop rc=1 (session limit, 136-byte stub) but VPS rc=0 with a full 3,678-byte review on 09/08 that nobody read for 3 days. It named XAUUSD RANGE_TRADE_SHORT in RANGING (conf 73, opened 08-07) as the week's weakness; that trade closed 08-11 at -$99.10. Called it two days early. Corroborated by the 4-year replay (RANGING slice 16.7% WR, -13.59R vs SQUEEZE +5.02R), the rejection ledger (0W/12L, only setup with zero wins) and learning.json (0W/1L). Its PROPOSED FIX is a regime veto at index.js after finalSetup resolves - NOT shippable yet: its own prescribed check, tasks/_regime_xtab.cjs, does not exist on either box. Parking verified working on both boxes (172 chars vs 400 ceiling), so a future limit costs a delay not a week."
+    },
+    {
+      "ts": "2026-08-12T06:46:44.804827+00:00",
+      "tag": "SYSTEM",
+      "text": "MEASURED: RANGE_TRADE_SHORT x RANGING veto is NOT supported. Built tasks/regime_xtab.cjs (e2a8a18) - the year-split check the 09/08 VPS review prescribed as tasks/_regime_xtab.cjs, a file that never existed. Result over 2022-07..2026-07: at conf floor 40, 23 closed, -0.150R/trade, but only 2023 clears the 8-trade/year floor and 2022 (+0.353) and 2024 (+0.286) are POSITIVE - the pooled negative is one year. At the live gate the population is ONE closed trade, 2022, which WON (+1.56R). The proposal fails the exact bull-sample test its own author named. Its cited -13.59R/24 vs this -3.5R/23 says its headline came off a different replay path. NOT SHIPPED, no gate logic touched. Next: server/evidence_register.js should record this or the board goes stale."
+    },
+    {
+      "ts": "2026-08-12T07:05:37.307832+00:00",
+      "tag": "ALERT",
+      "text": "CORRECTION to the earlier note today: tasks/_regime_xtab.cjs DOES exist - on the VPS, 4620 bytes, dated 2026-07-31, beside _strength_xtab.py. My earlier check was `dir /B path1 path2 2>nul || echo none`, which fails wholesale when the FIRST path is missing, so I read the fallback as proof of absence. The review did NOT confabulate that filename. What WAS wrong is its four cited line numbers, on both boxes: generateSignal is at 985 not 833, generateSignalMTF at 1565 not 1413 (re-verified with findstr /N /C: and grep -nE per box). The new citation checker caught my error within minutes of being wired in. Also found: 22 analysis/patch scripts exist ONLY on the VPS, so \"does this exist\" checked on the laptop alone is a false negative, and vps_parity cannot see it because it compares a fixed file list. The RANGE_TRADE_SHORT measurement itself is unaffected and still says DO NOT SHIP."
+    },
+    {
+      "ts": "2026-08-12T07:27:22.392374+00:00",
+      "tag": "SYSTEM",
+      "text": "MORNING AGENT RED root cause: \"You've hit your weekly limit - resets Aug 13, 11am (Europe/Berlin)\". Not a session limit - a WEEKLY ceiling, so every claude -p job on the VPS (morning, daily, analysis, weekly review) is dead until 2026-08-13 11:00. Two real defects found and fixed in c3bb52e, both boxes: (1) LIMIT_MARKERS knew \"session limit\" but not \"weekly limit\", and \"resets Aug\" is not \"resets at\", so looks_rate_limited returned False and park classified a subscription ceiling as a hard failure, destroying the brief - the exact bug the queue exists to prevent. parse_reset_at also could not read a dated reset. (2) Neither morning agent had a parking block at all; only the weekly review ever got one. They also append straight to agent_log.txt, which park READS to decide and refuses over 400 chars - at 13KB parking there was impossible, so each run now captures its own output file. Verified on both boxes: weekly notice parks and schedules for 2026-08-13T11:00, a crash and a long essay are still refused. STILL UNPARKED: tasks/auto_daily.bat."
+    },
+    {
+      "ts": "2026-08-12T08:11:43.666588+00:00",
+      "tag": "SYSTEM",
+      "text": "AMD IS NOW SESSION-ALIGNED (059b2f5, both boxes). detectAMD tags accumulation/manipulation/distribution with the real session (ASIA/LONDON/NEW YORK, same UTC bounds as get_time_context) and flags classicAMD for the textbook ASIA-accumulation -> LONDON-sweep -> NY-distribution sequence. The old blocker was STALE: it claimed the bridge sends no timestamps, but the bridge has sent bar open times since 2026-08-09 - what was missing is that detectAMD never read them and geometry_measure.cjs discarded them in its loader. On 13,757 real Gold hourly bars: 16 patterns, only 3 classic; commonest sequence is ASIA->NEW YORK->NEW YORK (6). So the earlier 33-trade AMD number pooled a 19% minority with lookalikes. AMD remains BLOCKED but now by SAMPLE SIZE, not missing data - evidence register updated. Parity clean after deploy."
+    },
+    {
+      "ts": "2026-08-12T17:57:05.762909+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-12: 1 trades | 0.0% WR | $-6.64 | TODAY: One SQUEEZE_BREAKOUT trade fired and lost, closing the day at 0% WR for -$6.64.\nPATTERN: All three setups tracked"
+    },
+    {
+      "ts": "2026-08-12T18:10:52.992Z",
+      "tag": "SCHEDULE",
+      "text": "Scheduled the system against MARKET hours for the first time. Every job was clock-scheduled: morning agent 05:00 UTC and daily check 05:30, both inside ASIAN (-0.116R/trade at gate 70, n=96). Nothing ran after the close or before the NEW YORK open (+0.255R/trade, n=84, the only positive session). Two new deterministic jobs, no LLM so they survive the AI ceiling: 21:30 UTC postclose_analysis.ps1 regenerates parity + heat map + both walk-forwards + regime cross-tab (~7min, 6/6 green first run); 12:00 UTC preopen_plan.cjs reads those artifacts one hour before the NY open. Registered on BOTH boxes with per-machine UTC conversion (22:30 London / 23:30 Berlin = same instant). Surfaced at /api/preopen-plan and on the dashboard Overview above the calendar. Parity clean, 95 routes both sides."
+    },
+    {
+      "ts": "2026-08-12T18:10:52.994Z",
+      "tag": "BUG-FIXED",
+      "text": "preopen_plan.cjs was rendering two 401s as good news: \"0 of 15 cohorts cannot reach the gate\" (real: 5) and \"no high-impact events left this week\" on the eve of PPI. Both now say UNAVAILABLE and name the error. Tomorrow 2026-08-13: Core PPI and PPI m/m at 12:30 UTC black out 12:00-13:00 UTC, which is the ENTIRE hour before the NY open."
     }
   ],
   "signals": [],
   "trades": [],
   "created_at": "2026-08-12T04:58:54.308464+00:00",
-  "updated_at": "2026-08-12T06:08:13.780635+00:00"
+  "updated_at": "2026-08-12T18:10:52.994Z"
 }
