@@ -725,9 +725,12 @@ async function runCli() {
   const findings = report.findings;
 
   if (AS_JSON) {
-    console.log(JSON.stringify({ generatedAt: new Date().toISOString(), findings, feedsTheGate: false }, null, 2));
+    // Emit the SAME object diagnose() returns, rather than rebuilding a near-copy of it.
+    // The two had already drifted: /api/doctor carried `counts` and the CLI did not, so
+    // anything written against `--json` broke when pointed at the route and vice versa.
+    console.log(JSON.stringify(report, null, 2));
   } else {
-    const counts = findings.reduce((acc, f) => (acc[f.severity] = (acc[f.severity] || 0) + 1, acc), {});
+    const counts = report.counts;   // already computed by diagnose(); a third tally would only drift
     const W = 96;
     console.log("=".repeat(W));
     console.log(`  DOCTOR — ${new Date().toISOString()}`);

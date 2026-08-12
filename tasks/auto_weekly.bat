@@ -87,6 +87,12 @@ if not "%CLAUDE_RC%"=="0" (
     echo and one specific proposed fix marked PROPOSED FIX: naming file, function and evidence.
     echo Do NOT edit source and do NOT commit. Max 40 lines.
   ) | python "%PROJ%\claude_agent.py" park "Weekly Algo Review" --output-file "%REPORT%" >> "%REPORT%" 2>&1
+  REM A PARKED JOB IS NOT A FAILED JOB. park exits 0 when it queued the brief and 2
+  REM when the run was not a limit at all. Without this the .bat propagated claude's
+  REM failure code even after parking correctly, so the Task Scheduler showed FAILING
+  REM and the doctor showed RED for a job that had handled its own outage. An alert
+  REM that cannot clear trains you to skim past the one that matters.
+  if not errorlevel 1 set CLAUDE_RC=0
 )
 
 echo [exit %CLAUDE_RC%] >> "%REPORT%"
