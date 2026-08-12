@@ -112,12 +112,29 @@ async function checkBox(label, base, isLocal) {
     return null;
   }
 
-  const [settings, risk, healer, work] = await Promise.all([
+  const [settings, risk, healer, work, positions] = await Promise.all([
     get(base + "/api/strategy-settings"),
     get(base + "/api/risk-status"),
     get(base + "/api/healer"),
     get(base + "/api/ai-work"),
+    get(base + "/api/mt5/positions"),
   ]);
+
+  // The worst state this system can be in, and nothing anywhere reported it. A stop
+  // that is not ON THE BROKER does not exist: the bridge can die, the server can be
+  // restarted, the machine can lose power, and only a broker-side SL survives all
+  // three. safe_bridge_restart.cjs already refuses to act without this check; the
+  // doctor had no equivalent, so an unprotected position was visible to a script and
+  // to nobody looking at a screen.
+  const open = (positions.data && positions.data.positions) || [];
+  const naked = open.filter(p => !Number.isFinite(Number(p.sl)) || Number(p.sl) === 0);
+  if (naked.length) {
+    finding("RED", label, `${naked.length} open position(s) with NO broker-side stop`,
+      naked.map(p => `#${p.ticket} ${p.symbol} ${p.type} ${p.volume} lot`).join(", ")
+      + " — loss on these is unbounded, and no stop held only in the bridge survives a "
+      + "restart, a crash or a power cut",
+      "set a stop on these in MT5 now, or close them");
+  }
 
   if (settings.data && settings.data.settingsError) {
     finding("RED", label, "running on BUILT-IN DEFAULTS, not the saved config",
@@ -188,7 +205,49 @@ async function checkBox(label, base, isLocal) {
     }
   }
 
-  return { settings: settings.data, risk: risk.data };
+  return { settings: settings.data, risk: risk.data, positions: open };
+}
+
+/**
+ * The exposure no single dashboard shows. Each box renders its OWN positions, so the
+ * laptop shows two and the fleet is holding four — and today they are the same two
+ * trades on both machines, which means one adverse move in Gold hits both accounts at
+ * once. Correlated exposure that is invisible on every screen is the shape of a
+ * surprise, so it is stated rather than left to be worked out from two tabs.
+ */
+function checkFleetExposure(boxes) {
+  const withPositions = boxes.filter(([, s]) => s && Array.isArray(s.positions));
+  if (withPositions.length < 2) return;
+
+  const all = withPositions.flatMap(([label, s]) => s.positions.map(p => ({ ...p, box: label })));
+  if (!all.length) return;
+
+  // Same instrument AND same direction on more than one box: the exposures add rather
+  // than offset. Opposite directions across boxes are a different animal and are left
+  // alone here — that is a hedge, not a doubling.
+  const byKey = new Map();
+  for (const p of all) {
+    const key = `${p.symbol}|${p.type}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(p);
+  }
+  const doubled = [...byKey.entries()].filter(([, rows]) =>
+    new Set(rows.map(r => r.box)).size > 1);
+
+  if (doubled.length) {
+    finding("AMBER", "fleet",
+      `${doubled.length} position(s) held on BOTH boxes at once`,
+      doubled.map(([key, rows]) =>
+        key.replace("|", " ") + " on " + rows.map(r => r.box).join(" + ")).join("; ")
+      + ` — ${all.length} positions across the fleet, but each dashboard shows only its own, `
+      + "so the exposure on one screen is half the real number and the halves move together",
+      "no action if that is intended — this is the risk being named, not a fault");
+  } else {
+    finding("INFO", "fleet", `${all.length} position(s) open across the fleet`,
+      withPositions.map(([label, s]) => `${label}: ${s.positions.length}`).join(", ")
+      + " — no symbol is held in the same direction on both boxes",
+      "node tasks/doctor.cjs for the per-box detail");
+  }
 }
 
 /**
@@ -413,6 +472,7 @@ async function diagnose() {
       "set both to the intended gate in each box's server/strategy_settings.json");
   }
 
+  checkFleetExposure(seen);
   checkParity(Boolean(peer));
   checkAgentQueue();
   checkBackup();
