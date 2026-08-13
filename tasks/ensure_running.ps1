@@ -59,6 +59,20 @@ $BRIDGE_STALE_S    = 180
 # A bridge needs ~30s to connect to MT5 and post its first heartbeat. Until then it
 # still looks "not reporting", so a second run must not start another one.
 $BRIDGE_START_COOLDOWN_S = 120
+# How many consecutive runs may start a bridge that never comes up before the
+# terminal, not the bridge, is named as the failed component.
+#
+# WHY THIS EXISTS
+# On 2026-08-13 this script logged "TERMINAL 1: running (PID 11876)" at 09:51,
+# 10:01 and 10:11 while the bridge logged twelve consecutive
+# "MT5 initialize() failed -- (-10005, 'IPC timeout')". The terminal was alive as a
+# process and refusing IPC. The script restarted the bridge six times -- the bridge
+# was never the broken part -- and its own log read healthy for 23 minutes of dead
+# execution. A process check is not a liveness check.
+#
+# Runs are ~10 min apart, so 3 is roughly 13 minutes of a bridge that cannot
+# connect: past any legitimate slow start, well before today's 23.
+$BRIDGE_MAX_FAILED_STARTS = 3
 
 # Which bridge tags this machine owns. Single source of truth is
 # MT5_EXPECTED_ACCOUNTS in keys.env -- the same variable the server's healer reads,
@@ -142,6 +156,11 @@ if ($TerminalCandidates.Count -eq 0) {
     Write-Log 'TERMINALS: no MT5 install found on this box -- nothing to start'
 }
 $terminalIndex = 0
+# Counts terminals whose PROCESS is alive. Deliberately not called "healthy": a
+# terminal can hold this count and still refuse every IPC call (see
+# $BRIDGE_MAX_FAILED_STARTS). Section 3 uses it to tell "no terminal, so of course
+# the bridge cannot connect" apart from "terminal is up and lying".
+$terminalsRunning = 0
 foreach ($termPath in $TerminalCandidates) {
     $terminalIndex++
     $term = @{ Tag = "$terminalIndex"; Path = $termPath }
@@ -151,6 +170,7 @@ foreach ($termPath in $TerminalCandidates) {
     }
     $running = @($procs | Where-Object { $_.ExecutablePath -eq $term.Path })
     if ($running.Count -gt 0) {
+        $terminalsRunning++
         Write-Log "TERMINAL $($term.Tag): running (PID $($running[0].ProcessId))"
     } else {
         Write-Log "TERMINAL $($term.Tag): starting"
@@ -206,6 +226,58 @@ function Get-BridgeAge($tag) {
     }
 }
 
+# Consecutive runs that started bridge $tag and never saw it report. The count is
+# the only thing carried between runs, and it is written, never deleted -- a zero
+# and an absent file mean the same thing, so a failed write costs a warning, not a
+# repair.
+function Get-BridgeFailCount($tag) {
+    try {
+        $f = Join-Path $LogDir ".bridge_fails_$tag"
+        if (-not (Test-Path $f)) { return 0 }
+        $raw = (Get-Content $f -First 1 -ErrorAction Stop)
+        $n = 0
+        # A corrupt or half-written file reads as 0. Losing the count re-arms the
+        # warning later than it should; throwing here would take the gap-filler
+        # down with it, which is far worse.
+        if ([int]::TryParse(($raw -as [string]).Trim(), [ref]$n) -and $n -ge 0) { return $n }
+        return 0
+    } catch {
+        return 0
+    }
+}
+
+function Set-BridgeFailCount($tag, $count) {
+    try {
+        Set-Content -Path (Join-Path $LogDir ".bridge_fails_$tag") `
+                    -Value ([string]$count) -Encoding ascii -ErrorAction Stop
+    } catch {
+        Write-Log "BRIDGE $($tag): could not record fail count ($($_.Exception.Message))"
+    }
+}
+
+# Fired once per episode, on the transition into the alarm state. Non-blocking on
+# purpose: this script runs every ten minutes on a schedule and must never sit
+# waiting on a notifier. Absent python or a failing notifier is logged and ignored.
+function Send-TerminalAlert($text) {
+    try {
+        if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+            Write-Log 'ALERT: python not on PATH -- log line is the only record'
+            return
+        }
+        # notifications.py exposes `alert "<message>" [--title T]` -- verified against
+        # its arg parser, not assumed. Built as ONE argument string and stripped of
+        # embedded quotes: PS 5.1 does not reliably re-quote an -ArgumentList array,
+        # so a message with a space would otherwise arrive as several arguments and
+        # the notifier would print usage and exit 1.
+        $safe = ($text -replace '"', "'")
+        Start-Process -FilePath 'python' `
+            -ArgumentList ('notifications.py alert "{0}" --title "MT5 TERMINAL"' -f $safe) `
+            -WorkingDirectory $Proj -WindowStyle Hidden
+    } catch {
+        Write-Log "ALERT: could not send ($($_.Exception.Message))"
+    }
+}
+
 # With the server down, every account looks "not reporting" whether or not a bridge
 # is actually running - and starting a second bridge on a live account is far worse
 # than leaving a gap the watchdog will close a minute later.
@@ -225,6 +297,10 @@ elseif ($null -ne ($strayAge = Get-BridgeAge 'default') -and $strayAge -lt $BRID
         $age = Get-BridgeAge $tag
         if ($null -ne $age -and $age -lt $BRIDGE_STALE_S) {
             Write-Log "BRIDGE $($tag): reporting (${age}s ago)"
+            # A bridge that reports has connected to MT5, so the terminal is
+            # answering IPC. Reset by writing 0 rather than removing the file:
+            # nothing in this project deletes state it did not just create.
+            if ((Get-BridgeFailCount $tag) -ne 0) { Set-BridgeFailCount $tag 0 }
             continue
         }
         # Cooldown marker: a bridge takes ~30s to connect and first report, so two
@@ -238,11 +314,41 @@ elseif ($null -ne ($strayAge = Get-BridgeAge 'default') -and $strayAge -lt $BRID
                 continue
             }
         }
+        # Counted BEFORE the start, so the number means "runs that have tried and
+        # failed", and only on the path that actually starts something -- the
+        # cooldown and server-down paths above start nothing and must not count.
+        $fails = (Get-BridgeFailCount $tag) + 1
+        Set-BridgeFailCount $tag $fails
+
         Write-Log "BRIDGE $($tag): not reporting -- starting"
         Set-Content -Path $marker -Value (Get-Date -Format 'o') -Encoding ascii
         Start-Process -FilePath 'cmd' -ArgumentList '/c', "tasks\start_bridge_$tag.bat" `
             -WorkingDirectory $Proj -WindowStyle Minimized
         Start-Sleep -Seconds 3
+
+        # THE POINT OF ALL THIS. Restarting the bridge again is still correct -- it
+        # is cheap and it is right whenever the bridge is the broken part. What was
+        # missing is the sentence that says it ISN'T: a terminal whose process is
+        # alive while the bridge it feeds has failed to connect $BRIDGE_MAX_FAILED_STARTS
+        # times running is a terminal refusing IPC, and no number of bridge restarts
+        # will fix it. Someone has to look at the terminal.
+        #
+        # Nothing is killed here. MT5 is single-instance per install, so starting it
+        # again only activates the window; the only real remedy is a manual restart
+        # of the terminal, which is a human decision on a box with open positions.
+        if ($fails -ge $BRIDGE_MAX_FAILED_STARTS) {
+            if ($terminalsRunning -gt 0) {
+                Write-Log "BRIDGE $($tag): FAILED TO CONNECT $fails RUNS RUNNING while $terminalsRunning MT5 terminal(s) show as running"
+                Write-Log "TERMINAL: SUSPECT -- process alive but not answering IPC. Check tasks\logs\bridge_log_$tag.txt for 'IPC timeout'; restart MetaTrader 5 by hand and confirm it is logged in."
+                # Once per episode, on the transition only, so a machine left in this
+                # state does not send an alert every ten minutes forever.
+                if ($fails -eq $BRIDGE_MAX_FAILED_STARTS) {
+                    Send-TerminalAlert "Bridge $tag has failed to connect $fails runs in a row while MT5 is running. Terminal is alive but not answering IPC - restart MetaTrader 5 and check it is logged in. This box cannot execute until then."
+                }
+            } else {
+                Write-Log "BRIDGE $($tag): failed to connect $fails runs running, and no MT5 terminal is up -- terminal start is the fix, see above"
+            }
+        }
     }
 }
 
