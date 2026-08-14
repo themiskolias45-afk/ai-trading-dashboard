@@ -74,7 +74,27 @@ const cohortTable = require("./cohort_table");
 // Live-vs-replay tracker: does the running system trade like the walk-forward that
 // justified its config? Read-only, and floored so it stays silent until the sample
 // can carry a verdict. See the module header for why this gap matters.
-const liveVsReplay = require("./live_vs_replay");
+//
+// Guarded for the same reason require("./rejection_log") below is guarded, and it is
+// not hypothetical: an untracked module once killed the VPS server on boot. The file
+// IS tracked, so a fresh checkout is safe — but the documented VPS deploy path is not
+// a checkout. index.js is PATCHED there by hand because the VPS git history has
+// diverged, so patching this line across without also copying server/live_vs_replay.js
+// would exit the process at startup on the box that trades continuously, and
+// ensure_running.ps1 would restart it into the same crash loop.
+let liveVsReplay;
+try {
+  liveVsReplay = require("./live_vs_replay");
+} catch (e) {
+  console.error("[live-vs-replay] module not loaded — endpoint will report unavailable:", e.message);
+  liveVsReplay = {
+    buildLiveVsReplay: () => ({
+      available: false,
+      feedsTheGate: false,
+      reason: "server/live_vs_replay.js is not deployed on this box",
+    }),
+  };
+}
 // Universal rejection ledger — see tasks/REJECTION-LEDGER-SPEC.md. Pure
 // observability: every function here swallows its own failure and returns, so it
 // can never reach the trading path.
@@ -3020,8 +3040,14 @@ app.get("/api/live-vs-replay", (_, res) => {
       realizedRFromPrices,
     }));
   } catch (e) {
+    // Message stays in the log, not the body: e.message here carries absolute paths
+    // from fs errors, which is exactly what the module avoids by using path.basename.
     console.error("[live-vs-replay]", e.message);
-    res.status(500).json({ available: false, reason: e.message, feedsTheGate: false });
+    res.status(500).json({
+      available: false,
+      reason: "live-vs-replay failed — see server log",
+      feedsTheGate: false,
+    });
   }
 });
 
