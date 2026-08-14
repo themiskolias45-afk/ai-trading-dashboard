@@ -71,6 +71,10 @@ const fleetDoctor     = require("../tasks/doctor.cjs");
 // Cohort reachability table. Shared with tasks/cohort_reachability.cjs so the audit
 // script and the server can never describe two different systems.
 const cohortTable = require("./cohort_table");
+// Live-vs-replay tracker: does the running system trade like the walk-forward that
+// justified its config? Read-only, and floored so it stays silent until the sample
+// can carry a verdict. See the module header for why this gap matters.
+const liveVsReplay = require("./live_vs_replay");
 // Universal rejection ledger — see tasks/REJECTION-LEDGER-SPEC.md. Pure
 // observability: every function here swallows its own failure and returns, so it
 // can never reach the trading path.
@@ -2992,6 +2996,32 @@ app.get("/api/rejection-evidence", (_, res) => {
   } catch (e) {
     console.error("[rejection-evidence]", e.message);
     res.status(500).json({ available: false, reason: e.message, gates: {}, setups: {} });
+  }
+});
+
+// Does the LIVE system trade like the walk-forward that justified its config?
+//
+// Every threshold here was chosen by replay, and nothing checked whether reality
+// then matched. That is the shape of this project's expensive failures — four
+// hardcoded copies of the gate, the dashboard on 65 while the engine ran 70, the VPS
+// on a different strategy_settings.json off the same commit — none of which any
+// health check could see, because every component was individually fine.
+//
+// Floored on purpose: both comparisons report TOO FEW TO JUDGE until the sample can
+// carry a verdict. A tracker that cries divergence at four fills is one you have
+// learned to ignore by the time it is right.
+app.get("/api/live-vs-replay", (_, res) => {
+  try {
+    res.json(liveVsReplay.buildLiveVsReplay({
+      journal: tradeJournal,
+      analysisPath: path.join(__dirname, "..", "tasks", "analysis", "setup-walkforward-latest.json"),
+      historyDir: path.join(__dirname, "..", "tasks", "history"),
+      symbols: ["XAUUSD", "BTCUSD", "SP500"],
+      realizedRFromPrices,
+    }));
+  } catch (e) {
+    console.error("[live-vs-replay]", e.message);
+    res.status(500).json({ available: false, reason: e.message, feedsTheGate: false });
   }
 });
 
