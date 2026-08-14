@@ -94,8 +94,56 @@ try {
 } catch (e) { line("_work ledger unavailable_"); }
 line();
 
-// ── 3. Settled questions ────────────────────────────────────────────────────
-line("## 3. Already MEASURED — do not re-litigate without new evidence");
+// ── 3. Track record, and the calls nobody has graded ────────────────────────
+//
+// The ledger has always had a `call` field — whether a proposal's DIAGNOSIS held
+// up, separate from what was done with its fix — and ai_decide.cjs has always
+// accepted --call. It went unused for every proposal ever made, because scoring
+// depended on a human remembering an optional flag and nothing ever showed the
+// gap. An agent that is never told whether it was right cannot get better, and
+// raising its output rate without that signal just manufactures unread work.
+//
+// Listing the unscored ones HERE is what lets the agent close its own loop.
+line("## 3. Your track record — and the calls still ungraded");
+line();
+try {
+  const scored = decided.filter(d => d.call);
+  const right    = scored.filter(d => d.call === "right").length;
+  const wrong    = scored.filter(d => d.call === "wrong").length;
+  const unproven = scored.filter(d => d.call === "unproven").length;
+  if (!decided.length) {
+    line("_No decided proposals yet, so nothing to score._");
+  } else {
+    line("Graded calls: **" + right + " right**, " + wrong + " wrong, " + unproven + " unproven"
+      + "  (of " + decided.length + " decided).");
+    line();
+    // A call is scorable once someone acted on the proposal. An UNREVIEWED one is
+    // not ungraded work, it is undecided work, and belongs in section 2.
+    const unscored = decided.filter(d => !d.call);
+    if (!unscored.length) {
+      line("**Every decided proposal has a graded call.** Nothing to do here.");
+    } else {
+      line("**These were acted on but never graded — grade them before proposing anything new:**");
+      line();
+      for (const d of unscored) {
+        line("- `" + d.id + "` (" + d.status + ") " + d.file + ":" + d.line);
+      }
+      line();
+      line("For each, decide whether the DIAGNOSIS held up — not whether the fix was");
+      line("taken. A proposal can be rejected and still have been right. Report each as");
+      line("a line of the form:");
+      line();
+      line("    SCORED CALL: <id> right|wrong|unproven — <the evidence that settles it>");
+      line();
+      line("Do not run any command; a human records it with");
+      line("`node tasks/ai_decide.cjs <id> <status> \"note\" --call <verdict>`.");
+    }
+  }
+} catch (e) { line("_call history unavailable_"); }
+line();
+
+// ── 4. Settled questions ────────────────────────────────────────────────────
+line("## 4. Already MEASURED — do not re-litigate without new evidence");
 line();
 if (!register) line("_evidence register unavailable_");
 else {
@@ -110,8 +158,8 @@ else {
 }
 line();
 
-// ── 4. The configuration actually in force ──────────────────────────────────
-line("## 4. Live configuration — never assume these numbers");
+// ── 5. The configuration actually in force ──────────────────────────────────
+line("## 5. Live configuration — never assume these numbers");
 line();
 if (!settings) line("_strategy_settings.json not readable on this box — read GET /api/strategy-settings and check settingsError._");
 else {
@@ -125,8 +173,8 @@ else {
 }
 line();
 
-// ── 5. How much evidence you actually have ──────────────────────────────────
-line("## 5. Evidence available to reason from");
+// ── 6. How much evidence you actually have ──────────────────────────────────
+line("## 6. Evidence available to reason from");
 line();
 try {
   const g = growth ? growth.build() : null;
@@ -142,14 +190,32 @@ try {
 } catch (e) { line("_growth unavailable_"); }
 line();
 line("These are forgone PAPER trades: no spread, no slippage, entries never filled.");
-line("They are evidence about SETUPS, not realised P&L. The real journal has one");
-line("closed fill in the system's history — if you are asked about performance and");
-line("there are too few closed trades to support a conclusion, say exactly that and");
-line("stop. Inventing one is the worst thing you can do here.");
+line("They are evidence about SETUPS, not realised P&L.");
+line();
+// Counted from the journal, never written down. This sentence used to say "the real
+// journal has one closed fill in the system's history"; by the time anyone noticed it
+// was four, and it was being handed to every agent on every run as a fact. A hardcoded
+// count is a claim with an expiry date and no alarm on it — the same decoration
+// problem as a setting with no reader.
+try {
+  const journal = readJson("server/journal.json");
+  if (Array.isArray(journal)) {
+    const closed = journal.filter(t => t && t.status === "CLOSED").length;
+    const open   = journal.filter(t => t && t.status === "OPEN").length;
+    line("The real journal holds **" + closed + " closed fill" + (closed === 1 ? "" : "s")
+      + "** and " + open + " open, counted live at brief time.");
+  } else {
+    line("The real journal could not be read on this box — say so rather than guessing.");
+  }
+} catch (e) { line("The real journal could not be read on this box — say so rather than guessing."); }
+line();
+line("If you are asked about performance and there are too few closed trades to support");
+line("a conclusion, say exactly that and stop. Inventing one is the worst thing you can");
+line("do here.");
 line();
 
-// ── 6. House rules ──────────────────────────────────────────────────────────
-line("## 6. How to report");
+// ── 7. House rules ──────────────────────────────────────────────────────────
+line("## 7. How to report");
 line();
 line("- One finding, the most important one. A list of five is a list of none.");
 line("- Cite file:line and the evidence. \"Seems risky\" is not a finding.");

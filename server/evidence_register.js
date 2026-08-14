@@ -181,36 +181,109 @@ const CLAIMS = [
     title: "Live config expectancy",
     status: STATUS.UNMEASURED,
     measuredOn: "2026-08-12",
-    evidence: "Three closed fills in the system's entire life across 154 server "
-      + "sessions: −$449.72 (BB_SQUEEZE_WATCH), −$99.10 (RANGE_TRADE_SHORT) and "
-      + "+$135.91, gross −$412.91, expectancy −$137.64/trade. Two positions are open. "
-      + "Win rate, calibration and per-setup edge still rest on n=3, which is one trade "
-      + "per setup — below the 5-trade floor the learning engine itself requires before "
-      + "it will act.",
+    evidence: "Four closed fills in the system's entire life across 179 server "
+      + "sessions: −$449.72 (BB_SQUEEZE_WATCH), −$99.10 (RANGE_TRADE_SHORT), −$6.64 "
+      + "(SQUEEZE_BREAKOUT) and +$135.91 unattributed, gross −$419.55, expectancy "
+      + "−$104.89/trade. One position is open. Win rate, calibration and per-setup edge "
+      + "still rest on n=4, which is one trade per setup — below the 5-trade floor the "
+      + "learning engine itself requires before it will act.",
     caveat: "The 2026-07-28 decision to trade a measured-negative edge in order to feed "
-      + "the learning engine was deliberate and informed. Two of the three closes only "
+      + "the learning engine was deliberate and informed. Several of these closes only "
       + "arrived because reconciliation was repaired on 2026-08-11; before that they sat "
       + "OPEN indefinitely. The single WIN is not in learning.json at all — its setup "
       + "name was recorded as \"WAIT\", which updateLearning refuses to attribute rather "
-      + "than invent a bucket for, so the learning engine's own record reads 0W/2L while "
-      + "the journal reads 1W/2L. Any calibration claim must say which of the two it "
+      + "than invent a bucket for, so the learning engine's own record reads 0W/3L while "
+      + "the journal reads 1W/3L. Any calibration claim must say which of the two it "
       + "means.",
     changesTheAnswer: "Sample. The rejection ledger is the only route that produces it "
-      + "without funding the experiment. This claim's numbers must be re-read from "
-      + "get_performance whenever it is cited — it has been stale before, stating n=1 "
-      + "and 119 sessions long after both had moved.",
+      + "without funding the experiment. This claim has gone stale TWICE — it once read "
+      + "n=1 and 119 sessions, then n=3 and 154, long after both had moved — so its "
+      + "sample is now declared in sampleAtWriting and checked against the live journal "
+      + "on every read. A mismatch raises needsRecuration rather than silently editing "
+      + "the prose, because a curated claim that changes itself is worse than no claim.",
+    // Declared so the drift can be DETECTED without the claim quietly rewriting itself.
+    // See recurationCheck() below.
+    //
+    // ONLY closedFills. Session count and open-position count are quoted in the prose
+    // as context, but they are not the sample this claim's argument rests on: sessions
+    // increments on every server restart (179 -> 182 within an hour of writing this)
+    // and open positions churn with ordinary trading. Triggering on either would raise
+    // an item that can never be cleared, which trains you to skim past the one that
+    // matters. n is what makes this claim true or false, so n is what is watched.
+    sampleAtWriting: { closedFills: 4 },
     feedsTheGate: true,
   },
 ];
 
-function getRegister() {
+// ── Staleness detection for curated claims ──────────────────────────────────
+//
+// This file is CURATED BY DESIGN and must not silently recompute its own prose —
+// see the header. But "curated" has meant "quietly wrong" twice on the liveconfig
+// claim, which is fed to the AI Brain page AND into every agent's briefing, so a
+// stale number here is repeated to every reader as a measured fact.
+//
+// The resolution is to detect, never to edit: a claim may declare the sample it was
+// WRITTEN against, and this compares that against the live journal. A mismatch
+// surfaces needsRecuration with both figures, so a human re-curates deliberately.
+// Nothing here changes a claim's text, its status or its verdict.
+function liveSample() {
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const journal = JSON.parse(fs.readFileSync(path.join(__dirname, "journal.json"), "utf8"));
+    if (!Array.isArray(journal)) return null;
+    const out = {
+      closedFills: journal.filter(t => t && t.status === "CLOSED").length,
+      openPositions: journal.filter(t => t && t.status === "OPEN").length,
+      sessions: null,
+    };
+    try {
+      const learning = JSON.parse(fs.readFileSync(path.join(__dirname, "learning.json"), "utf8"));
+      if (Number.isFinite(learning?.sessionCount)) out.sessions = learning.sessionCount;
+    } catch (e) { /* sessions stay null; the fill counts still work */ }
+    return out;
+  } catch (e) { return null; }
+}
+
+function recurationCheck(claim, live) {
+  if (!claim.sampleAtWriting || !live) return null;
+  const drifted = [];
+  for (const key of Object.keys(claim.sampleAtWriting)) {
+    const wrote = claim.sampleAtWriting[key];
+    const now   = live[key];
+    if (now === null || now === undefined) continue;
+    if (now !== wrote) drifted.push(`${key}: written against ${wrote}, live is ${now}`);
+  }
+  if (!drifted.length) return null;
   return {
-    claims: CLAIMS,
-    counts: CLAIMS.reduce((acc, c) => { acc[c.status] = (acc[c.status] || 0) + 1; return acc; }, {}),
-    curated: true,
-    note: "Human-reviewed conclusions from harness runs. The live per-gate verdicts on "
-      + "this board come from the rejection ledger and update themselves; these do not.",
+    needsRecuration: true,
+    drifted,
+    detail: "This claim's prose quotes a sample that has since moved. It is shown "
+      + "unchanged on purpose — re-curate it by hand in server/evidence_register.js "
+      + "rather than trusting the numbers in it.",
   };
 }
 
-module.exports = { getRegister, CLAIMS, STATUS };
+function getRegister() {
+  const live = liveSample();
+  // Claims are returned UNCHANGED. The only addition is a staleness flag beside any
+  // claim that declared the sample it was written against — detection, never editing.
+  const claims = CLAIMS.map(c => {
+    const stale = recurationCheck(c, live);
+    return stale ? { ...c, staleness: stale } : c;
+  });
+  const needsRecuration = claims.filter(c => c.staleness).map(c => c.id);
+  return {
+    claims,
+    counts: CLAIMS.reduce((acc, c) => { acc[c.status] = (acc[c.status] || 0) + 1; return acc; }, {}),
+    curated: true,
+    liveSample: live,
+    needsRecuration,
+    note: "Human-reviewed conclusions from harness runs. The live per-gate verdicts on "
+      + "this board come from the rejection ledger and update themselves; these do not. "
+      + "A claim listed in needsRecuration quotes a sample that has since moved — its "
+      + "text is shown unchanged on purpose and must be re-curated by hand.",
+  };
+}
+
+module.exports = { getRegister, CLAIMS, STATUS, liveSample, recurationCheck };
