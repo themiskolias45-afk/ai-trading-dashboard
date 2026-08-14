@@ -2,6 +2,30 @@
   "version": 1,
   "entries": [
     {
+      "key": "daily-2026-08-14",
+      "value": "Errors: 2 CRITICAL (pivot stop refinement has no ATR floor -> live Gold stop 0.23xATR and R:R inflated 2.0->3.8; loadMemory/loadProposals swallow parse errors + non-atomic write, 31 memory entries at risk), 1 HIGH historical (26 MT5 IPC timeouts + 8 bridge restarts 13/08 09:50-10:19, resolved), 1 LOW (Exa search 401 invalid API key). Top rec: walk-forward the pivot refinement off vs a 1.0xATR floor before touching stop logic. Setups: all 3 LEARNING (1 trade each) — 4 closed fills total, 3 of 3 attributed died at exactly -1R. Overnight 15h23m gap was a verified laptop sleep (Kernel-Power 42 at 17:15:06, resume 08:37), ensure_running recovered in 45s — NOT a bug. Code clean, secrets untracked, fleet AGREES.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-14T07:48:04.114846+00:00",
+      "updated_at": "2026-08-14T07:48:04.114846+00:00"
+    },
+    {
+      "key": "daily-2026-08-13",
+      "value": "Errors: 3 real (1 TRADING-IMPACT: MT5 terminal PID-green while IPC-dead 09:59-10:19, no escalation; 1 SYSTEM: daily auto-runner died at boot with ENOTFOUND, produced nothing; 1 COSMETIC: Telegram 409 polling flood = 29% of server log, hiding real errors). Syntax clean, no secrets tracked, fleet agrees, gate 70 both boxes, engines agree (parity 20h). Top rec: IPC probe in ensure_running.ps1 terminal check — a process check is not a liveness check. Second rec: per-setup MIN_RR walk-forward; the global 1.5 discards BUY_OVERSOLD 18-1 (+15.02R) while correctly killing RANGE_TRADE_SHORT 1-12 (-12.50R), so the gate's aggregate verdict hides both facts. Setups: all LEARNING (1 fill each, n=4 total closed). Consecutive losses 2 of 3 — one more halts. No signal today and that is correct: Gold RSI 73.9 / SPX 74.5 above the MOMENTUM ceiling of 72, and MOMENTUM rejections lost -18.19R over 28 episodes, so do NOT widen it. exa MCP key returns 401.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-08-13T15:51:26.630912+00:00",
+      "updated_at": "2026-08-13T15:51:26.630912+00:00"
+    },
+    {
+      "key": "EOD_20260812",
+      "value": "Trades:1 WR:0.0% PnL:-6.64 TODAY: One SQUEEZE_BREAKOUT trade fired and failed, closing the day at 0% win rate for -$6.64.\nPATTE",
+      "category": "LEARNING",
+      "source": "manual",
+      "created_at": "2026-08-12T17:57:05.969998+00:00",
+      "updated_at": "2026-08-12T19:15:26.437806+00:00"
+    },
+    {
       "key": "DAILY_AUTORUN_TASKS_EVAPORATE",
       "value": "The nightly auto-run of /daily reports \"TASKS CREATED: N\" but those tasks do not survive. It runs as a separate `claude -p` session and the task list is session-scoped, so TaskList in the next interactive session is empty. Verified 2026-08-12: the 05:55 run claimed 3 tasks created; TaskList returned \"No tasks found\". Its findings only survive because it ALSO writes the daily note, JARVIS memory and MCP entities. Treat the auto-run's task line as decoration; re-create anything actionable in the interactive session, or have the runner append to a durable file instead.",
       "category": "SYSTEM",
@@ -234,5 +258,5 @@
       "updated_at": "2026-07-25T05:45:00.852793+00:00"
     }
   ],
-  "last_updated": "2026-08-12T06:08:16.797403+00:00"
+  "last_updated": "2026-08-14T07:48:04.114846+00:00"
 }

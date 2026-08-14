@@ -50,10 +50,20 @@
       "ts": "2026-08-12T18:10:52.994Z",
       "tag": "BUG-FIXED",
       "text": "preopen_plan.cjs was rendering two 401s as good news: \"0 of 15 cohorts cannot reach the gate\" (real: 5) and \"no high-impact events left this week\" on the eve of PPI. Both now say UNAVAILABLE and name the error. Tomorrow 2026-08-13: Core PPI and PPI m/m at 12:30 UTC black out 12:00-13:00 UTC, which is the ENTIRE hour before the NY open."
+    },
+    {
+      "ts": "2026-08-12T18:39:14.887832+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-12: 1 trades | 0.0% WR | $-6.64 | TODAY: One SQUEEZE_BREAKOUT trade fired and lost, closing the day at -$6.64 on a 0% win rate.\nPATTERN: SQUEEZE_BREAKOUT,"
+    },
+    {
+      "ts": "2026-08-12T19:15:26.199242+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-12: 1 trades | 0.0% WR | $-6.64 | TODAY: One SQUEEZE_BREAKOUT trade fired and failed, closing the day at 0% win rate for -$6.64.\nPATTERN: All three setups"
     }
   ],
   "signals": [],
   "trades": [],
   "created_at": "2026-08-12T04:58:54.308464+00:00",
-  "updated_at": "2026-08-12T18:10:52.994Z"
+  "updated_at": "2026-08-12T19:15:26.201260+00:00"
 }

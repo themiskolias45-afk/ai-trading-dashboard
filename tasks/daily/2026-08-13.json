@@ -1,0 +1,14 @@
+{
+  "date": "2026-08-13",
+  "entries": [
+    {
+      "ts": "2026-08-13T15:51:20.928891+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-13: laptop MT5 terminal was PID-green but IPC-dead 09:59-10:19 (12 initialize() timeouts, 6 bridge restarts) — ensure_running checks the process, not IPC, so 23min of dead execution passed unflagged; laptop then slept 10:11-16:40. VPS unaffected, FLEET AGREES, gate 70 both boxes. No signal today is CORRECT: Gold RSI 73.9 / SPX 74.5 both above the MOMENTUM ceiling of 72. Top rec: add an IPC probe to ensure_running.ps1 terminal check. Second: walk-forward a per-setup MIN_RR — the global 1.5 threw away BUY_OVERSOLD 18-1 (+15.02R) while correctly killing RANGE_TRADE_SHORT 1-12 (-12.50R)."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-13T15:51:20.928891+00:00",
+  "updated_at": "2026-08-13T15:51:20.929544+00:00"
+}

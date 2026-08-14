@@ -1,0 +1,14 @@
+{
+  "date": "2026-08-14",
+  "entries": [
+    {
+      "ts": "2026-08-14T07:48:00.131101+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-14: health 8/8 green, fleet AGREES (parity 0h, both boxes gate 70, bridge A armed each). Top issue: pivot stop refinement (index.js:1813-1830) has no ATR floor — live Gold BUY 72% had its 1.5xATR stop (4192.80) replaced by pivot S1 4312.85, leaving 0.23xATR / 21.99pts and inflating reported R:R 2.0 -> 3.8. The refinedRR>=1.5 guard cannot catch stop-tightening because tightening raises the ratio. 3 of 3 attributed closed fills realized exactly -1R. Rec: walk-forward the refinement off vs a 1.0xATR floor BEFORE editing stop logic. Second: loadMemory/loadProposals swallow parse errors and write non-atomically — 31 memory entries can be silently zeroed. Gold BUY correctly blocked by DUPLICATE guard (already holding XAUUSD BUY #1742893638). Not recommending any MIN_RR change despite the ledger's COSTING MONEY verdict (+2.63R/74) — the 4-year sweep beats it."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-14T07:48:00.131101+00:00",
+  "updated_at": "2026-08-14T07:48:00.131101+00:00"
+}
