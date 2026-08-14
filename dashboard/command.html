@@ -285,15 +285,27 @@ function fmtChg(v) {
   return `<span style="color:${c}">${v > 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
 }
 
+// Declared HERE, above its first reader, not next to loadGate() 270 lines below.
+// `let` has no hoisted initialiser, so a function that runs before that line would hit
+// the temporal dead zone and throw. Nothing does today — every reader runs inside
+// loadAll() — but that is an accident of ordering, not a guarantee.
+let LIVE_GATE = null;
+
+// Colour bands. Cosmetic, but they were a third and fourth copy of the gate: green at
+// 65 while the engine fired at 70 makes a dead setup look live at a glance, which is
+// the same lie the threshold line was telling in words. Green means "at or above the
+// LIVE gate" and nothing else; when the gate is unknown, nothing is painted green.
+function atLiveGate(c) { return LIVE_GATE !== null && c >= LIVE_GATE; }
+
 function confClass(c) {
   if (c >= 85) return 'hot';
-  if (c >= 65) return 'ok';
+  if (atLiveGate(c)) return 'ok';
   if (c >= 50) return 'mid';
   return 'low';
 }
 
 function chipClass(c) {
-  if (c >= 65) return 'chip-hot';
+  if (atLiveGate(c)) return 'chip-hot';
   if (c >= 50) return 'chip-mid';
   if (c > 0)   return 'chip-low';
   return 'chip-zero';
@@ -345,7 +357,15 @@ function buildSignalCard(sig, key) {
     return `<div class="reason-item ${cl}">${r}</div>`;
   }).join('');
 
-  const threshold = c < 65 ? `<div class="threshold-line">Need 65% to fire — ${65-c}% gap</div>` : `<div class="threshold-line" style="color:var(--green)">Above threshold — signal ACTIVE</div>`;
+  // The live gate, never 65. This line claimed "Above threshold — signal ACTIVE" for
+  // any confidence >= 65 while the gate was 70, so a 67% setup that could not fire was
+  // rendered as active on the command page. Until the gate is known the honest output
+  // names no number and claims nothing.
+  const threshold = LIVE_GATE === null
+    ? `<div class="threshold-line">Gate unknown — reading ${'/api/strategy-settings'}</div>`
+    : c < LIVE_GATE
+      ? `<div class="threshold-line">Need ${LIVE_GATE}% to fire — ${LIVE_GATE - c}% gap</div>`
+      : `<div class="threshold-line" style="color:var(--green)">Above threshold — signal ACTIVE</div>`;
 
   return `
     <div class="signal-card ${cls}">
@@ -361,7 +381,7 @@ function buildSignalCard(sig, key) {
         <div class="signal-badge badge-${s}">${s}</div>
       </div>
       <div class="conf-wrap conf-${cc}">
-        <div class="conf-label"><span>Confidence</span><span class="conf-num" style="color:${c>=65?'var(--green)':c>=50?'var(--yellow)':'var(--red)'}">${c}%</span></div>
+        <div class="conf-label"><span>Confidence</span><span class="conf-num" style="color:${atLiveGate(c)?'var(--green)':c>=50?'var(--yellow)':'var(--red)'}">${c}%</span></div>
         <div class="conf-bar-track"><div class="conf-bar-fill" style="width:${c}%"></div></div>
         ${threshold}
       </div>
@@ -389,8 +409,9 @@ function buildReasonsPanel(signals) {
       const cl = r.startsWith('✅')?'good':r.startsWith('⚠')?'warn':r.startsWith('❌')?'bad':'';
       return `<div class="reason-item ${cl}">${r}</div>`;
     }).join('');
-    const needed = sig.signal==='WAIT' && sig.confidence < 65
-      ? `<div style="font-size:.65rem;color:var(--yellow);margin-top:6px">Missing: 4H must confirm Daily direction to clear 65% threshold.</div>`
+    // Gate from the server, and the sentence names it rather than a stale literal.
+    const needed = sig.signal==='WAIT' && LIVE_GATE !== null && sig.confidence < LIVE_GATE
+      ? `<div style="font-size:.65rem;color:var(--yellow);margin-top:6px">Missing: 4H must confirm Daily direction to clear the ${LIVE_GATE}% threshold.</div>`
       : '';
     return `<div style="margin-bottom:14px">
       <div class="section-hdr">${a.label} — ${sig.signal} ${sig.confidence}%</div>
@@ -411,7 +432,12 @@ function renderHistory(history) {
   document.getElementById('st-cycles').textContent = cycles24h;
 
   const rows = history.slice(0,40).map(h => {
-    const fired = ['btc','gold','spx'].some(k => h[k] && h[k].s !== 'WAIT' && (h[k].c||0) >= 65);
+    // `s !== 'WAIT'` is already authoritative: generateSignalMTF sets WAIT for anything
+    // below the effective gate, so a non-WAIT signal HAS cleared it. The old
+    // `&& (h[k].c||0) >= 65` was a second, stale copy of the gate that could only ever
+    // disagree with the engine — at gate 70 it agreed by luck, at gate 65 it was
+    // redundant, and it would hide real fires if the gate ever dropped below 65.
+    const fired = ['btc','gold','spx'].some(k => h[k] && h[k].s !== 'WAIT');
     return `<tr>
       <td class="time-cell">${fmtDateTime(h.t)}</td>
       <td><span class="sig-chip sig-${h.btc?.s||'WAIT'}">${h.btc?.s||'—'}</span></td>
@@ -546,7 +572,7 @@ function escapeHtml(value) {
 //
 // Null until the first successful read, and the text says "the live gate" rather than
 // inventing a number while it is unknown — a wrong number is worse than an honest gap.
-let LIVE_GATE = null;
+// LIVE_GATE itself is declared near the top of this script, above its first reader.
 async function loadGate() {
   try {
     const settings = await getJson('/api/strategy-settings');

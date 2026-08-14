@@ -9,7 +9,7 @@ Usage:
   python memory.py summary
   python memory.py forget "BTC 4H double bottom"
 """
-import sys, json, time, re
+import sys, os, json, time, re
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -26,19 +26,67 @@ CATEGORIES = {
 }
 
 
+class MemoryCorrupt(Exception):
+    """The store exists but could not be read. Never treated as an empty store."""
+
+
 def _load() -> dict:
+    """ABSENT and CORRUPT are different answers and must never share a return value.
+
+    This used to return an empty store for both. Every writer here calls _load,
+    mutates the result and writes it back, so ONE unparseable read turned the whole
+    file into a single row and exited 0. Combined with a truncate-then-write _save
+    (which is what produces an unparseable file in the first place) that is a closed
+    loop: the bad write creates the corruption, the silent read turns it into a
+    delete, and the next add makes it permanent.
+
+    server/index.js had the identical pair and was fixed on 2026-08-14; this file is
+    the OTHER writer of the same tasks/jarvis_memory.json and CLAUDE.md lists
+    `python memory.py add KEY VALUE` as a standing command, so it runs in every
+    session. Fixing only the JavaScript side meant the server noticed the damage
+    afterwards rather than the damage not happening.
+
+    Absent is still a normal first run. Corrupt raises, because refusing to answer is
+    the only response that cannot destroy 30-odd saved facts.
+    """
     if not MEMORY_FILE.exists():
         MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
         return {"version": 1, "entries": [], "last_updated": None}
     try:
-        return json.loads(MEMORY_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {"version": 1, "entries": [], "last_updated": None}
+        raw = MEMORY_FILE.read_text(encoding="utf-8-sig")  # utf-8-sig strips a BOM
+    except OSError as exc:
+        raise MemoryCorrupt(
+            f"{MEMORY_FILE} exists but could not be read: {exc}. Refusing to report an "
+            f"empty store, because the next save would make that permanent."
+        ) from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise MemoryCorrupt(
+            f"{MEMORY_FILE} is not valid JSON ({exc}); {len(raw)} bytes on disk. NOT "
+            f"returning an empty store: every writer round-trips through _load, so "
+            f"doing so would delete every saved fact on the next add. Fix or move the "
+            f"file by hand."
+        ) from exc
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+        raise MemoryCorrupt(
+            f"{MEMORY_FILE} parsed but has no entries list — refusing to overwrite it."
+        )
+    return data
 
 
 def _save(data: dict):
+    """Atomic: write a temp file in the same directory, then os.replace.
+
+    A plain write_text truncates the target first, so an interruption leaves exactly
+    the half-written file _load now refuses to read. os.replace is atomic on Windows
+    and POSIX alike, and same-directory keeps the rename intra-volume.
+    """
     data["last_updated"] = datetime.now(timezone.utc).isoformat()
-    MEMORY_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MEMORY_FILE.with_suffix(MEMORY_FILE.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, MEMORY_FILE)
 
 
 def add_memory(key: str, value: str, category: str = "GENERAL", source: str = "manual") -> dict:
@@ -197,4 +245,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # A corrupt store must fail loudly and non-zero, never quietly "succeed" having
+    # written a one-row file. Caught here so the operator gets the diagnosis and the
+    # remedy instead of a traceback, and so any .bat calling this sees a real failure.
+    try:
+        main()
+    except MemoryCorrupt as exc:
+        print(f"[MEMORY] REFUSING TO WRITE — {exc}", file=sys.stderr)
+        print("[MEMORY] Nothing was modified. Inspect or move the file, then retry.",
+              file=sys.stderr)
+        sys.exit(2)

@@ -4817,7 +4817,7 @@ You have a force_heal tool that actually runs a real health-check/repair cycle �
 You have list_proposals and approve_proposal tools for reviewing what an autonomous research agent has found and implemented on a branch. Use list_proposals whenever Themis asks what's pending, what the agent found, or what's waiting on him. Use approve_proposal only on a clear, specific approval — approving marks it ready to deploy next session, it does not push it live, so don't imply the change is already live.
 Trading context first: weigh signal quality, risk management, and system reliability before answering.
 Give concrete levels (entry/stop/target) when discussing a trade. Analysis, not financial advice.
-Never loosen or suggest bypassing the 65% confidence gate or the daily-loss circuit breaker just because nothing is firing — a quiet market is a correct read, not a bug.
+Never loosen or suggest bypassing the live confidence gate or the daily-loss circuit breaker just because nothing is firing — a quiet market is a correct read, not a bug. Never state the gate as a number from memory: this prompt is built once at startup, so any figure baked in here goes stale the moment the setting moves. It said "the 65% confidence gate" for weeks after the gate became 70. Read it from /api/strategy-settings and check settingsError before quoting it.
 Keep answers tight — a few sentences unless the question genuinely needs more.`;
 
 const MEMORY_TOOL = {
@@ -4946,22 +4946,32 @@ async function askClaude(question, history = []) {
             resultText = `Heal cycle ran. Healthy: ${result.healthy}. Total heals so far: ${result.healCount}. Last heal: ${result.lastHealAt ?? "just now"}.`;
           } catch (e) { resultText = "Force-heal failed: " + e.message; }
         } else if (block.name === "list_proposals") {
-          const { proposals } = loadProposals();
-          if (!proposals.length) resultText = "No proposals on record.";
-          else resultText = proposals.slice(0, 10).map(p =>
-            `[${p.status}] ${p.id} — ${p.summary}${p.prUrl ? ` (${p.prUrl})` : ""} (${p.createdAt})`
-          ).join("\n");
+          // loadProposals now THROWS on a corrupt file rather than reporting an empty
+          // list, so this reports the fault instead of "No proposals on record." — a
+          // reassuring sentence that used to mean the opposite of what it said.
+          try {
+            const { proposals } = loadProposals();
+            if (!proposals.length) resultText = "No proposals on record.";
+            else resultText = proposals.slice(0, 10).map(p =>
+              `[${p.status}] ${p.id} — ${p.summary}${p.prUrl ? ` (${p.prUrl})` : ""} (${p.createdAt})`
+            ).join("\n");
+          } catch (e) { resultText = "Proposals file is unreadable, not empty: " + e.message; }
         } else if (block.name === "approve_proposal") {
           const { id } = block.input || {};
-          const data = loadProposals();
-          const prop = data.proposals.find(p => p.id === id);
-          if (!prop) resultText = `No proposal found with id ${id}.`;
-          else {
-            prop.status = "approved";
-            prop.approvedAt = new Date().toISOString();
-            saveProposals(data);
-            resultText = `Approved: ${prop.summary}. Marked ready to deploy next session — this did not deploy it live.`;
-          }
+          // Wrapped because this one WRITES. If loadProposals throws on a corrupt file
+          // the save must not run at all — that is the whole point of it throwing —
+          // and the chat should say so rather than surfacing a raw stack.
+          try {
+            const data = loadProposals();
+            const prop = data.proposals.find(p => p.id === id);
+            if (!prop) resultText = `No proposal found with id ${id}.`;
+            else {
+              prop.status = "approved";
+              prop.approvedAt = new Date().toISOString();
+              saveProposals(data);
+              resultText = `Approved: ${prop.summary}. Marked ready to deploy next session — this did not deploy it live.`;
+            }
+          } catch (e) { resultText = "Could not approve — the proposals file is unreadable: " + e.message; }
         } else continue;
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: resultText });
       }
@@ -6958,15 +6968,52 @@ app.post("/api/size", (req, res) => {
 const PROPOSALS_PATH   = path.join(__dirname, "..", "tasks", "proposals.json");
 const AGENT_RELAY_SECRET = (process.env.AGENT_RELAY_SECRET || "").trim();
 
+// ABSENT and CORRUPT are different answers and must never share a return value.
+//
+// This used to `catch {}` and return an empty list for both. Every writer below calls
+// this first, mutates the result and writes it back — so ONE unparseable read silently
+// converted the whole file into a single row, with nothing in the log. Combined with a
+// non-atomic write (which is what produces a truncated file in the first place) that is
+// a closed loop: the bad write creates the corruption, the silent read turns it into a
+// delete, and the next save makes it permanent. Fixing either alone leaves the loop
+// open, so both are fixed here.
+//
+// Absent is still a normal first run and still returns the empty default. Corrupt
+// throws, because refusing to answer is the only response that cannot destroy data.
 function loadProposals() {
+  if (!fs.existsSync(PROPOSALS_PATH)) return { proposals: [] };
+  let raw;
   try {
-    if (fs.existsSync(PROPOSALS_PATH)) return JSON.parse(fs.readFileSync(PROPOSALS_PATH, "utf8"));
-  } catch {}
-  return { proposals: [] };
+    raw = fs.readFileSync(PROPOSALS_PATH, "utf8");
+  } catch (e) {
+    console.error(`[proposals] UNREADABLE ${PROPOSALS_PATH}: ${e.message} — refusing to ` +
+                  `report an empty list, because the next save would make that permanent.`);
+    throw e;
+  }
+  try {
+    // Strip a UTF-8 BOM before parsing. readFileSync("utf8") keeps it, so a BOM'd but
+    // otherwise perfect file would parse-fail and be reported as corruption. This repo
+    // has been burned by exactly that input: PowerShell Set-Content -Encoding utf8
+    // emits a BOM and silently reset the VPS to defaults on 2026-08-02.
+    const parsed = JSON.parse(raw.replace(/^﻿/, ""));
+    if (!parsed || !Array.isArray(parsed.proposals)) {
+      throw new Error("parsed but has no proposals array");
+    }
+    return parsed;
+  } catch (e) {
+    console.error(`[proposals] CORRUPT ${PROPOSALS_PATH}: ${e.message} — ${raw.length} bytes ` +
+                  `on disk. NOT returning an empty list: every writer round-trips through ` +
+                  `this function, so doing so would delete the file's contents on the next ` +
+                  `save. Fix or move the file by hand.`);
+    throw e;
+  }
 }
 function saveProposals(data) {
   fs.mkdirSync(path.dirname(PROPOSALS_PATH), { recursive: true });
-  fs.writeFileSync(PROPOSALS_PATH, JSON.stringify(data, null, 2));
+  // Atomic: temp + rename, the same guarantee saveLearning already uses. A plain
+  // writeFileSync interrupted mid-flush leaves a truncated file, which is precisely
+  // the input that used to read back as "empty".
+  writeJsonAtomic(PROPOSALS_PATH, data);
 }
 
 // ── Peer heartbeat: so each box can notice the OTHER one dying ────────────────
@@ -7049,25 +7096,39 @@ app.post("/api/agent/notify", (req, res) => {
     return res.status(403).json({ error: "invalid or missing secret" });
   }
 
-  let id = null;
-  if (proposal && typeof proposal === "object") {
-    const data = loadProposals();
-    id = "prop_" + Date.now().toString(36);
-    data.proposals.unshift({
-      id,
-      summary:      proposal.summary || "(no summary provided)",
-      branch:       proposal.branch || null,
-      prUrl:        proposal.prUrl || null,
-      filesChanged: proposal.filesChanged || [],
-      createdAt:    new Date().toISOString(),
-      status:       "pending"
-    });
-    saveProposals(data);
+  // Sent BEFORE the proposal is recorded, deliberately. A corrupt proposals file makes
+  // the block below return 500, and the alert is the half that still works — losing it
+  // too would mean a failure that is silent in the one channel a human actually reads.
+  if (message && TELEGRAM_TOKEN) {
+    const alertChatId = TELEGRAM_CHAT_ID || [...knownChatIds][0];
+    if (alertChatId) sendTelegram(alertChatId, message).catch(() => {});
   }
 
-  if (message && TELEGRAM_TOKEN) {
-    const chatId = TELEGRAM_CHAT_ID || [...knownChatIds][0];
-    if (chatId) sendTelegram(chatId, message).catch(() => {});
+  let id = null;
+  if (proposal && typeof proposal === "object") {
+    // A corrupt proposals file must fail this POST LOUDLY rather than append to an
+    // empty object and wipe the record. The remote agent gets a 500 and can retry;
+    // silently discarding everything already on file is not a recoverable state.
+    try {
+      const data = loadProposals();
+      id = "prop_" + Date.now().toString(36);
+      data.proposals.unshift({
+        id,
+        summary:      proposal.summary || "(no summary provided)",
+        branch:       proposal.branch || null,
+        prUrl:        proposal.prUrl || null,
+        filesChanged: proposal.filesChanged || [],
+        createdAt:    new Date().toISOString(),
+        status:       "pending"
+      });
+      saveProposals(data);
+    } catch (e) {
+      console.error("[agent/notify] proposal NOT recorded:", e.message);
+      return res.status(500).json({
+        ok: false,
+        error: "proposals file unreadable — proposal not recorded, nothing was overwritten",
+      });
+    }
   }
 
   res.json({ ok: true, id });
@@ -7078,11 +7139,41 @@ app.post("/api/agent/notify", (req, res) => {
 // this is what makes the web chat's memory genuinely cross-session, not just this tab.
 const MEMORY_PATH = path.join(__dirname, "..", "tasks", "jarvis_memory.json");
 
+// Same contract as loadProposals above, and for the same reason — see that comment.
+// This one guards more: tasks/jarvis_memory.json is the web chat's cross-session
+// memory and held 31 entries / 31,951 bytes when this was fixed. saveMemoryEntry
+// round-trips through here, so a silent empty return followed by one save would have
+// destroyed all 31 with nothing in the log to show for it.
 function loadMemory() {
+  if (!fs.existsSync(MEMORY_PATH)) return { version: 1, entries: [] };
+  let raw;
   try {
-    if (fs.existsSync(MEMORY_PATH)) return JSON.parse(fs.readFileSync(MEMORY_PATH, "utf8"));
-  } catch {}
-  return { version: 1, entries: [] };
+    raw = fs.readFileSync(MEMORY_PATH, "utf8");
+  } catch (e) {
+    console.error(`[memory] UNREADABLE ${MEMORY_PATH}: ${e.message} — refusing to report ` +
+                  `an empty store, because the next save would make that permanent.`);
+    throw e;
+  }
+  try {
+    // BOM stripped for the same reason as loadProposals above — a BOM'd file is
+    // perfectly readable and must not be mistaken for a truncated one.
+    const parsed = JSON.parse(raw.replace(/^﻿/, ""));
+    if (!parsed || !Array.isArray(parsed.entries)) {
+      throw new Error("parsed but has no entries array");
+    }
+    // Validate the ELEMENTS, not just the container. saveMemoryEntry does
+    // e.key.toLowerCase() on every row, so one entry without a key throws a bare
+    // TypeError deep in the writer instead of naming the file that is malformed.
+    const bad = parsed.entries.findIndex(e => !e || typeof e.key !== "string");
+    if (bad !== -1) throw new Error(`entry ${bad} has no string key`);
+    return parsed;
+  } catch (e) {
+    console.error(`[memory] CORRUPT ${MEMORY_PATH}: ${e.message} — ${raw.length} bytes on ` +
+                  `disk. NOT returning an empty store: saveMemoryEntry round-trips through ` +
+                  `this function, so doing so would delete every saved fact on the next ` +
+                  `write. Fix or move the file by hand.`);
+    throw e;
+  }
 }
 
 function saveMemoryEntry(key, value, category, source = "manual") {
@@ -7094,7 +7185,10 @@ function saveMemoryEntry(key, value, category, source = "manual") {
   else { entry.created_at = now; data.entries.unshift(entry); }
   data.last_updated = now;
   fs.mkdirSync(path.dirname(MEMORY_PATH), { recursive: true });
-  fs.writeFileSync(MEMORY_PATH, JSON.stringify(data, null, 2));
+  // Atomic: temp + rename. A plain writeFileSync interrupted mid-flush leaves the
+  // truncated file that loadMemory above now refuses to read as empty — this is the
+  // other half of that loop, and closing only one end leaves the failure reachable.
+  writeJsonAtomic(MEMORY_PATH, data);
   return data.entries[idx >= 0 ? idx : 0];
 }
 

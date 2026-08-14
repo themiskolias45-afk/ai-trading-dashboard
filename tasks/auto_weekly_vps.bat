@@ -13,11 +13,16 @@ set REPORT=tasks\logs\weekly_%TODAY%.txt
 echo Weekly Analysis - %date% > %REPORT%
 echo ========================================= >> %REPORT%
 
+REM Brief the agent before it works. This VPS job has NEVER read the briefing - it had
+REM no way to see what it had already proposed, what was decided, or what is already
+REM measured, which is how the same finding got emitted three times across two files.
+node tasksai_brief.cjs --write >> %REPORT% 2>&1
+
 REM "Write to %REPORT%" was an instruction that could never succeed: the >> redirect
 REM below holds that handle for the life of this script, so any file write the model
 REM attempted was doomed. The 2026-08-09 weekly review flagged this itself and the
 REM finding sat unread. Stdout only, exactly as tasks\auto_weekly.bat says.
-call claude --dangerously-skip-permissions -p "JARVIS: Weekly SmartEntry Pro review on the VPS. Read server/journal.json and server/learning.json. Print your review to standard output only - do NOT write, edit or append to any file, they are locked by this script. Cover: 1) Week trade summary - total trades, wins, losses, P&L, win rate. If there are no closed trades say so plainly and state how many more are needed before the learning engine can act (it needs 5 per setup). 2) Best and worst performing asset. 3) One weakness identified from actual results, not speculation. 4) One specific proposed fix marked PROPOSED FIX: naming the function and change. Max 40 lines. Do NOT edit code or commit - propose only." >> %REPORT% 2>&1
+call claude --dangerously-skip-permissions -p "JARVIS: Weekly SmartEntry Pro review on the VPS. FIRST read tasks/ai_brief.md in full - it lists what you have already proposed, what was decided, what is already measured, and the live config. Do NOT re-raise anything it marks as decided; if your finding matches one, say so in one line and move on. STEP ZERO, before any new analysis: read section 3 of that brief. For every proposal it lists as ungraded, judge whether the DIAGNOSIS held up - not whether the fix was taken, since a proposal can be rejected and still have been right - and emit one line each of the exact form 'SCORED CALL: <id> right|wrong|unproven - <the evidence that settles it>'. Cite a commit, a file:line or a measurement; a grade with no evidence is an opinion with a label. Grade yourself honestly: a wrong call recorded as wrong is worth more than a flattering record. If section 3 says every call is graded, write one line saying so and move on. Do NOT run ai_decide or any other command - a human records these. Then: Read server/journal.json and server/learning.json. Print your review to standard output only - do NOT write, edit or append to any file, they are locked by this script. Cover: 1) Week trade summary - total trades, wins, losses, P&L, win rate. If there are no closed trades say so plainly and state how many more are needed before the learning engine can act (it needs 5 per setup). 2) Best and worst performing asset. 3) One weakness identified from actual results, not speculation. 4) One specific proposed fix marked PROPOSED FIX: naming the function and change. Max 40 lines. Do NOT edit code or commit - propose only." >> %REPORT% 2>&1
 
 REM Completion marker. Without it the ledger cannot tell a run that finished from one
 REM that was killed, and every VPS weekly has read "NO COMPLETION MARKER" since the
