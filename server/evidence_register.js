@@ -120,6 +120,32 @@ const CLAIMS = [
     feedsTheGate: true,
   },
   {
+    id: "edgeisgold",
+    title: "The edge is Gold, not the engine",
+    status: STATUS.ROBUST,
+    measuredOn: "2026-08-14",
+    evidence: "Per-instrument walk-forward at gate 70, 5 equal-count folds each, "
+      + "0.05R/trade cost, on the live generateSignalMTF path. XAUUSD +0.219R/trade "
+      + "over 130 closed, positive in 4 of 5 folds, +28.53R. BTCUSD +0.104R/trade over "
+      + "59 closed, 3 of 5 folds, +6.16R. SP500 −0.819R/trade over 13 closed, 0 of 1 "
+      + "scorable fold, −10.65R. Gold supplies 119% of the pooled +24.04R; SPX supplies "
+      + "−44%. The headline pooled figure of +0.119R/trade is Gold's edge diluted by a "
+      + "fold-unstable BTC and dragged by a negative SPX.",
+    caveat: "SP500's negative sign is NOT a verdict — 13 closed trades, one scorable "
+      + "fold and 1 win in 13. It is under-powered and must not be used to disable SPX; "
+      + "it corroborates why SPX_H4_ONLY_BLOCKED_FLOOR exists and earns a proper cohort "
+      + "walk-forward, not a switch. BTC is also weaker than the pooled number implies: "
+      + "negative in folds 3 and 4. Live fills agree with the replay's shape — 4 of the "
+      + "5 journal rows are XAUUSD.",
+    changesTheAnswer: "This is the prerequisite for any 'add more instruments' proposal. "
+      + "It says the edge is NOT a uniform property of the engine, so adding instruments "
+      + "at random is as likely to add an SPX-shaped drag as a Gold-shaped winner. A "
+      + "candidate instrument must clear the same per-instrument fold table BEFORE it is "
+      + "wired in. Re-run with the per-instrument harness at gate 70; more closed SPX "
+      + "trades would be the fastest thing to move this.",
+    feedsTheGate: false,
+  },
+  {
     id: "minrr",
     title: "MIN_RR = 1.5",
     status: STATUS.CONTRADICTED,
