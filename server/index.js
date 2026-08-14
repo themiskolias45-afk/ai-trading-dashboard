@@ -3114,6 +3114,15 @@ app.get("/api/evidence-board", (_, res) => {
       claims: register.claims,
       claimCounts: register.counts,
       curatedNote: register.note,
+      // Which curated claims quote a sample that has since moved, and the live sample
+      // they were compared against. Surfaced because a detector nothing renders is
+      // decoration: the liveconfig claim went stale TWICE (n=1/119 sessions, then
+      // n=3/154) while this board displayed it as measured fact to every reader, and
+      // the brief handed the same sentence to every agent. The register never rewrites
+      // itself — it is curated by design — so this flag is the only thing that says a
+      // human needs to look.
+      needsRecuration: register.needsRecuration || [],
+      liveSample: register.liveSample || null,
       gates,
       gateTotals,
       feedsTheGate: false,
