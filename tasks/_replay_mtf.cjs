@@ -258,6 +258,69 @@ if (process.env.MTF_MIN_RR) {
   settings.minRrReplayed = wanted;
 }
 
+// MEASUREMENT-ONLY minimum distance between entry and a PIVOT-refined stop.
+//
+// generateSignal already floors the OTHER stop-tightening path: a structural swing
+// stop is only adopted when it is at least STRUCTURAL_STOP_MIN_ATR (0.5) ATR from
+// entry, because without that floor "one SPX trade came out at R/R 55.24 and
+// contributed +55.2R of a +39.5R cohort total" — a division artifact that flipped the
+// cohort's sign. That reasoning was never carried across to the pivot refinement in
+// generateSignalMTF, which adopts pivots.s1/r1 with no lower bound at all. Observed
+// live 2026-08-14: Gold entry 4334.84, ATR 94.69, the setup's own stop 4192.80
+// (1.5 ATR) replaced by pivot S1 4312.85 — a 21.99pt stop, 0.23 ATR, below even the
+// floor the structural path already enforces, with the reported R:R going 2.0 -> 3.8.
+//
+// The engine's own guard cannot catch this: `refinedRR < 1.5` reverts the refinement
+// only when the ratio is too LOW, and tightening the stop RAISES the ratio. It
+// protects against target-shortening and nothing else.
+//
+// Cannot be swept by filtering the output. Stop distance sets `risk`, which sets `rr`,
+// which decides both the `rr < 1` drop and the WIN/LOSS walk forward — and every taken
+// trade occupies the symbol via openUntil, so refusing one tightening lets a different
+// signal through later. Each value needs its own replay.
+//
+// "inf" / "off" means no pivot stop is ever adopted, i.e. the refinement's stop half
+// disabled — the honest "what if we never tightened" baseline. A null daily.atr leaves
+// behaviour UNCHANGED, so this knob can only ever refuse a tightening it can measure.
+//
+// REPLAY ONLY. server/index.js is untouched; unset leaves the extracted source
+// byte-identical, which is what keeps the two-box output-hash check valid.
+if (process.env.MTF_PIVOT_MIN_ATR) {
+  const raw = String(process.env.MTF_PIVOT_MIN_ATR).trim().toLowerCase();
+  const wanted = (raw === "inf" || raw === "off") ? Infinity : Number(raw);
+  if (!(wanted >= 0)) {
+    console.error(`MTF_PIVOT_MIN_ATR=${process.env.MTF_PIVOT_MIN_ATR} must be a ` +
+                  `non-negative number, or "inf"/"off" to disable the pivot stop ` +
+                  `entirely — refusing to replay, because ignoring it would report ` +
+                  `the baseline under this label.`);
+    process.exit(1);
+  }
+  const floorExpr = wanted === Infinity ? "Infinity" : String(wanted);
+  const pivotPatterns = [
+    { name: "generateSignalMTF BUY pivot stop",
+      re: /if \(pivots\.s1 > daily\.stop && pivots\.s1 < daily\.entry\) refinedStop = pivots\.s1;/g,
+      to: `if (pivots.s1 > daily.stop && pivots.s1 < daily.entry && ` +
+          `(daily.atr === null || daily.atr === undefined || ` +
+          `Math.abs(daily.entry - pivots.s1) >= daily.atr * ${floorExpr})) refinedStop = pivots.s1;` },
+    { name: "generateSignalMTF SELL pivot stop",
+      re: /if \(pivots\.r1 < daily\.stop && pivots\.r1 > daily\.entry\) refinedStop = pivots\.r1;/g,
+      to: `if (pivots.r1 < daily.stop && pivots.r1 > daily.entry && ` +
+          `(daily.atr === null || daily.atr === undefined || ` +
+          `Math.abs(daily.entry - pivots.r1) >= daily.atr * ${floorExpr})) refinedStop = pivots.r1;` },
+  ];
+  for (const p of pivotPatterns) {
+    const matches = [...code.matchAll(p.re)];
+    if (matches.length !== 1) {
+      console.error(`MTF_PIVOT_MIN_ATR: expected exactly one "${p.name}" in the extracted ` +
+                    `engine, found ${matches.length}. The engine has changed shape; fix this ` +
+                    `harness rather than reporting a number it did not measure.`);
+      process.exit(1);
+    }
+    code = code.replace(p.re, p.to);
+  }
+  settings.pivotMinAtrReplayed = wanted === Infinity ? "inf" : wanted;
+}
+
 // Macro caches are empty and the learning boost is zero. Historical DXY/VIX/
 // Fear-and-Greed readings are not in the export, and setupStats is {} on the live
 // box anyway - so this measures the engine's own confidence, unmodified. Stated
@@ -610,6 +673,7 @@ process.stderr.write("MTF_CENSUS " + JSON.stringify({
   minEntryRsi: settings.minEntryRsi ?? null,
   adxTrendingMin: settings.adxTrendingMin ?? null,
   minRrReplayed: settings.minRrReplayed ?? null,
+  pivotMinAtrReplayed: settings.pivotMinAtrReplayed ?? null,
   stubbed: ["priceCache.dxy", "priceCache.vix", "sentimentCache.fearGreed",
             "signalCache (cross-asset)", "getLearningBoost -> 0"],
   windowBars: WINDOW,
