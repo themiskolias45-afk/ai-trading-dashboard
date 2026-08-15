@@ -32,6 +32,29 @@ REM exceed a cold start: MT5 terminal launch plus the bridge's 6 x 15s connect r
 REM loop. Enforced via a marker file so it survives a watchdog restart.
 set BRIDGE_RESTART_COOLDOWN_SEC=180
 
+REM Single-instance guard. watchdog_guardian.bat has one for itself (:44-51) and one
+REM for its child (:71-86), but those only serialise the GUARDIAN'S launch.
+REM tasks\start_all.bat:23 and tasks\startup.bat:27 start this file directly and
+REM bypass the guardian entirely, so nothing stopped a second instance. On
+REM 2026-08-14 that stacked one: the pair logged three "BRIDGE B DOWN" lines at
+REM 19:50:34.80, :36.90 and :38.75 - gaps of 2.1s and 1.85s, which is the
+REM `timeout /t 2` inside the restart branch below. A single 60s-paced loop cannot
+REM produce that. Counting our own cmd.exe is expected, so more than one is real.
+REM
+REM count_watchdogs.ps1 fails SAFE to 99, so an unreadable process list exits here
+REM rather than starting a possible duplicate. That is the guardian's own stated
+REM trade-off and it is not a dead end: the guardian relaunches 10s later and
+REM ensure_running.ps1 covers the gap on its own schedule. Two watchdogs racing a
+REM server restart is the failure that is NOT recoverable.
+set WATCHDOGS=99
+for /f "usebackq delims=" %%N in (`powershell -NoProfile -ExecutionPolicy Bypass -File "tasks\count_watchdogs.ps1"`) do set WATCHDOGS=%%N
+if %WATCHDOGS% GTR 1 (
+  REM No parentheses in this text: a literal ^) inside an if-block closes the block
+  REM early and cmd then tries to run the remainder as a command.
+  echo [%date% %time%] Watchdog already running - %WATCHDOGS% found - this instance exited. >> tasks\logs\watchdog_log.txt
+  exit /b 0
+)
+
 echo [%date% %time%] Watchdog started. >> tasks\logs\watchdog_log.txt
 
 :loop
@@ -117,14 +140,23 @@ REM Bridge B only exists on machines that own tag B. MT5_EXPECTED_ACCOUNTS in
 REM keys.env is the single source of truth, shared with the server's healer and
 REM ensure_running.ps1. Local B and the VPS's A were both pinned to login 11581419
 REM with separate circuit breakers; without this check the watchdog restarts that
-REM duplicate within 60 seconds of it being stopped. Absent or unreadable value
-REM means A,B -- never an empty list, which would stop watching every bridge.
-set "EXPECTED_TAGS=A,B"
+REM duplicate within 60 seconds of it being stopped.
+REM
+REM Fails CLOSED, not open. This defaulted to "A,B", so ANY failure to read keys.env
+REM became "start a bridge for an account this box may not own" -- precisely the
+REM outcome the check exists to prevent, reached by the one path nobody tests. A box
+REM that owns B and cannot read its config loses B monitoring until the file is
+REM readable, and both ensure_running.ps1 and the server's healer report that
+REM independently; a box that does not own B can never start a duplicate.
+set "EXPECTED_TAGS="
 REM /c: is required. Without it findstr splits the pattern on spaces and treats each
 REM piece as its own search term, so "[ ]*=" alone matched any line containing "=" --
 REM a keys.env holding FOO=bar set EXPECTED_TAGS to "bar". Caught in trace, not live.
 for /f "tokens=2 delims==" %%T in ('findstr /r /c:"^ *MT5_EXPECTED_ACCOUNTS *=" keys.env 2^>nul') do set "EXPECTED_TAGS=%%T"
-if "!EXPECTED_TAGS!"=="" set "EXPECTED_TAGS=A,B"
+REM Logged on cycle 1 only: this is a config fault, not a per-minute event, and a
+REM line every 60s would bury the restart lines this file exists to make visible.
+if "!EXPECTED_TAGS!"=="" if !CYCLE! EQU 1 echo [!date! !time!] MT5_EXPECTED_ACCOUNTS unreadable - bridge B not watched this run. >> tasks\logs\watchdog_log.txt
+if "!EXPECTED_TAGS!"=="" goto :skip_bridge_b
 echo !EXPECTED_TAGS! | findstr /i "B" >nul
 if errorlevel 1 goto :skip_bridge_b
 
