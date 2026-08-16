@@ -107,6 +107,27 @@ try {
 //
 // Observability degrades to silence; it does not take the process down. A missing or
 // broken ledger now falls back to no-ops of the same shape and says so loudly.
+// Near-miss census — see server/near_miss.js. Counts setups that ALMOST formed, which
+// no gate can see because they die BEFORE a setup exists. Guarded like every other
+// observability module here, and for the reason spelled out above: index.js is patched
+// by hand onto the VPS, so a require whose file did not travel with it kills the box
+// that trades continuously. In memory only; it opens no file and votes on nothing.
+let noteNearMiss, nearMissCensus;
+try {
+  ({ noteNearMiss, nearMissCensus } = require("./near_miss"));
+} catch (nearMissError) {
+  console.error(
+    `[near-miss] census unavailable (${nearMissError.message}) — /api/near-miss will ` +
+    `report unavailable. Signals and trading are unaffected.`
+  );
+  noteNearMiss   = () => false;
+  nearMissCensus = () => ({
+    available: false,
+    reason: "server/near_miss.js is not deployed on this box",
+    feedsTheGate: false,
+  });
+}
+
 let logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt;
 try {
   ({ logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt } =
@@ -295,6 +316,12 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // that writes rejections lives at /api/rejections and is separately
   // requireLocalOnly — there is no POST at this path.
   "/api/gate-health",
+  // Setups that almost formed, counted in memory. Strictly less sensitive than the
+  // line above: a row is a setup name, a condition name, an RSI reading and a count,
+  // and the RSI is already published unauthenticated on /api/signals. No keys, no
+  // account numbers, no positions, no levels. There is no POST at this path — the
+  // census has no write route at all, only the engine increments it.
+  "/api/near-miss",
   // Fair Value Gap zones, derived from the same bars /api/signals already exposes
   // publicly. Read-only geometry: price bands and how far price has eaten into
   // them. Nothing here is not already implied by the candles. No POST at this path.
@@ -1068,6 +1095,21 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
 
   const MIN_RR = 1.5;
 
+  // RSI bands for the two trend-continuation setups. These numbers were inline in the
+  // conditions below; they are named here so the near-miss census can report the bar it
+  // measures against WITHOUT holding a second copy of it. A duplicated threshold is the
+  // single most repeated bug in this codebase — the AI filter was the third copy of the
+  // confidence gate, dashboard/index.html held five more and command.html another five.
+  // Defined INSIDE generateSignal on purpose: tasks/_replay_mtf.cjs extracts this
+  // function into a bare vm sandbox, where a module-level constant is undefined and the
+  // step throws into a catch that silently erases the whole cohort. That has happened
+  // twice already (SIZING_BOOST_MIN_CONFIDENCE, 1131 Gold steps; logRrRejection, 1006).
+  // Behaviour is unchanged: same numbers, same comparisons.
+  const MOMENTUM_RSI_MIN     = 52;
+  const MOMENTUM_RSI_MAX     = 72;
+  const TREND_FOLLOW_RSI_MIN = 45;
+  const TREND_FOLLOW_RSI_MAX = 68;
+
   // ── Gold/DXY divergence detection ────────────────────────────
   // Detected BEFORE the setup chain so a non-match falls through to the remaining
   // setups. Previously this lived in the chain behind a guard of
@@ -1244,7 +1286,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   else if (
     inUptrend &&
     aboveEma50 && aboveEma20 &&
-    rsi !== null && rsi > 52 && rsi < 72 &&
+    rsi !== null && rsi > MOMENTUM_RSI_MIN && rsi < MOMENTUM_RSI_MAX &&
     macd?.bullish
   ) {
     setup  = "MOMENTUM";
@@ -1262,7 +1304,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // ── TREND_FOLLOW: price in uptrend above all EMAs, MACD bullish — trend continuation ──
   else if (
     (inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20) &&
-    rsi !== null && rsi > 45 && rsi < 68 &&
+    rsi !== null && rsi > TREND_FOLLOW_RSI_MIN && rsi < TREND_FOLLOW_RSI_MAX &&
     macd?.bullish &&
     ema200 && price > ema200 * 1.005
   ) {
@@ -1364,6 +1406,55 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     reasons.push(`Trend: ${trend} | RSI: ${rsi} | BB bandwidth: ${bb?.bandwidth ?? "N/A"}%`);
     if (bb && bb.bandwidth < 15) reasons.push(`BB squeeze forming — breakout setup building`);
     if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg`);
+
+    // ── Near-miss census ──────────────────────────────────────────
+    // OBSERVABILITY ONLY. Nothing below assigns setup, signal, entry, stop, target,
+    // strength or confidence, and the whole block is wrapped so a fault here can never
+    // reach the trading path. See server/near_miss.js for why this is not a rejection
+    // row: no setup formed, so REJECTION-LEDGER-SPEC rule 3.1 excludes it by design.
+    //
+    // Reaching this else means EVERY setup branch failed. So if a setup's non-RSI
+    // conditions all pass here, the RSI band is necessarily what killed it — had RSI
+    // been in range the branch would have fired and we would not be in this else.
+    // That is the whole inference, and it is exact rather than heuristic.
+    //
+    // typeof-guarded like every other engine-side helper: tasks/_replay_mtf.cjs runs
+    // this function in a bare vm sandbox where these bindings do not exist, and an
+    // unstubbed reference throws into a catch that silently deletes the entire cohort
+    // from every measurement.
+    try {
+      if (typeof noteNearMiss === "function" && rsi !== null) {
+        const nearMissBase = {
+          symbol:    barSource?.sourceSymbol ?? null,
+          timeframe: barSource?.timeframe ?? null,
+        };
+
+        // MOMENTUM: inUptrend && aboveEma50 && aboveEma20 && macd.bullish, RSI banded.
+        if (inUptrend && aboveEma50 && aboveEma20 && macd?.bullish) {
+          if (rsi >= MOMENTUM_RSI_MAX) {
+            noteNearMiss({ ...nearMissBase, setup: "MOMENTUM",
+              condition: "RSI_ABOVE_CEILING", threshold: MOMENTUM_RSI_MAX, actual: rsi });
+          } else if (rsi <= MOMENTUM_RSI_MIN) {
+            noteNearMiss({ ...nearMissBase, setup: "MOMENTUM",
+              condition: "RSI_BELOW_FLOOR", threshold: MOMENTUM_RSI_MIN, actual: rsi });
+          }
+        }
+
+        // TREND_FOLLOW: same idea, its own band and its own EMA200 distance rule.
+        if ((inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20)
+            && macd?.bullish && ema200 && price > ema200 * 1.005) {
+          if (rsi >= TREND_FOLLOW_RSI_MAX) {
+            noteNearMiss({ ...nearMissBase, setup: "TREND_FOLLOW",
+              condition: "RSI_ABOVE_CEILING", threshold: TREND_FOLLOW_RSI_MAX, actual: rsi });
+          } else if (rsi <= TREND_FOLLOW_RSI_MIN) {
+            noteNearMiss({ ...nearMissBase, setup: "TREND_FOLLOW",
+              condition: "RSI_BELOW_FLOOR", threshold: TREND_FOLLOW_RSI_MIN, actual: rsi });
+          }
+        }
+      }
+    } catch (nearMissError) {
+      console.error("[near-miss] census skipped:", nearMissError.message);
+    }
   }
 
   // ── Minimum R:R gate ─────────────────────────────────────────
@@ -3001,6 +3092,24 @@ app.get("/api/mt5/candles/raw", requireLocalOnly, (req, res) => {
 // not have found that; rejections against passes do it immediately.
 app.get("/api/gate-health", (_, res) => {
   res.json({ ok: true, since: countersStartedAt, gates: gateStats });
+});
+
+// The blind spot BEHIND /api/gate-health. Every gate counted above fires on a setup
+// that already FORMED. A condition that stops a setup forming is upstream of all ten,
+// so it is invisible here and equally invisible in the rejection ledger — and that is
+// why SP500 has never traded: on 2026-08-16 it was STRONG UPTREND, above all EMAs,
+// MACD bullish, ADX 22.8, and missed MOMENTUM by 0.7 RSI points.
+//
+// Deliberately NOT merged into gate-health. That route answers "which gate is firing";
+// this one answers "what died before any gate got a vote". Merging them would put a
+// number that is not a gate kill into a payload every reader treats as gate kills.
+app.get("/api/near-miss", (_, res) => {
+  try {
+    res.json(nearMissCensus());
+  } catch (e) {
+    console.error("[near-miss]", e.message);
+    res.status(500).json({ available: false, reason: e.message, rows: [], feedsTheGate: false });
+  }
 });
 
 // The verdict /api/gate-health cannot give. Kill counts say a gate is FIRING;
