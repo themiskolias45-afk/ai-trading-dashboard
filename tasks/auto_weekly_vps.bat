@@ -16,7 +16,15 @@ echo ========================================= >> %REPORT%
 REM Brief the agent before it works. This VPS job has NEVER read the briefing - it had
 REM no way to see what it had already proposed, what was decided, or what is already
 REM measured, which is how the same finding got emitted three times across two files.
-node tasksai_brief.cjs --write >> %REPORT% 2>&1
+REM
+REM The path lost its backslash when this line was written on 2026-08-14: it read
+REM `node tasksai_brief.cjs`, which resolves to nothing, exits non-zero, and dumps
+REM "Cannot find module" into %REPORT% while the script carries on. So the fix that was
+REM supposed to end the unbriefed runs never ran once itself, and the job stayed exactly
+REM as blind as before with a comment above it claiming otherwise. The laptop twin has
+REM always been correct (auto_weekly.bat:58). Relative path, matching this file's own
+REM style - it cd's to the project root on line 3.
+node tasks\ai_brief.cjs --write >> %REPORT% 2>&1
 
 REM "Write to %REPORT%" was an instruction that could never succeed: the >> redirect
 REM below holds that handle for the life of this script, so any file write the model
