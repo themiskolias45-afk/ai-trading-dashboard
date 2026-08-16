@@ -5562,7 +5562,16 @@ app.post("/api/healer/heal", async (_, res) => {
 // and a status page that is quietly wrong is worse than none — that is exactly how
 // the healer came to report "1/1 account(s) reporting" while half the bridges were
 // dead. If a fact here is stale, the system it describes has changed, not the page.
-const SCHEDULED_TASK_PREFIX = "SmartEntry";
+// Task-name prefixes used by this system's own scheduled jobs. "SmartEntry" was the
+// only one until 2026-08-16, and that single word silently hid "JARVIS Morning Agent"
+// from BOTH lists in the AI-employee ledger: it could not be linked to its declared
+// job, and it could not even appear in the unappraised list, because it never survived
+// this filter to reach either. A daily Claude job, running clean for weeks, that
+// nothing on any surface could see. Widening admits exactly one more task on this box
+// and excludes nothing that matched before.
+const SCHEDULED_TASK_PREFIXES = ["SmartEntry", "JARVIS"];
+const isOwnScheduledTask = (name) =>
+  SCHEDULED_TASK_PREFIXES.some((prefix) => name.startsWith(prefix));
 const TASK_QUERY_TIMEOUT_MS = 8000;
 
 // Scheduled Tasks are a Windows-only concept; on anything else report "unavailable"
@@ -5587,7 +5596,7 @@ function readScheduledTasks() {
         const cells = line.split('","').map(c => c.replace(/^"|"$/g, "").trim());
         if (cells.length < 3) return acc;
         const name = cells[0].replace(/^\\+/, "");
-        if (!name.startsWith(SCHEDULED_TASK_PREFIX)) return acc;
+        if (!isOwnScheduledTask(name)) return acc;
         acc.push({ name, nextRun: cells[1], status: cells[2] });
         return acc;
       }, []);
@@ -5665,7 +5674,7 @@ function readScheduledTasksVerbose() {
         for (const cells of rows) {
           if (cells === header || cells.includes("TaskName")) continue;
           const name = (cells[idxName] || "").replace(/^\\+/, "");
-          if (!name || !name.startsWith(SCHEDULED_TASK_PREFIX)) continue;
+          if (!name || !isOwnScheduledTask(name)) continue;
           const rawResult = idxResult === -1 ? null : Number(cells[idxResult]);
           const task = {
             name,

@@ -80,6 +80,33 @@ const JOBS = [
     markers: [],
   },
   {
+    // Declared 2026-08-16. This ran every morning for weeks, wrote real evidence-backed
+    // proposals to morning_proposals.txt, and was invisible to this ledger on BOTH
+    // counts: no JOBS entry declared it, and it never even reached the unappraised list,
+    // because readScheduledTasksVerbose() in index.js kept only names starting
+    // "SmartEntry" and this task is called "JARVIS Morning Agent".
+    //
+    // With no job there is no proposal id, with no id there is nothing for
+    // tasks/ai_decide.cjs to decide on, and with no decision the agent can never learn
+    // it was read. On 2026-08-16 it spent a Claude call re-deriving, verbatim, the
+    // cb-losses proposal it had already made on 2026-08-15 - its own words in the file
+    // are "same fix proposed 2026-08-15, still not applied". That is OUTPUT IGNORED,
+    // which this ledger defines as costing exactly what failing costs, except nothing
+    // could report it because the job was never declared.
+    id: "morning",
+    label: "Morning Agent",
+    task: "JARVIS Morning Agent",
+    script: "tasks/morning_agent.bat",
+    taskMatch: /morning_agent(_vps)?\.bat/i,
+    // Two files, one job. agent_log.txt carries the run and its [exit N]; the proposals
+    // live in morning_proposals.txt. Proposals are harvested across ALL of a job's
+    // matched files, so both get read, while the NEWEST drives the verdict - and
+    // agent_log.txt is always newest because morning_agent.bat appends to it last.
+    pattern: /^(agent_log|morning_proposals)\.txt$/,
+    cadenceHours: DAILY_STALE_HOURS,
+    markers: ["PROPOSED FIX:"],
+  },
+  {
     // Undeclared until 2026-08-10, so it sat in the unappraised list being reported
     // as FAILING on both boxes — when rc=1 is how coverage_audit.ps1 SAYS SOMETHING
     // IS RED. The job was doing its job. Calling a finding a failure is the same

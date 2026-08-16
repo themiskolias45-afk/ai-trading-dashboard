@@ -39,7 +39,7 @@ REM possible here at all; agent_log.txt still receives exactly what it always di
 set "RUNOUT=%PROJ%\tasks\logs\morning_run_%RANDOM%%RANDOM%.tmp"
 
 pushd "%AGENTCWD%"
-call claude -p "Run the SmartEntry Pro morning cycle. 1) Fetch http://localhost:3001/api/checksystem and note any problems. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number; if settingsError is not null report that first, because the server is then running on defaults rather than the saved config. 3) Fetch http://localhost:3001/api/signals and list any asset at or above that live gate, with its dataSource and updatedAt. If two assets show indicators identical to the previous run while a third moved, say so explicitly - that is a frozen feed, not a flat market. 4) Fetch http://localhost:3001/api/learning and report setupStats progress toward the 5-closed-trades-per-setup threshold; if a setup has fewer than 5 draw no conclusion from it. 5) Do NOT edit any source file and do NOT commit. If you find a clear low-risk improvement, append it to %PROJ%\tasks\logs\morning_proposals.txt naming the file, the function, the exact change and the evidence. 6) Write a one-paragraph summary to %PROJ%\tasks\logs\morning_summary.txt: date, signals found, learning state, proposals made, system status. No fluff." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul > "%RUNOUT%" 2>&1
+call claude -p "Run the SmartEntry Pro morning cycle. 1) Fetch http://localhost:3001/api/checksystem and note any problems. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number; if settingsError is not null report that first, because the server is then running on defaults rather than the saved config. 3) Fetch http://localhost:3001/api/signals and list any asset at or above that live gate, with its dataSource and updatedAt. If two assets show indicators identical to the previous run while a third moved, say so explicitly - that is a frozen feed, not a flat market. 4) Fetch http://localhost:3001/api/learning and report setupStats progress toward the 5-closed-trades-per-setup threshold; if a setup has fewer than 5 draw no conclusion from it. 5) Do NOT edit any source file and do NOT commit. If you find a clear low-risk improvement, append it to %PROJ%\tasks\logs\morning_proposals.txt as a block whose FIRST line is the exact literal text PROPOSED FIX: followed by a one-line summary, then the file, the function, the exact change and the evidence on the lines below. That marker is load-bearing, not decoration: server/ai_work_ledger.js harvests proposals by searching for that exact string, so a proposal written without it can never be decided on and you will waste tomorrow re-deriving it. 6) Write a one-paragraph summary to %PROJ%\tasks\logs\morning_summary.txt: date, signals found, learning state, proposals made, system status. No fluff." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
 popd
 type "%RUNOUT%" >> "%PROJ%\tasks\logs\agent_log.txt"
@@ -65,7 +65,10 @@ if not "%CLAUDE_RC%"=="0" (
     echo 5-closed-trades-per-setup threshold; draw no conclusion from a setup under 5.
     echo Do NOT edit any source file and do NOT commit.
     echo Append any clear low-risk improvement to %PROJ%\tasks\logs\morning_proposals.txt
-    echo naming the file, the function, the exact change and the evidence.
+    echo as a block whose FIRST line is the exact literal text PROPOSED FIX: followed by a
+    echo one-line summary, then the file, the function, the exact change and the evidence
+    echo below it. server/ai_work_ledger.js harvests proposals by that exact string, so one
+    echo written without the marker can never be decided on and gets re-derived tomorrow.
     echo Write a one-paragraph summary to %PROJ%\tasks\logs\morning_summary.txt.
   ) | python "%PROJ%\claude_agent.py" park "Morning Agent" --output-file "%RUNOUT%" >> "%PROJ%\tasks\logs\agent_log.txt" 2>&1
   REM A PARKED JOB IS NOT A FAILED JOB. park exits 0 when it queued the brief and 2
@@ -78,4 +81,11 @@ if not "%CLAUDE_RC%"=="0" (
 del "%RUNOUT%" 2>nul
 
 echo [%date% %time%] JARVIS morning agent complete (exit %CLAUDE_RC%). >> "%PROJ%\tasks\logs\agent_log.txt"
+
+REM Completion marker in the ledger's own format. The human-readable line above says
+REM "complete (exit 0)", which exitCodeFrom() in server/ai_work_ledger.js does not
+REM match - it looks for the literal [exit N] that every other job here emits. Without
+REM this the morning job reads NO COMPLETION MARKER from the moment it is declared,
+REM the same false amber tasks\coverage_audit.ps1 carried for its whole life.
+echo [exit %CLAUDE_RC%]>> "%PROJ%\tasks\logs\agent_log.txt"
 endlocal & exit /b %CLAUDE_RC%

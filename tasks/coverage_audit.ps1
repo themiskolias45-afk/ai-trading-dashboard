@@ -344,5 +344,17 @@ try { @{ red = $isRed; at = $stamp } | ConvertTo-Json | Out-File -FilePath $stat
 # whatever the scheduler recorded. Note 1 here means A RED FINDING, not a crash —
 # the ledger knows that and reports REPORTS RED rather than FAILING.
 $exitCode = if ($isRed) { 1 } else { 0 }
-Write-Output "[exit $exitCode]"
+$marker = "[exit $exitCode]"
+
+# The marker has to land IN THE LOG FILE, not merely on stdout. Until 2026-08-16 this
+# only ever wrote to stdout, and the log was already closed by then because $out is
+# piped to $logPath further up. Nothing captures this script's stdout, so the marker
+# went nowhere: coverage_audit.txt held ZERO of them across every run it had ever made.
+# exitCodeFrom() in server/ai_work_ledger.js reads the FILE, so the ledger reported
+# NO COMPLETION MARKER forever while the scheduler recorded rc=0 throughout - a
+# permanent false amber on a job that was in fact healthy every single time.
+# Appended, never rewritten: this log is append-only by design.
+try { $marker | Out-File -FilePath $logPath -Encoding utf8 -Append } catch { }
+
+Write-Output $marker
 exit $exitCode
