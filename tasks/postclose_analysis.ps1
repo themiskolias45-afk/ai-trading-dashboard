@@ -42,26 +42,59 @@ Say "=== POST-CLOSE ANALYSIS START ==="
 
 # Ordered cheapest-first so a slow replay cannot starve the quick wins. Each entry is
 # name, command, arguments.
+# `requires` names a file without which the step CANNOT work on this box. tasks/vps_parity.cjs
+# hardcodes HOST=169.58.74.133 and KEY=C:\Users\User\.ssh\contabo_smartentry (lines 47-49):
+# it is a LAPTOP-side tool that probes the VPS. Run ON the VPS it SSHes to itself with a key
+# path that does not exist there, so it failed "exit 1 after 1s" every single night since the
+# job was created - an action item that could never clear, in a list whose whole worth is that
+# a red line means something. Skipped with a stated reason instead of failed.
 $jobs = @(
-    @{ name = 'engine parity';        exe = 'node'; args = @('tasks/vps_parity.cjs','--emit') },
+    @{ name = 'engine parity';        exe = 'node'; args = @('tasks/vps_parity.cjs','--emit'); requires = 'C:\Users\User\.ssh\contabo_smartentry' },
     @{ name = 'time heat map';        exe = 'node'; args = @('tasks/time_heatmap.cjs') },
     @{ name = 'session walk-forward'; exe = 'node'; args = @('tasks/session_walkforward.cjs') },
     @{ name = 'setup walk-forward';   exe = 'node'; args = @('tasks/session_walkforward.cjs','--by','setup') },
     @{ name = 'regime cross-tab';     exe = 'node'; args = @('tasks/regime_xtab.cjs') }
 )
 
+# A FAILED line that does not say WHY costs the same as no line at all. Every step's output
+# used to go to $null on the reasoning that this file should not become a second copy of five
+# reports nobody reads - right for a step that SUCCEEDS, and exactly wrong for one that fails,
+# because the harness may die before writing its own log. Five steps failed here nightly from
+# 2026-08-13 and not one recorded a cause. Tail on failure only, so the original intent holds.
+$FAILURE_TAIL_LINES = 6
+function Say-Failure($name, $verdict, $captured) {
+    Say ("  FAILED  {0,-22} {1}" -f $name, $verdict)
+    if ($captured) {
+        $lines = @($captured | ForEach-Object { $_.ToString() } | Where-Object { $_.Trim() -ne '' })
+        if ($lines.Count) {
+            foreach ($l in ($lines | Select-Object -Last $FAILURE_TAIL_LINES)) {
+                Say ("            | " + $l.Trim())
+            }
+        } else { Say "            | (the step produced no output at all)" }
+    } else { Say "            | (no output captured)" }
+}
+
 $failed = 0
+$skipped = 0
 foreach ($j in $jobs) {
+    if ($j.requires -and -not (Test-Path $j.requires)) {
+        Say ("  SKIPPED {0,-22} needs {1}, which is absent on this box" -f $j.name, $j.requires)
+        $skipped++
+        continue
+    }
     $t0 = Get-Date
     try {
-        # Output goes to the harness's own log; only the verdict is echoed here, or this
-        # file becomes a second copy of five reports nobody reads.
-        $null = & $j.exe $j.args 2>&1
+        # 2>&1 is what puts the harness's stderr into $out, which is where every one of these
+        # reports its real error. Note it also drives $? to False even on a clean exit in PS
+        # 5.1 - measured on this box - which is exactly why the verdict below reads
+        # $LASTEXITCODE and never $?.
+        $out  = & $j.exe $j.args 2>&1
+        $code = $LASTEXITCODE
         $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
-        if ($LASTEXITCODE -eq 0) { Say ("  OK      {0,-22} {1}s" -f $j.name, $secs) }
-        else { Say ("  FAILED  {0,-22} exit {1} after {2}s" -f $j.name, $LASTEXITCODE, $secs); $failed++ }
+        if ($code -eq 0) { Say ("  OK      {0,-22} {1}s" -f $j.name, $secs) }
+        else { Say-Failure $j.name ("exit {0} after {1}s" -f $code, $secs) $out; $failed++ }
     } catch {
-        Say ("  FAILED  {0,-22} {1}" -f $j.name, $_.Exception.Message); $failed++
+        Say-Failure $j.name $_.Exception.Message $null; $failed++
     }
 }
 
@@ -70,11 +103,16 @@ foreach ($j in $jobs) {
 # artifact the dashboard panel reads.
 $t0 = Get-Date
 try {
-    $null = & node 'tasks/deep_plan.cjs' 2>&1
+    # Same capture as the harnesses above. deep_plan.cjs exits 2 from a single catch that
+    # prints "deep-plan: <message>" to stderr, so the message IS the diagnosis - and it was
+    # being discarded, which is why three nights of "FAILED deep plan exit 2" say nothing
+    # about what threw. It also runs clean by hand, so the cause is specific to this hour.
+    $out  = & node 'tasks/deep_plan.cjs' 2>&1
+    $code = $LASTEXITCODE
     $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
-    if ($LASTEXITCODE -eq 0) { Say ("  OK      {0,-22} {1}s" -f 'deep plan', $secs) }
-    else { Say ("  FAILED  {0,-22} exit {1}" -f 'deep plan', $LASTEXITCODE); $failed++ }
-} catch { Say ("  FAILED  {0,-22} {1}" -f 'deep plan', $_.Exception.Message); $failed++ }
+    if ($code -eq 0) { Say ("  OK      {0,-22} {1}s" -f 'deep plan', $secs) }
+    else { Say-Failure 'deep plan' ("exit {0} after {1}s" -f $code, $secs) $out; $failed++ }
+} catch { Say-Failure 'deep plan' $_.Exception.Message $null; $failed++ }
 
 # Then move tomorrow's pre-open trigger out of any blackout the fresh plan found. This
 # is the step that stops the pre-open job firing into the hour it exists to prepare for.
@@ -95,7 +133,7 @@ if (Test-Path $eod) {
     catch { Say ("  skipped eod review: {0}" -f $_.Exception.Message) }
 }
 
-Say ("=== POST-CLOSE ANALYSIS DONE - {0} failed ===" -f $failed)
+Say ("=== POST-CLOSE ANALYSIS DONE - {0} failed, {1} skipped ===" -f $failed, $skipped)
 
 # Exit code so a scheduled task shows red when the evidence did not refresh. A silent
 # failure here means tomorrow's pre-open plan quietly reads yesterday's numbers.
