@@ -975,7 +975,26 @@ if (require.main === module) {
       }
     }
   })().catch(e => {
-    console.error("deep-plan: " + e.message);
+    // The message goes to the LOG as well as stderr, because the two callers that run
+    // this discard stderr entirely: the "SmartEntry Pre-Open Plan" scheduled task invokes
+    // `node.exe deep_plan.cjs` with no redirect at all, and tasks/postclose_analysis.ps1
+    // sent it to $null until 2026-08-16. The result was three straight nights of
+    // "FAILED deep plan exit 2" in postclose_analysis.txt and a Pre-Open task sitting at
+    // result=2, with the reason existing nowhere on disk. A job that cannot say why it
+    // failed costs what a job that fails silently costs.
+    //
+    // Wrapped: if the log write is what is broken, the process must still exit 2 with the
+    // original message rather than dying here and reporting a different fault.
+    const detail = "deep-plan: " + (e && e.stack ? e.stack : e && e.message ? e.message : String(e));
+    console.error(detail);
+    try {
+      fs.appendFileSync(
+        path.join(ROOT, "tasks", "logs", "deep_plan.txt"),
+        `\n[${new Date().toISOString()}] FAILED exit 2\n${detail}\n`
+      );
+    } catch (logErr) {
+      console.error("deep-plan: could not record the failure either — " + logErr.message);
+    }
     process.exit(2);
   });
 }
