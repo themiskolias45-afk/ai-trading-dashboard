@@ -51,6 +51,7 @@ const HTTP_TIMEOUT_MS = 8000;
 // reports every 60s so three missed reports is dead rather than slow.
 const PARITY_STALE_HOURS  = 24;
 const BACKUP_STALE_HOURS  = 26;
+const SELFTEST_STALE_HOURS = 26;  // the daily job runs once a day, plus slack for a miss
 const BRIDGE_STALE_SEC    = 180;
 const BREAKER_WARN_AT     = 2;   // of 3 — one more loss halts the box
 // The position cache is bridge-populated and reads EMPTY for roughly a minute after a
@@ -576,6 +577,74 @@ function checkBackup(root = ROOT) {
 }
 
 /**
+ * Do THIS box's own checks still fire?
+ *
+ * Everything else in this file reports on the system. This one reports on the reporter,
+ * and it is the check that closes the loop the rest of the file depends on: a doctor whose
+ * branches have silently stopped firing produces the same clean output as a healthy fleet.
+ * That is not hypothetical — the encoding check's first version called all eight dashboard
+ * pages clean while six were corrupted, and most of this file's branches had never been
+ * observed doing anything at all until doctor_selftest.cjs existed.
+ *
+ * The nightly daily job runs the suite and writes its output here. Reading a PER-RUN file
+ * rather than a cumulative log is deliberate: a cumulative log can only tell you that the
+ * suite passed SOMETIME, which is the same mistake as a marker written where nobody reads
+ * it. The `[selftest exit N]` line is written by the .bat AFTER the run, so its absence is
+ * itself a finding — that is the fingerprint of a job that died mid-run.
+ *
+ * AMBER, not RED, on the same ladder the rest of this file uses: severity here tracks
+ * trading impact, and a doctor that cannot verify itself does not stop a trade. It does
+ * mean the absence of REDs stops being evidence, which is why the wording says so.
+ */
+function checkDoctorSelftest(root = ROOT) {
+  const file = path.join(root, "tasks", "logs", "doctor_selftest_last.txt");
+  // No case count in this string. The suite grows every time a check is added, and a
+  // number written here would be stale within a week - it already was, at 39 versus 44.
+  const remedy = "node tasks/doctor_selftest.cjs   (exit 1 names the checks that did not fire)";
+
+  let text, age;
+  try {
+    text = fs.readFileSync(file, "utf8");
+    age = ageHours(fs.statSync(file).mtimeMs);
+  } catch (e) {
+    finding("AMBER", "local", "the doctor's own checks have never been verified on this box",
+      "nothing confirms the checks in this file still fire, and a doctor whose branches have "
+      + "silently stopped firing reports exactly what a healthy fleet reports",
+      remedy);
+    return;
+  }
+
+  const cases = /(\d+) of (\d+) cases behaved/.exec(text);
+  const exitLine = /\[selftest exit (-?\d+)\]/.exec(text);
+
+  if (!exitLine) {
+    finding("AMBER", "local", "the last doctor self-test recorded no verdict",
+      "the output file exists but has no [selftest exit N] line, which is what a run that "
+      + "died partway through looks like — so its result is unknown, not good",
+      remedy);
+    return;
+  }
+
+  if (Number(exitLine[1]) !== 0) {
+    const failed = [...text.matchAll(/^\s+- (.+)$/gm)].map(m => m[1].trim());
+    finding("AMBER", "local",
+      `doctor self-test FAILING${cases ? ` — ${cases[1]} of ${cases[2]} cases behaved` : ""}`,
+      (failed.length ? "did not fire or fired wrongly: " + failed.join("; ") + ". " : "")
+      + "Until this passes, a clean doctor report is not evidence of a clean fleet — the "
+      + "checks that would have objected may simply be broken",
+      remedy);
+    return;
+  }
+
+  if (age > SELFTEST_STALE_HOURS) {
+    finding("AMBER", "local", `doctor self-test last passed ${human(age)} ago`,
+      "the daily job runs it every day, so this old means the job has not completed since "
+      + "then and the checks have been unverified for that long",
+      remedy);
+  }
+}
+
+/**
  * Are the pages this box serves still readable?
  *
  * On 2026-08-17 a scripted CSS-token edit ran `Get-Content -Raw` (which decodes with the
@@ -758,6 +827,7 @@ async function diagnose() {
   checkMarketJobs();
   checkBackup();
   checkDashboardEncoding();
+  checkDoctorSelftest();
   checkLearningIntegrity();
 
   const rank = { RED: 0, AMBER: 1, INFO: 2 };
@@ -844,6 +914,7 @@ if (require.main === module) {
 module.exports = {
   diagnose,
   checkBox, checkFleetExposure, checkParity, checkAgentQueue, checkAiCapacity,
-  checkMarketJobs, checkBackup, checkDashboardEncoding, checkLearningIntegrity,
+  checkMarketJobs, checkBackup, checkDashboardEncoding, checkDoctorSelftest,
+  checkLearningIntegrity,
   checkPeerViaHeartbeat,
   _findings: () => findings, _reset: () => { findings = []; } };

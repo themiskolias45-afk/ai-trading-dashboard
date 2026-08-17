@@ -342,6 +342,45 @@ async function main() {
     { severity: "INFO", box: "local", match: /could not be scanned/i },
     await isolate(() => doctor.checkDashboardEncoding(path.join(SCRATCH, "nope"))));
 
+  // The check that reads THIS suite's own result. Its four branches matter because the
+  // whole point of scheduling the suite is that a failure surfaces without being asked for.
+  console.log("\ncheckDoctorSelftest (the reporter reporting on the reporter)");
+
+  check("self-test never run on this box -> AMBER",
+    { severity: "AMBER", box: "local", match: /never been verified/i },
+    await isolate(() => doctor.checkDoctorSelftest(SCRATCH)));
+
+  // A run that died partway leaves output but no verdict line. Unknown, not good.
+  put("tasks/logs/doctor_selftest_last.txt", "DOCTOR SELF-TEST\n  [PASS] something\n");
+  check("output present but no verdict line -> AMBER (died mid-run)",
+    { severity: "AMBER", box: "local", match: /recorded no verdict/i },
+    await isolate(() => doctor.checkDoctorSelftest(SCRATCH)));
+
+  put("tasks/logs/doctor_selftest_last.txt",
+    "  36 of 39 cases behaved as specified\n"
+    + "  DID NOT FIRE OR FIRED WRONGLY:\n"
+    + "    - open position with NO broker-side stop -> RED\n"
+    + "[selftest exit 1]\n");
+  check("self-test FAILING -> AMBER naming the checks that did not fire",
+    { severity: "AMBER", box: "local", match: /self-test FAILING.*36 of 39/i },
+    await isolate(() => doctor.checkDoctorSelftest(SCRATCH)));
+
+  const stFile = put("tasks/logs/doctor_selftest_last.txt",
+    "  39 of 39 cases behaved as specified\n[selftest exit 0]\n");
+  const stOld = Date.now() - 40 * 3600000;
+  fs.utimesSync(stFile, stOld / 1000, stOld / 1000);
+  check("self-test passed but 40h ago -> AMBER (the daily job has not completed)",
+    { severity: "AMBER", box: "local", match: /last passed/i },
+    await isolate(() => doctor.checkDoctorSelftest(SCRATCH)));
+
+  // And the healthy case must be SILENT, or it becomes noise every single day.
+  fs.utimesSync(stFile, Date.now() / 1000, Date.now() / 1000);
+  const freshPass = await isolate(() => doctor.checkDoctorSelftest(SCRATCH));
+  results.push({ name: "fresh passing self-test is SILENT", ok: freshPass.length === 0 });
+  console.log("  [" + (freshPass.length === 0 ? "PASS" : "FAIL") +
+    "] fresh passing self-test is SILENT (guard, not finding)");
+  if (freshPass.length) console.log("         got: " + freshPass.map(f => f.what).join("; "));
+
   put("server/journal.json", JSON.stringify([
     { ticket: 1, status: "CLOSED", pnl: 12, setup: "MOMENTUM" },
     { ticket: 2, status: "CLOSED", pnl: -8, setup: "WAIT" },

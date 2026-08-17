@@ -53,6 +53,26 @@ python "%PROJ%\tasks\score_rr_rejections.py" >> "%LOGFILE%" 2>&1
 python "%PROJ%\tasks\learning_from_rejections.py" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM ── Do the doctor's own checks still fire? ────────────────────────────────────
+REM Identical to the block in tasks\auto_daily.bat, and it matters MORE here: this is
+REM the box that trades continuously, and every expensive failure on it has been a
+REM silent one behind green checks. Deterministic, no AI, no network, about two seconds.
+REM Placed BEFORE the agent so its verdict is on record whether the claude call
+REM succeeds, fails or parks.
+REM
+REM PER-RUN file, not an append: the doctor reads it and must be able to judge THIS run.
+REM The [selftest exit N] line is written AFTER the run, so its ABSENCE is the
+REM fingerprint of a run that died partway, which the doctor reports as unknown rather
+REM than good. SELFTEST_RC is NOT folded into CLAUDE_RC - a broken self-test surfaces as
+REM a doctor finding instead of burying the daily check's own result.
+set "SELFTEST_OUT=%PROJ%\tasks\logs\doctor_selftest_last.txt"
+echo --- doctor self-test --- >> "%LOGFILE%"
+node "%PROJ%\tasks\doctor_selftest.cjs" > "%SELFTEST_OUT%" 2>&1
+set SELFTEST_RC=%ERRORLEVEL%
+echo [selftest exit %SELFTEST_RC%] >> "%SELFTEST_OUT%"
+type "%SELFTEST_OUT%" >> "%LOGFILE%"
+echo. >> "%LOGFILE%"
+
 pushd "%AGENTCWD%"
 call claude -p "Daily SmartEntry Pro automated check. 1) Read %PROJ%\server\journal.json if it exists - last 5 trades with outcome and P&L; if absent say 'no trades yet'. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number. If settingsError is not null say so first: the server is on built-in defaults, not the saved config. 3) Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence, setup, dataSource, updatedAt. Call out any asset whose indicators are unchanged from the previous check while another asset moved - that is a frozen feed. 4) Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses, halted. 5) Fetch http://localhost:3001/api/learning - setupStats progress toward the 5-trades-per-setup threshold. 6) Any signal at or above the live gate must be marked ** SIGNAL READY **. 7) One-line verdict: TRADE TODAY or WAIT. Under 25 lines. Report only, do not edit code." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%

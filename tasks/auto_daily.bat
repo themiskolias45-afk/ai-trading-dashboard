@@ -52,6 +52,28 @@ python "%PROJ%\tasks\score_rr_rejections.py" >> "%LOGFILE%" 2>&1
 python "%PROJ%\tasks\learning_from_rejections.py" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM ── Do the doctor's own checks still fire? ────────────────────────────────────
+REM Deterministic, no AI, no network, about two seconds. Placed BEFORE the agent for
+REM the same reason the ledger is: its verdict should be on record whether the claude
+REM call succeeds, fails or parks.
+REM
+REM Writes a PER-RUN file, deliberately not an append. The doctor reads this file and
+REM must be able to judge THIS run; a cumulative log could only ever say the suite
+REM passed sometime, which is the same mistake as a marker written where nobody looks.
+REM The [selftest exit N] line goes in AFTER the run, so its ABSENCE is the fingerprint
+REM of a run that died partway - the doctor reports that as unknown rather than good.
+REM
+REM SELFTEST_RC is deliberately NOT folded into CLAUDE_RC. A broken self-test surfaces
+REM as a doctor finding, and failing the whole daily task over it would bury the daily
+REM check's own result behind an unrelated red.
+set "SELFTEST_OUT=%PROJ%\tasks\logs\doctor_selftest_last.txt"
+echo --- doctor self-test --- >> "%LOGFILE%"
+node "%PROJ%\tasks\doctor_selftest.cjs" > "%SELFTEST_OUT%" 2>&1
+set SELFTEST_RC=%ERRORLEVEL%
+echo [selftest exit %SELFTEST_RC%] >> "%SELFTEST_OUT%"
+type "%SELFTEST_OUT%" >> "%LOGFILE%"
+echo. >> "%LOGFILE%"
+
 REM The confidence gate is NOT hardcoded here. It moved 65 -> 70 on 2026-08-02 and
 REM this file was still asking about 65, so it would have flagged sub-gate signals
 REM as ready. The agent reads the live value instead.
