@@ -314,6 +314,18 @@ function valueOrDash(value) {
   return value === null || value === undefined || value === '' ? '—' : String(value);
 }
 
+// Every bar-freshness field is frozen at signal-refresh time, so the row states WHEN it
+// was judged. Without that, a stalled refresh chain leaves "current" on screen forever —
+// which is the same green-while-wedged failure the row exists to break.
+function agoText(isoTimestamp) {
+  const judgedMs = Date.parse(isoTimestamp || '');
+  if (!Number.isFinite(judgedMs)) return '';
+  const minutes = Math.round((Date.now() - judgedMs) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return minutes + 'm ago';
+  return Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm ago';
+}
+
 function renderFleet(data) {
   const host = document.getElementById('fleet');
   const here = data.thisBox || {};
@@ -345,22 +357,54 @@ function renderFleet(data) {
   // bridge — the push stays seconds old and the bridge keeps reporting LIVE.
   const barFreshnessText = (box) => {
     const freshness = box.barFreshness;
-    if (!freshness || !freshness.checked) return 'unverified — no MT5 bar timestamps';
+    if (!freshness) return 'not reported by this box';
+    const asOf = freshness.judgedAt ? ' · judged ' + agoText(freshness.judgedAt) : '';
+    // Never one hardcoded cause: each box sends the reason it actually has, and they
+    // call for different things — no bars pushed yet, a bridge older than the check,
+    // an empty cache after a restart, or a server that predates the field entirely.
+    if (!freshness.checked) {
+      const named = (freshness.unjudgedAssets || []);
+      return 'UNVERIFIED — ' + (named.length > 0 ? named.join(', ').toUpperCase() + ': ' : '')
+           + (freshness.reason || 'no reason reported') + asOf;
+    }
     const worst = freshness.worst || {};
     const staleAssets = freshness.staleAssets || [];
+    // Which assets were NOT looked at. Reporting only the judged ones as "current"
+    // would let one verified asset speak for a box where two were never checked.
+    const unjudged = freshness.unjudgedAssets || [];
+    const unjudgedNote = unjudged.length > 0
+      ? ' · UNVERIFIED: ' + unjudged.join(', ').toUpperCase() + ' (' + (freshness.reason || 'no reason reported') + ')'
+      : '';
     if (staleAssets.length > 0) {
       return 'BROKER FEED STALE: ' + staleAssets.join(', ').toUpperCase()
            + (worst.reason ? ' · ' + worst.reason : '')
-           + (worst.usedForThisSignal ? '' : ' · signals fell back to Yahoo, prices shown are current');
+           + (worst.usedForThisSignal === false ? ' · signals fell back to Yahoo, prices shown are current' : '')
+           + unjudgedNote + asOf;
     }
-    return 'current' + (worst.lastBarAt ? ' · oldest daily bar ' + worst.lastBarAt.slice(0, 10) : '');
+    const judged = freshness.judgedAssets || [];
+    // lastBarAt is the NEWEST bar of the LAGGIEST asset, so it is labelled as that
+    // rather than as an "oldest bar" a reader would take for the series start.
+    const laggiest = worst.lastBarAt
+      ? ' · laggiest ' + String(worst.asset || '').toUpperCase() + ', newest D1 bar '
+        + worst.lastBarAt.slice(0, 16).replace('T', ' ') + 'Z'
+      : '';
+    return 'current' + (judged.length > 0 ? ' (' + judged.join(', ').toUpperCase() + ')' : '')
+         + laggiest + unjudgedNote + asOf;
   };
 
   // Only boxes that answered can be judged. An unreachable peer gets a dash, never a
   // pass — the whole point of this row is that silence and freshness look identical.
   const judgedBoxes = peer.reachable ? [here, peer] : [here];
+  const staleWorstCases = judgedBoxes
+    .map(box => box.barFreshness && box.barFreshness.worst)
+    .filter(worst => worst && worst.stale);
   const feedStale = judgedBoxes.some(box => box.barFreshness && (box.barFreshness.staleAssets || []).length > 0);
   const feedUnverified = judgedBoxes.every(box => !(box.barFreshness && box.barFreshness.checked));
+  // Only claim the fallback happened when the stale box says it did. If a stale series
+  // still produced the signal, telling the reader the levels are current is the lie
+  // this row was written to avoid.
+  const fellBackToYahoo = staleWorstCases.length > 0
+    && staleWorstCases.every(worst => worst.usedForThisSignal === false);
 
   const rows = [
     { label: 'Health',
@@ -392,9 +436,13 @@ function renderFleet(data) {
       peer:  peer.reachable ? barFreshnessText(peer) : '—',
       bad:   feedStale,
       note:  feedStale
-               ? 'The BROKER SERIES stopped moving — not the prices. The engine falls back to Yahoo, so the levels on every page are current; what is stale is the MT5 feed behind them. Check that box\'s terminal: a wedged terminal keeps its bridge posting on schedule, so nothing else here turns red.'
+               ? 'The BROKER SERIES stopped moving. A wedged terminal keeps its bridge posting on schedule, so nothing else on this page turns red — the MT5 terminal on that box is what to check. '
+                 + (fellBackToYahoo
+                     ? 'The engine has already fallen back to Yahoo, so the prices and levels shown everywhere are current; it is the MT5 feed behind them that is stale.'
+                     : 'This signal was still computed from the MT5 series — check its levels before acting on them.')
                : (feedUnverified
-                   ? 'Neither box sent bar timestamps, so this is UNVERIFIED rather than passed — a bridge that predates the check sends none, and restarting it is what makes this row mean something.'
+                   ? (judgedBoxes.length > 1 ? 'Neither box ' : 'This box ')
+                     + 'reported a verified MT5 series, so this row is UNVERIFIED rather than passed. Each cell carries the reason that box gave — they are not the same problem and do not have the same fix.'
                    : '') },
 
     { label: 'Fixed lot size',

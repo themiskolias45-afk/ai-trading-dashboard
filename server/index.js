@@ -5986,25 +5986,62 @@ function assessHeartbeats(uptimeSeconds) {
  * health check on both boxes stays green. The box that trades continuously is the one
  * nobody is looking at, so the fact has to travel.
  *
- * Only assets that actually reported checked:true are considered. A pre-timestamp
- * bridge sends no bar times, and counting that as fresh — or inventing an age or a
- * date for it — would turn an admitted gap into a confident wrong number.
+ * Only assets that actually reported checked:true are judged. A pre-timestamp bridge
+ * sends no bar times, and counting that as fresh — or inventing an age or a date for
+ * it — would turn an admitted gap into a confident wrong number.
+ *
+ * Which assets were judged and which were not travels with the verdict, and so does
+ * each unjudged asset's OWN reason. A summary that reported checked:true while two of
+ * three assets were never looked at would read as a clean pass, and a page that names
+ * one hardcoded cause for "unverified" would prescribe the wrong remedy: no bars
+ * pushed yet, a bridge that predates the timestamps, an empty cache after a restart
+ * and a peer whose server predates this field are four different problems.
+ *
+ * judgedAt is the payload's own updatedAt, because every field here is FROZEN at
+ * signal-refresh time. If the refresh chain stalls, "current" would otherwise stay on
+ * screen forever — the same green-while-wedged pattern this check exists to break.
  *
  * `stale` stays a statement about the MT5 SERIES alone: when it is true the engine has
  * already fallen back to Yahoo, so the prices being served are current and it is the
  * broker feed that is not. `usedForThisSignal` carries that second fact.
  */
 function summarizeBarFreshness(signalsPayload) {
-  const unverified = { checked: false, staleAssets: [], worst: null };
-  if (!signalsPayload || typeof signalsPayload !== "object") return unverified;
+  const nothingJudged = (reason, judgedAt = null, unjudgedAssets = []) => ({
+    checked: false, staleAssets: [], worst: null,
+    judgedAssets: [], unjudgedAssets, reason, judgedAt,
+  });
+  if (!signalsPayload || typeof signalsPayload !== "object") {
+    return nothingJudged("the signals payload was not readable");
+  }
+
+  const judgedAt = typeof signalsPayload.updatedAt === "string" ? signalsPayload.updatedAt : null;
 
   // Discovered from the payload rather than from a hardcoded asset list: an asset
   // added to the engine and forgotten here would silently never be judged.
   const judged = [];
+  const unjudged = [];
   for (const assetKey of Object.keys(signalsPayload)) {
+    if (assetKey === "updatedAt") continue;
     const asset = signalsPayload[assetKey];
-    const freshness = asset && typeof asset === "object" ? asset.barFreshness : null;
-    if (!freshness || typeof freshness !== "object" || freshness.checked !== true) continue;
+    if (asset === null) {
+      unjudged.push({ asset: assetKey, reason: "no signal has been generated yet" });
+      continue;
+    }
+    if (typeof asset !== "object") continue;   // a scalar field, not an asset
+    const freshness = asset.barFreshness;
+    if (!freshness || typeof freshness !== "object") {
+      unjudged.push({ asset: assetKey, reason: "signal carries no barFreshness field — that server predates this check" });
+      continue;
+    }
+    if (freshness.checked !== true) {
+      unjudged.push({
+        asset: assetKey,
+        reason: typeof freshness.reason === "string" && freshness.reason
+          ? freshness.reason
+          : "reported unverified without a reason",
+      });
+      continue;
+    }
     judged.push({
       asset: assetKey,
       stale: freshness.stale === true,
@@ -6014,19 +6051,34 @@ function summarizeBarFreshness(signalsPayload) {
       usedForThisSignal: freshness.usedForThisSignal === true,
     });
   }
-  if (judged.length === 0) return unverified;
 
-  // Stale first, then oldest bar. An absent age sorts last rather than winning the
-  // comparison by being falsy.
+  // Distinct reasons, so three assets failing for one cause read as one sentence.
+  const unjudgedReason = [...new Set(unjudged.map(entry => entry.reason))].join("; ");
+  if (judged.length === 0) {
+    return nothingJudged(
+      unjudged.length === 0 ? "no assets in the signals payload" : unjudgedReason,
+      judgedAt,
+      unjudged.map(entry => entry.asset),
+    );
+  }
+
+  // Stale first, then the laggiest series. An absent age must lose every comparison
+  // rather than win one by being falsy, and a broker-clock bar timed in the FUTURE
+  // gives a negative age — which is still a real reading and must outrank "no age".
+  const ageRank = (entry) => (entry.ageMs === null ? Number.NEGATIVE_INFINITY : entry.ageMs);
   judged.sort((a, b) => {
     if (a.stale !== b.stale) return a.stale ? -1 : 1;
-    return (b.ageMs === null ? -1 : b.ageMs) - (a.ageMs === null ? -1 : a.ageMs);
+    return ageRank(b) - ageRank(a);
   });
 
   return {
     checked: true,
     staleAssets: judged.filter(entry => entry.stale).map(entry => entry.asset),
     worst: judged[0],
+    judgedAssets: judged.map(entry => entry.asset),
+    unjudgedAssets: unjudged.map(entry => entry.asset),
+    reason: unjudgedReason,
+    judgedAt,
   };
 }
 
@@ -6050,8 +6102,13 @@ async function probePeer() {
     halted: null, haltReason: "", dailyPnl: null, consecutiveLosses: null,
     accountTags: [], accounts: {}, bridges: { reporting: [], silent: [] },
     settings: null, aiWork: null,
-    // Unverified until the peer answers, and unverified is NOT fresh.
-    barFreshness: { checked: false, staleAssets: [], worst: null },
+    // Unverified until the peer answers, and unverified is NOT fresh. Replaced below
+    // on both paths — fulfilled and rejected — so the shape never varies.
+    barFreshness: {
+      checked: false, staleAssets: [], worst: null,
+      judgedAssets: [], unjudgedAssets: [], judgedAt: null,
+      reason: "the peer has not been probed yet",
+    },
   };
 
   // allSettled, never all: a peer that answers three of four questions is far more
@@ -6094,10 +6151,25 @@ async function probePeer() {
     peer.aiWork = aiWorkResult.value || null;
   }
   if (signalsResult.status === "fulfilled") {
-    peer.reachable = true;
     // /api/signals is public on both boxes (API_NO_LOGIN_REQUIRED), so this needs no
     // session — the same reason the healer and risk probes above work.
+    //
+    // Deliberately does NOT set reachable: that route is a bare in-memory dump
+    // (res.json(signalCache)) and answers even when the healer and risk routes are
+    // failing. Letting it prove reachability would turn a degraded box into one that
+    // reports reachable with every state field null — suppressing the "not answering"
+    // action item while nothing else fires either.
     peer.barFreshness = summarizeBarFreshness(signalsResult.value);
+  } else {
+    // A peer that answers its healer but not its signals is NOT a peer whose bars are
+    // unverified — those two must not render alike. The probe is cached for 30s, so an
+    // unearned claim about the other box's broker feed would also persist.
+    peer.barFreshness = {
+      checked: false, staleAssets: [], worst: null,
+      judgedAssets: [], unjudgedAssets: [], judgedAt: null, probeFailed: true,
+      reason: "the peer's /api/signals did not answer: "
+        + String(signalsResult.reason?.message || signalsResult.reason).slice(0, 120),
+    };
   }
   if (!peer.reachable) {
     const firstFailure = [healerResult, riskResult, settingsResult, aiWorkResult, signalsResult].find(r => r.status === "rejected");
