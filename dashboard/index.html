@@ -588,6 +588,25 @@
         <div class="trust-value trust-idle" id="tr-signal">—</div>
         <div class="trust-detail" id="tr-signal-d">checking…</div>
       </div>
+      <!-- The other box. This strip fetches /api/system-plan, which has carried `peer`
+           and `divergence` all along, and rendered NEITHER — so the first thing anyone
+           sees was silent on the question that has caused every expensive failure here:
+           the two boxes diverging while both report healthy. A gate mismatch means they
+           admit different trades from identical bars and their journals cannot be pooled. -->
+      <div class="trust-cell">
+        <div class="trust-label">Fleet</div>
+        <div class="trust-value trust-idle" id="tr-fleet">—</div>
+        <div class="trust-detail" id="tr-fleet-d">checking…</div>
+      </div>
+      <!-- Broker feed, both boxes. A wedged terminal keeps posting on schedule while its
+           bars stop moving, so every other cell here stays green. `stale` is about the MT5
+           SERIES, not the prices: the engine falls back to Yahoo, so what is shown is
+           fresh and it is the feed that is not. -->
+      <div class="trust-cell">
+        <div class="trust-label">Broker Feed</div>
+        <div class="trust-value trust-idle" id="tr-feed">—</div>
+        <div class="trust-detail" id="tr-feed-d">checking…</div>
+      </div>
       <div class="trust-cell">
         <div class="trust-label">Last Backup</div>
         <div class="trust-value trust-idle" id="tr-backup">—</div>
@@ -4141,6 +4160,53 @@ async function loadTrust() {
       signalCheck ? signalCheck.detail : 'unknown',
       false);
 
+    // ── Fleet: does the OTHER box agree? ────────────────────────────────────
+    // Read from the payload this function already has. A gate mismatch means the two
+    // boxes admit different trades from identical bars, and every expensive failure on
+    // this fleet was a divergence while both boxes reported healthy — AutoTrading off on
+    // the VPS for 11 days behind green checks, a per-machine settings file running a
+    // different gate off the same commit, cohort_table.js absent so the box that trades
+    // was the one box that never named a dead cohort.
+    const peerBox = data.peer || {};
+    const div = data.divergence || {};
+    const gateDiffers = div.gate && div.gate.differs;
+    const engineDiffers = div.engine && div.engine.differs;
+    if (!peerBox.configured) {
+      setTrustCell('tr-fleet', 'trust-idle', 'Solo',
+        'no peer configured — nothing here can detect a split', false);
+    } else if (!peerBox.reachable) {
+      setTrustCell('tr-fleet', 'trust-warn', 'Unreachable',
+        'peer not answering — agreement is UNKNOWN, not assumed', false);
+    } else if (gateDiffers || engineDiffers) {
+      setTrustCell('tr-fleet', 'trust-bad', 'SPLIT',
+        gateDiffers ? 'gate ' + div.gate.local + ' here vs ' + div.gate.peer + ' there'
+                    : 'engines differ — pooled numbers are unattributable', false);
+    } else {
+      setTrustCell('tr-fleet', 'trust-ok', 'Agrees',
+        'same gate and same engine on both boxes', false);
+    }
+
+    // ── Broker feed, worst of the two boxes ─────────────────────────────────
+    // barFreshness landed on this endpoint the same day and no page read it. Judged
+    // across BOTH boxes, because the wedged-terminal case matters most on the one that
+    // trades continuously — and that is not this one.
+    const feeds = [['here', data.thisBox && data.thisBox.barFreshness],
+                   ['peer', peerBox.reachable ? peerBox.barFreshness : null]];
+    const staleFeeds = feeds.filter(([, f]) => f && (f.staleAssets || []).length > 0);
+    const checkedFeeds = feeds.filter(([, f]) => f && f.checked);
+    if (staleFeeds.length) {
+      const [where, f] = staleFeeds[0];
+      setTrustCell('tr-feed', 'trust-bad', 'STALE',
+        (f.staleAssets || []).join(', ').toUpperCase() + ' ' + where
+          + ' — broker bars frozen, prices shown are Yahoo', false);
+    } else if (!checkedFeeds.length) {
+      setTrustCell('tr-feed', 'trust-idle', 'Unverified',
+        'no MT5 bar timestamps yet on either box', false);
+    } else {
+      setTrustCell('tr-feed', 'trust-ok', 'Current',
+        checkedFeeds.length === 2 ? 'MT5 bars current on both boxes' : 'MT5 bars current here', false);
+    }
+
     if (data.latestBackup) {
       // A backup older than ~26h means the 03:00 job did not run.
       const age = describeAge(data.latestBackup.modified, 26 * 3600 * 1000);
@@ -4160,7 +4226,7 @@ async function loadTrust() {
   } catch (e) {
     // Say so rather than leaving stale green ticks implying health we cannot confirm.
     console.error('loadTrust:', e);
-    ['tr-health','tr-bridge','tr-signal','tr-backup','tr-actions'].forEach(id =>
+    ['tr-health','tr-bridge','tr-signal','tr-fleet','tr-feed','tr-backup','tr-actions'].forEach(id =>
       setTrustCell(id, 'trust-idle', '—', 'unreachable', id === 'tr-health'));
   }
 }
