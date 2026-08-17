@@ -33,6 +33,38 @@ const STATUS = {
 // Ordered most-actionable first; the board renders in this order.
 const CLAIMS = [
   {
+    // First on the board deliberately: it governs how every OTHER ledger number here
+    // should be read. Anyone acting on a netR figure without this claim in front of
+    // them is acting on one row.
+    id: "ledgeroutlier",
+    title: "Rejection-ledger netR is set by a single degenerate row",
+    status: STATUS.BLOCKED,
+    measuredOn: "2026-08-17",
+    evidence: "VPS ledger, 498 resolved episodes. EXACTLY ONE has |R| > 10, and it is "
+      + "+298.56R: SELL_BOUNCE BTCUSD D1, entry 64400.75, stop 64404.96, target 63143.62 "
+      + "— a $4.21 stop on Bitcoin, 0.0065% of price, against a $1,257 target. Total "
+      + "ledger netR is +279.05R, so the other 497 episodes sum to −19.5R. The sign of "
+      + "the whole ledger is that one row.",
+    caveat: "It is not cosmetic — it FLIPS A GATE VERDICT on the box that trades. The VPS "
+      + "reports CONFIDENCE at +232.71R over 69 resolved with 4% would-have-won and a "
+      + "verdict of COSTING MONEY; 4% winners cannot produce a positive net, and without "
+      + "the artifact the laptop reads the same gate at −1.01R / 15% / EARNING ITS KEEP. "
+      + "CONFIDENCE is the gate the whole funnel dies at, so it is the one most likely to "
+      + "be loosened on the strength of a number that is one bad stop distance. This is "
+      + "the same class as the recovered VPS analyst finding whose '+140R edge' was 59% "
+      + "four rr-artifact trades.",
+    changesTheAnswer: "A minimum-risk floor in tasks/score_rr_rejections.py. It guards "
+      + "`risk == 0` and nothing else, so any non-zero stop distance is accepted and R "
+      + "scales as 1/risk without limit. A floor expressed in ATR or as a fraction of "
+      + "price would exclude this row by construction rather than by hand. Until that "
+      + "exists, read WIN RATE and the per-setup W/L split, never netR, and treat any "
+      + "netR-based gate verdict on the VPS board as unproven. Note the ledger cannot "
+      + "cause a trade — feedsTheGate is false everywhere — so this is a reading-surface "
+      + "defect, not a live risk.",
+    harness: "python tasks/score_rr_rejections.py  ·  GET /api/rejection-evidence",
+    feedsTheGate: false,
+  },
+  {
     id: "crt",
     title: "CRT (Candle Range Theory) — Gold and SPX",
     status: STATUS.CANDIDATE,
@@ -151,13 +183,20 @@ const CLAIMS = [
     status: STATUS.CONTRADICTED,
     measuredOn: "2026-08-09",
     evidence: "Walk-forward: lowering to 1.35 buys 3 trades in 4 years and costs 6.6R. "
-      + "Rejection ledger (VPS, 86 resolved): rejections would have returned +22.47R, "
-      + "78% would have won.",
+      + "Rejection ledger (VPS, re-read 2026-08-17, now 394 resolved): rejections would "
+      + "have returned +20.61R, 67% would have won. At 86 resolved on 2026-08-09 the same "
+      + "gate read +22.47R and 78% — so 4.6x the sample moved the R barely at all and cut "
+      + "the win rate 11pp, which is what a shrinking edge looks like, not a stable one.",
     caveat: "The two disagree. The ledger is recent episodes in one regime on PAPER "
       + "entries with no spread, slippage or partial fills, on a fixed horizon; the "
       + "sweep is 4 years out-of-sample. THE WALK-FORWARD WINS. Neither has moved the "
-      + "setting. The ledger's real signal is a DIRECTION SPLIT: RANGE_TRADE_LONG "
-      + "59W/11L and BUY_OVERSOLD 8W/0L, but RANGE_TRADE_SHORT 0W/8L.",
+      + "setting. The ledger's real signal is a DIRECTION SPLIT, and it has held while "
+      + "every count grew: on 2026-08-17 the VPS reads RANGE_TRADE_LONG 174W/70L "
+      + "(+19.09R) and BUY_OVERSOLD 37W/2L (+35.81R), against RANGE_TRADE_SHORT 53W/60L "
+      + "(−36.39R). The shape survived; the earlier phrasing of it did not — "
+      + "RANGE_TRADE_SHORT was 0W/8L when first read and is emphatically not winless now, "
+      + "so any argument resting on 'it has never won' is void. See the ledgeroutlier "
+      + "claim before reading ANY netR on this board as edge.",
     changesTheAnswer: "The per-direction experiment has now RUN and did not support the "
       + "ledger. tasks/minrr_direction_walkforward.cjs, 5 folds at gate 70: the best "
       + "candidate (1.35 long / 1.50 short) shows +0.158R/trade overall but 109% of that "
@@ -186,7 +225,12 @@ const CLAIMS = [
       + "usually bull-sample bias — so the proposal fails its own stated test. Two things "
       + "still stand and neither licenses the change: it named the trade that closed "
       + "−$99.10 two days before it closed, and the rejection ledger has this setup at "
-      + "0W/12L, the only setup on the board with zero wins. It also cited −13.59R over "
+      + "53W/60L for −36.39R, the worst net of any setup on the board. That last figure "
+      + "is RE-CURATED: this claim used to say 0W/12L and \"the only setup on the board "
+      + "with zero wins\", which was true at n=12 and is false at n=113. The verdict does "
+      + "not change — it is still the worst setup — but the sentence that carried it was "
+      + "the kind of never-won phrasing that ages into a lie, and it did. It also cited "
+      + "−13.59R over "
       + "24 closed where the MTF replay gives −3.5R over 23 — comparable n, very "
       + "different R — so its headline number came off a different replay path and it "
       + "never named the harness. Per the MTF/single-timeframe split, the "
@@ -207,7 +251,7 @@ const CLAIMS = [
     title: "Live config expectancy",
     status: STATUS.UNMEASURED,
     measuredOn: "2026-08-12",
-    evidence: "Four closed fills in the system's entire life across 179 server "
+    evidence: "Four closed fills in the system's entire life across 195 server "
       + "sessions: −$449.72 (BB_SQUEEZE_WATCH), −$99.10 (RANGE_TRADE_SHORT), −$6.64 "
       + "(SQUEEZE_BREAKOUT) and +$135.91 unattributed, gross −$419.55, expectancy "
       + "−$104.89/trade. One position is open. Win rate, calibration and per-setup edge "
@@ -236,7 +280,14 @@ const CLAIMS = [
     // and open positions churn with ordinary trading. Triggering on either would raise
     // an item that can never be cleared, which trains you to skim past the one that
     // matters. n is what makes this claim true or false, so n is what is watched.
+    //
+    // The figure is the LAPTOP's journal. journal.json is per-machine, so this claim
+    // flags needsRecuration on whichever box it was not written against — the VPS read
+    // 3 closed / 2 open on 2026-08-17 while this says 4. That is the detector working,
+    // not drift to chase: state the box, so a VPS reader knows why it fired instead of
+    // meeting an item that can never clear. Re-curate when the LAPTOP's count moves.
     sampleAtWriting: { closedFills: 4 },
+    sampleFrom: "laptop (THEMIS) journal.json",
     feedsTheGate: true,
   },
 ];
