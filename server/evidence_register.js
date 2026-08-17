@@ -37,31 +37,40 @@ const CLAIMS = [
     // should be read. Anyone acting on a netR figure without this claim in front of
     // them is acting on one row.
     id: "ledgeroutlier",
-    title: "Rejection-ledger netR is set by a single degenerate row",
-    status: STATUS.BLOCKED,
+    title: "The rejection ledger was positive only because of collapsed-stop artifacts",
+    status: STATUS.MEASURED_NO_EDGE,
     measuredOn: "2026-08-17",
-    evidence: "VPS ledger, 498 resolved episodes. EXACTLY ONE has |R| > 10, and it is "
-      + "+298.56R: SELL_BOUNCE BTCUSD D1, entry 64400.75, stop 64404.96, target 63143.62 "
-      + "— a $4.21 stop on Bitcoin, 0.0065% of price, against a $1,257 target. Total "
-      + "ledger netR is +279.05R, so the other 497 episodes sum to −19.5R. The sign of "
-      + "the whole ledger is that one row.",
-    caveat: "It is not cosmetic — it FLIPS A GATE VERDICT on the box that trades. The VPS "
-      + "reports CONFIDENCE at +232.71R over 69 resolved with 4% would-have-won and a "
-      + "verdict of COSTING MONEY; 4% winners cannot produce a positive net, and without "
-      + "the artifact the laptop reads the same gate at −1.01R / 15% / EARNING ITS KEEP. "
-      + "CONFIDENCE is the gate the whole funnel dies at, so it is the one most likely to "
-      + "be loosened on the strength of a number that is one bad stop distance. This is "
-      + "the same class as the recovered VPS analyst finding whose '+140R edge' was 59% "
-      + "four rr-artifact trades.",
-    changesTheAnswer: "A minimum-risk floor in tasks/score_rr_rejections.py. It guards "
-      + "`risk == 0` and nothing else, so any non-zero stop distance is accepted and R "
-      + "scales as 1/risk without limit. A floor expressed in ATR or as a fraction of "
-      + "price would exclude this row by construction rather than by hand. Until that "
-      + "exists, read WIN RATE and the per-setup W/L split, never netR, and treat any "
-      + "netR-based gate verdict on the VPS board as unproven. Note the ledger cannot "
-      + "cause a trade — feedsTheGate is false everywhere — so this is a reading-surface "
-      + "defect, not a live risk.",
+    evidence: "Capping implied R:R at 10 (MAX_PLAUSIBLE_RR) turned the ledger's sign over "
+      + "on BOTH boxes. VPS total netR +260.80R → −40.91R across 476 resolved; laptop "
+      + "+10.26R → −12.17R across 162. Seven VPS rows and two laptop rows exceeded the "
+      + "cap. The worst was SELL_BOUNCE BTCUSD D1 at implied R:R 298.6 — entry 64400.75, "
+      + "stop 64404.96, a $4.21 stop on Bitcoin, 0.0065% of price and inside the spread — "
+      + "carrying +298.56R on its own against a whole-ledger total of +279.05R.",
+    caveat: "The correction settled a gate verdict, and it settled it the other way. The "
+      + "VPS read CONFIDENCE at +232.71R over 69 resolved with 4% would-have-won and a "
+      + "verdict of COSTING MONEY — 4% winners cannot produce a positive net. It now "
+      + "reads −65.85R at 3% and EARNING ITS KEEP, which is arithmetically coherent. That "
+      + "is the gate the whole funnel dies at, so it was the one most likely to be "
+      + "loosened on the strength of one bad stop distance. Same class as the recovered "
+      + "VPS analyst finding whose '+140R edge' was 59% four rr-artifact trades: the "
+      + "SECOND time an R outlier has driven a headline number here. MIN_RR is unaffected "
+      + "in kind — still +17.46R at 66% on the VPS, still CONTRADICTED by the "
+      + "walk-forward, and the walk-forward still wins.",
+    changesTheAnswer: "The cap is on implied R:R, not on a fraction of price, because R:R "
+      + "is scale-free — one number serves BTCUSD at 64,000, XAUUSD at 4,400 and SP500 at "
+      + "7,800. That choice was load-bearing: two caught rows had stops at 0.168% and "
+      + "0.194% of price, comfortably ABOVE the tightest legitimate row, so a price-"
+      + "fraction floor would have missed them while catching the wrong things. 10 comes "
+      + "from measured output — the engine builds targets at about 2.5x risk, the largest "
+      + "plannedRr in the journal is 6.57, and the laptop ledger has an empty gap between "
+      + "6 and 13.5. To revisit it, re-measure that gap as the sample grows; a cap that "
+      + "starts excluding resolved episodes in the 3–6 band is too low. Five of the seven "
+      + "VPS rows are MOMENTUM XAUUSD, which points at stop refinement for that setup "
+      + "specifically and is worth its own look.",
     harness: "python tasks/score_rr_rejections.py  ·  GET /api/rejection-evidence",
+    // Rows are RECLASSIFIED to UNSCORABLE, never removed: rejections.jsonl is append-only
+    // and was verified byte-identical on both boxes across the change, as was the frozen
+    // rr_rejected.jsonl. Nothing was deleted and no signal is suppressed.
     feedsTheGate: false,
   },
   {

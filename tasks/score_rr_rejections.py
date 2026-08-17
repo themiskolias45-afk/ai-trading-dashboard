@@ -71,6 +71,30 @@ SCORED_PATH = os.path.join(ROOT, "tasks", "rejections_scored.jsonl")
 MAX_BROKER_OFFSET_SEC = 14 * 3600
 MIN_BROKER_OFFSET_SEC = -12 * 3600
 
+# R is reward/risk, so it explodes as the stop collapses toward the entry. One episode
+# with a $4.21 stop on Bitcoin - 0.0065% of price, inside the spread, unfillable - scored
+# +298.56R and set the SIGN OF THE ENTIRE VPS LEDGER: total +279.05R, with the other 497
+# episodes summing to -19.5R. It also flipped the CONFIDENCE gate's verdict to COSTING
+# MONEY at 4% would-have-won, which is arithmetically impossible and is the gate most
+# likely to be loosened on such a reading.
+#
+# Capped on implied R:R rather than on a percentage of price, because R:R is scale-free -
+# one number works for BTCUSD at 64,000, XAUUSD at 4,400 and SP500 at 7,800, where a
+# price fraction would need tuning per instrument and would drift as prices move.
+#
+# 10 is chosen from measured output, not taste. The engine builds targets structurally at
+# about 2.5x risk, the largest plannedRr ever recorded in the journal is 6.57, and the
+# laptop ledger has a clean EMPTY GAP between R:R 6 and 13.5. Above the cap the stop has
+# collapsed (see the pivot-stop-with-no-ATR-floor defect); it is never the target
+# extending. 173 of 177 resolved episodes sit below R:R 3 and net +0.85R, so the cap
+# removes an artifact, not an edge.
+#
+# The row is RECLASSIFIED, never deleted: rejections.jsonl is append-only and untouched,
+# and UNSCORABLE is an existing bucket every consumer already handles. Excluding a
+# degenerate datum improves what learning_from_rejections.py sees rather than reducing it,
+# and feedsTheGate is false throughout, so no signal is suppressed.
+MAX_PLAUSIBLE_RR = 10.0
+
 
 class BrokerClockUnavailable(RuntimeError):
     """The broker's UTC offset could not be measured, so no row can be walked.
@@ -471,6 +495,16 @@ def score_row(row, bars, horizon_end_utc, now_epoch, data_end_epoch=None,
     risk = abs(entry - stop)
     if risk == 0:
         return "UNSCORABLE", None, "stop distance is zero"
+
+    # A stop that collapsed toward the entry, which makes R a property of the geometry
+    # rather than of what price did. Guarding only risk == 0 let a $4.21 Bitcoin stop
+    # through at +298.56R. See MAX_PLAUSIBLE_RR.
+    implied_rr = abs(target - entry) / risk
+    if implied_rr > MAX_PLAUSIBLE_RR:
+        return "UNSCORABLE", None, (
+            "implied R:R %.1f exceeds the %.0f cap - stop is %.4f%% of price, so R would "
+            "measure the collapsed stop, not the outcome"
+            % (implied_rr, MAX_PLAUSIBLE_RR, 100.0 * risk / abs(entry) if entry else 0.0))
 
     is_short = direction.startswith("S")
 
