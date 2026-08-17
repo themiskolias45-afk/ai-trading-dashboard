@@ -74,6 +74,45 @@ function Say-Failure($name, $verdict, $captured) {
     } else { Say "            | (no output captured)" }
 }
 
+# BEFORE the harnesses, and it is not one of them: do the doctor's own checks still fire?
+# Placed after Say-Failure rather than at the top of the file because PowerShell resolves
+# functions at runtime, so calling it above its definition fails with "not recognized".
+#
+# The daily job already runs this suite at 07:30, so why again. Because one run a day means a
+# doctor that breaks at 08:00 goes unreported for 24 hours, and this fleet's whole history is
+# silent failures behind green checks. Two runs about twelve hours apart halves that window,
+# and this job is the right second home: deterministic, no AI, no tokens, so it still runs on
+# the day the claude ceiling closes.
+#
+# Writes the SAME per-run artifact the daily job writes, because checkDoctorSelftest() in
+# tasks/doctor.cjs reads exactly one file. A second path would be a second source of truth
+# and one of them would go unread. Whichever job ran last is the one that counts.
+#
+# Set-Content is given -Encoding utf8 explicitly: it defaults to the system ANSI codepage on
+# PowerShell 5.1, which is the same family of bug that mojibaked six dashboard pages.
+#
+# Deliberately does NOT increment $failed, same as the reschedule step further down. This
+# script's exit code means "the evidence did not refresh"; a broken self-test is a different
+# statement and surfaces as a doctor AMBER, which is a finding someone can actually read.
+$selftestOut = Join-Path $proj 'tasks\logs\doctor_selftest_last.txt'
+$t0 = Get-Date
+try {
+    # 2>&1 for the same reason as every step below, and the verdict reads $LASTEXITCODE and
+    # never $?, because in PS 5.1 that redirect drives $? to False even on a clean exit.
+    $out  = & node 'tasks/doctor_selftest.cjs' 2>&1
+    $code = $LASTEXITCODE
+    $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+    Set-Content -Path $selftestOut -Value $out -Encoding utf8
+    # The marker goes on AFTER the run, so its absence tells the doctor this died partway.
+    Add-Content -Path $selftestOut -Value ("[selftest exit {0}]" -f $code) -Encoding utf8
+    if ($code -eq 0) { Say ("  OK      {0,-22} {1}s" -f 'doctor self-test', $secs) }
+    else {
+        Say-Failure 'doctor self-test' ("exit {0} after {1}s - the doctor cannot verify itself, so a clean report from it is not evidence" -f $code, $secs) $out
+    }
+} catch {
+    Say ("  WARN    doctor self-test did not run: {0}" -f $_.Exception.Message)
+}
+
 $failed = 0
 $skipped = 0
 foreach ($j in $jobs) {

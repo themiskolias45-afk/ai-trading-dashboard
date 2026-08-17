@@ -87,6 +87,11 @@ const TRACKED = [
   // where it has drifted or gone missing cannot verify its own doctor, and an unverifiable
   // health tool is the thing this whole list exists to prevent.
   "tasks/doctor_selftest.cjs",
+  // The 21:30 post-close job, which regenerates every measurement artifact the morning plan
+  // reads and now also runs the self-test. It was never compared, despite being the job whose
+  // steps failed nightly from 2026-08-13 without recording a cause - a difference here means
+  // the two boxes refresh different evidence, silently.
+  "tasks/postclose_analysis.ps1",
   // The job scripts. Omitting these is how the two boxes' schedulers drifted apart
   // unnoticed: the VPS runs auto_weekly_vps.bat, which lacked the completion marker
   // its laptop twin has had since 2026-08-09, so every VPS weekly reported
