@@ -61,6 +61,28 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LEDGER_PATH = os.path.join(ROOT, "tasks", "rejections.jsonl")
 LEGACY_PATH = os.path.join(ROOT, "tasks", "rr_rejected.jsonl")
 SCORED_PATH = os.path.join(ROOT, "tasks", "rejections_scored.jsonl")
+
+# The broker offset is a TIMEZONE, and no timezone on earth sits outside UTC-12..UTC+14.
+# A value beyond that is not a clock difference, it is a stale tick: when the market is
+# shut, symbol_info_tick returns the LAST tick from the previous close, and
+# `tick.time - now_utc` then measures how long the market has been closed rather than
+# where the broker's clock sits. There is no way to tell the two apart from that
+# subtraction alone, which is why the bound is the check.
+MAX_BROKER_OFFSET_SEC = 14 * 3600
+MIN_BROKER_OFFSET_SEC = -12 * 3600
+
+
+class BrokerClockUnavailable(RuntimeError):
+    """The broker's UTC offset could not be measured, so no row can be walked.
+
+    Raised rather than defaulted, because the offset shifts the walk window for
+    EVERY row: a wrong one silently re-scores settled history instead of failing.
+    Measured 2026-08-17 - re-running against a byte-identical 655-row input moved
+    STOP 89->70 and flipped 21 XAUUSD outcomes, because the previous run had fired
+    on a Sunday. Aborting leaves the last good rejections_scored.jsonl in place,
+    which is the correct outcome: the file is rewritten wholesale every run, so a
+    skipped weekend costs nothing and the next weekday run rebuilds it in full.
+    """
 HISTORY_DIR = os.path.join(ROOT, "tasks", "history")
 
 # Seconds per bar, and how many bars a setup gets to resolve. A D1 mean-reversion
@@ -302,17 +324,32 @@ class Mt5BarSource:
         is off by the server offset - typically 2-3 hours, which is enough to pick
         the wrong daily bar as "the one after the rejection". Measured from a live
         tick rather than hardcoded, because brokers change it at DST.
+
+        The measurement is only as live as the tick. On a closed market the last
+        tick is hours or days old and this subtraction returns the age of the
+        weekend, not a timezone - so the result is bounds-checked and the run is
+        aborted rather than allowed to walk every row through a shifted window.
         """
         if symbol in self._offsets:
             return self._offsets[symbol]
 
-        offset = 0
         tick = self._mt5.symbol_info_tick(symbol)
-        if tick is not None and tick.time:
-            now_utc = datetime.now(timezone.utc).timestamp()
-            # Round to the nearest half hour: the raw difference carries tick
-            # latency, and no broker runs an offset finer than that.
-            offset = int(round((tick.time - now_utc) / 1800.0) * 1800)
+        if tick is None or not tick.time:
+            raise BrokerClockUnavailable(
+                "no tick for %s, so the broker's UTC offset cannot be measured" % symbol)
+
+        now_utc = datetime.now(timezone.utc).timestamp()
+        # Round to the nearest half hour: the raw difference carries tick
+        # latency, and no broker runs an offset finer than that.
+        offset = int(round((tick.time - now_utc) / 1800.0) * 1800)
+        if not MIN_BROKER_OFFSET_SEC <= offset <= MAX_BROKER_OFFSET_SEC:
+            raise BrokerClockUnavailable(
+                "%s: last tick is %s, %.1fh from now - that is a closed market, not a "
+                "timezone. Re-run on a trading day."
+                % (symbol,
+                   datetime.fromtimestamp(tick.time, tz=timezone.utc).isoformat(),
+                   offset / 3600.0))
+
         self._offsets[symbol] = offset
         return offset
 
@@ -879,7 +916,15 @@ def main():
 
     try:
         now_epoch = datetime.now(timezone.utc).timestamp()
-        scored = score_ledger(rows, source, horizon_mult, now_epoch)
+        try:
+            scored = score_ledger(rows, source, horizon_mult, now_epoch)
+        except BrokerClockUnavailable as err:
+            # Deliberately BEFORE the write below. Every existing verdict stays as the
+            # last good run left it, rather than being overwritten by one measured
+            # against a clock that was not running.
+            log("ABORTED - broker clock unmeasurable: %s" % err)
+            log("Nothing was written. %s still holds the last good run." % output_path)
+            return 1
 
         with open(output_path, "w", encoding="utf-8") as handle:
             for entry in scored:
