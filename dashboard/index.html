@@ -2928,7 +2928,8 @@ async function loadRiskStatus() {
     const pnlEl=document.getElementById("at-pnl-display");
     document.getElementById("cb-pnl").textContent=(d.dailyPnl>=0?"+":"")+fmt(d.dailyPnl,2);
     document.getElementById("cb-pnl").style.color=d.dailyPnl>=0?"var(--green)":"var(--red)";
-    document.getElementById("cb-losses").textContent=d.consecutiveLosses||0;
+    const lossesVal=document.getElementById("cb-losses");
+    lossesVal.textContent=d.consecutiveLosses||0;
     pnlEl.textContent=`Daily P&L: ${d.dailyPnl>=0?"+":""}$${Number(d.dailyPnl).toFixed(2)}`;
 
     // Real limits, straight from the bridge that enforces them. These three lines
@@ -2943,11 +2944,24 @@ async function loadRiskStatus() {
     if (cfg) {
       if (pnlSub)    pnlSub.textContent    = `Circuit breaks at −${cfg.dailyLossPct}% of balance`;
       if (lossesSub) lossesSub.textContent = `Circuit breaks at ${cfg.maxConsecLosses} in a row`;
+      // cb-pnl two lines up has been red/green coded since it shipped; this number had
+      // no styling at all, so a 2 and a 3 looked identical while one of them means
+      // trading stops on the very next loss. Coloured HERE rather than beside the
+      // textContent because the limit only exists once cfg has been read — without it
+      // the urgency is unknowable, and the else branch below says so instead of
+      // guessing a threshold.
+      const consecLosses = d.consecutiveLosses || 0;
+      lossesVal.style.color = consecLosses >= cfg.maxConsecLosses ? "var(--red)"
+                            : consecLosses >= cfg.maxConsecLosses - 1 ? "var(--yellow)"
+                            : "";
       if (riskVal)   riskVal.textContent   = `${cfg.riskPercent}%`;
       if (riskSub)   riskSub.textContent   = `max spread ${cfg.maxSpreadPts} pts · ${cfg.autoMode ? "full auto" : "semi-auto"}`;
     } else {
       if (pnlSub)    pnlSub.textContent    = "limit not reported — no bridge check-in yet";
       if (lossesSub) lossesSub.textContent = "limit not reported — no bridge check-in yet";
+      // No limit reported means no way to know how close this is to tripping. Clear any
+      // colour left from a previous poll rather than leaving a stale red on screen.
+      lossesVal.style.color = "";
       if (riskVal)   riskVal.textContent   = "—";
       if (riskSub)   riskSub.textContent   = "no bridge check-in yet";
     }
