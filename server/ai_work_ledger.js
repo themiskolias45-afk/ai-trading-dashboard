@@ -32,6 +32,22 @@ const { checkCitations, createContext } = require("./proposal_citations");
 // below "PROPOSED FIX: block RANGE_TRADE_SHORT when regime is RANGING".
 const PROPOSAL_CONTEXT_LINES = 12;
 
+// TWO markers, because the writer and the reader have not always agreed on one.
+// tasks/morning_agent.bat now demands the literal "PROPOSED FIX:" in both its prompt and
+// its park brief, and tells the model the marker is load-bearing — but that instruction
+// arrived WITH this ledger on 2026-08-16, and the VPS's morning_proposals.txt holds
+// THIRTEEN blocks dated 2026-08-04 to 2026-08-16 headed "MORNING PROPOSAL - <date>"
+// instead. Every one was evidence-backed work this ledger could not see.
+//
+// The compounding part: OUTPUT IGNORED could not report it either, because that verdict
+// counts HARVESTED proposals — with none harvested the job read HEALTHY with
+// `proposals: 0`. The detector for unread work was blind to the unread work, and the
+// agent that eventually diagnosed its own invisibility wrote that diagnosis into the same
+// unharvested file. Recognising the legacy header recovers the backlog and guards against
+// the next time an unattended model picks its own heading despite being told not to.
+const PROPOSAL_MARKERS = ["PROPOSED FIX:", "MORNING PROPOSAL"];
+const isProposalMarker = line => PROPOSAL_MARKERS.some(marker => line.indexOf(marker) !== -1);
+
 const ROOT      = path.join(__dirname, "..");
 const LOGS_DIR  = path.join(ROOT, "tasks", "logs");
 const DECISIONS = path.join(ROOT, "tasks", "ai_decisions.jsonl");
@@ -313,7 +329,7 @@ function build(options = {}) {
       if (body.indexOf("[exit ") !== -1) everWroteMarker = true;
       const lines = body.split("\n");
       for (let i = 0; i < lines.length; i++) {
-        if (lines[i].indexOf("PROPOSED FIX:") === -1) continue;
+        if (!isProposalMarker(lines[i])) continue;
         const raw = lines[i].trim();
         // The id stays keyed on the marker line alone. Folding the context in would
         // change every existing id and silently orphan every recorded decision in
@@ -327,13 +343,19 @@ function build(options = {}) {
         for (let k = i + 1; k < contextEnd; k++) {
           // Stop at the next proposal so one block never claims the next one's
           // references and report them as its own broken citations.
-          if (lines[k].indexOf("PROPOSED FIX:") !== -1) break;
+          if (isProposalMarker(lines[k])) break;
           contextLines.push(lines[k]);
         }
+        // Shown text comes from the BLOCK, not the marker line alone. A legacy
+        // "MORNING PROPOSAL - 2026-08-04" header carries no summary whatsoever, so
+        // surfacing only that line would produce a proposal nobody could triage. The ID
+        // above still keys on `raw` alone — folding context into it would change every
+        // existing id and silently orphan every decision in tasks/ai_decisions.jsonl.
+        const shown = contextLines.map(s => s.trim()).filter(Boolean).join("  ") || raw;
         proposals.push({
           id, job: job.id, jobLabel: job.label,
           file: "tasks/logs/" + file.name, line: i + 1,
-          text: raw.length > 300 ? raw.slice(0, 297) + "…" : raw,
+          text: shown.length > 300 ? shown.slice(0, 297) + "…" : shown,
           // Do the cited files, lines and functions actually exist? A proposal whose
           // reasoning is sound and whose references are fiction is the most expensive
           // kind to receive, because the reasoning earns trust the references spend.
