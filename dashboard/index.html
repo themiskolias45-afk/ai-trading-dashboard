@@ -3582,7 +3582,23 @@ async function loadSignalsTab(){
     if(lBody){
       const stats=learn?.setupStats||{};
       const entries=Object.entries(stats);
-      if(!entries.length){lBody.innerHTML=`<tr><td colspan="5" style="color:var(--muted);padding:14px;text-align:center;font-size:.72rem">No trades yet — learning starts after first closed trade</td></tr>`;}
+      // Closed fills whose recorded setup name was WAIT — the ABSENCE of a setup, which
+      // updateLearning refuses to attribute rather than invent a bucket for. That guard is
+      // correct and it left this table short of the account's only win: three losing setups
+      // rendered 0W/3L on screen while the journal reads 1W/3L, so a reader saw a system
+      // that had never won. Shown as its own row, deliberately NOT styled as a setup,
+      // because it is not one — the same lesson as the "WAIT was the best setup" bug: a
+      // guard at the point of learning does not protect the reading surface.
+      const un=learn?.unattributed;
+      const unRow=(un&&(un.count||0)>0)?`<tr style="border-bottom:1px solid rgba(26,34,53,.5);background:rgba(148,163,184,.04)">
+            <td style="padding:7px 12px;font-weight:600;color:var(--muted)">(unattributed)<div style="font-weight:400;font-size:.58rem;color:var(--muted)">setup recorded as WAIT — no name to learn from</div></td>
+            <td style="padding:7px 12px;color:var(--muted)">${un.wins||0}W / ${un.losses||0}L</td>
+            <td style="padding:7px 12px;color:var(--muted);font-size:.62rem">excluded from learning by design</td>
+            <td style="padding:7px 12px;color:${(un.netPnl||0)>=0?'var(--green)':'var(--red)'};font-variant-numeric:tabular-nums">${(un.netPnl||0)>=0?'+':''}${(un.netPnl||0).toFixed(2)}</td>
+            <td style="padding:7px 12px"><span style="color:var(--muted);font-size:.58rem">NOT LEARNED</span></td>
+          </tr>`:'';
+      if(!entries.length&&!unRow){lBody.innerHTML=`<tr><td colspan="5" style="color:var(--muted);padding:14px;text-align:center;font-size:.72rem">No trades yet — learning starts after first closed trade</td></tr>`;}
+      else if(!entries.length){lBody.innerHTML=unRow;}
       else{
         lBody.innerHTML=entries.sort((a,b)=>(b[1].total||0)-(a[1].total||0)).map(([name,s])=>{
           const w=s.wins||0,l=s.losses||0,tot=w+l;
@@ -3604,7 +3620,7 @@ async function loadSignalsTab(){
             <td style="padding:7px 12px;color:${pnl>=0?'var(--green)':'var(--red)'};font-variant-numeric:tabular-nums">${pnl>=0?'+':''}${pnl.toFixed(2)}</td>
             <td style="padding:7px 12px">${status}</td>
           </tr>`;
-        }).join('');
+        }).join('')+unRow;
       }
     }
   }catch(e){console.error('loadSignalsTab:',e);}
