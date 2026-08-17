@@ -62,13 +62,22 @@ const SYMBOL_RE = /\b([A-Za-z_$][\w$]*)\(\)/g;
 // hosts it: build() runs on an HTTP request.
 const MAX_REFS_PER_PROPOSAL = 40;
 const MAX_FILE_BYTES        = 4 * 1024 * 1024;
-// Where a bare symbol is looked for. This repo keeps its source in exactly these two
-// places; node_modules is excluded deliberately, since a match there would "resolve" a
-// symbol the proposal never meant.
-const SYMBOL_DIRS = [["server"], ["tasks"]];
+// Where a bare symbol is looked for; node_modules is excluded deliberately, since a
+// match there would "resolve" a symbol the proposal never meant.
+//
+// dashboard/ belongs here and was missing. SEARCH_DIRS below has listed it since it
+// shipped, so a proposal citing dashboard/index.html resolved the FILE and then failed
+// on the function inside it: loadRiskStatus() is defined at dashboard/index.html:2923
+// and came back "no definition found", stamping a correct proposal SOME REFERENCES
+// BROKEN. That is precisely the cry-wolf this module exists to prevent, and it aimed it
+// at the control surface - where most fixable findings actually live.
+const SYMBOL_DIRS = [["server"], ["tasks"], ["dashboard"]];
 // Where a bare basename is looked for, in order. "" is the project root.
 const SEARCH_DIRS = ["", "server", "tasks", "dashboard"];
-const SYMBOL_EXT  = new Set([".js", ".cjs", ".mjs", ".py"]);
+// .html is here for the dashboard's inline <script>: the definition patterns below
+// match a function on its own line, which is how that file declares them, so no HTML
+// parsing is needed to find one.
+const SYMBOL_EXT  = new Set([".js", ".cjs", ".mjs", ".py", ".html"]);
 
 /** Read a file once per build, capped. null when unreadable or oversized. */
 function makeReader() {
@@ -144,8 +153,18 @@ function symbolSearchFiles() {
   return out;
 }
 
-/** Line number (1-indexed) where `name` looks DEFINED, or null. */
-function findDefinition(text, name) {
+/**
+ * Line number (1-indexed) where `name` looks DEFINED, or null.
+ *
+ * `bareKeyMatch` is the last and loosest pattern — a name at the start of a line
+ * followed by `:` or `(`, which catches object-literal methods and shorthand. It must
+ * be OFF for HTML, because a stylesheet is full of lines like `color: #fff` and every
+ * one of them answers to that shape: probing .html with it resolved color(), width(),
+ * padding() and display() to CSS declarations. A confidently wrong location is worse
+ * than "not found", which is the whole thesis of this module. Inline scripts declare
+ * their functions as `function name(` or `const name =`, so nothing real is lost.
+ */
+function findDefinition(text, name, { bareKeyMatch = true } = {}) {
   if (!text) return null;
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // `[ \t]*`, never `\s*`, after the ^ anchor: \s matches newlines, so `^\s*function`
@@ -156,8 +175,8 @@ function findDefinition(text, name) {
     new RegExp(String.raw`^[ \t]*(?:async[ \t]+)?function[ \t]+${escaped}[ \t]*\(`, "m"),
     new RegExp(String.raw`^[ \t]*(?:const|let|var)[ \t]+${escaped}[ \t]*=`, "m"),
     new RegExp(String.raw`^[ \t]*def[ \t]+${escaped}[ \t]*\(`, "m"),
-    new RegExp(String.raw`^[ \t]*${escaped}[ \t]*[:(]`, "m"),
   ];
+  if (bareKeyMatch) patterns.push(new RegExp(String.raw`^[ \t]*${escaped}[ \t]*[:(]`, "m"));
   for (const pattern of patterns) {
     const match = pattern.exec(text);
     if (match) return text.slice(0, match.index).split("\n").length;
@@ -231,12 +250,16 @@ function checkCitations(text, context) {
 
     let found = null;
     for (const file of searchFiles) {
-      const at = findDefinition(read(file.abs), name);
+      const at = findDefinition(read(file.abs), name, { bareKeyMatch: !file.rel.endsWith(".html") });
       if (at !== null) { found = `${file.rel}:${at}`; break; }
     }
     refs.push(found
       ? { kind: "symbol", ref: `${name}()`, ok: true, definedAt: found }
-      : { kind: "symbol", ref: `${name}()`, ok: false, why: "no definition found under server/ or tasks/" });
+      : { kind: "symbol", ref: `${name}()`, ok: false,
+          // Derived from SYMBOL_DIRS, not spelled out: the hardcoded version still said
+          // "server/ or tasks/" after dashboard/ was searched too, which tells a reader
+          // to stop looking in the one place the symbol might be.
+          why: `no definition found under ${SYMBOL_DIRS.map(parts => parts.join("/")).join("/, ")}/` });
   }
 
   const broken = refs.filter(r => !r.ok);
@@ -261,7 +284,7 @@ function checkCitations(text, context) {
 function locateSymbol(name, context) {
   const { read, searchFiles } = context || createContext();
   for (const file of searchFiles) {
-    const at = findDefinition(read(file.abs), name);
+    const at = findDefinition(read(file.abs), name, { bareKeyMatch: !file.rel.endsWith(".html") });
     if (at !== null) return `${file.rel}:${at}`;
   }
   return null;
