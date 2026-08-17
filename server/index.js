@@ -3871,6 +3871,12 @@ function impliedRRFromPrices(entryPrice, stopPrice, targetPrice) {
 // Realized R for a closed trade: how far price actually travelled, in units of
 // the risk that was on the table. Direction-signed, so a BUY closed at its stop
 // is exactly -1.00R rather than a positive "R:R" the trade never earned.
+// Must move together with MAX_PLAUSIBLE_RR in tasks/score_rr_rejections.py. The language
+// boundary makes one literal impossible, so they are named identically and cross-referenced
+// — change one, change the other, or the paper ledger and the live tracker will disagree
+// about what counts as an outcome.
+const MAX_PLAUSIBLE_RR = 10;
+
 function realizedRFromPrices(direction, entryPrice, stopPrice, closePrice) {
   const prices = [entryPrice, stopPrice, closePrice];
   if (!prices.every(p => typeof p === "number" && Number.isFinite(p))) return null;
@@ -3878,7 +3884,23 @@ function realizedRFromPrices(direction, entryPrice, stopPrice, closePrice) {
   if (riskDistance === 0) return null;
   const isShort  = String(direction || "").toUpperCase().startsWith("S");
   const movement = isShort ? entryPrice - closePrice : closePrice - entryPrice;
-  return parseFloat((movement / riskDistance).toFixed(2));
+  const realizedR = movement / riskDistance;
+  // R explodes as the stop collapses toward entry, and this guarded only riskDistance === 0
+  // — which is exactly the pre-fix state of the identical formula in the rejection scorer,
+  // where ONE row with a $4.21 Bitcoin stop scored +298.56R and inverted the sign of a
+  // 498-episode ledger. This function feeds /api/live-vs-replay's totalR over FOUR closed
+  // trades, so one artifact would not skew that comparison, it would be it — and comparing
+  // live R/trade against replay R/trade is the only thing that tracker exists to do.
+  //
+  // The engine builds targets at about 2.5x risk and the largest plannedRr in the journal
+  // is 6.57, so a realized |R| above 10 means the risk distance was degenerate, not that
+  // the trade ran. Symmetric, because -298R is no more real than +298R.
+  //
+  // null, not 0 and not a clamp: null is already this function's "cannot score" signal, and
+  // live_vs_replay.js:208 COUNTS it as unscorable rather than dropping it silently. Nothing
+  // is discarded — the trade keeps its P&L, which is measured in money and needs no stop.
+  if (!Number.isFinite(realizedR) || Math.abs(realizedR) > MAX_PLAUSIBLE_RR) return null;
+  return parseFloat(realizedR.toFixed(2));
 }
 
 app.post("/api/trade-opened", async (req, res) => {

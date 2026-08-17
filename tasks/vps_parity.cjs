@@ -98,6 +98,13 @@ const TRACKED = [
   // the reader not to re-litigate what it lists, so a difference here decides what an
   // agent is allowed to question.
   "tasks/ai_brief.cjs",
+  // live_vs_replay.js is REQUIRED by index.js at boot (its catch there falls back to an
+  // "not deployed on this box" stub, which is a softer failure than rejection_log.js once
+  // caused but still means one box silently loses the tracker). time_heatmap.cjs is the
+  // measurement whose output the pre-open plan quotes. Both were untracked while the
+  // memory note still claimed the tracker was VPS-absent — it has been there since at
+  // least 2026-08-17 and nothing was comparing them.
+  "server/live_vs_replay.js", "tasks/time_heatmap.cjs",
 ];
 
 // The functions that decide whether a trade happens. If these agree, the two

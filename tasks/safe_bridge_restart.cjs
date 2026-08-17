@@ -144,6 +144,40 @@ function record(name, ok, detail) {
       ALLOW_OPEN ? "--allow-open-positions given" : "pass --allow-open-positions to proceed with trades open");
   }
 
+  // Does the thing we are about to restart actually EXIST here?
+  //
+  // Checked LAST but before the verdict, because without it this tool printed "All
+  // pre-flight checks passed. Restarting scheduled task SmartEntryBridgeA …" on the
+  // laptop and only then died on "The system cannot find the file specified" — that task
+  // exists on the VPS ONLY. Every safety check had passed, so the failure read like the
+  // restart had begun and something had gone wrong mid-flight, when in fact nothing was
+  // ever touched. A safety tool that cannot work on one box must say so in pre-flight,
+  // not after announcing success. Same shape as vps_parity.cjs, which can never succeed
+  // when run ON the VPS.
+  //
+  // Local only: a remote host's scheduler is not queryable from here, so the check is
+  // skipped rather than guessed at, and says which it did.
+  if (HOST === "localhost" || HOST === "127.0.0.1") {
+    let taskFound = false;
+    let taskDetail = "";
+    try {
+      const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command",
+        "if (Get-ScheduledTask -TaskName '" + TASK.replace(/'/g, "''") + "' -ErrorAction SilentlyContinue) { 'FOUND' } else { 'MISSING' }"],
+        { encoding: "utf8", timeout: 20000, windowsHide: true });
+      taskFound = /FOUND/.test(out);
+      taskDetail = taskFound
+        ? "scheduled task '" + TASK + "' exists on this box"
+        : "no scheduled task '" + TASK + "' here — pass --task with this box's own name. "
+          + "The laptop has no per-bridge task at all: its bridges come up via "
+          + "tasks/ensure_running.ps1 or START.bat, so there is nothing for this tool to cycle.";
+    } catch (e) {
+      taskDetail = "could not query the scheduler (" + (e.code || e.message) + ")";
+    }
+    record("restart target exists", taskFound, taskDetail);
+  } else {
+    console.log("  SKIP  restart target exists                   " + HOST + " is remote; its scheduler is not queryable from here");
+  }
+
   const failed = checks.filter(c => !c.ok);
   if (failed.length) {
     console.log("\nREFUSING — " + failed.length + " check(s) failed:");
