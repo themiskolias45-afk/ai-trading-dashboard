@@ -83,6 +83,10 @@ const TRACKED = [
   // proposal_citations.js rule above means missing-on-one-box takes that box's doctor out
   // entirely rather than degrading it.
   "tasks/doctor.cjs", "tasks/encoding_check.cjs",
+  // The suite that proves the doctor's 39 branches actually fire. Tracked because a box
+  // where it has drifted or gone missing cannot verify its own doctor, and an unverifiable
+  // health tool is the thing this whole list exists to prevent.
+  "tasks/doctor_selftest.cjs",
   // The job scripts. Omitting these is how the two boxes' schedulers drifted apart
   // unnoticed: the VPS runs auto_weekly_vps.bat, which lacked the completion marker
   // its laptop twin has had since 2026-08-09, so every VPS weekly reported
