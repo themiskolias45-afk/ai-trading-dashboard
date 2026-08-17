@@ -88,6 +88,11 @@ const TRACKED = [
   // Get-FileHash comparison across the two boxes is not evidence of drift. Per this
   // file's own rule: a file nothing compares is a file that diverges.
   "tasks/score_rr_rejections.py", "tasks/learning_from_rejections.py",
+  // The pre-open plan and its caller, for the same reason: both are job scripts that run
+  // on both boxes and neither was compared. deep_plan.cjs is where the 2026-08-16 EPERM
+  // surfaced and preopen_plan.cjs is where it was thrown, so a diagnosis deployed to one
+  // box and not the other would leave the box that trades still reporting a bare errno.
+  "tasks/deep_plan.cjs", "tasks/preopen_plan.cjs",
 ];
 
 // The functions that decide whether a trade happens. If these agree, the two

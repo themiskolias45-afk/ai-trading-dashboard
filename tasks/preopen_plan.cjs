@@ -354,11 +354,93 @@ function renderPlan(built) {
   }
 }
 
+// WHY A WRITE FAILURE HERE GETS ITS OWN DIAGNOSIS
+// On 2026-08-16 21:39 UTC this exact call failed with `EPERM: operation not permitted,
+// open 'tasks/analysis/preopen-plan-latest.json'` and the run exited 2. deep_plan.cjs
+// then could not append its own stack either, because tasks/logs/deep_plan.txt was
+// locked too. An errno alone has now been collected twice and names no culprit, so the
+// next occurrence has to identify the HOLDER.
+//
+// Deliberately NOT a retry. A silent retry would convert a diagnosable lock into an
+// invisible one, and this file's whole job is to refuse to say something reassuring it
+// cannot support. The write still fails and the job still exits non-zero; it just says
+// who was in the way.
+function describeWriteFailure(target, err) {
+  const lines = [
+    `write FAILED  ${target}`,
+    `  ${err.code || "?"} ${err.syscall || ""} errno=${err.errno ?? "?"} — ${err.message}`,
+  ];
+  try {
+    const st = fs.statSync(target);
+    lines.push(`  target exists: ${st.size} bytes, mtime ${st.mtime.toISOString()}, mode 0${(st.mode & 0o777).toString(8)}`);
+  } catch (e) {
+    lines.push(`  target not stat-able: ${e.code || e.message}`);
+  }
+  // Is it STILL locked, or was it transient? The answer changes the whole diagnosis:
+  // a lock that has already cleared points at a scanner or a backup, one that persists
+  // points at a live process holding a handle.
+  try {
+    fs.closeSync(fs.openSync(target, "r+"));
+    lines.push("  lock state NOW: writable again — the lock was transient (scanner, backup, or a finished process)");
+  } catch (e) {
+    lines.push(`  lock state NOW: still unwritable (${e.code || e.message}) — a live holder`);
+  }
+  // Best-effort candidate holders. handle.exe is Sysinternals and may not be installed,
+  // so this enumerates the processes that plausibly touch this tree with their command
+  // lines, which is normally enough to name a second copy of the same job. Wrapped and
+  // time-boxed: a diagnostic must never become the reason the error is lost.
+  try {
+    const { execFileSync } = require("child_process");
+    const ps = "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'node|powershell|pwsh' } | "
+      + "ForEach-Object { \"pid=$($_.ProcessId) started=$($_.CreationDate) $($_.CommandLine)\" }";
+    const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps],
+      { encoding: "utf8", timeout: 15000, windowsHide: true });
+    const rows = out.split("\n").map(s => s.replace(/\s+$/, "")).filter(Boolean);
+    // Split, rather than dump. On a dev box this list is 25 MCP servers and the one
+    // process that matters is buried; on the VPS it is one line. Anything whose command
+    // line names this project is a plausible SECOND COPY of a job writing here, which is
+    // the leading theory — everything else is counted, not printed, because the holder
+    // may equally be a scanner or a backup that owns no node process at all.
+    const marker = path.basename(ROOT).toLowerCase();
+    const mine  = rows.filter(r => r.toLowerCase().includes(marker));
+    const other = rows.length - mine.length;
+    if (mine.length) {
+      lines.push(`  processes referencing ${path.basename(ROOT)} (${mine.length}) — a second copy of a job is the leading theory:`);
+      lines.push(...mine.slice(0, 15).map(r => "    " + r));
+    } else {
+      lines.push(`  NO node/powershell process references ${path.basename(ROOT)} — so the holder is`);
+      lines.push("    probably not one of this project's jobs. Look at AV, backup, or file indexing.");
+    }
+    lines.push(`  other node/powershell processes not referencing this project: ${other}`);
+  } catch (e) {
+    lines.push(`  candidate holders: could not enumerate (${e.code || e.message})`);
+  }
+  return lines.join("\n");
+}
+
+function writeJsonOrExplain(target, data) {
+  try {
+    fs.writeFileSync(target, data);
+  } catch (err) {
+    // Straight to stderr as well as up the throw chain. The post-close harness captures
+    // and tails output on failure since 1a6056b, and that channel does not depend on any
+    // file in tasks/ being writable — which is exactly what failed last time.
+    const diagnosis = describeWriteFailure(target, err);
+    try { process.stderr.write(diagnosis + "\n"); } catch (_) { /* nothing left to try */ }
+    const wrapped = new Error(diagnosis);
+    wrapped.code = err.code;
+    throw wrapped;
+  }
+}
+
 function writeArtifacts(built) {
   const { plan, now } = built;
   const stamp = now.toISOString().replace(/[-:]/g, "").slice(0, 15);
-  fs.writeFileSync(path.join(OUT_DIR, `preopen-plan-${stamp}.json`), JSON.stringify(plan, null, 2));
-  fs.writeFileSync(path.join(OUT_DIR, "preopen-plan-latest.json"), JSON.stringify(plan, null, 2));
+  const body = JSON.stringify(plan, null, 2);
+  // The stamped copy first: if only ONE of the two can be written, the history entry is
+  // the more valuable survivor, because -latest is reconstructible from it.
+  writeJsonOrExplain(path.join(OUT_DIR, `preopen-plan-${stamp}.json`), body);
+  writeJsonOrExplain(path.join(OUT_DIR, "preopen-plan-latest.json"), body);
 }
 
 // CLI only when run directly, so `require`ing this from deep_plan.cjs does not fire a
@@ -380,4 +462,8 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildPlan, renderPlan, writeArtifacts, sessionAt, nextSessionStart, get, login, SESSIONS, OUT_DIR };
+// writeJsonOrExplain and describeWriteFailure are exported for their OWN test: the
+// failure path is the whole point of them, and it cannot be exercised through
+// writeArtifacts without writing over the live artifacts in tasks/analysis.
+module.exports = { buildPlan, renderPlan, writeArtifacts, writeJsonOrExplain, describeWriteFailure,
+  sessionAt, nextSessionStart, get, login, SESSIONS, OUT_DIR };
