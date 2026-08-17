@@ -611,6 +611,11 @@ function checkSetupHealth() {
   return alerts;
 }
 loadLearning();
+// PROCESS starts, not trading sessions. This increments once per server boot, so it
+// counts restarts — it went 195 -> 197 inside an hour of restarts on 2026-08-17 — and it
+// has nothing to do with ASIAN/LONDON/NEW YORK. The name invites the wrong reading, and
+// the evidence register already had to warn that quoting it as a sample would raise an
+// item that can never clear. Acting on morning-4lvhht, proposed 2026-08-12.
 learning.sessionCount = (learning.sessionCount || 0) + 1;
 saveLearning();
 
