@@ -147,7 +147,18 @@ function symbolSearchFiles() {
     let names = [];
     try { names = fs.readdirSync(dir); } catch (e) { continue; }
     for (const name of names) {
-      if (SYMBOL_EXT.has(path.extname(name))) out.push({ rel: [...parts, name].join("/"), abs: path.join(dir, name) });
+      // bareKeyMatch travels WITH the file rather than being re-derived at each call
+      // site. It was duplicated in checkCitations and locateSymbol, which is two places
+      // to remember when the next extension needs the same treatment — and the failure
+      // mode of forgetting one is silent: CSS lines resolving as function definitions in
+      // whichever path was missed. See findDefinition.
+      if (SYMBOL_EXT.has(path.extname(name))) {
+        out.push({
+          rel: [...parts, name].join("/"),
+          abs: path.join(dir, name),
+          bareKeyMatch: !name.endsWith(".html"),
+        });
+      }
     }
   }
   return out;
@@ -250,7 +261,7 @@ function checkCitations(text, context) {
 
     let found = null;
     for (const file of searchFiles) {
-      const at = findDefinition(read(file.abs), name, { bareKeyMatch: !file.rel.endsWith(".html") });
+      const at = findDefinition(read(file.abs), name, { bareKeyMatch: file.bareKeyMatch });
       if (at !== null) { found = `${file.rel}:${at}`; break; }
     }
     refs.push(found
@@ -284,7 +295,7 @@ function checkCitations(text, context) {
 function locateSymbol(name, context) {
   const { read, searchFiles } = context || createContext();
   for (const file of searchFiles) {
-    const at = findDefinition(read(file.abs), name, { bareKeyMatch: !file.rel.endsWith(".html") });
+    const at = findDefinition(read(file.abs), name, { bareKeyMatch: file.bareKeyMatch });
     if (at !== null) return `${file.rel}:${at}`;
   }
   return null;

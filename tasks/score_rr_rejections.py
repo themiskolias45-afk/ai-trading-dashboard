@@ -61,6 +61,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LEDGER_PATH = os.path.join(ROOT, "tasks", "rejections.jsonl")
 LEGACY_PATH = os.path.join(ROOT, "tasks", "rr_rejected.jsonl")
 SCORED_PATH = os.path.join(ROOT, "tasks", "rejections_scored.jsonl")
+HISTORY_DIR = os.path.join(ROOT, "tasks", "history")
 
 # The broker offset is a TIMEZONE, and no timezone on earth sits outside UTC-12..UTC+14.
 # A value beyond that is not a clock difference, it is a stale tick: when the market is
@@ -107,7 +108,6 @@ class BrokerClockUnavailable(RuntimeError):
     which is the correct outcome: the file is rewritten wholesale every run, so a
     skipped weekend costs nothing and the next weekday run rebuilds it in full.
     """
-HISTORY_DIR = os.path.join(ROOT, "tasks", "history")
 
 # Seconds per bar, and how many bars a setup gets to resolve. A D1 mean-reversion
 # short that has not touched either level in a month was not the trade the setup
@@ -646,16 +646,26 @@ def score_ledger(rows, source, horizon_mult, now_epoch):
         # the surface read that as evidence still on its way. Measured 2026-08-17: 177
         # rows, every one dead, including all 45 STALE_SOURCE rows.
         #
-        # Keyed on dataSource, never on the shape of the symbol: of 292 mt5 rows not one
+        # Keyed on dataSource, never on the shape of the symbol: of 297 mt5 rows not one
         # carries a yahoo-looking symbol, and the 12 frozen legacy rows are all mt5, so
         # this cannot touch a scorable row. Substituting the broker symbol is NOT the
         # fix - that prices these levels on a different instrument, ~$51 apart on gold,
         # which is the confidently-wrong answer this whole file exists to refuse.
         # Spec section 2: unscorable is RECORDED, never guessed.
-        if str(row.get("dataSource") or "").lower() == "yahoo":
+        #
+        # A WHITELIST, not a ban on "yahoo". The first version of this guard tested
+        # `== "yahoo"`, which would have let a future third feed reintroduce exactly the
+        # PENDING-forever bug it was written to kill - silently, because the symptom is a
+        # row that looks like it is still coming. Only the broker's own feed can be walked
+        # against the broker's own bars, so anything else is unscorable by construction.
+        # A row with no dataSource at all falls through deliberately: every such row in
+        # both ledgers also has no sourceSymbol and was already caught above, and the
+        # frozen legacy file predates the field.
+        feed = str(row.get("dataSource") or "").lower()
+        if feed and feed != "mt5":
             scored.append(dict(base, outcome="UNSCORABLE", r=None,
-                               detail="levels priced on the yahoo feed - %s is not a broker series"
-                                      % symbol))
+                               detail="levels priced on the %s feed - %s is not a broker series"
+                                      % (feed, symbol)))
             continue
         if timeframe not in BAR_SECONDS or ts is None:
             scored.append(dict(base, outcome="UNSCORABLE", r=None,
