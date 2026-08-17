@@ -4063,7 +4063,7 @@ async function addCommentaryLater(trade, journalEntry) {
 
 // MT5 bridge notifies server when a trade is closed
 app.post("/api/trade-closed", (req, res) => {
-  const { ticket, pnl, closePrice, closeTime, account } = req.body;
+  const { ticket, pnl, closePrice, closeTime, account, exitReason, exitReasonCode } = req.body;
   if (!ticket) return res.status(400).json({ error: "ticket required" });
   // Ticket ids are unique per ACCOUNT, not across the fleet (mt5_bridge.py:1384),
   // and accounts A, B and the VPS all post into this one journal. Prefer the exact
@@ -4097,6 +4097,21 @@ app.post("/api/trade-closed", (req, res) => {
     trade.pnl        = pnl       ?? null;
     trade.closePrice = closePrice ?? null;
     trade.closeTime  = closeTime  ?? new Date().toISOString();
+    // WHY it closed, straight from MT5's deal record — the journal could not previously
+    // tell "hit its stop" from "someone closed it". RECORD ONLY: updateLearning below
+    // stays P&L-based and no gate, threshold, confidence or sizing path reads either
+    // field. The raw code is kept beside the label so an unrecognised reason is still
+    // recoverable rather than flattened into "OTHER" and lost.
+    //
+    // Assigned ONLY when supplied, never `?? null`. The bridge's reconciliation sweep
+    // re-posts closes and does not always carry a reason, so defaulting to null here
+    // would erase a reason the live close path had already recorded — deleting evidence
+    // on a retry, which is the whole failure mode this journal keeps being bitten by.
+    //
+    // A STOP is not a loss: a trailing stop moved into profit still closes as
+    // DEAL_REASON_SL. Read this alongside pnl, never as a substitute for it.
+    if (typeof exitReason === "string" && exitReason) trade.exitReason = exitReason;
+    if (Number.isInteger(exitReasonCode)) trade.exitReasonCode = exitReasonCode;
     saveJournal();
     // Feed outcome to self-learning engine
     const outcomeKnown = trade.pnl !== null;

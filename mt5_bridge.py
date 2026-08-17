@@ -2024,6 +2024,53 @@ def summarize_closed_position(deals):
     )
 
 
+# MT5's OWN answer to "why did this close", which the terminal has always known and this
+# bridge was throwing away: summarize_closed_position reads final_deal.price and .time and
+# drops .reason.
+#
+# Measured on this account 2026-08-17: of 1092 closing deals, 1064 carried DEAL_REASON_SL,
+# 17 TP, 6 EXPERT, 5 CLIENT. The field is populated and authoritative, which is why the
+# price-inference fallback originally proposed (match closePrice against sl/tp within a
+# slippage tolerance) is not needed — there is nothing to infer.
+#
+# STOPOUT is kept separate from STOP deliberately. A margin stop-out is not the setup's
+# stop being hit, and folding them together would hide a liquidation inside a normal loss.
+# Anything unrecognised becomes OTHER and the raw code travels beside the label, so no
+# information is discarded on the way.
+EXIT_REASON_BY_DEAL_REASON = {
+    mt5.DEAL_REASON_SL: "STOP",
+    mt5.DEAL_REASON_TP: "TARGET",
+    mt5.DEAL_REASON_SO: "STOPOUT",
+}
+
+
+def exit_reason_for(deals):
+    """(label, raw_reason_code) for the deal that actually closed the position.
+
+    (None, None) when there is no closing deal or the terminal reports no reason, so the
+    caller records nothing rather than guessing - the same rule summarize_closed_position
+    follows, and for the same reason: a fabricated outcome is worse than a missing one.
+
+    Picks the LAST closing deal by time, matching summarize_closed_position, so a position
+    that took partial profit at 1R and then stopped out is labelled by how it finally
+    ended rather than by its first exit.
+
+    NOTE a STOP is not necessarily a loss. A trailing stop that moved into profit still
+    closes with DEAL_REASON_SL, and one such deal on this account shows profit +0.40 -
+    so nothing downstream may treat this label as the sign of the P&L.
+    """
+    if not deals:
+        return (None, None)
+    closing_deals = [d for d in deals if d.entry in CLOSING_DEAL_ENTRIES]
+    if not closing_deals:
+        return (None, None)
+    final_deal = max(closing_deals, key=lambda d: d.time)
+    raw_reason = getattr(final_deal, "reason", None)
+    if raw_reason is None:
+        return (None, None)
+    return (EXIT_REASON_BY_DEAL_REASON.get(raw_reason, "OTHER"), int(raw_reason))
+
+
 def opened_by_this_bridge(deals, expected_symbol):
     """True when this position's OPENING deal is one of ours.
 
@@ -2067,7 +2114,11 @@ def track_closed_positions():
         pnl         = None
         close_price = None
         close_time  = datetime.now().isoformat()
-        outcome = summarize_closed_position(deals_for_position(ticket))
+        # Fetched ONCE and shared. Calling deals_for_position twice would double the
+        # history round-trip per close for two readings of the same deals.
+        deals = deals_for_position(ticket)
+        outcome = summarize_closed_position(deals)
+        exit_reason, exit_reason_code = exit_reason_for(deals)
         if outcome:
             pnl, close_price, close_time = outcome
         else:
@@ -2086,9 +2137,16 @@ def track_closed_positions():
                 "closePrice": close_price,
                 "closeTime":  close_time,
                 "account":    ACCOUNT_TAG or "default",
+                # Record-only. Nothing on the server reads these to decide anything: the
+                # learning engine stays P&L-based and no gate, threshold or sizing path
+                # touches them. They exist so "hit its stop" can be told from "someone
+                # closed it", which the journal could not previously express.
+                "exitReason":     exit_reason,
+                "exitReasonCode": exit_reason_code,
             }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
             color = GREEN if pnl and pnl > 0 else RED
-            log(f"Trade closed #{ticket}  P&L ${pnl}", color)
+            log(f"Trade closed #{ticket}  P&L ${pnl}"
+                + (f"  exit={exit_reason}" if exit_reason else ""), color)
         except Exception as e:
             log(f"Could not POST trade-closed #{ticket}: {e}", RED)
 
