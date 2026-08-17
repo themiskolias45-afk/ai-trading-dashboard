@@ -1254,15 +1254,38 @@ async function loadEvidence() {
     const d = await getJson('/evidence-board');
     const claims = d.claims || [];
 
+    // needsRecuration was COMPUTED and shown to nobody. The register has flagged a claim
+    // whose declared sample has outgrown its prose since 3bd1686, and tasks/ai_brief.cjs
+    // warns every agent about it — while this page, the one a human reads, rendered the
+    // stale number as settled fact. Surfaced first, because a claim you cannot trust
+    // changes how you read every claim under it.
+    const stale = d.needsRecuration || [];
     banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
       + claims.length + ' curated claims · '
       + Object.entries(d.claimCounts || {}).map(([k, v]) =>
           '<span style="color:' + (CLAIM_COLOUR[k] || 'var(--dim)') + '">' + v + ' ' + esc(k.replace(/^.*— /, '')) + '</span>'
-        ).join(' · ') + '</div>';
+        ).join(' · ')
+      + (stale.length
+          ? ' · <span style="color:#ffb800;font-weight:600">' + stale.length
+            + (stale.length === 1 ? ' needs' : ' need') + ' re-curation</span>'
+          : ' · <span style="color:var(--green)">all samples current</span>')
+      + '</div>'
+      + (stale.length
+          ? '<div style="border-left:3px solid #ffb800;background:rgba(255,184,0,.06);border-radius:0 8px 8px 0;'
+            + 'padding:10px 14px;margin:0 0 14px;font-size:12px;line-height:1.6">'
+            + '<strong style="color:#ffb800">' + stale.length + ' claim'
+            + (stale.length === 1 ? ' quotes' : 's quote') + ' a sample that has since grown.</strong> '
+            + 'The text below is shown UNCHANGED on purpose — re-curate it by hand in '
+            + '<code>server/evidence_register.js</code> rather than trusting the numbers in it. '
+            + 'Detection never edits: a curated claim that rewrote itself would be worse than no claim.'
+            + '</div>'
+          : '');
 
     claimsEl.innerHTML = claims.map(c => {
       const colour = CLAIM_COLOUR[c.status] || 'var(--dim)';
-      return '<div style="border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);'
+      const st = c.staleness;
+      return '<div style="border:1px solid ' + (st ? 'rgba(255,184,0,.35)' : 'rgba(255,255,255,.1)') + ';'
+        + 'background:' + (st ? 'rgba(255,184,0,.04)' : 'rgba(255,255,255,.02)') + ';'
         + 'border-radius:10px;padding:14px 16px;margin-bottom:10px">'
         + '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">'
         + '<span style="font-size:14px;font-weight:600">' + esc(c.title) + '</span>'
@@ -1271,8 +1294,25 @@ async function loadEvidence() {
         + '<span style="font-size:11px;color:var(--dim)">measured ' + esc(c.measuredOn) + '</span>'
         + (c.feedsTheGate
             ? '<span style="font-size:10px;color:#ffb800;border:1px solid rgba(255,184,0,.3);border-radius:4px;padding:1px 6px">FEEDS THE GATE</span>'
+            : '')
+        + (st
+            ? '<span style="font-size:10px;color:#ffb800;background:rgba(255,184,0,.14);border:1px solid rgba(255,184,0,.4);border-radius:4px;padding:1px 6px;font-weight:700">SAMPLE MOVED</span>'
             : '') + '</div>'
-        + '<div style="margin-top:8px;font-size:12px;line-height:1.6">' + esc(c.evidence) + '</div>'
+        // Which figure moved, and on WHICH BOX. journal.json and the rejection ledger are
+        // both per-machine, so a claim written against one box legitimately reads smaller on
+        // the other — naming the box is what stops this reading as an item nobody can clear.
+        + (st
+            ? '<div style="margin-top:8px;font-size:12px;line-height:1.6;color:#ffb800">'
+              + '<strong>Sample has grown since this was written:</strong> '
+              + esc((st.drifted || []).join('; '))
+              + (st.sampleFrom ? '<div style="color:var(--dim);margin-top:3px">written against: '
+                  + esc(st.sampleFrom) + '</div>' : '')
+              + '<div style="color:var(--dim);margin-top:3px">Treat the numbers below as UNVERIFIED. '
+              + 'Re-measuring this needs no further argument — its own evidence has expired.</div>'
+              + '</div>'
+            : '')
+        + '<div style="margin-top:8px;font-size:12px;line-height:1.6' + (st ? ';opacity:.72' : '') + '">'
+        + esc(c.evidence) + '</div>'
         + (c.caveat ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--dim)">'
             + '<strong style="color:#ffb800">Caveat:</strong> ' + esc(c.caveat) + '</div>' : '')
         + (c.changesTheAnswer ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--dim)">'
