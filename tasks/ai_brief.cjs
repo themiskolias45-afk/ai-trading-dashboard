@@ -149,12 +149,32 @@ if (!register) line("_evidence register unavailable_");
 else {
   for (const c of register.getRegister().claims) {
     line("- **" + c.title + "** — " + c.status + (c.feedsTheGate ? "  _(feeds the gate)_" : "  _(no vote)_"));
+    // getRegister() attaches `staleness` to any claim whose declared sample has moved, and
+    // this section USED TO DROP IT — printing the stale evidence under a heading that says
+    // "do not re-litigate". That is the one place a stale number does real damage: it does
+    // not merely mislead, it instructs the reader not to check. MIN_RR's evidence said "86
+    // resolved" here for five days while the ledger held 394.
+    //
+    // ASCII only in these strings. daily_notes.py died on a U+2212 today because the
+    // console is cp1252, and a briefing that cannot be printed is a briefing nobody reads.
+    if (c.staleness) {
+      line("  - !! SAMPLE HAS MOVED - treat the numbers below as UNVERIFIED: "
+        + c.staleness.drifted.join("; "));
+      if (c.staleness.sampleFrom) {
+        line("    - written against: " + c.staleness.sampleFrom);
+      }
+      line("    - This claim is the EXCEPTION to the rule at the end of this section. Its own");
+      line("      evidence has expired, so re-measuring it needs no new argument - it IS the");
+      line("      argument. Re-curate server/evidence_register.js rather than citing this.");
+    }
     line("  - evidence: " + c.evidence.replace(/\s+/g, " "));
     line("  - would change the answer: " + c.changesTheAnswer.replace(/\s+/g, " "));
   }
   line();
   line("A claim marked MEASURED — NO EDGE has been tested and failed. Proposing to");
-  line("use it anyway needs an argument about the MEASUREMENT, not about the idea.");
+  line("use it anyway needs an argument about the MEASUREMENT, not about the idea —");
+  line("UNLESS it carries a SAMPLE HAS MOVED warning above. For those, the numbers are");
+  line("stale and proposing a re-measurement is the correct thing to do.");
 }
 line();
 

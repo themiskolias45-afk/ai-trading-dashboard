@@ -71,6 +71,13 @@ const CLAIMS = [
     // Rows are RECLASSIFIED to UNSCORABLE, never removed: rejections.jsonl is append-only
     // and was verified byte-identical on both boxes across the change, as was the frozen
     // rr_rejected.jsonl. Nothing was deleted and no signal is suppressed.
+    //
+    // Guarded because its whole argument is a RATIO of one row to the rest: as resolved
+    // episodes accumulate, a single +298R artifact stops being able to set the sign, and
+    // the conclusion would need rewriting rather than merely updating.
+    sampleAtWriting: { ledgerResolved: 476 },
+    sampleTolerance: 0.5,
+    sampleFrom: "VPS ledger (the peer box); the laptop read 162 resolved the same day",
     feedsTheGate: false,
   },
   {
@@ -213,6 +220,13 @@ const CLAIMS = [
       + "longs further (1.25) is better in just 2/5. Touching shorts alone does nothing. "
       + "Verdict NOT PROVEN; the bar stays at 1.5 both ways. To move it now you would need "
       + "a candidate that improves in most folds without one fold carrying it.",
+    // This claim's ledger half read "86 resolved, +22.47R, 78%" for five days while the
+    // VPS held 394 — and ai_brief.cjs served that to every agent under "Already MEASURED
+    // — do not re-litigate". Declared so the next drift is DETECTED instead of waiting
+    // for someone to re-read the ledger by hand.
+    sampleAtWriting: { minRrResolved: 394 },
+    sampleTolerance: 0.5,
+    sampleFrom: "VPS ledger (the peer box) — its rejection ledger is the richer one",
     feedsTheGate: true,
   },
   {
@@ -253,6 +267,12 @@ const CLAIMS = [
       + "fills accumulate. A candidate would have to be negative in EVERY scorable year "
       + "at the gate, not merely negative when pooled.",
     harness: "node tasks/regime_xtab.cjs",
+    // The claim that aged worst: "0W/12L, the only setup on the board with zero wins" was
+    // true at n=12 and false at n=113, and nothing noticed. A W/L pair is exactly the
+    // shape that turns into a lie as it grows, so both halves are declared.
+    sampleAtWriting: { rangeTradeShortWon: 53, rangeTradeShortLost: 60 },
+    sampleTolerance: 0.5,
+    sampleFrom: "VPS ledger (the peer box)",
     feedsTheGate: false,
   },
   {
@@ -313,37 +333,87 @@ const CLAIMS = [
 // surfaces needsRecuration with both figures, so a human re-curates deliberately.
 // Nothing here changes a claim's text, its status or its verdict.
 function liveSample() {
+  const fs = require("fs");
+  const path = require("path");
+  // Every source guarded SEPARATELY, and the function always returns an object. The
+  // previous version returned null for everything the moment journal.json was
+  // unreadable, which silently disabled the staleness check on claims that do not rest
+  // on the journal at all — a guard that switches itself off is worse than no guard.
+  // recurationCheck skips any key that is null, so a partial reading is safe.
+  const out = {
+    closedFills: null, openPositions: null, sessions: null,
+    ledgerResolved: null, minRrResolved: null,
+    rangeTradeShortWon: null, rangeTradeShortLost: null,
+  };
   try {
-    const fs = require("fs");
-    const path = require("path");
     const journal = JSON.parse(fs.readFileSync(path.join(__dirname, "journal.json"), "utf8"));
-    if (!Array.isArray(journal)) return null;
-    const out = {
-      closedFills: journal.filter(t => t && t.status === "CLOSED").length,
-      openPositions: journal.filter(t => t && t.status === "OPEN").length,
-      sessions: null,
-    };
-    try {
-      const learning = JSON.parse(fs.readFileSync(path.join(__dirname, "learning.json"), "utf8"));
-      if (Number.isFinite(learning?.sessionCount)) out.sessions = learning.sessionCount;
-    } catch (e) { /* sessions stay null; the fill counts still work */ }
-    return out;
-  } catch (e) { return null; }
+    if (Array.isArray(journal)) {
+      out.closedFills   = journal.filter(t => t && t.status === "CLOSED").length;
+      out.openPositions = journal.filter(t => t && t.status === "OPEN").length;
+    }
+  } catch (e) { /* fills stay null */ }
+  try {
+    const learning = JSON.parse(fs.readFileSync(path.join(__dirname, "learning.json"), "utf8"));
+    if (Number.isFinite(learning?.sessionCount)) out.sessions = learning.sessionCount;
+  } catch (e) { /* sessions stay null */ }
+  // The rejection ledger, which is what the fastest-moving claims here actually quote.
+  // Without this they declared a sample nothing could check: MIN_RR's evidence said "86
+  // resolved" for five days while the ledger held 394, and tasks/ai_brief.cjs served
+  // that to every agent under "Already MEASURED — do not re-litigate". No circular
+  // require: rejection_evidence pulls only fs and path and never references this file.
+  try {
+    const evidence = require("./rejection_evidence").buildEvidence();
+    if (evidence && evidence.available !== false) {
+      if (Number.isFinite(evidence.totals?.resolved)) out.ledgerResolved = evidence.totals.resolved;
+      if (Number.isFinite(evidence.gates?.MIN_RR?.resolved)) out.minRrResolved = evidence.gates.MIN_RR.resolved;
+      const shortSetup = evidence.setups?.RANGE_TRADE_SHORT;
+      if (Number.isFinite(shortSetup?.won))  out.rangeTradeShortWon  = shortSetup.won;
+      if (Number.isFinite(shortSetup?.lost)) out.rangeTradeShortLost = shortSetup.lost;
+    }
+  } catch (e) { /* ledger figures stay null; the journal ones still work */ }
+  return out;
 }
 
+// `sampleTolerance` is a FRACTION, default 0 meaning exact. Exact is right for a slow,
+// meaningful counter like closedFills, where every single new fill matters at n=4. It is
+// wrong for a monotonically growing one: the rejection ledger gains rows every hour, so an
+// exact check on it would flag every claim permanently and become the noise this file
+// exists to avoid. 0.5 says "flag when it has moved enough that the conclusion could have
+// changed" — MIN_RR going 86 -> 394 is a 358% move and would fire; a day's growth will not.
 function recurationCheck(claim, live) {
   if (!claim.sampleAtWriting || !live) return null;
+  const tolerance = Number.isFinite(claim.sampleTolerance) ? claim.sampleTolerance : 0;
   const drifted = [];
   for (const key of Object.keys(claim.sampleAtWriting)) {
     const wrote = claim.sampleAtWriting[key];
     const now   = live[key];
     if (now === null || now === undefined) continue;
-    if (now !== wrote) drifted.push(`${key}: written against ${wrote}, live is ${now}`);
+    if (!Number.isFinite(wrote) || !Number.isFinite(now)) {
+      if (now !== wrote) drifted.push(`${key}: written against ${wrote}, live is ${now}`);
+      continue;
+    }
+    // GROWTH only, never shrinkage. journal.json and the ledger are both per-machine, so
+    // a claim written against the VPS's 394 resolved episodes legitimately reads 125 on the
+    // laptop — that is a smaller box, not an expired claim, and flagging it produced three
+    // items that could never clear on this box. Every real staleness this file has suffered
+    // was the sample OUTGROWING the prose: MIN_RR written at 86 while the ledger held 394,
+    // RANGE_TRADE_SHORT written at 0W/12L while it reached 53W/60L. Growth is the signal.
+    if (now <= wrote) continue;
+    const move = (now - wrote) / Math.max(Math.abs(wrote), 1);
+    if (move > tolerance) {
+      drifted.push(`${key}: written against ${wrote}, live is ${now}`
+        + ` (grown ${Math.round(move * 100)}%`
+        + (tolerance > 0 ? `, tolerance ${Math.round(tolerance * 100)}%)` : ")"));
+    }
   }
   if (!drifted.length) return null;
   return {
     needsRecuration: true,
     drifted,
+    // Which box the prose describes. journal.json and the ledger are BOTH per-machine, so
+    // a claim written against one box legitimately reads as drifted on the other. Saying
+    // which box turns an item that looks unclearable into one a reader can act on.
+    sampleFrom: claim.sampleFrom || null,
     detail: "This claim's prose quotes a sample that has since moved. It is shown "
       + "unchanged on purpose — re-curate it by hand in server/evidence_register.js "
       + "rather than trusting the numbers in it.",

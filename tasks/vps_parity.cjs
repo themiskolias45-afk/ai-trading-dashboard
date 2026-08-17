@@ -93,6 +93,11 @@ const TRACKED = [
   // surfaced and preopen_plan.cjs is where it was thrown, so a diagnosis deployed to one
   // box and not the other would leave the box that trades still reporting a bare errno.
   "tasks/deep_plan.cjs", "tasks/preopen_plan.cjs",
+  // What every agent is TOLD before it works. If this drifts, the two boxes' agents are
+  // briefed differently from the same evidence register — and section 4 of it instructs
+  // the reader not to re-litigate what it lists, so a difference here decides what an
+  // agent is allowed to question.
+  "tasks/ai_brief.cjs",
 ];
 
 // The functions that decide whether a trade happens. If these agree, the two
