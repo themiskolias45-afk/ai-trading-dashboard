@@ -61,6 +61,11 @@ const TRACKED = [
   // killed the VPS on deploy — so it is tracked beside its caller, not left implicit.
   "server/proposal_citations.js",
   "server/evidence_register.js", "server/ai_registry.js", "server/mcp_server.js",
+  // Required at index.js:117 for the near-miss census. Same reason as
+  // proposal_citations.js above: a required module that drifts is invisible until the
+  // box it drifted on behaves differently, and this one decides whether a setup that
+  // missed by 0.7 RSI gets counted at all.
+  "server/near_miss.js",
   "mt5_bridge.py",
   "dashboard/index.html", "dashboard/jarvis.html",
   "dashboard/plan.html", "dashboard/system.html",
@@ -73,6 +78,16 @@ const TRACKED = [
   "tasks/auto_weekly.bat", "tasks/auto_daily.bat", "tasks/drain_agents.bat",
   "tasks/auto_weekly_vps.bat", "tasks/auto_daily_vps.bat",
   "tasks/vps_monitor.ps1", "tasks/vps_parity.cjs",
+  // The rejection ledger's middle two stages. The pipeline is write -> score -> shadow
+  // -> verdict, and only the first and last were listed: rejection_log.js and
+  // rejection_evidence.js were compared while the two scripts that turn rows into
+  // evidence were not. That is how a broker-clock bug in the scorer sat on both boxes
+  // unseen while parity reported ENGINES AGREE. Both came back identical on the first
+  // widened run — learning_from_rejections.py differs by RAW hash and matches once line
+  // endings are normalised, which is exactly why norm() exists and why a raw
+  // Get-FileHash comparison across the two boxes is not evidence of drift. Per this
+  // file's own rule: a file nothing compares is a file that diverges.
+  "tasks/score_rr_rejections.py", "tasks/learning_from_rejections.py",
 ];
 
 // The functions that decide whether a trade happens. If these agree, the two
