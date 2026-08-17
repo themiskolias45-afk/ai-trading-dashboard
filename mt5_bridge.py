@@ -2414,6 +2414,33 @@ def main():
 
     log("Bridge started — watching for signals…", GREEN)
 
+    # WHO THIS PROCESS IS, because Windows will not say.
+    #
+    # Get-CimInstance returns an EMPTY CommandLine for these python processes — verified
+    # 2026-08-17, two of them, both `cmd=[]`, identical creation times — and one of the two
+    # is the shim. So nothing on the laptop could tell Bridge A from Bridge B from an
+    # unrelated script, and tasks/safe_bridge_restart.cjs had no safe way to cycle a bridge
+    # here at all: it fell back to a scheduled task that only exists on the VPS. Killing by
+    # guess on a process that trades is not an option, so the bridge names itself instead.
+    #
+    # Tag-scoped, so two bridges never overwrite each other's file. Written AFTER the MT5
+    # connection is up, so the file's existence means a bridge that actually reached the
+    # terminal, not one that died initialising. Never cleaned up on exit: a stale file is
+    # harmless because every reader must re-verify the pid is a live python process anyway,
+    # whereas deleting it on a crash path that may not run would be a false absence.
+    #
+    # Best-effort by design. A bridge that cannot write a diagnostic file must still trade.
+    try:
+        pid_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "tasks", "logs", f"bridge_{ACCOUNT_TAG or 'default'}.pid")
+        os.makedirs(os.path.dirname(pid_path), exist_ok=True)
+        with open(pid_path, "w", encoding="utf-8") as handle:
+            handle.write(str(os.getpid()))
+        log(f"Bridge pid {os.getpid()} recorded at {os.path.relpath(pid_path)}", CYAN)
+    except Exception as exc:
+        log(f"Could not record bridge pid ({exc}) — restart tooling will fall back to "
+            f"refusing rather than guessing.", YELLOW)
+
     # Push once before the first signal fetch so the server's very first refresh
     # already has MT5 bars rather than spending a cycle on the Yahoo fallback.
     push_candles(force=True)

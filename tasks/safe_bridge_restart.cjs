@@ -41,7 +41,15 @@
  */
 
 const http = require("http");
+const fs   = require("fs");
+const path = require("path");
 const { execFileSync } = require("child_process");
+
+const PROJECT_ROOT = path.join(__dirname, "..");
+// Which restart mechanism this box actually has. Decided in pre-flight, used at the
+// restart step, so the two can never disagree about what is about to happen.
+let usePidFile  = false;
+let pidFromFile = null;
 
 function flag(name) { return process.argv.indexOf(name) !== -1; }
 function opt(name, fallback) {
@@ -159,21 +167,48 @@ function record(name, ok, detail) {
   // skipped rather than guessed at, and says which it did.
   if (HOST === "localhost" || HOST === "127.0.0.1") {
     let taskFound = false;
-    let taskDetail = "";
     try {
       const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command",
         "if (Get-ScheduledTask -TaskName '" + TASK.replace(/'/g, "''") + "' -ErrorAction SilentlyContinue) { 'FOUND' } else { 'MISSING' }"],
         { encoding: "utf8", timeout: 20000, windowsHide: true });
       taskFound = /FOUND/.test(out);
-      taskDetail = taskFound
-        ? "scheduled task '" + TASK + "' exists on this box"
-        : "no scheduled task '" + TASK + "' here — pass --task with this box's own name. "
-          + "The laptop has no per-bridge task at all: its bridges come up via "
-          + "tasks/ensure_running.ps1 or START.bat, so there is nothing for this tool to cycle.";
-    } catch (e) {
-      taskDetail = "could not query the scheduler (" + (e.code || e.message) + ")";
+    } catch (e) { /* falls through to the pid-file route */ }
+
+    if (taskFound) {
+      record("restart target exists", true, "scheduled task '" + TASK + "' exists on this box");
+    } else {
+      // No task here — the laptop has none. Fall back to the pid the bridge recorded for
+      // itself, and VERIFY it rather than trusting the file: a pid outlives the process
+      // that owned it and can be recycled by anything.
+      const pidFile = path.join(PROJECT_ROOT, "tasks", "logs", "bridge_" + ACCOUNT + ".pid");
+      let detail = "";
+      try {
+        const raw = fs.readFileSync(pidFile, "utf8").trim();
+        const candidate = Number(raw);
+        if (!Number.isInteger(candidate) || candidate <= 0) {
+          detail = "bridge_" + ACCOUNT + ".pid holds " + JSON.stringify(raw.slice(0, 40)) + ", not a pid";
+        } else {
+          const name = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command",
+            "(Get-Process -Id " + candidate + " -ErrorAction SilentlyContinue).ProcessName"],
+            { encoding: "utf8", timeout: 20000, windowsHide: true }).trim();
+          if (!name) {
+            detail = "pid " + candidate + " from bridge_" + ACCOUNT + ".pid is not running — stale file";
+          } else if (!/python/i.test(name)) {
+            detail = "pid " + candidate + " is '" + name + "', not python — the pid was recycled, refusing";
+          } else {
+            usePidFile = true;
+            pidFromFile = candidate;
+            detail = "bridge " + ACCOUNT + " self-recorded pid " + candidate + " (" + name + "), verified live";
+          }
+        }
+      } catch (e) {
+        detail = "no scheduled task '" + TASK + "' and no tasks/logs/bridge_" + ACCOUNT + ".pid. "
+          + "This box records the pid only from the bridge's own startup, so it needs ONE manual "
+          + "restart (tasks\\start_bridge_" + ACCOUNT + ".bat) before this tool can cycle it — after "
+          + "that it works unattended.";
+      }
+      record("restart target exists", usePidFile, detail);
     }
-    record("restart target exists", taskFound, taskDetail);
   } else {
     console.log("  SKIP  restart target exists                   " + HOST + " is remote; its scheduler is not queryable from here");
   }
@@ -190,6 +225,37 @@ function record(name, ok, detail) {
   if (DRY_RUN) { console.log("DRY RUN — stopping here. Nothing was touched."); return; }
 
   // ── restart ────────────────────────────────────────────────────────────────
+  //
+  // TWO MECHANISMS, because the boxes are not built the same. The VPS owns a per-bridge
+  // scheduled task; the laptop has none at all — its bridges come up through
+  // tasks/start_bridge_<TAG>.bat, driven by ensure_running.ps1, which never kills. So on
+  // the laptop this tool had nothing to cycle and died on a task that does not exist.
+  //
+  // Killing by process match is NOT available as a fallback: Windows reports an EMPTY
+  // CommandLine for these python processes (verified 2026-08-17 — two of them, both
+  // `cmd=[]`, identical creation times, and one of the two is the shim), so "the bridge"
+  // cannot be picked out of the process list. Guessing on a process that trades is not a
+  // thing this script will do. The bridge therefore names itself: it writes its own pid to
+  // tasks/logs/bridge_<TAG>.pid once MT5 is connected, and that file is the identity used
+  // here — re-verified as a live python process before anything is signalled, because a
+  // stale pid can be recycled by an unrelated program.
+  if (usePidFile) {
+    console.log("\nRestarting bridge " + ACCOUNT + " by recorded pid " + pidFromFile + " …");
+    try {
+      execFileSync("powershell", ["-NoProfile", "-Command",
+        "Stop-Process -Id " + pidFromFile + " -Force -Confirm:$false"], { stdio: "inherit" });
+      console.log("  stopped pid " + pidFromFile + "; starting tasks\\start_bridge_" + ACCOUNT + ".bat");
+      execFileSync("powershell", ["-NoProfile", "-Command",
+        "Start-Process -FilePath 'cmd' -ArgumentList '/c','tasks\\start_bridge_" + ACCOUNT
+        + ".bat' -WorkingDirectory '" + PROJECT_ROOT.replace(/'/g, "''") + "' -WindowStyle Minimized"],
+        { stdio: "inherit" });
+    } catch (e) {
+      console.log("  restart failed: " + e.message);
+      console.log("  The bridge may now be DOWN. Check GET /api/mt5/health?account=" + ACCOUNT
+        + " and start it with tasks\\start_bridge_" + ACCOUNT + ".bat if needed.");
+      process.exit(4);
+    }
+  } else {
   console.log("\nRestarting scheduled task " + TASK + " …");
   const ps = "Stop-ScheduledTask -TaskName " + TASK + "; Start-Sleep -Seconds 3; Start-ScheduledTask -TaskName " + TASK;
   try {
@@ -204,6 +270,7 @@ function record(name, ok, detail) {
   } catch (e) {
     console.log("  restart command failed: " + e.message);
     process.exit(4);
+  }
   }
 
   // ── verify it came back, and that it came back BETTER ──────────────────────
