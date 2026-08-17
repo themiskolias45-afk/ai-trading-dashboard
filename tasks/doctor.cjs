@@ -320,11 +320,11 @@ function checkFleetExposure(boxes) {
  * past the one that matters. On that box it is reported as a standing INFO naming
  * where the check actually lives, not as a chore nobody there can do.
  */
-function checkParity(canReachPeer) {
-  const file = path.join(ROOT, "tasks", "logs", "vps_parity_last.json");
+function checkParity(canReachPeer, root = ROOT) {
+  const file = path.join(root, "tasks", "logs", "vps_parity_last.json");
   let record = null;
   try { record = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { record = null; }
-  const healCmd = ["node", [path.join(ROOT, "tasks", "vps_parity.cjs"), "--emit"]];
+  const healCmd = ["node", [path.join(root, "tasks", "vps_parity.cjs"), "--emit"]];
 
   if (!record) {
     finding(canReachPeer ? "AMBER" : "INFO", "fleet", "engine parity has never been recorded here",
@@ -360,8 +360,8 @@ function checkParity(canReachPeer) {
   }
 }
 
-function checkAgentQueue() {
-  const file = path.join(ROOT, "tasks", "agent_queue.jsonl");
+function checkAgentQueue(root = ROOT) {
+  const file = path.join(root, "tasks", "agent_queue.jsonl");
   let jobs = [];
   try {
     jobs = fs.readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean)
@@ -375,7 +375,7 @@ function checkAgentQueue() {
       "these are briefs a subscription limit interrupted; they are held, not lost, but " +
       "nothing has resumed them",
       "python claude_agent.py drain",
-      ["python", [path.join(ROOT, "claude_agent.py"), "drain"]]);
+      ["python", [path.join(root, "claude_agent.py"), "drain"]]);
   }
   const waiting = jobs.length - due.length;
   if (waiting > 0) {
@@ -406,8 +406,8 @@ function checkAgentQueue() {
  */
 const LIMIT_LOG_TAIL_LINES = 40;
 
-function checkAiCapacity() {
-  const logPath = path.join(ROOT, "tasks", "logs", "agent_log.txt");
+function checkAiCapacity(root = ROOT) {
+  const logPath = path.join(root, "tasks", "logs", "agent_log.txt");
   let tail = [];
   try {
     tail = fs.readFileSync(logPath, "utf8").split(/\r?\n/).slice(-LIMIT_LOG_TAIL_LINES);
@@ -418,7 +418,7 @@ function checkAiCapacity() {
 
   let parked = [];
   try {
-    parked = fs.readFileSync(path.join(ROOT, "tasks", "agent_queue.jsonl"), "utf8")
+    parked = fs.readFileSync(path.join(root, "tasks", "agent_queue.jsonl"), "utf8")
       .split(/\r?\n/).filter(Boolean)
       .map(l => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
   } catch (e) { parked = []; }
@@ -560,8 +560,8 @@ function checkMarketJobs(root = ROOT) {
   }
 }
 
-function checkBackup() {
-  const file = path.join(ROOT, "tasks", "logs", "backup_log.txt");
+function checkBackup(root = ROOT) {
+  const file = path.join(root, "tasks", "logs", "backup_log.txt");
   try {
     const age = ageHours(fs.statSync(file).mtimeMs);
     if (age > BACKUP_STALE_HOURS) {
@@ -626,11 +626,11 @@ function checkDashboardEncoding(dir = path.join(ROOT, "dashboard")) {
  * refused rather than attributed to a phantom bucket — so this reports the gap and
  * says WHY rather than calling it a fault.
  */
-function checkLearningIntegrity() {
+function checkLearningIntegrity(root = ROOT) {
   let journal, learning;
-  try { journal = JSON.parse(fs.readFileSync(path.join(ROOT, "server", "journal.json"), "utf8")); }
+  try { journal = JSON.parse(fs.readFileSync(path.join(root, "server", "journal.json"), "utf8")); }
   catch (e) { return; }
-  try { learning = JSON.parse(fs.readFileSync(path.join(ROOT, "server", "learning.json"), "utf8")); }
+  try { learning = JSON.parse(fs.readFileSync(path.join(root, "server", "learning.json"), "utf8")); }
   catch (e) { return; }
 
   const closed = (journal || []).filter(t => t && t.status === "CLOSED" && typeof t.pnl === "number");
@@ -664,8 +664,8 @@ function checkLearningIntegrity() {
  * finding: a heartbeat is a claim about the past, and treating it as live state is how
  * a dead box looks healthy.
  */
-async function checkPeerViaHeartbeat(localGate) {
-  const res = await get("http://localhost:3001/api/peer-heartbeat");
+async function checkPeerViaHeartbeat(localGate, base = "http://localhost:3001") {
+  const res = await get(base + "/api/peer-heartbeat");
   if (res.error || !res.data || !Array.isArray(res.data.peers)) return;
   if (!res.data.peers.length) {
     finding("AMBER", "peer", "no peer has ever checked in",
@@ -829,8 +829,21 @@ if (require.main === module) {
   });
 }
 
-// checkPeerViaHeartbeat is exported for testing. On a healthy fleet it produces NO
-// findings, which is indistinguishable from never having run — so it needs to be
-// callable with a deliberately wrong gate to prove it evaluates at all.
-module.exports = { diagnose, checkPeerViaHeartbeat, checkMarketJobs, checkDashboardEncoding,
+// EVERY check is exported, and every file-reading check takes an optional `root` while the
+// HTTP ones take an optional `base`. The defaults are exactly the production values, so
+// diagnose() behaves identically — the parameters exist solely so the branches can be
+// FORCED to fire.
+//
+// That is the point. On a healthy fleet these functions produce no findings, which is
+// indistinguishable from never having run at all, and this file's own history is full of
+// checks that were wrong in exactly that silence: the position-cache guard needed a young
+// server to be exercised, checkMarketJobs only fires on a day something has already gone
+// wrong, and the encoding check reported eight pages clean while six were damaged. A check
+// that has never been seen to fire is not a verified check, it is a comment that looks like
+// one. tasks/doctor_selftest.cjs drives all of them.
+module.exports = {
+  diagnose,
+  checkBox, checkFleetExposure, checkParity, checkAgentQueue, checkAiCapacity,
+  checkMarketJobs, checkBackup, checkDashboardEncoding, checkLearningIntegrity,
+  checkPeerViaHeartbeat,
   _findings: () => findings, _reset: () => { findings = []; } };
