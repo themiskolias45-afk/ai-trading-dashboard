@@ -69,6 +69,20 @@ const TRACKED = [
   "mt5_bridge.py",
   "dashboard/index.html", "dashboard/jarvis.html",
   "dashboard/plan.html", "dashboard/system.html",
+  // The other four pages, added 2026-08-17. Only the first four were listed, and on that
+  // day a scripted CSS edit mojibaked SIX pages and deployed them — command.html,
+  // daily-plan.html and performance.html were among the damaged and none of the three was
+  // being compared, so a repair applied to one box only would have read as ENGINES AGREE.
+  // login.html is listed because it is the only page reachable without a session, which
+  // makes it the one page a stranger sees.
+  "dashboard/command.html", "dashboard/daily-plan.html",
+  "dashboard/performance.html", "dashboard/login.html",
+  // The doctor and the scanner it requires. doctor.cjs is the tool whose whole purpose is
+  // reporting on BOTH boxes, so a version of it that differs between them is self-
+  // defeating; and encoding_check.cjs is a hard require of it, which by the
+  // proposal_citations.js rule above means missing-on-one-box takes that box's doctor out
+  // entirely rather than degrading it.
+  "tasks/doctor.cjs", "tasks/encoding_check.cjs",
   // The job scripts. Omitting these is how the two boxes' schedulers drifted apart
   // unnoticed: the VPS runs auto_weekly_vps.bat, which lacked the completion marker
   // its laptop twin has had since 2026-08-09, so every VPS weekly reported
