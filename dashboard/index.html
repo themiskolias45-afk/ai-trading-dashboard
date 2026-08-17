@@ -2128,6 +2128,50 @@ window.addEventListener("resize", () => {
 function fmt(n, d=2)    { if(n==null)return"N/A"; return"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function fmtChange(c)   { if(c==null)return"—"; return(c>=0?"+":"")+c.toFixed(2)+"%"; }
 function biasClass(b)   { return"bias-"+(b??"NEUTRAL").replace(" ","_"); }
+
+/**
+ * The Overview card's verdict — the ENGINE's, not the price change's.
+ *
+ * Reuses the existing bias-* classes rather than inventing a palette, and maps them by
+ * whether the setup can actually TRADE:
+ *
+ *   fires now (signal, conf >= live gate)  -> BUY/SELL colour. This is the only green.
+ *   below the gate (signal but conf < gate) -> NEUTRAL + the gap. It cannot fire, so it
+ *                                              must not look like a recommendation.
+ *   WAIT                                    -> NEUTRAL + the gap to the gate.
+ *   gate unknown / no payload               -> "—", never a guess.
+ *
+ * The gap is the number that matters on this system: one closed fill in its whole life,
+ * and the binding question is always how far anything is from firing.
+ */
+function setEngineVerdict(id, sig) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const conf   = sig && Number.isFinite(sig.confidence) ? sig.confidence : null;
+  const signal = sig && typeof sig.signal === "string" ? sig.signal : null;
+  // liveGate is read from /api/strategy-settings, never hardcoded — it moved 65 -> 70 and
+  // this page quoted the stale number in five places. Unknown gate means unknown gap, and
+  // saying so beats implying readiness.
+  if (!signal || conf === null || liveGate == null) {
+    el.textContent = "—";
+    el.className = "price-bias " + biasClass("NEUTRAL");
+    el.title = "engine verdict unavailable";
+    return;
+  }
+  const gap = Math.max(0, liveGate - conf);
+  const fires = signal !== "WAIT" && conf >= liveGate;
+  if (fires) {
+    el.textContent = signal + " " + conf + "%";
+    el.className = "price-bias " + biasClass(signal === "SELL" ? "STRONG SELL" : "STRONG BUY");
+    el.title = "at or above the live gate of " + liveGate + "% — this one can fire";
+  } else {
+    el.textContent = (signal === "WAIT" ? "WAIT" : signal + " " + conf + "%") + " · gap " + gap + "pt";
+    el.className = "price-bias " + biasClass("NEUTRAL");
+    el.title = signal === "WAIT"
+      ? "no setup formed; " + gap + " points below the live gate of " + liveGate + "%"
+      : signal + " formed at " + conf + "% but the gate is " + liveGate + "% — it does NOT fire";
+  }
+}
 function changeClass(c) { return c==null?"flat":c>0?"up":c<0?"down":"flat"; }
 // The gate is a live setting, not a constant. It was written into this page as a
 // literal 65 in five places while the configured gate has been 70 since 2026-08-02,
@@ -2329,10 +2373,22 @@ async function loadPrices() {
     _lastStatus = d;
     const setPrice = (id,val,dec) => document.getElementById(id).textContent = fmt(val,dec);
     const setChange = (id,c) => { const el=document.getElementById(id); el.textContent=fmtChange(c); el.className="price-change "+changeClass(c); };
-    const setBias = (id,c) => { const el=document.getElementById(id); const t=(c??0)>2?"STRONG BUY":(c??0)>0?"BUY":(c??0)<-2?"STRONG SELL":(c??0)<0?"SELL":"NEUTRAL"; el.textContent=t; el.className="price-bias "+biasClass(t); };
-    setPrice("btc-price",d.btc,0); setChange("btc-change",d.btcChange); setBias("btc-bias",d.btcChange);
-    setPrice("gold-price",d.gold,1); setChange("gold-change",d.goldChange); setBias("gold-bias",d.goldChange);
-    setPrice("spx-price",d.spx,2); setChange("spx-change",d.spxChange); setBias("spx-bias",d.spxChange);
+    // The -bias cell is NO LONGER derived from the 24h price change. It used to read
+    // "STRONG BUY" above +2%, "BUY" above 0, and so on, with no input from the engine at
+    // all — so on 2026-08-17 all three cards read BUY off drifts of 0.36-0.54% while the
+    // engine said WAIT at confidence 0, a gap of 70 points from firing. A trade-shaped
+    // label on the first screen, contradicting the engine on every asset at once.
+    //
+    // That is the same class as "WAIT" once topping the setup table and the gate being
+    // hardcoded in five places: a reading surface asserting something the engine does not.
+    // setEngineVerdict() in loadSignals() now owns this cell and reports the engine's
+    // actual signal, confidence and distance to the live gate.
+    //
+    // The 24h change is NOT lost — setChange writes it into -change immediately beside
+    // this cell, which is where a momentum number belongs.
+    setPrice("btc-price",d.btc,0);  setChange("btc-change",d.btcChange);
+    setPrice("gold-price",d.gold,1); setChange("gold-change",d.goldChange);
+    setPrice("spx-price",d.spx,2);  setChange("spx-change",d.spxChange);
     if(d.dxy!=null) {
       document.getElementById("dxy-price").textContent="$"+d.dxy.toFixed(2);
       setChange("dxy-change",d.dxyChange);
@@ -2460,6 +2516,14 @@ async function loadSignals() {
   try {
     const d=await getJson("/signals");
     _lastSignals = d;
+    // The Overview card's verdict, from the ENGINE rather than from the price change.
+    // Colour tracks TRADEABILITY, not direction: a BUY sitting below the gate does not
+    // fire, so it gets the neutral treatment and states its gap. Colouring it green
+    // because the word says BUY would reproduce in miniature the exact bug this replaced.
+    ["btc","gold","spx"].forEach(k => {
+      try { setEngineVerdict(k + "-bias", d[k]); }
+      catch (e) { console.error("setEngineVerdict " + k + ":", e); }
+    });
     renderSignalCard("sig-btc",d.btc); renderSignalCard("sig-gold",d.gold); renderSignalCard("sig-spx",d.spx);
     // Each renderer is guarded on its own: one malformed asset must not take the
     // other two charts, the rails and the feed tags down with it.
