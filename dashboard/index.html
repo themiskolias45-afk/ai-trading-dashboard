@@ -4203,8 +4203,22 @@ async function loadTrust() {
       setTrustCell('tr-feed', 'trust-idle', 'Unverified',
         'no MT5 bar timestamps yet on either box', false);
     } else {
-      setTrustCell('tr-feed', 'trust-ok', 'Current',
-        checkedFeeds.length === 2 ? 'MT5 bars current on both boxes' : 'MT5 bars current here', false);
+      // `checked:true` alone would OVERCLAIM. It goes true when at least one asset was
+      // judged, so a box with BTC verified and Gold and SPX never pushed would have read
+      // a clean "Current" here — a green tick covering two unverified feeds. The
+      // summariser reports unjudgedAssets precisely so this cell does not have to guess,
+      // and a partial verification is reported as partial.
+      const unjudged = feeds.reduce((acc, [where, f]) => {
+        const list = (f && f.unjudgedAssets) || [];
+        return list.length ? acc.concat(list.map(a => a.toUpperCase() + ' ' + where)) : acc;
+      }, []);
+      if (unjudged.length) {
+        setTrustCell('tr-feed', 'trust-warn', 'Partial',
+          'unverified: ' + unjudged.join(', '), false);
+      } else {
+        setTrustCell('tr-feed', 'trust-ok', 'Current',
+          checkedFeeds.length === 2 ? 'MT5 bars current on both boxes' : 'MT5 bars current here', false);
+      }
     }
 
     if (data.latestBackup) {
