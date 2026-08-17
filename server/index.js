@@ -2442,14 +2442,32 @@ async function refreshSignals() {
         // already computes this to decide the Yahoo fallback and then discards it, so a
         // wedged terminal that keeps posting on schedule while its bars stop moving was
         // invisible from this response — the documented failure mode, and the reader had to
-        // diff two runs against saved memory to catch it. Reported honestly rather than as
-        // a date on the Yahoo path, because that series carries no bar timestamps at all
-        // and a null would be indistinguishable from a stalled feed.
+        // diff two runs against saved memory to catch it.
         // Proposed by the VPS morning agent, morning-6uy0o7.
-        signalCache[a.key].barFreshness = mt5Bars
-          ? judgeBarFreshness(mt5Bars.daily, "d1")
+        //
+        // Judged on the MT5 SERIES ITSELF, not on whether it was used, and this is the
+        // whole point. The first cut read `mt5Bars`, which mt5BarsFor() returns as null
+        // PRECISELY WHEN the daily series is stale (see its stale branch above) — so
+        // `stale` could only ever come back false, and the wedged-terminal case landed on
+        // the fallback looking byte-identical to "no bridge is running". A diagnostic whose
+        // headline boolean cannot change state is the status-text-nobody-can-move pattern.
+        // Reading the cache directly makes stale:true reachable.
+        //
+        // `stale` stays a statement about the MT5 bars alone. It must NOT be set on the
+        // fallback: when Yahoo supplied the levels those prices are genuinely fresh, and a
+        // consumer reading stale:true would conclude the served prices were old.
+        // `usedForThisSignal` carries that second, separate fact, so "MT5 wedged, fell back"
+        // (stale:true, used:false) is distinguishable from "no bridge yet"
+        // (checked:false, used:false). Same key set on every branch.
+        const mt5Entry = mt5CandleCache[a.key];
+        const dailyBarFreshness = mt5Entry
+          ? judgeBarFreshness(mt5Entry.bars?.d1, "d1")
           : { checked: false, stale: false, ageMs: null, lastBarAt: null,
-              reason: `computed from ${dataSource}, which carries no bar timestamps` };
+              reason: "no MT5 bars have been pushed for this asset yet" };
+        signalCache[a.key].barFreshness = {
+          ...dailyBarFreshness,
+          usedForThisSignal: dataSource === "mt5",
+        };
       }
       const s = signalCache[a.key];
       console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) conf:${s?.confidence}% regime:${s?.regime} vol:${s?.volume?.ratio ?? "?"}x`);
@@ -4273,7 +4291,17 @@ app.get("/api/learning", (_, res) => {
       if (fs.existsSync(shadowPath)) {
         const raw = JSON.parse(fs.readFileSync(shadowPath, "utf8"));
         const generatedAt = raw.generatedAt || null;
-        const generatedMs = generatedAt ? Date.parse(generatedAt) : NaN;
+        // typeof-guarded, not just Number.isFinite. That catches NaN but not absurdity:
+        // a generatedAt of 12345 would parse to a number and render ageHours as
+        // -90449006.6 rather than null. Unreachable from the current writer; cheap to
+        // make hostile-input-proof.
+        //
+        // The writer MUST keep emitting an offset. tasks/learning_from_rejections.py uses
+        // datetime.now(timezone.utc).isoformat(), which yields "+00:00" — Date.parse reads
+        // an offset-LESS ISO string as LOCAL time, so if that ever became utcnow() this
+        // laptop would overstate the age by its BST offset while the UTC VPS read it
+        // correctly, and the two boxes would disagree by an hour about the same file.
+        const generatedMs = typeof generatedAt === "string" ? Date.parse(generatedAt) : NaN;
         shadow = {
           stats:       raw.shadowStats || {},
           generatedAt,
