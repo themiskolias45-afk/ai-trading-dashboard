@@ -38,7 +38,8 @@ except ImportError:
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 SERVER_URL     = os.environ.get("SMARTENTRY_URL", "http://localhost:3001")
-RISK_PERCENT   = float(os.environ.get("RISK_PERCENT", "1.0"))   # % of balance per trade
+RISK_PERCENT   = float(os.environ.get("RISK_PERCENT", "1.0"))   # % of balance per trade, at base (65-74%) confidence
+MAX_RISK_PERCENT = float(os.environ.get("MAX_RISK_PERCENT", "3.0"))  # per-trade risk ceiling regardless of confidence — mirrors server/sizing.js MAX_SINGLE_TRADE_RISK
 MAX_SPREAD_PTS = int(os.environ.get("MAX_SPREAD",    "50"))      # reject trade if spread > this
 POLL_INTERVAL  = int(os.environ.get("POLL_INTERVAL", "60"))      # seconds between signal checks
 MAGIC_NUMBER   = 20250101                                         # unique ID for SmartEntry orders
@@ -155,13 +156,32 @@ def connect_mt5():
     return auto_detect_symbols()
 
 
-def get_lot_size(symbol, entry, stop):
+def confidence_risk_multiplier(confidence):
+    """Scale per-trade risk with signal confidence.
+
+    Every signal here already cleared the 65% confidence floor before it
+    reaches the bridge (server/index.js), so a 65% setup and a 95% setup
+    were getting sized identically — the same tiers server/sizing.js's
+    calcSize() defines and tests, but that function is never called on the
+    live execution path. Mirrored here so conviction actually affects size.
+    """
+    if not isinstance(confidence, (int, float)):
+        return 1.0
+    if confidence >= 90:
+        return 1.5
+    if confidence >= 75:
+        return 1.25
+    return 1.0
+
+
+def get_lot_size(symbol, entry, stop, confidence=None):
     acc = mt5.account_info()
     if not acc:
         return MIN_LOT.get(symbol, 0.01)
 
-    balance      = acc.balance
-    risk_amount  = balance * RISK_PERCENT / 100
+    balance       = acc.balance
+    effective_risk_pct = min(RISK_PERCENT * confidence_risk_multiplier(confidence), MAX_RISK_PERCENT)
+    risk_amount   = balance * effective_risk_pct / 100
     stop_distance = abs(entry - stop)
     if stop_distance == 0:
         return MIN_LOT.get(symbol, 0.01)
@@ -198,7 +218,7 @@ def check_spread(symbol):
     return ok, spread
 
 
-def place_order(symbol, signal_type, entry, stop, target):
+def place_order(symbol, signal_type, entry, stop, target, confidence=None):
     spread_ok, spread = check_spread(symbol)
     if not spread_ok:
         log(f"Spread too wide on {symbol}: {spread:.0f} pts (max {MAX_SPREAD_PTS}) — skipping", YELLOW)
@@ -207,7 +227,7 @@ def place_order(symbol, signal_type, entry, stop, target):
     order_type = mt5.ORDER_TYPE_BUY if signal_type == "BUY" else mt5.ORDER_TYPE_SELL
     tick       = mt5.symbol_info_tick(symbol)
     price      = tick.ask if signal_type == "BUY" else tick.bid
-    lots       = get_lot_size(symbol, entry, stop)
+    lots       = get_lot_size(symbol, entry, stop, confidence)
 
     request = {
         "action":        mt5.TRADE_ACTION_DEAL,
@@ -255,6 +275,7 @@ def prompt_confirm(sig, symbol):
     stop       = sig.get("stop")
     target     = sig.get("target")
     rr         = sig.get("rr")
+    confidence = sig.get("confidence")
     rsi        = sig.get("indicators", {}).get("rsi")
     trend      = sig.get("trend", "")
     strength   = sig.get("strength", "")
@@ -277,9 +298,11 @@ def prompt_confirm(sig, symbol):
     print(f"  MT5 sym:  {symbol}")
     acc = mt5.account_info()
     if acc:
-        lots = get_lot_size(symbol, entry, stop)
-        risk_usd = acc.balance * RISK_PERCENT / 100
-        print(f"  Lots:     {lots}  (${risk_usd:.2f} risk at {RISK_PERCENT}% of ${acc.balance:.2f})")
+        lots = get_lot_size(symbol, entry, stop, confidence)
+        effective_risk_pct = min(RISK_PERCENT * confidence_risk_multiplier(confidence), MAX_RISK_PERCENT)
+        risk_usd = acc.balance * effective_risk_pct / 100
+        conf_label = f"{confidence}% confidence" if confidence is not None else "no confidence data"
+        print(f"  Lots:     {lots}  (${risk_usd:.2f} risk at {effective_risk_pct:.2f}% of ${acc.balance:.2f} — {conf_label})")
     print(f"{color}{'='*60}{RESET}")
 
     if AUTO_MODE:
@@ -350,7 +373,7 @@ def process_signal(key, sig):
 
     confirmed = prompt_confirm(sig, symbol)
     if confirmed:
-        ok = place_order(symbol, direction, entry, stop, target)
+        ok = place_order(symbol, direction, entry, stop, target, sig.get("confidence"))
         if ok:
             executed_signals[key] = cache_key
     else:
