@@ -338,6 +338,30 @@ function renderFleet(data) {
     return box.halted ? 'OPEN — ' + (box.haltReason || 'halted') : 'closed';
   };
 
+  // MT5 bar freshness, per box. `stale` is a statement about the BROKER SERIES only:
+  // when it is true the engine has already fallen back to Yahoo, so the prices and
+  // levels on every page are current and it is the feed behind them that stopped
+  // moving. No other row here changes when a terminal wedges underneath a running
+  // bridge — the push stays seconds old and the bridge keeps reporting LIVE.
+  const barFreshnessText = (box) => {
+    const freshness = box.barFreshness;
+    if (!freshness || !freshness.checked) return 'unverified — no MT5 bar timestamps';
+    const worst = freshness.worst || {};
+    const staleAssets = freshness.staleAssets || [];
+    if (staleAssets.length > 0) {
+      return 'BROKER FEED STALE: ' + staleAssets.join(', ').toUpperCase()
+           + (worst.reason ? ' · ' + worst.reason : '')
+           + (worst.usedForThisSignal ? '' : ' · signals fell back to Yahoo, prices shown are current');
+    }
+    return 'current' + (worst.lastBarAt ? ' · oldest daily bar ' + worst.lastBarAt.slice(0, 10) : '');
+  };
+
+  // Only boxes that answered can be judged. An unreachable peer gets a dash, never a
+  // pass — the whole point of this row is that silence and freshness look identical.
+  const judgedBoxes = peer.reachable ? [here, peer] : [here];
+  const feedStale = judgedBoxes.some(box => box.barFreshness && (box.barFreshness.staleAssets || []).length > 0);
+  const feedUnverified = judgedBoxes.every(box => !(box.barFreshness && box.barFreshness.checked));
+
   const rows = [
     { label: 'Health',
       local: here.healthy === null || here.healthy === undefined ? '—' : (here.healthy ? 'Healthy' : 'Degraded'),
@@ -362,6 +386,16 @@ function renderFleet(data) {
       peer:  peer.reachable ? bridgeText(peer) : '—',
       bad:   (here.bridges && (here.bridges.silent || []).length > 0)
              || (peer.bridges && (peer.bridges.silent || []).length > 0) },
+
+    { label: 'MT5 bar freshness',
+      local: barFreshnessText(here),
+      peer:  peer.reachable ? barFreshnessText(peer) : '—',
+      bad:   feedStale,
+      note:  feedStale
+               ? 'The BROKER SERIES stopped moving — not the prices. The engine falls back to Yahoo, so the levels on every page are current; what is stale is the MT5 feed behind them. Check that box\'s terminal: a wedged terminal keeps its bridge posting on schedule, so nothing else here turns red.'
+               : (feedUnverified
+                   ? 'Neither box sent bar timestamps, so this is UNVERIFIED rather than passed — a bridge that predates the check sends none, and restarting it is what makes this row mean something.'
+                   : '') },
 
     { label: 'Fixed lot size',
       local: valueOrDash(here.fixedLotSize),

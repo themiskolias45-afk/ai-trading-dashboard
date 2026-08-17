@@ -5976,6 +5976,60 @@ function assessHeartbeats(uptimeSeconds) {
   return { expected, seen, missing, stale, withinStartupGrace, staleAfterMinutes: HEARTBEAT_STALE_MINUTES };
 }
 
+/**
+ * The worst MT5 bar staleness in ONE box's /api/signals payload.
+ *
+ * Per-asset barFreshness has been stamped on /api/signals since the wedged-terminal
+ * check landed, and dashboard/index.html shows it — for this box only. The failure it
+ * exists to catch is the one that hides best across the fleet: the bridge keeps
+ * posting on schedule, receivedAt stays seconds old, the bars stop moving, and every
+ * health check on both boxes stays green. The box that trades continuously is the one
+ * nobody is looking at, so the fact has to travel.
+ *
+ * Only assets that actually reported checked:true are considered. A pre-timestamp
+ * bridge sends no bar times, and counting that as fresh — or inventing an age or a
+ * date for it — would turn an admitted gap into a confident wrong number.
+ *
+ * `stale` stays a statement about the MT5 SERIES alone: when it is true the engine has
+ * already fallen back to Yahoo, so the prices being served are current and it is the
+ * broker feed that is not. `usedForThisSignal` carries that second fact.
+ */
+function summarizeBarFreshness(signalsPayload) {
+  const unverified = { checked: false, staleAssets: [], worst: null };
+  if (!signalsPayload || typeof signalsPayload !== "object") return unverified;
+
+  // Discovered from the payload rather than from a hardcoded asset list: an asset
+  // added to the engine and forgotten here would silently never be judged.
+  const judged = [];
+  for (const assetKey of Object.keys(signalsPayload)) {
+    const asset = signalsPayload[assetKey];
+    const freshness = asset && typeof asset === "object" ? asset.barFreshness : null;
+    if (!freshness || typeof freshness !== "object" || freshness.checked !== true) continue;
+    judged.push({
+      asset: assetKey,
+      stale: freshness.stale === true,
+      ageMs: Number.isFinite(freshness.ageMs) ? freshness.ageMs : null,
+      lastBarAt: typeof freshness.lastBarAt === "string" ? freshness.lastBarAt : null,
+      reason: typeof freshness.reason === "string" ? freshness.reason : "",
+      usedForThisSignal: freshness.usedForThisSignal === true,
+    });
+  }
+  if (judged.length === 0) return unverified;
+
+  // Stale first, then oldest bar. An absent age sorts last rather than winning the
+  // comparison by being falsy.
+  judged.sort((a, b) => {
+    if (a.stale !== b.stale) return a.stale ? -1 : 1;
+    return (b.ageMs === null ? -1 : b.ageMs) - (a.ageMs === null ? -1 : a.ageMs);
+  });
+
+  return {
+    checked: true,
+    staleAssets: judged.filter(entry => entry.stale).map(entry => entry.asset),
+    worst: judged[0],
+  };
+}
+
 let peerProbeCache = { at: 0, value: null };
 
 async function probePeer() {
@@ -5996,15 +6050,18 @@ async function probePeer() {
     halted: null, haltReason: "", dailyPnl: null, consecutiveLosses: null,
     accountTags: [], accounts: {}, bridges: { reporting: [], silent: [] },
     settings: null, aiWork: null,
+    // Unverified until the peer answers, and unverified is NOT fresh.
+    barFreshness: { checked: false, staleAssets: [], worst: null },
   };
 
   // allSettled, never all: a peer that answers three of four questions is far more
   // useful than a probe that throws away every answer because the fourth timed out.
-  const [healerResult, riskResult, settingsResult, aiWorkResult] = await Promise.allSettled([
+  const [healerResult, riskResult, settingsResult, aiWorkResult, signalsResult] = await Promise.allSettled([
     getJson("/api/healer"),
     getJson("/api/risk-status"),
     getJson("/api/strategy-settings"),
     getJson("/api/ai-work"),
+    getJson("/api/signals"),
   ]);
 
   if (healerResult.status === "fulfilled") {
@@ -6036,8 +6093,14 @@ async function probePeer() {
     peer.reachable = true;
     peer.aiWork = aiWorkResult.value || null;
   }
+  if (signalsResult.status === "fulfilled") {
+    peer.reachable = true;
+    // /api/signals is public on both boxes (API_NO_LOGIN_REQUIRED), so this needs no
+    // session — the same reason the healer and risk probes above work.
+    peer.barFreshness = summarizeBarFreshness(signalsResult.value);
+  }
   if (!peer.reachable) {
-    const firstFailure = [healerResult, riskResult, settingsResult, aiWorkResult].find(r => r.status === "rejected");
+    const firstFailure = [healerResult, riskResult, settingsResult, aiWorkResult, signalsResult].find(r => r.status === "rejected");
     peer.error = firstFailure
       ? String(firstFailure.reason?.message || firstFailure.reason).slice(0, 200)
       : "no response";
@@ -6385,6 +6448,10 @@ app.get("/api/system-plan", async (_, res) => {
           reporting: reportingAccounts,
           silent: expectedAccounts.filter(tag => !reportingAccounts.includes(tag)),
         },
+        // Read from signalCache in process — the object /api/signals serves verbatim —
+        // so this box is judged from exactly the payload the peer probe reads remotely,
+        // without a server calling its own HTTP port.
+        barFreshness: summarizeBarFreshness(signalCache),
       },
       peer,
       divergence: {
