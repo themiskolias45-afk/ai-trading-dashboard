@@ -2438,6 +2438,18 @@ async function refreshSignals() {
           h4: h4Data?.closes.length ?? 0,
           h1: h1Data?.closes.length ?? 0,
         };
+        // WHEN the newest daily bar closed, not merely how many bars arrived. mt5BarsFor()
+        // already computes this to decide the Yahoo fallback and then discards it, so a
+        // wedged terminal that keeps posting on schedule while its bars stop moving was
+        // invisible from this response — the documented failure mode, and the reader had to
+        // diff two runs against saved memory to catch it. Reported honestly rather than as
+        // a date on the Yahoo path, because that series carries no bar timestamps at all
+        // and a null would be indistinguishable from a stalled feed.
+        // Proposed by the VPS morning agent, morning-6uy0o7.
+        signalCache[a.key].barFreshness = mt5Bars
+          ? judgeBarFreshness(mt5Bars.daily, "d1")
+          : { checked: false, stale: false, ageMs: null, lastBarAt: null,
+              reason: `computed from ${dataSource}, which carries no bar timestamps` };
       }
       const s = signalCache[a.key];
       console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) conf:${s?.confidence}% regime:${s?.regime} vol:${s?.volume?.ratio ?? "?"}x`);
@@ -4260,9 +4272,22 @@ app.get("/api/learning", (_, res) => {
       const shadowPath = path.join(__dirname, "learning_shadow.json");
       if (fs.existsSync(shadowPath)) {
         const raw = JSON.parse(fs.readFileSync(shadowPath, "utf8"));
+        const generatedAt = raw.generatedAt || null;
+        const generatedMs = generatedAt ? Date.parse(generatedAt) : NaN;
         shadow = {
           stats:       raw.shadowStats || {},
-          generatedAt: raw.generatedAt || null,
+          generatedAt,
+          // The AGE, not just the timestamp, because a timestamp makes the reader hold
+          // today's date and do the subtraction — and on 2026-08-17 that is precisely what
+          // failed. These stats were regenerated at 06:30 UTC, the collapsed-stop R:R cap
+          // landed after it, and the shadow went on serving SELL_BOUNCE at +21.38R until
+          // someone read generatedAt by hand. A stalled nightly regeneration is now
+          // visible from this one response. null when unparseable, never 0 — a zero here
+          // would read as "just regenerated", which is the opposite of the truth.
+          // Proposed by the VPS morning agent, morning-ny4yxp.
+          ageHours: Number.isFinite(generatedMs)
+            ? Math.round(((Date.now() - generatedMs) / 3600000) * 10) / 10
+            : null,
           whatTheseAre: raw.basis?.whatTheseAre || null,
           feedsTheGate: false,
         };
