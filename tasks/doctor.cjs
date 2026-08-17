@@ -33,6 +33,10 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const { execFileSync } = require("child_process");
+// One source of truth for the mojibake pattern. A second copy of that regex here is
+// exactly how the first detection attempt missed six damaged files: it had the Latin-1
+// form and the real damage was cp1252.
+const { scanDir: scanEncoding } = require("./encoding_check.cjs");
 
 const ROOT = path.join(__dirname, "..");
 const HEAL = process.argv.includes("--heal");
@@ -572,6 +576,51 @@ function checkBackup() {
 }
 
 /**
+ * Are the pages this box serves still readable?
+ *
+ * On 2026-08-17 a scripted CSS-token edit ran `Get-Content -Raw` (which decodes with the
+ * system ANSI codepage on PowerShell 5.1, not UTF-8) and wrote the result back as UTF-8.
+ * Six pages lost every emoji, em-dash and box-drawing character; titles read
+ * "SmartEntry Pro <garbage> System" on BOTH boxes. Nothing detected it: the output is
+ * well-formed UTF-8 holding the wrong characters, so there is no exception, no invalid
+ * byte, and node --check passes. It was found by looking at a screenshot.
+ *
+ * `dir` is a parameter so the branch can be exercised against a directory of known-bad
+ * files. A check that has never been seen to FIRE is not a verified check.
+ *
+ * AMBER, not RED: this cannot affect a trade, a gate or a position. It is a reading
+ * surface being unreadable, which matters because these pages are how the fleet is
+ * judged - but nothing here is urgent enough to justify the exit code that pages a human.
+ *
+ * NOT healable, deliberately. The repair is `git checkout <sha> -- <file>` and choosing
+ * the sha needs judgement: each file's last clean commit differs, and restoring them all
+ * from one would have silently reverted the fleet bar-freshness work that landed between
+ * two of them. An automated "fix" here could destroy good code to fix cosmetics.
+ */
+function checkDashboardEncoding(dir = path.join(ROOT, "dashboard")) {
+  const result = scanEncoding(dir);
+
+  // A directory that cannot be read is worth one line, not silence - on the VPS this
+  // path exists, so its absence would mean something is wrong with the checkout.
+  if (result.error) {
+    finding("INFO", "local", "dashboard pages could not be scanned for mojibake",
+      result.error + " - so nothing here confirms the served pages are readable",
+      "confirm the dashboard directory exists on this box");
+    return;
+  }
+  if (!result.damaged) return;
+
+  const damaged = result.rows.filter(r => r.bad > 0);
+  finding("AMBER", "local", `${damaged.length} dashboard page(s) hold mis-decoded text`,
+    damaged.map(r => `${r.name} (${r.mojibake + r.replacement})`).join(", ")
+    + " - emoji, em-dashes and box-drawing characters render as garbage. The files are "
+    + "valid UTF-8 holding the wrong characters, so no parser, syntax check or deploy "
+    + "will ever complain; the last time this happened it reached both boxes",
+    "node tasks/encoding_check.cjs   for the lines, then per file: "
+    + "git log --oneline -5 -- dashboard/<file>   and   git checkout <sha> -- dashboard/<file>");
+}
+
+/**
  * The journal and the learning engine must tell the same story about closed trades.
  * They currently do not, deliberately — a trade whose setup name was lost upstream is
  * refused rather than attributed to a phantom bucket — so this reports the gap and
@@ -708,6 +757,7 @@ async function diagnose() {
   checkAiCapacity();
   checkMarketJobs();
   checkBackup();
+  checkDashboardEncoding();
   checkLearningIntegrity();
 
   const rank = { RED: 0, AMBER: 1, INFO: 2 };
@@ -782,4 +832,5 @@ if (require.main === module) {
 // checkPeerViaHeartbeat is exported for testing. On a healthy fleet it produces NO
 // findings, which is indistinguishable from never having run — so it needs to be
 // callable with a deliberately wrong gate to prove it evaluates at all.
-module.exports = { diagnose, checkPeerViaHeartbeat, checkMarketJobs, _findings: () => findings, _reset: () => { findings = []; } };
+module.exports = { diagnose, checkPeerViaHeartbeat, checkMarketJobs, checkDashboardEncoding,
+  _findings: () => findings, _reset: () => { findings = []; } };
