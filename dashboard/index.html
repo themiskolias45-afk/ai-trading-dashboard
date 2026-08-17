@@ -52,10 +52,43 @@
 
     /* Price strip */
     .price-strip { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
-    .price-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 18px; display:flex; align-items:center; gap:14px; transition:border-color .2s; }
+    .price-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:11px 16px; display:flex; align-items:center; gap:12px; transition:border-color .2s; }
     .price-card:hover { border-color:var(--border2); }
-    .price-icon { font-size:1.4rem; }
-    .price-info { flex:1; }
+    .price-icon { font-size:1.3rem; align-self:center; }
+    /* A ROW, not a stack. This was `flex:1` with five block children, so name, price,
+       change and feed tag each took their own line — 104px tall — while `flex:1` shoved
+       the verdict chip to the far right and left the middle of a 504px card empty.
+       Measured before: 504x104 = 52,416 square pixels holding 21 characters.
+       On one baseline the same content reads left to right as a sentence — name, price,
+       move, feed, verdict — and the card is roughly half as tall. */
+    .price-info {
+      flex:1; min-width:0; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+    }
+    /* Zeroed inside the row: margin-top was nudging these off the shared baseline. */
+    .price-info .price-change { margin-top:0; }
+    .price-info .feed-tag { margin-top:0; }
+    /* Macro strip — the two context indices on one line instead of two big cards.
+       Baseline-aligned so the numbers read as a row rather than as five stacked chips. */
+    .macro-strip {
+      display:flex; align-items:stretch; gap:0; margin-bottom:16px;
+      background:var(--surface); border:1px solid var(--border); border-radius:10px;
+      overflow:hidden;
+    }
+    .macro-item {
+      flex:1; display:flex; align-items:baseline; gap:10px; padding:9px 16px; min-width:0;
+    }
+    .macro-sep { width:1px; background:var(--border); flex-shrink:0; }
+    .macro-icon { font-size:.9rem; line-height:1; align-self:center; }
+    .macro-name {
+      font-size:.62rem; font-weight:700; letter-spacing:.11em; color:var(--muted);
+      text-transform:uppercase; flex-shrink:0;
+    }
+    .macro-value { font-size:.98rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .macro-note  { font-size:.68rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* Pushed right so the badge is the row's last beat, and the numbers stay left-packed. */
+    .macro-badge { margin-left:auto; font-size:.6rem; padding:2px 7px; border-radius:4px; font-weight:700; flex-shrink:0; }
+    @media(max-width:700px){ .macro-strip{ flex-direction:column; } .macro-sep{ width:auto; height:1px; } }
+
     .price-label { font-size:.65rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
     .price-value { font-size:1.3rem; font-weight:700; font-variant-numeric:tabular-nums; }
     .price-change { font-size:.75rem; font-weight:600; margin-top:2px; }
@@ -687,25 +720,28 @@
     </div>
   </div>
 
-  <!-- Macro -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-    <div class="price-card">
-      <div class="price-icon">💵</div>
-      <div class="price-info">
-        <div class="price-label">DXY — US Dollar Index</div>
-        <div class="price-value" id="dxy-price">—</div>
-        <div class="price-change" id="dxy-change">—</div>
-      </div>
-      <div id="dxy-badge" style="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700"></div>
+  <!-- Macro context: ONE slim strip, not two full-width cards.
+       Measured before this change: DXY occupied 762x89px to display 28 characters and VIX
+       762x89 for 21 — 135,000 square pixels of the first screen for 49 characters, roughly
+       2,700 px per character. These two are CONTEXT for the assets above, not headline
+       numbers, and they were taking more room than the three instruments the system
+       actually trades. Same element ids, same loaders, no data removed: only the frame
+       changed. -->
+  <div class="macro-strip">
+    <div class="macro-item">
+      <span class="macro-icon">💵</span>
+      <span class="macro-name">DXY</span>
+      <span class="macro-value" id="dxy-price">—</span>
+      <span class="price-change" id="dxy-change">—</span>
+      <span id="dxy-badge" class="macro-badge"></span>
     </div>
-    <div class="price-card">
-      <div class="price-icon">😱</div>
-      <div class="price-info">
-        <div class="price-label">VIX — Fear Index</div>
-        <div class="price-value" id="vix-price">—</div>
-        <div id="vix-label" style="font-size:.72rem;margin-top:2px"></div>
-      </div>
-      <div id="vix-badge" style="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700"></div>
+    <div class="macro-sep"></div>
+    <div class="macro-item">
+      <span class="macro-icon">😱</span>
+      <span class="macro-name">VIX</span>
+      <span class="macro-value" id="vix-price">—</span>
+      <span id="vix-label" class="macro-note"></span>
+      <span id="vix-badge" class="macro-badge"></span>
     </div>
   </div>
 
@@ -2160,6 +2196,23 @@ function fmtChange(c)   { if(c==null)return"—"; return(c>=0?"+":"")+c.toFixed(
 function biasClass(b)   { return"bias-"+(b??"NEUTRAL").replace(" ","_"); }
 
 /**
+ * A macro badge's TEXT and state colour. Geometry stays in the .macro-badge class, which
+ * the previous style.cssText assignment destroyed on every refresh.
+ *
+ * tone is a token name, not a hex value: the three fills it replaced (#200d0d, #1a1a2e,
+ * #0d2010) matched nothing in :root, so changing --red or --green left them behind.
+ */
+function setMacroBadge(id, [text, tone]) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const rgb = { red:"239,68,68", green:"34,197,94", yellow:"234,179,8", muted:"107,131,168" }[tone] || "107,131,168";
+  el.textContent = text;
+  el.style.background = "rgba(" + rgb + ",.13)";
+  el.style.color = "var(--" + tone + ")";
+  el.style.border = "1px solid rgba(" + rgb + ",.28)";
+}
+
+/**
  * The Overview card's verdict — the ENGINE's, not the price change's.
  *
  * Reuses the existing bias-* classes rather than inventing a palette, and maps them by
@@ -2422,17 +2475,23 @@ async function loadPrices() {
     if(d.dxy!=null) {
       document.getElementById("dxy-price").textContent="$"+d.dxy.toFixed(2);
       setChange("dxy-change",d.dxyChange);
-      const b=document.getElementById("dxy-badge");
-      if(d.dxy>106){b.textContent="STRONG $";b.style.cssText="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#200d0d;color:var(--red)";}
-      else if(d.dxy>103){b.textContent="NEUTRAL";b.style.cssText="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#1a1a2e;color:var(--muted)";}
-      else{b.textContent="WEAK $";b.style.cssText="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#0d2010;color:var(--green)";}
+      // cssText is NOT used here any more. It replaced the whole style attribute, which
+      // wiped the .macro-badge class geometry — including the margin-left:auto that keeps
+      // the badge at the end of the row — and it hardcoded #200d0d / #1a1a2e / #0d2010,
+      // three fills that answered to no token. Geometry belongs to the class; only the
+      // state colours are set here, and they come from the tokens.
+      setMacroBadge("dxy-badge", d.dxy>106 ? ["STRONG $","red"] : d.dxy>103 ? ["NEUTRAL","muted"] : ["WEAK $","green"]);
     }
     if(d.vix!=null) {
       document.getElementById("vix-price").textContent=d.vix.toFixed(1);
-      const vb=document.getElementById("vix-badge"), vl=document.getElementById("vix-label");
-      if(d.vix>=30){vb.textContent="EXTREME FEAR";vb.style.cssText="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#200d0d;color:var(--red)";vl.textContent="Avoid longs";vl.style.color="var(--red)";}
-      else if(d.vix>=20){vb.textContent="ELEVATED";vb.style.cssText="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#201a0d;color:var(--yellow)";vl.textContent="Caution on BUY signals";vl.style.color="var(--yellow)";}
-      else{vb.textContent="CALM";vb.style.cssText="font-size:.65rem;padding:3px 8px;border-radius:4px;font-weight:700;background:#0d2010;color:var(--green)";vl.textContent="Normal conditions";vl.style.color="var(--green)";}
+      const vl=document.getElementById("vix-label");
+      const [vixText, vixTone, vixNote] =
+        d.vix>=30 ? ["EXTREME FEAR","red","Avoid longs"]
+      : d.vix>=20 ? ["ELEVATED","yellow","Caution on BUY signals"]
+      :             ["CALM","green","Normal conditions"];
+      setMacroBadge("vix-badge", [vixText, vixTone]);
+      vl.textContent = vixNote;
+      vl.style.color = "var(--" + vixTone + ")";
     }
     document.getElementById("conn-status").textContent="Live";
     renderFeedTags();
