@@ -2,7 +2,7 @@
 /**
  * Record a decision on something the AI proposed.
  *
- *   node tasks/ai_decide.cjs <proposal-id> implemented|rejected|ignored [note]
+ *   node tasks/ai_decide.cjs <proposal-id> implemented|rejected|ignored|deferred [note]
  *   node tasks/ai_decide.cjs <proposal-id> rejected --call right "why"
  *   node tasks/ai_decide.cjs --list
  *
@@ -25,7 +25,14 @@ const fs   = require("fs");
 const path = require("path");
 const ledger = require(path.join(__dirname, "..", "server", "ai_work_ledger.js"));
 
-const VALID = ["implemented", "rejected", "ignored"];
+// `deferred` exists because on 2026-08-17 there was no honest way to record a correct
+// proposal that had been accepted but not yet applied. weekly-cerxff was filed as
+// `ignored` for want of a word, and `ignored` is what a future reader takes to mean
+// "we looked and dismissed it" — the ledger would have understated the agent and lost
+// the fact that work is still owed. The other three statuses all CLOSE a proposal;
+// this one is the only status that leaves it open, which is why the work ledger keeps
+// counting it against the OUTPUT IGNORED verdict.
+const VALID = ["implemented", "rejected", "ignored", "deferred"];
 
 function list() {
   const data = ledger.build();
@@ -46,6 +53,11 @@ if (!id || id === "--list") { list(); process.exit(0); }
 
 if (!VALID.includes(String(status))) {
   console.error("status must be one of: " + VALID.join(", "));
+  console.error("  implemented = the fix is in");
+  console.error("  rejected    = the fix was judged wrong and will not be applied");
+  console.error("  ignored     = looked at and dismissed; nothing is owed");
+  // ASCII only in these strings: this prints to a cp1252 console.
+  console.error("  deferred    = right and accepted, NOT yet applied - still owed work");
   console.error("usage: node tasks/ai_decide.cjs <proposal-id> " + VALID.join("|") + " [note] [--call right|wrong|unproven]");
   process.exit(1);
 }

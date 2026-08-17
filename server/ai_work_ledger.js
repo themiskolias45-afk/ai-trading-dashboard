@@ -206,6 +206,18 @@ function proposalId(jobId, file, line, text) {
   return jobId + "-" + Math.abs(hash).toString(36);
 }
 
+// The one decision that does NOT close a proposal: the diagnosis was right and the fix
+// is accepted, but it has not been applied yet. Recorded by tasks/ai_decide.cjs.
+//
+// It has to be one named string tested exactly, not "is it one of the closing three".
+// Rows in tasks/ai_decisions.jsonl predate this status and the file is hand-appendable,
+// so a row carrying anything unexpected — an older word, a typo, no status field at all
+// — must keep closing its proposal the way it did before this existed. Otherwise adding
+// a status silently reopens OUTPUT IGNORED on jobs that have read HEALTHY for weeks, and
+// a false red on that verdict is exactly what trains you to skim past the true one.
+const DEFERRED_STATUS = "deferred";
+const isDeferred = status => String(status || "").trim().toLowerCase() === DEFERRED_STATUS;
+
 function readDecisions() {
   const text = safeRead(DECISIONS);
   if (!text) return {};
@@ -322,7 +334,11 @@ function build(options = {}) {
 
     // Harvest proposals across ALL of this job's files, not just the newest —
     // an unread recommendation does not stop mattering because a week passed.
-    let jobProposals = 0, jobDecided = 0, everWroteMarker = false;
+    // Three counts, because "someone answered" and "the matter is closed" stopped being
+    // the same thing when `deferred` arrived. jobDecided is the one that means "has any
+    // decision" and drives the N/M reviewed line; jobClosed is the only one allowed to
+    // clear OUTPUT IGNORED.
+    let jobProposals = 0, jobDecided = 0, jobClosed = 0, jobDeferred = 0, everWroteMarker = false;
     for (const file of matched.slice(0, 30)) {
       const body = safeRead(file.full);
       if (!body) continue;
@@ -337,7 +353,10 @@ function build(options = {}) {
         const id = proposalId(job.id, file.name, i + 1, raw);
         const decision = decisions[id] || null;
         jobProposals++;
-        if (decision) jobDecided++;
+        if (decision) {
+          jobDecided++;
+          if (isDeferred(decision.status)) jobDeferred++; else jobClosed++;
+        }
         const contextEnd = Math.min(lines.length, i + 1 + PROPOSAL_CONTEXT_LINES);
         const contextLines = [lines[i]];
         for (let k = i + 1; k < contextEnd; k++) {
@@ -439,14 +458,24 @@ function build(options = {}) {
         + (scheduler.found && scheduler.lastResult === 0
             ? ` — but the scheduler reports it succeeded (${scheduler.resultMeaning}), so the marker line is missing from ${actualScript}, not the run`
             : ` — completion cannot be confirmed; the runner is ${actualScript}`);
-    } else if (jobProposals > 0 && jobDecided === 0) {
+    } else if (jobProposals > 0 && jobClosed === 0) {
+      // jobClosed, NOT jobDecided. A deferred proposal has been answered but not settled,
+      // so allowing it to clear this verdict would hide the exact thing the verdict
+      // exists to catch — an agent doing good work that nobody acts on. Deferring
+      // everything must not be a way to make this job read HEALTHY.
       verdict = "OUTPUT IGNORED";
-      detail = jobProposals + " proposed fix(es) across " + matched.length
-        + " run(s), none reviewed";
+      detail = jobProposals + " proposed fix(es) across " + matched.length + " run(s), "
+        + (jobDeferred
+            ? jobDeferred + " deferred (accepted, not yet applied), none acted on"
+            : "none reviewed");
     } else {
       verdict = "HEALTHY";
       detail = "last run OK " + Math.round(ageHours) + "h ago"
-        + (jobProposals ? ", " + jobDecided + "/" + jobProposals + " proposals reviewed" : "");
+        + (jobProposals ? ", " + jobDecided + "/" + jobProposals + " proposals reviewed" : "")
+        // Said out loud here too: a job whose every proposal is answered but some deferred
+        // is healthy AS A JOB while still owing work, and "5/5 reviewed" on its own reads
+        // as finished.
+        + (jobDeferred ? " (" + jobDeferred + " deferred, not yet applied)" : "");
     }
 
     jobs.push({
@@ -467,6 +496,11 @@ function build(options = {}) {
   proposals.sort((a, b) => new Date(b.when) - new Date(a.when));
 
   const unreviewed = proposals.filter(p => p.status === "UNREVIEWED").length;
+  // Decided but not finished. These are NOT unreviewed — someone read them and agreed —
+  // so they are counted inside `reviewed`, not beside it. "Has anyone answered this" and
+  // "is this finished" are different questions with different answers, and a ledger that
+  // can only report the first one is how a right proposal ends up filed as `ignored`.
+  const deferred = proposals.filter(p => isDeferred(p.status)).length;
   const unappraised = scheduledTasks ? summariseUnappraised(scheduledTasks, linkedTaskNames) : [];
   return {
     available: true,
@@ -487,7 +521,10 @@ function build(options = {}) {
       unappraisedFailing: unappraised.filter(t => t.failing).length,
       proposals: proposals.length,
       unreviewed,
+      // Unchanged meaning: "has any decision", deferred ones included.
       reviewed: proposals.length - unreviewed,
+      // The subset of `reviewed` that still owes work.
+      deferred,
       // An unreviewed proposal you cannot follow as written is worse than one you have
       // simply not got to yet, so it gets its own count rather than hiding inside
       // `unreviewed`.
@@ -519,13 +556,19 @@ function build(options = {}) {
       callsUnscored: proposals.filter(p => !p.call).length,
     },
     decisionsFile: "tasks/ai_decisions.jsonl",
-    howToDecide: "node tasks/ai_decide.cjs <id> implemented|rejected|ignored [note]",
+    howToDecide: "node tasks/ai_decide.cjs <id> implemented|rejected|ignored|deferred [note]",
     feedsTheGate: false,
     note: "Read-only over files these jobs already write. Runs nothing, spawns "
       + "nothing, spends no tokens. A verdict of OUTPUT IGNORED means the agent is "
-      + "working and nobody is reading it — which costs the same as it failing.",
+      + "working and nobody is reading it — which costs the same as it failing. A "
+      + "`deferred` decision does not clear that verdict: it records that the diagnosis "
+      + "was right and the fix accepted, so the work is still owed.",
     updatedAt: new Date().toISOString(),
   };
 }
 
-module.exports = { build, JOBS, proposalId, readDecisions, DECISIONS };
+// isDeferred and DEFERRED_STATUS are exported so a reading surface never has to re-test
+// the raw string: the decisions file is hand-appendable and this predicate is the one
+// place that trims and lowercases it. Two readers testing `status === "deferred"` their
+// own way is how the same row ends up green on one page and open on another.
+module.exports = { build, JOBS, proposalId, readDecisions, DECISIONS, DEFERRED_STATUS, isDeferred };

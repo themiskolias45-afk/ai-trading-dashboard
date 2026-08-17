@@ -106,6 +106,30 @@ line();
 // Listing the unscored ones HERE is what lets the agent close its own loop.
 line("## 3. Your track record — and the calls still ungraded");
 line();
+// `deferred` is spelled out here rather than left to be inferred from section 1, because
+// section 1 is headed DO NOT REPEAT THESE and a deferred item is genuinely still open.
+// Without this paragraph an agent reads its own accepted-but-unapplied proposal as closed
+// and stops mentioning it — or worse, re-derives it from scratch, which is what happened
+// on 2026-08-16 when the morning agent rewrote its own cb-losses proposal verbatim.
+try {
+  const deferredRows = decided.filter(d => d.status && String(d.status).trim().toLowerCase() === "deferred");
+  // ASCII only in these strings, same reason as section 4: the console is cp1252 and a
+  // briefing that cannot be printed is a briefing nobody reads.
+  line("A status of **deferred** means: your diagnosis was RIGHT, the fix was ACCEPTED, and");
+  line("it has NOT been applied yet. It is not a rejection and it is not done - the work is");
+  line("still owed. Do not re-derive a deferred proposal from scratch; reference its id and");
+  line("add only what is new.");
+  line();
+  if (deferredRows.length) {
+    line("**Accepted but not yet applied - " + deferredRows.length + " open:**");
+    line();
+    for (const d of deferredRows) {
+      line("- `" + d.id + "` " + (d.file || "?") + ":" + (d.line === undefined ? "?" : d.line)
+        + (d.note ? " - " + String(d.note).replace(/\s+/g, " ").slice(0, 160) : ""));
+    }
+    line();
+  }
+} catch (e) { line("_deferred proposals unavailable_"); }
 try {
   const scored = decided.filter(d => d.call);
   const right    = scored.filter(d => d.call === "right").length;
