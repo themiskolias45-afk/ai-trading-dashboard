@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SmartEntry Pro â€” Performance Analytics</title>
+  <title>SmartEntry Pro — Performance Analytics</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -15,7 +15,8 @@
       --border:   #1e3040;
       --border2:  #253650;
       --text:     #e2e8f0;
-      --muted:    #6b83a8;
+      --muted:    #6b83a8;   /* 4.73:1 on --surface; #4a6080 measured 2.85:1, under the 4.5 AA floor */
+      --muted-dim:#4a6080;   /* the old value, kept for decoration where contrast does not apply */
       --muted2:   #6b88a8;
       --green:    #00ff88;
       --green-dim:#005c30;
@@ -40,7 +41,7 @@
       min-height: 100vh;
     }
 
-    /* â”€â”€ HEADER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── HEADER ──────────────────────────────────────────────── */
     header {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
@@ -107,7 +108,7 @@
     .refresh-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); transition: background .2s; }
     .refresh-dot.active { background: var(--accent); animation: blink .8s ease-in-out 4; }
 
-    /* â”€â”€ LAYOUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── LAYOUT ──────────────────────────────────────────────── */
     main { max-width: 1600px; margin: 0 auto; padding: 22px 24px 48px; }
 
     .section-label {
@@ -119,7 +120,7 @@
       content: ''; flex: 1; height: 1px; background: var(--border);
     }
 
-    /* â”€â”€ KPI CARDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── KPI CARDS ───────────────────────────────────────────── */
     .kpi-row {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -155,7 +156,7 @@
       font-size: 1.5rem; opacity: .12; pointer-events: none;
     }
 
-    /* â”€â”€ CARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── CARD ────────────────────────────────────────────────── */
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -172,7 +173,7 @@
     }
     .card-body { padding: 18px; }
 
-    /* â”€â”€ CHART ROW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── CHART ROW ───────────────────────────────────────────── */
     .chart-row {
       display: grid;
       grid-template-columns: 2fr 1fr;
@@ -182,7 +183,7 @@
     #equity-chart-wrap { height: 230px; }
     #setup-chart-wrap  { min-height: 180px; }
 
-    /* â”€â”€ GAUGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── GAUGE ───────────────────────────────────────────────── */
     .gauge-wrap {
       display: flex; flex-direction: column; align-items: center;
       padding: 14px 14px 4px;
@@ -199,17 +200,17 @@
     .sig-bar-fill  { height: 100%; border-radius: 3px; transition: width .7s ease; }
     .sig-bar-val   { width: 38px; text-align: right; font-weight: 600; font-size: .68rem; }
 
-    /* â”€â”€ SETUP CHART FULL WIDTH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── SETUP CHART FULL WIDTH ──────────────────────────────── */
     .full-card { margin-bottom: 24px; }
 
-    /* â”€â”€ BOTTOM GRID â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── BOTTOM GRID ─────────────────────────────────────────── */
     .bottom-grid {
       display: grid;
       grid-template-columns: 1fr 340px;
       gap: 14px; margin-bottom: 24px;
     }
 
-    /* â”€â”€ TRADES TABLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── TRADES TABLE ────────────────────────────────────────── */
     .trades-scroll { overflow-x: auto; overflow-y: auto; max-height: 460px; }
     .trades-table  { width: 100%; border-collapse: collapse; font-size: .76rem; }
     .trades-table thead tr { background: var(--surface2); }
@@ -245,7 +246,7 @@
     .badge-loss { background: rgba(255,68,68,.1);  color: var(--red);    border: 1px solid rgba(255,68,68,.25); }
     .badge-open { background: rgba(68,136,255,.1); color: var(--blue);   border: 1px solid rgba(68,136,255,.25); }
 
-    /* â”€â”€ HEALTH PANEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── HEALTH PANEL ────────────────────────────────────────── */
     .health-grid { display: flex; flex-direction: column; gap: 9px; padding: 14px; }
     .health-row {
       display: flex; align-items: center; justify-content: space-between;
@@ -264,7 +265,7 @@
     .hb-err     { background: rgba(255,68,68,.1);   color: var(--red);    border: 1px solid rgba(255,68,68,.3); }
     .hb-unknown { background: rgba(74,96,128,.1);   color: var(--muted2); border: 1px solid rgba(74,96,128,.3); }
 
-    /* â”€â”€ SESSION STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── SESSION STATS ───────────────────────────────────────── */
     .stat-row {
       display: flex; justify-content: space-between; align-items: center;
       padding: 8px 0; border-bottom: 1px solid var(--border);
@@ -274,7 +275,7 @@
     .stat-label { color: var(--muted2); }
     .stat-val   { font-weight: 700; font-variant-numeric: tabular-nums; }
 
-    /* â”€â”€ UTILITY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── UTILITY ─────────────────────────────────────────────── */
     .pnl-pos  { color: var(--green); }
     .pnl-neg  { color: var(--red);   }
     .pnl-zero { color: var(--muted2); }
@@ -296,14 +297,14 @@
     }
     .sm-spinner { width: 10px; height: 10px; border-width: 1.5px; }
 
-    /* â”€â”€ FOOTER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── FOOTER ──────────────────────────────────────────────── */
     footer {
       text-align: center; padding: 16px;
       font-size: .63rem; color: var(--muted);
       border-top: 1px solid var(--border);
     }
 
-    /* â”€â”€ RESPONSIVE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── RESPONSIVE ──────────────────────────────────────────── */
     @media (max-width: 1100px) {
       .kpi-row       { grid-template-columns: repeat(2, 1fr); }
       .chart-row     { grid-template-columns: 1fr; }
@@ -321,7 +322,7 @@
       .kpi-row       { grid-template-columns: 1fr; }
     }
 
-    /* â”€â”€ ANIMATIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── ANIMATIONS ──────────────────────────────────────────── */
     @keyframes blink  { 0%,100%{opacity:1} 50%{opacity:.2} }
     @keyframes spin   { to { transform: rotate(360deg); } }
     @keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
@@ -330,7 +331,7 @@
 </head>
 <body>
 
-<!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• HEADER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+<!-- ═══════════════════════ HEADER ═════════════════════════ -->
 <header>
   <div class="logo">
     <div class="logo-mark">S</div>
@@ -349,39 +350,39 @@
       <div class="status-dot" id="status-dot"></div>
       <span id="status-text">Connecting</span>
     </div>
-    <a href="/" class="back-link">â† Dashboard</a>
+    <a href="/" class="back-link">← Dashboard</a>
   </div>
 </header>
 
-<!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• MAIN â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+<!-- ═══════════════════════ MAIN ════════════════════════════ -->
 <main>
 
   <!-- KPI ROW -->
   <div class="section-label">Key Performance Indicators</div>
   <div class="kpi-row">
     <div class="kpi-card" style="--kpi-color: var(--blue)">
-      <div class="kpi-icon">ðŸ“Š</div>
+      <div class="kpi-icon">📊</div>
       <div class="kpi-label">Total Trades</div>
-      <div class="kpi-value" id="kpi-trades">â€”</div>
-      <div class="kpi-sub" id="kpi-trades-sub">Loadingâ€¦</div>
+      <div class="kpi-value" id="kpi-trades">—</div>
+      <div class="kpi-sub" id="kpi-trades-sub">Loading…</div>
     </div>
     <div class="kpi-card" style="--kpi-color: var(--green)">
-      <div class="kpi-icon">ðŸŽ¯</div>
+      <div class="kpi-icon">🎯</div>
       <div class="kpi-label">Win Rate</div>
-      <div class="kpi-value" id="kpi-winrate">â€”</div>
-      <div class="kpi-sub" id="kpi-winrate-sub">Loadingâ€¦</div>
+      <div class="kpi-value" id="kpi-winrate">—</div>
+      <div class="kpi-sub" id="kpi-winrate-sub">Loading…</div>
     </div>
     <div class="kpi-card" style="--kpi-color: var(--green)">
-      <div class="kpi-icon">ðŸ’µ</div>
+      <div class="kpi-icon">💵</div>
       <div class="kpi-label">Net P&amp;L</div>
-      <div class="kpi-value" id="kpi-pnl">â€”</div>
-      <div class="kpi-sub" id="kpi-pnl-sub">Loadingâ€¦</div>
+      <div class="kpi-value" id="kpi-pnl">—</div>
+      <div class="kpi-sub" id="kpi-pnl-sub">Loading…</div>
     </div>
     <div class="kpi-card" style="--kpi-color: var(--yellow)">
-      <div class="kpi-icon">âš¡</div>
+      <div class="kpi-icon">⚡</div>
       <div class="kpi-label">Profit Factor</div>
-      <div class="kpi-value" id="kpi-pf">â€”</div>
-      <div class="kpi-sub" id="kpi-pf-sub">Loadingâ€¦</div>
+      <div class="kpi-value" id="kpi-pf">—</div>
+      <div class="kpi-sub" id="kpi-pf-sub">Loading…</div>
     </div>
   </div>
 
@@ -392,11 +393,11 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">Equity Curve</div>
-        <div style="font-size:.68rem;color:var(--muted2)" id="equity-meta">Last 200 trades Â· $90,000 base</div>
+        <div style="font-size:.68rem;color:var(--muted2)" id="equity-meta">Last 200 trades · $90,000 base</div>
       </div>
       <div class="card-body">
         <div class="chart-container" id="equity-chart-wrap">
-          <div class="loading-row"><div class="spinner"></div>Loading equity dataâ€¦</div>
+          <div class="loading-row"><div class="spinner"></div>Loading equity data…</div>
         </div>
       </div>
     </div>
@@ -412,7 +413,7 @@
           <path id="gauge-fill"  fill="none" stroke="#00ff88" stroke-width="13" stroke-linecap="round"/>
           <text id="gauge-val" x="100" y="90" text-anchor="middle"
             font-size="30" font-weight="800" font-family="Segoe UI,sans-serif"
-            fill="#e2e8f0">â€”</text>
+            fill="#e2e8f0">—</text>
           <text x="100" y="106" text-anchor="middle"
             font-size="9.5" font-family="Segoe UI,sans-serif" fill="#4a6080">AVG CONFIDENCE</text>
           <text x="17"  y="113" text-anchor="middle" font-size="9" fill="#3a5068" font-family="Segoe UI">0%</text>
@@ -420,7 +421,7 @@
           <text x="183" y="113" text-anchor="middle" font-size="9" fill="#3a5068" font-family="Segoe UI">100%</text>
         </svg>
         <div class="gauge-label">Average confidence of last 10 signals</div>
-        <div class="gauge-sub" id="gauge-sub">Fetching signal dataâ€¦</div>
+        <div class="gauge-sub" id="gauge-sub">Fetching signal data…</div>
       </div>
       <div class="sig-conf-bars" id="sig-conf-bars"></div>
     </div>
@@ -431,16 +432,16 @@
   <div class="section-label">Win Rate by Setup</div>
   <div class="card full-card">
     <div class="card-header">
-      <div class="card-title">Strategy Breakdown â€” Horizontal Win Rate</div>
+      <div class="card-title">Strategy Breakdown — Horizontal Win Rate</div>
       <div style="display:flex;align-items:center;gap:14px">
-        <span style="font-size:.63rem;color:var(--green)">â–® &gt;60% Edge</span>
-        <span style="font-size:.63rem;color:var(--yellow)">â–® 40â€“60% OK</span>
-        <span style="font-size:.63rem;color:var(--red)">â–® &lt;40% Review</span>
+        <span style="font-size:.63rem;color:var(--green)">▮ &gt;60% Edge</span>
+        <span style="font-size:.63rem;color:var(--yellow)">▮ 40–60% OK</span>
+        <span style="font-size:.63rem;color:var(--red)">▮ &lt;40% Review</span>
       </div>
     </div>
     <div class="card-body">
       <div class="chart-container" id="setup-chart-wrap">
-        <div class="loading-row"><div class="spinner"></div>Loading setup dataâ€¦</div>
+        <div class="loading-row"><div class="spinner"></div>Loading setup data…</div>
       </div>
     </div>
   </div>
@@ -455,7 +456,7 @@
         <span style="font-size:.68rem;color:var(--muted2)" id="trades-meta">Last 20 trades</span>
       </div>
       <div class="trades-scroll" id="trades-wrap">
-        <div class="loading-row"><div class="spinner"></div>Loading tradesâ€¦</div>
+        <div class="loading-row"><div class="spinner"></div>Loading trades…</div>
       </div>
     </div>
 
@@ -466,11 +467,11 @@
           <div class="card-title">System Health</div>
           <div style="display:flex;align-items:center;gap:6px;font-size:.63rem;color:var(--muted)">
             <div class="spinner sm-spinner" id="health-spinner" style="display:none"></div>
-            <span id="health-ts">â€”</span>
+            <span id="health-ts">—</span>
           </div>
         </div>
         <div class="health-grid" id="health-grid">
-          <div class="loading-row"><div class="spinner"></div>Checkingâ€¦</div>
+          <div class="loading-row"><div class="spinner"></div>Checking…</div>
         </div>
       </div>
 
@@ -489,8 +490,8 @@
 </main>
 
 <footer>
-  SmartEntry Pro Â· Performance Analytics Â·
-  <span id="footer-ts">â€”</span> Â·
+  SmartEntry Pro · Performance Analytics ·
+  <span id="footer-ts">—</span> ·
   Auto-refresh every 60s
 </footer>
 
@@ -502,23 +503,23 @@ const ACCOUNT_BASE = 90_000;
 let equityChart = null;
 let setupChart  = null;
 
-// â”€â”€ CLOCK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CLOCK ──────────────────────────────────────────────────────
 (function tickClock() {
   document.getElementById('clock').textContent =
     new Date().toLocaleTimeString('en-US', { hour12: false });
   setTimeout(tickClock, 1000);
 })();
 
-// â”€â”€ HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── HELPERS ────────────────────────────────────────────────────
 function fmtDollar(n, dp = 2) {
-  if (n == null || isNaN(n)) return 'â€”';
+  if (n == null || isNaN(n)) return '—';
   const abs = Math.abs(n).toLocaleString('en-US', {
     minimumFractionDigits: dp, maximumFractionDigits: dp
   });
   return (n < 0 ? '-$' : '$') + abs;
 }
 function fmtPct(n, dp = 1) {
-  if (n == null || isNaN(n)) return 'â€”';
+  if (n == null || isNaN(n)) return '—';
   return n.toFixed(dp) + '%';
 }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -527,18 +528,18 @@ function el(id) { return document.getElementById(id); }
 // r.ok, not just a successful parse.
 //
 // Every fetch on this page was `.then(r => r.json())`. A 401 returns perfectly valid
-// JSON â€” {"error":"Not logged in."} â€” and destructuring `{ journal }` out of it yields
+// JSON — {"error":"Not logged in."} — and destructuring `{ journal }` out of it yields
 // undefined, so a logged-out or erroring session renders as "no trades recorded yet"
 // rather than as a problem. This page reports P&L; showing an empty record when the
 // real answer is "we could not read it" is the worst failure it has available.
 //
 // The four endpoints it reads are in the no-login allowlist TODAY, so this is latent
-// rather than live â€” but the allowlist is exactly the kind of thing that gets tightened
+// rather than live — but the allowlist is exactly the kind of thing that gets tightened
 // later, and the same code path also covers a 500 or a proxy error.
 async function getJson(route) {
   const response = await fetch(API + route, { cache: 'no-store' });
   if (!response.ok) {
-    throw new Error(route + ' â†’ HTTP ' + response.status
+    throw new Error(route + ' → HTTP ' + response.status
       + (response.status === 401 ? ' (not logged in)' : ''));
   }
   return response.json();
@@ -546,7 +547,7 @@ async function getJson(route) {
 
 // Trade fields reach innerHTML through template literals. Symbol and setup come from
 // the journal, which is written from broker and engine data rather than typed by a
-// person â€” but "it cannot contain markup today" is an assumption about upstream, not a
+// person — but "it cannot contain markup today" is an assumption about upstream, not a
 // property of this page, and it costs nothing to stop relying on it.
 function escapeHtml(value) {
   return String(value == null ? '' : value)
@@ -581,9 +582,9 @@ function pulseRefresh() {
   setTimeout(() => { d.className = 'refresh-dot'; }, 2800);
 }
 
-// â”€â”€ GAUGE (SVG semicircle arc) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── GAUGE (SVG semicircle arc) ─────────────────────────────────
 // Center (100, 105), radius 75
-// Arc goes from 200Â° (lower-left) sweeping through top (270Â°) to 340Â° (lower-right)
+// Arc goes from 200° (lower-left) sweeping through top (270°) to 340° (lower-right)
 const GCX = 100, GCY = 105, GR = 75, G_START = 200, G_END = 340;
 
 function degToRad(d) { return d * Math.PI / 180; }
@@ -600,7 +601,7 @@ function renderGauge(pct) {
   const track  = el('gauge-track');
   const fill   = el('gauge-fill');
   const valEl  = el('gauge-val');
-  const span   = G_END - G_START; // 140Â°
+  const span   = G_END - G_START; // 140°
 
   track.setAttribute('d', arcPath(G_START, G_END));
 
@@ -617,7 +618,7 @@ function renderGauge(pct) {
 
   fill.setAttribute('stroke', color);
   valEl.setAttribute('fill', pct > 0 ? color : '#4a6080');
-  valEl.textContent = pct > 0 ? Math.round(pct) + '%' : 'â€”';
+  valEl.textContent = pct > 0 ? Math.round(pct) + '%' : '—';
 }
 
 function renderSignalBars(signals) {
@@ -640,7 +641,7 @@ function renderSignalBars(signals) {
 
   const avg = items.reduce((s, x) => s + x.conf, 0) / items.length;
   renderGauge(avg);
-  sub.textContent = items.map(i => `${i.label} ${i.conf}%`).join(' Â· ');
+  sub.textContent = items.map(i => `${i.label} ${i.conf}%`).join(' · ');
 
   bars.innerHTML = items.map(item => {
     const fc =
@@ -656,7 +657,7 @@ function renderSignalBars(signals) {
   }).join('');
 }
 
-// â”€â”€ EQUITY CURVE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EQUITY CURVE ───────────────────────────────────────────────
 function buildEquityChart(trades) {
   const closed  = trades.filter(t => t.status !== 'OPEN' && t.pnl != null);
   const last200 = closed.slice(-200);
@@ -664,8 +665,8 @@ function buildEquityChart(trades) {
 
   if (!last200.length) {
     wrap.innerHTML = `<div class="empty-state">
-      <span class="icon">ðŸ“ˆ</span>
-      No closed trades yet â€” equity curve will appear here once trades are recorded.
+      <span class="icon">📈</span>
+      No closed trades yet — equity curve will appear here once trades are recorded.
     </div>`;
     return;
   }
@@ -752,16 +753,16 @@ function buildEquityChart(trades) {
 
   const pnlChange = eq - ACCOUNT_BASE;
   const metaEl = el('equity-meta');
-  metaEl.textContent = `${last200.length} trades Â· $${(ACCOUNT_BASE / 1000).toFixed(0)}k base â†’ ${fmtDollar(eq, 0)} (${pnlChange >= 0 ? '+' : ''}${fmtDollar(pnlChange, 0)})`;
+  metaEl.textContent = `${last200.length} trades · $${(ACCOUNT_BASE / 1000).toFixed(0)}k base → ${fmtDollar(eq, 0)} (${pnlChange >= 0 ? '+' : ''}${fmtDollar(pnlChange, 0)})`;
   metaEl.style.color = positive ? 'var(--green)' : 'var(--red)';
 }
 
-// â”€â”€ SETUP BAR CHART â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── SETUP BAR CHART ────────────────────────────────────────────
 function buildSetupChart(setups) {
   const wrap = el('setup-chart-wrap');
 
   if (!setups || !setups.length) {
-    wrap.innerHTML = `<div class="empty-state"><span class="icon">ðŸ“Š</span>No setup data yet â€” trades needed to compute setup win rates.</div>`;
+    wrap.innerHTML = `<div class="empty-state"><span class="icon">📊</span>No setup data yet — trades needed to compute setup win rates.</div>`;
     return;
   }
 
@@ -771,7 +772,7 @@ function buildSetupChart(setups) {
     .slice(0, 12);
 
   if (!sorted.length) {
-    wrap.innerHTML = `<div class="empty-state"><span class="icon">ðŸ“Š</span>No setups with trades yet.</div>`;
+    wrap.innerHTML = `<div class="empty-state"><span class="icon">📊</span>No setups with trades yet.</div>`;
     return;
   }
 
@@ -820,7 +821,7 @@ function buildSetupChart(setups) {
             label: c => {
               const s = sorted[c.dataIndex];
               const badge = s.winRate > 60 ? 'EDGE' : s.winRate >= 40 ? 'OK' : 'REVIEW';
-              return ` ${c.raw}% win rate  Â·  ${s.count} trades  Â·  ${badge}`;
+              return ` ${c.raw}% win rate  ·  ${s.count} trades  ·  ${badge}`;
             }
           }
         }
@@ -863,13 +864,13 @@ function computeSetupData(trades) {
   }));
 }
 
-// â”€â”€ TRADES TABLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── TRADES TABLE ───────────────────────────────────────────────
 function buildTradesTable(trades) {
   const wrap   = el('trades-wrap');
   const recent = [...trades].reverse().slice(0, 20);
 
   if (!recent.length) {
-    wrap.innerHTML = `<div class="empty-state"><span class="icon">ðŸ“‹</span>No trades recorded yet.</div>`;
+    wrap.innerHTML = `<div class="empty-state"><span class="icon">📋</span>No trades recorded yet.</div>`;
     return;
   }
 
@@ -890,7 +891,7 @@ function buildTradesTable(trades) {
         : `<span class="badge badge-loss">LOSS</span>`;
 
     const pnlHtml = isOpen
-      ? `<span class="pnl-zero">â€”</span>`
+      ? `<span class="pnl-zero">—</span>`
       : `<span class="${pnlClass(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${fmtDollar(t.pnl)}</span>`;
 
     const dateStr = t.openTime
@@ -898,13 +899,13 @@ function buildTradesTable(trades) {
           month: 'short', day: 'numeric',
           hour: '2-digit', minute: '2-digit', hour12: false
         })
-      : 'â€”';
+      : '—';
 
-    const setup  = escapeHtml((t.setup || 'â€”').replace(/_/g, ' '));
-    const entry  = t.entry ? '$' + Number(t.entry).toLocaleString() : 'â€”';
+    const setup  = escapeHtml((t.setup || '—').replace(/_/g, ' '));
+    const entry  = t.entry ? '$' + Number(t.entry).toLocaleString() : '—';
 
     return `<tr class="${rowClass}">
-      <td style="font-weight:700;white-space:nowrap">${escapeHtml(t.symbol || 'â€”')}</td>
+      <td style="font-weight:700;white-space:nowrap">${escapeHtml(t.symbol || '—')}</td>
       <td>${dirBadge}</td>
       <td style="color:var(--muted2);font-size:.7rem;white-space:nowrap">${setup}</td>
       <td style="font-family:var(--mono);font-size:.7rem">${entry}</td>
@@ -923,10 +924,10 @@ function buildTradesTable(trades) {
   </table>`;
 
   const closed = recent.filter(t => t.status !== 'OPEN').length;
-  text('trades-meta', `${closed} closed Â· ${recent.filter(t => t.status === 'OPEN').length} open`);
+  text('trades-meta', `${closed} closed · ${recent.filter(t => t.status === 'OPEN').length} open`);
 }
 
-// â”€â”€ KPI UPDATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── KPI UPDATE ─────────────────────────────────────────────────
 function updateKpis(trades) {
   const closed  = trades.filter(t => t.status !== 'OPEN' && t.pnl != null);
   const open    = trades.filter(t => t.status === 'OPEN');
@@ -936,19 +937,19 @@ function updateKpis(trades) {
   // Total Trades
   text('kpi-trades', closed.length.toString());
   setColor('kpi-trades', 'var(--blue)');
-  text('kpi-trades-sub', `${open.length} open Â· ${trades.length} total logged`);
+  text('kpi-trades-sub', `${open.length} open · ${trades.length} total logged`);
 
   // Win Rate
   const winRate = closed.length ? wins.length / closed.length * 100 : 0;
   const wrCol   = winRate >= 55 ? 'var(--green)' : winRate >= 45 ? 'var(--yellow)' : 'var(--red)';
-  text('kpi-winrate', closed.length ? fmtPct(winRate) : 'â€”');
+  text('kpi-winrate', closed.length ? fmtPct(winRate) : '—');
   setColor('kpi-winrate', closed.length ? wrCol : 'var(--muted2)');
-  text('kpi-winrate-sub', closed.length ? `${wins.length} wins Â· ${losses.length} losses` : 'No closed trades');
+  text('kpi-winrate-sub', closed.length ? `${wins.length} wins · ${losses.length} losses` : 'No closed trades');
 
   // Net P&L
   const netPnl = closed.reduce((s, t) => s + t.pnl, 0);
   const pnlPct = netPnl / ACCOUNT_BASE * 100;
-  text('kpi-pnl', closed.length ? fmtDollar(netPnl) : 'â€”');
+  text('kpi-pnl', closed.length ? fmtDollar(netPnl) : '—');
   setColor('kpi-pnl', closed.length ? (netPnl >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted2)');
   text('kpi-pnl-sub', closed.length
     ? `${pnlPct >= 0 ? '+' : ''}${fmtPct(pnlPct)} on $${(ACCOUNT_BASE / 1000).toFixed(0)}k account`
@@ -957,10 +958,10 @@ function updateKpis(trades) {
   // Profit Factor
   const grossWin  = wins.reduce((s, t) => s + t.pnl, 0);
   const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
-  let pfVal = 'â€”', pfCol = 'var(--muted2)';
+  let pfVal = '—', pfCol = 'var(--muted2)';
   if (closed.length) {
     if (grossLoss === 0) {
-      pfVal = wins.length ? 'âˆž' : 'N/A';
+      pfVal = wins.length ? '∞' : 'N/A';
       pfCol = wins.length ? 'var(--green)' : 'var(--muted2)';
     } else {
       const pf = grossWin / grossLoss;
@@ -972,14 +973,14 @@ function updateKpis(trades) {
   setColor('kpi-pf', pfCol);
   text('kpi-pf-sub', grossLoss > 0
     ? `$${grossWin.toFixed(0)} gross wins / $${grossLoss.toFixed(0)} gross losses`
-    : 'Gross win Ã· gross loss');
+    : 'Gross win ÷ gross loss');
 
   // Session stats card
   const avgWin  = wins.length  ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length   : null;
   const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + t.pnl, 0) / losses.length) : null;
   const best    = closed.length ? closed.reduce((b, t) => t.pnl > b.pnl ? t : b, closed[0]) : null;
   const worst   = closed.length ? closed.reduce((w, t) => t.pnl < w.pnl ? t : w, closed[0]) : null;
-  const rr      = (avgWin && avgLoss && avgLoss > 0) ? (avgWin / avgLoss).toFixed(2) + ':1' : 'â€”';
+  const rr      = (avgWin && avgLoss && avgLoss > 0) ? (avgWin / avgLoss).toFixed(2) + ':1' : '—';
 
   const sr = (label, val, col) =>
     `<div class="stat-row">
@@ -988,16 +989,16 @@ function updateKpis(trades) {
     </div>`;
 
   html('session-stats', [
-    sr('Avg Win',        avgWin  ? fmtDollar(avgWin)  : 'â€”',      'var(--green)'),
-    sr('Avg Loss',       avgLoss ? fmtDollar(avgLoss)  : 'â€”',      'var(--red)'),
+    sr('Avg Win',        avgWin  ? fmtDollar(avgWin)  : '—',      'var(--green)'),
+    sr('Avg Loss',       avgLoss ? fmtDollar(avgLoss)  : '—',      'var(--red)'),
     sr('Risk / Reward',  rr,                                        'var(--text)'),
-    sr('Best Trade',     best  ? fmtDollar(best.pnl)  : 'â€”',       'var(--green)'),
-    sr('Worst Trade',    worst ? fmtDollar(worst.pnl)  : 'â€”',      'var(--red)'),
+    sr('Best Trade',     best  ? fmtDollar(best.pnl)  : '—',       'var(--green)'),
+    sr('Worst Trade',    worst ? fmtDollar(worst.pnl)  : '—',      'var(--red)'),
     sr('Open Positions', open.length.toString(),  open.length > 0 ? 'var(--blue)' : 'var(--muted2)'),
   ].join(''));
 }
 
-// â”€â”€ SYSTEM HEALTH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── SYSTEM HEALTH ──────────────────────────────────────────────
 async function loadHealth() {
   const grid    = el('health-grid');
   const spinner = el('health-spinner');
@@ -1010,10 +1011,10 @@ async function loadHealth() {
     ts.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { hour12: false });
 
     const components = [
-      { icon: 'ðŸ–¥ï¸',  label: 'Server',       val: d.server?.healthy ? 'ONLINE' : (d.server ? 'RUNNING' : 'OFFLINE') },
-      { icon: 'ðŸ“¡',  label: 'MT5 Bridge',   val: d.mt5?.connected ? 'CONNECTED' : (d.mt5Positions?.length > 0 ? 'CONNECTED' : 'OFFLINE') },
-      { icon: 'ðŸ“¶',  label: 'Signals',      val: (d.signals?.btc || d.signals?.gold || d.signals?.spx) ? 'ACTIVE' : 'WAIT' },
-      { icon: 'ðŸ§ ',  label: 'Learning AI',  val: d.learning?.setupsTracked >= 0 ? 'ACTIVE' : 'OFFLINE' },
+      { icon: '🖥️',  label: 'Server',       val: d.server?.healthy ? 'ONLINE' : (d.server ? 'RUNNING' : 'OFFLINE') },
+      { icon: '📡',  label: 'MT5 Bridge',   val: d.mt5?.connected ? 'CONNECTED' : (d.mt5Positions?.length > 0 ? 'CONNECTED' : 'OFFLINE') },
+      { icon: '📶',  label: 'Signals',      val: (d.signals?.btc || d.signals?.gold || d.signals?.spx) ? 'ACTIVE' : 'WAIT' },
+      { icon: '🧠',  label: 'Learning AI',  val: d.learning?.setupsTracked >= 0 ? 'ACTIVE' : 'OFFLINE' },
     ];
 
     grid.innerHTML = components.map(c => {
@@ -1039,7 +1040,7 @@ async function loadHealth() {
   } catch {
     spinner.style.display = 'none';
     ts.textContent = 'Server offline';
-    grid.innerHTML = ['ðŸ–¥ï¸ Server', 'ðŸ“¡ MT5 Bridge', 'ðŸ“¶ Signals', 'ðŸ§  Learning AI'].map(lbl => {
+    grid.innerHTML = ['🖥️ Server', '📡 MT5 Bridge', '📶 Signals', '🧠 Learning AI'].map(lbl => {
       const [icon, ...rest] = lbl.split(' ');
       return `<div class="health-row">
         <div class="health-name"><span style="font-size:.95rem">${icon}</span>${rest.join(' ')}</div>
@@ -1049,7 +1050,7 @@ async function loadHealth() {
   }
 }
 
-// â”€â”€ SIGNALS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── SIGNALS ────────────────────────────────────────────────────
 async function loadSignals() {
   try {
     const d = await getJson('/signals');
@@ -1061,7 +1062,7 @@ async function loadSignals() {
   }
 }
 
-// â”€â”€ JOURNAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── JOURNAL ────────────────────────────────────────────────────
 async function loadJournal() {
   try {
     const { journal } = await getJson('/journal');
@@ -1073,14 +1074,14 @@ async function loadJournal() {
     return trades;
   } catch {
     markOnline(false);
-    html('equity-chart-wrap', `<div class="empty-state"><span class="icon">âš ï¸</span>Server offline â€” cannot load performance data.</div>`);
-    html('trades-wrap', `<div class="empty-state"><span class="icon">âš ï¸</span>Server offline.</div>`);
+    html('equity-chart-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Server offline — cannot load performance data.</div>`);
+    html('trades-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Server offline.</div>`);
     html('session-stats', `<div style="color:var(--muted2);font-size:.76rem;padding:8px 0">No data available.</div>`);
     return [];
   }
 }
 
-// â”€â”€ SETUP DATA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── SETUP DATA ─────────────────────────────────────────────────
 async function loadSetups(trades) {
   let data = null;
   try {
@@ -1100,7 +1101,7 @@ async function loadSetups(trades) {
   buildSetupChart(data);
 }
 
-// â”€â”€ FULL REFRESH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── FULL REFRESH ───────────────────────────────────────────────
 async function refresh() {
   pulseRefresh();
   const trades = await loadJournal();
@@ -1108,7 +1109,7 @@ async function refresh() {
   text('footer-ts', 'Updated ' + new Date().toLocaleTimeString('en-US', { hour12: false }));
 }
 
-// â”€â”€ BOOT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── BOOT ───────────────────────────────────────────────────────
 refresh();
 setInterval(async () => { pulseRefresh(); const t = await loadJournal(); await loadSetups(t); text('footer-ts', 'Updated ' + new Date().toLocaleTimeString('en-US', { hour12: false })); }, 60_000);
 setInterval(loadHealth,  30_000);
