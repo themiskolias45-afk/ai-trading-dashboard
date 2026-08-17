@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SmartEntry Pro — Systems Plan</title>
+  <title>SmartEntry Pro â€” Systems Plan</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
-      --text:#e2e8f0; --muted:#4a6080; --accent:#7c3aed;
+      --text:#e2e8f0; --muted:#6b83a8; --muted-dim:#4a6080; --accent:#7c3aed;
       --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
       --font:'Segoe UI',system-ui,Arial,sans-serif;
     }
@@ -80,7 +80,7 @@
     /* Wide content must scroll inside its own box, never the page body. */
     .scroll-x { overflow-x:auto; }
 
-    /* ── Fleet: this box beside the other one ── */
+    /* â”€â”€ Fleet: this box beside the other one â”€â”€ */
     .banner {
       border-radius:10px; padding:12px 16px; margin-bottom:14px;
       font-size:.78rem; line-height:1.6; border:1px solid;
@@ -246,7 +246,7 @@ function renderComponents(data) {
   const expectedBoxes = beats.expected || [];
   if (expectedBoxes.length === 0 && (beats.seen || []).length === 0) {
     parts.push('<div class="row"><div><div class="row-label">Peer check-ins</div>'
-      + '<div class="row-detail">no box declared in PEER_HEARTBEAT_EXPECT — nothing here raises an alarm if the other machine goes quiet</div></div>'
+      + '<div class="row-detail">no box declared in PEER_HEARTBEAT_EXPECT â€” nothing here raises an alarm if the other machine goes quiet</div></div>'
       + '<div class="row-value idle">NONE</div></div>');
   } else {
     const seenByName = {};
@@ -265,15 +265,15 @@ function renderComponents(data) {
         cls = declared ? 'bad' : 'idle';
         value = declared ? 'SILENT' : 'NOT SEEN';
         detail = beats.withinStartupGrace
-          ? 'expected, nothing yet — still inside the startup window after a restart'
+          ? 'expected, nothing yet â€” still inside the startup window after a restart'
           : 'declared in PEER_HEARTBEAT_EXPECT and has not reported in';
       } else {
         cls = beat.stale ? 'bad' : (beat.status === 'ok' ? 'ok' : 'warn');
         value = beat.stale ? 'STALE' : String(beat.status || 'seen').toUpperCase();
-        detail = (beat.detail || 'reported in') + ' · ' + beat.ageSeconds + 's ago'
-          + (declared ? '' : ' · not declared, informational only');
+        detail = (beat.detail || 'reported in') + ' Â· ' + beat.ageSeconds + 's ago'
+          + (declared ? '' : ' Â· not declared, informational only');
         // What that box is RUNNING, self-reported. This is the only way the
-        // always-on machine learns its partner's gate — it cannot pull from it.
+        // always-on machine learns its partner's gate â€” it cannot pull from it.
         const reported = beat.state;
         if (reported) {
           const facts = [];
@@ -284,7 +284,7 @@ function renderComponents(data) {
           if ((reported.bridgesSilent || []).length) facts.push('SILENT ' + reported.bridgesSilent.join(','));
           if (reported.settingsError) facts.push('RUNNING DEFAULTS');
           if (reported.unreviewedProposals) facts.push(reported.unreviewedProposals + ' unreviewed');
-          detailExtraHtml = '<br>it reports: ' + esc(facts.join(' · '));
+          detailExtraHtml = '<br>it reports: ' + esc(facts.join(' Â· '));
         }
       }
       parts.push('<div class="row"><div><div class="row-label">Check-in ' + esc(name) + '</div>'
@@ -305,17 +305,17 @@ function renderComponents(data) {
   host.innerHTML = parts.join('');
 }
 
-// ── The fleet ────────────────────────────────────────────────────────────────
+// â”€â”€ The fleet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // This box beside the other one, one row per fact that decides what trades. The
 // comparison is done here rather than left to the eye, because the failures that
 // have cost the most were both boxes reporting healthy while disagreeing about
 // what a signal is.
 function valueOrDash(value) {
-  return value === null || value === undefined || value === '' ? '—' : String(value);
+  return value === null || value === undefined || value === '' ? 'â€”' : String(value);
 }
 
 // Every bar-freshness field is frozen at signal-refresh time, so the row states WHEN it
-// was judged. Without that, a stalled refresh chain leaves "current" on screen forever —
+// was judged. Without that, a stalled refresh chain leaves "current" on screen forever â€”
 // which is the same green-while-wedged failure the row exists to break.
 function agoText(isoTimestamp) {
   const judgedMs = Date.parse(isoTimestamp || '');
@@ -341,30 +341,30 @@ function renderFleet(data) {
     const bridges = box.bridges || { reporting: [], silent: [] };
     const live    = (bridges.reporting || []).join(', ');
     const silent  = (bridges.silent || []).join(', ');
-    if (!live && !silent) return '—';
-    return (live ? live + ' live' : 'none live') + (silent ? ' · ' + silent + ' SILENT' : '');
+    if (!live && !silent) return 'â€”';
+    return (live ? live + ' live' : 'none live') + (silent ? ' Â· ' + silent + ' SILENT' : '');
   };
 
   const haltText = (box) => {
-    if (box.halted === null || box.halted === undefined) return '—';
-    return box.halted ? 'OPEN — ' + (box.haltReason || 'halted') : 'closed';
+    if (box.halted === null || box.halted === undefined) return 'â€”';
+    return box.halted ? 'OPEN â€” ' + (box.haltReason || 'halted') : 'closed';
   };
 
   // MT5 bar freshness, per box. `stale` is a statement about the BROKER SERIES only:
   // when it is true the engine has already fallen back to Yahoo, so the prices and
   // levels on every page are current and it is the feed behind them that stopped
   // moving. No other row here changes when a terminal wedges underneath a running
-  // bridge — the push stays seconds old and the bridge keeps reporting LIVE.
+  // bridge â€” the push stays seconds old and the bridge keeps reporting LIVE.
   const barFreshnessText = (box) => {
     const freshness = box.barFreshness;
     if (!freshness) return 'not reported by this box';
-    const asOf = freshness.judgedAt ? ' · judged ' + agoText(freshness.judgedAt) : '';
+    const asOf = freshness.judgedAt ? ' Â· judged ' + agoText(freshness.judgedAt) : '';
     // Never one hardcoded cause: each box sends the reason it actually has, and they
-    // call for different things — no bars pushed yet, a bridge older than the check,
+    // call for different things â€” no bars pushed yet, a bridge older than the check,
     // an empty cache after a restart, or a server that predates the field entirely.
     if (!freshness.checked) {
       const named = (freshness.unjudgedAssets || []);
-      return 'UNVERIFIED — ' + (named.length > 0 ? named.join(', ').toUpperCase() + ': ' : '')
+      return 'UNVERIFIED â€” ' + (named.length > 0 ? named.join(', ').toUpperCase() + ': ' : '')
            + (freshness.reason || 'no reason reported') + asOf;
     }
     const worst = freshness.worst || {};
@@ -373,19 +373,19 @@ function renderFleet(data) {
     // would let one verified asset speak for a box where two were never checked.
     const unjudged = freshness.unjudgedAssets || [];
     const unjudgedNote = unjudged.length > 0
-      ? ' · UNVERIFIED: ' + unjudged.join(', ').toUpperCase() + ' (' + (freshness.reason || 'no reason reported') + ')'
+      ? ' Â· UNVERIFIED: ' + unjudged.join(', ').toUpperCase() + ' (' + (freshness.reason || 'no reason reported') + ')'
       : '';
     if (staleAssets.length > 0) {
       return 'BROKER FEED STALE: ' + staleAssets.join(', ').toUpperCase()
-           + (worst.reason ? ' · ' + worst.reason : '')
-           + (worst.usedForThisSignal === false ? ' · signals fell back to Yahoo, prices shown are current' : '')
+           + (worst.reason ? ' Â· ' + worst.reason : '')
+           + (worst.usedForThisSignal === false ? ' Â· signals fell back to Yahoo, prices shown are current' : '')
            + unjudgedNote + asOf;
     }
     const judged = freshness.judgedAssets || [];
     // lastBarAt is the NEWEST bar of the LAGGIEST asset, so it is labelled as that
     // rather than as an "oldest bar" a reader would take for the series start.
     const laggiest = worst.lastBarAt
-      ? ' · laggiest ' + String(worst.asset || '').toUpperCase() + ', newest D1 bar '
+      ? ' Â· laggiest ' + String(worst.asset || '').toUpperCase() + ', newest D1 bar '
         + worst.lastBarAt.slice(0, 16).replace('T', ' ') + 'Z'
       : '';
     return 'current' + (judged.length > 0 ? ' (' + judged.join(', ').toUpperCase() + ')' : '')
@@ -393,7 +393,7 @@ function renderFleet(data) {
   };
 
   // Only boxes that answered can be judged. An unreachable peer gets a dash, never a
-  // pass — the whole point of this row is that silence and freshness look identical.
+  // pass â€” the whole point of this row is that silence and freshness look identical.
   const judgedBoxes = peer.reachable ? [here, peer] : [here];
   const staleWorstCases = judgedBoxes
     .map(box => box.barFreshness && box.barFreshness.worst)
@@ -408,8 +408,8 @@ function renderFleet(data) {
 
   const rows = [
     { label: 'Health',
-      local: here.healthy === null || here.healthy === undefined ? '—' : (here.healthy ? 'Healthy' : 'Degraded'),
-      peer:  peer.healthy === null || peer.healthy === undefined ? '—' : (peer.healthy ? 'Healthy' : 'Degraded'),
+      local: here.healthy === null || here.healthy === undefined ? 'â€”' : (here.healthy ? 'Healthy' : 'Degraded'),
+      peer:  peer.healthy === null || peer.healthy === undefined ? 'â€”' : (peer.healthy ? 'Healthy' : 'Degraded'),
       bad:   here.healthy === false || peer.healthy === false },
 
     { label: 'Confidence gate',
@@ -417,7 +417,7 @@ function renderFleet(data) {
       peer:  valueOrDash(peer.gate),
       bad:   !!(div.gate && div.gate.differs),
       note:  div.gate && div.gate.differs
-               ? 'strategy_settings.json is per-machine and untracked — the same commit is running two different gates.'
+               ? 'strategy_settings.json is per-machine and untracked â€” the same commit is running two different gates.'
                : '' },
 
     { label: 'Circuit breaker',
@@ -427,22 +427,22 @@ function renderFleet(data) {
 
     { label: 'Bridges',
       local: bridgeText(here),
-      peer:  peer.reachable ? bridgeText(peer) : '—',
+      peer:  peer.reachable ? bridgeText(peer) : 'â€”',
       bad:   (here.bridges && (here.bridges.silent || []).length > 0)
              || (peer.bridges && (peer.bridges.silent || []).length > 0) },
 
     { label: 'MT5 bar freshness',
       local: barFreshnessText(here),
-      peer:  peer.reachable ? barFreshnessText(peer) : '—',
+      peer:  peer.reachable ? barFreshnessText(peer) : 'â€”',
       bad:   feedStale,
       note:  feedStale
-               ? 'The BROKER SERIES stopped moving. A wedged terminal keeps its bridge posting on schedule, so nothing else on this page turns red — the MT5 terminal on that box is what to check. '
+               ? 'The BROKER SERIES stopped moving. A wedged terminal keeps its bridge posting on schedule, so nothing else on this page turns red â€” the MT5 terminal on that box is what to check. '
                  + (fellBackToYahoo
                      ? 'The engine has already fallen back to Yahoo, so the prices and levels shown everywhere are current; it is the MT5 feed behind them that is stale.'
-                     : 'This signal was still computed from the MT5 series — check its levels before acting on them.')
+                     : 'This signal was still computed from the MT5 series â€” check its levels before acting on them.')
                : (feedUnverified
                    ? (judgedBoxes.length > 1 ? 'Neither box ' : 'This box ')
-                     + 'reported a verified MT5 series, so this row is UNVERIFIED rather than passed. Each cell carries the reason that box gave — they are not the same problem and do not have the same fix.'
+                     + 'reported a verified MT5 series, so this row is UNVERIFIED rather than passed. Each cell carries the reason that box gave â€” they are not the same problem and do not have the same fix.'
                    : '') },
 
     { label: 'Fixed lot size',
@@ -450,7 +450,7 @@ function renderFleet(data) {
       peer:  valueOrDash(peer.fixedLotSize),
       byDesign: !!(div.fixedLotSize && div.fixedLotSize.differs),
       note:  div.fixedLotSize && div.fixedLotSize.differs
-               ? 'Per-machine by design — the VPS deliberately runs a fixed lot. Shown so it is visible, not raised as a fault.'
+               ? 'Per-machine by design â€” the VPS deliberately runs a fixed lot. Shown so it is visible, not raised as a fault.'
                : '' },
 
     { label: 'Daily P&L',
@@ -458,19 +458,19 @@ function renderFleet(data) {
       peer:  valueOrDash(peer.dailyPnl) },
 
     { label: 'Config source',
-      local: here.settingsError ? 'DEFAULTS — ' + here.settingsError : 'saved file',
-      peer:  peer.reachable ? (peer.settingsError ? 'DEFAULTS — ' + peer.settingsError : 'saved file') : '—',
+      local: here.settingsError ? 'DEFAULTS â€” ' + here.settingsError : 'saved file',
+      peer:  peer.reachable ? (peer.settingsError ? 'DEFAULTS â€” ' + peer.settingsError : 'saved file') : 'â€”',
       bad:   !!here.settingsError || !!peer.settingsError },
 
     { label: 'Engine parity',
       local: parity.available
-               ? parity.verdict + (parity.ageHours !== null ? ' · ' + parity.ageHours + 'h ago' : '')
+               ? parity.verdict + (parity.ageHours !== null ? ' Â· ' + parity.ageHours + 'h ago' : '')
                : 'never recorded',
-      peer:  parity.available && (parity.fileDrift || 0) > 0 ? parity.fileDrift + ' non-engine file(s) differ' : '—',
+      peer:  parity.available && (parity.fileDrift || 0) > 0 ? parity.fileDrift + ' non-engine file(s) differ' : 'â€”',
       bad:   !!(div.engine && div.engine.differs),
       note:  parity.available
                ? ''
-               : 'Nothing here proves the two boxes share a trading engine — only that both are up. Run node tasks/vps_parity.cjs --emit.' },
+               : 'Nothing here proves the two boxes share a trading engine â€” only that both are up. Run node tasks/vps_parity.cjs --emit.' },
   ];
 
   host.innerHTML =
@@ -504,7 +504,7 @@ function renderDivergenceBanner(data) {
     splits.push('The other box did not answer (' + (peer.error || 'no response') + '). It is the box that trades continuously.');
   }
   if (div.gate && div.gate.differs) {
-    splits.push('Confidence gate is ' + div.gate.local + ' here and ' + div.gate.peer + ' there — the two boxes admit different trades from identical bars.');
+    splits.push('Confidence gate is ' + div.gate.local + ' here and ' + div.gate.peer + ' there â€” the two boxes admit different trades from identical bars.');
   }
   if (div.engine && div.engine.differs) {
     splits.push('Engine parity failed: ' + div.engine.engineDrift + ' function(s) and ' + div.engine.scalarDrift + ' constant(s) differ.');
@@ -525,7 +525,7 @@ function renderDivergenceBanner(data) {
   host.innerHTML = '<div class="banner banner-ok"><strong>Both boxes agree</strong>'
     + 'Same gate, both answering, neither halted'
     + (parity.available && !(div.engine && div.engine.differs)
-        ? ' — and the last engine-parity run said ' + esc(parity.verdict) + (parity.ageHours !== null ? ' (' + esc(parity.ageHours) + 'h ago).' : '.')
+        ? ' â€” and the last engine-parity run said ' + esc(parity.verdict) + (parity.ageHours !== null ? ' (' + esc(parity.ageHours) + 'h ago).' : '.')
         : '. Engine parity has not been recorded, so this is agreement on config, not proof of a shared engine.')
     + '</div>';
 }
@@ -585,7 +585,7 @@ async function loadPlan() {
     console.error('[plan] loadPlan failed:', err);
     setStatus(false, 'Offline');
     document.getElementById('plan-meta').textContent = 'Could not read system state - ' + err.message;
-    // Say nothing rather than leave the fleet card at "Loading..." — a stalled
+    // Say nothing rather than leave the fleet card at "Loading..." â€” a stalled
     // comparison must not read as a comparison that passed.
     document.getElementById('divergence-banner').innerHTML =
       '<div class="banner banner-warn"><strong>Comparison unavailable</strong>'

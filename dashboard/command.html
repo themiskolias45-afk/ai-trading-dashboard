@@ -8,14 +8,14 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg:#080c14;--surface:#0d1422;--surface2:#111827;--border:#1a2235;--border2:#243044;
-  --text:#e2e8f0;--muted:#4a6080;--dim:#2a3a55;
+  --text:#e2e8f0;--muted:#6b83a8; --muted-dim:#4a6080;--dim:#2a3a55;
   --green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6;--purple:#7c3aed;--orange:#f97316;
   --green-bg:#0d2010;--red-bg:#1a0808;--yellow-bg:#1a1500;--blue-bg:#0a1220;
   --font:'Segoe UI',system-ui,Arial,sans-serif;
 }
 body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;font-size:13px}
 
-/* ── HEADER ── */
+/* â”€â”€ HEADER â”€â”€ */
 header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
 .logo{display:flex;align-items:center;gap:10px}
 .logo-mark{width:30px;height:30px;background:linear-gradient(135deg,var(--purple),#4f46e5);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#fff}
@@ -31,7 +31,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.05);opacity:.85}}
 
-/* ── LAYOUT ── */
+/* â”€â”€ LAYOUT â”€â”€ */
 .page{padding:16px 20px;max-width:1700px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
 .row{display:grid;gap:12px}
 .row3{grid-template-columns:repeat(3,1fr)}
@@ -40,13 +40,13 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .row12{grid-template-columns:1fr 2fr}
 @media(max-width:1200px){.row3,.row2,.row21,.row12{grid-template-columns:1fr}}
 
-/* ── PANEL ── */
+/* â”€â”€ PANEL â”€â”€ */
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
 .panel-hdr{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .panel-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 .panel-body{padding:14px;flex:1;overflow-y:auto}
 
-/* ── SIGNAL CARDS ── */
+/* â”€â”€ SIGNAL CARDS â”€â”€ */
 .signal-card{border-radius:10px;border:1px solid var(--border2);padding:18px;display:flex;flex-direction:column;gap:14px;transition:border-color .3s}
 .signal-card.buy{border-color:rgba(34,197,94,.35);background:linear-gradient(145deg,var(--surface),#0a1a0d)}
 .signal-card.sell{border-color:rgba(239,68,68,.35);background:linear-gradient(145deg,var(--surface),#1a0a0a)}
@@ -91,7 +91,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .reason-item.warn{color:var(--yellow)}
 .reason-item.bad {color:var(--red)}
 
-/* ── SIGNAL HISTORY TABLE ── */
+/* â”€â”€ SIGNAL HISTORY TABLE â”€â”€ */
 .hist-table{width:100%;border-collapse:collapse;font-size:.68rem}
 .hist-table th{color:var(--muted);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:.6rem;text-transform:uppercase;letter-spacing:.08em}
 .hist-table td{padding:6px 8px;border-bottom:1px solid rgba(26,34,53,.5);vertical-align:middle}
@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .sig-WAIT{color:var(--dim)}
 .time-cell{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 
-/* ── LEARNING TABLE ── */
+/* â”€â”€ LEARNING TABLE â”€â”€ */
 .learn-table{width:100%;border-collapse:collapse;font-size:.68rem}
 .learn-table th{color:var(--muted);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);font-size:.6rem;text-transform:uppercase;letter-spacing:.08em}
 .learn-table td{padding:6px 8px;border-bottom:1px solid rgba(26,34,53,.5)}
@@ -122,7 +122,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .avoid-tag{font-size:.58rem;padding:1px 5px;border-radius:4px;background:rgba(239,68,68,.15);color:var(--red);font-weight:600;margin-left:4px}
 .priority-tag{font-size:.58rem;padding:1px 5px;border-radius:4px;background:rgba(34,197,94,.12);color:var(--green);font-weight:600;margin-left:4px}
 
-/* ── JOURNAL ── */
+/* â”€â”€ JOURNAL â”€â”€ */
 .trade-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(26,34,53,.5)}
 .trade-row:last-child{border-bottom:none}
 .trade-sym{font-weight:700;font-size:.75rem}
@@ -135,7 +135,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .pnl-neg{color:var(--red)}
 .trade-date{font-size:.6rem;color:var(--dim)}
 
-/* ── STATS ROW ── */
+/* â”€â”€ STATS ROW â”€â”€ */
 .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 @media(max-width:800px){.stats-row{grid-template-columns:repeat(2,1fr)}}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:4px}
@@ -143,22 +143,22 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .stat-value{font-size:1.5rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
 .stat-sub{font-size:.62rem;color:var(--muted)}
 
-/* ── MACRO STRIP ── */
+/* â”€â”€ MACRO STRIP â”€â”€ */
 .macro-strip{display:flex;gap:10px;flex-wrap:wrap}
 .macro-item{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 12px;display:flex;flex-direction:column;gap:2px;min-width:90px}
 .macro-label{font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
 .macro-val{font-size:.95rem;font-weight:700;font-variant-numeric:tabular-nums}
 .macro-chg{font-size:.62rem;font-weight:600}
 
-/* ── EMPTY STATE ── */
+/* â”€â”€ EMPTY STATE â”€â”€ */
 .empty{color:var(--muted);font-size:.72rem;text-align:center;padding:20px}
 
-/* ── REFRESH INDICATOR ── */
+/* â”€â”€ REFRESH INDICATOR â”€â”€ */
 .refresh-ring{display:inline-block;width:8px;height:8px;border:2px solid transparent;border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;margin-left:6px;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 .last-updated{font-size:.6rem;color:var(--muted);margin-left:8px}
 
-/* ── SECTION HEADER ── */
+/* â”€â”€ SECTION HEADER â”€â”€ */
 .section-hdr{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:10px}
 
 /* scrollbar */
@@ -195,26 +195,26 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 
   <!-- MACRO STRIP -->
   <div class="macro-strip" id="macro-strip">
-    <div class="macro-item"><div class="macro-label">BTC</div><div class="macro-val" id="m-btc">—</div><div class="macro-chg" id="m-btc-c">—</div></div>
-    <div class="macro-item"><div class="macro-label">GOLD</div><div class="macro-val" id="m-gold">—</div><div class="macro-chg" id="m-gold-c">—</div></div>
-    <div class="macro-item"><div class="macro-label">SPX/SPY</div><div class="macro-val" id="m-spx">—</div><div class="macro-chg" id="m-spx-c">—</div></div>
-    <div class="macro-item"><div class="macro-label">DXY</div><div class="macro-val" id="m-dxy">—</div><div class="macro-chg" id="m-dxy-c">—</div></div>
-    <div class="macro-item"><div class="macro-label">VIX</div><div class="macro-val" id="m-vix">—</div><div class="macro-chg flat" id="m-vix-c"></div></div>
+    <div class="macro-item"><div class="macro-label">BTC</div><div class="macro-val" id="m-btc">â€”</div><div class="macro-chg" id="m-btc-c">â€”</div></div>
+    <div class="macro-item"><div class="macro-label">GOLD</div><div class="macro-val" id="m-gold">â€”</div><div class="macro-chg" id="m-gold-c">â€”</div></div>
+    <div class="macro-item"><div class="macro-label">SPX/SPY</div><div class="macro-val" id="m-spx">â€”</div><div class="macro-chg" id="m-spx-c">â€”</div></div>
+    <div class="macro-item"><div class="macro-label">DXY</div><div class="macro-val" id="m-dxy">â€”</div><div class="macro-chg" id="m-dxy-c">â€”</div></div>
+    <div class="macro-item"><div class="macro-label">VIX</div><div class="macro-val" id="m-vix">â€”</div><div class="macro-chg flat" id="m-vix-c"></div></div>
   </div>
 
   <!-- SIGNAL CARDS ROW -->
   <div class="row row3" id="signal-cards-row">
-    <div class="panel"><div class="panel-hdr"><span class="panel-title">Bitcoin (BTC)</span></div><div class="panel-body" id="card-btc"><div class="empty">Loading…</div></div></div>
-    <div class="panel"><div class="panel-hdr"><span class="panel-title">Gold (XAUUSD)</span></div><div class="panel-body" id="card-gold"><div class="empty">Loading…</div></div></div>
-    <div class="panel"><div class="panel-hdr"><span class="panel-title">S&P 500 / SPY</span></div><div class="panel-body" id="card-spx"><div class="empty">Loading…</div></div></div>
+    <div class="panel"><div class="panel-hdr"><span class="panel-title">Bitcoin (BTC)</span></div><div class="panel-body" id="card-btc"><div class="empty">Loadingâ€¦</div></div></div>
+    <div class="panel"><div class="panel-hdr"><span class="panel-title">Gold (XAUUSD)</span></div><div class="panel-body" id="card-gold"><div class="empty">Loadingâ€¦</div></div></div>
+    <div class="panel"><div class="panel-hdr"><span class="panel-title">S&P 500 / SPY</span></div><div class="panel-body" id="card-spx"><div class="empty">Loadingâ€¦</div></div></div>
   </div>
 
   <!-- STATS ROW -->
   <div class="stats-row" id="stats-row">
-    <div class="stat-card"><div class="stat-label">Total Trades</div><div class="stat-value" id="st-total">—</div><div class="stat-sub" id="st-period">all time</div></div>
-    <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="st-wr">—</div><div class="stat-sub">wins / losses</div></div>
-    <div class="stat-card"><div class="stat-label">Gross P&amp;L</div><div class="stat-value" id="st-pnl">—</div><div class="stat-sub" id="st-best">best setup</div></div>
-    <div class="stat-card"><div class="stat-label">Signal Cycles</div><div class="stat-value" id="st-cycles">—</div><div class="stat-sub">last 24h</div></div>
+    <div class="stat-card"><div class="stat-label">Total Trades</div><div class="stat-value" id="st-total">â€”</div><div class="stat-sub" id="st-period">all time</div></div>
+    <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="st-wr">â€”</div><div class="stat-sub">wins / losses</div></div>
+    <div class="stat-card"><div class="stat-label">Gross P&amp;L</div><div class="stat-value" id="st-pnl">â€”</div><div class="stat-sub" id="st-best">best setup</div></div>
+    <div class="stat-card"><div class="stat-label">Signal Cycles</div><div class="stat-value" id="st-cycles">â€”</div><div class="stat-sub">last 24h</div></div>
   </div>
 
   <!-- HISTORY + LEARNING ROW -->
@@ -224,7 +224,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
     <div class="panel" style="max-height:400px">
       <div class="panel-hdr">
         <span class="panel-title">Signal History</span>
-        <span style="font-size:.6rem;color:var(--muted)">Every 30 min — full confidence log</span>
+        <span style="font-size:.6rem;color:var(--muted)">Every 30 min â€” full confidence log</span>
       </div>
       <div class="panel-body" style="padding:0;overflow-x:auto">
         <table class="hist-table">
@@ -235,7 +235,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
             <th>SPX</th><th>SPX Conf</th>
             <th>Fired?</th>
           </tr></thead>
-          <tbody id="hist-tbody"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody>
+          <tbody id="hist-tbody"><tr><td colspan="8" class="empty">Loadingâ€¦</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -246,7 +246,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
       <div class="panel-body" style="padding:0;overflow-x:auto">
         <table class="learn-table" id="learn-table">
           <thead><tr><th>Setup</th><th>W/L</th><th>Win Rate</th><th>P&amp;L</th></tr></thead>
-          <tbody id="learn-tbody"><tr><td colspan="4" class="empty">No trades yet — system is waiting for first trade</td></tr></tbody>
+          <tbody id="learn-tbody"><tr><td colspan="4" class="empty">No trades yet â€” system is waiting for first trade</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -260,7 +260,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
     <div class="panel">
       <div class="panel-hdr"><span class="panel-title">Why Each Asset Is Waiting / What It Sees</span></div>
       <div class="panel-body" id="reasons-panel">
-        <div class="empty">Loading signal data…</div>
+        <div class="empty">Loading signal dataâ€¦</div>
       </div>
     </div>
 
@@ -280,15 +280,15 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 const API = '';
 
 function fmtChg(v) {
-  if (v == null) return '—';
+  if (v == null) return 'â€”';
   const c = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--muted)';
   return `<span style="color:${c}">${v > 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
 }
 
 // Declared HERE, above its first reader, not next to loadGate() 270 lines below.
 // `let` has no hoisted initialiser, so a function that runs before that line would hit
-// the temporal dead zone and throw. Nothing does today — every reader runs inside
-// loadAll() — but that is an accident of ordering, not a guarantee.
+// the temporal dead zone and throw. Nothing does today â€” every reader runs inside
+// loadAll() â€” but that is an accident of ordering, not a guarantee.
 let LIVE_GATE = null;
 
 // Colour bands. Cosmetic, but they were a third and fourth copy of the gate: green at
@@ -312,18 +312,18 @@ function chipClass(c) {
 }
 
 function fmtNum(v, decimals=2) {
-  if (v == null) return '—';
+  if (v == null) return 'â€”';
   return v.toLocaleString('en-US', { maximumFractionDigits: decimals });
 }
 
 function fmtTime(iso) {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   const d = new Date(iso);
   return d.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:false });
 }
 
 function fmtDateTime(iso) {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   const d = new Date(iso);
   return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' +
          d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});
@@ -353,19 +353,19 @@ function buildSignalCard(sig, key) {
   }
 
   const reasons = (sig.reasons || []).slice(0, 7).map(r => {
-    const cl = r.startsWith('✅') ? 'good' : r.startsWith('⚠') ? 'warn' : r.startsWith('❌') ? 'bad' : '';
+    const cl = r.startsWith('âœ…') ? 'good' : r.startsWith('âš ') ? 'warn' : r.startsWith('âŒ') ? 'bad' : '';
     return `<div class="reason-item ${cl}">${r}</div>`;
   }).join('');
 
-  // The live gate, never 65. This line claimed "Above threshold — signal ACTIVE" for
+  // The live gate, never 65. This line claimed "Above threshold â€” signal ACTIVE" for
   // any confidence >= 65 while the gate was 70, so a 67% setup that could not fire was
   // rendered as active on the command page. Until the gate is known the honest output
   // names no number and claims nothing.
   const threshold = LIVE_GATE === null
-    ? `<div class="threshold-line">Gate unknown — reading ${'/api/strategy-settings'}</div>`
+    ? `<div class="threshold-line">Gate unknown â€” reading ${'/api/strategy-settings'}</div>`
     : c < LIVE_GATE
-      ? `<div class="threshold-line">Need ${LIVE_GATE}% to fire — ${LIVE_GATE - c}% gap</div>`
-      : `<div class="threshold-line" style="color:var(--green)">Above threshold — signal ACTIVE</div>`;
+      ? `<div class="threshold-line">Need ${LIVE_GATE}% to fire â€” ${LIVE_GATE - c}% gap</div>`
+      : `<div class="threshold-line" style="color:var(--green)">Above threshold â€” signal ACTIVE</div>`;
 
   return `
     <div class="signal-card ${cls}">
@@ -373,8 +373,8 @@ function buildSignalCard(sig, key) {
         <div>
           <div class="asset-name">${key.toUpperCase()}</div>
           <div class="meta-strip" style="margin-top:4px">
-            <span class="meta-tag">${sig.regime || '—'}</span>
-            <span class="meta-tag">${sig.trend || '—'}</span>
+            <span class="meta-tag">${sig.regime || 'â€”'}</span>
+            <span class="meta-tag">${sig.trend || 'â€”'}</span>
             ${sig.setup ? `<span class="meta-tag">${sig.setup}</span>` : ''}
           </div>
         </div>
@@ -400,13 +400,13 @@ function buildReasonsPanel(signals) {
     const sig = signals[a.key];
     if (!sig) return '';
     const reasons = (sig.reasons || []);
-    const good = reasons.filter(r=>r.startsWith('✅'));
-    const warn = reasons.filter(r=>r.startsWith('⚠'));
-    const bad  = reasons.filter(r=>r.startsWith('❌'));
-    const rest = reasons.filter(r=>!r.startsWith('✅')&&!r.startsWith('⚠')&&!r.startsWith('❌'));
+    const good = reasons.filter(r=>r.startsWith('âœ…'));
+    const warn = reasons.filter(r=>r.startsWith('âš '));
+    const bad  = reasons.filter(r=>r.startsWith('âŒ'));
+    const rest = reasons.filter(r=>!r.startsWith('âœ…')&&!r.startsWith('âš ')&&!r.startsWith('âŒ'));
     const all = [...good,...warn,...bad,...rest];
     const items = all.slice(0,10).map(r=>{
-      const cl = r.startsWith('✅')?'good':r.startsWith('⚠')?'warn':r.startsWith('❌')?'bad':'';
+      const cl = r.startsWith('âœ…')?'good':r.startsWith('âš ')?'warn':r.startsWith('âŒ')?'bad':'';
       return `<div class="reason-item ${cl}">${r}</div>`;
     }).join('');
     // Gate from the server, and the sentence names it rather than a stale literal.
@@ -414,7 +414,7 @@ function buildReasonsPanel(signals) {
       ? `<div style="font-size:.65rem;color:var(--yellow);margin-top:6px">Missing: 4H must confirm Daily direction to clear the ${LIVE_GATE}% threshold.</div>`
       : '';
     return `<div style="margin-bottom:14px">
-      <div class="section-hdr">${a.label} — ${sig.signal} ${sig.confidence}%</div>
+      <div class="section-hdr">${a.label} â€” ${sig.signal} ${sig.confidence}%</div>
       <div class="reasons-list">${items || '<div class="reason-item">No reasons available</div>'}</div>
       ${needed}
     </div>`;
@@ -423,7 +423,7 @@ function buildReasonsPanel(signals) {
 
 function renderHistory(history) {
   if (!history || !history.length) {
-    document.getElementById('hist-tbody').innerHTML = `<tr><td colspan="8" class="empty">No history yet — refreshes every 30 min</td></tr>`;
+    document.getElementById('hist-tbody').innerHTML = `<tr><td colspan="8" class="empty">No history yet â€” refreshes every 30 min</td></tr>`;
     return;
   }
   // Count 24h cycles for stats
@@ -435,16 +435,16 @@ function renderHistory(history) {
     // `s !== 'WAIT'` is already authoritative: generateSignalMTF sets WAIT for anything
     // below the effective gate, so a non-WAIT signal HAS cleared it. The old
     // `&& (h[k].c||0) >= 65` was a second, stale copy of the gate that could only ever
-    // disagree with the engine — at gate 70 it agreed by luck, at gate 65 it was
+    // disagree with the engine â€” at gate 70 it agreed by luck, at gate 65 it was
     // redundant, and it would hide real fires if the gate ever dropped below 65.
     const fired = ['btc','gold','spx'].some(k => h[k] && h[k].s !== 'WAIT');
     return `<tr>
       <td class="time-cell">${fmtDateTime(h.t)}</td>
-      <td><span class="sig-chip sig-${h.btc?.s||'WAIT'}">${h.btc?.s||'—'}</span></td>
+      <td><span class="sig-chip sig-${h.btc?.s||'WAIT'}">${h.btc?.s||'â€”'}</span></td>
       <td><span class="conf-chip ${chipClass(h.btc?.c||0)}">${h.btc?.c||0}%</span></td>
-      <td><span class="sig-chip sig-${h.gold?.s||'WAIT'}">${h.gold?.s||'—'}</span></td>
+      <td><span class="sig-chip sig-${h.gold?.s||'WAIT'}">${h.gold?.s||'â€”'}</span></td>
       <td><span class="conf-chip ${chipClass(h.gold?.c||0)}">${h.gold?.c||0}%</span></td>
-      <td><span class="sig-chip sig-${h.spx?.s||'WAIT'}">${h.spx?.s||'—'}</span></td>
+      <td><span class="sig-chip sig-${h.spx?.s||'WAIT'}">${h.spx?.s||'â€”'}</span></td>
       <td><span class="conf-chip ${chipClass(h.spx?.c||0)}">${h.spx?.c||0}%</span></td>
       <td style="color:${fired?'var(--green)':'var(--dim)'};font-size:.62rem;font-weight:600">${fired?'SIGNAL':'wait'}</td>
     </tr>`;
@@ -456,7 +456,7 @@ function renderLearning(learning) {
   const stats = learning?.setupStats || {};
   const entries = Object.entries(stats);
   if (!entries.length) {
-    document.getElementById('learn-tbody').innerHTML = `<tr><td colspan="4" class="empty">No trades yet — learning starts after first closed trade</td></tr>`;
+    document.getElementById('learn-tbody').innerHTML = `<tr><td colspan="4" class="empty">No trades yet â€” learning starts after first closed trade</td></tr>`;
     return;
   }
   const sorted = entries.sort((a,b) => (b[1].total||0) - (a[1].total||0));
@@ -490,8 +490,8 @@ function renderJournal(journal) {
   const wr     = total>0 ? Math.round(wins.length/total*100) : 0;
 
   document.getElementById('st-total').textContent = total;
-  document.getElementById('st-wr').textContent    = total>0 ? `${wr}%` : '—';
-  document.getElementById('st-pnl').textContent   = total>0 ? `$${gross>=0?'+':''}${gross.toFixed(2)}` : '—';
+  document.getElementById('st-wr').textContent    = total>0 ? `${wr}%` : 'â€”';
+  document.getElementById('st-pnl').textContent   = total>0 ? `$${gross>=0?'+':''}${gross.toFixed(2)}` : 'â€”';
   document.getElementById('st-pnl').style.color   = gross>=0 ? 'var(--green)' : 'var(--red)';
 
   if (!closed.length) {
@@ -528,7 +528,7 @@ function renderMacro(prices) {
   const set = (id, val, chgId, chg) => {
     const el = document.getElementById(id);
     const ec = document.getElementById(chgId);
-    if (el) el.textContent = val != null ? (val>=1000 ? val.toLocaleString('en-US',{maximumFractionDigits:0}) : val.toFixed(2)) : '—';
+    if (el) el.textContent = val != null ? (val>=1000 ? val.toLocaleString('en-US',{maximumFractionDigits:0}) : val.toFixed(2)) : 'â€”';
     if (ec) ec.innerHTML = chg != null ? fmtChg(chg) : '';
   };
   set('m-btc', prices.btc, 'm-btc-c', prices.btcChange);
@@ -544,11 +544,11 @@ function renderMacro(prices) {
 
 // r.ok, not just a successful parse. A 401 returns perfectly valid JSON, so
 // Promise.allSettled below records it as FULFILLED and the page renders an auth error
-// as data — the same failure that once painted a status page "Live".
+// as data â€” the same failure that once painted a status page "Live".
 async function getJson(route) {
   const response = await fetch(API + route, { cache: 'no-store' });
   if (!response.ok) {
-    throw new Error(route + ' → HTTP ' + response.status
+    throw new Error(route + ' â†’ HTTP ' + response.status
       + (response.status === 401 ? ' (not logged in)' : ''));
   }
   return response.json();
@@ -571,7 +571,7 @@ function escapeHtml(value) {
 // wrong entry condition ever since the gate moved on 2026-08-02.
 //
 // Null until the first successful read, and the text says "the live gate" rather than
-// inventing a number while it is unknown — a wrong number is worse than an honest gap.
+// inventing a number while it is unknown â€” a wrong number is worse than an honest gap.
 // LIVE_GATE itself is declared near the top of this script, above its first reader.
 async function loadGate() {
   try {

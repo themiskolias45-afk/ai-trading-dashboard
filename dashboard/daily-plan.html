@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JARVIS — Daily Plan</title>
+  <title>JARVIS â€” Daily Plan</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
-      --text:#e2e8f0; --muted:#4a6080; --accent:#7c3aed;
+      --text:#e2e8f0; --muted:#6b83a8; --muted-dim:#4a6080; --accent:#7c3aed;
       --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
       --font:'Segoe UI',system-ui,Arial,sans-serif;
     }
@@ -158,28 +158,28 @@
   <div class="logo">
     <div class="logo-mark">J</div>
     <div>
-      <div class="logo-text">JARVIS — Daily Plan</div>
+      <div class="logo-text">JARVIS â€” Daily Plan</div>
       <div class="logo-sub">SmartEntry Pro</div>
     </div>
   </div>
   <div class="header-right">
     <div class="clock" id="clock">--:--:--</div>
     <div class="pill pill-green" id="server-status"><span class="dot"></span> LIVE</div>
-    <a class="back" href="/">← Dashboard</a>
+    <a class="back" href="/">â† Dashboard</a>
   </div>
 </header>
 
 <div class="container">
 
   <div id="halt-banner" class="halted-banner" style="display:none">
-    ⛔ TRADING HALTED — <span id="halt-reason"></span>
+    â›” TRADING HALTED â€” <span id="halt-reason"></span>
   </div>
 
   <!-- Date & risk budget -->
   <div class="date-bar">
     <div>
-      <h1 id="plan-date">Loading…</h1>
-      <div class="meta" id="plan-meta">Fetching plan…</div>
+      <h1 id="plan-date">Loadingâ€¦</h1>
+      <div class="meta" id="plan-meta">Fetching planâ€¦</div>
     </div>
     <div class="risk-budget">
       <div class="risk-item">
@@ -188,15 +188,15 @@
       </div>
       <div class="risk-item">
         <div class="risk-label">Today's P&L</div>
-        <div class="risk-value" id="today-pnl">—</div>
+        <div class="risk-value" id="today-pnl">â€”</div>
       </div>
       <div class="risk-item">
         <div class="risk-label">VIX</div>
-        <div class="risk-value" id="vix-val">—</div>
+        <div class="risk-value" id="vix-val">â€”</div>
       </div>
       <div class="risk-item">
         <div class="risk-label">DXY</div>
-        <div class="risk-value" id="dxy-val">—</div>
+        <div class="risk-value" id="dxy-val">â€”</div>
       </div>
     </div>
   </div>
@@ -205,15 +205,15 @@
   <div class="signal-grid" id="signal-grid">
     <div class="signal-card wait" id="card-btc">
       <div class="sc-header"><span class="sc-title">BTC / Bitcoin</span><span class="sc-badge badge-wait">WAIT</span></div>
-      <div class="sc-body"><div class="sc-price" style="color:var(--muted)">Loading…</div></div>
+      <div class="sc-body"><div class="sc-price" style="color:var(--muted)">Loadingâ€¦</div></div>
     </div>
     <div class="signal-card wait" id="card-gold">
       <div class="sc-header"><span class="sc-title">GOLD / XAU</span><span class="sc-badge badge-wait">WAIT</span></div>
-      <div class="sc-body"><div class="sc-price" style="color:var(--muted)">Loading…</div></div>
+      <div class="sc-body"><div class="sc-price" style="color:var(--muted)">Loadingâ€¦</div></div>
     </div>
     <div class="signal-card wait" id="card-spx">
       <div class="sc-header"><span class="sc-title">SPX / S&P 500</span><span class="sc-badge badge-wait">WAIT</span></div>
-      <div class="sc-body"><div class="sc-price" style="color:var(--muted)">Loading…</div></div>
+      <div class="sc-body"><div class="sc-price" style="color:var(--muted)">Loadingâ€¦</div></div>
     </div>
   </div>
 
@@ -237,21 +237,21 @@
   <div class="two-col">
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title">📅 High-Impact Events Today</div>
+        <div class="panel-title">ðŸ“… High-Impact Events Today</div>
         <div id="cal-count" style="font-size:.65rem;color:var(--muted)"></div>
       </div>
       <div class="panel-body" id="calendar-body">
-        <div style="color:var(--muted);font-size:.78rem">Loading calendar…</div>
+        <div style="color:var(--muted);font-size:.78rem">Loading calendarâ€¦</div>
       </div>
     </div>
 
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title">📊 Setup Health</div>
+        <div class="panel-title">ðŸ“Š Setup Health</div>
         <div style="font-size:.65rem;color:var(--muted)">Min 5 trades</div>
       </div>
       <div class="panel-body" id="health-body">
-        <div style="color:var(--muted);font-size:.78rem">Loading…</div>
+        <div style="color:var(--muted);font-size:.78rem">Loadingâ€¦</div>
       </div>
     </div>
   </div>
@@ -259,27 +259,27 @@
   <!-- Today PnL -->
   <div class="panel" style="margin-bottom:16px">
     <div class="panel-header">
-      <div class="panel-title">💰 Today's Performance</div>
+      <div class="panel-title">ðŸ’° Today's Performance</div>
     </div>
     <div class="panel-body">
       <div class="pnl-display" id="pnl-big">$0.00</div>
     </div>
   </div>
 
-  <div class="refresh-bar" id="refresh-bar">Auto-refreshing every 30s — <span id="last-refresh">never</span></div>
+  <div class="refresh-bar" id="refresh-bar">Auto-refreshing every 30s â€” <span id="last-refresh">never</span></div>
 </div>
 
 <script>
-// Must stay relative — this is the only page that ever hardcoded an absolute
+// Must stay relative â€” this is the only page that ever hardcoded an absolute
 // origin, and it broke the page everywhere except a localhost-served dashboard.
 // Opened from the VPS, 'http://localhost:3001' resolves to the *viewer's* machine,
 // so the fetch was cross-origin, CORS-blocked, and threw straight into the catch
-// below: OFFLINE pill, every field stuck on "Loading…". Same-origin works from
+// below: OFFLINE pill, every field stuck on "Loadingâ€¦". Same-origin works from
 // localhost and from the VPS both.
 const BASE = '';
 
 function fmt(n) {
-  if (n == null) return '—';
+  if (n == null) return 'â€”';
   return '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -311,9 +311,9 @@ function renderCard(id, title, sig, price) {
       <span class="sc-badge ${badgeClass(dir)}">${signalLabel(dir)}</span>
     </div>
     <div class="sc-body">
-      <div class="sc-price">${price ? fmt(price) : '—'}</div>
+      <div class="sc-price">${price ? fmt(price) : 'â€”'}</div>
       <div class="sc-conf">Confidence: <span style="color:${confColor}">${conf}%</span>
-        &nbsp;|&nbsp; Regime: <span>${sig?.regime ?? '—'}</span>
+        &nbsp;|&nbsp; Regime: <span>${sig?.regime ?? 'â€”'}</span>
       </div>
       ${hasLevels ? `
         <div class="level-grid">
@@ -332,9 +332,9 @@ function renderCard(id, title, sig, price) {
         </div>
         <div class="rr-bar">
           <span>Setup: <b>${(sig.setup||'').replace(/_/g,' ')}</b></span>
-          <span>R:R <span class="rr-val">1:${sig.rr ?? '—'}</span></span>
+          <span>R:R <span class="rr-val">1:${sig.rr ?? 'â€”'}</span></span>
         </div>
-      ` : `<div class="setup-tag">No actionable setup — ${sig?.regime ?? 'market scanning'}</div>`}
+      ` : `<div class="setup-tag">No actionable setup â€” ${sig?.regime ?? 'market scanning'}</div>`}
     </div>
   `;
 }
@@ -343,7 +343,7 @@ function renderCalendar(events) {
   const body = document.getElementById('calendar-body');
   document.getElementById('cal-count').textContent = events.length + ' events';
   if (!events.length) {
-    body.innerHTML = '<div style="color:var(--muted);font-size:.78rem">No high-impact events today — clean trading day.</div>';
+    body.innerHTML = '<div style="color:var(--muted);font-size:.78rem">No high-impact events today â€” clean trading day.</div>';
     return;
   }
   body.innerHTML = events.map(ev => {
@@ -360,7 +360,7 @@ function renderCalendar(events) {
 function renderHealth(alerts) {
   const body = document.getElementById('health-body');
   if (!alerts || !alerts.length) {
-    body.innerHTML = '<div style="color:var(--muted);font-size:.78rem">All setups within normal WR — no flags.</div>';
+    body.innerHTML = '<div style="color:var(--muted);font-size:.78rem">All setups within normal WR â€” no flags.</div>';
     return;
   }
   body.innerHTML = alerts.map(a => `
@@ -375,10 +375,10 @@ function renderHealth(alerts) {
 async function loadPlan() {
   try {
     // r.ok, not just a successful parse. A 401 returns valid JSON, so without this
-    // `plan.date` is undefined and the header renders "Daily Plan — undefined" with
+    // `plan.date` is undefined and the header renders "Daily Plan â€” undefined" with
     // every level blank: a plan that looks generated and is not. The single existing
     // check on this page was already doing exactly this for screenshots, forty lines
-    // below — the pattern was known here and simply not applied to the data call.
+    // below â€” the pattern was known here and simply not applied to the data call.
     const response = await fetch(BASE + '/api/daily-plan', { cache: 'no-store' });
     if (!response.ok) {
       throw new Error('daily-plan -> HTTP ' + response.status
@@ -387,10 +387,10 @@ async function loadPlan() {
     const plan = await response.json();
 
     // Date bar
-    document.getElementById('plan-date').textContent = 'Daily Plan — ' + plan.date;
+    document.getElementById('plan-date').textContent = 'Daily Plan â€” ' + plan.date;
     document.getElementById('plan-meta').textContent = 'Generated ' + new Date(plan.generatedAt).toLocaleTimeString();
-    document.getElementById('vix-val').textContent = plan.prices?.vix ? plan.prices.vix.toFixed(1) : '—';
-    document.getElementById('dxy-val').textContent = plan.prices?.dxy ? plan.prices.dxy.toFixed(2) : '—';
+    document.getElementById('vix-val').textContent = plan.prices?.vix ? plan.prices.vix.toFixed(1) : 'â€”';
+    document.getElementById('dxy-val').textContent = plan.prices?.dxy ? plan.prices.dxy.toFixed(2) : 'â€”';
 
     // Today P&L
     const pnl = plan.todayPnl ?? 0;
@@ -433,12 +433,12 @@ async function loadPlan() {
     document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
   } catch (e) {
     // Log it. This catch swallowed the CORS failure above in total silence for as
-    // long as the bug existed — an empty console and an OFFLINE pill gave nothing
+    // long as the bug existed â€” an empty console and an OFFLINE pill gave nothing
     // to work from. A failure that leaves no trace is a failure you can't fix.
     console.error('[daily-plan] loadPlan failed:', e);
     document.getElementById('server-status').className = 'pill pill-red';
     document.getElementById('server-status').innerHTML = '<span class="dot"></span> OFFLINE';
-    document.getElementById('plan-meta').textContent = 'Failed to load plan — ' + (e && e.message ? e.message : e);
+    document.getElementById('plan-meta').textContent = 'Failed to load plan â€” ' + (e && e.message ? e.message : e);
   }
 }
 

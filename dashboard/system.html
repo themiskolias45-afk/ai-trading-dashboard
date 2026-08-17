@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>SmartEntry Pro — System</title>
+<title>SmartEntry Pro â€” System</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -14,7 +14,7 @@
     --border:   #1e3040;
     --border2:  #253650;
     --text:     #e2e8f0;
-    --muted:    #4a6080;
+    --muted:    #6b83a8;
     --muted2:   #6b88a8;
     --green:    #00ff88;
     --red:      #ff4444;
@@ -52,7 +52,7 @@
 
   main { max-width: 1500px; margin: 0 auto; padding: 22px 24px 60px; }
 
-  /* ── HERO ── */
+  /* â”€â”€ HERO â”€â”€ */
   .hero {
     background: linear-gradient(135deg, rgba(0,255,136,.06), rgba(124,58,237,.06));
     border: 1px solid var(--border); border-radius: 14px;
@@ -74,7 +74,7 @@
   .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
   .section-desc { font-size: .78rem; color: var(--muted2); margin: -6px 0 14px; max-width: 760px; }
 
-  /* ── CARD GRIDS ── */
+  /* â”€â”€ CARD GRIDS â”€â”€ */
   .grid { display: grid; gap: 14px; }
   .grid-3 { grid-template-columns: repeat(3, 1fr); }
   .grid-4 { grid-template-columns: repeat(4, 1fr); }
@@ -94,13 +94,13 @@
     padding: 3px 8px; border-radius: 5px;
   }
 
-  /* ── AGENT GROUPS ── */
+  /* â”€â”€ AGENT GROUPS â”€â”€ */
   .agent-group { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
   .agent-group-title { font-size: .72rem; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
   .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .agent-chip { font-size: .68rem; font-family: var(--mono); background: var(--surface2); border: 1px solid var(--border2); color: var(--text); padding: 4px 9px; border-radius: 6px; }
 
-  /* ── PARALLEL PIPELINE ── */
+  /* â”€â”€ PARALLEL PIPELINE â”€â”€ */
   .pipeline { display: flex; align-items: center; gap: 10px; overflow-x: auto; padding: 6px 2px 14px; }
   .pipe-stage {
     flex-shrink: 0; min-width: 160px; background: var(--surface); border: 1px solid var(--border);
@@ -113,7 +113,7 @@
   .pipe-parallel { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
   .pipe-mini { min-width: 110px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 7px; padding: 6px 10px; font-size: .66rem; color: var(--muted2); text-align: center; }
 
-  /* ── PROFIT TABLE ── */
+  /* â”€â”€ PROFIT TABLE â”€â”€ */
   .profit-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
   .profit-table th {
     padding: 9px 14px; text-align: left; font-size: .61rem; text-transform: uppercase; letter-spacing: .1em;
@@ -158,7 +158,7 @@
 
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin .75s linear infinite; }
 
-  /* ── Registry tags: what a tool can do to the account ── */
+  /* â”€â”€ Registry tags: what a tool can do to the account â”€â”€ */
   .cap-tag {
     display: inline-block; font-size: .58rem; font-weight: 800; letter-spacing: .06em;
     padding: 2px 7px; border-radius: 20px; margin-left: 6px; vertical-align: middle; text-transform: uppercase;
@@ -214,8 +214,8 @@
       <div class="status-dot" id="status-dot"></div>
       <span id="status-text">Connecting</span>
     </div>
-    <a href="/dashboard/performance.html" class="back-link">Performance →</a>
-    <a href="/dashboard" class="back-link">← Dashboard</a>
+    <a href="/dashboard/performance.html" class="back-link">Performance â†’</a>
+    <a href="/dashboard" class="back-link">â† Dashboard</a>
   </div>
 </header>
 
@@ -224,115 +224,115 @@
   <div class="hero">
     <div>
       <div class="hero-title">A <span>professional investment system</span>, built to compound</div>
-      <div class="hero-sub">Multi-timeframe signal engine, autonomous risk management, self-learning calibration, and parallel AI engineering — one system, continuously improving itself.</div>
+      <div class="hero-sub">Multi-timeframe signal engine, autonomous risk management, self-learning calibration, and parallel AI engineering â€” one system, continuously improving itself.</div>
     </div>
     <!-- Every number here starts as an em dash and is filled from the running
          system. The old hero shipped a hardcoded "65%" gate that was five points
          wrong for a week: a page that states a number it never read is not a
          status page, it is a rumour. -->
     <div class="hero-stats">
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-conf">—</div><div class="hero-stat-label">Min Confidence Gate</div></div>
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-skills">—</div><div class="hero-stat-label">Skills</div></div>
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-agents">—</div><div class="hero-stat-label">Agents</div></div>
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-mcp">—</div><div class="hero-stat-label">MCP Tools</div></div>
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-tools">—</div><div class="hero-stat-label">Scripts</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-conf">â€”</div><div class="hero-stat-label">Min Confidence Gate</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-skills">â€”</div><div class="hero-stat-label">Skills</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-agents">â€”</div><div class="hero-stat-label">Agents</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-mcp">â€”</div><div class="hero-stat-label">MCP Tools</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-tools">â€”</div><div class="hero-stat-label">Scripts</div></div>
     </div>
   </div>
 
   <div id="config-banner"></div>
 
-  <!-- ═══ SKILLS ═══ -->
+  <!-- â•â•â• SKILLS â•â•â• -->
   <div class="section-label">Core Skills</div>
-  <div class="section-desc">What the system actually knows how to do — not features, capabilities that ship signals.</div>
+  <div class="section-desc">What the system actually knows how to do â€” not features, capabilities that ship signals.</div>
   <div class="grid grid-3">
     <div class="card">
-      <div class="card-icon">🎯</div>
+      <div class="card-icon">ðŸŽ¯</div>
       <div class="card-title">Multi-Timeframe Confluence</div>
-      <div class="card-body-text">A signal only fires when confidence is ≥<span id="gate-inline">the live gate</span> across Daily, 4H, and 1H simultaneously — filters out noise from any single timeframe.</div>
+      <div class="card-body-text">A signal only fires when confidence is â‰¥<span id="gate-inline">the live gate</span> across Daily, 4H, and 1H simultaneously â€” filters out noise from any single timeframe.</div>
       <div class="card-tag">/api/signals</div>
     </div>
     <div class="card">
-      <div class="card-icon">🛡️</div>
+      <div class="card-icon">ðŸ›¡ï¸</div>
       <div class="card-title">Risk &amp; Position Sizing</div>
-      <div class="card-body-text">Every trade is sized against account risk before execution — stop distance, R:R, and exposure checked against live risk-status.</div>
+      <div class="card-body-text">Every trade is sized against account risk before execution â€” stop distance, R:R, and exposure checked against live risk-status.</div>
       <div class="card-tag">server/sizing.js</div>
     </div>
     <div class="card">
-      <div class="card-icon">🧠</div>
+      <div class="card-icon">ðŸ§ </div>
       <div class="card-title">Self-Learning Calibration</div>
       <div class="card-body-text">Every closed trade updates per-setup win rate. Setups above 55% win rate get boosted confidence; under 45% get penalised automatically.</div>
       <div class="card-tag">server/learning.json</div>
     </div>
     <div class="card">
-      <div class="card-icon">⚖️</div>
+      <div class="card-icon">âš–ï¸</div>
       <div class="card-title">Signal Debate Engine</div>
-      <div class="card-body-text">Bull vs. bear AI agents argue a setup before it's approved — a signal has to survive an adversarial case, not just a bullish read.</div>
+      <div class="card-body-text">Bull vs. bear AI agents argue a setup before it's approved â€” a signal has to survive an adversarial case, not just a bullish read.</div>
       <div class="card-tag">debate_agents.py</div>
     </div>
     <div class="card">
-      <div class="card-icon">👁️</div>
+      <div class="card-icon">ðŸ‘ï¸</div>
       <div class="card-title">Chart Vision</div>
-      <div class="card-body-text">Reads live TradingView chart screenshots directly — structure, levels, and patterns a pure price feed would miss.</div>
+      <div class="card-body-text">Reads live TradingView chart screenshots directly â€” structure, levels, and patterns a pure price feed would miss.</div>
       <div class="card-tag">chart_vision.py</div>
     </div>
     <div class="card">
-      <div class="card-icon">🩺</div>
+      <div class="card-icon">ðŸ©º</div>
       <div class="card-title">Auto-Healing Reliability</div>
-      <div class="card-body-text">Monitors server health every 30 seconds and auto-recovers stale data feeds — a professional system has to stay online, not just be right.</div>
+      <div class="card-body-text">Monitors server health every 30 seconds and auto-recovers stale data feeds â€” a professional system has to stay online, not just be right.</div>
       <div class="card-tag">/api/healer</div>
     </div>
   </div>
 
-  <!-- ═══ TOOLS ═══ -->
+  <!-- â•â•â• TOOLS â•â•â• -->
   <div class="section-label">Tools</div>
-  <div class="section-desc">Scripts that exist in this repo right now — each one runnable directly.</div>
+  <div class="section-desc">Scripts that exist in this repo right now â€” each one runnable directly.</div>
   <div class="grid grid-4" id="tools-grid">
     <!-- filled by JS -->
   </div>
 
-  <!-- ═══ FLEET DOCTOR ═══ -->
+  <!-- â•â•â• FLEET DOCTOR â•â•â• -->
   <div class="section-label">Fleet Doctor</div>
   <div class="section-desc" id="doctor-desc">Both boxes in one view, worst first, and every finding carries the exact command that
     fixes it. Read-only: healing stays on the CLI (<code>node tasks/doctor.cjs --heal</code>) because a
     button that restarts things is a different risk from a page that lists them.</div>
   <div id="doctor-banner"></div>
   <div id="doctor-list">
-    <div class="empty-state">Running the fleet check…</div>
+    <div class="empty-state">Running the fleet checkâ€¦</div>
   </div>
 
-  <!-- ═══ FLEET RECORD ═══ -->
-  <div class="section-label">The whole record — both boxes</div>
+  <!-- â•â•â• FLEET RECORD â•â•â• -->
+  <div class="section-label">The whole record â€” both boxes</div>
   <div class="section-desc">Each box journals its own fills, so every other surface shows half the evidence. This
-    pools them — but only while engine parity says the two boxes run the same code, because two engines admit
+    pools them â€” but only while engine parity says the two boxes run the same code, because two engines admit
     different trades from identical bars and their fills are then not samples of one thing. When parity is
     stale or divergent this refuses to pool and says so.</div>
   <div id="fleetperf-banner"></div>
   <div id="fleetperf-body"></div>
 
-  <!-- ═══ LEARNING ═══ -->
+  <!-- â•â•â• LEARNING â•â•â• -->
   <div class="section-label">What the learning engine has to work with</div>
   <div class="section-desc">Real fills on the left, forgone paper episodes on the right. The engine needs 5 CLOSED
-    trades in ONE bucket before it adjusts anything, and it has 2 in total — the rejection ledger has 26
+    trades in ONE bucket before it adjusts anything, and it has 2 in total â€” the rejection ledger has 26
     episodes it is not allowed to use. They are kept apart on purpose: shadow episodes are entries that were
     never filled, with no spread and no slippage, so they are evidence about geometry and not about execution.
     Nothing on this panel feeds the gate.</div>
   <div id="learn-banner"></div>
   <div id="learn-body"></div>
 
-  <!-- ═══ EVIDENCE BOARD ═══ -->
+  <!-- â•â•â• EVIDENCE BOARD â•â•â• -->
   <div class="section-label">What this system knows, and what it only assumes</div>
-  <div class="section-desc">Every claim carries its verdict, the evidence behind it, its caveat, and — the part that
-    matters most — what would change the answer. A measurement with no stated falsifier is an opinion with a
+  <div class="section-desc">Every claim carries its verdict, the evidence behind it, its caveat, and â€” the part that
+    matters most â€” what would change the answer. A measurement with no stated falsifier is an opinion with a
     number attached. Curated in server/evidence_register.js and updated whenever something is measured; the
     per-gate verdicts underneath come from the rejection ledger and update themselves.</div>
   <div id="evidence-banner"></div>
   <div id="evidence-claims"></div>
   <div id="evidence-gates"></div>
 
-  <!-- ═══ MEASUREMENTS ═══ -->
-  <div class="section-label">Measurements — when this system wins</div>
+  <!-- â•â•â• MEASUREMENTS â•â•â• -->
+  <div class="section-label">Measurements â€” when this system wins</div>
   <div class="section-desc">Out-of-sample, at the LIVE gate, from the replay the engine actually trades. Sessions
-    are six 4-hour blocks because entries are taken on H4 bars — no trade can open at any other hour. Read the
+    are six 4-hour blocks because entries are taken on H4 bars â€” no trade can open at any other hour. Read the
     fold count, not the pooled number: with this many cells you should expect one or two to look strong by
     chance, and this project's bar for changing a gate is 5 of 5 folds.</div>
   <div id="measure-banner"></div>
@@ -340,7 +340,7 @@
   <div id="measure-sessions"></div>
   <div id="measure-folds"></div>
 
-  <!-- ═══ AI EMPLOYEE ═══ -->
+  <!-- â•â•â• AI EMPLOYEE â•â•â• -->
   <div class="section-label">AI Employee</div>
   <div class="section-desc">Did the scheduled agents run, did they succeed, and has anyone read what they wrote.
     Each proposal is checked against the repo: a citation badge means the files, lines and functions it
@@ -350,51 +350,51 @@
   <div id="aiwork-jobs" class="grid grid-2"></div>
   <div id="aiwork-proposals"></div>
 
-  <!-- ═══ SKILLS & AGENTS ═══ -->
+  <!-- â•â•â• SKILLS & AGENTS â•â•â• -->
   <div class="section-label">Skills &amp; Agents</div>
-  <div class="section-desc" id="registry-desc">Read live from /api/ai-registry — the same endpoint the AI Brain tab uses — and grouped by job. A skill added to .claude/commands appears here without anyone editing this page.</div>
+  <div class="section-desc" id="registry-desc">Read live from /api/ai-registry â€” the same endpoint the AI Brain tab uses â€” and grouped by job. A skill added to .claude/commands appears here without anyone editing this page.</div>
   <div id="registry-banner"></div>
   <div class="grid grid-2" id="agents-grid">
-    <div class="empty-state">Reading the live registry…</div>
+    <div class="empty-state">Reading the live registryâ€¦</div>
   </div>
 
-  <!-- ═══ SUB-AGENTS ═══ -->
+  <!-- â•â•â• SUB-AGENTS â•â•â• -->
   <div class="section-label">Sub-Agents</div>
   <div class="section-desc">Specialist agents /engineer and the commands can spawn, each with its own brief.</div>
   <div class="grid grid-3" id="subagents-grid">
-    <div class="empty-state">Reading the live registry…</div>
+    <div class="empty-state">Reading the live registryâ€¦</div>
   </div>
 
-  <!-- ═══ MCP TOOLS ═══ -->
+  <!-- â•â•â• MCP TOOLS â•â•â• -->
   <div class="section-label">MCP Tools</div>
-  <div class="section-desc">Every tool the AI can call, tagged by what it can do to the account. The distinction that matters is not how many there are — it is which of them can place a trade.</div>
+  <div class="section-desc">Every tool the AI can call, tagged by what it can do to the account. The distinction that matters is not how many there are â€” it is which of them can place a trade.</div>
   <div class="grid grid-3" id="mcp-grid">
-    <div class="empty-state">Reading the live registry…</div>
+    <div class="empty-state">Reading the live registryâ€¦</div>
   </div>
 
-  <!-- ═══ GUARDRAILS ═══ -->
+  <!-- â•â•â• GUARDRAILS â•â•â• -->
   <div class="section-label">Guardrails</div>
-  <div class="section-desc">ENFORCED IN CODE means a code path prevents it. PROCEDURAL means only a rule does — and a rule is not a control.</div>
+  <div class="section-desc">ENFORCED IN CODE means a code path prevents it. PROCEDURAL means only a rule does â€” and a rule is not a control.</div>
   <div id="guardrails-wrap">
-    <div class="empty-state">Reading the live registry…</div>
+    <div class="empty-state">Reading the live registryâ€¦</div>
   </div>
 
-  <!-- ═══ AI PARALLEL ═══ -->
-  <div class="section-label">AI Parallel — /engineer</div>
+  <!-- â•â•â• AI PARALLEL â•â•â• -->
+  <div class="section-label">AI Parallel â€” /engineer</div>
   <div class="section-desc">Complex builds get architected once, then split into independent workstreams and built simultaneously. Wall time = slowest agent, not the sum of all of them.</div>
   <div class="card" style="padding: 18px 20px 8px;">
     <div class="pipeline">
       <div class="pipe-stage active"><div class="pipe-stage-label">Step 1</div><div class="pipe-stage-val">Architect</div></div>
-      <div class="pipe-arrow">→</div>
+      <div class="pipe-arrow">â†’</div>
       <div class="pipe-parallel">
-        <div class="pipe-mini">Agent 1 — owns files A</div>
-        <div class="pipe-mini">Agent 2 — owns files B</div>
-        <div class="pipe-mini">Agent 3 — owns files C</div>
-        <div class="pipe-mini">… up to 6, zero overlap</div>
+        <div class="pipe-mini">Agent 1 â€” owns files A</div>
+        <div class="pipe-mini">Agent 2 â€” owns files B</div>
+        <div class="pipe-mini">Agent 3 â€” owns files C</div>
+        <div class="pipe-mini">â€¦ up to 6, zero overlap</div>
       </div>
-      <div class="pipe-arrow">→</div>
+      <div class="pipe-arrow">â†’</div>
       <div class="pipe-stage"><div class="pipe-stage-label">Step 3</div><div class="pipe-stage-val">Verify</div></div>
-      <div class="pipe-arrow">→</div>
+      <div class="pipe-arrow">â†’</div>
       <div class="pipe-stage"><div class="pipe-stage-label">Step 4</div><div class="pipe-stage-val">Integrate &amp; Ship</div></div>
     </div>
   </div>
@@ -405,7 +405,7 @@
       <div class="card-title" style="font-size:.8rem;">Run a Parallel Build</div>
       <span style="font-size:.65rem;color:var(--muted2)" id="eng-run-meta">Idle</span>
     </div>
-    <textarea id="eng-task-input" placeholder="Describe what to build — e.g. 'Add a Telegram alert channel and a Discord webhook channel for signal notifications'"
+    <textarea id="eng-task-input" placeholder="Describe what to build â€” e.g. 'Add a Telegram alert channel and a Discord webhook channel for signal notifications'"
       style="width:100%;min-height:64px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-family:var(--font);font-size:.8rem;padding:10px 12px;resize:vertical;"></textarea>
     <div style="display:flex;gap:10px;margin-top:10px;">
       <button class="btn btn-primary" id="eng-architect-btn" onclick="architectTask()">Architect</button>
@@ -415,19 +415,19 @@
     <div id="eng-status-wrap" style="margin-top:14px;"></div>
   </div>
 
-  <!-- ═══ MOST PROFITABLE SYSTEM ═══ -->
+  <!-- â•â•â• MOST PROFITABLE SYSTEM â•â•â• -->
   <div class="section-label">The Most Profitable System</div>
-  <div class="section-desc">Ranked by actual data — not opinion. Live setups rank first once trades close; until then, this shows the 5-year backtested edge per asset.</div>
+  <div class="section-desc">Ranked by actual data â€” not opinion. Live setups rank first once trades close; until then, this shows the 5-year backtested edge per asset.</div>
 
   <div class="grid grid-2">
 
     <div class="card" style="padding:0;">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)">
         <div class="card-title" style="margin:0">Live Setup Performance</div>
-        <span style="font-size:.65rem;color:var(--muted2)" id="live-meta">—</span>
+        <span style="font-size:.65rem;color:var(--muted2)" id="live-meta">â€”</span>
       </div>
       <div id="live-profit-wrap" style="padding:16px 18px;">
-        <div class="empty-state"><span class="icon">📡</span>Loading live setup data…</div>
+        <div class="empty-state"><span class="icon">ðŸ“¡</span>Loading live setup dataâ€¦</div>
       </div>
     </div>
 
@@ -437,7 +437,7 @@
         <button class="btn btn-primary" id="run-backtest-btn" onclick="runBacktest()">Run Backtest</button>
       </div>
       <div id="backtest-wrap" style="padding:16px 18px;">
-        <div class="empty-state"><span class="icon">📊</span>Click "Run Backtest" to compare BTC, Gold, and S&amp;P 500 on 5 years of price history.</div>
+        <div class="empty-state"><span class="icon">ðŸ“Š</span>Click "Run Backtest" to compare BTC, Gold, and S&amp;P 500 on 5 years of price history.</div>
       </div>
     </div>
 
@@ -446,7 +446,7 @@
 </main>
 
 <footer>
-  SmartEntry Pro · System &amp; Capabilities · <span id="footer-ts">—</span>
+  SmartEntry Pro Â· System &amp; Capabilities Â· <span id="footer-ts">â€”</span>
 </footer>
 
 <script>
@@ -457,8 +457,8 @@ function el(id) { return document.getElementById(id); }
 function text(id, t) { const e = el(id); if (e) e.textContent = t; }
 function html(id, h) { const e = el(id); if (e) e.innerHTML = h; }
 
-// Everything below interpolates server-supplied strings — skill names, tool
-// descriptions, setup names — straight into innerHTML. plan.html has always
+// Everything below interpolates server-supplied strings â€” skill names, tool
+// descriptions, setup names â€” straight into innerHTML. plan.html has always
 // escaped; this page never did.
 function esc(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, c => (
@@ -471,7 +471,7 @@ function esc(value) {
 async function getJson(route) {
   const response = await fetch(API + route, { cache: 'no-store' });
   if (!response.ok) {
-    throw new Error(route + ' → HTTP ' + response.status + (response.status === 401 ? ' (not logged in)' : ''));
+    throw new Error(route + ' â†’ HTTP ' + response.status + (response.status === 401 ? ' (not logged in)' : ''));
   }
   return response.json();
 }
@@ -490,21 +490,21 @@ function markOnline(online) {
     : 'background:rgba(255,68,68,.07);border-color:rgba(255,68,68,.25);color:var(--red)';
 }
 
-// ── TOOLS ──────────────────────────────────────────────────────
+// â”€â”€ TOOLS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const TOOLS = [
-  { icon: '📸', name: 'Chart Vision',    cmd: 'python chart_vision.py [BTC|GOLD|SPX]' },
-  { icon: '⚖️', name: 'Signal Debate',   cmd: 'python debate_agents.py SYMBOL DIRECTION conf entry stop target' },
-  { icon: '📶', name: 'MT5 Bridge',      cmd: 'python mt5_bridge.py --auto' },
-  { icon: '🔊', name: 'Voice',           cmd: 'python voice.py --loop' },
-  { icon: '🔔', name: 'Notifications',   cmd: 'python notifications.py test' },
-  { icon: '🧠', name: 'Memory',          cmd: 'python memory.py add KEY VALUE [CATEGORY]' },
-  { icon: '📝', name: 'Daily Notes',     cmd: 'python daily_notes.py today | auto | log' },
-  { icon: '🔍', name: 'Error Check',     cmd: 'python check_errors.py' },
-  { icon: '💡', name: 'Self-Improve',    cmd: 'python self_improve.py scan --save' },
-  { icon: '🌅', name: 'Auto Runner',     cmd: 'python auto_runner.py' },
-  { icon: '📅', name: 'Daily Plan',      cmd: 'python tv_daily_plan.py' },
-  { icon: '📒', name: 'EOD Review',      cmd: 'python eod_review.py' },
-  { icon: '🖼️', name: 'TV Screenshot',   cmd: 'node tv_screenshot.js --symbol btc' },
+  { icon: 'ðŸ“¸', name: 'Chart Vision',    cmd: 'python chart_vision.py [BTC|GOLD|SPX]' },
+  { icon: 'âš–ï¸', name: 'Signal Debate',   cmd: 'python debate_agents.py SYMBOL DIRECTION conf entry stop target' },
+  { icon: 'ðŸ“¶', name: 'MT5 Bridge',      cmd: 'python mt5_bridge.py --auto' },
+  { icon: 'ðŸ”Š', name: 'Voice',           cmd: 'python voice.py --loop' },
+  { icon: 'ðŸ””', name: 'Notifications',   cmd: 'python notifications.py test' },
+  { icon: 'ðŸ§ ', name: 'Memory',          cmd: 'python memory.py add KEY VALUE [CATEGORY]' },
+  { icon: 'ðŸ“', name: 'Daily Notes',     cmd: 'python daily_notes.py today | auto | log' },
+  { icon: 'ðŸ”', name: 'Error Check',     cmd: 'python check_errors.py' },
+  { icon: 'ðŸ’¡', name: 'Self-Improve',    cmd: 'python self_improve.py scan --save' },
+  { icon: 'ðŸŒ…', name: 'Auto Runner',     cmd: 'python auto_runner.py' },
+  { icon: 'ðŸ“…', name: 'Daily Plan',      cmd: 'python tv_daily_plan.py' },
+  { icon: 'ðŸ“’', name: 'EOD Review',      cmd: 'python eod_review.py' },
+  { icon: 'ðŸ–¼ï¸', name: 'TV Screenshot',   cmd: 'node tv_screenshot.js --symbol btc' },
 ];
 
 html('tools-grid', TOOLS.map(t => `
@@ -516,9 +516,9 @@ html('tools-grid', TOOLS.map(t => `
 `).join(''));
 text('hero-tools', TOOLS.length.toString());
 
-// ── SKILL GROUPING ─────────────────────────────────────────────
+// â”€â”€ SKILL GROUPING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The curation stays; the LIST does not. These groups say which job each command
-// belongs to, which no endpoint knows — but the membership is now applied to the
+// belongs to, which no endpoint knows â€” but the membership is now applied to the
 // live registry, so a new skill lands in "Other" instead of being invisible. The
 // page previously hardcoded 33 commands while 44 existed.
 const AGENT_GROUPS = [
@@ -553,7 +553,7 @@ function renderSkillGroups(skillNames) {
 // confident as the live one.
 function renderStaticFallback(reason) {
   renderSkillGroups(AGENT_GROUPS.flatMap(group => group.cmds));
-  html('registry-banner', `<div class="page-banner banner-warn"><strong>Live registry unreachable — showing the hand-written fallback</strong>
+  html('registry-banner', `<div class="page-banner banner-warn"><strong>Live registry unreachable â€” showing the hand-written fallback</strong>
     ${esc(reason)}. These groups are a snapshot, not the running system: the counts below are what someone last typed into this page, and the real number is whatever is in .claude/ right now.</div>`);
   html('subagents-grid', '<div class="empty-state">Sub-agent list needs the live registry.</div>');
   html('mcp-grid', '<div class="empty-state">MCP tool list needs the live registry.</div>');
@@ -562,7 +562,7 @@ function renderStaticFallback(reason) {
   text('hero-skills', fallbackCount + '*');
 }
 
-// ── LIVE REGISTRY ──────────────────────────────────────────────
+// â”€â”€ LIVE REGISTRY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CAPABILITY_CLASS = { 'read-only': 'cap-read', 'writes': 'cap-write', 'TRADES': 'cap-trade' };
 
 async function loadRegistry() {
@@ -623,22 +623,22 @@ async function loadRegistry() {
   const registryErrors = [registry.skillsError, registry.agentsError, registry.toolsError].filter(Boolean);
   if (registryErrors.length) {
     html('registry-banner', `<div class="page-banner banner-warn"><strong>The registry could not read part of itself</strong>
-      ${registryErrors.map(esc).join('<br>')} — the counts above are therefore a floor, not a total.</div>`);
+      ${registryErrors.map(esc).join('<br>')} â€” the counts above are therefore a floor, not a total.</div>`);
   }
 }
 
-// ── LIVE GATE ──────────────────────────────────────────────────
+// â”€â”€ LIVE GATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The one number this page most needs to be right, read from the config actually
 // in force rather than written into the HTML.
 async function loadGate() {
   try {
     const settings = await getJson('/strategy-settings');
     const gate = typeof settings.confidenceThreshold === 'number' ? settings.confidenceThreshold : null;
-    text('hero-conf',   gate === null ? '—' : gate + '%');
+    text('hero-conf',   gate === null ? 'â€”' : gate + '%');
     text('gate-inline', gate === null ? 'the live gate' : gate + '%');
 
     // settingsError non-null means these are built-in defaults, NOT the saved
-    // file — the difference is invisible in the numbers and it changes live sizing.
+    // file â€” the difference is invisible in the numbers and it changes live sizing.
     if (settings.settingsError) {
       html('config-banner', `<div class="page-banner banner-bad"><strong>This box is running built-in defaults, not its saved config</strong>
         strategy_settings.json did not load: ${esc(settings.settingsError)}. Every number on this page describes the defaults, and live position sizing is not what the file says.</div>`);
@@ -646,14 +646,14 @@ async function loadGate() {
       html('config-banner', '');
     }
   } catch (e) {
-    text('hero-conf', '—');
+    text('hero-conf', 'â€”');
     text('gate-inline', 'the live gate');
     html('config-banner', `<div class="page-banner banner-warn"><strong>Could not read the live confidence gate</strong>
-      ${esc(e.message)}. No gate is shown rather than a remembered one — this page used to claim 65% while the engine ran 70.</div>`);
+      ${esc(e.message)}. No gate is shown rather than a remembered one â€” this page used to claim 65% while the engine ran 70.</div>`);
   }
 }
 
-// ── LIVE SETUP PERFORMANCE ────────────────────────────────────
+// â”€â”€ LIVE SETUP PERFORMANCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function loadLiveProfit() {
   try {
     const [statsRes, learnRes] = await Promise.all([
@@ -665,8 +665,8 @@ async function loadLiveProfit() {
     if (statsRes.noData || !statsRes.setupStats || !statsRes.setupStats.length) {
       const sessionCount = learnRes.sessionCount ?? 0;
       html('live-profit-wrap', `<div class="empty-state">
-        <span class="icon">📡</span>
-        No closed trades yet — ${sessionCount} learning session${sessionCount === 1 ? '' : 's'} logged.<br>
+        <span class="icon">ðŸ“¡</span>
+        No closed trades yet â€” ${sessionCount} learning session${sessionCount === 1 ? '' : 's'} logged.<br>
         The most profitable setup will rank here automatically once trades close.
       </div>`);
       text('live-meta', 'Accumulating');
@@ -694,34 +694,34 @@ async function loadLiveProfit() {
     // setup name; totalClosed counts every closed trade. Printing just the larger figure
     // over a shorter table invites the reader to assume rows are missing, and printing
     // just the smaller one hides real P&L. The unattributed trades are excluded from the
-    // table because "WAIT" is the absence of a setup — one such fill used to sit at the
+    // table because "WAIT" is the absence of a setup â€” one such fill used to sit at the
     // top of it with a 100% win rate.
     const attributed = Number.isFinite(statsRes.attributedClosed)
       ? statsRes.attributedClosed : statsRes.totalClosed;
     const unattributed = (statsRes.unattributed && statsRes.unattributed.count) || 0;
     text('live-meta', unattributed > 0
-      ? `${attributed} attributed of ${statsRes.totalClosed} closed — `
+      ? `${attributed} attributed of ${statsRes.totalClosed} closed â€” `
         + `${unattributed} carry no setup name (P&L ${statsRes.unattributed.totalPnl})`
       : `${statsRes.totalClosed} closed trades`);
   } catch {
     markOnline(false);
-    html('live-profit-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Server offline — cannot load live performance.</div>`);
+    html('live-profit-wrap', `<div class="empty-state"><span class="icon">âš ï¸</span>Server offline â€” cannot load live performance.</div>`);
   }
 }
 
-// ── BACKTEST ───────────────────────────────────────────────────
+// â”€â”€ BACKTEST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function runBacktest() {
   const btn = el('run-backtest-btn');
   btn.disabled = true;
-  btn.textContent = 'Running…';
-  html('backtest-wrap', `<div class="empty-state"><span class="spinner"></span> Testing 5 years of BTC, Gold, and S&amp;P 500 data — up to 30s…</div>`);
+  btn.textContent = 'Runningâ€¦';
+  html('backtest-wrap', `<div class="empty-state"><span class="spinner"></span> Testing 5 years of BTC, Gold, and S&amp;P 500 data â€” up to 30sâ€¦</div>`);
 
   try {
     const d = await getJson('/backtest?years=5');
     const assets = [
-      { key: 'btc',  icon: '₿',  color: '#f7931a' },
-      { key: 'gold', icon: '🥇', color: '#eab308' },
-      { key: 'spx',  icon: '📈', color: '#3b82f6' },
+      { key: 'btc',  icon: 'â‚¿',  color: '#f7931a' },
+      { key: 'gold', icon: 'ðŸ¥‡', color: '#eab308' },
+      { key: 'spx',  icon: 'ðŸ“ˆ', color: '#3b82f6' },
     ];
 
     const results = assets
@@ -730,7 +730,7 @@ async function runBacktest() {
       .sort((a, b) => b.r.returnPct - a.r.returnPct);
 
     if (!results.length) {
-      html('backtest-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Backtest returned no usable results.</div>`);
+      html('backtest-wrap', `<div class="empty-state"><span class="icon">âš ï¸</span>Backtest returned no usable results.</div>`);
       return;
     }
 
@@ -759,7 +759,7 @@ async function runBacktest() {
     }
 
     // Say what this actually replayed. The table ranks by return %, which reads as
-    // the system's edge — but this harness replays the single-timeframe path, not
+    // the system's edge â€” but this harness replays the single-timeframe path, not
     // the multi-timeframe gate that decides live trades. The measurement that set
     // the live gate was a walk-forward, and it is not this.
     out += `<div class="verdict-box" style="background:rgba(255,184,48,.06);border-color:rgba(255,184,48,.3)">
@@ -770,14 +770,14 @@ async function runBacktest() {
 
     html('backtest-wrap', out);
   } catch (e) {
-    html('backtest-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Backtest failed: ${esc(e.message)}</div>`);
+    html('backtest-wrap', `<div class="empty-state"><span class="icon">âš ï¸</span>Backtest failed: ${esc(e.message)}</div>`);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Run Backtest';
   }
 }
 
-// ── AI PARALLEL — /engineer trigger ───────────────────────────
+// â”€â”€ AI PARALLEL â€” /engineer trigger â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let engCurrentRunId = null;
 let engPollTimer = null;
 
@@ -785,8 +785,8 @@ async function architectTask() {
   const task = el('eng-task-input').value.trim();
   if (!task) return;
   const btn = el('eng-architect-btn');
-  btn.disabled = true; btn.textContent = 'Architecting…';
-  text('eng-run-meta', 'Designing workstreams…');
+  btn.disabled = true; btn.textContent = 'Architectingâ€¦';
+  text('eng-run-meta', 'Designing workstreamsâ€¦');
   html('eng-plan-wrap', '');
   html('eng-status-wrap', '');
   el('eng-launch-btn').disabled = true;
@@ -801,17 +801,17 @@ async function architectTask() {
 
     engCurrentRunId = d.runId;
     html('eng-plan-wrap', `<div style="font-size:.72rem;color:var(--muted2);margin-bottom:8px">
-      ${d.plan.length} workstream${d.plan.length === 1 ? '' : 's'} — review, then launch:</div>` +
+      ${d.plan.length} workstream${d.plan.length === 1 ? '' : 's'} â€” review, then launch:</div>` +
       d.plan.map(w => `<div class="worker-card">
         <div class="worker-head"><span class="worker-name">${esc(w.name)}</span></div>
         <div class="worker-files">Files: ${esc(w.files)}</div>
         <div style="font-size:.72rem;color:var(--text)">${esc(w.task)}</div>
       </div>`).join(''));
 
-    text('eng-run-meta', 'Plan ready — awaiting launch');
+    text('eng-run-meta', 'Plan ready â€” awaiting launch');
     el('eng-launch-btn').disabled = false;
   } catch (e) {
-    html('eng-plan-wrap', `<div class="empty-state"><span class="icon">⚠️</span>${e.message}</div>`);
+    html('eng-plan-wrap', `<div class="empty-state"><span class="icon">âš ï¸</span>${e.message}</div>`);
     text('eng-run-meta', 'Failed');
   } finally {
     btn.disabled = false; btn.textContent = 'Architect';
@@ -821,7 +821,7 @@ async function architectTask() {
 async function launchTask() {
   if (!engCurrentRunId) return;
   const btn = el('eng-launch-btn');
-  btn.disabled = true; btn.textContent = 'Launching…';
+  btn.disabled = true; btn.textContent = 'Launchingâ€¦';
 
   try {
     const res = await fetch(API + '/engineer/launch', {
@@ -831,7 +831,7 @@ async function launchTask() {
     const d = await res.json();
     if (!res.ok) throw new Error(d.error || 'Launch failed');
 
-    text('eng-run-meta', 'Running…');
+    text('eng-run-meta', 'Runningâ€¦');
     el('eng-architect-btn').disabled = true;
     if (engPollTimer) clearInterval(engPollTimer);
     pollEngineerStatus();
@@ -867,10 +867,10 @@ async function pollEngineerStatus() {
       el('eng-launch-btn').textContent = 'Launch Parallel Build';
       el('eng-launch-btn').disabled = true;
     }
-  } catch { /* transient — next poll retries */ }
+  } catch { /* transient â€” next poll retries */ }
 }
 
-// ── STATUS ─────────────────────────────────────────────────────
+// â”€â”€ STATUS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function loadStatus() {
   try {
     await getJson('/status');
@@ -878,8 +878,8 @@ async function loadStatus() {
   } catch { markOnline(false); }
 }
 
-// ── BOOT ───────────────────────────────────────────────────────
-// ── FLEET DOCTOR ───────────────────────────────────────────────
+// â”€â”€ BOOT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€ FLEET DOCTOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The whole point of this panel is that a finding arrives WITH its remedy. A status
 // board that says "bridge silent" and leaves you to work out what to run is the thing
 // the doctor was written to replace, so the fix line is never truncated or hidden.
@@ -900,9 +900,9 @@ async function loadDoctor() {
     // exists to be trusted in the moment something is wrong.
     const age = data.ageMs > 1000 ? Math.round(data.ageMs / 1000) + 's old' : 'just now';
     banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
-      + '<span style="color:var(--red);font-weight:600">' + (counts.RED || 0) + ' RED</span> · '
-      + '<span style="color:#ffb800;font-weight:600">' + (counts.AMBER || 0) + ' AMBER</span> · '
-      + (counts.INFO || 0) + ' INFO &nbsp;—&nbsp; ' + esc(age)
+      + '<span style="color:var(--red);font-weight:600">' + (counts.RED || 0) + ' RED</span> Â· '
+      + '<span style="color:#ffb800;font-weight:600">' + (counts.AMBER || 0) + ' AMBER</span> Â· '
+      + (counts.INFO || 0) + ' INFO &nbsp;â€”&nbsp; ' + esc(age)
       + (data.stale ? ' <span style="color:var(--red)">(stale: the last pass failed)</span>' : '')
       + '</div>';
 
@@ -933,12 +933,12 @@ async function loadDoctor() {
     // Say which check failed and why. "Unavailable" on a health panel is the same
     // failure as a green light that means nothing.
     banner.innerHTML = '';
-    list.innerHTML = '<div class="empty-state" style="color:var(--red)">Fleet check unavailable — '
+    list.innerHTML = '<div class="empty-state" style="color:var(--red)">Fleet check unavailable â€” '
       + esc(e.message) + '</div>';
   }
 }
 
-// ── AI EMPLOYEE ────────────────────────────────────────────────
+// â”€â”€ AI EMPLOYEE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // OUTPUT IGNORED is the verdict this whole surface exists for: an agent that works and
 // is never read costs exactly what a failing one costs, so an unreviewed proposal is
 // styled as loudly as a failing job rather than tucked into a count.
@@ -976,22 +976,22 @@ async function loadAiWork() {
     const t = d.totals || {};
 
     banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
-      + t.jobs + ' jobs · '
+      + t.jobs + ' jobs Â· '
       + '<span style="color:' + (t.failing ? 'var(--red)' : 'var(--green)') + ';font-weight:600">'
-      + t.failing + ' failing</span> · '
+      + t.failing + ' failing</span> Â· '
       + '<span style="color:' + (t.unreviewed ? '#ffb800' : 'var(--dim)') + ';font-weight:600">'
       + t.unreviewed + ' unreviewed</span> of ' + t.proposals + ' proposals'
       + (t.proposalsWithBrokenRefs
-          ? ' · <span style="color:var(--red);font-weight:600">' + t.proposalsWithBrokenRefs
+          ? ' Â· <span style="color:var(--red);font-weight:600">' + t.proposalsWithBrokenRefs
             + ' with broken refs</span>' : '')
-      // Was the agent RIGHT — the appraisal, kept separate from what was done with its
+      // Was the agent RIGHT â€” the appraisal, kept separate from what was done with its
       // fix. A rejected proposal whose diagnosis held up is the agent earning its keep.
       + (t.callsRight || t.callsWrong || t.callsUnproven
-          ? ' · diagnosis <span style="color:var(--green)">' + (t.callsRight || 0) + ' right</span>'
+          ? ' Â· diagnosis <span style="color:var(--green)">' + (t.callsRight || 0) + ' right</span>'
             + ' / <span style="color:var(--red)">' + (t.callsWrong || 0) + ' wrong</span>'
             + (t.callsUnproven ? ' / ' + t.callsUnproven + ' unproven' : '')
-            + (t.callsUnscored ? ' · <span style="color:var(--dim)">' + t.callsUnscored + ' unscored</span>' : '')
-          : ' · <span style="color:var(--dim)">no diagnosis scored yet</span>')
+            + (t.callsUnscored ? ' Â· <span style="color:var(--dim)">' + t.callsUnscored + ' unscored</span>' : '')
+          : ' Â· <span style="color:var(--dim)">no diagnosis scored yet</span>')
       + '</div>';
 
     jobsEl.innerHTML = (d.jobs || []).map(j => {
@@ -1010,7 +1010,7 @@ async function loadAiWork() {
       : '<div style="margin-top:6px">' + proposals.map(p => {
           // DEFERRED is decided but NOT closed: the diagnosis was right, the fix accepted,
           // and the work still owed. Styling it like a closed item would make the status
-          // pointless — it exists precisely so accepted-but-unapplied work stays visible
+          // pointless â€” it exists precisely so accepted-but-unapplied work stays visible
           // instead of being falsely closed as `ignored`, which is what happened to
           // weekly-cerxff before the status existed.
           const deferred = String(p.status || '').trim().toLowerCase() === 'deferred';
@@ -1029,12 +1029,12 @@ async function loadAiWork() {
                   + '">CALL ' + esc(p.call.toUpperCase()) + '</span>'
                 : '')
             + citationBadge(p.citations)
-            + '<span style="font-size:11px;color:var(--dim)">' + esc(p.jobLabel) + ' · '
+            + '<span style="font-size:11px;color:var(--dim)">' + esc(p.jobLabel) + ' Â· '
             + p.ageDays + 'd old</span></div>'
             + '<div style="margin-top:6px;font-size:13px;line-height:1.5">' + esc(p.text) + '</div>'
             + ((p.citations && p.citations.broken || []).length
                 ? '<div style="margin-top:6px;font-size:11px;color:var(--red)">'
-                  + p.citations.broken.map(b => esc(b.ref) + ' — ' + esc(b.why)).join('<br>') + '</div>'
+                  + p.citations.broken.map(b => esc(b.ref) + ' â€” ' + esc(b.why)).join('<br>') + '</div>'
                 : '')
             + (p.note ? '<div style="margin-top:6px;font-size:11px;color:var(--dim)">' + esc(p.note) + '</div>' : '')
             + '<div style="margin-top:6px;font-size:11px;color:var(--dim);font-family:ui-monospace,monospace">'
@@ -1044,12 +1044,12 @@ async function loadAiWork() {
   } catch (e) {
     banner.innerHTML = '';
     jobsEl.innerHTML = '';
-    propEl.innerHTML = '<div class="empty-state" style="color:var(--red)">AI work ledger unavailable — '
+    propEl.innerHTML = '<div class="empty-state" style="color:var(--red)">AI work ledger unavailable â€” '
       + esc(e.message) + '</div>';
   }
 }
 
-// ── MEASUREMENTS ───────────────────────────────────────────────
+// â”€â”€ MEASUREMENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Every number here carries its age and its fold count. A pooled R/trade with no fold
 // count is how PRE-LONDON's +1.399 nearly became a proposal: it improves in 1 of 5
 // folds, which the pooled figure cannot show and this table must.
@@ -1062,14 +1062,14 @@ const VERDICT_COLOUR = {
 };
 
 function rptCell(v) {
-  if (v === null || v === undefined) return '<span style="color:var(--dim)">—</span>';
+  if (v === null || v === undefined) return '<span style="color:var(--dim)">â€”</span>';
   const c = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--dim)';
   return '<span style="color:' + c + '">' + (v >= 0 ? '+' : '') + v.toFixed(3) + '</span>';
 }
 
 function foldTable(m, title) {
   if (!m || !m.available) {
-    return '<div class="empty-state">' + esc(title) + ' — not run on this box.<br>'
+    return '<div class="empty-state">' + esc(title) + ' â€” not run on this box.<br>'
       + '<span style="font-family:ui-monospace,monospace;font-size:11px">'
       + esc((m && m.command) || '') + '</span></div>';
   }
@@ -1085,8 +1085,8 @@ function foldTable(m, title) {
       + esc(s.verdict) + '</td></tr>').join('');
   return '<div style="margin:10px 0 22px">'
     + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">' + esc(title)
-    + ' — ' + m.trades + ' trades at gate ' + m.gate + ', ' + m.foldCount + ' folds, baseline '
-    + (m.baseline >= 0 ? '+' : '') + (m.baseline || 0).toFixed(3) + 'R/trade · '
+    + ' â€” ' + m.trades + ' trades at gate ' + m.gate + ', ' + m.foldCount + ' folds, baseline '
+    + (m.baseline >= 0 ? '+' : '') + (m.baseline || 0).toFixed(3) + 'R/trade Â· '
     + m.ageHours + 'h old</div>'
     + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
     + '<tr style="color:var(--dim);font-size:11px;text-align:left">'
@@ -1099,7 +1099,7 @@ function foldTable(m, title) {
 }
 
 // Six rows, not twenty-four. Entries are taken on H4 bars, so a trade can only open at
-// 00/04/08/12/16/20 UTC — an hourly grid would be eighteen structurally empty columns
+// 00/04/08/12/16/20 UTC â€” an hourly grid would be eighteen structurally empty columns
 // presented as data, which invents a question the engine cannot answer.
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const HEAT_BLOCK_SESSION = { 0: 'ASIAN', 4: 'ASIAN', 8: 'PRE-LONDON', 12: 'OVERLAP', 16: 'NEW YORK', 20: 'AFTER HOURS' };
@@ -1109,12 +1109,12 @@ let heatPopulation = 'atGate';   // toggled by the buttons below
 // the same numbers differently as the sample grows, so two visits would disagree.
 function heatCell(cell, minClosed) {
   if (!cell || !cell.closed) {
-    return { bg: 'rgba(255,255,255,.02)', fg: 'var(--dim)', label: '·', title: 'no trades' };
+    return { bg: 'rgba(255,255,255,.02)', fg: 'var(--dim)', label: 'Â·', title: 'no trades' };
   }
   const thin = cell.closed < minClosed;
   const r = cell.rpt;
-  const title = cell.closed + ' trades · ' + cell.wr.toFixed(1) + '% win · '
-    + (r >= 0 ? '+' : '') + r.toFixed(3) + 'R/trade' + (thin ? ' · too thin to score' : '');
+  const title = cell.closed + ' trades Â· ' + cell.wr.toFixed(1) + '% win Â· '
+    + (r >= 0 ? '+' : '') + r.toFixed(3) + 'R/trade' + (thin ? ' Â· too thin to score' : '');
   if (thin) return { bg: 'rgba(255,255,255,.04)', fg: 'var(--dim)', label: '~', title };
   const a = Math.min(Math.abs(r) / 0.5, 1) * 0.5 + 0.12;
   return {
@@ -1154,7 +1154,7 @@ function renderHeatmap(hm) {
       + String(h).padStart(2, '0') + 'h <span style="opacity:.6">' + (HEAT_BLOCK_SESSION[h] || '') + '</span></td>'
       + cells
       + '<td style="padding:6px 8px;text-align:right;font-size:11px;white-space:nowrap">'
-      + (tot ? 'n=' + tot.closed + '  ' + ((tot.rpt >= 0 ? '+' : '') + tot.rpt.toFixed(3)) : '—')
+      + (tot ? 'n=' + tot.closed + '  ' + ((tot.rpt >= 0 ? '+' : '') + tot.rpt.toFixed(3)) : 'â€”')
       + '</td></tr>';
   }).join('');
 
@@ -1165,14 +1165,14 @@ function renderHeatmap(hm) {
 
   host.innerHTML = '<div style="margin:10px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
     + btn('atGate', 'At the live gate (' + hm.atGateTrades + ')')
-    + btn('atFloor', 'All setups, conf ≥ ' + hm.grid.confFloor + ' (' + hm.totalTrades + ')')
-    + '<span style="font-size:11px;color:var(--dim)">R/trade per cell · hover for detail · '
+    + btn('atFloor', 'All setups, conf â‰¥ ' + hm.grid.confFloor + ' (' + hm.totalTrades + ')')
+    + '<span style="font-size:11px;color:var(--dim)">R/trade per cell Â· hover for detail Â· '
     + hm.ageHours + 'h old</span></div>'
     + '<div style="overflow-x:auto"><table style="border-collapse:collapse">' + head + rows + '</table></div>'
     + '<div style="font-size:11px;color:var(--dim);margin-top:6px">'
-    + 'green = positive, red = negative, intensity by size · <strong>~</strong> = under '
-    + minClosed + ' trades, no verdict · <strong>·</strong> = no trades. '
-    + 'Six rows because entries are H4 bar opens — no trade can start at any other hour.</div>';
+    + 'green = positive, red = negative, intensity by size Â· <strong>~</strong> = under '
+    + minClosed + ' trades, no verdict Â· <strong>Â·</strong> = no trades. '
+    + 'Six rows because entries are H4 bar opens â€” no trade can start at any other hour.</div>';
 
   host.querySelectorAll('[data-heatpop]').forEach(b => b.addEventListener('click', () => {
     heatPopulation = b.getAttribute('data-heatpop');
@@ -1191,7 +1191,7 @@ async function loadMeasurements() {
     const incomplete = Object.values(m).filter(x => x && (x.failedAssets || []).length);
     banner.innerHTML = incomplete.length
       ? '<div style="border:1px solid rgba(255,68,68,.35);background:rgba(255,68,68,.06);border-radius:8px;'
-        + 'padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--red)">INCOMPLETE — '
+        + 'padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--red)">INCOMPLETE â€” '
         + esc(incomplete[0].failedAssets.join(', ')) + ' produced no trades. Every number below '
         + 'describes the remaining assets only.</div>'
       : '';
@@ -1210,10 +1210,10 @@ async function loadMeasurements() {
           + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.rpt) + '</td></tr>';
       }).join('');
       sess.innerHTML = '<div style="margin:10px 0 22px">'
-        + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per session at the live gate — '
+        + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per session at the live gate â€” '
         + hm.atGateTrades + ' of ' + hm.totalTrades + ' trades cleared gate ' + hm.gate
-        + ' · entry hours ' + (hm.entryHoursUtc || []).map(h => String(h).padStart(2, '0')).join(', ')
-        + ' UTC · ' + hm.ageHours + 'h old</div>'
+        + ' Â· entry hours ' + (hm.entryHoursUtc || []).map(h => String(h).padStart(2, '0')).join(', ')
+        + ' UTC Â· ' + hm.ageHours + 'h old</div>'
         + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
         + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">session</th>'
         + '<th style="padding:6px 10px;text-align:right">n</th><th style="padding:6px 10px;text-align:right">win rate</th>'
@@ -1229,22 +1229,22 @@ async function loadMeasurements() {
   } catch (e) {
     banner.innerHTML = '';
     sess.innerHTML = '';
-    folds.innerHTML = '<div class="empty-state" style="color:var(--red)">Measurements unavailable — '
+    folds.innerHTML = '<div class="empty-state" style="color:var(--red)">Measurements unavailable â€” '
       + esc(e.message) + '</div>';
   }
 }
 
-// ── EVIDENCE BOARD ─────────────────────────────────────────────
+// â”€â”€ EVIDENCE BOARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The status word is the headline, but `changesTheAnswer` is the field worth reading:
 // it is what stops a claim from being permanent. FVG shipped to the Overview looking
 // tradeable and sat there for hours before anyone measured it; it turned out to be
 // worse than random. This board exists so that cannot happen silently again.
 const CLAIM_COLOUR = {
-  'MEASURED — ROBUST':                 'var(--green)',
-  'MEASURED — NO EDGE':                'var(--dim)',
-  'CANDIDATE — NEEDS WALK-FORWARD':    '#ffb800',
-  'CONTRADICTED — TWO SOURCES DISAGREE':'var(--red)',
-  'BLOCKED — CANNOT MEASURE YET':      '#ffb800',
+  'MEASURED â€” ROBUST':                 'var(--green)',
+  'MEASURED â€” NO EDGE':                'var(--dim)',
+  'CANDIDATE â€” NEEDS WALK-FORWARD':    '#ffb800',
+  'CONTRADICTED â€” TWO SOURCES DISAGREE':'var(--red)',
+  'BLOCKED â€” CANNOT MEASURE YET':      '#ffb800',
   'UNMEASURED':                        'var(--red)',
 };
 const GATE_COLOUR = {
@@ -1262,26 +1262,26 @@ async function loadEvidence() {
 
     // needsRecuration was COMPUTED and shown to nobody. The register has flagged a claim
     // whose declared sample has outgrown its prose since 3bd1686, and tasks/ai_brief.cjs
-    // warns every agent about it — while this page, the one a human reads, rendered the
+    // warns every agent about it â€” while this page, the one a human reads, rendered the
     // stale number as settled fact. Surfaced first, because a claim you cannot trust
     // changes how you read every claim under it.
     const stale = d.needsRecuration || [];
     banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
-      + claims.length + ' curated claims · '
+      + claims.length + ' curated claims Â· '
       + Object.entries(d.claimCounts || {}).map(([k, v]) =>
-          '<span style="color:' + (CLAIM_COLOUR[k] || 'var(--dim)') + '">' + v + ' ' + esc(k.replace(/^.*— /, '')) + '</span>'
-        ).join(' · ')
+          '<span style="color:' + (CLAIM_COLOUR[k] || 'var(--dim)') + '">' + v + ' ' + esc(k.replace(/^.*â€” /, '')) + '</span>'
+        ).join(' Â· ')
       + (stale.length
-          ? ' · <span style="color:#ffb800;font-weight:600">' + stale.length
+          ? ' Â· <span style="color:#ffb800;font-weight:600">' + stale.length
             + (stale.length === 1 ? ' needs' : ' need') + ' re-curation</span>'
-          : ' · <span style="color:var(--green)">all samples current</span>')
+          : ' Â· <span style="color:var(--green)">all samples current</span>')
       + '</div>'
       + (stale.length
           ? '<div style="border-left:3px solid #ffb800;background:rgba(255,184,0,.06);border-radius:0 8px 8px 0;'
             + 'padding:10px 14px;margin:0 0 14px;font-size:12px;line-height:1.6">'
             + '<strong style="color:#ffb800">' + stale.length + ' claim'
             + (stale.length === 1 ? ' quotes' : 's quote') + ' a sample that has since grown.</strong> '
-            + 'The text below is shown UNCHANGED on purpose — re-curate it by hand in '
+            + 'The text below is shown UNCHANGED on purpose â€” re-curate it by hand in '
             + '<code>server/evidence_register.js</code> rather than trusting the numbers in it. '
             + 'Detection never edits: a curated claim that rewrote itself would be worse than no claim.'
             + '</div>'
@@ -1306,7 +1306,7 @@ async function loadEvidence() {
             : '') + '</div>'
         // Which figure moved, and on WHICH BOX. journal.json and the rejection ledger are
         // both per-machine, so a claim written against one box legitimately reads smaller on
-        // the other — naming the box is what stops this reading as an item nobody can clear.
+        // the other â€” naming the box is what stops this reading as an item nobody can clear.
         + (st
             ? '<div style="margin-top:8px;font-size:12px;line-height:1.6;color:#ffb800">'
               + '<strong>Sample has grown since this was written:</strong> '
@@ -1314,7 +1314,7 @@ async function loadEvidence() {
               + (st.sampleFrom ? '<div style="color:var(--dim);margin-top:3px">written against: '
                   + esc(st.sampleFrom) + '</div>' : '')
               + '<div style="color:var(--dim);margin-top:3px">Treat the numbers below as UNVERIFIED. '
-              + 'Re-measuring this needs no further argument — its own evidence has expired.</div>'
+              + 'Re-measuring this needs no further argument â€” its own evidence has expired.</div>'
               + '</div>'
             : '')
         + '<div style="margin-top:8px;font-size:12px;line-height:1.6' + (st ? ';opacity:.72' : '') + '">'
@@ -1330,19 +1330,19 @@ async function loadEvidence() {
     }).join('');
 
     // The live half. These update themselves from the rejection ledger, so they are
-    // labelled as forgone PAPER trades — never realised P&L, and never merged with
+    // labelled as forgone PAPER trades â€” never realised P&L, and never merged with
     // performance.
     const gates = d.gates || {};
     const rows = Object.entries(gates).map(([name, g]) =>
       '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
-      + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + (g.resolved ?? '—') + '</td>'
-      + '<td style="padding:6px 10px;text-align:right">' + (g.wouldHaveWonPct == null ? '—' : g.wouldHaveWonPct + '%') + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + (g.resolved ?? 'â€”') + '</td>'
+      + '<td style="padding:6px 10px;text-align:right">' + (g.wouldHaveWonPct == null ? 'â€”' : g.wouldHaveWonPct + '%') + '</td>'
       + '<td style="padding:6px 10px;text-align:right">' + rptCell(g.netR) + '</td>'
       + '<td style="padding:6px 10px;color:' + (GATE_COLOUR[g.verdict] || 'var(--dim)') + '">'
       + esc(g.verdict || '') + '</td></tr>').join('');
     gatesEl.innerHTML = !rows ? '' : '<div style="margin:14px 0 22px">'
       + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per-gate verdicts from the rejection '
-      + 'ledger — forgone PAPER trades with no spread or slippage on entries that were never filled. A '
+      + 'ledger â€” forgone PAPER trades with no spread or slippage on entries that were never filled. A '
       + 'screening signal for which gate to investigate, not realised P&amp;L, and where this contradicts a '
       + 'walk-forward the walk-forward wins.</div>'
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
@@ -1353,13 +1353,13 @@ async function loadEvidence() {
       + '<th style="padding:6px 10px">verdict</th></tr>' + rows + '</table></div></div>';
   } catch (e) {
     banner.innerHTML = '';
-    claimsEl.innerHTML = '<div class="empty-state" style="color:var(--red)">Evidence board unavailable — '
+    claimsEl.innerHTML = '<div class="empty-state" style="color:var(--red)">Evidence board unavailable â€” '
       + esc(e.message) + '</div>';
     gatesEl.innerHTML = '';
   }
 }
 
-// ── FLEET RECORD ───────────────────────────────────────────────
+// â”€â”€ FLEET RECORD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Six closed trades is a record, not a measurement. The sample warning is rendered
 // FIRST and in the same weight as the numbers, because a win rate printed alone
 // invites exactly the claim the sample cannot support.
@@ -1376,9 +1376,9 @@ async function loadFleetPerf() {
         : '')
       + '<div style="margin:0 0 12px;font-size:13px;color:var(--dim)">'
       + (d.pooled
-          ? '<span style="color:var(--green);font-weight:600">POOLED</span> — engine parity '
+          ? '<span style="color:var(--green);font-weight:600">POOLED</span> â€” engine parity '
             + esc(d.parity.verdict) + ', ' + d.parity.ageHours + 'h old'
-          : '<span style="color:var(--red);font-weight:600">NOT POOLED</span> — ' + esc(d.whyNotPooled || ''))
+          : '<span style="color:var(--red);font-weight:600">NOT POOLED</span> â€” ' + esc(d.whyNotPooled || ''))
       + '</div>';
 
     const row = (label, s, strong) => {
@@ -1389,7 +1389,7 @@ async function loadFleetPerf() {
         + '<td style="padding:6px 10px">' + esc(label) + '</td>'
         + '<td style="padding:6px 10px;text-align:right">' + s.closed + '</td>'
         + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + s.wins + 'W / ' + s.losses + 'L</td>'
-        + '<td style="padding:6px 10px;text-align:right">' + (s.winRatePct === null ? '—' : s.winRatePct + '%') + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + (s.winRatePct === null ? 'â€”' : s.winRatePct + '%') + '</td>'
         + '<td style="padding:6px 10px;text-align:right;color:' + c + '">'
         + (s.netPnl >= 0 ? '+' : '') + s.netPnl + '</td></tr>';
     };
@@ -1405,7 +1405,7 @@ async function loadFleetPerf() {
         const floor = '<span style="font-weight:600">' + esc(s.towardLearningFloor) + '</span>'
           + (collapsed
               ? ' <span style="color:var(--red);font-size:11px">(' + esc(s.towardLearningFloorRawFills)
-                + ' raw, −' + collapsed + ' dup)</span>'
+                + ' raw, âˆ’' + collapsed + ' dup)</span>'
               : '');
         const split = ind.split
           ? ' <span style="color:var(--red);font-size:11px">' + ind.split + ' SPLIT</span>' : '';
@@ -1428,7 +1428,7 @@ async function loadFleetPerf() {
       + row('peer', d.byBox && d.byBox.peer)
       + '</table></div>'
       + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per setup, counted in INDEPENDENT '
-      + 'market events. Both boxes run the same engine on the same bars, so they take the same trade — fills '
+      + 'market events. Both boxes run the same engine on the same bars, so they take the same trade â€” fills '
       + 'with overlapping exposure on one symbol, direction and setup are one observation, not two. Where a '
       + 'row shows a raw count in red, that gap is what a naive pool would have overstated the evidence by. '
       + '<strong>Nothing here feeds live confidence</strong>: getLearningBoost still reads this box\'s '
@@ -1440,16 +1440,16 @@ async function loadFleetPerf() {
       + setups + '</table></div>';
   } catch (e) {
     banner.innerHTML = '';
-    body.innerHTML = '<div class="empty-state" style="color:var(--red)">Fleet record unavailable — '
+    body.innerHTML = '<div class="empty-state" style="color:var(--red)">Fleet record unavailable â€” '
       + esc(e.message) + '</div>';
   }
 }
 
-// ── LEARNING ───────────────────────────────────────────────────
+// â”€â”€ LEARNING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The two halves are never summed. setupStats counts REAL FILLS and is what moves
 // live confidence; shadow counts rejected setups walked forward on real broker bars,
 // which is a claim about geometry on entries that were never filled. Merging them
-// would make a paper result indistinguishable from a real loss — and today the two
+// would make a paper result indistinguishable from a real loss â€” and today the two
 // disagree outright: BUY_OVERSOLD is 5W/1L on paper and -0.332R/trade in the fills the
 // gate actually took. Where they conflict, the walk-forward wins.
 async function loadLearning() {
@@ -1465,26 +1465,26 @@ async function loadLearning() {
     banner.innerHTML = '<div style="margin:0 0 12px;font-size:13px;color:var(--dim)">'
       + '<span style="color:' + (realTotal >= 5 ? 'var(--green)' : '#ffb800') + ';font-weight:600">'
       + realTotal + ' real closed fills</span> across ' + Object.keys(real).length + ' setup(s)'
-      + ' · <span style="color:var(--dim)">' + shadowTotal + ' shadow episodes across '
+      + ' Â· <span style="color:var(--dim)">' + shadowTotal + ' shadow episodes across '
       + Object.keys(shadow).length + '</span>'
-      + (d.shadow ? ' · shadow generated ' + esc(String(d.shadow.generatedAt).slice(0, 16)) : '')
-      + ' · session ' + d.sessionCount + '</div>'
+      + (d.shadow ? ' Â· shadow generated ' + esc(String(d.shadow.generatedAt).slice(0, 16)) : '')
+      + ' Â· session ' + d.sessionCount + '</div>'
       // The gap between the journal and what the engine can learn from. Without this
       // the engine reads 0 wins while the system's only WIN sits in the journal, and
       // anything calibrating off setupStats alone is skewed pessimistic with no sign.
       + (un && un.count ? '<div style="border:1px solid rgba(255,184,0,.35);background:rgba(255,184,0,.06);'
         + 'border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px">'
         + '<div style="color:#ffb800;font-weight:600;margin-bottom:4px">'
-        + rec.closedFills + ' closed fills — the engine can learn from ' + rec.attributedToSetups
+        + rec.closedFills + ' closed fills â€” the engine can learn from ' + rec.attributedToSetups
         + ', and is refusing ' + un.count
         + ' (' + un.wins + 'W / ' + un.losses + 'L, net ' + (un.netPnl >= 0 ? '+' : '') + un.netPnl + ')</div>'
         + '<div style="color:var(--dim);line-height:1.6">'
         + un.fills.map(f => esc(f.symbol) + ' ' + esc(f.direction) + ' '
-            + (f.pnl >= 0 ? '+' : '') + f.pnl + ' — conf ' + f.confidence + ' ' + esc(f.strength || '')
+            + (f.pnl >= 0 ? '+' : '') + f.pnl + ' â€” conf ' + f.confidence + ' ' + esc(f.strength || '')
             + ' ' + esc(f.regime || '') + ', recorded as "' + esc(f.recordedSetup) + '"').join('<br>')
         + '<br><br>' + esc(un.why) + '</div></div>' : '')
       + (rec && !rec.complete ? '<div style="color:var(--red);font-size:12px;margin-bottom:10px">'
-        + 'RECONCILIATION FAILED — ' + rec.closedFills + ' closed fills but '
+        + 'RECONCILIATION FAILED â€” ' + rec.closedFills + ' closed fills but '
         + (rec.attributedToSetups + rec.unattributed) + ' accounted for. Some fill is neither '
         + 'learned from nor listed as refused.</div>' : '');
 
@@ -1498,25 +1498,25 @@ async function loadLearning() {
       const r = real[n], s = shadow[n];
       const realCell = r
         ? (r.wins + 'W / ' + r.losses + 'L')
-        : '<span style="color:var(--dim)">—</span>';
+        : '<span style="color:var(--dim)">â€”</span>';
       const boostCell = r
         ? (r.total >= 5
             ? '<span style="color:' + (r.boost > 0 ? 'var(--green)' : r.boost < 0 ? 'var(--red)' : 'var(--dim)') + '">'
               + (r.boost > 0 ? '+' : '') + r.boost + '</span>'
-            : '<span style="color:var(--dim)">0 — under floor</span>')
-        : '<span style="color:var(--dim)">—</span>';
+            : '<span style="color:var(--dim)">0 â€” under floor</span>')
+        : '<span style="color:var(--dim)">â€”</span>';
       const shadowCell = s
         ? s.wins + 'W / ' + s.losses + 'L'
           + '<span style="color:var(--dim)"> (' + s.episodes + ' ep)</span>'
-        : '<span style="color:var(--dim)">—</span>';
+        : '<span style="color:var(--dim)">â€”</span>';
       const rpe = s
         ? '<span style="color:' + (s.rPerEpisode > 0 ? 'var(--green)' : 'var(--red)') + '">'
           + (s.rPerEpisode >= 0 ? '+' : '') + Number(s.rPerEpisode).toFixed(3) + '</span>'
           + (s.enoughForReading ? '' : ' <span style="color:var(--dim);font-size:11px">too few</span>')
-        : '<span style="color:var(--dim)">—</span>';
+        : '<span style="color:var(--dim)">â€”</span>';
       return '<tr>'
         + '<td style="padding:6px 10px">' + esc(n) + '</td>'
-        + '<td style="padding:6px 10px;text-align:right">' + (r ? r.total + '/5' : '—') + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + (r ? r.total + '/5' : 'â€”') + '</td>'
         + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + realCell + '</td>'
         + '<td style="padding:6px 10px;text-align:right">' + boostCell + '</td>'
         + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + shadowCell + '</td>'
@@ -1537,16 +1537,16 @@ async function loadLearning() {
       + '<th style="padding:6px 10px">rejected by</th></tr>'
       + rows + '</table></div>'
       + '<div style="font-size:12px;color:var(--dim);margin-top:8px;line-height:1.6">'
-      + '<strong>The two columns are never summed.</strong> REAL fills are what move live confidence — a '
+      + '<strong>The two columns are never summed.</strong> REAL fills are what move live confidence â€” a '
       + 'boost only applies once a bucket reaches 5. SHADOW episodes are setups a gate rejected, walked '
       + 'forward on real broker bars: no spread, no slippage, entries never filled, so they are evidence '
       + 'about geometry and not about execution. They feed nothing. Where the two disagree the walk-forward '
-      + 'wins — BUY_OVERSOLD reads 5W/1L on paper and −0.332R/trade in the fills the gate actually took.</div>'
+      + 'wins â€” BUY_OVERSOLD reads 5W/1L on paper and âˆ’0.332R/trade in the fills the gate actually took.</div>'
       + (d.shadow ? '' : '<div style="font-size:12px;color:#ffb800;margin-top:6px">No shadow block on this '
-        + 'box — the rejection ledger has not produced stats here yet.</div>');
+        + 'box â€” the rejection ledger has not produced stats here yet.</div>');
   } catch (e) {
     banner.innerHTML = '';
-    body.innerHTML = '<div class="empty-state" style="color:var(--red)">Learning state unavailable — '
+    body.innerHTML = '<div class="empty-state" style="color:var(--red)">Learning state unavailable â€” '
       + esc(e.message) + '</div>';
   }
 }
@@ -1571,8 +1571,8 @@ loadLiveProfit();
 setInterval(loadDoctor, 120_000);
 setInterval(loadLiveProfit, 60_000);
 setInterval(loadStatus, 30_000);
-// The gate and the registry both change under this page — a threshold edit or a
-// new skill file — so neither is read once at boot and trusted for the session.
+// The gate and the registry both change under this page â€” a threshold edit or a
+// new skill file â€” so neither is read once at boot and trusted for the session.
 setInterval(loadGate, 60_000);
 setInterval(loadRegistry, 300_000);
 text('footer-ts', 'Loaded ' + new Date().toLocaleTimeString('en-US', { hour12: false }));

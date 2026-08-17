@@ -8,7 +8,13 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
-      --text:#e2e8f0; --muted:#4a6080; --accent:#7c3aed;
+      /* --muted was #4a6080, which is 2.85:1 against --surface — well under the 4.5:1
+         WCAG AA floor for small text, and it is the colour of EVERY explanatory line on
+         this page: 335 uses, including .trust-detail at 0.6rem and every "why" caption.
+         The part carrying the meaning was the hardest part to read. #6b83a8 measures
+         4.73:1 and passes. --muted-dim keeps the old value for genuine decoration, where
+         contrast does not apply. */
+      --text:#e2e8f0; --muted:#6b83a8; --muted-dim:#4a6080; --accent:#7c3aed;
       --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
       --font:'Segoe UI',system-ui,Arial,sans-serif;
     }
@@ -57,9 +63,13 @@
     .down { color:var(--red); }
     .flat { color:var(--muted); }
     .price-bias { font-size:.6rem; font-weight:700; letter-spacing:.08em; padding:3px 8px; border-radius:4px; }
-    .bias-BUY,.bias-STRONG_BUY  { background:#0d2010; color:var(--green); }
-    .bias-SELL,.bias-STRONG_SELL { background:#200d0d; color:var(--red); }
-    .bias-NEUTRAL { background:#1a1a2e; color:var(--muted); }
+    /* Derived from the state tokens instead of three magic hex values that had drifted
+       out of step with them (#0d2010 / #200d0d / #1a1a2e answered to no variable). A
+       hairline border gives the chip an edge at small sizes, where a low-contrast fill
+       alone reads as a smudge. */
+    .bias-BUY,.bias-STRONG_BUY   { background:rgba(34,197,94,.13);  color:var(--green);  border:1px solid rgba(34,197,94,.28); }
+    .bias-SELL,.bias-STRONG_SELL { background:rgba(239,68,68,.13);  color:var(--red);    border:1px solid rgba(239,68,68,.28); }
+    .bias-NEUTRAL                { background:rgba(107,131,168,.12); color:var(--muted); border:1px solid rgba(107,131,168,.24); }
 
     /* Charts.
        Height is driven by the layout, not fixed. The widget used to be a hard
@@ -217,24 +227,44 @@
        what the system THINKS; none of them showed whether the system was actually
        working. The stack ran for weeks with a bridge stone dead and this page
        looked completely normal. */
+    /* auto-fit, not a hardcoded column count. This was repeat(5,1fr) while the strip
+       carries SEVEN cells since Fleet and Broker Feed were added, so it wrapped 5 + 2 and
+       left two cells stretched across a ragged second row. Track count now follows cell
+       count, which also means adding an eighth needs no CSS change. */
     .trust-strip {
-      display:grid; grid-template-columns:repeat(5,1fr); gap:1px;
+      display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:1px;
       background:var(--border); border:1px solid var(--border);
       border-radius:10px; overflow:hidden; margin-bottom:16px;
     }
-    @media(max-width:1000px){ .trust-strip{ grid-template-columns:repeat(2,1fr); } }
-    .trust-cell { background:var(--surface); padding:10px 14px; min-width:0; }
-    .trust-label { font-size:.58rem; color:var(--muted); text-transform:uppercase; letter-spacing:.09em; }
-    .trust-value { font-size:.86rem; font-weight:700; margin-top:3px; display:flex; align-items:center; gap:6px; }
+    /* Two per row on a phone. minmax already handles the middle sizes, so the old
+       fixed 2-column rule is gone rather than fighting auto-fit. */
+    @media(max-width:640px){ .trust-strip{ grid-template-columns:repeat(2,1fr); } }
+    /* The state accent makes a red cell findable WITHOUT reading seven labels. Transparent
+       by default so a healthy strip stays quiet — colour here means something is wrong. */
+    .trust-cell {
+      background:var(--surface); padding:10px 14px 11px; min-width:0;
+      border-left:2px solid transparent; transition:background .15s;
+    }
+    .trust-cell:has(.trust-bad)  { border-left-color:var(--red);    background:rgba(239,68,68,.045); }
+    .trust-cell:has(.trust-warn) { border-left-color:var(--yellow); background:rgba(234,179,8,.045); }
+    .trust-label { font-size:.6rem; color:var(--muted); text-transform:uppercase; letter-spacing:.09em; }
+    .trust-value { font-size:.9rem; font-weight:700; margin-top:4px; display:flex; align-items:center; gap:6px; }
+    /* WRAPS now, up to two lines. It was nowrap + ellipsis, which truncated exactly the
+       part that carries the meaning — "gate 70 here vs 50 there" clipped to "gate 70 he…".
+       A detail line that cannot show the detail is decoration. */
     .trust-detail {
-      font-size:.6rem; color:var(--muted); margin-top:2px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      font-size:.64rem; color:var(--muted); margin-top:3px; line-height:1.35;
+      display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
     }
     .trust-ok   { color:var(--green); }
     .trust-bad  { color:var(--red); }
     .trust-warn { color:var(--yellow); }
     .trust-idle { color:var(--muted); }
-    .trust-led { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+    /* Slight glow so the state dot reads as a live indicator rather than a bullet. */
+    .trust-led {
+      width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0;
+      box-shadow:0 0 0 2px color-mix(in srgb, currentColor 22%, transparent);
+    }
     a.trust-link { text-decoration:none; color:inherit; display:block; }
     a.trust-link:hover .trust-label { color:var(--text); }
 
