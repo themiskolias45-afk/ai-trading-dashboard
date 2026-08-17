@@ -1986,7 +1986,25 @@ function setChartSubtitle(assetKey, signal) {
   const engine = signal && signal.sourceSymbol
     ? ` · engine: ${signal.dataSource === "mt5" ? "MT5 " : ""}${signal.sourceSymbol}`
     : "";
-  el.textContent = chartSymbol + engine;
+  // WHEN the newest MT5 daily bar closed, which /api/signals has carried since the
+  // barFreshness field landed and no page showed. The wedged-terminal case is the one that
+  // matters: the bridge keeps posting on schedule, receivedAt stays seconds old, the bars
+  // stop moving, and every other indicator on this page stays green. `stale` is a statement
+  // about the MT5 series ALONE — when it is true the engine has already fallen back to
+  // Yahoo, so the prices shown are fresh and it is the broker feed that is not.
+  const bf = signal && signal.barFreshness;
+  let feed = "";
+  if (bf && bf.checked && bf.stale) {
+    feed = ` · ⚠ MT5 BARS STALE: ${bf.reason}${bf.usedForThisSignal ? "" : " (fell back to Yahoo)"}`;
+  } else if (bf && bf.checked && bf.lastBarAt) {
+    feed = ` · last MT5 daily bar ${bf.lastBarAt.slice(0, 10)}`;
+  } else if (bf && !bf.checked && signal.dataSource !== "mt5") {
+    feed = " · no MT5 bars yet";
+  }
+  el.textContent = chartSymbol + engine + feed;
+  // Colour only carries the alarm. A green subtitle for the healthy case would compete
+  // with the confidence figure, which is the number this row exists to show.
+  el.style.color = (bf && bf.checked && bf.stale) ? "var(--red)" : "";
 }
 
 // ── Chart layout — how many chart panels, and which assets ───
@@ -3200,7 +3218,13 @@ async function loadJournalExecLog() {
       const pnl=t.pnl; const cls=pnl==null?"log-info":pnl>0?"log-win":"log-loss";
       const ts=t.openTime?new Date(t.openTime).toLocaleString():"";
       const pnlStr=pnl==null?"OPEN":(pnl>=0?"+":"")+fmt(pnl,2);
-      return`<div class="${cls}">[${ts}] ${t.direction} ${t.symbol} @ $${Number(t.entry).toLocaleString()} — ${pnlStr} ${t.status==="OPEN"?"(open)":""}</div>`;
+      // WHY it closed, from MT5's own deal record. The journal could not previously tell
+      // "hit its stop" from "someone closed it", and this row is where that question gets
+      // asked. Shown beside the P&L and never instead of it: a trailing stop moved into
+      // profit still closes as STOP, so the label is not the sign of the result.
+      // Absent on every entry closed before the bridge began forwarding it.
+      const exit=t.exitReason?` (${t.exitReason})`:"";
+      return`<div class="${cls}">[${ts}] ${t.direction} ${t.symbol} @ $${Number(t.entry).toLocaleString()} — ${pnlStr}${exit} ${t.status==="OPEN"?"(open)":""}</div>`;
     }).join("");
     el.scrollTop=el.scrollHeight;
   } catch {}
