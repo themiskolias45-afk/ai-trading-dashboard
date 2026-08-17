@@ -566,6 +566,26 @@ def score_ledger(rows, source, horizon_mult, now_epoch):
             scored.append(dict(base, outcome="UNSCORABLE", r=None,
                                detail="no sourceSymbol - cannot know which instrument these levels belong to"))
             continue
+        # The guard above assumed a yahoo-fed row arrives with NO sourceSymbol. It does
+        # not: server\index.js:2421 writes the YAHOO TICKER into that field on the
+        # fallback branch, so these rows carry ^GSPC / GC=F / BTC-USD. The broker
+        # terminal has no such series, bars() returns nothing, and score_row's horizon
+        # check (line 456) runs BEFORE its `not bars` check - so 112 of these reported
+        # "PENDING - horizon has not elapsed yet" for rows that can never resolve, and
+        # the surface read that as evidence still on its way. Measured 2026-08-17: 177
+        # rows, every one dead, including all 45 STALE_SOURCE rows.
+        #
+        # Keyed on dataSource, never on the shape of the symbol: of 292 mt5 rows not one
+        # carries a yahoo-looking symbol, and the 12 frozen legacy rows are all mt5, so
+        # this cannot touch a scorable row. Substituting the broker symbol is NOT the
+        # fix - that prices these levels on a different instrument, ~$51 apart on gold,
+        # which is the confidently-wrong answer this whole file exists to refuse.
+        # Spec section 2: unscorable is RECORDED, never guessed.
+        if str(row.get("dataSource") or "").lower() == "yahoo":
+            scored.append(dict(base, outcome="UNSCORABLE", r=None,
+                               detail="levels priced on the yahoo feed - %s is not a broker series"
+                                      % symbol))
+            continue
         if timeframe not in BAR_SECONDS or ts is None:
             scored.append(dict(base, outcome="UNSCORABLE", r=None,
                                detail="unknown timeframe %r or unparseable ts %r" % (timeframe, row.get("ts"))))
