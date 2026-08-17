@@ -1008,7 +1008,13 @@ async function loadAiWork() {
     propEl.innerHTML = !proposals.length
       ? '<div class="empty-state">No proposals harvested yet.</div>'
       : '<div style="margin-top:6px">' + proposals.map(p => {
-          const reviewed = p.status && p.status !== 'UNREVIEWED';
+          // DEFERRED is decided but NOT closed: the diagnosis was right, the fix accepted,
+          // and the work still owed. Styling it like a closed item would make the status
+          // pointless — it exists precisely so accepted-but-unapplied work stays visible
+          // instead of being falsely closed as `ignored`, which is what happened to
+          // weekly-cerxff before the status existed.
+          const deferred = String(p.status || '').trim().toLowerCase() === 'deferred';
+          const reviewed = p.status && p.status !== 'UNREVIEWED' && !deferred;
           return '<div style="border:1px solid ' + (reviewed ? 'rgba(255,255,255,.12)' : 'rgba(255,184,0,.35)')
             + ';background:' + (reviewed ? 'rgba(255,255,255,.03)' : 'rgba(255,184,0,.06)')
             + ';border-radius:10px;padding:12px 14px;margin-bottom:8px">'

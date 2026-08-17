@@ -1104,7 +1104,14 @@ const TOOLS = [
     async handler({ unreviewedOnly } = {}) {
       const data = await cached('ai-work', 30000, () => fetchJSON('/api/ai-work'));
       if (!unreviewedOnly || !data || !Array.isArray(data.proposals)) return data;
-      return { ...data, proposals: data.proposals.filter(p => p.status === 'UNREVIEWED') };
+      // DEFERRED counts as still-owed work, not as read. `unreviewedOnly` means "show me
+      // what still needs me", and a proposal accepted-but-unapplied needs someone as much
+      // as an undecided one — filtering to UNREVIEWED alone would hide exactly the work
+      // the deferred status was added to keep visible, which is the same disappearing act
+      // the OUTPUT IGNORED verdict exists to prevent.
+      const stillOwed = p => p.status === 'UNREVIEWED'
+        || String(p.status || '').trim().toLowerCase() === 'deferred';
+      return { ...data, proposals: data.proposals.filter(stillOwed) };
     },
   },
 

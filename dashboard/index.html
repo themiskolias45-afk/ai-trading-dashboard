@@ -2666,7 +2666,11 @@ function renderAiWork(data) {
 
   if (propsEl) {
     propsEl.innerHTML = (data.proposals || []).map(p => {
-      const reviewed = p.status !== "UNREVIEWED";
+      // DEFERRED is decided but still OWED, so it must not render as closed. The status
+      // exists because a correct, accepted, unapplied proposal previously had to be filed
+      // as `ignored` — greying it out here would restore that same lie in the UI.
+      const deferred = String(p.status || "").trim().toLowerCase() === "deferred";
+      const reviewed = p.status !== "UNREVIEWED" && !deferred;
       return '<div class="aw-prop' + (reviewed ? " reviewed" : "") + '">'
         + '<div class="aw-prop-text">' + escapeHtml(p.text) + "</div>"
         + '<div class="aw-prop-meta">' + escapeHtml(p.id) + " · " + escapeHtml(p.file) + ":" + p.line
