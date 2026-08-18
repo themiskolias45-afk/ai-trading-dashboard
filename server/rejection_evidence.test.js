@@ -170,6 +170,118 @@ test("the payload always disclaims itself", () => {
   });
 });
 
+console.log("\n── episodes, not rows ───────────────────────────────────────");
+
+test("rows sharing an episode id count ONCE, however many there are", () => {
+  // The real shape of the bug: one Gold BUY re-offered every poll cycle for days.
+  // Twelve rows of one setup are one piece of evidence, not twelve.
+  const rows = Array.from({ length: 12 }, () => row("DUPLICATE", "TARGET", 2, { episode: 7 }));
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.DUPLICATE;
+    assert.strictEqual(gate.resolved, 1, "12 rows of one episode must resolve once");
+    assert.strictEqual(gate.total, 1, "the denominator is episodes");
+    assert.strictEqual(gate.rows, 12, "the raw row count stays visible");
+    assert.strictEqual(gate.verdict, VERDICT_TOO_FEW, "1 episode cannot earn a verdict");
+  });
+});
+
+test("distinct episode ids stay distinct", () => {
+  const rows = Array.from({ length: 8 }, (_, i) => row("MIN_RR", "TARGET", 1.5, { episode: i }));
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.MIN_RR;
+    assert.strictEqual(gate.resolved, 8);
+    assert.strictEqual(gate.verdict, VERDICT_COSTING);
+  });
+});
+
+test("a row with NO episode id is its own episode, never merged with the rest", () => {
+  // The legacy ledger predates the scorer stamping ids. Treating a missing id as a
+  // shared one would collapse the whole file into a single observation.
+  const rows = Array.from({ length: 6 }, () => row("MIN_RR", "STOP", -1));
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.MIN_RR;
+    assert.strictEqual(gate.resolved, 6, "unstamped rows must not collapse");
+    assert.strictEqual(gate.verdict, VERDICT_EARNING);
+  });
+});
+
+test("the episode's representative is the row that RESOLVED, not merely the first", () => {
+  const rows = [
+    row("MIN_RR", "PENDING", null, { episode: 1 }),
+    row("MIN_RR", "PENDING", null, { episode: 1 }),
+    row("MIN_RR", "TARGET",  2.5,  { episode: 1 }),
+  ];
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.MIN_RR;
+    assert.strictEqual(gate.resolved, 1, "the episode resolved, so it must count as resolved");
+    assert.strictEqual(gate.pending, 0, "it must not also be counted as pending");
+    assert.ok(Math.abs(gate.netR - 2.5) < 1e-9, "expected the resolved row's R, got " + gate.netR);
+  });
+});
+
+test("an episode where nothing resolved still appears, as pending", () => {
+  const rows = Array.from({ length: 5 }, () => row("CONFIDENCE", "PENDING", null, { episode: 3 }));
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.CONFIDENCE;
+    assert.strictEqual(gate.pending, 1, "one episode, still inside its horizon");
+    assert.strictEqual(gate.resolved, 0);
+  });
+});
+
+test("the per-setup view counts episodes too", () => {
+  const rows = [
+    ...Array.from({ length: 9 }, () => row("MIN_RR", "TARGET", 1, { setup: "RANGE_TRADE_SHORT", episode: 4 })),
+    row("CONFIDENCE", "STOP", -1, { setup: "RANGE_TRADE_SHORT", episode: 5 }),
+  ];
+  withLedger(rows, file => {
+    const s = buildEvidence(file).setups.RANGE_TRADE_SHORT;
+    assert.strictEqual(s.won, 1, "nine rows of one episode are one win");
+    assert.strictEqual(s.lost, 1);
+    assert.strictEqual(s.gates.MIN_RR, 1);
+  });
+});
+
+test("the payload says which unit it is counting in", () => {
+  withLedger([row("MIN_RR", "TARGET", 1, { episode: 1 })], file => {
+    const e = buildEvidence(file);
+    assert.strictEqual(e.countsAre, "episodes");
+    assert.strictEqual(e.totals.rows, 1);
+    assert.strictEqual(e.totals.episodes, 1);
+  });
+});
+
+console.log("\n── the noise band ───────────────────────────────────────────");
+
+test("a large sample of near-zero episodes is NOISE, not a finding", () => {
+  // 40 episodes at +0.07R each clears 1R absolute but says nothing. This is exactly
+  // MIN_RR's real record once its rows are collapsed.
+  const rows = Array.from({ length: 40 }, (_, i) => row("MIN_RR", "TARGET", 0.07, { episode: i }));
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.MIN_RR;
+    assert.ok(gate.netR > 1, "precondition: the absolute total does cross 1R, got " + gate.netR);
+    assert.strictEqual(gate.verdict, VERDICT_NEUTRAL, "inside the band it is not a verdict");
+    assert.ok(gate.detail.includes("inside the noise"), gate.detail);
+  });
+});
+
+test("the band applies in both directions", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => row("CONFIDENCE", "STOP", -0.07, { episode: i }));
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.CONFIDENCE;
+    assert.ok(gate.netR < -1, "precondition: crosses -1R, got " + gate.netR);
+    assert.strictEqual(gate.verdict, VERDICT_NEUTRAL, "a gate must not be credited on noise either");
+  });
+});
+
+test("a real per-episode edge still gets its verdict", () => {
+  const rows = Array.from({ length: 10 }, (_, i) => row("MIN_RR", "TARGET", 0.5, { episode: i }));
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.MIN_RR;
+    assert.strictEqual(gate.verdict, VERDICT_COSTING, "0.5R/episode is well outside the band");
+    assert.ok(Math.abs(gate.rPerEpisode - 0.5) < 1e-9, "rPerEpisode should be surfaced");
+  });
+});
+
 console.log("\n── the mutation check ───────────────────────────────────────");
 
 test("verdictFor is not returning one constant", () => {
