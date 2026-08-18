@@ -187,6 +187,37 @@ check("an unmeasurable close moves nothing",
       "a null P&L must not be read as a win that clears the streak")
 
 
+print("\n-- a RESTART at the cap halts without waiting for a trade --------")
+
+# The gap the first version of this fix left. Making the halt eager on the CLOSE path
+# covers a loss that lands while the bridge is up. It does NOT cover a bridge that
+# restarts with the streak already at the cap: no close, no trade attempt, and the
+# restored state says halted:false because that is what was persisted. The VPS came
+# back at 3 of 3 still reporting halted:false and this is the case that proves it.
+reset(streak=3, halted=False)
+b.save_breaker_state()
+reset(streak=0, halted=False)
+b.load_breaker_state()
+check("state restored at the cap, not yet halted (the starting condition)",
+      b.consecutive_losses == 3 and b.trading_halted is False)
+b.report_risk_status()
+check("the per-cycle report halts a box restored AT the cap",
+      b.trading_halted is True,
+      "no close and no trade attempt happens here — the cycle itself must re-derive it")
+check("and it is labelled a STREAK halt with a clock running",
+      b.halt_cause == b.HALT_CAUSE_STREAK and bool(b.halted_at))
+
+reset(streak=1, halted=False)
+b.report_risk_status()
+check("a per-cycle report does NOT invent a halt below the cap",
+      b.trading_halted is False)
+
+reset(streak=3, halted=True, cause=b.HALT_CAUSE_STREAK, hours_ago=49)
+b.report_risk_status()
+check("the per-cycle report also RELEASES a cooled halt",
+      b.trading_halted is False and b.consecutive_losses == 2)
+
+
 print("\n-- the cooldown survives a restart -------------------------------")
 
 reset(streak=3, halted=True, cause=b.HALT_CAUSE_STREAK, hours_ago=2)

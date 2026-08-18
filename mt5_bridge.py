@@ -1652,13 +1652,26 @@ def report_risk_status():
     had nothing to show. The limits are the whole point of the panel: they need to be
     visible before the first trade, not after it.
 
-    This is also where the halt cooldown is EVALUATED, every cycle. Putting it only in
-    check_circuit_breaker() would have rebuilt the exact defect being fixed: that
-    function runs on a trade attempt, and a halted box with all three assets on WAIT
-    never attempts one, so a cooldown that only ticked there would never expire.
+    This is also where the breaker is EVALUATED, every cycle, in BOTH directions —
+    the halt and the release. The evaluation has to be here rather than only at the
+    points that change the counters, and getting that wrong has now cost two rounds:
+
+      - check_circuit_breaker() alone runs on a trade ATTEMPT. A box already at the
+        cap with all three assets on WAIT never attempts one, so it reported
+        halted:false while standing at its limit.
+      - Calling it from record_closed_outcome() fixed the CLOSE path but not the
+        RESTART path. A bridge that restarts with the streak already at the cap has
+        no close and no attempt either: the VPS came back on 2026-08-18 at 3 of 3
+        and still read halted:false, because the restored state said false and
+        nothing re-derived it.
+
+    A full check every cycle is the only version with no such gap. It is cheap, it is
+    idempotent, and it can only ever SET a halt or release one that has served its
+    cooldown.
     """
-    released = release_streak_halt_if_cooled()
-    if released:
+    was_halted = trading_halted
+    check_circuit_breaker()
+    if was_halted and not trading_halted:
         log("Cooldown expired — reporting this box as live again.", CYAN)
     cooldown_left = halt_cooldown_remaining_seconds()
     try:
