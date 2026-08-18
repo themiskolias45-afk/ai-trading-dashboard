@@ -19,6 +19,12 @@ set MAX_SPREAD_BTCUSD=2500
 REM How long a loss-streak halt stands before the bridge releases itself, decaying the
 REM streak by one. 1 hour, NOT the 48 the code defaults to.
 REM
+REM THIS FILE IS THE LAPTOP'S LAUNCHER ONLY. The VPS has a copy of it — it is tracked —
+REM but nothing there runs it: scheduled task SmartEntryBridgeA launches
+REM tasks\start_bridge_A_vps.bat instead. Any env var set here must be set there too,
+REM or it silently applies to one box. That is how this setting was nearly deployed to
+REM the box it mattered least on.
+REM
 REM The default is written for an account where a halt protects capital. These are DEMO
 REM accounts at a fixed 0.01 lot: the capital a long pause protects is worth nothing,
 REM and the thing it costs — closed trades — is the single binding constraint on this

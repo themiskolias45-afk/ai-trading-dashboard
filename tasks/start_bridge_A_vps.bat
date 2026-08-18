@@ -12,6 +12,21 @@ REM every BTC trade before an order was sent, and read as 'no signal' in the log
 REM Gold (22) and SP500 (36) stay on the global cap and are unaffected.
 set MAX_SPREAD_BTCUSD=2500
 
+REM How long a loss-streak halt stands before the bridge releases itself, decaying the
+REM streak by one. 1 hour, NOT the 48 the code defaults to.
+REM
+REM This matters MORE here than on the laptop: this is the box that trades
+REM continuously, and it is the one that sat at 3 of 3 losses. The code default is
+REM written for an account where a pause protects capital. This is a DEMO account at a
+REM fixed 0.01 lot, so the capital protected is worth nothing while the cost - closed
+REM trades - is the single binding constraint on the whole system. The guard still
+REM exists and still fires; it just stops costing two days of evidence to do it.
+REM
+REM Set it HERE, not in tasks\start_bridge_A.bat. That file is tracked and present on
+REM this box but nothing runs it: scheduled task SmartEntryBridgeA launches THIS file.
+REM Editing the other one looks like a deploy and changes nothing.
+set HALT_COOLDOWN_HOURS=1
+
 REM Pin to the account, not just the install. The terminal path alone does not stop
 REM this bridge trading whatever login the terminal happens to hold, and two
 REM bridges on one account place every trade twice at double risk. This is the only
