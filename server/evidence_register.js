@@ -368,6 +368,30 @@ const CLAIMS = [
       + "sample is now declared in sampleAtWriting and checked against the live journal "
       + "on every read. A mismatch raises needsRecuration rather than silently editing "
       + "the prose, because a curated claim that changes itself is worse than no claim.",
+    // The sizing decision this claim gates, measured 2026-08-18 and recorded here so it
+    // is neither acted on early nor quietly forgotten. It is the largest single lever on
+    // returns in the whole system and it requires NO new edge — which is exactly why it
+    // needs a stated trigger rather than a judgement call on the day.
+    sizingTrigger: "get_lot_size (mt5_bridge.py) ALREADY computes correct risk-based "
+      + "lots from the broker's tick_value/tick_size, and `fixedLotSize` overrides it "
+      + "entirely. So the change is one config value, 0.01 -> 0, not code. Measured "
+      + "effect at 1% risk on a $94,189 balance: XAUUSD 0.01 -> 0.070 lots at a $134 "
+      + "stop and 0.124 at a $76 stop (7-12x), BTCUSD unchanged at 0.010 because it "
+      + "already risks 0.95% by accident of contract size. Fixed LOTS equalise nothing; "
+      + "risk-based sizing equalises RISK, which is why the whole gain comes from "
+      + "correctly weighting the 4-of-5-fold instrument. Annual expectation on the "
+      + "measured per-instrument edges moves ~2.1% -> ~8.2%. "
+      + "DO NOT FLIP IT YET. It multiplies LOSSES 7-12x identically; the live record is "
+      + "1W/3L at -$419.55; and the only trade ever taken under risk-based sizing was "
+      + "BB_SQUEEZE_WATCH at 0.14 lots for -$449.72, the largest loss in the journal. "
+      + "BTC cannot go below 0.01 (broker minimum on both symbols), so there is no "
+      + "de-risking version of this — the asymmetry can only be corrected upward. "
+      + "TRIGGER: flip to 0 when XAUUSD alone has >=30 closed fills with positive "
+      + "expectancy after costs. Gold, not pooled — the edge is Gold (see edgeisgold), "
+      + "and pooling lets BTC's 3-of-5 record and SPX's negative one vote on a Gold "
+      + "decision. At ~31 Gold trades a year that is roughly a year away, or sooner if "
+      + "the rejection ledger settles it first. Re-read the 2026-07-28 note before "
+      + "acting: 0.01 was chosen deliberately as a data-gathering safety.",
     // Declared so the drift can be DETECTED without the claim quietly rewriting itself.
     // See recurationCheck() below.
     //
