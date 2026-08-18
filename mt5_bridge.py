@@ -208,6 +208,38 @@ MAX_CONSECUTIVE_LOSSES = int(os.environ.get("MAX_CONSEC_LOSSES", "3"))
 trading_halted   = False
 halt_reason      = ""
 
+# When the current halt was set, and WHICH breaker set it. Both are persisted.
+#
+# The streak breaker used to have no exit. consecutive_losses resets in exactly one
+# place — a winning close — and the halt blocks the entries that could produce one, so
+# once every open position closed with the streak at the cap, no trade could open, no
+# win could occur, and the streak could never clear. The box stayed dead until a human
+# noticed, and the box that trades continuously is headless.
+#
+# halt_cause separates the two breakers because only ONE of them is wedged like that.
+# A daily-loss halt already expires when the day rolls over (see load_breaker_state);
+# a streak halt does not, by design, because the streak itself survives the day.
+halted_at        = ""       # ISO-8601 Z, "" when not halted
+halt_cause       = ""       # HALT_CAUSE_STREAK | HALT_CAUSE_DAILY_LOSS | ""
+
+HALT_CAUSE_STREAK      = "STREAK"
+HALT_CAUSE_DAILY_LOSS  = "DAILY_LOSS"
+
+# How long a STREAK halt stands before the bridge releases itself.
+#
+# 48h rather than the conventional 24h because this system averages well under a trade
+# a day — a 24h box could serve its whole cooldown without a single signal, which makes
+# the pause a formality rather than a pause. Set HALT_COOLDOWN_HOURS to change it; 0
+# disables the release entirely and restores the old human-only behaviour.
+HALT_COOLDOWN_HOURS = float(os.environ.get("HALT_COOLDOWN_HOURS", "48"))
+
+# The release DECAYS the streak instead of clearing it. A clean slate would hand full
+# confidence back to a system that had just lost MAX_CONSECUTIVE_LOSSES in a row, which
+# is precisely when it has least earned it. Coming back one loss short of the cap means
+# a genuinely broken system re-halts on its very next loss, while a system that hit a
+# bad patch gets to prove itself on a single trade.
+HALT_RELEASE_DECAY = 1
+
 # Where the breaker's counters survive a restart.
 #
 # They used to live only in the globals above, so every bridge start silently reset
@@ -249,6 +281,7 @@ def load_breaker_state():
     loss streak. It is logged loudly so the failure is never silent.
     """
     global daily_pnl, consecutive_losses, trading_halted, halt_reason, last_counted_close
+    global halted_at, halt_cause
     try:
         with open(BREAKER_STATE_PATH, "r", encoding="utf-8") as state_file:
             state = json.load(state_file)
@@ -266,6 +299,22 @@ def load_breaker_state():
     last_counted_close = str(state.get("lastCountedClose", "") or "")
     trading_halted     = bool(state.get("halted", False))
     halt_reason        = str(state.get("haltReason", "") or "")
+    halt_cause         = str(state.get("haltCause", "") or "")
+    halted_at          = str(state.get("haltedAt", "") or "")
+
+    # A state file written before haltedAt existed carries a halt with no clock on it.
+    # Reading that as epoch-zero would release it the instant this bridge starts, which
+    # turns an upgrade into an unannounced resumption of trading. Stamp it NOW instead,
+    # so a legacy halt serves a full cooldown from the upgrade rather than none.
+    if trading_halted and not halted_at:
+        halted_at = datetime.utcnow().isoformat() + "Z"
+        log("Halt on disk predates the cooldown clock — starting it from now, "
+            f"not releasing early ({HALT_COOLDOWN_HOURS:.0f}h from this moment).", YELLOW)
+    # Same reasoning for the cause: an unlabelled halt is treated as a STREAK halt only
+    # when the streak actually justifies one. Otherwise it is left unlabelled and the
+    # timer will not touch it, because guessing wrong here releases a daily-loss halt.
+    if trading_halted and not halt_cause and consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+        halt_cause = HALT_CAUSE_STREAK
 
     if state.get("day") == breaker_day():
         daily_pnl = float(state.get("dailyPnl", 0.0) or 0.0)
@@ -276,9 +325,16 @@ def load_breaker_state():
         if trading_halted and consecutive_losses < MAX_CONSECUTIVE_LOSSES:
             trading_halted = False
             halt_reason    = ""
+            halted_at      = ""
+            halt_cause     = ""
 
+    # The banner names the cooldown too. A restarted bridge that says only "halted True"
+    # leaves whoever reads it unable to tell a pause from a permanent stop.
+    left = halt_cooldown_remaining_seconds()
+    when = f", releases in {left / 3600:.1f}h" if left is not None else ""
     log(f"Breaker state restored: streak {consecutive_losses}/{MAX_CONSECUTIVE_LOSSES}, "
-        f"daily P&L ${daily_pnl:.2f}, halted {trading_halted}", CYAN)
+        f"daily P&L ${daily_pnl:.2f}, halted {trading_halted}"
+        + (f" ({halt_cause})" if halt_cause else "") + when, CYAN)
 
 
 def save_breaker_state():
@@ -293,6 +349,10 @@ def save_breaker_state():
                 "consecutiveLosses": consecutive_losses,
                 "halted":            trading_halted,
                 "haltReason":        halt_reason,
+                # Without these two the cooldown cannot survive a restart, and a
+                # restart is the most likely thing to happen during one.
+                "haltedAt":          halted_at,
+                "haltCause":         halt_cause,
                 "lastCountedClose":  last_counted_close,
                 "updatedAt":         datetime.utcnow().isoformat() + "Z",
             }, state_file, indent=2)
@@ -379,31 +439,105 @@ def check_remote_control():
         return remote_halted
 
 
+def halt_cooldown_remaining_seconds():
+    """Seconds left on the current STREAK halt's cooldown, or None if none applies.
+
+    None means the timer has nothing to say — not halted, not a streak halt, the
+    release disabled, or the timestamp unreadable. A corrupt timestamp deliberately
+    reads as "no opinion" rather than "release now": failing open here would resume
+    trading on a parse error.
+    """
+    if not trading_halted or halt_cause != HALT_CAUSE_STREAK:
+        return None
+    if HALT_COOLDOWN_HOURS <= 0:
+        return None
+    if not halted_at:
+        return None
+    try:
+        started = datetime.fromisoformat(halted_at.rstrip("Z"))
+    except (ValueError, AttributeError) as exc:
+        log(f"Halt timestamp unreadable ({exc}) — cooldown not applied, halt stands.", YELLOW)
+        return None
+    elapsed = (datetime.utcnow() - started).total_seconds()
+    return max(0.0, HALT_COOLDOWN_HOURS * 3600 - elapsed)
+
+
+def release_streak_halt_if_cooled():
+    """Lift a STREAK halt that has served its cooldown, decaying the streak by one.
+
+    This is the exit the streak breaker never had. It is deliberately narrow:
+
+      - STREAK halts only. A daily-loss halt expires when the day rolls over, which
+        load_breaker_state already handles; releasing one here would shorten a limit
+        that is supposed to last the day.
+      - remote_halted is never touched. That is a human deciding to stop, and a timer
+        that could overrule a person is a worse bug than the one being fixed.
+      - The streak DECAYS, it does not reset. Coming back at MAX-1 means a genuinely
+        broken system re-halts on its very next loss.
+
+    Returns True if a halt was released.
+    """
+    global trading_halted, halt_reason, halted_at, halt_cause, consecutive_losses
+    remaining = halt_cooldown_remaining_seconds()
+    if remaining is None or remaining > 0:
+        return False
+    was = consecutive_losses
+    consecutive_losses = max(0, consecutive_losses - HALT_RELEASE_DECAY)
+    trading_halted = False
+    halt_reason    = ""
+    halted_at      = ""
+    halt_cause     = ""
+    log(f"⏱ CIRCUIT BREAKER RELEASED after {HALT_COOLDOWN_HOURS:.0f}h — streak {was} "
+        f"-> {consecutive_losses} of {MAX_CONSECUTIVE_LOSSES}. Trading resumes ONE loss "
+        "short of halting again; this is a cooldown, not a clean slate.", YELLOW + BOLD)
+    save_breaker_state()
+    return True
+
+
 def check_circuit_breaker():
-    global trading_halted, halt_reason
+    global trading_halted, halt_reason, halted_at, halt_cause
+    # BEFORE the early return below, or the release is unreachable: the whole point is
+    # that it applies while trading_halted is True.
+    release_streak_halt_if_cooled()
     if trading_halted:
         return True
+
+    # Consecutive losses FIRST, because this check needs no broker.
+    #
+    # It used to sit below the `if not acc: return False` guard, so a dead MT5 terminal
+    # disabled the streak breaker entirely — and a dead terminal here is SILENT: every
+    # call returns None and nothing raises, so the bridge looks healthy while its loss
+    # guard is off. The streak is arithmetic on an in-memory counter that the close path
+    # maintains; it never needed account_info() and must not depend on it. Only the
+    # daily-loss test below genuinely needs a balance to divide by.
+    if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+        trading_halted = True
+        halt_reason = f"{consecutive_losses} consecutive losses — pausing"
+        halted_at   = datetime.utcnow().isoformat() + "Z"
+        halt_cause  = HALT_CAUSE_STREAK
+        cooldown = (f" — releases in {HALT_COOLDOWN_HOURS:.0f}h at streak "
+                    f"{max(0, consecutive_losses - HALT_RELEASE_DECAY)}"
+                    if HALT_COOLDOWN_HOURS > 0 else " — no auto-release, needs a human")
+        log(f"🛑 CIRCUIT BREAKER: {halt_reason}{cooldown}", RED + BOLD)
+        # A halt that only exists in memory is undone by the next restart, which
+        # is the same defect that made the streak unaccumulable.
+        save_breaker_state()
+        return True
+
     acc = mt5.account_info()
     if not acc:
         return False
-    # Daily loss limit
+    # Daily loss limit — needs the balance, so it stays behind the account gate.
     if acc.balance > 0:
         loss_pct = (-daily_pnl / acc.balance) * 100
         if loss_pct >= daily_loss_limit:
             trading_halted = True
             halt_reason = f"Daily loss limit hit: -{loss_pct:.1f}% (limit {daily_loss_limit}%)"
+            halted_at   = datetime.utcnow().isoformat() + "Z"
+            halt_cause  = HALT_CAUSE_DAILY_LOSS
             log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
-            # A halt that only exists in memory is undone by the next restart, which
-            # is the same defect that made the streak unaccumulable.
             save_breaker_state()
             return True
-    # Consecutive losses
-    if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
-        trading_halted = True
-        halt_reason = f"{consecutive_losses} consecutive losses — pausing"
-        log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
-        save_breaker_state()
-        return True
     return False
 
 
@@ -1517,7 +1651,16 @@ def report_risk_status():
     trades the dashboard never learned the real limits and the circuit-breaker cards
     had nothing to show. The limits are the whole point of the panel: they need to be
     visible before the first trade, not after it.
+
+    This is also where the halt cooldown is EVALUATED, every cycle. Putting it only in
+    check_circuit_breaker() would have rebuilt the exact defect being fixed: that
+    function runs on a trade attempt, and a halted box with all three assets on WAIT
+    never attempts one, so a cooldown that only ticked there would never expire.
     """
+    released = release_streak_halt_if_cooled()
+    if released:
+        log("Cooldown expired — reporting this box as live again.", CYAN)
+    cooldown_left = halt_cooldown_remaining_seconds()
     try:
         requests.post(f"{SERVER_URL}/api/risk-status", json={
             "dailyPnl": round(daily_pnl, 2),
@@ -1525,6 +1668,12 @@ def report_risk_status():
             "halted": trading_halted or remote_halted,
             "haltReason": halt_reason or remote_halt_reason,
             "account": ACCOUNT_TAG or "default",
+            # When the halt was set, which breaker set it, and when it frees itself.
+            # A halt with no visible end date reads as permanent to whoever finds it,
+            # which is how the previous one went unnoticed.
+            "haltedAt":   halted_at or None,
+            "haltCause":  halt_cause or None,
+            "haltReleasesInSeconds": round(cooldown_left) if cooldown_left is not None else None,
             "config": {
                 "riskPercent":     RISK_PERCENT,
                 "dailyLossPct":    daily_loss_limit,
@@ -1533,6 +1682,7 @@ def report_risk_status():
                 "autoMode":        AUTO_MODE,
                 "expectedLogin":   EXPECTED_LOGIN or None,
                 "remoteHalted":    remote_halted,
+                "haltCooldownHours": HALT_COOLDOWN_HOURS,
             },
         }, timeout=3)
     except Exception:
