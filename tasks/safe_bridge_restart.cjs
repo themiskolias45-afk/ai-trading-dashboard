@@ -103,8 +103,31 @@ function record(name, ok, detail) {
     process.exit(1);
   }
 
-  // 2. Circuit breaker. Restarting into a halt would be pointless and confusing.
-  record("not halted", !risk.halted, risk.halted ? ("HALTED: " + risk.haltReason) : "trading enabled");
+  // 2. Circuit breaker — reported, NOT a blocker.
+  //
+  // This used to refuse when the box was halted, on the reasoning that restarting into
+  // a halt is pointless. It is the opposite: a halted bridge is the SAFEST thing this
+  // script can restart, because a halted bridge cannot open a position at all. The
+  // dangerous restart is the one it happily allows — a live bridge that might fire a
+  // signal seconds after coming back.
+  //
+  // Worse, the refusal was circular. On 2026-08-18 the VPS was halted at 3 of 3 with a
+  // 48h cooldown, the fix was a shorter cooldown in its launcher, and a launcher change
+  // needs a restart to take effect — which this check refused BECAUSE the box was
+  // halted. The only exit was to bypass the safety tool, which is the worst thing a
+  // safety tool can teach anyone to do.
+  //
+  // So it is now surfaced loudly and never blocks. Everything that protects an open
+  // TRADE — broker-side stops, the partial-close guard — is checked below and does
+  // still block.
+  if (risk.halted) {
+    console.log("  NOTE  " + "box is HALTED".padEnd(42)
+      + (risk.haltReason || "circuit breaker open"));
+    console.log("        a halted bridge cannot open a position, so this restart is safer,");
+    console.log("        not riskier. The halt itself survives the restart - it is on disk.");
+  } else {
+    record("not halted", true, "trading enabled");
+  }
 
   // 3. Bridge currently alive — otherwise this is a start, not a restart, and
   //    ensure_running already covers that case.
