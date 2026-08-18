@@ -91,17 +91,36 @@ function updateCheck(name, ok, detail) {
 // ── Backup helpers ─────────────────────────────────────────────────────────
 
 /**
- * Write a .bak copy of a JSON file before it is modified.
- * Silently skips if the source does not exist yet.
+ * Keep a .bak copy of a JSON file the healer has just confirmed is VALID.
+ *
+ * This function existed, was exported, and was called from NOWHERE. So no .bak has
+ * ever been written, and restoreFromBackup() below could only ever return null — at
+ * which point both of its callers fall through to writing a clean EMPTY default over
+ * the file. That turns the healer's corruption RECOVERY path into a corruption
+ * AMPLIFIER: one bad parse of learning.json and weeks of trade outcomes become
+ * `{setupStats:{}, sessionCount:0}`. An empty default is a delete on the next save.
+ *
+ * Called ONLY from branches that have just parsed the file successfully, so a .bak
+ * can never hold corruption: the moment a file goes bad the check takes the corrupt
+ * branch and never reaches here, leaving the last good copy intact.
+ *
+ * Safe on every 30s cycle — it skips when the .bak is already at least as new as the
+ * source, so it writes exactly when the data has actually changed.
  */
 function writeBackup(filePath) {
   const bakPath = filePath + '.bak';
   try {
-    if (fs.existsSync(filePath)) {
-      fs.copyFileSync(filePath, bakPath);
-      console.log('[HEALER] Backup written:', bakPath);
+    if (!fs.existsSync(filePath)) return;
+    if (fs.existsSync(bakPath)) {
+      const src = fs.statSync(filePath);
+      const bak = fs.statSync(bakPath);
+      if (bak.mtimeMs >= src.mtimeMs) return;   // already current — nothing changed
     }
+    fs.copyFileSync(filePath, bakPath);
+    console.log('[HEALER] Backup written:', path.basename(bakPath));
   } catch (err) {
+    // Never fails a health check. A missing backup is a smaller problem than a healer
+    // that stops running because it could not write one.
     logError(`Backup write failed for ${path.basename(filePath)}: ${err.message}`);
   }
 }
@@ -333,6 +352,10 @@ function checkLearningFile() {
   try {
     const { data, corrupt } = safeReadJson(LEARNING_FILE);
     if (!corrupt) {
+      // The file is good RIGHT NOW, which is the only safe moment to copy it. This is
+      // the call that was missing: without it the restore below has nothing to restore
+      // from and silently resets weeks of trade outcomes to an empty object instead.
+      if (data) writeBackup(LEARNING_FILE);
       updateCheck(name, true, data ? `${Object.keys(data.setupStats || {}).length} setups on disk` : 'file absent (normal on first run)');
       return;
     }
@@ -365,6 +388,9 @@ function checkJournalFile() {
     const { data, corrupt } = safeReadJson(JOURNAL_FILE);
     if (!corrupt) {
       const count = Array.isArray(data) ? data.length : 0;
+      // Same as learning.json: back up only what has just been read successfully.
+      // The journal is the record of every real fill and is not reconstructable.
+      if (data) writeBackup(JOURNAL_FILE);
       updateCheck(name, true, data ? `${count} journal entries on disk` : 'file absent (normal on first run)');
       return;
     }

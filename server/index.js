@@ -4161,6 +4161,73 @@ async function addCommentaryLater(trade, journalEntry) {
   }
 }
 
+/**
+ * Roll today's closed trades into the SQLite `performance` table.
+ *
+ * db.upsertPerformance() was defined, exported and called from NOWHERE — the
+ * `performance` table has held zero rows since it was created, the same dead-wiring
+ * as the `signals` table. Without it there is no dated performance series anywhere:
+ * the Performance tab recomputes from journal.json on every request, so nothing can
+ * answer "what did the curve look like on the 12th" once the journal is trimmed or a
+ * setup name is corrected in place.
+ *
+ * Keyed on the CLOSE date and written with ON CONFLICT DO UPDATE, so re-running it
+ * for a day is idempotent — one row per day however many trades close that day, and
+ * a late reconciliation of an old close rewrites that day rather than today's.
+ *
+ * Derived entirely from the journal, which stays the source of truth. Nothing reads
+ * this table to decide anything.
+ */
+function persistDailyPerformance(closeTime) {
+  // A close with no timestamp cannot be attributed to a day. Booking it under today
+  // would silently move an old outcome onto the current row.
+  const day = typeof closeTime === "string" && closeTime.length >= 10
+    ? closeTime.slice(0, 10)
+    : null;
+  if (!day) return;
+
+  try {
+    const sameDay = tradeJournal.filter(t =>
+      t && t.status === "CLOSED" && typeof t.closeTime === "string"
+      && t.closeTime.slice(0, 10) === day && typeof t.pnl === "number");
+    if (!sameDay.length) return;
+
+    const wins   = sameDay.filter(t => t.pnl > 0).length;
+    const losses = sameDay.length - wins;
+    const gross  = sameDay.reduce((sum, t) => sum + t.pnl, 0);
+
+    // Best and worst by TOTAL P&L per setup, not by a single trade, so one outsized
+    // fill cannot name a setup that lost money across the day. NON_SETUP_NAMES are
+    // excluded for the same reason updateLearning refuses them: "WAIT" is the absence
+    // of a setup, and bucketing it invents one.
+    const bySetup = {};
+    for (const t of sameDay) {
+      const setup = t.setup;
+      if (!setup || NON_SETUP_NAMES.has(String(setup).toUpperCase())) continue;
+      bySetup[setup] = (bySetup[setup] || 0) + t.pnl;
+    }
+    const ranked = Object.entries(bySetup).sort((a, b) => b[1] - a[1]);
+
+    db.upsertPerformance(day, {
+      total_trades: sameDay.length,
+      wins,
+      losses,
+      gross_pnl: Number(gross.toFixed(2)),
+      // No commission or swap is recorded per trade, so net cannot be derived and is
+      // stored equal to gross rather than invented. Say so here, because a `net_pnl`
+      // column that silently equals gross is exactly the kind of number that gets
+      // quoted later as if costs had been taken out.
+      net_pnl:   Number(gross.toFixed(2)),
+      win_rate:  Number(((wins / sameDay.length) * 100).toFixed(1)),
+      best_setup:  ranked.length ? ranked[0][0] : null,
+      worst_setup: ranked.length ? ranked[ranked.length - 1][0] : null,
+    });
+  } catch (e) {
+    // A rollup failure must never fail the close it was triggered by.
+    console.error("[performance] daily rollup failed:", e.message);
+  }
+}
+
 // MT5 bridge notifies server when a trade is closed
 app.post("/api/trade-closed", (req, res) => {
   const { ticket, pnl, closePrice, closeTime, account, exitReason, exitReasonCode } = req.body;
@@ -4240,6 +4307,7 @@ app.post("/api/trade-closed", (req, res) => {
       outcome,
       closed_at: trade.closeTime,
     });
+    persistDailyPerformance(trade.closeTime);
   }
   console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);
   res.json({ ok: true });
