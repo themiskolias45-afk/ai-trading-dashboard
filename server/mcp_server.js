@@ -411,12 +411,21 @@ const TOOLS = [
       const sym = symbol.toUpperCase();
       const key = sym.toLowerCase();
 
-      const [signals, learning, journal, risk] = await fetchParallel([
+      const [signals, learning, journal, risk, settings] = await fetchParallel([
         '/api/signals',
         '/api/learning',
         `/api/journal?symbol=${sym}&limit=10`,
         '/api/risk-status',
+        '/api/strategy-settings',
       ]);
+
+      // The gate in force, never a literal. This tool used to compare confidence
+      // against a hardcoded 65 while the live gate has been 70 since 2026-08-02, so it
+      // reported trade_ready:true for setups the engine would refuse. Falls back to 70
+      // rather than 65 if settings are unreadable — the conservative direction, since
+      // guessing low invents readiness that does not exist.
+      const gateThreshold = Number.isFinite(settings?.confidenceThreshold)
+        ? settings.confidenceThreshold : 70;
 
       const sig  = signals[key] || {};
       const setup = sig.setup || '';
@@ -467,9 +476,20 @@ const TOOLS = [
           })),
         },
         risk_regime:   risk?.regime || 'UNKNOWN',
-        circuit_open:  risk?.circuitBreakerOpen || false,
-        news_blackout: risk?.newsBlackout || false,
-        trade_ready:   (sig.confidence || 0) >= 65 && !risk?.circuitBreakerOpen && !risk?.newsBlackout,
+        // `circuitBreakerOpen` and `newsBlackout` are not fields /api/risk-status
+        // returns, so these two reported a confident FALSE at all times — including
+        // while the box was actually halted — and trade_ready ignored the breaker
+        // entirely. `halted` is the real field.
+        circuit_open:  risk?.halted || false,
+        halt_reason:   risk?.haltReason || null,
+        // The blackout is on /api/newsfilter, which this tool does not fetch. Say that
+        // rather than report a false, which is what made the old line dangerous: a
+        // reader cannot tell "checked and clear" from "never looked".
+        news_blackout: 'not checked here — see get_gate_health or /api/newsfilter',
+        // Was hardcoded 65 while the live gate has been 70 since 2026-08-02, so this
+        // called setups ready that the engine would refuse. Read from the live config.
+        trade_ready:   (sig.confidence || 0) >= gateThreshold && !risk?.halted,
+        gate_used:     gateThreshold,
       };
     },
   },
@@ -645,21 +665,41 @@ const TOOLS = [
       },
     },
     async handler({ symbol, direction, entry, stop, target, lots, confidence = 80, source = 'manual' } = {}) {
-      // Circuit breaker check first
+      // Circuit breaker check first.
+      //
+      // This guard was DEAD. It read `risk.circuitBreakerOpen` and `risk.newsBlackout`,
+      // and /api/risk-status has never returned either field — it returns dailyPnl,
+      // consecutiveLosses, halted, haltReason and accounts. Both reads were permanently
+      // undefined, so neither branch could ever be taken, and a tool whose own
+      // description promises "refuses if 3 consecutive losses" would happily place a
+      // trade with the breaker open. The bridge's own gates were the only thing
+      // actually stopping it.
       const risk = await cached('risk', 10000, () => fetchJSON('/api/risk-status'));
-      if (risk?.circuitBreakerOpen) {
+      if (risk?.halted) {
         return {
           executed: false,
           blocked:  true,
-          reason:   'Circuit breaker is open — 3 consecutive losses. Trading halted until manual reset.',
+          reason:   `Circuit breaker is open — ${risk.haltReason || 'trading halted'}. `
+                  + 'Trading is halted until it resets or a human clears it.',
         };
       }
-      if (risk?.newsBlackout) {
-        return {
-          executed: false,
-          blocked:  true,
-          reason:   'News blackout active — no trades allowed during high-impact news.',
-        };
+      // The blackout lives on /api/newsfilter, not on risk-status. Fetched separately
+      // and FAILING OPEN: the bridge enforces NEWS_BLACKOUT itself before every order,
+      // so a transient fetch error here must not stop a trade that the real gate would
+      // allow. Reported rather than swallowed, so a permanently failing fetch is
+      // visible instead of quietly reducing this to no guard at all.
+      let newsNote = null;
+      try {
+        const news = await cached('newsfilter', 60000, () => fetchJSON('/api/newsfilter'));
+        if (news?.enabled && news?.blackout) {
+          return {
+            executed: false,
+            blocked:  true,
+            reason:   `News blackout active — ${news.reason || 'high-impact event window'}.`,
+          };
+        }
+      } catch (e) {
+        newsNote = `news blackout NOT checked here (${e.message}) — the bridge still enforces it`;
       }
 
       const result = await fetchJSON('/api/claude-approve-trade', {
@@ -780,9 +820,13 @@ const TOOLS = [
       step(`Signal: ${sig.symbol} ${sig.signal} @ ${sig.entry} conf=${sig.confidence}%`);
 
       // 2. Circuit breaker
+      //
+      // Same dead guard as execute_trade had: `circuitBreakerOpen` is not a field
+      // /api/risk-status returns, so this step was a no-op in a workflow that ends by
+      // placing a real order. `halted` is the field.
       const risk = await fetchJSON('/api/risk-status');
-      if (risk?.circuitBreakerOpen) {
-        return { ok: false, reason: 'Circuit breaker open — trading halted', log };
+      if (risk?.halted) {
+        return { ok: false, reason: `Circuit breaker open — ${risk.haltReason || 'trading halted'}`, log };
       }
 
       // 3. Debate
