@@ -2489,8 +2489,81 @@ async function refreshSignals() {
     spx:  signalCache.spx  ? { s: signalCache.spx.signal,  c: signalCache.spx.confidence,  regime: signalCache.spx.regime,  setup: signalCache.spx.setup,  reasons: (signalCache.spx.reasons  || []).slice(0,6), entry: signalCache.spx.entry,  stop: signalCache.spx.stop,  target: signalCache.spx.target  } : null,
   });
   if (signalHistory.length > 100) signalHistory.length = 100;
+  persistSignalChanges();
   try { hermes.runHermesCycle(signalCache, priceCache); } catch (e) { console.error("[hermes] cycle error:", e.message); }
   refreshAnalysis();
+}
+
+// Last row actually written per asset, so a signal that stands for hours is stored
+// once rather than once per refresh. Reset by a restart, which writes one row per
+// asset on the first cycle — that is wanted, because a restart is itself a fact worth
+// having in the series.
+const lastPersistedSignal = {};
+
+/**
+ * Write each asset's signal to SQLite when it MATERIALLY changes.
+ *
+ * The `signals` table has existed since 2026-07-25 and held ZERO rows. db.insertSignal()
+ * is written, exported and documented, and was called from nowhere — a table with no
+ * writer, which is the mirror of the setting-with-no-reader this project keeps finding.
+ * Meanwhile the only history that existed was `signalHistory`: in memory, capped at 100
+ * cycles, so roughly fifty minutes, discarded on every restart.
+ *
+ * That is the thing this system could least afford to throw away. Its binding constraint
+ * is sample size; it computes three signals every refresh and remembered none of them.
+ * The rejection ledger captures setups that reached a GATE, but a candidate that never
+ * got that far — the confidence drifting 45, 50, 55 under the bar for a week — left no
+ * trace at all, and that is precisely the record needed to answer "how close does this
+ * ever come".
+ *
+ * Deduped on (setup, direction, confidence) rather than written every cycle, for the
+ * same reason the rejection ledger counts episodes and not rows: one setup standing for
+ * six hours is one fact, and storing it 720 times would inflate every future count taken
+ * from this table. Expect a few hundred rows a day, not millions.
+ *
+ * WRITE-ONLY AND INERT. Nothing reads this table to decide anything — no gate, no
+ * threshold, no confidence, no sizing. It cannot change what trades.
+ */
+function persistSignalChanges() {
+  for (const key of ["btc", "gold", "spx"]) {
+    const sig = signalCache[key];
+    if (!sig) continue;
+    // A cycle that failed to produce a confidence is not evidence of a quiet market,
+    // it is a missing reading, and storing it as 0 would be a lie the table cannot
+    // later distinguish from a genuine zero.
+    if (sig.confidence === undefined || sig.confidence === null) continue;
+
+    const fingerprint = [sig.setup ?? "", sig.signal ?? "", sig.confidence].join("|");
+    if (lastPersistedSignal[key] === fingerprint) continue;
+
+    try {
+      const written = db.insertSignal({
+        symbol:       sig.sourceSymbol || sig.ticker || key.toUpperCase(),
+        direction:    sig.signal,
+        setup:        sig.setup,
+        confidence:   sig.confidence,
+        strength:     sig.strength,
+        entry:        sig.entry,
+        stop:         sig.stop,
+        target:       sig.target,
+        generated_at: sig.updatedAt || new Date().toISOString(),
+        // Whether this reading CLEARED the live gate. Stored as the engine saw it, so
+        // the table can later be read as "how often was it close" without re-deriving
+        // a threshold that may have moved since.
+        fired:        sig.confidence >= (strategySettings?.confidenceThreshold ?? 70) ? 1 : 0,
+      });
+      // Only advance the marker on a confirmed write. If the DB is unavailable
+      // insertSignal returns null, and moving the marker anyway would silently skip
+      // this change forever once the DB came back.
+      if (written) lastPersistedSignal[key] = fingerprint;
+    } catch (e) {
+      // Persistence is observability. It must never interrupt signal generation.
+      if (!persistSignalChanges._warned || Date.now() - persistSignalChanges._warned > 600000) {
+        persistSignalChanges._warned = Date.now();
+        console.error("[signals] could not persist to SQLite:", e.message);
+      }
+    }
+  }
 }
 
 // ── Unusual Whales ────────────────────────────────────────────
