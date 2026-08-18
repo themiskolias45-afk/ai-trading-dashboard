@@ -157,14 +157,24 @@ const CLAIMS = [
     id: "gate70",
     title: "Confidence gate = 70",
     status: STATUS.ROBUST,
-    measuredOn: "2026-08-02",
-    evidence: "Positive in 5 of 5 out-of-sample walk-forward folds. 65 is 3/5; "
-      + "85 is negative in 4 of 4.",
-    caveat: "Gold's squeeze cohort is pinned to exactly 70 "
-      + "(GOLD_SQUEEZE_MODERATE_CONFIDENCE). Raise the gate above 70 and that cohort "
-      + "silently stops firing.",
-    changesTheAnswer: "Re-run run_walkforward (MCP) or node tasks/mtf_walkforward.cjs. "
-      + "Read the log timestamps — that file also holds a superseded pre-b55b5f5 run.",
+    measuredOn: "2026-08-18",
+    evidence: "Re-measured 2026-08-18 on 769 trades, 5 sequential folds, 0.05R/trade "
+      + "cost: 70 is positive in 4 of 5 (+0.182, −0.016, +0.423, +0.031, +0.057). The "
+      + "case for 70 is no longer 'the only 5/5' — 55, 60 and 75 are also 4/5 on this "
+      + "data. It is the BEST WORST FOLD: its single negative is −0.016, against −0.165 "
+      + "at 55, −0.098 at 60 and −0.204 at 75. That is the property worth holding. "
+      + "65 has DEGRADED from 3/5 to 2/5 UNSTABLE; 85 stays negative, now 0 of 4.",
+    caveat: "The earlier '5 of 5' figure (2026-08-02, a0862d1) no longer reproduces and "
+      + "should not be quoted. Nothing about it was wrong when written — the sample has "
+      + "grown — but a claim of unanimity is exactly the kind that gets used to end an "
+      + "argument, so the weaker true number replaces it. Separately, Gold's squeeze "
+      + "cohort is pinned to exactly 70 (GOLD_SQUEEZE_MODERATE_CONFIDENCE): raise the "
+      + "gate above 70 and that cohort silently stops firing.",
+    changesTheAnswer: "A candidate gate that beats 70's worst fold across most folds, "
+      + "not one with a better average. Re-run run_walkforward (MCP) or node "
+      + "tasks/mtf_walkforward.cjs. Read the log timestamps — that file also holds a "
+      + "superseded pre-b55b5f5 run. Any move above 70 must be paired with "
+      + "cohort_reachability.cjs, or Gold's squeeze cohort dies unannounced.",
     feedsTheGate: true,
   },
   {

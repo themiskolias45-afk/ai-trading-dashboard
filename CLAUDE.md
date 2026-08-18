@@ -190,8 +190,13 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
   `claude-sonnet-5` for per-asset commentary, summaries and analysis. Do not
   reintroduce `claude-opus-4-8` — both remaining call sites were upgraded 2026-08-02.
 - Signal fires only at or above the live `confidenceThreshold` across Daily + 4H + 1H.
-  It is **70** as of 2026-08-02 (a0862d1) — the only gate positive in 5 of 5
-  out-of-sample walk-forward folds. 65 is 3/5 and 85 is negative in 4 of 4.
+  It is **70**, set 2026-08-02 (a0862d1) and re-measured 2026-08-18 on 769 trades,
+  5 folds, 0.05R cost. **It is 4 of 5, not the "5 of 5" this file claimed** — the
+  sample grew and unanimity did not survive it. 55, 60 and 75 are also 4/5, so the
+  argument for 70 is now its BEST WORST FOLD: its one negative is −0.016 against
+  −0.165 at 55, −0.098 at 60 and −0.204 at 75. 65 has DEGRADED to 2/5 UNSTABLE;
+  85 is negative in 4 of 4. **The gate has not moved and this is not a reason to
+  move it** — a challenger has to beat 70's worst fold in most folds, not its mean.
   Re-measure with `run_walkforward` (MCP) or `node tasks/mtf_walkforward.cjs`
   before changing it, and read `tasks/logs/mtf_walkforward.txt` timestamps — that
   file also holds a superseded run from the pre-b55b5f5 broken harness.
