@@ -178,6 +178,43 @@ const CLAIMS = [
     feedsTheGate: true,
   },
   {
+    // Raised 2026-08-18 because SPX has never traded and nothing on any board said
+    // why in a way a reader could act on. It is not blind and it is not broken — it
+    // has exactly one reachable path, and the tool built to catch dead cohorts cannot
+    // see the two that are closed to it.
+    id: "spxonepath",
+    title: "SPX can only fire through one cohort",
+    status: STATUS.CONTRADICTED,
+    measuredOn: "2026-08-18",
+    evidence: "Zero SPX fills in the journal's life against 4 XAUUSD and 1 BTCUSD. "
+      + "Cause, from the MTF census (tasks/logs/mtf_walkforward.txt) and "
+      + "cohort_reachability.cjs at gate 70: of SP500's 2,811 non-WAIT replay steps, "
+      + "H4-only is 1,114 (40%) and is held at SPX_H4_ONLY_BLOCKED_FLOOR = 101 — and "
+      + "would cap at 60 anyway; daily-only-with-neutral-H4 is 1,363 (48%) and caps at "
+      + "55, because the two neutral-H4 cohorts that DO fire (base 70 and 72) are "
+      + "written Gold-only and SPX has no equivalent; daily-vs-H4 conflict is 17 and "
+      + "caps at 45. Only 'Daily+H4 agree' (base 72 both-MODERATE and up) can clear 70, "
+      + "and that is 317 steps — 11% of SPX's setups. Live now: daily RSI 77.6 gives no "
+      + "daily setup at all, so the live shape is H4-only, the blocked one.",
+    caveat: "None of this is a bug and none of it should be 'fixed' by reflex. The 101 "
+      + "floor is a deliberate measured block. What is NOT settled is whether it should "
+      + "still hold: the edgeisgold claim below rests SPX's negative sign on 13 closed "
+      + "trades with 1 win and says in its own caveat that this is 'under-powered and "
+      + "must not be used to disable SPX'. So the register simultaneously holds that "
+      + "the SPX evidence cannot justify disabling SPX, and a floor of 101 that "
+      + "effectively does. That contradiction is the claim, not the arithmetic.",
+    changesTheAnswer: "A proper per-cohort walk-forward on SP500 'Daily+H4 agree' and on "
+      + "the H4-only cohort separately, WITH costs, at gate 70 — the thing edgeisgold "
+      + "says this earns and nobody has run. If H4-only is negative out of sample the "
+      + "floor is vindicated and should be documented as permanent; if it is not, the "
+      + "floor is spending an instrument on 13 trades. Either way the daily-neutral-H4 "
+      + "cohorts being Gold-only is a separate, undocumented decision that needs its own "
+      + "answer. Do NOT lower the floor without that table: SPX's 13 live-shaped trades "
+      + "returned -0.819R each, which is weak evidence but is not nothing.",
+    harness: "node tasks/cohort_reachability.cjs  ·  node tasks/mtf_walkforward.cjs",
+    feedsTheGate: true,
+  },
+  {
     id: "edgeisgold",
     title: "The edge is Gold, not the engine",
     status: STATUS.ROBUST,
