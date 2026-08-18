@@ -75,9 +75,14 @@ const CLAIMS = [
     // Guarded because its whole argument is a RATIO of one row to the rest: as resolved
     // episodes accumulate, a single +298R artifact stops being able to set the sign, and
     // the conclusion would need rewriting rather than merely updating.
-    sampleAtWriting: { ledgerResolved: 476 },
+    // RE-BASED 2026-08-18 from ROWS to EPISODES. 0c62efa made this board count one
+    // episode per drifting setup instead of one row per refresh, so 476 became 73 on the
+    // VPS overnight without a single new rejection. The old figure could never flag
+    // again either, because recurationCheck fires on GROWTH only and this was a shrink.
+    sampleAtWriting: { ledgerResolved: 73 },
     sampleTolerance: 0.5,
-    sampleFrom: "VPS ledger (the peer box); the laptop read 162 resolved the same day",
+    sampleFrom: "VPS ledger (the peer box), EPISODES not rows — 73 resolved of 1061 "
+      + "rows; the laptop read 53 of 768 the same day",
     feedsTheGate: false,
   },
   {
@@ -292,7 +297,8 @@ const CLAIMS = [
     // VPS held 394 — and ai_brief.cjs served that to every agent under "Already MEASURED
     // — do not re-litigate". Declared so the next drift is DETECTED instead of waiting
     // for someone to re-read the ledger by hand.
-    sampleAtWriting: { minRrResolved: 394 },
+    // RE-BASED 2026-08-18: 394 was a ROW count. In episodes the same VPS ledger reads 59.
+    sampleAtWriting: { minRrResolved: 59 },
     sampleTolerance: 0.5,
     sampleFrom: "VPS ledger (the peer box) — its rejection ledger is the richer one",
     feedsTheGate: true,
@@ -338,7 +344,10 @@ const CLAIMS = [
     // The claim that aged worst: "0W/12L, the only setup on the board with zero wins" was
     // true at n=12 and false at n=113, and nothing noticed. A W/L pair is exactly the
     // shape that turns into a lie as it grows, so both halves are declared.
-    sampleAtWriting: { rangeTradeShortWon: 53, rangeTradeShortLost: 60 },
+    // RE-BASED 2026-08-18: 53W/60L were ROW counts. In episodes the VPS reads 9W/10L,
+    // netR -6.49. The SHAPE the claim rests on is unchanged — RANGE_TRADE_SHORT is still
+    // the worst direction on the board and still emphatically not winless.
+    sampleAtWriting: { rangeTradeShortWon: 9, rangeTradeShortLost: 10 },
     sampleTolerance: 0.5,
     sampleFrom: "VPS ledger (the peer box)",
     feedsTheGate: false,
