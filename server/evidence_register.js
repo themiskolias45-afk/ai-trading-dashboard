@@ -183,9 +183,28 @@ const CLAIMS = [
     // has exactly one reachable path, and the tool built to catch dead cohorts cannot
     // see the two that are closed to it.
     id: "spxonepath",
-    title: "SPX can only fire through one cohort",
-    status: STATUS.CONTRADICTED,
+    title: "SPX has no measured edge in any cohort",
+    status: STATUS.MEASURED_NO_EDGE,
     measuredOn: "2026-08-18",
+    // SETTLED the same day it was raised, by running the harness the earlier version of
+    // this claim asked for. It was filed CONTRADICTED because the register held both
+    // "the SPX evidence is under-powered and must not disable SPX" and a floor of 101
+    // that effectively did. The fold table resolved it IN FAVOUR OF THE FLOOR.
+    measured: "cohort_walkforward.cjs, 769 trades, 5 equal-count folds, 0.05R cost, "
+      + "gate 70 read from disk (the 2026-08-11 run had fallen back to defaults because "
+      + "strategy_settings.json was unreadable, so it was re-run clean). "
+      + "SP500/DAILY+H4_AGREE — the ONLY path that can clear 70 for SPX — is -0.819R per "
+      + "trade over 13 closed. SP500/DAILY_ONLY_H4_NEUTRAL is -0.395R over 49, positive "
+      + "in 1 of 5 folds. The 2026-08-11 run, the last one taken before the floor "
+      + "suppressed them, folded 166 closed SP500 H4-only trades: -0.196R STRONG, "
+      + "-0.065R NONE, -0.039R MODERATE, positive in 1/5, 2/5 and 2/5 folds. Every SP500 "
+      + "slice with n>=13 is negative; the only positive row is DAILY+H4_CONFLICT at n=2.",
+    // The bars were cleared FIRST, because "the instrument is dead" and "the feed is
+    // broken" look identical from the dashboard and only one of them is fixable here.
+    dataCheck: "RSI recomputed independently from /api/mt5/candles/raw matches the "
+      + "engine: d1 78.4 vs 77.6, h4 19.0 vs 18.1, h1 21.4. Daily strongly up over "
+      + "months, last three days pulling back, H4/H1 oversold inside that pullback — a "
+      + "normal buy-the-dip shape on real data. The feed is sound.",
     evidence: "Zero SPX fills in the journal's life against 4 XAUUSD and 1 BTCUSD. "
       + "Cause, from the MTF census (tasks/logs/mtf_walkforward.txt) and "
       + "cohort_reachability.cjs at gate 70: of SP500's 2,811 non-WAIT replay steps, "
@@ -196,22 +215,24 @@ const CLAIMS = [
       + "caps at 45. Only 'Daily+H4 agree' (base 72 both-MODERATE and up) can clear 70, "
       + "and that is 317 steps — 11% of SPX's setups. Live now: daily RSI 77.6 gives no "
       + "daily setup at all, so the live shape is H4-only, the blocked one.",
-    caveat: "None of this is a bug and none of it should be 'fixed' by reflex. The 101 "
-      + "floor is a deliberate measured block. What is NOT settled is whether it should "
-      + "still hold: the edgeisgold claim below rests SPX's negative sign on 13 closed "
-      + "trades with 1 win and says in its own caveat that this is 'under-powered and "
-      + "must not be used to disable SPX'. So the register simultaneously holds that "
-      + "the SPX evidence cannot justify disabling SPX, and a floor of 101 that "
-      + "effectively does. That contradiction is the claim, not the arithmetic.",
-    changesTheAnswer: "A proper per-cohort walk-forward on SP500 'Daily+H4 agree' and on "
-      + "the H4-only cohort separately, WITH costs, at gate 70 — the thing edgeisgold "
-      + "says this earns and nobody has run. If H4-only is negative out of sample the "
-      + "floor is vindicated and should be documented as permanent; if it is not, the "
-      + "floor is spending an instrument on 13 trades. Either way the daily-neutral-H4 "
-      + "cohorts being Gold-only is a separate, undocumented decision that needs its own "
-      + "answer. Do NOT lower the floor without that table: SPX's 13 live-shaped trades "
-      + "returned -0.819R each, which is weak evidence but is not nothing.",
-    harness: "node tasks/cohort_reachability.cjs  ·  node tasks/mtf_walkforward.cjs",
+    caveat: "SPX not trading is CORRECT BEHAVIOUR, not blindness, and the floor is "
+      + "vindicated — as is the separate, previously undocumented decision to write the "
+      + "neutral-H4 cohorts Gold-only, since SPX's neutral-H4 record is -0.395R at 1/5. "
+      + "But the floor now SUPPRESSES ITS OWN EVIDENCE: today's run produced no SP500 "
+      + "H4-only rows at all, because blocked setups never become trades and so leave no "
+      + "record to fold. The 166-trade table from 2026-08-11 is the last evidence that "
+      + "will ever exist unless the floor is lifted for a measurement run. A guard that "
+      + "has made itself unfalsifiable is the condition to watch here, NOT the sign of "
+      + "the numbers, which is consistent across every SP500 slice.",
+    changesTheAnswer: "Two things, neither of them lowering the floor on these numbers. "
+      + "(1) To keep the floor falsifiable, re-run cohort_walkforward.cjs with the floor "
+      + "lifted IN THE REPLAY ONLY — never in the live engine — so SPX H4-only keeps "
+      + "producing a foldable record as history grows. Without that, this claim can only "
+      + "ever be re-confirmed, never overturned. (2) SPX earns its place back on a cohort "
+      + "that is ROBUST, not merely positive: the harness bar is most folds positive, and "
+      + "no SP500 slice has ever cleared it. Live SPX fills would move this fastest and "
+      + "there are none — which is the point, the block is why.",
+    harness: "node tasks/cohort_walkforward.cjs  ·  node tasks/cohort_reachability.cjs",
     feedsTheGate: true,
   },
   {
