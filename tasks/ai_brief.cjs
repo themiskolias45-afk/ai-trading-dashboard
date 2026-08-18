@@ -166,8 +166,101 @@ try {
 } catch (e) { line("_call history unavailable_"); }
 line();
 
-// ── 4. Settled questions ────────────────────────────────────────────────────
-line("## 4. Already MEASURED — do not re-litigate without new evidence");
+// ── 4. The open work ────────────────────────────────────────────────────────
+//
+// Every section before this one tells the agent what NOT to do: do not repeat, do
+// not restate, do not re-litigate. Section 5 does the same. Until this section
+// existed there was nothing anywhere in the brief saying what WAS worth doing, and
+// the output shows it: across both boxes the agent has made 29 proposals, graded
+// 5 right and 0 wrong — it reasons well — and almost every one is dashboard
+// styling, a comment wording, or a reporting field. Correct work, aimed at nothing.
+//
+// The agenda was already in the repo. Every claim in the register carries
+// `changesTheAnswer`, which is literally "the experiment that would settle this",
+// and section 5 prints it under a heading that says do not re-litigate. The four
+// claims that are NOT settled are the open questions, and two of them feed the gate.
+//
+// The constraint is computed live rather than asserted, for the same reason the
+// closed-fill count is: a hardcoded blocker is a claim with an expiry date and no
+// alarm on it.
+line("## 4. THE OPEN WORK — this is what to aim at");
+line();
+
+const OPEN_STATUSES = [
+  "CONTRADICTED — TWO SOURCES DISAGREE",   // two sources disagree: settling it is pure gain
+  "BLOCKED — CANNOT MEASURE YET",          // says what it is waiting for
+  "CANDIDATE — NEEDS WALK-FORWARD",        // one measurement from a verdict
+  "UNMEASURED",                            // nobody has looked
+];
+
+try {
+  const journal = readJson("server/journal.json");
+  const rows    = Array.isArray(journal) ? journal : [];
+  const closed  = rows.filter(t => t && t.status === "CLOSED").length;
+  const stamps  = rows.map(t => t && (t.closeTime || t.openTime)).filter(Boolean).sort();
+  const newest  = stamps.length ? new Date(stamps[stamps.length - 1]) : null;
+  const daysIdle = newest && !isNaN(newest) ? Math.floor((Date.now() - newest.getTime()) / 86400000) : null;
+
+  line("**The binding constraint on this system is SAMPLE SIZE.** Not ideas, not");
+  line("features, not polish. Right now:");
+  line();
+  line("- closed fills in the journal, all time: **" + closed + "**"
+    + (daysIdle === null ? "" : "   ·   days since the last one: **" + daysIdle + "**"));
+  const g = growth ? growth.build() : null;
+  if (g && g.available) {
+    line("- setups with enough paper episodes to read: **" + g.totals.usableSetups
+      + " of " + g.totals.setupsTracked + "**");
+  }
+  line();
+  line("Price every proposal in SAMPLES. A change that adds evidence is worth more");
+  line("than a change that displays evidence better. A guard, cooldown or filter that");
+  line("stops a trade firing costs samples, and on DEMO accounts at a fixed minimum lot");
+  line("it protects nothing real - so it needs a much better argument than it looks like");
+  line("it needs. Never propose something whose effect is that a good signal does not fire.");
+  line();
+  line("This does NOT license widening the gate, removing a guard, or letting the paper");
+  line("ledger move a threshold. Where a paper ledger contradicts a walk-forward, the");
+  line("walk-forward still wins. It means: aim at the constraint, and do not add to it.");
+} catch (e) { line("_constraint figures unavailable on this box_"); }
+line();
+
+if (!register) line("_evidence register unavailable, so the open agenda cannot be listed_");
+else {
+  const claims  = register.getRegister().claims;
+  const unsettled = claims.filter(c => OPEN_STATUSES.includes(c.status));
+  // A claim whose declared sample has moved is open again whatever its status says:
+  // its own evidence has expired, so re-measuring it needs no new argument.
+  const stale = claims.filter(c => c.staleness && !unsettled.includes(c));
+  const agenda = unsettled.concat(stale);
+
+  if (!agenda.length) {
+    line("_Every claim on the board is settled and none has drifted. Say so, and look");
+    line("for what is not on the board at all._");
+  } else {
+    line("**" + agenda.length + " question(s) are genuinely OPEN.** Each line already names the");
+    line("experiment that settles it. Gate-affecting ones come first because they are the");
+    line("only ones that can change what trades.");
+    line();
+    agenda.sort((a, b) => (b.feedsTheGate ? 1 : 0) - (a.feedsTheGate ? 1 : 0)
+      || OPEN_STATUSES.indexOf(a.status) - OPEN_STATUSES.indexOf(b.status));
+    for (const c of agenda) {
+      line("- **" + c.title + "** — " + c.status
+        + (c.feedsTheGate ? "  _(FEEDS THE GATE)_" : ""));
+      if (c.staleness) {
+        line("  - !! its declared sample has MOVED, so its own numbers are unverified: "
+          + c.staleness.drifted.join("; "));
+      }
+      line("  - what would settle it: " + c.changesTheAnswer.replace(/\s+/g, " "));
+    }
+    line();
+    line("Proposing one of these, or reporting honestly that it still cannot be measured");
+    line("and why, is worth more than any number of correct findings about a dashboard.");
+  }
+}
+line();
+
+// ── 5. Settled questions ────────────────────────────────────────────────────
+line("## 5. Already MEASURED — do not re-litigate without new evidence");
 line();
 if (!register) line("_evidence register unavailable_");
 else {
@@ -202,8 +295,8 @@ else {
 }
 line();
 
-// ── 5. The configuration actually in force ──────────────────────────────────
-line("## 5. Live configuration — never assume these numbers");
+// ── 6. The configuration actually in force ──────────────────────────────────
+line("## 6. Live configuration — never assume these numbers");
 line();
 if (!settings) line("_strategy_settings.json not readable on this box — read GET /api/strategy-settings and check settingsError._");
 else {
@@ -217,8 +310,8 @@ else {
 }
 line();
 
-// ── 6. How much evidence you actually have ──────────────────────────────────
-line("## 6. Evidence available to reason from");
+// ── 7. How much evidence you actually have ──────────────────────────────────
+line("## 7. Evidence available to reason from");
 line();
 try {
   const g = growth ? growth.build() : null;
@@ -258,8 +351,8 @@ line("a conclusion, say exactly that and stop. Inventing one is the worst thing 
 line("do here.");
 line();
 
-// ── 7. House rules ──────────────────────────────────────────────────────────
-line("## 7. How to report");
+// ── 8. House rules ──────────────────────────────────────────────────────────
+line("## 8. How to report");
 line();
 line("- One finding, the most important one. A list of five is a list of none.");
 line("- Cite file:line and the evidence. \"Seems risky\" is not a finding.");
