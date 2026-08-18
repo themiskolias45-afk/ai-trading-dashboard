@@ -63,9 +63,9 @@ function main() {
   const drifted = findTableDrift(indexSource);
   const rows    = computeReachability(gate, dailyOnlyMinConfidence);
 
-  console.log('='.repeat(78));
+  console.log('='.repeat(82));
   console.log('COHORT REACHABILITY — can each cohort mathematically reach the gate?');
-  console.log('='.repeat(78));
+  console.log('='.repeat(82));
   console.log(`gate           ${gate}   (from ${gateSource})`);
   console.log(`daily-only floor ${dailyOnlyMinConfidence}   (raises the gate for the neutral-H4 cohorts only)`);
   console.log(`max boost      +${MAX_BOOST}   (+${VOLUME_BOOST} volume, +${BEST_SETUP_BOOST} best setup, +${LEARNING_BOOST_WHEN_COLD} learning)`);
@@ -83,15 +83,15 @@ function main() {
   }
 
   const pad = (value, width) => String(value).padEnd(width);
-  console.log(pad('cohort', 42) + pad('base', 6) + pad('ceiling', 9) + pad('status', 15) + 'note');
-  console.log('-'.repeat(78));
+  console.log(pad('cohort', 46) + pad('base', 6) + pad('ceiling', 9) + pad('status', 15) + 'note');
+  console.log('-'.repeat(82));
   for (const row of rows) {
     let note = '';
     if (row.status === 'BLOCKED (MEASURED)') note = 'refused on out-of-sample evidence, not arithmetic — floor 101';
     else if (row.status === 'DEAD') note = `unreachable — ${row.short} short of gate ${row.effectiveGate}`;
     else if (row.status === 'NEEDS BOOST') note = `needs +${row.boostNeeded} of the +${MAX_BOOST} available`;
     if (row.cappedByEngine) note += `${note ? '; ' : ''}engine caps it at ${row.ceiling}`;
-    console.log(pad(row.name, 42) + pad(row.base, 6) + pad(row.ceiling, 9) + pad(row.status, 19) + note);
+    console.log(pad(row.name, 46) + pad(row.base, 6) + pad(row.ceiling, 9) + pad(row.status, 19) + note);
   }
 
   // A deliberate block is NOT a finding. Counting it as one is how a report trains
@@ -102,7 +102,7 @@ function main() {
   const tight   = rows.filter(r => r.status === 'NEEDS BOOST' && r.boostNeeded > BEST_SETUP_BOOST);
 
   console.log('');
-  console.log('-'.repeat(78));
+  console.log('-'.repeat(82));
   if (dead.length === 0) {
     console.log('OK — every cohort can reach the gate.');
   } else {
@@ -132,7 +132,7 @@ function main() {
     console.log('evidence that could overturn the decision keeps accumulating at zero risk.');
     console.log('Re-measure with `node tasks/cohort_walkforward.cjs` before unblocking one.');
   }
-  console.log('='.repeat(78));
+  console.log('='.repeat(82));
 
   process.exit(dead.length > 0 || drifted.length > 0 ? 1 : 0);
 }

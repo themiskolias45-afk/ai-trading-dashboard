@@ -111,7 +111,18 @@ const COHORTS = [
     guards: ['confidence = 45', 'const SPX_H4_ONLY_BLOCKED_FLOOR = 101',
              'isSpxH4Only ? SPX_H4_ONLY_BLOCKED_FLOOR'],
   },
-  { name: 'Daily fires, H4 disagrees (non-Gold)', base: 40, guards: ['daily.signal === "WAIT" ? 0 : 40'] },
+  // Named for what it COVERS, not for one case of it. This is the fall-through: any
+  // non-WAIT daily that matches no branch of the confidence chain keeps the
+  // initialiser, base 40. Two distinct shapes land here, and the old label
+  // 'Daily fires, H4 disagrees (non-Gold)' only mentioned the first:
+  //   * daily fires and H4 DISAGREES
+  //   * daily fires and H4 is NEUTRAL on a non-Gold instrument — the Gold-only
+  //     branch above does not take it, and isH4Only does not either
+  // The second is 48% of SP500's non-WAIT steps (1,363 of 2,811) and 1,054 of BTC's.
+  // Reading the old name, it looked like that population had no row at all and the
+  // tool was blind to it. It is not: the row was always here and always said DEAD.
+  // A label narrower than its own coverage is how a correct table gets misread.
+  { name: 'Daily fires, H4 neutral/disagrees (non-Gold)', base: 40, guards: ['daily.signal === "WAIT" ? 0 : 40'] },
 ];
 
 // Rows sorted lowest base first, each labelled against the gate it actually faces.
