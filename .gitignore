@@ -41,3 +41,7 @@ server/journal.json
 # Regenerable, per-machine, and would conflict on every sync if tracked.
 server/learning_shadow.json
 tasks/ai_brief.md
+
+# Auto-healer backups of learning.json / journal.json. Live data copies,
+# rewritten every time the healer confirms the source is valid — not history.
+*.json.bak
