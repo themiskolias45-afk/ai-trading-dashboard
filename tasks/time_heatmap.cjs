@@ -25,6 +25,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { writeArtifactSync } = require("./write_artifact.cjs");
 
 const ROOT = process.argv[2] || path.join(__dirname, "..");
 
@@ -299,8 +300,10 @@ const report = {
 };
 
 const stamp = generatedAt.replace(/[-:]/g, "").slice(0, 15);
-fs.writeFileSync(path.join(OUT_DIR, `time-heatmap-${stamp}.json`), JSON.stringify(report, null, 2));
-fs.writeFileSync(path.join(OUT_DIR, "time-heatmap-latest.json"), JSON.stringify(report, null, 2));
+// Retried on a transient Windows lock: a bare write here discarded the whole ~2min
+// run nightly on the VPS. See tasks/write_artifact.cjs.
+writeArtifactSync(path.join(OUT_DIR, `time-heatmap-${stamp}.json`), JSON.stringify(report, null, 2));
+writeArtifactSync(path.join(OUT_DIR, "time-heatmap-latest.json"), JSON.stringify(report, null, 2));
 const text = lines.join("\n") + "\n";
 fs.appendFileSync(path.join(ROOT, "tasks", "logs", "time_heatmap.txt"), text + "\n");
 process.stdout.write(text);

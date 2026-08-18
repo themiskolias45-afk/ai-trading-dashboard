@@ -35,6 +35,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { writeArtifactSync } = require("./write_artifact.cjs");
 
 const ROOT = process.argv[2] && !process.argv[2].startsWith("--")
   ? process.argv[2] : path.join(__dirname, "..");
@@ -309,8 +310,9 @@ const stamp = generatedAt.replace(/[-:]/g, "").slice(0, 15);
 // session run's latest and anything reading that file got setup rows under a session
 // name. One tool with two outputs must name them separately or it is two tools sharing
 // a bug.
-fs.writeFileSync(path.join(OUT_DIR, `${SLICE_BY}-walkforward-${stamp}.json`), JSON.stringify(report, null, 2));
-fs.writeFileSync(path.join(OUT_DIR, `${SLICE_BY}-walkforward-latest.json`), JSON.stringify(report, null, 2));
+// Retried on a transient Windows lock — see tasks/write_artifact.cjs.
+writeArtifactSync(path.join(OUT_DIR, `${SLICE_BY}-walkforward-${stamp}.json`), JSON.stringify(report, null, 2));
+writeArtifactSync(path.join(OUT_DIR, `${SLICE_BY}-walkforward-latest.json`), JSON.stringify(report, null, 2));
 const text = lines.join("\n") + "\n";
 fs.appendFileSync(path.join(ROOT, "tasks", "logs", SLICE_BY + "_walkforward.txt"), text + "\n");
 process.stdout.write(text);

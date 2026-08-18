@@ -26,6 +26,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const { writeArtifactSync } = require("./write_artifact.cjs");
 
 const ROOT = process.argv[2] && !process.argv[2].startsWith("--")
   ? process.argv[2] : path.join(__dirname, "..");
@@ -420,7 +421,10 @@ function describeWriteFailure(target, err) {
 
 function writeJsonOrExplain(target, data) {
   try {
-    fs.writeFileSync(target, data);
+    // Retries a transient Windows lock before giving up. The diagnosis below is still
+    // the right thing to print when the write is genuinely refused — it just should not
+    // fire for a sharing violation that would have cleared in a quarter of a second.
+    writeArtifactSync(target, data);
   } catch (err) {
     // Straight to stderr as well as up the throw chain. The post-close harness captures
     // and tails output on failure since 1a6056b, and that channel does not depend on any
