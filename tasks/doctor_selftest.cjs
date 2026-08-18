@@ -141,6 +141,37 @@ async function main() {
       "/api/risk-status": { halted: false, consecutiveLosses: 2 },
     }, base => doctor.checkBox("box", base, true))));
 
+  // The real 2026-08-18 state on the VPS. It read as the same AMBER as 2 of 3, saying
+  // "one more loss halts this box", when the threshold was already met and the only
+  // thing that re-evaluates it is a trade attempt that all-WAIT signals never make.
+  check("AT the limit with halted:false -> RED, not the same AMBER as one short",
+    { severity: "RED", box: "box", match: /AT the limit/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/risk-status": { halted: false, consecutiveLosses: 3,
+        accounts: { A: { config: { maxConsecLosses: 3 } } } },
+    }, base => doctor.checkBox("box", base, true))));
+
+  check("the limit is read from the box's config, not assumed to be 3",
+    { severity: "AMBER", box: "box", match: /4 consecutive losses of 5/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/risk-status": { halted: false, consecutiveLosses: 4,
+        accounts: { A: { config: { maxConsecLosses: 5 } } } },
+    }, base => doctor.checkBox("box", base, true))));
+
+  // THE GUARD. Two losses against a limit of 5 is three short — reporting it would
+  // train the reader to skim past the streak that actually matters.
+  const headroom = await isolate(() => withStub({
+    "/api/status": OK_STATUS,
+    "/api/risk-status": { halted: false, consecutiveLosses: 2,
+      accounts: { A: { config: { maxConsecLosses: 5 } } } },
+  }, base => doctor.checkBox("box", base, true)));
+  const falseStreak = headroom.find(f => /consecutive losses/i.test(f.what));
+  results.push({ name: "a streak with headroom is silent", ok: !falseStreak });
+  console.log("  [" + (falseStreak ? "FAIL" : "PASS")
+    + "] a streak with headroom is SILENT (guard, not finding)");
+
   check("healer check failing -> RED",
     { severity: "RED", box: "box", match: /healer check FAILING/i },
     await isolate(() => withStub({

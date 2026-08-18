@@ -307,6 +307,16 @@ def record_closed_outcome(pnl, close_time):
     drift apart, and so no counter change is left only in memory. A null P&L is
     ignored rather than treated as a win: an outcome nobody could measure must not
     be allowed to clear a loss streak.
+
+    The breaker is evaluated HERE, in the same moment the counters move, not left
+    to whenever a signal next tries to open a trade. check_circuit_breaker() had
+    exactly one call site — the open-a-trade path — so between a losing close and
+    the next signal the box reported halted:false while already standing at its
+    limit. On 2026-08-18 the VPS sat at 3 consecutive losses of 3 with halted:false
+    on /api/risk-status, the dashboard, the doctor and the fleet view, all three
+    assets WAIT, and nothing due to run that would have corrected it. The next real
+    signal would have halted correctly; every human and automated reader in between
+    saw "trading is live" for a box that was breaker-tripped in all but name.
     """
     global daily_pnl, consecutive_losses, last_counted_close
     if pnl is None:
@@ -324,6 +334,13 @@ def record_closed_outcome(pnl, close_time):
     if close_time and close_time > last_counted_close:
         last_counted_close = close_time
     save_breaker_state()
+    # Counters on disk FIRST, then the verdict — check_circuit_breaker() persists
+    # again if it trips, so the halt flag can never land without the streak that
+    # caused it. Safe to call from here: it is idempotent (early return while
+    # already halted), it returns False rather than raising when MT5 is
+    # unreachable, and it can only ever SET the halt, never clear one. Nothing
+    # that was blocked before becomes permitted by calling it sooner.
+    check_circuit_breaker()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

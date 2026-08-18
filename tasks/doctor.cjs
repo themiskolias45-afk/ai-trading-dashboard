@@ -53,7 +53,13 @@ const PARITY_STALE_HOURS  = 24;
 const BACKUP_STALE_HOURS  = 26;
 const SELFTEST_STALE_HOURS = 26;  // the daily job runs once a day, plus slack for a miss
 const BRIDGE_STALE_SEC    = 180;
-const BREAKER_WARN_AT     = 2;   // of 3 — one more loss halts the box
+// One loss short of the limit is a warning; AT the limit is a fault, because the box
+// is already breaker-tripped and only reports it on the next trade attempt. This used
+// to be a flat 2 with the message "one more loss halts this box" hardcoded against a
+// limit of 3, so a box standing at 3 of 3 read as having a loss of headroom it did not
+// have. The real limit comes from the box's own config, never from this constant.
+const BREAKER_WARN_MARGIN = 1;   // losses short of the limit that still count as AMBER
+const BREAKER_LIMIT_FALLBACK = 3; // only when the box does not report maxConsecLosses
 // The position cache is bridge-populated and reads EMPTY for roughly a minute after a
 // server restart, which looks identical to every position ghosting at once. Below this
 // uptime, an empty broker list is treated as "not filled yet" rather than a fault.
@@ -159,10 +165,24 @@ async function checkBox(label, base, isLocal) {
       finding("RED", label, `TRADING HALTED — ${risk.data.haltReason || "circuit breaker open"}`,
         "no trade can be taken on this box until the breaker is reset",
         "review the losses first, then reset the breaker deliberately");
-    } else if ((risk.data.consecutiveLosses || 0) >= BREAKER_WARN_AT) {
-      finding("AMBER", label, `${risk.data.consecutiveLosses} consecutive losses of 3`,
-        "one more loss halts this box; worth knowing BEFORE it happens rather than after",
-        "no action required — this is a warning, not a fault");
+    } else {
+      const streak = risk.data.consecutiveLosses || 0;
+      // Each account carries its own configured limit; take the tightest, because the
+      // first account to reach its own limit is the one that stops trading.
+      const limits = Object.values(risk.data.accounts || {})
+        .map(a => a && a.config && a.config.maxConsecLosses)
+        .filter(n => Number.isFinite(n) && n > 0);
+      const limit = limits.length ? Math.min(...limits) : BREAKER_LIMIT_FALLBACK;
+      if (streak >= limit) {
+        finding("RED", label, `${streak} consecutive losses of ${limit} — AT the limit, reporting halted:false`,
+          "the breaker threshold is already met, so the next trade attempt halts this box. Until "
+          + "one is attempted nothing re-evaluates it, and every surface reports trading as live",
+          "review the losses and reset deliberately, or accept that the next signal will not be taken");
+      } else if (streak >= limit - BREAKER_WARN_MARGIN) {
+        finding("AMBER", label, `${streak} consecutive losses of ${limit}`,
+          "one more loss halts this box; worth knowing BEFORE it happens rather than after",
+          "no action required — this is a warning, not a fault");
+      }
     }
   }
 
