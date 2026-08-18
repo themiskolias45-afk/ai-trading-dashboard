@@ -2692,7 +2692,56 @@ function renderEvidenceBoard(data) {
       .map(([status, n]) => n + " " + status.split(" — ")[0].toLowerCase()).join(" · ") || "—";
   }
 
-  claimsEl.innerHTML = claims.length ? claims.map(claim => {
+  // The OPEN questions, lifted to the top.
+  //
+  // The board renders all nine claims flat in register order, each carrying its own
+  // "what would change the answer" — so the agenda was always here and always had to
+  // be reconstructed by eye. That is the same defect the AI brief had: everything is
+  // present, nothing says which of it is unsettled. Four claims are open and two of
+  // those feed the gate, and on a nine-row list that is not visible.
+  //
+  // Same status set and same ordering as section 4 of tasks/ai_brief.cjs, deliberately:
+  // the human control surface and the agent briefing should not disagree about what
+  // the open work is.
+  const OPEN_STATUSES = [
+    "CONTRADICTED — TWO SOURCES DISAGREE",
+    "BLOCKED — CANNOT MEASURE YET",
+    "CANDIDATE — NEEDS WALK-FORWARD",
+    "UNMEASURED",
+  ];
+  const openClaims = claims
+    .filter(c => OPEN_STATUSES.indexOf(c.status) !== -1)
+    .sort((a, b) => (b.feedsTheGate ? 1 : 0) - (a.feedsTheGate ? 1 : 0)
+      || OPEN_STATUSES.indexOf(a.status) - OPEN_STATUSES.indexOf(b.status));
+  const openGate = openClaims.filter(c => c.feedsTheGate).length;
+
+  const openBanner = claims.length
+    ? '<div style="border:1px solid var(--border2);border-left:3px solid '
+        + (openClaims.length ? "var(--amber, #eab308)" : "var(--green, #22c55e)")
+        + ';border-radius:8px;padding:10px 12px;margin-bottom:12px;background:var(--bg)">'
+      + '<div style="font-size:.62rem;font-weight:700;letter-spacing:.04em;margin-bottom:6px">'
+      + (openClaims.length
+          ? 'OPEN QUESTIONS — ' + openClaims.length + ' unsettled'
+            + (openGate ? ', ' + openGate + ' of them decide what trades' : '')
+          : 'NOTHING UNSETTLED — every claim on this board is measured')
+      + '</div>'
+      + (openClaims.length
+          ? openClaims.map(c =>
+              '<div style="font-size:.66rem;line-height:1.5;margin-bottom:3px">'
+              + (c.feedsTheGate
+                  ? '<span class="ai-tag tag-writes" style="margin-right:6px">GATE</span>'
+                  : '')
+              + '<b>' + escapeHtml(c.title) + '</b> '
+              + '<span style="color:var(--muted)">— ' + escapeHtml(c.status.split(" — ")[1] || c.status) + '</span>'
+              + '</div>').join("")
+            + '<div style="font-size:.58rem;color:var(--muted);margin-top:6px">'
+            + 'Each one names the experiment that would settle it, below. '
+            + 'The constraint is sample size — a claim settled is worth more than a claim displayed better.</div>'
+          : '<div style="font-size:.58rem;color:var(--muted)">Look for what is not on the board at all.</div>')
+      + '</div>'
+    : "";
+
+  claimsEl.innerHTML = openBanner + (claims.length ? claims.map(claim => {
     const tone = CLAIM_TONE[claim.status] || { colour: "var(--muted)", bg: "#1a1a2e" };
     return '<div class="claim" style="border-left-color:' + tone.colour + '">'
       + '<div class="claim-head">'
@@ -2709,7 +2758,7 @@ function renderEvidenceBoard(data) {
       + '<div class="claim-row"><b>What would change the answer:</b> ' + escapeHtml(claim.changesTheAnswer) + '</div>'
       + (claim.harness ? '<div class="claim-harness">' + escapeHtml(claim.harness) + '</div>' : '')
       + '</div>';
-  }).join("") : '<div class="ai-empty">No claims registered.</div>';
+  }).join("") : '<div class="ai-empty">No claims registered.</div>');
 
   const gates = data.gates || {};
   const gateNames = Object.keys(gates);

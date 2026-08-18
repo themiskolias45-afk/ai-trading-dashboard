@@ -9,6 +9,12 @@ $ARGUMENTS is the task. You are the architect. Sub-agents build in parallel usin
 
 ═══ STEP 1 — ARCHITECT ═══
 Before spawning anything:
+0. Run `node tasks/ai_brief.cjs` and read it. Section 4 names the OPEN questions and
+   the live constraint; section 5 names what is already settled. Building something
+   section 5 has already measured as having no edge is wasted parallelism, and
+   spending five agents on polish while section 4 lists an unanswered gate question
+   is the expensive version of the same mistake. If the task contradicts a settled
+   claim, say so before spawning.
 1. Read EVERY file that will be touched — full reads, front to back.
 2. Identify 2–5 independent workstreams. Each must own SPECIFIC files with ZERO overlap.
 3. Define the exact interface between them: function names, API routes, data shapes, return types.
@@ -41,7 +47,18 @@ MANDATORY STEPS IN ORDER:
 4. Handle every failure: null, undefined, empty array, network timeout, file missing.
 5. Run VERIFY COMMAND — if it fails, fix and re-run. Never continue with broken syntax.
 6. Scan edited files for secrets (sk-ant-, AKIA, password=) — fix any found.
-7. git add [only YOUR FILES] && git commit -m "engineer: [what was built]"
+7. Commit with an explicit PATHSPEC and no `git add`:
+
+       git commit -m "engineer: [what was built]" -- [YOUR FILES]
+
+   NEVER `git add` and never a bare `git commit`. You are one of up to five agents
+   working in the SAME working tree, and the git index is shared between all of
+   you. `git add` stages into that shared index, and a bare `git commit` then
+   commits EVERYTHING staged in it — including another agent's half-written file,
+   mid-edit, that never ran a syntax check. The other agent's own commit then finds
+   nothing to commit and reports a hash that does not contain its work. The pathspec
+   form above commits only the paths you name and ignores the index entirely.
+   If you hit `.git/index.lock`, another agent is mid-commit: wait 2s and retry once.
 8. Run VERIFY COMMAND one final time on the committed code.
 
 REPORT (required — exact format):
