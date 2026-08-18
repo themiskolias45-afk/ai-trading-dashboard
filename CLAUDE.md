@@ -231,9 +231,22 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - Auto-runner runs automatically once per day at session start (flag in tasks/.auto_runner_YYYYMMDD)
 - Daily plan: python tv_daily_plan.py (signals + levels + calendar + TV screenshots → http://localhost:3001/daily-plan)
 - EOD review: python eod_review.py (today's trades → P&L + insight + notes — also auto-runs 10 PM UTC)
-- **Rejection ledger — the answer to "why does it never trade".** The binding
-  constraint on this system is sample size: **one** closed fill in its whole life,
-  across 119 sessions. Every gate rejection is a fully priced paper trade, so the
+- **It trades. Stop opening sessions by asking why it doesn't.** This line used to
+  read "one closed fill in its whole life, across 119 sessions" and stayed that way
+  long after it stopped being true, and a stale sentence at the top of the boot file
+  sets the agenda for every session that reads it: you conclude the thing is broken,
+  go looking for the fault, find nothing wrong in the engine — because there is
+  nothing wrong — and spend the session on the scaffolding instead.
+  Measured 2026-08-18: **5 trades in 19 days, one every 3.8 days, ~96/year.** The
+  same engine in replay does 914 trades over 4.2 years, ~218/year, so live is running
+  at roughly half the replay rate — the right order of magnitude, not a fault.
+  **Never quote a fill count from this file.** `node tasks/ai_brief.cjs` section 4
+  counts the journal live, and `GET /api/performance` is the other source of truth.
+  The sample is small because the system is WEEKS OLD, which is arithmetic, not a bug.
+  Time fixes it and nothing else does — so the highest-value action is usually to
+  change nothing and let it run.
+- **Rejection ledger — how to get evidence without waiting.** The binding constraint
+  is sample size, and every gate rejection is a fully priced paper trade, so the
   ledger manufactures evidence at zero risk. Read it before proposing ANY threshold
   change.
   - `GET /api/gate-health` — kill/pass counts per gate. Says a gate is FIRING.

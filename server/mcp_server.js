@@ -245,8 +245,10 @@ const TOOLS = [
       'Get self-learning engine data: per-setup win rates, confidence calibration ' +
       '(does 85% confidence really produce 85% WR?), boost/penalty applied to each setup, ' +
       'and total sessions tracked. ' +
-      'setupStats counts REAL FILLS and is tiny - one closed trade in this system\'s ' +
-      'history - so most setups sit below the 5-trade floor and carry boost 0. ' +
+      'setupStats counts REAL FILLS and is small because the system is WEEKS OLD, not ' +
+      'because it refuses to trade - it fills about once every 4 days. Most setups ' +
+      'sit below the 5-trade floor and carry boost 0. Never quote a fill count from ' +
+      'this text; call get_performance for the live one. ' +
       'The separate `shadow` key holds per-setup outcomes from REJECTED setups walked ' +
       'forward on real broker bars: far more of them, but they are forgone PAPER trades ' +
       'with no slippage and no spread, on entries that were never filled. ' +
@@ -957,9 +959,12 @@ const TOOLS = [
       const peer = fleet?.peer ?? plan?.peer ?? {};
       const divergence = plan?.divergence ?? {};
 
-      // The honest constraint. This system has one closed fill in its whole life;
-      // every threshold argument is under-powered until that changes, and the
-      // rejection ledger is the only thing manufacturing evidence at zero risk.
+      // The honest constraint. The sample is small because the system is WEEKS OLD
+      // - it fills roughly once every 4 days, against ~218/yr for the same engine
+      // in replay - so every threshold argument is under-powered until TIME passes.
+      // That is arithmetic, not a fault, and the fix is to let it run. The rejection
+      // ledger is the only thing that manufactures evidence without waiting. Do NOT
+      // write a fill count here: it went stale at 'one' and stayed wrong for weeks.
       const blocking = {
         constraint: 'sample size',
         detail: 'Threshold and edge claims are under-powered until far more trades resolve. '

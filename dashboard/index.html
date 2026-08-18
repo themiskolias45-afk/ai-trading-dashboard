@@ -1212,8 +1212,9 @@
 
   <!-- Why nothing fired. This page could show a signal, a confidence and a mode, and
        still not answer the only question anyone actually asks of it: why did nothing
-       trade. This system has three closed fills in its entire life, so where each
-       candidate DIED is the most useful thing on the screen.
+       trade. The sample is small because the system is
+       WEEKS OLD, not because it refuses to trade, so where each candidate DIED is
+       still the most useful thing on the screen. Do not hardcode a fill count here.
 
        Two different sources sit side by side on purpose. Kill counts say a gate is
        FIRING and reset on every server restart, so they carry their window. The ledger
@@ -1618,7 +1619,7 @@
   </div>
 
   <!-- ── LEARNING GROWTH ─────────────────────────────────────────────────────
-       The Performance tab tracks P&L growth and is blank on one closed fill.
+       The Performance tab tracks P&L growth and is thin on a system this young.
        This tracks the curve that is actually moving: resolved paper episodes per
        day, and how far each setup is from the threshold that unlocks the live
        learning engine. -->
@@ -2250,8 +2251,8 @@ function setMacroBadge(id, [text, tone]) {
  *   WAIT                                    -> NEUTRAL + the gap to the gate.
  *   gate unknown / no payload               -> "—", never a guess.
  *
- * The gap is the number that matters on this system: one closed fill in its whole life,
- * and the binding question is always how far anything is from firing.
+ * The gap is the number that matters on a system this young: fills accrue at about one
+ * every four days, so the binding question is always how far anything is from firing.
  */
 function setEngineVerdict(id, sig) {
   const el = document.getElementById(id);
