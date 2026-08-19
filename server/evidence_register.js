@@ -103,11 +103,14 @@ const CLAIMS = [
       + "is dead. The MT5 sample is 1-2 years and UNFOLDED (the bridge caches 300 daily "
       + "bars), windows are matched by bar count not calendar, and slippage beyond "
       + "spread is unmodelled.",
-    changesTheAnswer: "More broker history. Raising BAR_COUNT_BY_TIMEFRAME would allow a "
-      + "real folded walk-forward on XAUUSD itself — note the candle payload already hit "
-      + "a 413 at ~240kb, so that is a deliberate change. Until then the strongest single "
-      + "cell is SPX H1 on broker bars (+0.156R, break-even 13.2% of bar range).",
-    harness: "node tasks/crt_walkforward.cjs  ·  node tasks/crt_mt5_transfer.cjs  ·  node tasks/crt_as_setup_walkforward.cjs",
+    changesTheAnswer: "Nothing cheap is left. Two independent attempts to exploit it have "
+      + "now failed (see asEngineSetup and asConfidenceContributor), so the open question "
+      + "is no longer whether CRT is real — it is whether ANY route from the pattern to a "
+      + "trade exists on this engine. D1 is no longer the constraint: verified 2026-08-19, "
+      + "BAR_COUNT_BY_TIMEFRAME is already 600 on d1, so the old 'raise it for a folded "
+      + "walk-forward' note is stale for daily. H1 is still 400 bars (~2.5 months), which "
+      + "is why the strongest single cell, SPX H1 (+0.156R), remains unfoldable.",
+    harness: "node tasks/crt_walkforward.cjs  ·  node tasks/crt_mt5_transfer.cjs  ·  node tasks/crt_as_setup_walkforward.cjs  ·  node tasks/crt_confluence.cjs",
     // Added after the setup test. CRT stands up as a pattern and falls over as an
     // engine setup, and those are different claims — keeping only the first would
     // read as an unexploited opportunity when it has in fact been tried.
@@ -117,6 +120,49 @@ const CLAIMS = [
       + "by 3, because setting the daily leg to BUY/SELL moves the step out of the "
       + "H4_ONLY cohort and suppresses entries that used to clear the gate. A genuinely "
       + "additive test would need CRT to enter as its own timeframe leg.",
+    // The test asEngineSetup said was still owed: CRT as a CONFIDENCE CONTRIBUTOR, which
+    // is a pure partition of trades the engine already takes, so the displacement that
+    // invalidated the setup test is structurally impossible. Kept as its own field for
+    // the same reason — three different claims, three different answers.
+    asConfidenceContributor: "REJECTED 2026-08-19. Partitioned 207 Gold / 59 SPX / 138 BTC "
+      + "engine trades by whether a confirmed same-direction CRT completed within K daily "
+      + "bars, K swept over 1,2,3,5,8, 5 folds, cost 0.05R. SP500 is consistently WORSE "
+      + "with a nearby CRT at EVERY window (-0.574 to -0.055 against +0.468 to +1.392), "
+      + "the opposite of the hypothesis. XAUUSD produced exactly one PASS, at K=8 only. "
+      + "That is treated as noise and not as a finding: with 5 windows across 2 wireable "
+      + "assets one spurious pass is the EXPECTED outcome, a real effect does not appear "
+      + "at one window and vanish either side of it, and K=8 is also where the partition "
+      + "stops partitioning — 118 of 207 trades land on the CRT side. The harness now "
+      + "requires an ADJACENT window to agree before a PASS counts.",
+    feedsTheGate: false,
+  },
+  {
+    id: "regime",
+    title: "Regime forecasting — can it see next week coming?",
+    status: STATUS.MEASURED_NO_EDGE,
+    measuredOn: "2026-08-19",
+    evidence: "Two questions, opposite answers, measured separately on ~5 years of daily "
+      + "broker bars using the ENGINE'S OWN regime label. PERSISTENCE: is the regime the "
+      + "same in 5 days? 12 of 12 judgeable cells positive in EVERY fold across all three "
+      + "assets, lifts +3 to +44pp over the base rate, still positive at 10 days. "
+      + "DIRECTION: is price higher in 5 days given today's regime? TRENDING is 2/4, 2/4, "
+      + "2/4 folds — a coin flip; SQUEEZE swings +11.9pp then -23.5pp between ADJACENT "
+      + "folds on the same instrument. PROFITABILITY: no regime beats its own asset's "
+      + "all-trade mean on the worst-fold standard — Gold TRENDING is closest at 3/4 folds "
+      + "with a worst fold of -0.113.",
+    caveat: "Every figure is a LIFT over the base rate in the same fold, deliberately: the "
+      + "label is 64-78% TRENDING on every asset, so a raw hit rate would be mostly a "
+      + "restatement of the majority class. VOLATILE is 0-1% of days and never judgeable; "
+      + "RANGING is 2% on SPX. The profitability comparison is against each asset's OWN "
+      + "mean, never against zero — against zero, Gold's +0.026..+0.220 baseline would "
+      + "have made every one of its regimes look profitable and 'TRENDING makes money' "
+      + "would have been a statement about Gold rather than about TRENDING.",
+    changesTheAnswer: "Nothing about persistence — that result is unusually clean and does "
+      + "not need re-measuring. The open door is whether a FINER regime label separates "
+      + "expectancy where the current four-way one does not, and the prior is poor: "
+      + "regimeveto failed its own year-split, and session and setup folds cleared nothing "
+      + "either. Persistence tells you which setups to EXPECT, never which way to trade.",
+    harness: "node tasks/regime_forecast.cjs  ·  node tasks/regime_edge.cjs",
     feedsTheGate: false,
   },
   {
