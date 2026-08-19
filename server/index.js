@@ -410,10 +410,13 @@ function loadApiKey() {
   return process.env.ANTHROPIC_API_KEY || "";
 }
 let ANTHROPIC_API_KEY = loadApiKey();
-let anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+// Wrapped at BOTH construction sites. wrapAnthropicWithCliFallback is a hoisted
+// function declaration so it is callable here; the constants it reads are only
+// touched when a request actually fails, long after module init.
+let anthropic = ANTHROPIC_API_KEY ? wrapAnthropicWithCliFallback(new Anthropic({ apiKey: ANTHROPIC_API_KEY })) : null;
 function reloadAnthropicClient() {
   ANTHROPIC_API_KEY = loadApiKey();
-  anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+  anthropic = ANTHROPIC_API_KEY ? wrapAnthropicWithCliFallback(new Anthropic({ apiKey: ANTHROPIC_API_KEY })) : null;
   console.log(ANTHROPIC_API_KEY ? "[settings] Anthropic key reloaded" : "[settings] Anthropic key cleared");
 }
 const UW_BASE        = "https://api.unusualwhales.com/api";
@@ -5771,6 +5774,99 @@ const AI_FILTER_CLI_TIMEOUT_MS = 20000;
 // Kill switch. Set AI_FILTER_CLI_FALLBACK=0 to disable without a code change; any
 // other value (or unset) leaves it on.
 const AI_FILTER_CLI_ENABLED = process.env.AI_FILTER_CLI_FALLBACK !== "0";
+
+// Raw text from the CLI, or null if that rail is unavailable too. Shared by the
+// trade filter and by the client-level fallback that covers the other nine call
+// sites — see wrapAnthropicWithCliFallback.
+function runClaudeCli(prompt, timeoutMs) {
+  return new Promise((resolve) => {
+    if (!AI_FILTER_CLI_ENABLED || process.platform !== "win32") return resolve(null);
+
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+
+    let child;
+    try {
+      child = require("child_process").spawn(
+        process.env.COMSPEC || "cmd.exe",
+        ["/c", "claude", "-p", "--output-format", "text"],
+        {
+          windowsHide: true,
+          env: { ...process.env, ANTHROPIC_API_KEY: "" },
+        }
+      );
+    } catch (e) { return finish(null); }
+
+    const timer = setTimeout(() => { try { child.kill(); } catch (_) {} finish(null); },
+      timeoutMs || AI_FILTER_CLI_TIMEOUT_MS);
+    let stdout = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.on("error", () => { clearTimeout(timer); finish(null); });
+    child.on("close", () => {
+      clearTimeout(timer);
+      const text = stdout.trim();
+      finish(text.length ? text : null);
+    });
+
+    try { child.stdin.write(prompt); child.stdin.end(); }
+    catch (e) { clearTimeout(timer); finish(null); }
+  });
+}
+
+// Background work (weekly report, commentary, ai-brain) is not on the trade path and
+// can afford a longer ceiling than the filter's 20s.
+const CLAUDE_CLI_GENERAL_TIMEOUT_MS = 90000;
+
+/**
+ * Put the WHOLE client on the working rail, not just the trade filter.
+ *
+ * There are TEN anthropic.messages.create call sites in this file — the filter,
+ * askClaude (/api/chat), generateTradeCommentary, reviewOpenPositions,
+ * generateWeeklyReport, /api/backtest, /api/ai-brain, /api/engineer/architect and two
+ * analysis paths. Fixing only the filter left nine of them dead on a key the API
+ * rejects, which is exactly why today's SP500 fill carries no commentary and the log
+ * repeats "[review] Error: 400".
+ *
+ * Every one of them is a PLAIN TEXT call — no tools, no streaming, verified by
+ * inspection — so a single wrapper on messages.create covers all ten without touching
+ * a single call site. Wrapping the client rather than editing ten places also means a
+ * future call site inherits the fallback automatically instead of quietly not having it.
+ *
+ * If the CLI is unavailable too it rethrows the ORIGINAL error, so every existing
+ * catch block behaves exactly as it does today.
+ */
+function wrapAnthropicWithCliFallback(client) {
+  if (!client || !client.messages || typeof client.messages.create !== "function") return client;
+  const realCreate = client.messages.create.bind(client.messages);
+
+  client.messages.create = async (params) => {
+    try {
+      return await realCreate(params);
+    } catch (apiError) {
+      // Flatten to the prompt the CLI needs. Content can be a string or the block
+      // array form; both appear in this file.
+      const parts = [];
+      if (params && typeof params.system === "string") parts.push(params.system);
+      for (const message of (params && params.messages) || []) {
+        const content = message && message.content;
+        if (typeof content === "string") parts.push(content);
+        else if (Array.isArray(content)) {
+          for (const block of content) if (block && typeof block.text === "string") parts.push(block.text);
+        }
+      }
+      const prompt = parts.join("\n\n").trim();
+      if (!prompt) throw apiError;
+
+      const text = await runClaudeCli(prompt, CLAUDE_CLI_GENERAL_TIMEOUT_MS);
+      if (text === null) throw apiError;
+
+      console.log(`[anthropic] API rail failed (${String(apiError.message || apiError).slice(0, 80)}) — served via CLI/subscription`);
+      // Same shape every caller already destructures: content[].type === "text".
+      return { content: [{ type: "text", text }], stop_reason: "end_turn", _viaCli: true };
+    }
+  };
+  return client;
+}
 
 function runAiFilterViaCli(prompt) {
   return new Promise((resolve) => {
