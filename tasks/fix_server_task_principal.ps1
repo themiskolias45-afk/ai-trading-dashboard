@@ -55,14 +55,30 @@ Write-Host "  before: user=$($task.Principal.UserId) logonType=$($task.Principal
 Write-Host "  lastResult=$($info.LastTaskResult) (0x$('{0:X}' -f $info.LastTaskResult))  lastRun=$($info.LastRunTime)"
 foreach ($tr in $task.Triggers) { Write-Host "  trigger: $($tr.CimClass.CimClassName)" }
 
-$alreadySystem = $task.Principal.LogonType -eq 'ServiceAccount'
+# S4U, NOT SYSTEM. Both fix the headless-start problem; only one of them keeps the
+# server able to reach the `claude` CLI.
+#
+# The first version of this script set SYSTEM/ServiceAccount. It worked - the VPS
+# restarted cleanly through a task that had been failing 0x800710E0 for months - and it
+# immediately broke something else: `claude` is a PER-USER npm install under
+# C:\Users\Administrator\AppData\Roaming\npm, and its credentials live in that profile.
+# As SYSTEM the server could no longer spawn it, so the AI filter's subscription
+# fallback went straight back to "AI error - proceeding". Measured, not guessed: the
+# server log read "CLI fallback also unavailable" on the first trade evaluated after
+# the switch.
+#
+# S4U (Service-For-User) runs the task AS Administrator with no interactive session and
+# no stored password, so the profile, the PATH and the CLI's auth token are all present.
+# It is the only setting that satisfies both requirements at once.
+$owner = $task.Principal.UserId
+$alreadyGood = $task.Principal.LogonType -in @('S4U', 'Password')
 $hasBoot = @($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' }).Count -gt 0
-if ($alreadySystem -and $hasBoot) {
-    Write-Host "Nothing to do: already ServiceAccount with a boot trigger."
+if ($alreadyGood -and $hasBoot) {
+    Write-Host "Nothing to do: already runs headless as a real user with a boot trigger."
     exit 0
 }
 
-Write-Host "  would set: user=SYSTEM logonType=ServiceAccount runLevel=Highest"
+Write-Host "  would set: user=$owner logonType=S4U runLevel=Highest"
 if (-not $hasBoot) { Write-Host "  would ADD an AtStartup trigger (keeping the existing one)" }
 
 if (-not $Execute) {
@@ -79,7 +95,7 @@ $xml = Export-ScheduledTask -TaskName $TaskName
 Write-Host "  exported old definition -> $outFile"
 Write-Host "  restore with: Register-ScheduledTask -Xml (Get-Content '$outFile' -Raw) -TaskName '$TaskName' -Force"
 
-$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$principal = New-ScheduledTaskPrincipal -UserId $owner -LogonType S4U -RunLevel Highest
 $triggers  = @($task.Triggers)
 if (-not $hasBoot) { $triggers += (New-ScheduledTaskTrigger -AtStartup) }
 
