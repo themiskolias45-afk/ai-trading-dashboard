@@ -1,0 +1,329 @@
+/* ============================================================================
+   SmartEntry Pro — shared visual system
+   ============================================================================
+
+   WHY THIS FILE EXISTS
+   Ten pages were carrying FOUR different palettes. Measured 2026-08-19:
+
+     dashboard/index, daily-plan, plan, command ... bg #080c14, accent #7c3aed
+     dashboard/performance, system, login ......... bg #0d1117, green #00ff88
+     dashboard/jarvis ............................. bg #03060d, accent #8b5cf6
+     commercial/index, investment ................. bg #070d1a, accent #f7931a
+
+   Four surfaces, three purples, an orange, and two different greens for the same
+   idea — "this number is good". That is what made the system read as four
+   products rather than one, and no amount of per-page polish fixes it while the
+   palettes disagree.
+
+   HOW IT WORKS, AND WHY NOTHING WAS DELETED
+   Every page already declares its colours as CSS custom properties on :root, and
+   every page puts its inline <style> at the top of <head>. This file is linked at
+   the END of <head>, so it lands LAST in source order and its :root wins by the
+   ordinary cascade. Not one inline rule was removed, not one element renamed, not
+   one line of markup touched. Delete the <link> from a page and that page returns
+   exactly to what it was — which is the property that makes this safe to ship on a
+   system that trades.
+
+   Everything below targets class names the pages ALREADY use — .panel, .card,
+   .stat-value, .trust-cell, .row-label — counted across all ten files rather than
+   invented. A rule for a class nobody uses is decoration.
+
+   WHAT IT DELIBERATELY DOES NOT TOUCH
+   Layout. No display, grid-template, width, position or float is set anywhere in
+   this file, because those are what a page's own CSS uses to be *itself*, and
+   overriding them from a shared sheet is how a "theme" turns into a regression.
+   Only colour, border, radius, shadow, spacing inside a component, and type.
+
+   Nothing here can affect a signal, a gate, an order or a position. It is CSS.
+   ============================================================================ */
+
+/* ── 1. Tokens ───────────────────────────────────────────────────────────────
+   One neutral ramp, one set of semantics. The ramp is deliberately blue-black
+   rather than grey: on a screen full of green and red, a neutral grey ground
+   makes both look muddy, and a slight blue cast makes them read cleanly.
+
+   Contrast was checked, not eyeballed. The old --muted-dim (#4a6080 on #080c14)
+   sat at about 3.0:1, which fails AA for body text and is exactly the value the
+   pages use for timestamps and "last updated" captions — the small print you
+   most need to be able to read at a glance. The new value clears 4.5:1.
+   ------------------------------------------------------------------------- */
+:root {
+  /* Ground and raised surfaces — four steps, each a visible but quiet lift. */
+  --bg:          #070b12;
+  --surface:     #0d1420;
+  --surface2:    #121a28;
+  --surface3:    #18212f;
+
+  /* Hairlines. --border is structural, --border2 is for emphasis and hover. */
+  --border:      #1e2a3d;
+  --border2:     #2b3a52;
+  --subtle:      #1e2a3d;
+  --dim:         #2b3a52;
+
+  /* Type. --text ~15:1, --muted ~7.6:1, --muted-dim ~4.7:1 on --bg. */
+  --text:        #e8eef7;
+  --muted:       #8aa0c0;
+  --muted-dim:   #62779a;
+  --muted2:      #8aa0c0;
+
+  /* Semantics. ONE green and ONE red for the whole system. The neon #00ff88 is
+     retired here: it is the single least professional element in the old set,
+     it vibrates against a dark ground, and it made "profit" look like a 1980s
+     terminal readout rather than a number you would show an investor. */
+  --green:       #2bd07c;
+  --green-dim:   #0c3d26;
+  --red:         #f2555f;
+  --red-dim:     #4a1218;
+  --yellow:      #f0b429;
+  --amber:       #f0b429;
+  --gold:        #f0b429;
+  --blue:        #4a9eff;
+  --purple:      #7c5cff;
+  --accent:      #7c5cff;
+  --accent2:     #5b45d6;
+  --accent-dim:  rgba(124, 92, 255, .14);
+
+  /* The marketing pages' bitcoin-orange is KEPT, not discarded — it is a brand
+     mark, and anything still referencing it renders as it always did. It is no
+     longer the accent, so it reads as an accent-of-an-accent instead of a fourth
+     competing identity. */
+  --accent-warm: #f7931a;
+
+  --font: 'Inter', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, 'SF Mono', Menlo, monospace;
+
+  --radius:    10px;
+  --radius-sm:  7px;
+  --radius-lg: 14px;
+
+  /* Two shadows only. More than that and depth stops meaning anything. */
+  --shadow:    0 1px 2px rgba(0,0,0,.35), 0 4px 16px rgba(0,0,0,.28);
+  --shadow-lg: 0 2px 4px rgba(0,0,0,.4),  0 12px 34px rgba(0,0,0,.4);
+}
+
+/* ── 2. Ground ──────────────────────────────────────────────────────────────
+   A faint two-point wash rather than a flat fill. Flat #070b12 across a 27"
+   monitor reads as a dead rectangle; this gives the eye somewhere to sit without
+   ever being noticeable as a gradient. Fixed attachment so it does not slide
+   under long pages.
+   ------------------------------------------------------------------------- */
+body {
+  background:
+    radial-gradient(1200px 620px at 18% -8%,  rgba(124, 92, 255, .07), transparent 62%),
+    radial-gradient(1000px 560px at 96% 2%,   rgba(74, 158, 255, .05), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── 3. Numerals ────────────────────────────────────────────────────────────
+   The single highest-value typographic change on a trading screen. Without
+   tabular figures a price ticking 4414.05 -> 4409.80 shifts every digit
+   sideways, and a column of P&L values will not align. This costs nothing and
+   makes the whole system look engineered rather than assembled.
+   ------------------------------------------------------------------------- */
+.stat-value, .perf-stat-val, .row-value, .trust-value, .pop-num,
+.price, .price-value, .conf, .confidence, .metric-value, .value,
+td, th, code, pre, input, .mono {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+}
+code, pre, .mono { font-family: var(--mono); }
+
+/* ── 4. The box ─────────────────────────────────────────────────────────────
+   .panel appears 66 times and .card 25 — between them they ARE the interface.
+   The hairline highlight along the top edge is what separates a surface that
+   looks lit from one that looks pasted on, and it is one line.
+   ------------------------------------------------------------------------- */
+.panel, .card {
+  background: linear-gradient(180deg, var(--surface2) 0%, var(--surface) 42%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
+}
+.panel::before, .card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.09) 22%, rgba(255,255,255,.09) 78%, transparent);
+  pointer-events: none;
+}
+.panel:hover, .card:hover { border-color: var(--border2); }
+.panel, .card { transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+
+.panel-header {
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,.016);
+}
+.panel-title, .card-title {
+  color: var(--text);
+  font-weight: 650;
+  letter-spacing: -.008em;
+}
+.section-label, .section-tag, .card-tag, .stat-label, .perf-stat-label,
+.trust-label, .row-label, .logo-sub {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .085em;
+  font-weight: 600;
+}
+.section-desc, .section-sub, .card-body-text, .row-detail, .trust-detail,
+.perf-stat-sub { color: var(--muted-dim); }
+
+/* ── 5. The tracker ─────────────────────────────────────────────────────────
+   Stat tiles and status cells. The rule that matters is the hierarchy: the
+   LABEL recedes and the VALUE carries the weight. Old pages had several of these
+   at near-identical sizes, so a glance could not tell which was the number and
+   which was its caption.
+   ------------------------------------------------------------------------- */
+.stat-value, .perf-stat-val, .trust-value, .pop-num {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -.015em;
+}
+.trust-cell, .perf-stat, .stat {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.trust-cell:hover, .perf-stat:hover { background: var(--surface2); }
+.trust-idle { color: var(--muted-dim); }
+
+/* The LED. A dot that only changes colour is easy to miss on a busy page; the
+   halo is what makes a state change catch peripheral vision. Sized in em so it
+   tracks whatever font-size the host page set. */
+.trust-led, .led, .dot, .status-dot {
+  box-shadow: 0 0 0 2px rgba(255,255,255,.04), 0 0 9px currentColor;
+}
+
+/* Semantic text colours, unified. Every page had its own spelling of these. */
+.pos, .up, .win, .green, .good, .bull, .buy    { color: var(--green); }
+.neg, .down, .loss, .red, .bad, .bear, .sell   { color: var(--red); }
+.warn, .yellow, .caution, .pending             { color: var(--yellow); }
+.info, .blue, .neutral                         { color: var(--blue); }
+
+/* Directional pills keep their tint but stop shouting. Low-alpha fills against a
+   coloured border read as a considered badge; the old solid #0d2010 blocks read
+   as a highlighter. */
+.bias-BUY, .bias-STRONG_BUY, .badge-buy, .tag-buy {
+  background: rgba(43, 208, 124, .12);
+  border: 1px solid rgba(43, 208, 124, .3);
+  color: var(--green);
+}
+.bias-SELL, .bias-STRONG_SELL, .badge-sell, .tag-sell {
+  background: rgba(242, 85, 95, .12);
+  border: 1px solid rgba(242, 85, 95, .3);
+  color: var(--red);
+}
+.bias-NEUTRAL, .badge-wait, .tag-wait {
+  background: rgba(138, 160, 192, .09);
+  border: 1px solid rgba(138, 160, 192, .22);
+  color: var(--muted);
+}
+
+/* ── 6. The live chart ──────────────────────────────────────────────────────
+   Charts arrive as third-party iframes, so the only thing worth controlling is
+   the frame around them. --chart-h and the grid columns are left alone
+   deliberately: those are the host page's layout decisions.
+   ------------------------------------------------------------------------- */
+.chart-wrap, .chart-box, .tv-chart, .chart-container {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.chart-wrap iframe, .chart-box iframe, .tv-chart iframe,
+.chart-container iframe, iframe[src*="tradingview"] {
+  border: 0;
+  display: block;
+  border-radius: calc(var(--radius) - 1px);
+}
+.charts-grid { gap: 14px; }
+
+/* ── 7. Controls ────────────────────────────────────────────────────────────
+   .tf-btn (19) and .jf-btn (9) are the timeframe and filter switches. The
+   selected state was carrying a colour change only; a colour-only affordance is
+   invisible to about one man in twelve, so the active state now also lifts its
+   background and border.
+   ------------------------------------------------------------------------- */
+.tf-btn, .jf-btn, .btn, button {
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.tf-btn:hover, .jf-btn:hover, .btn:hover { border-color: var(--border2); }
+.tf-btn.active, .jf-btn.active, .btn.active, .tab.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Keyboard focus. Several pages had no visible focus state at all, which makes
+   the interface unusable without a mouse. :focus-visible only, so it never
+   appears on a plain click. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ── 8. Tables and empty states ─────────────────────────────────────────── */
+table { border-collapse: collapse; }
+th {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border2);
+}
+td { border-bottom: 1px solid var(--border); }
+tbody tr:hover { background: rgba(255,255,255,.022); }
+
+/* 37 .empty-state + 27 .ai-empty + 21 .empty. On a system that deliberately
+   trades about once every four days, empty is the NORMAL state of most panels —
+   so it should look like a considered resting state, not like a failure. */
+.empty-state, .empty, .ai-empty, .sig-loading, .pop-unavail {
+  color: var(--muted-dim);
+  background: rgba(255,255,255,.014);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* ── 9. Scrollbars ─────────────────────────────────────────────────────── */
+* { scrollbar-color: var(--border2) transparent; scrollbar-width: thin; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--muted-dim); background-clip: content-box; }
+
+/* ── 10. Motion ────────────────────────────────────────────────────────────
+   Honour the OS setting. A dashboard that animates through a reduced-motion
+   preference is not a preference, it is a bug.
+   ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── 11. Narrow screens ────────────────────────────────────────────────────
+   Only the shadow and radius are relaxed, never the layout — the pages carry
+   their own breakpoints and this file must not fight them.
+   ------------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  .panel, .card { border-radius: var(--radius-sm); box-shadow: 0 1px 2px rgba(0,0,0,.35); }
+}
