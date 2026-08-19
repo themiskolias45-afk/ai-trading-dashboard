@@ -346,9 +346,36 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   "/api/ai-work",
 ]);
 
+// The PAGES that may be served without a session. Exact matches only — never a
+// prefix — so a new file under /dashboard cannot become public by accident.
+//
+// WHY THIS SET HAD TO EXIST. /investment carries a comment directly above its route
+// declaring it public, and whoever wrote it did the work to make that true: it reads
+// only /api/signals, /api/strategy-settings and /api/evidence-board, and all three
+// already answer 200 with no cookie (deliberately NOT /api/risk-status, which returns
+// the MT5 login in its account config). But the gate below allowlisted API paths only,
+// and every non-/api/ path fell through to the redirect — so no page could be public
+// no matter what its comment said, and the marketing and investment pages have never
+// once been reachable. The intent was written down and nothing read it.
+//
+// SCOPE, deliberately tiny: two static marketing pages, their direct static filenames,
+// and the shared stylesheet they both link. No API is added here; the three these pages
+// call were already public before this existed. Everything under /dashboard stays
+// gated, and a typo in this set can only fail CLOSED — an unmatched path redirects.
+const PAGES_NO_LOGIN_REQUIRED = new Set([
+  "/",
+  "/index.html",
+  "/investment",
+  "/investment.html",
+  // Linked by both pages. A stylesheet carries no data, and without it a public page
+  // renders unstyled, which looks broken rather than gated.
+  "/dashboard/theme.css",
+]);
+
 app.use((req, res, next) => {
   if (!DASHBOARD_USERNAME || !DASHBOARD_PASSWORD) return next(); // not configured yet — never lock the owner out
   if (req.path === "/login") return next();
+  if (req.method === "GET" && PAGES_NO_LOGIN_REQUIRED.has(req.path)) return next();
   if (req.method === "GET" && API_NO_LOGIN_GET_ONLY.has(req.path)) return next();
   if (req.path.startsWith("/api/") && !API_NO_LOGIN_REQUIRED.has(req.path)) {
     const cookies = parseCookies(req);
