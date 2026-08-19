@@ -92,6 +92,12 @@ const TRACKED = [
   // steps failed nightly from 2026-08-13 without recording a cause - a difference here means
   // the two boxes refresh different evidence, silently.
   "tasks/postclose_analysis.ps1",
+  // The TradingView drawer and its installer. Tracked NOT because the VPS runs them - it
+  // has no TradingView session and tv_daily_plan.ps1 would refuse on every run - but
+  // because they are the only record of WHEN the charts are drawn and why those two times
+  // were chosen. A copy that silently drifted or vanished would leave no trace, which is
+  // exactly how the drawer came to be scheduled nowhere in the first place.
+  "tasks/tv_daily_plan.ps1", "tasks/install_tv_daily_plan.ps1",
   // The job scripts. Omitting these is how the two boxes' schedulers drifted apart
   // unnoticed: the VPS runs auto_weekly_vps.bat, which lacked the completion marker
   // its laptop twin has had since 2026-08-09, so every VPS weekly reported
