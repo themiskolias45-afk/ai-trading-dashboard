@@ -18,6 +18,9 @@ import math
 import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
+# Aliased on import: this is NOT the builtin TimeoutError on the Python this runs, and
+# the distinction matters because it is the one exception here whose str() is empty.
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import datetime
 
 # Force UTF-8 stdout/stderr regardless of how this process is launched — Task
@@ -2149,7 +2152,24 @@ def process_all_signals(data):
             try:
                 future.result(timeout=30)
             except Exception as e:
-                log(f"Signal processing error ({futures[future]}): {e}", RED)
+                # ALWAYS name the exception type. concurrent.futures.TimeoutError
+                # stringifies to the EMPTY STRING, so the old line rendered as
+                # "Signal processing error (spx): " with nothing after the colon, and
+                # the next thread's output ran into it on the same line. That is what
+                # it looked like on 2026-08-19 13:51, where the 30s wait expired while
+                # the worker went on to place the order successfully a moment later -
+                # a log that reads like a failure beside a trade that worked.
+                #
+                # A timeout here is on the WAIT, not on the work: the worker thread is
+                # not cancelled and keeps running. Said plainly so nobody reads this
+                # line as a lost signal.
+                detail = str(e) or "(no message)"
+                kind = type(e).__name__
+                if isinstance(e, FuturesTimeoutError):
+                    log(f"Signal processing WAIT timed out after 30s ({futures[future]}) "
+                        f"- the worker thread was NOT cancelled and may still complete", RED)
+                else:
+                    log(f"Signal processing error ({futures[future]}): {kind}: {detail}", RED)
 
 
 def deals_for_position(ticket):
