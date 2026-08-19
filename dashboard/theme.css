@@ -29,10 +29,25 @@
    invented. A rule for a class nobody uses is decoration.
 
    WHAT IT DELIBERATELY DOES NOT TOUCH
-   Layout. No display, grid-template, width, position or float is set anywhere in
-   this file, because those are what a page's own CSS uses to be *itself*, and
-   overriding them from a shared sheet is how a "theme" turns into a regression.
-   Only colour, border, radius, shadow, spacing inside a component, and type.
+   Layout — with exactly TWO stated exceptions, both listed here so the claim can be
+   checked rather than believed:
+
+     .chart-wrap { overflow: hidden }   clips the chart iframe to the rounded corner.
+                                        A chart wrapper contains an iframe, never a
+                                        dropdown, so nothing can be clipped that was
+                                        meant to escape.
+     iframe { display: block }          removes the inline line-box gap under an
+                                        iframe. Affects the iframe, nothing around it.
+
+   Nothing else sets display, position, overflow, width, height, float, gap or a grid
+   property, because those are what a page's own CSS uses to be *itself*. An earlier
+   version of this file broke that rule twice — a `position: relative; overflow: hidden`
+   pair on .panel/.card and a `gap` on .charts-grid — and both are now gone. The panel
+   highlight that needed them is a background layer instead. Verify with:
+
+     grep -nE "^\s*(display|position|overflow|width|height|float|gap|grid-)" theme.css
+
+   which should return only the two exceptions above.
 
    Nothing here can affect a signal, a gate, an order or a position. It is CSS.
    ============================================================================ */
@@ -138,21 +153,31 @@ code, pre, .mono { font-family: var(--mono); }
    The hairline highlight along the top edge is what separates a surface that
    looks lit from one that looks pasted on, and it is one line.
    ------------------------------------------------------------------------- */
+/* The lit top edge is a BACKGROUND LAYER, not a ::before.
+ *
+ * The first version used a pseudo-element, which needed `position: relative` to
+ * anchor it and `overflow: hidden` so the 1px line did not overhang the rounded
+ * corners. Both were mistakes, and neither was theoretical: that pair landed on
+ * 375 elements across the ten pages, and index.html and jarvis.html both place
+ * absolutely-positioned children inside panels. `position: relative` silently
+ * re-anchors those to the panel instead of whatever ancestor they were written
+ * against, and `overflow: hidden` CLIPS anything that legitimately escapes a panel
+ * — a dropdown, a tooltip, a popover menu. A shared theme that quietly clips a
+ * dropdown is precisely the regression this file's header promises not to cause.
+ *
+ * Two stacked backgrounds do the same job with zero layout impact: a 1px strip
+ * pinned to the top, inset 1px each side so it stops short of the corner curve,
+ * over the surface gradient. No positioning context is created and nothing is
+ * clipped.
+ */
 .panel, .card {
-  background: linear-gradient(180deg, var(--surface2) 0%, var(--surface) 42%);
+  background:
+    linear-gradient(90deg, transparent, rgba(255,255,255,.09) 22%, rgba(255,255,255,.09) 78%, transparent)
+      no-repeat top center / calc(100% - 2px) 1px,
+    linear-gradient(180deg, var(--surface2) 0%, var(--surface) 42%);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  position: relative;
-  overflow: hidden;
-}
-.panel::before, .card::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,.09) 22%, rgba(255,255,255,.09) 78%, transparent);
-  pointer-events: none;
 }
 .panel:hover, .card:hover { border-color: var(--border2); }
 .panel, .card { transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
@@ -241,10 +266,15 @@ code, pre, .mono { font-family: var(--mono); }
 .chart-wrap iframe, .chart-box iframe, .tv-chart iframe,
 .chart-container iframe, iframe[src*="tradingview"] {
   border: 0;
+  /* An iframe is inline by default, which leaves a few px of line-box gap under it
+     that reads as a misaligned frame. This is the one layout property in the file
+     that is not an exception — it affects the iframe itself and nothing around it. */
   display: block;
   border-radius: calc(var(--radius) - 1px);
 }
-.charts-grid { gap: 14px; }
+/* .charts-grid's `gap` was set here and has been removed: the pages define their own
+   grid and their own gaps, and a shared sheet reaching into someone else's grid is
+   the same mistake as the overflow rule above, just quieter. */
 
 /* ── 7. Controls ────────────────────────────────────────────────────────────
    .tf-btn (19) and .jf-btn (9) are the timeframe and filter switches. The
