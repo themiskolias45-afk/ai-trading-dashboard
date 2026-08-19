@@ -1437,7 +1437,20 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     const needsOversold  = rsi !== null && rsi >= 50 ? `RSI below 50 (now ${rsi})` : null;
     const needsMACD      = !macd?.bullish ? `MACD bullish crossover` : null;
     const blockReasons   = [needsUptrend, needsOversold, needsMACD].filter(Boolean);
-    reasons.push(`No setup: ${blockReasons.length > 0 ? blockReasons.join(", ") : "market not at key level"}`);
+    // "needs:", not a bare colon. blockReasons is a list of things that are MISSING —
+    // needsUptrend/needsOversold/needsMACD above are each the CONDITION STILL REQUIRED,
+    // not a reading of the market. Under the old prefix Gold rendered
+    // "No setup: RSI below 50 (now 73.2)", which states that RSI is below 50 and then
+    // prints 73.2 in the same breath. It had been misreporting that way for a week
+    // (visible in tasks/analysis/deep-plan-20260812T181931.json) and it is the first
+    // line a human reads when asking why an asset did not fire.
+    //
+    // The empty case keeps its own wording: with no missing conditions the fallback is
+    // "market not at key level", which is a STATE, and "needs: market not at key level"
+    // would be the same category error in the opposite direction.
+    reasons.push(blockReasons.length > 0
+      ? `No setup — needs: ${blockReasons.join(", ")}`
+      : `No setup — market not at key level`);
     reasons.push(`Trend: ${trend} | RSI: ${rsi} | BB bandwidth: ${bb?.bandwidth ?? "N/A"}%`);
     if (bb && bb.bandwidth < 15) reasons.push(`BB squeeze forming — breakout setup building`);
     if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg`);
