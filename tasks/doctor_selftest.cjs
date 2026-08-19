@@ -418,6 +418,42 @@ async function main() {
     { severity: "AMBER", box: "local", match: /no ensure_running log/i },
     await isolate(() => doctor.checkCoverageGaps(SCRATCH)));
 
+  // -- the TradingView drawer ------------------------------------------------
+  //
+  // Gold sat on the chart with days-old levels while the engine was correct, because
+  // nothing ran the drawer. The absence case must stay INFO: the VPS has no TV session
+  // and an AMBER it can never clear is worse than no check at all.
+  console.log("\ncheckTvPlan");
+
+  check("never drawn on this box -> INFO, never AMBER",
+    { severity: "INFO", box: "local", match: /no TradingView plan has been drawn/i },
+    await isolate(() => doctor.checkTvPlan(SCRATCH)));
+
+  put("tasks/logs/tv_daily_plan_last.txt",
+    "[2026-08-19 07:39:16] --- tv daily plan start ---\n[2026-08-19 07:39:18] drawing\n");
+  check("per-run file with no verdict line -> AMBER (died mid-run)",
+    { severity: "AMBER", box: "local", match: /recorded no verdict/i },
+    await isolate(() => doctor.checkTvPlan(SCRATCH)));
+
+  put("tasks/logs/tv_daily_plan_last.txt",
+    "[2026-08-19 07:39:16] REFUSED: server down\n[tv-plan exit 2] server down - refused, nothing drawn\n");
+  check("refused because the server was down -> AMBER naming the refusal",
+    { severity: "AMBER", box: "local", match: /TradingView plan FAILED.*refused/i },
+    await isolate(() => doctor.checkTvPlan(SCRATCH)));
+
+  const tvOk = put("tasks/logs/tv_daily_plan_last.txt",
+    "[2026-08-19 07:40:26] OK: plan drawn on all charts\n[tv-plan exit 0] plan drawn\n");
+  const tvFresh = await isolate(() => doctor.checkTvPlan(SCRATCH));
+  results.push({ name: "a fresh successful draw is SILENT", ok: tvFresh.length === 0,
+    expectation: { match: /silent/ }, findings: tvFresh, hit: tvFresh.length === 0 });
+  console.log("  [" + (tvFresh.length === 0 ? "PASS" : "FAIL") + "] a fresh successful draw is SILENT");
+
+  const tvOld = Date.now() - 40 * 3600000;
+  fs.utimesSync(tvOk, tvOld / 1000, tvOld / 1000);
+  check("succeeded but 40h ago -> AMBER (the daily job has not completed)",
+    { severity: "AMBER", box: "local", match: /last drawn/i },
+    await isolate(() => doctor.checkTvPlan(SCRATCH)));
+
   // The mojibake this whole thread started with, in both mis-decode forms.
   put("dashboard/broken.html",
     "<title>SmartEntry Pro â€” System</title>ðŸŽ¯\n");

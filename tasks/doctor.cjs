@@ -690,6 +690,73 @@ function checkCoverageGaps(root = ROOT) {
   }
 }
 
+/**
+ * Is the TradingView plan still being drawn?
+ *
+ * `tradingview_bot.py` reads /api/signals LIVE, so its levels are never stale by
+ * design - and Gold sat on the chart with days-old numbers anyway, because nothing ran
+ * it. No scheduled task on either box invoked it, so the chart held whatever a human
+ * last drew by hand. The engine was correct and the drawer was simply never called,
+ * which looks identical from the chart.
+ *
+ * `tasks\tv_daily_plan.ps1` now runs it daily and writes a PER-RUN verdict. Reading
+ * that file rather than the cumulative history is the same rule the self-test check
+ * follows: a history log can only ever prove the job worked SOMETIME.
+ *
+ * ABSENCE IS INFO, NOT AMBER. The VPS has no TradingView session and never will unless
+ * someone puts credentials there, so a missing log on that box is correct rather than
+ * broken. An action item that can never clear trains you to skim past the one that
+ * matters, so this says which box draws instead of nagging the one that does not.
+ *
+ * AMBER at worst: a chart with old lines on it cannot open, size or stop a trade.
+ */
+const TV_PLAN_STALE_HOURS = 26;   // one daily cycle plus slack for a missed run
+
+function checkTvPlan(root = ROOT) {
+  const file = path.join(root, "tasks", "logs", "tv_daily_plan_last.txt");
+  const remedy = "powershell -File tasks\tv_daily_plan.ps1   (add -DryRun to test the "
+               + "preconditions without drawing)";
+  const heal = ["powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                               path.join(root, "tasks", "tv_daily_plan.ps1")]];
+
+  let text, age;
+  try {
+    text = fs.readFileSync(file, "utf8");
+    age = ageHours(fs.statSync(file).mtimeMs);
+  } catch (e) {
+    finding("INFO", "local", "no TradingView plan has been drawn from this box",
+      "the drawing bot attaches to a logged-in Edge session over CDP 9222, which exists "
+      + "on the laptop only - on a box without that session this is expected, not a fault",
+      "if this box SHOULD draw: " + remedy);
+    return;
+  }
+
+  const verdict = /\[tv-plan exit (-?\d+)\]\s*(.*)/.exec(text);
+  if (!verdict) {
+    finding("AMBER", "local", "the last TradingView plan run recorded no verdict",
+      "the per-run file exists but carries no [tv-plan exit N] line, which is what a run "
+      + "that died partway through looks like - so the chart's state is unknown, not good",
+      remedy, heal);
+    return;
+  }
+
+  if (Number(verdict[1]) !== 0) {
+    finding("AMBER", "local", `TradingView plan FAILED: ${verdict[2] || "no detail"}`,
+      "the charts still show whatever was drawn last time, and nothing on them says so. "
+      + "Exit 2 means it refused because the server was down (correct - it will not draw "
+      + "from a dead engine); 3 means Edge never came up on CDP 9222",
+      remedy, heal);
+    return;
+  }
+
+  if (age > TV_PLAN_STALE_HOURS) {
+    finding("AMBER", "local", `TradingView plan last drawn ${human(age)} ago`,
+      "the job runs daily, so this old means it has not completed since then - the entry, "
+      + "stop and target on the charts are from an older signal than the engine is serving",
+      remedy, heal);
+  }
+}
+
 function checkBackup(root = ROOT) {
   const file = path.join(root, "tasks", "logs", "backup_log.txt");
   try {
@@ -956,6 +1023,7 @@ async function diagnose() {
   checkMarketJobs();
   checkBackup();
   checkCoverageGaps();
+  checkTvPlan();
   checkDashboardEncoding();
   checkDoctorSelftest();
   checkLearningIntegrity();
@@ -1044,7 +1112,7 @@ if (require.main === module) {
 module.exports = {
   diagnose,
   checkBox, checkFleetExposure, checkParity, checkAgentQueue, checkAiCapacity,
-  checkMarketJobs, checkBackup, checkCoverageGaps, checkDashboardEncoding, checkDoctorSelftest,
+  checkMarketJobs, checkBackup, checkCoverageGaps, checkTvPlan, checkDashboardEncoding, checkDoctorSelftest,
   checkLearningIntegrity,
   checkPeerViaHeartbeat,
   _findings: () => findings, _reset: () => { findings = []; } };
