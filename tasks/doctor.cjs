@@ -581,6 +581,115 @@ function checkMarketJobs(root = ROOT) {
   }
 }
 
+/**
+ * Did the self-healing heartbeat itself stop?
+ *
+ * `ensure_running.ps1` is the thing that restarts everything else, and on 2026-08-19 it
+ * did not run for 4h30m: the laptop was suspended by an Application API call nine minutes
+ * after the charger came out, and Task Scheduler does not fire repetition intervals during
+ * Modern Standby. Server, bridge, guardian, tunnel and both terminals were dead for the
+ * whole window.
+ *
+ * Nothing saw it, and the reason is worth stating: the log reads HEALTHY on both sides of
+ * the hole. The last tick before said "SERVER: up, BRIDGE A reporting 1s ago" and the first
+ * tick after said the same, because by then it had restarted them. Reading the last line of
+ * this file — which is all anything did — reports a fleet that has just been resurrected as
+ * a fleet that never fell over. The gap IS the signal, and only the gap.
+ *
+ * AMBER vs INFO turns on whether anything actually had to be restarted, rather than on the
+ * length of the hole. That discriminator is not decoration: a clock change moves these
+ * timestamps by an hour twice a year, and the local `--- start ---` lines are the only
+ * clock this file has. A DST jump produces a gap with a completely ordinary block after it;
+ * a real outage produces one whose next block is full of "starting". So the benign case
+ * lands as INFO with its cause named, instead of crying AMBER every spring.
+ *
+ * Timestamps here are LOCAL and the two boxes are in different timezones — which does not
+ * matter, because every comparison is between two ticks in the SAME file.
+ */
+const ENSURE_TICK_MINUTES   = 10;   // the repetition install_autostart.ps1 registers
+const COVERAGE_GAP_FACTOR   = 3;    // three missed ticks is a hole, not a slow run
+const COVERAGE_TAIL_LINES   = 4000; // ~3 days at ~9 lines a tick; bounded, this log is rotated
+const COVERAGE_LOOKBACK_HOURS = 48; // older than this is history, not something to act on
+// What ensure_running.ps1 writes when it had to FIX something rather than confirm it:
+// "SERVER: down -- starting", "BRIDGE A: not reporting -- starting", "TERMINAL 1: starting",
+// "GUARDIAN: starting", "JARVIS: no window -- opening".
+const COVERAGE_RESTART_RE = /(--\s*starting|--\s*opening|:\s*starting\s*$|:\s*down\b)/im;
+
+function checkCoverageGaps(root = ROOT) {
+  const file = path.join(root, "tasks", "logs", "ensure_running.txt");
+  let lines;
+  try {
+    lines = fs.readFileSync(file, "utf8").split(/\r?\n/).slice(-COVERAGE_TAIL_LINES);
+  } catch (e) {
+    finding("AMBER", "local", "no ensure_running log on this box",
+      "nothing confirms the task that restarts everything else has ever run here, and it is "
+      + "the only thing that recovers this box unattended",
+      "powershell -File tasks\install_autostart.ps1   then check tasks\logs\ensure_running.txt");
+    return;
+  }
+
+  // Written as 'yyyy-MM-dd HH:mm:ss' by Write-Log — ISO order, so unlike the cmd %date%
+  // logs elsewhere in this fleet it parses the same on both boxes.
+  const ticks = [];
+  lines.forEach((line, i) => {
+    const m = /^\[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\] --- ensure_running start ---/.exec(line);
+    if (m) ticks.push({ at: new Date(m[1] + "T" + m[2]), index: i });
+  });
+  if (ticks.length < 2) return;       // nothing to compare; a single tick is not a gap
+
+  const thresholdMin = ENSURE_TICK_MINUTES * COVERAGE_GAP_FACTOR;
+  const holes = [];
+  for (let i = 1; i < ticks.length; i++) {
+    const gapMin = (ticks[i].at - ticks[i - 1].at) / 60000;
+    // Negative means the clock moved backwards between ticks — an autumn DST step or a
+    // time resync. Not a coverage hole, and not something this check can speak to.
+    if (!(gapMin > thresholdMin)) continue;
+    if (ageHours(ticks[i].at.getTime()) > COVERAGE_LOOKBACK_HOURS) continue;
+    holes.push({ gapMin, before: ticks[i - 1], after: ticks[i] });
+  }
+  if (!holes.length) return;
+
+  // The WORST hole gets the detail, but the COUNT is what tells you whether this is an
+  // incident or a habit. Reporting only the largest is how a box that is offline half of
+  // every day reads as one bad night — which is exactly what this looked like on the run
+  // that found it: 4h30m named, and nine more holes in the same week left unsaid.
+  const worst = holes.reduce((a, b) => (b.gapMin > a.gapMin ? b : a));
+  const totalHours = holes.reduce((sum, h) => sum + h.gapMin, 0) / 60;
+
+  // The block belonging to the tick that ENDED the gap: everything up to the next tick.
+  const nextTick = ticks.find(t => t.index > worst.after.index);
+  const block = lines.slice(worst.after.index, nextTick ? nextTick.index : lines.length);
+  const restarted = block.filter(l => COVERAGE_RESTART_RE.test(l));
+  const localDay = (d) => String(d.getMonth() + 1).padStart(2, "0") + "/" +
+                          String(d.getDate()).padStart(2, "0");
+  const when = (d) => localDay(d) === localDay(worst.after.at)
+    ? d.toTimeString().slice(0, 5)
+    : localDay(d) + " " + d.toTimeString().slice(0, 5);
+  const window = `${when(worst.before.at)} -> ${when(worst.after.at)} local`;
+  const gap = human(worst.gapMin / 60);
+  const others = holes.length > 1
+    ? `${holes.length} holes in the last ${COVERAGE_LOOKBACK_HOURS}h totalling ${human(totalHours)}; worst was `
+    : "";
+
+  if (restarted.length) {
+    finding("AMBER", "local", `${others}${gap} with no ensure_running tick, and ${restarted.length} component(s) had to be restarted after it`,
+      `${window}. The heartbeat runs every ${ENSURE_TICK_MINUTES} minutes, so this is `
+      + `${Math.floor(worst.gapMin / ENSURE_TICK_MINUTES)} missed ticks. What came back: `
+      + restarted.map(l => l.replace(/^\[[^\]]+\]\s*/, "").trim()).join("; ")
+      + ". This box was NOT running for that window — the log reads healthy either side "
+      + "because the tick after a hole restarts things before reporting them",
+      "read Kernel-Power 42's Sleep Reason first (Application API, Idle and Lid are three "
+      + "different faults): powershell -Command \"Get-WinEvent -FilterHashtable "
+      + "@{LogName='System';ProviderName='Microsoft-Windows-Kernel-Power';Id=42} -MaxEvents 5\"");
+  } else {
+    finding("INFO", "local", `${others}${gap} with no ensure_running tick, but nothing needed restarting`,
+      `${window}. Everything was still up when the heartbeat resumed, so this is the `
+      + "scheduler not firing rather than an outage — a suspended machine, or a clock "
+      + "change moving these local timestamps",
+      "no action if the machine was asleep; these timestamps are local and shift with DST");
+  }
+}
+
 function checkBackup(root = ROOT) {
   const file = path.join(root, "tasks", "logs", "backup_log.txt");
   try {
@@ -846,6 +955,7 @@ async function diagnose() {
   checkAiCapacity();
   checkMarketJobs();
   checkBackup();
+  checkCoverageGaps();
   checkDashboardEncoding();
   checkDoctorSelftest();
   checkLearningIntegrity();
@@ -934,7 +1044,7 @@ if (require.main === module) {
 module.exports = {
   diagnose,
   checkBox, checkFleetExposure, checkParity, checkAgentQueue, checkAiCapacity,
-  checkMarketJobs, checkBackup, checkDashboardEncoding, checkDoctorSelftest,
+  checkMarketJobs, checkBackup, checkCoverageGaps, checkDashboardEncoding, checkDoctorSelftest,
   checkLearningIntegrity,
   checkPeerViaHeartbeat,
   _findings: () => findings, _reset: () => { findings = []; } };

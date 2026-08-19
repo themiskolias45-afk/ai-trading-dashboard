@@ -360,6 +360,64 @@ async function main() {
     { severity: "AMBER", box: "local", match: /last backup/i },
     await isolate(() => doctor.checkBackup(SCRATCH)));
 
+  // -- the heartbeat's own coverage -----------------------------------------
+  //
+  // The 2026-08-19 case: healthy tick at 00:11, nothing until 04:44, and the tick that
+  // ended the hole restarts everything. Both blocks read fine in isolation, which is
+  // exactly why only the GAP can be the signal.
+  console.log("\ncheckCoverageGaps");
+
+  // Local 'yyyy-MM-dd HH:mm:ss', because that is what Write-Log emits and the check
+  // parses it as local time on purpose.
+  const stamp = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+    "-" + String(d.getDate()).padStart(2, "0") + " " + d.toTimeString().slice(0, 8);
+  const tick = (minutesAgo, body) => {
+    const d = new Date(Date.now() - minutesAgo * 60000);
+    return ["[" + stamp(d) + "] --- ensure_running start ---",
+            ...body.map(l => "[" + stamp(d) + "] " + l),
+            "[" + stamp(d) + "] --- ensure_running done ---"].join("\n");
+  };
+  const HEALTHY = ["SERVER: up", "BRIDGE A: reporting (2s ago)", "GUARDIAN: running (1)"];
+  const RESTARTED = ["TERMINAL 1: starting", "SERVER: down -- starting",
+                     "BRIDGE A: not reporting -- starting", "GUARDIAN: starting",
+                     "JARVIS: no window -- opening"];
+  const logOf = (...ticks) => ticks.join("\n") + "\n";
+
+  put("tasks/logs/ensure_running.txt",
+    logOf(tick(300, HEALTHY), tick(290, HEALTHY), tick(20, RESTARTED), tick(10, HEALTHY)));
+  check("4h+ hole followed by components restarting -> AMBER",
+    { severity: "AMBER", box: "local", match: /no ensure_running tick.*had to be restarted/i },
+    await isolate(() => doctor.checkCoverageGaps(SCRATCH)));
+
+  // Same size hole, ordinary block after it: a suspended machine or a DST step, not an
+  // outage. Must NOT be AMBER, or the check cries wolf twice a year.
+  put("tasks/logs/ensure_running.txt",
+    logOf(tick(300, HEALTHY), tick(290, HEALTHY), tick(20, HEALTHY), tick(10, HEALTHY)));
+  check("same hole but nothing restarted -> INFO, not AMBER",
+    { severity: "INFO", box: "local", match: /nothing needed restarting/i },
+    await isolate(() => doctor.checkCoverageGaps(SCRATCH)));
+
+  put("tasks/logs/ensure_running.txt",
+    logOf(tick(40, HEALTHY), tick(30, HEALTHY), tick(20, HEALTHY), tick(10, HEALTHY)));
+  const steadyTicks = await isolate(() => doctor.checkCoverageGaps(SCRATCH));
+  results.push({ name: "ticks on schedule are SILENT", ok: steadyTicks.length === 0,
+    expectation: { match: /silent/ }, findings: steadyTicks, hit: steadyTicks.length === 0 });
+  console.log("  [" + (steadyTicks.length === 0 ? "PASS" : "FAIL") + "] ticks on schedule are SILENT");
+
+  // An old hole is history. Reporting it forever trains you to skim past the live one.
+  put("tasks/logs/ensure_running.txt",
+    logOf(tick(6000, HEALTHY), tick(5000, RESTARTED), tick(20, HEALTHY), tick(10, HEALTHY)));
+  const oldGap = await isolate(() => doctor.checkCoverageGaps(SCRATCH));
+  const oldGapQuiet = !oldGap.some(f => f.severity === "AMBER");
+  results.push({ name: "a hole older than the lookback is not re-reported", ok: oldGapQuiet,
+    expectation: { match: /old/ }, findings: oldGap, hit: oldGapQuiet });
+  console.log("  [" + (oldGapQuiet ? "PASS" : "FAIL") + "] a hole older than the lookback is not re-reported");
+
+  fs.rmSync(path.join(SCRATCH, "tasks", "logs", "ensure_running.txt"));
+  check("no ensure_running log at all -> AMBER",
+    { severity: "AMBER", box: "local", match: /no ensure_running log/i },
+    await isolate(() => doctor.checkCoverageGaps(SCRATCH)));
+
   // The mojibake this whole thread started with, in both mis-decode forms.
   put("dashboard/broken.html",
     "<title>SmartEntry Pro â€” System</title>ðŸŽ¯\n");
