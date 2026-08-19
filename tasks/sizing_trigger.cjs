@@ -98,9 +98,9 @@ function tCritical95OneSided(degreesOfFreedom) {
  * Extracted rather than copied for the same reason _replay_mtf.cjs extracts its
  * constants: a literal duplicated here would silently drift the day someone
  * retunes the server, and the drift would be invisible — both sides would keep
- * producing plausible numbers that disagree. MAX_PLAUSIBLE_RR comes along with
- * it because the function reads it, and it is the guard that stopped ONE row
- * with a degenerate stop from inverting the sign of a 498-episode ledger.
+ * producing plausible numbers that disagree. MAX_PLAUSIBLE_RR is injected only
+ * when the extracted function actually reads it — the two boxes do not run the
+ * same index.js, and one of them has the pre-cap version. See the note inside.
  */
 function loadServerScorer(root = ROOT) {
   const indexPath = path.join(root, "server", "index.js");
@@ -226,8 +226,18 @@ function readGoldRecord(root = ROOT, scorer = null) {
     if (trade.realizedR > 0) bucket.wins++;
   }
 
-  // Observed fill rate, from this box's own record rather than a remembered
-  // annual figure. Needs two fills to define a span at all.
+  // Observed fill rate, from this box's own record rather than a remembered annual
+  // figure.
+  //
+  // TWO FILLS IS NOT A RATE. The first version needed only two, and the VPS — which
+  // has exactly two Gold fills, opened days apart — reported "5882/year, ETA ~2 days".
+  // An ETA is the one number here a person acts on, and a confidently wrong one is
+  // worse than none: it would have had someone expecting the trigger inside a week
+  // when the honest answer is months. So the estimate is withheld until there is
+  // enough history to support it, and the report says which condition is missing.
+  const RATE_MIN_FILLS = 5;
+  const RATE_MIN_SPAN_DAYS = 14;
+
   const openTimes = goldClosed
     .map(t => Date.parse(t.openTime))
     .filter(Number.isFinite)
@@ -235,7 +245,9 @@ function readGoldRecord(root = ROOT, scorer = null) {
   const spanDays = openTimes.length >= 2
     ? (openTimes[openTimes.length - 1] - openTimes[0]) / 86400000
     : null;
-  const fillsPerDay = spanDays && spanDays > 0 ? (openTimes.length - 1) / spanDays : null;
+  const rateIsSupported = openTimes.length >= RATE_MIN_FILLS
+    && spanDays !== null && spanDays >= RATE_MIN_SPAN_DAYS;
+  const fillsPerDay = rateIsSupported ? (openTimes.length - 1) / spanDays : null;
 
   const remaining = Math.max(0, TRIGGER_MIN_FILLS - scored.length);
   const daysToTrigger = fillsPerDay && fillsPerDay > 0 ? remaining / fillsPerDay : null;
@@ -254,7 +266,7 @@ function readGoldRecord(root = ROOT, scorer = null) {
     unscorable: unscorable.length,
     wins: rValues.filter(r => r > 0).length,
     grossMean, netMean, stdDev, lowerBound95, byCost, bySetup,
-    fillsPerDay, daysToTrigger, remaining,
+    fillsPerDay, spanDays, daysToTrigger, remaining,
     countMet, expectancyPositive,
     triggerMet: countMet && expectancyPositive,
     // A trigger met on a point estimate whose interval still spans zero is the
@@ -321,7 +333,9 @@ function formatReport(record) {
 
   if (record.remaining > 0) {
     const eta = record.daysToTrigger === null
-      ? "no rate yet — needs two fills to measure one"
+      ? `no estimate — this box has ${record.closedGoldFills} Gold fills over `
+        + `${record.spanDays === null ? "no measurable span" : Math.round(record.spanDays) + " days"}, `
+        + "and a rate from that few would be confidently wrong"
       : `~${Math.round(record.daysToTrigger)} days at the observed rate of `
         + `${(record.fillsPerDay * 365).toFixed(0)}/year`;
     lines.push(`  ${record.remaining} more Gold fills needed. ETA: ${eta}.`);
