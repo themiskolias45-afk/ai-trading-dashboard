@@ -423,6 +423,58 @@ async function main() {
   // Gold sat on the chart with days-old levels while the engine was correct, because
   // nothing ran the drawer. The absence case must stay INFO: the VPS has no TV session
   // and an AMBER it can never clear is worse than no check at all.
+  console.log("\ncheckSizingTrigger");
+
+  // The sizing flip is the largest lever on returns in the system, so the branch that
+  // matters most is the one where the watcher CANNOT READ: an unmeasurable trigger must
+  // never be silent, because silence here is indistinguishable from "not due yet".
+  check("module missing on this box -> AMBER, never silence",
+    { severity: "AMBER", box: "local", match: /sizing trigger cannot be measured/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
+  // A scratch root complete enough to exercise the REAL extraction path: the module
+  // lifts realizedRFromPrices out of server/index.js rather than copying it, and a stub
+  // would only ever test the stub instead of the thing that can actually drift.
+  fs.mkdirSync(path.join(SCRATCH, "tasks"), { recursive: true });
+  fs.mkdirSync(path.join(SCRATCH, "server"), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, "sizing_trigger.cjs"),
+                  path.join(SCRATCH, "tasks", "sizing_trigger.cjs"));
+  fs.copyFileSync(path.join(__dirname, "..", "server", "index.js"),
+                  path.join(SCRATCH, "server", "index.js"));
+
+  // Gold fills with an exact risk of 100, so realized R is whatever each case asks for.
+  const goldFills = rValues => JSON.stringify(rValues.map((r, i) => ({
+    id: i + 1, ticket: 900000 + i, symbol: "XAUUSD", direction: "BUY", status: "CLOSED",
+    entry: 4000, sl: 3900, tp: 4250, closePrice: 4000 + r * 100,
+    setup: "MOMENTUM", openTime: new Date(Date.UTC(2026, 0, i + 1)).toISOString(),
+  })));
+
+  put("server/journal.json", goldFills([2.49, -1, -1]));
+  check("3 of 30 fills -> INFO with the remaining count, not an item that cannot clear",
+    { severity: "INFO", box: "local", match: /sizing trigger: 3\/30 Gold fills/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
+  put("server/journal.json", goldFills(new Array(30).fill(-1)));
+  check("count met but expectancy negative -> INFO, and NOT a partial pass",
+    { severity: "INFO", box: "local", match: /expectancy is negative/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
+  // 10 wins at +2.5 against 20 losses at -1: mean +0.167R, net +0.117R after the 0.05R
+  // cost, and a 95% lower bound well below zero. The stated trigger IS satisfied here,
+  // which is exactly why the wording must not read as a green light.
+  put("server/journal.json", goldFills(new Array(10).fill(2.5).concat(new Array(20).fill(-1))));
+  check("trigger met on a wide spread -> AMBER naming the evidence as THIN",
+    { severity: "AMBER", box: "local", match: /SIZING TRIGGER MET on thin evidence/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
+  // Same count, same sign, tight spread: the interval clears zero and the wording drops
+  // the caveat. Both cases exist so the difference between them is a tested behaviour
+  // rather than a sentence in a comment.
+  put("server/journal.json", goldFills(new Array(30).fill(0).map((_, i) => (i % 2 ? 0.7 : 0.6))));
+  check("trigger met with the interval clearing zero -> AMBER without the thin caveat",
+    { severity: "AMBER", box: "local", match: /SIZING TRIGGER MET \(30 fills/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
   console.log("\ncheckTvPlan");
 
   check("never drawn on this box -> INFO, never AMBER",

@@ -757,6 +757,77 @@ function checkTvPlan(root = ROOT) {
   }
 }
 
+/**
+ * Has the sizing trigger come due?
+ *
+ * The largest single lever on returns in this system is `fixedLotSize: 0.01`,
+ * which discards the correct risk-based sizing get_lot_size already computes. It
+ * was given a stated trigger — XAUUSD alone, >=30 closed fills with positive
+ * expectancy after costs — precisely so it would not be flipped on a feeling.
+ *
+ * A trigger nobody watches gets decided by whoever remembers it first, so it is
+ * watched here. The ladder is deliberate:
+ *
+ *   not met      INFO   — a standing state, reported so progress is visible.
+ *                         AMBER here would be an item that cannot clear for
+ *                         months, which trains you to skim past the one that can.
+ *   met          AMBER  — an action item that CAN clear: flip it, or record the
+ *                         decision not to. Either retires this.
+ *   unmeasurable AMBER  — a watcher that cannot read is not a quiet trigger, and
+ *                         must never be reported as one.
+ *
+ * Nothing here flips anything. tasks/sizing_trigger.cjs writes no config either.
+ */
+function checkSizingTrigger(root = ROOT) {
+  const remedy = "node tasks/sizing_trigger.cjs   (--json for the raw record)";
+  let record;
+  try {
+    // Required lazily so a doctor run on a box mid-deploy, where this module has
+    // not landed yet, reports a readable finding instead of dying at load time
+    // and taking every other check with it.
+    const { readGoldRecord } = require(path.join(root, "tasks", "sizing_trigger.cjs"));
+    record = readGoldRecord(root);
+  } catch (e) {
+    finding("AMBER", "local", "the sizing trigger cannot be measured on this box",
+      `reading Gold's closed record failed (${e.message}). The trigger is the largest lever `
+      + "on returns in the system, and a watcher that cannot read is indistinguishable from "
+      + "a trigger that has not come due",
+      remedy);
+    return;
+  }
+
+  if (!record.countMet) {
+    finding("INFO", "local",
+      `sizing trigger: ${record.scored}/${record.remaining + record.scored} Gold fills`,
+      `the flip from fixedLotSize 0.01 needs ${record.remaining} more closed XAUUSD trades on `
+      + "this box before expectancy is even asked. Gold alone, not pooled - pooling lets BTC "
+      + "and SPX vote on a Gold decision",
+      remedy);
+    return;
+  }
+
+  if (!record.expectancyPositive) {
+    finding("INFO", "local",
+      `sizing trigger: ${record.scored} Gold fills but expectancy is negative`,
+      "the count is met and the second condition is not. That is the condition protecting "
+      + "real money, and it is doing its job - this is not a partial pass",
+      remedy);
+    return;
+  }
+
+  finding("AMBER", "local",
+    record.evidenceThin
+      ? `SIZING TRIGGER MET on thin evidence (${record.scored} fills, ${record.netMean.toFixed(3)}R net)`
+      : `SIZING TRIGGER MET (${record.scored} fills, ${record.netMean.toFixed(3)}R net)`,
+    record.evidenceThin
+      ? "the stated condition is satisfied but the 95% lower bound still spans zero, so "
+        + "'positive' and 'proven' are not the same word here. Decide knowingly - it "
+        + "multiplies losses 7-12x identically, and this item clears either way once decided"
+      : "both conditions of the recorded trigger are met and the interval clears zero. The "
+        + "change is one config value on BOTH boxes, not code",
+    remedy);
+}
+
 function checkBackup(root = ROOT) {
   const file = path.join(root, "tasks", "logs", "backup_log.txt");
   try {
@@ -1022,6 +1093,7 @@ async function diagnose() {
   checkAiCapacity();
   checkMarketJobs();
   checkBackup();
+  checkSizingTrigger();
   checkCoverageGaps();
   checkTvPlan();
   checkDashboardEncoding();
@@ -1112,7 +1184,8 @@ if (require.main === module) {
 module.exports = {
   diagnose,
   checkBox, checkFleetExposure, checkParity, checkAgentQueue, checkAiCapacity,
-  checkMarketJobs, checkBackup, checkCoverageGaps, checkTvPlan, checkDashboardEncoding, checkDoctorSelftest,
+  checkMarketJobs, checkBackup, checkSizingTrigger, checkCoverageGaps, checkTvPlan,
+  checkDashboardEncoding, checkDoctorSelftest,
   checkLearningIntegrity,
   checkPeerViaHeartbeat,
   _findings: () => findings, _reset: () => { findings = []; } };
