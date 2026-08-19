@@ -140,26 +140,39 @@ if (-not $Restart) {
   exit 0
 }
 
-# ── 4. Restart. Stop the task, then kill ONLY the node process holding 3001.
-#       Never a tree kill: that takes the MT5 bridge with it, and the bridge is what
-#       manages open positions. ────────────────────────────────────────────────────
-Write-Output "`n[4/5] restarting the VPS server"
+# ── 4. Restart, by DELEGATING to the box's own tasks\safe_server_restart.ps1 ─────
+#
+# This step used to reimplement the restart here: stop the task, then kill whatever
+# node process was listening on 3001. That was a duplicate of a script this project
+# already had, and it was the WORSE of the two. safe_server_restart.ps1 knows things
+# this did not:
+#
+#   - `CommandLine -like '*index.js*'` also matches every npx-launched node process
+#     (sixteen on the laptop), so it filters _npx, npm-cache and node_modules out and
+#     REFUSES unless exactly one process matches. Zero means already down; more than
+#     one means two servers on one port, which needs a human, not a kill.
+#   - it counts the python processes first and requires them to survive, because the
+#     bridges are children of the server and a tree kill takes them with it.
+#   - it checks bridge health BEFORE restarting, so a server restart does not muddy
+#     the diagnosis of a bridge problem that was already there.
+#   - it starts via the scheduled task rather than Start-Process, because a process
+#     launched from an interactive SSH session is a CHILD of that session and dies
+#     when the connection closes — that happened on 2026-08-12.
+#   - it polls for readiness instead of sleeping and hoping.
+#
+# Verified 2026-08-19: the file is byte-identical on both boxes (4FB04715A56EF1DB) and
+# the SmartEntryServer task exists on the VPS. A duplicate that diverges from the
+# original is a bug, so this now calls it rather than competing with it.
+Write-Output "`n[4/5] restarting the VPS server via its own safe_server_restart.ps1"
 $restartScript = @'
 $ErrorActionPreference='Continue'
 Set-Location C:\ai-trading-dashboard
-try { Stop-ScheduledTask -TaskName "SmartEntryServer" -ErrorAction Stop; Write-Output "TASK_STOPPED=1" }
-catch { Write-Output ("TASK_STOP_NOTE=" + $_.Exception.Message) }
-$owning = (Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue).OwningProcess | Select-Object -Unique
-if ($owning) {
-  foreach ($procId in $owning) {
-    $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
-    if ($p -and $p.ProcessName -eq "node") { Stop-Process -Id $procId -Force; Write-Output ("KILLED_NODE_PID=" + $procId) }
-    else { Write-Output ("REFUSED_NON_NODE_PID=" + $procId + " name=" + $p.ProcessName) }
-  }
-} else { Write-Output "NO_LISTENER_ON_3001" }
-Start-Sleep -Seconds 2
-Start-ScheduledTask -TaskName "SmartEntryServer"
-Write-Output "TASK_STARTED=1"
+if (-not (Test-Path tasks\safe_server_restart.ps1)) {
+  Write-Output "RESTART_SCRIPT_MISSING - refusing to improvise a kill on the trading box"
+  exit 3
+}
+powershell -NoProfile -ExecutionPolicy Bypass -File tasks\safe_server_restart.ps1 -Execute
+Write-Output ("SAFE_RESTART_EXIT=" + $LASTEXITCODE)
 '@
 Invoke-Vps $restartScript
 
