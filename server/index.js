@@ -5745,6 +5745,72 @@ let aiFilterHealth = {
 // rather than to no gate at all.
 const AI_FILTER_FALLBACK_CONFIDENCE = 70;
 
+// ── AI filter: subscription fallback ─────────────────────────────────────────
+//
+// WHY THIS EXISTS. This server is the ONLY component billed to the pay-as-you-go
+// API. Everything else — the morning agent, the weekly review, every scheduled
+// job — runs through the `claude` CLI on the claude.ai subscription, because
+// morning_agent.bat learned this lesson on 2026-08-03 and clears
+// ANTHROPIC_API_KEY before every call. Measured on one box on 2026-08-19, seconds
+// apart: the CLI answered OK while the API key returned 400 "credit balance too
+// low". So a working account had a dead trade filter purely because this one path
+// used a different billing rail.
+//
+// The filter fails OPEN, so the cost of that was silent: every trade auto-approved
+// with no review and nothing on a screen saying so.
+//
+// STDIN, NOT ARGV. The prompt is written to the child's stdin and the argv stays a
+// fixed five tokens. Passing it as an argument would put a multi-hundred-character
+// string containing quotes, braces and newlines through cmd.exe, which is exactly
+// how .bat files in this repo lost everything after the word `claude`.
+//
+// Timeout is 20s against the bridge's 25s abandon, so a slow call still leaves the
+// bridge to make its own decision rather than both sides timing out. Measured
+// median is 5.0s over three runs.
+const AI_FILTER_CLI_TIMEOUT_MS = 20000;
+// Kill switch. Set AI_FILTER_CLI_FALLBACK=0 to disable without a code change; any
+// other value (or unset) leaves it on.
+const AI_FILTER_CLI_ENABLED = process.env.AI_FILTER_CLI_FALLBACK !== "0";
+
+function runAiFilterViaCli(prompt) {
+  return new Promise((resolve) => {
+    if (!AI_FILTER_CLI_ENABLED || process.platform !== "win32") return resolve(null);
+
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+
+    let child;
+    try {
+      child = require("child_process").spawn(
+        process.env.COMSPEC || "cmd.exe",
+        ["/c", "claude", "-p", "--output-format", "text"],
+        {
+          windowsHide: true,
+          // Emptied, not deleted: the CLI treats a set key as "use the API" and
+          // would bill the same dead rail this exists to route around.
+          env: { ...process.env, ANTHROPIC_API_KEY: "" },
+        }
+      );
+    } catch (e) { return finish(null); }
+
+    const timer = setTimeout(() => { try { child.kill(); } catch (_) {} finish(null); }, AI_FILTER_CLI_TIMEOUT_MS);
+    let stdout = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.on("error", () => { clearTimeout(timer); finish(null); });
+    child.on("close", () => {
+      clearTimeout(timer);
+      // Same extraction as the SDK path: take the first JSON object in the reply,
+      // because the CLI can prepend or append prose no matter how the prompt asks.
+      const match = stdout.match(/\{[\s\S]*?\}/);
+      if (!match) return finish(null);
+      try { finish(JSON.parse(match[0])); } catch (e) { finish(null); }
+    });
+
+    try { child.stdin.write(prompt); child.stdin.end(); }
+    catch (e) { clearTimeout(timer); finish(null); }
+  });
+}
+
 app.post("/api/claude-approve-trade", async (req, res) => {
   const { signal, symbol, entry, stop, target } = req.body ?? {};
   if (!anthropic || !signal) {
@@ -5829,10 +5895,28 @@ app.post("/api/claude-approve-trade", async (req, res) => {
     console.log(`[AI-filter] ${symbol} ${signal.signal}: ${approved ? "APPROVED" : "REJECTED"} — ${reason}`);
     res.json({ approved, reason, risk });
   } catch (e) {
+    // The API rail failed. Before giving up and auto-approving, try the rail that
+    // every other component in this system already uses.
+    const viaCli = await runAiFilterViaCli(prompt);
+    if (viaCli && typeof viaCli.approved === "boolean") {
+      // A review DID happen, so the health counters record success — the filter is
+      // working, it simply reached Anthropic another way. Reporting this as a
+      // failure would leave a permanent red on a system that is functioning.
+      aiFilterHealth.lastOkAt = new Date().toISOString();
+      aiFilterHealth.consecutiveFailures = 0;
+      aiFilterHealth.lastError = null;
+      const reason = viaCli.reason ?? "No reason given";
+      console.log(`[AI-filter] ${symbol} ${signal.signal}: ${viaCli.approved ? "APPROVED" : "REJECTED"} (via CLI/subscription) — ${reason}`);
+      return res.json({ approved: viaCli.approved, reason, risk: viaCli.risk ?? "MEDIUM" });
+    }
+
+    // Both rails are down. Unchanged behaviour: fail OPEN. Blocking trades because
+    // a billing problem cannot be reached would spend the scarce thing — samples —
+    // to protect nothing.
     aiFilterHealth.lastFailAt = new Date().toISOString();
     aiFilterHealth.consecutiveFailures++;
     aiFilterHealth.lastError = String(e.message || e).slice(0, 200);
-    console.error("[AI-filter] Error:", e.message);
+    console.error("[AI-filter] Error:", e.message, "— CLI fallback also unavailable");
     res.json({ approved: true, reason: "AI error — proceeding", risk: "MEDIUM" });
   }
 });
