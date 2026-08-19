@@ -1,48 +1,67 @@
-Run a full autonomous improvement loop on SmartEntry Pro. Loops until all issues resolved.
+Full autonomous improvement loop for SmartEntry Pro. Runs until clean. Max 5 rounds.
 
-Does everything automatically without asking permission at each step.
+Usage: /agent [--rounds N]
 
-═══ LOOP — repeat until nothing left to fix (max 5 rounds) ═══
+This is the system's self-healing command. It diagnoses, plans, builds, tests, and commits
+without asking permission at each step — except for HIGH-RISK changes (signal logic, risk gate,
+lot sizing, stop calculation), which always require explicit approval.
 
-ROUND START — gather all state in parallel (MCP tools directly):
-  mcp__smartentry__get_signals              → signal quality per asset
-  mcp__smartentry__get_learning             → setup win rates, calibration
-  mcp__smartentry__get_healer               → 6-point health check
-  mcp__smartentry__get_risk_status          → regime, P&L, circuit breaker, consecutive losses
-  mcp__smartentry__get_performance          → total trades, WR, worst setup
+═══ ROUND START — gather all state in parallel ═══
 
-EVALUATE — check all of these in order:
-  1. Setup WR < 40% over ≥ 5 trades → tighten entry criteria in server/index.js
-  2. Confidence tier mismatch (65-74% tier < 50% actual WR) → adjust threshold
-  3. Healer reports stale data → mcp__smartentry__force_heal
-  4. Consecutive losses ≥ 3 and circuit breaker NOT halted → fix risk gate
-  5. Any endpoint returning errors → find root cause and fix it (read full file first)
-  6. Signal stuck at WAIT when regime is trending → fix signal logic
+  mcp__smartentry__get_brain_status         → time context, fleet verdict, signals, risk, AI work
+  mcp__smartentry__get_signals              → confidence per asset vs live gate
+  mcp__smartentry__get_performance          → WR, P&L, trade count, worst setup
+  mcp__smartentry__get_learning             → setup calibration, win rates
+  mcp__smartentry__get_healer               → 6-point health check, last heal time
+  mcp__smartentry__get_risk_status          → regime, circuit breaker, consecutive losses
+  mcp__smartentry__get_rejection_evidence   → gate verdicts, net R per gate
+  mcp__smartentry__get_fleet_status         → both boxes: parity, divergence, unreviewed proposals
 
-FOR EACH ISSUE:
-  LOW-RISK (thresholds, boosts, parameters):
-    → Implement immediately
-    → node --check [file] — verify syntax
-    → git add [specific file] && git commit
-    → mcp__smartentry__log_note tag="AUTO-FIX" text="[what was fixed]"
+═══ EVALUATE — priority order ═══
 
-  HIGH-RISK (core signal logic, risk gate, execution):
-    → Describe issue, show exact proposed diff
-    → Wait for approval — DO NOT auto-apply
-    → Mark as "awaiting approval" in final report
+  P1. Fleet diverges or peer unreachable → surface to user, cannot auto-fix, STOP THIS ROUND
+  P2. Server health critical (healer reports stale data) → mcp__smartentry__force_heal
+  P3. Circuit breaker open and losses NOT from market conditions → investigate risk gate logic
+  P4. Any endpoint returning error → read full file, find root cause, fix with builder agent
+  P5. SIGNAL-DEAD asset (no trade > 7 days) → run /diagnose logic, identify cause
+  P6. Setup WR < 40% over ≥ 5 trades → spawn profit loop for that setup only
+  P7. Gate verdict COSTING MONEY (rejection evidence) → spawn analyst + researcher → fix
+  P8. AI employee has unreviewed proposals → read them, implement if LOW-RISK
+  P9. Any log error > 24h old and unresolved → trace and fix
 
-AFTER EACH ROUND:
-  Re-fetch all data and confirm fix worked.
-  New issues appeared → run another round.
-  Everything clean → stop and report.
+  If nothing qualifies at P1-P9: "System clean — nothing to fix. Run /daily for routine check."
+
+═══ FOR EACH ISSUE ═══
+
+  LOW-RISK (health fixes, stale data, parameter tuning, log errors):
+    → Spawn builder agent: brief it with CHANGING/NOW/AFTER/RISK scaffold
+    → Builder reads full file, edits, runs node --check or python -m py_compile, commits
+    → Verify fix landed: re-fetch the relevant endpoint
+    → mcp__smartentry__log_note tag="AUTO-AGENT" text="Fixed: [what]"
+
+  HIGH-RISK (signal generation, risk gate, lot sizing, stop logic, execution):
+    → Spawn analyst agent to diagnose and write the scaffold
+    → Show user: the scaffold + proposed diff
+    → Wait for approval — mark "PENDING APPROVAL" in report
+    → Do NOT proceed without explicit yes
+
+═══ AFTER EACH ROUND ═══
+
+  Re-fetch brain status and fleet. If new issues appeared → run another round.
+  If all clean or max rounds reached → final report.
 
 ═══ FINAL REPORT ═══
-AUTO-AGENT COMPLETE — [N] rounds
----
-Issues found:    [list]
-Fixed auto:      [list with what changed]
-Awaiting approval: [list with proposed diffs]
-System status:   HEALTHY / NEEDS ATTENTION
----
+AUTO-AGENT COMPLETE — [N] rounds — [date]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIXED AUTO:
+  [list — what was fixed, which file, what changed]
 
-Never auto-fix anything that could cause a trade to fire incorrectly or a stop to be calculated wrong.
+PENDING APPROVAL:
+  [list — issue + proposed change + why it's high-risk]
+
+SYSTEM STATUS: HEALTHY / NEEDS ATTENTION
+SIGNAL STATUS: [per-asset conf vs gate, gap]
+FLEET STATUS:  [parity OK / diverged]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+After report: run /learn to persist session lessons to memory.

@@ -31,9 +31,11 @@ PERFORMANCE & LEARNING
   /journal             Last 20 trades with P&L summary
   /review              Weekly performance review + brutally honest what to fix
   /selflearn           What the AI learned — win rates + boosts per setup
-  /backtest [idea]     Backtest a setup against historical data
+  /backtest [asset]    5-fold walk-forward backtest — real out-of-sample, worst-fold comparison
   /portfolio           Full portfolio view — open positions, P&L, exposure
   /profit              Autonomous profitability loop — researches + implements improvements, up to 5 rounds
+  /goal [set|show|clear]  Set/track/clear the system's single most important goal — persists across sessions
+  /learn               End-of-session learning — persist lessons, fixes, trades to memory. Run before closing.
 
 CODE & BUILD
   /think [task]        Deep analysis mode — force explicit reasoning before implementing
@@ -77,5 +79,6 @@ AGENTS (spawn automatically via /engineer, /build, /daily, /weekly)
 
 ---
 Model: claude-opus-5 | Engineers: up to 6 parallel | Tools: Browser, Search, Filesystem, Memory
+Session close: /learn (persist lessons) | Goal tracking: /goal show
 All commands work inside the JARVIS PowerShell window. Just type and press Enter.
 ---
