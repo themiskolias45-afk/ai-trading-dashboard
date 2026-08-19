@@ -83,6 +83,12 @@ const TRACKED = [
   // proposal_citations.js rule above means missing-on-one-box takes that box's doctor out
   // entirely rather than degrading it.
   "tasks/doctor.cjs", "tasks/encoding_check.cjs",
+  // A hard require of doctor.cjs, by the same rule: missing or drifted on one box takes
+  // checkSizingTrigger out on that box, and the branch that would go silent is the one
+  // watching the largest lever on returns in the system. It also EXTRACTS
+  // realizedRFromPrices from server/index.js at run time, so a drifted copy here would
+  // score Gold's record by a definition the server no longer uses.
+  "tasks/sizing_trigger.cjs",
   // The suite that proves the doctor's 39 branches actually fire. Tracked because a box
   // where it has drifted or gone missing cannot verify its own doctor, and an unverifiable
   // health tool is the thing this whole list exists to prevent.
