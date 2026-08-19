@@ -58,7 +58,13 @@ assert('PAGES_NO_LOGIN_REQUIRED exists', pages !== null,
 if (!pages) { process.exit(1); }
 
 // ── 1. Exactly the intended pages, and nothing else ──────────────────────────
-const INTENDED = ['/', '/index.html', '/investment', '/investment.html', '/dashboard/theme.css'];
+const INTENDED = [
+  '/', '/index.html', '/investment', '/investment.html',
+  // Presentation assets only. Both carry no data, and a public page whose stylesheet
+  // or icon redirects to /login renders unstyled and untabbed — which reads as a dead
+  // site rather than a secured one.
+  '/dashboard/theme.css', '/dashboard/favicon.svg',
+];
 for (const p of INTENDED) {
   assert('public: ' + p, pages.has(p), 'expected in the allowlist but absent');
 }

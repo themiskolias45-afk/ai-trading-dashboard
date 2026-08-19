@@ -370,6 +370,9 @@ const PAGES_NO_LOGIN_REQUIRED = new Set([
   // Linked by both pages. A stylesheet carries no data, and without it a public page
   // renders unstyled, which looks broken rather than gated.
   "/dashboard/theme.css",
+  // Same reasoning. An icon carries no data either, and a public page whose favicon
+  // 302s to /login shows a blank tab — which reads as a dead site, not a secured one.
+  "/dashboard/favicon.svg",
 ]);
 
 app.use((req, res, next) => {
