@@ -475,6 +475,29 @@ async function main() {
     { severity: "AMBER", box: "local", match: /SIZING TRIGGER MET \(30 fills/i },
     await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
 
+  // The VPS's real state on 2026-08-19: index.js is patched rather than copied and still
+  // carries the PRE-CAP scorer. The tool must run it anyway - refusing would blind the
+  // box that trades continuously - and must say so rather than quietly capping for it.
+  {
+    // Built by DELETING every line that mentions the cap - the const and the guard line
+    // inside the function - rather than by pasting a replacement function. A regex around
+    // the whole function body silently matched nothing here: server/index.js is CRLF, and
+    // a pattern written with bare \n produced a fixture identical to the original, so the
+    // case failed against a file that still had the cap. Line-based is ending-agnostic.
+    const laptopSource = fs.readFileSync(path.join(__dirname, "..", "server", "index.js"), "utf8");
+    const withoutCap = laptopSource.split(/\r?\n/)
+      .filter(line => !/MAX_PLAUSIBLE_RR/.test(line))
+      .join("\n");
+    put("server/index.js", withoutCap);
+    put("server/journal.json", goldFills([2.49, -1, -1]));
+    check("server has the PRE-CAP R scorer -> AMBER, and it still measures",
+      { severity: "AMBER", box: "local", match: /NO implausible-R cap/i },
+      await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+    // Restore, so later cases are not scored by the stripped copy.
+    fs.copyFileSync(path.join(__dirname, "..", "server", "index.js"),
+                    path.join(SCRATCH, "server", "index.js"));
+  }
+
   console.log("\ncheckTvPlan");
 
   check("never drawn on this box -> INFO, never AMBER",

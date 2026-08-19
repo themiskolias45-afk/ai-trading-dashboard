@@ -106,12 +106,6 @@ function loadServerScorer(root = ROOT) {
   const indexPath = path.join(root, "server", "index.js");
   const source = fs.readFileSync(indexPath, "utf8");
 
-  const constMatch = source.match(/^const\s+MAX_PLAUSIBLE_RR\s*=\s*([^;]+);/m);
-  if (!constMatch) {
-    throw new Error("could not extract MAX_PLAUSIBLE_RR from server/index.js — refusing to "
-      + "score, because a missing cap is exactly how a degenerate stop inverts a ledger");
-  }
-
   const start = source.indexOf("function realizedRFromPrices(");
   if (start === -1) throw new Error("could not find realizedRFromPrices in server/index.js");
   let depth = 0, end = -1;
@@ -120,17 +114,41 @@ function loadServerScorer(root = ROOT) {
     else if (source[i] === "}" && --depth === 0) { end = i + 1; break; }
   }
   if (end === -1) throw new Error("realizedRFromPrices in server/index.js is unbalanced");
+  const body = source.slice(start, end);
+
+  // The cap is only injected if THIS BOX'S function actually reads it.
+  //
+  // The two boxes do not run the same index.js — the VPS is patched, never copied, and
+  // carries commits this repo has never seen. On 2026-08-19 its scorer turned out to be
+  // the PRE-CAP version: no MAX_PLAUSIBLE_RR, no isFinite guard, just movement/risk. So
+  // demanding the const unconditionally made this tool refuse to run on the box that
+  // trades continuously — which is the box whose number matters most.
+  //
+  // Refusing was the wrong answer, and so is quietly capping for it: this tool must score
+  // Gold's record exactly as ITS OWN SERVER does, or the two disagree and neither can be
+  // trusted. It runs the function it found, and reports `scorerHasNoCap` so the missing
+  // guard is stated rather than absorbed.
+  const readsCap = /MAX_PLAUSIBLE_RR/.test(body);
+  let capPreamble = "";
+  if (readsCap) {
+    const constMatch = source.match(/^const\s+MAX_PLAUSIBLE_RR\s*=\s*([^;]+);/m);
+    if (!constMatch) {
+      throw new Error("realizedRFromPrices reads MAX_PLAUSIBLE_RR but the const is not in "
+        + "server/index.js — refusing to score rather than invent the cap that stopped one "
+        + "degenerate stop from inverting a 498-episode ledger");
+    }
+    capPreamble = `const MAX_PLAUSIBLE_RR = ${constMatch[1].trim()};\n`;
+  }
 
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(
-    `const MAX_PLAUSIBLE_RR = ${constMatch[1].trim()};\n${source.slice(start, end)}`,
-    sandbox
-  );
+  vm.runInContext(capPreamble + body, sandbox);
   if (typeof sandbox.realizedRFromPrices !== "function") {
     throw new Error("extracted realizedRFromPrices is not callable");
   }
-  return sandbox.realizedRFromPrices;
+  const scorer = sandbox.realizedRFromPrices;
+  scorer.hasImplausibleRCap = readsCap;
+  return scorer;
 }
 
 function loadJournal(root = ROOT) {
@@ -227,6 +245,10 @@ function readGoldRecord(root = ROOT, scorer = null) {
 
   return {
     box: os.hostname(),
+    // False means THIS BOX'S server computes realized R with no implausible-R cap, so a
+    // single trade whose stop collapsed toward entry can dominate every R figure it
+    // serves. Reported, never silently corrected — see loadServerScorer.
+    scorerHasImplausibleRCap: realizedRFromPrices.hasImplausibleRCap !== false,
     closedGoldFills: goldClosed.length,
     scored: scored.length,
     unscorable: unscorable.length,
@@ -255,6 +277,15 @@ function formatReport(record) {
     + `with positive expectancy after costs`);
   lines.push("This box only. journal.json is per-machine and the boxes trade different");
   lines.push("accounts — run it on both and read them separately, never added together.");
+  if (!record.scorerHasImplausibleRCap) {
+    lines.push("");
+    lines.push("  ⚠ THIS BOX'S SERVER HAS NO IMPLAUSIBLE-R CAP. Its realizedRFromPrices is the");
+    lines.push("    pre-cap version — no MAX_PLAUSIBLE_RR, no isFinite guard — so one trade whose");
+    lines.push("    stop collapsed toward entry can dominate every R figure below and every R");
+    lines.push("    figure this box's server serves. That cap exists because exactly one such row");
+    lines.push("    once inverted the sign of a 498-episode ledger. The numbers here are scored");
+    lines.push("    the way this box scores them, deliberately, so they are comparable with it.");
+  }
   lines.push("");
 
   lines.push(`  Gold closed fills   ${record.scored} scored`

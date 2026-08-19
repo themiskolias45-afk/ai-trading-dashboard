@@ -796,6 +796,21 @@ function checkSizingTrigger(root = ROOT) {
     return;
   }
 
+  // Reported before the trigger itself, because it changes what every R figure on this
+  // box MEANS - including the expectancy the trigger turns on. Found on the VPS
+  // 2026-08-19: its index.js is patched rather than copied and still carries the pre-cap
+  // scorer, so the box that trades continuously is the one computing R unguarded.
+  if (!record.scorerHasImplausibleRCap) {
+    finding("AMBER", "local", "this box's server scores realized R with NO implausible-R cap",
+      "realizedRFromPrices here is the pre-cap version - no MAX_PLAUSIBLE_RR, no isFinite "
+      + "guard - so a single trade whose stop collapsed toward entry can dominate every R "
+      + "number this box serves. That cap exists because exactly one such row inverted the "
+      + "sign of a 498-episode ledger. It is a source patch to server/index.js, so it needs "
+      + "a human: state the change and get it confirmed before touching the trading box",
+      "compare against the laptop's realizedRFromPrices, then patch server/index.js on this "
+      + "box (add MAX_PLAUSIBLE_RR = 10 and its guard) and restart the server");
+  }
+
   if (!record.countMet) {
     finding("INFO", "local",
       `sizing trigger: ${record.scored}/${record.remaining + record.scored} Gold fills`,
