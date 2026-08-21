@@ -909,6 +909,15 @@
       <div class="panel-body fvg-body" id="fvg-spx">Loading…</div>
     </div>
   </div>
+  <!-- Said once for the row rather than three times inside it. Same words, same
+       verdict, one twelfth of the ink. -->
+  <div class="fvg-unmeasured" style="margin:-8px 0 16px;padding:0 2px">
+    Fair Value Gaps are <b>context only — measured, no edge</b>. Traded as support/resistance
+    over ~6,800 samples they did not beat a matched random control (daily −0.14R worse, hourly
+    ±0.00R). Useful for seeing where price was skipped; not a reason to take a trade. Feeds
+    nothing: not confidence, not the gate, not sizing.
+    Re-check with <code>node tasks/geometry_measure.cjs</code>.
+  </div>
 
   <!-- Signal cards -->
   <div class="price-strip" style="margin-bottom:16px">
@@ -2475,12 +2484,13 @@ function renderFVGPanel(assetKey) {
       // Measured 2026-08-09 and it did NOT beat a matched control: ~6,800 trades
       // across 10y daily and 730d hourly, three assets. Daily was 6.9pp WORSE than
       // random, hourly identical. Leaving this panel looking tradeable would be the
-      // dishonest option, so the panel states its own verdict.
-      + '<div class="fvg-unmeasured">Context only — <b>measured, no edge</b>. Traded as '
-      + 'support/resistance over ~6,800 samples it did not beat a matched random control '
-      + '(daily −0.14R worse, hourly ±0.00R). Useful for seeing where price was skipped; '
-      + 'not a reason to take a trade. Feeds nothing: not confidence, not the gate, not sizing. '
-      + 'Re-check with <code>node tasks/geometry_measure.cjs</code>.</div>'
+      // dishonest option, so the verdict stays on the page — but it is ONE fact about
+      // the FVG method, not three facts about three assets, and printing the whole
+      // paragraph inside every card put ~180 words of identical low-contrast italic
+      // across the row and buried the per-asset reading that is actually different.
+      // The full statement now sits once under the row; each card keeps a short tag so
+      // a reader who never scrolls past it still cannot mistake this for a signal.
+      + '<div class="fvg-unmeasured">Context only — <b>measured, no edge</b>.</div>'
       + '</div>';
   }
 
@@ -2651,16 +2661,30 @@ function renderSignalCard(id,s) {
   if(!s){el.innerHTML=`<div class="sig-loading">Signal unavailable</div>`;return;}
   el.className=`signal-card sig-${s.signal}`;
   const conf=s.confidence??0, cc=confColor(conf);
-  let h=`<div class="sig-header"><div class="sig-label">${s.label}</div><div style="display:flex;align-items:center;gap:6px">${conf>0?`<span style="font-size:.65rem;font-weight:700;color:${cc}">${conf}%</span>`:""}<div class="sig-badge sig-badge-${s.signal}">${s.strength!=="NONE"?s.strength+" ":""}${s.signal}</div></div></div>`;
-  if(conf>0){
+
+  // conf 0 means the engine found no setup to score, NOT that it scored one and got
+  // zero. Those are different facts and they were being shown as the same thing —
+  // worse, this card used to drop the percentage, the bar and the gap line entirely
+  // when conf was 0, so Gold and SPX rendered with a different anatomy from BTC and
+  // the reader had no way to tell "no setup today" from "this panel failed to load".
+  //
+  // Across the rest of the system the identical state renders as bare "0%" (jarvis,
+  // daily-plan), as an empty grey track (command) and as a red 0% (performance). The
+  // bar is now ALWAYS drawn so all three cards have the same shape, and an unscored
+  // asset says so in words instead of borrowing the vocabulary of a bad score.
+  const scored = conf > 0;
+
+  let h=`<div class="sig-header"><div class="sig-label">${s.label}</div><div style="display:flex;align-items:center;gap:6px">${scored?`<span style="font-size:.65rem;font-weight:700;color:${cc}">${conf}%</span>`:`<span style="font-size:.65rem;font-weight:700;color:var(--muted)" title="No setup was identified, so nothing was scored">not scored</span>`}<div class="sig-badge sig-badge-${s.signal}">${s.strength!=="NONE"?s.strength+" ":""}${s.signal}</div></div></div>`;
+  {
     // Gate marker on the bar itself: how far this asset is from firing is the one
     // thing the overview never showed, and it is the reason nothing trades.
     const gateMark = liveGate == null ? "" :
       `<div style="position:absolute;left:${Math.min(100,liveGate)}%;top:-3px;width:2px;height:10px;background:var(--text);opacity:.75"></div>`;
-    h+=`<div class="conf-bar-wrap" style="position:relative"><div class="conf-bar" style="width:${conf}%;background:${cc}"></div>${gateMark}</div>`;
+    h+=`<div class="conf-bar-wrap" style="position:relative"><div class="conf-bar" style="width:${scored?conf:0}%;background:${cc}"></div>${gateMark}</div>`;
     const gap = liveGate == null ? null : Math.max(0, liveGate - conf);
-    h+=`<div style="font-size:.6rem;margin-bottom:6px;color:${gap===0?'var(--green)':'var(--muted)'}">`
-      + (liveGate == null ? `gate loading…`
+    h+=`<div style="font-size:.6rem;margin-bottom:6px;color:${scored&&gap===0?'var(--green)':'var(--muted)'}">`
+      + (!scored ? `no setup to score today · gate ${gateText()}`
+        : liveGate == null ? `gate loading…`
         : gap === 0 ? `at or above gate ${gateText()} — can fire`
         : `gate ${gateText()} · gap ${gap}pt`)
       + `</div>`;
