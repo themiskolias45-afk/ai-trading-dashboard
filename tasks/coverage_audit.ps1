@@ -329,13 +329,14 @@ if ($isRed -ne $wasRed) {
     } else {
         "SmartEntry coverage RECOVERED on $env:COMPUTERNAME - all checks green again"
     }
-    if ($notifierOk) {
-        if (Send-Notification $msg) { Write-Output ' (alert sent)' }
-        else { Write-Output ' (ALERT SEND FAILED - the transition was not delivered)' }
-    } else {
-        # Say it in the report rather than swallowing it. This box cannot tell anyone.
-        Write-Output ' (NO ALERT SENT - this box has no notifier configured)'
-    }
+    # Write-Output alone goes to a stream Task Scheduler discards, so whether the
+    # alarm was DELIVERED left no trace: 2,164 lines of this log and not one record
+    # either way. A send that silently failed looked identical to one that worked.
+    $outcome = if (-not $notifierOk)           { ' (NO ALERT SENT - this box has no notifier configured)' }
+               elseif (Send-Notification $msg) { ' (alert sent)' }
+               else                            { ' (ALERT SEND FAILED - the transition was not delivered)' }
+    Write-Output $outcome
+    try { "$stamp$outcome" | Out-File -FilePath $logPath -Encoding utf8 -Append } catch { }
 }
 try { @{ red = $isRed; at = $stamp } | ConvertTo-Json | Out-File -FilePath $statePath -Encoding utf8 } catch { }
 
