@@ -86,7 +86,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 
 /* reasons */
 .reasons-list{display:flex;flex-direction:column;gap:3px;margin-top:2px}
-.reason-item{font-size:.67rem;color:var(--dim);padding:1px 0}
+.reason-item{font-size:.67rem;color:var(--muted);padding:1px 0}
 .reason-item.good{color:#16a34a}
 .reason-item.warn{color:var(--yellow)}
 .reason-item.bad {color:var(--red)}
@@ -104,7 +104,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .sig-chip{display:inline-block;padding:2px 8px;border-radius:8px;font-weight:800;font-size:.6rem;letter-spacing:.06em}
 .sig-BUY {background:rgba(34,197,94,.15);color:var(--green)}
 .sig-SELL{background:rgba(239,68,68,.12);color:var(--red)}
-.sig-WAIT{color:var(--dim)}
+.sig-WAIT{color:var(--muted)}
 .time-cell{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 
 /* ── LEARNING TABLE ── */
@@ -133,7 +133,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .trade-pnl{font-weight:700;font-variant-numeric:tabular-nums;font-size:.8rem}
 .pnl-pos{color:var(--green)}
 .pnl-neg{color:var(--red)}
-.trade-date{font-size:.6rem;color:var(--dim)}
+.trade-date{font-size:.6rem;color:var(--muted)}
 
 /* ── STATS ROW ── */
 .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
@@ -449,7 +449,7 @@ function renderHistory(history) {
       <td><span class="conf-chip ${chipClass(h.gold?.c||0)}">${h.gold?.c||0}%</span></td>
       <td><span class="sig-chip sig-${h.spx?.s||'WAIT'}">${h.spx?.s||'—'}</span></td>
       <td><span class="conf-chip ${chipClass(h.spx?.c||0)}">${h.spx?.c||0}%</span></td>
-      <td style="color:${fired?'var(--green)':'var(--dim)'};font-size:.62rem;font-weight:600">${fired?'SIGNAL':'wait'}</td>
+      <td style="color:${fired?'var(--green)':'var(--muted)'};font-size:.62rem;font-weight:600">${fired?'SIGNAL':'wait'}</td>
     </tr>`;
   }).join('');
   document.getElementById('hist-tbody').innerHTML = rows;
@@ -474,7 +474,7 @@ function renderLearning(learning) {
       <td><span class="setup-name">${escapeHtml(name)}</span>${tag}</td>
       <td style="color:var(--muted)">${w}W / ${l}L</td>
       <td><div class="wr-bar"><div class="wr-track"><div class="wr-fill ${wrCls}" style="width:${wr}%"></div></div><span class="wr-num" style="color:${wr>=65?'var(--green)':wr>=50?'var(--yellow)':'var(--red)'}">${wr}%</span></div></td>
-      <td style="color:${pnlColor};font-variant-numeric:tabular-nums">${pnl>=0?'+':''}${pnl.toFixed(2)}</td>
+      <td style="color:${pnlColor};font-variant-numeric:tabular-nums">${fmtSignedDollar(pnl)}</td>
     </tr>`;
   }).join('');
   document.getElementById('learn-tbody').innerHTML = rows;
@@ -494,8 +494,20 @@ function renderJournal(journal) {
 
   document.getElementById('st-total').textContent = total;
   document.getElementById('st-wr').textContent    = total>0 ? `${wr}%` : '—';
-  document.getElementById('st-pnl').textContent   = total>0 ? `$${gross>=0?'+':''}${gross.toFixed(2)}` : '—';
+  document.getElementById('st-pnl').textContent   = total>0 ? fmtSignedDollar(gross) : '—';
   document.getElementById('st-pnl').style.color   = gross>=0 ? 'var(--green)' : 'var(--red)';
+
+  // "best setup" sat under this number as a hardcoded caption with no writer anywhere
+  // in the file — it read as a claim that -$416.61 WAS the best setup. Give the
+  // element something true to say instead: the two sides that produced the net.
+  const grossWin  = wins.reduce((sum,t)=>sum+(t.pnl||0),0);
+  const grossLoss = Math.abs(losses.reduce((sum,t)=>sum+(t.pnl||0),0));
+  const bestEl = document.getElementById('st-best');
+  if (bestEl) {
+    bestEl.textContent = total>0
+      ? `${fmtSignedDollar(grossWin,{showPlus:false})} won / ${fmtSignedDollar(grossLoss,{showPlus:false})} lost`
+      : 'no closed trades';
+  }
 
   if (!closed.length) {
     // The gate comes from the server. The old text said 65% on "2+ timeframes"; the
@@ -518,7 +530,7 @@ function renderJournal(journal) {
         <span class="trade-setup">${setup}</span>
       </div>
       <div style="display:flex;align-items:center;gap:12px">
-        <span class="trade-pnl ${pnl>=0?'pnl-pos':'pnl-neg'}">${pnl>=0?'+':''}$${Math.abs(pnl).toFixed(2)}</span>
+        <span class="trade-pnl ${pnl>=0?'pnl-pos':'pnl-neg'}">${fmtSignedDollar(pnl)}</span>
         <span class="trade-date">${date}</span>
       </div>
     </div>`;
@@ -560,6 +572,22 @@ async function getJson(route) {
 // Values from the journal and the learning file reach innerHTML through template
 // literals below. They come from broker and engine data rather than from a person, but
 // that is an assumption about upstream and not a property of this page.
+// Losses were rendered as "$449.72" — Math.abs() stripped the sign and the ternary
+// only ever added a '+'. Colour was the ONLY thing carrying the direction of the
+// number, so a red $449.72 and a green $449.72 differed by a hue on a dark screen,
+// and the same trade read "-$449.72" on the performance page. Gross P&L had the
+// mirror-image defect: the sign landed AFTER the currency symbol, giving "$-416.61".
+//
+// One formatter, used everywhere money is printed on this page: -$449.72 / +$135.91,
+// matching fmtDollar() on performance.html.
+function fmtSignedDollar(amount, { showPlus = true } = {}) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return '—';
+  const magnitude = Math.abs(n).toFixed(2);
+  const sign = n < 0 ? '-' : (showPlus && n > 0 ? '+' : '');
+  return sign + '$' + magnitude;
+}
+
 function escapeHtml(value) {
   return String(value == null ? '' : value)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
