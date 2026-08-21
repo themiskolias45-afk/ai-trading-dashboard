@@ -88,26 +88,27 @@ check("staleness declared once, not per symbol", multi.count("_planAgeHrs = ") =
 ind = [l for l in src.splitlines() if l.startswith("indicator(")][0]
 check("indicator keeps the stable title (list_plan_studies matches on it)",
       ind.startswith("indicator(" + chr(34) + "JARVIS Daily Plan" + chr(34)), ind)
-check("shorttitle carries the stamp into the legend",
+# shorttitle is kept because it shows in the study's settings dialog, but NOTHING
+# gates on it - the legend does not display it. See test 8.
+check("shorttitle still carries the stamp (informational only)",
       "shorttitle=" + chr(34) + "JARVIS Daily Plan 08-21 05:12" + chr(34) in ind, ind)
 check("legend name keeps the prefix list_plan_studies filters on",
       tv.plan_legend_name("2026-08-21 05:12").startswith(tv.PLAN_NAME_PREFIX))
 
-# 8. Reading the stamp back off the applied study.
+# 8. What the DOM can and cannot answer.
+#    A stamp-in-the-legend check was tried and REMOVED: for a study added from a saved
+#    user script the legend shows the SAVED SCRIPT NAME, so the stamp never appeared
+#    and the check could never pass. A red light that cannot go green is worse than none.
 real_list = tv.list_plan_studies
 try:
-    tv.list_plan_studies = lambda page: ["JARVIS Daily Plan 08-21 05:12"]
-    check("reads the stamp off the applied study", tv.applied_plan_stamp(None) == "08-21 05:12")
-    tv.list_plan_studies = lambda page: ["JARVIS Daily Plan 08-07 06:52"]
-    check("a PINNED old study reports its own old stamp, not the new one",
-          tv.applied_plan_stamp(None) == "08-07 06:52")
     tv.list_plan_studies = lambda page: ["JARVIS Daily Plan"]
-    check("an unstamped (pre-fix) study reads as None, not as current",
-          tv.applied_plan_stamp(None) is None)
+    check("a plan study on the chart is detected", tv.plan_study_present(None) is True)
     tv.list_plan_studies = lambda page: []
-    check("no plan study at all reads as None", tv.applied_plan_stamp(None) is None)
+    check("no plan study is detected as absent", tv.plan_study_present(None) is False)
 finally:
     tv.list_plan_studies = real_list
+check("the unworkable stamp check is gone, not left dead",
+      not hasattr(tv, "applied_plan_stamp"))
 
 # 9. cmd_plan must not hardcode success - that single True is why a stale chart
 #    reported a clean pass for fourteen days.
@@ -117,14 +118,16 @@ check("no hardcoded 'the plan is applied regardless' success",
 check("both screenshot paths follow the VERIFIED state",
       body.count('results[plan["symbol"]] = verified') == 2,
       body.count('results[plan["symbol"]] = verified'))
-check("a stamp mismatch triggers a reinstall, not just a warning",
-      "remove_plan_studies(page)" in body.split("def cmd_plan")[1])
-# Removing the study is only safe when saving works. A blind remove-then-fail leaves
-# the chart with NO plan, which is worse than the stale one it replaced.
-check("the reinstall is gated on the save having landed",
-      "if seen_stamp != expected_stamp and applied:" in body)
-check("a failed save says why the study was left alone",
-      "removing it" in body and "no plan at all" in body)
+plan_body = body.split("def cmd_plan")[1]
+check("a missing study triggers an add, not just a warning",
+      "add_script_to_chart(page)" in plan_body)
+# Acting on the chart is only safe when the save landed; otherwise it cannot help.
+check("the add is gated on the save having landed",
+      "if not plan_study_present(page) and applied:" in body)
+check("a failed save says the chart was left untouched",
+      "the chart was left exactly as it was" in body)
+check("success is not claimed without a study on the chart",
+      "verified = applied and present" in body)
 
 print(("\n%d FAILED" % len(failures)) if failures else "\nall passed")
 sys.exit(1 if failures else 0)

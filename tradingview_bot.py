@@ -458,17 +458,17 @@ def plan_stamp(generated_at):
     return generated_at[5:]
 
 
-def applied_plan_stamp(page):
+def plan_study_present(page):
     """
-    The stamp of the plan study ACTUALLY on the chart, or None if there is no plan
-    study at all. Never raises - a probe that throws would be read as 'not applied'
-    and trigger a pointless reinstall.
+    Is a plan study on the chart at all? That is the whole of what the DOM can say.
+
+    Replaces applied_plan_stamp(), which tried to read the plan's VERSION back off
+    the legend via indicator(shorttitle=...). The legend shows the SAVED SCRIPT NAME
+    for a study added from a saved user script, so the stamp never appeared there and
+    the check could never have passed. The chart answers the version question itself,
+    with the STALE marker Pine renders from its own embedded timestamp.
     """
-    for title in list_plan_studies(page):
-        rest = title[len(PLAN_NAME_PREFIX):].strip()
-        if rest:
-            return rest
-    return None
+    return bool(list_plan_studies(page))
 
 
 def generate_pine(plans):
@@ -1268,74 +1268,49 @@ def cmd_plan(which="all", shoot=True):
 
             open_chart(page, plans[0]["symbol"])
 
-            expected_stamp = plan_stamp(plans[0]["generated_at"])
             before = list_plan_studies(page)
             applied = save_pine(page, pine)
             after = list_plan_studies(page)
 
-            # ---- Does the chart actually carry the plan we just wrote? --------
+            # ---- What can actually be verified from here ----------------------
             #
-            # Saving the SOURCE and refreshing the APPLIED STUDY are different
-            # operations, and this only ever did the first. On 2026-08-21 the Gold
-            # chart was still rendering an Aug-7 plan - fourteen days stale, in the
-            # old script's row layout - while this function printed "1 before,
-            # 1 after" and reported every symbol drawn.
+            # Saving the SOURCE and putting the study ON a chart are different
+            # operations and this only ever did the first, so the Gold chart rendered
+            # an Aug-7 plan for fourteen days while "1 before, 1 after" was reported
+            # as proof. That count cannot tell "updated" from "did nothing".
             #
-            # "1 before, 1 after" cannot tell "updated in place" from "did nothing".
-            # The stamp can: it comes back off the applied study's legend title.
+            # An earlier attempt at this read the plan's VERSION back off the legend
+            # via indicator(shorttitle=...). That does NOT work: for a study added
+            # from a saved user script the legend shows the SAVED SCRIPT NAME and
+            # nothing else - on 2026-08-21 the only JARVIS string in the whole DOM
+            # was "JARVIS Daily Plan". Shipping it would have meant a check that can
+            # never pass, and a red light that cannot go green is worse than none.
+            #
+            # So this asserts only what is knowable: the save landed with no unsaved
+            # changes and no Pine errors, and a plan study is on the chart. WHICH
+            # version renders is answered on the chart itself - Pine compares the
+            # plan's embedded timestamp against timenow and shows STALE in red.
             page.wait_for_timeout(2500)
-            seen_stamp = applied_plan_stamp(page)
-            # Gated on `applied`. Removing the study is only safe if saving works: a
-            # blind remove-then-fail leaves the chart with NO plan at all, which is
-            # worse than the stale one it replaced. If the save did not land, the
-            # reinstall cannot land either, so removal is pure damage.
-            if seen_stamp != expected_stamp and applied:
-                print(f"[TV] Applied study is {seen_stamp or 'UNSTAMPED'!r}, expected "
-                      f"{expected_stamp!r} - the chart is bound to an older version. "
-                      "Reinstalling the study.")
-                # Remove-then-re-add is the only operation that GUARANTEES the applied
-                # instance is the current source. Rebuilding beats patching here: a
-                # study that ignores a source update will ignore the next one too.
-                remove_plan_studies(page)
-                # save_pine alone cannot fix this: saving updates charts that ALREADY
-                # use the script, and the chart no longer has it. It has to be put
-                # back on explicitly.
-                applied = save_pine(page, pine)
-                if applied:
-                    add_script_to_chart(page)
+
+            # Gated on `applied`: adding a study can only help if the save landed.
+            if not plan_study_present(page) and applied:
+                print("[TV] No plan study on the chart - adding it.")
+                add_script_to_chart(page)
                 page.wait_for_timeout(2500)
-                seen_stamp = applied_plan_stamp(page)
                 after = list_plan_studies(page)
 
-            verified = seen_stamp == expected_stamp
-            if seen_stamp != expected_stamp and not applied:
-                print("[TV] Save did not land, so the study was left alone - removing it "
-                      "without a working save would leave the chart with no plan at all.")
-            if verified:
-                print(f"[TV] Verified on chart: {expected_stamp}")
+            present = plan_study_present(page)
+            verified = applied and present
+            if not applied:
+                print("[TV] Save did not land - the chart was left exactly as it was.")
+            elif not present:
+                print(f"[TV] Save landed but no plan study is on the chart. Add "
+                      f"{SAVED_SCRIPT_NAME!r} to the layout once by hand; every run "
+                      "after that updates it in place.")
             else:
-                # applied_plan_stamp returns None for BOTH "no study" and "study
-                # with no stamp". They need different fixes, so name which it is.
-                present = list_plan_studies(page)
-                if seen_stamp:
-                    why = f"a plan stamped {seen_stamp!r}"
-                elif present:
-                    why = f"an UNSTAMPED plan study ({present[0]!r}) - a pre-fix or orphaned copy"
-                else:
-                    why = "no plan study at all"
-                print(f"[TV] NOT VERIFIED - chart carries {why}, "
-                      f"this run generated {expected_stamp!r}.")
-                print(f"[TV] Add {SAVED_SCRIPT_NAME!r} to the layout once by hand; "
-                      "every run after that updates it.")
+                print("[TV] Saved, and a plan study is on the chart. The plan carries "
+                      "its own age - a missed run shows STALE in red on the chart.")
 
-            # The count is the proof. Saving must refresh the plan in place; if the
-            # study list grew, this run added a duplicate and the design is broken.
-            print(f"[TV] Plan studies: {len(before)} before, {len(after)} after")
-            if len(after) > len(before):
-                print("[TV] WARNING: a duplicate study was added — do not schedule this")
-            if not after:
-                print(f"[TV] No plan study on the chart yet. Add {SAVED_SCRIPT_NAME!r} "
-                      "to the chart once by hand; every run after that updates it.")
 
             if applied and shoot:
                 # Same tab, same study — switch symbols only to capture each chart.
