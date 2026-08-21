@@ -197,7 +197,34 @@
     main { padding: 14px 14px 40px; }
     header { padding: 0 14px; }
   }
-</style>
+
+    /* ── MOBILE ──────────────────────────────────────────────────────────────
+       Found by measuring, and the first measurement lied. Listing every element whose
+       right edge sits past a 390px viewport surfaces dozens of table cells — but those
+       live inside wrappers that already scroll, so they never widen the page. Filtering
+       to elements NO ancestor clips or scrolls leaves the actual cause, and on this
+       page it is the header's right-hand strip: a nowrap flex row of clock, pills and
+       nav links that cannot shrink, so it sets the width of the document and every
+       panel below inherits the sprawl.
+
+       Fix is the one a dense terminal UI wants: a strip too wide for the screen scrolls
+       inside its own box, and the page itself never scrolls sideways. flex-shrink:0 on
+       the children is load-bearing — without it they squash into slivers instead of
+       scrolling. Nothing is hidden and no control is dropped.
+
+       Scoped to max-width:640px; the desktop layout is untouched. */
+    @media (max-width:640px) {
+      header { flex-wrap:wrap; padding:10px 14px; gap:8px; }
+      .header-right { width:100%; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+      .header-right::-webkit-scrollbar { display:none; }
+      .header-right > * { flex-shrink:0; }
+      .grid-2, .grid-3, .grid-4 { grid-template-columns:1fr; }
+      .grid-2 > *, .grid-3 > *, .grid-4 > *, .card, .panel { min-width:0; }
+      /* .profit-table was the one table on this page with no scrolling wrapper. */
+      .profit-table { display:block; overflow-x:auto; white-space:nowrap; }
+      .pipe-stage { flex-shrink:0; }
+    }
+  </style>
   <link rel="stylesheet" href="/dashboard/theme.css">
   <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
   <meta name="theme-color" content="#070b12">
