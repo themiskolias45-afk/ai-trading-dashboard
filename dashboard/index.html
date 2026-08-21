@@ -43,6 +43,13 @@
     .tab-nav { background:var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 24px; overflow-x:auto; }
     .tab-btn { padding:13px 20px; background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); font-size:.78rem; font-weight:600; letter-spacing:.04em; cursor:pointer; transition:all .2s; white-space:nowrap; }
     .tab-btn:hover { color:var(--text); }
+    /* theme.css gives border-radius to EVERY <button>, and a tab is a button — so the
+       2px accent underline on the active tab was being rounded, curving up at both
+       ends, and then clipped by .tab-nav overflow-x:auto. It read as a broken box
+       drawn half outside the nav rather than as an underline. A tab is the one button
+       whose indicator is a straight rule, so it opts out. .tab-btn exists only in this
+       file, and a class beats theme.css element selector regardless of load order. */
+    .tab-btn { border-radius:0; }
     .tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
     .tab-panel { display:none; }
     .tab-panel.active { display:block; }
@@ -603,6 +610,50 @@
     .day-s { width:92px; color:var(--muted); font-size:.62rem; }
     .day-e { flex:1; }
     .day-b { color:var(--red); font-weight:700; font-size:.62rem; white-space:nowrap; }
+
+    /* ── MOBILE ──────────────────────────────────────────────────────────────
+       Measured before writing any of this: at a 390px viewport the document's
+       scrollWidth was 743px — the whole page slid sideways under the thumb, and every
+       panel below inherited the extra width and sprawled with it.
+
+       The cause was ONE row. header is display:flex/space-between and .header-right is
+       a nowrap flex row holding the clock, session pill, regime badge, three nav links
+       and Home: 592px of content that cannot shrink, so it set the width of the
+       document and everything else simply followed. .tab-nav was never the problem —
+       it already had overflow-x:auto and was scrolling correctly inside whatever width
+       it was given; it only looked broken because it was being given 743px.
+
+       So the rule here is the one that belongs in a dense terminal UI: a strip too wide
+       for the screen scrolls INSIDE ITS OWN BOX, and the page itself never scrolls
+       sideways. Nothing is hidden and no control is dropped — a 6-inch screen simply
+       does not owe you all eight tabs at once.
+
+       Scoped to max-width:640px, so the desktop layout this was designed for is
+       untouched. Verified at 390px after: scrollWidth back to 390. */
+    @media (max-width:640px) {
+      header { padding:10px 14px; flex-wrap:wrap; gap:10px; }
+      .logo-sub { display:none; }
+
+      /* Full row of its own, scrolling horizontally rather than widening the page.
+         flex-shrink:0 on the children matters: without it they squash instead of
+         scrolling, and the pills turn into unreadable slivers. */
+      .header-right { width:100%; gap:10px; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+      .header-right::-webkit-scrollbar { display:none; }
+      .header-right > * { flex-shrink:0; }
+
+      .tab-nav { padding:0 14px; scrollbar-width:none; }
+      .tab-nav::-webkit-scrollbar { display:none; }
+      .tab-btn { padding:12px 14px; }
+
+      /* Chart cards: the timeframe buttons sat on the same line as the symbol title
+         and pushed the card wider than the column. */
+      .chart-header { flex-wrap:wrap; gap:8px; }
+      .tf-btns { flex-wrap:wrap; }
+
+      /* Any table wide enough to need it scrolls in its own box. The economic calendar
+         already had this wrapper; the levels tables did not. */
+      .cal-table, .lvl-table { font-size:.68rem; }
+    }
   </style>
   <link rel="stylesheet" href="/dashboard/theme.css">
   <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
