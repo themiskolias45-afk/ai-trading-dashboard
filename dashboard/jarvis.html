@@ -1712,14 +1712,26 @@ async function loadLearning() {
       return;
     }
     const sorted = entries.sort((a,b) => ((b[1].wins||0)+(b[1].losses||0)) - ((a[1].wins||0)+(a[1].losses||0))).slice(0, 6);
+    // The binding constraint on this whole system is sample size, so a win rate has to
+    // be read together with the n it came from. This panel was rendering MOMENTUM as a
+    // full-width GREEN 100% off one single closed trade, sitting directly above
+    // BB_SQUEEZE_WATCH as a red 0% off one single closed trade — two coin flips drawn
+    // with the confidence of a measured edge.
+    //
+    // Nothing is hidden and nothing is dropped: the number and the bar still show. Under
+    // the floor they simply lose the verdict colouring they have not earned and say so.
+    // Five matches the floor already used for rejection evidence and setup health.
+    const MIN_CLOSED_FOR_VERDICT = 5;
     box.innerHTML = sorted.map(([name, s]) => {
       const w = s.wins||0, l = s.losses||0, tot = w+l;
       const wr = tot > 0 ? Math.round(w/tot*100) : 0;
-      const clr = wr >= 65 ? "var(--green)" : wr >= 45 ? "var(--yellow)" : "var(--red)";
+      const judged = tot >= MIN_CLOSED_FOR_VERDICT;
+      const clr = !judged ? "var(--muted-dim)"
+                : wr >= 65 ? "var(--green)" : wr >= 45 ? "var(--yellow)" : "var(--red)";
       return `<div class="learn-row">
         <div class="learn-top"><span class="learn-name">${esc(name)}</span><span class="learn-wr" style="color:${clr}">${wr}%</span></div>
         <div class="learn-bar-bg"><div class="learn-bar" style="width:${wr}%;background:${clr}"></div></div>
-        <div style="font-size:.6rem;color:var(--muted)">${w}W / ${l}L</div>
+        <div style="font-size:.6rem;color:var(--muted)">${w}W / ${l}L${judged ? "" : ` · n=${tot}, too few to judge`}</div>
       </div>`;
     }).join("");
   } catch {

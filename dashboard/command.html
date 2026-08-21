@@ -114,6 +114,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:1
 .wr-bar{display:flex;align-items:center;gap:6px}
 .wr-track{flex:1;height:5px;background:var(--dim);border-radius:3px;overflow:hidden;min-width:50px}
 .wr-fill{height:100%;border-radius:3px}
+.wr-unjudged{background:var(--muted-dim)}
 .wr-high{background:var(--green)}
 .wr-mid{background:var(--yellow)}
 .wr-low{background:var(--red)}
@@ -493,14 +494,18 @@ function renderLearning(learning) {
   const rows = sorted.map(([name, s]) => {
     const w = s.wins||0; const l = s.losses||0; const tot = w+l;
     const wr = tot > 0 ? Math.round(w/tot*100) : 0;
-    const wrCls = wr>=65?'wr-high':wr>=50?'wr-mid':'wr-low';
+    // Same floor as the AVOID/HOT tags below already use. Those were correctly gated on
+    // tot>=5 while the bar and the percentage beside them were not, so a 1W/0L setup
+    // still drew a full green bar at 100% - it just did not get a badge on top of it.
+    const judged = tot >= 5;
+    const wrCls = !judged ? 'wr-unjudged' : wr>=65?'wr-high':wr>=50?'wr-mid':'wr-low';
     const tag = wr<40&&tot>=5 ? '<span class="avoid-tag">AVOID</span>' : wr>=65&&tot>=5 ? '<span class="priority-tag">HOT</span>' : '';
     const pnl = s.totalPnl||s.total_pnl||0;
     const pnlColor = pnl>=0?'var(--green)':'var(--red)';
     return `<tr>
       <td><span class="setup-name">${escapeHtml(name)}</span>${tag}</td>
-      <td style="color:var(--muted)">${w}W / ${l}L</td>
-      <td><div class="wr-bar"><div class="wr-track"><div class="wr-fill ${wrCls}" style="width:${wr}%"></div></div><span class="wr-num" style="color:${wr>=65?'var(--green)':wr>=50?'var(--yellow)':'var(--red)'}">${wr}%</span></div></td>
+      <td style="color:var(--muted)">${w}W / ${l}L${judged ? '' : '<span title="Below the 5-closed-trade floor - shown, but not yet a verdict"> · n=' + tot + '</span>'}</td>
+      <td><div class="wr-bar"><div class="wr-track"><div class="wr-fill ${wrCls}" style="width:${wr}%"></div></div><span class="wr-num" style="color:${!judged?'var(--muted-dim)':wr>=65?'var(--green)':wr>=50?'var(--yellow)':'var(--red)'}">${wr}%</span></div></td>
       <td style="color:${pnlColor};font-variant-numeric:tabular-nums">${fmtSignedDollar(pnl)}</td>
     </tr>`;
   }).join('');
