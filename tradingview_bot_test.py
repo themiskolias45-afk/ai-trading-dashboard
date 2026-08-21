@@ -82,5 +82,49 @@ multi = tv.generate_pine([plan(now_ms), plan(now_ms, symbol="BTC")])
 check("one indicator declaration for all symbols", multi.count("indicator(") == 1)
 check("staleness declared once, not per symbol", multi.count("_planAgeHrs = ") == 1)
 
+
+# 7. The legend title is the verification channel - a DOM probe on 2026-08-21 found
+#    "JARVIS Daily Plan" was the ONLY JARVIS string on the page, carrying no version.
+ind = [l for l in src.splitlines() if l.startswith("indicator(")][0]
+check("indicator keeps the stable title (list_plan_studies matches on it)",
+      ind.startswith("indicator(" + chr(34) + "JARVIS Daily Plan" + chr(34)), ind)
+check("shorttitle carries the stamp into the legend",
+      "shorttitle=" + chr(34) + "JARVIS Daily Plan 08-21 05:12" + chr(34) in ind, ind)
+check("legend name keeps the prefix list_plan_studies filters on",
+      tv.plan_legend_name("2026-08-21 05:12").startswith(tv.PLAN_NAME_PREFIX))
+
+# 8. Reading the stamp back off the applied study.
+real_list = tv.list_plan_studies
+try:
+    tv.list_plan_studies = lambda page: ["JARVIS Daily Plan 08-21 05:12"]
+    check("reads the stamp off the applied study", tv.applied_plan_stamp(None) == "08-21 05:12")
+    tv.list_plan_studies = lambda page: ["JARVIS Daily Plan 08-07 06:52"]
+    check("a PINNED old study reports its own old stamp, not the new one",
+          tv.applied_plan_stamp(None) == "08-07 06:52")
+    tv.list_plan_studies = lambda page: ["JARVIS Daily Plan"]
+    check("an unstamped (pre-fix) study reads as None, not as current",
+          tv.applied_plan_stamp(None) is None)
+    tv.list_plan_studies = lambda page: []
+    check("no plan study at all reads as None", tv.applied_plan_stamp(None) is None)
+finally:
+    tv.list_plan_studies = real_list
+
+# 9. cmd_plan must not hardcode success - that single True is why a stale chart
+#    reported a clean pass for fourteen days.
+body = open("tradingview_bot.py", encoding="utf-8").read()
+check("no hardcoded 'the plan is applied regardless' success",
+      "the plan is applied regardless" not in body)
+check("both screenshot paths follow the VERIFIED state",
+      body.count('results[plan["symbol"]] = verified') == 2,
+      body.count('results[plan["symbol"]] = verified'))
+check("a stamp mismatch triggers a reinstall, not just a warning",
+      "remove_plan_studies(page)" in body.split("def cmd_plan")[1])
+# Removing the study is only safe when saving works. A blind remove-then-fail leaves
+# the chart with NO plan, which is worse than the stale one it replaced.
+check("the reinstall is gated on the save having landed",
+      "if seen_stamp != expected_stamp and applied:" in body)
+check("a failed save says why the study was left alone",
+      "removing it" in body and "no plan at all" in body)
+
 print(("\n%d FAILED" % len(failures)) if failures else "\nall passed")
 sys.exit(1 if failures else 0)
