@@ -459,11 +459,21 @@ async function loadPlan() {
     async function resolveScreenshot(sym) {
       for (const url of SCREENSHOT_CANDIDATES(sym)) {
         try {
-          const probe = await fetch(url + '?t=' + Date.now(), { method: 'HEAD' });
+          // ONE url string for both the probe and the <img>. Building the cache-buster
+          // twice made them different URLs, so the browser fetched the same file twice and
+          // aborted the superseded HEAD — three net::ERR_ABORTED per load for images that
+          // were resolving perfectly well.
+          const versioned = url + '?t=' + Date.now();
+          const probe = await fetch(versioned, { method: 'HEAD' });
+          // Read the (empty) body so the response stream is released. A HEAD whose
+          // response is never consumed gets torn down when the identical GET for the
+          // <img> supersedes it, and Chrome reports that as net::ERR_ABORTED — three
+          // per page load, for images that were resolving perfectly well.
+          await probe.text().catch(() => {});
           if (!probe.ok) continue;
           const lastModified = probe.headers.get('last-modified');
           const ageMs = lastModified ? Date.now() - new Date(lastModified).getTime() : NaN;
-          return { url, ageMs };
+          return { url: versioned, ageMs };
         } catch (_) { /* try the next name */ }
       }
       return null;
@@ -476,7 +486,7 @@ async function loadPlan() {
       if (!img) return false;
       const found = await resolveScreenshot(sym);
       if (!found) return false;
-      img.src = found.url + '?t=' + Date.now();
+      img.src = found.url;
       const ageEl = document.getElementById('ss-' + sym + '-age');
       if (ageEl) {
         const words = ageWords(found.ageMs);
