@@ -6345,6 +6345,126 @@ function assessHeartbeats(uptimeSeconds) {
   return { expected, seen, missing, stale, withinStartupGrace, staleAfterMinutes: HEARTBEAT_STALE_MINUTES };
 }
 
+// vps_monitor.ps1 pushes every 5 minutes; checking on the same cadence detects a
+// silence within one stale window rather than whenever somebody next opens a page.
+const PEER_SILENCE_CHECK_MS = 5 * 60 * 1000;
+
+/**
+ * Box names currently reported as silent. The alert is EDGE-triggered off this set,
+ * not off a cooldown timer: a cooldown re-sends forever during a long outage and
+ * trains you to mute the channel, which is the same failure as never alerting.
+ */
+const peerSilenceAlerted = new Set();
+
+/**
+ * Where an unattended alert goes. TELEGRAM_CHAT_ID is the only reliable source on the
+ * VPS: knownChatIds is populated by polling, and polling is permanently disabled there
+ * because a webhook is registered and getUpdates 409s on every call.
+ */
+function peerAlertChatId() {
+  return TELEGRAM_CHAT_ID || [...knownChatIds][0] || "";
+}
+
+/**
+ * sendTelegram posts with parse_mode HTML, so any raw < or & in an interpolated value
+ * makes Telegram reject the whole message with a 400 — which sendTelegram catches and
+ * logs, silently dropping the alert. An alert that cannot render is an alert that does
+ * not arrive, which is the failure this whole watcher exists to remove.
+ */
+function escapeTelegramHtml(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** The peer's last known state, so the alert says what it was doing when it went quiet. */
+function describeLastKnownState(state) {
+  if (!state) return "last state: not reported";
+  const parts = [];
+  if (state.gate !== null)         parts.push(`gate ${state.gate}`);
+  if (state.halted)                parts.push(`HALTED${state.haltReason ? ` (${escapeTelegramHtml(state.haltReason)})` : ""}`);
+  if (state.armed?.length)         parts.push(`armed ${escapeTelegramHtml(state.armed.join(","))}`);
+  if (state.bridgesSilent?.length) parts.push(`bridges silent ${escapeTelegramHtml(state.bridgesSilent.join(","))}`);
+  if (state.settingsError)         parts.push("settings ERROR");
+  return parts.length ? `last state: ${parts.join(" · ")}` : "last state: reported, nothing notable";
+}
+
+function silenceAlertText(name, beat, staleAfterMinutes) {
+  const header = `🔴 <b>FLEET: ${escapeTelegramHtml(name)} HAS GONE SILENT</b>`;
+  if (!beat) {
+    return `${header}\n\nDeclared in PEER_HEARTBEAT_EXPECT but has not checked in once since this server started.\n\nThat box cannot be reached from here, so its silence is the only symptom available — and a sleeping machine's bridge stops trading with nothing else looking wrong.`;
+  }
+  const minutes = Math.round(beat.ageSeconds / 60);
+  const forHuman = minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+  return `${header}\n\nNo check-in for <b>${forHuman}</b> (alarm threshold ${staleAfterMinutes}m).\nLast seen: ${beat.at}\n${describeLastKnownState(beat.state)}\n\nThat box cannot be reached from here, so its silence is the only symptom available.`;
+}
+
+function recoveryAlertText(name, beat) {
+  const detail = beat ? `\n${describeLastKnownState(beat.state)}` : "";
+  return `🟢 <b>FLEET: ${escapeTelegramHtml(name)} IS BACK</b>\n\nCheck-ins have resumed.${detail}`;
+}
+
+/**
+ * Evaluate peer silence on a timer and alert on the transition.
+ *
+ * This exists because assessHeartbeats() had exactly one caller — the /api/system-plan
+ * handler — so the detector only ran when a human was already looking. On 2026-08-21
+ * that let a 33.4-hour laptop outage pass with no notification of any kind: nine
+ * scheduled jobs missed a full day and the gap was found by reading a log afterwards.
+ *
+ * Read-only over state the heartbeat endpoint already records. Sends a message and
+ * nothing else: no gate, no signal, no position, no setting.
+ */
+function checkPeerSilence() {
+  try {
+    const heartbeats = assessHeartbeats(Math.round(process.uptime()));
+    if (!heartbeats.expected.length) return;
+
+    const byName  = new Map(heartbeats.seen.map(beat => [beat.box.toUpperCase(), beat]));
+    const chatId  = peerAlertChatId();
+    const downNow = new Set([...heartbeats.missing, ...heartbeats.stale]);
+
+    for (const name of downNow) {
+      if (peerSilenceAlerted.has(name)) continue;
+      peerSilenceAlerted.add(name);
+      const beat = byName.get(name.toUpperCase()) || null;
+      const text = silenceAlertText(name, beat, heartbeats.staleAfterMinutes);
+      console.error(`[fleet] PEER SILENT: ${name} — ${beat ? `${beat.ageSeconds}s since last check-in` : "never checked in"}`);
+      // Marked alerted BEFORE the send so a Telegram outage cannot turn one alert into
+      // a retry every five minutes. A dropped alert is still visible in this log.
+      if (chatId) sendTelegram(chatId, text).catch(() => {});
+    }
+
+    for (const name of [...peerSilenceAlerted]) {
+      if (downNow.has(name)) continue;
+      peerSilenceAlerted.delete(name);
+      console.log(`[fleet] PEER RECOVERED: ${name}`);
+      if (chatId) sendTelegram(chatId, recoveryAlertText(name, byName.get(name.toUpperCase()) || null)).catch(() => {});
+    }
+  } catch (e) {
+    // A watcher that throws must not take the trading server with it.
+    console.error("[fleet] peer-silence check failed:", e?.message || e);
+  }
+}
+
+/**
+ * Say at boot whether this box will ever actually alert. A watcher that cannot send is
+ * indistinguishable from a healthy fleet, which is the exact class of decoration this
+ * change exists to remove.
+ */
+function startPeerSilenceWatch() {
+  const expected = expectedHeartbeatBoxes();
+  if (!expected.length) {
+    console.log("[fleet] Peer-silence watch INERT — PEER_HEARTBEAT_EXPECT unset (correct on a box nothing pushes to).");
+    return;
+  }
+  if (!TELEGRAM_TOKEN || !peerAlertChatId()) {
+    console.error(`[fleet] Peer-silence watch WATCHING ${expected.join(",")} BUT CANNOT ALERT — ${!TELEGRAM_TOKEN ? "TELEGRAM_TOKEN" : "TELEGRAM_CHAT_ID"} is unset. Silence will reach the log only.`);
+  } else {
+    console.log(`[fleet] Peer-silence watch armed — ${expected.join(",")}, alarm at ${HEARTBEAT_STALE_MINUTES}m, checking every ${PEER_SILENCE_CHECK_MS / 60000}m.`);
+  }
+  setInterval(checkPeerSilence, PEER_SILENCE_CHECK_MS).unref?.();
+  checkPeerSilence();
+}
+
 /**
  * The worst MT5 bar staleness in ONE box's /api/signals payload.
  *
@@ -8116,5 +8236,6 @@ app.listen(PORT, async () => {
     refreshSignals,
     fetchPrices,
   });
+  startPeerSilenceWatch();
   console.log('[BOOT] Auto-healer + SQLite DB active');
 });
