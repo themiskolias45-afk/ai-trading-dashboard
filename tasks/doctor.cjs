@@ -33,6 +33,10 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const { execFileSync } = require("child_process");
+
+// The sleep verifier queries the Windows event log, which is not instant. Bounded so a
+// slow event log degrades this one finding rather than the whole doctor run.
+const SLEEP_VERIFY_TIMEOUT_MS = 25000;
 // One source of truth for the mojibake pattern. A second copy of that regex here is
 // exactly how the first detection attempt missed six damaged files: it had the Latin-1
 // form and the real damage was cp1252.
@@ -615,6 +619,67 @@ const COVERAGE_LOOKBACK_HOURS = 48; // older than this is history, not something
 // "GUARDIAN: starting", "JARVIS: no window -- opening".
 const COVERAGE_RESTART_RE = /(--\s*starting|--\s*opening|:\s*starting\s*$|:\s*down\b)/im;
 
+/**
+ * Did the sleep fix hold?
+ *
+ * This lives in the doctor rather than on a timer for a reason that is the whole point of
+ * the finding: this box is asleep 58.7% of the time and has NEVER been woken by a timer -
+ * 0 of 200 episodes since May, every one of them a hibernate. A scheduled check would be
+ * subject to the exact fault it is meant to measure. The doctor is read at session start,
+ * so putting it here means it is read whenever anyone is actually looking.
+ *
+ * Reports three outcomes that are easy to conflate, and refuses to call the third a pass:
+ * fix applied and holding, applied and not holding, and NOT APPLIED - which is a null
+ * result, not a success. See tasks/SLEEP-RUNBOOK.md.
+ */
+function checkSleepFix(root = ROOT) {
+  const script = path.join(root, "tasks", "sleep_verify.ps1");
+  const baseline = path.join(root, "tasks", "sleep_baseline.json");
+  if (!fs.existsSync(script) || !fs.existsSync(baseline)) return;   // nothing recorded yet
+
+  let out;
+  try {
+    out = execFileSync("powershell",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+      { encoding: "utf8", timeout: SLEEP_VERIFY_TIMEOUT_MS, windowsHide: true });
+  } catch (e) {
+    // A non-zero exit is the "NOT FIXED" verdict, which still carries usable stdout.
+    out = (e && e.stdout) ? String(e.stdout) : "";
+    if (!out) {
+      finding("INFO", "local", "sleep verification did not run",
+        `${String((e && e.message) || e).slice(0, 120)} — the numbers behind it are still in tasks/sleep_baseline.json`,
+        "powershell -File tasks\\sleep_verify.ps1");
+      return;
+    }
+  }
+
+  const applied = /applied:\s*YES/i.test(out);
+  const verdict = (out.split(/\r?\n/).find(l => /VERDICT:/.test(l)) || "").replace(/^\s*VERDICT:\s*/, "").trim();
+  const pct = (out.match(/percent asleep\s+([\d.]+)\s+([\d.]+)/) || []);
+  const wasPct = pct[1], nowPct = pct[2];
+
+  if (!applied) {
+    finding("INFO", "local", "sleep fix not applied yet — the laptop still hibernates unattended",
+      `baseline: ${wasPct || "58.7"}% of the last ~112 days asleep, 0 timer wakes in 200 episodes, all 200 hibernated. `
+      + "Nothing wakes this box, so WakeToRun cannot help and the only fix is preventing the sleep. "
+      + "This is a null result, not a pass — there is nothing to hold yet",
+      "read tasks\\SLEEP-RUNBOOK.md, then apply Option A: powercfg /requestsoverride PROCESS node.exe SYSTEM (elevated)");
+    return;
+  }
+
+  if (/HELD|IMPROVED/i.test(verdict)) {
+    finding("INFO", "local", "sleep fix is holding",
+      verdict || `asleep ${wasPct}% before, ${nowPct}% since`,
+      "no action — re-check with: powershell -File tasks\\sleep_verify.ps1");
+    return;
+  }
+
+  finding("AMBER", "local", "sleep fix applied but NOT holding",
+    (verdict || `still ${nowPct}% asleep against a ${wasPct}% baseline`)
+      + " — the power request is being released by something",
+    "elevated: powercfg /requests   (shows who holds or drops the SYSTEM request)");
+}
+
 function checkCoverageGaps(root = ROOT) {
   const file = path.join(root, "tasks", "logs", "ensure_running.txt");
   let lines;
@@ -1110,6 +1175,7 @@ async function diagnose() {
   checkBackup();
   checkSizingTrigger();
   checkCoverageGaps();
+  checkSleepFix();
   checkTvPlan();
   checkDashboardEncoding();
   checkDoctorSelftest();
@@ -1199,7 +1265,7 @@ if (require.main === module) {
 module.exports = {
   diagnose,
   checkBox, checkFleetExposure, checkParity, checkAgentQueue, checkAiCapacity,
-  checkMarketJobs, checkBackup, checkSizingTrigger, checkCoverageGaps, checkTvPlan,
+  checkMarketJobs, checkBackup, checkSizingTrigger, checkCoverageGaps, checkSleepFix, checkTvPlan,
   checkDashboardEncoding, checkDoctorSelftest,
   checkLearningIntegrity,
   checkPeerViaHeartbeat,
