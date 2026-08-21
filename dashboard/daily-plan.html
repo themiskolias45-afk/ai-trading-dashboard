@@ -224,17 +224,20 @@
   <div class="screenshot-grid" id="screenshot-grid" style="display:none">
     <div class="screenshot-card">
       <img id="ss-btc" src="" alt="BTC Chart" />
-      <div class="screenshot-label">BTC Daily Chart</div>
+      <div class="screenshot-label">BTC Daily Chart<span id="ss-btc-age"></span></div>
     </div>
     <div class="screenshot-card">
       <img id="ss-gold" src="" alt="GOLD Chart" />
-      <div class="screenshot-label">GOLD Daily Chart</div>
+      <div class="screenshot-label">GOLD Daily Chart<span id="ss-gold-age"></span></div>
     </div>
     <div class="screenshot-card">
       <img id="ss-spx" src="" alt="SPX Chart" />
-      <div class="screenshot-label">SPX Daily Chart</div>
+      <div class="screenshot-label">SPX Daily Chart<span id="ss-spx-age"></span></div>
     </div>
   </div>
+  <!-- .no-screenshot was styled in this file and never rendered by anything, which is
+       why a missing chart looked identical to a page that never had one. -->
+  <div class="no-screenshot" id="screenshot-empty" style="display:none"></div>
 
   <!-- Calendar + Setup health -->
   <div class="two-col">
@@ -421,16 +424,79 @@ async function loadPlan() {
     // Setup health
     renderHealth(plan.setupHealth || []);
 
-    // Screenshots
-    const ssGrid = document.getElementById('screenshot-grid');
-    ['btc','gold','spx'].forEach(sym => {
-      const img = document.getElementById('ss-' + sym);
-      if (img) {
-        const src = '/screenshots/' + sym + '_daily.png?t=' + Date.now();
-        fetch(src, { method: 'HEAD' }).then(r => {
-          if (r.ok) { img.src = src; ssGrid.style.display = 'grid'; }
-        }).catch(() => {});
+    // Screenshots.
+    //
+    // This asked for '<sym>_daily.png' and nothing in the repo has ever written that
+    // name. tv_screenshot.js writes '<sym>_d.png' (key + timeframe lowercased);
+    // tv_daily_plan.py and tradingview_bot.py write 'plan_<sym>.png'. Three names,
+    // no two agreeing, so the HEAD probe always 404'd, the grid stayed display:none
+    // and the panel vanished without a word — indistinguishable from a page that
+    // simply has no charts.
+    //
+    // Rather than pick a winner and break the other writer, probe the known names in
+    // freshness order and take the first that exists. Nothing here changes what any
+    // writer produces.
+    const SCREENSHOT_CANDIDATES = sym => [
+      '/screenshots/plan_' + sym + '.png',   // tv_daily_plan.py / tradingview_bot.py
+      '/screenshots/' + sym + '_d.png',      // tv_screenshot.js
+      '/screenshots/' + sym + '_daily.png',  // historical name this page asked for
+    ];
+
+    // A chart that is silently two weeks old is the failure mode already on record
+    // here: the drawing job reports "OK: plan drawn on all charts" and exits 0 while
+    // the images underneath it do not move. Printing the age next to each chart is
+    // what makes that visible without trusting the job's own verdict.
+    function ageWords(sinceMs) {
+      if (!Number.isFinite(sinceMs)) return '';
+      const mins = Math.floor(sinceMs / 60000);
+      if (mins < 1)   return 'just now';
+      if (mins < 60)  return mins + 'm ago';
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return hours + 'h ago';
+      return Math.floor(hours / 24) + 'd ago';
+    }
+
+    async function resolveScreenshot(sym) {
+      for (const url of SCREENSHOT_CANDIDATES(sym)) {
+        try {
+          const probe = await fetch(url + '?t=' + Date.now(), { method: 'HEAD' });
+          if (!probe.ok) continue;
+          const lastModified = probe.headers.get('last-modified');
+          const ageMs = lastModified ? Date.now() - new Date(lastModified).getTime() : NaN;
+          return { url, ageMs };
+        } catch (_) { /* try the next name */ }
       }
+      return null;
+    }
+
+    const ssGrid  = document.getElementById('screenshot-grid');
+    const ssEmpty = document.getElementById('screenshot-empty');
+    Promise.all(['btc','gold','spx'].map(async sym => {
+      const img = document.getElementById('ss-' + sym);
+      if (!img) return false;
+      const found = await resolveScreenshot(sym);
+      if (!found) return false;
+      img.src = found.url + '?t=' + Date.now();
+      const ageEl = document.getElementById('ss-' + sym + '-age');
+      if (ageEl) {
+        const words = ageWords(found.ageMs);
+        ageEl.textContent = words ? ' · ' + words : '';
+        // Older than a day means the chart is describing a different trading day than
+        // the plan above it, which is worth flagging rather than quietly showing.
+        ageEl.style.color = Number.isFinite(found.ageMs) && found.ageMs > 864e5
+          ? 'var(--red)' : 'var(--muted)';
+      }
+      return true;
+    })).then(results => {
+      const anyFound = results.some(Boolean);
+      ssGrid.style.display = anyFound ? 'grid' : 'none';
+      if (ssEmpty) {
+        ssEmpty.style.display = anyFound ? 'none' : 'block';
+        ssEmpty.textContent = anyFound ? ''
+          : 'No chart images on disk yet — run  python tv_daily_plan.py  (or node tv_screenshot.js) to generate them into dashboard/screenshots/.';
+      }
+    }).catch(e => {
+      console.error('[daily-plan] screenshot probe failed:', e);
     });
 
     document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
