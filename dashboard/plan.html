@@ -458,7 +458,15 @@ function renderFleet(data) {
 
     { label: 'Daily P&L',
       local: valueOrDash(here.dailyPnl),
-      peer:  valueOrDash(peer.dailyPnl) },
+      peer:  valueOrDash(peer.dailyPnl),
+      // Deliberately NOT flagged bad. Each box books to its own broker login, so two
+      // different numbers here is the normal case, and painting it red would train the
+      // eye to skip the rows that do matter. It still needs a sentence: this table is
+      // headed "fact that decides what trades", and a reader who sees 0 against 19.43
+      // with no comment cannot tell which kind of difference they are looking at.
+      note:  (here.dailyPnl !== peer.dailyPnl && peer.reachable)
+               ? 'Different numbers are expected while each box trades its own account. This is only a divergence if both boxes are logged into the SAME broker account — check the Bridges row for the logins before treating it as one.'
+               : '' },
 
     { label: 'Config source',
       local: here.settingsError ? 'DEFAULTS — ' + here.settingsError : 'saved file',
@@ -471,9 +479,11 @@ function renderFleet(data) {
                : 'never recorded',
       peer:  parity.available && (parity.fileDrift || 0) > 0 ? parity.fileDrift + ' non-engine file(s) differ' : '—',
       bad:   !!(div.engine && div.engine.differs),
-      note:  parity.available
-               ? ''
-               : 'Nothing here proves the two boxes share a trading engine — only that both are up. Run node tasks/vps_parity.cjs --emit.' },
+      note:  !parity.available
+               ? 'Nothing here proves the two boxes share a trading engine — only that both are up. Run node tasks/vps_parity.cjs --emit.'
+               : (parityIsStale(parity)
+                   ? 'This verdict is ' + parity.ageHours + 'h old and describes the engines as they were then, not as they are now. Re-run node tasks/vps_parity.cjs --emit before trusting it — a recorded AGREE has already outlived the truth once.'
+                   : '') },
   ];
 
   host.innerHTML =
@@ -494,6 +504,21 @@ function renderFleet(data) {
              + '</tr>';
       }).join('')
     + '</tbody></table>';
+}
+
+// The parity probe runs with the nightly post-close job, so a verdict from within the
+// last half-day is one trading cycle old at most. Past that it is describing a machine
+// state that has had a whole day to move, and the page should stop presenting it as
+// current — a recorded "ENGINES AGREE" has already survived a hand probe that found
+// three functions, two constants and eighteen files differing.
+const PARITY_FRESH_HOURS = 12;
+
+function parityIsStale(parity) {
+  return !!parity
+    && parity.available
+    && parity.ageHours !== null
+    && parity.ageHours !== undefined
+    && Number(parity.ageHours) > PARITY_FRESH_HOURS;
 }
 
 function renderDivergenceBanner(data) {
@@ -525,11 +550,30 @@ function renderDivergenceBanner(data) {
       + '<br />Any number that pools both boxes is unattributable until this is reconciled.</div>';
     return;
   }
-  host.innerHTML = '<div class="banner banner-ok"><strong>Both boxes agree</strong>'
-    + 'Same gate, both answering, neither halted'
-    + (parity.available && !(div.engine && div.engine.differs)
-        ? ' — and the last engine-parity run said ' + esc(parity.verdict) + (parity.ageHours !== null ? ' (' + esc(parity.ageHours) + 'h ago).' : '.')
-        : '. Engine parity has not been recorded, so this is agreement on config, not proof of a shared engine.')
+  // Green is a claim that the fleet is verified in agreement RIGHT NOW. It was being
+  // printed off a parity run that could be any age, with the age relegated to a
+  // parenthetical at the end of the sentence — so a verdict recorded before the last
+  // deploy read exactly like one recorded a minute ago. Age now decides the colour and
+  // the headline; only a fresh run earns the green.
+  const engineAgrees = parity.available && !(div.engine && div.engine.differs);
+  const engineFresh  = engineAgrees && !parityIsStale(parity);
+
+  if (engineFresh) {
+    host.innerHTML = '<div class="banner banner-ok"><strong>Both boxes agree</strong>'
+      + 'Same gate, both answering, neither halted — and the last engine-parity run said '
+      + esc(parity.verdict)
+      + (parity.ageHours !== null ? ' (' + esc(parity.ageHours) + 'h ago).' : '.')
+      + '</div>';
+    return;
+  }
+
+  host.innerHTML = '<div class="banner banner-warn"><strong>Config agrees — the engines are unverified</strong>'
+    + 'Same gate, both answering, neither halted. '
+    + (engineAgrees
+        ? 'But the only engine-parity run on record is ' + esc(parity.ageHours) + 'h old, which is more than one trading cycle: it says '
+          + esc(parity.verdict) + ' about the machines as they were then, not as they are now.'
+        : 'Engine parity has not been recorded at all, so this is agreement on config, not proof of a shared engine.')
+    + ' Run node tasks/vps_parity.cjs --emit to settle it.'
     + '</div>';
 }
 
