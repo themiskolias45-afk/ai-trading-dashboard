@@ -3761,6 +3761,22 @@ app.post("/api/settings", requireLocalOnly, (req, res) => {
   res.json({ ok: true });
 });
 
+// Shared by /api/performance and /api/checksystem, which compute the same confidence
+// calibration and must not be able to disagree about what counts as a reading. It was a
+// local const inside /api/performance; the second caller is the reason it is out here.
+//
+// A trade with NO recorded confidence is not a 0%-confidence trade. Every value
+// JavaScript coerces to a finite 0 has to be rejected explicitly, not blacklisted one at
+// a time: Number(null), Number(undefined-via-default), Number(""), Number("   "),
+// Number(false) and Number([]) are all a finite 0, and Number(true) is 1 — so a boolean
+// or an empty array in this field would otherwise score as a real reading. A numeric
+// string like "72" is accepted. A confidence of 0 IS legitimate and is kept.
+const hasConfidence = (v) => {
+  if (typeof v === "number") return Number.isFinite(v);
+  if (typeof v === "string" && v.trim() !== "") return Number.isFinite(Number(v));
+  return false;
+};
+
 // Performance stats — actual win rate per setup + confidence calibration
 app.get("/api/stats/by-setup", (_, res) => {
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
@@ -3850,16 +3866,8 @@ app.get("/api/stats/by-setup", (_, res) => {
   // Every value JavaScript coerces to 0 has to be rejected explicitly, not just null:
   // Number(null), Number(undefined-via-default), Number("") and Number("   ") all
   // produce a finite 0. A legitimate numeric string like "72" is still accepted.
-  // Accept a number, or a string that is entirely a number. Nothing else. Blacklisting
-  // the coercion traps one at a time does not converge — Number(false), Number([]) and
-  // Number("") are all a finite 0, and Number(true) is 1, so a boolean or an empty array
-  // in this field would have been scored as a real confidence reading. A confidence of
-  // 0 IS legitimate and is kept; /api/signals returns exactly that today.
-  const hasConfidence = (v) => {
-    if (typeof v === "number") return Number.isFinite(v);
-    if (typeof v === "string" && v.trim() !== "") return Number.isFinite(Number(v));
-    return false;
-  };
+  // hasConfidence now lives at module scope so /api/checksystem shares this exact
+  // predicate rather than carrying a second, looser copy of the same idea.
   const scored = closed.filter(t => hasConfidence(t.confidence));
   const unscored = closed.length - scored.length;
   const calibration = tiers.map(tier => {
@@ -4629,19 +4637,36 @@ app.get("/api/checksystem", (_, res) => {
   const totalPnl = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
   const recentLosses = closed.slice(0, 5).filter(t => t.pnl < 0).length;
 
-  // Equity curve health
-  let equity = 10000;
-  for (const t of [...closed].reverse()) {
-    if (t.pnl > 0) equity += t.pnl; else equity += t.pnl;
-  }
+  // The "Equity curve health" block that stood here is gone. It accumulated a local
+  // `equity` in a loop whose two branches were the same statement —
+  // `if (t.pnl > 0) equity += t.pnl; else equity += t.pnl;` — so the conditional was a
+  // no-op, and the variable was never read: not by this handler's res.json, not
+  // anywhere in its scope. The other `equity` names in this file belong to
+  // /api/equity-curve and the backtest handler and are separate locals.
+  //
+  // It cost a full walk of the closed journal on every /api/checksystem request for
+  // nothing, and an identical-branch conditional reads as a half-written bug, so every
+  // future reader had to prove it dead before touching the handler. Removed rather than
+  // left as a puzzle.
 
-  // Setup health
+  // Setup health.
+  //
+  // An empty setupHealth is indistinguishable from a dead feed, and that ambiguity has
+  // real cost: the 2026-08-18, 08-19 (both cycles) and 08-21 summaries each record
+  // opening this file to re-derive that {} was CORRECT — the same read four times,
+  // because the payload stated the result and withheld the reason. It is empty because
+  // every tracked setup currently sits below the sample floor, which is a fact about
+  // sample size, not about health.
+  const SETUP_HEALTH_MIN_TRADES = 3;
   const setupHealth = {};
+  let setupsBelowMinTrades = 0;
   for (const [setup, s] of Object.entries(learning.setupStats)) {
     const total = s.wins + s.losses;
-    if (total >= 3) {
+    if (total >= SETUP_HEALTH_MIN_TRADES) {
       const wr = s.wins / total;
       setupHealth[setup] = { wr: parseFloat((wr * 100).toFixed(1)), status: wr > 0.55 ? "GOOD" : wr < 0.4 ? "REVIEW" : "OK" };
+    } else {
+      setupsBelowMinTrades++;
     }
   }
 
@@ -4651,11 +4676,22 @@ app.get("/api/checksystem", (_, res) => {
     { label: "75-84%", min: 75, max: 84 },
     { label: "85%+",   min: 85, max: 100 }
   ];
+  // Filtered through the same hasConfidence predicate /api/performance uses, so the two
+  // calibration tables in this codebase cannot drift apart in what they count.
+  //
+  // Being precise about what this does and does not fix: `(t.confidence ?? 0)` turned a
+  // missing confidence into a 0, but every tier here starts at 65, so a null already
+  // fell outside all three and was never mis-bucketed. Unlike /api/performance, which
+  // carries a "<65%" tier where exactly that trap DID bite. This closes the trap before
+  // anyone adds a low tier here, and — the part that changes today's payload — states
+  // the population the tiers were computed from instead of leaving it to be inferred.
+  const scoredForCalibration = closed.filter(t => hasConfidence(t.confidence));
   const calibration = tiers.map(tier => {
-    const group = closed.filter(t => (t.confidence ?? 0) >= tier.min && (t.confidence ?? 0) <= tier.max);
+    const group = scoredForCalibration.filter(t => Number(t.confidence) >= tier.min && Number(t.confidence) <= tier.max);
     const gWins = group.filter(t => t.pnl > 0).length;
     return { tier: tier.label, trades: group.length, winRate: group.length > 0 ? parseFloat((gWins / group.length * 100).toFixed(1)) : null };
   });
+  const calibrationTiered = calibration.reduce((sum, t) => sum + t.trades, 0);
 
   // Proposal check
   let proposal = null;
@@ -4678,8 +4714,26 @@ app.get("/api/checksystem", (_, res) => {
     risk:        riskStatus,
     mode:        { modeOverride: null },
     performance: { trades: closed.length, wins, winRate: closed.length > 0 ? parseFloat((wins / closed.length * 100).toFixed(1)) : null, totalPnl: parseFloat(totalPnl.toFixed(2)), recentLosses },
-    learning:    { sessionCount: learning.sessionCount, setupsTracked: Object.keys(learning.setupStats).length, setupHealth },
+    learning:    {
+      sessionCount:  learning.sessionCount,
+      setupsTracked: Object.keys(learning.setupStats).length,
+      setupHealth,
+      // Why setupHealth may be empty, stated rather than left to be re-derived.
+      setupHealthMinTrades: SETUP_HEALTH_MIN_TRADES,
+      setupsBelowMinTrades,
+    },
     calibration,
+    // The population behind `calibration`, so a reader can see when the tiers hold
+    // fewer trades than performance.trades in this same response.
+    calibrationBasis: {
+      scored:   scoredForCalibration.length,
+      unscored: closed.length - scoredForCalibration.length,
+      tiersCover: "65-100",
+      // Trades that carry a real confidence but fall below the lowest tier. Without
+      // this, "scored 5, tiers hold 0" looks like a fault rather than five readings
+      // that were all under 65.
+      scoredBelowTiers: scoredForCalibration.length - calibrationTiered,
+    },
     mt5:         { connected: mt5Accounts.some(a => a.connected), accounts: mt5Accounts },
     proposal:    proposal ? { worstSetup: proposal.worstSetup, winRate: proposal.winRate, generatedAt: proposal.generatedAt } : null
   });
