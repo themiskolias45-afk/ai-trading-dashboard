@@ -72,6 +72,15 @@ SEL_SAVE        = ('[title="Save script"], [data-tooltip="Save script"], '
 # The plan lives as ONE saved script. Saving it pushes the new source into every
 # chart already using it, which is how the plan updates without adding a study.
 SAVED_SCRIPT_NAME = "JARVIS Daily Plan"
+# Pine editor internals. Class hashes rotate with TradingView releases, so match on
+# the STABLE fragment rather than the whole name; data-name attributes are stable.
+SEL_PINE_DIALOG = '[data-name=pine-dialog]'
+SEL_EDITOR_AREA = '[data-name=pine-dialog] [class*="monaco"]'
+SEL_NAME_BUTTON = '[data-name=pine-dialog] [class*="nameButton"]'
+SEL_SAVE_BUTTON = '[data-name=pine-dialog] [class*="saveButton"]'
+SEL_OPEN_DIALOG = '[data-name=open-user-script-dialog]'
+SEL_OPEN_ITEM   = '[data-name=open-script-dialog-item-name]'
+
 # What the applied study actually renders on the chart is the table header, which
 # reads "JARVIS PLAN - <SYMBOL>". The indicator's own name ("JARVIS Daily Plan - X")
 # lives in the legend and is not reliably in the DOM text.
@@ -684,7 +693,12 @@ def paste_pine(page, pine, label):
     page.bring_to_front()
     page.wait_for_selector(SEL_PINE_BUTTON, timeout=45000)
     page.wait_for_timeout(3000)
-    page.click(SEL_PINE_BUTTON)
+    # Was a bare click on the Pine toggle. That button CLOSES the editor when it is
+    # already open, and with the editor open it is not reliably clickable at all - a
+    # 30s timeout that surfaced as "Cannot connect to Edge". It only ever worked
+    # because the editor happened to start closed.
+    if not ensure_editor_open(page):
+        return False
 
     # Monaco tears down and rebuilds while booting, so wait for the rendered lines
     # rather than the container, and let it settle before touching it.
@@ -722,46 +736,212 @@ def paste_pine(page, pine, label):
     return True
 
 
+def editor_script_name(page):
+    """What the editor header says it is editing. 'Untitled script' means UNBOUND."""
+    try:
+        return page.locator(SEL_NAME_BUTTON).first.inner_text(timeout=5000).strip()
+    except Exception:
+        return ""
+
+
+def editor_has_unsaved_changes(page):
+    """The save button carries an 'unsaved-' class while the buffer is dirty."""
+    try:
+        cls = page.locator(SEL_SAVE_BUTTON).first.get_attribute("class", timeout=5000) or ""
+        return "unsaved" in cls
+    except Exception:
+        return False
+
+
+def close_any_open_dialog(page):
+    """A dialog left open traps focus and every later click is 'intercepted'."""
+    for _ in range(3):
+        if page.locator(SEL_OPEN_DIALOG).count() == 0:
+            return
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(600)
+
+
+def ensure_editor_open(page):
+    """
+    Open the Pine editor if it is not already open, and NEVER click the toggle when
+    it is - that button closes it again. open_saved_script runs before paste_pine,
+    which is what used to do the opening, so without this the first click inside the
+    editor times out and the whole bind step is skipped.
+    """
+    if page.locator(SEL_PINE_DIALOG).count() > 0:
+        return True
+    try:
+        page.click(SEL_PINE_BUTTON, timeout=8000)
+        page.wait_for_selector(SEL_EDITOR_TEXT, timeout=30000)
+        page.wait_for_timeout(3000)
+        return True
+    except Exception as exc:
+        print(f"[TV] Could not open the Pine editor ({str(exc)[:70]})")
+        return False
+
+
+def open_saved_script(page, name=SAVED_SCRIPT_NAME):
+    """
+    Bind the editor to the SAVED script of this name. Returns True when bound.
+
+    Without this the editor sits on 'Untitled script', so Save opens the
+    "New script name" dialog and creates ANOTHER script instead of updating the one
+    the chart uses. On 2026-08-21 the saved-script list held 11 scripts and none of
+    them was the plan: the study on the chart was an orphan snapshot, added from an
+    unsaved editor and backed by nothing, which is why fourteen days of saving could
+    never reach it.
+    """
+    if not ensure_editor_open(page):
+        return False
+    close_any_open_dialog(page)
+    if editor_script_name(page) == name:
+        return True
+    try:
+        page.click(SEL_EDITOR_AREA, timeout=8000)
+        page.wait_for_timeout(600)
+        page.keyboard.press("Control+o")
+        page.wait_for_selector(SEL_OPEN_DIALOG, timeout=15000)
+        page.wait_for_timeout(1500)
+    except Exception as exc:
+        print(f"[TV] Could not open the script list ({str(exc)[:70]})")
+        close_any_open_dialog(page)
+        return False
+
+    try:
+        titles = page.locator(SEL_OPEN_ITEM).all_inner_texts()
+        match = next((i for i, t in enumerate(titles) if t.strip() == name), None)
+        if match is None:
+            print(f"[TV] {name!r} is not a saved script yet "
+                  f"({len(titles)} saved) - it will be created on this run.")
+            close_any_open_dialog(page)
+            return False
+        page.locator(SEL_OPEN_ITEM).nth(match).click(timeout=8000)
+        page.wait_for_timeout(3500)
+    except Exception as exc:
+        print(f"[TV] Could not open {name!r} ({str(exc)[:70]})")
+        close_any_open_dialog(page)
+        return False
+
+    bound = editor_script_name(page) == name
+    if not bound:
+        print(f"[TV] Editor still reads {editor_script_name(page)!r} after opening {name!r}")
+    return bound
+
+
+def add_script_to_chart(page):
+    """
+    Put the CURRENTLY OPEN script on the chart as a study.
+
+    Saving a script does not place it on a chart - it only updates charts already
+    using it. So a chart that never had the study, or had its orphan snapshot
+    removed, needs this once.
+
+    SEL_APPLY matches "Update on chart", which is the label when a study from this
+    script is already applied. When none is, the button reads "Add to chart" and
+    carries no tooltip or aria-label at all, so the tooltip selector misses it
+    entirely - matched on visible text here, scoped to the editor.
+    """
+    for selector in (SEL_APPLY,
+                     SEL_PINE_DIALOG + ' button:has-text("Add to chart")',
+                     SEL_PINE_DIALOG + ' button:has-text("Update on chart")'):
+        try:
+            page.click(selector, timeout=6000)
+            page.wait_for_timeout(6000)
+            return True
+        except Exception:
+            continue
+    print("[TV] Could not find the add-to-chart control")
+    return False
+
+
+def click_save(page):
+    """
+    Press Save. SEL_SAVE matches title/tooltip/aria-label and the current editor's
+    Save button carries NONE of them - only class 'saveButton-<hash>' and the text -
+    so that selector times out every run on this build.
+    """
+    for selector in (SEL_SAVE_BUTTON, SEL_SAVE,
+                     SEL_PINE_DIALOG + ' button:has-text("Save")'):
+        try:
+            page.click(selector, timeout=6000)
+            return True
+        except Exception:
+            continue
+    try:
+        page.keyboard.press("Control+s")
+        return True
+    except Exception:
+        return False
+
+
+def save_as_new_script(page, name=SAVED_SCRIPT_NAME):
+    """First run only: the Save dialog asks for a name because nothing is bound."""
+    # The name field carries NO type attribute, so input[type=text] never matched it
+    # and this timed out every run. It is the only visible <input> on the page - the
+    # Monaco buffer is a <textarea> - and it comes pre-filled with the script name.
+    #
+    # Submit with Enter rather than clicking Save: the dialog's Save button and the
+    # editor's own Save button both match button:has-text("Save"), and picking the
+    # wrong one reopens this dialog instead of closing it.
+    try:
+        page.wait_for_selector('input:visible', timeout=8000)
+        box = page.locator('input:visible').first
+        box.fill(name)
+        page.wait_for_timeout(500)
+        box.press("Enter")
+        page.wait_for_timeout(5000)
+        return True
+    except Exception as exc:
+        print(f"[TV] Save-as dialog failed ({str(exc)[:70]})")
+        page.keyboard.press("Escape")
+        return False
+
+
 def save_pine(page, pine, name=SAVED_SCRIPT_NAME):
     """
-    Update the plan by SAVING the script, not by adding it to the chart.
+    Update the plan by SAVING the named script, not by adding it to the chart.
 
-    This is the whole point of the saved-script design. "Update on chart" still
-    creates another study on some runs — two consecutive runs measured 4 then 5 —
-    and the layout's collapsed legend makes the extras unremovable from here. Saving
-    a named script instead pushes the new source into every chart already using it,
-    so the plan refreshes in place and the study count never moves.
+    "Update on chart" still creates another study on some runs - two consecutive
+    runs measured 4 then 5 - and the layout's collapsed legend makes the extras
+    unremovable from here. Saving a named script instead pushes the new source into
+    every chart already using it, so the plan refreshes in place and the study count
+    never moves.
+
+    That design was right and had never once worked, because nothing bound the
+    editor to the script. It sat on "Untitled script", so Save opened the "New
+    script name" dialog and made ANOTHER script. On 2026-08-21 the saved list held
+    11 scripts and no plan among them, while the chart carried a "JARVIS Daily Plan"
+    study that was an orphan snapshot from Aug 7 - added out of an unsaved editor,
+    backed by nothing, and therefore unreachable by any save.
     """
+    bound = open_saved_script(page, name)
+
     if not paste_pine(page, pine, name):
         return False
 
-    try:
-        page.click(SEL_SAVE, timeout=10000)
-    except Exception as exc:
-        print(f"[TV] Save control not found: {exc}")
-        return False
-    page.wait_for_timeout(3000)
+    if bound:
+        # Ctrl+S on a bound script saves in place with no dialog.
+        page.keyboard.press("Control+s")
+        page.wait_for_timeout(4000)
+        if editor_has_unsaved_changes(page):
+            print(f"[TV] {name!r} still shows unsaved changes after Ctrl+S")
+            return False
+        how = "bound script updated in place"
+    else:
+        if not click_save(page):
+            print("[TV] Save control not found")
+            return False
+        page.wait_for_timeout(2500)
+        if not save_as_new_script(page, name):
+            return False
+        if editor_script_name(page) != name:
+            print(f"[TV] Editor reads {editor_script_name(page)!r} after save-as {name!r}")
+            return False
+        how = "CREATED - add it to the chart once, then every run updates it"
 
-    # The first save asks for a script name; later saves go straight through.
-    try:
-        field = page.locator('input[type="text"]:visible').last
-        if field.count() and field.is_visible():
-            field.fill(name)
-            page.wait_for_timeout(500)
-            for sel in ('button:has-text("Save")', 'button:has-text("Ok")',
-                        'button[type="submit"]'):
-                try:
-                    page.click(sel, timeout=4000)
-                    break
-                except Exception:
-                    continue
-            page.wait_for_timeout(3000)
-            print(f"[TV] Saved new script as {name!r}")
-        else:
-            print(f"[TV] Saved {name!r} (existing script updated)")
-    except Exception:
-        print(f"[TV] Saved {name!r} (no name dialog)")
-
+    # Saving cleanly is not compiling cleanly. A script with a Pine error saves
+    # perfectly well and then renders nothing, which looks exactly like success.
     errors = [e.strip() for e in
               page.locator('[class*="errorMessage"], .tv-script-console__error')
                   .all_inner_texts()
@@ -769,7 +949,10 @@ def save_pine(page, pine, name=SAVED_SCRIPT_NAME):
     if errors:
         print(f"[TV] Pine reported {errors[:2]}")
         return False
+
+    print(f"[TV] Saved {name!r} ({how})")
     return True
+
 
 
 def apply_pine(page, pine, symbol):
@@ -1114,7 +1297,12 @@ def cmd_plan(which="all", shoot=True):
                 # instance is the current source. Rebuilding beats patching here: a
                 # study that ignores a source update will ignore the next one too.
                 remove_plan_studies(page)
+                # save_pine alone cannot fix this: saving updates charts that ALREADY
+                # use the script, and the chart no longer has it. It has to be put
+                # back on explicitly.
                 applied = save_pine(page, pine)
+                if applied:
+                    add_script_to_chart(page)
                 page.wait_for_timeout(2500)
                 seen_stamp = applied_plan_stamp(page)
                 after = list_plan_studies(page)
@@ -1126,7 +1314,16 @@ def cmd_plan(which="all", shoot=True):
             if verified:
                 print(f"[TV] Verified on chart: {expected_stamp}")
             else:
-                print(f"[TV] NOT VERIFIED - chart carries {seen_stamp or 'no plan study'!r}, "
+                # applied_plan_stamp returns None for BOTH "no study" and "study
+                # with no stamp". They need different fixes, so name which it is.
+                present = list_plan_studies(page)
+                if seen_stamp:
+                    why = f"a plan stamped {seen_stamp!r}"
+                elif present:
+                    why = f"an UNSTAMPED plan study ({present[0]!r}) - a pre-fix or orphaned copy"
+                else:
+                    why = "no plan study at all"
+                print(f"[TV] NOT VERIFIED - chart carries {why}, "
                       f"this run generated {expected_stamp!r}.")
                 print(f"[TV] Add {SAVED_SCRIPT_NAME!r} to the layout once by hand; "
                       "every run after that updates it.")
@@ -1160,8 +1357,13 @@ def cmd_plan(which="all", shoot=True):
                 for plan in plans:
                     results[plan["symbol"]] = applied and verified
     except Exception as exc:
-        print(f"[TV] Cannot connect to Edge: {exc}")
-        print("[TV] Run: tasks\\launch_chrome_tv.bat")
+        # This said "Cannot connect to Edge" for ANY exception raised inside the
+        # page, including ordinary click timeouts on a browser it was already
+        # attached to. That misdirection cost two debugging rounds on 2026-08-21.
+        detail = str(exc).splitlines()[0][:160]
+        print(f"[TV] Plan run failed: {detail}")
+        if "connect" in detail.lower() or "browser" in detail.lower():
+            print("[TV] Is Edge up on CDP 9222? Run: tasks" + chr(92) + "launch_chrome_tv.bat")
         return 1
 
     ok = [n for n, good in results.items() if good]
