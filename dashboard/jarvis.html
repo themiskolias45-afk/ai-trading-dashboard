@@ -324,6 +324,42 @@ body.focus-mode .focus-mic{display:flex}
 }
 body.focus-mode .focus-status{display:block;bottom:100px}
 body.focus-mode .focus-exit{display:block}
+/* ── OPENING BRIEFING ─────────────────────────────────────────────────────────
+   The chat pane is the largest region on this page and, before a conversation
+   starts, roughly three quarters of it was empty — a decorative HUD ring behind
+   nothing. The ring is a backdrop (position:absolute, z-index:0, pointer-events:
+   none) so it never cost layout; what was missing was anything to put in FRONT of
+   it. This is that: the state you would have asked for first anyway.
+
+   It sits above the ring and yields to the conversation — the first message you
+   send removes it. Nothing is hidden and nothing is replaced. */
+.brief{
+  align-self:stretch;background:rgba(13,20,32,.72);border:1px solid var(--border2);
+  border-radius:12px;padding:14px 16px;backdrop-filter:blur(8px);position:relative;z-index:1;
+  animation:briefIn .45s ease both;
+}
+@keyframes briefIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.brief-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px}
+.brief-t{font-size:.62rem;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+.brief-when{font-size:.6rem;color:var(--muted-dim);font-variant-numeric:tabular-nums}
+.brief-row{display:grid;grid-template-columns:52px 1fr auto;gap:11px;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.brief-row:last-of-type{border-bottom:none}
+.brief-sym{font-size:.72rem;font-weight:700;letter-spacing:.04em}
+.brief-track{position:relative;height:5px;background:rgba(255,255,255,.07);border-radius:3px}
+.brief-fill{height:100%;border-radius:3px;transition:width .6s ease}
+/* The gate tick is the point of the whole row: a confidence number means nothing
+   without the line it has to clear. */
+.brief-gate{position:absolute;top:-3px;width:2px;height:11px;background:var(--text);opacity:.75}
+.brief-gap{font-size:.63rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.brief-state{margin-top:11px;padding-top:10px;border-top:1px solid rgba(255,255,255,.07);font-size:.66rem;color:var(--muted);line-height:1.6}
+.brief-ask{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.brief-chip{
+  font-family:inherit;font-size:.64rem;color:var(--muted);cursor:pointer;
+  background:rgba(255,255,255,.04);border:1px solid var(--border2);
+  border-radius:20px;padding:5px 11px;transition:all .15s;
+}
+.brief-chip:hover{color:var(--text);border-color:var(--accent);background:var(--accent-dim)}
+
 .messages::-webkit-scrollbar{width:4px}
 .messages::-webkit-scrollbar-track{background:transparent}
 .messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
@@ -1003,6 +1039,7 @@ window.addEventListener("DOMContentLoaded", () => {
   loadLearning();
   setInterval(loadLearning, 60000);
   addMsg("jarvis", "JARVIS online. I'm watching BTC, Gold, and SPX live — and I know the full system state: risk, positions, and what I've learned from past trades. Ask me anything or tap 🎤 to speak.");
+  renderBriefing().catch(e => console.error("[jarvis] briefing:", e));
   // restore voice prefs
   if (localStorage.getItem("jarvis-voice") === "on") { voiceOn = true; refreshVoiceBtn(); }
   if (localStorage.getItem("jarvis-alerts") === "off") { alertsOn = false; refreshAlertBtn(); }
@@ -1393,6 +1430,7 @@ async function send() {
   const el  = document.getElementById("inp");
   const txt = el.value.trim();
   if (!txt) return;
+  briefDismiss();   // the conversation takes the space back
   addMsg("user", txt);
   el.value = "";
   resize(el);
@@ -1524,6 +1562,113 @@ loadCapabilities();
 function hkey(e)  { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }
 function resize(el){ el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 function esc(s)   { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+// ══════════════════════════════════════════
+//  OPENING BRIEFING — what fills the empty chat
+// ══════════════════════════════════════════
+const BRIEF_ASSETS = [["btc","BTC"],["gold","GOLD"],["spx","SPX"]];
+
+// Starter questions, phrased the way you would actually ask them. These are prompts,
+// not commands: clicking one types it and sends it, exactly as if it were typed.
+const BRIEF_PROMPTS = [
+  "Why is nothing firing right now?",
+  "What is closest to the gate?",
+  "What did we learn from the last trade?",
+  "Is anything wrong with the system?",
+];
+
+function briefDismiss() {
+  const node = document.getElementById("brief");
+  if (node) node.remove();
+}
+
+function briefRow(label, sig, gate) {
+  const conf   = (sig && sig.confidence) || 0;
+  const scored = conf > 0;
+  // Same distinction the overview card makes: conf 0 means the engine found no setup
+  // to score, not that it scored one and gave it zero.
+  const colour = !scored ? "var(--muted-dim)"
+               : conf >= gate ? "var(--green)"
+               : conf >= gate - 15 ? "var(--yellow)" : "var(--red)";
+  const gapPts = Math.max(0, gate - conf);
+  const right  = !scored ? "no setup"
+               : gapPts === 0 ? "at the gate" : gapPts + "pt short";
+  const tick   = gate > 0 && gate <= 100
+    ? '<div class="brief-gate" style="left:' + gate + '%"></div>' : "";
+  return '<div class="brief-row">'
+    + '<div class="brief-sym">' + esc(label) + '</div>'
+    + '<div class="brief-track">'
+    +   '<div class="brief-fill" style="width:' + Math.min(100, conf) + '%;background:' + colour + '"></div>'
+    +   tick
+    + '</div>'
+    + '<div class="brief-gap" style="color:' + colour + '">' + esc(right) + '</div>'
+    + '</div>';
+}
+
+// Reads only. Both endpoints are already used elsewhere in the system, and every
+// failure path degrades to what IS known rather than throwing — an unreachable
+// risk endpoint must not cost you the chat.
+async function renderBriefing() {
+  const box = document.getElementById("msgs");
+  if (!box || document.getElementById("brief")) return;
+
+  const [sigRes, gateRes, riskRes] = await Promise.all([
+    getJson("/api/signals"),
+    getJson("/api/strategy-settings"),
+    getJson("/api/risk-status"),
+  ]);
+
+  const signals = sigRes.data || {};
+  const gate = Number(gateRes.data && gateRes.data.confidenceThreshold) || 0;
+  const risk = riskRes.data || null;
+
+  // Never invent a gate. Without it there is no such thing as "15pt short", and a
+  // made-up threshold on this page is exactly how the stale 65 spread last time.
+  if (!gate) return;
+
+  const rows = BRIEF_ASSETS.map(([key, label]) => briefRow(label, signals[key], gate)).join("");
+
+  let state = "Gate " + gate + "% across Daily, 4H and 1H together.";
+  if (risk) {
+    state += risk.halted
+      ? " ⚠ TRADING HALTED — " + esc(risk.haltReason || "circuit breaker open") + "."
+      : " Breaker closed, " + (risk.consecutiveLosses || 0) + " consecutive losses.";
+  } else if (riskRes.authError) {
+    state += " Risk state unreadable — this browser's session has expired.";
+  } else {
+    state += " Risk state unavailable.";
+  }
+
+  const chips = BRIEF_PROMPTS
+    .map((q, i) => '<button class="brief-chip" data-brief-q="' + i + '">' + esc(q) + '</button>')
+    .join("");
+
+  const card = document.createElement("div");
+  card.className = "brief";
+  card.id = "brief";
+  card.innerHTML =
+      '<div class="brief-h"><div class="brief-t">Where things stand</div>'
+    + '<div class="brief-when">' + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + "</div></div>"
+    + rows
+    + '<div class="brief-state">' + state + "</div>"
+    + '<div class="brief-ask">' + chips + "</div>";
+
+  // Delegated, and the text comes from the array by index rather than being
+  // interpolated into an onclick attribute — a question mark and an apostrophe in a
+  // prompt should not be able to break the handler.
+  card.addEventListener("click", ev => {
+    const btn = ev.target.closest("[data-brief-q]");
+    if (!btn) return;
+    const input = document.getElementById("inp");
+    if (!input) return;
+    input.value = BRIEF_PROMPTS[Number(btn.dataset.briefQ)] || "";
+    resize(input);
+    send();
+  });
+
+  box.appendChild(card);
+  box.scrollTop = box.scrollHeight;
+}
 function fmt(s)   { return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); }
 
 // ══════════════════════════════════════════
@@ -1653,10 +1798,14 @@ function setSig(key, sig, price) {
   const s = sig.signal || "WAIT";
   badge.textContent = s;
   badge.className   = "sc-badge b-" + s;
-  cEl.textContent   = conf + "%";
+  // conf 0 is the engine declining to score, not a score of zero — same distinction
+  // the overview card and the briefing make. A bare "0%" beside a full-width empty
+  // track reads as a panel that failed to load.
+  cEl.textContent   = conf > 0 ? conf + "%" : "no setup";
   if (price) pEl.textContent = "$" + Number(price).toLocaleString();
 
-  const clr = conf >= 65 ? "var(--green)" : conf >= 40 ? "var(--yellow)" : "var(--muted)";
+  const clr = conf === 0 ? "var(--muted-dim)"
+            : conf >= 65 ? "var(--green)" : conf >= 40 ? "var(--yellow)" : "var(--muted)";
   bar.style.width      = conf + "%";
   bar.style.background = clr;
   card.className = "sig-card " + s.toLowerCase();
