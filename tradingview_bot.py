@@ -97,7 +97,13 @@ def get_cred(key):
     return None
 
 # ── Session config ─────────────────────────────────────────────────────────────
-CHROME_USER_DATA = r"C:\Users\User\AppData\Local\Microsoft\Edge\SmartEntryTV"
+# Derived, not hardcoded. This named one user profile path literally, so the copy
+# deployed to the VPS - present, syntax-clean, looking every bit as installed as the
+# laptop copy - pointed at a directory that cannot exist under its Administrator
+# account. Identical value on this machine; the difference only shows on a box whose
+# user account is not the one that was baked in.
+_TV_PROFILE_ROOT = os.environ.get("LOCALAPPDATA") or "C:\\Users\\User\\AppData\\Local"
+CHROME_USER_DATA = str(Path(_TV_PROFILE_ROOT) / "Microsoft" / "Edge" / "SmartEntryTV")
 SESSION_FILE     = Path(__file__).parent / "tasks" / ".tv_session.json"
 
 def save_session(ctx):
@@ -443,7 +449,28 @@ def generate_pine(plans):
     live_keys = [spec for spec in LEVEL_SPECS
                  if any(plan.get(spec[0]) is not None for plan in plans)]
 
+    # The job runs 06:45 and 13:15, so the longest NORMAL age is the overnight
+    # 13:15 -> 06:45 gap of 17.5h. A threshold just above that fires only when a run
+    # was actually missed, never on a healthy schedule.
+    STALE_AFTER_HOURS = 18.0
+    plan_ts_ms = plans[0].get("generated_ts_ms")
+    if plan_ts_ms is None:
+        # Never guess an age. An unknown age must read as unknown, not as fresh.
+        stale_vars = [
+            "_planAgeSuffix = \"  (age unknown)\"",
+            "_planAgeColor = color.gray",
+        ]
+    else:
+        stale_vars = [
+            "_planTs = %d" % int(plan_ts_ms),
+            "_planAgeHrs = (timenow - _planTs) / 3600000.0",
+            "_planStale = _planAgeHrs > %.1f" % STALE_AFTER_HOURS,
+            '_planAgeSuffix = _planStale ? "  STALE " + str.tostring(_planAgeHrs, "#.#") + "h" : ""',
+            "_planAgeColor = _planStale ? color.red : color.white",
+        ]
+
     level_vars, draw_block = [], []
+    level_vars.extend(stale_vars)
     for key, colour, width, style in live_keys:
         level_vars.append("_" + key + " = " + _ternary(
             plans, lambda p, k=key: p.get(k) if p.get(k) is not None else "na", "na"))
@@ -459,11 +486,17 @@ def generate_pine(plans):
         )
 
     cells = [
-        "    table.cell(planTable, 0, 0, " + _ternary(
+        # The ternary MUST be parenthesised. Pine binds + tighter than ?: , so
+        # `_isGOLD ? "a" : "b" + _suffix` attaches the suffix to the FALLBACK branch
+        # only - the stale marker would never appear on a real symbol.
+        "    table.cell(planTable, 0, 0, (" + _ternary(
             plans,
-            lambda p: _pine_str("JARVIS " + p["symbol"] + "  " + p["generated_at"][-5:]),
+            # [-5:] was HH:MM with the date discarded, so a plan drawn two days ago
+            # read exactly like one drawn this morning. That is the stale-chart failure
+            # this whole job exists to prevent, printed in the header.
+            lambda p: _pine_str("JARVIS " + p["symbol"] + "  " + p["generated_at"][5:]),
             '"JARVIS PLAN"')
-        + ", text_color=color.white, text_size=size.normal, text_halign=text.align_left)",
+        + ") + _planAgeSuffix, text_color=_planAgeColor, text_size=size.normal, text_halign=text.align_left)",
         "    table.cell(planTable, 1, 0, " + _ternary(
             plans, lambda p: _pine_str(p.get("bias") or "WAIT"), '"-"')
         + ", text_color=color.white, text_size=size.normal, text_halign=text.align_left"
@@ -869,6 +902,10 @@ def build_plan(symbol, asset, gate=None, overrides=None):
         "support": support,
         "resistance": resistance,
         "generated_at": time.strftime("%Y-%m-%d %H:%M"),
+        # The instant itself, so the chart can age its own plan. Deriving this
+        # back from generated_at would mean re-parsing a LOCAL time string, and
+        # the two boxes are in different timezones.
+        "generated_ts_ms": int(time.time() * 1000),
         "source_note": f'{asset.get("dataSource", "unknown")} '
                        f'{asset.get("sourceSymbol", "")} '
                        f'updated {asset.get("updatedAt", "?")}',
