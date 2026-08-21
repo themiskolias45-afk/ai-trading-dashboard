@@ -561,6 +561,19 @@ function html(id, h) { const e = el(id); if (e) e.innerHTML = h; }
 function text(id, t) { const e = el(id); if (e) e.textContent = t; }
 function setColor(id, c) { const e = el(id); if (e) e.style.color = c; }
 
+// The 2px rule across the top of each KPI card is painted from --kpi-color, which was
+// hardcoded in the markup: a GREEN bar sat over a red 40.0% win rate, a green bar over
+// -$416.61, an amber bar over a red 0.25 profit factor. Three of the four cards were
+// coloured the opposite of what they said. Setting the token on the card as well as
+// the value keeps the bar and the number telling the same story.
+function setKpiTone(valueId, color) {
+  const valueEl = el(valueId);
+  if (!valueEl) return;
+  valueEl.style.color = color;
+  const card = valueEl.closest('.kpi-card');
+  if (card) card.style.setProperty('--kpi-color', color);
+}
+
 function pnlClass(pnl) {
   return pnl == null ? 'pnl-zero' : pnl > 0 ? 'pnl-pos' : pnl < 0 ? 'pnl-neg' : 'pnl-zero';
 }
@@ -661,8 +674,31 @@ function renderSignalBars(signals) {
 }
 
 // ── EQUITY CURVE ───────────────────────────────────────────────
+// /api/journal returns NEWEST FIRST. This function used to accumulate P&L in that
+// native order, so the curve ran backwards: the X axis read Aug 18 → Aug 11 → Jul 30
+// and every drawdown, the max-DD and the whole shape a trader reads off it were
+// fabricated. The endpoint value still looked right because a sum does not care about
+// order, which is exactly what made it survive so long.
+//
+// Equity is realised when a trade CLOSES, not when it opens, so the sort key is
+// closeTime with openTime as the fallback — two of the trades on record opened four
+// days apart and closed 32 seconds apart, and only closeTime puts those in the order
+// the account actually experienced them.
+function tradeTimestamp(trade) {
+  const raw = trade.closeTime || trade.openTime;
+  const ms  = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 function buildEquityChart(trades) {
-  const closed  = trades.filter(t => t.status !== 'OPEN' && t.pnl != null);
+  const closed = trades
+    .filter(t => t.status !== 'OPEN' && t.pnl != null)
+    // .map keeps the original index so a pair with identical (or absent) timestamps
+    // holds a stable order instead of shuffling between refreshes.
+    .map((trade, index) => ({ trade, index }))
+    .sort((a, b) => (tradeTimestamp(a.trade) - tradeTimestamp(b.trade)) || (a.index - b.index))
+    .map(entry => entry.trade);
+  // Newest 200, not oldest: slice(-200) on a newest-first array kept the wrong end.
   const last200 = closed.slice(-200);
   const wrap    = el('equity-chart-wrap');
 
@@ -681,9 +717,10 @@ function buildEquityChart(trades) {
   last200.forEach((t, i) => {
     eq += t.pnl;
     data.push(eq);
+    const closedAt = t.closeTime || t.openTime;
     labels.push(
-      t.openTime
-        ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      closedAt
+        ? new Date(closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
         : `T${i + 1}`
     );
   });
@@ -695,6 +732,13 @@ function buildEquityChart(trades) {
   wrap.style.height = '230px';
 
   if (equityChart) { equityChart.destroy(); equityChart = null; }
+
+  // Every Y tick rendered "$90k": the callback divided by 1000 and rounded to zero
+  // decimals, so an account moving between 89,550 and 90,000 produced eleven identical
+  // labels and an axis that could not be read at all. Pick the precision from the span
+  // actually on screen rather than assuming the account moves in thousands.
+  const eqSpan = Math.max(...data) - Math.min(...data);
+  const eqDecimals = eqSpan >= 20000 ? 0 : eqSpan >= 2000 ? 1 : 2;
 
   const ctx = el('equity-canvas').getContext('2d');
   const grad = ctx.createLinearGradient(0, 0, 0, 230);
@@ -711,7 +755,12 @@ function buildEquityChart(trades) {
         borderWidth: 2.5,
         backgroundColor: grad,
         fill: true,
-        tension: 0.38,
+        // tension 0. A cardinal spline through equity points overshoots between them:
+        // at 0.38 the curve dipped visibly BELOW the Jul 31 low and bulged above the
+        // Aug 11 high, drawing drawdown depth the account never experienced. Equity
+        // moves in discrete steps at each close; straight segments are the only
+        // geometry that does not invent intermediate balances.
+        tension: 0,
         pointRadius: data.length > 50 ? 0 : 3,
         pointHoverRadius: 5,
         pointBackgroundColor: lineColor,
@@ -746,7 +795,9 @@ function buildEquityChart(trades) {
           grid: { color: 'rgba(30,48,64,.5)', drawTicks: false },
           ticks: {
             color: '#4a6080', font: { size: 10 },
-            callback: v => '$' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v)
+            callback: v => (Math.abs(v) >= 1000
+              ? '$' + (v / 1000).toFixed(eqDecimals) + 'k'
+              : '$' + v.toFixed(eqDecimals === 0 ? 0 : 2))
           },
           border: { color: '#1e3040' }
         }
@@ -779,11 +830,27 @@ function buildSetupChart(setups) {
     return;
   }
 
-  const labels   = sorted.map(s => s.name.replace(/_/g, ' '));
+  // "WAIT" is the engine's word for DECLINING to take a setup, and "UNKNOWN" is the
+  // fallback for a journal row with no setup recorded. Neither is a strategy. Both were
+  // being ranked, coloured and sorted as if they were, and because a single WAIT row
+  // happened to close positive it rendered as a full-width green 100% bar sitting at the
+  // top of the board — the best-performing "strategy" in the system.
+  //
+  // The row is KEPT, not filtered: it is real journal data and hiding it would be its
+  // own kind of lie. It is drawn in neutral grey, marked in the label, and excluded from
+  // the edge/OK/review colour scale so it cannot be read as an edge.
+  const NON_SETUPS = new Set(['WAIT', 'UNKNOWN', 'NONE', 'NO_SETUP']);
+  const isNonSetup = s => NON_SETUPS.has(String(s.name || '').toUpperCase());
+
+  const labels   = sorted.map(s => s.name.replace(/_/g, ' ') + (isNonSetup(s) ? '  (not a setup)' : ''));
   const winRates = sorted.map(s => +s.winRate.toFixed(1));
 
-  const bgColors     = winRates.map(w => w > 60 ? 'rgba(0,255,136,.75)' : w >= 40 ? 'rgba(255,184,48,.75)' : 'rgba(255,68,68,.75)');
-  const borderColors = winRates.map(w => w > 60 ? '#00ff88' : w >= 40 ? '#ffb830' : '#ff4444');
+  const bgColors = sorted.map((s, i) => isNonSetup(s)
+    ? 'rgba(107,131,168,.30)'
+    : (winRates[i] > 60 ? 'rgba(0,255,136,.75)' : winRates[i] >= 40 ? 'rgba(255,184,48,.75)' : 'rgba(255,68,68,.75)'));
+  const borderColors = sorted.map((s, i) => isNonSetup(s)
+    ? '#6b83a8'
+    : (winRates[i] > 60 ? '#00ff88' : winRates[i] >= 40 ? '#ffb830' : '#ff4444'));
 
   const barHeight = 34;
   const neededH   = Math.max(160, sorted.length * barHeight + 20);
@@ -823,8 +890,16 @@ function buildSetupChart(setups) {
           callbacks: {
             label: c => {
               const s = sorted[c.dataIndex];
-              const badge = s.winRate > 60 ? 'EDGE' : s.winRate >= 40 ? 'OK' : 'REVIEW';
-              return ` ${c.raw}% win rate  ·  ${s.count} trades  ·  ${badge}`;
+              if (isNonSetup(s)) {
+                return ` ${c.raw}% of ${s.count} — NOT A SETUP, no edge to read here`;
+              }
+              // n is the whole story on this system: the binding constraint is sample
+              // size, so a win rate is quoted with the count it came from and anything
+              // under five closes says so instead of showing a verdict it cannot support.
+              const badge = s.count < 5
+                ? 'TOO FEW TO JUDGE'
+                : s.winRate > 60 ? 'EDGE' : s.winRate >= 40 ? 'OK' : 'REVIEW';
+              return ` ${c.raw}% win rate  ·  n=${s.count}  ·  ${badge}`;
             }
           }
         }
@@ -870,7 +945,24 @@ function computeSetupData(trades) {
 // ── TRADES TABLE ───────────────────────────────────────────────
 function buildTradesTable(trades) {
   const wrap   = el('trades-wrap');
-  const recent = [...trades].reverse().slice(0, 20);
+  // /api/journal is newest-first, so [...trades].reverse() handed this the OLDEST
+  // trades under a heading that says "Recent". Sort explicitly rather than relying on
+  // the endpoint's order staying what it is today.
+  //
+  // Sort on openTime, NOT on tradeTimestamp: the Date column of this table renders
+  // openTime, and sorting by close while displaying open produced rows that read as
+  // shuffled (an Aug 5 trade above an Aug 11 one because it closed later). The equity
+  // curve still sorts by close, because equity is realised at close — different
+  // question, different key.
+  const openedAt = trade => {
+    const ms = trade.openTime ? new Date(trade.openTime).getTime() : NaN;
+    return Number.isFinite(ms) ? ms : 0;
+  };
+  const recent = [...trades]
+    .map((trade, index) => ({ trade, index }))
+    .sort((a, b) => (openedAt(b.trade) - openedAt(a.trade)) || (a.index - b.index))
+    .map(entry => entry.trade)
+    .slice(0, 20);
 
   if (!recent.length) {
     wrap.innerHTML = `<div class="empty-state"><span class="icon">📋</span>No trades recorded yet.</div>`;
@@ -939,21 +1031,21 @@ function updateKpis(trades) {
 
   // Total Trades
   text('kpi-trades', closed.length.toString());
-  setColor('kpi-trades', 'var(--blue)');
+  setKpiTone('kpi-trades', 'var(--blue)');
   text('kpi-trades-sub', `${open.length} open · ${trades.length} total logged`);
 
   // Win Rate
   const winRate = closed.length ? wins.length / closed.length * 100 : 0;
   const wrCol   = winRate >= 55 ? 'var(--green)' : winRate >= 45 ? 'var(--yellow)' : 'var(--red)';
   text('kpi-winrate', closed.length ? fmtPct(winRate) : '—');
-  setColor('kpi-winrate', closed.length ? wrCol : 'var(--muted2)');
+  setKpiTone('kpi-winrate', closed.length ? wrCol : 'var(--muted2)');
   text('kpi-winrate-sub', closed.length ? `${wins.length} wins · ${losses.length} losses` : 'No closed trades');
 
   // Net P&L
   const netPnl = closed.reduce((s, t) => s + t.pnl, 0);
   const pnlPct = netPnl / ACCOUNT_BASE * 100;
   text('kpi-pnl', closed.length ? fmtDollar(netPnl) : '—');
-  setColor('kpi-pnl', closed.length ? (netPnl >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted2)');
+  setKpiTone('kpi-pnl', closed.length ? (netPnl >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted2)');
   text('kpi-pnl-sub', closed.length
     ? `${pnlPct >= 0 ? '+' : ''}${fmtPct(pnlPct)} on $${(ACCOUNT_BASE / 1000).toFixed(0)}k account`
     : 'No closed trades');
@@ -973,7 +1065,7 @@ function updateKpis(trades) {
     }
   }
   text('kpi-pf', pfVal);
-  setColor('kpi-pf', pfCol);
+  setKpiTone('kpi-pf', pfCol);
   text('kpi-pf-sub', grossLoss > 0
     ? `$${grossWin.toFixed(0)} gross wins / $${grossLoss.toFixed(0)} gross losses`
     : 'Gross win ÷ gross loss');
