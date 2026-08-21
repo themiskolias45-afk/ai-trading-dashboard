@@ -133,6 +133,27 @@
     .level-rail { width:120px; flex-shrink:0; border-left:1px solid var(--border); background:var(--bg); }
     .level-rail svg { width:100%; height:100%; display:block; }
     .rail-empty { font-size:.58rem; color:var(--muted); padding:10px 9px; line-height:1.6; }
+
+    /* The pane was an empty box from mkChart() until TradingView's iframe painted -
+       seconds on a cold load, and identical to the failure state.
+
+       The skeleton canNOT live inside .tv-holder: the tv.js widget REPLACES that
+       container's children when it mounts, so a skeleton put there is wiped within
+       ~300ms and never seen. Measured that before believing it. It goes in .chart-body
+       instead, which is ours, positioned over the pane. */
+    .chart-body { position:relative; }
+    .tv-skeleton {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      gap:9px; background:var(--surface); color:var(--muted); font-size:.68rem;
+      pointer-events:none; transition:opacity .35s ease; z-index:1;
+    }
+    .tv-skeleton.gone { opacity:0; }
+    .tv-skeleton::before {
+      content:''; width:13px; height:13px; border-radius:50%;
+      border:2px solid var(--border2); border-top-color:var(--accent);
+      animation:spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
     /* Collapsed when there are no levels to draw, so the chart gets the width back.
        Measured: the rail is 120px of a 504px card — 24 percent — and it held nothing but
        "levels appear with the signal" on all three charts, squeezing each chart to 384px.
@@ -1909,25 +1930,142 @@ function mkChart(assetKey) {
   const studies = ["BB@tv-basicstudies", "MAExp@tv-basicstudies"];
   if (chartHeight() >= RSI_MIN_CHART_HEIGHT) studies.push("RSI@tv-basicstudies");
 
+  const palette = chartPalette();
+  showChartSkeleton(container);
+
   try {
     chartWidgets[assetKey] = new TradingView.widget({
       autosize:true,
       symbol:asset.symbol, interval:chartIntervals[assetKey],
       timezone:"Etc/UTC", theme:"dark", style:"1", locale:"en",
-      toolbar_bg:"#0f1520", enable_publishing:false, hide_top_toolbar:false,
+      toolbar_bg:palette.surface, enable_publishing:false, hide_top_toolbar:false,
       hide_side_toolbar:true, withdateranges:true, details:false,
       // The engine trades one instrument per panel. Letting the chart be switched
       // to another one turns this into a picture of something we do not trade.
       allow_symbol_change:false,
       save_image:false, container_id:asset.containerId,
-      backgroundColor:"#0f1520", gridColor:"rgba(26,34,53,0.5)",
+      backgroundColor:palette.surface, gridColor:palette.grid,
       studies,
       studies_overrides:{ "moving average exponential.length": EMA_PERIOD },
+      overrides:chartOverrides(palette),
     });
+    watchChartPaint(container);
   } catch (e) {
     console.error("mkChart " + assetKey + ":", e);
     container.innerHTML = '<div class="rail-empty">Chart failed to load — TradingView unreachable.</div>';
   }
+}
+
+/* ── Chart palette ───────────────────────────────────────────────────────────
+   The TradingView panes are the one surface theme.css cannot reach. It unified ten
+   pages by winning the cascade on :root, but the chart is a cross-origin iframe, so
+   it kept its own ground and its own colours and quietly re-created the exact problem
+   that sheet was written to end: TV's default candles are #26a69a teal for "up", while
+   every other green on this page is --green. Two greens for one idea, side by side.
+
+   The ground was wrong too. backgroundColor was hardcoded #0f1520 — this file's OWN
+   old --surface — but theme.css now renders the card around it at #0d1420, so every
+   chart sat in a panel a shade off its own frame.
+
+   Read at mount from the live custom properties rather than hardcoded again, so the
+   charts follow the theme instead of drifting from it a second time. Every read falls
+   back to what was there before, so a renamed token degrades to today's appearance
+   rather than to an unstyled chart. */
+function cssVar(name, fallback) {
+  try {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  } catch { return fallback; }
+}
+
+function chartPalette() {
+  return {
+    surface: cssVar("--surface", "#0f1520"),
+    green:   cssVar("--green",   "#2bd07c"),
+    red:     cssVar("--red",     "#f2555f"),
+    grid:    "rgba(26,34,53,0.5)",
+    text:    cssVar("--muted",   "#6b83a8"),
+    border:  cssVar("--border",  "#1a2235"),
+  };
+}
+
+// Keys TradingView ignores are dropped silently rather than throwing, so an override
+// that stops being supported costs the styling and nothing else.
+function chartOverrides(palette) {
+  return {
+    "paneProperties.background":                     palette.surface,
+    "paneProperties.backgroundType":                 "solid",
+    "paneProperties.vertGridProperties.color":       palette.grid,
+    "paneProperties.horzGridProperties.color":       palette.grid,
+    "scalesProperties.textColor":                    palette.text,
+    "scalesProperties.lineColor":                    palette.border,
+    "mainSeriesProperties.candleStyle.upColor":        palette.green,
+    "mainSeriesProperties.candleStyle.downColor":      palette.red,
+    "mainSeriesProperties.candleStyle.borderUpColor":  palette.green,
+    "mainSeriesProperties.candleStyle.borderDownColor":palette.red,
+    "mainSeriesProperties.candleStyle.wickUpColor":    palette.green,
+    "mainSeriesProperties.candleStyle.wickDownColor":  palette.red,
+  };
+}
+
+// Mounted on .chart-body, NOT on the container: the tv.js widget replaces its own
+// container's children, so a skeleton inside it is destroyed before it can be seen.
+function chartSkeletonHost(container) { return container.closest(".chart-body") || container.parentElement; }
+
+function showChartSkeleton(container) {
+  const host = chartSkeletonHost(container);
+  if (!host) return;
+  host.querySelectorAll(":scope > .tv-skeleton").forEach(node => node.remove());
+  const skeleton = document.createElement("div");
+  skeleton.className = "tv-skeleton";
+  skeleton.textContent = "Loading chart…";
+  host.appendChild(skeleton);
+}
+
+// The tv.js embed gives no reliable onChartReady, so watch for the iframe it appends.
+//
+// Measured rather than assumed, and the first version was wrong: relying on the iframe's
+// load event alone left the skeleton up for the full 14s backstop, because TradingView
+// appends the iframe within ~300ms and can replace that node afterwards, so the listener
+// ends up on an element whose load has already fired or which is no longer in the tree.
+// A skeleton sitting over a chart that finished rendering ten seconds ago is worse than
+// no skeleton at all.
+//
+// So: the iframe APPEARING is the signal that TradingView has taken the pane over, and
+// the chart paints shortly after. Clear on load when that arrives (fast path), otherwise
+// a short grace period from the moment the iframe appears. The long timeout stays as the
+// backstop for the case the iframe never appears at all.
+const CHART_PAINT_GRACE_MS = 2500;
+const CHART_PAINT_TIMEOUT_MS = 15000;
+function watchChartPaint(container) {
+  const host = chartSkeletonHost(container);
+  const clear = () => {
+    const skeleton = host && host.querySelector(":scope > .tv-skeleton");
+    if (!skeleton) return;
+    skeleton.classList.add("gone");
+    setTimeout(() => skeleton.remove(), 400);
+  };
+  const timer = setTimeout(clear, CHART_PAINT_TIMEOUT_MS);
+
+  const onFrame = frame => {
+    const grace = setTimeout(() => { clearTimeout(timer); clear(); }, CHART_PAINT_GRACE_MS);
+    frame.addEventListener("load", () => { clearTimeout(grace); clearTimeout(timer); clear(); }, { once: true });
+  };
+
+  // Check for the iframe BEFORE observing. mkChart constructs the widget and only then
+  // calls this, and tv.js appends its iframe synchronously inside the constructor - so
+  // the mutation has already happened by the time we get here and a MutationObserver on
+  // its own never fires. That is what left the skeleton up for the full 15s backstop.
+  const existing = container.querySelector("iframe");
+  if (existing) { onFrame(existing); return; }
+
+  const observer = new MutationObserver(() => {
+    const frame = container.querySelector("iframe");
+    if (!frame) return;
+    observer.disconnect();
+    onFrame(frame);
+  });
+  observer.observe(container, { childList: true, subtree: true });
 }
 
 function destroyChart(assetKey) {
