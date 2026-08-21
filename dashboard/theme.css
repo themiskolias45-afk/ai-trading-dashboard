@@ -75,10 +75,25 @@
   --subtle:      #1e2a3d;
   --dim:         #2b3a52;
 
-  /* Type. --text ~15:1, --muted ~7.6:1, --muted-dim ~4.7:1 on --bg. */
+  /* Type. Contrast re-measured 2026-08-21 against every surface these actually sit
+     on, not just --bg, because that is where the old note went wrong.
+
+       --text     #e8eef7   15.9 / 14.9 / 14.1 / 13.1   (bg / surface / surface2 / surface3)
+       --muted    #8aa0c0    7.39 / 6.92 / 6.54 / 6.07
+       --muted-dim #7488ab   5.49 / 5.14 / 4.86 / 4.51
+
+     --muted-dim was #62779a, and the note above it claimed ~4.7:1 on --bg. It measured
+     4.34 there and fell to 3.56 on --surface3 - and --surface/--surface2 is where it is
+     mostly USED, on captions, sub-labels and timestamps. That single token accounted for
+     26 of 29 failing elements on the dashboard, all 30 on the systems plan and 46 on the
+     system page: ~100 elements across the fleet, every one of them a caption sitting just
+     under the line.
+
+     #7488ab clears 4.5 on the lightest surface it lands on while staying a clear step
+     dimmer than --muted, so the three-level type hierarchy survives the fix. */
   --text:        #e8eef7;
   --muted:       #8aa0c0;
-  --muted-dim:   #62779a;
+  --muted-dim:   #7488ab;
   --muted2:      #8aa0c0;
 
   /* Semantics. ONE green and ONE red for the whole system. The neon #00ff88 is

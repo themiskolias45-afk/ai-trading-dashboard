@@ -917,7 +917,7 @@ async function loadStatus() {
 const DOCTOR_COLOUR = {
   RED:   { border: 'rgba(255,68,68,.35)',  bg: 'rgba(255,68,68,.06)',  text: 'var(--red)' },
   AMBER: { border: 'rgba(255,184,0,.35)',  bg: 'rgba(255,184,0,.06)',  text: '#ffb800' },
-  INFO:  { border: 'rgba(255,255,255,.12)', bg: 'rgba(255,255,255,.03)', text: 'var(--dim)' },
+  INFO:  { border: 'rgba(255,255,255,.12)', bg: 'rgba(255,255,255,.03)', text: 'var(--muted-dim)' },
 };
 
 async function loadDoctor() {
@@ -930,7 +930,7 @@ async function loadDoctor() {
     // A cached answer is still an answer, but its age has to be visible: this panel
     // exists to be trusted in the moment something is wrong.
     const age = data.ageMs > 1000 ? Math.round(data.ageMs / 1000) + 's old' : 'just now';
-    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
+    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--muted-dim)">'
       + '<span style="color:var(--red);font-weight:600">' + (counts.RED || 0) + ' RED</span> · '
       + '<span style="color:#ffb800;font-weight:600">' + (counts.AMBER || 0) + ' AMBER</span> · '
       + (counts.INFO || 0) + ' INFO &nbsp;—&nbsp; ' + esc(age)
@@ -949,12 +949,12 @@ async function loadDoctor() {
         + '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">'
         + '<span style="color:' + c.text + ';font-weight:700;font-size:11px;letter-spacing:.08em">'
         + esc(f.severity) + '</span>'
-        + '<span style="color:var(--dim);font-size:11px;letter-spacing:.06em">' + esc(f.box) + '</span>'
+        + '<span style="color:var(--muted-dim);font-size:11px;letter-spacing:.06em">' + esc(f.box) + '</span>'
         + (f.healable ? '<span style="font-size:10px;color:var(--green);border:1px solid rgba(0,255,136,.3);'
             + 'border-radius:4px;padding:1px 6px">HEALABLE</span>' : '')
         + '</div>'
         + '<div style="margin-top:6px;font-size:14px;font-weight:600">' + esc(f.what) + '</div>'
-        + '<div style="margin-top:4px;font-size:12px;color:var(--dim);line-height:1.5">' + esc(f.why) + '</div>'
+        + '<div style="margin-top:4px;font-size:12px;color:var(--muted-dim);line-height:1.5">' + esc(f.why) + '</div>'
         + '<div style="margin-top:8px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'
         + 'background:rgba(0,0,0,.25);border-radius:6px;padding:7px 9px;overflow-x:auto;white-space:pre">'
         + esc(f.remedy) + '</div>'
@@ -987,7 +987,7 @@ const JOB_COLOUR = {
 
 function citationBadge(c) {
   if (!c || !c.checked) {
-    return '<span style="font-size:10px;color:var(--dim);border:1px solid rgba(255,255,255,.15);'
+    return '<span style="font-size:10px;color:var(--muted-dim);border:1px solid rgba(255,255,255,.15);'
       + 'border-radius:4px;padding:1px 6px">NO REFERENCES</span>';
   }
   const broken = (c.broken || []).length;
@@ -1006,11 +1006,11 @@ async function loadAiWork() {
     const d = await getJson('/ai-work');
     const t = d.totals || {};
 
-    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
+    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--muted-dim)">'
       + t.jobs + ' jobs · '
       + '<span style="color:' + (t.failing ? 'var(--red)' : 'var(--green)') + ';font-weight:600">'
       + t.failing + ' failing</span> · '
-      + '<span style="color:' + (t.unreviewed ? '#ffb800' : 'var(--dim)') + ';font-weight:600">'
+      + '<span style="color:' + (t.unreviewed ? '#ffb800' : 'var(--muted-dim)') + ';font-weight:600">'
       + t.unreviewed + ' unreviewed</span> of ' + t.proposals + ' proposals'
       + (t.proposalsWithBrokenRefs
           ? ' · <span style="color:var(--red);font-weight:600">' + t.proposalsWithBrokenRefs
@@ -1021,12 +1021,12 @@ async function loadAiWork() {
           ? ' · diagnosis <span style="color:var(--green)">' + (t.callsRight || 0) + ' right</span>'
             + ' / <span style="color:var(--red)">' + (t.callsWrong || 0) + ' wrong</span>'
             + (t.callsUnproven ? ' / ' + t.callsUnproven + ' unproven' : '')
-            + (t.callsUnscored ? ' · <span style="color:var(--dim)">' + t.callsUnscored + ' unscored</span>' : '')
-          : ' · <span style="color:var(--dim)">no diagnosis scored yet</span>')
+            + (t.callsUnscored ? ' · <span style="color:var(--muted-dim)">' + t.callsUnscored + ' unscored</span>' : '')
+          : ' · <span style="color:var(--muted-dim)">no diagnosis scored yet</span>')
       + '</div>';
 
     jobsEl.innerHTML = (d.jobs || []).map(j => {
-      const colour = JOB_COLOUR[j.verdict] || 'var(--dim)';
+      const colour = JOB_COLOUR[j.verdict] || 'var(--muted-dim)';
       return '<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;gap:8px">'
         + '<span>' + esc(j.label) + '</span>'
         + '<span style="color:' + colour + ';font-size:11px;font-weight:700">' + esc(j.verdict) + '</span>'
@@ -1056,19 +1056,19 @@ async function loadAiWork() {
                 ? '<span style="font-size:10px;border-radius:4px;padding:1px 6px;border:1px solid '
                   + (p.call === 'right' ? 'rgba(0,255,136,.35);color:var(--green)'
                      : p.call === 'wrong' ? 'rgba(255,68,68,.35);color:var(--red)'
-                     : 'rgba(255,255,255,.15);color:var(--dim)')
+                     : 'rgba(255,255,255,.15);color:var(--muted-dim)')
                   + '">CALL ' + esc(p.call.toUpperCase()) + '</span>'
                 : '')
             + citationBadge(p.citations)
-            + '<span style="font-size:11px;color:var(--dim)">' + esc(p.jobLabel) + ' · '
+            + '<span style="font-size:11px;color:var(--muted-dim)">' + esc(p.jobLabel) + ' · '
             + p.ageDays + 'd old</span></div>'
             + '<div style="margin-top:6px;font-size:13px;line-height:1.5">' + esc(p.text) + '</div>'
             + ((p.citations && p.citations.broken || []).length
                 ? '<div style="margin-top:6px;font-size:11px;color:var(--red)">'
                   + p.citations.broken.map(b => esc(b.ref) + ' — ' + esc(b.why)).join('<br>') + '</div>'
                 : '')
-            + (p.note ? '<div style="margin-top:6px;font-size:11px;color:var(--dim)">' + esc(p.note) + '</div>' : '')
-            + '<div style="margin-top:6px;font-size:11px;color:var(--dim);font-family:ui-monospace,monospace">'
+            + (p.note ? '<div style="margin-top:6px;font-size:11px;color:var(--muted-dim)">' + esc(p.note) + '</div>' : '')
+            + '<div style="margin-top:6px;font-size:11px;color:var(--muted-dim);font-family:ui-monospace,monospace">'
             + esc(p.file) + ':' + p.line + '</div>'
             + '</div>';
         }).join('') + '</div>';
@@ -1088,13 +1088,13 @@ const VERDICT_COLOUR = {
   'ROBUST':                'var(--green)',
   'CONSISTENTLY NEGATIVE': 'var(--green)',   // consistently bad to REMOVE = the slice earns its place
   'MOSTLY POSITIVE':       '#ffb800',
-  'UNSTABLE':              'var(--dim)',
-  'TOO FEW FOLDS':         'var(--dim)',
+  'UNSTABLE':              'var(--muted-dim)',
+  'TOO FEW FOLDS':         'var(--muted-dim)',
 };
 
 function rptCell(v) {
-  if (v === null || v === undefined) return '<span style="color:var(--dim)">—</span>';
-  const c = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--dim)';
+  if (v === null || v === undefined) return '<span style="color:var(--muted-dim)">—</span>';
+  const c = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--muted-dim)';
   return '<span style="color:' + c + '">' + (v >= 0 ? '+' : '') + v.toFixed(3) + '</span>';
 }
 
@@ -1107,20 +1107,20 @@ function foldTable(m, title) {
   const rows = (m.slices || []).map(s =>
     '<tr>'
     + '<td style="padding:6px 10px">' + esc(s.slice) + '</td>'
-    + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + s.closed + '</td>'
+    + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + s.closed + '</td>'
     + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.rpt) + '</td>'
     + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.pooledDelta) + '</td>'
     + '<td style="padding:6px 10px;text-align:right;font-weight:600">'
       + s.foldsImproved + '/' + s.foldsScored + '</td>'
-    + '<td style="padding:6px 10px;color:' + (VERDICT_COLOUR[s.verdict] || 'var(--dim)') + '">'
+    + '<td style="padding:6px 10px;color:' + (VERDICT_COLOUR[s.verdict] || 'var(--muted-dim)') + '">'
       + esc(s.verdict) + '</td></tr>').join('');
   return '<div style="margin:10px 0 22px">'
-    + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">' + esc(title)
+    + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:6px">' + esc(title)
     + ' — ' + m.trades + ' trades at gate ' + m.gate + ', ' + m.foldCount + ' folds, baseline '
     + (m.baseline >= 0 ? '+' : '') + (m.baseline || 0).toFixed(3) + 'R/trade · '
     + m.ageHours + 'h old</div>'
     + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-    + '<tr style="color:var(--dim);font-size:11px;text-align:left">'
+    + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left">'
     + '<th style="padding:6px 10px">slice</th><th style="padding:6px 10px;text-align:right">n</th>'
     + '<th style="padding:6px 10px;text-align:right">own R/t</th>'
     + '<th style="padding:6px 10px;text-align:right">delta if removed</th>'
@@ -1140,20 +1140,49 @@ let heatPopulation = 'atGate';   // toggled by the buttons below
 // the same numbers differently as the sample grows, so two visits would disagree.
 function heatCell(cell, minClosed) {
   if (!cell || !cell.closed) {
-    return { bg: 'rgba(255,255,255,.02)', fg: 'var(--dim)', label: '·', title: 'no trades' };
+    return { bg: 'rgba(255,255,255,.02)', fg: 'var(--muted-dim)', label: '·', title: 'no trades' };
   }
   const thin = cell.closed < minClosed;
   const r = cell.rpt;
   const title = cell.closed + ' trades · ' + cell.wr.toFixed(1) + '% win · '
     + (r >= 0 ? '+' : '') + r.toFixed(3) + 'R/trade' + (thin ? ' · too thin to score' : '');
-  if (thin) return { bg: 'rgba(255,255,255,.04)', fg: 'var(--dim)', label: '~', title };
+  if (thin) return { bg: 'rgba(255,255,255,.04)', fg: 'var(--muted-dim)', label: '~', title };
   const a = Math.min(Math.abs(r) / 0.5, 1) * 0.5 + 0.12;
+  const rgb = r >= 0 ? [0, 255, 136] : [255, 68, 68];
   return {
-    bg: r >= 0 ? 'rgba(0,255,136,' + a.toFixed(2) + ')' : 'rgba(255,68,68,' + a.toFixed(2) + ')',
-    fg: '#fff',
+    bg: 'rgba(' + rgb.join(',') + ',' + a.toFixed(2) + ')',
+    fg: heatLabelColour(rgb, a),
     label: (r >= 0 ? '+' : '') + r.toFixed(2),
     title,
   };
+}
+
+// The cell fill carries magnitude as ALPHA, from 0.12 up to 0.62, so a strong positive
+// block ends up a light mint green — and every label was painted #fff regardless. White
+// on the strongest green measured 3.17:1, under the 4.5 an 11px label needs, and the
+// best-performing cells on the map were the least readable ones on it.
+//
+// Rather than pick a threshold by eye, composite the fill over the surface it sits on
+// and return whichever of white or near-black actually wins. That is self-correcting:
+// change the alpha ramp or the palette later and the labels stay legible without anyone
+// remembering this existed.
+const HEAT_BASE_RGB = [13, 20, 32];   // --surface (#0d1420) from theme.css, which the cells sit on
+
+function srgbLuminance([r, g, b]) {
+  const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+function contrastRatio(lumA, lumB) {
+  return (Math.max(lumA, lumB) + 0.05) / (Math.min(lumA, lumB) + 0.05);
+}
+
+function heatLabelColour(fillRgb, alpha) {
+  const composite = fillRgb.map((channel, i) => HEAT_BASE_RGB[i] * (1 - alpha) + channel * alpha);
+  const lum = srgbLuminance(composite);
+  const white = contrastRatio(srgbLuminance([255, 255, 255]), lum);
+  const ink   = contrastRatio(srgbLuminance([7, 16, 24]), lum);
+  return white >= ink ? '#fff' : '#071018';
 }
 
 function renderHeatmap(hm) {
@@ -1169,9 +1198,9 @@ function renderHeatmap(hm) {
   const hours = (hm.entryHoursUtc || [0, 4, 8, 12, 16, 20]);
   const days = [1, 2, 3, 4, 5, 0, 6].filter(d => pop.day && pop.day[d]);
 
-  const head = '<tr><th style="padding:6px 8px;font-size:11px;color:var(--dim);text-align:left">UTC</th>'
-    + days.map(d => '<th style="padding:6px 8px;font-size:11px;color:var(--dim)">' + DAY_NAMES[d] + '</th>').join('')
-    + '<th style="padding:6px 8px;font-size:11px;color:var(--dim);text-align:right">block</th></tr>';
+  const head = '<tr><th style="padding:6px 8px;font-size:11px;color:var(--muted-dim);text-align:left">UTC</th>'
+    + days.map(d => '<th style="padding:6px 8px;font-size:11px;color:var(--muted-dim)">' + DAY_NAMES[d] + '</th>').join('')
+    + '<th style="padding:6px 8px;font-size:11px;color:var(--muted-dim);text-align:right">block</th></tr>';
 
   const rows = hours.map(h => {
     const cells = days.map(d => {
@@ -1181,7 +1210,7 @@ function renderHeatmap(hm) {
         + 'text-align:center;font-size:11px;font-weight:600;min-width:52px">' + c.label + '</div></td>';
     }).join('');
     const tot = pop.block[h];
-    return '<tr><td style="padding:6px 8px;font-size:11px;color:var(--dim);white-space:nowrap">'
+    return '<tr><td style="padding:6px 8px;font-size:11px;color:var(--muted-dim);white-space:nowrap">'
       + String(h).padStart(2, '0') + 'h <span style="opacity:.6">' + (HEAT_BLOCK_SESSION[h] || '') + '</span></td>'
       + cells
       + '<td style="padding:6px 8px;text-align:right;font-size:11px;white-space:nowrap">'
@@ -1192,15 +1221,15 @@ function renderHeatmap(hm) {
   const btn = (key, label) => '<button data-heatpop="' + key + '" style="cursor:pointer;font-size:11px;'
     + 'padding:4px 10px;border-radius:6px;border:1px solid ' + (heatPopulation === key ? 'rgba(0,255,136,.4)' : 'rgba(255,255,255,.15)')
     + ';background:' + (heatPopulation === key ? 'rgba(0,255,136,.1)' : 'transparent')
-    + ';color:' + (heatPopulation === key ? 'var(--green)' : 'var(--dim)') + '">' + label + '</button>';
+    + ';color:' + (heatPopulation === key ? 'var(--green)' : 'var(--muted-dim)') + '">' + label + '</button>';
 
   host.innerHTML = '<div style="margin:10px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
     + btn('atGate', 'At the live gate (' + hm.atGateTrades + ')')
     + btn('atFloor', 'All setups, conf ≥ ' + hm.grid.confFloor + ' (' + hm.totalTrades + ')')
-    + '<span style="font-size:11px;color:var(--dim)">R/trade per cell · hover for detail · '
+    + '<span style="font-size:11px;color:var(--muted-dim)">R/trade per cell · hover for detail · '
     + hm.ageHours + 'h old</span></div>'
     + '<div style="overflow-x:auto"><table style="border-collapse:collapse">' + head + rows + '</table></div>'
-    + '<div style="font-size:11px;color:var(--dim);margin-top:6px">'
+    + '<div style="font-size:11px;color:var(--muted-dim);margin-top:6px">'
     + 'green = positive, red = negative, intensity by size · <strong>~</strong> = under '
     + minClosed + ' trades, no verdict · <strong>·</strong> = no trades. '
     + 'Six rows because entries are H4 bar opens — no trade can start at any other hour.</div>';
@@ -1234,19 +1263,19 @@ async function loadMeasurements() {
       const rows = order.map(name => {
         const s = hm.sessions[name];
         if (!s) return '<tr><td style="padding:6px 10px">' + esc(name)
-          + '</td><td colspan="3" style="padding:6px 10px;color:var(--dim)">no trades</td></tr>';
+          + '</td><td colspan="3" style="padding:6px 10px;color:var(--muted-dim)">no trades</td></tr>';
         return '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
-          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + s.closed + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + s.closed + '</td>'
           + '<td style="padding:6px 10px;text-align:right">' + s.wr.toFixed(1) + '%</td>'
           + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.rpt) + '</td></tr>';
       }).join('');
       sess.innerHTML = '<div style="margin:10px 0 22px">'
-        + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per session at the live gate — '
+        + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:6px">Per session at the live gate — '
         + hm.atGateTrades + ' of ' + hm.totalTrades + ' trades cleared gate ' + hm.gate
         + ' · entry hours ' + (hm.entryHoursUtc || []).map(h => String(h).padStart(2, '0')).join(', ')
         + ' UTC · ' + hm.ageHours + 'h old</div>'
         + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-        + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">session</th>'
+        + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left"><th style="padding:6px 10px">session</th>'
         + '<th style="padding:6px 10px;text-align:right">n</th><th style="padding:6px 10px;text-align:right">win rate</th>'
         + '<th style="padding:6px 10px;text-align:right">R/trade</th></tr>' + rows + '</table></div></div>';
     } else {
@@ -1272,7 +1301,7 @@ async function loadMeasurements() {
 // worse than random. This board exists so that cannot happen silently again.
 const CLAIM_COLOUR = {
   'MEASURED — ROBUST':                 'var(--green)',
-  'MEASURED — NO EDGE':                'var(--dim)',
+  'MEASURED — NO EDGE':                'var(--muted-dim)',
   'CANDIDATE — NEEDS WALK-FORWARD':    '#ffb800',
   'CONTRADICTED — TWO SOURCES DISAGREE':'var(--red)',
   'BLOCKED — CANNOT MEASURE YET':      '#ffb800',
@@ -1281,8 +1310,8 @@ const CLAIM_COLOUR = {
 const GATE_COLOUR = {
   'EARNING ITS KEEP':   'var(--green)',
   'COSTING MONEY':      'var(--red)',
-  'NO MEASURABLE COST': 'var(--dim)',
-  'TOO FEW TO JUDGE':   'var(--dim)',
+  'NO MEASURABLE COST': 'var(--muted-dim)',
+  'TOO FEW TO JUDGE':   'var(--muted-dim)',
 };
 
 async function loadEvidence() {
@@ -1297,10 +1326,10 @@ async function loadEvidence() {
     // stale number as settled fact. Surfaced first, because a claim you cannot trust
     // changes how you read every claim under it.
     const stale = d.needsRecuration || [];
-    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--dim)">'
+    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--muted-dim)">'
       + claims.length + ' curated claims · '
       + Object.entries(d.claimCounts || {}).map(([k, v]) =>
-          '<span style="color:' + (CLAIM_COLOUR[k] || 'var(--dim)') + '">' + v + ' ' + esc(k.replace(/^.*— /, '')) + '</span>'
+          '<span style="color:' + (CLAIM_COLOUR[k] || 'var(--muted-dim)') + '">' + v + ' ' + esc(k.replace(/^.*— /, '')) + '</span>'
         ).join(' · ')
       + (stale.length
           ? ' · <span style="color:#ffb800;font-weight:600">' + stale.length
@@ -1319,7 +1348,7 @@ async function loadEvidence() {
           : '');
 
     claimsEl.innerHTML = claims.map(c => {
-      const colour = CLAIM_COLOUR[c.status] || 'var(--dim)';
+      const colour = CLAIM_COLOUR[c.status] || 'var(--muted-dim)';
       const st = c.staleness;
       return '<div style="border:1px solid ' + (st ? 'rgba(255,184,0,.35)' : 'rgba(255,255,255,.1)') + ';'
         + 'background:' + (st ? 'rgba(255,184,0,.04)' : 'rgba(255,255,255,.02)') + ';'
@@ -1328,7 +1357,7 @@ async function loadEvidence() {
         + '<span style="font-size:14px;font-weight:600">' + esc(c.title) + '</span>'
         + '<span style="color:' + colour + ';font-size:11px;font-weight:700;letter-spacing:.05em">'
         + esc(c.status) + '</span>'
-        + '<span style="font-size:11px;color:var(--dim)">measured ' + esc(c.measuredOn) + '</span>'
+        + '<span style="font-size:11px;color:var(--muted-dim)">measured ' + esc(c.measuredOn) + '</span>'
         + (c.feedsTheGate
             ? '<span style="font-size:10px;color:#ffb800;border:1px solid rgba(255,184,0,.3);border-radius:4px;padding:1px 6px">FEEDS THE GATE</span>'
             : '')
@@ -1342,17 +1371,17 @@ async function loadEvidence() {
             ? '<div style="margin-top:8px;font-size:12px;line-height:1.6;color:#ffb800">'
               + '<strong>Sample has grown since this was written:</strong> '
               + esc((st.drifted || []).join('; '))
-              + (st.sampleFrom ? '<div style="color:var(--dim);margin-top:3px">written against: '
+              + (st.sampleFrom ? '<div style="color:var(--muted-dim);margin-top:3px">written against: '
                   + esc(st.sampleFrom) + '</div>' : '')
-              + '<div style="color:var(--dim);margin-top:3px">Treat the numbers below as UNVERIFIED. '
+              + '<div style="color:var(--muted-dim);margin-top:3px">Treat the numbers below as UNVERIFIED. '
               + 'Re-measuring this needs no further argument — its own evidence has expired.</div>'
               + '</div>'
             : '')
         + '<div style="margin-top:8px;font-size:12px;line-height:1.6' + (st ? ';opacity:.72' : '') + '">'
         + esc(c.evidence) + '</div>'
-        + (c.caveat ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--dim)">'
+        + (c.caveat ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--muted-dim)">'
             + '<strong style="color:#ffb800">Caveat:</strong> ' + esc(c.caveat) + '</div>' : '')
-        + (c.changesTheAnswer ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--dim)">'
+        + (c.changesTheAnswer ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--muted-dim)">'
             + '<strong style="color:var(--green)">What would change it:</strong> ' + esc(c.changesTheAnswer) + '</div>' : '')
         + (c.harness ? '<div style="margin-top:8px;font-size:11px;font-family:ui-monospace,monospace;'
             + 'background:rgba(0,0,0,.25);border-radius:6px;padding:6px 9px;overflow-x:auto;white-space:pre">'
@@ -1366,18 +1395,18 @@ async function loadEvidence() {
     const gates = d.gates || {};
     const rows = Object.entries(gates).map(([name, g]) =>
       '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
-      + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + (g.resolved ?? '—') + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + (g.resolved ?? '—') + '</td>'
       + '<td style="padding:6px 10px;text-align:right">' + (g.wouldHaveWonPct == null ? '—' : g.wouldHaveWonPct + '%') + '</td>'
       + '<td style="padding:6px 10px;text-align:right">' + rptCell(g.netR) + '</td>'
-      + '<td style="padding:6px 10px;color:' + (GATE_COLOUR[g.verdict] || 'var(--dim)') + '">'
+      + '<td style="padding:6px 10px;color:' + (GATE_COLOUR[g.verdict] || 'var(--muted-dim)') + '">'
       + esc(g.verdict || '') + '</td></tr>').join('');
     gatesEl.innerHTML = !rows ? '' : '<div style="margin:14px 0 22px">'
-      + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per-gate verdicts from the rejection '
+      + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:6px">Per-gate verdicts from the rejection '
       + 'ledger — forgone PAPER trades with no spread or slippage on entries that were never filled. A '
       + 'screening signal for which gate to investigate, not realised P&amp;L, and where this contradicts a '
       + 'walk-forward the walk-forward wins.</div>'
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-      + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">gate</th>'
+      + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left"><th style="padding:6px 10px">gate</th>'
       + '<th style="padding:6px 10px;text-align:right">resolved</th>'
       + '<th style="padding:6px 10px;text-align:right">would have won</th>'
       + '<th style="padding:6px 10px;text-align:right">net R</th>'
@@ -1405,7 +1434,7 @@ async function loadFleetPerf() {
         ? '<div style="border:1px solid rgba(255,184,0,.35);background:rgba(255,184,0,.06);border-radius:8px;'
           + 'padding:10px 12px;margin-bottom:12px;font-size:12px;color:#ffb800">' + esc(d.sampleWarning) + '</div>'
         : '')
-      + '<div style="margin:0 0 12px;font-size:13px;color:var(--dim)">'
+      + '<div style="margin:0 0 12px;font-size:13px;color:var(--muted-dim)">'
       + (d.pooled
           ? '<span style="color:var(--green);font-weight:600">POOLED</span> — engine parity '
             + esc(d.parity.verdict) + ', ' + d.parity.ageHours + 'h old'
@@ -1414,12 +1443,12 @@ async function loadFleetPerf() {
 
     const row = (label, s, strong) => {
       if (!s) return '<tr><td style="padding:6px 10px">' + esc(label)
-        + '</td><td colspan="4" style="padding:6px 10px;color:var(--dim)">unavailable</td></tr>';
-      const c = s.netPnl > 0 ? 'var(--green)' : s.netPnl < 0 ? 'var(--red)' : 'var(--dim)';
+        + '</td><td colspan="4" style="padding:6px 10px;color:var(--muted-dim)">unavailable</td></tr>';
+      const c = s.netPnl > 0 ? 'var(--green)' : s.netPnl < 0 ? 'var(--red)' : 'var(--muted-dim)';
       return '<tr' + (strong ? ' style="font-weight:600"' : '') + '>'
         + '<td style="padding:6px 10px">' + esc(label) + '</td>'
         + '<td style="padding:6px 10px;text-align:right">' + s.closed + '</td>'
-        + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + s.wins + 'W / ' + s.losses + 'L</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + s.wins + 'W / ' + s.losses + 'L</td>'
         + '<td style="padding:6px 10px;text-align:right">' + (s.winRatePct === null ? '—' : s.winRatePct + '%') + '</td>'
         + '<td style="padding:6px 10px;text-align:right;color:' + c + '">'
         + (s.netPnl >= 0 ? '+' : '') + s.netPnl + '</td></tr>';
@@ -1441,31 +1470,31 @@ async function loadFleetPerf() {
         const split = ind.split
           ? ' <span style="color:var(--red);font-size:11px">' + ind.split + ' SPLIT</span>' : '';
         return '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
-          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + floor + '</td>'
-          + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + floor + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">'
             + (ind.wins || 0) + 'W / ' + (ind.losses || 0) + 'L' + split + '</td>'
           + '<td style="padding:6px 10px;text-align:right;color:' + c + '">'
           + (s.netPnl >= 0 ? '+' : '') + s.netPnl + '</td>'
-          + '<td style="padding:6px 10px;color:var(--dim);font-size:11px">' + esc(s.boxes.join(' + ')) + '</td></tr>';
+          + '<td style="padding:6px 10px;color:var(--muted-dim);font-size:11px">' + esc(s.boxes.join(' + ')) + '</td></tr>';
       }).join('');
 
     body.innerHTML =
       '<div style="overflow-x:auto;margin-bottom:16px"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-      + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">scope</th>'
+      + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left"><th style="padding:6px 10px">scope</th>'
       + '<th style="padding:6px 10px;text-align:right">closed</th><th style="padding:6px 10px;text-align:right">record</th>'
       + '<th style="padding:6px 10px;text-align:right">win rate</th><th style="padding:6px 10px;text-align:right">net</th></tr>'
       + row('FLEET', f, true)
       + row('this box', d.byBox && d.byBox['this box'])
       + row('peer', d.byBox && d.byBox.peer)
       + '</table></div>'
-      + '<div style="font-size:12px;color:var(--dim);margin-bottom:6px">Per setup, counted in INDEPENDENT '
+      + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:6px">Per setup, counted in INDEPENDENT '
       + 'market events. Both boxes run the same engine on the same bars, so they take the same trade — fills '
       + 'with overlapping exposure on one symbol, direction and setup are one observation, not two. Where a '
       + 'row shows a raw count in red, that gap is what a naive pool would have overstated the evidence by. '
       + '<strong>Nothing here feeds live confidence</strong>: getLearningBoost still reads this box\'s '
       + 'learning.json alone.</div>'
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-      + '<tr style="color:var(--dim);font-size:11px;text-align:left"><th style="padding:6px 10px">setup</th>'
+      + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left"><th style="padding:6px 10px">setup</th>'
       + '<th style="padding:6px 10px;text-align:right">toward floor</th><th style="padding:6px 10px;text-align:right">record</th>'
       + '<th style="padding:6px 10px;text-align:right">net</th><th style="padding:6px 10px">seen on</th></tr>'
       + setups + '</table></div>';
@@ -1493,10 +1522,10 @@ async function loadLearning() {
     const shadowTotal = Object.values(shadow).reduce((a, s) => a + (s.episodes || 0), 0);
 
     const rec = d.reconciliation, un = d.unattributed;
-    banner.innerHTML = '<div style="margin:0 0 12px;font-size:13px;color:var(--dim)">'
+    banner.innerHTML = '<div style="margin:0 0 12px;font-size:13px;color:var(--muted-dim)">'
       + '<span style="color:' + (realTotal >= 5 ? 'var(--green)' : '#ffb800') + ';font-weight:600">'
       + realTotal + ' real closed fills</span> across ' + Object.keys(real).length + ' setup(s)'
-      + ' · <span style="color:var(--dim)">' + shadowTotal + ' shadow episodes across '
+      + ' · <span style="color:var(--muted-dim)">' + shadowTotal + ' shadow episodes across '
       + Object.keys(shadow).length + '</span>'
       + (d.shadow ? ' · shadow generated ' + esc(String(d.shadow.generatedAt).slice(0, 16)) : '')
       + ' · session ' + d.sessionCount + '</div>'
@@ -1509,7 +1538,7 @@ async function loadLearning() {
         + rec.closedFills + ' closed fills — the engine can learn from ' + rec.attributedToSetups
         + ', and is refusing ' + un.count
         + ' (' + un.wins + 'W / ' + un.losses + 'L, net ' + (un.netPnl >= 0 ? '+' : '') + un.netPnl + ')</div>'
-        + '<div style="color:var(--dim);line-height:1.6">'
+        + '<div style="color:var(--muted-dim);line-height:1.6">'
         + un.fills.map(f => esc(f.symbol) + ' ' + esc(f.direction) + ' '
             + (f.pnl >= 0 ? '+' : '') + f.pnl + ' — conf ' + f.confidence + ' ' + esc(f.strength || '')
             + ' ' + esc(f.regime || '') + ', recorded as "' + esc(f.recordedSetup) + '"').join('<br>')
@@ -1529,36 +1558,36 @@ async function loadLearning() {
       const r = real[n], s = shadow[n];
       const realCell = r
         ? (r.wins + 'W / ' + r.losses + 'L')
-        : '<span style="color:var(--dim)">—</span>';
+        : '<span style="color:var(--muted-dim)">—</span>';
       const boostCell = r
         ? (r.total >= 5
-            ? '<span style="color:' + (r.boost > 0 ? 'var(--green)' : r.boost < 0 ? 'var(--red)' : 'var(--dim)') + '">'
+            ? '<span style="color:' + (r.boost > 0 ? 'var(--green)' : r.boost < 0 ? 'var(--red)' : 'var(--muted-dim)') + '">'
               + (r.boost > 0 ? '+' : '') + r.boost + '</span>'
-            : '<span style="color:var(--dim)">0 — under floor</span>')
-        : '<span style="color:var(--dim)">—</span>';
+            : '<span style="color:var(--muted-dim)">0 — under floor</span>')
+        : '<span style="color:var(--muted-dim)">—</span>';
       const shadowCell = s
         ? s.wins + 'W / ' + s.losses + 'L'
-          + '<span style="color:var(--dim)"> (' + s.episodes + ' ep)</span>'
-        : '<span style="color:var(--dim)">—</span>';
+          + '<span style="color:var(--muted-dim)"> (' + s.episodes + ' ep)</span>'
+        : '<span style="color:var(--muted-dim)">—</span>';
       const rpe = s
         ? '<span style="color:' + (s.rPerEpisode > 0 ? 'var(--green)' : 'var(--red)') + '">'
           + (s.rPerEpisode >= 0 ? '+' : '') + Number(s.rPerEpisode).toFixed(3) + '</span>'
-          + (s.enoughForReading ? '' : ' <span style="color:var(--dim);font-size:11px">too few</span>')
-        : '<span style="color:var(--dim)">—</span>';
+          + (s.enoughForReading ? '' : ' <span style="color:var(--muted-dim);font-size:11px">too few</span>')
+        : '<span style="color:var(--muted-dim)">—</span>';
       return '<tr>'
         + '<td style="padding:6px 10px">' + esc(n) + '</td>'
         + '<td style="padding:6px 10px;text-align:right">' + (r ? r.total + '/5' : '—') + '</td>'
-        + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + realCell + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + realCell + '</td>'
         + '<td style="padding:6px 10px;text-align:right">' + boostCell + '</td>'
-        + '<td style="padding:6px 10px;text-align:right;color:var(--dim)">' + shadowCell + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + shadowCell + '</td>'
         + '<td style="padding:6px 10px;text-align:right">' + rpe + '</td>'
-        + '<td style="padding:6px 10px;color:var(--dim);font-size:11px">'
+        + '<td style="padding:6px 10px;color:var(--muted-dim);font-size:11px">'
         + esc(s && s.gates ? s.gates.join(', ') : '') + '</td></tr>';
     }).join('');
 
     body.innerHTML =
       '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-      + '<tr style="color:var(--dim);font-size:11px;text-align:left">'
+      + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left">'
       + '<th style="padding:6px 10px">setup</th>'
       + '<th style="padding:6px 10px;text-align:right">toward floor</th>'
       + '<th style="padding:6px 10px;text-align:right">REAL fills</th>'
@@ -1567,7 +1596,7 @@ async function loadLearning() {
       + '<th style="padding:6px 10px;text-align:right">R/episode</th>'
       + '<th style="padding:6px 10px">rejected by</th></tr>'
       + rows + '</table></div>'
-      + '<div style="font-size:12px;color:var(--dim);margin-top:8px;line-height:1.6">'
+      + '<div style="font-size:12px;color:var(--muted-dim);margin-top:8px;line-height:1.6">'
       + '<strong>The two columns are never summed.</strong> REAL fills are what move live confidence — a '
       + 'boost only applies once a bucket reaches 5. SHADOW episodes are setups a gate rejected, walked '
       + 'forward on real broker bars: no spread, no slippage, entries never filled, so they are evidence '
