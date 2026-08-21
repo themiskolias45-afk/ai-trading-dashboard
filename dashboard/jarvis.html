@@ -1034,12 +1034,20 @@ window.addEventListener("DOMContentLoaded", () => {
   initRecog();
   updateClock();
   setInterval(updateClock, 1000);
-  fetchData();
+  // The gate has to be known BEFORE the first signal paint. Painting first bands every
+  // asset against a null gate and leaves them neutral until the next 20s tick — the one
+  // moment anyone actually looks at this page is the moment it was least correct.
+  refreshGate()
+    .catch(e => console.error("[jarvis] gate:", e))
+    .finally(() => fetchData());
   setInterval(fetchData, 20000);
   loadLearning();
   setInterval(loadLearning, 60000);
   addMsg("jarvis", "JARVIS online. I'm watching BTC, Gold, and SPX live — and I know the full system state: risk, positions, and what I've learned from past trades. Ask me anything or tap 🎤 to speak.");
   renderBriefing().catch(e => console.error("[jarvis] briefing:", e));
+  // The gate is editable at runtime from the settings panel on this very page, so a
+  // value read once at boot goes stale in the session that changed it.
+  setInterval(() => { refreshGate().catch(e => console.error("[jarvis] gate:", e)); }, 120000);
   // restore voice prefs
   if (localStorage.getItem("jarvis-voice") === "on") { voiceOn = true; refreshVoiceBtn(); }
   if (localStorage.getItem("jarvis-alerts") === "off") { alertsOn = false; refreshAlertBtn(); }
@@ -1566,6 +1574,22 @@ function esc(s)   { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(
 // ══════════════════════════════════════════
 //  OPENING BRIEFING — what fills the empty chat
 // ══════════════════════════════════════════
+// The gate is 70 and was 65 before 2026-08-02. This page had 65 hardcoded in two
+// places, so it was judging live confidence against a threshold the engine stopped
+// using — colouring a 66% reading GREEN and, worse, speaking it aloud as a ready
+// signal when it is still 4 points short of being able to fire.
+//
+// Read it from the server, hold it in one place, and let everything on the page ask
+// this variable rather than carrying its own copy of the number.
+let liveGate = null;
+
+async function refreshGate() {
+  const res = await getJson("/api/strategy-settings");
+  const value = Number(res.data && res.data.confidenceThreshold);
+  if (Number.isFinite(value) && value > 0) liveGate = value;
+  return liveGate;
+}
+
 const BRIEF_ASSETS = [["btc","BTC"],["gold","GOLD"],["spx","SPX"]];
 
 // Starter questions, phrased the way you would actually ask them. These are prompts,
@@ -1612,19 +1636,34 @@ async function renderBriefing() {
   const box = document.getElementById("msgs");
   if (!box || document.getElementById("brief")) return;
 
-  const [sigRes, gateRes, riskRes] = await Promise.all([
+  const [sigRes, gate, riskRes] = await Promise.all([
     getJson("/api/signals"),
-    getJson("/api/strategy-settings"),
+    refreshGate(),
     getJson("/api/risk-status"),
   ]);
 
   const signals = sigRes.data || {};
-  const gate = Number(gateRes.data && gateRes.data.confidenceThreshold) || 0;
   const risk = riskRes.data || null;
 
   // Never invent a gate. Without it there is no such thing as "15pt short", and a
   // made-up threshold on this page is exactly how the stale 65 spread last time.
-  if (!gate) return;
+  //
+  // But do not vanish either. The first version of this card just returned, which
+  // left an empty pane indistinguishable from the feature not existing — the same
+  // silent-failure shape this page has been bitten by before. Say what is wrong and
+  // say what it costs, because alerts are suppressed in this state too.
+  if (!gate) {
+    const warn = document.createElement("div");
+    warn.className = "brief";
+    warn.id = "brief";
+    warn.innerHTML =
+        '<div class="brief-h"><div class="brief-t">Where things stand</div></div>'
+      + '<div class="brief-state">Cannot read the confidence gate from '
+      + '<code>/api/strategy-settings</code>, so distance-to-fire cannot be computed and '
+      + 'signal alerts are suppressed until it can. Everything else on this page is live.</div>';
+    box.appendChild(warn);
+    return;
+  }
 
   const rows = BRIEF_ASSETS.map(([key, label]) => briefRow(label, signals[key], gate)).join("");
 
@@ -1804,8 +1843,12 @@ function setSig(key, sig, price) {
   cEl.textContent   = conf > 0 ? conf + "%" : "no setup";
   if (price) pEl.textContent = "$" + Number(price).toLocaleString();
 
+  // Banded against the LIVE gate, not a copy of it. Green means "can fire", which is
+  // the only thing green should mean on a row like this.
   const clr = conf === 0 ? "var(--muted-dim)"
-            : conf >= 65 ? "var(--green)" : conf >= 40 ? "var(--yellow)" : "var(--muted)";
+            : liveGate == null ? "var(--muted)"
+            : conf >= liveGate ? "var(--green)"
+            : conf >= liveGate - 15 ? "var(--yellow)" : "var(--muted)";
   bar.style.width      = conf + "%";
   bar.style.background = clr;
   card.className = "sig-card " + s.toLowerCase();
@@ -1818,7 +1861,16 @@ function checkAlerts(si, pr) {
     { k:"gold", lbl:"Gold",     d:si.gold, p:pr?.gold },
     { k:"spx",  lbl:"S&P 500",  d:si.spx,  p:pr?.spx  },
   ].forEach(({k, lbl, d, p}) => {
-    if (!d || d.confidence < 65) return;
+    // Was "< 65", so this fired a toast AND spoke the setup aloud for confidences
+    // between 65 and 69 — announcing "Bitcoin BUY, 66% confidence, entry $X" for a
+    // trade the gate will not admit. An alert for something that cannot happen is
+    // worse than no alert: it is the one output on this page that interrupts you.
+    //
+    // Fails CLOSED. If the gate cannot be read there is no way to know what "ready"
+    // means, and staying quiet is the safe half of that — the briefing says plainly
+    // when the gate is unreadable, so the silence is explained rather than mysterious.
+    if (liveGate == null) return;
+    if (!d || d.confidence < liveGate) return;
     const akey = `${k}-${d.signal}-${d.confidence}`;
     if (lastAlerts[k] === akey) return;
     lastAlerts[k] = akey;
