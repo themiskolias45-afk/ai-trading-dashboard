@@ -4415,7 +4415,23 @@ app.post("/api/trade-closed", (req, res) => {
   res.json({ ok: true });
 });
 
-// Trade journal with optional filtering
+// Trade journal with optional filtering.
+//
+// Each row is served with `realizedR` alongside its P&L. Dollars are not comparable
+// across this journal: one XAUUSD fill was 0.14 lots and the rest are 0.01, so the
+// all-time dollar total is dominated by a single trade at 14x the current size and
+// says more about a sizing change than about the engine. R is the unit that survives
+// that, and the same five fills read -$416.61 and +1.51R.
+//
+// Derived here rather than in the page. realizedRFromPrices is the server's own
+// scorer, shared with /api/live-vs-replay and (via tasks/sizing_trigger.cjs) with the
+// go-live gates; a copy in JavaScript on the dashboard would be the fifth, and the
+// cost of the copies drifting is a page that disagrees with the readiness verdict
+// printed directly above it.
+//
+// null means "cannot be scored", never 0 — an unscorable trade must not average in as
+// a flat outcome. The rows are MAPPED, not mutated: tradeJournal is the in-memory
+// journal and writing a derived field onto it would leak into what gets persisted.
 app.get("/api/journal", (req, res) => {
   const limit   = Math.min(parseInt(req.query.limit, 10) || 50, 500);
   const symbol  = (req.query.symbol  || "").toUpperCase();
@@ -4423,7 +4439,13 @@ app.get("/api/journal", (req, res) => {
   let entries = tradeJournal;
   if (symbol)  entries = entries.filter(t => (t.symbol  || "").toUpperCase() === symbol);
   if (outcome) entries = entries.filter(t => (t.outcome || "").toUpperCase() === outcome);
-  res.json({ journal: entries.slice(0, limit) });
+  const journal = entries.slice(0, limit).map(trade => ({
+    ...trade,
+    realizedR: trade.closePrice == null
+      ? null
+      : realizedRFromPrices(trade.direction, trade.entry, trade.sl, trade.closePrice),
+  }));
+  res.json({ journal });
 });
 
 // ── /api/growth — P&L by real calendar period ─────────────────
