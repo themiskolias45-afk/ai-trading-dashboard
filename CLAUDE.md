@@ -145,6 +145,34 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 
 ## The rules that can't lapse
 
+**The nine standing rules — set by the user 2026-08-22, they govern every other rule below.**
+Where any instruction and these conflict, these win, and the conflict gets surfaced rather than
+silently resolved.
+
+1. **Safely, always.** The safe order is the only order. If a step cannot be made safe, it does
+   not happen yet — it gets named and left for a decision.
+2. **Never block learning.** No change may stop the learning engine, the shadow ledger, the
+   journal or the calibration record from accumulating. Sample size is the binding constraint;
+   anything that slows accumulation costs more than it saves.
+3. **Never block a good signal.** No change may suppress a setup that would otherwise have
+   fired. Before touching anything on the signal path, prove the firing set is unchanged —
+   compare `/api/signals` before and after, and say which comparison was run.
+4. **Never lose data.** Copy before you rewrite. Any step that regenerates a file takes a
+   timestamped backup of the original first, and the backup is verified to exist before the
+   step runs. "It is regenerable" is not a reason to skip it.
+5. **Never chase without a reason.** Every investigation names the evidence that started it and
+   the observation that would end it. No refactor, no cleanup, no "while I'm here."
+6. **Never delete.** Nothing is deleted — not a file, a row, a record, a memory, a note or a
+   config. Move or rename instead, and only ever with explicit approval. This has no exceptions.
+7. **Search deep.** Read the whole file, grep every surface, count the readers and the callers.
+   A conclusion drawn from one file, one grep or one green check is not a conclusion.
+8. **Never ignore an error.** Every error, warning and failed check gets read, classified and
+   reported — including the ones that look cosmetic and the ones in someone else's component.
+   An error not mentioned is an error hidden.
+9. **No mistakes.** Verify by running it, not by reasoning about it. Report what the command
+   actually printed. If something is unverified, the word "unverified" appears next to it.
+
+
 - **Evidence only, never guess.** Verify state from the actual file or command before claiming anything is done, current, or in place. If unsure, say so and go find out.
 - **Double-confirm before any source-code edit.** State the exact change and wait for confirmation before editing code, config, or pushing/deploying — unless I've already said "do it."
 - **Full reads, no skimming.** Read the whole file front to back. No sampling. If it's too big for one session, say so and let me decide.
