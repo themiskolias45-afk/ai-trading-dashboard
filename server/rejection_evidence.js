@@ -41,6 +41,38 @@ const VERDICT_EARNING  = "EARNING ITS KEEP";
 const VERDICT_COSTING  = "COSTING MONEY";
 const VERDICT_NEUTRAL  = "NO MEASURABLE COST";
 
+// Not every gate is scoreable the same way, and this module scored them all
+// identically. tasks/score_rr_rejections.py:165 has always carried the distinction,
+// stamps it onto EVERY row it writes as `gateClass` (line 617), and
+// tasks/learning_from_rejections.py:98 already honours it. This file referenced the
+// field zero times.
+//
+// The cost of ignoring it was not theoretical. DUPLICATE means the position was
+// ALREADY OPEN - the trade was taken and its outcome is in the journal - so walking
+// its levels forward and adding the R counts the same move twice: once as a realised
+// open position and again as a forgone one. That alone produced the only COSTING
+// MONEY verdict on the board (+10.1R over 7 episodes, 5 of them the same XAUUSD
+// MOMENTUM BUY re-offered across a rally the account was long throughout), pointing
+// every reader at a guard that was doing exactly its job.
+//
+// QUALITY     - the claim is "this setup is not good enough". Walking it forward
+//               tests that claim, so the walk scores THE GATE. Verdict as normal.
+// CONTEXT     - rejects on state, not on the setup merit. A NEWS_BLACKOUT rejection
+//               that would have won does not make the blackout wrong; the gate buys
+//               variance reduction, which a mean cannot price. Numbers, never a verdict.
+// NOT_FORGONE - the setup was not skipped at all. Episode counts only, no R.
+const CLASS_QUALITY     = "QUALITY";
+const CLASS_CONTEXT     = "CONTEXT";
+const CLASS_NOT_FORGONE = "NOT_FORGONE";
+// A row written before the scorer stamped the field, or a gate the scorer has no
+// entry for. Judged as QUALITY, which is exactly the behaviour that shipped before
+// this change, so an unclassified gate loses nothing - but the class is surfaced in
+// the payload so a reader can see the verdict rests on an assumption.
+const CLASS_UNKNOWN     = "UNKNOWN";
+
+const VERDICT_NOT_FORGONE = "NOT A FORGONE TRADE";
+const VERDICT_STATE_GATE  = "STATE GATE - NO VERDICT";
+
 function readScoredRows(filePath) {
   let text;
   try {
@@ -100,14 +132,39 @@ function collapseToEpisodes(rows) {
 }
 
 /**
+ * The class of a gate, taken from the rows themselves rather than from a second copy
+ * of the table maintained here. tasks/score_rr_rejections.py is the authority and
+ * stamps every row; duplicating its map in JS is how the two would drift apart.
+ *
+ * Episodes passed here all share a gate, so the first stamped value settles it. A
+ * gate with no stamped class anywhere is UNKNOWN.
+ */
+function classOfEpisodes(episodes) {
+  for (const episode of episodes) {
+    const stamped = episode && episode.gateClass;
+    if (stamped === CLASS_QUALITY || stamped === CLASS_CONTEXT || stamped === CLASS_NOT_FORGONE) {
+      return stamped;
+    }
+  }
+  return CLASS_UNKNOWN;
+}
+
+/**
  * TARGET → the rejected setup would have reached its target: the gate cost you
  * that trade. STOP → it would have lost: the gate saved you. PENDING → the
  * scoring horizon has not elapsed. NO_DATA → unscorable, usually a missing
  * sourceSymbol, and per the spec that is recorded rather than guessed.
  *
  * Expects rows already collapsed by collapseToEpisodes.
+ *
+ * `gateClass` defaults to UNKNOWN so a caller that passes only rows keeps the
+ * behaviour that shipped before classes existed.
  */
-function summariseGate(rows) {
+function summariseGate(rows, gateClass) {
+  // The outcome of a NOT_FORGONE rejection is already recorded in the journal as a
+  // real position. Counting its R here would report the same trade twice, once
+  // realised and once forgone, so the episodes are counted and the R is not.
+  const scoresR = gateClass !== CLASS_NOT_FORGONE;
   const bucket = {
     resolved: 0, wouldHaveWon: 0, wouldHaveLost: 0,
     pending: 0, unscorable: 0, netR: 0,
@@ -121,7 +178,9 @@ function summariseGate(rows) {
       if (won) bucket.wouldHaveWon++; else bucket.wouldHaveLost++;
       // A resolved row should carry r; fall back to the definitional value rather
       // than dropping the episode.
-      bucket.netR += Number.isFinite(row.r) ? row.r : (won ? (Number(row.rr) || 1) : -1);
+      if (scoresR) {
+        bucket.netR += Number.isFinite(row.r) ? row.r : (won ? (Number(row.rr) || 1) : -1);
+      }
       const setup = row.setup || "UNKNOWN";
       bucket.setups[setup] = bucket.setups[setup] || { won: 0, lost: 0 };
       won ? bucket.setups[setup].won++ : bucket.setups[setup].lost++;
@@ -133,7 +192,26 @@ function summariseGate(rows) {
   return bucket;
 }
 
-function verdictFor(bucket) {
+function verdictFor(bucket, gateClass) {
+  // Both of these come BEFORE the sample floor. "Too few to judge" implies more
+  // episodes would eventually produce a verdict, and for these two classes no number
+  // of episodes ever will - the walk is not testing the gate claim in the first place.
+  if (gateClass === CLASS_NOT_FORGONE) {
+    return {
+      verdict: VERDICT_NOT_FORGONE,
+      detail: "the position was already open, so this trade WAS taken and its outcome is "
+        + "in the journal - " + bucket.resolved + " episode(s) counted, no R attributed, "
+        + "because scoring them as forgone would count the same trade twice",
+    };
+  }
+  if (gateClass === CLASS_CONTEXT) {
+    return {
+      verdict: VERDICT_STATE_GATE,
+      detail: "rejects on state, not on setup merit - " + bucket.resolved
+        + " resolved episode(s) net " + bucket.netR.toFixed(2) + "R, reported as an outcome "
+        + "and never as a verdict: this gate buys variance reduction, which a mean cannot price",
+    };
+  }
   if (bucket.resolved < MIN_RESOLVED_FOR_VERDICT) {
     return {
       verdict: VERDICT_TOO_FEW,
@@ -199,15 +277,22 @@ function buildEvidence(filePath) {
 
   const gates = {};
   for (const [gate, gateEpisodes] of Object.entries(byGate)) {
-    const bucket = summariseGate(gateEpisodes);
-    const judged = verdictFor(bucket);
+    const gateClass = classOfEpisodes(gateEpisodes);
+    const bucket = summariseGate(gateEpisodes, gateClass);
+    const judged = verdictFor(bucket, gateClass);
+    const scoresR = gateClass !== CLASS_NOT_FORGONE;
     gates[gate] = {
+      // Surfaced, not implied: a reader must be able to see WHY a gate carries no R
+      // without having to infer it from a null.
+      gateClass,
       resolved: bucket.resolved,
       wouldHaveWon: bucket.wouldHaveWon,
       wouldHaveLost: bucket.wouldHaveLost,
       wouldHaveWonPct: bucket.resolved ? Math.round((bucket.wouldHaveWon / bucket.resolved) * 100) : null,
-      netR: Number(bucket.netR.toFixed(3)),
-      rPerEpisode: bucket.resolved ? Number((bucket.netR / bucket.resolved).toFixed(3)) : null,
+      netR: scoresR ? Number(bucket.netR.toFixed(3)) : null,
+      rPerEpisode: scoresR && bucket.resolved
+        ? Number((bucket.netR / bucket.resolved).toFixed(3))
+        : null,
       pending: bucket.pending,
       unscorable: bucket.unscorable,
       // `total` stays the denominator of the counts above, which is now episodes, so
@@ -229,6 +314,12 @@ function buildEvidence(filePath) {
   const setups = {};
   for (const row of episodes) {
     if (!isResolved(row)) continue;
+    // A NOT_FORGONE episode is a position the system DID take. Including it here would
+    // put a realised trade into the tally of what was thrown away and add its R to a
+    // setup forgone total - MOMENTUM read +11.3R with 6 of its 14 episodes being
+    // DUPLICATE rows for a Gold BUY that was open the whole time. CONTEXT gates stay:
+    // those trades genuinely were forgone, they simply do not judge the gate.
+    if (row.gateClass === CLASS_NOT_FORGONE) continue;
     const setup = row.setup || "UNKNOWN";
     setups[setup] = setups[setup] || { won: 0, lost: 0, netR: 0, gates: {} };
     const won = row.outcome === "TARGET";
@@ -241,7 +332,10 @@ function buildEvidence(filePath) {
 
   const allResolved = Object.values(gates).reduce((sum, g) => sum + g.resolved, 0);
   const allPending  = Object.values(gates).reduce((sum, g) => sum + g.pending, 0);
-  const allNetR     = Object.values(gates).reduce((sum, g) => sum + g.netR, 0);
+  // NOT_FORGONE gates carry netR null by design; adding it would make the total NaN
+  // and take every consumer of totals.netR down with it.
+  const allNetR     = Object.values(gates).reduce(
+    (sum, g) => sum + (Number.isFinite(g.netR) ? g.netR : 0), 0);
 
   return {
     available: true,
@@ -275,6 +369,7 @@ module.exports = {
   buildEvidence,
   readScoredRows,
   collapseToEpisodes,
+  classOfEpisodes,
   summariseGate,
   verdictFor,
   SCORED_PATH,
@@ -284,4 +379,10 @@ module.exports = {
   VERDICT_EARNING,
   VERDICT_COSTING,
   VERDICT_NEUTRAL,
+  VERDICT_NOT_FORGONE,
+  VERDICT_STATE_GATE,
+  CLASS_QUALITY,
+  CLASS_CONTEXT,
+  CLASS_NOT_FORGONE,
+  CLASS_UNKNOWN,
 };

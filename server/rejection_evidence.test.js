@@ -14,8 +14,10 @@ const fs   = require("fs");
 const os   = require("os");
 const path = require("path");
 const {
-  buildEvidence, summariseGate, verdictFor,
+  buildEvidence, summariseGate, verdictFor, classOfEpisodes,
   VERDICT_TOO_FEW, VERDICT_EARNING, VERDICT_COSTING, VERDICT_NEUTRAL,
+  VERDICT_NOT_FORGONE, VERDICT_STATE_GATE,
+  CLASS_QUALITY, CLASS_CONTEXT, CLASS_NOT_FORGONE, CLASS_UNKNOWN,
   MIN_RESOLVED_FOR_VERDICT,
 } = require("./rejection_evidence");
 
@@ -303,6 +305,105 @@ test("summariseGate counts outcomes independently", () => {
   assert.strictEqual(b.resolved, 2);
   assert.strictEqual(b.pending, 1);
   assert.strictEqual(b.unscorable, 1);
+});
+
+console.log("\n── gate class: not every gate is scoreable the same way ─────");
+
+test("a NOT_FORGONE gate is never scored for R, however many winners", () => {
+  // The real defect. Five DUPLICATE episodes reaching target produced +10.1R and a
+  // COSTING MONEY verdict against a guard whose entire job is to stop the system
+  // re-entering a position it already holds. The trade was TAKEN; its outcome is in
+  // the journal; adding it here counts the same move twice.
+  const rows = Array.from({ length: 8 }, (_, i) =>
+    row("DUPLICATE", "TARGET", 2, { episode: i, gateClass: CLASS_NOT_FORGONE }));
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.DUPLICATE;
+    assert.strictEqual(gate.gateClass, CLASS_NOT_FORGONE, "the class must be surfaced");
+    assert.strictEqual(gate.resolved, 8, "the episodes are still counted");
+    assert.strictEqual(gate.wouldHaveWon, 8, "and so is what they did");
+    assert.strictEqual(gate.netR, null, "but no R is attributed");
+    assert.strictEqual(gate.rPerEpisode, null);
+    assert.strictEqual(gate.verdict, VERDICT_NOT_FORGONE,
+      "8 winners past the floor must NOT read COSTING MONEY, got " + gate.verdict);
+    assert.ok(/already open/.test(gate.detail), gate.detail);
+  });
+});
+
+test("a NOT_FORGONE episode never enters the per-setup forgone tally", () => {
+  // MOMENTUM read +11.3R with 6 of its 14 episodes being one Gold BUY that was open
+  // throughout. A position the system took is not a setup it threw away.
+  const rows = [
+    row("CONFIDENCE", "TARGET", 1, { setup: "MOMENTUM", episode: 1, gateClass: CLASS_QUALITY }),
+    row("DUPLICATE",  "TARGET", 9, { setup: "MOMENTUM", episode: 2, gateClass: CLASS_NOT_FORGONE }),
+    row("DUPLICATE",  "TARGET", 9, { setup: "MOMENTUM", episode: 3, gateClass: CLASS_NOT_FORGONE }),
+  ];
+  withLedger(rows, file => {
+    const s = buildEvidence(file).setups.MOMENTUM;
+    assert.strictEqual(s.won, 1, "only the genuinely forgone episode counts");
+    assert.ok(Math.abs(s.netR - 1) < 1e-9, "18R of already-open position must not land here, got " + s.netR);
+    assert.strictEqual(s.gates.DUPLICATE, undefined, "and the gate must not appear at all");
+  });
+});
+
+test("a CONTEXT gate reports its numbers and never a verdict, in either direction", () => {
+  // A NEWS_BLACKOUT rejection that would have won does not make the blackout wrong.
+  for (const [outcome, r] of [["TARGET", 2], ["STOP", -1]]) {
+    const rows = Array.from({ length: 9 }, (_, i) =>
+      row("NEWS_BLACKOUT", outcome, r, { episode: i, gateClass: CLASS_CONTEXT }));
+    withLedger(rows, file => {
+      const gate = buildEvidence(file).gates.NEWS_BLACKOUT;
+      assert.strictEqual(gate.verdict, VERDICT_STATE_GATE,
+        outcome + " must not produce a verdict, got " + gate.verdict);
+      assert.strictEqual(gate.resolved, 9, "the numbers are still reported");
+      assert.ok(Number.isFinite(gate.netR), "CONTEXT keeps its R, unlike NOT_FORGONE");
+    });
+  }
+});
+
+test("an unclassified gate keeps the behaviour that shipped before classes existed", () => {
+  // Legacy rows predate the stamp. Silently reclassifying them would rewrite history.
+  const rows = Array.from({ length: 8 }, (_, i) => row("MIN_RR", "STOP", -1, { episode: i }));
+  withLedger(rows, file => {
+    const gate = buildEvidence(file).gates.MIN_RR;
+    assert.strictEqual(gate.gateClass, CLASS_UNKNOWN);
+    assert.strictEqual(gate.verdict, VERDICT_EARNING, "must still be judged as quality");
+    assert.ok(Number.isFinite(gate.netR));
+  });
+});
+
+test("totals.netR survives a null and never becomes NaN", () => {
+  const rows = [
+    ...Array.from({ length: 6 }, (_, i) => row("MIN_RR", "TARGET", 1, { episode: i, gateClass: CLASS_QUALITY })),
+    ...Array.from({ length: 6 }, (_, i) => row("DUPLICATE", "TARGET", 5, { episode: 100 + i, gateClass: CLASS_NOT_FORGONE })),
+  ];
+  withLedger(rows, file => {
+    const t = buildEvidence(file).totals;
+    assert.ok(Number.isFinite(t.netR), "got " + t.netR);
+    assert.ok(Math.abs(t.netR - 6) < 1e-9, "only the QUALITY gate contributes R, got " + t.netR);
+    assert.strictEqual(t.resolved, 12, "but every episode is still counted as resolved");
+  });
+});
+
+test("classOfEpisodes is not returning one constant", () => {
+  assert.strictEqual(classOfEpisodes([{ gateClass: CLASS_QUALITY }]), CLASS_QUALITY);
+  assert.strictEqual(classOfEpisodes([{ gateClass: CLASS_CONTEXT }]), CLASS_CONTEXT);
+  assert.strictEqual(classOfEpisodes([{ gateClass: CLASS_NOT_FORGONE }]), CLASS_NOT_FORGONE);
+  assert.strictEqual(classOfEpisodes([{}]), CLASS_UNKNOWN, "no stamp anywhere is UNKNOWN");
+  assert.strictEqual(classOfEpisodes([{ gateClass: "NONSENSE" }]), CLASS_UNKNOWN,
+    "an unrecognised stamp must not be trusted");
+  assert.strictEqual(classOfEpisodes([{}, { gateClass: CLASS_CONTEXT }]), CLASS_CONTEXT,
+    "the first stamped row settles it");
+});
+
+test("the class table is not duplicated in JS - it comes from the rows", () => {
+  // Two copies of the map would drift. The scorer is the authority; if a row says a
+  // gate is CONTEXT then it is, whatever the gate happens to be called here.
+  const rows = Array.from({ length: 9 }, (_, i) =>
+    row("MIN_RR", "TARGET", 2, { episode: i, gateClass: CLASS_CONTEXT }));
+  withLedger(rows, file => {
+    assert.strictEqual(buildEvidence(file).gates.MIN_RR.verdict, VERDICT_STATE_GATE,
+      "the stamp on the row wins, not the gate name");
+  });
 });
 
 console.log("\n" + (failed === 0 ? passed + " passed, 0 failed" : passed + " passed, " + failed + " FAILED"));
