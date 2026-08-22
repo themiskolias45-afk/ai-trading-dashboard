@@ -51,6 +51,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { cappedRr } = require("./_rr_cap.cjs");
 
 const ARGS = process.argv.slice(2);
 const ROOT = ARGS.find(a => !a.startsWith("--")) || path.join(__dirname, "..");
@@ -180,7 +181,10 @@ function stat(trades) {
   const closed = trades.filter(t => t.outcome !== "EXPIRED");
   if (!closed.length) return { closed: 0, wr: 0, pf: 0, R: 0, rpt: 0 };
 
-  const realised = t => (typeof t.realisedR === "number"
+  // cappedRr applies to the realised value too, not just the rr fallback: a realised R
+  // derived from a collapsed stop is exactly as implausible as a planned one, and -1
+  // passes through untouched because Math.min never clamps a loss.
+  const realised = t => cappedRr(typeof t.realisedR === "number"
     ? t.realisedR
     : (t.outcome === "WIN" ? t.rr : -1));          // fallback for a pre-MTF_EMIT_R run
 

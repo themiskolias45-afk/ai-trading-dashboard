@@ -14,6 +14,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { cappedRr } = require("./_rr_cap.cjs");
 
 const ROOT   = process.argv[2] || path.join(__dirname, "..");
 const OUTDIR = process.argv[3] || __dirname;
@@ -44,7 +45,7 @@ function stat(trades) {
   const closed = trades.filter(t => t.outcome !== "EXPIRED");
   const wins   = closed.filter(t => t.outcome === "WIN");
   const losses = closed.filter(t => t.outcome === "LOSS");
-  const grossWin  = wins.reduce((a, t) => a + t.rr - COST_R, 0);
+  const grossWin  = wins.reduce((a, t) => a + cappedRr(t.rr) - COST_R, 0);
   const grossLoss = losses.reduce(a => a + 1 + COST_R, 0);
   return {
     closed: closed.length,
