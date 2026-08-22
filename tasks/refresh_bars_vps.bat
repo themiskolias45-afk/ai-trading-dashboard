@@ -15,7 +15,12 @@ REM Nothing is deleted: the existing CSVs are copied to tasks\history\bak-<stamp
 REM before the exporter runs, and a verification failure restores from that copy.
 REM ============================================================================
 
-cd /d C:\ai-trading-dashboard
+REM Portable on purpose: %~dp0 is this file's own folder, so ONE batch serves both
+REM boxes. The laptop lives at C:\Users\User\ai-trading-dashboard and the VPS at
+REM C:\ai-trading-dashboard, and a second near-identical .bat would drift from
+REM this one the first time either was edited. The filename still says _vps because
+REM the VPS scheduled task points at it by absolute path.
+cd /d "%~dp0.."
 if not exist tasks\logs mkdir tasks\logs
 
 set LOG=tasks\logs\refresh_bars.txt

@@ -96,7 +96,7 @@ async function main() {
   }
   if (!risk.json) { log("REFUSING: /api/risk-status did not return JSON."); process.exit(1); }
   if (risk.json.halted) {
-    log("REFUSING: trading is halted. Fix that first — a halt is a reason to look at the "
+    log("REFUSING: trading is halted. Fix that first - a halt is a reason to look at the "
       + "system, not a quiet window to run maintenance in.");
     process.exit(1);
   }
@@ -111,7 +111,7 @@ async function main() {
   }
   const rows = journal.json && (journal.json.journal || journal.json);
   if (!Array.isArray(rows)) {
-    log("REFUSING: journal shape unrecognised — cannot prove the book is flat, so assume it is not.");
+    log("REFUSING: journal shape unrecognised - cannot prove the book is flat, so assume it is not.");
     process.exit(1);
   }
   const open = rows.filter(row => row && row.status === "OPEN");
@@ -121,7 +121,7 @@ async function main() {
     for (const row of open) {
       log("    " + row.symbol + " " + row.direction + " " + row.volume + " since " + row.openTime);
     }
-    log("  Nothing was changed. Run again when the book is flat — this tool is meant to be "
+    log("  Nothing was changed. Run again when the book is flat - this tool is meant to be "
       + "run often and refuse most of the time.");
     process.exit(3);   // 3 = correctly refused, distinct from 1 = could not tell
   }
@@ -137,7 +137,7 @@ async function main() {
   if (ageDays.length) log("  oldest of those is " + Math.max(...ageDays) + " days old");
 
   if (!EXECUTE) {
-    log("DRY RUN. Guards pass — would back up tasks/history, run export_mt5_history.py, "
+    log("DRY RUN. Guards pass - would back up tasks/history, run export_mt5_history.py, "
       + "then verify. Re-run with --execute.");
     return;
   }
@@ -158,7 +158,7 @@ async function main() {
   if (!copied) { log("REFUSING: nothing was backed up, so a rollback would be impossible."); process.exit(1); }
 
   // ── Export ──
-  log("  running export_mt5_history.py …");
+  log("  running export_mt5_history.py ...");
   try {
     const out = execFileSync("python", [path.join(ROOT, "tasks", "export_mt5_history.py")], {
       cwd: ROOT, encoding: "utf8", timeout: 900000, maxBuffer: 32 * 1024 * 1024,
@@ -175,7 +175,7 @@ async function main() {
   const shrunk = Object.keys(sizesBefore).filter(name =>
     sizesBefore[name] > 0 && sizesAfter[name] < sizesBefore[name] * MIN_RETAINED_FRACTION);
   if (shrunk.length) {
-    log("  VERIFY FAILED — these files shrank, which means a worse export, not new history:");
+    log("  VERIFY FAILED - these files shrank, which means a worse export, not new history:");
     for (const name of shrunk) log("    " + name + ": " + sizesBefore[name] + " -> " + sizesAfter[name]);
     for (const name of Object.keys(sizesBefore)) {
       const backup = path.join(backupDir, name + ".csv");
@@ -196,10 +196,10 @@ async function main() {
   }
   if (!advanced) {
     log("  NOTE: no symbol advanced. The export succeeded but the terminal had nothing "
-      + "newer — check that MT5 is logged in and its history is downloaded. Files are "
+      + "newer - check that MT5 is logged in and its history is downloaded. Files are "
       + "intact and the backup is kept.");
   }
-  log("done. Backup retained at " + path.relative(ROOT, backupDir) + " — nothing was deleted.");
+  log("done. Backup retained at " + path.relative(ROOT, backupDir) + " - nothing was deleted.");
 }
 
 main().catch(err => {
