@@ -55,6 +55,10 @@ const fvg        = require("./fvg");
 // Per-gate verdicts over the scored rejection ledger. Reads one file, aggregates,
 // returns. Cannot reach the trading path — see the header of that module.
 const rejectionEvidence = require("./rejection_evidence");
+// Deliberately required lazily inside the handler instead of here: it pulls in
+// tasks/doctor.cjs and tasks/sizing_trigger.cjs, and sizing_trigger READS THIS FILE
+// off disk at call time to extract realizedRFromPrices. Requiring it at module load
+// would run that extraction against a half-evaluated index.js during boot.
 // AI Brain reading surfaces: the skill/agent/tool catalogue and the curated
 // register of what has actually been measured. Both read-only and fail-soft.
 const aiRegistry      = require("./ai_registry");
@@ -3279,6 +3283,50 @@ app.get("/api/rejection-evidence", (_, res) => {
   } catch (e) {
     console.error("[rejection-evidence]", e.message);
     res.status(500).json({ available: false, reason: e.message, gates: {}, setups: {} });
+  }
+});
+
+// Is this system ready for real money? Five gates, AND-ed. See
+// tasks/go_live_readiness.cjs for what each one means and why none of them is
+// weighted against the others.
+//
+// SESSION-GATED ON PURPOSE, and it is the one evidence surface that is. The
+// aggregate numbers are no more revealing than /api/journal, which is public -
+// but the UPTIME gate carries the doctor's verbatim finding, and that names which
+// components were down and for how long. That is an operational detail about the
+// machine rather than a fact about the trading record, so it stays behind the
+// login, consistent with the standing decision to keep this stack gated until it
+// is stable.
+//
+// Cached, and single-flighted. tasks/doctor.cjs accumulates its findings in a
+// MODULE-LEVEL array that callers reset before use, so two overlapping requests
+// would interleave into each other's results and report a mix of the two. The
+// in-flight promise makes concurrent callers share one run rather than race it.
+let goLiveCache = { at: 0, payload: null };
+let goLiveInFlight = null;
+const GO_LIVE_TTL_MS = 60_000;
+
+app.get("/api/go-live-readiness", async (_, res) => {
+  try {
+    if (goLiveCache.payload && Date.now() - goLiveCache.at < GO_LIVE_TTL_MS) {
+      return res.json(goLiveCache.payload);
+    }
+    if (!goLiveInFlight) {
+      goLiveInFlight = (async () => {
+        // Required here, not at module scope - see the note by the
+        // rejection_evidence require for why.
+        const readiness = require("../tasks/go_live_readiness.cjs");
+        const payload = readiness.assess();
+        goLiveCache = { at: Date.now(), payload };
+        return payload;
+      })().finally(() => { goLiveInFlight = null; });
+    }
+    res.json(await goLiveInFlight);
+  } catch (e) {
+    console.error("[go-live-readiness]", e.message);
+    // available:false rather than a bare 500, so the page can say "could not
+    // measure" instead of rendering an empty checklist that reads as "all clear".
+    res.status(500).json({ available: false, reason: e.message, ready: false, gates: [] });
   }
 });
 
