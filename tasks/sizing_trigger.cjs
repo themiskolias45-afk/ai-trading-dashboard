@@ -368,7 +368,11 @@ function formatReport(record) {
   return lines.join("\n");
 }
 
-module.exports = { readGoldRecord, formatReport, loadServerScorer, TRIGGER_MIN_FILLS, HEADLINE_COST_R };
+// tCritical95OneSided is exported for tasks/go_live_readiness.cjs, which applies the
+// same one-sided bound to the whole book. A second copy of the t table is exactly
+// the drift this project keeps paying for elsewhere.
+module.exports = { readGoldRecord, formatReport, loadServerScorer, tCritical95OneSided,
+                   TRIGGER_MIN_FILLS, HEADLINE_COST_R };
 
 if (require.main === module) {
   try {
