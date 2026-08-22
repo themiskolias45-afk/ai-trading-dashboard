@@ -32,8 +32,18 @@
  *      tested to date. "Best of 12" and "best of 4,000" are different claims and a
  *      searcher that hides which one it is making is lying by omission.
  *   4. THE MARGIN BAR IS MEASURED, NOT PICKED. A challenger must beat the incumbent by
- *      more than the incumbent's OWN fold-to-fold spread on that axis. If the incumbent
- *      swings 0.2R between folds, a 0.05R "win" is nothing.
+ *      more than the STANDARD ERROR of the incumbent's per-fold results on that axis —
+ *      sd / sqrt(folds). If the incumbent's folds scatter, a small win is nothing.
+ *
+ *      The first version of this used the incumbent's full fold RANGE, and the first run
+ *      showed why that was wrong: the range came out at 0.605, demanding a challenger
+ *      beat 72/68 by 0.6R PER TRADE. Nothing would ever have cleared it, which makes a
+ *      searcher that can never propose — decoration shaped like a safeguard, the exact
+ *      failure this project already recorded when the mode cards armed nothing. The
+ *      standard error is the uncertainty in the estimate rather than the spread of the
+ *      sample, it is ~0.10 on this axis, and it is a bar a real improvement could clear.
+ *      Today's answer is unchanged: the best margin is +0.083 and still does not clear it,
+ *      which agrees with three independent cuts all returning INCONCLUSIVE.
  *
  * IT ALSO REPORTS WHEN IT FINDS NOTHING, and that is the expected outcome. A run that
  * proposes nothing is the searcher working, not the searcher idle.
@@ -146,15 +156,29 @@ function runCut(axis, cut) {
 }
 
 /**
- * The incumbent's own fold-to-fold spread — the noise floor a challenger has to clear.
+ * The bar a challenger's margin has to clear: the STANDARD ERROR of the incumbent's
+ * per-fold results, sd / sqrt(folds).
  *
- * Using the incumbent's spread rather than a constant means the bar adapts to how noisy
- * the axis actually is. On a stable axis a small win counts; on a jumpy one it does not.
+ * Deriving it from the incumbent means the bar adapts to how noisy the axis actually is —
+ * on a stable axis a small win counts, on a jumpy one it does not. Using the standard
+ * error rather than the fold RANGE is deliberate and was corrected after the first run:
+ * the range on this axis is 0.605, which no real parameter change could ever clear, and a
+ * safeguard that can never pass is decoration rather than protection.
+ *
  * Returns null when there are too few scored folds to say, and a null bar means NOTHING
- * is promotable, which is the safe direction to fail.
+ * is promotable — the safe direction to fail.
  */
 function noiseFloor(perFold) {
   if (!Array.isArray(perFold) || perFold.length < 3) return null;
+  const mean = perFold.reduce((a, v) => a + v, 0) / perFold.length;
+  const variance = perFold.reduce((a, v) => a + (v - mean) ** 2, 0) / (perFold.length - 1);
+  const sd = Math.sqrt(variance);
+  return sd / Math.sqrt(perFold.length);
+}
+
+/** The incumbent's fold spread, reported alongside the bar for context. */
+function foldSpread(perFold) {
+  if (!Array.isArray(perFold) || !perFold.length) return null;
   return Math.max(...perFold) - Math.min(...perFold);
 }
 
@@ -184,6 +208,7 @@ function searchAxis(key, stamp) {
   if (!incumbent) throw new Error("no incumbent row for axis " + key);
 
   const floor = noiseFloor(incumbent.perFold);
+  const spread = foldSpread(incumbent.perFold);
   const candidates = [];
 
   for (const label of Object.keys(firstCut)) {
@@ -229,7 +254,7 @@ function searchAxis(key, stamp) {
 
   return {
     axis: key, label: axis.label, incumbent: incumbentKey,
-    incumbentWorst: incumbent.worst, noiseFloor: floor,
+    incumbentWorst: incumbent.worst, noiseFloor: floor, foldSpread: spread,
     cuts: cutNames, candidates, promotable,
     // A single-cut axis is searched under a weaker standard, and every consumer of this
     // report is told so rather than having to notice the cuts array is short.
@@ -265,7 +290,8 @@ for (const r of results) {
   lines.push("");
   lines.push("  AXIS: " + r.label + "   incumbent " + r.incumbent
     + "  worst " + (r.incumbentWorst == null ? "—" : r.incumbentWorst.toFixed(3))
-    + "   noise floor " + (r.noiseFloor == null ? "unknown" : r.noiseFloor.toFixed(3)));
+    + "   bar " + (r.noiseFloor == null ? "unknown" : r.noiseFloor.toFixed(3))
+    + " (sd/sqrt(folds); fold spread " + (r.foldSpread == null ? "—" : r.foldSpread.toFixed(3)) + ")");
   lines.push("  standard: " + r.standard + "  [" + r.cuts.join(", ") + "]");
   lines.push("  " + "candidate".padEnd(10) + "worst margin   wins every cut   clears noise   trades vs incumbent");
   for (const c of r.candidates) {
