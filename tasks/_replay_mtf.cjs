@@ -137,6 +137,27 @@ if (process.env.MTF_MIN_ENTRY_RSI) {
   if (Number.isFinite(floor)) settings.minEntryRsi = floor;
 }
 
+// MEASUREMENT-ONLY override for the two RSI CEILINGS, same contract again: nothing on
+// disk changes, only this replay's copy of the settings object.
+//
+// These are the bars MOMENTUM and TREND_FOLLOW must sit UNDER, and until now no harness
+// could move them: they were literals inside generateSignal, so the single condition
+// that blocks more setups than anything else on this engine — 24 of 24 near-misses on
+// 2026-08-22, the closest by 1.5 points — could not be tested at all.
+//
+// Swept by re-replaying, never by filtering the output, for the same reason as the floor
+// directly above: the ceiling is inside generateSignal and runs on the daily and 4H
+// signals independently, so changing it changes which multi-timeframe combinations form,
+// not merely which rows survive.
+if (process.env.MTF_MOMENTUM_RSI_MAX) {
+  const ceiling = Number(process.env.MTF_MOMENTUM_RSI_MAX);
+  if (Number.isFinite(ceiling)) settings.momentumRsiMax = ceiling;
+}
+if (process.env.MTF_TREND_FOLLOW_RSI_MAX) {
+  const ceiling = Number(process.env.MTF_TREND_FOLLOW_RSI_MAX);
+  if (Number.isFinite(ceiling)) settings.trendFollowRsiMax = ceiling;
+}
+
 // MEASUREMENT-ONLY override for the DAILY_ONLY_H4_NEUTRAL cohort floor.
 //
 // Unlike minEntryRsi this one COULD be approximated by filtering the output — it

@@ -1147,10 +1147,32 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // step throws into a catch that silently erases the whole cohort. That has happened
   // twice already (SIZING_BOOST_MIN_CONFIDENCE, 1131 Gold steps; logRrRejection, 1006).
   // Behaviour is unchanged: same numbers, same comparisons.
+  //
+  // The two CEILINGS are read from strategySettings when it carries them, using the
+  // same guarded pattern as ADX_TRENDING_MIN fifteen lines above — function-local, and
+  // `typeof` guarded so the bare vm sandbox falls through to the literal instead of
+  // throwing. They stay defined here for exactly the reason in the paragraph above:
+  // hoisting them to module scope is the failure that erased 1,131 Gold steps and 1,006
+  // more, silently, twice.
+  //
+  // WHY THEY BECAME READABLE AT ALL. Measured 2026-08-22: 24 of 24 near-misses failed on
+  // RSI_ABOVE_CEILING, the closest by 1.5 points. That makes this the binding constraint
+  // on how often this system trades — and with the numbers welded shut, no harness could
+  // sweep it, so the top blocker was the one thing in the engine defended by opinion
+  // rather than evidence. tasks/rsi_ceiling_walkforward.cjs sweeps it now.
+  //
+  // BEHAVIOUR IS UNCHANGED. strategy_settings.json carries neither key on either box, so
+  // both fall through to 72 and 68 — the values that have always been here. This makes
+  // the ceiling MEASURABLE; it does not move it, and it must not be moved on anything
+  // less than a walk-forward scored on its worst fold.
   const MOMENTUM_RSI_MIN     = 52;
-  const MOMENTUM_RSI_MAX     = 72;
+  const MOMENTUM_RSI_MAX     = (typeof strategySettings !== "undefined"
+    && Number.isFinite(strategySettings.momentumRsiMax))
+    ? strategySettings.momentumRsiMax : 72;
   const TREND_FOLLOW_RSI_MIN = 45;
-  const TREND_FOLLOW_RSI_MAX = 68;
+  const TREND_FOLLOW_RSI_MAX = (typeof strategySettings !== "undefined"
+    && Number.isFinite(strategySettings.trendFollowRsiMax))
+    ? strategySettings.trendFollowRsiMax : 68;
 
   // ── Gold/DXY divergence detection ────────────────────────────
   // Detected BEFORE the setup chain so a non-match falls through to the remaining
