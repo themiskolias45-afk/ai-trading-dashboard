@@ -437,6 +437,15 @@ const TRAIL_LADDER   = process.env.MTF_TRAIL_LADDER === "1";
 // `outcome` and the other measured. Comparing a derived number against a measured
 // one is how a trailing backtest flatters itself.
 const EMIT_R         = TRAIL_LADDER || process.env.MTF_EMIT_R === "1";
+// Emit the trade's RISK DISTANCE in price, |entry - stop|, for the per-asset cost
+// basis. A cost in R is spread / risk distance, and without this field every harness
+// has to assume one flat number across instruments whose risk distance spans roughly
+// 24x — which is exactly the assumption tasks/_cost_basis.cjs exists to replace.
+//
+// Opt-in for the same reason EMIT_R is: the default output hash is what the two-box
+// parity check compares, and silently adding a field to every run would destroy that
+// check to save one environment variable.
+const EMIT_RISK      = process.env.MTF_EMIT_RISK === "1";
 const TRAIL_ARM_R    = Number(process.env.MTF_TRAIL_ARM_R      || "1.0");
 const TRAIL_STEP_R   = Number(process.env.MTF_TRAIL_STEP_R     || "0.5");
 // 0.5 to match the shipped bridge default — see the walk-forward table in
@@ -672,6 +681,10 @@ for (let i = 0; i < h4.length - 1; i++) {
     // output hash the two-box parity check compares, for no benefit to a fixed-stop
     // trade whose R is already implied by `outcome`.
     ...(EMIT_R ? { realisedR: Math.round(realisedR * 1000) / 1000 } : {}),
+    // Rounded to 6 significant digits rather than a fixed number of decimals: the same
+    // field carries a Bitcoin risk distance in the thousands and a Gold one in single
+    // dollars, and a fixed rounding would quantise one of them into nonsense.
+    ...(EMIT_RISK ? { risk: Number(risk.toPrecision(6)), entryPrice: Number(entry.toPrecision(8)) } : {}),
   });
 }
 

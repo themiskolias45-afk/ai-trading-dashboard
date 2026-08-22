@@ -34,6 +34,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { costFor, describeBasis, FLAT_COST_R } = require("./_cost_basis.cjs");
 
 const ROOT = process.argv[2] || path.join(__dirname, "..");
 const ASSETS = [
@@ -58,6 +59,19 @@ const CANDIDATES = [
   { label: "none",   momentum: 100, trendFollow: 100 },
 ];
 
+// COST BASIS. "flat" is the default and is the house 0.05R for every instrument;
+// "perasset" derives each trade's cost from its instrument's spread over its own risk
+// distance. The default is deliberately unchanged: spread is a FLOOR on cost, not the
+// whole of it — commission, swap and slippage are unmeasured — so a run that switches
+// basis and reports a better number has not found edge, it has stopped paying for
+// things that still cost money. Use perasset to see the SHAPE of the difference.
+const COST_MODE = (process.env.RSI_CEILING_COST || "flat").toLowerCase();
+if (COST_MODE !== "flat" && COST_MODE !== "perasset") {
+  console.error('rsi_ceiling_walkforward: RSI_CEILING_COST must be "flat" or "perasset", '
+    + 'got "' + COST_MODE + '". Refusing to guess.');
+  process.exit(1);
+}
+
 const FOLDS      = 5;
 const COST_R     = 0.05;   // the house cost basis, same as every other MTF harness here
 const CONF_FLOOR = 40;     // expose sub-gate cohorts so the replay emits them
@@ -75,6 +89,9 @@ function replay(symbol, ticker, candidate) {
       env: {
         ...process.env,
         MTF_CONF_FLOOR: String(CONF_FLOOR),
+        // Only asked for in perasset mode, so a flat run's replay output stays
+        // byte-identical to what the two-box parity check compares.
+        ...(COST_MODE === "perasset" ? { MTF_EMIT_RISK: "1" } : {}),
         MTF_MOMENTUM_RSI_MAX: String(candidate.momentum),
         MTF_TREND_FOLLOW_RSI_MAX: String(candidate.trendFollow),
       },
@@ -99,12 +116,19 @@ function replay(symbol, ticker, candidate) {
 // 498-episode ledger; the fix is the same fix.
 const MAX_PLAUSIBLE_RR = 10;
 
+// Cost is charged per trade, so it can vary by instrument. In flat mode every call
+// returns the same COST_R and the arithmetic is identical to what it was before this
+// function could ask.
+function costOf(trade) {
+  return COST_MODE === "perasset" ? costFor(trade.sym, trade.risk).costR : COST_R;
+}
+
 function stat(trades) {
   const closed = trades.filter(t => t.outcome !== "EXPIRED");
   const wins   = closed.filter(t => t.outcome === "WIN");
   const losses = closed.filter(t => t.outcome === "LOSS");
-  const grossWin  = wins.reduce((a, t) => a + Math.min(t.rr, MAX_PLAUSIBLE_RR) - COST_R, 0);
-  const grossLoss = losses.reduce(a => a + 1 + COST_R, 0);
+  const grossWin  = wins.reduce((a, t) => a + Math.min(t.rr, MAX_PLAUSIBLE_RR) - costOf(t), 0);
+  const grossLoss = losses.reduce((a, t) => a + 1 + costOf(t), 0);
   return {
     closed: closed.length,
     wr: closed.length ? (wins.length / closed.length) * 100 : 0,
@@ -262,7 +286,9 @@ const report = {
     path: "generateSignalMTF",
     settings: ["momentumRsiMax", "trendFollowRsiMax"],
     baseline: baselineCandidate.label,
-    costR: COST_R,
+    costR: COST_MODE === "perasset" ? "per-asset" : COST_R,
+    costMode: COST_MODE,
+    costBasis: describeBasis(COST_MODE),
     confFloor: CONF_FLOOR,
     scoredAtGate: LIVE_GATE,
     folds: FOLDS,
@@ -290,7 +316,7 @@ const report = {
 const lines = [];
 lines.push("=".repeat(104));
 lines.push(`  RSI CEILING WALK-FORWARD — generateSignalMTF — ${report.generatedAt}`);
-lines.push(`  scored at gate ${LIVE_GATE}, ${FOLDS} ${FOLD_MODE === "time" ? "EQUAL-TIME" : "equal-count"} folds, cost ${COST_R}R/trade, judged on WORST FOLD`);
+lines.push(`  scored at gate ${LIVE_GATE}, ${FOLDS} ${FOLD_MODE === "time" ? "EQUAL-TIME" : "equal-count"} folds, cost ${COST_MODE === "perasset" ? "PER-ASSET (spread/risk)" : COST_R + "R/trade"}, judged on WORST FOLD`);
 lines.push("=".repeat(104));
 lines.push("  fold ranges: " + report.foldRanges.map(f => `${f.from}..${f.to}`).join("  "));
 lines.push("");
@@ -329,9 +355,12 @@ console.log(text);
 // Each mode keeps its OWN report. An equal-time run must never overwrite the equal-count
 // one: the point is holding two independent readings side by side, and a sweep that
 // silently replaced its predecessor would destroy the comparison it exists to make.
-const stem = FOLD_MODE === "time"
+// The cost basis is part of a run's identity, so a perasset run keeps its own report
+// rather than overwriting the flat one it exists to be compared against.
+const costSuffix = COST_MODE === "perasset" ? "-perasset" : "";
+const stem = (FOLD_MODE === "time"
   ? "rsi-ceiling-walkforward-time-latest"
-  : "rsi-ceiling-walkforward-latest";
+  : "rsi-ceiling-walkforward-latest") + costSuffix;
 fs.writeFileSync(path.join(OUT_DIR, stem + ".json"), JSON.stringify(report, null, 2));
 fs.writeFileSync(path.join(OUT_DIR, stem + ".txt"), text + "\n");
 process.stderr.write(`\n  written -> tasks/analysis/${stem}.{json,txt}\n`);
