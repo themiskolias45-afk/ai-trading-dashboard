@@ -369,6 +369,56 @@ tbody tr:hover { background: rgba(255,255,255,.022); }
    Only the shadow and radius are relaxed, never the layout — the pages carry
    their own breakpoints and this file must not fight them.
    ------------------------------------------------------------------------- */
+/* ── PHONE LAYOUT ────────────────────────────────────────────────────────────
+   This file previously changed only colour and left layout alone, on purpose. That
+   contract is extended here, deliberately and only inside this media query: the
+   dashboard is now an installable home-screen app, and the phone layout belongs in
+   the one stylesheet every page already links LAST rather than in one page's inline
+   <style>. Nothing outside max-width:720px is touched, so the desktop layout every
+   panel was designed against is unchanged.
+
+   The three things that actually break a dense trading dashboard on a phone:
+     1. the tab bar wraps into three rows and eats the screen
+     2. wide tables push the whole page sideways, so vertical scrolling drifts
+     3. tap targets sized for a mouse
+   Each is addressed below and nothing else is. */
 @media (max-width: 720px) {
   .panel, .card { border-radius: var(--radius-sm); box-shadow: 0 1px 2px rgba(0,0,0,.35); }
+
+  /* The tab bar scrolls sideways as one row instead of wrapping. A wrapped nav of
+     eight tabs costs three rows of vertical space on every screen, on a device that
+     has none to spare. */
+  .tab-nav {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 4px;
+    padding-bottom: 2px;
+  }
+  .tab-nav::-webkit-scrollbar { display: none; }
+  .tab-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    min-height: 40px;       /* a thumb, not a mouse pointer */
+    padding: 8px 12px;
+  }
+
+  /* Wide tables scroll INSIDE their panel. Without this the body itself widens and
+     every vertical scroll drifts sideways, which on a data-dense page feels broken
+     even though nothing is wrong. */
+  .panel-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .panel-body > table { min-width: max-content; }
+
+  .container { padding-left: 10px; padding-right: 10px; }
+  .panel-header { padding: 9px 11px; }
+
+  /* Installed as a standalone app the page reaches under the notch and the home
+     indicator; without the insets the first row hides behind the status bar. */
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }

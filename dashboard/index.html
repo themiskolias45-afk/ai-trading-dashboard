@@ -2,7 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Installable on a phone: manifest + icons make this a home-screen app with no app
+       store and no second codebase. viewport-fit=cover so the layout reaches under the
+       notch instead of leaving a letterbox; the safe-area insets are handled in CSS. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#080c14" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SmartEntry" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="apple-touch-icon" href="./icons/icon-180.png" />
   <title>SmartEntry Pro — Dashboard</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5916,6 +5926,19 @@ setInterval(loadFeatures,  30_000);
 setInterval(loadRiskStatus,15_000);
 setInterval(loadUptime,    1_000);
 setInterval(()=>{if(document.getElementById('tab-signals')?.classList.contains('active'))loadSignalsTab();}, 20_000);
+
+// ── Installable app ──────────────────────────────────────────────────────────
+// Registered last so a browser without service workers, or a page served over a
+// context where they are unavailable, still runs the whole dashboard. The worker
+// caches the SHELL ONLY and never /api/ - see sw.js for why that rule is not
+// negotiable on a page that shows live risk state.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(err => {
+      console.warn("service worker not registered:", err && err.message);
+    });
+  });
+}
 </script>
 </body>
 </html>
