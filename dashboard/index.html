@@ -451,6 +451,54 @@
     .journal-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .j-comment { margin-top:6px; font-size:.72rem; color:var(--muted); line-height:1.5; background:var(--bg); padding:6px 10px; border-radius:6px; border:1px solid var(--border); }
 
+    /* ── WHAT HAPPENS NEXT ───────────────────────────────────────────────────
+       The forecast half of the Auto Trade tab. Everything else on this tab is a
+       report of what already happened; this says what the system WOULD do if a
+       setup formed in the next minute, and exactly what is stopping it.
+
+       Deliberately loud about the blocked case, because on this system that is the
+       normal case and the interesting one. */
+    .whn-asset {
+      display:grid; grid-template-columns:76px 1fr; gap:12px;
+      padding:11px 0; border-bottom:1px solid var(--border);
+    }
+    .whn-asset:last-child { border-bottom:none; }
+    .whn-name { font-size:.76rem; font-weight:700; }
+    .whn-conf { font-size:.62rem; color:var(--muted); font-variant-numeric:tabular-nums; margin-top:2px; }
+    .whn-verdict { font-size:.6rem; font-weight:800; letter-spacing:.07em; padding:2px 8px; border-radius:4px; }
+    .whn-fire    { background:rgba(34,197,94,.14); color:var(--green); border:1px solid rgba(34,197,94,.35); }
+    .whn-blocked { background:rgba(234,179,8,.10); color:var(--yellow); }
+    .whn-stopped { background:rgba(239,68,68,.12); color:var(--red);   border:1px solid rgba(239,68,68,.35); }
+    .whn-line { font-size:.7rem; line-height:1.6; margin-top:4px; }
+    .whn-num  { font-variant-numeric:tabular-nums; font-weight:700; color:var(--text); }
+    .whn-order {
+      font-size:.68rem; color:var(--muted); margin-top:5px; padding:6px 9px;
+      background:var(--bg); border:1px solid var(--border); border-radius:6px; line-height:1.65;
+    }
+    .whn-dest { color:var(--blue); font-weight:600; }
+    /* The global blockers. These stop EVERY asset, so they sit above the per-asset
+       rows rather than being repeated three times. */
+    .whn-stops { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:12px; }
+    .whn-chip {
+      font-size:.62rem; padding:3px 9px; border-radius:5px; border:1px solid var(--border2);
+      color:var(--muted); background:var(--bg);
+    }
+    .whn-chip.clear { color:var(--green); border-color:rgba(34,197,94,.3); }
+    .whn-chip.stop  { color:var(--red);   border-color:rgba(239,68,68,.45); background:rgba(239,68,68,.07); font-weight:700; }
+    .whn-chip.warn  { color:var(--yellow);border-color:rgba(234,179,8,.4); }
+    /* Near-miss ledger. Sorted by margin, closest first — the top row is the nearest
+       this system has come to a trade. */
+    .nm-head { font-size:.7rem; line-height:1.65; margin:14px 0 8px; }
+    .nm-table { width:100%; border-collapse:collapse; font-size:.68rem; }
+    .nm-table th {
+      text-align:left; padding:4px 8px; font-size:.58rem; text-transform:uppercase;
+      letter-spacing:.08em; color:var(--muted); border-bottom:1px solid var(--border);
+    }
+    .nm-table td { padding:4px 8px; border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; }
+    .nm-table tr:last-child td { border-bottom:none; }
+    .nm-table tr.closest td { background:rgba(234,179,8,.06); }
+    .nm-margin { font-weight:700; }
+
     /* ── AUTO TRADE TAB ── */
     .at-banner { display:flex; align-items:center; gap:14px; padding:16px 20px; border-radius:10px; border:1px solid; margin-bottom:16px; font-size:.9rem; font-weight:700; }
     .at-banner-RUNNING { background:#091a09; border-color:var(--green); color:var(--green); }
@@ -1226,6 +1274,28 @@
       <div id="at-status-sub" style="font-size:.68rem;font-weight:400;margin-top:2px;opacity:.7">Full-auto mode · Claude Opus approves every trade</div>
     </div>
     <div style="margin-left:auto;font-size:.78rem;color:var(--muted);font-weight:400" id="at-pnl-display"></div>
+  </div>
+
+  <!-- WHAT HAPPENS NEXT — the forecast, and the first thing on this tab.
+       Everything below it reports what already happened: what is armed, what was
+       killed, what was configured. None of it answers the question anyone actually
+       opens this tab to ask, which is what the system is about to do and what is
+       stopping it.
+
+       The blocking condition comes from /api/near-miss, which has been recording
+       exactly which check failed and by how many points — and was rendered on ZERO
+       pages. On 2026-08-22 every one of 24 near-misses was the same condition, which
+       makes it the binding constraint on trade count and it was invisible. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">What Happens Next</div>
+      <span id="whn-meta" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div class="whn-stops" id="whn-stops"></div>
+      <div id="whn-assets" style="font-size:.75rem">reading the engine…</div>
+      <div id="whn-nearmiss"></div>
+    </div>
   </div>
 
   <!-- Mode selector. These two cards used to be a lie: setMode() wrote a
@@ -3634,8 +3704,12 @@ async function loadFleet() {
 }
 
 // ── Auto Trade tab refresh ────────────────────────────────────
+// loadMT5 runs BEFORE the forecast, not beside it: the forecast reports how many
+// position slots are used and reads that from _lastMT5, so racing them would print a
+// slot count one refresh out of date on the panel whose whole job is to be current.
 async function refreshAutoTradeTab() {
   await Promise.all([loadRiskStatus(), loadMT5(), loadFeatures(), loadJournalExecLog(), loadFleet()]);
+  await loadWhatHappensNext();
 }
 
 // ── MT5 terminal login (local-only endpoint) ──────────────────
@@ -4782,6 +4856,297 @@ async function loadGateFunnel() {
 loadGateFunnel();
 setInterval(loadGateFunnel, 60_000);
 
+// ── WHAT HAPPENS NEXT ──────────────────────────────────────────
+// The forecast. Every other panel on this tab is a report; this one answers what the
+// system would do if a setup formed in the next minute, and what is stopping it.
+//
+// The blocking condition comes from /api/near-miss, which records exactly which check
+// failed and by how many points and was rendered on NO page. Read live 2026-08-22: 24
+// of 24 near-misses were the same condition. That makes it the binding constraint on
+// trade count, and it was invisible on every dashboard in the system.
+const WHN_REFRESH_MS = 45_000;
+
+// A near-miss row names its symbol as the engine saw it, which is the MT5 symbol on a
+// broker-fed pass and the Yahoo ticker on a fallback pass — BTCUSD and BTC-USD are the
+// same instrument and both appear in the same payload. Matching on one spelling would
+// silently drop half the rows for an asset, so every alias is listed and the match is
+// case-insensitive.
+const WHN_SYMBOL_ALIASES = {
+  btc:  ["BTCUSD", "BTC-USD", "BTCUSDT", "BTC"],
+  gold: ["XAUUSD", "GC=F", "GOLD", "XAU"],
+  spx:  ["SP500", "SPX", "SPXUSD", "US500", "^GSPC", "ES=F"],
+};
+
+function whnRowsFor(assetKey, rows) {
+  const aliases = WHN_SYMBOL_ALIASES[assetKey] || [];
+  return rows.filter(row => aliases.indexOf(String(row.symbol || "").toUpperCase()) !== -1);
+}
+
+// Where an order would actually go. Only ARMED accounts are listed: a bridge running
+// without --auto will not place it, and naming it here would promise an execution that
+// is not going to happen.
+function whnDestinations(fleet) {
+  if (!fleet) return null;
+  const boxes = [{ box: fleet.thisBox, isPeer: false }];
+  if (fleet.peer && fleet.peer.configured) boxes.push({ box: fleet.peer, isPeer: true });
+  const armed = [];
+  let unknown = false;
+  boxes.forEach(entry => {
+    if (!entry.box) return;
+    if (entry.isPeer && !entry.box.reachable) { unknown = true; return; }
+    (entry.box.arming || []).forEach(account => {
+      if (!account.autoMode) return;
+      const where = entry.isPeer ? (entry.box.url || "peer") : (entry.box.label || "this box");
+      armed.push({ where, tag: account.tag, halted: !!(account.halted || account.remoteHalted) });
+    });
+  });
+  return { armed, unknown };
+}
+
+function whnChip(state, text) {
+  return '<span class="whn-chip ' + state + '">' + escapeHtml(text) + "</span>";
+}
+
+// The order the bridge would send. fixedLotSize is read from the live settings rather
+// than computed here: when it is non-zero the bridge uses it verbatim and the risk
+// engine is bypassed entirely, and when it is zero the size depends on an account
+// balance this page has no way to read. Saying "risk-based" is the honest answer in
+// that case — inventing a number would be worse than admitting the gap.
+function whnOrderLine(signal, settings, destinations) {
+  // One muted line, not a boxed panel. With all three assets in WAIT the boxed version
+  // printed the same paragraph three times and buried the blocking reason above it,
+  // which is the line actually worth reading.
+  if (!signal || !signal.signal || signal.signal === "WAIT") {
+    return '<div style="font-size:.64rem;color:var(--muted);margin-top:3px">'
+      + "No order to preview — entry, stop and target are only computed once a setup forms."
+      + "</div>";
+  }
+  const lots = settings && Number(settings.fixedLotSize) > 0
+    ? Number(settings.fixedLotSize) + " lots (fixed)"
+    : "risk-based — size depends on the broker balance, which this page cannot read";
+  const px = value => (value == null || isNaN(value))
+    ? "—"
+    : Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 });
+
+  let dest;
+  if (!destinations) {
+    dest = '<span style="color:var(--muted)">destination unknown — fleet unreadable</span>';
+  } else if (!destinations.armed.length) {
+    dest = '<span style="color:var(--yellow)">nowhere — no bridge is armed, so nothing would execute</span>';
+  } else {
+    dest = destinations.armed.map(a =>
+      '<span class="whn-dest">' + escapeHtml(a.where + " · " + a.tag) + "</span>"
+      + (a.halted ? ' <span style="color:var(--red)">(halted)</span>' : "")).join(", ");
+  }
+
+  return '<div class="whn-order"><b style="color:var(--text)">Would send:</b> '
+    + escapeHtml(signal.signal) + " " + escapeHtml(String(lots)) + " "
+    + escapeHtml(signal.label || "") + " @ <span class=\"whn-num\">" + px(signal.entry) + "</span>"
+    + " · SL " + px(signal.stop) + " · TP " + px(signal.target)
+    + "<br><b style=\"color:var(--text)\">To:</b> " + dest
+    + (destinations && destinations.unknown
+        ? ' <span style="color:var(--muted)">(peer unreachable — its bridges are UNKNOWN, not absent)</span>'
+        : "")
+    + "</div>";
+}
+
+async function loadWhatHappensNext() {
+  const assetsEl = document.getElementById("whn-assets");
+  const stopsEl  = document.getElementById("whn-stops");
+  const nmEl     = document.getElementById("whn-nearmiss");
+  const metaEl   = document.getElementById("whn-meta");
+  if (!assetsEl) return;
+
+  // Each read is independent and a failure in one must not blank the others — the
+  // near-miss ledger is the newest of these and the most likely to be missing on a box
+  // that has not caught up.
+  const grab = route => fetch(API + route, { cache: "no-store" })
+    .then(r => r.ok ? r.json() : null).catch(() => null);
+
+  try {
+    const [signals, settings, nearMiss, control, risk, fleet] = await Promise.all([
+      grab("/signals"), grab("/strategy-settings"), grab("/near-miss"),
+      grab("/mt5/control"), grab("/risk-status"), grab("/fleet"),
+    ]);
+
+    if (!signals || !settings) {
+      assetsEl.innerHTML = '<span style="color:var(--red)">Signals or settings unavailable — '
+        + 'cannot say what would happen next.</span>';
+      metaEl.textContent = "unavailable";
+      return;
+    }
+
+    const gate = settings.confidenceThreshold;
+    metaEl.innerHTML = settings.settingsError
+      ? '<span style="color:var(--red)">settings unreadable — running on DEFAULTS</span>'
+      : "gate " + gate + "% · what the engine would do right now";
+
+    // ── The stops that apply to every asset ────────────────────────────────
+    const destinations = whnDestinations(fleet);
+    const chips = [];
+    if (control) {
+      chips.push(control.halted
+        ? whnChip("stop", "■ HALTED — no new entries" + (control.reason ? ": " + control.reason : ""))
+        : whnChip("clear", "▶ trading enabled"));
+    } else {
+      chips.push(whnChip("warn", "halt state unknown"));
+    }
+    if (risk) {
+      const cfg = (risk.accounts && Object.values(risk.accounts).map(a => a && a.config).filter(Boolean)[0]) || null;
+      const streak = risk.consecutiveLosses || 0;
+      if (risk.halted) chips.push(whnChip("stop", "circuit breaker OPEN"));
+      else if (cfg) {
+        const left = cfg.maxConsecLosses - streak;
+        chips.push(whnChip(left <= 1 ? "warn" : "clear",
+          "breaker: " + streak + "/" + cfg.maxConsecLosses + " losses · "
+          + left + " more would stop it"));
+      }
+    }
+    const openCount = Array.isArray(_lastMT5) ? _lastMT5.length : null;
+    if (openCount !== null && settings.maxConcurrentPositions) {
+      chips.push(whnChip(openCount >= settings.maxConcurrentPositions ? "stop" : "clear",
+        "slots: " + openCount + "/" + settings.maxConcurrentPositions + " used"));
+    }
+    if (destinations) {
+      chips.push(destinations.armed.length
+        ? whnChip("clear", destinations.armed.length + " bridge"
+            + (destinations.armed.length === 1 ? "" : "s") + " armed")
+        : whnChip("stop", "no bridge armed — nothing executes"));
+    }
+    stopsEl.innerHTML = chips.join("");
+
+    // ── Per asset: would it fire, and if not, what exactly is holding it ───
+    const rows = (nearMiss && Array.isArray(nearMiss.rows)) ? nearMiss.rows : [];
+    const globallyStopped = !!(control && control.halted) || !!(risk && risk.halted);
+
+    assetsEl.innerHTML = ["btc", "gold", "spx"].map(key => {
+      const signal = signals[key];
+      if (!signal) return "";
+      const conf = Number(signal.confidence) || 0;
+      const gap = Math.max(0, gate - conf);
+      const forms = signal.signal && signal.signal !== "WAIT";
+      const wouldFire = forms && gap === 0;
+      // The engine returns confidence 0 when no setup formed, which is not the same
+      // claim as "this setup scored zero" — nothing was scored at all. Rendering a bare
+      // "0% / 70%" invites reading a 70-point gap where there is no candidate to have a
+      // gap, so an unscored asset says so instead of showing a number.
+      const scored = forms || conf > 0;
+      const confText = scored ? conf + "% / " + gate + "%" : "not scored";
+
+      let verdict, verdictClass;
+      if (globallyStopped) { verdict = "STOPPED"; verdictClass = "whn-stopped"; }
+      else if (wouldFire)  { verdict = "WOULD FIRE"; verdictClass = "whn-fire"; }
+      else                 { verdict = "BLOCKED"; verdictClass = "whn-blocked"; }
+
+      // The blocking reason, most specific first. A near-miss row names the actual
+      // failed check and by how much; the confidence gap only says "not good enough".
+      const misses = whnRowsFor(key, rows)
+        .slice().sort((a, b) => a.minMargin - b.minMargin);
+      let reason;
+      if (globallyStopped) {
+        reason = "Every asset is stopped by the control above — the engine still scores, "
+          + "but nothing would be sent.";
+      } else if (wouldFire) {
+        reason = "Clears the gate and the setup has formed.";
+      } else if (misses.length) {
+        const closest = misses[0];
+        reason = "Closest miss: <span class=\"whn-num\">" + escapeHtml(closest.setup) + "</span> on "
+          + escapeHtml(closest.timeframe) + " failed <span class=\"whn-num\">"
+          + escapeHtml(closest.condition) + "</span> — needs ≤ "
+          + '<span class="whn-num">' + closest.threshold + "</span>, was "
+          + '<span class="whn-num">' + closest.lastActual + "</span> ("
+          + '<span class="whn-num">' + closest.minMargin.toFixed(1) + "</span> over)"
+          + (misses.length > 1 ? " · " + misses.length + " conditions blocking" : "");
+      } else if (!forms) {
+        // reasons[] is ordered by the engine's own narrative, not by relevance, so
+        // reasons[0] is a lottery: on BTC it is "No setup — needs RSI below 50", on SPX
+        // it is "BB bandwidth 7.5% — extreme squeeze", which is context and reads as a
+        // reason to trade. Prefer the line that actually explains the refusal.
+        const said = (signal.reasons || []);
+        const why = said.find(line => /^no setup/i.test(String(line))) || said[0] || "engine reports WAIT";
+        // A named setup that is not triggering is NOT "no setup" — SPX carries
+        // BB_SQUEEZE_WATCH, which is the engine watching a squeeze rather than finding
+        // nothing. Collapsing the two hides that it is tracking something.
+        const named = signal.setup && signal.setup !== "WAIT" && signal.setup !== "NONE";
+        reason = named
+          ? '<span class="whn-num">' + escapeHtml(signal.setup) + "</span> is watching, not triggering — "
+            + escapeHtml(why) + "."
+          : "No setup formed. " + escapeHtml(why) + ".";
+      } else {
+        reason = "Setup formed but confidence is <span class=\"whn-num\">" + gap
+          + "</span>pt short of the gate.";
+      }
+
+      return '<div class="whn-asset">'
+        + "<div><div class=\"whn-name\">" + escapeHtml(signal.label || key.toUpperCase()) + "</div>"
+        + '<div class="whn-conf">' + escapeHtml(confText) + "</div></div>"
+        + '<div><span class="whn-verdict ' + verdictClass + '">' + verdict + "</span>"
+        + '<div class="whn-line">' + reason + "</div>"
+        + whnOrderLine(signal, settings, destinations)
+        + "</div></div>";
+    }).join("");
+
+    // ── The near-miss ledger ───────────────────────────────────────────────
+    if (!nearMiss || !nearMiss.available || !rows.length) {
+      nmEl.innerHTML = '<div class="nm-head" style="color:var(--muted)">'
+        + "No near-misses recorded since the server started. A candidate has to get close "
+        + "enough to fail ONE check before it appears here.</div>";
+    } else {
+      // Which condition is doing the blocking, counted across every row. When one
+      // condition owns nearly all of them it is the binding constraint on trade count,
+      // and that is the single most useful sentence this panel can produce.
+      const byCondition = {};
+      rows.forEach(row => { byCondition[row.condition] = (byCondition[row.condition] || 0) + row.count; });
+      const ranked = Object.entries(byCondition).sort((a, b) => b[1] - a[1]);
+      const total = ranked.reduce((sum, [, n]) => sum + n, 0);
+      const [topName, topCount] = ranked[0];
+      const dominant = total > 0 && topCount / total >= 0.8;
+
+      const sorted = rows.slice().sort((a, b) => a.minMargin - b.minMargin).slice(0, 12);
+
+      nmEl.innerHTML =
+        '<div class="nm-head">'
+        + "<b>" + topCount + " of " + total + "</b> near-misses since the server started failed on "
+        + '<b style="color:var(--yellow)">' + escapeHtml(topName) + "</b>"
+        + (dominant
+            ? " — that is the binding constraint on how often this system trades, not the confidence gate."
+            : ", across " + ranked.length + " different conditions.")
+        + "</div>"
+        // When one condition owns the ledger the per-row column is twelve repetitions
+        // of a word the headline just said. Dropped in that case and kept when the
+        // rows genuinely differ, so the table never states the obvious or hides the
+        // useful.
+        + '<div style="overflow-x:auto"><table class="nm-table">'
+        + "<tr><th>symbol</th><th>tf</th><th>setup</th>"
+        + (dominant ? "" : "<th>failed</th>")
+        + '<th style="text-align:right">limit</th><th style="text-align:right">was</th>'
+        + '<th style="text-align:right">over by</th><th style="text-align:right">seen</th></tr>'
+        + sorted.map((row, index) => '<tr class="' + (index === 0 ? "closest" : "") + '">'
+            // nowrap: "BTC-USD" was breaking across two lines and making its row twice
+            // as tall as the others for no reason.
+            + '<td style="white-space:nowrap">' + escapeHtml(row.symbol) + "</td>"
+            + "<td>" + escapeHtml(row.timeframe) + "</td>"
+            + '<td style="width:99%">' + escapeHtml(row.setup) + "</td>"
+            + (dominant ? "" : '<td style="color:var(--muted)">' + escapeHtml(row.condition) + "</td>")
+            + '<td style="text-align:right">' + row.threshold + "</td>"
+            + '<td style="text-align:right">' + row.lastActual + "</td>"
+            + '<td style="text-align:right" class="nm-margin">' + row.minMargin.toFixed(1) + "</td>"
+            + '<td style="text-align:right;color:var(--muted)">' + row.count + "x</td></tr>").join("")
+        + "</table></div>"
+        + '<div style="font-size:.64rem;color:var(--muted);margin-top:7px;line-height:1.6">'
+        + "Counts reset on every server restart, and the top row is the closest this system has "
+        + "come to a trade. This is a RECORD of what blocked, not a recommendation to move the "
+        + "limit — a threshold only moves on a walk-forward.</div>";
+    }
+  } catch (e) {
+    assetsEl.innerHTML = '<span style="color:var(--red)">What-happens-next unavailable — '
+      + escapeHtml(e.message) + "</span>";
+    metaEl.textContent = "unavailable";
+  }
+}
+loadWhatHappensNext();
+setInterval(loadWhatHappensNext, WHN_REFRESH_MS);
+
 // ── DISTANCE TO FIRE ───────────────────────────────────────────
 // Two different reasons a thing does not trade, kept apart: the GAP is "this setup is
 // not good enough yet", the cohort STATUS is "this shape could never have fired".
@@ -4830,12 +5195,18 @@ async function loadDistanceToFire() {
       const gap = Math.max(0, gate - conf);
       const ready = gap === 0 && a.signal && a.signal !== "WAIT";
       const barPct = Math.max(2, Math.min(100, (conf / gate) * 100));
+      // Confidence is 0 when NO setup formed, which is not a score of zero and not a
+      // 70-point gap — there is no candidate to be short by anything. Reported as
+      // unscored, matching What Happens Next above; two panels on one tab telling
+      // different stories about the same number is worse than either being wrong.
+      const scored = conf > 0 || (a.signal && a.signal !== "WAIT");
       return '<div style="margin-bottom:10px">'
         + '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">'
         + '<strong style="min-width:52px;display:inline-block">' + escapeHtml(a.label || key.toUpperCase()) + '</strong>'
         + '<span style="color:' + (ready ? "var(--green)" : "var(--muted)") + ';font-weight:700">'
-        + conf + '%</span>'
-        + '<span style="color:var(--muted)">' + (ready ? "READY" : gap + 'pt short') + '</span>'
+        + (scored ? conf + '%' : '—') + '</span>'
+        + '<span style="color:var(--muted)">'
+        + (ready ? "READY" : scored ? gap + 'pt short' : 'no setup to score') + '</span>'
         + '<span style="margin-left:auto">'
         + legPill("D1", a.signal) + legPill("4H", a.h4 && a.h4.signal) + legPill("1H", a.h1 && a.h1.signal)
         + '</span></div>'
