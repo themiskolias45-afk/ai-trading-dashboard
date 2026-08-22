@@ -182,6 +182,52 @@ function foldSpread(perFold) {
   return Math.max(...perFold) - Math.min(...perFold);
 }
 
+// ── Are we even looking at new data? ─────────────────────────────────────────
+//
+// Every replay in this project reads tasks/history/*.csv, and NOTHING SCHEDULES A
+// REFRESH of those files — export_mt5_history.py does it and is named only in a comment.
+// On 2026-08-22 the newest cached bar was 2026-07-24, 29 days old.
+//
+// That matters more for a daily searcher than for a one-off harness: re-testing the same
+// bars every night produces the same answers while the ledger's candidate count climbs,
+// which makes the multiplicity warning MORE alarming without any new evidence behind it.
+// A searcher that cannot tell "I looked again" from "I looked at something new" is
+// counting its own repetitions as work.
+//
+// Deliberately DETECT-ONLY. Refreshing means running export_mt5_history.py, which opens a
+// second MT5 python client, and a duplicate can break the IPC port the live bridge needs.
+// Risking the bridge on the box that trades, unattended at 05:00, to freshen a backtest
+// is the wrong trade. Report it and let a human refresh at a safe moment.
+function barsFingerprint() {
+  const dir = path.join(ROOT, "tasks", "history");
+  const perSymbol = {};
+  let newest = null;
+  for (const symbol of ["XAUUSD", "BTCUSD", "SP500"]) {
+    const file = path.join(dir, symbol + "_D1.csv");
+    if (!fs.existsSync(file)) { perSymbol[symbol] = null; continue; }
+    const lines = fs.readFileSync(file, "utf8").trim()
+      .replace(/\r/g, "")
+      .split("\n");
+    const last = lines[lines.length - 1];
+    const stamp = Number(String(last).split(",")[0]);
+    if (!Number.isFinite(stamp)) { perSymbol[symbol] = null; continue; }
+    perSymbol[symbol] = stamp;
+    if (newest === null || stamp > newest) newest = stamp;
+  }
+  return { newest, perSymbol };
+}
+
+/** The previous run's fingerprint, so "same bars as last time" is detectable. */
+function previousFingerprint() {
+  const prior = path.join(OUT_DIR, "strategy-search-latest.json");
+  if (!fs.existsSync(prior)) return null;
+  try {
+    return (JSON.parse(fs.readFileSync(prior, "utf8")).bars || null);
+  } catch (err) {
+    return null;   // an unreadable prior report is not a reason to fail the run
+  }
+}
+
 function appendLedger(rows) {
   const lines = rows.map(r => JSON.stringify(r)).join("\n") + "\n";
   fs.appendFileSync(LEDGER, lines);
@@ -264,6 +310,11 @@ function searchAxis(key, stamp) {
 }
 
 const stamp = new Date().toISOString();
+const bars = barsFingerprint();
+const priorBars = previousFingerprint();
+const barsUnchanged = !!(priorBars && priorBars.newest && bars.newest === priorBars.newest);
+const barAgeDays = bars.newest
+  ? Math.floor((Date.parse(stamp) / 1000 - bars.newest) / 86400) : null;
 const keys = AXIS === "all" ? Object.keys(AXES) : [AXIS];
 const results = [];
 const failures = {};
@@ -310,6 +361,16 @@ if (Object.keys(failures).length) {
   }
 }
 lines.push("");
+lines.push("  bars: newest cached D1 " + (bars.newest
+  ? new Date(bars.newest * 1000).toISOString().slice(0, 10) : "unknown")
+  + (barAgeDays === null ? "" : "  (" + barAgeDays + " days old)")
+  + (barsUnchanged ? "   << SAME BARS AS THE LAST RUN" : ""));
+if (barsUnchanged) {
+  lines.push("  This round re-tested IDENTICAL DATA. Its result carries no new evidence and");
+  lines.push("  the candidate count below grew without the sample growing. Refresh with");
+  lines.push("  python tasks/export_mt5_history.py on a box whose MT5 is logged in - and not");
+  lines.push("  while a bridge is mid-trade, because it opens a second MT5 client.");
+}
 lines.push("  candidates tested to date, all runs: " + testedToDate);
 lines.push("  promotable this run: " + allPromotable.length);
 if (!allPromotable.length) {
@@ -331,6 +392,7 @@ console.log(text);
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const report = {
   generatedAt: stamp, axes: keys, dryRun: DRY_RUN,
+  bars, barsUnchanged, barAgeDays,
   testedToDate, results, failures,
   promotable: allPromotable,
   changesNothing: "writes a report and a ledger row; never a setting, a gate or a threshold",
