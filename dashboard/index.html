@@ -762,6 +762,7 @@
   <button class="tab-btn" onclick="switchTab('performance')" id="t-performance">📈 Performance</button>
   <button class="tab-btn" onclick="switchTab('journal')" id="t-journal">📒 Journal</button>
   <button class="tab-btn" onclick="switchTab('aibrain')" id="t-aibrain">🧠 AI Brain</button>
+  <button class="tab-btn" onclick="switchTab('research')" id="t-research">🔬 Research</button>
 </nav>
 
 <!-- ═══════════════════════════════════════════════════════ TAB 1: OVERVIEW -->
@@ -1726,6 +1727,57 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════ TAB 5: AI BRAIN -->
+<!-- ── RESEARCH ────────────────────────────────────────────────────────────────
+     The measurement side of this project produced reports that lived only in
+     tasks/analysis and a terminal. That is how the near-miss census owned every
+     near-miss while appearing on zero pages, and it is how a searcher running
+     unattended at 05:00 would have reported to nobody. Everything here is
+     read-only: the harnesses write the reports, this renders them. -->
+<div id="tab-research" class="tab-panel">
+<div class="container">
+
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">🔎 Latest strategy search</div>
+      <span id="rs-meta" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="rs-search" style="font-size:.75rem">reading the report…</div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">📊 Edge per instrument</div>
+      <span id="rs-pi-meta" style="font-size:.68rem;color:var(--muted)"></span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="rs-instrument" style="font-size:.75rem"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">🧪 Backtest health — what the harnesses guard against</div>
+      <span id="rs-bh-meta" style="font-size:.68rem;color:var(--muted)"></span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="rs-health" style="font-size:.75rem"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">🗓 Bar cache — how current the evidence is</div>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="rs-bars" style="font-size:.75rem"></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
 <div id="tab-aibrain" class="tab-panel">
 <div class="container">
 
@@ -1935,6 +1987,7 @@ function switchTab(name) {
   if (name === "signals")     loadSignalsTab();
   if (name === "feed")        loadFeedTab();
   if (name === "aibrain")     loadAIBrainTab();
+  if (name === "research")    loadResearchTab();
 }
 
 // ── Mode toggle ──────────────────────────────────────────────
@@ -3328,6 +3381,206 @@ function renderLearningGrowth(data) {
   }
 
   if (noteEl) noteEl.textContent = data.note || "";
+}
+
+// ── RESEARCH TAB ─────────────────────────────────────────────────────────────
+// Renders reports the harnesses already wrote. It never triggers a run: a sweep
+// takes twenty minutes and would compete for CPU with the bridge on the box that
+// trades, and an HTTP handler that shells one out would hang this page.
+//
+// Every section states the AGE of the report it is showing. A measurement page
+// whose numbers are silently stale is worse than an empty one, because a stale
+// number still looks like evidence.
+function rsAge(section) {
+  if (!section || !section.available) return "";
+  if (typeof section.reportAgeHours !== "number") return "";
+  const hours = section.reportAgeHours;
+  const text = hours < 1 ? "just now"
+             : hours < 48 ? Math.round(hours) + "h old"
+             : Math.round(hours / 24) + "d old";
+  return hours > 168 ? "<span style='color:#f59e0b'>" + text + "</span>" : text;
+}
+
+function rsUnavailable(section, what) {
+  return "<div style='color:var(--muted)'>" + what + " — "
+    + ((section && section.reason) || "not run yet") + "</div>";
+}
+
+function rsWarn(html) {
+  return "<div style='margin-top:8px;padding:6px 8px;border-left:3px solid #f59e0b;"
+    + "background:rgba(245,158,11,.08)'>" + html + "</div>";
+}
+
+function renderResearchSearch(search) {
+  const meta = document.getElementById("rs-meta");
+  const host = document.getElementById("rs-search");
+  if (!search || !search.available) {
+    meta.textContent = "no report";
+    host.innerHTML = rsUnavailable(search, "No search has been run");
+    return;
+  }
+  meta.innerHTML = rsAge(search) + " · tested to date: <b>"
+    + (search.testedToDate == null ? "?" : search.testedToDate) + "</b>";
+  let html = "";
+  if (search.barsUnchanged) {
+    html += rsWarn("This round re-tested <b>identical data</b> to the previous run. Its result "
+      + "carries no new evidence, and the tested-to-date count grew without the sample growing.");
+  }
+  for (const result of (search.results || [])) {
+    html += "<div style='margin-bottom:12px'>";
+    html += "<div style='font-weight:600'>" + result.label + "</div>";
+    html += "<div style='color:var(--muted);margin-bottom:4px'>incumbent <b>" + result.incumbent
+      + "</b> · worst " + (result.incumbentWorst == null ? "—" : Number(result.incumbentWorst).toFixed(3))
+      + " · bar " + (result.noiseFloor == null ? "—" : result.noiseFloor.toFixed(3))
+      + " · " + result.standard + "</div>";
+    html += "<table style='width:100%;border-collapse:collapse'><tr style='color:var(--muted)'>"
+      + "<th style='text-align:left'>candidate</th><th style='text-align:right'>margin</th>"
+      + "<th style='text-align:right'>wins every cut</th><th style='text-align:right'>clears bar</th>"
+      + "<th style='text-align:right'>trades</th></tr>";
+    for (const candidate of (result.candidates || [])) {
+      const margin = candidate.worstMargin == null ? "—"
+        : (candidate.worstMargin >= 0 ? "+" : "") + candidate.worstMargin.toFixed(3);
+      const delta = candidate.tradeDelta == null ? "—"
+        : (candidate.tradeDelta >= 0 ? "+" : "") + candidate.tradeDelta;
+      html += "<tr" + (candidate.promotable ? " style='font-weight:700'" : "") + ">"
+        + "<td>" + candidate.label + "</td>"
+        + "<td style='text-align:right'>" + margin + "</td>"
+        + "<td style='text-align:right'>" + (candidate.winsEveryCut ? "yes" : "no") + "</td>"
+        + "<td style='text-align:right'>" + (candidate.clearsNoise ? "yes" : "no") + "</td>"
+        + "<td style='text-align:right'>" + delta + "</td></tr>";
+    }
+    html += "</table></div>";
+  }
+  const promotable = (search.promotable || []).length;
+  html += promotable
+    ? "<div style='margin-top:6px'><b>" + promotable + " promotable.</b> A reason to look, not a "
+      + "decision — read it against the tested-to-date count above.</div>"
+    : "<div style='margin-top:6px;color:var(--muted)'>Nothing to propose, which is the expected "
+      + "result. An incumbent that survives another round of challengers is evidence for it.</div>";
+  host.innerHTML = html;
+}
+
+function renderResearchInstrument(instrumentReport) {
+  const meta = document.getElementById("rs-pi-meta");
+  const host = document.getElementById("rs-instrument");
+  if (!instrumentReport || !instrumentReport.available) {
+    meta.textContent = "";
+    host.innerHTML = rsUnavailable(instrumentReport, "Per-instrument edge not measured");
+    return;
+  }
+  meta.innerHTML = rsAge(instrumentReport) + " · gate "
+    + (instrumentReport.gate == null ? "?" : instrumentReport.gate)
+    + " · cost " + (instrumentReport.costR == null ? "?" : instrumentReport.costR) + "R";
+  let html = "<table style='width:100%;border-collapse:collapse'><tr style='color:var(--muted)'>"
+    + "<th style='text-align:left'>instrument</th><th style='text-align:right'>closed</th>"
+    + "<th style='text-align:right'>win rate</th><th style='text-align:right'>net R</th>"
+    + "<th style='text-align:right'>R/trade</th><th style='text-align:right'>folds +</th>"
+    + "<th style='text-align:left'>&nbsp;verdict</th></tr>";
+  for (const entry of Object.entries(instrumentReport.instruments || {})) {
+    const name = entry[0];
+    const row = entry[1] || {};
+    // The per-instrument harness nests its metrics under `overall` and keeps only the
+    // fold summary on the row. Reading them off the row returned a table of em dashes
+    // against real data, which a screenshot would have shown as a plausible empty table.
+    const totals = row.overall || {};
+    const perTrade = totals.rpt;
+    html += "<tr><td>" + name + "</td>"
+      + "<td style='text-align:right'>" + (totals.closed == null ? "—" : totals.closed) + "</td>"
+      + "<td style='text-align:right'>" + (totals.wr == null ? "—" : totals.wr + "%") + "</td>"
+      + "<td style='text-align:right'>" + (totals.R == null ? "—" : (totals.R >= 0 ? "+" : "") + totals.R) + "</td>"
+      + "<td style='text-align:right'>" + (perTrade == null ? "—" : (perTrade >= 0 ? "+" : "") + perTrade) + "</td>"
+      + "<td style='text-align:right'>" + (row.foldsPositive == null ? "—" : row.foldsPositive)
+      + "/" + (row.foldsScored == null ? "—" : row.foldsScored) + "</td>"
+      + "<td>&nbsp;" + (row.verdict || "") + "</td></tr>";
+  }
+  html += "</table>";
+  // The caveat is part of the number, not a footnote to it. Two replay methods
+  // disagree about which instrument carries this system and this table uses one of
+  // them; showing it without saying so is the failure the evidence board exists to
+  // prevent.
+  html += rsWarn("<b>Read with the population caveat.</b> This scores a conf-40 replay filtered "
+    + "to the live gate. A replay run AT the gate answers differently and reverses which "
+    + "instrument leads: Gold +28.53R vs BTC +6.16R here, Gold +10.73R vs BTC +33.67R there. "
+    + "Cause: at floor 40 a low-confidence trade holds the one position slot and blocks a "
+    + "higher-confidence setup that live would have taken. Settling this is step 1 of "
+    + "tasks/PROFITABILITY-PLAN.md — until then no per-asset decision should rest on this table.");
+  host.innerHTML = html;
+}
+
+function renderResearchHealth(health) {
+  const meta = document.getElementById("rs-bh-meta");
+  const host = document.getElementById("rs-health");
+  if (!health || !health.available) {
+    meta.textContent = "";
+    host.innerHTML = rsUnavailable(health, "Backtest health not measured");
+    return;
+  }
+  meta.innerHTML = rsAge(health) + " · " + (health.harnessCount == null ? "?" : health.harnessCount)
+    + " harnesses";
+  const columns = health.columns || [];
+  let html = "<div style='overflow-x:auto'><table style='border-collapse:collapse;font-size:.7rem'>";
+  html += "<tr><th style='text-align:left;padding-right:8px'>harness</th>";
+  for (const column of columns) html += "<th style='padding:0 4px'>" + column.label + "</th>";
+  html += "<th style='padding-left:8px'>score</th></tr>";
+  for (const row of (health.worstFirst || health.harnesses || [])) {
+    html += "<tr><td style='padding-right:8px'>" + String(row.file).replace(".cjs", "") + "</td>";
+    for (const column of columns) {
+      const cell = (row.cells || {})[column.key];
+      const mark = cell === "pass" ? "<span style='color:#10b981'>+</span>"
+                 : cell === "fail" ? "<span style='color:#ef4444'>X</span>"
+                 : "<span style='color:var(--muted)'>·</span>";
+      html += "<td style='text-align:center;padding:0 4px'>" + mark + "</td>";
+    }
+    html += "<td style='padding-left:8px'>" + row.passed + "/" + row.applicable + "</td></tr>";
+  }
+  html += "</table></div>";
+  html += "<div style='margin-top:6px;color:var(--muted)'>Static analysis: it says whether a guard "
+    + "is PRESENT, never whether it is correct. A harness can pass every column and still be wrong; "
+    + "it cannot fail one and be safe.</div>";
+  host.innerHTML = html;
+}
+
+function renderResearchBars(bars) {
+  const host = document.getElementById("rs-bars");
+  if (!bars || !bars.newest) {
+    host.innerHTML = rsUnavailable(null, "No bar cache found");
+    return;
+  }
+  let html = "<div>Newest cached daily bar: <b>"
+    + new Date(bars.newest * 1000).toISOString().slice(0, 10) + "</b> — "
+    + (bars.ageDays == null ? "?" : bars.ageDays) + " days old</div>";
+  html += "<div style='color:var(--muted);margin-top:4px'>";
+  for (const entry of Object.entries(bars.symbols || {})) {
+    html += entry[0] + " "
+      + (entry[1] ? new Date(entry[1] * 1000).toISOString().slice(0, 10) : "missing") + " · ";
+  }
+  html += "</div>";
+  if ((bars.ageDays || 0) > 7) {
+    html += rsWarn("Every backtest on this page is only as current as these bars, and <b>nothing "
+      + "schedules a refresh</b>. Run <code>python tasks/export_mt5_history.py</code> on a box "
+      + "whose MT5 is logged in — and not while a position is open, because it opens a second MT5 "
+      + "client that can break the bridge's IPC port.");
+  }
+  host.innerHTML = html;
+}
+
+async function loadResearchTab() {
+  let payload = null;
+  try {
+    payload = await getJson("/research");
+  } catch (err) {
+    console.error("research:", err);
+  }
+  if (!payload) {
+    document.getElementById("rs-search").innerHTML =
+      "<div style='color:var(--muted)'>Could not reach /api/research.</div>";
+    return;
+  }
+  // Each section renders independently so one unreadable report cannot blank the tab.
+  try { renderResearchSearch(payload.strategySearch); } catch (err) { console.error("rs search:", err); }
+  try { renderResearchInstrument(payload.perInstrument); } catch (err) { console.error("rs instrument:", err); }
+  try { renderResearchHealth(payload.backtestHealth); } catch (err) { console.error("rs health:", err); }
+  try { renderResearchBars(payload.bars); } catch (err) { console.error("rs bars:", err); }
 }
 
 async function loadAIBrainTab() {

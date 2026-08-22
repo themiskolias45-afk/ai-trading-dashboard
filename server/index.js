@@ -3430,6 +3430,93 @@ app.get("/api/learning-growth", (_, res) => {
 // What the system KNOWS versus what it assumes. Curated measured claims joined to
 // the live per-gate verdicts, so a number on this dashboard can always be traced
 // to whether it was ever tested.
+// ── RESEARCH ────────────────────────────────────────────────────────────────
+// Everything the measurement side of this project produces used to live only in
+// tasks/analysis/*.json and a terminal. That is how the near-miss census sat on
+// ZERO pages while owning every near-miss, and it is how a searcher that runs
+// unattended at 05:00 every day would have reported to nobody.
+//
+// Reads the reports the harnesses already write. It runs nothing: a harness takes
+// minutes and an HTTP handler that shells one out would hang the dashboard and
+// compete with the bridge for CPU on the box that trades. Missing or unreadable
+// report = that section reports itself absent, never a blank panel and never a
+// zero pretending to be a measurement.
+// Takes a LIST of candidate paths because the harnesses do not agree on where they
+// write. per_instrument_edge.cjs defaults OUTDIR to tasks/, so its current report is
+// tasks/per_instrument_edge.json while an eight-day-old tasks/analysis/
+// per-instrument-edge-latest.json sits beside it from another writer. Reading the
+// wrong one would have served a stale table as today's — the newest wins, and the
+// file's own mtime ships with it so a reader can see the age rather than trust it.
+function readReport(candidates) {
+  const names = Array.isArray(candidates) ? candidates : [candidates];
+  let best = null;
+  for (const name of names) {
+    try {
+      const file = path.isAbsolute(name) ? name : path.join(__dirname, "..", name);
+      if (!fs.existsSync(file)) continue;
+      const modified = fs.statSync(file).mtimeMs;
+      if (best && modified <= best.modified) continue;
+      best = { file, modified, parsed: JSON.parse(fs.readFileSync(file, "utf8")) };
+    } catch (e) {
+      // A corrupt candidate must not hide a readable one later in the list.
+      continue;
+    }
+  }
+  if (!best) return { available: false, reason: "not run yet" };
+  return {
+    available: true,
+    reportFile: path.basename(best.file),
+    reportAgeHours: Math.round(((Date.now() - best.modified) / 3600000) * 10) / 10,
+    ...best.parsed,
+  };
+}
+
+// Age of the bar cache every replay reads. A sweep over stale bars returns
+// yesterday's answer with today's confidence, and nothing schedules a refresh —
+// export_mt5_history.py does it and is referenced only in a comment.
+function barCacheAge() {
+  const out = { symbols: {}, newest: null, ageDays: null };
+  for (const symbol of ["XAUUSD", "BTCUSD", "SP500"]) {
+    try {
+      const file = path.join(__dirname, "..", "tasks", "history", symbol + "_D1.csv");
+      if (!fs.existsSync(file)) { out.symbols[symbol] = null; continue; }
+      const text = fs.readFileSync(file, "utf8").trim();
+      const lastLine = text.slice(text.lastIndexOf("\n") + 1);
+      const stamp = Number(String(lastLine).split(",")[0]);
+      if (!Number.isFinite(stamp)) { out.symbols[symbol] = null; continue; }
+      out.symbols[symbol] = stamp;
+      if (out.newest === null || stamp > out.newest) out.newest = stamp;
+    } catch (e) {
+      out.symbols[symbol] = null;
+    }
+  }
+  if (out.newest) out.ageDays = Math.floor((Date.now() / 1000 - out.newest) / 86400);
+  return out;
+}
+
+app.get("/api/research", (_, res) => {
+  try {
+    res.json({
+      generatedAt: new Date().toISOString(),
+      backtestHealth: readReport("tasks/analysis/backtest-health-latest.json"),
+      strategySearch: readReport("tasks/analysis/strategy-search-latest.json"),
+      perInstrument: readReport([
+        "tasks/per_instrument_edge.json",
+        "tasks/analysis/per-instrument-edge-latest.json",
+      ]),
+      ceilingSweep: readReport("tasks/analysis/rsi-ceiling-walkforward-latest.json"),
+      bars: barCacheAge(),
+      // Stated on the payload so a reader never has to infer it from the absence
+      // of a POST. Nothing on this route changes what trades.
+      feedsTheGate: false,
+      readsOnly: "reports already written to tasks/analysis by the harnesses",
+    });
+  } catch (e) {
+    console.error("[research]", e.message);
+    res.status(500).json({ error: "research payload failed", detail: String(e.message).slice(0, 200) });
+  }
+});
+
 app.get("/api/evidence-board", (_, res) => {
   try {
     const register = evidenceRegister.getRegister();
