@@ -150,14 +150,52 @@ if (baseAtGate.length < FOLDS * MIN_FOLD_CLOSES) {
     + `${LIVE_GATE} — too few to split into ${FOLDS} folds worth trusting.`);
   process.exit(1);
 }
-const foldSize = Math.floor(baseAtGate.length / FOLDS);
+// FOLD MODE — the two independent ways to cut the same data, and why this flag exists.
+// Equal-COUNT (the default, and what the first sweep ran) gives every fold the same
+// number of baseline trades, so a quiet year and a busy quarter can land in one fold.
+// Equal-TIME gives every fold the same DURATION and lets the counts fall where they
+// fall, so each window is a comparable slice of market history.
+//
+// Neither is more correct. They are independent readings, which is precisely what an
+// INCONCLUSIVE verdict needs: a candidate that beats the baseline's worst fold under
+// BOTH cuts is saying something the fold boundaries did not put there. One that flips
+// between them was never a challenger, it was an artifact of where the lines fell.
+const FOLD_MODE = (process.env.RSI_CEILING_FOLD_MODE || "count").toLowerCase();
+if (FOLD_MODE !== "count" && FOLD_MODE !== "time") {
+  console.error('rsi_ceiling_walkforward: RSI_CEILING_FOLD_MODE must be "count" or '
+    + '"time", got "' + FOLD_MODE + '". Refusing to guess.');
+  process.exit(1);
+}
+
 const bounds = [];
-for (let k = 0; k < FOLDS; k++) {
-  const from = baseAtGate[k * foldSize].t;
-  const to = (k === FOLDS - 1)
-    ? baseAtGate[baseAtGate.length - 1].t
-    : baseAtGate[(k + 1) * foldSize].t;
-  bounds.push({ from, to, last: k === FOLDS - 1 });
+if (FOLD_MODE === "count") {
+  const foldSize = Math.floor(baseAtGate.length / FOLDS);
+  for (let k = 0; k < FOLDS; k++) {
+    const from = baseAtGate[k * foldSize].t;
+    const to = (k === FOLDS - 1)
+      ? baseAtGate[baseAtGate.length - 1].t
+      : baseAtGate[(k + 1) * foldSize].t;
+    bounds.push({ from, to, last: k === FOLDS - 1 });
+  }
+} else {
+  // Equal duration across the SAME span the count mode covers — first baseline trade at
+  // the gate to the last — so both modes measure the identical stretch of history and
+  // differ only in where the internal cuts land.
+  const spanFrom = baseAtGate[0].t;
+  const spanTo = baseAtGate[baseAtGate.length - 1].t;
+  const step = (spanTo - spanFrom) / FOLDS;
+  if (!(step > 0)) {
+    console.error("rsi_ceiling_walkforward: the baseline trades span no time — cannot "
+      + "cut equal-time folds.");
+    process.exit(1);
+  }
+  for (let k = 0; k < FOLDS; k++) {
+    bounds.push({
+      from: spanFrom + k * step,
+      to: (k === FOLDS - 1) ? spanTo : spanFrom + (k + 1) * step,
+      last: k === FOLDS - 1,
+    });
+  }
 }
 const inFold = (t, b) => t.t >= b.from && (b.last ? t.t <= b.to : t.t < b.to);
 
@@ -228,13 +266,17 @@ const report = {
     confFloor: CONF_FLOOR,
     scoredAtGate: LIVE_GATE,
     folds: FOLDS,
+    foldMode: FOLD_MODE,
     minFoldCloses: MIN_FOLD_CLOSES,
     scoredOn: "WORST FOLD — a challenger must beat the baseline's worst fold, not its mean",
     foldsFrom: `baseline (${baselineCandidate.label}) population at the live gate`,
     stubbed: ["priceCache.dxy", "priceCache.vix", "sentimentCache.fearGreed",
               "signalCache (cross-asset)", "getLearningBoost -> 0"],
     maxPlausibleRr: MAX_PLAUSIBLE_RR,
-    caveat: "rr is capped at 10, matching realizedRFromPrices; folds are equal-count on the baseline, not equal-time",
+    caveat: "rr is capped at 10, matching realizedRFromPrices; folds are "
+      + (FOLD_MODE === "count"
+          ? "equal-count on the baseline, not equal-time"
+          : "equal-TIME windows, so fold trade counts are unequal by design"),
     changesNothing: "measurement only — the live engine keeps 72/68 unless a human edits strategy_settings.json",
   },
   replayErrors: perAssetErrors,
@@ -248,7 +290,7 @@ const report = {
 const lines = [];
 lines.push("=".repeat(104));
 lines.push(`  RSI CEILING WALK-FORWARD — generateSignalMTF — ${report.generatedAt}`);
-lines.push(`  scored at gate ${LIVE_GATE}, ${FOLDS} folds, cost ${COST_R}R/trade, judged on WORST FOLD`);
+lines.push(`  scored at gate ${LIVE_GATE}, ${FOLDS} ${FOLD_MODE === "time" ? "EQUAL-TIME" : "equal-count"} folds, cost ${COST_R}R/trade, judged on WORST FOLD`);
 lines.push("=".repeat(104));
 lines.push("  fold ranges: " + report.foldRanges.map(f => `${f.from}..${f.to}`).join("  "));
 lines.push("");
@@ -284,7 +326,12 @@ lines.push("=".repeat(104));
 const text = lines.join("\n");
 console.log(text);
 
-fs.writeFileSync(path.join(OUT_DIR, "rsi-ceiling-walkforward-latest.json"),
-  JSON.stringify(report, null, 2));
-fs.writeFileSync(path.join(OUT_DIR, "rsi-ceiling-walkforward-latest.txt"), text + "\n");
-process.stderr.write(`\n  written -> tasks/analysis/rsi-ceiling-walkforward-latest.{json,txt}\n`);
+// Each mode keeps its OWN report. An equal-time run must never overwrite the equal-count
+// one: the point is holding two independent readings side by side, and a sweep that
+// silently replaced its predecessor would destroy the comparison it exists to make.
+const stem = FOLD_MODE === "time"
+  ? "rsi-ceiling-walkforward-time-latest"
+  : "rsi-ceiling-walkforward-latest";
+fs.writeFileSync(path.join(OUT_DIR, stem + ".json"), JSON.stringify(report, null, 2));
+fs.writeFileSync(path.join(OUT_DIR, stem + ".txt"), text + "\n");
+process.stderr.write(`\n  written -> tasks/analysis/${stem}.{json,txt}\n`);
