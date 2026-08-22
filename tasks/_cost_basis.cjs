@@ -8,17 +8,25 @@
  * both halves differ enormously across these three, so one flat number cannot be right
  * for all of them.
  *
- * WHAT WAS MEASURED, 2026-08-22, over the full MTF replay population:
+ * WHAT WAS MEASURED, 2026-08-22, over the full MTF replay population at the conf-40
+ * exposure floor — which is the population the sweeps actually score:
  *
- *   asset    rows   median risk   p10 risk   spread   costR(median)   flat 0.05 is
- *   XAUUSD    207        23.69      12.72    $0.22          0.0093    5.4x the spread cost
- *   BTCUSD    138      1609.25     421.91   $17.00          0.0106    4.7x
- *   SP500      59        81.47      50.43    $0.36          0.0044   11.3x
+ *   asset    rows   median risk   spread   costR(median)   flat 0.05 is
+ *   XAUUSD    265        25.62    $0.22          0.0086    5.8x the spread cost
+ *   BTCUSD    387      1278.63   $17.00          0.0133    3.8x
+ *   SP500     117        77.10    $0.36          0.0047   10.7x
+ *
+ * CORRECTED from the first version of this file, which reported 207/138/59 rows and
+ * 5.4x/4.7x/11.3x. Those came from runs that used each box's own confidence gate (70)
+ * instead of the conf-40 floor, so every population was understated — BTC by 2.8x, the
+ * largest error. The conclusion is unchanged in direction and slightly smaller in size.
+ * Recorded rather than quietly overwritten: a table that moves without saying so is how
+ * a wrong number outlives its correction.
  *
  * THE HEADLINE IS NOT "COSTS ARE TOO HIGH". Read it carefully: the flat number is
  * CONSERVATIVE for all three, so no result in this project is flattered by it. What it
- * distorts is the RELATIVE penalty — SPX is charged 11.3x its spread cost while Gold is
- * charged 5.4x, which quietly biases every cross-asset comparison against the S&P. That
+ * distorts is the RELATIVE penalty — SPX is charged 10.7x its spread cost while Gold is
+ * charged 5.8x, which quietly biases every cross-asset comparison against the S&P. That
  * is the defect worth fixing, and it is a smaller and less alarming one than "the cost
  * basis is wrong" would suggest.
  *
@@ -109,7 +117,7 @@ function describeBasis(mode) {
     + "feed's typical value (mt5_bridge.py:58, VPS Vantage). Commission, swap and "
     + "slippage are NOT modelled, so this is a floor on cost, not the whole of it."
     : "FLAT: " + FLAT_COST_R + "R per trade for every instrument. Conservative against "
-    + "measured spread cost on all three (5.4x Gold, 4.7x BTC, 11.3x SPX), which is why "
+    + "measured spread cost on all three (5.8x Gold, 3.8x BTC, 10.7x SPX), which is why "
     + "it remains the default headline basis.";
 }
 

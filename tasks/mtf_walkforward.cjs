@@ -127,11 +127,30 @@ lines.push(`  ${all.length} trades, ${FOLDS} sequential folds, cost ${COST_R}R/t
 lines.push("=".repeat(96));
 lines.push("  fold ranges: " + report.foldRanges.map(f => `${f.from}..${f.to}(${f.trades})`).join("  "));
 lines.push("");
-lines.push("  gate   " + report.foldRanges.map((_, i) => `fold${i + 1}`.padStart(10)).join("") + "   positive/total   verdict");
+lines.push("  gate   " + report.foldRanges.map((_, i) => `fold${i + 1}`.padStart(10)).join("")
+  + "     worst   positive/total   verdict");
+
+// The WORST SCORED fold, computed rather than read off the table by eye.
+//
+// CLAUDE.md's argument for gate 70 has always been a worst-fold argument — "its one
+// negative is -0.016 against -0.165 at 55 and -0.204 at 75" — while this harness only
+// ever printed a positive-fold COUNT, so those numbers were transcribed by hand from the
+// grid below. A hand-transcribed number cannot be re-checked by anything, and the gate
+// that decides what this system trades should not rest on one.
+//
+// A fold under the close floor is an ABSENCE, not a zero: it is excluded rather than
+// counted as a bad fold, which is the same rule the ceiling harness uses. Returns null
+// when nothing is scoreable, so an empty result reads as "no answer" instead of 0.
+function worstScoredFold(perFold) {
+  const scored = perFold.filter(s => s.closed >= 5);
+  if (!scored.length) return null;
+  return scored.reduce((worst, s) => (s.rpt < worst.rpt ? s : worst), scored[0]).rpt;
+}
 
 for (const gate of GATES) {
   const perFold = folds.map(f => stat(f.filter(t => t.conf >= gate)));
   const scored = perFold.filter(s => s.closed >= 5);   // ignore folds too thin to mean anything
+  const worstFold = worstScoredFold(perFold);
   const positive = scored.filter(s => s.rpt > 0).length;
   const verdict = scored.length < 3 ? "TOO FEW TRADES"
                 : positive === scored.length ? "ROBUST"
@@ -146,6 +165,10 @@ for (const gate of GATES) {
     })),
     foldsScored: scored.length,
     foldsPositive: positive,
+    // Rounded to match the grid it comes FROM: worstFold is always one of the perFold
+    // rpt values, and storing it at full precision beside those 3dp values reads as a
+    // disagreement between two numbers that are the same number.
+    worstFold: worstFold === null ? null : +worstFold.toFixed(3),
     overall: (() => { const s = stat(all.filter(t => t.conf >= gate));
       return { closed: s.closed, wr: +s.wr.toFixed(1),
                pf: s.pf === Infinity ? "inf" : +s.pf.toFixed(2),
@@ -154,12 +177,17 @@ for (const gate of GATES) {
   };
   lines.push(`  ${String(gate).padEnd(6)} ` +
     perFold.map(s => (s.closed < 5 ? "  n<5" : (s.rpt >= 0 ? "+" : "") + s.rpt.toFixed(3)).padStart(10)).join("") +
+    (worstFold === null ? "        —" : ((worstFold >= 0 ? "+" : "") + worstFold.toFixed(3)).padStart(10)) +
     `   ${positive}/${scored.length}`.padStart(17) + `   ${verdict}`);
 }
 
 lines.push("");
 lines.push("  A gate is only worth acting on if it is positive in most folds. A strong");
 lines.push("  overall number carried by one fold is the failure mode this exists to catch.");
+lines.push("");
+lines.push("  WORST is the worst SCORED fold, computed here rather than read off the grid by");
+lines.push("  hand. It does not change the verdict column, which still ranks on the positive");
+lines.push("  fold count — it makes the number CLAUDE.md's gate-70 argument rests on checkable.");
 lines.push("=".repeat(96));
 
 const stamp = report.generatedAt.replace(/[-:]/g, "").slice(0, 15);
