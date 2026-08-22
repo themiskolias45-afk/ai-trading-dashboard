@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #4a9eff; } a:hover { color: #7c5cff; }
+    .row { display: grid; grid-template-columns: 78px 30px 1fr 46px 46px 58px; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid #1e2a3d; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .row:last-child { border-bottom: none; }
+    .hd { font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #7488ab; border-bottom: 1px solid #2b3a52; }
+    .num { text-align: right; font-family: 'JetBrains Mono', Consolas, monospace; }
+    .bar { height: 4px; border-radius: 2px; background: #1e2a3d; overflow: hidden; }
+  </style>
+</helmet>
+
+<div style="width: 800px; height: 760px; box-sizing: border-box; background: #070b12; color: #e8eef7; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif; padding: 40px 42px; display: flex; flex-direction: column; gap: 20px;">
+
+  <div>
+    <div style="font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: #7488ab;">The ledger</div>
+    <div style="font-size: 24px; font-weight: 800; letter-spacing: -.02em; margin-top: 7px;">Every near-miss, closest first</div>
+    <div style="font-size: 12px; color: #8aa0c0; line-height: 1.6; margin-top: 7px;">A candidate reaches this list only by getting close enough to fail exactly one check. Counts reset when the server restarts, so this is a window, never an all-time total.</div>
+  </div>
+
+  <div style="display: flex; flex-direction: column;">
+    <div class="row hd">
+      <div>symbol</div><div>tf</div><div>setup</div>
+      <div class="num">limit</div><div class="num">was</div><div class="num">over by</div>
+    </div>
+
+    <div class="row" style="background: rgba(240,180,41,.07);">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">GC=F</div><div style="color: #8aa0c0;">H4</div>
+      <div style="font-weight: 600;">MOMENTUM</div>
+      <div class="num" style="color: #8aa0c0;">72</div><div class="num">73.5</div>
+      <div class="num" style="color: #f0b429; font-weight: 700;">1.5</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">BTCUSD</div><div style="color: #8aa0c0;">H4</div>
+      <div style="font-weight: 600;">MOMENTUM</div>
+      <div class="num" style="color: #8aa0c0;">72</div><div class="num">76.2</div>
+      <div class="num" style="color: #f0b429;">4.1</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">GC=F</div><div style="color: #8aa0c0;">H4</div>
+      <div style="font-weight: 600;">TREND_FOLLOW</div>
+      <div class="num" style="color: #8aa0c0;">68</div><div class="num">73.5</div>
+      <div class="num" style="color: #f0b429;">5.5</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">BTCUSD</div><div style="color: #8aa0c0;">H4</div>
+      <div style="font-weight: 600;">TREND_FOLLOW</div>
+      <div class="num" style="color: #8aa0c0;">68</div><div class="num">76.2</div>
+      <div class="num">8.1</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">XAUUSD</div><div style="color: #8aa0c0;">D1</div>
+      <div style="font-weight: 600;">MOMENTUM</div>
+      <div class="num" style="color: #8aa0c0;">72</div><div class="num">80.8</div>
+      <div class="num">8.8</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">BTCUSD</div><div style="color: #8aa0c0;">D1</div>
+      <div style="font-weight: 600;">MOMENTUM</div>
+      <div class="num" style="color: #8aa0c0;">72</div><div class="num">84.9</div>
+      <div class="num">12.8</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">XAUUSD</div><div style="color: #8aa0c0;">D1</div>
+      <div style="font-weight: 600;">TREND_FOLLOW</div>
+      <div class="num" style="color: #8aa0c0;">68</div><div class="num">80.8</div>
+      <div class="num">12.8</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">GC=F</div><div style="color: #8aa0c0;">D1</div>
+      <div style="font-weight: 600;">MOMENTUM</div>
+      <div class="num" style="color: #8aa0c0;">72</div><div class="num">87.3</div>
+      <div class="num">15.3</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">BTCUSD</div><div style="color: #8aa0c0;">D1</div>
+      <div style="font-weight: 600;">TREND_FOLLOW</div>
+      <div class="num" style="color: #8aa0c0;">68</div><div class="num">84.9</div>
+      <div class="num">16.8</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">GC=F</div><div style="color: #8aa0c0;">D1</div>
+      <div style="font-weight: 600;">TREND_FOLLOW</div>
+      <div class="num" style="color: #8aa0c0;">68</div><div class="num">87.3</div>
+      <div class="num">19.3</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">BTC-USD</div><div style="color: #8aa0c0;">H4</div>
+      <div style="font-weight: 600;">MOMENTUM</div>
+      <div class="num" style="color: #8aa0c0;">72</div><div class="num">96.7</div>
+      <div class="num" style="color: #f2555f;">24.7</div>
+    </div>
+    <div class="row">
+      <div style="font-family: 'JetBrains Mono', Consolas, monospace;">BTC-USD</div><div style="color: #8aa0c0;">H4</div>
+      <div style="font-weight: 600;">TREND_FOLLOW</div>
+      <div class="num" style="color: #8aa0c0;">68</div><div class="num">96.7</div>
+      <div class="num" style="color: #f2555f;">28.7</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1;"></div>
+
+  <div style="background: #121a28; border: 1px solid #1e2a3d; border-radius: 10px; padding: 15px 18px; display: flex; flex-direction: column; gap: 9px;">
+    <div style="font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: #7488ab;">Reading the two spellings</div>
+    <div style="font-size: 12px; color: #8aa0c0; line-height: 1.65;"><span style="font-family: 'JetBrains Mono', Consolas, monospace; color: #e8eef7;">GC=F</span> and <span style="font-family: 'JetBrains Mono', Consolas, monospace; color: #e8eef7;">XAUUSD</span> are the same metal; <span style="font-family: 'JetBrains Mono', Consolas, monospace; color: #e8eef7;">BTC-USD</span> and <span style="font-family: 'JetBrains Mono', Consolas, monospace; color: #e8eef7;">BTCUSD</span> the same coin. The engine names a symbol as it saw it — broker feed or fallback feed — and they carry different RSI readings for the same instrument at the same moment. Matching one spelling would have hidden half of each asset's rows.</div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

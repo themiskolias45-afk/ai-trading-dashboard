@@ -1,0 +1,17 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 900, "h": 760, "title": "The constraint" },
+    { "file": "Evidence.dc.html", "x": 1020, "y": 0, "w": 800, "h": 760, "title": "The ledger" },
+    { "file": "Proof.dc.html", "x": 0, "y": 900, "w": 1720, "h": 470, "title": "Proving it changed nothing" }
+  ],
+  "annotations": [
+    {
+      "id": "what-this-is",
+      "x": 0,
+      "y": -150,
+      "w": 560,
+      "text": "Why the system so rarely trades — and why the answer was invisible until now.\n\nEvery number here was measured on 2026-08-22, not estimated."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

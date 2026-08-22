@@ -45,3 +45,7 @@ tasks/ai_brief.md
 # Auto-healer backups of learning.json / journal.json. Live data copies,
 # rewritten every time the healer confirms the source is valid — not history.
 *.json.bak
+
+# Built design-canvas payload (2.2MB). Regenerated from design/*.dc.html — see design/README.md
+design/*.html
+!design/*.dc.html

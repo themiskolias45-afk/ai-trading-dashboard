@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #4a9eff; } a:hover { color: #7c5cff; }
+    .mono { font-family: 'JetBrains Mono', Consolas, 'SF Mono', Menlo, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 1720px; height: 470px; box-sizing: border-box; background: #070b12; color: #e8eef7; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif; padding: 38px 44px; display: flex; gap: 40px;">
+
+  <div style="width: 430px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px;">
+    <div style="font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: #7488ab;">The safety proof</div>
+    <div style="font-size: 27px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15;">Proving it changed nothing</div>
+    <div style="font-size: 13px; color: #8aa0c0; line-height: 1.7;">Comparing the live signal feed before and after is not a proof — prices move between the two readings, so any difference is unattributable. The replay runs the same engine over fixed historical bars, which makes the comparison deterministic and the result a fact rather than an impression.</div>
+    <div style="flex-grow: 1;"></div>
+    <div style="background: #0c3d26; border: 1px solid rgba(43,208,124,.35); border-radius: 10px; padding: 13px 16px;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #2bd07c;">Engine throws: 0, all three runs</div>
+      <div style="font-size: 12px; color: #8aa0c0; line-height: 1.6; margin-top: 6px;">The check that matters most. A limit hoisted out of the function throws inside the replay sandbox, and the caller swallows it — that failure has silently erased whole cohorts twice.</div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 16px;">
+
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+
+      <div style="background: #121a28; border: 1px solid #2b3a52; border-radius: 10px; padding: 18px 20px;">
+        <div class="mono" style="font-size: 11px; color: #7488ab; letter-spacing: .06em;">RUN A · no override</div>
+        <div style="font-size: 13px; color: #8aa0c0; margin-top: 8px; line-height: 1.5;">The engine exactly as it ships</div>
+        <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 14px;">
+          <div class="mono" style="font-size: 34px; font-weight: 700; line-height: 1;">265</div>
+          <div style="font-size: 12px; color: #8aa0c0;">trades</div>
+        </div>
+      </div>
+
+      <div style="background: #121a28; border: 1px solid #2b3a52; border-radius: 10px; padding: 18px 20px;">
+        <div class="mono" style="font-size: 11px; color: #7488ab; letter-spacing: .06em;">RUN B · explicit 72 / 68</div>
+        <div style="font-size: 13px; color: #8aa0c0; margin-top: 8px; line-height: 1.5;">Today's numbers, set deliberately</div>
+        <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 14px;">
+          <div class="mono" style="font-size: 34px; font-weight: 700; line-height: 1; color: #2bd07c;">265</div>
+          <div style="font-size: 12px; color: #8aa0c0;">trades</div>
+        </div>
+      </div>
+
+      <div style="background: #121a28; border: 1px solid #2b3a52; border-radius: 10px; padding: 18px 20px;">
+        <div class="mono" style="font-size: 11px; color: #7488ab; letter-spacing: .06em;">RUN C · moved to 80 / 76</div>
+        <div style="font-size: 13px; color: #8aa0c0; margin-top: 8px; line-height: 1.5;">A deliberately different limit</div>
+        <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 14px;">
+          <div class="mono" style="font-size: 34px; font-weight: 700; line-height: 1; color: #f0b429;">282</div>
+          <div style="font-size: 12px; color: #8aa0c0;">trades</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;">
+
+      <div style="border: 1px solid rgba(43,208,124,.35); background: rgba(43,208,124,.06); border-radius: 10px; padding: 16px 20px; display: flex; align-items: center; gap: 16px;">
+        <div class="mono" style="font-size: 15px; font-weight: 700; color: #2bd07c; white-space: nowrap;">A = B</div>
+        <div style="width: 1px; align-self: stretch; background: rgba(43,208,124,.3);"></div>
+        <div>
+          <div style="font-size: 14px; font-weight: 700;">Byte-identical output</div>
+          <div style="font-size: 12px; color: #8aa0c0; line-height: 1.55; margin-top: 3px;">The default path and the explicit path produce the same trades, in the same order. Live behaviour is unchanged.</div>
+        </div>
+      </div>
+
+      <div style="border: 1px solid rgba(240,180,41,.35); background: rgba(240,180,41,.06); border-radius: 10px; padding: 16px 20px; display: flex; align-items: center; gap: 16px;">
+        <div class="mono" style="font-size: 15px; font-weight: 700; color: #f0b429; white-space: nowrap;">A ≠ C</div>
+        <div style="width: 1px; align-self: stretch; background: rgba(240,180,41,.3);"></div>
+        <div>
+          <div style="font-size: 14px; font-weight: 700;">The control is real, not decoration</div>
+          <div style="font-size: 12px; color: #8aa0c0; line-height: 1.55; margin-top: 3px;">Moving the limit moves the trade list. Without this second test a setting that silently does nothing looks exactly like a setting that is safe.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="flex-grow: 1;"></div>
+
+    <div style="font-size: 12px; color: #7488ab; line-height: 1.6;">Both tests are needed, and neither is sufficient alone. The first says the change is safe; the second says the change is worth having.</div>
+
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
