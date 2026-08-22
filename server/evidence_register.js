@@ -55,24 +55,40 @@ const CLAIMS = [
       + "+24.0R, 4/5 positive). FOUR candidates beat that worst fold — 64/60 +0.033 "
       + "(180, +23.8R, 5/5), 80/76 −0.009 (236, +26.2R, 4/5), 88/84 +0.014 (249, "
       + "+18.8R, 5/5) and NO CEILING AT ALL +0.029 (264, +26.9R, 5/5). Only a much "
-      + "tighter 56/52 is clearly worse: −0.326 worst, 2/5, −0.4R total.",
+      + "tighter 56/52 is clearly worse: −0.326 worst, 2/5, −0.4R total. SECOND CUT, "
+      + "same day: the identical population re-scored on five equal-TIME windows instead "
+      + "of five equal-count buckets (RSI_CEILING_FOLD_MODE=time). The ranking survives — "
+      + "the same four candidates clear the baseline and 56/52 is rejected under both — "
+      + "but NOTHING is positive in all five folds under that cut, not one candidate and "
+      + "not the baseline: 72/68 worst −0.092 (4/5), 64/60 −0.009 (3/5), 80/76 "
+      + "−0.024 (4/5), 88/84 −0.089 (4/5), no ceiling −0.067 (4/5).",
     caveat: "This does NOT say the ceiling is wrong, and it must not be used to move it. "
       + "Everything from 64 upward lands inside a 0.14R/trade spread, and the baseline's "
       + "weak worst fold is one window: in fold2 72/68 scores −0.108 while its immediate "
       + "neighbours score +0.095, −0.009 and +0.036. That is the shape of noise, not of "
       + "a bad threshold. The replay also stubs DXY, VIX, Fear&Greed, the cross-asset "
-      + "signal cache and the learning boost, and folds are equal-COUNT on the baseline, "
-      + "not equal-time. The first run of this harness also reported 64/60 at +63.5R "
+      + "signal cache and the learning boost. Both fold geometries have now been run, and "
+      + "the comparison is itself a warning: the three 5/5 ROBUST labels from the "
+      + "equal-count cut do not survive equal-time folds, so they were an artifact of "
+      + "where the cuts fell rather than a property of those ceilings. 88/84 beats the "
+      + "baseline by 0.003 under the second cut, which is not a result. The first run of "
+      + "this harness also reported 64/60 at +63.5R "
       + "before rr was capped at 10 — ONE row with rr 49.71 supplied +39.7R of it, the "
       + "same artifact class as the rejection-ledger outlier at the top of this board.",
-    changesTheAnswer: "A second, independent measurement that agrees — a different cost "
-      + "basis, equal-TIME folds, or the same sweep once live fills can corroborate it. "
-      + "A candidate has to beat 72/68's worst fold by more than one fold's worth of "
-      + "noise, not merely beat it. Re-run: node tasks/rsi_ceiling_walkforward.cjs. "
+    changesTheAnswer: "LIVE FILLS — not another cut of the same 2022-2026 bars. The "
+      + "second independent measurement the previous version of this claim asked for has "
+      + "been run (equal-TIME folds, 2026-08-22) and it AGREES: the 64-to-no-ceiling range "
+      + "is one flat cluster inside roughly 0.14R/trade under either geometry. A third "
+      + "re-slicing of the same data is not independent evidence and should not be run as "
+      + "though it were. What is still open is a different cost basis, or enough live "
+      + "fills above the ceiling to corroborate the replay. A candidate has to beat "
+      + "72/68's worst fold under BOTH cuts by more than one fold's worth of noise, not "
+      + "merely beat it in one. Re-run: node tasks/rsi_ceiling_walkforward.cjs, then "
+      + "again with RSI_CEILING_FOLD_MODE=time; each mode writes its own report. "
       + "Until then the live engine keeps 72/68 — strategy_settings.json carries neither "
       + "momentumRsiMax nor trendFollowRsiMax on either box, so both fall through to the "
       + "literals in generateSignal.",
-    harness: "node tasks/rsi_ceiling_walkforward.cjs",
+    harness: "node tasks/rsi_ceiling_walkforward.cjs [RSI_CEILING_FOLD_MODE=count|time]",
     feedsTheGate: true,
   },
   {
