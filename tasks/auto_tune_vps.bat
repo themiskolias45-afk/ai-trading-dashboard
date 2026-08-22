@@ -35,16 +35,31 @@ if "%SETTING%"=="" (
 )
 
 echo Testing %SETTING% over %VALUES% ^(current %BASE%^) >> %LOG%
-python tasks\evaluate_change.py --setting %SETTING% --values %VALUES% --baseline %BASE% --tf H4 --apply >> %LOG% 2>&1
+REM PROPOSE-ONLY since 2026-08-22. The --apply flag was withdrawn from the line below.
+REM Nothing was removed from evaluate_change.py - the capability is intact and this is
+REM reversible by putting the flag back. Two reasons it was withdrawn:
+REM   1. An overnight job that writes a live threshold by itself is the one behaviour
+REM      the owner asked never to happen. A recommendation costs nothing if it is wrong.
+REM   2. The restart branch below could never have worked on this box anyway.
+REM      SmartEntryServer is Interactive/AtLogOn and fails 0x800710E0 headless, so an
+REM      apply would have stopped the server and left it down until the SYSTEM ensure
+REM      task recovered it - up to 10 minutes off the air, on the box that trades.
+REM THE SWEEP STILL RUNS IN FULL and still logs its verdict. No measurement is lost and
+REM nothing is blocked; only the automatic WRITE is withheld.
+python tasks\evaluate_change.py --setting %SETTING% --values %VALUES% --baseline %BASE% --tf H4 >> %LOG% 2>&1
 
 REM Exit code 0 means a variant won and was written. Restart the server so it
 REM loads the new value, then say so on Telegram - a config that changed itself
 REM overnight should never be a surprise.
 if %ERRORLEVEL%==0 (
-  echo Applied - restarting server to load it >> %LOG%
-  schtasks /end /tn SmartEntryServer >nul 2>&1
-  timeout /t 4 /nobreak >nul
-  schtasks /run /tn SmartEntryServer >nul 2>&1
+  echo RECOMMENDATION found and NOT applied - decide it by hand >> %LOG%
+  REM Former apply branch, kept so restoring it is a copy not a rewrite.
+  REM Do not re-enable without fixing the restart: schtasks cannot start
+  REM SmartEntryServer on this headless box. Use safe_server_restart.ps1
+  REM -Execute then SmartEntryEnsureRunning.
+  REM   schtasks /end /tn SmartEntryServer
+  REM   timeout /t 4 /nobreak
+  REM   schtasks /run /tn SmartEntryServer
   powershell -NoProfile -ExecutionPolicy Bypass -File tasks\vps_notify.ps1 -Mode heartbeat >nul 2>&1
 ) else (
   echo No change - current setting retained >> %LOG%
