@@ -28,10 +28,53 @@ const STATUS = {
   UNMEASURED:       "UNMEASURED",
   BLOCKED:          "BLOCKED — CANNOT MEASURE YET",
   CONTRADICTED:     "CONTRADICTED — TWO SOURCES DISAGREE",
+  // A harness ran and returned a real table that settles nothing — the candidates sit
+  // inside what a single fold can move. Distinct from CANDIDATE, which means no
+  // walk-forward has run, and from ROBUST, which means one did and answered. Without
+  // this a swept-but-undecided claim has to borrow a label that overstates it in one
+  // direction or the other.
+  INCONCLUSIVE:     "MEASURED — INCONCLUSIVE",
 };
 
 // Ordered most-actionable first; the board renders in this order.
 const CLAIMS = [
+  {
+    // Raised 2026-08-22. It goes near the top because it is the constraint the whole
+    // system is currently bounded by, and because every surface in the project reports
+    // the CONFIDENCE gate instead — which is not what is stopping the trades.
+    id: "rsiceiling",
+    title: "The RSI ceiling is the binding constraint on trade count — and its own sweep does not settle it",
+    status: STATUS.INCONCLUSIVE,
+    measuredOn: "2026-08-22",
+    evidence: "MOMENTUM must sit under RSI 72 and TREND_FOLLOW under 68. On 2026-08-22 "
+      + "the live near-miss census recorded 24 of 24 blocked setups failing on "
+      + "RSI_ABOVE_CEILING — every one of them — the closest by 1.5 points (Gold H4 "
+      + "MOMENTUM at 73.5). Over the same window the CONFIDENCE gate killed 1 and passed "
+      + "0. First walk-forward, 3 assets, 2022-05..2026-07, 5 folds, 0.05R cost, scored "
+      + "at gate 70 and judged on WORST FOLD: baseline 72/68 worst −0.108 (202 closed, "
+      + "+24.0R, 4/5 positive). FOUR candidates beat that worst fold — 64/60 +0.033 "
+      + "(180, +23.8R, 5/5), 80/76 −0.009 (236, +26.2R, 4/5), 88/84 +0.014 (249, "
+      + "+18.8R, 5/5) and NO CEILING AT ALL +0.029 (264, +26.9R, 5/5). Only a much "
+      + "tighter 56/52 is clearly worse: −0.326 worst, 2/5, −0.4R total.",
+    caveat: "This does NOT say the ceiling is wrong, and it must not be used to move it. "
+      + "Everything from 64 upward lands inside a 0.14R/trade spread, and the baseline's "
+      + "weak worst fold is one window: in fold2 72/68 scores −0.108 while its immediate "
+      + "neighbours score +0.095, −0.009 and +0.036. That is the shape of noise, not of "
+      + "a bad threshold. The replay also stubs DXY, VIX, Fear&Greed, the cross-asset "
+      + "signal cache and the learning boost, and folds are equal-COUNT on the baseline, "
+      + "not equal-time. The first run of this harness also reported 64/60 at +63.5R "
+      + "before rr was capped at 10 — ONE row with rr 49.71 supplied +39.7R of it, the "
+      + "same artifact class as the rejection-ledger outlier at the top of this board.",
+    changesTheAnswer: "A second, independent measurement that agrees — a different cost "
+      + "basis, equal-TIME folds, or the same sweep once live fills can corroborate it. "
+      + "A candidate has to beat 72/68's worst fold by more than one fold's worth of "
+      + "noise, not merely beat it. Re-run: node tasks/rsi_ceiling_walkforward.cjs. "
+      + "Until then the live engine keeps 72/68 — strategy_settings.json carries neither "
+      + "momentumRsiMax nor trendFollowRsiMax on either box, so both fall through to the "
+      + "literals in generateSignal.",
+    harness: "node tasks/rsi_ceiling_walkforward.cjs",
+    feedsTheGate: true,
+  },
   {
     // First on the board deliberately: it governs how every OTHER ledger number here
     // should be read. Anyone acting on a netR figure without this claim in front of

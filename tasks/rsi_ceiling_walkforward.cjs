@@ -86,11 +86,24 @@ function replay(symbol, ticker, candidate) {
   return JSON.parse(stdout);
 }
 
+// The same ceiling the live engine puts on a realised R, and it is load-bearing here.
+//
+// Caught by checking rather than trusting: the FIRST run of this harness reported 64/60
+// as the standout challenger at +63.5R. One row carried rr 49.71 — a degenerate stop
+// distance, not a trade that ran — and it alone supplied +39.7R of that. Capped, the
+// same candidate scores +23.8R, BELOW the baseline it appeared to beat.
+//
+// realizedRFromPrices in server/index.js refuses anything past MAX_PLAUSIBLE_RR = 10 for
+// this reason, and a harness that scores what the engine would never record is not
+// measuring the engine. This project has already had one row invert the sign of a
+// 498-episode ledger; the fix is the same fix.
+const MAX_PLAUSIBLE_RR = 10;
+
 function stat(trades) {
   const closed = trades.filter(t => t.outcome !== "EXPIRED");
   const wins   = closed.filter(t => t.outcome === "WIN");
   const losses = closed.filter(t => t.outcome === "LOSS");
-  const grossWin  = wins.reduce((a, t) => a + t.rr - COST_R, 0);
+  const grossWin  = wins.reduce((a, t) => a + Math.min(t.rr, MAX_PLAUSIBLE_RR) - COST_R, 0);
   const grossLoss = losses.reduce(a => a + 1 + COST_R, 0);
   return {
     closed: closed.length,
@@ -220,7 +233,8 @@ const report = {
     foldsFrom: `baseline (${baselineCandidate.label}) population at the live gate`,
     stubbed: ["priceCache.dxy", "priceCache.vix", "sentimentCache.fearGreed",
               "signalCache (cross-asset)", "getLearningBoost -> 0"],
-    caveat: "rr artifacts are NOT capped here; folds are equal-count on the baseline, not equal-time",
+    maxPlausibleRr: MAX_PLAUSIBLE_RR,
+    caveat: "rr is capped at 10, matching realizedRFromPrices; folds are equal-count on the baseline, not equal-time",
     changesNothing: "measurement only — the live engine keeps 72/68 unless a human edits strategy_settings.json",
   },
   replayErrors: perAssetErrors,

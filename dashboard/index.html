@@ -2958,6 +2958,9 @@ const CLAIM_TONE = {
   "CONTRADICTED — TWO SOURCES DISAGREE": { colour: "var(--yellow)", bg: "#2d220a" },
   "BLOCKED — CANNOT MEASURE YET":   { colour: "var(--muted)",  bg: "#1a1a2e" },
   "UNMEASURED":                     { colour: "var(--muted)",  bg: "#1a1a2e" },
+  // A harness ran and settled nothing. Amber rather than green or red on purpose: the
+  // reader has to come back to it, which neither of the decided colours would say.
+  "MEASURED — INCONCLUSIVE":        { colour: "var(--yellow)", bg: "#2d220a" },
 };
 
 const GATE_TONE = {
@@ -2975,8 +2978,16 @@ function renderEvidenceBoard(data) {
 
   const claims = data.claims || [];
   if (countsEl) {
+    // The QUALIFIER is the word that carries the meaning, not the "MEASURED —" prefix.
+    // Splitting on the dash and keeping the head rendered three distinct statuses as the
+    // same word: "1 measured · 5 measured · 2 measured" told the reader nothing about
+    // which claims had no edge, which were robust and which settled nothing. Keep the
+    // tail where there is one, fall back to the whole label where there is not.
     countsEl.textContent = Object.entries(data.claimCounts || {})
-      .map(([status, n]) => n + " " + status.split(" — ")[0].toLowerCase()).join(" · ") || "—";
+      .map(([status, n]) => {
+        const parts = status.split(" — ");
+        return n + " " + (parts[1] || parts[0]).toLowerCase();
+      }).join(" · ") || "—";
   }
 
   // The OPEN questions, lifted to the top.
