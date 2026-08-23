@@ -11,7 +11,23 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="SmartEntry" />
-  <link rel="manifest" href="./manifest.json" />
+  <!-- crossorigin="use-credentials" is LOAD-BEARING, not boilerplate. A manifest is
+       fetched with credentials mode "omit" by default, so the session cookie is not
+       sent, and every dashboard route is login-gated. Measured 2026-08-23:
+
+         302 manifest  /dashboard/manifest.json
+         200 manifest  /login                    ct=text/html
+         200 manifest  /dashboard/manifest.json  ct=text/html  body: <!DOCTYPE html>
+
+       The browser was parsing the LOGIN PAGE as the manifest and reporting
+       "Manifest: Line: 1, column: 1, Syntax error" — which is why the install prompt
+       never appeared despite the icons and the service worker both being fine. This
+       is a same-origin fetch, so "use-credentials" only sends the cookie the page
+       already has; nothing is made public and no server route changed.
+
+       The service worker was never the problem: SW script fetches DO carry same-origin
+       credentials, and sw.js has been registering and activating throughout. -->
+  <link rel="manifest" href="./manifest.json" crossorigin="use-credentials" />
   <link rel="apple-touch-icon" href="./icons/icon-180.png" />
   <title>SmartEntry Pro — Dashboard</title>
   <style>
