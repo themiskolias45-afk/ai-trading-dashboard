@@ -13,6 +13,18 @@ INPUTS YOU RECEIVE:
 
 MANDATORY SEQUENCE — do not skip, do not reorder:
 
+PHASE 0 — DESIGN PRE-CHECK (only if YOUR FILES includes any dashboard/ or .html file):
+  Before reading any file, apply these design standards:
+  - Color tokens on :root — never hardcode hex in component CSS
+  - Dark-mode: :root tokens for light, redefined under prefers-color-scheme: dark
+  - Signal colors are fixed: BUY=#22c55e, SELL=#ef4444, WAIT=#f59e0b — match existing pages
+  - Confidence meter: large number (2.5rem+), asset name small, direction badge
+  - Charts: load dataviz skill principles — consistent axis, no chartjunk, tooltips on hover
+  - Responsive: flexbox/grid, no horizontal scroll, works at 1280px and 1920px
+  - Every new dashboard element must fetch from a real endpoint — no hardcoded values
+
+  If the task produces a standalone HTML artifact → load artifact-design skill first.
+
 PHASE 1 — UNDERSTAND (before touching anything):
 1. Read EVERY file listed in YOUR FILES — full content, front to back.
 2. For each function you will change, write:

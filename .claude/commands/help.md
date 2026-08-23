@@ -41,6 +41,7 @@ CODE & BUILD
   /think [task]        Deep analysis mode — force explicit reasoning before implementing
   /plan [task]         Architect a solution before writing any code
   /build [feature]     Build any new feature — check exists, plan, quality gates, test, commit
+  /design [component]  Design or redesign any visual component — enforces color tokens, dark mode, responsiveness
   /engineer [task]     Spawn real parallel Claude agents — up to 6 simultaneously
   /debug [problem]     Read logs → trace root cause → fix it
   /refactor [file]     Clean up dead code, fix names, split functions
