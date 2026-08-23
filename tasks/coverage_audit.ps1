@@ -41,6 +41,17 @@ function Get-Json([string]$path, [int]$timeout = 6) {
 # one that matters. A task registered years ago that has never fired is the purest
 # form of blind: it exists, it reports Ready, and it has never done anything.
 $now = Get-Date
+
+# Probed BEFORE the task loop because the loop needs it. Section 2 below already states
+# the principle -- "by HTTP, never by process name" -- and then section 1 judged the
+# server by its scheduler exit code anyway, so the same report could say RED on
+# SmartEntryServer and GREEN on the server in the same breath. Measured on the VPS
+# 2026-08-23: task State=Ready, LastTaskResult=4294967295, and the server answering
+# every request with a bridge heartbeat 25s old. The task is Ready because
+# EnsureRunning started the process, not this task; a scheduler's opinion of a task
+# says nothing about whether the service is up.
+$serverAnswering = $null -ne (Get-Json '/api/status')
+
 $tasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -match 'SmartEntry' })
 if ($tasks.Count -eq 0) {
     Add-Check 'tasks' 'scheduled tasks' 'RED' 'no SmartEntry tasks registered on this box at all'
@@ -123,6 +134,16 @@ if ($tasks.Count -eq 0) {
             # BARS have gone stale, and that is a separate check below -- an exit code
             # says whether the tool ran, never whether the data moved.
             Add-Check 'tasks' $t.TaskName 'INFO' "refused ${ageH}h ago (exit 3 = a position was open, the expected result)"
+        } elseif ($t.TaskName -match 'Server' -and $serverAnswering) {
+            # Third instance of one root cause, all found in a single session: judging a
+            # service by its supervisor's exit code instead of by whether the service
+            # answers. The other two were CoverageAudit's own rc=1 and RefreshBars' rc=3.
+            #
+            # The guard here is not the name match, it is $serverAnswering: if the server
+            # is NOT answering, this branch does not apply and the exit code reads RED as
+            # before. A wrong name simply misses the exemption, which fails toward the
+            # alarm rather than away from it.
+            Add-Check 'tasks' $t.TaskName 'INFO' "task is $($t.State) with exit $($i.LastTaskResult), but the server IS answering on 3001 - the process was started by EnsureRunning, not by this task"
         } elseif ($i.LastTaskResult -ne 0 -and $i.LastTaskResult -ne 267009) {
             Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
         } elseif ($null -eq $i.NextRunTime) {
