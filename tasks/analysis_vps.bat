@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 REM Nightly parallel analysis. Runs on the VPS so it does not depend on the
 REM laptop being open.
 REM
@@ -22,7 +28,7 @@ echo ========== %date% %time% ========== >> %LOG%
 REM D1 and H4 together give ~714 replayed trades. Anything shorter than H4 makes
 REM the replay slow enough to overlap the 2 AM auto-tune, and two node replays
 REM competing for the same box makes both of them late.
-python parallel_analysis.py --tf D1,H4 >> %LOG% 2>&1
+"%PY%" parallel_analysis.py --tf D1,H4 >> %LOG% 2>&1
 
 if %ERRORLEVEL%==0 (
   echo Analysis complete - report at tasks\analysis\latest.json >> %LOG%

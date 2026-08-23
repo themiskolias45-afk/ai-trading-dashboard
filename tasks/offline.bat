@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 REM ============================================================================
 REM OFFLINE TOOLKIT — everything in this menu runs with the internet DOWN.
 REM
@@ -148,7 +154,7 @@ echo   the one option here that is not offline-safe.
 echo.
 set /p sure=  Type YES to continue, anything else to go back:
 if /i not "%sure%"=="YES" goto menu
-python tasks\export_mt5_history.py
+"%PY%" tasks\export_mt5_history.py
 goto done
 
 :done

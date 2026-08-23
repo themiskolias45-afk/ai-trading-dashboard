@@ -1,4 +1,4 @@
-# PostToolUse quality gate — runs after every Edit/Write (NOT async — Claude sees all output)
+# PostToolUse quality gate -- runs after every Edit/Write (NOT async -- Claude sees all output)
 # Checks: sensitive file protection, syntax, security scan, targeted commit
 
 param()
@@ -22,7 +22,7 @@ if (-not (Test-Path $filePath)) { exit 0 }
 
 $rel = $filePath.Replace($root + '\', '')
 
-# ── 1. SENSITIVE FILE GUARD ────────────────────────────────────────────────────
+# -- 1. SENSITIVE FILE GUARD ----------------------------------------------------
 $blocked = @('server\apikey.txt','keys.env','keys.env.local','.env','keys.env.backup')
 foreach ($b in $blocked) {
     if ($rel -ieq $b) {
@@ -31,27 +31,35 @@ foreach ($b in $blocked) {
     }
 }
 
-# ── 2. SYNTAX CHECK ───────────────────────────────────────────────────────────
+# -- 2. SYNTAX CHECK -----------------------------------------------------------
 if ($filePath -match '\.js$') {
     $out = & node --check $filePath 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "SYNTAX ERROR — $rel`:`n$out`nJARVIS: Fix syntax before continuing."
+        Write-Error "SYNTAX ERROR -- $rel`:`n$out`nJARVIS: Fix syntax before continuing."
         exit 1
     }
 }
 elseif ($filePath -match '\.py$') {
-    $out = & python -m py_compile $filePath 2>&1
+    # Resolved by RUNNING a candidate, never taken from PATH -- see
+    # server/python_path.js. A py_compile that cannot start is not a passing check.
+    $resolver = Join-Path $PSScriptRoot '..\resolve_python.ps1'
+    $pyBin = if (Test-Path $resolver) { & $resolver } else { $null }
+    if (-not $pyBin) {
+        Write-Error "NO PYTHON - cannot syntax-check $rel. Resolve the interpreter first."
+        exit 1
+    }
+    $out = & $pyBin -m py_compile $filePath 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "SYNTAX ERROR — $rel`:`n$out`nJARVIS: Fix syntax before continuing."
+        Write-Error "SYNTAX ERROR -- $rel`:`n$out`nJARVIS: Fix syntax before continuing."
         exit 1
     }
 }
 
-# ── 3. SECURITY SCAN ──────────────────────────────────────────────────────────
+# -- 3. SECURITY SCAN ----------------------------------------------------------
 if ($filePath -match '\.(js|py|ts|json)$') {
     $content = try { Get-Content $filePath -Raw } catch { '' }
     if ($content -match 'sk-ant-[A-Za-z0-9\-_]{20,}') {
-        Write-Error "SECURITY: Anthropic API key hardcoded in $rel — use env var."
+        Write-Error "SECURITY: Anthropic API key hardcoded in $rel -- use env var."
         exit 1
     }
     if ($content -match 'AKIA[0-9A-Z]{16}') {
@@ -64,7 +72,7 @@ if ($filePath -match '\.(js|py|ts|json)$') {
     }
 }
 
-# ── 4. RUN TESTS (if server/index.js changed and tests exist) ─────────────────
+# -- 4. RUN TESTS (if server/index.js changed and tests exist) -----------------
 if ($rel -match '^server\\index\.js$') {
     $pkg = Join-Path $root 'server\package.json'
     if (Test-Path $pkg) {
@@ -82,19 +90,19 @@ if ($rel -match '^server\\index\.js$') {
     }
 }
 
-# ── 5. COMMIT — specific file only, never git add -A ─────────────────────────
+# -- 5. COMMIT -- specific file only, never git add -A -------------------------
 if (git status --porcelain 2>$null) {
     $fileStatus = git status --porcelain $rel 2>$null
     if ($fileStatus) {
         git add $rel 2>$null
         git commit -m "update $rel" --quiet 2>$null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "JARVIS: $rel committed — syntax OK, security OK."
+            Write-Host "JARVIS: $rel committed -- syntax OK, security OK."
         }
     }
 }
 
-# ── 6. CODE REVIEW SIGNAL — visible to JARVIS for trading logic changes ────────
+# -- 6. CODE REVIEW SIGNAL -- visible to JARVIS for trading logic changes --------
 $tradingFiles = @(
     'server\index.js',
     'server\autohealer.js',

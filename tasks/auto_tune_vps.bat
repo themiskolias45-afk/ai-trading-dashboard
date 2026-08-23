@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 REM Nightly evidence-gated auto-tune. Runs on the VPS.
 REM
 REM One setting per night, rotating, so a bad day cannot move several dials at
@@ -46,7 +52,7 @@ REM      apply would have stopped the server and left it down until the SYSTEM e
 REM      task recovered it - up to 10 minutes off the air, on the box that trades.
 REM THE SWEEP STILL RUNS IN FULL and still logs its verdict. No measurement is lost and
 REM nothing is blocked; only the automatic WRITE is withheld.
-python tasks\evaluate_change.py --setting %SETTING% --values %VALUES% --baseline %BASE% --tf H4 >> %LOG% 2>&1
+"%PY%" tasks\evaluate_change.py --setting %SETTING% --values %VALUES% --baseline %BASE% --tf H4 >> %LOG% 2>&1
 
 REM Exit code 0 means a variant won and was written. Restart the server so it
 REM loads the new value, then say so on Telegram - a config that changed itself

@@ -260,8 +260,14 @@ function Set-BridgeFailCount($tag, $count) {
 # waiting on a notifier. Absent python or a failing notifier is logged and ignored.
 function Send-TerminalAlert($text) {
     try {
-        if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-            Write-Log 'ALERT: python not on PATH -- log line is the only record'
+        # Get-Command only proves a python.exe EXISTS on PATH. On 2026-08-23 one did,
+        # first on PATH, and it could not spawn: a uv trampoline for an interpreter
+        # Smart App Control had begun blocking. This resolves by RUNNING a candidate --
+        # see server/python_path.js, the one resolver in this repo.
+        $shared = Join-Path $PSScriptRoot 'resolve_python.ps1'
+        $pythonBin = if (Test-Path $shared) { & $shared } else { $null }
+        if (-not $pythonBin) {
+            Write-Log 'ALERT: no python on this box will run -- log line is the only record'
             return
         }
         # notifications.py exposes `alert "<message>" [--title T]` -- verified against
@@ -270,7 +276,7 @@ function Send-TerminalAlert($text) {
         # so a message with a space would otherwise arrive as several arguments and
         # the notifier would print usage and exit 1.
         $safe = ($text -replace '"', "'")
-        Start-Process -FilePath 'python' `
+        Start-Process -FilePath $pythonBin `
             -ArgumentList ('notifications.py alert "{0}" --title "MT5 TERMINAL"' -f $safe) `
             -WorkingDirectory $Proj -WindowStyle Hidden
     } catch {

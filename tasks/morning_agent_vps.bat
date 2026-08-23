@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 REM JARVIS autonomous morning cycle - VPS.
 REM
 REM Machine-agnostic by construction: PROJ is derived from this file's own location
@@ -70,7 +76,7 @@ if not "%CLAUDE_RC%"=="0" (
     echo below it. server/ai_work_ledger.js harvests proposals by that exact string, so one
     echo written without the marker can never be decided on and gets re-derived tomorrow.
     echo Write a one-paragraph summary to %PROJ%\tasks\logs\morning_summary.txt.
-  ) | python "%PROJ%\claude_agent.py" park "Morning Agent" --output-file "%RUNOUT%" >> "%PROJ%\tasks\logs\agent_log.txt" 2>&1
+  ) | "%PY%" "%PROJ%\claude_agent.py" park "Morning Agent" --output-file "%RUNOUT%" >> "%PROJ%\tasks\logs\agent_log.txt" 2>&1
   REM A PARKED JOB IS NOT A FAILED JOB. park exits 0 when it queued the brief and 2
   REM when the run was not a limit at all. Without this the .bat propagated claude's
   REM failure code even after parking correctly, so the Task Scheduler showed FAILING

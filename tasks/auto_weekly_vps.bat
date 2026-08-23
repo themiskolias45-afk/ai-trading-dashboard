@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 REM Weekly review — VPS version. Proposes an improvement; does not apply it.
 cd /d C:\ai-trading-dashboard
 if not exist tasks\logs mkdir tasks\logs
@@ -51,7 +57,7 @@ if not "%CLAUDE_RC%"=="0" (
     echo weakness from actual results, not speculation; and one specific proposed fix
     echo marked PROPOSED FIX: naming the function and change. Max 40 lines.
     echo Do NOT edit code and do NOT commit - propose only.
-  ) | python claude_agent.py park "Weekly Algo Review" --output-file "%REPORT%" >> %REPORT% 2>&1
+  ) | "%PY%" claude_agent.py park "Weekly Algo Review" --output-file "%REPORT%" >> %REPORT% 2>&1
   REM A PARKED JOB IS NOT A FAILED JOB. park exits 0 when it queued the brief and 2
   REM when the run was not a limit at all. Without this the .bat propagated claude's
   REM failure code even after parking correctly, so the Task Scheduler showed FAILING

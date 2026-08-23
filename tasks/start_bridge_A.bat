@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 title SmartEntry MT5 Bridge - ACCOUNT A (Program Files terminal)
 cd /d C:\Users\User\ai-trading-dashboard
 if not exist tasks\logs mkdir tasks\logs
@@ -51,5 +57,5 @@ echo  STRONG signals execute instantly. Semi-auto for MODERATE.
 echo  Risk: 1%% per trade. Circuit breaker: 3 consecutive losses.
 echo  Press Ctrl+C to stop.
 echo.
-python mt5_bridge.py %BRIDGE_ARGS% >> tasks\logs\bridge_log_A.txt 2>&1
+"%PY%" mt5_bridge.py %BRIDGE_ARGS% >> tasks\logs\bridge_log_A.txt 2>&1
 pause

@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 REM Resume any agent brief parked by a claude.ai session limit.
 REM
 REM Path-relative via %~dp0 so ONE file works on both boxes: the laptop checkout is
@@ -12,7 +18,7 @@ REM loading the key would send it to pay-as-you-go credit instead.
 cd /d "%~dp0.."
 if not exist "%~dp0logs" mkdir "%~dp0logs"
 echo [%date% %time%] drain start>> "%~dp0logs\agent_drain.txt"
-python claude_agent.py drain>> "%~dp0logs\agent_drain.txt" 2>&1
+"%PY%" claude_agent.py drain>> "%~dp0logs\agent_drain.txt" 2>&1
 
 REM Completion marker. Without it the ledger cannot tell a run that finished from
 REM one that was killed mid-drain, and this job has read NO COMPLETION MARKER on

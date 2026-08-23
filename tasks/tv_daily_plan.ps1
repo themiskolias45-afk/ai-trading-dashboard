@@ -84,46 +84,26 @@ function Probe($url) {
 #
 # It checked the server and it checked the browser, then ran bare 'python' and trusted
 # PATH order. On 2026-08-23 that resolved to a uv trampoline pointing at an unsigned
-# interpreter that Windows Smart App Control had started blocking, and the whole run
-# collapsed into two lines that name nothing:
+# interpreter Windows Smart App Control had begun blocking, and the run collapsed into
+# two lines that name nothing:
 #
 #   error: uv trampoline failed to spawn Python child process
 #     Caused by: uncategorized error (os error 4551)
 #
-# WinError 4551 is "An Application Control policy has blocked this file". The trampoline
-# hides that behind "uncategorized error", so the log said the bot "exited 1" and gave a
-# reader nothing to act on. The same PATH shadow killed Bridge A and six other jobs the
-# same morning.
+# WinError 4551 is "An Application Control policy has blocked this file".
 #
-# RESOLVED BY RUNNING IT, not by picking a path. A python.exe that exists and is first on
-# PATH tells you nothing about whether it can spawn - that is precisely what SAC breaks.
-# So each candidate is asked for its version and the first one that ANSWERS is used.
+# The DECISION is not made here. tasks/resolve_python.ps1 speaks for
+# server/python_path.js, which is the one resolver in this repo. An earlier version of
+# this file carried its own copy of that logic, which is how three resolvers end up
+# disagreeing about which python is real.
 function Resolve-Python {
-    $candidates = New-Object System.Collections.Generic.List[string]
-    # An explicit override wins, so a box with an unusual layout needs no code change.
-    if ($env:SMARTENTRY_PYTHON) { $candidates.Add($env:SMARTENTRY_PYTHON) }
-    # The known-good interpreter on this laptop: 3.12.10, signed, not blocked, and
-    # carrying MetaTrader5 and playwright. LOCALAPPDATA rather than a hardcoded user
-    # name, so this stays portable; a box without it simply falls through.
-    if ($env:LOCALAPPDATA) {
-        $candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'))
-    }
-    # Last, not first: PATH is the thing that failed.
-    $candidates.Add('python')
-
-    foreach ($candidate in $candidates) {
-        if ($candidate -ne 'python' -and -not (Test-Path $candidate)) { continue }
-        try {
-            $version = & $candidate --version 2>&1
-            if ($LASTEXITCODE -eq 0 -and "$version" -match 'Python 3') {
-                return [pscustomobject]@{ Path = $candidate; Version = "$version".Trim() }
-            }
-        } catch {
-            # Blocked, missing or not an interpreter. Try the next one; the caller
-            # reports when every candidate has failed.
-        }
-    }
-    return $null
+    $shared = Join-Path $PSScriptRoot 'resolve_python.ps1'
+    if (-not (Test-Path $shared)) { return $null }
+    $bin = & $shared
+    if (-not $bin) { return $null }
+    # Report the version too, so the log names WHICH interpreter drew the plan.
+    $version = & $bin --version 2>&1
+    return [pscustomobject]@{ Path = $bin; Version = "$version".Trim() }
 }
 
 Say '--- tv daily plan start ---'

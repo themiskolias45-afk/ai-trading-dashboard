@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 REM Runs automatically via Task Scheduler - no pause, logs to file
 REM
 REM The claude call runs from a CLEAN ROOM, not from the project directory.
@@ -48,8 +54,8 @@ REM result, and a thin ledger returning nothing to score is a normal early state
 REM a failed daily check.
 echo. >> "%LOGFILE%"
 echo --- rejection ledger --- >> "%LOGFILE%"
-python "%PROJ%\tasks\score_rr_rejections.py" >> "%LOGFILE%" 2>&1
-python "%PROJ%\tasks\learning_from_rejections.py" >> "%LOGFILE%" 2>&1
+"%PY%" "%PROJ%\tasks\score_rr_rejections.py" >> "%LOGFILE%" 2>&1
+"%PY%" "%PROJ%\tasks\learning_from_rejections.py" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
 REM ── Do the doctor's own checks still fire? ────────────────────────────────────
@@ -127,7 +133,7 @@ if not "%CLAUDE_RC%"=="0" (
     echo slippage and they do NOT feed the live gate. Name any setup whose
     echo enoughForReading is true and say what its rPerEpisode implies.
     echo End with a one-line verdict: TRADE TODAY or WAIT. Keep under 30 lines.
-  ) | python "%PROJ%\claude_agent.py" park "Daily Check" --output-file "%RUNOUT%" >> "%LOGFILE%" 2>&1
+  ) | "%PY%" "%PROJ%\claude_agent.py" park "Daily Check" --output-file "%RUNOUT%" >> "%LOGFILE%" 2>&1
   REM A PARKED JOB IS NOT A FAILED JOB. park exits 0 when it queued the brief and 2
   REM when the run was not a limit at all. Without this the .bat propagated claude's
   REM failure code even after parking correctly, so the Task Scheduler showed FAILING

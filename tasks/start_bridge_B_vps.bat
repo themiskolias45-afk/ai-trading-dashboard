@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 cd /d C:\ai-trading-dashboard
 if not exist tasks\logs mkdir tasks\logs
 
@@ -23,4 +29,4 @@ if errorlevel 1 (
     timeout /t 5 /nobreak >nul
 )
 
-python mt5_bridge.py --auto >> %BRIDGE_LOG% 2>&1
+"%PY%" mt5_bridge.py --auto >> %BRIDGE_LOG% 2>&1

@@ -168,8 +168,23 @@ try {
 # is not a failure of the analysis.
 $eod = Join-Path $proj 'eod_review.py'
 if (Test-Path $eod) {
-    try { $null = & python $eod 2>&1; Say "  OK      eod review" }
-    catch { Say ("  skipped eod review: {0}" -f $_.Exception.Message) }
+    # Resolved by RUNNING a candidate rather than trusting PATH -- see
+    # server/python_path.js. Bare 'python' here died silently for 8h32m on 2026-08-23.
+    $shared = Join-Path $PSScriptRoot 'resolve_python.ps1'
+    $pythonBin = if (Test-Path $shared) { & $shared } else { $null }
+    if (-not $pythonBin) {
+        Say "  skipped eod review: no python on this box will run"
+    } else {
+        try {
+            $null = & $pythonBin $eod 2>&1
+            # & does not throw on a non-zero exit, so the old code said OK whatever
+            # happened -- including every run during the interpreter outage. The exit
+            # code is the only thing that knows.
+            if ($LASTEXITCODE -eq 0) { Say "  OK      eod review" }
+            else { Say ("  WARN    eod review exited {0}" -f $LASTEXITCODE) }
+        }
+        catch { Say ("  skipped eod review: {0}" -f $_.Exception.Message) }
+    }
 }
 
 Say ("=== POST-CLOSE ANALYSIS DONE - {0} failed, {1} skipped ===" -f $failed, $skipped)
