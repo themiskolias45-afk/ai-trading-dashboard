@@ -94,3 +94,13 @@ For each agent that reports DONE:
 - Signal/risk/lot/stop logic always requires explicit approval before implementation.
 - If any agent produces broken syntax: fix before moving on.
 - Code-reviewer agent runs automatically on any server/index.js changes.
+
+═══ WORKTREE ISOLATION (use when agents MUST touch the same file) ═══
+Standard parallel agents share the working tree — zero file overlap is the rule.
+If two workstreams genuinely cannot avoid the same file (e.g. both need server/index.js):
+  → Use isolation: "worktree" in the Agent tool call
+  → Each agent gets its own git branch, edits in isolation, no index lock conflicts
+  → After both finish: cherry-pick or merge the two branches manually
+  → Cost: ~500ms extra setup per agent + disk space
+  → Use only when overlap is unavoidable — the extra merge step is real work.
+Default is shared tree with strict pathspec commits. Worktree is the escape hatch.

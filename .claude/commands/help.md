@@ -66,6 +66,7 @@ SYSTEM & IMPROVEMENT
   /checksystem         Full diagnostic — all components + pending proposals
   /improve             Find worst setup and auto-improve parameters
   /agent               Autonomous loop — keeps fixing until system is clean
+  /auto                Overnight brief + self-heal — runs in < 30s, no input needed. Schedule daily.
 
 MEMORY
   Say: "remember that Gold rejects hard at $2400" — stored for all future sessions

@@ -130,3 +130,24 @@ RECOMMENDED NEXT ACTIONS:
   [1] [command to run] — [what it will fix]
   [2] ...
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 8 — AUTO-PERSIST (mandatory — runs after every analysis, no exceptions):
+  For each finding in RANKED FINDINGS rated HIGH impact:
+    mcp__memory__create_entities with:
+      name: "[YYYY-MM-DD] analyst: [short label]"
+      entityType: "finding"
+      observations: [
+        "[what was found — one sentence with numbers]",
+        "[evidence: WR%, trade count, asset, setup]",
+        "[recommended action and expected impact]"
+      ]
+
+  Then always: mcp__smartentry__write_memory
+    key="analysis-[YYYY-MM-DD]"
+    value="[worst finding] | [root cause] | [recommended action]"
+
+  Also for any SIGNAL-DEAD asset:
+    mcp__smartentry__log_note tag="SIGNAL-DEAD"
+      text="[asset] dead [N] days — cause: [reason] — conf [X]%"
+
+  Analysis not persisted = intelligence lost on next session. This step is the job.

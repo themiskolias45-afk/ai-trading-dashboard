@@ -28,6 +28,10 @@ Claude Code auto-loads this CLAUDE.md from the working directory. The startup se
 At the start of every interactive session:
 1. Read `VAULT-INDEX.md` at the vault root — skip silently if file doesn't exist, do not error.
 2. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
+2b. Call `mcp__memory__search_nodes` with query `"lesson fix improvement decision trade"` — load the top 5
+   results into active context. These are lessons explicitly persisted from past sessions via /learn.
+   A lesson not recalled is a lesson wasted. Surface any that are relevant to today's context (e.g.
+   a prior fix to the same component, a gate decision, a trade setup outcome).
 3. Read `tasks/daily/YYYY-MM-DD.json` for today and yesterday — load any trade signals, outcomes, or notes. Skip silently if missing.
 4. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
 5. **Call `get_brain_status` first.** One call composes the time context, the fleet
