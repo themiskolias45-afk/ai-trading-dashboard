@@ -50,9 +50,30 @@
  *
  * Usage:
  *   node tasks/strategy_search.cjs --axis ceiling      one round on the RSI ceiling
- *   node tasks/strategy_search.cjs --axis gate         one round on the confidence gate
- *   node tasks/strategy_search.cjs --axis all          both, sequentially
+ *   node tasks/strategy_search.cjs --axis gate         the confidence gate
+ *   node tasks/strategy_search.cjs --axis rsi          the entry-RSI floor
+ *   node tasks/strategy_search.cjs --axis minrr        the R:R floor
+ *   node tasks/strategy_search.cjs --axis adx          the trending-ADX floor
+ *   node tasks/strategy_search.cjs --axis minstrength  the strength floor
+ *   node tasks/strategy_search.cjs --axis trail        the trailing give-back
+ *   node tasks/strategy_search.cjs --axis all          every axis, sequentially
  *   node tasks/strategy_search.cjs --axis ceiling --dry-run    score, write no proposal
+ *   node tasks/strategy_search.cjs --axis all --skip-if-bars-unchanged
+ *
+ * WHY FIVE MORE AXES, added 2026-08-23. It searched TWO — ceiling and gate — while six
+ * more walk-forward harnesses sat built and unused, and every one of the five added here
+ * scores a threshold the live engine actually reads. New hypotheses come from widening
+ * the question set, not from asking the same five questions faster. Three harnesses were
+ * looked at and deliberately NOT wired in: session and cohort walk-forwards slice
+ * performance descriptively and have no incumbent to challenge, and the CRT pair measures
+ * whether a FEATURE should exist rather than where a threshold should sit. An axis needs
+ * an incumbent value and rival values, or the challenger/incumbent frame is meaningless.
+ *
+ * --skip-if-bars-unchanged exits 4 without running anything when the bar fingerprint
+ * matches the previous run. It is OPT-IN, never the default: a human asking a question
+ * deserves an answer even if it is the same answer. A nightly scheduler does not, because
+ * re-testing identical data grows the candidate count without growing the sample, and
+ * that count is what tells a reader whether a winner is "best of 12" or "best of 4,000".
  */
 
 const fs = require("fs");
@@ -72,10 +93,75 @@ function flag(name, fallback = null) {
 
 const AXIS = String(flag("axis", "all")).toLowerCase();
 const DRY_RUN = flag("dry-run", false) === true;
+const SKIP_IF_STALE = flag("skip-if-bars-unchanged", false) === true;
 
-if (!["ceiling", "gate", "all"].includes(AXIS)) {
-  console.error('strategy_search: --axis must be ceiling, gate or all. Refusing to guess.');
-  process.exit(2);
+// Folds holding almost no trades are noise, not evidence: a fold with two closes can post
+// a huge R-per-trade off one lucky fill, and it would then set BOTH the incumbent's worst
+// fold and the noise bar derived from it. Five is the floor the gate axis already used;
+// stated once here rather than re-picked per axis.
+const MIN_FOLD_CLOSED = 5;
+
+/**
+ * Normalise one candidate row from a walk-forward report into the shape searchAxis wants.
+ *
+ * Only the rsi-ceiling report publishes a `worstFold`. The param and rsi reports publish
+ * per-fold rows and nothing else, so the worst fold is DERIVED here rather than assumed
+ * present — reading an absent field would have made every margin null and every candidate
+ * silently unpromotable, which on this report looks identical to "found nothing".
+ */
+function foldRows(summary, isBaseline) {
+  const scored = (summary.perFold || []).filter(f =>
+    Number.isFinite(f.rpt) && (f.closed == null || f.closed >= MIN_FOLD_CLOSED));
+  const perFold = scored.map(f => f.rpt);
+  return {
+    worst: perFold.length ? Math.min(...perFold) : null,
+    closed: summary.overall ? summary.overall.closed : null,
+    foldsPositive: summary.foldsPositive,
+    foldsScored: summary.foldsScored,
+    perFold,
+    isBaseline: !!isBaseline,
+  };
+}
+
+/**
+ * The four sweeps param_walkforward.cjs already owns, each as its own axis.
+ *
+ * TWO ARGUMENT TRAPS, both load-bearing:
+ *   - param_walkforward resolves its project root as the first argv entry that does not
+ *     start with "--". Passing only ["--param","minRr"] makes the root the string "minRr".
+ *     ROOT is therefore passed explicitly as the first argument, which is also what
+ *     rsi_walkforward reads from argv[2], so the same convention serves both.
+ *   - the CLI name and the report key differ: --param adx writes params.adxTrendingMin,
+ *     and --param trail writes params.trailGiveback. Both are named here rather than
+ *     guessed from the flag.
+ *
+ * The second cut re-runs at FOUR folds instead of five. That is not a cosmetic variation:
+ * it moves every fold boundary, and param_walkforward's own header calls it the cheapest
+ * available test of whether an edge is real or was one lucky window.
+ */
+function paramAxis(label, cliName, reportKey, incumbent) {
+  return {
+    label,
+    incumbent,
+    cuts: [
+      { name: "5-fold", args: [ROOT, "--param", cliName], env: {}, report: "param-walkforward-latest.json" },
+      { name: "4-fold", args: [ROOT, "--param", cliName], env: { PARAM_WF_FOLDS: "4" }, report: "param-walkforward-latest.json" },
+    ],
+    harness: ["tasks/param_walkforward.cjs"],
+    extract: report => {
+      const table = (report.params || {})[reportKey] || {};
+      const out = {};
+      for (const [value, summary] of Object.entries(table)) {
+        // params.minStrength carries an `equivalence` object beside its candidates. It is
+        // a finding ABOUT the parameter, not a value OF it, and scoring it would invent a
+        // challenger that does not exist. Anything without per-fold rows is not a
+        // candidate, which rejects it without naming it and survives a new sibling key.
+        if (!summary || !Array.isArray(summary.perFold)) continue;
+        out[value] = foldRows(summary, summary.isBaseline);
+      }
+      return out;
+    },
+  };
 }
 
 // ── The axes it knows how to search ──────────────────────────────────────────
@@ -136,11 +222,48 @@ const AXES = {
       return out;
     },
   },
+
+  // The entry-RSI floor. Its incumbent is 0 — the gate is DISARMED in the shipped
+  // config — so every candidate here is a proposal to arm something that is currently
+  // off, which is a bigger claim than moving a live number and is judged the same way.
+  // The report carries no isBaseline flag on any row, so the incumbent is named.
+  rsi: {
+    label: "entry RSI floor (minEntryRsi)",
+    incumbent: "0",
+    cuts: [
+      { name: "equal-count", args: [ROOT], env: {}, report: "rsi-walkforward-latest.json" },
+    ],
+    harness: ["tasks/rsi_walkforward.cjs"],
+    extract: report => {
+      const out = {};
+      for (const [value, summary] of Object.entries(report.candidates || {})) {
+        if (!summary || !Array.isArray(summary.perFold)) continue;
+        out[value] = foldRows(summary, String(value) === "0");
+      }
+      return out;
+    },
+  },
+
+  minrr:       paramAxis("R:R floor (minRr)",                 "minRr",       "minRr",          "1.5"),
+  adx:         paramAxis("trending ADX floor (adxTrendingMin)", "adx",       "adxTrendingMin", "20"),
+  minstrength: paramAxis("strength floor (minStrength)",      "minStrength", "minStrength",    "MODERATE"),
+  trail:       paramAxis("trailing give-back",                "trail",       "trailGiveback",  "off"),
 };
+
+// Validated against the table itself rather than a hand-kept list, because the two drifted
+// apart the moment an axis was added and a searcher that refuses a real axis is worse than
+// one that never had it.
+if (AXIS !== "all" && !Object.prototype.hasOwnProperty.call(AXES, AXIS)) {
+  console.error("strategy_search: --axis must be 'all' or one of: "
+    + Object.keys(AXES).join(", ") + ". Refusing to guess.");
+  process.exit(2);
+}
 
 function runCut(axis, cut) {
   const [script] = axis.harness;
-  execFileSync(process.execPath, [path.join(ROOT, script)], {
+  // cut.args is spread AFTER the script path, so a cut that declares none behaves exactly
+  // as before this existed — the two original axes pass no arguments and are untouched.
+  execFileSync(process.execPath, [path.join(ROOT, script), ...(cut.args || [])], {
     cwd: ROOT,
     env: { ...process.env, ...cut.env },
     maxBuffer: 128 * 1024 * 1024,
@@ -316,6 +439,22 @@ const barsUnchanged = !!(priorBars && priorBars.newest && bars.newest === priorB
 const barAgeDays = bars.newest
   ? Math.floor((Date.parse(stamp) / 1000 - bars.newest) / 86400) : null;
 const keys = AXIS === "all" ? Object.keys(AXES) : [AXIS];
+
+// Nothing has been run yet at this point, so this exits before spending any CPU.
+// Exit 4 is its own code: 0 would read as "searched and found nothing", which is a
+// different claim and the one that inflates the ledger.
+if (SKIP_IF_STALE && barsUnchanged) {
+  const age = barAgeDays === null ? "unknown" : barAgeDays + " days";
+  console.log("STRATEGY SEARCH SKIPPED — " + stamp);
+  console.log("  The newest cached D1 bar is unchanged since the last run (" + age + " old),");
+  console.log("  so this round would re-test identical data and return identical answers");
+  console.log("  while the candidate count climbed. Nothing was run and nothing was written.");
+  console.log("  Bars refresh from tasks/refresh_bars_vps.bat, which runs hourly and acts on");
+  console.log("  the first hour the book is flat. Re-run without --skip-if-bars-unchanged to");
+  console.log("  force a round anyway.");
+  process.exit(4);
+}
+
 const results = [];
 const failures = {};
 

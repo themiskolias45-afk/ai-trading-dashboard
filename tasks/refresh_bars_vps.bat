@@ -1,10 +1,19 @@
 @echo off
 REM ============================================================================
-REM BAR REFRESH — runs daily, acts rarely, refuses safely.
+REM BAR REFRESH — runs HOURLY, acts rarely, refuses safely.
 REM
-REM Scheduled at 04:45, fifteen minutes before SmartEntryStrategySearch at 05:00,
-REM so that on any morning the book is flat the search runs against bars that
-REM moved rather than re-testing the same history and calling it work.
+REM Scheduled at 04:45 and repeated every hour for 24 hours, fifteen minutes before
+REM SmartEntryStrategySearch at 05:00, so that on any morning the book is flat the
+REM search runs against bars that moved rather than re-testing the same history and
+REM calling it work.
+REM
+REM WHY HOURLY, changed 2026-08-23. This tool is built to be run often and refuse, and
+REM it was scheduled to fire ONCE A DAY — one instant out of 86,400 seconds. A book
+REM that went flat at noon and closed again by evening was never seen. The cached bars
+REM had been frozen at 2026-07-26 for 28 days while the daily strategy search re-tested
+REM identical data, and the searcher's own report printed the staleness every night.
+REM The window was opening; almost nothing was looking. Both boxes now repeat PT1H/P1D.
+REM Cost of a refused run: one HTTP GET to /api/journal, then exit 3.
 REM
 REM It REFUSES on any day a position is open, because export_mt5_history.py opens
 REM a second MT5 python client and a conflict can drop the live bridge, leaving an
