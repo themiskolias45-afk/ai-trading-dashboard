@@ -334,9 +334,28 @@ function checkMt5Bridge() {
         : `${entry.account} silent for ${Math.round(entry.ageMs / 1000)}s`)
       .join(', ');
 
-    // Don't cry wolf while the bridges are still legitimately starting up.
-    if (process.uptime() * 1000 < MT5_STARTUP_GRACE_MS) {
-      updateCheck(name, true, `${summary} — ${detail} (within startup grace)` + undeclaredNote);
+    // Don't cry wolf while the bridges are still legitimately starting up — but the
+    // grace covers exactly ONE situation: an account that has not posted YET. An account
+    // that HAS posted and then went silent has already proved it can reach us, so there is
+    // nothing left to wait for, and it fails at any uptime.
+    //
+    // Both were lumped together before, under a window that re-opens on every SERVER
+    // restart — process.uptime() is the server's clock, not the bridge's. A bridge most
+    // often dies immediately AFTER a restart, which is exactly when this reported green:
+    // post once at 30s, die, and the check reads healthy until the 5-minute mark. The
+    // caveat lived only in the detail string and nothing reads that — auto_runner.py,
+    // daily_notes.py, check_errors.py and both dashboards all read `ok` — so "within
+    // startup grace" was recorded as HEALTHY by every consumer.
+    //
+    // Deliberately NOT a process check. Windows reports an empty command line for these
+    // python processes, so they look absent while trading normally; the heartbeat is the
+    // only authoritative liveness signal and this stays built on it.
+    const staleAccounts = absent.filter(entry => entry.status === 'stale');
+    const graceLeftMs   = MT5_STARTUP_GRACE_MS - process.uptime() * 1000;
+    if (!staleAccounts.length && graceLeftMs > 0) {
+      updateCheck(name, true,
+        `${summary} — ${detail} (no heartbeat yet; startup grace expires in ${Math.ceil(graceLeftMs / 1000)}s)`
+        + undeclaredNote);
       return;
     }
 
@@ -711,4 +730,13 @@ module.exports = {
   // Expose backup helpers so server/index.js can call them before writing files
   writeBackup,
   restoreFromBackup,
+  // Test seam. checkMt5Bridge decides whether the box that trades looks alive and has
+  // been wrong twice — once counting only the accounts that had already reported, once
+  // handing a five-minute green window to a bridge that had died. Neither was reachable
+  // from a test, because start() is the only way to set the context and start() runs a
+  // full heal cycle immediately, writing backups into the live server directory. These
+  // two are additive: server/index.js calls start() and nothing else, so no runtime path
+  // goes through them.
+  checkMt5Bridge,
+  _setContextForTests: (context) => { ctx = context; },
 };
