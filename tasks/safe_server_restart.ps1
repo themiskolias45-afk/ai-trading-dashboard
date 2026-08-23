@@ -115,14 +115,26 @@ foreach ($ensureName in $ENSURE_TASK_NAMES) {
     if ($found) { $ensureTask = $found; break }
 }
 
-if ($serverTaskUsable) {
-    Write-Host "starting server via scheduled task SmartEntryServer (survives an SSH disconnect)"
+# THE ENSURE TASK IS PREFERRED, and that ordering is the actual fix.
+# The process above is already stopped, so all that is wanted now is something that
+# STARTS it. The ensure task does exactly that on both boxes, runs detached, and never
+# kills anything, which makes it the safest possible thing to hand the job to. The
+# SmartEntryServer Stop-then-Start dance is strictly riskier and is now only a fallback.
+#
+# Do not go back to disqualifying SmartEntryServer on its LastTaskResult alone. That was
+# the first attempt at this fix and it does not hold: on the VPS the task sits in state
+# Running, so LastTaskResult reads 4294967295 (0xFFFFFFFF, "currently running") rather
+# than the 0x800710E0 it reports once a run has actually completed. The guard passed and
+# the branch that cannot start a headless server was chosen anyway. The result code is
+# not a reliable signal; the ordering is.
+if ($ensureTask) {
+    Write-Host "starting server via scheduled task '$($ensureTask.TaskName)' (detached, never kills, also refills bridges)"
+    Start-ScheduledTask -TaskName $ensureTask.TaskName
+} elseif ($serverTaskUsable) {
+    Write-Host "no ensure task; falling back to scheduled task SmartEntryServer"
     try { Stop-ScheduledTask -TaskName 'SmartEntryServer' -ErrorAction Stop } catch { }
     Start-Sleep -Seconds 2
     Start-ScheduledTask -TaskName 'SmartEntryServer'
-} elseif ($ensureTask) {
-    Write-Host "starting server via scheduled task '$($ensureTask.TaskName)' (detached, also refills bridges)"
-    Start-ScheduledTask -TaskName $ensureTask.TaskName
 } else {
     Write-Host "no scheduled task on this box, starting a detached process"
     Write-Host "  NOTE: over SSH this dies with the session. Run it locally."
