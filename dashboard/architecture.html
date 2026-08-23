@@ -296,6 +296,7 @@ table.gates tr:last-child td { border-bottom: none; }
       so nothing here is merged. Rows the server flags as differing are marked red; rows that
       differ <em>by design</em> — per-machine on purpose — are amber and are not a fault.
     </div>
+    <div id="parity-verdict"></div>
     <div id="fleet-verdict"></div>
     <div class="cmp-wrap"><table class="cmp" id="cmp"></table></div>
     <div class="note" id="fleet-note"></div>
@@ -351,7 +352,14 @@ const SOURCES = {
   risk:    "/api/risk-status",
   mt5a:    "/api/mt5/health?account=A",
   journal: "/api/journal?limit=200",
+  plan:    "/api/system-plan",
 };
+
+// A parity verdict older than this is reported as aged. It is not wrong, but it
+// describes the engines as they were BEFORE whatever has happened since, and a
+// pre-deploy AGREE read as a current one is exactly how parity once reported
+// AGREE while the engines had already diverged.
+const PARITY_STALE_HOURS = 24;
 const SOURCE_KEYS = Object.keys(SOURCES);
 
 const ASSETS = ["btc", "gold", "spx"];
@@ -473,20 +481,44 @@ function readFeed(signals) {
   return { cls: "live", state: "FEEDING", meta: seen + " assets · D1 + H4 + H1", chips };
 }
 
-function readBridge(mt5a) {
+function readBridge(bridgeHealths) {
   // The ONLY authoritative liveness test is this route, which is written solely by the
   // bridge's own POST. Windows reports an empty command line for these python processes,
   // so a process list says "absent" while the bridge is trading normally.
-  if (mt5a && mt5a._auth) return { cls: "", state: "AUTH REQUIRED", meta: "not readable", chips: [] };
-  if (mt5a && mt5a._error) return { cls: "dead", state: "UNREADABLE", meta: esc(mt5a._error), chips: [] };
-  const health = mt5a && mt5a.data;
-  if (health && health.connected === true) {
-    return { cls: "live", state: "CONNECTED", meta: "last POST " + ago(health.ageMs), chips: [] };
+  if (!bridgeHealths.length) {
+    return { cls: "", state: "NO ACCOUNT KNOWN", meta: "the fleet record names no account on this box", chips: [] };
   }
-  if (health && health.connected === null) {
-    return { cls: "", state: "STARTING", meta: "within startup grace", chips: [] };
+  if (bridgeHealths.every(b => b.res && b.res._auth)) {
+    return { cls: "", state: "AUTH REQUIRED", meta: "not readable", chips: [] };
   }
-  return { cls: "dead", state: "SILENT", meta: "not reporting", chips: [] };
+  const chips = bridgeHealths.length > 1 ? bridgeHealths.map(b => {
+    const h = b.res && b.res.data;
+    const live = h && h.connected === true;
+    return { cls: live ? "chip-ok" : "chip-bad",
+             html: "<b>" + esc(b.tag) + "</b> " + (live ? "reporting \u00b7 last POST " + ago(h.ageMs)
+                                                        : esc((h && h.reason) || "not reporting")) };
+  }) : [];
+  const connected  = bridgeHealths.filter(b => b.res && b.res.data && b.res.data.connected === true);
+  const starting   = bridgeHealths.filter(b => b.res && b.res.data && b.res.data.connected === null);
+  const unreadable = bridgeHealths.filter(b => b.res && b.res._error);
+  if (connected.length === bridgeHealths.length) {
+    const meta = bridgeHealths.length === 1
+      ? "account " + connected[0].tag + " \u00b7 last POST " + ago(connected[0].res.data.ageMs)
+      : bridgeHealths.length + " accounts reporting";
+    return { cls: "live", state: "CONNECTED", meta, chips };
+  }
+  // Partial is deliberately NOT "dead". One silent account out of two is a real problem and
+  // says so, but calling the whole stage dead would put "Stopped at the bridge" at the top
+  // of the page while the other account is placing orders normally.
+  if (connected.length) {
+    return { cls: "hold", state: "PARTIAL",
+             meta: connected.length + " of " + bridgeHealths.length + " accounts reporting", chips };
+  }
+  if (starting.length) return { cls: "", state: "STARTING", meta: "within startup grace", chips };
+  if (unreadable.length === bridgeHealths.length) {
+    return { cls: "dead", state: "UNREADABLE", meta: esc(unreadable[0].res._error), chips };
+  }
+  return { cls: "dead", state: "SILENT", meta: "no account is reporting", chips };
 }
 
 function readEngine(signals, gate) {
@@ -564,6 +596,41 @@ function readExec(risk, fleet) {
     };
   }
   return { cls: "", state: "UNKNOWN", meta: "risk state not readable", chips: [], armed };
+}
+
+// Whether the two boxes run the same ENGINE is a different question from whether they
+// hold the same SETTINGS, and only the settings one was on this page. A green
+// "FLEET AGREES" strip that compares six numbers says nothing about the code that reads
+// them, and this project has already had a run where parity reported AGREE while the
+// engines had drifted. The verdict is computed by tasks/vps_parity.cjs and served on
+// /api/system-plan; this only reports it, and reports its AGE, because a verdict from
+// before the last deploy is not evidence about the engines running now.
+function readParity(plan) {
+  if (!plan || !plan._ok) {
+    const reason = (plan && plan._error) || (plan && plan._auth ? "not logged in" : "no response");
+    return { cls: "", verdict: "PARITY UNREADABLE", detail: reason, aged: false };
+  }
+  const parity = plan.data.parity;
+  if (!parity || parity.available === false) {
+    // Not an alarm. The check runs FROM the laptop, so a box it runs against has no local
+    // result to serve. Grey, never red -- a false red here trains you to skim past the
+    // real one.
+    return { cls: "", verdict: "ENGINE PARITY NOT MEASURED ON THIS BOX",
+             detail: (parity && parity.reason) || "no recorded run - node tasks/vps_parity.cjs --emit records one",
+             aged: false };
+  }
+  const agrees = String(parity.verdict || "").toUpperCase().indexOf("AGREE") !== -1;
+  const ageHours = typeof parity.ageHours === "number" ? parity.ageHours : null;
+  const aged = ageHours !== null && ageHours > PARITY_STALE_HOURS;
+  const drift = [];
+  if (parity.engineDrift) drift.push(parity.engineDrift + " engine function(s)");
+  if (parity.scalarDrift) drift.push(parity.scalarDrift + " constant(s)");
+  if (parity.fileDrift)   drift.push(parity.fileDrift + " tracked file(s)");
+  const detail = (drift.length ? drift.join(", ") + " differ" : "no drift in any compared surface")
+    + (ageHours === null ? "" : " \u00b7 measured " + ago(ageHours * 3600000))
+    + (aged ? " \u2014 OLDER THAN " + PARITY_STALE_HOURS + "H, so it describes the engines as they were, not as they are" : "");
+  return { cls: agrees && !aged ? "agree" : agrees ? "" : "differ",
+           verdict: parity.verdict || "UNKNOWN", detail, aged, agrees };
 }
 
 function readFills(journal) {
@@ -698,7 +765,7 @@ function verdictFor(readings, gate) {
        + "bridge-side and decide on the trade attempt itself." };
 }
 
-function renderVerdict(readings, gate, fleet) {
+function renderVerdict(readings, gate, fleet, parity) {
   const verdict = verdictFor(readings, gate);
   const box = document.getElementById("verdict");
   box.className = "verdict " + verdict.tone;
@@ -718,6 +785,11 @@ function renderVerdict(readings, gate, fleet) {
     { k: "Bridge reporting",
       v: readings.bridge.cls === "live" ? '<span class="ok">yes</span>' : '<span class="bad">no</span>',
       d: readings.bridge.meta },
+    { k: "Engine parity",
+      v: parity.cls === "agree" ? '<span class="ok">agree</span>'
+        : parity.cls === "differ" ? '<span class="bad">DIVERGE</span>'
+        : '<span class="unk">\u2014</span>',
+      d: parity.aged ? "verdict older than " + PARITY_STALE_HOURS + "h" : parity.verdict.toLowerCase() },
     { k: "Fleet settings",
       v: comparison.length === 0 ? '<span class="unk">—</span>'
         : realDiffs.length ? '<span class="bad">' + realDiffs.length + " differ</span>"
@@ -730,7 +802,12 @@ function renderVerdict(readings, gate, fleet) {
     + '<div class="v-fact-d">' + f.d + '</div></div>').join("");
 }
 
-function renderFleet(fleet, mt5a) {
+function renderFleet(fleet, bridgeHealths, parity) {
+  // Engine parity first: the settings only mean something if the code reading them matches.
+  document.getElementById("parity-verdict").innerHTML =
+    '<div class="fleet-verdict ' + parity.cls + '">' + esc(parity.verdict)
+    + ' \u2014 <span>' + esc(parity.detail) + "</span></div>";
+
   const verdictSlot = document.getElementById("fleet-verdict");
   const table = document.getElementById("cmp");
   const note = document.getElementById("fleet-note");
@@ -766,8 +843,10 @@ function renderFleet(fleet, mt5a) {
 
   // Box-level facts first, then the server's own field-by-field comparison. Both live in
   // ONE table so the eye never has to carry a value across from one card to another.
-  const localBridges = mt5a && mt5a.data && mt5a.data.connected === true ? ["A"]
-                     : mt5a && mt5a.data && mt5a.data.connected === false ? [] : null;
+  const readable = bridgeHealths.filter(b => b.res && b.res.data && typeof b.res.data.connected === "boolean");
+  const localBridges = readable.length
+    ? readable.filter(b => b.res.data.connected === true).map(b => b.tag)
+    : null;
   const list = v => v == null ? '<span class="unk">unknown</span>'
                   : v.length ? '<span class="ok">' + v.map(esc).join(", ") + "</span>"
                   : '<span class="bad">none</span>';
@@ -813,8 +892,22 @@ function renderFleet(fleet, mt5a) {
     + boxRows.map(renderRow).join("") + settingRows.map(renderRow).join("")
     + "</tbody>";
 
-  note.textContent = data.settingsScope
-    || "strategy_settings.json is per-machine and untracked, so a shared commit does not mean shared behaviour.";
+  // How many of this box's saved settings are actually being compared. Six of ten were,
+  // and adxTrendingMin was not one of them -- a gate-affecting number the two boxes could
+  // differ on while this page said FLEET AGREES. Naming the uncompared ones is the honest
+  // version of a green strip.
+  const META_KEYS = ["updatedAt", "updatedBy", "settingsError"];
+  const savedKeys = Object.keys(thisBox.settings || {}).filter(k => META_KEYS.indexOf(k) === -1);
+  const comparedKeys = new Set(comparison.map(row => row.key));
+  const uncompared = savedKeys.filter(k => !comparedKeys.has(k));
+  const coverageLine = savedKeys.length
+    ? comparedKeys.size + " of " + savedKeys.length + " saved settings are compared between the boxes"
+      + (uncompared.length ? ". NOT compared, so the boxes could differ on these and this page would still read agreement: "
+                             + uncompared.join(", ") + "." : ".")
+    : "";
+
+  note.textContent = (coverageLine ? coverageLine + " " : "") + (data.settingsScope
+    || "strategy_settings.json is per-machine and untracked, so a shared commit does not mean shared behaviour.");
 }
 
 function renderGates(reading, settings) {
@@ -931,9 +1024,28 @@ async function load() {
     server = { cls: "live", state: "ANSWERING", meta: "express · config from the saved file", chips: [] };
   }
 
+  const thisBoxSettings = (res.fleet._ok && res.fleet.data.thisBox && res.fleet.data.thisBox.settings) || {};
+
+  // The account tag was hardcoded to "A". Both boxes happen to use "A" today, so this reads
+  // identically right now -- but the page would have shown a false SILENT on any box whose
+  // account is tagged anything else, and the bridge stage is what the lead verdict blames
+  // first. The fleet record already names the accounts on this box; ask it instead of
+  // assuming. "A" is still fetched in parallel above, so the common case costs no extra
+  // round trip.
+  const knownTags = ((res.fleet._ok && res.fleet.data.thisBox && res.fleet.data.thisBox.arming) || [])
+    .map(a => a.tag).filter(Boolean);
+  const bridgeHealths = [{ tag: "A", res: res.mt5a }];
+  for (const tag of knownTags) {
+    if (tag === "A") continue;
+    bridgeHealths.push({ tag, res: await getJson("/api/mt5/health?account=" + encodeURIComponent(tag)) });
+  }
+  if (knownTags.length && knownTags.indexOf("A") === -1) bridgeHealths.shift();
+
+  const parity = readParity(res.plan);
+
   const readings = {
     feed:   readFeed(res.signals),
-    bridge: readBridge(res.mt5a),
+    bridge: readBridge(bridgeHealths),
     server: server,
     engine: readEngine(res.signals, gate),
     gates:  readGates(res.gates, gate),
@@ -941,12 +1053,10 @@ async function load() {
     fills:  readFills(res.journal),
   };
 
-  const thisBoxSettings = (res.fleet._ok && res.fleet.data.thisBox && res.fleet.data.thisBox.settings) || {};
-
   renderSession(res.signals);
-  renderVerdict(readings, gate, res.fleet);
+  renderVerdict(readings, gate, res.fleet, parity);
   renderSpine(readings);
-  renderFleet(res.fleet, res.mt5a);
+  renderFleet(res.fleet, bridgeHealths, parity);
   renderGates(readings.gates, thisBoxSettings);
   renderOffPath();
 
