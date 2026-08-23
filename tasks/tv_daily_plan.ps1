@@ -25,6 +25,15 @@
 # EVERY RUN WRITES A VERDICT, and the doctor reads the PER-RUN file rather than the
 # history. A cumulative log can only ever say the job succeeded SOMETIME, which is the
 # same mistake as a marker written where nobody reads it.
+#
+# EXIT CODES
+#   0  drawn, or a dry run whose preconditions were met
+#   2  bot script missing, or the server is not answering
+#   3  browser launcher missing, or CDP 9222 never opened
+#   4  the bot did not finish in time and was killed
+#   5  the bot ran and exited non-zero
+#   6  the bot's exit code could not be read - unknown, not assumed good
+#   7  no python interpreter on this box would run at all
 
 param([switch]$DryRun)
 
@@ -71,6 +80,52 @@ function Probe($url) {
     } catch { return $false }
 }
 
+# The interpreter is a PRECONDITION and was the only one this script did not check.
+#
+# It checked the server and it checked the browser, then ran bare 'python' and trusted
+# PATH order. On 2026-08-23 that resolved to a uv trampoline pointing at an unsigned
+# interpreter that Windows Smart App Control had started blocking, and the whole run
+# collapsed into two lines that name nothing:
+#
+#   error: uv trampoline failed to spawn Python child process
+#     Caused by: uncategorized error (os error 4551)
+#
+# WinError 4551 is "An Application Control policy has blocked this file". The trampoline
+# hides that behind "uncategorized error", so the log said the bot "exited 1" and gave a
+# reader nothing to act on. The same PATH shadow killed Bridge A and six other jobs the
+# same morning.
+#
+# RESOLVED BY RUNNING IT, not by picking a path. A python.exe that exists and is first on
+# PATH tells you nothing about whether it can spawn - that is precisely what SAC breaks.
+# So each candidate is asked for its version and the first one that ANSWERS is used.
+function Resolve-Python {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    # An explicit override wins, so a box with an unusual layout needs no code change.
+    if ($env:SMARTENTRY_PYTHON) { $candidates.Add($env:SMARTENTRY_PYTHON) }
+    # The known-good interpreter on this laptop: 3.12.10, signed, not blocked, and
+    # carrying MetaTrader5 and playwright. LOCALAPPDATA rather than a hardcoded user
+    # name, so this stays portable; a box without it simply falls through.
+    if ($env:LOCALAPPDATA) {
+        $candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'))
+    }
+    # Last, not first: PATH is the thing that failed.
+    $candidates.Add('python')
+
+    foreach ($candidate in $candidates) {
+        if ($candidate -ne 'python' -and -not (Test-Path $candidate)) { continue }
+        try {
+            $version = & $candidate --version 2>&1
+            if ($LASTEXITCODE -eq 0 -and "$version" -match 'Python 3') {
+                return [pscustomobject]@{ Path = $candidate; Version = "$version".Trim() }
+            }
+        } catch {
+            # Blocked, missing or not an interpreter. Try the next one; the caller
+            # reports when every candidate has failed.
+        }
+    }
+    return $null
+}
+
 Say '--- tv daily plan start ---'
 
 if (-not (Test-Path $bot)) {
@@ -85,6 +140,22 @@ if (-not (Probe $serverUrl)) {
     Finish 2 'server down - refused, nothing drawn'
 }
 Say 'server: up'
+
+# 2b. The interpreter. Checked HERE rather than beside the draw so that a dry run
+# validates every precondition it claims to: it is cheap, it is independent of the
+# browser, and it is the one that actually broke.
+$python = Resolve-Python
+if ($null -eq $python) {
+    Say 'REFUSED: no working python found - not drawing.'
+    Say '         Every candidate failed to run, which on this box has meant Windows'
+    Say '         Smart App Control blocking an unsigned uv interpreter (WinError 4551).'
+    Say '         Check PATH order, or set SMARTENTRY_PYTHON to a working python.exe.'
+    Say '         Never fix this by disabling Smart App Control: Enforce mode cannot be'
+    Say '         re-enabled without reinstalling Windows.'
+    Finish 7 'no working python interpreter'
+}
+Say ("python: " + $python.Version + " at " + $python.Path)
+
 
 # 2. The browser. Probe first: launching unconditionally would stack a second Edge on
 # top of a working one, and two browsers on one CDP port is its own failure.
@@ -123,7 +194,7 @@ if ($DryRun) {
 Say 'drawing: python tradingview_bot.py plan'
 $out = Join-Path $env:TEMP ("tv_plan_out_" + [guid]::NewGuid().ToString('N') + '.txt')
 try {
-    $p = Start-Process -FilePath 'python' -ArgumentList @($bot, 'plan') `
+    $p = Start-Process -FilePath $python.Path -ArgumentList @($bot, 'plan') `
             -WorkingDirectory $proj -NoNewWindow -PassThru `
             -RedirectStandardOutput $out -RedirectStandardError "$out.err"
     # Touching .Handle caches the native handle on the object. Without this,
