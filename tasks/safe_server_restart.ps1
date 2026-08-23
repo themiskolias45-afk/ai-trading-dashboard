@@ -84,20 +84,45 @@ Start-Sleep -Seconds 3
 # minute later when ssh disconnected. The task scheduler owns a detached session and
 # does not have that problem. Falling back to Start-Process is still right for a local
 # console, where nothing is about to disconnect.
-# The two boxes name this differently: the VPS has a dedicated SmartEntryServer task,
-# the laptop does not and relies on 'SmartEntry Ensure Running', which starts the
-# server when it is down and never kills anything. Either is preferable to
-# Start-Process, which is only reached when neither exists.
+# The two boxes name this differently, and BOTH halves of that were wrong here until
+# 2026-08-23. On the VPS this script would have stopped the server on the box that
+# trades continuously and then been unable to start it again:
+#   - SmartEntryServer EXISTS there, so the first branch was taken, but the task is
+#     Interactive/AtLogOn and returns 0x800710E0 on a headless box every single time.
+#     Its existence is not evidence that it can start anything.
+#   - the fallback looked for 'SmartEntry Ensure Running', the LAPTOP's name. The VPS
+#     calls the same task 'SmartEntryEnsureRunning', one word, so it matched nothing.
+# Both names are now tried, and SmartEntryServer has to prove it is usable first.
+$TASK_REFUSED = 2147946720   # 0x800710E0, "the operator or administrator has refused the request"
+$ENSURE_TASK_NAMES = @('SmartEntry Ensure Running', 'SmartEntryEnsureRunning')
+
 $serverTask = Get-ScheduledTask -TaskName 'SmartEntryServer' -ErrorAction SilentlyContinue
-$ensureTask = Get-ScheduledTask -TaskName 'SmartEntry Ensure Running' -ErrorAction SilentlyContinue
+$serverTaskUsable = $false
 if ($serverTask) {
+    $serverTaskInfo = $null
+    try { $serverTaskInfo = $serverTask | Get-ScheduledTaskInfo } catch { }
+    if ($serverTaskInfo -and $serverTaskInfo.LastTaskResult -eq $TASK_REFUSED) {
+        Write-Host "  SmartEntryServer exists but its last result is 0x800710E0: it cannot"
+        Write-Host "  start on a headless box. Not using it."
+    } else {
+        $serverTaskUsable = $true
+    }
+}
+
+$ensureTask = $null
+foreach ($ensureName in $ENSURE_TASK_NAMES) {
+    $found = Get-ScheduledTask -TaskName $ensureName -ErrorAction SilentlyContinue
+    if ($found) { $ensureTask = $found; break }
+}
+
+if ($serverTaskUsable) {
     Write-Host "starting server via scheduled task SmartEntryServer (survives an SSH disconnect)"
     try { Stop-ScheduledTask -TaskName 'SmartEntryServer' -ErrorAction Stop } catch { }
     Start-Sleep -Seconds 2
     Start-ScheduledTask -TaskName 'SmartEntryServer'
 } elseif ($ensureTask) {
-    Write-Host "starting server via scheduled task 'SmartEntry Ensure Running' (detached, also refills bridges)"
-    Start-ScheduledTask -TaskName 'SmartEntry Ensure Running'
+    Write-Host "starting server via scheduled task '$($ensureTask.TaskName)' (detached, also refills bridges)"
+    Start-ScheduledTask -TaskName $ensureTask.TaskName
 } else {
     Write-Host "no scheduled task on this box, starting a detached process"
     Write-Host "  NOTE: over SSH this dies with the session. Run it locally."
@@ -108,21 +133,27 @@ if ($serverTask) {
 
 # Poll rather than sleep-and-hope: the same lesson as ensure_running.ps1, where a flat
 # 8s wait missed a 15s boot by 3 seconds and reported a healthy server as dead.
+# Wait for startedAt to CHANGE, not merely for something to answer. Breaking at the
+# first 200 gave up too early twice over: the old process can still answer for a moment
+# after Stop-Process, and the ensure-task route hands off to a SYSTEM session that can
+# take longer than one poll to bind. Either produced a "startedAt unchanged" failure
+# report for a restart that was simply still in progress. 90s, because the VPS came
+# back in 6s and a cold boot on this laptop has been measured at 15s.
 $waited = 0
 $after = $null
-while ($waited -lt 60) {
+while ($waited -lt 90) {
     Start-Sleep -Seconds 3
     $waited += 3
-    $after = Get-Status
-    if ($after) { break }
+    $candidate = Get-Status
+    if ($candidate -and (-not $before -or $candidate.startedAt -ne $before.startedAt)) {
+        $after = $candidate
+        break
+    }
 }
 
 if (-not $after) {
-    Write-Host "FAILED: server did not answer within ${waited}s. See tasks\logs\server_log.txt"
-    exit 1
-}
-if ($before -and $after.startedAt -eq $before.startedAt) {
-    Write-Host "FAILED: startedAt unchanged ($($after.startedAt)). The restart silently no-opped."
+    Write-Host "FAILED: no NEW server answered within ${waited}s. See tasks\logs\server_log.txt"
+    if ($before) { Write-Host "        (startedAt never moved from $($before.startedAt))" }
     exit 1
 }
 Write-Host "server up after ${waited}s, startedAt=$($after.startedAt)"
