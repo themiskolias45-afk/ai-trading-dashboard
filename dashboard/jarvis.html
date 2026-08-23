@@ -1986,7 +1986,11 @@ async function loadSettings() {
     rows.innerHTML = "";
     (s.custom || []).forEach(c => addCustomRow(c.key, "", c.preview));
   } catch {
-    document.getElementById("settings-save-msg").textContent = "Could not load settings.";
+    // Same element, same reason: it is green by default, so an error needs the
+    // colour set or it reads as a success line.
+    const el = document.getElementById("settings-save-msg");
+    el.textContent = "Could not load settings.";
+    el.style.color = "var(--red)";
   }
 }
 
@@ -2028,24 +2032,48 @@ async function saveSettings() {
     }).filter(c => c.key && c.value),
   };
   const msgEl = document.getElementById("settings-save-msg");
-  msgEl.textContent = "Saving…";
+  // .settings-save-msg is styled green, so a failure written into this element
+  // rendered in the success colour. Colour is now set explicitly on every path.
+  const showMsg = (text, ok) => {
+    msgEl.textContent = text;
+    msgEl.style.color = ok ? "var(--green)" : "var(--red)";
+  };
+  showMsg("Saving…", true);
+
+  // A rejected fetch is the ONLY case where the server is genuinely unreachable.
+  // Every other failure carries a status and usually a reason from the server, and
+  // reporting those as "unreachable" is what sent a real investigation at the network
+  // while the actual answer was requireLocalOnly returning 403: this page can never
+  // save from a browser on the VPS, and it never said so. Discarding the response
+  // body threw away the one sentence that explained the failure.
+  let res;
   try {
-    const r = await fetch("/api/settings", {
+    res = await fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    if (!r.ok) throw new Error();
-    msgEl.textContent = "Saved ✓";
-    document.getElementById("in-anthropic").value = "";
-    document.getElementById("in-openai").value = "";
-    document.getElementById("in-tgtoken").value = "";
-    document.getElementById("in-uw").value = "";
-    loadSettings();
-    setTimeout(() => { msgEl.textContent = ""; }, 3000);
   } catch {
-    msgEl.textContent = "Save failed — server unreachable.";
+    showMsg("Save failed — server unreachable.", false);
+    return;
   }
+
+  if (!res.ok) {
+    // The body may not be JSON (a proxy's HTML error page), so fall back to the status.
+    const detail = await res.json().catch(() => ({}));
+    showMsg("Save failed — " + (detail.error || ("HTTP " + res.status)), false);
+    return;
+  }
+
+  showMsg("Saved ✓", true);
+  document.getElementById("in-anthropic").value = "";
+  document.getElementById("in-openai").value = "";
+  document.getElementById("in-tgtoken").value = "";
+  document.getElementById("in-uw").value = "";
+  loadSettings();
+  // Clear the success line only. loadSettings() can replace it with its own error,
+  // and blanking that after three seconds would hide a real failure.
+  setTimeout(() => { if (msgEl.textContent === "Saved ✓") msgEl.textContent = ""; }, 3000);
 }
 
 // ══════════════════════════════════════════
