@@ -32,6 +32,9 @@ At the start of every interactive session:
    results into active context. These are lessons explicitly persisted from past sessions via /learn.
    A lesson not recalled is a lesson wasted. Surface any that are relevant to today's context (e.g.
    a prior fix to the same component, a gate decision, a trade setup outcome).
+2c. Read `tasks/analysis/strategy-search-latest.txt` (last 20 lines only) — skip silently if missing.
+   If it contains an unreviewed proposal (look for "PROPOSE" or "score ≥" in the text):
+   surface it in the welcome context as: "⚡ Strategy search found a candidate — run /discover to evaluate."
 3. Read `tasks/daily/YYYY-MM-DD.json` for today and yesterday — load any trade signals, outcomes, or notes. Skip silently if missing.
 4. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
 5. **Call `get_brain_status` first.** One call composes the time context, the fleet
