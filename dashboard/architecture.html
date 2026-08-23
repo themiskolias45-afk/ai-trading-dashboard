@@ -359,7 +359,13 @@ const SOURCES = {
 // describes the engines as they were BEFORE whatever has happened since, and a
 // pre-deploy AGREE read as a current one is exactly how parity once reported
 // AGREE while the engines had already diverged.
-const PARITY_STALE_HOURS = 24;
+//
+// 12, not 24, and the number is not free: dashboard/plan.html already applies this
+// same judgement to this same verdict and has used 12 with a written reason since it
+// was built. The probe runs with the nightly post-close job, so anything inside half
+// a day is at most one trading cycle old. Two pages disagreeing about when one
+// verdict goes stale is a slower version of the bug this whole check exists to catch.
+const PARITY_STALE_HOURS = 12;
 const SOURCE_KEYS = Object.keys(SOURCES);
 
 const ASSETS = ["btc", "gold", "spx"];
@@ -622,11 +628,22 @@ function readParity(plan) {
   const agrees = String(parity.verdict || "").toUpperCase().indexOf("AGREE") !== -1;
   const ageHours = typeof parity.ageHours === "number" ? parity.ageHours : null;
   const aged = ageHours !== null && ageHours > PARITY_STALE_HOURS;
-  const drift = [];
-  if (parity.engineDrift) drift.push(parity.engineDrift + " engine function(s)");
-  if (parity.scalarDrift) drift.push(parity.scalarDrift + " constant(s)");
-  if (parity.fileDrift)   drift.push(parity.fileDrift + " tracked file(s)");
-  const detail = (drift.length ? drift.join(", ") + " differ" : "no drift in any compared surface")
+  // A count with no names is an alarm with no next step. Where the names reach the page
+  // they are listed. Where they do not — a parity record written before 2026-08-23, or a
+  // server still running the build that only forwarded the counts — the page says the
+  // names are unavailable rather than implying nothing differed. It does not name a cause,
+  // because from here the two are indistinguishable.
+  const named = (count, list, noun) => {
+    if (!count) return null;
+    if (list && list.length) return count + " " + noun + " differ: " + list.join(", ");
+    return count + " " + noun + " differ (names not available from this server)";
+  };
+  const drift = [
+    named(parity.engineDrift, parity.enginesDiffering, "engine function(s)"),
+    named(parity.scalarDrift, parity.scalarsDiffering, "constant(s)"),
+    named(parity.fileDrift,   parity.filesDiffering,   "tracked file(s)"),
+  ].filter(Boolean);
+  const detail = (drift.length ? drift.join(" \u00b7 ") : "no drift in any compared surface")
     + (ageHours === null ? "" : " \u00b7 measured " + ago(ageHours * 3600000))
     + (aged ? " \u2014 OLDER THAN " + PARITY_STALE_HOURS + "H, so it describes the engines as they were, not as they are" : "");
   return { cls: agrees && !aged ? "agree" : agrees ? "" : "differ",

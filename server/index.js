@@ -6942,6 +6942,14 @@ function readParityResult() {
       engineDrift: saved.engineDrift ?? null,
       scalarDrift: saved.scalarDrift ?? null,
       fileDrift:   saved.fileDrift ?? null,
+      // The names behind those counts. Absent from any record written before
+      // 2026-08-23, so an older file yields [] rather than undefined and a reader can
+      // tell "none differ" from "this run did not record which" by comparing the array
+      // against the count. Defaulted here rather than at each caller so one stale file
+      // cannot make a page throw.
+      filesDiffering:   Array.isArray(saved.filesDiffering)   ? saved.filesDiffering   : [],
+      enginesDiffering: Array.isArray(saved.enginesDiffering) ? saved.enginesDiffering : [],
+      scalarsDiffering: Array.isArray(saved.scalarsDiffering) ? saved.scalarsDiffering : [],
       verdict:     saved.verdict ?? null,
     };
   } catch (e) {

@@ -228,6 +228,13 @@ try {
   process.exit(1);
 }
 
+// The NAMES, not just the count. The count alone reached /api/system-plan and from
+// there the Systems Plan and Architecture pages, where it read "8 tracked file(s)
+// differ" and stopped — a number nobody could act on, because the only place the
+// names existed was the terminal of whoever last ran this by hand. An alarm with no
+// next step trains you to skim past it, which is the one thing this file exists to
+// prevent.
+const filesDiffering = [], enginesDiffering = [], scalarsDiffering = [];
 let drift = 0, engineDrift = 0;
 
 console.log("FILES");
@@ -235,6 +242,7 @@ for (const rel of TRACKED) {
   const a = local.files[rel], b = remote.files[rel];
   if (a === b) continue;
   drift++;
+  filesDiffering.push(rel);
   console.log("  DIFFERS  " + rel.padEnd(34) + "local " + a + "  vps " + b);
 }
 if (!drift) console.log("  all " + TRACKED.length + " tracked files identical");
@@ -244,6 +252,7 @@ for (const marker of ENGINE_FNS) {
   const a = local.engine[marker], b = remote.engine[marker];
   if (a === b) continue;
   engineDrift++;
+  enginesDiffering.push(marker.replace("function ", "").replace("(", ""));
   console.log("  DIFFERS  " + marker.replace("function ", "").replace("(", "").padEnd(22)
     + "local " + a + "  vps " + b);
 }
@@ -255,6 +264,7 @@ for (const name of SCALARS) {
   const a = local.scalars[name], b = remote.scalars[name];
   if (a === b) continue;
   scalarDrift++;
+  scalarsDiffering.push(name);
   console.log("  DIFFERS  " + name.padEnd(34) + "local " + a + "   vps " + b);
 }
 if (!scalarDrift) console.log("  all " + SCALARS.length + " constants identical");
@@ -289,6 +299,7 @@ if (process.argv.includes("--emit")) {
     ranAt: new Date().toISOString(),
     host: HOST,
     engineDrift, scalarDrift, fileDrift: drift,
+    filesDiffering, enginesDiffering, scalarsDiffering,
     routesOnlyLocal: onlyLocal,
     routesOnlyRemote: onlyRemote,
     verdict: agree ? "ENGINES AGREE" : "ENGINES DIVERGE",
