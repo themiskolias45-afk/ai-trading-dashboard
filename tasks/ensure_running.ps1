@@ -425,15 +425,37 @@ if (-not $IsInteractive) {
     return
 }
 
+# DETECT BY PROCESS, NOT BY WINDOW TITLE. Corrected 2026-08-23.
+#
+# The title check above is the second time this detection has decayed the same way, and
+# the comment block warned about exactly this. The CLI no longer titles its window
+# "Claude Code" - it titles it after the CONVERSATION ("Page architecture design
+# consistency"), and claude.exe itself has NO MainWindowTitle at all because it is a
+# console child of the terminal. Measured: zero processes on this box matched, so
+# ensure_running opened a fresh session every ten minutes. The log had said
+# "JARVIS: no window -- opening" 200 times since 2026-08-08, 24 of them that day, and
+# the box was carrying 16 Claude Code sessions, ~193 MCP-server cmd processes and
+# ~196 node processes on 13.8 GB of RAM with 1.7 GB free.
+#
+# A WINDOW TITLE IS PRESENTATION AND CHANGES WITHOUT NOTICE. The process is the fact.
+#
+# FILTER ON THE PATH, which is the trap that makes the obvious fix wrong. Claude DESKTOP
+# is also called claude.exe - 10 of the 26 on this box were its Electron renderer, gpu,
+# utility and crashpad children. A bare `Get-Process claude` counts those, so it would
+# report a session present forever and this window would never open again. Only a command
+# line containing "claude-code" is the CLI.
 $jarvisRunning = $false
 try {
-    $claudeWindows = @(Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle -match 'Claude Code' })
-    $jarvisRunning = $claudeWindows.Count -gt 0
+    $cli = @(Get-CimInstance Win32_Process -Filter "Name='claude.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like '*claude-code*' })
+    $jarvisRunning = $cli.Count -gt 0
+    if ($jarvisRunning) { Write-Log ("JARVIS: {0} Claude Code process(es) already running" -f $cli.Count) }
 } catch {
-    # Fail SAFE: an unreadable process list must not spawn a session.
+    # Fail SAFE: an unreadable process list must not spawn a session. A missing window
+    # costs one manual launch; a false negative costs a duplicate session every ten
+    # minutes, which is what this whole block exists to stop.
     $jarvisRunning = $true
-    Write-Log "JARVIS: window check failed ($($_.Exception.Message)) -- assuming one is open"
+    Write-Log "JARVIS: process check failed ($($_.Exception.Message)) -- assuming one is open"
 }
 
 if ($jarvisRunning) {
@@ -445,7 +467,25 @@ if ($jarvisRunning) {
     # Inside the project on purpose. Unlike the unattended agents in claude_agent.py,
     # which run OUTSIDE it to avoid booting as JARVIS, this is the session that is
     # supposed to be JARVIS and load CLAUDE.md.
-    Start-Process -FilePath 'cmd' -ArgumentList '/k', 'claude' -WorkingDirectory $Proj
+    # Start-Process inherits THIS process's environment. When ensure_running is run from
+    # inside a Claude Code session, the window it opens inherits CLAUDE_CODE_CHILD_SESSION
+    # and the CLI turns TRANSCRIPT SAVING OFF for it - a session whose whole history is
+    # discarded, reported only as a one-line status warning. Cleared for the launch and
+    # restored immediately, so nothing else in this script sees a different environment.
+    #
+    # Cleared here rather than inside the cmd line itself: PS 5.1 does not reliably
+    # re-quote an -ArgumentList array, and `set "VAR=" && claude` through it is exactly
+    # the kind of quoting that arrives mangled.
+    $inheritedChildMarker = $env:CLAUDE_CODE_CHILD_SESSION
+    if ($inheritedChildMarker) {
+        $env:CLAUDE_CODE_CHILD_SESSION = $null
+        Write-Log 'JARVIS: cleared inherited CLAUDE_CODE_CHILD_SESSION so the window saves its transcript'
+    }
+    try {
+        Start-Process -FilePath 'cmd' -ArgumentList '/k', 'claude' -WorkingDirectory $Proj
+    } finally {
+        if ($inheritedChildMarker) { $env:CLAUDE_CODE_CHILD_SESSION = $inheritedChildMarker }
+    }
 }
 
 Write-Log '--- ensure_running done ---'
