@@ -347,9 +347,22 @@ silently resolved.
   diverge. The VPS carries commits this repo has never seen, so `index.js` is
   PATCHED not copied — on 2026-08-09 that took SEVEN hand-written patches and left
   nine `.bak-*` files, and nothing verified the result until this existed.
-  First run found `server/cohort_table.js` absent on the VPS: consistent there (its
-  index.js does not require it) but it means **the VPS never reports dead cohorts** —
-  and it is the box that trades continuously. See [[dead_cohorts_are_why_it_never_trades]].
+  **Re-run 2026-08-23 after eleven commits of deploys: ENGINES AGREE** — 11/11 engine
+  functions, 7/7 constants, 101/101 routes. The `server/cohort_table.js` gap this line
+  used to report is CLOSED: the file is present on the VPS and its `index.js` requires
+  it, as it does `near_miss.js` and `python_path.js`. That gap was real on 2026-08-09
+  and stopped being real some time before 2026-08-23 — **a fixed problem left standing
+  in this file sends the next session hunting something that is not there**, which is
+  the same failure as the fill-count line above.
+  A full file-presence diff the same day: the VPS lacks exactly FIVE files and not one
+  is a feature — `bridge_tags.ps1` (its logic is inline there; one account),
+  `deploy_vps_catchup.ps1` (runs FROM the laptop TO the VPS), and three laptop-only
+  utilities. **The VPS runs MORE automation than the laptop, not less**: 12 scheduled
+  tasks it alone has, including the strategy search, against 6 that are laptop-only and
+  each meaningless on a headless box. The two boxes differ in SCHEDULE, not in code.
+  See [[vps_parity_check]] and [[dead_cohorts_are_why_it_never_trades]].
+  Listing files over `ssh -EncodedCommand` returns CLIXML once the output is large and
+  reads as "the VPS has 2 files" — write the list to a file there and `scp` it back.
 - **Never restart a bridge by hand — use `node tasks/safe_bridge_restart.cjs`.**
   Default is REFUSE. It checks the server is up, trading is not halted, the bridge
   is currently reporting, **every open position has a broker-side SL**, and that no
