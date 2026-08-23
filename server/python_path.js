@@ -37,13 +37,21 @@ function candidates() {
   if (process.env.SMARTENTRY_PYTHON) list.push(process.env.SMARTENTRY_PYTHON);
 
   if (process.platform === "win32") {
+    const versions = ["Python313", "Python312", "Python311", "Python310"];
     const localAppData = process.env.LOCALAPPDATA;
     if (localAppData) {
       // Newest first. These are the per-user python.org installs, which are signed and
-      // are what Smart App Control permits.
-      for (const version of ["Python313", "Python312", "Python311", "Python310"]) {
+      // are what Smart App Control permits. This is where the LAPTOP's interpreter is.
+      for (const version of versions) {
         list.push(path.join(localAppData, "Programs", "Python", version, "python.exe"));
       }
+    }
+    // All-users installs. This is where the VPS's interpreter is
+    // (C:\Program Files\Python311). Listed so that box is pinned to an absolute path
+    // too, rather than being the one machine still depending on PATH order.
+    const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+    for (const version of versions) {
+      list.push(path.join(programFiles, version, "python.exe"));
     }
     list.push("python");  // whatever PATH says - the previous behaviour, kept last
     list.push("py");
