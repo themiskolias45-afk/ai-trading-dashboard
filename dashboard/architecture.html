@@ -323,6 +323,7 @@ table.gates tr:last-child td { border-bottom: none; }
       </thead>
       <tbody id="gates"></tbody>
     </table></div>
+    <div id="gate-coverage"></div>
   </section>
 
   <!-- ══ 4. deliberately off the path ══ -->
@@ -349,7 +350,7 @@ const SOURCES = {
   signals: "/api/signals",
   risk:    "/api/risk-status",
   mt5a:    "/api/mt5/health?account=A",
-  journal: "/api/journal?limit=20",
+  journal: "/api/journal?limit=200",
 };
 const SOURCE_KEYS = Object.keys(SOURCES);
 
@@ -405,6 +406,31 @@ const GATE_NOTES = {
   DUPLICATE:     { kind:"bridge", why:"Bridge-side. Not a forgone trade: the position was already open." },
   MAX_POSITIONS: { kind:"bridge", why:"Bridge-side. Silent unless the book is already full when a setup fires." },
 };
+
+// A note that states a config value is a copy of that value, and a copy goes stale. The
+// only one that does is ENTRY_RSI, whose whole meaning is the live minEntryRsi: the page
+// asserted "disarmed (minEntryRsi = 0)" as a constant, so raising that setting would have
+// left the page calling an ARMED gate disarmed — and this gate is one vote away from being
+// raised. It is read from the live settings instead. Everything else here is a standing
+// fact about the design, not a config value, so it stays written down.
+function gateNoteFor(name, settings) {
+  const note = GATE_NOTES[name];
+  if (!note) {
+    return { kind: "unknown", why: "The server reports this gate; this page has no note for it yet. "
+                                 + "It is shown so it cannot be missed, not because it is understood." };
+  }
+  if (name === "ENTRY_RSI") {
+    const minEntryRsi = settings && typeof settings.minEntryRsi === "number" ? settings.minEntryRsi : null;
+    if (minEntryRsi === null) {
+      return { kind: "off", why: "Armed only when minEntryRsi > 0, and that setting could not be read." };
+    }
+    if (minEntryRsi > 0) {
+      return { kind: "engine", why: "ARMED — minEntryRsi = " + minEntryRsi + ". It rejects entries below that RSI." };
+    }
+    return { kind: "off", why: "Disarmed by config (minEntryRsi = 0). It only counts passes while armed." };
+  }
+  return note;
+}
 
 const OFF_PATH = [
   { n:"Rejection ledger", d:"Prices every gate rejection as a paper trade on real broker bars. Forgone PAPER trades — no spread, no slippage, entries never filled.", f:"feedsTheGate: false" },
@@ -791,11 +817,21 @@ function renderFleet(fleet, mt5a) {
     || "strategy_settings.json is per-machine and untracked, so a shared commit does not mean shared behaviour.";
 }
 
-function renderGates(reading) {
+function renderGates(reading, settings) {
   document.getElementById("gate-since").textContent =
     reading.since ? "counted since " + new Date(reading.since).toLocaleString() : "";
 
-  const names = Object.keys(GATE_NOTES);
+  // Names come from the LIVE payload as well as the note list. Iterating the hardcoded
+  // notes ALONE is how a page quietly stops describing the system it claims to describe:
+  // add an eleventh gate server-side and it would never appear here, while the table went
+  // on looking complete. Documented gates keep their running order; anything the server
+  // reports that this page has no note for is appended and marked as undocumented, and a
+  // documented gate the server has stopped reporting is called out rather than shown as 0.
+  const documented = Object.keys(GATE_NOTES);
+  const reported   = Object.keys(reading.table || {});
+  const undocumented = reported.filter(n => !GATE_NOTES[n]);
+  const unreported   = reported.length ? documented.filter(n => !reported.includes(n)) : [];
+  const names = documented.concat(undocumented);
   // The funnel bar exists because the table hides the shape of the thing: the point of ten
   // gates is that the population NARROWS, and a column of digits does not show that. Bars
   // are scaled against the busiest gate, so the widest row is always full width.
@@ -820,11 +856,18 @@ function renderGates(reading) {
       + "</div></div>";
   }).join("");
 
+  const coverage = [];
+  if (undocumented.length) coverage.push(undocumented.length + " gate(s) reported with no note on this page: " + undocumented.join(", "));
+  if (unreported.length)   coverage.push(unreported.length + " documented gate(s) absent from the payload: " + unreported.join(", "));
+  document.getElementById("gate-coverage").innerHTML =
+    coverage.length ? '<div class="err">' + coverage.map(esc).join("<br>") + "</div>" : "";
+
   document.getElementById("gates").innerHTML = names.map(name => {
     const counts = reading.table[name] || { killed: 0, passed: 0 };
-    const note = GATE_NOTES[name];
+    const note = gateNoteFor(name, settings);
     const tag = note.kind === "off" ? '<span class="tag t-off">DISARMED</span>'
               : note.kind === "bridge" ? '<span class="tag t-bridge">BRIDGE-SIDE</span>'
+              : note.kind === "unknown" ? '<span class="tag t-off">UNDOCUMENTED</span>'
               : '<span class="tag t-armed">ARMED</span>';
     return "<tr>"
       + '<td class="g-name">' + esc(name) + "</td>"
@@ -898,11 +941,13 @@ async function load() {
     fills:  readFills(res.journal),
   };
 
+  const thisBoxSettings = (res.fleet._ok && res.fleet.data.thisBox && res.fleet.data.thisBox.settings) || {};
+
   renderSession(res.signals);
   renderVerdict(readings, gate, res.fleet);
   renderSpine(readings);
   renderFleet(res.fleet, res.mt5a);
-  renderGates(readings.gates);
+  renderGates(readings.gates, thisBoxSettings);
   renderOffPath();
 
   document.getElementById("stamp").textContent = "updated " + new Date().toLocaleTimeString();
