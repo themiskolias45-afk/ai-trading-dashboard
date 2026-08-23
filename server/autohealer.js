@@ -55,6 +55,10 @@ const state = {
     errorRate:       { ok: true, lastChecked: null, detail: null },
     mt5Bridge:       { ok: true, lastChecked: null, detail: null },
     aiFilter:        { ok: true, lastChecked: null, detail: null },
+    // Added 2026-08-23. The healer read 8/8 green for 8h32m while every python
+    // process on the box was dead - see checkPythonInterpreter for why that was
+    // possible and what it costs.
+    pythonInterpreter: { ok: true, lastChecked: null, detail: null },
   },
 };
 
@@ -461,6 +465,46 @@ function checkAiFilter() {
 }
 
 
+// The interpreter itself.
+//
+// WHY THIS CHECK EXISTS. On 2026-08-23 Windows Smart App Control began blocking the
+// unsigned uv-installed python that the user PATH resolved bare `python` to. The MT5
+// bridge, the nightly rejection-ledger pipeline, the daily plan and both persist tools
+// died together and stayed dead for 8h32m - and this healer reported 8/8 GREEN
+// throughout, because not one of its checks ever started a python process. mt5Bridge
+// only watches for a heartbeat, and a bridge that cannot launch never had one to miss
+// in the way that check was written to notice.
+//
+// It probes by RUNNING a candidate, never by looking for a file on PATH: the blocked
+// interpreter exists, is the right size, has a valid signature, and fails at exec.
+//
+// THROTTLED, because a probe spawns a process per candidate and the heal cycle runs
+// every 30 seconds. Ten minutes is ample: the failure it watches for is a policy
+// verdict changing, which happens on the scale of days.
+//
+// REPORTING ONLY. Nothing in the bridge or in any gate reads state.healthy, so this
+// cannot suppress a signal or block a trade - it can only make a dead box look dead.
+const PYTHON_RECHECK_MS = 10 * 60 * 1000;
+let lastPythonCheckAt = 0;
+
+function checkPythonInterpreter() {
+  const due = Date.now() - lastPythonCheckAt >= PYTHON_RECHECK_MS;
+  if (!due && state.checks.pythonInterpreter.lastChecked) return;
+  lastPythonCheckAt = Date.now();
+
+  const pythonPath = require('./python_path');
+  const bin = pythonPath.recheck();
+  if (bin) {
+    updateCheck('pythonInterpreter', true, bin);
+    return;
+  }
+  // Name what was tried. "python is broken" sends someone hunting; a list of the exact
+  // paths that were probed and failed is the difference between a guess and a fix.
+  updateCheck('pythonInterpreter', false,
+    'NO PYTHON ON THIS BOX WILL RUN - the MT5 bridge, the nightly learning pipeline and '
+    + 'every persist tool depend on it. Tried: ' + pythonPath.tried().join(', '));
+}
+
 function checkMemory() {
   const name = 'memory';
   try {
@@ -558,6 +602,7 @@ async function runHealCycle() {
   let anyFail = false;
 
   // Run sync checks first
+  try { checkPythonInterpreter(); } catch (e) { logError(`checkPythonInterpreter threw: ${e.message}`); anyFail = true; }
   try { checkMemory();    } catch (e) { logError(`checkMemory threw: ${e.message}`);    anyFail = true; }
   try { checkErrorRate(); } catch (e) { logError(`checkErrorRate threw: ${e.message}`); anyFail = true; }
   try { checkAiFilter();  } catch (e) { logError(`checkAiFilter threw: ${e.message}`);  anyFail = true; }

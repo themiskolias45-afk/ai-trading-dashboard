@@ -96,4 +96,16 @@ function pythonBinOrDefault() {
 // What was tried, for an error message that names the problem instead of hiding it.
 function tried() { return candidates(); }
 
-module.exports = { pythonBin, pythonBinOrDefault, tried };
+// Force the next pythonBin() to probe again.
+//
+// The resolution is cached for the life of the process, which is right for callers: they
+// ask constantly and the answer almost never changes. It is wrong for a MONITOR. This
+// outage began with a binary that had worked for a month and then stopped, without being
+// moved or modified - a reputation service changed its mind about it. A value cached at
+// boot cannot notice the day that happens, so the healer re-probes on its own cadence.
+function recheck() {
+  resolved = undefined;
+  return pythonBin();
+}
+
+module.exports = { pythonBin, pythonBinOrDefault, tried, recheck };
