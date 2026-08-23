@@ -17,34 +17,66 @@ standalone HTML artifacts. It enforces design quality gates that /build skips fo
   For D: load dataviz skill — chart type, color formula, mark specs, interaction rules.
 
 ═══ STEP 2 — DESIGN SYSTEM (SmartEntry Pro standards) ═══
-  These are fixed. Apply them to every component, every page, every artifact.
+  DO NOT COPY A PALETTE INTO A PAGE. Link the shared sheet and use its tokens:
 
-  COLOR TOKENS (define on :root, swap in dark mode):
-    --color-buy:      #22c55e   (BUY signals, profit, positive delta)
-    --color-sell:     #ef4444   (SELL signals, loss, negative delta)
-    --color-wait:     #f59e0b   (WAIT state, caution, neutral)
-    --color-bg:       #0f172a   (dark) / #f8fafc   (light)
-    --color-surface:  #1e293b   (dark) / #ffffff   (light)
-    --color-border:   #334155   (dark) / #e2e8f0   (light)
-    --color-text:     #f1f5f9   (dark) / #0f172a   (light)
-    --color-muted:    #64748b   (both modes)
-    --color-accent:   #6366f1   (JARVIS brand — confidence highlights, active states)
+      <link rel="stylesheet" href="/dashboard/theme.css">   <!-- LAST in <head> -->
+      <link rel="stylesheet" href="/dashboard/nav.css">
+      <script src="/dashboard/nav.js" defer></script>
+
+  CORRECTED 2026-08-23. The table that used to sit here prescribed #0f172a ground,
+  #6366f1 accent, #22c55e green and a 240px sidebar. NONE of that ships, and building
+  to it re-fragments the exact thing dashboard/theme.css was created to fix: on
+  2026-08-19 ten pages were carrying FOUR different palettes — four grounds, three
+  purples, an orange, and two different greens for the same idea. A doc that hands the
+  next author a fifth palette is worse than no doc. It already cost one: the healer
+  chips shipped with rgba(34,197,94,.3) — #22c55e, straight off the old table — three
+  shades from the green every other panel used, on a page that had just been unified.
+
+  THE TOKENS ARE IN dashboard/theme.css AND THAT FILE IS THE SOURCE OF TRUTH.
+  Read it before designing; these are the ones you will reach for most:
+
+    --bg #070b12   --surface #0d1420   --surface2 #121a28   --surface3 #18212f
+    --border #1e2a3d      --border2 #2b3a52
+    --text #e8eef7        --muted #8aa0c0       --muted-dim #7488ab
+    --green #2bd07c (BUY, profit, pass)         --red #f2555f (SELL, loss, fail)
+    --yellow/--amber #f0b429 (WAIT, caution)    --blue #4a9eff
+    --accent #7c5cff (JARVIS brand)             --accent-warm #f7931a (commercial only)
+    --radius 10px  --radius-sm 7px  --radius-lg 14px
+    --font Inter / --mono JetBrains Mono
+
+  TRAPS, each one measured rather than assumed:
+    * --dim (#2b3a52) is a BAR-TRACK colour, not a text colour. Three pages used it for
+      body copy at 1.72:1. If a page uses a token it does not define, check what
+      theme.css means by that name before assuming.
+    * A contrast figure is meaningless without the background it was measured against.
+      --muted-dim passes AA on all four surfaces; quote the pair, not the number.
+    * theme.css sets NO layout property beyond three stated exceptions. Component
+      layout belongs in the page's own <style>. Do not add layout to theme.css.
 
   TYPOGRAPHY:
-    Primary font: system-ui, -apple-system, sans-serif (no external CDN)
-    Confidence %: 2.5rem bold — must dominate the card
-    Asset name: 0.875rem muted — secondary
-    Labels: 0.75rem uppercase tracking-wide
+    Inter, with 'Segoe UI'/system-ui fallbacks — already set by theme.css --font.
+    Mono is JetBrains Mono (--mono) for tickers, gate names and code-ish values.
+    TABULAR NUMERALS on every price, count and table cell. Without them a price
+    ticking 4414.05 -> 4409.80 shifts every digit sideways and a P&L column will not
+    align. This is the highest-value typographic rule on a trading screen.
+    Confidence %: must dominate its card.  Labels: small, uppercase, tracked.
 
   DARK MODE:
-    :root { /* light tokens */ }
-    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { /* dark tokens */ } }
-    :root[data-theme="dark"] { /* dark tokens — same as above */ }
+    SmartEntry Pro is DARK-ONLY and deliberately so — one palette, ten pages, no
+    light tokens anywhere. Do not add a prefers-color-scheme swap to a dashboard page;
+    there is no light variant to swap to and a half-built one is worse than none.
+    (A standalone artifact published outside the system is the exception — load the
+    artifact-design skill and follow its theming rules there.)
 
   LAYOUT:
-    Signal cards: CSS grid, 3-column for desktop, 1-column for mobile
-    Dashboard: sidebar nav (240px) + main content, collapses at < 768px
-    No horizontal body scroll — wide content inside overflow-x: auto container
+    Nav is a SHARED TOP RAIL, not a sidebar: dashboard/nav.css + nav.js render it on
+    every page from one PAGES array. ADDING A PAGE IS ONE ROW IN THAT ARRAY — never
+    hand-roll header links, which is how eight pages ended up with seven different
+    class names for "link to another page".
+    Signal cards: CSS grid, multi-column desktop, single-column mobile.
+    No horizontal BODY scroll — wide content scrolls inside its own overflow-x
+    container. Grid items default to min-width:auto and will not shrink below their
+    content, so one long nowrap child widens every sibling in the row.
 
   INFORMATION HIERARCHY (every card must have):
     1. Asset + direction (biggest visual element)
@@ -57,14 +89,23 @@ standalone HTML artifacts. It enforces design quality gates that /build skips fo
   b) Write HTML structure — semantic, minimal nesting
   c) Write CSS — tokens first, then component styles
   d) Write JS — fetch from real endpoints, handle loading/error/empty states
-  e) Test: does it look right at 1280px? At 1920px? In dark mode?
+  e) Test at 390px, 1280px and 1920px. Measure, do not eyeball: drive a real browser,
+     and filter horizontal-overflow hits to elements NO ancestor clips or scrolls, or
+     the list is dozens of table cells already scrolling correctly.
+     A STATE THAT IS NEVER RENDERED IS A STATE THAT WAS NEVER BUILT — drive the empty,
+     loading, error and stale paths, not just the happy one. Note that a page with a
+     service worker will serve /api/ from it, so request interception may never reach
+     the page; stub the page's own fetch helper and re-call the render function.
   f) No hardcoded values — every number must come from an API endpoint or CSS token
 
 ═══ STEP 4 — QUALITY GATE ═══
   Before committing:
-  □ All signal colors match the token table above
+  □ Every colour comes from a theme.css token — no hex literal in component CSS
+  □ theme.css is linked LAST in <head>, and nav.css/nav.js are linked
+  □ Status is carried by a glyph or weight AND a colour, never colour alone
+  □ Anything time-sensitive shows its AGE. A tick with no age is not evidence:
+    the healer showed 8/8 green for 8h32m while every python process was dead
   □ Confidence % is the dominant visual element on signal cards
-  □ Dark mode looks correct (not just "works")
   □ Loading state is visible (skeleton or spinner — never a blank card)
   □ Error state is visible (red border + message — never a silent blank)
   □ Timestamps show human-readable age ("2 min ago") not raw ISO strings
