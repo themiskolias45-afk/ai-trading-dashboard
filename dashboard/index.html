@@ -346,6 +346,33 @@
     }
     .trust-cell:has(.trust-bad)  { border-left-color:var(--red);    background:rgba(239,68,68,.045); }
     .trust-cell:has(.trust-warn) { border-left-color:var(--yellow); background:rgba(234,179,8,.045); }
+
+    /* ── Healer chips ────────────────────────────────────────────────────────
+       LAYOUT SKETCH
+         [ OK mt5Bridge · 4s ] [ OK memory · 4s ] [ ? pythonInterpreter · 12m ]
+         table: Check | Status | Age | Detail
+
+       WHY THE AGE IS ON THE CHIP. On 2026-08-23 this healer reported 8/8 green for
+       8h32m while every python process on the box was dead. A tick with no age cannot
+       be told apart from a tick that was true forty minutes ago, and "green" was the
+       thing that stopped anyone looking. A check is evidence only while it is FRESH,
+       so the age is rendered beside the tick and a check that has gone quiet reads
+       UNKNOWN rather than OK - the honest answer when nobody has asked recently.
+
+       Colours come from theme.css tokens. The old inline version hardcoded
+       rgba(34,197,94,.3), which is #22c55e - a SECOND green, three shades off the one
+       every other panel uses, on a page that had just been unified onto one palette. */
+    .hchip {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:3px 10px; border-radius:5px; font-size:.7rem; font-weight:600;
+      border:1px solid var(--border2); color:var(--muted);
+      font-variant-numeric:tabular-nums; white-space:nowrap; cursor:default;
+    }
+    .hchip .hchip-age { color:var(--muted-dim); font-weight:500; }
+    /* Status is carried by a glyph AND a colour, never colour alone. */
+    .hchip-ok   { color:var(--green);     border-color:var(--green); }
+    .hchip-bad  { color:var(--red);       border-color:var(--red); }
+    .hchip-cold { color:var(--muted-dim); border-color:var(--border2); border-style:dashed; }
     .trust-label { font-size:.6rem; color:var(--muted); text-transform:uppercase; letter-spacing:.09em; }
     .trust-value { font-size:.9rem; font-weight:700; margin-top:4px; display:flex; align-items:center; gap:6px; }
     /* WRAPS now, up to two lines. It was nowrap + ellipsis, which truncated exactly the
@@ -1708,8 +1735,8 @@
       <div class="panel-body" style="padding:10px 16px;max-height:none">
         <div id="healer-checks-inline" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
         <table class="asset-table">
-          <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
-          <tbody id="healer-table-inline"><tr><td colspan="3" style="color:var(--muted)">Loading...</td></tr></tbody>
+          <thead><tr><th>Check</th><th>Status</th><th>Age</th><th>Detail</th></tr></thead>
+          <tbody id="healer-table-inline"><tr><td colspan="4" style="color:var(--muted)">Loading...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -4211,24 +4238,72 @@ async function loadPerformance() {
   loadHealerPanel();
 }
 
+// How long a check may go unre-evaluated before its verdict stops counting as evidence.
+// Generous on purpose: the heal cycle is 30s, but the interpreter check is throttled to
+// ten minutes because probing it spawns a process. A threshold that flagged that one as
+// cold every cycle would be noise, and noise is what makes a real one get skipped.
+const HEALER_CHECK_STALE_MS = 15 * 60 * 1000;
+
+function healerCheckIsCold(check) {
+  if (!check || !check.lastChecked) return true;      // never evaluated is not "OK"
+  const t = Date.parse(check.lastChecked);
+  if (!isFinite(t)) return true;
+  return (Date.now() - t) > HEALER_CHECK_STALE_MS;
+}
+
+// Age in words. Never make the reader subtract two timestamps — on this fleet the logs
+// are local and the APIs are UTC, and that difference once read as a corrupt log file.
+function healerAge(check) {
+  if (!check || !check.lastChecked) return "never";
+  const t = Date.parse(check.lastChecked);
+  if (!isFinite(t)) return "unknown";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return s + "s";
+  const m = Math.round(s / 60);
+  if (m < 60) return m + "m";
+  const hrs = Math.round(m / 60);
+  return hrs < 48 ? hrs + "h" : Math.round(hrs / 24) + "d";
+}
+
 async function loadHealerPanel() {
   try {
     const h = await getJson("/healer");
     const checks = h.checks||{};
+    const total = Object.keys(checks).length;
+    const failing = Object.values(checks).filter(c=>!c.ok).length;
+    const cold = Object.values(checks).filter(c=>healerCheckIsCold(c)).length;
+    // Say what is actually true. "Healthy" alone was the word on screen throughout an
+    // 8h32m outage; the counts make a quiet check visible next to a passing one.
     document.getElementById("healer-summary").textContent =
-      `${h.healthy?"🟢 Healthy":"🔴 Issues"} | Heals: ${h.healCount||0} | Last: ${h.lastHealAt?new Date(h.lastHealAt).toLocaleTimeString():"never"}`;
+      `${failing?`🔴 ${failing} failing`:cold?`⚪ ${cold} not checked recently`:"🟢 Healthy"}`
+      + ` | ${total-failing-cold}/${total} fresh | Heals: ${h.healCount||0}`
+      + ` | Last: ${h.lastHealAt?new Date(h.lastHealAt).toLocaleTimeString():"never"}`;
+
     document.getElementById("healer-checks-inline").innerHTML =
-      Object.entries(checks).map(([name,c])=>
-        `<span style="padding:3px 10px;border-radius:5px;font-size:.7rem;font-weight:600;border:1px solid ${c.ok?"rgba(34,197,94,.3)":"rgba(239,68,68,.3)"};color:${c.ok?"var(--green)":"var(--red)"}">${c.ok?"✓":"✗"} ${name}</span>`
-      ).join("");
+      Object.entries(checks).map(([name,c])=>{
+        const isCold = healerCheckIsCold(c);
+        const cls = !c.ok ? "hchip-bad" : isCold ? "hchip-cold" : "hchip-ok";
+        const glyph = !c.ok ? "✗" : isCold ? "?" : "✓";
+        // The detail is the actionable half and there is no room for it inline, so it
+        // rides on the tooltip rather than being dropped.
+        return `<span class="hchip ${cls}" title="${escapeHtml(c.detail||"no detail reported")}">`
+             + `${glyph} ${escapeHtml(name)}<span class="hchip-age">· ${escapeHtml(healerAge(c))}</span></span>`;
+      }).join("");
+
     document.getElementById("healer-table-inline").innerHTML =
-      Object.entries(checks).map(([name,c])=>
-        `<tr><td style="font-size:.75rem">${name}</td><td style="color:${c.ok?"var(--green)":"var(--red)"};font-weight:700">${c.ok?"OK":"FAIL"}</td><td style="color:var(--muted);font-size:.7rem">${c.detail||"—"}</td></tr>`
-      ).join("");
+      Object.entries(checks).map(([name,c])=>{
+        const isCold = healerCheckIsCold(c);
+        const colour = !c.ok ? "var(--red)" : isCold ? "var(--muted-dim)" : "var(--green)";
+        const label  = !c.ok ? "FAIL" : isCold ? "UNKNOWN" : "OK";
+        return `<tr><td style="font-size:.75rem">${escapeHtml(name)}</td>`
+             + `<td style="color:${colour};font-weight:700">${label}</td>`
+             + `<td style="color:var(--muted-dim);font-size:.7rem;font-variant-numeric:tabular-nums">${escapeHtml(healerAge(c))}</td>`
+             + `<td style="color:var(--muted);font-size:.7rem">${escapeHtml(c.detail||"—")}</td></tr>`;
+      }).join("");
   } catch(e) {
     document.getElementById("healer-summary").textContent = "healer offline";
     document.getElementById("healer-table-inline").innerHTML =
-      `<tr><td colspan="3" style="color:var(--red)">Cannot reach /api/healer</td></tr>`;
+      `<tr><td colspan="4" style="color:var(--red)">Cannot reach /api/healer</td></tr>`;
   }
 
   try {
