@@ -5,146 +5,283 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SmartEntry Pro — Architecture</title>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ============================================================================
+   ARCHITECTURE — how a trade actually happens, drawn from live state
+   ============================================================================
 
-  :root {
-    --bg:#070b12; --surface:#0d1420; --surface2:#121a28; --surface3:#18212f;
-    --border:#1e2a3d; --border2:#2b3a52;
-    --text:#e8eef7; --muted:#8aa0c0; --muted-dim:#7488ab;
-    --green:#2bd07c; --red:#f2555f; --yellow:#f0b429; --blue:#4a9eff; --accent:#8b5cf6;
-    --font:'Segoe UI',system-ui,Arial,sans-serif;
-    --mono:'Cascadia Mono','Consolas','Courier New',monospace;
-  }
-  body { background:var(--bg); color:var(--text); font-family:var(--font); line-height:1.5; }
+   WHAT CHANGED AND WHY (rewritten 2026-08-23)
 
-  header {
-    padding:14px 22px; border-bottom:1px solid var(--border);
-    background:var(--surface); display:flex; align-items:center; gap:16px; flex-wrap:wrap;
-  }
-  .h-title { font-size:1rem; font-weight:800; letter-spacing:.03em; }
-  .h-sub { font-size:.68rem; color:var(--muted); }
-  .h-right { margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .backlink {
-    font-size:.7rem; color:var(--muted); text-decoration:none;
-    border:1px solid var(--border2); border-radius:7px; padding:5px 11px;
-  }
-  .backlink:hover { color:var(--text); border-color:var(--accent); }
-  .stamp { font-size:.63rem; color:var(--muted-dim); font-variant-numeric:tabular-nums; }
+   1. It scrolled sideways. The trade path was seven nodes and six arrows in a
+      flex row inside a 1280px main — about 1540px of content — so the ONE thing
+      this page exists to show could never be seen at once on a laptop. It is now
+      a vertical spine: stages read top to bottom, each gets a full row for its
+      own live detail, and it is identical at 390px and 1920px.
 
-  main { padding:22px; max-width:1280px; margin:0 auto; }
+   2. It re-declared the whole palette in its own :root. theme.css exists to stop
+      exactly that, and it defines every token used below. Nothing here sets a
+      colour literal except the rgba tints that need a specific alpha.
 
-  section { margin-bottom:30px; }
-  .s-head { display:flex; align-items:baseline; gap:10px; margin-bottom:4px; flex-wrap:wrap; }
-  .s-title { font-size:.82rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
-  .s-note { font-size:.68rem; color:var(--muted); }
-  .s-desc { font-size:.72rem; color:var(--muted); margin-bottom:14px; max-width:78ch; }
+   3. It never said where the path stops TODAY. That is the single most useful
+      sentence available from this data and it was not on the page. The verdict
+      strip now names the blocking stage and is computed, never written down.
 
-  /* ── the trade path ─────────────────────────────────────────────── */
-  .flow { display:flex; align-items:stretch; gap:0; overflow-x:auto; padding-bottom:6px; }
-  .node {
-    flex:0 0 auto; min-width:132px; max-width:190px;
-    background:linear-gradient(180deg,var(--surface3),var(--surface2));
-    border:1px solid var(--border2); border-radius:10px; padding:10px 12px;
-    box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
-  }
-  .node.live   { border-color:rgba(43,208,124,.5); }
-  .node.dead   { border-color:rgba(242,85,95,.55); }
-  .node.gatebox{ border-color:rgba(240,180,41,.45); }
-  .n-kind { font-size:.55rem; letter-spacing:.11em; text-transform:uppercase; color:var(--muted-dim); }
-  .n-name { font-size:.76rem; font-weight:700; margin-top:2px; }
-  .n-meta { font-size:.62rem; color:var(--muted); margin-top:5px; font-variant-numeric:tabular-nums; }
-  .n-state { font-size:.6rem; font-weight:800; margin-top:5px; }
-  .ok   { color:var(--green); }
-  .bad  { color:var(--red); }
-  .warn { color:var(--yellow); }
-  .unk  { color:var(--muted-dim); }
+   4. The fleet was two independent cards you had to eyeball for differences.
+      /api/fleet already returns `settingsComparison` — six rows, each with its
+      own `differs` and `byDesign` flags, computed server-side — and the page
+      ignored it. Divergence is now the first thing the section says.
 
-  .arrow {
-    flex:0 0 auto; align-self:center; padding:0 7px;
-    color:var(--muted-dim); font-size:.58rem; text-align:center; white-space:nowrap;
-  }
-  .arrow b { display:block; font-size:1.05rem; line-height:1; color:var(--border2); font-weight:400; }
+   LAYOUT SKETCH
+     [ rail ] [ header: title · session · stamp ]
+     [ verdict strip: where the path stops + 4 facts ]
+     [ trade path: 7 stages down a spine, transport label on each connector ]
+     [ fleet: this box | VPS, one row per setting, differences flagged ]
+     [ gates: funnel bar + table ]
+     [ off-path: what is measured and given no vote ]
 
-  /* ── fleet ──────────────────────────────────────────────────────── */
-  .boxes { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
-  .box { background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:14px 16px; }
-  .box-h { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:9px; }
-  .box-name { font-size:.82rem; font-weight:800; }
-  .box-role { font-size:.6rem; color:var(--muted-dim); text-transform:uppercase; letter-spacing:.09em; }
-  .kv { display:flex; justify-content:space-between; gap:12px; padding:4px 0;
-        border-bottom:1px solid rgba(30,42,61,.6); font-size:.7rem; }
-  .kv:last-child { border-bottom:none; }
-  .kv span:first-child { color:var(--muted); }
-  .kv span:last-child { font-variant-numeric:tabular-nums; text-align:right; }
+   It reads six endpoints and POSTs nothing. It cannot affect a signal, a gate,
+   an order or a position.
+   ============================================================================ */
 
-  /* ── gate table ─────────────────────────────────────────────────── */
-  table { width:100%; border-collapse:collapse; font-size:.7rem; }
-  th { text-align:left; font-size:.58rem; text-transform:uppercase; letter-spacing:.08em;
-       color:var(--muted); font-weight:600; padding:6px 9px; border-bottom:1px solid var(--border); }
-  td { padding:6px 9px; border-bottom:1px solid rgba(30,42,61,.55); vertical-align:top; }
-  tr:last-child td { border-bottom:none; }
-  .g-name { font-family:var(--mono); font-size:.68rem; font-weight:700; }
-  .num { text-align:right; font-variant-numeric:tabular-nums; }
-  .tag { font-size:.53rem; font-weight:800; padding:1px 6px; border-radius:4px; letter-spacing:.05em; white-space:nowrap; }
-  .t-armed  { background:rgba(43,208,124,.13); color:var(--green); }
-  .t-off    { background:rgba(116,136,171,.14); color:var(--muted); }
-  .t-bridge { background:rgba(74,158,255,.13); color:var(--blue); }
-  .g-why { color:var(--muted); font-size:.64rem; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  /* ── off-path ───────────────────────────────────────────────────── */
-  .offgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:11px; }
-  .off {
-    background:var(--surface); border:1px solid var(--border);
-    border-left:3px solid var(--border2); border-radius:9px; padding:11px 13px;
-  }
-  .off-n { font-size:.72rem; font-weight:700; }
-  .off-d { font-size:.64rem; color:var(--muted); margin-top:4px; }
-  .off-f { font-size:.55rem; font-weight:800; color:var(--muted-dim); margin-top:7px;
-           letter-spacing:.06em; text-transform:uppercase; }
+/* Tokens come from theme.css, linked last in <head> as on every other page. */
+body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.5; }
 
-  .err {
-    background:rgba(242,85,95,.09); border:1px solid rgba(242,85,95,.4);
-    border-radius:9px; padding:11px 14px; font-size:.72rem; color:var(--red); margin-bottom:16px;
-  }
-  .legend { font-size:.63rem; color:var(--muted-dim); margin-top:10px; }
+/* ── header ──────────────────────────────────────────────────────────────── */
+.page-head {
+  padding: 14px 22px; border-bottom: 1px solid var(--border);
+  background: var(--surface); display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.h-title { font-size: 1rem; font-weight: 800; letter-spacing: .02em; }
+.h-sub { font-size: .69rem; color: var(--muted); margin-top: 1px; }
+.h-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pill {
+  font-size: .63rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  border: 1px solid var(--border2); border-radius: 999px; padding: 3px 10px; color: var(--muted);
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.stamp { font-size: .64rem; color: var(--muted-dim); font-variant-numeric: tabular-nums; }
 
-  @media (max-width:760px) {
-    main { padding:14px; }
-    .node { min-width:118px; }
-  }
+main { padding: 22px; max-width: 1180px; margin: 0 auto; }
+section { margin-bottom: 32px; }
+.s-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+.s-title { font-size: .82rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.s-note { font-size: .68rem; color: var(--muted); }
+.s-desc { font-size: .73rem; color: var(--muted); margin-bottom: 15px; max-width: 82ch; }
+
+.ok { color: var(--green); } .bad { color: var(--red); }
+.warn { color: var(--yellow); } .unk { color: var(--muted-dim); }
+
+/* ── verdict strip ───────────────────────────────────────────────────────── */
+/* The lead sentence of the page. It is deliberately allowed to change colour: a
+   strip that always looks the same stops being read within a week. */
+.verdict {
+  background: var(--surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--border2); border-radius: var(--radius);
+  padding: 15px 18px; margin-bottom: 26px;
+}
+.verdict.is-blocked { border-left-color: var(--red); }
+.verdict.is-waiting { border-left-color: var(--yellow); }
+.verdict.is-clear   { border-left-color: var(--green); }
+.v-label { font-size: .58rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted-dim); }
+.v-line { font-size: .95rem; font-weight: 700; margin-top: 4px; }
+.v-why { font-size: .73rem; color: var(--muted); margin-top: 5px; max-width: 80ch; }
+.v-facts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px; background: var(--border); margin-top: 15px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;
+}
+.v-fact { background: var(--surface2); padding: 9px 12px; }
+.v-fact-k { font-size: .57rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-dim); }
+.v-fact-v { font-size: .84rem; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.v-fact-d { font-size: .62rem; color: var(--muted); margin-top: 2px; }
+
+/* ── the trade path: a vertical spine ────────────────────────────────────── */
+.spine { position: relative; padding-left: 26px; }
+/* The line itself. Inset top and bottom so it starts and ends at the first and
+   last stage dot rather than floating past them. */
+.spine::before {
+  content: ""; position: absolute; left: 6px; top: 14px; bottom: 14px;
+  width: 2px; background: linear-gradient(180deg, var(--border2), var(--border));
+}
+.stage {
+  position: relative; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 15px;
+  display: grid; grid-template-columns: 1fr auto; gap: 10px 18px; align-items: start;
+}
+.stage.live { border-color: rgba(43, 208, 124, .38); }
+.stage.dead { border-color: rgba(242, 85, 95, .45); }
+.stage.hold { border-color: rgba(240, 180, 41, .38); }
+/* The dot sits ON the spine, so the row it belongs to is never ambiguous. */
+.stage::before {
+  content: ""; position: absolute; left: -26px; top: 17px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--muted-dim); border: 2px solid var(--bg); box-shadow: 0 0 0 2px var(--border);
+}
+.stage.live::before { background: var(--green);  box-shadow: 0 0 0 2px rgba(43, 208, 124, .3); }
+.stage.dead::before { background: var(--red);    box-shadow: 0 0 0 2px rgba(242, 85, 95, .3); }
+.stage.hold::before { background: var(--yellow); box-shadow: 0 0 0 2px rgba(240, 180, 41, .3); }
+
+.st-kind { font-size: .55rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted-dim); }
+.st-name { font-family: var(--mono); font-size: .84rem; font-weight: 700; margin-top: 2px; }
+.st-does { font-size: .71rem; color: var(--muted); margin-top: 4px; max-width: 70ch; }
+.st-right { text-align: right; min-width: 130px; }
+.st-state { font-size: .68rem; font-weight: 800; letter-spacing: .03em; }
+.st-meta { font-size: .64rem; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+/* Per-asset readings and other detail chips, full width under the stage. */
+.st-chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.chip {
+  font-size: .62rem; border: 1px solid var(--border2); border-radius: var(--radius-sm);
+  padding: 3px 8px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.chip b { color: var(--text); font-weight: 700; }
+.chip.chip-ok  { border-color: rgba(43, 208, 124, .4); }
+.chip.chip-bad { border-color: rgba(242, 85, 95, .45); }
+
+/* The transport between two stages — what physically moves, and over what. */
+.link { padding: 7px 0 7px 2px; font-size: .63rem; color: var(--muted-dim); font-family: var(--mono); }
+.link::before { content: "\2193  "; color: var(--border2); }
+
+/* ── fleet ───────────────────────────────────────────────────────────────── */
+.fleet-verdict {
+  font-size: .74rem; font-weight: 700; padding: 10px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border2); background: var(--surface2); margin-bottom: 13px;
+}
+.fleet-verdict.agree  { border-color: rgba(43, 208, 124, .4); color: var(--green); }
+.fleet-verdict.differ { border-color: rgba(242, 85, 95, .45); color: var(--red); }
+.fleet-verdict span { color: var(--muted); font-weight: 400; }
+
+.cmp-wrap { overflow-x: auto; }
+.cmp { width: 100%; border-collapse: collapse; font-size: .72rem; }
+.cmp th {
+  text-align: left; font-size: .57rem; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); font-weight: 600; padding: 7px 10px; border-bottom: 1px solid var(--border);
+}
+.cmp th.col-box { color: var(--text); font-size: .68rem; text-transform: none; letter-spacing: 0; }
+.cmp th.col-box small {
+  display: block; font-size: .56rem; color: var(--muted-dim); font-weight: 400;
+  text-transform: uppercase; letter-spacing: .09em; margin-top: 2px;
+}
+.cmp td {
+  padding: 7px 10px; border-bottom: 1px solid rgba(30, 42, 61, .55);
+  vertical-align: top; font-variant-numeric: tabular-nums;
+}
+.cmp tr:last-child td { border-bottom: none; }
+.cmp td.k { color: var(--muted); font-variant-numeric: normal; }
+.cmp tr.differs td { background: rgba(242, 85, 95, .07); }
+.cmp tr.differs td.k { box-shadow: inset 2px 0 0 var(--red); }
+.cmp tr.bydesign td { background: rgba(240, 180, 41, .06); }
+.cmp tr.bydesign td.k { box-shadow: inset 2px 0 0 var(--yellow); }
+.note { font-size: .65rem; color: var(--muted-dim); margin-top: 9px; max-width: 88ch; }
+
+/* ── gates ───────────────────────────────────────────────────────────────── */
+.funnel { display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
+.fn-row { display: grid; grid-template-columns: 122px 1fr 150px; gap: 10px; align-items: center; font-size: .66rem; }
+.fn-name {
+  font-family: var(--mono); font-weight: 700; color: var(--muted); text-align: right;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.fn-bar { height: 15px; background: var(--surface2); border-radius: 3px; overflow: hidden; display: flex; }
+.fn-killed { background: var(--red); opacity: .75; }
+.fn-passed { background: var(--green); opacity: .7; }
+.fn-count { color: var(--muted-dim); font-variant-numeric: tabular-nums; }
+.fn-count b { color: var(--text); }
+
+table.gates { width: 100%; border-collapse: collapse; font-size: .71rem; }
+table.gates th {
+  text-align: left; font-size: .57rem; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); font-weight: 600; padding: 7px 10px; border-bottom: 1px solid var(--border);
+}
+table.gates td { padding: 7px 10px; border-bottom: 1px solid rgba(30, 42, 61, .55); vertical-align: top; }
+table.gates tr:last-child td { border-bottom: none; }
+.g-name { font-family: var(--mono); font-size: .69rem; font-weight: 700; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tag { font-size: .53rem; font-weight: 800; padding: 2px 7px; border-radius: 4px; letter-spacing: .06em; white-space: nowrap; }
+.t-armed  { background: rgba(43, 208, 124, .13); color: var(--green); }
+.t-off    { background: rgba(116, 136, 171, .14); color: var(--muted); }
+.t-bridge { background: rgba(74, 158, 255, .13); color: var(--blue); }
+.g-why { color: var(--muted); font-size: .66rem; }
+
+/* ── off the path ────────────────────────────────────────────────────────── */
+.offgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 11px; }
+.off {
+  background: var(--surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--border2); border-radius: var(--radius-sm); padding: 12px 14px;
+}
+.off-n { font-size: .74rem; font-weight: 700; }
+.off-d { font-size: .66rem; color: var(--muted); margin-top: 5px; }
+.off-f {
+  font-size: .55rem; font-weight: 800; color: var(--muted-dim); margin-top: 8px;
+  letter-spacing: .07em; text-transform: uppercase;
+}
+
+.err {
+  background: rgba(242, 85, 95, .09); border: 1px solid rgba(242, 85, 95, .4);
+  border-radius: var(--radius-sm); padding: 11px 14px; font-size: .73rem;
+  color: var(--red); margin-bottom: 18px;
+}
+.legend { font-size: .65rem; color: var(--muted-dim); margin-top: 12px; max-width: 88ch; }
+
+/* Grid items default to min-width:auto and will not shrink below their content, so a
+   single long chip widens the whole stage. Stated once here rather than only in the
+   media query, because the same thing happens at any width the content outgrows. */
+.stage > div { min-width: 0; }
+
+@media (max-width: 720px) {
+  main { padding: 14px; }
+  .page-head { padding: 12px 14px; }
+  .stage { grid-template-columns: 1fr; }
+  .st-right { text-align: left; min-width: 0; }
+  .fn-row { grid-template-columns: 96px 1fr; }
+  .fn-count { grid-column: 2; }
+  /* At phone width a chip wraps rather than setting the page width. The nowrap is worth
+     keeping on a wide screen, where it stops a reading breaking mid-value. */
+  .chip { white-space: normal; }
+}
 </style>
 <link rel="stylesheet" href="/dashboard/theme.css">
+<link rel="stylesheet" href="/dashboard/nav.css">
+<script src="/dashboard/nav.js" defer></script>
 <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
 <meta name="theme-color" content="#070b12">
 </head>
 <body>
 
-<header>
+<header class="page-head">
   <div>
-    <div class="h-title">SmartEntry Pro — Architecture</div>
-    <div class="h-sub">How a trade actually happens, drawn from live state</div>
+    <div class="h-title">Architecture</div>
+    <div class="h-sub">How a trade actually happens — every box below is live state, not a drawing</div>
   </div>
   <div class="h-right">
+    <span class="pill" id="session-pill"><span class="dot"></span><span id="session-name">—</span></span>
     <span class="stamp" id="stamp">loading…</span>
-    <a class="backlink" href="/jarvis">← JARVIS</a>
-    <a class="backlink" href="/system">System</a>
   </div>
 </header>
 
 <main>
   <div id="err-slot"></div>
 
+  <!-- ══ the verdict ══ -->
+  <div class="verdict" id="verdict">
+    <div class="v-label">Where the path stops right now</div>
+    <div class="v-line" id="v-line">reading live state…</div>
+    <div class="v-why" id="v-why"></div>
+    <div class="v-facts" id="v-facts"></div>
+  </div>
+
   <!-- ══ 1. the trade path ══ -->
   <section>
     <div class="s-head">
       <div class="s-title">The trade path</div>
-      <div class="s-note">left to right, one asset's journey from a bar to a filled order</div>
+      <div class="s-note">top to bottom — a bar arrives, an order fills</div>
     </div>
     <div class="s-desc">
-      Every box carries its own live state. A red border means that stage is not currently
-      working; grey means nothing has exercised it yet, which is not the same as healthy.
+      Each stage carries its own live state. A green edge means that stage is working right
+      now; red means it is not; grey means nothing has exercised it yet, which is not the same
+      thing as healthy. The line between two stages says what physically moves, and over what.
     </div>
-    <div class="flow" id="flow"></div>
+    <div class="spine" id="spine"></div>
     <div class="legend" id="flow-legend"></div>
   </section>
 
@@ -152,14 +289,16 @@
   <section>
     <div class="s-head">
       <div class="s-title">The fleet</div>
-      <div class="s-note">two machines running the same engine</div>
+      <div class="s-note">two machines, and only one of them trades continuously</div>
     </div>
     <div class="s-desc">
-      The VPS is the box that trades continuously. A number that pools both machines is
-      unattributable while their gates or engines differ, so both are shown side by side
-      and never merged.
+      A number that pools both boxes is unattributable while their settings or engines differ,
+      so nothing here is merged. Rows the server flags as differing are marked red; rows that
+      differ <em>by design</em> — per-machine on purpose — are amber and are not a fault.
     </div>
-    <div class="boxes" id="boxes"></div>
+    <div id="fleet-verdict"></div>
+    <div class="cmp-wrap"><table class="cmp" id="cmp"></table></div>
+    <div class="note" id="fleet-note"></div>
   </section>
 
   <!-- ══ 3. the gates ══ -->
@@ -169,11 +308,13 @@
       <div class="s-note" id="gate-since"></div>
     </div>
     <div class="s-desc">
-      Counts are live and reset when the server restarts, so a row of zeros usually means
-      "not yet exercised this uptime", not "broken". Six of these look silent for reasons
-      that are correct by design — the WHY column says which.
+      Counts reset when the server restarts, so a row of zeros usually means "not exercised
+      this uptime", not "broken". Six of these read silent for reasons that are correct by
+      design, and the WHY column says which. None of the ten is known to be broken — do not
+      "fix" a quiet one.
     </div>
-    <table>
+    <div class="funnel" id="funnel"></div>
+    <div class="cmp-wrap"><table class="gates">
       <thead>
         <tr>
           <th>Gate</th><th class="num">Killed</th><th class="num">Passed</th>
@@ -181,7 +322,7 @@
         </tr>
       </thead>
       <tbody id="gates"></tbody>
-    </table>
+    </table></div>
   </section>
 
   <!-- ══ 4. deliberately off the path ══ -->
@@ -203,12 +344,17 @@
 <script>
 // Endpoints this page reads. All read-only; the page never POSTs anything.
 const SOURCES = {
-  fleet:  "/api/fleet",
-  gates:  "/api/gate-health",
-  signals:"/api/signals",
-  risk:   "/api/risk-status",
-  mt5a:   "/api/mt5/health?account=A",
+  fleet:   "/api/fleet",
+  gates:   "/api/gate-health",
+  signals: "/api/signals",
+  risk:    "/api/risk-status",
+  mt5a:    "/api/mt5/health?account=A",
+  journal: "/api/journal?limit=20",
 };
+const SOURCE_KEYS = Object.keys(SOURCES);
+
+const ASSETS = ["btc", "gold", "spx"];
+const REFRESH_MS = 30000;
 
 // A 401 parses perfectly well and would otherwise render as "everything is zero", which
 // reads as a healthy-but-idle system rather than a locked door. r.ok is checked FIRST and
@@ -226,14 +372,32 @@ async function getJson(url) {
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
-// The ten gates, with the documented reason each can legitimately read zero. The COUNTS
-// are live; these explanations are the standing facts about why the funnel looks the way
-// it does, and exist so a silent gate is not mistaken for a broken one.
+// Ages are always reported in words. Never make the reader subtract two timestamps — that
+// is how a BST offset once read as a corrupt log file.
+function ago(ms) {
+  if (ms == null || !isFinite(ms)) return "unknown";
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 90) return seconds + "s ago";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 90) return minutes + "m ago";
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return hours + "h ago";
+  return Math.round(hours / 24) + "d ago";
+}
+function agoFrom(iso) {
+  const t = Date.parse(iso);
+  return isFinite(t) ? ago(Date.now() - t) : "unknown";
+}
+
+// The ten gates, with the documented reason each can legitimately read zero. The COUNTS are
+// live; these explanations are the standing facts about why the funnel looks the way it
+// does, and exist so a silent gate is not mistaken for a broken one. Engine-side gates are
+// listed first because that is the order a setup actually meets them.
 const GATE_NOTES = {
   MIN_RR:        { kind:"engine", why:"Armed and active. Rejections are priced by the rejection ledger." },
-  ENTRY_RSI:     { kind:"off",    why:"Disarmed by config (minEntryRsi = 0). It only counts passes while armed." },
   CONFIDENCE:    { kind:"engine", why:"Armed. This is where the funnel usually dies." },
   COHORT_FLOOR:  { kind:"engine", why:"Only records once a setup CLEARS the global gate and then dies on a higher per-cohort floor." },
+  ENTRY_RSI:     { kind:"off",    why:"Disarmed by config (minEntryRsi = 0). It only counts passes while armed." },
   SPREAD:        { kind:"bridge", why:"Bridge-side. Fires only on a real trade attempt, so it is silent on a box that has not tried to trade." },
   AI_FILTER:     { kind:"bridge", why:"Bridge-side, and fails OPEN. Silent until a trade is attempted." },
   NEWS_BLACKOUT: { kind:"bridge", why:"Bridge-side. Fires only inside a blackout window on a real attempt." },
@@ -243,174 +407,509 @@ const GATE_NOTES = {
 };
 
 const OFF_PATH = [
-  { n:"Rejection ledger",   d:"Prices every gate rejection as a paper trade on real broker bars. Forgone PAPER trades — no spread, no slippage, entries never filled.", f:"feedsTheGate: false" },
-  { n:"Shadow learning",    d:"Per-setup outcomes from REJECTED setups. Never merged with realised fills.", f:"feedsTheGate: false" },
-  { n:"Evidence board",     d:"What the system KNOWS versus assumes; every claim carries what would change the answer.", f:"reading surface only" },
-  { n:"FVG / CRT / AMD",    d:"Price geometry. FVG measured 6.9pp WORSE than random and is kept as context only; CRT and AMD do not vote either.", f:"no confidence, no sizing" },
-  { n:"AI registry",        d:"Skills, agents and MCP tools, each tagged read-only / writes / TRADES. Nothing here runs anything.", f:"reading surface only" },
-  { n:"Walk-forward",       d:"Settles edge claims out-of-sample. Proposes; it cannot write a live threshold.", f:"propose-only" },
+  { n:"Rejection ledger", d:"Prices every gate rejection as a paper trade on real broker bars. Forgone PAPER trades — no spread, no slippage, entries never filled.", f:"feedsTheGate: false" },
+  { n:"Shadow learning",  d:"Per-setup outcomes from REJECTED setups. Never merged with realised fills.", f:"feedsTheGate: false" },
+  { n:"Evidence board",   d:"What the system KNOWS versus assumes; every claim carries what would change the answer.", f:"reading surface only" },
+  { n:"FVG / CRT / AMD",  d:"Price geometry. FVG measured 6.9pp WORSE than random and is kept as context only; CRT and AMD do not vote either.", f:"no confidence, no sizing" },
+  { n:"AI registry",      d:"Skills, agents and MCP tools, each tagged read-only / writes / TRADES. Nothing here runs anything.", f:"reading surface only" },
+  { n:"Walk-forward",     d:"Settles edge claims out-of-sample. Proposes; it cannot write a live threshold.", f:"propose-only" },
 ];
 
-function node(kind, name, meta, state, cls) {
-  return `<div class="node ${cls || ""}">
-    <div class="n-kind">${esc(kind)}</div>
-    <div class="n-name">${esc(name)}</div>
-    <div class="n-meta">${meta || "&nbsp;"}</div>
-    <div class="n-state">${state || "&nbsp;"}</div>
-  </div>`;
-}
-const arrow = label => `<div class="arrow"><b>&rarr;</b>${esc(label || "")}</div>`;
+/* ── readings pulled out of the raw payloads ─────────────────────────────────
+   Each returns a small object the renderers consume, so the rendering code never digs
+   into a payload shape twice and a shape change has exactly one place to be fixed. */
 
-function renderFlow(fleet, gates, signals, risk, mt5a) {
-  const gate = fleet?.thisBox?.settings?.confidenceThreshold;
-  const halted = fleet?.thisBox?.halted;
-
-  // Bridge liveness: the ONLY authoritative test is the health route, which is written
-  // solely by the bridge's own POST. A process list is not a substitute.
-  let bridgeState, bridgeCls, bridgeMeta;
-  if (mt5a?._auth)            { bridgeState = "AUTH REQUIRED"; bridgeCls = "";     bridgeMeta = "not readable"; }
-  else if (mt5a?._error)      { bridgeState = "UNREADABLE";    bridgeCls = "dead"; bridgeMeta = esc(mt5a._error); }
-  else if (mt5a?.data?.connected === true) {
-    bridgeState = "CONNECTED"; bridgeCls = "live";
-    bridgeMeta = "last seen " + Math.round((mt5a.data.ageMs || 0) / 1000) + "s ago";
-  } else if (mt5a?.data?.connected === null) {
-    bridgeState = "STARTING";  bridgeCls = ""; bridgeMeta = "within startup grace";
-  } else { bridgeState = "SILENT"; bridgeCls = "dead"; bridgeMeta = "not reporting"; }
-
-  // Signals: show the closest asset to the gate, because that is the one that decides
-  // whether anything happens at all today.
-  let best = null;
-  for (const k of ["btc", "gold", "spx"]) {
-    const s = signals?.data?.[k];
-    if (!s || typeof s.confidence !== "number") continue;
-    if (!best || s.confidence > best.confidence) best = { key: k, ...s };
+function readFeed(signals) {
+  if (!signals || !signals._ok) return { cls: "", state: "UNREADABLE", meta: "signals not readable", chips: [] };
+  const chips = [];
+  let staleCount = 0, fallbackCount = 0, seen = 0;
+  for (const key of ASSETS) {
+    const asset = signals.data[key];
+    if (!asset) continue;
+    seen++;
+    const isStale = asset.barFreshness && asset.barFreshness.stale === true;
+    // A non-MT5 source is not merely a different feed: it changes the price basis and
+    // poisons sourceSymbol, so it is called out rather than shown as just another word.
+    const isFallback = Boolean(asset.dataSource) && asset.dataSource !== "mt5";
+    if (isStale) staleCount++;
+    if (isFallback) fallbackCount++;
+    const barCounts = asset.bars ? asset.bars.d1 + "/" + asset.bars.h4 + "/" + asset.bars.h1 : "?";
+    chips.push({
+      cls: isStale || isFallback ? "chip-bad" : "chip-ok",
+      html: "<b>" + esc(key.toUpperCase()) + "</b> " + esc(asset.sourceSymbol || "?")
+          + " · " + esc(asset.dataSource || "?") + " · " + esc(barCounts) + " bars"
+          + " · last bar " + esc(agoFrom(asset.barFreshness && asset.barFreshness.lastBarAt)),
+    });
   }
-  const engineMeta = best
-    ? `${best.key.toUpperCase()} ${best.confidence}% &middot; gap ${Math.max(0, (gate ?? 0) - best.confidence)}pt`
-    : "no reading";
-  const engineState = best && gate != null
-    ? (best.confidence >= gate ? '<span class="ok">CLEARS GATE</span>' : '<span class="unk">below gate</span>')
-    : '<span class="unk">unknown</span>';
+  if (!seen) return { cls: "dead", state: "NO READING", meta: "no asset returned", chips };
+  if (fallbackCount) return { cls: "dead", state: "FALLBACK SOURCE", meta: fallbackCount + " asset(s) not on MT5", chips };
+  if (staleCount) return { cls: "dead", state: "STALE BARS", meta: staleCount + " asset(s) stale", chips };
+  return { cls: "live", state: "FEEDING", meta: seen + " assets · D1 + H4 + H1", chips };
+}
 
-  const g = gates?.data?.gates || {};
-  const killed = Object.values(g).reduce((a, v) => a + (v.killed || 0), 0);
-  const passed = Object.values(g).reduce((a, v) => a + (v.passed || 0), 0);
+function readBridge(mt5a) {
+  // The ONLY authoritative liveness test is this route, which is written solely by the
+  // bridge's own POST. Windows reports an empty command line for these python processes,
+  // so a process list says "absent" while the bridge is trading normally.
+  if (mt5a && mt5a._auth) return { cls: "", state: "AUTH REQUIRED", meta: "not readable", chips: [] };
+  if (mt5a && mt5a._error) return { cls: "dead", state: "UNREADABLE", meta: esc(mt5a._error), chips: [] };
+  const health = mt5a && mt5a.data;
+  if (health && health.connected === true) {
+    return { cls: "live", state: "CONNECTED", meta: "last POST " + ago(health.ageMs), chips: [] };
+  }
+  if (health && health.connected === null) {
+    return { cls: "", state: "STARTING", meta: "within startup grace", chips: [] };
+  }
+  return { cls: "dead", state: "SILENT", meta: "not reporting", chips: [] };
+}
 
-  const breakerState = halted === true
-    ? '<span class="bad">OPEN — halted</span>'
-    : halted === false ? '<span class="ok">closed</span>' : '<span class="unk">unknown</span>';
-  const losses = risk?.data?.consecutiveLosses;
+function readEngine(signals, gate) {
+  if (!signals || !signals._ok) {
+    return { cls: "", state: "UNREADABLE", meta: "", chips: [], best: null, closestGap: null };
+  }
+  const chips = [];
+  let best = null;
+  for (const key of ASSETS) {
+    const asset = signals.data[key];
+    if (!asset || typeof asset.confidence !== "number") continue;
+    if (!best || asset.confidence > best.confidence) {
+      best = { key, confidence: asset.confidence, setup: asset.setup };
+    }
+    const clears = gate != null && asset.confidence >= gate;
+    // D1/H4/H1 are shown together because "all three agree" is the rule this stage
+    // enforces, and a single confidence number hides which leg disagreed.
+    chips.push({
+      cls: clears ? "chip-ok" : "",
+      html: "<b>" + esc(key.toUpperCase()) + "</b> " + asset.confidence + "%"
+          + (gate != null ? " · gap " + Math.max(0, gate - asset.confidence) + "pt" : "")
+          + " · D1 " + esc(asset.signal || "—")
+          + " / H4 " + esc((asset.h4 && asset.h4.signal) || "—")
+          + " / H1 " + esc((asset.h1 && asset.h1.signal) || "—")
+          + " · " + esc(asset.setup || "—"),
+    });
+  }
+  if (!best) return { cls: "", state: "NO READING", meta: "", chips, best: null, closestGap: null };
+  const closestGap = gate != null ? Math.max(0, gate - best.confidence) : null;
+  const clears = closestGap === 0;
+  return {
+    cls: clears ? "live" : "",
+    state: clears ? "CLEARS GATE" : "BELOW GATE",
+    meta: "closest " + best.key.toUpperCase() + " " + best.confidence + "%"
+        + (closestGap != null ? " · " + closestGap + "pt short" : ""),
+    chips, best, closestGap,
+  };
+}
 
-  document.getElementById("flow").innerHTML = [
-    node("broker feed", "MetaTrader 5", "D1 + H4 + H1 bars", '<span class="unk">terminal</span>', ""),
-    arrow("bars"),
-    node("python", "mt5_bridge.py", bridgeMeta, `<span class="${bridgeCls === "live" ? "ok" : bridgeCls === "dead" ? "bad" : "unk"}">${bridgeState}</span>`, bridgeCls),
-    arrow("POST /api/mt5/candles"),
-    node("node", "server :3001", "express, 100 routes", '<span class="ok">answering</span>', "live"),
-    arrow(""),
-    node("engine", "signal engine", "Daily + 4H + 1H agree", engineState, ""),
-    arrow("candidate"),
-    node("gates", "10 gates", `gate ${gate ?? "?"} &middot; ${killed} killed / ${passed} passed`, `breaker ${breakerState}`, "gatebox"),
-    arrow("survivors"),
-    node("python", "bridge executes", losses != null ? `${losses} consecutive losses` : "&nbsp;", halted ? '<span class="bad">BLOCKED</span>' : '<span class="ok">permitted</span>', halted ? "dead" : ""),
-    arrow("order"),
-    node("broker", "filled position", "SL + TP live broker-side", '<span class="unk">journal</span>', ""),
+function readGates(gates, gate) {
+  const table = gates && gates._ok ? (gates.data.gates || {}) : {};
+  let killed = 0, passed = 0;
+  for (const counts of Object.values(table)) {
+    killed += counts.killed || 0;
+    passed += counts.passed || 0;
+  }
+  const exercised = killed + passed > 0;
+  return {
+    table, killed, passed,
+    since: gates && gates._ok ? gates.data.since : null,
+    cls: exercised ? "live" : "",
+    state: exercised ? "DECIDING" : "NOT EXERCISED",
+    meta: "gate " + (gate == null ? "?" : gate) + " · " + killed + " killed / " + passed + " passed",
+    chips: [],
+  };
+}
+
+function readExec(risk, fleet) {
+  const thisBox = (fleet && fleet._ok && fleet.data.thisBox) || null;
+  const halted = risk && risk._ok ? risk.data.halted : (thisBox ? thisBox.halted : undefined);
+  const losses = risk && risk._ok ? risk.data.consecutiveLosses : null;
+  const armed = ((thisBox && thisBox.arming) || []).filter(a => a.autoMode).map(a => a.tag);
+  if (halted === true) {
+    return {
+      cls: "dead", state: "BLOCKED", chips: [], armed,
+      meta: "circuit breaker OPEN" + (losses != null ? " · " + losses + " consecutive losses" : ""),
+    };
+  }
+  if (halted === false) {
+    return {
+      cls: armed.length ? "live" : "hold",
+      state: armed.length ? "PERMITTED" : "NOTHING ARMED",
+      meta: armed.length ? "auto on " + armed.join(", ") : "no account in auto mode",
+      chips: [], armed,
+    };
+  }
+  return { cls: "", state: "UNKNOWN", meta: "risk state not readable", chips: [], armed };
+}
+
+function readFills(journal) {
+  if (!journal || !journal._ok) return { cls: "", state: "UNREADABLE", meta: "journal not readable", chips: [] };
+  const rows = Array.isArray(journal.data.journal) ? journal.data.journal : [];
+  if (!rows.length) return { cls: "", state: "NO FILLS", meta: "journal is empty", chips: [] };
+  const open = rows.filter(r => r.status === "OPEN");
+  // Rows arrive newest-first, but that is a property of the route rather than a guarantee
+  // in the payload, so the most recent open time is taken explicitly.
+  let newestOpenedAt = null;
+  for (const r of rows) {
+    const t = Date.parse(r.openTime);
+    if (isFinite(t) && (newestOpenedAt === null || t > newestOpenedAt)) newestOpenedAt = t;
+  }
+  const chips = open.map(r => ({
+    // A live position with no broker-side stop is the one thing on this page worth
+    // interrupting for, so it is flagged rather than merely listed.
+    cls: r.sl ? "chip-ok" : "chip-bad",
+    html: "<b>" + esc(r.symbol) + "</b> " + esc(r.direction) + " @ " + esc(r.entry)
+        + " · " + (r.sl ? "SL " + esc(r.sl) : "NO BROKER SL")
+        + " · opened " + esc(agoFrom(r.openTime)),
+  }));
+  return {
+    cls: "live",
+    state: open.length ? open.length + " OPEN" : "FLAT",
+    meta: "last fill " + ago(newestOpenedAt === null ? null : Date.now() - newestOpenedAt)
+        + " · " + rows.length + " in journal",
+    chips,
+  };
+}
+
+/* ── rendering ───────────────────────────────────────────────────────────── */
+
+function stage(kind, name, does, reading) {
+  const chips = reading.chips || [];
+  const stateClass = reading.cls === "live" ? "ok"
+                   : reading.cls === "dead" ? "bad"
+                   : reading.cls === "hold" ? "warn" : "unk";
+  return '<div class="stage ' + reading.cls + '">'
+    + '<div>'
+    +   '<div class="st-kind">' + esc(kind) + '</div>'
+    +   '<div class="st-name">' + esc(name) + '</div>'
+    +   '<div class="st-does">' + esc(does) + '</div>'
+    + '</div>'
+    + '<div class="st-right">'
+    +   '<div class="st-state ' + stateClass + '">' + esc(reading.state) + '</div>'
+    +   '<div class="st-meta">' + (reading.meta || "&nbsp;") + '</div>'
+    + '</div>'
+    + (chips.length
+        ? '<div class="st-chips">' + chips.map(c => '<span class="chip ' + (c.cls || "") + '">' + c.html + '</span>').join("") + '</div>'
+        : "")
+    + '</div>';
+}
+const link = label => '<div class="link">' + esc(label) + '</div>';
+
+function renderSpine(readings) {
+  document.getElementById("spine").innerHTML = [
+    stage("broker feed", "MetaTrader 5 terminal",
+      "The only price source. Sends D1, H4 and H1 bars for all three assets.", readings.feed),
+    link("MetaTrader5 python API"),
+    stage("python", "mt5_bridge.py",
+      "Pulls bars, pushes them to the server, and is the process that ultimately places orders.", readings.bridge),
+    link("POST /api/mt5/candles"),
+    stage("node", "server :3001",
+      "Holds the bars, runs the engine, owns the gate config and the risk state.", readings.server),
+    link("bars in memory"),
+    stage("engine", "signal engine",
+      "Daily, 4H and 1H must agree before a setup exists at all. Confidence is scored on that agreement.", readings.engine),
+    link("candidate setup"),
+    stage("gates", "ten gates",
+      "Four decide inside the engine; six decide inside the bridge, on a real trade attempt.", readings.gates),
+    link("survivor"),
+    stage("python", "bridge executes",
+      "Sizes the position, checks the circuit breaker, and sends the order to the broker.", readings.exec),
+    link("order"),
+    stage("broker", "filled position",
+      "Stop and target live broker-side from the moment of the fill.", readings.fills),
   ].join("");
 
   document.getElementById("flow-legend").innerHTML =
-    "Gate counts are since the server last started" +
-    (gates?.data?.since ? " (" + esc(new Date(gates.data.since).toLocaleString()) + ")" : "") +
-    ". Broker-side stop and target stay live even when the bridge is down, so an open " +
-    "position is unmanaged during an outage, never unprotected.";
+    "Gate counts are since the server last started"
+    + (readings.gates.since ? " (" + esc(new Date(readings.gates.since).toLocaleString()) + ")" : "")
+    + ". Broker-side stop and target stay live even when the bridge is down, so an open "
+    + "position is unmanaged during an outage, never unprotected.";
 }
 
-function boxCard(label, role, b, extra) {
-  if (!b) return `<div class="box"><div class="box-h"><div class="box-name">${esc(label)}</div>
-    <div class="box-role">${esc(role)}</div></div><div class="kv"><span>state</span><span class="unk">not reported</span></div></div>`;
-  const s = b.settings || {};
-  const armed = (b.arming || []).filter(a => a.autoMode).map(a => a.tag);
-  const bridges = b.bridges?.reporting || extra?.reporting || null;
-  const rows = [
-    ["reachable", b.reachable === false ? '<span class="bad">no</span>' : '<span class="ok">yes</span>'],
-    ["confidence gate", s.confidenceThreshold ?? (b.gate ?? "?")],
-    ["fixed lot size", s.fixedLotSize ?? (b.fixedLotSize ?? "?")],
-    ["config source", (b.settingsError ?? s.settingsError) ? '<span class="bad">DEFAULTS — file unread</span>' : '<span class="ok">saved file</span>'],
-    ["armed accounts", armed.length ? '<span class="ok">' + armed.map(esc).join(", ") + "</span>" : '<span class="unk">none</span>'],
-    ["bridges reporting", bridges ? (bridges.length ? '<span class="ok">' + bridges.map(esc).join(", ") + "</span>" : '<span class="bad">none</span>') : '<span class="unk">unknown</span>'],
-    ["circuit breaker", b.halted ? '<span class="bad">OPEN</span>' : '<span class="ok">closed</span>'],
+// The lead sentence. It walks the path in order and names the FIRST stage that stops it,
+// because that is the only one worth acting on — everything downstream is idle by
+// consequence, not by fault.
+function verdictFor(readings, gate) {
+  if (readings.feed.cls === "dead") {
+    return { tone: "is-blocked",
+      line: "Stopped at the broker feed — " + readings.feed.state.toLowerCase() + ".",
+      why: "Nothing downstream can be trusted while the bars are wrong. The engine will still "
+         + "score a setup on bad data and the gates will still decide on it." };
+  }
+  if (readings.bridge.cls === "dead") {
+    return { tone: "is-blocked",
+      line: "Stopped at the bridge — it is not reporting.",
+      why: "No bars are arriving and no order can be placed. Open positions keep their "
+         + "broker-side stop and target, so they are unmanaged, not unprotected." };
+  }
+  if (readings.exec.state === "BLOCKED") {
+    return { tone: "is-blocked",
+      line: "Stopped at the circuit breaker — trading is halted.",
+      why: "A setup can still be produced and still clear every gate; the bridge will refuse "
+         + "to place it until the breaker closes." };
+  }
+  if (readings.exec.state === "NOTHING ARMED") {
+    return { tone: "is-blocked",
+      line: "Stopped before execution — no account is in auto mode on this box.",
+      why: "The path is healthy up to the order. Nothing will be placed automatically here." };
+  }
+  if (readings.engine.closestGap === null) {
+    return { tone: "is-waiting",
+      line: "No confidence reading available.",
+      why: "The engine has not scored the assets, so there is nothing for the gates to judge." };
+  }
+  if (readings.engine.closestGap > 0) {
+    return { tone: "is-waiting",
+      line: "Waiting at the confidence gate — the closest asset is "
+          + readings.engine.closestGap + " points short.",
+      why: readings.engine.best.key.toUpperCase() + " is nearest at "
+         + readings.engine.best.confidence + "% against a gate of " + gate + ". This is the "
+         + "normal resting state: the funnel is designed to die here, and a quiet day is the "
+         + "gate working rather than the system failing." };
+  }
+  return { tone: "is-clear",
+    line: readings.engine.best.key.toUpperCase() + " clears the gate at "
+        + readings.engine.best.confidence + "%.",
+    why: "Everything upstream is live and the breaker is closed. The remaining gates are "
+       + "bridge-side and decide on the trade attempt itself." };
+}
+
+function renderVerdict(readings, gate, fleet) {
+  const verdict = verdictFor(readings, gate);
+  const box = document.getElementById("verdict");
+  box.className = "verdict " + verdict.tone;
+  document.getElementById("v-line").textContent = verdict.line;
+  document.getElementById("v-why").textContent = verdict.why;
+
+  const comparison = (fleet && fleet._ok && fleet.data.settingsComparison) || [];
+  const realDiffs = comparison.filter(row => row.differs && !row.byDesign);
+  const thisBoxSettings = (fleet && fleet._ok && fleet.data.thisBox && fleet.data.thisBox.settings) || {};
+
+  const facts = [
+    { k: "Confidence gate", v: gate == null ? "—" : String(gate),
+      d: thisBoxSettings.settingsError ? "DEFAULTS — file unread" : "read from the saved file" },
+    { k: "Circuit breaker",
+      v: readings.exec.state === "BLOCKED" ? '<span class="bad">OPEN</span>' : '<span class="ok">closed</span>',
+      d: readings.exec.armed.length ? "auto on " + esc(readings.exec.armed.join(", ")) : "nothing armed here" },
+    { k: "Bridge reporting",
+      v: readings.bridge.cls === "live" ? '<span class="ok">yes</span>' : '<span class="bad">no</span>',
+      d: readings.bridge.meta },
+    { k: "Fleet settings",
+      v: comparison.length === 0 ? '<span class="unk">—</span>'
+        : realDiffs.length ? '<span class="bad">' + realDiffs.length + " differ</span>"
+        : '<span class="ok">match</span>',
+      d: comparison.length ? comparison.length + " compared" : "peer not compared" },
   ];
-  return `<div class="box">
-    <div class="box-h"><div class="box-name">${esc(label)}</div><div class="box-role">${esc(role)}</div></div>
-    ${rows.map(([k, v]) => `<div class="kv"><span>${esc(k)}</span><span>${v}</span></div>`).join("")}
-  </div>`;
+  document.getElementById("v-facts").innerHTML = facts.map(f =>
+    '<div class="v-fact"><div class="v-fact-k">' + esc(f.k) + '</div>'
+    + '<div class="v-fact-v">' + f.v + '</div>'
+    + '<div class="v-fact-d">' + f.d + '</div></div>').join("");
 }
 
-function renderBoxes(fleet, mt5a) {
-  const t = fleet?.thisBox, p = fleet?.peer;
-  const localReporting = mt5a?.data?.connected === true ? ["A"] : (mt5a?.data?.connected === false ? [] : null);
-  document.getElementById("boxes").innerHTML =
-    // Plain characters, not HTML entities: the role goes through esc(), so an entity
-    // here would be double-escaped and render as the literal text "&middot;".
-    boxCard(t?.label || "This box", "laptop · analysis + backup", t, { reporting: localReporting }) +
-    boxCard("VPS", "trades continuously", p, null);
+function renderFleet(fleet, mt5a) {
+  const verdictSlot = document.getElementById("fleet-verdict");
+  const table = document.getElementById("cmp");
+  const note = document.getElementById("fleet-note");
+
+  if (!fleet || !fleet._ok) {
+    const reason = (fleet && fleet._error) || (fleet && fleet._auth ? "not logged in" : "no response");
+    verdictSlot.innerHTML = '<div class="fleet-verdict differ">Fleet record unavailable — ' + esc(reason) + "</div>";
+    table.innerHTML = "";
+    note.textContent = "";
+    return;
+  }
+
+  const data = fleet.data;
+  const thisBox = data.thisBox || {};
+  const peer = data.peer || {};
+  const comparison = Array.isArray(data.settingsComparison) ? data.settingsComparison : [];
+  const realDiffs = comparison.filter(row => row.differs && !row.byDesign);
+
+  if (peer.configured === false) {
+    verdictSlot.innerHTML = '<div class="fleet-verdict">NO PEER CONFIGURED — '
+      + "<span>PEER_SERVER_URL is unset in this box's keys.env, so nothing is being compared.</span></div>";
+  } else if (!peer.reachable) {
+    verdictSlot.innerHTML = '<div class="fleet-verdict differ">PEER UNREACHABLE — <span>'
+      + esc(peer.error || "no response") + ". Every number below describes this box only.</span></div>";
+  } else if (realDiffs.length) {
+    verdictSlot.innerHTML = '<div class="fleet-verdict differ">FLEET DIVERGES — <span>'
+      + realDiffs.length + " setting(s) differ that should not: "
+      + esc(realDiffs.map(r => r.label || r.key).join(", ")) + ".</span></div>";
+  } else {
+    verdictSlot.innerHTML = '<div class="fleet-verdict agree">FLEET AGREES — <span>'
+      + comparison.length + " settings compared, none differing outside the per-machine ones.</span></div>";
+  }
+
+  // Box-level facts first, then the server's own field-by-field comparison. Both live in
+  // ONE table so the eye never has to carry a value across from one card to another.
+  const localBridges = mt5a && mt5a.data && mt5a.data.connected === true ? ["A"]
+                     : mt5a && mt5a.data && mt5a.data.connected === false ? [] : null;
+  const list = v => v == null ? '<span class="unk">unknown</span>'
+                  : v.length ? '<span class="ok">' + v.map(esc).join(", ") + "</span>"
+                  : '<span class="bad">none</span>';
+  const yesNo = v => v ? '<span class="ok">yes</span>' : '<span class="bad">no</span>';
+  const dash = '<span class="unk">—</span>';
+  const configCell = err => err ? '<span class="bad">DEFAULTS — file unread</span>' : '<span class="ok">saved file</span>';
+  const breakerCell = h => h ? '<span class="bad">OPEN</span>' : '<span class="ok">closed</span>';
+
+  const boxRows = [
+    ["reachable", yesNo(thisBox.reachable !== false),
+      peer.configured === false ? '<span class="unk">not configured</span>' : yesNo(peer.reachable)],
+    ["config source", configCell(thisBox.settings && thisBox.settings.settingsError),
+      peer.reachable ? configCell(peer.settingsError) : dash],
+    ["armed accounts", list((thisBox.arming || []).filter(a => a.autoMode).map(a => a.tag)),
+      peer.reachable ? list((peer.arming || []).filter(a => a.autoMode).map(a => a.tag)) : dash],
+    ["bridges reporting", list(localBridges),
+      peer.reachable ? list(peer.bridges && peer.bridges.reporting) : dash],
+    ["circuit breaker", breakerCell(thisBox.halted), peer.reachable ? breakerCell(peer.halted) : dash],
+    ["unreviewed AI proposals",
+      String((data.proposals && data.proposals.local) != null ? data.proposals.local : "—"),
+      peer.reachable ? String((data.proposals && data.proposals.peer) != null ? data.proposals.peer : "—") : dash],
+  ].map(cells => ({ key: cells[0], local: cells[1], remote: cells[2], differs: false, byDesign: false }));
+
+  const settingRows = comparison.map(row => ({
+    key: row.label || row.key,
+    local: row.local == null ? dash : esc(row.local),
+    remote: row.comparable === false ? '<span class="unk">not comparable</span>'
+          : row.peer == null ? dash : esc(row.peer),
+    differs: Boolean(row.differs && !row.byDesign),
+    byDesign: Boolean(row.differs && row.byDesign),
+  }));
+
+  const renderRow = r =>
+    '<tr class="' + (r.differs ? "differs" : r.byDesign ? "bydesign" : "") + '">'
+    + '<td class="k">' + esc(r.key) + (r.byDesign ? ' <span class="tag t-off">BY DESIGN</span>' : "") + "</td>"
+    + "<td>" + r.local + "</td><td>" + r.remote + "</td></tr>";
+
+  table.innerHTML =
+    "<thead><tr><th></th>"
+    + '<th class="col-box">' + esc(thisBox.label || "This box") + "<small>this box · analysis + backup</small></th>"
+    + '<th class="col-box">' + esc(peer.label || "VPS") + "<small>trades continuously</small></th>"
+    + "</tr></thead><tbody>"
+    + boxRows.map(renderRow).join("") + settingRows.map(renderRow).join("")
+    + "</tbody>";
+
+  note.textContent = data.settingsScope
+    || "strategy_settings.json is per-machine and untracked, so a shared commit does not mean shared behaviour.";
 }
 
-function renderGates(gates) {
-  const g = gates?.data?.gates || {};
-  const since = gates?.data?.since;
-  document.getElementById("gate-since").innerHTML =
-    since ? "counted since " + esc(new Date(since).toLocaleString()) : "";
+function renderGates(reading) {
+  document.getElementById("gate-since").textContent =
+    reading.since ? "counted since " + new Date(reading.since).toLocaleString() : "";
+
   const names = Object.keys(GATE_NOTES);
+  // The funnel bar exists because the table hides the shape of the thing: the point of ten
+  // gates is that the population NARROWS, and a column of digits does not show that. Bars
+  // are scaled against the busiest gate, so the widest row is always full width.
+  const busiest = Math.max(1, ...names.map(name => {
+    const counts = reading.table[name] || {};
+    return (counts.killed || 0) + (counts.passed || 0);
+  }));
+  document.getElementById("funnel").innerHTML = names.map(name => {
+    const counts = reading.table[name] || { killed: 0, passed: 0 };
+    const killed = counts.killed || 0;
+    const passed = counts.passed || 0;
+    const total = killed + passed;
+    const share = (total / busiest) * 100;
+    return '<div class="fn-row">'
+      + '<div class="fn-name">' + esc(name) + "</div>"
+      + '<div class="fn-bar" title="' + killed + " killed, " + passed + ' passed">'
+      +   '<div class="fn-killed" style="width:' + (total ? (killed / total) * share : 0) + '%"></div>'
+      +   '<div class="fn-passed" style="width:' + (total ? (passed / total) * share : 0) + '%"></div>'
+      + "</div>"
+      + '<div class="fn-count">'
+      + (total ? "<b>" + killed + "</b> killed / <b>" + passed + "</b> passed" : "not exercised")
+      + "</div></div>";
+  }).join("");
+
   document.getElementById("gates").innerHTML = names.map(name => {
-    const v = g[name] || { killed: 0, passed: 0 };
+    const counts = reading.table[name] || { killed: 0, passed: 0 };
     const note = GATE_NOTES[name];
     const tag = note.kind === "off" ? '<span class="tag t-off">DISARMED</span>'
               : note.kind === "bridge" ? '<span class="tag t-bridge">BRIDGE-SIDE</span>'
               : '<span class="tag t-armed">ARMED</span>';
-    return `<tr>
-      <td class="g-name">${esc(name)}</td>
-      <td class="num">${v.killed || 0}</td>
-      <td class="num">${v.passed || 0}</td>
-      <td>${tag}</td>
-      <td class="g-why">${esc(note.why)}</td>
-    </tr>`;
+    return "<tr>"
+      + '<td class="g-name">' + esc(name) + "</td>"
+      + '<td class="num">' + (counts.killed || 0) + "</td>"
+      + '<td class="num">' + (counts.passed || 0) + "</td>"
+      + "<td>" + tag + "</td>"
+      + '<td class="g-why">' + esc(note.why) + "</td></tr>";
   }).join("");
 }
 
 function renderOffPath() {
   document.getElementById("offpath").innerHTML = OFF_PATH.map(o =>
-    `<div class="off"><div class="off-n">${esc(o.n)}</div>
-     <div class="off-d">${esc(o.d)}</div>
-     <div class="off-f">${esc(o.f)}</div></div>`).join("");
+    '<div class="off"><div class="off-n">' + esc(o.n) + "</div>"
+    + '<div class="off-d">' + esc(o.d) + "</div>"
+    + '<div class="off-f">' + esc(o.f) + "</div></div>").join("");
+}
+
+function renderSession(signals) {
+  const pill = document.getElementById("session-pill");
+  const name = document.getElementById("session-name");
+  const session = signals && signals._ok
+    ? ((signals.data.btc && signals.data.btc.session) || (signals.data.gold && signals.data.gold.session))
+    : null;
+  if (!session) { name.textContent = "session unknown"; return; }
+  name.textContent = session.name || "—";
+  if (session.color) pill.style.color = session.color;
 }
 
 async function load() {
-  const [fleet, gates, signals, risk, mt5a] = await Promise.all(
-    [SOURCES.fleet, SOURCES.gates, SOURCES.signals, SOURCES.risk, SOURCES.mt5a].map(getJson)
-  );
+  const responses = await Promise.all(SOURCE_KEYS.map(k => getJson(SOURCES[k])));
+  const res = {};
+  SOURCE_KEYS.forEach((k, i) => { res[k] = responses[i]; });
 
   // Report an auth or transport failure as itself rather than rendering an empty diagram
   // that looks like a quiet, healthy system.
   const problems = [];
-  if ([fleet, gates, signals, risk, mt5a].some(r => r._auth)) {
-    problems.push('Not logged in — this page reads session-gated routes. <a href="/login" style="color:inherit">Sign in</a> and reload.');
+  if (SOURCE_KEYS.some(k => res[k]._auth)) {
+    problems.push('Not logged in — this page reads session-gated routes. '
+      + '<a href="/login" style="color:inherit">Sign in</a> and reload.');
   }
-  for (const [k, r] of Object.entries({ fleet, gates, signals, risk, mt5a })) {
-    if (r._error) problems.push(k + ": " + esc(r._error));
-  }
+  for (const k of SOURCE_KEYS) if (res[k]._error) problems.push(esc(k) + ": " + esc(res[k]._error));
   document.getElementById("err-slot").innerHTML =
-    problems.length ? `<div class="err">${problems.join("<br>")}</div>` : "";
+    problems.length ? '<div class="err">' + problems.join("<br>") + "</div>" : "";
 
-  renderFlow(fleet._ok ? fleet.data : null, gates, signals, risk, mt5a);
-  renderBoxes(fleet._ok ? fleet.data : null, mt5a);
-  renderGates(gates);
+  // The gate is read from the live config, never written down here. It moved 65 -> 70 once
+  // and the hardcoded copies were the last things still claiming 65.
+  const gate = res.fleet._ok && res.fleet.data.thisBox && res.fleet.data.thisBox.settings
+    ? res.fleet.data.thisBox.settings.confidenceThreshold : null;
+
+  const settingsError = res.fleet._ok && res.fleet.data.thisBox && res.fleet.data.thisBox.settings
+    ? res.fleet.data.thisBox.settings.settingsError : null;
+
+  // The server stage is the one thing this page cannot ask about directly — it IS the
+  // server. Its state is inferred from whether anything it serves answered at all.
+  let server;
+  if (SOURCE_KEYS.every(k => res[k]._error)) {
+    server = { cls: "dead", state: "UNREACHABLE", meta: "no route answered", chips: [] };
+  } else if (settingsError) {
+    server = { cls: "hold", state: "ON DEFAULTS", meta: "saved config could not be read", chips: [] };
+  } else {
+    server = { cls: "live", state: "ANSWERING", meta: "express · config from the saved file", chips: [] };
+  }
+
+  const readings = {
+    feed:   readFeed(res.signals),
+    bridge: readBridge(res.mt5a),
+    server: server,
+    engine: readEngine(res.signals, gate),
+    gates:  readGates(res.gates, gate),
+    exec:   readExec(res.risk, res.fleet),
+    fills:  readFills(res.journal),
+  };
+
+  renderSession(res.signals);
+  renderVerdict(readings, gate, res.fleet);
+  renderSpine(readings);
+  renderFleet(res.fleet, res.mt5a);
+  renderGates(readings.gates);
   renderOffPath();
 
   document.getElementById("stamp").textContent = "updated " + new Date().toLocaleTimeString();
 }
 
 load();
-setInterval(load, 30000);
+setInterval(load, REFRESH_MS);
 </script>
 </body>
 </html>

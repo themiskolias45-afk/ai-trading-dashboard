@@ -1,0 +1,131 @@
+/* ============================================================================
+   SmartEntry Pro — the shared page rail
+   ============================================================================
+
+   WHY THIS FILE EXISTS
+   theme.css unified the PALETTE across every page and deliberately sets no layout
+   property, which was the right call and is why it was safe to ship. But it left
+   the CHROME un-unified: measured 2026-08-23, the eight dashboard pages hand-rolled
+   their header links seven different ways —
+
+     index ........ 4 links, inline-styled <a> gradients, no class
+     command ...... 3 links, .nav-links
+     system ....... 2 links, .back-link
+     plan ......... 2 links, .back
+     architecture . 2 links, .backlink
+     jarvis ....... 1 link,  .hbtn   (+ 4 .sysbtn tiles)
+     daily-plan ... 1 link,  .back
+     performance .. 1 link,  .back-link
+
+   Seven class names for one idea, and the link graph that resulted was not a graph.
+   `grep -rl architecture dashboard/*.html` returned exactly ONE file — a button
+   buried in a list inside jarvis.html. The newest page in the product had a single
+   inbound link, which is why it read as something bolted on beside the system
+   rather than a part of it.
+
+   WHY IT IS NOT IN theme.css
+   theme.css carries an invariant, stated in its own header and checkable in one
+   command: it sets no display/position/overflow/width/height/float/gap/grid rule
+   beyond two named exceptions. A nav is nothing BUT layout. Putting it there would
+   break the invariant and the grep that guards it, so it lives here instead and
+   theme.css stays exactly as strict as it was.
+
+   WHY IT IS SAFE
+   Every selector is namespaced `.se-rail*`. Nothing here can match an element any
+   existing page declares, so no page's own layout can move. The rail is injected as
+   the FIRST child of <body> by nav.js and nothing else is touched: the pages keep
+   their own headers, sticky or not, and those still pin to the top exactly as
+   before once the rail scrolls away. Delete the two <link>/<script> lines from a
+   page and it returns byte-for-byte to what it was.
+
+   It is CSS and a DOM insert. It cannot affect a signal, a gate, an order or a
+   position.
+   ============================================================================ */
+
+/* Tokens come from theme.css, which every page already links. Fallbacks are given
+   so the rail still renders correctly if it is ever dropped into a page that does
+   not — an unstyled nav is worse than no nav. */
+.se-rail {
+  /* flex:0 0 auto matters: jarvis.html sets body{display:flex;flex-direction:column;
+     height:100vh}, where a plain block child would be stretched by the flex context.
+     On every other page the body is not a flex container and this is inert. */
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: var(--surface, #0d1420);
+  border-bottom: 1px solid var(--border, #1e2a3d);
+  font-family: var(--font, 'Segoe UI', system-ui, Arial, sans-serif);
+  font-size: .72rem;
+  line-height: 1;
+  position: relative;
+  z-index: 300; /* above index.html's sticky header (100) and system.html's (200) */
+}
+
+/* ── brand ───────────────────────────────────────────────────────────────── */
+.se-rail-brand {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 14px 0 16px;
+  text-decoration: none; color: var(--text, #e8eef7);
+  font-weight: 800; letter-spacing: .02em; white-space: nowrap;
+  border-right: 1px solid var(--border, #1e2a3d);
+}
+.se-rail-brand img { width: 15px; height: 15px; display: block; }
+.se-rail-brand span { font-size: .74rem; }
+.se-rail-brand:hover { color: var(--accent, #8b5cf6); }
+
+/* ── the links ───────────────────────────────────────────────────────────── */
+/* The link row is the ONLY thing that scrolls. Eight links do not fit at 390px,
+   and a nav that widens the document is how five of these pages started scrolling
+   sideways in the first place. */
+.se-rail-links {
+  display: flex; align-items: stretch; gap: 0;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+  flex: 1 1 auto; min-width: 0;
+}
+.se-rail-links::-webkit-scrollbar { display: none; }
+
+.se-rail-link {
+  display: flex; align-items: center;
+  padding: 11px 13px;
+  color: var(--muted, #8aa0c0); text-decoration: none;
+  white-space: nowrap; font-weight: 600;
+  border-bottom: 2px solid transparent;
+  transition: color .12s ease, background .12s ease;
+}
+.se-rail-link:hover { color: var(--text, #e8eef7); background: var(--surface2, #121a28); }
+
+/* Current page. Colour ALONE is not an affordance — roughly one man in twelve
+   cannot use it — so the active state carries a weight change and a 2px underline
+   as well, the same rule the .tf-btn/.jf-btn active states follow in theme.css. */
+.se-rail-link[aria-current="page"] {
+  color: var(--text, #e8eef7);
+  font-weight: 800;
+  background: var(--surface2, #121a28);
+  border-bottom-color: var(--accent, #8b5cf6);
+}
+
+.se-rail-link.se-rail-agent { color: var(--accent, #8b5cf6); }
+.se-rail-link.se-rail-agent:hover { color: #a78bfa; }
+
+/* Group separators — trade | evidence | the system itself | the agent. A hairline,
+   not a gap: a gap in a scrolling row just reads as a rendering accident. */
+.se-rail-sep {
+  flex: 0 0 auto; align-self: center;
+  width: 1px; height: 15px;
+  background: var(--border2, #2b3a52);
+  margin: 0 5px;
+}
+
+.se-rail-link:focus-visible,
+.se-rail-brand:focus-visible {
+  outline: 2px solid var(--accent, #8b5cf6);
+  outline-offset: -2px;
+}
+
+@media (max-width: 640px) {
+  .se-rail-brand { padding: 0 10px 0 12px; }
+  .se-rail-brand span { display: none; } /* the mark alone at phone width; the row needs the space */
+  .se-rail-link { padding: 10px 10px; font-size: .7rem; }
+}
