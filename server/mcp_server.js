@@ -151,7 +151,7 @@ async function fetchJSON(urlPath, opts = {}) {
 
 // ── Python runner ─────────────────────────────────────────────────────────────
 
-function runPython(script, args = [], timeout = 60000) {
+function execPython(script, args = [], timeout = 60000) {
   return new Promise((resolve, reject) => {
     // "No interpreter at all" is a DIFFERENT failure from "the script ran and exited
     // non-zero after doing its work", and the two must not be reported the same way.
@@ -173,12 +173,66 @@ function runPython(script, args = [], timeout = 60000) {
       binary, [path.join(ROOT, script), ...args],
       { cwd: ROOT, timeout, env: { ...process.env, NO_COLOR: '1' } },
       (err, stdout, stderr) => {
-        const out = (stdout || '').trim() || (stderr || '').trim();
-        if (err && !out) reject(new Error(stderr || err.message));
-        else resolve(out);
+        const stdoutText = (stdout || '').trim();
+        const stderrText = (stderr || '').trim();
+        // execFile's err.code is the EXIT CODE for a child that ran and failed, but a
+        // STRING like 'ENOENT' when the process could not be spawned at all. Only the
+        // number is an exit code; anything else is reported as null so a caller cannot
+        // print 'ENOENT' where a number belongs.
+        resolve({
+          ok:       !err,
+          exitCode: !err ? 0 : (typeof err.code === 'number' ? err.code : null),
+          timedOut: Boolean(err && err.killed),
+          stdout:   stdoutText,
+          stderr:   stderrText,
+          output:   stdoutText || stderrText,
+        });
       }
     );
   });
+}
+
+/**
+ * The string contract, unchanged, kept as a thin wrapper over execPython.
+ *
+ * Every existing caller reads a string and several are fire-and-forget, so this
+ * deliberately keeps the ORIGINAL behaviour including its tolerance: a script that
+ * writes its file and then dies on a cp1252 error in its final print has still done
+ * the work, and that output is still returned rather than thrown away. Only the
+ * no-output case rejects, exactly as before.
+ *
+ * What that tolerance CANNOT do is tell a caller the child failed — which is why any
+ * tool whose job is to PERSIST something must call execPython and read `ok`.
+ */
+function runPython(script, args = [], timeout = 60000) {
+  return execPython(script, args, timeout).then(result => {
+    if (!result.ok && !result.output) {
+      throw new Error(result.stderr || `${script} exited with code ${result.exitCode}`);
+    }
+    return result.output;
+  });
+}
+
+// A write tool that answers ok:true when its child failed is worse than one that
+// throws: the caller records the note or the memory as saved, moves on, and the loss is
+// discovered only when someone goes looking for it. On 2026-08-23 log_note and
+// write_memory answered {ok: true} while writing nothing at all for hours, because
+// runPython resolves whenever the child printed ANYTHING — a python traceback goes to
+// stderr, becomes the "output", and reads as success.
+//
+// The interpreter-missing case was fixed separately and is caught before spawn. This
+// covers the other half: the interpreter starts, the script runs, and it exits non-zero.
+function pythonFailure(script, result) {
+  const cause = result.timedOut
+    ? 'timed out'
+    : result.exitCode === null ? 'could not be run' : `exited with code ${result.exitCode}`;
+  return {
+    ok: false,
+    error: `${script} ${cause} — nothing was written. Read 'output' for what it printed.`,
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    output: result.output,
+  };
 }
 
 // ── Parallel fetch helper ─────────────────────────────────────────────────────
@@ -534,8 +588,9 @@ const TOOLS = [
     },
     async handler({ key, value, category = 'GENERAL' } = {}) {
       if (!key || !value) return { ok: false, error: 'key and value are required' };
-      const output = await runPython('memory.py', ['add', key, value, category]);
-      return { ok: true, output };
+      const result = await execPython('memory.py', ['add', key, value, category]);
+      if (!result.ok) return pythonFailure('memory.py', result);
+      return { ok: true, output: result.output };
     },
   },
 
@@ -552,8 +607,9 @@ const TOOLS = [
     },
     async handler({ text, tag = 'NOTE' } = {}) {
       if (!text) return { ok: false, error: 'text is required' };
-      const output = await runPython('daily_notes.py', ['log', text, tag]);
-      return { ok: true, output };
+      const result = await execPython('daily_notes.py', ['log', text, tag]);
+      if (!result.ok) return pythonFailure('daily_notes.py', result);
+      return { ok: true, output: result.output };
     },
   },
 
@@ -1327,3 +1383,10 @@ rl.on('line', async (line) => {
 // a number that only drifts in one direction and misreports the surface area of
 // everything the AI can reach.
 process.stderr.write(`[SmartEntry MCP v2] Started — ${TOOLS.length} tools ready\n`);
+
+// Test seam. This file is the ENTIRE surface the AI can reach and had no test of any
+// kind, because requiring it was the only way in and nothing was exported. The stdio
+// listener above is deliberately left running on require rather than guarded: guarding
+// it would change how this process starts in production, where .mcp.json launches it
+// directly, and a test can simply exit when it is done.
+module.exports = { execPython, runPython, pythonFailure };
