@@ -47,7 +47,10 @@ const { execFile } = require('child_process');
 
 const ROOT       = path.join(__dirname, '..');
 const SERVER_URL = 'http://localhost:3001';
-const PYTHON     = process.platform === 'win32' ? 'python' : 'python3';
+// Resolved by probing, not by PATH order. This used to be the bare string 'python',
+// which on 2026-08-23 meant a Smart-App-Control-blocked uv trampoline. See
+// server/python_path.js for what that cost. Lazy so nothing is spawned at import.
+const { pythonBin, tried: pythonCandidates } = require('./python_path');
 // The walk-forward replays 5 folds x 3 assets through the live engine. Measured at
 // roughly 90s on this machine; 10 minutes leaves headroom for a slower VPS without
 // letting a hung run hold an MCP call open indefinitely.
@@ -150,8 +153,24 @@ async function fetchJSON(urlPath, opts = {}) {
 
 function runPython(script, args = [], timeout = 60000) {
   return new Promise((resolve, reject) => {
+    // "No interpreter at all" is a DIFFERENT failure from "the script ran and exited
+    // non-zero after doing its work", and the two must not be reported the same way.
+    // The tolerance below is deliberate - a script can write its file and then die on
+    // a cp1252 encoding error in its final print, and that work is not lost - but it
+    // also meant that when the interpreter itself could not start, the spawn error
+    // arrived on stderr, became `out`, and was resolved as if it were the script's
+    // output. That is precisely how log_note and write_memory answered {ok: true}
+    // while writing nothing at all on 2026-08-23. Checked first, so it cannot recur.
+    const binary = pythonBin();
+    if (!binary) {
+      return reject(new Error(
+        'No working Python interpreter found on this machine. Tried: ' +
+        pythonCandidates().join(', ') +
+        '. Set SMARTENTRY_PYTHON in keys.env to point at one.'
+      ));
+    }
     execFile(
-      PYTHON, [path.join(ROOT, script), ...args],
+      binary, [path.join(ROOT, script), ...args],
       { cwd: ROOT, timeout, env: { ...process.env, NO_COLOR: '1' } },
       (err, stdout, stderr) => {
         const out = (stdout || '').trim() || (stderr || '').trim();

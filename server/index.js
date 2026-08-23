@@ -3670,7 +3670,8 @@ app.post("/api/mt5/login", (req, res) => {
   if (!terminal) return res.status(400).json({ ok: false, error: "account must be 'A' or 'B'" });
   if (!login || !password || !server) return res.status(400).json({ ok: false, error: "login, password, and server are required" });
 
-  const PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
+  // Probed, not taken from PATH — see server/python_path.js.
+  const PYTHON_BIN = require("./python_path").pythonBinOrDefault();
   const child = require("child_process").spawn(PYTHON_BIN, [path.join(__dirname, "..", "mt5_login_helper.py")], {
     cwd: path.join(__dirname, "..")
   });
@@ -5060,7 +5061,8 @@ cron.schedule("45 6 * * *", async () => {
   console.log("[cron] 6:45 AM — plan ready");
   // Run Python daily plan generator in background
   const { execFile } = require("child_process");
-  const PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
+  // Probed, not taken from PATH — see server/python_path.js.
+  const PYTHON_BIN = require("./python_path").pythonBinOrDefault();
   execFile(PYTHON_BIN, [require("path").join(__dirname, "..", "tv_daily_plan.py"), "--no-tv", "--silent"],
     { cwd: require("path").join(__dirname, ".."), timeout: 60000 },
     (err, out) => { if (err) console.error("[cron] daily plan error:", err.message); else console.log("[cron] daily plan done:", out.trim().slice(0, 100)); }
@@ -5120,7 +5122,8 @@ cron.schedule("*/30 * * * *", fetchFearGreed);
 cron.schedule("0 22 * * 1-5", async () => {
   console.log("[cron] EOD review starting…");
   const { execFile } = require("child_process");
-  const PYTHON = process.platform === "win32" ? "python" : "python3";
+  // Probed, not taken from PATH — see server/python_path.js.
+  const PYTHON = require("./python_path").pythonBinOrDefault();
   execFile(PYTHON, [require("path").join(__dirname, "..", "eod_review.py")], { cwd: require("path").join(__dirname, ".."), timeout: 120000 }, (err, out, se) => {
     if (err) console.error("[EOD] Error:", se || err.message);
     else console.log("[EOD] Done:", out.trim().slice(0, 200));
