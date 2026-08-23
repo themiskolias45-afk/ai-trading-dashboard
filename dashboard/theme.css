@@ -29,7 +29,7 @@
    invented. A rule for a class nobody uses is decoration.
 
    WHAT IT DELIBERATELY DOES NOT TOUCH
-   Layout — with exactly TWO stated exceptions, both listed here so the claim can be
+   Layout — with exactly THREE stated exceptions, all listed here so the claim can be
    checked rather than believed:
 
      .chart-wrap { overflow: hidden }   clips the chart iframe to the rounded corner.
@@ -38,6 +38,10 @@
                                         meant to escape.
      iframe { display: block }          removes the inline line-box gap under an
                                         iframe. Affects the iframe, nothing around it.
+     .tab-nav (max-width:720px only)    display/flex-wrap/overflow-x/gap, so eight tabs
+                                        scroll as one row instead of wrapping into three
+                                        on a phone. Scoped to ONE class inside ONE media
+                                        query, and .tab-nav exists on index.html alone.
 
    Nothing else sets display, position, overflow, width, height, float, gap or a grid
    property, because those are what a page's own CSS uses to be *itself*. An earlier
@@ -47,7 +51,20 @@
 
      grep -nE "^\s*(display|position|overflow|width|height|float|gap|grid-)" theme.css
 
-   which should return only the two exceptions above.
+   which returns FIVE lines: the two above, plus the three inside the .tab-nav block.
+
+   CORRECTED 2026-08-23. This header said TWO exceptions and "should return only the
+   two" from `0b064ab` onward, while the grep it names returned five the whole time —
+   the .tab-nav block landed in the mobile pass and the claim above it was never
+   updated. Narrow and deliberate, and still a false statement sitting directly above
+   the command that disproves it, which is the exact failure this file's own history
+   records: `ccbb5d4` shipped a header claiming the opposite of what the CSS did, and
+   one grep settled it. **The lesson is the grep, not the CSS. If you add a layout
+   rule, run the command and update the count in the same commit.**
+
+   The shared page rail is NOT here for this reason — see dashboard/nav.css. A nav is
+   nothing but layout, and putting it in this file would have meant either breaking
+   this invariant properly or quietly widening it again.
 
    Nothing here can affect a signal, a gate, an order or a position. It is CSS.
    ============================================================================ */

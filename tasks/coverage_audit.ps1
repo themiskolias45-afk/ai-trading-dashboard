@@ -102,6 +102,27 @@ if ($tasks.Count -eq 0) {
             # Only rc=1 is exempted, and only for this task. A real crash here (2, or a
             # PowerShell fault code) still reads RED.
             Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 1 = a RED finding in its own last report, not a crash)"
+        } elseif ($t.TaskName -match 'Refresh\s*Bars' -and $i.LastTaskResult -eq 3) {
+            # Exit 3 is refresh_bars.cjs REFUSING because a position is open, which its
+            # own header calls "the EXPECTED result most days - it is not a failure and
+            # must not be alerted on as one". The task loop did not know that and read it
+            # as a crash, so a correct guard doing its job was the audit's headline RED.
+            #
+            # This got worse on 2026-08-23, when the task went from firing once a day to
+            # hourly so it could catch the first flat book instead of sampling for one.
+            # That is 24 refusals a day, and 24 false REDs a day, which is exactly how a
+            # report stops being read.
+            #
+            # THE TASK IS NAMED DIFFERENTLY ON THE TWO BOXES: 'SmartEntryRefreshBars' on
+            # the VPS and 'SmartEntry Refresh Bars' on the laptop. The first version of
+            # this branch matched 'RefreshBars' and silently did nothing on the laptop,
+            # which still reported RED while the VPS went quiet. \s* covers both.
+            #
+            # Only rc=3 on this one task is exempted; any other non-zero still reads RED.
+            # The thing actually worth alarming on is not the exit code but whether the
+            # BARS have gone stale, and that is a separate check below -- an exit code
+            # says whether the tool ran, never whether the data moved.
+            Add-Check 'tasks' $t.TaskName 'INFO' "refused ${ageH}h ago (exit 3 = a position was open, the expected result)"
         } elseif ($i.LastTaskResult -ne 0 -and $i.LastTaskResult -ne 267009) {
             Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
         } elseif ($null -eq $i.NextRunTime) {
@@ -232,6 +253,35 @@ foreach ($f in @(
         $ageH = [math]::Round(($now - (Get-Item $p).LastWriteTime).TotalHours, 1)
         if ($ageH -gt $f.MaxAgeH) { Add-Check 'learning' $f.Name 'RED' "not updated for ${ageH}h - the daily pipeline is not running" }
         else { Add-Check 'learning' $f.Name 'GREEN' "updated ${ageH}h ago" }
+    }
+}
+
+# ── 5b. The research bars: is the searcher looking at anything new? ──────────
+#
+# ADDED 2026-08-23, replacing an alarm that was firing on the wrong thing. The audit
+# reported SmartEntryRefreshBars RED for exiting 3 -- its documented refusal -- while
+# saying NOTHING about the fact that the cached D1 bars had not moved since 2026-07-26.
+# Twenty-eight days of the daily strategy search re-testing identical data, and the one
+# check that mentioned bars at all was complaining about a guard working correctly.
+#
+# An exit code says whether the tool RAN. It never says whether the data MOVED. Those
+# are different questions and only the second one matters here.
+#
+# Thresholds: a refresh needs a flat book, and this system holds trades for days, so a
+# few stale days is normal and is not an alarm. Past a week the searcher is re-asking
+# settled questions; past a fortnight its candidate count is growing while its evidence
+# is not, which is the failure mode the searcher's own multiplicity warning exists for.
+$barFile = Join-Path $Proj 'tasks\history\BTCUSD_D1.csv'
+if (-not (Test-Path $barFile)) {
+    Add-Check 'learning' 'research bars' 'RED' 'tasks\history\BTCUSD_D1.csv is missing - every replay reads it'
+} else {
+    $barAgeD = [math]::Round(($now - (Get-Item $barFile).LastWriteTime).TotalDays, 1)
+    if ($barAgeD -gt 14) {
+        Add-Check 'learning' 'research bars' 'RED' "cached ${barAgeD}d ago - the strategy search is re-testing identical data"
+    } elseif ($barAgeD -gt 7) {
+        Add-Check 'learning' 'research bars' 'AMBER' "cached ${barAgeD}d ago - no flat book has come up in a week"
+    } else {
+        Add-Check 'learning' 'research bars' 'GREEN' "cached ${barAgeD}d ago"
     }
 }
 
