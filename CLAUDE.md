@@ -28,10 +28,15 @@ Claude Code auto-loads this CLAUDE.md from the working directory. The startup se
 At the start of every interactive session:
 1. Read `VAULT-INDEX.md` at the vault root — skip silently if file doesn't exist, do not error.
 2. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
-2b. Call `mcp__memory__search_nodes` with query `"lesson fix improvement decision trade"` — load the top 5
-   results into active context. These are lessons explicitly persisted from past sessions via /learn.
+2b. Call `mcp__memory__search_nodes` **once per term**, with the SINGLE words `lesson`, then `fix`,
+   then `trade`. These are lessons explicitly persisted from past sessions via /learn.
    A lesson not recalled is a lesson wasted. Surface any that are relevant to today's context (e.g.
    a prior fix to the same component, a gate decision, a trade setup outcome).
+   **One term per call, never a phrase.** `search_nodes` ANDs its terms: measured 2026-08-23,
+   `"lesson"` returns 16 entities and `"lesson fix"` returns ZERO, because no entity contains
+   every word. This step used to pass the phrase `"lesson fix improvement decision trade"` and
+   had therefore **never returned a single result in its life** — the recall step this file calls
+   mandatory was silently dead, which is the same shape as a setting with no reader.
 2c. Read `tasks/analysis/strategy-search-latest.txt` (last 20 lines only) — skip silently if missing.
    If it contains an unreviewed proposal (look for "PROPOSE" or "score ≥" in the text):
    surface it in the welcome context as: "⚡ Strategy search found a candidate — run /discover to evaluate."
