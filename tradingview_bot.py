@@ -416,7 +416,10 @@ TICKER_TESTS = {
 # strength, two spare reason lines) is gone, because a cluttered panel over a
 # chart that already carries ten indicators is worse than no panel.
 PLAN_ROWS = ["Entry", "SL", "TP", "R:R", "Levels", "Confidence", "Setup",
-             "Regime", "Trend D1", "Trend H4", "Trend H1", "Note"]
+             "Regime", "Trend D1", "Trend H4", "Trend H1", "1D read", "4H read", "Note"]
+
+# Broker symbol per API asset, so a plan can find its own rows in the measured read.
+READ_SYMBOL = {"BTC": "BTCUSD", "GOLD": "XAUUSD", "SPX": "SP500"}
 
 LEVEL_SPECS = [
     ("entry",         "color.new(color.green, 0)",  2, "line.style_dashed"),
@@ -1080,7 +1083,49 @@ def _decimals_for(price):
     return 2 if price >= 100 else 4
 
 
-def build_plan(symbol, asset, gate=None, overrides=None):
+def load_candle_reads():
+    """The measured next-candle read, written by tasks/candle_probability.cjs.
+
+    Returns {} when absent or unreadable — the chart then prints "not generated" for
+    those rows rather than a blank, because an absent measurement and a measurement
+    showing no edge are different facts and must not look the same on a chart that is
+    read before trading.
+    """
+    try:
+        # Path(__file__).parent, not a ROOT constant — this file has never defined one,
+        # and py_compile cannot see a NameError, so it would have failed at run time.
+        path = Path(__file__).parent / "tasks" / "analysis" / "candle-today.json"
+        if not path.exists():
+            return {}
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        out = {}
+        for r in raw.get("reads", []):
+            out.setdefault(r.get("symbol"), {})[r.get("tf")] = r
+        return out
+    except Exception as exc:
+        print(f"[TV] candle read unreadable ({str(exc)[:70]}) - rows will say so")
+        return {}
+
+
+def _read_row(reads, symbol, tf):
+    """One panel row. Says INSIDE NOISE in those words when the cell does not clear
+    its own noise bar, which is the answer on most days."""
+    cell = (reads.get(READ_SYMBOL.get(symbol, ""), {}) or {}).get(tf)
+    if not cell:
+        return "not generated - run candle_probability.cjs"
+    if cell.get("error"):
+        return str(cell["error"])[:60]
+    pct = cell.get("cellUpPct")
+    if pct is None:
+        return f'{cell.get("state","?")} - too few cases to judge'
+    if cell.get("actionable"):
+        thin = " THIN" if cell.get("thinFolds") else ""
+        return (f'{cell.get("state")} -> {pct}% up  READ{thin} '
+                f'({cell.get("foldsAgreeing")}/{cell.get("foldsJudged")} folds)')
+    return f'{cell.get("state")} -> {pct}% up  INSIDE NOISE (bar {cell.get("noiseBarPP")}pp)'
+
+
+def build_plan(symbol, asset, gate=None, overrides=None, reads=None):
     """
     Turn one asset block from /api/signals into everything the chart should show.
 
@@ -1146,6 +1191,10 @@ def build_plan(symbol, asset, gate=None, overrides=None):
         "Trend D1":   asset.get("trend") or "-",
         "Trend H4":   f'{h4.get("trend", "-")} (RSI {h4.get("rsi", "-")})',
         "Trend H1":   f'{h1.get("trend", "-")} (RSI {h1.get("rsi", "-")})',
+        # Measured bar geometry, NOT a signal. Sits below the trend rows so it reads as
+        # context rather than as an instruction, and prints its own verdict in words.
+        "1D read":    _read_row(reads or {}, symbol, "D1"),
+        "4H read":    _read_row(reads or {}, symbol, "H4"),
         "Note":       (reasons[0][:64] if reasons else "-"),
     }
 
@@ -1274,6 +1323,10 @@ def cmd_plan(which="all", shoot=True):
     gate, gate_note = fetch_live_gate()
     print(f"[TV] Live gate: {gate} ({gate_note})")
 
+    candle_reads = load_candle_reads()
+    print(f"[TV] Candle read: {sum(len(v) for v in candle_reads.values())} row(s) loaded"
+          if candle_reads else "[TV] Candle read: none on disk - rows will say so")
+
     wanted = list(API_ASSETS) if which.lower() == "all" else [which.upper()]
     results = {}
 
@@ -1284,7 +1337,7 @@ def cmd_plan(which="all", shoot=True):
         if not asset:
             print(f"[TV] {name}: not in /api/signals — skipped")
             continue
-        plans.append(build_plan(name, asset, gate))
+        plans.append(build_plan(name, asset, gate, reads=candle_reads))
 
     if not plans:
         print("[TV] Nothing to draw")

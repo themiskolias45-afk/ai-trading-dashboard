@@ -98,6 +98,25 @@
 
     .setup-tag { margin-top:10px; font-size:.62rem; color:var(--muted); background:var(--bg); padding:4px 8px; border-radius:4px; display:inline-block; }
 
+    /* Measured next-candle read. Deliberately quiet: on most mornings every row says
+       INSIDE NOISE, and this block must not compete with the signal above it. Only a
+       read that actually clears its noise bar gets colour. */
+    .cp-block { margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
+    .cp-head  { font-size:.56rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:6px; }
+    .cp-age   { color:var(--muted-dim); }
+    .cp-stale { color:var(--yellow); font-weight:700; }
+    .cp-row   { font-size:.62rem; color:var(--muted); line-height:1.5; margin-bottom:3px; }
+    .cp-row b { color:var(--text); font-family:var(--mono, monospace); }
+    .cp-state { color:var(--muted-dim); }
+    /* A read that clears its noise bar AND has most folds agreeing. */
+    .cp-live  { color:var(--green); font-weight:700; font-variant-numeric:tabular-nums; }
+    /* Same, but judged on fewer than 4 folds — real, and weaker. Never the same colour. */
+    .cp-thin  { color:var(--yellow); font-weight:700; font-variant-numeric:tabular-nums; }
+    /* The usual case. Muted on purpose: a number inside its own noise is not a signal. */
+    .cp-noise { color:var(--muted-dim); font-variant-numeric:tabular-nums; }
+    .cp-verdict { display:block; color:var(--muted-dim); font-size:.58rem; margin-left:2px; }
+    .cp-none  { color:var(--muted-dim); font-style:italic; }
+
     /* Two-col layout */
     .two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px; }
     @media(max-width:900px){ .two-col{ grid-template-columns:1fr; } }
@@ -312,6 +331,51 @@ function signalLabel(s) {
 let liveGate = null;
 let gateIsDefaults = false;
 
+// The measured next-candle read, from /api/daily-plan's candleRead key. Null until the
+// first fetch, and rendered as "not generated" rather than silently omitted — an absent
+// probability and a probability of no edge are different facts.
+let candleRead = null;
+
+// Which broker symbol each card is, so a card can find its own rows in the read.
+const CARD_SYMBOL = { 'card-btc': 'BTCUSD', 'card-gold': 'XAUUSD', 'card-spx': 'SP500' };
+
+/* Render the D1 and H4 measured read for one asset.
+   Most mornings every row says INSIDE NOISE, and that is printed in those words. A bare
+   percentage would read as a forecast; the whole value of this block is that it says
+   when the number means nothing. Nothing here feeds the gate or the signal. */
+function candleBlock(cardId) {
+  if (!candleRead) return '';
+  if (!candleRead.available) {
+    return `<div class="cp-block"><span class="cp-none">next-candle read: ${esc(candleRead.why || 'unavailable')}</span></div>`;
+  }
+  const sym = CARD_SYMBOL[cardId];
+  const rows = (candleRead.reads || []).filter(r => r && r.symbol === sym);
+  if (!rows.length) return '';
+  const stale = candleRead.ageHours != null && candleRead.ageHours > 30;
+  const head = `<div class="cp-head">MEASURED NEXT CANDLE`
+    + (candleRead.ageHours != null
+        ? ` <span class="${stale ? 'cp-stale' : 'cp-age'}">${candleRead.ageHours}h old${stale ? ' — STALE' : ''}</span>`
+        : '')
+    + `</div>`;
+  const body = rows.map(r => {
+    if (r.error) return `<div class="cp-row"><b>${esc(r.tf)}</b> <span class="cp-none">${esc(r.error)}</span></div>`;
+    const live = r.actionable;
+    const cls = live ? (r.thinFolds ? 'cp-thin' : 'cp-live') : 'cp-noise';
+    const pctTxt = r.cellUpPct != null ? `${r.cellUpPct}% up` : '—';
+    return `<div class="cp-row">`
+      + `<b>${esc(r.tf)}</b> <span class="cp-state">${esc(r.state)}</span> `
+      + `<span class="${cls}">${esc(pctTxt)}</span> `
+      + `<span class="cp-verdict">${esc(r.verdict)}</span></div>`;
+  }).join('');
+  return `<div class="cp-block">${head}${body}</div>`;
+}
+
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 function renderCard(id, title, sig, price) {
   const card = document.getElementById(id);
   if (!card) return;
@@ -375,6 +439,7 @@ function renderCard(id, title, sig, price) {
           <span>R:R <span class="rr-val">1:${sig.rr ?? '—'}</span></span>
         </div>
       ` : `<div class="setup-tag">No actionable setup — ${sig?.regime ?? 'market scanning'}</div>`}
+      ${candleBlock(id)}
     </div>
   `;
 }
@@ -442,6 +507,7 @@ async function loadPlan() {
     if (Number.isFinite(gateValue)) {
       liveGate = gateValue;
       gateIsDefaults = Boolean(plan.settingsError);
+      candleRead = plan.candleRead || null;
     } else {
       try {
         const sr = await fetch(BASE + '/api/strategy-settings', { cache: 'no-store' });
