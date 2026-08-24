@@ -173,15 +173,37 @@ const TASK_RESULT_MEANING = {
  * reports it as INFO; this file was the last surface still calling it FAILING, which
  * put a permanent red row next to genuine ones. Third instance of one root cause —
  * judging a service by an exit code instead of by what the service actually did.
+ *
+ * KEYED ON A NAME WITH THE SPACES STRIPPED, because the two boxes spell the same task
+ * differently and the first version of this table missed that. The laptop has
+ * "SmartEntry Refresh Bars"; the VPS has "SmartEntryRefreshBars". Deployed with only
+ * the laptop's spelling, the VPS went on reporting the same false red — caught on the
+ * deploy, not by reading. It is the same trap as "SmartEntry Ensure Running" versus
+ * "SmartEntryEnsureRunning", which once made a restart tool unable to start the server
+ * on the box that trades. Normalising means a future task needs one entry, not two.
  */
-const EXPECTED_TASK_RESULTS = {
-  "SmartEntry Refresh Bars": {
+const EXPECTED_TASK_RESULTS = new Map([
+  ["smartentryrefreshbars", {
     3: "refused because a position was open — the expected result most days, not a failure",
-  },
-};
+  }],
+  // strategy_search.cjs:455 exits 4 on the --skip-if-bars-unchanged path, after printing
+  // "Nothing was run and nothing was written". Skipping a round that would re-test
+  // identical data is the tool working. Whether the BARS have gone stale is a real
+  // question, and it is answered separately by coverage_audit's "research bars" check —
+  // an exit code says whether the tool ran, never whether the data moved.
+  ["smartentrystrategysearch", {
+    4: "skipped because the cached bars had not changed since the last run — nothing was "
+     + "run and nothing was written; bar staleness is checked separately",
+  }],
+]);
+
+/** Both boxes' spellings collapse to one key. */
+function normaliseTaskName(name) {
+  return String(name || "").toLowerCase().replace(/\s+/g, "");
+}
 
 function expectedOutcome(taskName, code) {
-  const byTask = EXPECTED_TASK_RESULTS[taskName];
+  const byTask = EXPECTED_TASK_RESULTS.get(normaliseTaskName(taskName));
   return byTask && byTask[code] ? byTask[code] : null;
 }
 
