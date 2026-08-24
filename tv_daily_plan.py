@@ -28,13 +28,47 @@ SERVER_URL = "http://localhost:3001"
 PYTHON     = sys.executable
 
 
+def _session_cookie() -> str:
+    """The session cookie value IS server/session_secret.txt.
+
+    Same helper as check_errors.py — the routes are not opened, this script simply
+    holds its own login the way the MCP server does. Missing file is NOT fatal: the
+    cookie goes empty and the public routes still answer, which is exactly the
+    behaviour this script had before.
+    """
+    try:
+        return (ROOT / "server" / "session_secret.txt").read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
 def _fetch(path: str):
+    """GET one endpoint. On failure returns {"_error": ...} — and CALLERS MUST READ IT.
+
+    Without the cookie, /api/daily-plan and /api/prices answer 401. urllib raises on
+    a 401, so this function has always reported the failure correctly. The defect was
+    at the other end: `_error` was written here and read NOWHERE, so every call site
+    did `.get("prices", {})`, took the empty dict as data, and wrote a structurally
+    valid plan carrying nothing. 22 days of morning plans with price:null for all
+    three assets, exiting 0 every time. An error field with no reader is decoration.
+    """
     import urllib.request
     try:
-        with urllib.request.urlopen(f"{SERVER_URL}{path}", timeout=6) as r:
+        request = urllib.request.Request(f"{SERVER_URL}{path}")
+        secret = _session_cookie()
+        if secret:
+            request.add_header("Cookie", f"smartentry_session={secret}")
+        with urllib.request.urlopen(request, timeout=6) as r:
             return json.loads(r.read().decode())
     except Exception as e:
         return {"_error": str(e)}
+
+
+def _fetch_error(payload) -> str:
+    """The one place that decides whether a _fetch result is usable."""
+    if not isinstance(payload, dict):
+        return "response was not an object"
+    return payload.get("_error", "")
 
 
 def _run(script: str, args: list = [], timeout: int = 30) -> str:
@@ -83,6 +117,17 @@ def build_plan():
     learning  = _fetch("/api/learning")
     plan_data = _fetch("/api/daily-plan")
 
+    # Read every _error rather than letting a failed leg pass as an empty dict. These
+    # become warnings on the plan itself, so a thin plan says WHY it is thin instead
+    # of looking like a quiet market.
+    fetch_failures = []
+    for label, payload in (("/api/signals", signals), ("/api/risk-status", risk),
+                           ("/api/learning", learning), ("/api/daily-plan", plan_data)):
+        problem = _fetch_error(payload)
+        if problem:
+            fetch_failures.append(f"{label}: {problem}")
+            print(f"  [plan] FETCH FAILED {label} — {problem}")
+
     prices = plan_data.get("prices", {}) if isinstance(plan_data, dict) else {}
     calendar = plan_data.get("calendar", []) if isinstance(plan_data, dict) else []
 
@@ -90,7 +135,12 @@ def build_plan():
     assets = {}
     for sym in ["btc", "gold", "spx"]:
         sig   = (signals or {}).get(sym) or {}
+        # /api/signals is ungated and already carries a live price per asset, so if the
+        # gated leg is unavailable the plan degrades to real levels rather than to
+        # nothing. Same broker price, one hop earlier.
         price = prices.get(sym)
+        if price is None:
+            price = sig.get("price")
         levels = _key_levels(price)
 
         trade_plan = None
@@ -136,6 +186,8 @@ def build_plan():
 
     # ── Risk checks ──────────────────────────────────────────────
     warnings = []
+    for failure in fetch_failures:
+        warnings.append(f"⚠ this plan is incomplete — {failure}")
     risk_obj = risk if isinstance(risk, dict) else {}
     if risk_obj.get("halted"):
         warnings.append(f"TRADING HALTED: {risk_obj.get('haltReason', 'risk limit')}")
