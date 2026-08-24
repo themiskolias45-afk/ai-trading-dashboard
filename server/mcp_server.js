@@ -831,7 +831,13 @@ const TOOLS = [
         assets: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Default: [BTC, GOLD, SPX]. Add ETH, NASDAQ, OIL for full scan.',
+          description:
+            'BTC, GOLD and SPX — those are the only three the server computes. ' +
+            'ETH, NASDAQ and OIL are accepted by the scanner but /api/signals carries ' +
+            'no key for them and mt5_bridge.py has no SYMBOL_CANDIDATES entry, so they ' +
+            'come back as UNSUPPORTED (never evaluated), not as a quiet market. This ' +
+            'description used to read "Add ETH, NASDAQ, OIL for full scan", advertising ' +
+            'a capability that does not exist.',
         },
         debate: {
           type: 'boolean',

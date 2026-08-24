@@ -160,8 +160,35 @@ const TASK_RESULT_MEANING = {
   267014: "terminated by user",
 };
 
-function describeTaskResult(code) {
+/**
+ * Exit codes a SPECIFIC task defines as an expected outcome rather than a fault.
+ *
+ * Keyed by exact task name AND exact code, deliberately. A blanket "3 is fine" would
+ * mask a real 3 from some other task, which is the opposite of what this list is for —
+ * the whole value of a red row is that it means something.
+ *
+ * SmartEntry Refresh Bars exits 3 when a position is open. Its own script says so:
+ * "Exit 3 means exactly that refusal and is the EXPECTED result most days - it is not
+ * a failure and must not be alerted on as one." tasks/coverage_audit.ps1 already
+ * reports it as INFO; this file was the last surface still calling it FAILING, which
+ * put a permanent red row next to genuine ones. Third instance of one root cause —
+ * judging a service by an exit code instead of by what the service actually did.
+ */
+const EXPECTED_TASK_RESULTS = {
+  "SmartEntry Refresh Bars": {
+    3: "refused because a position was open — the expected result most days, not a failure",
+  },
+};
+
+function expectedOutcome(taskName, code) {
+  const byTask = EXPECTED_TASK_RESULTS[taskName];
+  return byTask && byTask[code] ? byTask[code] : null;
+}
+
+function describeTaskResult(code, taskName) {
   if (code === null || code === undefined) return "unknown";
+  const expected = expectedOutcome(taskName, code);
+  if (expected) return `${code} (${expected})`;
   return TASK_RESULT_MEANING[code] ? `${code} (${TASK_RESULT_MEANING[code]})` : String(code);
 }
 
@@ -174,8 +201,11 @@ function describeTaskResult(code) {
  * user", from the day it was switched off. Reporting that as FAILING would put a
  * permanent red row in a list whose whole purpose is that a red row means something.
  */
-function taskResultIsFailure(code, state) {
+function taskResultIsFailure(code, state, taskName) {
   if (String(state || "").toLowerCase() === "disabled") return false;
+  // A code the task itself defines as an expected outcome. Scoped to one exact
+  // task+code pair; see EXPECTED_TASK_RESULTS above for why it is not a blanket rule.
+  if (expectedOutcome(taskName, code)) return false;
   return code !== null && code !== undefined && code !== 0 && code !== 267009 && code !== 267011;
 }
 
@@ -251,8 +281,8 @@ function summariseUnappraised(scheduledTasks, linkedTaskNames) {
       state: task.status || null,
       lastRun: task.lastRun || null,
       lastResult: task.lastResult ?? null,
-      resultMeaning: describeTaskResult(task.lastResult),
-      failing: taskResultIsFailure(task.lastResult, task.status),
+      resultMeaning: describeTaskResult(task.lastResult, task.name),
+      failing: taskResultIsFailure(task.lastResult, task.status, task.name),
       disabled: String(task.status || "").toLowerCase() === "disabled",
       runs: task.taskToRun || null,
     }))
@@ -291,8 +321,8 @@ function build(options = {}) {
               lastRun: linkedTask.lastRun || null,
               nextRun: linkedTask.nextRun || null,
               lastResult: linkedTask.lastResult ?? null,
-              resultMeaning: describeTaskResult(linkedTask.lastResult),
-              failing: taskResultIsFailure(linkedTask.lastResult, linkedTask.status),
+              resultMeaning: describeTaskResult(linkedTask.lastResult, linkedTask.name),
+              failing: taskResultIsFailure(linkedTask.lastResult, linkedTask.status, linkedTask.name),
               runs: linkedTask.taskToRun || null,
             }
           : { known: true, found: false, declaredName: job.task })
