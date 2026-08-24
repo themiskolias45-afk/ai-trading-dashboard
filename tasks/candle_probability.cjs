@@ -232,6 +232,72 @@ function analyse(symbol, tf) {
   return { symbol, tf, bars: bars.length, rows: rows.length, overall, perFold, cells };
 }
 
+/* ── TODAY'S READ ───────────────────────────────────────────────────────────────────
+ * The daily half. Takes the state of the LAST CLOSED bar on each timeframe, finds that
+ * exact cell in the measurement above, and reports what it was worth historically.
+ *
+ * The state is computed from the SAME bars and the SAME functions as the measurement,
+ * never from /api/signals. The engine's RSI and trend are tuned for the gate and can
+ * legitimately differ; reading a cell under one definition that was measured under
+ * another is how a number stops meaning what it says.
+ *
+ * MOST DAYS THE ANSWER IS "NO READ", and that is the point. A cell only speaks when its
+ * lift clears the timeframe's own fold-to-fold spread AND most folds agree on the
+ * direction. Anything else is reported as INSIDE NOISE, in those words, so a quiet
+ * morning cannot be mistaken for a signal.
+ * ------------------------------------------------------------------------------- */
+function todayRead(analysis) {
+  if (analysis.error) return { symbol: analysis.symbol, tf: analysis.tf, error: analysis.error };
+  const bars = readBars(analysis.symbol, analysis.tf);
+  const closes = bars.map(b => b.c);
+  const ind = {
+    ema20: ema(closes, 20), ema50: ema(closes, 50), rsi: rsi(closes, 14),
+    atr: atr(bars, 14), bw: bars.map((_, i) => bandwidthPct(closes, i)),
+  };
+  const i = bars.length - 1;                 // the last CLOSED bar
+  const st = stateOf(bars, i, ind);
+  if (!st) return { symbol: analysis.symbol, tf: analysis.tf, error: "state not computable" };
+
+  const base = analysis.overall.upPct;
+  const spread = Math.max(...analysis.perFold.map(f => f.upPct || 0))
+               - Math.min(...analysis.perFold.map(f => f.upPct || 0));
+  const key = `${st.trend} ${st.rsiBand}`;
+  const cell = analysis.cells.find(c => c.dim === "trend+rsi" && c.key === key) || null;
+
+  let verdict = "NO READ — this state has too few resolved cases to judge";
+  if (cell) {
+    const clearsNoise = Math.abs(cell.liftPP) > spread;
+    const foldsAgree = cell.foldsJudged > 0 && cell.foldsAgreeing > cell.foldsJudged / 2;
+    // A cell judged on fewer than 4 folds had too few resolved cases in the rest, so
+    // its agreement is over a short window. Said out loud rather than folded into one
+    // word: D1 carries a 7.8-9.5pp noise bar on every asset, so a D1 "READ" resting on
+    // 2 of 3 folds is not the same object as an H4 read over 5.
+    const thin = cell.foldsJudged < 4;
+    verdict = clearsNoise && foldsAgree
+      ? `READ${thin ? " (THIN — judged on only " + cell.foldsJudged + " folds)" : ""} — `
+        + `${cell.upPct.toFixed(1)}% up (${cell.liftPP >= 0 ? "+" : ""}${cell.liftPP.toFixed(1)}pp, `
+        + `${cell.foldsAgreeing}/${cell.foldsJudged} folds), lift clears the ${spread.toFixed(1)}pp noise bar`
+      : `INSIDE NOISE — ${cell.upPct.toFixed(1)}% up is ${cell.liftPP >= 0 ? "+" : ""}${cell.liftPP.toFixed(1)}pp `
+        + `against a ${spread.toFixed(1)}pp fold spread` + (foldsAgree ? "" : `, and only ${cell.foldsAgreeing}/${cell.foldsJudged} folds agree`);
+  }
+  return {
+    symbol: analysis.symbol, tf: analysis.tf,
+    asOf: new Date(bars[i].t * 1000).toISOString(),
+    state: key, squeeze: st.squeeze, prevBody: st.body,
+    baseUpPct: base == null ? null : +base.toFixed(1),
+    noiseBarPP: +spread.toFixed(1),
+    cellUpPct: cell ? +cell.upPct.toFixed(1) : null,
+    liftPP: cell ? +cell.liftPP.toFixed(1) : null,
+    resolved: cell ? cell.resolved : 0,
+    foldsAgreeing: cell ? cell.foldsAgreeing : null,
+    foldsJudged: cell ? cell.foldsJudged : null,
+    thinFolds: cell ? cell.foldsJudged < 4 : null,
+    actionable: !!(cell && Math.abs(cell.liftPP) > spread
+                   && cell.foldsJudged > 0 && cell.foldsAgreeing > cell.foldsJudged / 2),
+    verdict,
+  };
+}
+
 // ── Report ─────────────────────────────────────────────────────────────────────────
 const lines = [];
 const say = (s = "") => { lines.push(s); console.log(s); };
@@ -283,9 +349,38 @@ say("    is one lucky window. Nothing here is wired to anything: it changes no g
 say("    threshold and no signal, and it is not a trading instruction.");
 say("=".repeat(100));
 
+// TODAY'S READ, per asset per timeframe — what the daily plan and the chart consume.
+const today = results.map(todayRead);
+say("");
+say("=".repeat(100));
+say("  TODAY'S READ — the state of the last CLOSED bar, priced against the table above");
+say("=".repeat(100));
+for (const t of today) {
+  if (t.error) { say(`  ${t.symbol} ${t.tf}: ${t.error}`); continue; }
+  const mark = t.actionable ? ">>" : "  ";
+  say(`${mark} ${t.symbol} ${t.tf.padEnd(3)} state ${t.state.padEnd(16)} squeeze=${t.squeeze.padEnd(7)} as of ${t.asOf.slice(0, 16).replace("T", " ")}`);
+  say(`     ${t.verdict}`);
+  if (t.cellUpPct != null) say(`     sample ${t.resolved} resolved · timeframe base ${t.baseUpPct}% · noise bar ${t.noiseBarPP}pp`);
+}
+const live = today.filter(t => t.actionable);
+say("");
+say(live.length
+  ? `  ${live.length} actionable read(s) right now: ` + live.map(t => `${t.symbol} ${t.tf} ${t.cellUpPct}%`).join(", ")
+  : "  NO actionable read right now — every current state sits inside its own noise bar.");
+say("  That is the expected answer on most days and is not a fault.");
+say("=".repeat(100));
+
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const txt = path.join(OUT_DIR, "candle-probability-latest.txt");
 const json = path.join(OUT_DIR, "candle-probability-latest.json");
+const todayJson = path.join(OUT_DIR, "candle-today.json");
 fs.writeFileSync(txt, lines.join("\n") + "\n", "utf8");
 fs.writeFileSync(json, JSON.stringify({ generatedAt: new Date().toISOString(), reachAtr: REACH_ATR, folds: FOLDS, results }, null, 2), "utf8");
-console.log(`\n  written -> ${path.relative(ROOT, txt)} and .json`);
+// Small, stable, and the only file a consumer needs — the full table is for a human.
+fs.writeFileSync(todayJson, JSON.stringify({
+  generatedAt: new Date().toISOString(), reachAtr: REACH_ATR, folds: FOLDS,
+  note: "Bar geometry measured out-of-sample. NOT a trading instruction: no spread, no "
+      + "slippage, and a bar's high/low order is unknowable so both-sides bars are excluded.",
+  reads: today,
+}, null, 2), "utf8");
+console.log(`\n  written -> ${path.relative(ROOT, txt)}, .json, and candle-today.json`);
