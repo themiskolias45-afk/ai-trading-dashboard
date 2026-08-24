@@ -5,6 +5,8 @@ Login, draw daily plan levels, set price alerts, generate Pine Script
 Usage:
   python tradingview_bot.py plan                          # AUTO: live signals -> all 3 charts
   python tradingview_bot.py plan GOLD                     # AUTO: one symbol
+  python tradingview_bot.py repoint                       # chart shows an OLD panel? rebuild the study
+  python tradingview_bot.py repoint GOLD                  # one symbol
   python tradingview_bot.py test                          # test login
   python tradingview_bot.py draw BTC 105000 103500 107000 104000 106500
   python tradingview_bot.py alert BTC 107000 "Resistance — watch for rejection"
@@ -1426,6 +1428,158 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None):
     return plan
 
 
+SEL_LEGEND_TOGGLER = 'button[title="Show indicators legend"]'
+
+# The legend rows live here even when the legend is collapsed, but with ZERO geometry.
+# .item-quatTGAC.study-quatTGAC is one study row; .title-quatTGAC inside it is its name.
+JS_STUDY_ROWS = """() => Array.from(
+    document.querySelectorAll('.item-quatTGAC.study-quatTGAC'))
+  .map(r => { const t = r.querySelector('.title-quatTGAC');
+              const tb = t ? t.getBoundingClientRect() : null;
+              const pb = r.getBoundingClientRect();
+              return {title: t ? t.textContent.trim() : '', roww: pb.width,
+                      tx: tb ? tb.x : 0, ty: tb ? tb.y : 0,
+                      tw: tb ? tb.width : 0, th: tb ? tb.height : 0}; })"""
+
+JS_FOCUS_SAFE = """() => {
+  const a = document.activeElement;
+  if (!a) return {safe: true, where: 'none'};
+  const inEditor = !!a.closest('.monaco-editor, [class*="editor"], textarea');
+  return {safe: !inEditor, where: a.tagName};
+}"""
+
+JS_BLUR = """() => { if (document.activeElement && document.activeElement.blur)
+                      document.activeElement.blur();
+                    if (document.body && document.body.focus) document.body.focus();
+                    return true; }"""
+
+
+def make_focus_safe(page):
+    """Move focus OUT of the Pine editor without typing anything.
+
+    THE MOST IMPORTANT FUNCTION IN THIS FILE, and it exists because of a real
+    accident on 2026-08-24. Removing a study needs the Delete key. Delete was pressed
+    while focus was still in Monaco, so it deleted CHARACTERS OUT OF THE PINE SOURCE -
+    three times - and the Ctrl+S that followed SAVED the corrupted script. The chart
+    then failed to compile with "Undeclared identifier '_sym'" and the user saw a
+    Pine editor full of errors.
+
+    A mouse click cannot be trusted to fix this: click somewhere the editor happens to
+    cover and focus stays exactly where it was. blur() cannot land inside the editor
+    and cannot emit a keystroke, so it is the only safe way.
+    """
+    for _ in range(4):
+        page.evaluate(JS_BLUR)
+        page.wait_for_timeout(700)
+        if page.evaluate(JS_FOCUS_SAFE)["safe"]:
+            return True
+    return False
+
+
+def open_legend(page):
+    """Expand the collapsed legend. Returns True when rows have real geometry.
+
+    The control is a BUTTON titled "Show indicators legend", NOT the counter beside
+    it. Clicking the counter does nothing, which is why every earlier attempt failed.
+    """
+    for _ in range(4):
+        rows = page.evaluate(JS_STUDY_ROWS)
+        if rows and rows[0]["roww"] > 0:
+            return True
+        try:
+            page.locator(SEL_LEGEND_TOGGLER).first.click(timeout=6000)
+        except Exception:
+            pass
+        page.wait_for_timeout(1500)
+    rows = page.evaluate(JS_STUDY_ROWS)
+    return bool(rows) and rows[0]["roww"] > 0
+
+
+def repoint_plan_study(page):
+    """Rebuild this chart's plan study against the CURRENT script. Returns True/False.
+
+    TradingView PINS a study to the script version it was added at. Re-saving the
+    source does not recompile studies already on a chart - verified 2026-08-24, when a
+    Gold chart kept drawing an AUGUST 7 panel while the server copy of the script was
+    confirmed current after a full page reload. The only fix is remove and re-add.
+
+    And it must be persisted: the study list lives in the saved LAYOUT, so without
+    Ctrl+S the next reload restores the old study from the server. That is what
+    silently undid several correct removals before anyone noticed.
+    """
+    if not make_focus_safe(page):
+        print("[TV] repoint: focus will not leave the editor - refusing to press Delete")
+        return False
+    if not open_legend(page):
+        print("[TV] repoint: could not expand the legend")
+        return False
+
+    before = [r["title"] for r in page.evaluate(JS_STUDY_ROWS)]
+    for _ in range(3):
+        plans = [r for r in page.evaluate(JS_STUDY_ROWS)
+                 if r["title"].startswith(PLAN_NAME_PREFIX)]
+        if not plans:
+            break
+        row = plans[0]
+        page.mouse.click(row["tx"] + row["tw"] / 2, row["ty"] + row["th"] / 2)
+        page.wait_for_timeout(1200)
+        if not make_focus_safe(page):
+            print("[TV] repoint: focus moved into the editor - aborting")
+            return False
+        page.keyboard.press("Delete")
+        page.wait_for_timeout(2500)
+
+    if not ensure_editor_open(page):
+        print("[TV] repoint: editor would not open")
+        return False
+    page.wait_for_selector(SEL_EDITOR_TEXT, timeout=30000)
+    page.wait_for_timeout(3000)
+    page.locator(SEL_EDITOR_TEXT).first.click(timeout=10000)
+    page.wait_for_timeout(800)
+    page.keyboard.press("Control+Enter")     # the editor's own "add to chart"
+    page.wait_for_timeout(9000)
+
+    if not make_focus_safe(page):
+        print("[TV] repoint: added the study but will NOT save the layout unsafely")
+        return False
+    page.keyboard.press("Control+s")          # persist, or a reload undoes this
+    page.wait_for_timeout(5000)
+
+    after = [r["title"] for r in page.evaluate(JS_STUDY_ROWS)]
+    plans = [t for t in after if t.startswith(PLAN_NAME_PREFIX)]
+    if len(after) != len(before):
+        print("[TV] repoint: study count changed %d -> %d - CHECK THE CHART"
+              % (len(before), len(after)))
+    print("[TV] repoint: plan study is now %s" % (plans or "MISSING"))
+    return len(plans) == 1
+
+
+def cmd_repoint(symbol="all"):
+    """Rebuild the plan study on one or all charts against the CURRENT saved script.
+
+    Use this when a chart shows an OLD panel after a successful save: TradingView pins
+    a study to the script version it was added at and will not recompile it. Run
+    `plan` first so the saved script is current, then this.
+    """
+    targets = ([symbol.upper()] if symbol.upper() in API_ASSETS
+               else list(API_ASSETS))
+    failed = []
+    with sync_playwright() as pw:
+        browser, ctx = make_context(pw)
+        page = _get_tv_page(ctx)
+        for name in targets:
+            print("[TV] repointing %s" % name)
+            open_chart(page, name)
+            page.wait_for_timeout(6000)
+            if not repoint_plan_study(page):
+                failed.append(name)
+    if failed:
+        print("[TV] repoint FAILED for: %s" % ", ".join(failed))
+        return 1
+    print("[TV] repoint OK: %s" % ", ".join(targets))
+    return 0
+
+
 # ── Main commands ─────────────────────────────────────────────────────────────
 def _get_tv_page(ctx):
     """Return existing TradingView page from context, or open a new tab."""
@@ -1659,6 +1813,9 @@ if __name__ == "__main__":
 
     elif cmd == "plan":
         sys.exit(cmd_plan(args[1] if len(args) > 1 else "all"))
+
+    elif cmd == "repoint":
+        sys.exit(cmd_repoint(args[1] if len(args) > 1 else "all"))
 
     elif cmd == "alert":
         if len(args) < 4:
