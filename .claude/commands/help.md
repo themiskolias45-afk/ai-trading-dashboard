@@ -33,6 +33,7 @@ PERFORMANCE & LEARNING
   /selflearn           What the AI learned — win rates + boosts per setup
   /backtest [asset]    5-fold walk-forward backtest — real out-of-sample, worst-fold comparison
   /discover            Read daily strategy search results + researcher agent → score + propose best candidate
+  /pipeline            Safe discover→backtest→implement chain — 6 gates, reverts if worse
   /portfolio           Full portfolio view — open positions, P&L, exposure
   /profit              Autonomous profitability loop — researches + implements improvements, up to 5 rounds
   /goal [set|show|clear]  Set/track/clear the system's single most important goal — persists across sessions

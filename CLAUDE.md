@@ -218,6 +218,8 @@ silently resolved.
 - **Tasks for multi-step work.** Any task with 3+ steps: create a task with TaskCreate, update status at each step, mark complete when verified working — not when code is written.
 - **Auto-review trading code.** After every edit to `server/index.js`: invoke the `code-reviewer` agent on the changed function(s). Fix all CRITICAL findings before declaring done. No exceptions.
 - **Think before you code.** Never write the first line of code without completing the CHANGING/NOW/AFTER/RISK scaffold above. If the risk is HIGH, show it to the user and wait for approval.
+- **Pre-flight before every edit.** Read `tasks/pre-flight.md` and answer all 6 questions before touching any file. Post-flight: run node --check + API endpoint + api_snapshot.cjs + secrets scan before every commit. The checklist exists because skipping it caused the errors — it is not overhead, it is the job.
+- **Verify means run it.** "I think it works" is not verified. "node --check passed and the endpoint returned the correct shape" is verified. The word "done" is only allowed after verification output is in hand.
 
 ## SmartEntry Pro — always-on rules
 
