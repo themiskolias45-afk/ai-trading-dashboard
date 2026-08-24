@@ -784,7 +784,33 @@ def auto_detect_symbols():
 # Payload is not the constraint any more: the full raw dump measured 101kb against
 # express's 2mb limit, so +300 daily bars x 3 symbols costs ~18kb. The 413 in the
 # _rates_to_bars comment below predates that limit being raised.
-BAR_COUNT_BY_TIMEFRAME = {"d1": 600, "h4": 400, "h1": 400}
+# h1 400 -> 1200 on 2026-08-24, for tasks/persist_bars.cjs rather than for the engine.
+# 400 H1 bars reach back ~23 CALENDAR days on a 24/5 instrument, against a bar cache
+# that had gone ~30 days stale — so the pushed window did not overlap the archive and
+# appending would have punched a week-long HOLE in the series. A replay walks a hole
+# without noticing, which is worse than staleness: stale bars give yesterday's answer,
+# a discontinuous series gives a wrong one that looks right. 1200 bars reach ~50 days,
+# clearing the gap with margin.
+#
+# MEASURED BEFORE CHANGING, because this is the signal path. Shipped indicator code,
+# real broker bars, same final bar, 400 vs 1200 across all three symbols: RSI, EMA20,
+# BB (middle and bandwidth), MACD (line and signal) and ATR are IDENTICAL. EMA50 moves
+# in the 4th decimal, which is float dust. The single real move is EMA200 -- 0.049% on
+# XAUUSD, 0.025% on BTCUSD, 0.010% on SP500 -- and it moves TOWARD the truth: against a
+# 5000-bar reference the 1200-bar value is accurate to 0.000% where 400 bars carried up
+# to 0.079%. The cause is the seed: EMA_SMA_SEED_MIN_MULTIPLE is 3, so EMA200 needs 600
+# bars before it gets a proper SMA seed and 400 falls into the closes[0] path.
+# For that 0.05% to change any decision, price would have to sit within 0.05% of the H1
+# EMA200; it is currently 2.6% (SP500) to 19.0% (BTCUSD) away.
+#
+# Payload: 172kb measured today, 324kb projected at 6600 bars x 6 series. The limit is
+# 2mb, so 6.3x headroom -- nowhere near the 413 in the _rates_to_bars comment below.
+#
+# h4 is DELIBERATELY LEFT AT 400. Its 400 bars already reach ~93 calendar days, so it
+# overlaps the archive and needs nothing. It does carry the worst seed error measured
+# (0.079% on SP500) and 600 would cut that to 0.022% -- worth doing on its own evidence,
+# not folded into a change made for a different reason.
+BAR_COUNT_BY_TIMEFRAME = {"d1": 600, "h4": 400, "h1": 1200}
 
 # Pushed on its own clock rather than every poll: 1100 bars x 3 symbols is a real
 # payload, and the daily bar the signal engine cares about only closes once a day.
