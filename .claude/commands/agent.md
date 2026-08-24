@@ -6,6 +6,12 @@ This is the system's self-healing command. It diagnoses, plans, builds, tests, a
 without asking permission at each step — except for HIGH-RISK changes (signal logic, risk gate,
 lot sizing, stop calculation), which always require explicit approval.
 
+═══ SAFETY PRE-CHECK ═══
+  Read tasks/tools-manifest.json before ANY autonomous multi-tool operation.
+  Select minimum tool set needed. Never call TRADES-tagged tools (execute_trade,
+  full_trade_workflow) without the user typing "APPROVE TRADE" explicitly.
+  Never call DESTRUCTIVE-tagged tools (memory delete) without "CONFIRM DELETE".
+
 ═══ ROUND START — gather all state in parallel ═══
 
   mcp__smartentry__get_brain_status         → time context, fleet verdict, signals, risk, AI work
