@@ -80,6 +80,21 @@ SEL_NAME_BUTTON = '[data-name=pine-dialog] [class*="nameButton"]'
 SEL_SAVE_BUTTON = '[data-name=pine-dialog] [class*="saveButton"]'
 SEL_OPEN_DIALOG = '[data-name=open-user-script-dialog]'
 SEL_OPEN_ITEM   = '[data-name=open-script-dialog-item-name]'
+# The dialog's own Search box. Matched by tag rather than by placeholder text, which is
+# localised — the dialog holds exactly one input on this build.
+SEL_OPEN_SEARCH = '[data-name=open-user-script-dialog] input'
+
+
+def squash(text):
+    """Compare script names through TradingView's markup.
+
+    The open-script dialog renders every CHARACTER in its own element, so a title reads
+    back as 'J\\nA\\nR\\nV\\nI\\nS\\n \\nD...' and no amount of .strip() makes it equal
+    'JARVIS Daily Plan'. Monaco separately renders spaces as U+00A0. Dropping ALL
+    whitespace sidesteps both without inventing a fuzzy match: two names that differ by
+    anything other than whitespace still differ.
+    """
+    return "".join(str(text).split()).casefold()
 
 # What the applied study actually renders on the chart is the table header, which
 # reads "JARVIS PLAN - <SYMBOL>". The indicator's own name ("JARVIS Daily Plan - X")
@@ -809,11 +824,39 @@ def open_saved_script(page, name=SAVED_SCRIPT_NAME):
         return False
 
     try:
+        # SEARCH, never scan the rendered rows. Two independent reasons, both measured
+        # against the live dialog on 2026-08-24, and either alone was fatal:
+        #
+        #   1. THE LIST IS VIRTUALISED. The scroll container measured scrollHeight 2866
+        #      against clientHeight 467, so all_inner_texts() returned only the ~11 rows
+        #      that happened to be rendered. A script further down the list simply was
+        #      not there to be found, and the code reported it "not a saved script yet".
+        #   2. EVERY CHARACTER IS ITS OWN ELEMENT. The title comes back as
+        #      'J\nA\nR\nV\nI\nS\n \nD\na\ni\nl\ny\n \nP\nl\na\nn' — TradingView renders
+        #      per-character spans, so all_inner_texts() joins them with newlines and
+        #      `t.strip() == name` can NEVER be true, even for a row in full view.
+        #
+        # That pair is the whole reason fourteen days of saving never reached the chart:
+        # every run concluded the script did not exist, took the create path, and made
+        # another orphan. Typing the name into the dialog's own Search box makes the
+        # server do the matching, and squash() makes the comparison survive the markup.
+        searched = False
+        try:
+            box = page.locator(SEL_OPEN_SEARCH).first
+            if box.count() > 0:
+                box.fill(name)
+                page.wait_for_timeout(1800)
+                searched = True
+        except Exception:
+            pass  # older build with no search field: fall back to the rendered rows
+
         titles = page.locator(SEL_OPEN_ITEM).all_inner_texts()
-        match = next((i for i, t in enumerate(titles) if t.strip() == name), None)
+        match = next((i for i, t in enumerate(titles) if squash(t) == squash(name)), None)
         if match is None:
-            print(f"[TV] {name!r} is not a saved script yet "
-                  f"({len(titles)} saved) - it will be created on this run.")
+            where = "no match in the dialog's search" if searched else \
+                    f"{len(titles)} rendered rows scanned, and this build has no search box"
+            print(f"[TV] {name!r} is not a saved script yet ({where}) "
+                  f"- it will be created on this run.")
             close_any_open_dialog(page)
             return False
         page.locator(SEL_OPEN_ITEM).nth(match).click(timeout=8000)
