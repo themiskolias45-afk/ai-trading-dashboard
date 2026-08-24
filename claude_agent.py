@@ -139,6 +139,53 @@ def looks_rate_limited(output: str, success: bool) -> bool:
     return any(marker in lowered for marker in LIMIT_MARKERS)
 
 
+# A 529 is not a limit and not a broken job. It is Anthropic's servers being busy for
+# a few seconds, and it is the ONLY reason both morning jobs died on 2026-08-24: the
+# morning agent at 07:00 and the daily check at 07:33 each got "API Error: 529
+# Overloaded", fell through to the park gate, were correctly judged "not a session
+# limit", and were dropped. A whole day of the AI employee's work lost to a blip that
+# would have succeeded on a retry ninety seconds later.
+#
+# The park gate's instinct was right — parking a genuinely broken job would retry it
+# forever and hide the breakage. The gap was that it only knew two categories, limit
+# and broken, and a transient upstream outage is neither.
+TRANSIENT_MARKERS = (
+    "api error: 529",
+    "overloaded",
+    "api error: 500",
+    "api error: 502",
+    "api error: 503",
+    "api error: 504",
+    "internal server error",
+    "bad gateway",
+    "service unavailable",
+    "gateway timeout",
+    "connection reset",
+    "econnreset",
+    "etimedout",
+)
+
+# Long enough that a busy window has passed, short enough that the morning brief is
+# still about this morning. The hourly drain paces the real retry anyway; this only
+# stops the very next drain from hammering an API that just said it was overloaded.
+TRANSIENT_RETRY_MINUTES = 25
+
+
+def looks_transient_upstream(output: str, success: bool) -> bool:
+    """True when the run died on a temporary upstream fault rather than a real error.
+
+    Same short-body discipline as looks_rate_limited and for the same reason: an agent
+    that finished its work and happened to write the word "overloaded" in an essay
+    about a server has not failed, and parking that output would destroy a real answer.
+    """
+    if success or not output:
+        return False
+    if len(output) > LIMIT_NOTICE_MAX_CHARS:
+        return False
+    lowered = output.lower()
+    return any(marker in lowered for marker in TRANSIENT_MARKERS)
+
+
 MONTH_NAMES = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
                "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
 
@@ -653,11 +700,25 @@ if __name__ == "__main__":
             except OSError as exc:
                 print(f"park: could not read {output_path} ({exc})")
 
-        # Only park a genuine limit. Parking a real failure would retry a broken job
-        # forever and hide the breakage, which is the opposite of the point.
-        if output_path and not looks_rate_limited(run_output, success=False):
+        # Only park a genuine limit or a transient upstream fault. Parking a real
+        # failure would retry a broken job forever and hide the breakage, which is the
+        # opposite of the point.
+        is_limit_run = looks_rate_limited(run_output, success=False)
+        is_transient = (not is_limit_run) and looks_transient_upstream(
+            run_output, success=False)
+
+        if output_path and not is_limit_run and not is_transient:
             print("park: that run was not stopped by the session limit — not queued")
             sys.exit(2)
+
+        # A transient fault burns an attempt where a limit does not. Six of them and
+        # MAX_QUEUE_ATTEMPTS stops the job, because at that point "temporary" was the
+        # wrong diagnosis and something really is broken.
+        if is_transient:
+            reset_at = (datetime.now()
+                        + timedelta(minutes=TRANSIENT_RETRY_MINUTES)).isoformat()
+        else:
+            reset_at = parse_reset_at(run_output)
 
         job_id = queue_job(
             prompt=prompt,
@@ -666,10 +727,12 @@ if __name__ == "__main__":
             needs_project=True,
             system=None,
             require=None,
-            reset_at=parse_reset_at(run_output),
-            is_limit=True,
+            reset_at=reset_at,
+            is_limit=not is_transient,
         )
-        print(f"park: queued {label} as {job_id} — the next drain resumes it")
+        why = ("upstream was overloaded" if is_transient
+               else "the session limit was hit")
+        print(f"park: queued {label} as {job_id} — {why}; the next drain resumes it")
     else:
         print("Usage: python claude_agent.py [status|drain|park <label> [--output-file PATH]]")
         sys.exit(1)
