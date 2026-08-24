@@ -37,6 +37,7 @@ YOUR FILES: [exact file paths — space separated]
 TOUCH NOTHING ELSE.
 INTERFACE CONTRACT: [function signatures / API shapes this agent must match]
 VERIFY COMMAND: [node --check file.js OR python -m py_compile file.py]
+EXPECTED OUTPUT SCHEMA: [exact JSON shape this agent must return in its REPORT — e.g. {status, built, verified, committed, riskNotes}]
 
 MANDATORY STEPS IN ORDER:
 1. Read every assigned file front to back before writing one line.
@@ -74,11 +75,13 @@ Max 5 parallel agents.
 
 ═══ STEP 3 — VERIFY RESULTS ═══
 For each agent that reports DONE:
-1. Run node --check on every .js file it touched.
-2. Run python -m py_compile on every .py file it touched.
-3. git log --oneline -5 to confirm commit landed.
-4. If agent reported BLOCKED → fix it yourself immediately.
-5. If agent reported RISK-HIGH → review the specific concern, decide, then implement or reject.
+1. Validate the agent's report matches the EXPECTED OUTPUT SCHEMA — if fields are missing, treat as BLOCKED.
+2. Run node --check on every .js file it touched.
+3. Run python -m py_compile on every .py file it touched.
+4. git log --oneline -5 to confirm commit landed.
+5. Run node tasks/api_snapshot.cjs if any server/index.js was changed — shape regression check.
+6. If agent reported BLOCKED → fix it yourself immediately.
+7. If agent reported RISK-HIGH → review the specific concern, decide, then implement or reject.
 
 ═══ STEP 4 — INTEGRATE & SHIP ═══
 1. Wire all components: import/require, route registration, data flows.

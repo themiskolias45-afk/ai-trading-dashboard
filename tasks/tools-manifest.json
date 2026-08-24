@@ -1,0 +1,87 @@
+{
+  "_comment": "Risk-tagged MCP tool manifest. Read by /agent and /auto before any autonomous multi-tool operation. TRADES-tagged calls require explicit gate confirmation.",
+  "_updated": "2026-08-24",
+
+  "smartentry": {
+    "get_signals":            { "tags": ["read", "signals"],   "cost": "cheap",     "side_effects": "read" },
+    "get_performance":        { "tags": ["read", "journal"],   "cost": "cheap",     "side_effects": "read" },
+    "get_journal":            { "tags": ["read", "journal"],   "cost": "cheap",     "side_effects": "read" },
+    "get_learning":           { "tags": ["read", "learning"],  "cost": "cheap",     "side_effects": "read" },
+    "get_risk_status":        { "tags": ["read", "risk"],      "cost": "cheap",     "side_effects": "read" },
+    "get_strategy_settings":  { "tags": ["read", "config"],    "cost": "cheap",     "side_effects": "read" },
+    "get_brain_status":       { "tags": ["read", "composite"], "cost": "cheap",     "side_effects": "read" },
+    "get_fleet_status":       { "tags": ["read", "fleet"],     "cost": "cheap",     "side_effects": "read" },
+    "get_healer":             { "tags": ["read", "health"],    "cost": "cheap",     "side_effects": "read" },
+    "get_gate_health":        { "tags": ["read", "gates"],     "cost": "cheap",     "side_effects": "read" },
+    "get_rejection_evidence": { "tags": ["read", "gates"],     "cost": "cheap",     "side_effects": "read" },
+    "get_mt5_health":         { "tags": ["read", "bridge"],    "cost": "cheap",     "side_effects": "read" },
+    "get_time_context":       { "tags": ["read", "time"],      "cost": "cheap",     "side_effects": "read" },
+    "get_evidence_board":     { "tags": ["read", "analysis"],  "cost": "cheap",     "side_effects": "read" },
+    "get_daily_note":         { "tags": ["read", "notes"],     "cost": "cheap",     "side_effects": "read" },
+    "get_ai_work":            { "tags": ["read", "proposals"], "cost": "cheap",     "side_effects": "read" },
+    "read_memory":            { "tags": ["read", "memory"],    "cost": "cheap",     "side_effects": "read" },
+    "get_risk_status":        { "tags": ["read", "risk"],      "cost": "cheap",     "side_effects": "read" },
+    "run_walkforward":        { "tags": ["compute", "backtest"],"cost": "expensive", "side_effects": "read",  "note": "~90s, runs 5 folds" },
+    "run_scan":               { "tags": ["compute", "signals"],"cost": "moderate",  "side_effects": "read" },
+    "run_debate":             { "tags": ["compute", "analysis"],"cost": "expensive","side_effects": "read" },
+    "analyze_symbol":         { "tags": ["compute", "analysis"],"cost": "moderate", "side_effects": "read" },
+    "screenshot_chart":       { "tags": ["compute", "vision"], "cost": "moderate",  "side_effects": "read" },
+    "write_memory":           { "tags": ["write", "memory"],   "cost": "cheap",     "side_effects": "write" },
+    "log_note":               { "tags": ["write", "notes"],    "cost": "cheap",     "side_effects": "write" },
+    "send_alert":             { "tags": ["write", "notify"],   "cost": "cheap",     "side_effects": "write", "note": "sends push notification" },
+    "size_position":          { "tags": ["compute", "risk"],   "cost": "cheap",     "side_effects": "read",  "note": "computation only, no order" },
+    "force_heal":             { "tags": ["write", "health"],   "cost": "cheap",     "side_effects": "write", "note": "restarts data refresh" },
+    "get_healer":             { "tags": ["read", "health"],    "cost": "cheap",     "side_effects": "read" },
+    "full_trade_workflow":    { "tags": ["TRADES"],            "cost": "expensive", "side_effects": "TRADES","gate": "REQUIRES_EXPLICIT_APPROVAL" },
+    "execute_trade":          { "tags": ["TRADES"],            "cost": "expensive", "side_effects": "TRADES","gate": "REQUIRES_EXPLICIT_APPROVAL" }
+  },
+
+  "memory": {
+    "search_nodes":    { "tags": ["read", "memory"],  "cost": "cheap",    "side_effects": "read" },
+    "open_nodes":      { "tags": ["read", "memory"],  "cost": "cheap",    "side_effects": "read" },
+    "read_graph":      { "tags": ["read", "memory"],  "cost": "moderate", "side_effects": "read" },
+    "create_entities": { "tags": ["write", "memory"], "cost": "cheap",    "side_effects": "write" },
+    "add_observations":{ "tags": ["write", "memory"], "cost": "cheap",    "side_effects": "write" },
+    "create_relations":{ "tags": ["write", "memory"], "cost": "cheap",    "side_effects": "write" },
+    "delete_entities": { "tags": ["DELETE", "memory"],"cost": "cheap",    "side_effects": "DESTRUCTIVE", "gate": "REQUIRES_EXPLICIT_APPROVAL" },
+    "delete_observations":{"tags":["DELETE","memory"],"cost": "cheap",    "side_effects": "DESTRUCTIVE", "gate": "REQUIRES_EXPLICIT_APPROVAL" },
+    "delete_relations":{ "tags": ["DELETE", "memory"],"cost": "cheap",    "side_effects": "DESTRUCTIVE", "gate": "REQUIRES_EXPLICIT_APPROVAL" }
+  },
+
+  "filesystem": {
+    "read_file":       { "tags": ["read"],            "cost": "cheap",    "side_effects": "read" },
+    "write_file":      { "tags": ["write"],           "cost": "cheap",    "side_effects": "write", "note": "overwrites — check exists first" },
+    "list_directory":  { "tags": ["read"],            "cost": "cheap",    "side_effects": "read" }
+  },
+
+  "brave-search": {
+    "brave_web_search":   { "tags": ["read", "web"],  "cost": "moderate", "side_effects": "read" },
+    "brave_local_search": { "tags": ["read", "web"],  "cost": "moderate", "side_effects": "read" }
+  },
+
+  "exa": {
+    "web_search_exa": { "tags": ["read", "web"],      "cost": "moderate", "side_effects": "read" },
+    "web_fetch_exa":  { "tags": ["read", "web"],      "cost": "moderate", "side_effects": "read" }
+  },
+
+  "puppeteer": {
+    "puppeteer_navigate":   { "tags": ["browser"],    "cost": "moderate", "side_effects": "read" },
+    "puppeteer_screenshot": { "tags": ["browser"],    "cost": "moderate", "side_effects": "read" },
+    "puppeteer_click":      { "tags": ["browser", "write"], "cost": "moderate", "side_effects": "write", "note": "can submit forms" },
+    "puppeteer_fill":       { "tags": ["browser", "write"], "cost": "moderate", "side_effects": "write" },
+    "puppeteer_evaluate":   { "tags": ["browser", "compute"], "cost": "moderate", "side_effects": "write", "note": "executes JS on page" },
+    "puppeteer_select":     { "tags": ["browser", "write"], "cost": "cheap",    "side_effects": "write" },
+    "puppeteer_hover":      { "tags": ["browser"],    "cost": "cheap",    "side_effects": "read" }
+  },
+
+  "sequential-thinking": {
+    "sequentialthinking": { "tags": ["compute", "reasoning"], "cost": "expensive", "side_effects": "read", "note": "use for complex multi-step analysis only" }
+  },
+
+  "_rules": {
+    "before_autonomous_operation": "Read this manifest. Select minimum tool set. Never call TRADES-tagged tools without gate confirmation.",
+    "TRADES_gate": "Any tool with side_effects=TRADES requires the user to type 'APPROVE TRADE' — not inferred from context.",
+    "DESTRUCTIVE_gate": "Any tool with side_effects=DESTRUCTIVE requires 'CONFIRM DELETE' — not inferred.",
+    "expensive_tools": "run_walkforward, run_debate, sequentialthinking — use only when cheaper tools cannot answer the question."
+  }
+}
