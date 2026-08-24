@@ -60,7 +60,21 @@ const NEEDED = [
 //
 // Read from source rather than hardcoded: a literal copied here would drift the day
 // someone retunes the server, reintroducing the same class of bug with no error.
-const SCALAR_CONSTS = ["STRUCTURAL_STOP_MIN_ATR"];
+const SCALAR_CONSTS = [
+  "STRUCTURAL_STOP_MIN_ATR",
+  // Added 2026-08-24. emaSeries (in NEEDED above) reads it, so its absence threw a
+  // ReferenceError on EVERY bar of EVERY file — 7639 of 7639 on XAUUSD_H4 — and this
+  // harness had been returning [] for every caller. The sibling tasks/_replay_mtf.cjs
+  // got this same constant on 2026-08-09 and the fix was never mirrored here, so the
+  // two harnesses silently disagreed about whether the engine runs at all.
+  //
+  // FOURTH occurrence of this one bug class; _replay_mtf.cjs documents the other three.
+  // The pattern to watch: the loop below REFUSES when a listed const cannot be
+  // extracted, but nothing can refuse for a const that was never listed. Whenever
+  // server/index.js gains a top-level const that generateSignal or any function in
+  // NEEDED reads, it has to be added here too.
+  "EMA_SMA_SEED_MIN_MULTIPLE",
+];
 
 let code = "";
 for (const name of SCALAR_CONSTS) {
