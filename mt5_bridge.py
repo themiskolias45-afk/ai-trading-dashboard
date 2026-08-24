@@ -72,8 +72,44 @@ consecutive_losses = 0
 MAX_CONSECUTIVE_LOSSES = int(os.environ.get("MAX_CONSEC_LOSSES", "3"))
 trading_halted   = False
 halt_reason      = ""
+risk_day         = datetime.now().date()  # calendar day the counters above apply to
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def check_daily_reset():
+    """Reset the circuit breaker at the start of a new calendar day.
+
+    The bridge runs as a long-lived process (days/weeks between restarts), but
+    daily_pnl/trading_halted were only ever initialized once at import time —
+    nothing rolled them over at midnight. That meant a loss on day 1 stayed in
+    daily_pnl on day 2, so the "daily" loss limit was actually being checked
+    against multi-day cumulative P&L: a halt triggered on day 2 could persist
+    indefinitely (blocking all trading until someone manually restarts the
+    bridge), or a prior day's gains could mask a real breach of today's limit
+    and let the breaker fail to trip when it should.
+    """
+    global daily_pnl, consecutive_losses, trading_halted, halt_reason, risk_day
+    today = datetime.now().date()
+    if today == risk_day:
+        return
+    log(f"New trading day — resetting circuit breaker (was: PnL ${daily_pnl:.2f}, "
+        f"{consecutive_losses} consecutive losses, halted={trading_halted})", CYAN)
+    daily_pnl = 0.0
+    consecutive_losses = 0
+    trading_halted = False
+    halt_reason = ""
+    risk_day = today
+    try:
+        requests.post(f"{SERVER_URL}/api/risk-status", json={
+            "dailyPnl": 0.0,
+            "consecutiveLosses": 0,
+            "halted": False,
+            "haltReason": "",
+            "account": ACCOUNT_TAG or "default",
+        }, timeout=3)
+    except Exception:
+        pass  # server will pick up the reset on the next successful post
+
 
 def check_circuit_breaker():
     global trading_halted, halt_reason
@@ -671,6 +707,7 @@ def main():
 
     while True:
         try:
+            check_daily_reset()
             data = fetch_signals()
             if data:
                 print_status(data)
