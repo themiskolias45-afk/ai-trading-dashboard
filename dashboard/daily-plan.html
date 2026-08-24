@@ -428,9 +428,34 @@ async function loadPlan() {
     // Number() guards a string; a non-finite value stays null so the card says the gate
     // is unknown rather than comparing against NaN, which is false for every operator
     // and would silently paint every asset "below gate".
+    //
+    // TWO SOURCES, deliberately. /api/daily-plan carries the gate as of 2026-08-24, but
+    // the VPS runs an older index.js and this page is static — it deploys there by file
+    // copy with no restart, because express.static reads per request. Without a fallback
+    // the fixed page would ship to the box that trades continuously and render "gate
+    // unknown" on every card until that server was restarted, which is a worse read than
+    // the bug it replaces. /api/strategy-settings exists on BOTH boxes today and is the
+    // same value from the same object, so the fallback needs no deploy and no restart.
     const gateValue = Number(plan.gate);
-    liveGate = Number.isFinite(gateValue) ? gateValue : null;
-    gateIsDefaults = Boolean(plan.settingsError);
+    if (Number.isFinite(gateValue)) {
+      liveGate = gateValue;
+      gateIsDefaults = Boolean(plan.settingsError);
+    } else {
+      try {
+        const sr = await fetch(BASE + '/api/strategy-settings', { cache: 'no-store' });
+        if (sr.ok) {
+          const s = await sr.json();
+          const fallback = Number(s.confidenceThreshold);
+          liveGate = Number.isFinite(fallback) ? fallback : null;
+          gateIsDefaults = Boolean(s.settingsError);
+        }
+      } catch (e) {
+        // Leave liveGate null: the card then says the gate is unknown, which is true.
+        // Never substitute a guessed number here — a wrong gate rendered confidently is
+        // the exact defect this whole change exists to remove.
+        console.warn('[daily-plan] gate fallback failed:', e.message);
+      }
+    }
 
     // Date bar
     document.getElementById('plan-date').textContent = 'Daily Plan — ' + plan.date;
