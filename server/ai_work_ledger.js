@@ -158,6 +158,20 @@ const TASK_RESULT_MEANING = {
   267009: "currently running",
   267011: "has never run",
   267014: "terminated by user",
+  // 0xFFFFFFFF. The scheduler's "no exit code recorded" sentinel — the task was started
+  // and has not reported one. It is an ABSENCE of information, not a failure, and it is
+  // already on record here as such: "LastTaskResult is NOT a reliable discriminator - it
+  // reads 0xFFFFFFFF while a task is mid-run". Reaches this file as -1 as well, because
+  // the value round-trips through a signed 32-bit read on the way in.
+  //
+  // It was painting SmartEntryServer permanently red on the VPS while the server was
+  // demonstrably UP — /api/status answering, startedAt current. Third instance of one
+  // root cause in this project: judging a service by its supervisor's exit code instead
+  // of by whether the service answers. coverage_audit.ps1 already guards the same case
+  // with $serverAnswering. A red row that can never clear trains a reader to skim the
+  // one that matters.
+  4294967295: "no result recorded — started, has not reported an exit code",
+  [-1]:       "no result recorded — started, has not reported an exit code",
 };
 
 /**
@@ -228,6 +242,9 @@ function taskResultIsFailure(code, state, taskName) {
   // A code the task itself defines as an expected outcome. Scoped to one exact
   // task+code pair; see EXPECTED_TASK_RESULTS above for why it is not a blanket rule.
   if (expectedOutcome(taskName, code)) return false;
+  // NO_RESULT is an absence, not a failure — same category as 267011 "has never run".
+  // See TASK_RESULT_MEANING above for why 0xFFFFFFFF/-1 must not be read as a fault.
+  if (code === 4294967295 || code === -1) return false;
   return code !== null && code !== undefined && code !== 0 && code !== 267009 && code !== 267011;
 }
 
