@@ -4937,6 +4937,17 @@ app.get("/api/daily-plan", (_, res) => {
   const plan = {
     date:     new Date().toISOString().slice(0, 10),
     generatedAt: new Date().toISOString(),
+    // The number every confidence on this page is measured against. It was NOT in
+    // this payload, so dashboard/daily-plan.html had no way to know it and coloured
+    // confidence against a hardcoded 80/65 — while the live gate has been 70 since
+    // 2026-08-02. That made a 72% signal, which is FIRING, render the same amber as a
+    // 66% one that is five points short, on the one page read before trading.
+    // Sent live rather than baked in, for the reason CLAUDE.md gives about this exact
+    // number: anything that hardcodes it is correct only until the gate next moves.
+    // settingsError travels with it because a non-null value means the gate shown is a
+    // built-in DEFAULT, not the saved config — invisible in the number alone.
+    gate:         strategySettings.confidenceThreshold,
+    settingsError: strategySettingsError,
     signals: {
       btc:  signalCache.btc  ? { signal: signalCache.btc.signal,  confidence: signalCache.btc.confidence,  entry: signalCache.btc.entry,  stop: signalCache.btc.stop,  target: signalCache.btc.target,  setup: signalCache.btc.setup,  regime: signalCache.btc.regime,  rr: signalCache.btc.rr  } : null,
       gold: signalCache.gold ? { signal: signalCache.gold.signal, confidence: signalCache.gold.confidence, entry: signalCache.gold.entry, stop: signalCache.gold.stop, target: signalCache.gold.target, setup: signalCache.gold.setup, regime: signalCache.gold.regime, rr: signalCache.gold.rr } : null,

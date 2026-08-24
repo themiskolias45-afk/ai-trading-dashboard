@@ -304,6 +304,12 @@ function signalLabel(s) {
   return s;
 }
 
+// The live confidence gate, set from /api/daily-plan on every load. Null until the
+// first successful fetch, and null is rendered as "gate unknown" rather than being
+// quietly replaced with a number — a guessed gate is what this fix exists to remove.
+let liveGate = null;
+let gateIsDefaults = false;
+
 function renderCard(id, title, sig, price) {
   const card = document.getElementById(id);
   if (!card) return;
@@ -311,7 +317,31 @@ function renderCard(id, title, sig, price) {
   card.className = 'signal-card ' + signalClass(dir);
   const hasLevels = sig && dir && dir !== 'WAIT' && sig.entry;
   const conf = sig?.confidence ?? 0;
-  const confColor = conf >= 80 ? 'var(--green)' : conf >= 65 ? 'var(--yellow)' : 'var(--muted)';
+
+  // Colour and label against the LIVE gate, never a hardcoded number. This block used
+  // to read `conf >= 80 ? green : conf >= 65 ? yellow : muted` while the gate has been
+  // 70 since 2026-08-02, so a 72% setup that was actually FIRING rendered the same
+  // amber as a 66% one five points short — on the page read immediately before trading.
+  // Three states now, and each means one thing: at or above the gate, within 10 points
+  // of it, or further out. The gap is stated in points so "how far" needs no arithmetic.
+  let confColor, gapNote;
+  if (liveGate == null) {
+    confColor = 'var(--muted)';
+    gapNote = ' <span style="color:var(--muted-dim)">(gate unknown — server did not send it)</span>';
+  } else if (conf >= liveGate) {
+    confColor = 'var(--green)';
+    gapNote = ` <span style="color:var(--green)">at/above gate ${liveGate}</span>`;
+  } else {
+    const gap = liveGate - conf;
+    confColor = gap <= 10 ? 'var(--yellow)' : 'var(--muted)';
+    gapNote = ` <span style="color:var(--muted-dim)">${gap}pt below gate ${liveGate}</span>`;
+  }
+  // A non-null settingsError means the gate above is a built-in DEFAULT, not the saved
+  // config. Same failure this page already had: a number that looks authoritative and
+  // is not. Said out loud rather than left to be inferred.
+  if (gateIsDefaults) {
+    gapNote += ' <span style="color:var(--red)">⚠ DEFAULTS, not saved config</span>';
+  }
 
   card.innerHTML = `
     <div class="sc-header">
@@ -320,7 +350,7 @@ function renderCard(id, title, sig, price) {
     </div>
     <div class="sc-body">
       <div class="sc-price">${price ? fmt(price) : '—'}</div>
-      <div class="sc-conf">Confidence: <span style="color:${confColor}">${conf}%</span>
+      <div class="sc-conf">Confidence: <span style="color:${confColor}">${conf}%</span>${gapNote}
         &nbsp;|&nbsp; Regime: <span>${sig?.regime ?? '—'}</span>
       </div>
       ${hasLevels ? `
@@ -393,6 +423,14 @@ async function loadPlan() {
         + (response.status === 401 ? ' (log in first)' : ''));
     }
     const plan = await response.json();
+
+    // Set the gate BEFORE any card renders, or the first paint colours against null.
+    // Number() guards a string; a non-finite value stays null so the card says the gate
+    // is unknown rather than comparing against NaN, which is false for every operator
+    // and would silently paint every asset "below gate".
+    const gateValue = Number(plan.gate);
+    liveGate = Number.isFinite(gateValue) ? gateValue : null;
+    gateIsDefaults = Boolean(plan.settingsError);
 
     // Date bar
     document.getElementById('plan-date').textContent = 'Daily Plan — ' + plan.date;
