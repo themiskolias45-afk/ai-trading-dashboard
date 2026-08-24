@@ -654,6 +654,65 @@ def list_plan_studies(page):
         return []
 
 
+def ensure_legend_expanded(page):
+    """Expand the collapsed legend so studies become clickable. IDEMPOTENT.
+
+    The counter is a TOGGLE: clicking it when the legend is already open CLOSES it, and
+    the first attempt at this expanded the legend and then immediately collapsed the one
+    it had just opened. So the state is checked before the click, never after.
+
+    Click the counter's LEFT EDGE. The box measures ~1243px wide and its centre is empty
+    chart, where the canvas swallows the event — which is why element clicks and
+    JS-dispatched clicks both failed here for weeks. Coordinates, via page.mouse.
+
+    HONEST STATUS 2026-08-24: this works but is NOT reliable. The identical click at
+    (72,61) expanded the legend to 210 visible rows on one attempt and did nothing on the
+    next, with no state change in between. Treat a False return as normal and fall back
+    to telling the human exactly which study to delete — see report_orphan_studies.
+    """
+    rows = page.locator(".title-quatTGAC")
+    if rows.count() and rows.first.is_visible():
+        return True
+    box = page.evaluate("""() => {
+      const c=[...document.querySelectorAll('[class*="legend-"]')].map(e=>{
+        const r=e.getBoundingClientRect();
+        return {x:r.x,y:r.y,w:r.width,h:r.height,vis:e.offsetParent!==null};
+      }).filter(o=>o.vis && o.w>500 && o.h>10 && o.h<80);
+      return c.length ? c[0] : null;
+    }""")
+    if not box:
+        return False
+    page.mouse.click(int(box["x"]) + 12, int(box["y"]) + int(box["h"] / 2))
+    page.wait_for_timeout(2500)
+    rows = page.locator(".title-quatTGAC")
+    return bool(rows.count() and rows.first.is_visible())
+
+
+def report_orphan_studies(page):
+    """Name the stale plan studies, because stacking is invisible until it is explained.
+
+    A plan study whose title carries a TIMESTAMP is an orphan: it was added out of an
+    unsaved editor and is backed by no saved script, so no amount of saving can ever
+    update it. The bound study is the one titled exactly SAVED_SCRIPT_NAME.
+
+    This is what was actually wrong on 2026-08-24. The chart carried BOTH
+    'JARVIS Daily Plan' (bound, updating correctly) and 'JARVIS Daily Plan 08-24 06:45'
+    (orphan, drawing the old panel on top). The earlier reading of that — "the study is
+    pinned to the script version it was added at" — was WRONG, and the fix is not a
+    version problem: it is one stale study that has to go.
+    """
+    titles = list_plan_studies(page)
+    orphans = [t for t in titles if t != SAVED_SCRIPT_NAME]
+    if orphans:
+        print(f"[TV] {len(orphans)} ORPHAN plan study(ies) on this chart: {orphans}")
+        print("[TV] These are backed by no saved script, so saving can never update them,")
+        print("[TV] and they draw the OLD panel over the live one. Delete them by hand:")
+        print("[TV]   click the legend counter (top-left of the chart) to expand it,")
+        print(f"[TV]   hover the row titled {orphans[0]!r} and click its Remove (x).")
+        print(f"[TV] Keep the one titled exactly {SAVED_SCRIPT_NAME!r} — that is the live one.")
+    return orphans
+
+
 def remove_plan_studies(page, limit=12):
     """
     Delete every JARVIS plan study from the layout.
@@ -671,10 +730,12 @@ def remove_plan_studies(page, limit=12):
     # When the legend is collapsed its rows are zero-size, so nothing can be hovered
     # or clicked and every removal attempt just burns its timeout. Detect that and
     # say so, rather than failing slowly on each run.
-    rows = page.locator(".title-quatTGAC")
-    if rows.count() and not rows.first.is_visible():
-        print("[TV] Legend is collapsed — studies cannot be removed programmatically. "
-              "Expand the legend on the chart and delete them by hand, or they stack.")
+    # Try to expand first. It is unreliable (see ensure_legend_expanded), so a
+    # failure here is normal and must not read as an error.
+    if not ensure_legend_expanded(page):
+        print("[TV] Legend is collapsed and would not expand — studies cannot be removed "
+              "programmatically on this run.")
+        report_orphan_studies(page)
         return []
 
     removed = []
