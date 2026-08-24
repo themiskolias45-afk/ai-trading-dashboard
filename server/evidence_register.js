@@ -494,21 +494,30 @@ const CLAIMS = [
     id: "liveconfig",
     title: "Live config expectancy",
     status: STATUS.UNMEASURED,
-    measuredOn: "2026-08-12",
-    evidence: "Four closed fills in the system's entire life across 195 server "
-      + "sessions: −$449.72 (BB_SQUEEZE_WATCH), −$99.10 (RANGE_TRADE_SHORT), −$6.64 "
-      + "(SQUEEZE_BREAKOUT) and +$135.91 unattributed, gross −$419.55, expectancy "
-      + "−$104.89/trade. One position is open. Win rate, calibration and per-setup edge "
-      + "still rest on n=4, which is one trade per setup — below the 5-trade floor the "
-      + "learning engine itself requires before it will act.",
-    caveat: "The 2026-07-28 decision to trade a measured-negative edge in order to feed "
-      + "the learning engine was deliberate and informed. Several of these closes only "
-      + "arrived because reconciliation was repaired on 2026-08-11; before that they sat "
-      + "OPEN indefinitely. The single WIN is not in learning.json at all — its setup "
-      + "name was recorded as \"WAIT\", which updateLearning refuses to attribute rather "
-      + "than invent a bucket for, so the learning engine's own record reads 0W/3L while "
-      + "the journal reads 1W/3L. Any calibration claim must say which of the two it "
-      + "means.",
+    measuredOn: "2026-08-24",
+    evidence: "FIVE closed fills in the system's entire life across 247 server sessions. In "
+      + "order of close: BB_SQUEEZE_WATCH XAUUSD -$449.72 at 0.14 lots (conf 85), an "
+      + "unattributed XAUUSD win +$135.91 at 0.01 (conf 70), RANGE_TRADE_SHORT XAUUSD "
+      + "-$99.10 at 0.01 (conf 73), SQUEEZE_BREAKOUT BTCUSD -$6.64 at 0.01 (conf 81), "
+      + "and MOMENTUM SP500 +$2.94 at 0.10 (conf 88). Gross -$416.61, expectancy "
+      + "-$83.32/trade, 2 wins and 3 losses. IN R IT IS POSITIVE: -1, +2.49, -1, -1, "
+      + "+2.02 = NET +1.51R. The same five fills are a disaster in dollars and fine in "
+      + "R, and the entire divergence is LOT SIZE - one 0.14-lot trade lost $449.72 for "
+      + "the same -1R that a 0.01-lot trade lost $6.64 for. Quote the unit. Two "
+      + "positions are open. Win rate, calibration and per-setup edge still rest on one "
+      + "trade per setup, below the 5-trade floor the learning engine itself requires "
+      + "before it will act.",
+    caveat: "The 2026-07-28 decision to trade a measured-negative edge in order to feed the "
+      + "learning engine was deliberate and informed. Several of these closes only "
+      + "arrived because reconciliation was repaired on 2026-08-11; before that they "
+      + "sat OPEN indefinitely. The two records still disagree and BOTH have moved: the "
+      + "unattributed win's setup was recorded as \"WAIT\", which updateLearning "
+      + "refuses to attribute rather than invent a bucket for, so learning.json reads "
+      + "1W/3L (MOMENTUM is the one win it can see) while the journal reads 2W/3L. Any "
+      + "calibration claim must say which of the two it means. Note also that "
+      + "MOMENTUM's +$2.94 is +2.02R on SP500 at 0.10 lots - a two-R win worth three "
+      + "dollars - the same contract-size distortion the sizing note below rests on, "
+      + "visible in the live record rather than in a replay.",
     changesTheAnswer: "Sample. The rejection ledger is the only route that produces it "
       + "without funding the experiment. This claim has gone stale TWICE — it once read "
       + "n=1 and 119 sessions, then n=3 and 154, long after both had moved — so its "
@@ -529,7 +538,7 @@ const CLAIMS = [
       + "correctly weighting the 4-of-5-fold instrument. Annual expectation on the "
       + "measured per-instrument edges moves ~2.1% -> ~8.2%. "
       + "DO NOT FLIP IT YET. It multiplies LOSSES 7-12x identically; the live record is "
-      + "1W/3L at -$419.55; and the only trade ever taken under risk-based sizing was "
+      + "2W/3L at -$416.61 gross but +1.51R; and the only trade ever taken under risk-based sizing was "
       + "BB_SQUEEZE_WATCH at 0.14 lots for -$449.72, the largest loss in the journal. "
       + "BTC cannot go below 0.01 (broker minimum on both symbols), so there is no "
       + "de-risking version of this — the asymmetry can only be corrected upward. "
@@ -554,7 +563,9 @@ const CLAIMS = [
     // 3 closed / 2 open on 2026-08-17 while this says 4. That is the detector working,
     // not drift to chase: state the box, so a VPS reader knows why it fired instead of
     // meeting an item that can never clear. Re-curate when the LAPTOP's count moves.
-    sampleAtWriting: { closedFills: 4 },
+    // RE-BASED 2026-08-24: 4 -> 5 closed fills. MOMENTUM SP500 closed +$2.94 on
+    // 2026-08-19, the first ATTRIBUTED win the learning engine can see.
+    sampleAtWriting: { closedFills: 5 },
     sampleFrom: "laptop (THEMIS) journal.json",
     feedsTheGate: true,
   },
