@@ -243,6 +243,8 @@ table.gates tr:last-child td { border-bottom: none; }
 <link rel="stylesheet" href="/dashboard/theme.css">
 <link rel="stylesheet" href="/dashboard/nav.css">
 <script src="/dashboard/nav.js" defer></script>
+<link rel="stylesheet" href="/dashboard/freshness.css">
+<script src="/dashboard/freshness.js" defer></script>
 <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
 <meta name="theme-color" content="#070b12">
 </head>
@@ -389,15 +391,13 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt
 
 // Ages are always reported in words. Never make the reader subtract two timestamps — that
 // is how a BST offset once read as a corrupt log file.
+// Delegates to the shared module (dashboard/freshness.js). The 90s/90m/48h
+// breakpoints this function used were the most considered of the five formatters
+// that shipped, so they became the shared vocabulary — the only behaviour change
+// here is that under 10s now reads "just now" instead of "3s ago", matching what
+// every other page already said. Kept as a named function so all call sites stand.
 function ago(ms) {
-  if (ms == null || !isFinite(ms)) return "unknown";
-  const seconds = Math.max(0, Math.round(ms / 1000));
-  if (seconds < 90) return seconds + "s ago";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 90) return minutes + "m ago";
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return hours + "h ago";
-  return Math.round(hours / 24) + "d ago";
+  return window.SEFresh ? window.SEFresh.agoMs(ms) : "unknown";
 }
 function agoFrom(iso) {
   const t = Date.parse(iso);

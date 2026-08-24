@@ -112,6 +112,8 @@
   <link rel="stylesheet" href="/dashboard/theme.css">
   <link rel="stylesheet" href="/dashboard/nav.css">
   <script src="/dashboard/nav.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/freshness.css">
+  <script src="/dashboard/freshness.js" defer></script>
   <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
   <meta name="theme-color" content="#070b12">
 </head>
@@ -275,7 +277,8 @@ function renderComponents(data) {
       } else {
         cls = beat.stale ? 'bad' : (beat.status === 'ok' ? 'ok' : 'warn');
         value = beat.stale ? 'STALE' : String(beat.status || 'seen').toUpperCase();
-        detail = (beat.detail || 'reported in') + ' · ' + beat.ageSeconds + 's ago'
+        detail = (beat.detail || 'reported in') + ' · '
+          + (window.SEFresh ? window.SEFresh.agoMs(beat.ageSeconds * 1000) : beat.ageSeconds + 's ago')
           + (declared ? '' : ' · not declared, informational only');
         // What that box is RUNNING, self-reported. This is the only way the
         // always-on machine learns its partner's gate — it cannot pull from it.
@@ -322,13 +325,12 @@ function valueOrDash(value) {
 // Every bar-freshness field is frozen at signal-refresh time, so the row states WHEN it
 // was judged. Without that, a stalled refresh chain leaves "current" on screen forever —
 // which is the same green-while-wedged failure the row exists to break.
+// Delegates to dashboard/freshness.js. This page was the only one rendering a
+// COMPOUND age ("2h 14m ago"), and the only one that could never say seconds or
+// days - a 3-day-old parity run read as "72h 4m ago". Returns '' rather than
+// "unknown" on a bad timestamp, because callers concatenate it into a detail line.
 function agoText(isoTimestamp) {
-  const judgedMs = Date.parse(isoTimestamp || '');
-  if (!Number.isFinite(judgedMs)) return '';
-  const minutes = Math.round((Date.now() - judgedMs) / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return minutes + 'm ago';
-  return Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm ago';
+  return window.SEFresh ? window.SEFresh.ago(isoTimestamp, { unknown: '' }) : '';
 }
 
 function renderFleet(data) {

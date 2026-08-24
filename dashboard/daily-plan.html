@@ -154,6 +154,8 @@
   <link rel="stylesheet" href="/dashboard/theme.css">
   <link rel="stylesheet" href="/dashboard/nav.css">
   <script src="/dashboard/nav.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/freshness.css">
+  <script src="/dashboard/freshness.js" defer></script>
   <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
   <meta name="theme-color" content="#070b12">
 </head>
@@ -511,14 +513,12 @@ async function loadPlan() {
     // here: the drawing job reports "OK: plan drawn on all charts" and exits 0 while
     // the images underneath it do not move. Printing the age next to each chart is
     // what makes that visible without trusting the job's own verdict.
+    // Delegates to dashboard/freshness.js. This was the fifth separate spelling of
+    // "how old is this" in the product and the only one that could never say
+    // seconds, so a screenshot taken 40 seconds ago read as "just now" for a full
+    // minute. Returns '' on a bad value, which is what the callers concatenate.
     function ageWords(sinceMs) {
-      if (!Number.isFinite(sinceMs)) return '';
-      const mins = Math.floor(sinceMs / 60000);
-      if (mins < 1)   return 'just now';
-      if (mins < 60)  return mins + 'm ago';
-      const hours = Math.floor(mins / 60);
-      if (hours < 24) return hours + 'h ago';
-      return Math.floor(hours / 24) + 'd ago';
+      return window.SEFresh ? window.SEFresh.agoMs(sinceMs, { unknown: '' }) : '';
     }
 
     async function resolveScreenshot(sym) {

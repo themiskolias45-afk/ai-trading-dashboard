@@ -780,6 +780,8 @@
   <link rel="stylesheet" href="/dashboard/theme.css">
   <link rel="stylesheet" href="/dashboard/nav.css">
   <script src="/dashboard/nav.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/freshness.css">
+  <script src="/dashboard/freshness.js" defer></script>
   <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
   <meta name="theme-color" content="#070b12">
 </head>
@@ -3446,14 +3448,27 @@ function renderLearningGrowth(data) {
 // Every section states the AGE of the report it is showing. A measurement page
 // whose numbers are silently stale is worse than an empty one, because a stale
 // number still looks like evidence.
+// A report older than a week is flagged, because "measured" with no age beside it
+// is how a stale conclusion gets quoted as current.
+const RS_REPORT_STALE_HOURS = 168;
+
+// Returns HTML, not plain text — the callers insert it with innerHTML.
+// Delegates the wording to dashboard/freshness.js so this page stops being the
+// only one that says "3h old" where the rest say "3h ago"; the suffix is kept
+// because a REPORT is old rather than something that happened. Two fixes ride
+// along: sub-hour reports now read "34m old" instead of collapsing to "just now",
+// and the flag colour was a hardcoded #f59e0b, which is not in theme.css at all
+// (its amber is #f0b429) — it is a token now.
 function rsAge(section) {
   if (!section || !section.available) return "";
   if (typeof section.reportAgeHours !== "number") return "";
   const hours = section.reportAgeHours;
-  const text = hours < 1 ? "just now"
-             : hours < 48 ? Math.round(hours) + "h old"
-             : Math.round(hours / 24) + "d old";
-  return hours > 168 ? "<span style='color:#f59e0b'>" + text + "</span>" : text;
+  const text = window.SEFresh
+    ? window.SEFresh.agoMs(hours * 3600 * 1000, { suffix: "old" })
+    : Math.round(hours) + "h old";
+  return hours > RS_REPORT_STALE_HOURS
+    ? "<span style='color:var(--amber)'>" + text + "</span>"
+    : text;
 }
 
 function rsUnavailable(section, what) {
@@ -3462,8 +3477,11 @@ function rsUnavailable(section, what) {
 }
 
 function rsWarn(html) {
-  return "<div style='margin-top:8px;padding:6px 8px;border-left:3px solid #f59e0b;"
-    + "background:rgba(245,158,11,.08)'>" + html + "</div>";
+  // Was #f59e0b with a matching rgba(245,158,11) fill - neither is in theme.css,
+  // whose amber is #f0b429. Tokenised so the warning matches every other caution
+  // surface in the product instead of being a sixth shade of orange.
+  return "<div style='margin-top:8px;padding:6px 8px;border-left:3px solid var(--amber);"
+    + "background:rgba(240,180,41,.08)'>" + html + "</div>";
 }
 
 function renderResearchSearch(search) {
@@ -4253,16 +4271,14 @@ function healerCheckIsCold(check) {
 
 // Age in words. Never make the reader subtract two timestamps — on this fleet the logs
 // are local and the APIs are UTC, and that difference once read as a corrupt log file.
+// PLAIN TEXT, and deliberately BARE — the callers render it as "· 45s" beside the
+// check name, where "45s ago" would read wrong. That is why the shared module has
+// a bare mode rather than this page keeping its own formatter.
 function healerAge(check) {
   if (!check || !check.lastChecked) return "never";
-  const t = Date.parse(check.lastChecked);
-  if (!isFinite(t)) return "unknown";
-  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (s < 60) return s + "s";
-  const m = Math.round(s / 60);
-  if (m < 60) return m + "m";
-  const hrs = Math.round(m / 60);
-  return hrs < 48 ? hrs + "h" : Math.round(hrs / 24) + "d";
+  if (!window.SEFresh) return "unknown";
+  const ms = window.SEFresh.ageMsOf(check.lastChecked);
+  return isFinite(ms) ? window.SEFresh.agoMs(ms, { bare: true }) : "unknown";
 }
 
 async function loadHealerPanel() {
@@ -5521,7 +5537,7 @@ setInterval(loadWhatHappensNext, WHN_REFRESH_MS);
 const COHORT_STATUS_COLOUR = {
   "DEAD":               "var(--red)",
   "BLOCKED (MEASURED)": "var(--muted)",
-  "NEEDS BOOST":        "var(--amber, #f59e0b)",
+  "NEEDS BOOST":        "var(--amber, #f0b429)",
   "FIRES AT BASE":      "var(--green)",
 };
 
