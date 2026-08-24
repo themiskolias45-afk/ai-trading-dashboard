@@ -33,7 +33,8 @@
           {
             "type": "command",
             "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path $PWD 'tasks/hooks/git-safety.ps1')\"",
-            "async": true
+            "timeout": 15,
+            "statusMessage": "Destructive-command check..."
           }
         ]
       },

@@ -129,10 +129,27 @@ function guardrails() {
     },
     {
       rule: "No deleting — ever, without explicit approval",
-      enforcement: "PROCEDURAL",
-      detail: "Deploys back up before replacing (index.js.bak-prefvg, .bak-prerejev on "
-        + "the VPS). The VPS index.js is PATCHED, never copied, because its HEAD "
-        + "carries commits this repo does not have.",
+      // Upgraded from PROCEDURAL 2026-08-24. It was the most-restated standing rule in
+      // the project and the one nothing enforced: tasks/hooks/git-safety.ps1 existed,
+      // but it ended in an unconditional `exit 0` and was registered "async": true, so
+      // it backed things up and then let every destructive command through. Its pattern
+      // also missed `git stash` — the command already on record for reverting
+      // learning.json off a locked WAL — and missed rm/Remove-Item/del entirely, since
+      // it only matched strings beginning with `git`.
+      enforcement: "ENFORCED IN CODE",
+      detail: "tasks/hooks/git-safety.ps1 is a PreToolUse deny gate on every Bash call. "
+        + "It exits 2 — refusing the command — for repo-wide destructive git operations "
+        + "(stash, reset --hard, clean -fdx, checkout -f, restore ., push --force) and "
+        + "for any rm/Remove-Item/del or truncating '>' aimed at protected data: "
+        + "learning.json, journal.json, smartentry.db*, jarvis_memory.json, the "
+        + "rejection and search ledgers, and tasks/history. Scratch and temp paths are "
+        + "allow-listed so ordinary work never trips it — a guard that fires constantly "
+        + "gets switched off, which protects nothing. 31 cases in "
+        + "tasks/hooks/test-git-safety.ps1, block and pass halves both. Deliberate "
+        + "override is JARVIS_ALLOW_DESTRUCTIVE=1, which is the 'explicit approval' half "
+        + "of the rule made explicit. Deploys still back up before replacing "
+        + "(index.js.bak-prefvg, .bak-prerejev on the VPS), and the VPS index.js is "
+        + "PATCHED, never copied, because its HEAD carries commits this repo lacks.",
     },
     {
       rule: "Unmeasured geometry gets no vote",
@@ -144,8 +161,20 @@ function guardrails() {
     {
       rule: "Where a ledger contradicts a walk-forward, the walk-forward wins",
       enforcement: "PROCEDURAL",
-      detail: "MIN_RR: the ledger says +22.47R from rejections, the 4-year sweep says "
-        + "lowering it costs 6.6R. Both are recorded. Neither has moved the setting.",
+      // RE-CURATED 2026-08-24. This read "+22.47R from rejections" for weeks, which was
+      // the figure at 59 episodes. The example it cites has since RESOLVED, and leaving
+      // a settled contradiction standing as the live example of the rule teaches the
+      // next reader to expect a fight that is over.
+      detail: "MIN_RR, and it is now SETTLED. The rule held: the per-direction "
+        + "walk-forward was re-run 2026-08-24 on bars 29 days fresher and replicated — "
+        + "baseline 1.50/1.50 positive in 5/5 folds at +0.205R/trade over 264 trades, "
+        + "and every challenger's gain vanishes when its best fold is removed. The "
+        + "ledger then stopped disagreeing on its own: at 59 episodes it read +20.61R "
+        + "and COSTING MONEY, at 83 it reads -2.73R and NO MEASURABLE COST. Third time "
+        + "a ledger claim has lost to a walk-forward, after BUY_OVERSOLD and MOMENTUM. "
+        + "Neither source has moved the setting. Note the two boxes now give OPPOSITE "
+        + "ledger verdicts — the laptop still reads COSTING MONEY at 54 episodes — so "
+        + "always say which box a ledger figure came from.",
     },
     {
       rule: "Check what already exists before building",
