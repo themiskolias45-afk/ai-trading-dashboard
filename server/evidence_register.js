@@ -385,38 +385,60 @@ const CLAIMS = [
   {
     id: "minrr",
     title: "MIN_RR = 1.5",
-    status: STATUS.CONTRADICTED,
-    measuredOn: "2026-08-09",
-    evidence: "Walk-forward: lowering to 1.35 buys 3 trades in 4 years and costs 6.6R. "
-      + "Rejection ledger (VPS, re-read 2026-08-17, now 394 resolved): rejections would "
-      + "have returned +20.61R, 67% would have won. At 86 resolved on 2026-08-09 the same "
-      + "gate read +22.47R and 78% — so 4.6x the sample moved the R barely at all and cut "
-      + "the win rate 11pp, which is what a shrinking edge looks like, not a stable one.",
-    caveat: "The two disagree. The ledger is recent episodes in one regime on PAPER "
-      + "entries with no spread, slippage or partial fills, on a fixed horizon; the "
-      + "sweep is 4 years out-of-sample. THE WALK-FORWARD WINS. Neither has moved the "
-      + "setting. The ledger's real signal is a DIRECTION SPLIT, and it has held while "
-      + "every count grew: on 2026-08-17 the VPS reads RANGE_TRADE_LONG 174W/70L "
-      + "(+19.09R) and BUY_OVERSOLD 37W/2L (+35.81R), against RANGE_TRADE_SHORT 53W/60L "
-      + "(−36.39R). The shape survived; the earlier phrasing of it did not — "
-      + "RANGE_TRADE_SHORT was 0W/8L when first read and is emphatically not winless now, "
-      + "so any argument resting on 'it has never won' is void. See the ledgeroutlier "
-      + "claim before reading ANY netR on this board as edge.",
-    changesTheAnswer: "The per-direction experiment has now RUN and did not support the "
-      + "ledger. tasks/minrr_direction_walkforward.cjs, 5 folds at gate 70: the best "
-      + "candidate (1.35 long / 1.50 short) shows +0.158R/trade overall but 109% of that "
-      + "gain is a SINGLE fold — better in only 3/5, worse in folds 1, 3 and 5. Loosening "
-      + "longs further (1.25) is better in just 2/5. Touching shorts alone does nothing. "
-      + "Verdict NOT PROVEN; the bar stays at 1.5 both ways. To move it now you would need "
-      + "a candidate that improves in most folds without one fold carrying it.",
+    status: STATUS.ROBUST,
+    measuredOn: "2026-08-24",
+    evidence: "RE-RUN 2026-08-24 on bars 29 days fresher than any previous sweep, and it "
+      + "REPLICATED. tasks/minrr_direction_walkforward.cjs, 3 assets, 5 sequential "
+      + "out-of-sample folds, gate 70, 0.05R/trade. The BASELINE 1.50/1.50 is positive "
+      + "in 5 of 5 folds at +0.205R/trade over 264 trades (+0.226, +0.071, +0.482, "
+      + "+0.101, +0.168) — that is evidence FOR the bar, not merely absence of evidence "
+      + "against it. No challenger clears. The best, 1.35 long / 1.50 short, shows "
+      + "+0.364R against the baseline's +0.205R and looks decisive until the folds are "
+      + "read: it is better in only 3 of 5, and the delta sum of +0.712 becomes MINUS "
+      + "0.036 with fold 2 removed. Loosening longs to 1.25 is better in 2/5. Raising "
+      + "shorts alone to 1.75 is better in 0 of 5, with three folds at exactly +0.000 — "
+      + "it moved one trade in 264. 1.50/2.00 is 3/5 for +0.022R while REMOVING 4 "
+      + "trades. The earlier run of this same harness reported +0.158R with 109% of it "
+      + "in one fold; today reads +0.158R with 105% in one fold. Two runs, different "
+      + "data, same answer.",
+    caveat: "THE CONTRADICTION HAS RESOLVED, and it resolved toward the walk-forward. This "
+      + "claim was filed CONTRADICTED because the VPS ledger read +20.61R at 67% "
+      + "would-have-won over 59 episodes while the sweep said do not move it. Re-read "
+      + "2026-08-24 at 83 episodes, that same ledger now reads netR MINUS 2.73 at 60% "
+      + "and its own verdict is NO MEASURABLE COST. It stopped objecting. The direction "
+      + "split that was the ledger's real signal has decayed with it: BUY_OVERSOLD is "
+      + "8W/4L on the VPS today, so the never-loses phrasing is void exactly as "
+      + "RANGE_TRADE_SHORT's never-wins phrasing was voided before it — that is TWICE a "
+      + "W/L pair here has aged into a lie, and it is why both halves are declared. THE "
+      + "TWO BOXES NOW DISAGREE WITH EACH OTHER: the laptop's smaller ledger still "
+      + "reads +15.33R at 78% over 54 episodes and still says COSTING MONEY. The VPS is "
+      + "the source of record for this claim. Read the ledgeroutlier claim before "
+      + "treating ANY netR here as edge.",
+    changesTheAnswer: "The candidates are NOT PROVEN, which is not the same as refuted — do not cite "
+      + "this as evidence that a lower long bar is harmful. To move the bar you need a "
+      + "candidate better in MOST folds whose gain survives deleting its best fold; "
+      + "every long-loosened candidate here goes negative under that test. Note also "
+      + "that fold 2 reads +0.819 for all four long-loosened variants and the delta is "
+      + "+0.748 in all four, identical to three decimals — dropping the long bar from "
+      + "1.50 to 1.35 and to 1.25 admits the SAME winning trade, so one trade is doing "
+      + "the work, not a population. Shorts are settled: 0/5 better at 1.75, and 2.00 "
+      + "buys +0.022R for 4 fewer trades, which is a bad trade when sample is the "
+      + "binding constraint. Re-run as the ledger grows, and re-read it if the VPS "
+      + "verdict swings back to COSTING MONEY.",
     // This claim's ledger half read "86 resolved, +22.47R, 78%" for five days while the
     // VPS held 394 — and ai_brief.cjs served that to every agent under "Already MEASURED
     // — do not re-litigate". Declared so the next drift is DETECTED instead of waiting
     // for someone to re-read the ledger by hand.
     // RE-BASED 2026-08-18: 394 was a ROW count. In episodes the same VPS ledger reads 59.
-    sampleAtWriting: { minRrResolved: 59 },
+    // RE-BASED 2026-08-24: 59 -> 83 episodes on the VPS. At 59 the gate read +20.61R
+    // and COSTING MONEY; at 83 it reads -2.73R and NO MEASURABLE COST, so the sample
+    // that grew is the same sample that removed the contradiction.
+    sampleAtWriting: { minRrResolved: 83 },
     sampleTolerance: 0.5,
-    sampleFrom: "VPS ledger (the peer box) — its rejection ledger is the richer one",
+    sampleFrom: "VPS ledger (the peer box) — its rejection ledger is the richer one; 83 "
+      + "resolved episodes there against 54 on the laptop, and the two now give "
+      + "OPPOSITE verdicts",
+    harness: "node tasks/minrr_direction_walkforward.cjs [--folds 5] [--gate 70]",
     feedsTheGate: true,
   },
   {
