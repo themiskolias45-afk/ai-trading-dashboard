@@ -415,21 +415,45 @@ TICKER_TESTS = {
 # explaining the trade; everything that did not (session, volume, swing, feed,
 # strength, two spare reason lines) is gone, because a cluttered panel over a
 # chart that already carries ten indicators is worse than no panel.
-PLAN_ROWS = ["Entry", "SL", "TP", "R:R", "Levels", "Confidence", "Setup",
+PLAN_ROWS = ["Entry", "SL", "TP", "R:R", "Levels", "Pivots", "Confidence", "Setup",
              "Regime", "Trend D1", "Trend H4", "Trend H1", "1D read", "4H read", "Note"]
 
 # Broker symbol per API asset, so a plan can find its own rows in the measured read.
 READ_SYMBOL = {"BTC": "BTCUSD", "GOLD": "XAUUSD", "SPX": "SP500"}
 
-LEVEL_SPECS = [
-    ("entry",         "color.new(color.green, 0)",  2, "line.style_dashed"),
-    ("stop",          "color.new(color.red, 0)",    2, "line.style_dashed"),
-    ("target",        "color.new(color.blue, 0)",   2, "line.style_dashed"),
-    ("resistance",    "color.new(#EF9A9A, 0)",      1, "line.style_dotted"),
-    ("support",       "color.new(#64B5F6, 0)",      1, "line.style_dotted"),
-    ("breakout_up",   "color.new(color.olive, 0)",  1, "line.style_dotted"),
-    ("breakout_down", "color.new(color.maroon, 0)", 1, "line.style_dotted"),
+# WHAT GETS A LINE ON THE CHART, AND WHAT DOES NOT.
+#
+# This used to be one list of seven, and every one of them was drawn whenever the
+# value existed. On 2026-08-24 the Gold chart showed the result: S1, S2, R1, R2 and
+# the price, five dashed and dotted lines with red and green pills, on a chart that
+# ALREADY carries APEX SMC, Clean Structure PRO and TK Swing Trend each drawing
+# their own levels. Meanwhile the panel in the corner said, correctly,
+# "PIVOT BAND - not a trade" and "R:R  n/a - no setup".
+#
+# The panel was honest. The canvas was not. A red dashed line with a pill reading
+# "S2 4,458.07" looks exactly like a stop loss, and the qualifier that says it is
+# not one lived twelve rows away in a table the eye does not reach first. On a chart
+# used to trade MANUALLY that is the expensive kind of wrong: not a false number, a
+# true number dressed as an instruction.
+#
+# So lines are earned now. Only a real engine setup draws them, and it draws the
+# three that constitute a trade. The pivot band still ships in full - as TEXT, in
+# the panel, where "S1" reads as a level rather than as an order.
+SETUP_LEVELS = [
+    ("entry",  "color.new(color.green, 0)", 2, "line.style_solid"),
+    ("stop",   "color.new(color.red, 0)",   2, "line.style_dashed"),
+    ("target", "color.new(color.blue, 0)",  2, "line.style_dashed"),
 ]
+
+# Context levels: carried in the panel, never drawn as lines.
+CONTEXT_LEVELS = [("resistance", "R1"), ("support", "S1"),
+                  ("breakout_up", "Brk+"), ("breakout_down", "Brk-")]
+
+# A trade is a distance, not three prices, and the eye reads a shaded band faster
+# than it reads two pills. Transparency is high enough that the candles and the
+# user's own indicators stay legible through the fill.
+ZONE_RISK_COLOUR = "color.new(color.red, 88)"
+ZONE_REWARD_COLOUR = "color.new(color.green, 88)"
 
 BIAS_COLOURS = {"LONG": "color.new(color.green, 0)",
                 "SHORT": "color.new(color.red, 0)"}
@@ -444,6 +468,19 @@ def _level_label(plan, key):
              "resistance": "R1", "support": "S1",
              "breakout_up": "Break BUY", "breakout_down": "Break SELL"}
     return names[key] + " " + _fmt(plan.get(key), plan["decimals"])
+
+
+def _context_row(values):
+    """The context levels as one compact line, or a plain dash when none resolved.
+
+    Takes the caller's locals rather than the finished plan because the plan dict is
+    still being built at this point. Only the four CONTEXT_LEVELS names are read.
+    """
+    decimals = values.get("decimals", 2)
+    parts = [label + " " + _fmt(values.get(key), decimals)
+             for key, label in CONTEXT_LEVELS
+             if values.get(key) is not None]
+    return "  ".join(parts) if parts else "-"
 
 
 def _ternary(plans, value_of, default):
@@ -510,8 +547,12 @@ def generate_pine(plans):
         checks = " or ".join('str.contains(_sym, "%s")' % t for t in tests)
         flags.append("_is" + plan["symbol"] + " = " + checks)
 
-    live_keys = [spec for spec in LEVEL_SPECS
-                 if any(plan.get(spec[0]) is not None for plan in plans)]
+    # A level is a candidate only when some plan on this script HAS it and that plan
+    # is a real engine setup. A chart in WAIT gets no price lines at all.
+    live_keys = [spec for spec in SETUP_LEVELS
+                 if any(plan.get(spec[0]) is not None
+                        and plan.get("levels_from", "engine") == "engine"
+                        for plan in plans)]
 
     # The job runs 06:45 and 13:15, so the longest NORMAL age is the overnight
     # 13:15 -> 06:45 gap of 17.5h. A threshold just above that fires only when a run
@@ -535,19 +576,46 @@ def generate_pine(plans):
 
     level_vars, draw_block = [], []
     level_vars.extend(stale_vars)
+
+    # One flag per script saying whether THIS chart's symbol has a real setup.
+    # Without it, a script covering three assets would draw BTC's entry on the Gold
+    # chart, because the ternary would fall through to a value that exists.
+    level_vars.append("_isSetup = " + _ternary(
+        plans,
+        lambda p: "true" if p.get("levels_from", "engine") == "engine" else "false",
+        "false"))
+
     for key, colour, width, style in live_keys:
         level_vars.append("_" + key + " = " + _ternary(
             plans, lambda p, k=key: p.get(k) if p.get(k) is not None else "na", "na"))
         level_vars.append("_" + key + "Txt = " + _ternary(
             plans, lambda p, k=key: _pine_str(_level_label(p, k)), '""'))
         draw_block.append(
-            "    if not na(_%s)\n"
+            "    if _isSetup and not na(_%s)\n"
             "        line.new(bar_index - 120, _%s, bar_index + 20, _%s, "
             "extend=extend.right, color=%s, width=%d, style=%s)\n"
             "        label.new(bar_index + 20, _%s, _%sTxt, color=%s, "
             "textcolor=color.white, style=label.style_label_left, size=size.small)"
             % (key, key, key, colour, width, style, key, key, colour)
         )
+
+    # The two zones that turn three prices into a trade: entry->stop is what is
+    # risked, entry->target is what is sought. Drawn only when all three levels
+    # exist, so a partial plan cannot shade a band it has no second edge for.
+    drawn_keys = {spec[0] for spec in live_keys}
+    if {"entry", "stop", "target"} <= drawn_keys:
+        draw_block.append(
+            "    if _isSetup and not na(_entry) and not na(_stop)\n"
+            "        box.new(bar_index - 120, math.max(_entry, _stop), "
+            "bar_index + 20, math.min(_entry, _stop), "
+            "border_color=color.new(color.red, 70), bgcolor=" + ZONE_RISK_COLOUR
+            + ", extend=extend.right)")
+        draw_block.append(
+            "    if _isSetup and not na(_entry) and not na(_target)\n"
+            "        box.new(bar_index - 120, math.max(_entry, _target), "
+            "bar_index + 20, math.min(_entry, _target), "
+            "border_color=color.new(color.green, 70), bgcolor=" + ZONE_REWARD_COLOUR
+            + ", extend=extend.right)")
 
     cells = [
         # The ternary MUST be parenthesised. Pine binds + tighter than ?: , so
@@ -1244,6 +1312,13 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None):
         "TP":         _fmt(target, decimals) + ("" if is_setup else "  (R2 pivot)"),
         "R:R":        f'{rr}' if rr else "n/a - no setup",
         "Levels":     "engine setup" if is_setup else "PIVOT BAND - not a trade",
+        # The four context levels used to be four more lines on the chart. They are
+        # real and worth knowing, so they are kept in full - as one row of text, where
+        # a level reads as a level. See CONTEXT_LEVELS.
+        # Filled in at the end of this function, once the breakout pair (attached
+        # after this dict is built) is known. A placeholder here would ship if that
+        # refresh ever stopped running, so it says so rather than showing a stale "-".
+        "Pivots":     "(not computed)",
         "Confidence": f'{confidence} vs gate {gate}'
                       + (f'  gap {gap}pt' if gap else '  MEETS GATE'),
         "Setup":      f'{asset.get("setup", "-")} ({asset.get("setupTimeframe", "-")})',
@@ -1295,6 +1370,12 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None):
             if len(numbers) >= 2:
                 plan["breakout_up"]   = float(numbers[0])
                 plan["breakout_down"] = float(numbers[1])
+
+    # The breakout pair is attached ABOVE, after `rows` was frozen, so the Pivots row
+    # has to be recomputed here or a squeeze watch would publish its triggers to
+    # nothing. Built from the finished plan, which is the only point at which all
+    # four context levels are known.
+    plan["rows"]["Pivots"] = _context_row(plan)
     return plan
 
 
