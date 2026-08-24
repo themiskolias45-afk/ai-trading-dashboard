@@ -4804,10 +4804,36 @@ app.get("/api/learning", (_, res) => {
         unattributed: unattributedFills.length,
         complete: closedFills === attributedCount + unattributedFills.length,
       },
+      // ALWAYS PRESENT, null when the read succeeded. A field that appears only on
+      // failure is one a consumer forgets to check, and cannot distinguish a healthy
+      // server from an older one that never emitted it.
+      learningError: null,
     });
   } catch (e) {
+    // This used to swallow `e` entirely and answer 200 with an empty setupStats,
+    // which is byte-identical to a genuinely empty learning file. ELEVEN files read
+    // this endpoint — auto_runner.py, commercial/investment.html, dashboard/command
+    // and jarvis, debate_agents.py, eod_review.py, market_scanner.py, mcp_server.js,
+    // tasks/deep_plan.cjs, tasks/public_pages_test.cjs and tv_daily_plan.py — and not
+    // one of them could tell "no learning yet" from "reading it threw". Two of those
+    // were fixed on 2026-08-24 for mishandling learning data; this is the same fault
+    // one layer up, and it is the fifth instance found that day of a value written
+    // correctly and read by nothing.
+    //
+    // The inner shadow catch two blocks above already had the right shape - log it,
+    // keep serving. This now matches it, and adds the field that makes the failure
+    // READABLE rather than merely logged where nobody looks.
+    //
+    // The status stays 200 on purpose. Switching to 500 would change behaviour for
+    // all eleven consumers at once and could turn a degraded panel into a broken
+    // page; naming the failure in the payload costs them nothing and tells them
+    // everything. Same contract as `settingsError` on /api/strategy-settings, which
+    // CLAUDE.md already instructs every reader to check first.
+    console.error(`[learning] handler failed (${e.message}) — serving an empty payload `
+                + `with learningError set; setupStats below is NOT a real reading.`);
     res.json({ setupStats: {}, sessionCount: 0, updatedAt: null, shadow: null,
-               unattributed: null, reconciliation: null });
+               unattributed: null, reconciliation: null,
+               learningError: e && e.message ? e.message : String(e) });
   }
 });
 
