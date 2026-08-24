@@ -820,6 +820,15 @@ def _rates_to_bars(rates):
             "highs":   [round(float(r["high"]),  PRICE_DECIMALS) for r in rates],
             "lows":    [round(float(r["low"]),   PRICE_DECIMALS) for r in rates],
             "volumes": [float(int(r["tick_volume"]))             for r in rates],
+            # Bar OPEN PRICES. Added 2026-08-24. The signal engine does not read
+            # these -- every indicator here works off close/high/low -- so this is
+            # carried purely so the bars can be written back out to
+            # tasks/history/*.csv, whose format is time,open,high,low,close,
+            # tick_volume. Without opens that CSV could only be completed by
+            # inventing a column, and a fabricated OHLC row is worse than a stale
+            # one: stale gives yesterday's answer, invented gives a wrong one that
+            # looks right. See tasks/persist_bars.cjs.
+            "opens":   [round(float(r["open"]),  PRICE_DECIMALS) for r in rates],
             # Bar OPEN times, unix seconds. Added 2026-08-09 and the reason is not
             # cosmetic: the server judged freshness purely on when the push landed,
             # so a terminal that wedges and returns the same stale array forever

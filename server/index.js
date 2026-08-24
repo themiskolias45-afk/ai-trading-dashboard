@@ -2374,7 +2374,7 @@ async function fetchPrices() {
 // structural stop. Length equality is checked, not assumed.
 function sanitizeBars(bars, minBars) {
   if (!bars || typeof bars !== "object") return null;
-  const { closes, highs, lows, volumes, times } = bars;
+  const { closes, highs, lows, volumes, times, opens } = bars;
   const usable = (series) => Array.isArray(series)
     && series.length >= minBars
     && series.every(v => typeof v === "number" && Number.isFinite(v));
@@ -2389,7 +2389,15 @@ function sanitizeBars(bars, minBars) {
   // would take the live feed down to fix a diagnostic. Absent means the staleness
   // check below cannot run and says so, rather than passing silently.
   const alignedTimes = (usable(times) && times.length === closes.length) ? times : null;
-  return { closes, highs, lows, volumes: alignedVolumes, times: alignedTimes };
+  // Bar OPEN prices. OPTIONAL for exactly the same reason `times` is: a bridge that
+  // has not restarted since this shipped sends none, and rejecting those bars would
+  // take the live feed down to fix something no indicator reads. Nothing on the
+  // signal path consumes opens — they exist so tasks/persist_bars.cjs can write a
+  // complete time,open,high,low,close,tick_volume row back to tasks/history without
+  // inventing the one column the push was missing. Absent means that writer refuses
+  // the series and says so, rather than filling the gap with a guess.
+  const alignedOpens = (usable(opens) && opens.length === closes.length) ? opens : null;
+  return { closes, highs, lows, volumes: alignedVolumes, times: alignedTimes, opens: alignedOpens };
 }
 
 // How old the NEWEST bar may be before the series is stale, per timeframe. Two
