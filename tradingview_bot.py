@@ -686,20 +686,67 @@ if barstate.islast and _known
 # ── Pine Editor auto-paste ────────────────────────────────────────────────────
 def _editor_text(page):
     """
-    Read what is in the Pine editor.
+    Read what is in the Pine editor, in VISUAL line order.
 
-    Two traps here. Monaco renders every space as U+00A0, so normalise before
-    comparing. And .view-lines is virtualised — it holds only the lines currently
-    scrolled into view, so after a paste it shows the END of the script and a check
-    against line 1 fails on a script that landed perfectly. The caller must scroll
-    to the top before trusting the first line.
+    Three traps, and the third one wasted two hours on 2026-08-24.
+
+    Monaco renders every space as U+00A0, so normalise before comparing.
+
+    .view-lines is virtualised: it holds only the lines currently scrolled into view,
+    so after a paste it shows the END of the script and a check against line 1 fails
+    on a script that landed perfectly. The caller must scroll to the top first.
+
+    AND - the part that was wrong - Monaco does NOT keep those elements in document
+    order. It recycles a pool of divs and positions each by an inline `top`, so DOM
+    order is arbitrary. inner_text() therefore returned the visible lines SHUFFLED,
+    and the "does it start with //@version=5" check was reading whichever line the
+    pool happened to hold first. It passed for months by luck and started failing the
+    moment the script grew by four lines and the pool reshuffled.
+
+    The evidence was unambiguous once looked at directly: the editor reported unsaved
+    changes, the buffer contained today's Gold price and our own "(S2 pivot)" text,
+    scrollTop was 0 - and the "first line" came back as a table.cell from the middle.
+    Nothing was wrong with the paste. The reader was lying.
+
+    So read each .view-line with its own top offset and sort numerically.
     """
-    return page.locator(SEL_EDITOR_TEXT).first.inner_text().replace("\xa0", " ")
+    lines = page.evaluate("""(sel) => {
+        const box = document.querySelector(sel);
+        if (!box) return null;
+        return Array.from(box.querySelectorAll('.view-line'))
+            .map(el => [parseFloat(el.style.top) || 0, el.textContent])
+            .sort((a, b) => a[0] - b[0])
+            .map(pair => pair[1]);
+    }""", SEL_EDITOR_TEXT)
+    if lines is None:
+        # Selector missed entirely - fall back rather than crash, and let the
+        # caller's own check decide. An empty read reads as "did not land", which
+        # is the safe direction: it refuses to save, it never saves the wrong thing.
+        return page.locator(SEL_EDITOR_TEXT).first.inner_text().replace("\xa0", " ")
+    return "\n".join(lines).replace("\xa0", " ")
 
 
 def _scroll_editor_top(page):
-    page.keyboard.press("Control+Home")
-    page.wait_for_timeout(800)
+    """Bring line 1 into Monaco's rendered window. Returns True when it got there.
+
+    One Ctrl+Home and a fixed 800ms was enough until the plan script grew by a few
+    lines on 2026-08-24, and then it stopped being enough: the paste landed perfectly,
+    the view stayed parked mid-document, and the caller read
+    `table.cell(planTable, 0, 1, "Entry"...)` as "the script starts with" and refused
+    to save a script that was already correct. Twice in a row, reproducibly.
+
+    .view-lines holds ONLY what is scrolled into view, so this is a question about the
+    viewport, not about the buffer. Poll it instead of guessing a duration.
+    """
+    for attempt in range(4):
+        page.keyboard.press("Control+Home")
+        page.wait_for_timeout(600 + 400 * attempt)
+        try:
+            if _editor_text(page).lstrip().startswith("//@version=5"):
+                return True
+        except Exception:
+            pass
+    return False
 
 
 PLAN_NAME_PREFIX = "JARVIS Daily Plan"
