@@ -70,6 +70,47 @@ const WINDOW   = Number(opt("--window", "600"));   // bars the live engine sees
 const CONTROL_OFFSET = Number(opt("--control-offset", "37"));
 const AS_JSON  = flag("--json");
 
+// WHICH SETUP is under test. Both are "all conditions pass except the RSI one",
+// which is what makes the FIRED/BLOCKED split a matched comparison rather than
+// two different populations.
+//
+//   momentum  the RSI CEILING. Everything aligns and RSI is too HIGH to enter.
+//   buydip    the RSI FLOOR on the EMA20 pullback. Price has pulled back to EMA20
+//             in an uptrend with MACD still bullish, and RSI is too HIGH to enter.
+//             Same disease at the other end of the scale: a real uptrend rarely
+//             drops RSI under 50 on a shallow pullback, so this setup has never
+//             fired live in the system's entire history.
+const SETUP = String(opt("--setup", "momentum")).toLowerCase();
+
+const SETUPS = {
+  // server/index.js generateSignal, MOMENTUM branch.
+  momentum: {
+    label: "MOMENTUM (RSI ceiling " + CEILING + ")",
+    nonRsi: o => o.inUptrend && o.aboveEma50 && o.aboveEma20 && o.macdBullish,
+    fired:   r => r > RSI_MIN && r < CEILING,
+    blocked: r => r >= CEILING,
+    firedDesc: "RSI " + RSI_MIN + " < x < " + CEILING,
+    blockedDesc: "RSI >= " + CEILING,
+  },
+  // server/index.js generateSignal, BUY_DIP branch: pullback to EMA20.
+  buydip: {
+    label: "BUY_DIP - EMA20 pullback reversal (RSI floor 50)",
+    nonRsi: o => (o.inUptrend || (o.trend === "MIXED" && o.aboveEma50))
+              && !o.aboveEma20
+              && o.price >= o.ema20 * 0.978
+              && o.macdBullish,
+    fired:   r => r < 50,
+    blocked: r => r >= 50,
+    firedDesc: "RSI < 50",
+    blockedDesc: "RSI >= 50",
+  },
+};
+if (!SETUPS[SETUP]) {
+  console.error("Unknown --setup " + SETUP + ". Known: " + Object.keys(SETUPS).join(", "));
+  process.exit(1);
+}
+const DEF = SETUPS[SETUP];
+
 // ── the engine's own indicator functions, not copies of them ────────────────
 // Sliced out of the source and evaluated. If a function cannot be found the run
 // STOPS rather than silently falling back to a local approximation.
@@ -201,12 +242,14 @@ function classify(bars, i) {
 
   const inUptrend = trend === "STRONG UPTREND" || trend === "UPTREND";
 
-  // The MOMENTUM branch minus its RSI band. Everything else identical.
-  const nonRsiConditionsPass = inUptrend && aboveEma50 && aboveEma20 && !!macd.bullish;
-  if (!nonRsiConditionsPass) return null;
+  // Every condition the chosen setup needs EXCEPT its RSI test. The RSI test is
+  // applied by the caller so the two sides of it stay a matched pair.
+  const o = { rsi, price, trend, inUptrend, aboveEma20, aboveEma50,
+              ema20, macdBullish: !!macd.bullish };
+  if (!DEF.nonRsi(o)) return null;
 
-  const a = atr(bars.h.slice(from, i + 1), bars.l.slice(from, i + 1), closes);
-  return { rsi, price, atr: a, trend };
+  o.atr = atr(bars.h.slice(from, i + 1), bars.l.slice(from, i + 1), closes);
+  return o;
 }
 
 // Forward return over HORIZON bars, in ATR units so three instruments on wildly
@@ -237,9 +280,9 @@ for (const sym of ASSETS) {
     if (!fwd || fwd.atrUnits === null) continue;
     const row = { sym, t: bars.t[i], rsi: obs.rsi, ...fwd };
 
-    if (obs.rsi > RSI_MIN && obs.rsi < CEILING) { groups.FIRED.push(row); fired++; }
-    else if (obs.rsi >= CEILING)                { groups.BLOCKED.push(row); blocked++; }
-    else continue;                               // below the floor — a different question
+    if (DEF.fired(obs.rsi))        { groups.FIRED.push(row); fired++; }
+    else if (DEF.blocked(obs.rsi)) { groups.BLOCKED.push(row); blocked++; }
+    else continue;                 // outside both - a different question
 
     // Matched control: the same bar shifted back for no reason. Not conditioned on
     // anything, which is the point — it should come out near zero, and if it does
@@ -302,7 +345,8 @@ else verdict = "NO MEASURABLE DIFFERENCE — inside the noise, the ceiling is ne
 
 const result = {
   measuredAt: new Date().toISOString(),
-  question: "Do bars the RSI ceiling BLOCKS perform worse than the ones it lets through?",
+  setup: SETUP,
+  question: "Do bars the RSI test BLOCKS perform worse than the ones it lets through?",
   params: { ceiling: CEILING, rsiFloor: RSI_MIN, horizonBars: HORIZON, window: WINDOW, controlOffset: CONTROL_OFFSET },
   population: perAsset,
   fired: F, blocked: B, control: C,
@@ -312,7 +356,7 @@ const result = {
     "Forward returns on the BAR, not on a trade. No entry, stop or target is invented, "
       + "so REJECTION-LEDGER-SPEC rule 3.1 is not violated and no fabricated level exists.",
     "No costs are charged: this measures direction over a fixed horizon, not a tradable edge.",
-    "MOMENTUM only. TREND_FOLLOW has its own band and its own EMA200 rule and is not measured here.",
+    "One setup per run (--setup momentum|buydip). A verdict for one says nothing about another.",
     "The control is unconditioned and carries the market's own drift; it is the baseline "
       + "to beat, not a number that should be zero. All three instruments rose across "
       + "this window, so a positive control is expected.",
@@ -333,11 +377,12 @@ const f3 = v => (v === null ? "  —  " : (v >= 0 ? "+" : "") + v.toFixed(3));
 const f1 = v => (v === null ? " — " : v.toFixed(1));
 
 console.log("");
-console.log("IS THE RSI CEILING COSTING MONEY?  —  forward returns, no invented levels");
+console.log("IS THE RSI TEST COSTING MONEY?  —  forward returns, no invented levels");
 console.log("=".repeat(78));
-console.log("  MOMENTUM non-RSI conditions all pass. Bars split by RSI alone:");
-console.log("    FIRED    RSI " + RSI_MIN + " < x < " + CEILING + "   (the engine traded these)");
-console.log("    BLOCKED  RSI >= " + CEILING + "          (the ceiling refused these)");
+console.log("  setup under test: " + DEF.label);
+console.log("  every other condition passes. Bars split by RSI alone:");
+console.log("    FIRED    " + DEF.firedDesc.padEnd(18) + "(the engine traded these)");
+console.log("    BLOCKED  " + DEF.blockedDesc.padEnd(18) + "(the RSI test refused these)");
 console.log("  held " + HORIZON + " D1 bars forward");
 console.log("");
 for (const [sym, note] of Object.entries(perAsset)) console.log("    " + sym.padEnd(9) + note);

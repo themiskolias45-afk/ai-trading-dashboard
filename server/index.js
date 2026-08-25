@@ -8244,9 +8244,15 @@ app.get("/api/strategy-board", (_, res) => {
     // Every name the engine can emit. Hardcoded deliberately: a setup that has
     // never fired must still appear, and deriving the list from the data would
     // hide exactly the ones with no history - the rows most worth seeing.
+    // ALL TEN the engine can emit. It was eight when this shipped on 2026-08-25 and
+    // BUY_DIP and BREAKOUT were simply missing - a board whose whole purpose is "here
+    // are your strategies" that silently showed 8 of 10. Derived by hand from the
+    // `setup  = "NAME"` assignments in generateSignal; if a setup is added there it
+    // must be added here, and the count check below is what will catch it next time.
     const KNOWN_SETUPS = [
       "MOMENTUM", "TREND_FOLLOW", "SQUEEZE_BREAKOUT", "BUY_OVERSOLD",
       "SELL_BOUNCE", "RANGE_TRADE_LONG", "RANGE_TRADE_SHORT", "BB_SQUEEZE_WATCH",
+      "BUY_DIP", "BREAKOUT",
     ];
     // Below this many closed fills a win rate is noise, not a verdict. Same floor
     // the learning engine uses to withhold a boost.
