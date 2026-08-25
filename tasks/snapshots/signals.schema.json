@@ -1,0 +1,267 @@
+{
+  "btc": {
+    "label": "string",
+    "ticker": "string",
+    "price": "number",
+    "signal": "string",
+    "setup": "string",
+    "strength": "string",
+    "entry": "number",
+    "stop": "null",
+    "target": "null",
+    "rr": "null",
+    "atr": "number",
+    "indicators": {
+      "rsi": "number",
+      "ema20": "number",
+      "ema50": "number",
+      "ema200": "number",
+      "bb": {
+        "upper": "number",
+        "middle": "number",
+        "lower": "number",
+        "bandwidth": "number"
+      },
+      "macd": {
+        "macd": "number",
+        "signal": "number",
+        "histogram": "number",
+        "crossed": "boolean",
+        "bullish": "boolean"
+      },
+      "adx": "number",
+      "plusDI": "number",
+      "minusDI": "number"
+    },
+    "structure": {
+      "swingLow": "number",
+      "swingHigh": "number",
+      "trending": "boolean"
+    },
+    "trend": "string",
+    "volume": {
+      "last": "number",
+      "avg": "number",
+      "ratio": "number",
+      "confirmed": "boolean"
+    },
+    "reasons": "array<string>",
+    "updatedAt": "string",
+    "setupTimeframe": "string",
+    "confidence": "number",
+    "regime": "string",
+    "h4": {
+      "signal": "string",
+      "trend": "string",
+      "rsi": "number"
+    },
+    "h1": {
+      "signal": "string",
+      "trend": "string",
+      "rsi": "number"
+    },
+    "pivots": {
+      "pp": "number",
+      "r1": "number",
+      "r2": "number",
+      "s1": "number",
+      "s2": "number"
+    },
+    "session": {
+      "name": "string",
+      "color": "string"
+    },
+    "dataSource": "string",
+    "sourceSymbol": "string",
+    "bars": {
+      "d1": "number",
+      "h4": "number",
+      "h1": "number"
+    },
+    "barFreshness": {
+      "checked": "boolean",
+      "stale": "boolean",
+      "ageMs": "number",
+      "lastBarAt": "string",
+      "reason": "string",
+      "usedForThisSignal": "boolean"
+    }
+  },
+  "gold": {
+    "label": "string",
+    "ticker": "string",
+    "price": "number",
+    "signal": "string",
+    "setup": "string",
+    "strength": "string",
+    "entry": "number",
+    "stop": "number",
+    "target": "number",
+    "rr": "number",
+    "atr": "number",
+    "indicators": {
+      "rsi": "number",
+      "ema20": "number",
+      "ema50": "number",
+      "ema200": "number",
+      "bb": {
+        "upper": "number",
+        "middle": "number",
+        "lower": "number",
+        "bandwidth": "number"
+      },
+      "macd": {
+        "macd": "number",
+        "signal": "number",
+        "histogram": "number",
+        "crossed": "boolean",
+        "bullish": "boolean"
+      },
+      "adx": "number",
+      "plusDI": "number",
+      "minusDI": "number"
+    },
+    "structure": {
+      "swingLow": "number",
+      "swingHigh": "number",
+      "trending": "boolean"
+    },
+    "trend": "string",
+    "volume": {
+      "last": "number",
+      "avg": "number",
+      "ratio": "number",
+      "confirmed": "boolean"
+    },
+    "reasons": "array<string>",
+    "updatedAt": "string",
+    "setupTimeframe": "string",
+    "confidence": "number",
+    "regime": "string",
+    "h4": {
+      "signal": "string",
+      "trend": "string",
+      "rsi": "number"
+    },
+    "h1": {
+      "signal": "string",
+      "trend": "string",
+      "rsi": "number"
+    },
+    "pivots": {
+      "pp": "number",
+      "r1": "number",
+      "r2": "number",
+      "s1": "number",
+      "s2": "number"
+    },
+    "session": {
+      "name": "string",
+      "color": "string"
+    },
+    "dataSource": "string",
+    "sourceSymbol": "string",
+    "bars": {
+      "d1": "number",
+      "h4": "number",
+      "h1": "number"
+    },
+    "barFreshness": {
+      "checked": "boolean",
+      "stale": "boolean",
+      "ageMs": "number",
+      "lastBarAt": "string",
+      "reason": "string",
+      "usedForThisSignal": "boolean"
+    }
+  },
+  "spx": {
+    "label": "string",
+    "ticker": "string",
+    "price": "number",
+    "signal": "string",
+    "setup": "string",
+    "strength": "string",
+    "entry": "number",
+    "stop": "null",
+    "target": "null",
+    "rr": "null",
+    "atr": "number",
+    "indicators": {
+      "rsi": "number",
+      "ema20": "number",
+      "ema50": "number",
+      "ema200": "number",
+      "bb": {
+        "upper": "number",
+        "middle": "number",
+        "lower": "number",
+        "bandwidth": "number"
+      },
+      "macd": {
+        "macd": "number",
+        "signal": "number",
+        "histogram": "number",
+        "crossed": "boolean",
+        "bullish": "boolean"
+      },
+      "adx": "number",
+      "plusDI": "number",
+      "minusDI": "number"
+    },
+    "structure": {
+      "swingLow": "number",
+      "swingHigh": "number",
+      "trending": "boolean"
+    },
+    "trend": "string",
+    "volume": {
+      "last": "number",
+      "avg": "number",
+      "ratio": "number",
+      "confirmed": "boolean"
+    },
+    "reasons": "array<string>",
+    "updatedAt": "string",
+    "setupTimeframe": "string",
+    "confidence": "number",
+    "regime": "string",
+    "h4": {
+      "signal": "string",
+      "trend": "string",
+      "rsi": "number"
+    },
+    "h1": {
+      "signal": "string",
+      "trend": "string",
+      "rsi": "number"
+    },
+    "pivots": {
+      "pp": "number",
+      "r1": "number",
+      "r2": "number",
+      "s1": "number",
+      "s2": "number"
+    },
+    "session": {
+      "name": "string",
+      "color": "string"
+    },
+    "dataSource": "string",
+    "sourceSymbol": "string",
+    "bars": {
+      "d1": "number",
+      "h4": "number",
+      "h1": "number"
+    },
+    "barFreshness": {
+      "checked": "boolean",
+      "stale": "boolean",
+      "ageMs": "number",
+      "lastBarAt": "string",
+      "reason": "string",
+      "usedForThisSignal": "boolean"
+    }
+  },
+  "updatedAt": "string"
+}

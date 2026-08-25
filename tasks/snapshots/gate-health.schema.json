@@ -1,0 +1,46 @@
+{
+  "ok": "boolean",
+  "since": "string",
+  "gates": {
+    "MIN_RR": {
+      "killed": "number",
+      "passed": "number"
+    },
+    "ENTRY_RSI": {
+      "killed": "number",
+      "passed": "number"
+    },
+    "CONFIDENCE": {
+      "killed": "number",
+      "passed": "number"
+    },
+    "COHORT_FLOOR": {
+      "killed": "number",
+      "passed": "number"
+    },
+    "SPREAD": {
+      "killed": "number",
+      "passed": "number"
+    },
+    "AI_FILTER": {
+      "killed": "number",
+      "passed": "number"
+    },
+    "NEWS_BLACKOUT": {
+      "killed": "number",
+      "passed": "number"
+    },
+    "STALE_SOURCE": {
+      "killed": "number",
+      "passed": "number"
+    },
+    "DUPLICATE": {
+      "killed": "number",
+      "passed": "number"
+    },
+    "MAX_POSITIONS": {
+      "killed": "number",
+      "passed": "number"
+    }
+  }
+}
