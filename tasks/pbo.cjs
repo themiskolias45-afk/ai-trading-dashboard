@@ -104,6 +104,22 @@ const AXES = {
           values: [0, 40, 45, 50, 55], incumbent: 0 },
   adx:  { kind: "engine", label: "ADX trending floor", env: "MTF_ADX_TRENDING_MIN",
           values: [15, 18, 20, 22, 25], incumbent: 20 },
+  // The RSI CEILING, which is the constraint actually stopping trades: 82 of 82
+  // near-misses on 2026-08-25 were RSI_ABOVE_CEILING, with BTC 21.9 points over.
+  //
+  // Swept as a BAND, exactly as tasks/rsi_ceiling_walkforward.cjs does it - MOMENTUM
+  // and TREND_FOLLOW move together with TREND_FOLLOW four points lower. With five
+  // closed live fills there is nowhere near the evidence to decouple them, and
+  // sweeping two dials independently would multiply the trial count for a freedom
+  // nothing has earned. 100 is "no ceiling at all", the honest upper bound: if the
+  // ceiling is pure cost that candidate wins, and if it does real work it loses badly.
+  ceiling: { kind: "engine", label: "RSI ceiling band (MOMENTUM / TREND_FOLLOW)",
+             values: [56, 64, 72, 80, 88, 100], incumbent: 72,
+             envFor: v => ({
+               MTF_MOMENTUM_RSI_MAX:     String(v),
+               MTF_TREND_FOLLOW_RSI_MAX: String(v === 100 ? 100 : v - 4),
+             }),
+             labelFor: v => v === 100 ? "none" : v + "/" + (v - 4) },
 };
 
 if (!AXES[AXIS]) {
@@ -211,7 +227,11 @@ if (AXIS_DEF.kind === "filter") {
     const kept = [];
     for (const [symbol, ticker] of ASSETS) {
       try {
-        const env = {}; env[AXIS_DEF.env] = String(v);
+        // envFor lets one candidate move SEVERAL dials at once (the ceiling band).
+        // A single-dial axis keeps the simple form and is untouched by this.
+        const env = AXIS_DEF.envFor
+          ? AXIS_DEF.envFor(v)
+          : (() => { const e = {}; e[AXIS_DEF.env] = String(v); return e; })();
         const rows = resolvedTrades(replay(symbol, ticker, env), symbol);
         replays++;
         kept.push(...rows.filter(t => t.conf >= LIVE_GATE));
@@ -220,7 +240,7 @@ if (AXIS_DEF.kind === "filter") {
       }
     }
     byCandidate[v] = kept;
-    perAsset[AXIS_DEF.env + "=" + v + " "] = kept.length + " trades at gate " + LIVE_GATE;
+    perAsset[(AXIS_DEF.labelFor ? AXIS_DEF.labelFor(v) : AXIS_DEF.env + "=" + v) + " "] = kept.length + " trades at gate " + LIVE_GATE;
     process.stderr.write("  replayed " + AXIS_DEF.env + "=" + v + " -> "
       + kept.length + " trades\n");
   }
@@ -378,7 +398,7 @@ console.log("=".repeat(78));
 console.log("  " + distinctTrades + " distinct trades IN THE MATRIX, " + T + " " + PERIOD + " periods "
           + periods[0] + " -> " + periods[T - 1]);
 for (const [sym, note] of Object.entries(perAsset)) console.log("    " + sym.padEnd(8) + note);
-console.log("  " + N + " candidates: " + CANDS.join(", "));
+console.log("  " + N + " candidates: " + CANDS.map(v => AXIS_DEF.labelFor ? AXIS_DEF.labelFor(v) : v).join(", "));
 if (empties.length) {
   // A candidate that took no trade at all is not a quiet candidate, it is an
   // absent one. Named rather than dropped in silence.
@@ -396,7 +416,7 @@ for (const g of CANDS) {
   const n = winnerTally[g] || 0;
   const pct = (n / splits.length) * 100;
   const bar = "#".repeat(Math.round(pct / 2));
-  console.log("    " + AXIS.padEnd(5) + " " + String(g).padEnd(4) + String(n).padStart(6) + "  "
+  console.log("    " + AXIS.padEnd(7) + " " + String(AXIS_DEF.labelFor ? AXIS_DEF.labelFor(g) : g).padEnd(8) + String(n).padStart(6) + "  "
             + pct.toFixed(1).padStart(5) + "%  " + bar);
 }
 console.log("");
