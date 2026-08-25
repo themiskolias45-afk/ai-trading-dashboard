@@ -511,7 +511,14 @@ const ASSET_KEY_BY_TICKER = { "BTC-USD": "btc", "GC=F": "gold", "^GSPC": "spx" }
 // starvation that DAILY_RANGE_BY_SYMBOL exists to work around on the Yahoo path.
 // Rather than repeat that bug with a new data source, short MT5 series are refused
 // and the asset falls back to Yahoo.
-const MT5_MIN_BARS = { d1: 200, h4: 50, h1: 50 };
+// m15 added 2026-08-25. NOT on the signal path: generateSignalMTF reads d1/h4/h1
+// and nothing consumes m15. It is carried so tasks/history/*_M15.csv can be topped
+// up from the bridge push instead of needing export_mt5_history.py and a flat book,
+// which is why those files froze at 2026-07-26 while a position stayed open.
+//
+// The floor is low on purpose: a short m15 series is still useful for a top-up,
+// and unlike d1 it cannot starve an indicator because no indicator reads it.
+const MT5_MIN_BARS = { d1: 200, h4: 50, h1: 50, m15: 50 };
 
 // Past this age the bridge is assumed down or wedged and Yahoo takes over. Signals
 // refresh far more often than this, so a healthy bridge never comes close.
@@ -3253,6 +3260,10 @@ app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
         d1: daily,
         h4: sanitizeBars(payload?.bars?.h4, MT5_MIN_BARS.h4),
         h1: sanitizeBars(payload?.bars?.h1, MT5_MIN_BARS.h1),
+        // OPTIONAL, like times and opens. A bridge that has not restarted since m15
+        // shipped sends none, and sanitizeBars returns null for it - which every
+        // reader already handles. Nothing on the signal path looks at this.
+        m15: sanitizeBars(payload?.bars?.m15, MT5_MIN_BARS.m15),
       },
       receivedAt: new Date().toISOString(),
     };

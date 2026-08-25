@@ -823,7 +823,22 @@ def auto_detect_symbols():
 # overlaps the archive and needs nothing. It does carry the worst seed error measured
 # (0.079% on SP500) and 600 would cut that to 0.022% -- worth doing on its own evidence,
 # not folded into a change made for a different reason.
-BAR_COUNT_BY_TIMEFRAME = {"d1": 600, "h4": 400, "h1": 1200}
+# m15 added 2026-08-25 at 4000 bars. NOT for the engine - nothing on the signal path
+# reads m15. It exists so tasks/history/*_M15.csv can be topped up from this push
+# instead of needing export_mt5_history.py and a FLAT BOOK, which is exactly why those
+# files froze at 2026-07-26 and stayed frozen for a month while a position was open.
+#
+# 4000 is sized from the gap it has to close, not picked: 4000 x 15min is ~41 days on
+# a 24/7 instrument, and the CSVs were 30 days stale. A shorter window would leave a
+# HOLE between the cached tail and the new bars, and a hole is worse than staleness -
+# stale gives yesterday, a hole gives a silently wrong series.
+#
+# PAYLOAD BUDGET, measured rather than assumed: the current push serialises to 327KB
+# for 6600 bars, so ~50 bytes a bar. 4000 x 3 assets adds ~600KB for a total near
+# 930KB against express's 2MB limit - about 45%, leaving real headroom. This matters
+# because an oversized push is rejected 413 as a WHOLE and the server silently falls
+# back to Yahoo bars; that has happened here before at ~240KB under an older limit.
+BAR_COUNT_BY_TIMEFRAME = {"d1": 600, "h4": 400, "h1": 1200, "m15": 4000}
 
 # Pushed on its own clock rather than every poll: 1100 bars x 3 symbols is a real
 # payload, and the daily bar the signal engine cares about only closes once a day.
@@ -945,7 +960,10 @@ def push_candles(force=False):
     # five, and why the 413s came in a burst.
     _last_candle_push_at = now
 
-    timeframes = {"d1": mt5.TIMEFRAME_D1, "h4": mt5.TIMEFRAME_H4, "h1": mt5.TIMEFRAME_H1}
+    # m15 is fetched and pushed but NOT read by any signal - see BAR_COUNT_BY_TIMEFRAME
+    # above for why it exists and for the payload budget that makes it safe.
+    timeframes = {"d1": mt5.TIMEFRAME_D1, "h4": mt5.TIMEFRAME_H4,
+                  "h1": mt5.TIMEFRAME_H1, "m15": mt5.TIMEFRAME_M15}
     assets = {}
     for se_ticker, mt5_symbol in SYMBOL_MAP.items():
         bars_by_tf = {}
