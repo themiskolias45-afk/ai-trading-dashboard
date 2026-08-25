@@ -65,7 +65,7 @@ const fs   = require("fs");
 const { execFileSync } = require("child_process");
 
 const ROOT = path.join(__dirname, "..");
-const { cappedRr } = require(path.join(ROOT, "tasks", "_rr_cap.cjs"));
+const { cappedRr, MAX_PLAUSIBLE_RR } = require(path.join(ROOT, "tasks", "_rr_cap.cjs"));
 
 function opt(name, def) {
   const i = process.argv.indexOf(name);
@@ -172,8 +172,15 @@ function runRegime(trades, mode) {
 
     // R for this trade, on exactly the basis mtf_walkforward uses, so the two
     // harnesses cannot disagree about what happened - only about what it was worth.
+    // A live fill carries its REALISED R, derived from the prices it actually got.
+    // A replayed trade carries an outcome and a planned rr. Cost is charged the
+    // same way in both so the two populations stay comparable - but note that on a
+    // live fill the spread is ALREADY inside the realised price, so COST_R is being
+    // charged twice there. That biases --live against both regimes equally and
+    // therefore does not move the comparison, which is the only thing being read.
     let r;
-    if (t.outcome === "WIN")       r = cappedRr(t.rr) - COST_R;
+    if (Number.isFinite(t.liveR))  r = t.liveR - COST_R;
+    else if (t.outcome === "WIN")  r = cappedRr(t.rr) - COST_R;
     else if (t.outcome === "LOSS") r = -(1 + COST_R);
     else continue;                                  // EXPIRED: never resolved
 
@@ -214,9 +221,14 @@ function runRegime(trades, mode) {
   const years = spanMs > 0 ? spanMs / (365.25 * 24 * 3600 * 1000) : 0;
   const perYear = years > 0 ? n / years : 0;
   const sharpe = sd > 0 ? (mean / sd) * Math.sqrt(perYear) : 0;
-  const cagr = (years > 0 && BALANCE > 0 && balance > 0)
+  // Annualising a span shorter than this produces a number that is arithmetically
+  // correct and completely meaningless: 25 days of live fills annualised to +141%.
+  // null, not 0 - "cannot be annualised" and "annualised to nothing" are different
+  // facts and printing 0 would read as the second one.
+  const MIN_YEARS_TO_ANNUALISE = 0.5;
+  const cagr = (years >= MIN_YEARS_TO_ANNUALISE && BALANCE > 0 && balance > 0)
     ? (Math.pow(balance / BALANCE, 1 / years) - 1) * 100
-    : 0;
+    : null;
 
   return {
     mode, trades: n, terminal: balance, netPnl: balance - BALANCE,
@@ -227,8 +239,75 @@ function runRegime(trades, mode) {
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
+// ── --live: the REAL fills, not a replay ────────────────────────────────────
+// Same sizing arithmetic, different population. This is what tasks/sizing_trigger.cjs
+// is asking about - it wants LIVE evidence, and the replay above is not that.
+//
+// It cannot settle anything and does not pretend to. This book has single-digit
+// closed fills per box, far under any floor worth a verdict, so the only honest
+// question it answers is narrow: does the live record CONTRADICT the replay result,
+// or is it merely too small to say? Those are different findings and the output
+// says which one it is.
+//
+// journal.json is PER MACHINE and the boxes trade different accounts. Never pooled.
+function loadLiveFills(journalPath) {
+  let rows;
+  try {
+    const raw = JSON.parse(fs.readFileSync(journalPath, "utf8"));
+    rows = Array.isArray(raw) ? raw : (raw.journal || raw.trades || []);
+  } catch (e) {
+    return { error: e.message, trades: [] };
+  }
+
+  const trades = [];
+  const skipped = {};
+  const skip = (why) => { skipped[why] = (skipped[why] || 0) + 1; };
+
+  for (const t of rows) {
+    if (t.status !== "CLOSED") { skip("still open"); continue; }
+    const entry = Number(t.entry), stop = Number(t.sl), close = Number(t.closePrice);
+    if (![entry, stop, close].every(v => Number.isFinite(v))) { skip("missing entry/stop/close"); continue; }
+    const riskDistance = Math.abs(entry - stop);
+    if (!(riskDistance > 0)) { skip("zero stop distance"); continue; }
+    if (!SPECS[t.symbol]) { skip("no broker spec for " + t.symbol); continue; }
+
+    // Same formula as server/index.js realizedRFromPrices, capped by the SHARED
+    // _rr_cap so a collapsed stop cannot score +298R here either.
+    const isShort = String(t.direction || "").toUpperCase().startsWith("S");
+    const movement = isShort ? entry - close : close - entry;
+    const rawR = movement / riskDistance;
+    if (!Number.isFinite(rawR)) { skip("R not finite"); continue; }
+    const r = rawR > 0 ? cappedRr(rawR) : Math.max(rawR, -MAX_PLAUSIBLE_RR);
+
+    const when = Date.parse(t.closeTime || t.openTime || "");
+    trades.push({
+      symbol: t.symbol, risk: riskDistance, liveR: r,
+      t: Number.isFinite(when) ? when : 0,
+      actualPnl: Number.isFinite(Number(t.pnl)) ? Number(t.pnl) : null,
+      actualLots: Number(t.volume) || null,
+      setup: t.setup || null,
+    });
+  }
+  trades.sort((a, b) => a.t - b.t);
+  return { trades, skipped };
+}
+
 const all = [];
 const perAssetNote = {};
+const LIVE = process.argv.includes("--live");
+const JOURNAL = opt("--journal", path.join(ROOT, "server", "journal.json"));
+
+if (LIVE) {
+  const loaded = loadLiveFills(JOURNAL);
+  if (loaded.error) {
+    console.error("Could not read " + JOURNAL + ": " + loaded.error);
+    process.exit(1);
+  }
+  for (const t of loaded.trades) all.push(t);
+  for (const [why, n] of Object.entries(loaded.skipped || {})) {
+    perAssetNote["skipped: " + why] = String(n);
+  }
+} else {
 for (const [symbol, ticker] of ASSETS) {
   let trades;
   try {
@@ -249,6 +328,7 @@ for (const [symbol, ticker] of ASSETS) {
   // book's ~100 trades/year into 48,180/year and printed a CAGR of 6.2e+30%. Range
   // -checked rather than trusted, so a future replay that switches to milliseconds
   // is caught instead of being multiplied by a thousand a second time.
+  /* eslint-disable no-unused-vars */
   for (const t of kept) {
     const secs = Number(t.t);
     if (!Number.isFinite(secs) || secs <= 0) continue;
@@ -257,6 +337,7 @@ for (const [symbol, ticker] of ASSETS) {
     all.push({ ...t, symbol, t: ms });
   }
 }
+}   // end replay branch
 
 all.sort((a, b) => a.t - b.t);
 
@@ -284,7 +365,7 @@ if (process.argv.includes("--sweep")) {
   const show = (label, row, floored, capped) => {
     console.log("  " + pad(label, 10)
       + pad((row.returnPct >= 0 ? "+" : "") + row.returnPct.toFixed(1) + "%", 11)
-      + pad((row.cagr >= 0 ? "+" : "") + row.cagr.toFixed(1) + "%", 10)
+      + pad(row.cagr === null ? "n/a" : (row.cagr >= 0 ? "+" : "") + row.cagr.toFixed(1) + "%", 10)
       + pad(row.maxDDPct.toFixed(1) + "%", 10)
       + pad(row.sharpe.toFixed(2), 9)
       + pad(row.maxDDPct > 0 ? (row.returnPct / row.maxDDPct).toFixed(2) : "-", 9)
@@ -422,7 +503,7 @@ for (const r of [fixed, risk]) {
   console.log("  " + r.mode.padEnd(9)
     + r.terminal.toFixed(0).padEnd(13)
     + pct(r.returnPct).padEnd(11)
-    + pct(r.cagr).padEnd(10)
+    + (r.cagr === null ? "n/a" : pct(r.cagr)).padEnd(10)
     + r.maxDDPct.toFixed(1).concat("%").padEnd(10)
     + r.sharpe.toFixed(2));
 }
