@@ -949,16 +949,68 @@ function emaSeries(closes, period) {
   return out;
 }
 
+// WILDER'S RSI, not a simple average. Corrected 2026-08-25.
+//
+// This used to sum gains and losses over the LAST 14 BARS ONLY and divide by 14.
+// That is a simple moving average of gains and losses; it is not RSI. Wilder (1978)
+// — which is what MT5, TradingView and every published study compute — smooths those
+// averages exponentially at alpha = 1/period, seeded on the first `period` bars and
+// carried through the ENTIRE series.
+//
+// Measured on the live D1 cache the day this was found:
+//
+//     symbol    old      Wilder    error
+//     BTCUSD    91.6      85.5     -6.1
+//     XAUUSD    81.3      72.3     -9.0
+//     SP500     39.1      52.2    +13.1
+//
+// Six to thirteen points, AND THE SIGN CHANGES. The MOMENTUM ceiling is 72 and
+// rsi_ceiling_walkforward sweeps the band in 8-point steps, so the measurement error
+// was larger than a whole step of the thing being swept. A simple average also
+// whipsaws as bars enter and leave the 14-bar window where Wilder smooths, which is
+// the likeliest reason CSCV found the ceiling axis anti-predictive (PBO 60.5%) and
+// the entry-RSI floor inverted (95.0%): a threshold cannot be learned on a
+// mis-measured, jittery input.
+//
+// EVERY RSI THRESHOLD IN THIS PROJECT WAS CALIBRATED ON THE OLD NUMBER — the 72/68
+// ceilings, "needs RSI below 50", minEntryRsi, the oversold bands. tasks/_replay_mtf
+// sandboxes generateSignal out of this same file, so the replays were internally
+// consistent with the wrong indicator rather than immune to it. This correction
+// re-points all of them and they MUST be re-measured against it, not assumed to
+// carry over.
+//
+// Needs the whole series, not a 14-bar tail: the smoothing has memory, which is the
+// entire point of it. O(n) over the bars already in hand, so the cost is nil.
 function calcRSI(closes, period = 14) {
-  if (closes.length < period + 1) return null;
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
+  if (!Array.isArray(closes) || closes.length < period + 1) return null;
+
+  // Seed: the simple average of the first `period` changes. This is the one place a
+  // simple mean is correct — Wilder defines the seed that way.
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
     const d = closes[i] - closes[i - 1];
-    if (d > 0) gains += d; else losses -= d;
+    if (d > 0) avgGain += d; else avgLoss -= d;
   }
-  const ag = gains / period, al = losses / period;
-  if (al === 0) return 100;
-  return parseFloat((100 - 100 / (1 + ag / al)).toFixed(1));
+  avgGain /= period;
+  avgLoss /= period;
+
+  // Then smooth forward across every remaining bar.
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    const gain = d > 0 ? d : 0;
+    const loss = d < 0 ? -d : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+
+  // No down-closes in the whole smoothed history: RSI is 100 by definition. Kept
+  // identical to the old behaviour so this branch is not a new one.
+  if (avgLoss === 0) return 100;
+  // A non-finite value here would propagate silently into every threshold that reads
+  // it; null means "not computable" and every caller already handles it.
+  const rsi = 100 - 100 / (1 + avgGain / avgLoss);
+  if (!Number.isFinite(rsi)) return null;
+  return parseFloat(rsi.toFixed(1));
 }
 
 function calcBB(closes, period = 20, mult = 2) {
