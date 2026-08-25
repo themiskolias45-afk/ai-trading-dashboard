@@ -17,7 +17,9 @@
 #      version it was added at and will not recompile it on a save
 #   4. re-runs the daily check ONLY if its last result was a failure
 #   5. runs the coverage audit and reports the RED count
-#   6. sends ONE Telegram summary -- outbound was verified working 2026-08-24
+#   6. names WHY confidence is zero, if it is -- the near-miss census has always had
+#      the answer and nothing on the human path ever read it
+#   7. sends ONE Telegram summary -- outbound was verified working 2026-08-24
 #
 # It is SAFE TO RUN AT ANY TIME. Every step is either a no-op when already done, or
 # idempotent. It never kills a process, never deletes a file, and never touches
@@ -154,7 +156,33 @@ if (Test-Path $audit) {
   } catch { Note 'audit' ('ERROR ' + $_.Exception.Message) }
 }
 
-# ---- 7. one Telegram summary ------------------------------------------------
+# ---- 7. why is confidence zero ----------------------------------------------
+# Standing question from the user, asked over several sessions: 'that is not possible,
+# 2 days now all the assets 0 confidence'. It was answered from the code twice and the
+# answer was incomplete both times, because /api/near-miss already recorded exactly
+# which condition killed each setup and by how much -- and nothing a human looks at
+# ever read it. Measured 2026-08-25: 8 of 8 near-misses were RSI_ABOVE_CEILING, Gold's
+# MOMENTUM missing by 0.5 of a point.
+#
+# READ-ONLY and always exits 0. It never changes a setting and never moves the ceiling.
+$whyZero = Join-Path $proj 'tasks\why_zero_confidence.cjs'
+if (Test-Path $whyZero) {
+  Say 'step 7: why is confidence zero'
+  try {
+    $why = & node $whyZero 2>&1
+    $verdict = $why | Where-Object { $_ -match '^\s*VERDICT:' } | Select-Object -Last 1
+    $noDiag  = $why | Where-Object { $_ -match 'NO DIAGNOSIS' } | Select-Object -First 1
+    if ($verdict) { Note 'whyZero' ($verdict.ToString().Trim()) }
+    elseif ($noDiag) { Note 'whyZero' 'NO DIAGNOSIS - census unreadable, server may be down' }
+    else { Note 'whyZero' 'no near-miss rows - quiet market' }
+    # Keep the full report so the next session reads evidence, not a summary of one.
+    $why | Set-Content -Path (Join-Path $logDir 'why_zero_confidence.txt') -Encoding utf8
+  } catch { Note 'whyZero' ('ERROR ' + $_.Exception.Message) }
+} else {
+  Note 'whyZero' 'why_zero_confidence.cjs ABSENT'
+}
+
+# ---- 8. one Telegram summary ------------------------------------------------
 # Outbound was verified delivering on 2026-08-24. Inbound is permanently 409 while a
 # Supabase webhook is registered on the bot, so this is one-way BY DESIGN.
 # notifications.py does NOT send to Telegram -- it is toast + webhook only. The
