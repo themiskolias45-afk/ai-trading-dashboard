@@ -2,6 +2,14 @@
   "version": 1,
   "entries": [
     {
+      "key": "BROKER_SPECS_ROUTE_20260825",
+      "value": "GET /api/broker-specs (session-gated, read-only, both boxes, commit 41fab55) returns the broker contract specs the bridge pushes plus what the live or ?lot= previewed fixedLotSize actually becomes per symbol, and whether it arms take_partial_profit. Measured: BTCUSD min 0.01 step 0.01, XAUUSD min 0.01 step 0.01, SP500 min 0.1 step 0.1. lot 0.01 arms nothing anywhere (the system's whole history); 0.02 arms BTCUSD+XAUUSD; 0.20 arms SP500 too; 0 reports unknown because sizing is risk-based. The partial arithmetic mirrors mt5_bridge.py:2133-2135 deliberately - if that Python changes, change the route with it. minLot/lotStep had zero readers before this.",
+      "category": "CODE",
+      "source": "manual",
+      "created_at": "2026-08-25T01:56:45.406833+00:00",
+      "updated_at": "2026-08-25T01:56:45.406833+00:00"
+    },
+    {
       "key": "memory-py-died-on-the-other-writers-rows",
       "value": "memory.py add/recall raised KeyError 'key' from 2026-08-24T20:33 until 2026-08-25 02:35. Cause: server/index.js appends {ts,tag,text} SESSION-END rows to the SAME tasks/jarvis_memory.json that memory.py owns, and add_memory/recall/forget indexed e[\"key\"] directly. One /learn row killed every write_memory and every recall for a day. Fixed by _owned(entries), which yields only rows shaped {key,...}; foreign rows are skipped, never rewritten, never dropped. Two writers, one file, two shapes - grep the OTHER writer before assuming a shape.",
       "category": "CODE",
@@ -495,5 +503,5 @@
       "text": "2026-08-24 eve. ALL THREE TV CHARTS REPOINTED to the current script (GOLD/BTC/SPX = 'JARVIS Daily Plan 08-24 20:12', 10 studies each, layouts saved). Root cause: TradingView PINS a study to the script version it was added at; the save was always fine (proved by reload + reading the editor from the server). New command: `python tradingview_bot.py repoint [SYMBOL|all]`. Chart no longer draws price lines on a WAIT - pivots moved to a Pivots panel row; 1D/4H measured reads now render. SmartEntry TV Daily Plan task verified exit 0. 529 transient parking deployed to BOTH boxes (morning agent + daily check had silently dropped a day's work). Telegram outbound VERIFIED delivering; inbound permanently 409 while the Supabase webhook exists - user decision. Coverage audit 2 RED -> 1 RED (Daily Check, historical 529, clears on next run). SELF-INFLICTED: stray Delete keys corrupted the Pine source and Ctrl+S saved it; fixed, and make_focus_safe() now gates every Delete/Ctrl+S."
     }
   ],
-  "last_updated": "2026-08-25T01:33:50.621956+00:00"
+  "last_updated": "2026-08-25T01:56:45.406833+00:00"
 }
