@@ -18,7 +18,13 @@
 
 // Bump this when the shell changes. Old caches under the same prefix are removed on
 // activate; nothing outside this prefix is ever touched.
-const CACHE = "smartentry-shell-v1";
+// v2 on 2026-08-25: two pages were added (/strategy, /report) and nav.js gained a row
+// for each. Bumped as hygiene, NOT as a fix - it was briefly blamed for the new pages
+// not showing and that was wrong. nav.js is not in SHELL, the fetch handler is
+// network-first, and express serves nav.js with max-age=0 plus an ETag, so the browser
+// revalidates it on every load. Neither this worker nor the HTTP cache can serve a
+// stale rail. Still bump this whenever a page is added, renamed or removed.
+const CACHE = "smartentry-shell-v2";
 const SHELL = [
   "./index.html",
   "./theme.css",
