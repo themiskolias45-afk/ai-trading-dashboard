@@ -29,8 +29,12 @@
  *     instead of only appending past the end — an append-only merge would have preserved a
  *     wrong bar forever.
  *
- * M15 IS NOT COVERED. The bridge pushes d1/h4/h1 only. M15 still needs the exporter and a
- * flat book. Do not report the bar cache as fixed on the strength of this tool.
+ * M15 IS COVERED SINCE 2026-08-25. It was not before: the bridge pushed d1/h4/h1 only,
+ * so M15 stayed frozen at 2026-07-26 for a month while a position kept the book from
+ * ever being flat. The bridge now pushes 4000 M15 bars per asset - sized to overlap a
+ * ~30 day gap rather than leave a hole, and measured at ~43% of the 2MB body limit
+ * before it shipped. A box whose bridge has not restarted yet simply reports m15 as
+ * unreadable and leaves that CSV untouched.
  *
  * NOTHING IS DELETED AND NOTHING IS DROPPED. Every existing CSV row survives: the merge
  * keeps the CSV row set and overlays the API bars on top of it, so a bar the exporter has
@@ -57,7 +61,14 @@ const SERVER = process.env.SMARTENTRY_URL || "http://localhost:3001";
 const ASSETS = { btc: "BTCUSD", gold: "XAUUSD", spx: "SP500" };
 // API bar-series key -> CSV filename suffix. M15 is absent by design: the bridge does not
 // push it, and inventing it from a coarser series would be fabricated history.
-const TIMEFRAMES = { d1: "D1", h4: "H4", h1: "H1" };
+// m15 added 2026-08-25, once the bridge started pushing it. Until then this tool
+// could not touch M15 and that file stayed frozen at 2026-07-26 for a month, because
+// its only other writer - export_mt5_history.py - refuses while a position is open.
+//
+// A series the push does not carry is SKIPPED with a reason, never invented, so a box
+// whose bridge has not restarted yet simply reports m15 as unreadable and leaves the
+// CSV exactly as it found it.
+const TIMEFRAMES = { d1: "D1", h4: "H4", h1: "H1", m15: "M15" };
 
 const CSV_HEADER = "time,open,high,low,close,tick_volume";
 // The exporter writes prices to five decimals for every instrument. Matching it keeps the
@@ -264,8 +275,12 @@ async function main() {
   const changing = planned.filter(p => p.added || p.corrected);
   log("");
   log("  " + planned.length + " series readable, " + changing.length + " with changes, " + skipped.length + " skipped.");
-  log("  M15 is not covered by this tool — the bridge does not push it. It still needs "
-    + "export_mt5_history.py on a flat book.");
+  // log() here takes ONE argument. The version of this line I first wrote passed a
+  // colour constant as a second, and CYAN is not defined in this file - it threw
+  // AFTER the report had printed, which is the worst place for it: the output looked
+  // complete and the run had actually failed.
+  log("  M15 is covered since 2026-08-25 — the bridge pushes 4000 M15 bars per asset. "
+    + "A box whose bridge has not restarted since will show m15 as unreadable above.");
 
   if (!changing.length) {
     log("Nothing to write. Files are untouched.");
