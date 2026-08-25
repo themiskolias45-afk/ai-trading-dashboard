@@ -735,6 +735,45 @@ const STRATEGY_LIMITS = {
   // This matters MORE since the gate moved to 50: at 70 the cohort could not fire
   // on BTC or SPX at all, and now it can.
   dailyOnlyMinConfidence: { min: 0, max: 100, def: 0 },
+  // The two RSI CEILINGS - the upper bound MOMENTUM and TREND_FOLLOW may not
+  // cross. Added here 2026-08-25 because the engine already READ them
+  // (strategySettings.momentumRsiMax, index.js ~1237) while this table carried
+  // neither key. Both the POST handler and loadStrategySettings iterate
+  // Object.keys(STRATEGY_LIMITS), so the ceiling could not be set by ANY
+  // supported means: the POST silently dropped it, a hand-edited
+  // strategy_settings.json was never loaded, and saveStrategySettings wiped the
+  // hand-edit on the next save. A READER WITH NO WRITER - the exact inverse of
+  // the Auto Trade mode cards, which wrote state nothing read.
+  //
+  // DEFAULTS ARE THE OLD FALLBACKS. 72 and 68 are the literals the engine used
+  // when the key was absent, so adding these keys changes no signal on either
+  // box. It makes the ceiling MOVABLE; it does not move it.
+  //
+  // WHY THESE BOUNDS. Each min is the LOWEST VALUE THE SWEEP ACTUALLY MEASURED
+  // (momentum 56, trendFollow 52) and max 100 keeps the "no ceiling" row
+  // reachable. A value nobody measured should not be one click away.
+  //
+  // The floor matters more than it looks. MOMENTUM_RSI_MIN is 52 and
+  // TREND_FOLLOW_RSI_MIN is 45, and a ceiling at or below its own floor makes
+  // that window EMPTY - the setup then dies in silence, which is the one failure
+  // this system must never introduce by config. clampStrategyValue turns an
+  // explicit null into 0 and then into `min`, so a min of 50 would have let
+  // `{"momentumRsiMax": null}` kill MOMENTUM outright. Caught by tracing the
+  // value, not by reading it. These mins sit above both floors, so no reachable
+  // setting can empty either window.
+  //
+  // This does NOT constrain measurement: tasks/rsi_ceiling_walkforward.cjs sweeps
+  // through MTF_MOMENTUM_RSI_MAX / MTF_TREND_FOLLOW_RSI_MAX in the environment,
+  // never through this table, so lower values stay measurable.
+  //
+  // MEASURED 2026-08-25, both boxes, three independent cuts, identical numbers:
+  //   72/68 (ships today)  worst fold -0.145 / -0.105 / -0.106,  2 of 5 folds
+  //   80/76                worst fold +0.114 / +0.005 / +0.157,  5 of 5 folds
+  // The middle figure is equal-time folds and +0.005 is a hair above zero, so
+  // 80/76 is not the slam dunk the other two cuts make it look. Re-measure with
+  // tasks/offline.bat ceiling before moving either number.
+  momentumRsiMax:    { min: 56, max: 100, def: 72 },
+  trendFollowRsiMax: { min: 52, max: 100, def: 68 },
 };
 
 // Minimum signal strength AUTO mode will trade.
@@ -762,6 +801,11 @@ let strategySettings = {
   adxTrendingMin:         STRATEGY_LIMITS.adxTrendingMin.def,
   minEntryRsi:            STRATEGY_LIMITS.minEntryRsi.def,
   dailyOnlyMinConfidence: STRATEGY_LIMITS.dailyOnlyMinConfidence.def,
+  // Seeded explicitly so GET /api/strategy-settings SHOWS the live ceiling
+  // instead of omitting it. Reading 72 here and reading nothing both make the
+  // engine use 72, but only one of them tells you that.
+  momentumRsiMax:         STRATEGY_LIMITS.momentumRsiMax.def,
+  trendFollowRsiMax:      STRATEGY_LIMITS.trendFollowRsiMax.def,
   minStrength:            "MODERATE",
   // Scale 50% out at 1R and move the stop to breakeven. FALSE is not a new
   // restriction - it is the behaviour every trade in this journal was managed
