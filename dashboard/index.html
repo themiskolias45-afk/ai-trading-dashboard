@@ -1479,6 +1479,27 @@
         <input id="ss-maxlot" type="number" step="0.01" style="width:90px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
         <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-maxlot-hint">hard ceiling on any single trade</div>
       </div>
+      <!-- The two RSI CEILINGS. These are the single biggest reason this system sits at
+           confidence 0: measured 2026-08-25 on both boxes, 8 of 8 near-misses failed on
+           RSI_ABOVE_CEILING, Gold's MOMENTUM missing by 0.5 of a point. They were
+           readable by the engine but had no writer at all until 2026-08-25, and no
+           control here until now - so the top blocker on how often this thing trades was
+           the one number nobody could touch.
+
+           RAISING a ceiling ADMITS MORE SETUPS. It can never suppress one. The walk-
+           forward (tasks/offline.bat ceiling) makes 72/68 positive in 2 of 5 folds and
+           80/76 in 5 of 5 across three independent cuts - but 80/76's equal-time worst
+           fold is +0.005, a hair above zero, so this is a judgement, not a free win. -->
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">RSI Ceiling — Momentum</div>
+        <input id="ss-momceil" type="number" step="1" style="width:90px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-momceil-hint">MOMENTUM will not fire at or above this RSI</div>
+      </div>
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">RSI Ceiling — Trend Follow</div>
+        <input id="ss-tfceil" type="number" step="1" style="width:90px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-tfceil-hint">TREND_FOLLOW will not fire at or above this RSI</div>
+      </div>
       <div>
         <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Min Strength (auto)</div>
         <select id="ss-minstrength" style="width:130px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
@@ -4913,6 +4934,11 @@ async function loadStrategySettings() {
     document.getElementById('ss-maxtrades').value  = s.maxTradesPerDay;
     document.getElementById('ss-fixedlot').value   = s.fixedLotSize;
     document.getElementById('ss-maxlot').value     = s.maxLotSize;
+    // Only populated when the server actually sends them. A server without these keys
+    // leaves both boxes BLANK, and blank is handled explicitly at save time rather than
+    // being coerced to a number.
+    if (Number.isFinite(s.momentumRsiMax))    document.getElementById('ss-momceil').value = s.momentumRsiMax;
+    if (Number.isFinite(s.trendFollowRsiMax)) document.getElementById('ss-tfceil').value  = s.trendFollowRsiMax;
     if (s.minStrength) document.getElementById('ss-minstrength').value = s.minStrength;
     // Strict === true. Anything else - undefined from an older server, a string -
     // reads as OFF, because the failure direction that costs money is showing OFF
@@ -4927,9 +4953,19 @@ async function loadStrategySettings() {
       document.getElementById('ss-maxtrades-hint').textContent  = `resets at midnight (${range('maxTradesPerDay')})`;
       document.getElementById('ss-fixedlot-hint').textContent   = `0 = size from risk, else always this size (${range('fixedLotSize')})`;
       document.getElementById('ss-maxlot-hint').textContent     = `hard ceiling on any single trade (${range('maxLotSize')})`;
-      ['ss-confidence','ss-slots','ss-maxtrades','ss-fixedlot','ss-maxlot'].forEach((id, i) => {
-        const key = ['confidenceThreshold','maxConcurrentPositions','maxTradesPerDay','fixedLotSize','maxLotSize'][i];
+      // Guarded on the key existing: this page is served by BOTH boxes and one of them
+      // may not carry the ceiling keys yet. Reading .min off undefined would throw here
+      // and take the whole settings panel down with it.
+      if (strategyLimits.momentumRsiMax) {
+        document.getElementById('ss-momceil-hint').textContent = `MOMENTUM will not fire at or above this RSI (${range('momentumRsiMax')})`;
+      }
+      if (strategyLimits.trendFollowRsiMax) {
+        document.getElementById('ss-tfceil-hint').textContent  = `TREND_FOLLOW will not fire at or above this RSI (${range('trendFollowRsiMax')})`;
+      }
+      ['ss-confidence','ss-slots','ss-maxtrades','ss-fixedlot','ss-maxlot','ss-momceil','ss-tfceil'].forEach((id, i) => {
+        const key = ['confidenceThreshold','maxConcurrentPositions','maxTradesPerDay','fixedLotSize','maxLotSize','momentumRsiMax','trendFollowRsiMax'][i];
         const el = document.getElementById(id);
+        if (!el || !strategyLimits[key]) return;
         el.min = strategyLimits[key].min;
         el.max = strategyLimits[key].max;
       });
@@ -5057,6 +5093,23 @@ async function saveStrategySettings() {
     minStrength:            document.getElementById('ss-minstrength').value,
     partialCloseEnabled:    document.getElementById('ss-partial').value === 'on',
   };
+  // The RSI ceilings are added ONLY when their box holds a real number.
+  //
+  // This is not defensive padding, it is the difference between a no-op and a silent
+  // change to what trades. A server that does not send these keys leaves the input
+  // EMPTY, and Number('') is 0, not NaN. Sent as 0, clampStrategyValue would raise it
+  // to the minimum of 56 - narrowing the MOMENTUM window from 52-72 down to 52-56 and
+  // nearly killing the setup, from a field the user never touched. An absent key is
+  // simply not sent, and the server keeps what it has.
+  for (const [id, key] of [['ss-momceil','momentumRsiMax'], ['ss-tfceil','trendFollowRsiMax']]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const raw = el.value.trim();
+    if (raw === '') continue;
+    const value = Number(raw);
+    if (Number.isFinite(value)) body[key] = value;
+  }
+
   // The dialog used to recite a fixed three-line list - confidence, slots, trades -
   // while the body above sends SIX fields. fixedLotSize, maxLotSize and minStrength
   // were changed without ever being named. On 2026-08-24 at 14:26 fixedLotSize went
@@ -5070,6 +5123,8 @@ async function saveStrategySettings() {
     maxLotSize:             "Max lot size",
     minStrength:            "Min strength",
     partialCloseEnabled:    "Scale out at 1R",
+    momentumRsiMax:         "RSI ceiling (momentum)",
+    trendFollowRsiMax:      "RSI ceiling (trend follow)",
   };
   // true/false read badly in a confirm dialog next to numbers.
   const fmtSetting = v => (v === true ? "ON" : v === false ? "OFF" : String(v));
