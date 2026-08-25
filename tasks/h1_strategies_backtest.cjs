@@ -296,7 +296,15 @@ const out = {
   stated: { stopAtr: ATR_MULT, targetR: TARGET_R, holdBars: HOLD_BARS },
   interpreted: { lookbackBars: LOOKBACK, dipAtrs: DIP_ATRS, pullbackAtrs: PULLBACK_ATRS,
                  trend: "H1 EMA200" },
-  params: { costR: COST_R, costBasis: COST_BASIS, basisNote: describeBasis(COST_BASIS), folds: FOLDS, trials: TRIALS },
+    // costR is null under perasset because there IS no single number: each trade was
+  // charged its own spread over its own risk. Reporting the flat 0.05 here while
+  // costBasis says "perasset" made the block describe a run that never happened.
+  params: {
+    costR: COST_BASIS === "perasset" ? null : COST_R,
+    costBasis: COST_BASIS,
+    basisNote: describeBasis(COST_BASIS),
+    folds: FOLDS, trials: TRIALS,
+  },
   rows,
   caveats: [
     "Stops, targets and the one-day exit are STATED in the report and implemented exactly.",
@@ -312,7 +320,11 @@ const out = {
 if (AS_JSON) {
   const dir = path.join(ROOT, "tasks", "analysis");
   fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, "h1-strategies-backtest.json");
+    // The basis is in the filename so a per-asset run cannot overwrite the flat
+  // headline result, and a reader cannot pick up one thinking it is the other.
+  const p = path.join(dir, COST_BASIS === "perasset"
+    ? "h1-strategies-backtest-perasset.json"
+    : "h1-strategies-backtest.json");
   fs.writeFileSync(p, JSON.stringify(out, null, 2));
   console.log(p);
   process.exit(0);
