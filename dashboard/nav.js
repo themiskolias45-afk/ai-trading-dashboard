@@ -34,6 +34,8 @@
     { sep: true },
     { href: "/strategy", label: "Strategy",
       match: ["/strategy", "/dashboard/strategy.html"] },
+    { href: "/report", label: "Robustness",
+      match: ["/report", "/dashboard/report.html"] },
     { href: "/dashboard/performance.html", label: "Performance",
       match: ["/dashboard/performance.html", "/performance"] },
     { href: "/system", label: "System",

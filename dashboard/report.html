@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartEntry Pro — Robustness Report</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
+      --text:#e2e8f0; --muted:#6b83a8; --muted-dim:#4a6080; --accent:#7c3aed;
+      --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
+      --font:'Segoe UI',system-ui,Arial,sans-serif;
+    }
+    body { background:var(--bg); color:var(--text); font-family:var(--font); min-height:100vh; font-size:14px; }
+    header {
+      background:var(--surface); border-bottom:1px solid var(--border);
+      padding:12px 24px; display:flex; align-items:center; justify-content:space-between;
+      position:sticky; top:0; z-index:100; flex-wrap:wrap; gap:10px;
+    }
+    .logo { display:flex; align-items:center; gap:10px; }
+    .logo-mark {
+      width:32px; height:32px; background:linear-gradient(135deg,var(--accent),#4f46e5);
+      border-radius:8px; display:flex; align-items:center; justify-content:center;
+      font-weight:900; font-size:16px; color:#fff;
+    }
+    .logo-text { font-size:1rem; font-weight:700; }
+    .logo-sub  { font-size:.65rem; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
+    .pill { padding:4px 12px; border-radius:20px; font-size:.72rem; font-weight:700;
+            background:var(--surface); border:1px solid var(--border2); color:var(--muted); }
+
+    .container { padding:20px 24px; max-width:1400px; margin:0 auto; }
+
+    h1 { font-size:1.4rem; font-weight:800; letter-spacing:-.01em; }
+    .sub-line { font-size:.75rem; color:var(--muted); margin-top:5px; line-height:1.6; }
+
+    .banner {
+      background:#1a160a; border:1px solid var(--yellow); border-radius:8px;
+      padding:11px 16px; margin:14px 0 18px; font-size:.74rem; color:var(--yellow); line-height:1.65;
+    }
+    .banner strong { color:#fde68a; }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px;
+            overflow:hidden; margin-bottom:16px; }
+    .card-head { padding:11px 16px; border-bottom:1px solid var(--border); font-size:.78rem;
+                 font-weight:700; display:flex; justify-content:space-between; align-items:center;
+                 gap:10px; flex-wrap:wrap; }
+    .card-head .sub { font-size:.67rem; font-weight:400; color:var(--muted); }
+    .card-body { padding:14px 16px; }
+
+    .grid2 { display:grid; grid-template-columns:1.55fr 1fr; gap:16px; }
+    .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+    @media(max-width:1050px){ .grid2,.grid3{ grid-template-columns:1fr; } }
+
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
+    .stat { background:var(--surface); border:1px solid var(--border2); border-radius:9px;
+            padding:13px 15px; text-align:center; }
+    .stat .v { font-size:1.5rem; font-weight:800; font-variant-numeric:tabular-nums; }
+    .stat .l { font-size:.63rem; color:var(--muted); margin-top:4px; line-height:1.4; }
+
+    svg { display:block; width:100%; height:auto; }
+    .axis { font-size:9px; fill:var(--muted-dim); }
+
+    table { border-collapse:collapse; width:100%; font-size:.72rem; }
+    th { text-align:center; padding:5px 4px; font-size:.6rem; text-transform:uppercase;
+         letter-spacing:.07em; color:var(--muted); font-weight:700; }
+    td { padding:4px 3px; text-align:center; font-variant-numeric:tabular-nums; }
+    td.yr { text-align:left; color:var(--muted); font-weight:700; padding-left:6px; }
+    td.tot { font-weight:800; padding-left:8px; }
+    .cell { border-radius:3px; padding:3px 2px; display:block; font-size:.66rem; }
+
+    .note { background:#0b1119; border:1px solid var(--border2); border-radius:8px;
+            padding:12px 16px; font-size:.71rem; color:var(--muted); line-height:1.75; }
+    .note strong { color:var(--text); }
+    .loading { padding:40px 16px; text-align:center; color:var(--muted); font-size:.8rem; }
+    .pos { color:var(--green); } .neg { color:var(--red); } .dim { color:var(--muted); }
+  </style>
+  <script src="/dashboard/nav.js" defer></script>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">SE</div>
+    <div>
+      <div class="logo-text">SmartEntry Pro</div>
+      <div class="logo-sub">Robustness Report</div>
+    </div>
+  </div>
+  <div class="pill" id="hdr-meta">loading…</div>
+</header>
+
+<div class="container" id="root">
+  <div class="loading">reading the replay…</div>
+</div>
+
+<script>
+"use strict";
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+function f1(v){ return (v>=0?"+":"") + Number(v).toFixed(1); }
+function money(v){ return "$" + Math.round(v).toLocaleString(); }
+
+// ── the Monte-Carlo fan ─────────────────────────────────────────────────────
+// Bands are drawn from the percentile columns the harness already computed; the
+// page never resamples anything itself.
+function fanSvg(fan) {
+  if (!fan || fan.length < 2) return '<div class="dim">no fan data</div>';
+  var W = 760, H = 300, PL = 58, PR = 10, PT = 12, PB = 26;
+  var maxT = fan[fan.length-1].trade || 1;
+  var hi = 0;
+  fan.forEach(function(p){ hi = Math.max(hi, p.p95, p.actual); });
+  hi = hi * 1.04;
+  var x = function(t){ return PL + (t/maxT) * (W-PL-PR); };
+  var y = function(v){ return PT + (1 - v/hi) * (H-PT-PB); };
+
+  function band(loKey, hiKey, fill, op) {
+    var up = fan.map(function(p){ return x(p.trade)+","+y(p[hiKey]); }).join(" ");
+    var dn = fan.slice().reverse().map(function(p){ return x(p.trade)+","+y(p[loKey]); }).join(" ");
+    return '<polygon points="'+up+" "+dn+'" fill="'+fill+'" opacity="'+op+'"/>';
+  }
+  function line(key, stroke, w) {
+    return '<polyline points="'+fan.map(function(p){ return x(p.trade)+","+y(p[key]); }).join(" ")
+         + '" fill="none" stroke="'+stroke+'" stroke-width="'+w+'"/>';
+  }
+  var ticks = "";
+  for (var k=0;k<=4;k++){
+    var v = hi*k/4;
+    ticks += '<line x1="'+PL+'" y1="'+y(v)+'" x2="'+(W-PR)+'" y2="'+y(v)+'" stroke="#1a2235"/>'
+          +  '<text class="axis" x="'+(PL-6)+'" y="'+(y(v)+3)+'" text-anchor="end">'+money(v)+'</text>';
+  }
+  return '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">'
+    + ticks
+    + band("p5","p95","#3b82f6",0.13)
+    + band("p25","p75","#3b82f6",0.26)
+    + line("p50","#e2e8f0",1.4)
+    + line("actual","#eab308",2)
+    + '<text class="axis" x="'+PL+'" y="'+(H-8)+'">0</text>'
+    + '<text class="axis" x="'+(W-PR)+'" y="'+(H-8)+'" text-anchor="end">'+maxT+' trades</text>'
+    + '</svg>';
+}
+
+// ── a histogram, with the actual result marked ──────────────────────────────
+function histSvg(h, colour, actual, unit) {
+  if (!h || !h.counts) return '<div class="dim">no data</div>';
+  var W = 360, H = 190, PL = 34, PR = 8, PT = 10, PB = 24;
+  var max = Math.max.apply(null, h.counts) || 1;
+  var bw = (W-PL-PR) / h.counts.length;
+  var bars = h.counts.map(function(c,i){
+    var bh = (c/max)*(H-PT-PB);
+    return '<rect x="'+(PL+i*bw)+'" y="'+(H-PB-bh)+'" width="'+Math.max(1,bw-1)+'" height="'+bh+'" fill="'+colour+'"/>';
+  }).join("");
+  var mark = "";
+  if (actual !== null && actual !== undefined && isFinite(actual)) {
+    var ax = PL + ((actual - h.lo)/(h.hi - h.lo))*(W-PL-PR);
+    if (ax >= PL && ax <= W-PR) {
+      mark = '<line x1="'+ax+'" y1="'+PT+'" x2="'+ax+'" y2="'+(H-PB)+'" stroke="#eab308" stroke-width="2"/>'
+           + '<text class="axis" x="'+(ax+4)+'" y="'+(PT+10)+'" fill="#eab308">actual</text>';
+    }
+  }
+  return '<svg viewBox="0 0 '+W+' '+H+'">'+bars+mark
+    + '<text class="axis" x="'+PL+'" y="'+(H-8)+'">'+h.lo.toFixed(0)+unit+'</text>'
+    + '<text class="axis" x="'+(W-PR)+'" y="'+(H-8)+'" text-anchor="end">'+h.hi.toFixed(0)+unit+'</text>'
+    + '</svg>';
+}
+
+// ── the monthly heat map ────────────────────────────────────────────────────
+function heat(rows) {
+  var M = ["J","F","M","A","M","J","J","A","S","O","N","D"];
+  var head = "<tr><th></th>" + M.map(function(m){ return "<th>"+m+"</th>"; }).join("") + "<th>year</th></tr>";
+  var body = rows.map(function(r){
+    var cells = r.months.map(function(v){
+      if (v === null) return '<td class="dim">·</td>';
+      // Colour saturates at 15% so one outlier month cannot wash the whole map out.
+      var a = Math.min(Math.abs(v)/15, 1) * 0.75 + 0.12;
+      var bg = v >= 0 ? "rgba(34,197,94," + a.toFixed(2) + ")" : "rgba(239,68,68," + a.toFixed(2) + ")";
+      return '<td><span class="cell" style="background:'+bg+'">'+(v>=0?"+":"")+v.toFixed(0)+'</span></td>';
+    }).join("");
+    var yc = r.yearPct === null ? '<td class="dim">—</td>'
+           : '<td class="tot '+(r.yearPct>=0?"pos":"neg")+'">'+f1(r.yearPct)+'%</td>';
+    return "<tr><td class='yr'>"+r.year+"</td>"+cells+yc+"</tr>";
+  }).join("");
+  return "<table><thead>"+head+"</thead><tbody>"+body+"</tbody></table>";
+}
+
+function render(d) {
+  var s = d.simulated, a = d.actual;
+  document.getElementById("hdr-meta").textContent =
+    d.trades + " replayed trades · gate " + d.params.gate;
+
+  var html = ""
+    + '<h1>Robustness &amp; Monte-Carlo</h1>'
+    + '<div class="sub-line">' + esc(d.params.sims.toLocaleString())
+    + ' bootstrap resamples of the trade history · ' + esc(d.span.from) + ' – ' + esc(d.span.to)
+    + ' · risk ' + d.params.riskPct + '% per trade · costs ' + d.params.costR + 'R</div>'
+
+    + '<div class="banner"><strong>READ THIS FIRST.</strong> These are <strong>REPLAYED</strong> trades, '
+    + 'not live fills — this system has 8 closed live trades and eight cannot produce a drawdown '
+    + 'distribution that means anything. And a bootstrap resamples the <strong>same</strong> trades: it shows '
+    + 'the range of <strong>luck around an edge</strong>, it does <strong>not</strong> test whether the edge '
+    + 'survives out of sample. That is a different question, answered on the Strategy page by the '
+    + 'walk-forward cuts and PBO.</div>'
+
+    + '<div class="stats">'
+    + stat(s.chanceOfProfit.toFixed(1) + "%", "chance of profit", s.chanceOfProfit >= 50 ? "var(--green)" : "var(--red)")
+    + stat(f1(s.p5ReturnPct) + "%  …  " + f1(s.p95ReturnPct) + "%", "90% of end returns land between", "var(--text)")
+    + stat(f1(s.p50ReturnPct) + "%", "median simulated return", s.p50ReturnPct >= 0 ? "var(--green)" : "var(--red)")
+    + stat(s.medianMaxDDPct.toFixed(0) + "%", "typical max drawdown", "var(--yellow)")
+    + stat(s.p95MaxDDPct.toFixed(0) + "%", "worst-case DD (95th pct)", "var(--red)")
+    + '</div>'
+
+    + '<div class="grid2">'
+    +   '<div class="card"><div class="card-head"><span>Monte-Carlo equity fan</span>'
+    +     '<span class="sub">every path is the same edge, reshuffled by luck</span></div>'
+    +     '<div class="card-body">' + fanSvg(d.fan)
+    +       '<div class="sub-line"><span style="color:#eab308">▬</span> actual &nbsp; '
+    +       '<span style="color:#e2e8f0">▬</span> median path &nbsp; '
+    +       '<span style="color:#3b82f6">▬</span> 25–75% and 5–95% of outcomes</div>'
+    +     '</div></div>'
+    +   '<div class="card"><div class="card-head"><span>Monthly return (%)</span>'
+    +     '<span class="sub">the actual replayed path</span></div>'
+    +     '<div class="card-body">' + heat(d.monthly) + '</div></div>'
+    + '</div>'
+
+    + '<div class="grid3">'
+    +   histCard("Where does the account end up?", d.histograms.finalReturn, "#22c55e", a.returnPct, "%")
+    +   histCard("How deep are the drawdowns?", d.histograms.maxDrawdown, "#ef4444", a.maxDDPct, "%")
+    +   histCard("Every trade's outcome · " + d.trades + " trades", d.histograms.perTradeR, "#a78bfa", d.avgR, "R")
+    + '</div>'
+
+    + '<div class="card"><div class="card-head"><span>What this run actually was</span></div>'
+    +   '<div class="card-body"><div class="note">'
+    +     '<strong>Source:</strong> ' + esc(d.source) + '<br>'
+    +     '<strong>Edge:</strong> ' + d.avgR.toFixed(3) + 'R per trade over ' + d.trades
+    +       + ' trades, ' + d.winRate.toFixed(1) + '% win rate. Actual path '
+    +       + f1(a.returnPct) + '% with a ' + a.maxDDPct.toFixed(1) + '% max drawdown.<br>'
+    +     d.caveats.map(function(c){ return "• " + esc(c); }).join("<br>")
+    +   '</div></div></div>';
+
+  document.getElementById("root").innerHTML = html;
+}
+
+function stat(v, l, colour) {
+  return '<div class="stat"><div class="v" style="color:' + colour + '">' + v + '</div>'
+       + '<div class="l">' + esc(l) + '</div></div>';
+}
+function histCard(title, h, colour, actual, unit) {
+  return '<div class="card"><div class="card-head"><span>' + esc(title) + '</span></div>'
+       + '<div class="card-body">' + histSvg(h, colour, actual, unit) + '</div></div>';
+}
+
+fetch("/api/robustness-report")
+  .then(function(r){
+    if (r.status === 401) throw new Error("Not logged in — open /login first.");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  })
+  .then(function(d){
+    if (d.status && d.status !== "OK") {
+      document.getElementById("root").innerHTML =
+        '<div class="loading">' + esc(d.detail || d.status) + '<br><br>'
+        + 'Generate it with <code>node tasks/montecarlo_report.cjs</code></div>';
+      document.getElementById("hdr-meta").textContent = d.status;
+      return;
+    }
+    render(d.report);
+  })
+  .catch(function(e){
+    console.error("robustness-report:", e);
+    document.getElementById("root").innerHTML =
+      '<div class="loading" style="color:var(--red)">Could not load: ' + esc(e.message) + '</div>';
+    document.getElementById("hdr-meta").textContent = "unreachable";
+  });
+</script>
+</body>
+</html>

@@ -6626,6 +6626,7 @@ app.get("/jarvis",     (_, res) => res.sendFile(path.join(__dirname, "..", "dash
 app.get("/system",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "system.html")));
 app.get("/plan",       (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "plan.html")));
 app.get("/strategy",   (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "strategy.html")));
+app.get("/report",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "report.html")));
 // Reading surface only. It composes /api/fleet, /api/gate-health, /api/signals,
 // /api/risk-status and /api/mt5/health — it runs nothing and posts nothing.
 app.get("/architecture", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "architecture.html")));
@@ -8398,6 +8399,32 @@ app.get("/api/strategy-board", (_, res) => {
   } catch (e) {
     console.error("[strategy-board]", e.message);
     res.status(500).json({ error: e.message, rows: [] });
+  }
+});
+
+// ── /api/robustness-report — the Monte-Carlo report behind /report ─────────
+// Reads the file tasks/montecarlo_report.cjs writes. Does NOT run it: that harness
+// replays three assets and bootstraps 4,000 paths, which is minutes of CPU on the box
+// that trades. A page request must never start it.
+app.get("/api/robustness-report", (_, res) => {
+  const p = path.join(__dirname, "..", "tasks", "analysis", "montecarlo-latest.json");
+  try {
+    if (!fs.existsSync(p)) {
+      return res.json({ status: "NOT RUN",
+        detail: "No robustness report on this box yet.", feedsTheGate: false });
+    }
+    const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+    const ms = Date.parse(raw.generatedAt || "");
+    res.json({
+      status: "OK",
+      ageHours: Number.isFinite(ms) ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null,
+      report: raw,
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    // Unreadable is not absent. Say which, and never serve a half-parsed report.
+    console.error("[robustness-report]", e.message);
+    res.json({ status: "UNREADABLE", detail: e.message, feedsTheGate: false });
   }
 });
 
