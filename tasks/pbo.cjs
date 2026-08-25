@@ -76,7 +76,47 @@ const flag = n => process.argv.includes(n);
 // The same candidate set the gate axis searches, incumbent included: PBO asks
 // about the SELECTION over this set, so leaving the incumbent out would measure a
 // different procedure than the one that actually runs.
-const GATES  = (opt("--gates", "45,50,55,60,65,70,75,80,85")).split(",").map(Number);
+// Which axis to test. Two SHAPES of axis, and the difference is not cosmetic:
+//
+//   FILTER axes (gate) are one replay sliced N ways. Every candidate sees exactly
+//   the same underlying trades, which is cheap and also the cleanest possible
+//   comparison.
+//
+//   ENGINE axes (rsi, adx) change what the engine DOES, so they need a replay per
+//   candidate. _replay_mtf.cjs says why in its own words: the entry-RSI floor runs
+//   inside generateSignal on the daily AND 4H signals independently, so raising it
+//   does not merely delete rows - a suppressed daily signal turns an agreeing pair
+//   into an H4-only entry with different levels. There is no field on the emitted
+//   trade a filter could reconstruct that from.
+const AXIS = String(opt("--axis", "gate"));
+
+// The gate a non-gate axis is measured AT. An rsi floor has to be judged on the
+// trades that would actually have been taken, which means at the live gate, not
+// at the conf floor the replay runs on.
+const LIVE_GATE = Number(opt("--live-gate", "70"));
+
+const AXES = {
+  gate: { kind: "filter", label: "confidence gate",
+          values: [45, 50, 55, 60, 65, 70, 75, 80, 85], incumbent: 70 },
+  // The same five values tasks/rsi_walkforward.cjs sweeps. 0 is the incumbent and
+  // means the floor is OFF.
+  rsi:  { kind: "engine", label: "entry RSI floor (minEntryRsi)", env: "MTF_MIN_ENTRY_RSI",
+          values: [0, 40, 45, 50, 55], incumbent: 0 },
+  adx:  { kind: "engine", label: "ADX trending floor", env: "MTF_ADX_TRENDING_MIN",
+          values: [15, 18, 20, 22, 25], incumbent: 20 },
+};
+
+if (!AXES[AXIS]) {
+  console.error("Unknown axis \"" + AXIS + "\". Known: " + Object.keys(AXES).join(", "));
+  process.exit(1);
+}
+const AXIS_DEF = AXES[AXIS];
+
+// --gates still overrides the candidate list for any axis, so a narrower or wider
+// sweep can be measured without editing this file.
+const GATES  = process.argv.includes("--gates")
+  ? String(opt("--gates", "")).split(",").map(Number)
+  : AXIS_DEF.values;
 const BLOCKS = Number(opt("--blocks", "16"));
 const PERIOD = String(opt("--period", "month"));
 const COST_R = Number(opt("--cost", "0.05"));
@@ -92,14 +132,32 @@ const AS_JSON = flag("--json");
 const ASSETS = [["BTCUSD", "BTC-USD"], ["XAUUSD", "GC=F"], ["SP500", "^GSPC"]];
 
 // ── replay once, filter many ────────────────────────────────────────────────
-function replay(symbol, ticker) {
+function replay(symbol, ticker, extraEnv) {
   const stdout = execFileSync(
     process.execPath,
     [path.join(ROOT, "tasks", "_replay_mtf.cjs"), ROOT, symbol, ticker, String(CONF_FLOOR)],
-    { env: { ...process.env, MTF_CONF_FLOOR: String(CONF_FLOOR) },
+    { env: { ...process.env, MTF_CONF_FLOOR: String(CONF_FLOOR), ...(extraEnv || {}) },
       maxBuffer: 64 * 1024 * 1024, encoding: "utf8", timeout: 900000 }
   );
   return JSON.parse(stdout);
+}
+
+// One replay -> the resolved trades it produced, in the shape CSCV needs. Shared by
+// both axis shapes so a filter axis and an engine axis cannot drift in how they
+// score a trade.
+function resolvedTrades(trades, symbol) {
+  const out = [];
+  for (const t of trades) {
+    if (t.outcome !== "WIN" && t.outcome !== "LOSS") continue;   // EXPIRED never resolved
+    const secs = Number(t.t);
+    if (!Number.isFinite(secs) || secs <= 0) continue;
+    // _replay_mtf emits SECONDS. Read as ms it buckets everything into 1970 and
+    // every period key collapses to one - which would look like a clean result.
+    const ms = secs < 1e11 ? secs * 1000 : secs;
+    const r = t.outcome === "WIN" ? cappedRr(t.rr) - COST_R : -(1 + COST_R);
+    out.push({ ms, conf: Number(t.conf), r, symbol });
+  }
+  return out;
 }
 
 function periodKey(ms) {
@@ -124,52 +182,91 @@ function combinations(n, k) {
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
-const allTrades = [];
+// byCandidate[value] = the resolved trades that candidate would have taken.
+// Built two different ways depending on the axis shape, and NOTHING downstream
+// knows which - so a filter axis and an engine axis are scored identically.
+const byCandidate = {};
 const perAsset = {};
-for (const [symbol, ticker] of ASSETS) {
-  let trades;
-  try {
-    trades = replay(symbol, ticker);
-  } catch (err) {
-    perAsset[symbol] = "REPLAY FAILED: " + String(err.message || err).slice(0, 160);
-    continue;
+let replays = 0;
+
+if (AXIS_DEF.kind === "filter") {
+  // One replay, sliced N ways. Every candidate sees the same underlying trades.
+  const all = [];
+  for (const [symbol, ticker] of ASSETS) {
+    try {
+      const kept = resolvedTrades(replay(symbol, ticker), symbol);
+      replays++;
+      all.push(...kept);
+      perAsset[symbol] = kept.length + " resolved trades";
+    } catch (err) {
+      perAsset[symbol] = "REPLAY FAILED: " + String(err.message || err).slice(0, 160);
+    }
   }
-  let kept = 0;
-  for (const t of trades) {
-    if (t.outcome !== "WIN" && t.outcome !== "LOSS") continue;   // EXPIRED never resolved
-    const secs = Number(t.t);
-    if (!Number.isFinite(secs) || secs <= 0) continue;
-    // _replay_mtf emits SECONDS. Read as ms it buckets everything into 1970 and
-    // every period key collapses to one - which would look like a clean result.
-    const ms = secs < 1e11 ? secs * 1000 : secs;
-    const r = t.outcome === "WIN" ? cappedRr(t.rr) - COST_R : -(1 + COST_R);
-    allTrades.push({ ms, conf: Number(t.conf), r, symbol });
-    kept++;
+  for (const v of GATES) byCandidate[v] = all.filter(t => t.conf >= v);
+} else {
+  // A replay PER CANDIDATE, because the override changes which setups form at all.
+  // Measured at the LIVE gate: an entry floor has to be judged on the trades that
+  // would really have been taken, not on everything above the replay conf floor.
+  for (const v of GATES) {
+    const kept = [];
+    for (const [symbol, ticker] of ASSETS) {
+      try {
+        const env = {}; env[AXIS_DEF.env] = String(v);
+        const rows = resolvedTrades(replay(symbol, ticker, env), symbol);
+        replays++;
+        kept.push(...rows.filter(t => t.conf >= LIVE_GATE));
+      } catch (err) {
+        perAsset[symbol + " @" + v] = "REPLAY FAILED: " + String(err.message || err).slice(0, 120);
+      }
+    }
+    byCandidate[v] = kept;
+    perAsset[AXIS_DEF.env + "=" + v + " "] = kept.length + " trades at gate " + LIVE_GATE;
+    process.stderr.write("  replayed " + AXIS_DEF.env + "=" + v + " -> "
+      + kept.length + " trades\n");
   }
-  perAsset[symbol] = kept + " resolved trades";
 }
 
+const allTrades = Object.values(byCandidate).flat();
+// DISTINCT trades that any candidate actually took - the real sample the matrix is
+// built from. Two things make it smaller than the replay's total, and both are
+// correct: the union double-counts a trade admitted by several candidates, and any
+// trade below the LOWEST candidate belongs to no candidate at all. On the gate axis
+// the replay resolves 642 at conf>=40 while the lowest candidate is 45, so 519 is
+// the honest sample size and 642 would overstate it.
+// allTrades is the union of the candidate
+// slices, so on a filter axis a trade admitted by six gates appears six times in it.
+// That is correct for building the matrix and wrong to print as "trades": it read
+// 2463 where the replay produced 642, which overstates the sample nearly 4x.
+const distinctTrades = new Set(allTrades.map(t => t.symbol + ":" + t.ms + ":" + t.conf + ":" + t.r)).size;
 if (!allTrades.length) {
-  console.error("No resolved trades. Nothing to measure.");
+  console.error("No resolved trades on axis \"" + AXIS + "\". Nothing to measure.");
   console.error(JSON.stringify(perAsset, null, 2));
   process.exit(1);
 }
-allTrades.sort((a, b) => a.ms - b.ms);
 
-// T x N matrix: period return of each candidate. A period in which a candidate
-// took no trade scores 0 - it earned nothing, which is a real outcome and not a
-// missing value. Filling it with a mean would smuggle other periods' luck in.
+// A candidate that produced NOTHING cannot be ranked, and leaving it in would let it
+// win every out-of-sample split with a flat zero while others took real losses.
+// Dropped loudly rather than silently scored.
+const empties = GATES.filter(v => !byCandidate[v] || byCandidate[v].length === 0);
+const CANDS = GATES.filter(v => byCandidate[v] && byCandidate[v].length > 0);
+if (CANDS.length < 2) {
+  console.error("Only " + CANDS.length + " candidate(s) produced trades - CSCV needs at least 2.");
+  process.exit(1);
+}
+
+// Periods come from the UNION across candidates, so a candidate that is quiet in a
+// month is scored 0 for it rather than having the month disappear from the matrix.
 const periods = [...new Set(allTrades.map(t => periodKey(t.ms)))].sort();
-const matrix = periods.map(p =>
-  GATES.map(g => {
-    const rows = allTrades.filter(t => periodKey(t.ms) === p && t.conf >= g);
+const matrix = periods.map(pk =>
+  CANDS.map(v => {
+    const rows = byCandidate[v].filter(t => periodKey(t.ms) === pk);
     if (!rows.length) return 0;
     const total = rows.reduce((a, t) => a + t.r, 0);
     return METRIC === "mean" ? total / rows.length : total;
   }));
 
 const T = periods.length;
-const N = GATES.length;
+const N = CANDS.length;
 
 // S must be even (the halves must be equal) and no larger than T.
 let S = Math.min(BLOCKS, T);
@@ -213,12 +310,12 @@ for (const isBlocks of splits) {
     const v = sumOver(isRows, n);
     if (v > bestVal) { bestVal = v; best = n; }
   }
-  winnerTally[GATES[best]] = (winnerTally[GATES[best]] || 0) + 1;
+  winnerTally[CANDS[best]] = (winnerTally[CANDS[best]] || 0) + 1;
 
   // Its out-of-sample rank, 1 = worst .. N = best. Ties share the lower rank,
   // which is the conservative direction: a winner tied with others is not
   // credited with beating them.
-  const oosVals = GATES.map((_, n) => sumOver(oosRows, n));
+  const oosVals = CANDS.map((_, n) => sumOver(oosRows, n));
   const target = oosVals[best];
   const rank = 1 + oosVals.filter(v => v < target).length;
 
@@ -241,9 +338,11 @@ const result = {
   measuredAt: new Date().toISOString(),
   method: "CSCV (Bailey, Borwein, Lopez de Prado & Zhu)",
   axis: "confidence gate",
-  candidates: GATES,
+  candidates: CANDS,
+  candidatesRequested: GATES,
+  candidatesDropped: empties,
   population: perAsset,
-  trades: allTrades.length,
+  trades: distinctTrades,
   periods: T, periodType: PERIOD, blocks: S, splits: splits.length,
   span: { from: periods[0], to: periods[T - 1] },
   metric: METRIC,
@@ -252,8 +351,12 @@ const result = {
   verdict,
   caveats: [
     "A verdict on the SEARCH PROCEDURE, not on any single candidate.",
-    "Covers axes that are a pure FILTER over one replay. rsi/adx/minrr change the engine "
-      + "and need a replay per candidate; they are NOT measured here.",
+    AXIS_DEF.kind === "filter"
+      ? "This axis is a pure FILTER over one replay: every candidate saw the same trades."
+      : "This axis CHANGES THE ENGINE, so each candidate got its own replay (" + replays
+        + " replays) and is measured at the live gate " + LIVE_GATE + ".",
+    "An axis not run here is not measured here - a number for one axis says nothing "
+      + "about another.",
     "A period with no trades for a candidate scores 0 - earned nothing, not missing.",
     "Costs charged at " + COST_R + "R/trade, the same basis the rest of the project uses.",
   ],
@@ -270,12 +373,17 @@ if (AS_JSON) {
 }
 
 console.log("");
-console.log("PROBABILITY OF BACKTEST OVERFITTING — CSCV on the confidence gate");
+console.log("PROBABILITY OF BACKTEST OVERFITTING — CSCV on " + AXIS_DEF.label);
 console.log("=".repeat(78));
-console.log("  " + allTrades.length + " resolved trades, " + T + " " + PERIOD + " periods "
+console.log("  " + distinctTrades + " distinct trades IN THE MATRIX, " + T + " " + PERIOD + " periods "
           + periods[0] + " -> " + periods[T - 1]);
 for (const [sym, note] of Object.entries(perAsset)) console.log("    " + sym.padEnd(8) + note);
-console.log("  " + N + " candidates: " + GATES.join(", "));
+console.log("  " + N + " candidates: " + CANDS.join(", "));
+if (empties.length) {
+  // A candidate that took no trade at all is not a quiet candidate, it is an
+  // absent one. Named rather than dropped in silence.
+  console.log("  DROPPED (no trades at all): " + empties.join(", "));
+}
 console.log("  " + S + " blocks, C(" + S + "," + (S / 2) + ") = " + splits.length + " symmetric splits");
 console.log("");
 console.log("  metric: " + (METRIC === "mean" ? "R per trade (what the searcher selects on)"
@@ -284,11 +392,11 @@ console.log("  PBO = " + (pbo * 100).toFixed(1) + "%     mean logit = " + meanLa
 console.log("  " + verdict);
 console.log("");
 console.log("  WHICH CANDIDATE WON IN-SAMPLE, and how often:");
-for (const g of GATES) {
+for (const g of CANDS) {
   const n = winnerTally[g] || 0;
   const pct = (n / splits.length) * 100;
   const bar = "#".repeat(Math.round(pct / 2));
-  console.log("    gate " + String(g).padEnd(4) + String(n).padStart(6) + "  "
+  console.log("    " + AXIS.padEnd(5) + " " + String(g).padEnd(4) + String(n).padStart(6) + "  "
             + pct.toFixed(1).padStart(5) + "%  " + bar);
 }
 console.log("");
