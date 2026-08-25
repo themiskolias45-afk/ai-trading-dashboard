@@ -15,10 +15,16 @@
  *
  *  2. `position_partial_taken` is an IN-MEMORY set (mt5_bridge.py:129) and is NOT
  *     persisted, so a restart forgets which trades already had their 50% taken at
- *     1R. That would matter — except the partial floors to the volume step, and
- *     for a 0.01-lot position half_vol computes to 0, falls below volume_min and
- *     is skipped. At the fixed 0.01 sizing this system trades, the partial cannot
- *     fire at all, so the forgotten flag cannot cause a second close.
+ *     1R. This paragraph used to end there, concluding the partial could never
+ *     fire because "the fixed 0.01 sizing this system trades" makes half_vol 0.
+ *     TRUE WHEN WRITTEN, FALSE FROM 2026-08-24, when fixedLotSize became 0.02 and
+ *     half became exactly 0.01 — which IS the minimum on BTCUSD and XAUUSD, and
+ *     the guard tests `<`, not `<=`. The check below no longer trusts a constant
+ *     for this: it reads each symbol's real minLot and lotStep from
+ *     /api/broker-specs and does the bridge's own floor-then-compare, and it
+ *     treats partialCloseEnabled=false as not-splittable because the code path
+ *     does not run at all then. A safety property that lives in a comment stops
+ *     being one the moment the comment goes stale.
  *
  *  3. The break-even SL move sits INSIDE the partial's success branch, so it
  *     cannot fire independently either.
@@ -65,9 +71,23 @@ const DRY_RUN      = flag("--dry-run");
 const ALLOW_OPEN   = flag("--allow-open-positions");
 const RECONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 
+// Most routes this tool reads are in the no-login allowlist, but the broker-spec
+// lookup below is session-gated like every other data route. The secret lives on
+// disk next to the server, so a LOCAL run can present it; a --host run against
+// another box cannot, and gets a 401 that the caller handles by falling back.
+// Read once, never logged.
+let SESSION_COOKIE = null;
+try {
+  const secret = fs.readFileSync(path.join(PROJECT_ROOT, "server", "session_secret.txt"), "utf8").trim();
+  if (secret) SESSION_COOKIE = "smartentry_session=" + secret;
+} catch (e) {
+  // No secret readable: gated routes 401 and each caller falls back. Not fatal.
+}
+
 function get(path) {
   return new Promise((resolve, reject) => {
-    const req = http.get({ host: HOST, port: 3001, path, timeout: 10000 }, res => {
+    const headers = SESSION_COOKIE ? { Cookie: SESSION_COOKIE } : {};
+    const req = http.get({ host: HOST, port: 3001, path, headers, timeout: 10000 }, res => {
       let body = "";
       res.on("data", c => { body += c; });
       res.on("end", () => {
@@ -166,11 +186,49 @@ function record(name, ok, detail) {
     record("every position has a broker SL", unprotected.length === 0,
       unprotected.length === 0 ? "all protected through the gap"
         : unprotected.length + " with NO stop loss");
-    // The partial-profit reset only bites if a position is large enough to split.
-    record("no position can be partial-closed", oversized.length === 0,
-      oversized.length === 0
-        ? "all <= " + MAX_LOT + " lots, so the 1R partial is skipped by volume_min"
-        : oversized.length + " position(s) above " + MAX_LOT + " could be halved after the in-memory flag resets");
+    // The partial-profit reset only bites if a position can ACTUALLY be split, which
+    // is a property of the broker's volume_min and volume_step for that symbol — not
+    // of a constant in this file. SP500 has a 0.1 minimum, so a 0.1-lot position has
+    // never been splittable, and --max-lot 0.01 called it splittable every time.
+    //
+    // Fails CLOSED: if /api/broker-specs cannot be read, or does not know the symbol,
+    // this falls back to the old volume > MAX_LOT comparison and says which rule it
+    // used. More accurate, never more permissive.
+    let specs = null;
+    try {
+      specs = await get("/api/broker-specs");
+    } catch (e) {
+      console.log("       broker-specs unavailable (" + e.message + ") — falling back to --max-lot");
+    }
+
+    const partialOff = specs && specs.partialCloseEnabled === false;
+    let splitBasis = "--max-lot " + MAX_LOT;
+    let splittable = oversized;
+
+    if (partialOff) {
+      splittable = [];
+      splitBasis = "partialCloseEnabled is off, so take_partial_profit returns before touching anything";
+    } else if (specs && specs.available && specs.symbols) {
+      const unknown = [];
+      splittable = positions.filter(pos => {
+        const spec = specs.symbols[pos.symbol];
+        const minLot  = spec && Number(spec.minLot);
+        const lotStep = spec && Number(spec.lotStep);
+        if (!minLot || !lotStep) { unknown.push(pos.symbol); return Number(pos.volume) > MAX_LOT; }
+        // mt5_bridge.py:2133-2135, the same floor-then-compare.
+        const vol  = Number(pos.volume);
+        const half = Number((Math.floor(vol / 2 / lotStep) * lotStep).toFixed(8));
+        return half >= minLot && half < vol;
+      });
+      splitBasis = unknown.length
+        ? "broker minimums, except " + unknown.join(", ") + " which fell back to --max-lot"
+        : "each symbol's own broker minLot/lotStep";
+    }
+
+    record("no position can be partial-closed", splittable.length === 0,
+      splittable.length === 0
+        ? "none can be halved — basis: " + splitBasis
+        : splittable.length + " position(s) could be halved after the in-memory flag resets — basis: " + splitBasis);
     record("open positions allowed", ALLOW_OPEN,
       ALLOW_OPEN ? "--allow-open-positions given" : "pass --allow-open-positions to proceed with trades open");
   }

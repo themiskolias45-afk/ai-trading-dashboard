@@ -756,6 +756,14 @@ let strategySettings = {
   minEntryRsi:            STRATEGY_LIMITS.minEntryRsi.def,
   dailyOnlyMinConfidence: STRATEGY_LIMITS.dailyOnlyMinConfidence.def,
   minStrength:            "MODERATE",
+  // Scale 50% out at 1R and move the stop to breakeven. FALSE is not a new
+  // restriction - it is the behaviour every trade in this journal was managed
+  // under. take_partial_profit (mt5_bridge.py:2093) could not fire while
+  // fixedLotSize was 0.01, because half of one minimum lot is not tradable, and
+  // on 2026-08-24 the size moved to 0.02 and armed it as a side effect of a
+  // lot-size edit. Nobody chose that. Boolean, not a number, so it is handled
+  // beside minStrength rather than through clampStrategyValue.
+  partialCloseEnabled:    false,
   updatedAt: null,
   updatedBy: null,
 };
@@ -3827,6 +3835,11 @@ app.get("/api/strategy-settings", (_, res) => {
 // enforces, which is how this codebase ended up with five copies of the confidence
 // gate. If that Python changes, change this with it.
 app.get("/api/broker-specs", (req, res) => {
+  // The lot arithmetic says whether the position CAN be split. This says whether
+  // the bridge will actually do it. Reporting the first as "armed" while the
+  // second is off would make this page assert a behaviour that is switched off -
+  // the same class of lie as the mode cards that wrote localStorage nothing read.
+  const partialEnabled = strategySettings.partialCloseEnabled === true;
   // ?lot= previews a size that is NOT saved yet, so the dashboard can show what a
   // typed value would do without keeping its own copy of the arithmetic. Anything
   // unparseable falls back to the live setting rather than to a guess.
@@ -3848,11 +3861,15 @@ app.get("/api/broker-specs", (req, res) => {
     // would be wrong for every trade but one.
     let effectiveLots = null, flooredUpToMin = null, partial;
     if (!haveLotGeometry) {
-      partial = { armed: null, halfLot: null,
+      partial = { armed: partialEnabled ? null : false, splittable: null,
+                  enabledBySetting: partialEnabled, halfLot: null,
                   why: "broker minLot/lotStep not reported for this symbol" };
     } else if (fixedLotSize <= 0) {
-      partial = { armed: null, halfLot: null,
-                  why: "fixedLotSize is 0 — size comes from risk, so the lot varies per trade" };
+      partial = { armed: partialEnabled ? null : false, splittable: null,
+                  enabledBySetting: partialEnabled, halfLot: null,
+                  why: partialEnabled
+                    ? "fixedLotSize is 0 — size comes from risk, so the lot varies per trade"
+                    : "partialCloseEnabled is off" };
     } else {
       // mt5_bridge.py sizing: the broker's floor always wins (see :1140).
       effectiveLots  = Math.max(fixedLotSize, minLot);
@@ -3861,11 +3878,18 @@ app.get("/api/broker-specs", (req, res) => {
       // mt5_bridge.py:2133-2135, mirrored.
       let halfLot = Math.floor(effectiveLots / 2 / lotStep) * lotStep;
       halfLot = Number(halfLot.toFixed(8));           // kill float dust, as the bridge does
-      const armed = halfLot >= minLot && halfLot < effectiveLots;
+      const splittable = halfLot >= minLot && halfLot < effectiveLots;
+      const armed = splittable && partialEnabled;
       partial = {
         armed,
+        splittable,
+        enabledBySetting: partialEnabled,
         halfLot,
-        why: armed
+        why: !partialEnabled
+          ? (splittable
+              ? `${effectiveLots} lots could be split, but partialCloseEnabled is off - the trailing ladder manages the trade`
+              : `partialCloseEnabled is off, and ${effectiveLots} lots could not be split anyway`)
+          : armed
           ? `at 1R the bridge closes ${halfLot} of ${effectiveLots} lots and moves the stop to breakeven`
           : `${effectiveLots} lots cannot be split (half is ${halfLot}, broker minimum is ${minLot}) — the trailing ladder manages the trade instead`,
       };
@@ -3890,6 +3914,7 @@ app.get("/api/broker-specs", (req, res) => {
     available,
     fixedLotSize,
     savedLotSize,
+    partialCloseEnabled: partialEnabled,
     isPreview: usingPreview && previewLot !== savedLotSize,
     symbols,
     // Absent specs are a bridge that has not pushed yet, not a broker without
@@ -3928,6 +3953,17 @@ app.post("/api/strategy-settings", (req, res) => {
       applied.minStrength = wanted;
     } else {
       rejected.push(`minStrength must be one of ${STRENGTH_LEVELS.join(", ")}`);
+    }
+  }
+
+  // Only a real boolean moves this. A truthy string like "false" must not turn
+  // scaling-out on, which is exactly what Boolean(incoming.x) would have done.
+  if (incoming.partialCloseEnabled !== undefined) {
+    if (typeof incoming.partialCloseEnabled === "boolean") {
+      strategySettings.partialCloseEnabled = incoming.partialCloseEnabled;
+      applied.partialCloseEnabled = incoming.partialCloseEnabled;
+    } else {
+      rejected.push("partialCloseEnabled must be true or false");
     }
   }
 
@@ -4539,7 +4575,9 @@ function persistDailyPerformance(closeTime) {
 
 // MT5 bridge notifies server when a trade is closed
 app.post("/api/trade-closed", (req, res) => {
-  const { ticket, pnl, closePrice, closeTime, account, exitReason, exitReasonCode } = req.body;
+  const { ticket, pnl, closePrice, closeTime, account, exitReason, exitReasonCode,
+          mfePrice, maePrice, mfeR, maeR, excursionSamples, excursionIntervalSec,
+          excursionSampled } = req.body;
   if (!ticket) return res.status(400).json({ error: "ticket required" });
   // Ticket ids are unique per ACCOUNT, not across the fleet (mt5_bridge.py:1384),
   // and accounts A, B and the VPS all post into this one journal. Prefer the exact
@@ -4588,6 +4626,29 @@ app.post("/api/trade-closed", (req, res) => {
     // DEAL_REASON_SL. Read this alongside pnl, never as a substitute for it.
     if (typeof exitReason === "string" && exitReason) trade.exitReason = exitReason;
     if (Number.isInteger(exitReasonCode)) trade.exitReasonCode = exitReasonCode;
+
+    // How far the trade ran in favour and against before it ended. The journal has
+    // never recorded this, which is why "would a breakeven stop have saved this
+    // loser" has never been answerable here - only the COST of scaling out at 1R
+    // was visible, in winners that finish short of where they would have.
+    //
+    // SAMPLED at the bridge poll interval, so both are FLOORS, never true extremes.
+    // excursionSampled and excursionIntervalSec travel with the numbers so no later
+    // reader can mistake a 60s sample for a tick-accurate high-water mark.
+    //
+    // RECORD ONLY. No gate, threshold, confidence or sizing path reads any of it.
+    //
+    // Assigned ONLY when supplied, never `?? null`, for the same reason exitReason
+    // is: the reconciliation sweep re-posts closes without these fields, and
+    // defaulting would erase a record the live close path had already written.
+    if (Number.isFinite(mfePrice)) trade.mfePrice = mfePrice;
+    if (Number.isFinite(maePrice)) trade.maePrice = maePrice;
+    if (Number.isFinite(mfeR))     trade.mfeR     = mfeR;
+    if (Number.isFinite(maeR))     trade.maeR     = maeR;
+    if (Number.isInteger(excursionSamples))     trade.excursionSamples     = excursionSamples;
+    if (Number.isInteger(excursionIntervalSec)) trade.excursionIntervalSec = excursionIntervalSec;
+    if (excursionSampled === true)              trade.excursionSampled     = true;
+
     saveJournal();
     // Feed outcome to self-learning engine
     const outcomeKnown = trade.pnl !== null;

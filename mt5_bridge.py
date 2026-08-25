@@ -130,6 +130,10 @@ executed_signals  = {}   # key → signal updatedAt string (deduplication)
 known_positions   = set()  # set of open SmartEntry position tickets
 position_initial_r = {}  # ticket → initial risk (|entry - original_sl|) for trailing stop logic
 position_partial_taken = set()  # tickets where 50% has already been closed at 1R
+# ticket -> {"mfe": float, "mae": float, "n": int}: how far this trade has travelled
+# in FAVOUR and AGAINST its entry, in price, as non-negative distances.
+# SAMPLED once per poll, so both understate the true extremes - see track_excursions.
+position_excursion = {}
 
 # ── Trailing stop ladder ──────────────────────────────────────────────────────
 # Once a trade reaches TRAIL_ARM_R in profit, the stop ratchets up behind price in
@@ -195,6 +199,15 @@ TRAIL_GIVEBACK_R = float(os.environ.get("TRAIL_GIVEBACK_R", "0.5")) # how far be
 POSITION_R_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "tasks",
     f"position_r_{ACCOUNT_TAG or 'default'}.json",
+)
+
+# Deliberately a SEPARATE file from POSITION_R_PATH, not extra keys inside it.
+# load_position_r() calls float(value) on every entry and skips whatever raises,
+# so widening that file to hold an object per ticket would make every initial-R
+# unreadable and quietly disable the trailing ladder on the next restart.
+POSITION_EXCURSION_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "tasks",
+    f"position_excursion_{ACCOUNT_TAG or 'default'}.json",
 )
 
 # Tickets already reported as having no recoverable R, so the warning below is loud
@@ -1237,6 +1250,17 @@ strategy_settings = {
     "fixedLotSize": 0.0,   # 0 = size from risk; above 0 = always trade exactly this
     "maxLotSize": 10.0,    # hard ceiling regardless of what the risk maths asks for
     "minStrength": "MODERATE",  # lowest signal strength AUTO mode will take
+    # Scaling 50% out at 1R and moving the stop to breakeven. DEFAULT FALSE, which is
+    # the behaviour this system has actually had for its entire life - not a new
+    # restriction. take_partial_profit could never fire while fixedLotSize was 0.01,
+    # because half of one minimum lot is not a tradable size; on 2026-08-24 the size
+    # moved to 0.02 and silently armed it. Nobody decided that - a lot-size edit did
+    # it as a side effect. It stays off until the excursion record below can say
+    # whether it helps: across the three realised wins so far it would have cost
+    # 1.755R, and the offsetting case (losers that touch 1R then revert to a
+    # breakeven stop) has never been measurable because nothing recorded how far a
+    # trade travelled before it closed.
+    "partialCloseEnabled": False,
 }
 
 # Trades opened today, reset on date change. Counted here rather than server-side
@@ -1261,6 +1285,11 @@ def refresh_strategy_settings():
                 strategy_settings[name] = float(data[name])
         if data.get("minStrength") in ("MODERATE", "STRONG"):
             strategy_settings["minStrength"] = data["minStrength"]
+        # Only a real bool moves this. A missing key leaves the last known value, and
+        # on a cold start that value is False - so a server outage can never be the
+        # thing that turns scaling-out ON.
+        if isinstance(data.get("partialCloseEnabled"), bool):
+            strategy_settings["partialCloseEnabled"] = data["partialCloseEnabled"]
     except Exception:
         pass
 
@@ -1870,6 +1899,134 @@ def save_position_r():
         log(f"Could not persist position risk ({exc}) — trailing may reset on restart.", YELLOW)
 
 
+def load_position_excursion():
+    """Restore the excursion record for positions still open from a previous run.
+
+    Fails open exactly like load_position_r: an unreadable file leaves the dict empty
+    and tracking restarts from the current price, which UNDERSTATES that trade rather
+    than inventing an excursion for it. Logged, never silent.
+    """
+    try:
+        with open(POSITION_EXCURSION_PATH, "r", encoding="utf-8") as ex_file:
+            stored = json.load(ex_file)
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        log(f"Excursion store unreadable ({exc}) - restarting excursion tracking.", YELLOW)
+        return
+
+    if not isinstance(stored, dict):
+        log("Excursion store is not an object - ignoring it.", YELLOW)
+        return
+
+    for ticket_key, rec in stored.items():
+        if not isinstance(rec, dict):
+            continue
+        try:
+            position_excursion[int(ticket_key)] = {
+                "mfe": float(rec.get("mfe", 0.0)),
+                "mae": float(rec.get("mae", 0.0)),
+                "n":   int(rec.get("n", 0)),
+            }
+        except (TypeError, ValueError):
+            continue
+
+    if position_excursion:
+        log(f"Restored excursion record for {len(position_excursion)} position(s).", CYAN)
+
+
+def save_position_excursion():
+    """Persist the excursion map. Never raises - a write failure must not stop trading."""
+    try:
+        with open(POSITION_EXCURSION_PATH, "w", encoding="utf-8") as ex_file:
+            json.dump({str(t): v for t, v in position_excursion.items()}, ex_file, indent=2)
+    except Exception as exc:
+        log(f"Could not persist excursions ({exc}) - MFE/MAE may reset on restart.", YELLOW)
+
+
+def track_excursions():
+    """Record how far each open position has run in favour of and against its entry.
+
+    This exists to answer one question the journal has never been able to answer: when
+    a trade ended a loser, had it first reached 1R? Without that, scaling out at 1R and
+    moving the stop to breakeven cannot be evaluated at all - the COST side shows up in
+    the winners, which finish short of where they would have, and the BENEFIT side is
+    invisible. Every argument about it so far has been half-measured.
+
+    SAMPLED, not exact. It reads price_current once per poll (POLL_INTERVAL, 60s by
+    default), so a spike between two polls is never seen and BOTH figures are floors,
+    never ceilings. The field names and the payload carry that caveat, because reading
+    these as true extremes would overstate how often a trade touched 1R - which is
+    exactly the number the partial-close decision turns on.
+
+    Record-only: nothing here opens, closes, sizes, or blocks a trade.
+    """
+    try:
+        positions = mt5.positions_get()
+    except Exception as exc:
+        log(f"positions_get() failed in excursion tracking ({exc}) - skipping cycle.", YELLOW)
+        return
+    if positions is None:
+        return
+
+    changed = False
+    for p in positions:
+        if p.magic != MAGIC_NUMBER:
+            continue
+        entry = p.price_open
+        price = p.price_current
+        if not entry or not price:
+            continue
+        # A BUY profits as price rises, a SELL as it falls. Both are stored as
+        # non-negative distances so the sign convention lives in ONE place: here.
+        move = (price - entry) if p.type == 0 else (entry - price)
+        favourable = move if move > 0 else 0.0
+        adverse = -move if move < 0 else 0.0
+
+        rec = position_excursion.get(p.ticket)
+        if rec is None:
+            rec = {"mfe": 0.0, "mae": 0.0, "n": 0}
+            position_excursion[p.ticket] = rec
+        if favourable > rec["mfe"]:
+            rec["mfe"] = favourable
+        if adverse > rec["mae"]:
+            rec["mae"] = adverse
+        rec["n"] += 1
+        changed = True
+
+    if changed:
+        save_position_excursion()
+
+
+def excursion_payload(ticket):
+    """The excursion record for a closing ticket, in price AND in R where R is known.
+
+    Returns {} when nothing was tracked, so a close never carries invented zeros:
+    "no record" and "it never moved" are different facts and must not look the same.
+    R needs the position initial risk; where that is unknown the R fields are null and
+    the price fields still stand on their own.
+    """
+    rec = position_excursion.get(ticket)
+    if not rec:
+        return {}
+    risk = position_initial_r.get(ticket)
+    mfe_r = None
+    mae_r = None
+    if risk and risk > 0:
+        mfe_r = round(rec["mfe"] / risk, 3)
+        # Negative by convention, so it reads on the same axis as realizedR.
+        mae_r = -round(rec["mae"] / risk, 3)
+    return {
+        "mfePrice": round(rec["mfe"], 5),
+        "maePrice": round(rec["mae"], 5),
+        "mfeR": mfe_r,
+        "maeR": mae_r,
+        "excursionSamples": rec["n"],
+        "excursionIntervalSec": POLL_INTERVAL,
+        "excursionSampled": True,
+    }
+
+
 def initial_r_from_journal(ticket, symbol):
     """This position's ORIGINAL risk distance, from the journal row written at entry.
 
@@ -2093,14 +2250,25 @@ def manage_trailing_stops():
 def take_partial_profit():
     """At 1R profit: close 50% of the position, move SL to breakeven.
 
-    Dormant at the lot size this system actually trades. `fixedLotSize` is 0.01,
-    which IS the broker minimum on all three instruments, so there is no half to
-    close — a position of one minimum lot cannot be split at all. It used to reach
-    that conclusion silently, via `round(0.5)` returning 0 under banker's rounding,
-    so the function had never executed once in the system's life and nothing said
-    why. Banking profit at these sizes is the trailing ladder's job; this stays for
-    the day position sizes are large enough to scale out of, and now says so.
+    OFF unless `partialCloseEnabled` is set. This paragraph used to say the function
+    was dormant because `fixedLotSize` is 0.01, which IS the broker minimum, so there
+    was no half to close - true when written, and false from 2026-08-24, when the size
+    became 0.02 and half became exactly 0.01. The guard below tests `<` against the
+    minimum, not `<=`, so 0.01 passes it and this function went live on BTCUSD and
+    XAUUSD without anyone choosing that. A safety property recorded only in a comment
+    stops being a safety property the moment the comment goes stale.
+
+    It is a setting now rather than an accident of the lot size, and it defaults to
+    off, which preserves the behaviour every trade in this journal was managed under.
+
+    Note what that behaviour actually is. The original text here handed the job to
+    the trailing ladder - but TRAIL_LADDER_ENABLED has defaulted to 0 since
+    2026-08-07, so the ladder is off as well. With both off NOTHING moves a stop:
+    a position runs to the SL and TP it was opened with. That is the real baseline
+    the excursion record (track_excursions) has to be read against.
     """
+    if not strategy_settings.get("partialCloseEnabled"):
+        return
     positions = mt5.positions_get()
     if positions is None or not positions:
         return
@@ -2365,6 +2533,10 @@ def track_closed_positions():
         # Counters and their on-disk copy move together — see record_closed_outcome.
         record_closed_outcome(pnl, close_time)
 
+        # Read BEFORE the cleanup below drops it. Built here rather than inline in
+        # the payload so a failed POST does not leave the record half-consumed.
+        excursion = excursion_payload(ticket)
+
         try:
             requests.post(f"{SERVER_URL}/api/trade-closed", json={
                 "ticket":     ticket,
@@ -2372,6 +2544,13 @@ def track_closed_positions():
                 "closePrice": close_price,
                 "closeTime":  close_time,
                 "account":    ACCOUNT_TAG or "default",
+                # How far this trade ran in favour and against before it ended.
+                # RECORD-ONLY and SAMPLED at the poll interval, so both are floors.
+                # Nothing on the server reads these to decide anything; they exist
+                # so the partial-close question can eventually be settled with
+                # measurement instead of argument. Empty dict when untracked -
+                # never zeros, which would read as "it never moved".
+                **excursion,
                 # Record-only. Nothing on the server reads these to decide anything: the
                 # learning engine stays P&L-based and no gate, threshold or sizing path
                 # touches them. They exist so "hit its stop" can be told from "someone
@@ -2413,7 +2592,9 @@ def track_closed_positions():
         position_partial_taken.discard(ticket)
         trail_unresolved_logged.discard(ticket)
         partial_too_small_logged.discard(ticket)
+        position_excursion.pop(ticket, None)
         save_position_r()
+        save_position_excursion()
 
     known_positions = current_tickets
 
@@ -2626,6 +2807,7 @@ def main():
     # bridge already moved is measured against its TRUE risk rather than against the
     # stop the last run left behind.
     load_position_r()
+    load_position_excursion()
 
     # The startup pass is kept because it is the only one that runs BEFORE
     # known_positions is seeded, but it is no longer the only pass — see
@@ -2705,6 +2887,9 @@ def main():
             report_risk_status()
             manage_trailing_stops()
             take_partial_profit()
+            # BEFORE close detection, so the last poll a position is alive for is
+            # counted in its excursion rather than lost with it.
+            track_excursions()
             track_closed_positions()
 
             # Settle anything the live diff above could not see. track_closed_positions()
