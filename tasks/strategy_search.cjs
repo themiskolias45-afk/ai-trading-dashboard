@@ -83,6 +83,7 @@ const { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
 const OUT_DIR = path.join(ROOT, "tasks", "analysis");
 const LEDGER = path.join(ROOT, "tasks", "strategy_search_ledger.jsonl");
+const { deflatedBar, expectedMaxOfN } = require(path.join(ROOT, "tasks", "_deflated_bar.cjs"));
 
 function flag(name, fallback = null) {
   const i = process.argv.indexOf("--" + name);
@@ -361,6 +362,48 @@ function ledgerCount() {
   return fs.readFileSync(LEDGER, "utf8").split("\n").filter(Boolean).length;
 }
 
+/**
+ * How many candidates have EVER been tested on one axis, from the ledger.
+ *
+ * Per axis, not the grand total, because the axis is the selection family: a gate
+ * candidate is chosen from among other gate candidates, and charging it for every
+ * trail candidate ever tried would inflate the bar with trials it never competed
+ * against. The grand total is still reported separately - it is the right number
+ * for "did this SEARCH find something", which is a different question from "did
+ * this AXIS find something".
+ *
+ * A malformed ledger line is skipped rather than throwing: this feeds a safety
+ * bar, and a bar that cannot be computed must fail SAFE (see deflatedBar, which
+ * returns null and makes nothing promotable) rather than take the searcher down.
+ */
+function ledgerTrialsByAxis() {
+  const byAxis = {};
+  if (!fs.existsSync(LEDGER)) return byAxis;
+  let raw;
+  try {
+    raw = fs.readFileSync(LEDGER, "utf8");
+  } catch (e) {
+    process.stderr.write("  ledger unreadable (" + e.message + ") - trial counts start at 0\n");
+    return byAxis;
+  }
+  let skipped = 0;
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const row = JSON.parse(line);
+      if (row && typeof row.axis === "string") byAxis[row.axis] = (byAxis[row.axis] || 0) + 1;
+      else skipped++;
+    } catch (e) { skipped++; }
+  }
+  if (skipped) process.stderr.write("  ledger: " + skipped + " unparseable row(s) skipped\n");
+  return byAxis;
+}
+
+// Read ONCE, before any axis runs, so every axis in an --axis all run is judged
+// against the history that existed when the run started rather than against rows
+// this same run appended a moment ago.
+const PRIOR_TRIALS_BY_AXIS = ledgerTrialsByAxis();
+
 function searchAxis(key, stamp) {
   const axis = AXES[key];
   const perCut = {};
@@ -376,8 +419,22 @@ function searchAxis(key, stamp) {
   const incumbent = firstCut[incumbentKey];
   if (!incumbent) throw new Error("no incumbent row for axis " + key);
 
-  const floor = noiseFloor(incumbent.perFold);
+  const standardError = noiseFloor(incumbent.perFold);
   const spread = foldSpread(incumbent.perFold);
+
+  // MAKE THE TRIAL COUNT BIND. Until 2026-08-25 this searcher printed how many
+  // candidates it had ever tested and then judged the next one against a fixed
+  // one-standard-error bar. Disclosure without correction: search enough values
+  // against the same bars and one beats the incumbent by a standard error through
+  // luck alone, and the bar never noticed how many times you had asked.
+  //
+  // The candidates about to be scored are part of the same selection set as every
+  // candidate tried on this axis before, so both count toward N.
+  const candidateCount = Object.keys(firstCut).filter(k => k !== incumbentKey).length;
+  const trials = (PRIOR_TRIALS_BY_AXIS[key] || 0) + candidateCount;
+  const deflated = deflatedBar(standardError, trials);
+  const floor = deflated ? deflated.bar : null;
+
   const candidates = [];
 
   for (const label of Object.keys(firstCut)) {
@@ -418,11 +475,16 @@ function searchAxis(key, stamp) {
     at: stamp, axis: key, incumbent: incumbentKey, candidate: c.label,
     worstMargin: c.worstMargin, winsEveryCut: c.winsEveryCut,
     clearsNoise: c.clearsNoise, promotable: c.promotable, noiseFloor: floor,
+    // What the bar was and WHY, recorded per row so a promotion can be audited
+    // later against the trial count that applied at the moment it was made.
+    standardError, trialsAtDecision: trials,
+    deflationMultiple: deflated ? deflated.multiple : null,
     cuts: cutNames,
   })));
 
   return {
     axis: key, label: axis.label, incumbent: incumbentKey,
+    standardError, trials, deflationMultiple: deflated ? deflated.multiple : null,
     incumbentWorst: incumbent.worst, noiseFloor: floor, foldSpread: spread,
     cuts: cutNames, candidates, promotable,
     // A single-cut axis is searched under a weaker standard, and every consumer of this
@@ -480,8 +542,13 @@ for (const r of results) {
   lines.push("");
   lines.push("  AXIS: " + r.label + "   incumbent " + r.incumbent
     + "  worst " + (r.incumbentWorst == null ? "—" : r.incumbentWorst.toFixed(3))
-    + "   bar " + (r.noiseFloor == null ? "unknown" : r.noiseFloor.toFixed(3))
-    + " (sd/sqrt(folds); fold spread " + (r.foldSpread == null ? "—" : r.foldSpread.toFixed(3)) + ")");
+    + "   bar " + (r.noiseFloor == null ? "unknown" : r.noiseFloor.toFixed(3)));
+  // Show the correction rather than just its result. A reader who cannot see that
+  // the bar moved cannot tell a tightened test from a lucky quiet axis.
+  lines.push("    bar = " + (r.standardError == null ? "?" : r.standardError.toFixed(3))
+    + " SE x " + (r.deflationMultiple == null ? "?" : r.deflationMultiple.toFixed(2))
+    + "  (deflated for " + r.trials + " trial(s) on this axis; fold spread "
+    + (r.foldSpread == null ? "—" : r.foldSpread.toFixed(3)) + ")");
   lines.push("  standard: " + r.standard + "  [" + r.cuts.join(", ") + "]");
   lines.push("  " + "candidate".padEnd(10) + "worst margin   wins every cut   clears noise   trades vs incumbent");
   for (const c of r.candidates) {
