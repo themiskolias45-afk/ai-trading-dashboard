@@ -1518,6 +1518,21 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     reasons.push(`Watch for break above ${breakoutUp} (BUY) or below ${breakoutDown} (SELL)`);
     reasons.push(`RSI ${rsi} — position neutral, waiting for direction`);
     if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg — low volume confirms squeeze`);
+
+    // A WATCH is a NO-TRADE. Explain it like one: without this, a squeeze suppresses
+    // the whole diagnosis and the asset reads "breakout imminent" forever while the
+    // actual blocker goes unrecorded. Also say what MOMENTUM was still missing, so
+    // the reasons array carries the answer and not just the weather.
+    const watchMissing = [
+      !inUptrend ? "uptrend" : null,
+      !(rsi !== null && rsi > MOMENTUM_RSI_MIN && rsi < MOMENTUM_RSI_MAX)
+        ? `RSI inside ${MOMENTUM_RSI_MIN}-${MOMENTUM_RSI_MAX} (now ${rsi})` : null,
+      !macd?.bullish ? "MACD bullish" : null,
+    ].filter(Boolean);
+    if (watchMissing.length) {
+      reasons.push(`Not tradeable — MOMENTUM still needs: ${watchMissing.join(", ")}`);
+    }
+    recordNearMisses();
   }
 
   else {
@@ -1559,6 +1574,20 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     // this function in a bare vm sandbox where these bindings do not exist, and an
     // unstubbed reference throws into a catch that silently deletes the entire cohort
     // from every measurement.
+    recordNearMisses();
+  }
+
+  // Called from the final else AND from the WATCH branch above it. Declared as a
+  // function so there is ONE census, not two that drift.
+  //
+  // WHY THE WATCH BRANCH NEEDS IT: BB_SQUEEZE_WATCH is an `else if` sitting ahead of
+  // the final `else`, and the final `else` is where both this census and the
+  // "No setup - needs: ..." line live. An asset in a squeeze therefore got
+  // "breakout imminent" and NO diagnosis at all. SPX sat exactly there - RSI 52.8
+  // inside the MOMENTUM band, failing only on macd.bullish - showing confidence 0
+  // with nothing anywhere recording why. A WATCH is a no-trade and must explain
+  // itself like any other no-trade.
+  function recordNearMisses() {
     try {
       if (typeof noteNearMiss === "function" && rsi !== null) {
         const nearMissBase = {
