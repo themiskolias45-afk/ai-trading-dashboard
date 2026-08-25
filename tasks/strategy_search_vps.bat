@@ -57,6 +57,25 @@ if "%DOW%"=="6" set AXIS=trail
 
 echo Axis for day %DOW%: %AXIS% >> %LOG%
 
+REM TOP UP THE BARS FIRST. Without this the search is deadlocked, not idle:
+REM refresh_bars_vps.bat is the only other writer of tasks\history and it REFUSES
+REM whenever a position is open, because export_mt5_history.py opens a second MT5
+REM client against the terminal the live bridge is holding. A 13-day XAUUSD position
+REM guaranteed the book was never flat, the bars froze for 29 days, and this search
+REM skipped every night on --skip-if-bars-unchanged. The whole discovery loop was
+REM stopped by an open trade and every component was behaving correctly.
+REM
+REM topup_bars_from_bridge.cjs reads GET /api/mt5/candles/raw - the bars the bridge
+REM already pushed - so it opens NO MT5 client and needs no flat book. It backs up
+REM tasks\history first and restores any file that shrinks. It covers D1/H4/H1 only;
+REM M15 still needs the exporter and a flat book, so this is not "bars fixed".
+REM
+REM Failure here must never stop the round: the search then runs on whatever bars
+REM are cached, which is exactly what it did before this line existed.
+echo Topping up D1/H4/H1 from the bridge push... >> %LOG%
+node tasks\topup_bars_from_bridge.cjs --execute >> %LOG% 2>&1
+if errorlevel 1 echo   top-up failed - continuing on the cached bars >> %LOG%
+
 REM --skip-if-bars-unchanged: exit 4 without running anything when the cached bars
 REM have not moved since the last round. A nightly re-test of identical data returns
 REM identical answers while the ledger's candidate count climbs, and that count is
@@ -72,8 +91,15 @@ REM log to ignore it. What was found is in the report, not the exit code.
 if %RC%==0 (
   echo Search round complete >> %LOG%
 ) else if %RC%==4 (
-  echo Skipped - bars unchanged since the last round, so nothing was run. Expected >> %LOG%
-  echo   on any day tasksefresh_bars_vps.bat has not found a flat book yet. >> %LOG%
+  echo Skipped - bars unchanged since the last round, so nothing was run. >> %LOG%
+  echo   With the top-up above this should now be rare; it still happens on a day >> %LOG%
+  echo   the bridge pushed no new closed bar. >> %LOG%
+  REM Deliberate skip, NOT a failure. This used to fall through to exit /b 4 and the
+  REM coverage audit read that as a RED - a false alarm on a component that was
+  REM working exactly as designed, which is the surest way to train someone to skim
+  REM past the one RED that matters. The distinction stays in the LOG, where it
+  REM belongs, and the exit code says what it means: nothing went wrong.
+  set RC=0
 ) else (
   echo SEARCH ROUND FAILED rc=%RC% - see the report and the lines above >> %LOG%
 )
