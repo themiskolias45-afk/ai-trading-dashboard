@@ -3811,6 +3811,95 @@ app.get("/api/strategy-settings", (_, res) => {
   });
 });
 
+// Broker contract specs, exactly as the bridge reported them, plus what the LIVE
+// fixedLotSize actually turns into at this broker. Read-only; session-gated by the
+// /api/ rule at :387 like every other data route.
+//
+// minLot and lotStep have been pushed by the bridge and stored at :3148 since the
+// sizing fix, and until this route existed NOTHING read either one — the same
+// dead-field shape as the signals table with no writer. They are the only facts that
+// answer two questions the dashboard could not: what lot will this symbol really
+// trade, and does that size wake take_partial_profit.
+//
+// The partial arithmetic below MIRRORS mt5_bridge.py:2133-2135 deliberately, floor
+// and round in the same order, including where that is uglier than it needs to be.
+// A tidier version here would be a second rule that drifts from the one the bridge
+// enforces, which is how this codebase ended up with five copies of the confidence
+// gate. If that Python changes, change this with it.
+app.get("/api/broker-specs", (req, res) => {
+  // ?lot= previews a size that is NOT saved yet, so the dashboard can show what a
+  // typed value would do without keeping its own copy of the arithmetic. Anything
+  // unparseable falls back to the live setting rather than to a guess.
+  const previewLot = Number(req.query.lot);
+  const usingPreview = Number.isFinite(previewLot) && previewLot >= 0 && req.query.lot !== undefined && req.query.lot !== "";
+  const savedLotSize = Number(strategySettings.fixedLotSize) || 0;
+  const fixedLotSize = usingPreview ? previewLot : savedLotSize;
+  const symbols = {};
+  const now = Date.now();
+
+  for (const [mt5Symbol, spec] of Object.entries(mt5SymbolSpecs)) {
+    const minLot  = Number(spec.minLot);
+    const lotStep = Number(spec.lotStep);
+    const haveLotGeometry = Number.isFinite(minLot) && minLot > 0
+                         && Number.isFinite(lotStep) && lotStep > 0;
+
+    // fixedLotSize 0 means size from risk, so the lot depends on the stop distance
+    // of a trade that does not exist yet. Report unknown rather than a number that
+    // would be wrong for every trade but one.
+    let effectiveLots = null, flooredUpToMin = null, partial;
+    if (!haveLotGeometry) {
+      partial = { armed: null, halfLot: null,
+                  why: "broker minLot/lotStep not reported for this symbol" };
+    } else if (fixedLotSize <= 0) {
+      partial = { armed: null, halfLot: null,
+                  why: "fixedLotSize is 0 — size comes from risk, so the lot varies per trade" };
+    } else {
+      // mt5_bridge.py sizing: the broker's floor always wins (see :1140).
+      effectiveLots  = Math.max(fixedLotSize, minLot);
+      flooredUpToMin = effectiveLots > fixedLotSize;
+
+      // mt5_bridge.py:2133-2135, mirrored.
+      let halfLot = Math.floor(effectiveLots / 2 / lotStep) * lotStep;
+      halfLot = Number(halfLot.toFixed(8));           // kill float dust, as the bridge does
+      const armed = halfLot >= minLot && halfLot < effectiveLots;
+      partial = {
+        armed,
+        halfLot,
+        why: armed
+          ? `at 1R the bridge closes ${halfLot} of ${effectiveLots} lots and moves the stop to breakeven`
+          : `${effectiveLots} lots cannot be split (half is ${halfLot}, broker minimum is ${minLot}) — the trailing ladder manages the trade instead`,
+      };
+    }
+
+    symbols[mt5Symbol] = {
+      valuePerPoint: spec.valuePerPoint ?? null,
+      contractSize:  spec.contractSize ?? null,
+      minLot:        Number.isFinite(minLot)  ? minLot  : null,
+      lotStep:       Number.isFinite(lotStep) ? lotStep : null,
+      account:       spec.account ?? null,
+      updatedAt:     spec.updatedAt ?? null,
+      ageMs:         spec.updatedAt ? now - Date.parse(spec.updatedAt) : null,
+      effectiveLots,
+      flooredUpToMin,
+      partialClose:  partial,
+    };
+  }
+
+  const available = Object.keys(symbols).length > 0;
+  res.json({
+    available,
+    fixedLotSize,
+    savedLotSize,
+    isPreview: usingPreview && previewLot !== savedLotSize,
+    symbols,
+    // Absent specs are a bridge that has not pushed yet, not a broker without
+    // minimums. Say which, so the page shows "unknown" instead of inventing 0.01.
+    note: available
+      ? "Reported by the bridge on its candle push (~60s). partialClose mirrors mt5_bridge.py:2133-2135."
+      : "No bridge has pushed contract specs yet — nothing here is known, and none of it is guessed.",
+  });
+});
+
 app.post("/api/strategy-settings", (req, res) => {
   const incoming = req.body || {};
   const applied = {};

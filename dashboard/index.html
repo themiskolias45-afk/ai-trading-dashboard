@@ -1329,7 +1329,7 @@
     <div class="at-banner-dot" id="at-dot" style="background:var(--green)"></div>
     <div>
       <div id="at-status-text">SYSTEM RUNNING</div>
-      <div id="at-status-sub" style="font-size:.68rem;font-weight:400;margin-top:2px;opacity:.7">Full-auto mode · Claude Opus approves every trade</div>
+      <div id="at-status-sub" style="font-size:.68rem;font-weight:400;margin-top:2px;opacity:.7">reading bridge state…</div>
     </div>
     <div style="margin-left:auto;font-size:.78rem;color:var(--muted);font-weight:400" id="at-pnl-display"></div>
   </div>
@@ -1495,6 +1495,14 @@
            strategy_settings.json, which is untracked and per-machine — so the same
            commit on both boxes does NOT mean the same behaviour, and the box that
            trades continuously is the one not shown here. -->
+      <!-- What the lot size above actually becomes at this broker. The number in the
+           box is a request: the broker's volume_min overrides it upward and the
+           volume_step quantises it, and neither was visible anywhere on this page.
+           It also reports whether the size wakes take_partial_profit, which was
+           dormant for the system's whole life at 0.01 and is not at 0.02 on any
+           symbol whose minimum is 0.01. Every figure is computed by the server from
+           broker-reported specs - this page holds no copy of the rule. -->
+      <div style="grid-column:1/-1" id="ss-lotreality"></div>
       <div style="grid-column:1/-1" id="ss-fleet"></div>
     </div>
   </div>
@@ -3869,7 +3877,16 @@ async function loadRiskStatus() {
     const rb=document.getElementById("at-risk-bar");
     if(d.halted){rb.style.display="block";rb.textContent="🛑 HALTED: "+d.haltReason+"  |  Daily P&L: "+(d.dailyPnl>=0?"+":"")+"$"+Number(d.dailyPnl).toFixed(2);}
     else{rb.style.display="none";}
-  } catch {}
+  } catch (e) {
+    // This used to be `catch {}`. A failed poll left the banner, the P&L and the
+    // breaker counters showing the LAST good values with nothing saying they had
+    // stopped updating - a trading status panel that is confidently wrong. Say so.
+    console.error("loadRiskStatus:", e);
+    const sub = document.getElementById("at-status-sub");
+    if (sub) { sub.textContent = "risk status unreachable - the figures above are stale"; sub.dataset.mode = "stale"; }
+    const dotEl = document.getElementById("at-dot");
+    if (dotEl) dotEl.style.background = "var(--muted)";
+  }
 }
 
 // ── The fleet: what is actually armed, on both boxes ─────────
@@ -4844,6 +4861,9 @@ setInterval(() => { if (document.getElementById('tab-performance')?.classList.co
 // persisted, and enforced by the bridge — a setting nothing enforces is decoration.
 let strategyLimits = null;
 
+// The settings as the server last reported them. null until the first load lands.
+let _strategySaved = null;
+
 async function loadStrategySettings() {
   const status = document.getElementById('ss-status');
   try {
@@ -4851,6 +4871,11 @@ async function loadStrategySettings() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const s = await r.json();
     strategyLimits = s.limits || null;
+    // Kept so saveStrategySettings can name what actually CHANGED. Without it the
+    // confirm dialog could only recite a fixed list, and it recited three of the six
+    // fields it sends - which is how fixedLotSize went 0.01 -> 0.02 on 2026-08-24
+    // through a dialog that never said the word "lot".
+    _strategySaved = s;
     // One source of truth for the gate across every panel on this page.
     if (Number.isFinite(s.confidenceThreshold)) {
       liveGate = s.confidenceThreshold;
@@ -4899,6 +4924,94 @@ async function loadStrategySettings() {
   }
 }
 
+// ── What the lot size actually becomes at this broker ────────────────────────
+// Every number here comes from /api/broker-specs, which computes them from the
+// specs the bridge reports and mirrors the bridge's own partial-close arithmetic.
+// Deliberately no client-side copy of that rule: this codebase has already shipped
+// the confidence gate five times in five places and had them disagree.
+const LOT_REALITY_DEBOUNCE_MS = 400;
+let _lotRealityTimer = null;
+
+function renderLotReality(host, d) {
+  if (!d.available) {
+    host.innerHTML = '<div style="font-size:.68rem;color:var(--muted);border-top:1px solid var(--border2);padding-top:10px">'
+      + 'Broker contract specs not reported yet - what each symbol will actually trade is <b>unknown</b>. '
+      + 'The bridge pushes them with its candles, about every 60s. Nothing here is guessed.'
+      + '</div>';
+    return;
+  }
+  const names = Object.keys(d.symbols).sort();
+  const rows = names.map(function (name) {
+    const x = d.symbols[name];
+    const armed = x.partialClose && x.partialClose.armed;
+    const lots = x.effectiveLots === null ? '&mdash;' : x.effectiveLots;
+    const floored = x.flooredUpToMin
+      ? '<span style="color:var(--yellow)"> floored up from ' + d.fixedLotSize + '</span>'
+      : '';
+    const badge = armed === true
+      ? '<span style="color:var(--yellow);font-weight:700">50% OFF AT 1R</span>'
+      : armed === false
+        ? '<span style="color:var(--muted)">no partial</span>'
+        : '<span style="color:var(--muted)">unknown</span>';
+    return '<tr>'
+      + '<td style="padding:3px 10px 3px 0;font-weight:700">' + escapeHtml(name) + '</td>'
+      + '<td style="padding:3px 10px 3px 0">' + lots + ' lots' + floored + '</td>'
+      + '<td style="padding:3px 10px 3px 0;color:var(--muted)">min ' + (x.minLot === null ? '?' : x.minLot)
+        + ' / step ' + (x.lotStep === null ? '?' : x.lotStep) + '</td>'
+      + '<td style="padding:3px 0">' + badge + '</td>'
+      + '</tr>';
+  }).join('');
+
+  // Name the preview as a preview. A readout that looks saved but is not is the
+  // same failure as a control with no reader.
+  const head = d.isPreview
+    ? '<span style="color:var(--yellow)">UNSAVED preview at ' + d.fixedLotSize
+      + ' lots</span> &middot; saved value is ' + d.savedLotSize
+    : 'At the saved fixed lot size of ' + d.fixedLotSize;
+
+  const anyArmed = names.some(function (n) {
+    return d.symbols[n].partialClose && d.symbols[n].partialClose.armed === true;
+  });
+  const foot = anyArmed
+    ? '<div style="font-size:.65rem;color:var(--yellow);margin-top:7px">'
+      + 'At 1R the bridge closes half and moves the stop to breakeven on the symbols marked above. '
+      + 'That path had never executed once while the lot size was 0.01.</div>'
+    : '';
+
+  host.innerHTML = '<div style="border-top:1px solid var(--border2);padding-top:10px">'
+    + '<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">What each symbol will trade</div>'
+    + '<div style="font-size:.68rem;color:var(--muted);margin-bottom:6px">' + head + '</div>'
+    + '<table style="font-size:.72rem;border-collapse:collapse">' + rows + '</table>'
+    + foot + '</div>';
+}
+
+async function refreshLotReality() {
+  const host = document.getElementById('ss-lotreality');
+  if (!host) return;
+  const el = document.getElementById('ss-fixedlot');
+  const typed = el ? el.value : '';
+  try {
+    const r = await fetch('/api/broker-specs?lot=' + encodeURIComponent(typed));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    renderLotReality(host, await r.json());
+  } catch (e) {
+    // Never leave the previous answer standing for a value it was not computed for.
+    console.error('refreshLotReality:', e);
+    host.innerHTML = '<div style="font-size:.68rem;color:var(--red);border-top:1px solid var(--border2);padding-top:10px">'
+      + 'Could not read broker specs (' + escapeHtml(String(e.message))
+      + ') - what each symbol will trade is unknown.</div>';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  const el = document.getElementById('ss-fixedlot');
+  if (!el) return;
+  el.addEventListener('input', function () {
+    clearTimeout(_lotRealityTimer);
+    _lotRealityTimer = setTimeout(refreshLotReality, LOT_REALITY_DEBOUNCE_MS);
+  });
+});
+
 async function saveStrategySettings() {
   const msg = document.getElementById('ss-msg');
   const body = {
@@ -4909,7 +5022,66 @@ async function saveStrategySettings() {
     maxLotSize:             Number(document.getElementById('ss-maxlot').value),
     minStrength:            document.getElementById('ss-minstrength').value,
   };
-  if (!confirm(`Apply these limits?\n\nConfidence gate: ${body.confidenceThreshold}%\nPosition slots: ${body.maxConcurrentPositions}\nMax trades/day: ${body.maxTradesPerDay}\n\nThe bridge picks these up on its next poll.`)) return;
+  // The dialog used to recite a fixed three-line list - confidence, slots, trades -
+  // while the body above sends SIX fields. fixedLotSize, maxLotSize and minStrength
+  // were changed without ever being named. On 2026-08-24 at 14:26 fixedLotSize went
+  // 0.01 -> 0.02 through exactly this dialog, which asked about three numbers that
+  // had not moved. Confirm what CHANGED, and nothing else.
+  const FIELD_LABELS = {
+    confidenceThreshold:    "Confidence gate",
+    maxConcurrentPositions: "Position slots",
+    maxTradesPerDay:        "Max trades/day",
+    fixedLotSize:           "Fixed lot size",
+    maxLotSize:             "Max lot size",
+    minStrength:            "Min strength",
+  };
+  const changes = [];
+  if (_strategySaved) {
+    for (const key of Object.keys(FIELD_LABELS)) {
+      const was = _strategySaved[key], now = body[key];
+      // Compare numerically where the form field is a number, so 0.02 and "0.02"
+      // and 0.020 are one value rather than three spurious changes.
+      const same = (typeof now === "number" && Number.isFinite(Number(was)))
+        ? Number(was) === now
+        : String(was) === String(now);
+      if (!same) changes.push({ key, was, now });
+    }
+    if (!changes.length) {
+      msg.textContent = "No changes to save.";
+      msg.style.color = "var(--muted)";
+      return;
+    }
+  }
+
+  let question;
+  if (!_strategySaved) {
+    // Never report "nothing changed" off a failed read. Confirm everything instead.
+    question = "Could not read the current settings, so these cannot be diffed.\n\n"
+      + "Apply ALL of these?\n\n"
+      + Object.keys(FIELD_LABELS).map(k => "  " + FIELD_LABELS[k] + ": " + body[k]).join("\n");
+  } else {
+    question = "Apply " + changes.length + " change" + (changes.length === 1 ? "" : "s") + "?\n\n"
+      + changes.map(c => "  " + FIELD_LABELS[c.key] + ":  " + c.was + "  ->  " + c.now).join("\n");
+    const lot = changes.find(c => c.key === "fixedLotSize");
+    if (lot) {
+      const wasLot = Number(lot.was), nowLot = Number(lot.now);
+      if (wasLot > 0 && nowLot > 0) {
+        question += "\n\n  ^ " + (nowLot / wasLot).toFixed(2) + "x the risk per trade on every symbol"
+                  + "\n    whose broker minimum lot is at or below " + nowLot + ".";
+      } else if (wasLot > 0 && nowLot === 0) {
+        question += "\n\n  ^ turns OFF fixed sizing - every trade is sized from risk %"
+                  + "\n    and stop distance instead.";
+      } else if (nowLot > 0) {
+        question += "\n\n  ^ turns ON fixed sizing - every trade becomes " + nowLot + " lots"
+                  + "\n    regardless of stop distance.";
+      }
+      question += "\n    The readout under these settings says what each symbol"
+                + "\n    will actually trade, and whether this size makes the bridge"
+                + "\n    take 50% off at 1R.";
+    }
+  }
+  question += "\n\nThe bridge picks these up on its next poll.";
+  if (!confirm(question)) return;
   try {
     const r = await fetch('/api/strategy-settings', {
       method: 'POST',
@@ -4922,6 +5094,7 @@ async function saveStrategySettings() {
     msg.textContent = 'Saved' + (out.notes && out.notes.length ? ' — ' + out.notes.join('; ') : '');
     msg.style.color = out.notes && out.notes.length ? 'var(--yellow)' : 'var(--green)';
     await loadStrategySettings();
+    await refreshLotReality();
     logExec(`Strategy settings updated: confidence ${body.confidenceThreshold}%, ${body.maxConcurrentPositions} slots, ${body.maxTradesPerDay} trades/day`, 'info');
   } catch (e) {
     msg.textContent = 'Failed: ' + e.message + (String(e.message).indexOf('401') !== -1 ? ' (log in first)' : '');
@@ -4929,7 +5102,7 @@ async function saveStrategySettings() {
   }
 }
 
-loadStrategySettings();
+loadStrategySettings().then(refreshLotReality);
 
 // ── Trading control (kill switch) ────────────────────────────────────────────
 // The dashboard had no way to reach the bridge at all: it reported its own
