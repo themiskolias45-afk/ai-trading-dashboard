@@ -32,6 +32,8 @@
     { href: "/command", label: "Command",
       match: ["/command", "/dashboard/command.html"] },
     { sep: true },
+    { href: "/strategy", label: "Strategy",
+      match: ["/strategy", "/dashboard/strategy.html"] },
     { href: "/dashboard/performance.html", label: "Performance",
       match: ["/dashboard/performance.html", "/performance"] },
     { href: "/system", label: "System",

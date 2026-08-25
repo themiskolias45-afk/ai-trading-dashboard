@@ -6573,6 +6573,7 @@ app.get("/command",    (_, res) => res.sendFile(path.join(__dirname, "..", "dash
 app.get("/jarvis",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "jarvis.html")));
 app.get("/system",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "system.html")));
 app.get("/plan",       (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "plan.html")));
+app.get("/strategy",   (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "strategy.html")));
 // Reading surface only. It composes /api/fleet, /api/gate-health, /api/signals,
 // /api/risk-status and /api/mt5/health — it runs nothing and posts nothing.
 app.get("/architecture", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "architecture.html")));
@@ -8167,6 +8168,177 @@ app.get("/api/cohort-reachability", (_, res) => {
     });
   } catch (e) {
     console.error("[cohort-reachability]", e.message);
+    res.status(500).json({ error: e.message, rows: [] });
+  }
+});
+
+// ── /api/strategy-board — every setup, and every source of truth about it ───
+//
+// The engine emits eight setup names and the evidence about them lived in four
+// places that never met: learning.json (real fills), learning_shadow.json (forgone
+// paper trades), the rejection ledger (which gate killed it), and the evidence
+// register (what has actually been measured). No page joined them, so the honest
+// answer to "which of my strategies work" was to open four screens and do it by
+// hand. This is that join, and nothing more: read-only, session-gated by the
+// /api/ rule, feedsTheGate false.
+//
+// The one thing it must never do is blur live and paper together. A shadow row is
+// a trade that was NEVER FILLED - no spread, no slippage, a fixed scoring horizon.
+// Folding it into a win rate would make a paper result indistinguishable from
+// money, which is the same mistake that once filed a real -449.72 fill under a
+// watch-only setup name. They stay in separate columns, always.
+app.get("/api/strategy-board", (_, res) => {
+  try {
+    // Every name the engine can emit. Hardcoded deliberately: a setup that has
+    // never fired must still appear, and deriving the list from the data would
+    // hide exactly the ones with no history - the rows most worth seeing.
+    const KNOWN_SETUPS = [
+      "MOMENTUM", "TREND_FOLLOW", "SQUEEZE_BREAKOUT", "BUY_OVERSOLD",
+      "SELL_BOUNCE", "RANGE_TRADE_LONG", "RANGE_TRADE_SHORT", "BB_SQUEEZE_WATCH",
+    ];
+    // Below this many closed fills a win rate is noise, not a verdict. Same floor
+    // the learning engine uses to withhold a boost.
+    const LIVE_JUDGEMENT_FLOOR = 5;
+
+    // ── live fills, from the journal, which is the record that cannot drift ──
+    // R is derived from the FILLED PRICES, never from the stored r:r - journal.rr
+    // was the SIGNAL'S PLAN, not the outcome, and reading it as realised was a real
+    // bug this project already shipped once.
+    const live = {};
+    for (const t of tradeJournal) {
+      if (t.status !== "CLOSED") continue;
+      const name = t.setup;
+      // WAIT/NONE/UNKNOWN is the ABSENCE of a setup, not a setup. Counting it
+      // would invent a ninth strategy out of a missing field.
+      if (!name || !KNOWN_SETUPS.includes(name)) continue;
+      const row = live[name] || (live[name] = {
+        trades: 0, wins: 0, losses: 0, pnl: 0, realizedR: 0, rTrades: 0,
+      });
+      row.trades += 1;
+      if (t.pnl !== null && t.pnl !== undefined) {
+        if (t.pnl > 0) row.wins += 1; else row.losses += 1;
+        row.pnl += t.pnl;
+      }
+      // realizedR is NOT stored on the journal row - it is derived at read time by
+      // realizedRFromPrices, the server's own single implementation, which is why
+      // /api/journal shows it and the file on disk does not. Called here rather than
+      // recomputed: a second copy of "what did this trade actually return" is exactly
+      // how journal.rr came to be read as an outcome when it was only the plan.
+      const derivedR = t.closePrice == null
+        ? null
+        : realizedRFromPrices(t.direction, t.entry, t.sl, t.closePrice);
+      if (Number.isFinite(derivedR)) { row.realizedR += derivedR; row.rTrades += 1; }
+    }
+
+    // ── shadow: forgone paper trades, read from the same file /api/learning uses ──
+    let shadowStats = {};
+    let shadowAgeHours = null;
+    let shadowError = null;
+    try {
+      const shadowPath = path.join(__dirname, "learning_shadow.json");
+      if (fs.existsSync(shadowPath)) {
+        const raw = JSON.parse(fs.readFileSync(shadowPath, "utf8"));
+        shadowStats = raw.shadowStats || {};
+        const ms = typeof raw.generatedAt === "string" ? Date.parse(raw.generatedAt) : NaN;
+        shadowAgeHours = Number.isFinite(ms)
+          ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+      }
+    } catch (e) {
+      // Surfaced, never swallowed: a stalled nightly regeneration is exactly the
+      // kind of failure that reads as "no evidence" instead of "stale evidence".
+      shadowError = e.message;
+      console.error(`[strategy-board] shadow unreadable (${e.message})`);
+    }
+
+    // ── which gate killed it, from the rejection ledger ──
+    let killedBy = {};
+    let ledgerError = null;
+    try {
+      const eviction = rejectionEvidence.buildEvidence();
+      for (const [name, row] of Object.entries(eviction.setups || {})) {
+        killedBy[name] = row.gates || {};
+      }
+    } catch (e) {
+      ledgerError = e.message;
+      console.error(`[strategy-board] rejection ledger unreadable (${e.message})`);
+    }
+
+    // ── the curated claims, so a measured verdict is not re-derived here ──
+    let claims = [];
+    try {
+      claims = (evidenceRegister.getRegister() || {}).claims || [];
+    } catch (e) {
+      console.error(`[strategy-board] evidence register unreadable (${e.message})`);
+    }
+
+    const rows = KNOWN_SETUPS.map(name => {
+      const l = live[name] || null;
+      const s = shadowStats[name] || null;
+
+      // The verdict rule is stated in the response rather than left implicit,
+      // because a label like STRONG carries an implied sample size and this book
+      // does not have one yet for anything.
+      let verdict, basis;
+      if (l && l.trades >= LIVE_JUDGEMENT_FLOOR) {
+        const wr = l.wins / (l.wins + l.losses || 1) * 100;
+        verdict = wr >= 65 ? "STRONG" : wr >= 55 ? "OK" : wr >= 45 ? "REVIEW" : "KILL";
+        basis = `${l.trades} live fills, ${wr.toFixed(0)}% win rate`;
+      } else if (l && l.trades > 0) {
+        verdict = "LEARNING";
+        basis = `${l.trades} live fill(s), under the ${LIVE_JUDGEMENT_FLOOR}-fill floor - no conclusion drawn`;
+      } else if (s && s.enoughForReading) {
+        verdict = "SHADOW ONLY";
+        basis = `never filled live; ${s.episodes} forgone paper episodes at ${s.rPerEpisode}R each`;
+      } else {
+        verdict = "TOO FEW";
+        basis = "no live fills and not enough forgone episodes to read";
+      }
+
+      return {
+        setup: name,
+        live: l ? {
+          trades: l.trades, wins: l.wins, losses: l.losses,
+          pnl: Math.round(l.pnl * 100) / 100,
+          // R, not dollars. The same six fills read -223.91 in currency and +3.51R
+          // in risk units, because one of them was sized 14x the others.
+          realizedR: l.rTrades ? Math.round(l.realizedR * 1000) / 1000 : null,
+          realizedRTrades: l.rTrades,
+        } : null,
+        shadow: s ? {
+          episodes: s.episodes, wins: s.wins, losses: s.losses,
+          netR: s.totalR, rPerEpisode: s.rPerEpisode,
+          winRate: s.winRate, enoughForReading: s.enoughForReading,
+          gates: s.gates || [], symbols: s.symbols || [],
+        } : null,
+        killedBy: killedBy[name] || {},
+        verdict,
+        basis,
+      };
+    });
+
+    res.json({
+      gate: strategySettings.confidenceThreshold,
+      settingsError: strategySettingsError,
+      liveJudgementFloor: LIVE_JUDGEMENT_FLOOR,
+      totalLiveFills: rows.reduce((n, r) => n + (r.live ? r.live.trades : 0), 0),
+      shadowAgeHours,
+      shadowError,
+      ledgerError,
+      claims: claims.map(c => ({
+        id: c.id, title: c.title, status: c.status,
+        measuredOn: c.measuredOn, changesTheAnswer: c.changesTheAnswer,
+      })),
+      rows,
+      verdictRule: `STRONG >=65% / OK >=55% / REVIEW >=45% / KILL <45%, but ONLY at ${LIVE_JUDGEMENT_FLOOR}+ live fills. `
+                 + "Below that it is LEARNING and no conclusion is drawn. SHADOW ONLY means it has never "
+                 + "filled live and the number beside it is forgone PAPER trades.",
+      shadowCaveat: "Shadow rows are trades that were NEVER FILLED: no spread, no slippage, a fixed "
+                  + "scoring horizon. They are a screening signal for which gate to investigate, not "
+                  + "realised P&L, and where they contradict a walk-forward the walk-forward wins.",
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[strategy-board]", e.message);
     res.status(500).json({ error: e.message, rows: [] });
   }
 });

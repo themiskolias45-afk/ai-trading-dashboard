@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartEntry Pro — Strategy Board</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
+      --text:#e2e8f0; --muted:#6b83a8; --muted-dim:#4a6080; --accent:#7c3aed;
+      --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
+      --font:'Segoe UI',system-ui,Arial,sans-serif;
+    }
+    body { background:var(--bg); color:var(--text); font-family:var(--font); min-height:100vh; font-size:14px; }
+
+    header {
+      background:var(--surface); border-bottom:1px solid var(--border);
+      padding:12px 24px; display:flex; align-items:center; justify-content:space-between;
+      position:sticky; top:0; z-index:100; flex-wrap:wrap; gap:10px;
+    }
+    .logo { display:flex; align-items:center; gap:10px; }
+    .logo-mark {
+      width:32px; height:32px;
+      background:linear-gradient(135deg,var(--accent),#4f46e5);
+      border-radius:8px; display:flex; align-items:center;
+      justify-content:center; font-weight:900; font-size:16px; color:#fff;
+    }
+    .logo-text { font-size:1rem; font-weight:700; }
+    .logo-sub  { font-size:.65rem; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
+    .header-right { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+    .pill { display:flex; align-items:center; gap:6px; padding:4px 12px; border-radius:20px; font-size:.72rem; font-weight:700; }
+    .pill-muted { background:var(--surface); border:1px solid var(--border2); color:var(--muted); }
+    .pill-red   { background:#200d0d; border:1px solid var(--red); color:var(--red); }
+
+    .container { padding:20px 24px; max-width:1400px; margin:0 auto; }
+
+    .title-bar {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:10px; padding:14px 20px; margin-bottom:16px;
+    }
+    .title-bar h1 { font-size:1.1rem; font-weight:700; }
+    .title-bar .meta { font-size:.72rem; color:var(--muted); margin-top:4px; line-height:1.6; }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:16px; }
+    .card-head { padding:12px 16px; border-bottom:1px solid var(--border); font-size:.8rem; font-weight:700; letter-spacing:.03em; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+    .card-head .sub { font-size:.68rem; font-weight:400; color:var(--muted); }
+
+    /* Wide content scrolls INSIDE its own container. min-width:0 because a grid/flex
+       child defaults to min-width:auto and refuses to shrink below its content, which
+       makes the PAGE scroll sideways instead of the table. */
+    .tablewrap { overflow-x:auto; min-width:0; }
+    table { border-collapse:collapse; width:100%; font-size:.78rem; }
+    th {
+      text-align:left; padding:9px 14px; font-size:.62rem; text-transform:uppercase;
+      letter-spacing:.09em; color:var(--muted); border-bottom:1px solid var(--border);
+      white-space:nowrap; font-weight:700;
+    }
+    td { padding:11px 14px; border-bottom:1px solid var(--border); vertical-align:top; }
+    tr:last-child td { border-bottom:none; }
+    tr.setup-row { cursor:pointer; }
+    tr.setup-row:hover td { background:#121a28; }
+    .setup-name { font-weight:700; font-size:.82rem; white-space:nowrap; }
+    .sub { font-size:.66rem; color:var(--muted); margin-top:3px; }
+    .num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .pos { color:var(--green); } .neg { color:var(--red); } .dim { color:var(--muted); }
+
+    .badge { display:inline-block; padding:3px 9px; border-radius:5px; font-size:.63rem; font-weight:700; letter-spacing:.04em; white-space:nowrap; }
+    .b-strong   { background:#0d2010; border:1px solid var(--green);  color:var(--green); }
+    .b-ok       { background:#0d1a20; border:1px solid var(--blue);   color:var(--blue); }
+    .b-review   { background:#1a160a; border:1px solid var(--yellow); color:var(--yellow); }
+    .b-kill     { background:#200d0d; border:1px solid var(--red);    color:var(--red); }
+    .b-learning { background:var(--surface); border:1px solid var(--border2); color:var(--muted); }
+    .b-shadow   { background:#150f20; border:1px solid var(--accent); color:#a78bfa; }
+    .b-few      { background:var(--surface); border:1px solid var(--border2); color:var(--muted-dim); }
+
+    .detail td { background:#0b1119; border-bottom:1px solid var(--border); }
+    .detail-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; }
+    .detail h4 { font-size:.62rem; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin-bottom:6px; }
+    .detail p  { font-size:.72rem; line-height:1.65; color:var(--text); }
+    .detail code { background:#0f1520; border:1px solid var(--border2); border-radius:4px; padding:1px 6px; font-size:.68rem; color:#a78bfa; }
+
+    .note {
+      background:#0b1119; border:1px solid var(--border2); border-radius:8px;
+      padding:12px 16px; font-size:.72rem; color:var(--muted); line-height:1.7;
+    }
+    .note strong { color:var(--text); }
+    .warn { border-color:var(--yellow); color:var(--yellow); }
+    .err  { border-color:var(--red); color:var(--red); }
+    .loading { padding:24px 16px; color:var(--muted); font-size:.78rem; }
+  </style>
+  <script src="/dashboard/nav.js" defer></script>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">SE</div>
+    <div>
+      <div class="logo-text">SmartEntry Pro</div>
+      <div class="logo-sub">Strategy Board</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="pill pill-muted" id="gate-pill">gate —</div>
+    <div class="pill pill-muted" id="fills-pill">— live fills</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="title-bar">
+    <h1>Every setup the engine can produce, and every source of truth about it</h1>
+    <div class="meta" id="intro">
+      The evidence about these setups lives in four places that never met: the journal (real fills),
+      the shadow ledger (forgone paper trades), the rejection ledger (which gate killed it) and the
+      evidence register (what has been measured). This joins them. It decides nothing — no gate, no
+      threshold, no sizing reads this page.
+    </div>
+  </div>
+
+  <div id="alerts"></div>
+
+  <div class="card">
+    <div class="card-head">
+      <span>Setups</span>
+      <span class="sub" id="head-sub">loading…</span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Setup</th>
+            <th>Live fills</th>
+            <th>Realised R</th>
+            <th>Shadow (paper)</th>
+            <th>Killed by</th>
+            <th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="6" class="loading">reading the engine…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span>How to read this</span></div>
+    <div style="padding:14px 16px">
+      <div class="note" id="rules">loading…</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <span>Measured claims</span>
+      <span class="sub">from server/evidence_register.js — the curated record, not re-derived here</span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Claim</th><th>Status</th><th>Measured</th></tr></thead>
+        <tbody id="claims"><tr><td colspan="3" class="loading">loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+// One place that turns a verdict into a class, so a new verdict cannot render
+// unstyled and look like a bug.
+var BADGE = {
+  "STRONG": "b-strong", "OK": "b-ok", "REVIEW": "b-review", "KILL": "b-kill",
+  "LEARNING": "b-learning", "SHADOW ONLY": "b-shadow", "TOO FEW": "b-few"
+};
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// R, signed and coloured. null is "—", never 0: "no record" and "flat" are
+// different facts and this whole page exists because they were being conflated.
+function rCell(v) {
+  if (v === null || v === undefined) return '<span class="dim">—</span>';
+  var cls = v > 0 ? "pos" : v < 0 ? "neg" : "dim";
+  return '<span class="num ' + cls + '">' + (v > 0 ? "+" : "") + v.toFixed(2) + 'R</span>';
+}
+
+function renderRows(d) {
+  var tb = document.getElementById("rows");
+  if (!d.rows || !d.rows.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="loading">No setups returned.</td></tr>';
+    return;
+  }
+
+  var html = "";
+  d.rows.forEach(function (r, i) {
+    var live = r.live;
+    var sh   = r.shadow;
+
+    var liveCell = live
+      ? '<span class="num">' + live.wins + 'W ' + live.losses + 'L</span>'
+        + '<div class="sub">' + live.trades + ' closed</div>'
+      : '<span class="dim">never filled</span>';
+
+    var rCellHtml = live
+      ? rCell(live.realizedR)
+        + (live.realizedRTrades && live.realizedRTrades < live.trades
+            ? '<div class="sub">' + live.realizedRTrades + ' of ' + live.trades + ' carry R</div>' : "")
+      : '<span class="dim">—</span>';
+
+    // Shadow is deliberately in its own column with its own wording. It is never
+    // added to the live figures.
+    var shCell = sh
+      ? '<span class="num">' + sh.wins + 'W ' + sh.losses + 'L</span> '
+        + rCell(sh.netR)
+        + '<div class="sub">' + sh.episodes + ' paper episodes · '
+        + (sh.enoughForReading ? sh.rPerEpisode + 'R each' : 'under the floor') + '</div>'
+      : '<span class="dim">none logged</span>';
+
+    var gates = Object.keys(r.killedBy || {});
+    var gateCell = gates.length
+      ? gates.map(function (g) { return esc(g) + ' <span class="dim">' + r.killedBy[g] + '</span>'; }).join('<br>')
+      : '<span class="dim">—</span>';
+
+    html += '<tr class="setup-row" data-i="' + i + '">'
+          + '<td><div class="setup-name">' + esc(r.setup) + '</div></td>'
+          + '<td>' + liveCell + '</td>'
+          + '<td>' + rCellHtml + '</td>'
+          + '<td>' + shCell + '</td>'
+          + '<td style="font-size:.7rem">' + gateCell + '</td>'
+          + '<td><span class="badge ' + (BADGE[r.verdict] || "b-few") + '">' + esc(r.verdict) + '</span></td>'
+          + '</tr>';
+
+    var symbols = sh && sh.symbols && sh.symbols.length ? sh.symbols.join(", ") : "—";
+    var shGates = sh && sh.gates && sh.gates.length ? sh.gates.join(", ") : "—";
+
+    html += '<tr class="detail" id="d' + i + '" style="display:none"><td colspan="6">'
+          + '<div class="detail-grid">'
+          + '<div><h4>Why this verdict</h4><p>' + esc(r.basis) + '</p></div>'
+          + '<div><h4>Which gates rejected it</h4><p>'
+          + (gates.length
+              ? esc(gates.join(", ")) + '. Those rejections are priced as paper trades in the shadow column.'
+              : 'No rejections logged against this setup.')
+          + '</p></div>'
+          + '<div><h4>Shadow scope</h4><p>Symbols: ' + esc(symbols) + '<br>Gates: ' + esc(shGates) + '</p></div>'
+          + '<div><h4>Settle it with</h4><p><code>node tasks/mtf_walkforward.cjs</code><br>'
+          + '<span class="sub">A walk-forward beats the shadow column wherever they disagree.</span></p></div>'
+          + '</div></td></tr>';
+  });
+  tb.innerHTML = html;
+
+  // Delegated, so re-rendering never leaves orphaned listeners behind.
+  tb.onclick = function (ev) {
+    var tr = ev.target.closest("tr.setup-row");
+    if (!tr) return;
+    var d2 = document.getElementById("d" + tr.dataset.i);
+    if (d2) d2.style.display = d2.style.display === "none" ? "" : "none";
+  };
+}
+
+function renderClaims(d) {
+  var tb = document.getElementById("claims");
+  var cl = d.claims || [];
+  if (!cl.length) { tb.innerHTML = '<tr><td colspan="3" class="loading">No claims in the register.</td></tr>'; return; }
+  tb.innerHTML = cl.map(function (c) {
+    return '<tr><td><div class="setup-name">' + esc(c.title || c.id) + '</div>'
+         + (c.changesTheAnswer ? '<div class="sub">' + esc(String(c.changesTheAnswer).slice(0, 160)) + '…</div>' : "")
+         + '</td><td style="font-size:.7rem">' + esc(c.status || "—") + '</td>'
+         + '<td class="num dim">' + esc(c.measuredOn || "—") + '</td></tr>';
+  }).join("");
+}
+
+function renderAlerts(d) {
+  var out = "";
+  // settingsError means the server is on built-in defaults, so the gate shown here
+  // is NOT the saved one. That has to lead, not sit in a log.
+  if (d.settingsError) {
+    out += '<div class="note err" style="margin-bottom:12px"><strong>SAVED CONFIG NOT LOADED</strong> — '
+         + 'the server is running built-in defaults, so the gate above is not the saved one. '
+         + esc(d.settingsError) + '</div>';
+  }
+  if (d.shadowError) {
+    out += '<div class="note warn" style="margin-bottom:12px"><strong>Shadow ledger unreadable</strong> — '
+         + esc(d.shadowError) + '. The paper column is empty because it could not be read, '
+         + 'which is not the same as there being no evidence.</div>';
+  }
+  if (d.ledgerError) {
+    out += '<div class="note warn" style="margin-bottom:12px"><strong>Rejection ledger unreadable</strong> — '
+         + esc(d.ledgerError) + '. "Killed by" is blank for that reason, not because nothing was rejected.</div>';
+  }
+  // A stalled nightly regeneration reads as "no new evidence" unless the age is shown.
+  if (d.shadowAgeHours !== null && d.shadowAgeHours !== undefined && d.shadowAgeHours > 48) {
+    out += '<div class="note warn" style="margin-bottom:12px"><strong>Shadow evidence is '
+         + esc(d.shadowAgeHours) + 'h old</strong> — the nightly regeneration may have stalled. '
+         + 'Rebuild with <code>node tasks/score_rr_rejections.py</code> then '
+         + '<code>tasks/learning_from_rejections.py</code>.</div>';
+  }
+  document.getElementById("alerts").innerHTML = out;
+}
+
+function render(d) {
+  document.getElementById("gate-pill").textContent  = "gate " + d.gate;
+  document.getElementById("fills-pill").textContent = d.totalLiveFills + " live fills";
+  document.getElementById("head-sub").textContent =
+    d.rows.length + " setups · shadow evidence "
+    + (d.shadowAgeHours === null || d.shadowAgeHours === undefined ? "age unknown" : d.shadowAgeHours + "h old");
+  document.getElementById("rules").innerHTML =
+    '<strong>Verdicts.</strong> ' + esc(d.verdictRule)
+    + '<br><br><strong>The shadow column is not money.</strong> ' + esc(d.shadowCaveat);
+  renderAlerts(d);
+  renderRows(d);
+  renderClaims(d);
+}
+
+function load() {
+  fetch("/api/strategy-board")
+    .then(function (r) {
+      if (r.status === 401) throw new Error("Not logged in — open /login first.");
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(render)
+    .catch(function (e) {
+      // Never leave the previous answer standing under a failed refresh.
+      document.getElementById("rows").innerHTML =
+        '<tr><td colspan="6" class="loading" style="color:var(--red)">Could not load the board: '
+        + esc(e.message) + '</td></tr>';
+      document.getElementById("head-sub").textContent = "unreachable";
+      console.error("strategy-board:", e);
+    });
+}
+
+load();
+// Slow on purpose. Nothing here changes faster than a trade closes, and a tight
+// poll would rebuild the rejection ledger on the server every few seconds.
+setInterval(load, 120000);
+</script>
+</body>
+</html>
