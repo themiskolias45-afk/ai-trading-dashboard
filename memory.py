@@ -89,14 +89,29 @@ def _save(data: dict):
     os.replace(tmp, MEMORY_FILE)
 
 
+def _owned(entries: list) -> list:
+    """The rows THIS module wrote, i.e. the ones shaped {key, value, ...}.
+
+    server/index.js appends to the same tasks/jarvis_memory.json in its own shape,
+    {ts, tag, text} — the /learn session log. The loader deliberately accepts the
+    whole file rather than rejecting a shape it does not own, so every lookup below
+    has to skip foreign rows instead of indexing ["key"] and dying on them. It died
+    on them: a SESSION-END row written 2026-08-24T20:33 raised KeyError on every
+    `add` and every `recall` from that moment until this was fixed, so write_memory
+    reported ok:false for a whole day.
+
+    Foreign rows are SKIPPED, never rewritten and never dropped — forget() filters
+    the full list, so anything this returns nothing about is simply kept.
+    """
+    return [e for e in entries if isinstance(e, dict) and "key" in e]
 def add_memory(key: str, value: str, category: str = "GENERAL", source: str = "manual") -> dict:
     """Add or update a memory entry. Returns the entry."""
     data = _load()
     now = datetime.now(timezone.utc).isoformat()
 
     # Check if key already exists — update in place
-    for entry in data["entries"]:
-        if entry["key"].lower() == key.lower():
+    for entry in _owned(data["entries"]):
+        if str(entry["key"]).lower() == key.lower():
             entry["value"] = value
             entry["category"] = category.upper()
             entry["updated_at"] = now
@@ -122,8 +137,9 @@ def recall(query: str, limit: int = 10) -> list:
     data = _load()
     q = query.lower()
     results = [
-        e for e in data["entries"]
-        if q in e["key"].lower() or q in e["value"].lower() or q in e.get("category", "").lower()
+        e for e in _owned(data["entries"])
+        if q in str(e["key"]).lower() or q in str(e.get("value", "")).lower()
+        or q in str(e.get("category", "")).lower()
     ]
     return results[:limit]
 
@@ -143,7 +159,11 @@ def forget(key: str) -> bool:
     """Remove a memory entry by key (partial match). Returns True if removed."""
     data = _load()
     before = len(data["entries"])
-    data["entries"] = [e for e in data["entries"] if key.lower() not in e["key"].lower()]
+    data["entries"] = [
+        e for e in data["entries"]
+        if not (isinstance(e, dict) and "key" in e
+                and key.lower() in str(e["key"]).lower())
+    ]
     if len(data["entries"]) < before:
         _save(data)
         return True
