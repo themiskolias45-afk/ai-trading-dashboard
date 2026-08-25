@@ -57,6 +57,7 @@
 const path = require("path");
 const fs   = require("fs");
 const { deflatedBar } = require(path.join(__dirname, "_deflated_bar.cjs"));
+const { costFor, FLAT_COST_R, describeBasis } = require(path.join(__dirname, "_cost_basis.cjs"));
 
 const ROOT = path.join(__dirname, "..");
 
@@ -74,6 +75,33 @@ const TARGET_R = 1.5;    // stated: "take profit at 1.5x the risk"
 const HOLD_BARS = 24;    // stated: "closes within a day" — 24 H1 bars
 const LOOKBACK = 24;     // window for "recent high/low"
 const AS_JSON  = flag("--json");
+
+// What the header says about the basis. Per-asset says SPREAD ONLY in the headline
+// itself, because a number is only readable next to what it was charged.
+function costHeader() {
+  return COST_BASIS === "perasset"
+    ? "PER-ASSET SPREAD ONLY (a FLOOR - no commission, no swap, no slippage)"
+    : COST_R + "R/trade flat";
+}
+
+// --cost-basis perasset charges each trade its own instrument's SPREAD over that
+// trade's own risk distance, instead of one flat number for three instruments whose
+// spreads differ by orders of magnitude.
+//
+// OPT-IN, NEVER THE DEFAULT. _cost_basis.cjs states what this basis is and is not:
+// spread is a FLOOR on cost. Commission, swap on a held position and slippage on a
+// stop through a fast market are all real and NONE is modelled here. Its own warning
+// is that a harness switching to spread-only costs and reporting a better number
+// "has not found edge, it has stopped paying for things that still cost money".
+//
+// It understates MORE for this strategy than for most: HOLD_BARS is 24 H1 bars, so a
+// position routinely sits overnight and pays SWAP - precisely one of the components
+// spread alone does not capture.
+const COST_BASIS = String(opt("--cost-basis", "flat")).toLowerCase();
+if (COST_BASIS !== "flat" && COST_BASIS !== "perasset") {
+  console.error('--cost-basis must be "flat" or "perasset"');
+  process.exit(1);
+}
 
 // Declared grids. Small on purpose: every extra combination raises the bar.
 const DIP_ATRS      = [1.5, 2.0, 3.0];   // strategy 1 — how far below the recent high
@@ -122,7 +150,17 @@ function atrSeries(h, l, c, period) {
 
 // Walk one open position forward. Shared by both strategies so their exits cannot
 // drift apart — the report gives them the same stop, target and time exit.
-function resolve(bars, entryIdx, dir, entry, risk) {
+// Cost in R for ONE trade. Flat unless --cost-basis perasset, in which case it is
+// this instrument's spread divided by this trade's risk distance. costFor falls back
+// to the flat number itself on an unknown symbol or a non-positive risk, so a bad
+// row is charged MORE, never less.
+function tradeCost(sym, risk) {
+  if (COST_BASIS !== "perasset") return COST_R;
+  const c = costFor(sym, risk);
+  return (c && Number.isFinite(c.costR)) ? c.costR : FLAT_COST_R;
+}
+
+function resolve(bars, entryIdx, dir, entry, risk, sym) {
   const { o, h, l } = bars;
   const stop   = dir === 1 ? entry - risk : entry + risk;
   const target = dir === 1 ? entry + risk * TARGET_R : entry - risk * TARGET_R;
@@ -132,16 +170,16 @@ function resolve(bars, entryIdx, dir, entry, risk) {
     const hitTarget = dir === 1 ? h[j] >= target : l[j] <= target;
     // Both in one bar is a LOSS. Assuming the target came first is how a backtest
     // invents edge it never had.
-    if (hitStop && hitTarget) return { r: -1 - COST_R, exit: "BOTH_IN_BAR" };
-    if (hitStop)   return { r: -1 - COST_R, exit: "STOP" };
-    if (hitTarget) return { r: TARGET_R - COST_R, exit: "TARGET" };
+    if (hitStop && hitTarget) return { r: -1 - tradeCost(sym, risk), exit: "BOTH_IN_BAR" };
+    if (hitStop)   return { r: -1 - tradeCost(sym, risk), exit: "STOP" };
+    if (hitTarget) return { r: TARGET_R - tradeCost(sym, risk), exit: "TARGET" };
   }
   const px = o[last + 1];
   const r = dir === 1 ? (px - entry) / risk : (entry - px) / risk;
-  return { r: r - COST_R, exit: "TIME" };
+  return { r: r - tradeCost(sym, risk), exit: "TIME" };
 }
 
-function runBuyTheDip(bars, dipAtr) {
+function runBuyTheDip(bars, dipAtr, sym) {
   const { t, o, h, c } = bars;
   const atr = atrSeries(bars.h, bars.l, c, ATR_LEN);
   const trades = [];
@@ -155,14 +193,14 @@ function runBuyTheDip(bars, dipAtr) {
     if ((recentHigh - c[i]) / atr[i] < dipAtr) continue;
     const entry = o[i + 1];
     const risk = atr[i] * ATR_MULT;
-    const res = resolve(bars, i + 1, 1, entry, risk);   // LONG only, as stated
+    const res = resolve(bars, i + 1, 1, entry, risk, sym);   // LONG only, as stated
     trades.push({ t: t[i + 1], ...res });
     blockedUntil = i + HOLD_BARS;   // one position at a time
   }
   return trades;
 }
 
-function runReversalInTrend(bars, pullbackAtr) {
+function runReversalInTrend(bars, pullbackAtr, sym) {
   const { t, o, h, l, c } = bars;
   const atr = atrSeries(h, l, c, ATR_LEN);
   const ema200 = emaSeries(c, 200);
@@ -183,7 +221,7 @@ function runReversalInTrend(bars, pullbackAtr) {
     const dir = up ? 1 : -1;
     const entry = o[i + 1];
     const risk = atr[i] * ATR_MULT;
-    const res = resolve(bars, i + 1, dir, entry, risk);
+    const res = resolve(bars, i + 1, dir, entry, risk, sym);
     trades.push({ t: t[i + 1], ...res });
     blockedUntil = i + HOLD_BARS;
   }
@@ -231,12 +269,12 @@ const rows = [];
 
 for (const d of DIP_ATRS) {
   const all = [];
-  for (const sym of Object.keys(bars)) all.push(...runBuyTheDip(bars[sym], d));
+  for (const sym of Object.keys(bars)) all.push(...runBuyTheDip(bars[sym], d, sym));
   rows.push({ strategy: "1 Buy-the-Dip", param: d + " ATR dip", stats: foldStats(all) });
 }
 for (const p of PULLBACK_ATRS) {
   const all = [];
-  for (const sym of Object.keys(bars)) all.push(...runReversalInTrend(bars[sym], p));
+  for (const sym of Object.keys(bars)) all.push(...runReversalInTrend(bars[sym], p, sym));
   rows.push({ strategy: "3 Reversal-in-Trend", param: p + " ATR pullback", stats: foldStats(all) });
 }
 
@@ -258,7 +296,7 @@ const out = {
   stated: { stopAtr: ATR_MULT, targetR: TARGET_R, holdBars: HOLD_BARS },
   interpreted: { lookbackBars: LOOKBACK, dipAtrs: DIP_ATRS, pullbackAtrs: PULLBACK_ATRS,
                  trend: "H1 EMA200" },
-  params: { costR: COST_R, folds: FOLDS, trials: TRIALS },
+  params: { costR: COST_R, costBasis: COST_BASIS, basisNote: describeBasis(COST_BASIS), folds: FOLDS, trials: TRIALS },
   rows,
   caveats: [
     "Stops, targets and the one-day exit are STATED in the report and implemented exactly.",
@@ -285,7 +323,7 @@ console.log("UK100 BATCH — the two H1 strategies, on BTCUSD / XAUUSD / SP500 H
 console.log("=".repeat(84));
 console.log("  stated and implemented exactly: stop " + ATR_MULT + "xATR · target "
           + TARGET_R + "R · close within " + HOLD_BARS + " bars");
-console.log("  cost " + COST_R + "R/trade · " + FOLDS + " folds · bar deflated for " + TRIALS + " trials");
+console.log("  cost " + costHeader() + " · " + FOLDS + " folds · bar deflated for " + TRIALS + " trials");
 if (missing.length) console.log("  MISSING H1: " + missing.join(", "));
 console.log("");
 console.log("  " + "strategy".padEnd(22) + "trigger".padEnd(18) + "trades".padEnd(9)
