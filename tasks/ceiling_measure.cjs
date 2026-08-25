@@ -92,6 +92,25 @@ const SETUPS = {
     firedDesc: "RSI " + RSI_MIN + " < x < " + CEILING,
     blockedDesc: "RSI >= " + CEILING,
   },
+  // BUY_DIP WITHOUT its macd.bullish requirement - the direct test of strategy 3
+  // ("Reversal in Trend") from the UK100 batch: trade WITH the bigger trend, buy
+  // small dips instead of chasing highs. That description is this system's BUY_DIP
+  // minus the MACD condition, and the decomposition showed macd.bullish removes 91%
+  // of candidates (286 -> 26) while the 2.2% window removes only 10%.
+  //
+  // FIRED here means "MACD was still bullish", which is what the engine takes today.
+  // BLOCKED means "MACD had already rolled over", which is what it refuses. If the
+  // blocked ones perform as well, the condition is costing trades for nothing.
+  buydip_macd: {
+    label: "BUY_DIP pullback - is the macd.bullish requirement earning its keep?",
+    nonRsi: o => (o.inUptrend || (o.trend === "MIXED" && o.aboveEma50))
+              && !o.aboveEma20
+              && o.price >= o.ema20 * 0.978,
+    fired:   (r, o) => o.macdBullish === true,
+    blocked: (r, o) => o.macdBullish === false,
+    firedDesc: "MACD still bullish",
+    blockedDesc: "MACD rolled over",
+  },
   // server/index.js generateSignal, BUY_DIP branch: pullback to EMA20.
   buydip: {
     label: "BUY_DIP - EMA20 pullback reversal (RSI floor 50)",
@@ -280,8 +299,8 @@ for (const sym of ASSETS) {
     if (!fwd || fwd.atrUnits === null) continue;
     const row = { sym, t: bars.t[i], rsi: obs.rsi, ...fwd };
 
-    if (DEF.fired(obs.rsi))        { groups.FIRED.push(row); fired++; }
-    else if (DEF.blocked(obs.rsi)) { groups.BLOCKED.push(row); blocked++; }
+    if (DEF.fired(obs.rsi, obs))        { groups.FIRED.push(row); fired++; }
+    else if (DEF.blocked(obs.rsi, obs)) { groups.BLOCKED.push(row); blocked++; }
     else continue;                 // outside both - a different question
 
     // Matched control: the same bar shifted back for no reason. Not conditioned on
