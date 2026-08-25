@@ -152,6 +152,26 @@
     </div>
   </div>
 
+  <!-- What has actually been MEASURED. Every harness in tasks/ writes a JSON
+       report and until now every one was read by a human running a command.
+       A finding that lives only in a terminal is a finding nobody acts on -
+       /api/near-miss owned 24 of 24 blocks while rendered on ZERO pages. -->
+  <div class="card">
+    <div class="card-head">
+      <span>What has actually been measured</span>
+      <span class="sub" id="me-meta">loading&hellip;</span>
+    </div>
+    <div style="padding:14px 16px">
+      <div id="me-ceiling"></div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Report</th><th>Status</th><th>Age</th><th>Regenerate with</th></tr></thead>
+        <tbody id="me-reports"><tr><td colspan="4" class="loading">loading&hellip;</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-head">
       <span>Measured claims</span>
@@ -264,6 +284,93 @@ function renderRows(d) {
   };
 }
 
+function fmtNum(v, dp) {
+  if (v === null || v === undefined || !isFinite(v)) return "&mdash;";
+  return (v >= 0 ? "+" : "") + Number(v).toFixed(dp === undefined ? 3 : dp);
+}
+
+// The ceiling table: one row per candidate, one column per CUT that has run.
+// Nothing is recomputed here - the harness already decided beatsBaselineWorstFold
+// and a second implementation of "who wins" is a second thing to drift.
+function renderMeasured(d) {
+  var meta = document.getElementById("me-meta");
+  var host = document.getElementById("me-ceiling");
+  var tb = document.getElementById("me-reports");
+  var c = d.ceiling || {};
+  var cutKeys = Object.keys(c.perCut || {});
+
+  meta.textContent = c.cutsRun + " of " + c.cutsTotal + " ceiling cuts run";
+
+  if (!cutKeys.length) {
+    host.innerHTML = '<div class="note">No ceiling walk-forward has been run on this box yet.</div>';
+  } else {
+    var labels = {};
+    cutKeys.forEach(function (k) {
+      (c.perCut[k] || []).forEach(function (r) { labels[r.label] = r; });
+    });
+    var names = Object.keys(labels);
+    var head = '<tr><th>Ceiling</th>';
+    var nice = { ceilingWalkforward: "equal-count", ceilingWalkforwardTime: "equal-time",
+                 ceilingWalkforwardPerAsset: "per-asset cost" };
+    cutKeys.forEach(function (k) { head += "<th>" + (nice[k] || k) + "</th>"; });
+    head += "<th>trades</th><th>total R</th></tr>";
+
+    var rows = names.map(function (name) {
+      var any = labels[name];
+      var cells = cutKeys.map(function (k) {
+        var r = (c.perCut[k] || []).filter(function (x) { return x.label === name; })[0];
+        if (!r) return '<td class="dim">&mdash;</td>';
+        var pass = r.foldsPositive + "/" + r.foldsScored;
+        var cls = r.isBaseline ? "dim" : (r.beatsBaseline ? "pos" : "neg");
+        return '<td class="num ' + cls + '">' + fmtNum(r.worstFold)
+             + ' <span class="dim">(' + pass + ')</span></td>';
+      }).join("");
+      return "<tr>"
+        + '<td class="setup-name">' + esc(name)
+        + (any.isBaseline ? ' <span class="badge b-learning">LIVE</span>' : "")
+        + "</td>" + cells
+        + '<td class="num dim">' + (any.closed === null ? "&mdash;" : any.closed) + "</td>"
+        + '<td class="num ' + (any.totalR > 0 ? "pos" : "neg") + '">' + fmtNum(any.totalR, 1) + "</td>"
+        + "</tr>";
+    }).join("");
+
+    var surv = c.survivorsAcrossEveryCutRun;
+    var foot = "";
+    if (surv && surv.length) {
+      foot = '<div class="note" style="margin-top:12px"><strong>Beats the live setting under every cut run so far:</strong> '
+           + surv.map(esc).join(", ") + ".</div>";
+    } else if (surv) {
+      foot = '<div class="note" style="margin-top:12px">No candidate beats the live setting under every cut run.</div>';
+    }
+    // An incomplete sweep is NOT a verdict, and must not read like one.
+    if (c.incomplete) {
+      foot += '<div class="note warn" style="margin-top:8px"><strong>NOT A VERDICT &mdash; '
+            + esc(c.incomplete) + '.</strong> A candidate that wins one cut and loses another '
+            + 'is a coin toss with extra steps.</div>';
+    }
+    foot += '<div class="note" style="margin-top:8px">' + esc(c.standard || "") + "</div>";
+
+    host.innerHTML = '<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">'
+      + "RSI ceiling &mdash; worst fold per cut (folds positive)</div>"
+      + '<div class="tablewrap"><table><thead>' + head + "</thead><tbody>" + rows + "</tbody></table></div>"
+      + foot;
+  }
+
+  var reps = d.reports || {};
+  var keys = Object.keys(reps);
+  tb.innerHTML = keys.map(function (k) {
+    var r = reps[k];
+    var cls = r.status === "OK" ? "b-strong" : r.status === "NOT RUN" ? "b-few" : "b-kill";
+    var age = r.ageHours === null || r.ageHours === undefined ? "&mdash;"
+            : r.ageHours + "h";
+    return "<tr><td>" + esc(r.title) + '<div class="sub">' + esc(r.file) + "</div></td>"
+      + '<td><span class="badge ' + cls + '">' + esc(r.status) + "</span>"
+      + (r.detail ? '<div class="sub">' + esc(r.detail) + "</div>" : "") + "</td>"
+      + '<td class="num dim">' + age + "</td>"
+      + "<td><code>" + esc(r.command) + "</code></td></tr>";
+  }).join("");
+}
+
 function renderClaims(d) {
   var tb = document.getElementById("claims");
   var cl = d.claims || [];
@@ -318,7 +425,25 @@ function render(d) {
   renderClaims(d);
 }
 
+// Fetched separately from the board so a failure in one never blanks the other.
+function loadMeasured() {
+  fetch("/api/measured-evidence")
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(renderMeasured)
+    .catch(function (e) {
+      console.error("measured-evidence:", e);
+      document.getElementById("me-meta").textContent = "unreachable";
+      document.getElementById("me-reports").innerHTML =
+        '<tr><td colspan="4" class="loading" style="color:var(--red)">Could not load: '
+        + esc(e.message) + "</td></tr>";
+    });
+}
+
 function load() {
+  loadMeasured();
   fetch("/api/strategy-board")
     .then(function (r) {
       if (r.status === 401) throw new Error("Not logged in — open /login first.");

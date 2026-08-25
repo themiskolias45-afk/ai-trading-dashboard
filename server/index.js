@@ -8401,6 +8401,168 @@ app.get("/api/strategy-board", (_, res) => {
   }
 });
 
+// ── /api/measured-evidence — what has actually been MEASURED, on one screen ──
+//
+// Every harness in tasks/ writes a JSON report and, until now, every one of them was
+// read by a human running a command. Findings that live only in a terminal are
+// findings nobody acts on, and this project has already learned that lesson twice:
+// /api/near-miss owned 24 of 24 blocks while rendered on ZERO pages, and lotStep was
+// pushed, stored, and read by nothing.
+//
+// This reads the reports off disk and reports their AGE beside them. It runs no
+// harness - a page request must never kick off an 18-replay walk-forward - so a
+// report that has never been generated is reported as NOT RUN rather than silently
+// blank. "Not measured" and "measured as zero" are different facts.
+//
+// Read-only, session-gated by the /api/ rule, feedsTheGate false.
+app.get("/api/measured-evidence", (_, res) => {
+  const dir = path.join(__dirname, "..", "tasks", "analysis");
+
+  // Each entry: the file, what question it answers, and how to regenerate it. The
+  // command is carried so a stale panel tells you how to refresh it instead of
+  // leaving you to grep for the harness.
+  const REPORTS = [
+    { key: "ceilingWalkforward", file: "rsi-ceiling-walkforward-latest.json",
+      title: "RSI ceiling — walk-forward, equal-count folds, costs charged",
+      command: "node tasks/rsi_ceiling_walkforward.cjs" },
+    { key: "ceilingWalkforwardTime", file: "rsi-ceiling-walkforward-time-latest.json",
+      title: "RSI ceiling — walk-forward, equal-TIME folds",
+      command: "RSI_CEILING_FOLD_MODE=time node tasks/rsi_ceiling_walkforward.cjs" },
+    { key: "ceilingWalkforwardPerAsset", file: "rsi-ceiling-walkforward-latest-perasset.json",
+      title: "RSI ceiling — walk-forward, per-asset cost basis",
+      command: "RSI_CEILING_COST=perasset node tasks/rsi_ceiling_walkforward.cjs" },
+    { key: "ceilingForward", file: "ceiling-measure-latest.json",
+      title: "RSI ceiling — forward returns vs a matched control",
+      command: "node tasks/ceiling_measure.cjs --json" },
+    { key: "pbo", file: "pbo-latest.json",
+      title: "Probability of backtest overfitting (CSCV)",
+      command: "node tasks/pbo.cjs --json" },
+    { key: "sizing", file: "sizing_walkforward.json",
+      title: "Position sizing — fixed lot vs risk-based, in money",
+      command: "node tasks/sizing_walkforward.cjs --json" },
+  ];
+
+  // ENGINE EPOCH. calcRSI was a simple 14-bar average, not Wilder, for this
+  // system's whole life; it was corrected at this instant (commit b7d89a5). RSI
+  // moved 6 to 13 points and the sign varied, so EVERY report generated before
+  // this measured a different engine and its verdicts do not carry over.
+  //
+  // This is not hypothetical: the first version of this route counted a 68.9-hour
+  // old per-asset cut as a completed cut and admitted 64/60 to the survivors list
+  // on the strength of it, while the two FRESH cuts disagreed about that very
+  // candidate. A stale report reading as current is the failure this project keeps
+  // repeating - see the fill count that stayed in the boot file long after it
+  // stopped being true.
+  //
+  // Move this forward whenever something changes what the engine computes.
+  const ENGINE_EPOCH = Date.parse("2026-08-25T12:15:06Z");
+
+  const out = {};
+  for (const r of REPORTS) {
+    const p = path.join(dir, r.file);
+    const entry = { title: r.title, command: r.command, file: r.file };
+    try {
+      if (!fs.existsSync(p)) {
+        entry.status = "NOT RUN";
+        entry.detail = "no report on disk — this question has not been measured on this box";
+        out[r.key] = entry;
+        continue;
+      }
+      const stat = fs.statSync(p);
+      const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+      entry.status = "OK";
+      // AGE, not just a timestamp. A timestamp makes the reader hold today's date and
+      // do the subtraction, which is exactly what went wrong when the shadow ledger
+      // served stale stats for a day and nobody noticed.
+      const stampedAt = raw.generatedAt || raw.measuredAt || stat.mtime.toISOString();
+      entry.generatedAt = stampedAt;
+      const ms = Date.parse(stampedAt);
+      entry.ageHours = Number.isFinite(ms)
+        ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+
+      // A report older than the engine epoch is STALE, not merely old. It is
+      // excluded from every verdict below rather than quietly averaged in.
+      // An UNDATED report is treated as stale too: if it cannot prove it is
+      // current, it does not get to vote.
+      entry.stale = !Number.isFinite(ms) || ms < ENGINE_EPOCH;
+      if (entry.stale) {
+        entry.status = "STALE";
+        entry.detail = "generated before the calcRSI correction (2026-08-25T12:15Z), "
+                     + "so it measured a different engine - re-run before trusting it";
+      }
+      entry.report = raw;
+    } catch (e) {
+      // An unreadable report is NOT an absent one. Say which.
+      entry.status = "UNREADABLE";
+      entry.detail = e.message;
+      console.error(`[measured-evidence] ${r.file}: ${e.message}`);
+    }
+    out[r.key] = entry;
+  }
+
+  // A compact ceiling summary the page can render without re-deriving anything. The
+  // candidate rows already carry worstFold and foldsPositive; nothing is recomputed
+  // here, because a second implementation of "which candidate wins" is a second thing
+  // to drift from the harness that decided it.
+  function ceilingRows(entry) {
+    if (!entry || entry.status !== "OK") return null;
+    const cands = entry.report.candidates || {};
+    return Object.values(cands).map(c => ({
+      label: c.label,
+      worstFold: c.worstFold,
+      foldsPositive: c.foldsPositive,
+      foldsScored: c.foldsScored,
+      closed: c.overall ? c.overall.closed : null,
+      totalR: c.overall ? c.overall.R : null,
+      isBaseline: !!c.isBaseline,
+      beatsBaseline: !!c.beatsBaselineWorstFold,
+    }));
+  }
+
+  // A challenger only counts if it beats the baseline under EVERY cut that has been
+  // run. One cut is a coin toss with extra steps - candidates flip between 5/5 and
+  // 3/5 purely on where the fold lines fall, which is what the equal-time cut caught.
+  const cuts = ["ceilingWalkforward", "ceilingWalkforwardTime", "ceilingWalkforwardPerAsset"];
+  // OK only. A STALE cut is not a cut that ran, it is a cut that ran against
+  // different arithmetic.
+  const cutsRun = cuts.filter(k => out[k] && out[k].status === "OK");
+  const cutsStale = cuts.filter(k => out[k] && out[k].status === "STALE");
+  const perCut = {};
+  for (const k of cutsRun) perCut[k] = ceilingRows(out[k]);
+
+  let survivors = null;
+  if (cutsRun.length) {
+    const names = new Set();
+    for (const k of cutsRun) for (const row of perCut[k]) if (!row.isBaseline) names.add(row.label);
+    survivors = [...names].filter(name =>
+      cutsRun.every(k => {
+        const row = perCut[k].find(r => r.label === name);
+        return row && row.beatsBaseline;
+      }));
+  }
+
+  res.json({
+    reports: out,
+    ceiling: {
+      cutsRun: cutsRun.length,
+      cutsTotal: cuts.length,
+      perCut,
+      survivorsAcrossEveryCutRun: survivors,
+      standard: "A challenger must beat the baseline's WORST FOLD under every cut that "
+              + "has been run. Winning one cut is a coin toss with extra steps.",
+        cutsStale: cutsStale.length,
+      incomplete: cutsRun.length < cuts.length
+        ? (cuts.length - cutsRun.length) + " cut(s) not usable"
+          + (cutsStale.length ? " (" + cutsStale.length + " STALE - predate the calcRSI fix)" : " (not yet run)")
+          + " — this is not a verdict"
+        : null,
+    },
+    note: "Reports are read off disk. Nothing here runs a harness, changes a setting, "
+        + "or touches a position.",
+    feedsTheGate: false,
+  });
+});
+
 // ── /api/preopen-plan — the plan the 12:00 UTC job produced ─────────────────
 //
 // Serves the ARTIFACT, and deliberately does not build the plan on demand.
