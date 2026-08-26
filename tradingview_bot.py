@@ -396,9 +396,35 @@ def set_alert(page, price, symbol, message):
         return False
 
 # ── Generate Pine Script ──────────────────────────────────────────────────────
+# Characters that reach Pine string literals from OUTSIDE this file and must not.
+#
+# The panel text is built from /api/signals `reasons`, which are written for humans and
+# carry typographic punctuation - em-dashes, arrows, comparison glyphs. Everything here
+# is a fold to the ASCII that means the same thing, never a deletion, so the panel still
+# reads correctly on the chart.
+#
+# Why it matters: the source is carried to the browser as text and typed into Monaco
+# through a synthetic paste, and this repo has already been bitten twice by an encoding
+# boundary silently mangling non-ASCII (a UTF-8 BOM resetting the VPS to default
+# sizing, and cp1252 stdout killing a Python step AFTER its write). A Pine literal is
+# the last place to find out that a byte did not survive the trip.
+_PINE_ASCII_FOLD = {
+    "—": "-",   "–": "-",   "‒": "-",   "−": "-",
+    "‘": "'",   "’": "'",   "“": "'",   "”": "'",
+    "…": "...", "→": "->",  "←": "<-",  "≥": ">=",
+    "≤": "<=",  " ": " ",   "•": "*",   "×": "x",
+}
+
+
 def _pine_str(value):
-    """Quote a value for Pine, stripping the quotes and newlines that would break it."""
+    """Quote a value for Pine, stripping what would break it and folding to ASCII."""
     text = "-" if value is None else str(value)
+    for fancy, plain in _PINE_ASCII_FOLD.items():
+        text = text.replace(fancy, plain)
+    # Anything still outside ASCII is dropped rather than guessed at. Silently emitting
+    # a byte the compiler may reject is worse than losing one decorative glyph, and a
+    # fold table that pretends to be exhaustive is the thing that goes stale.
+    text = text.encode("ascii", "ignore").decode("ascii")
     return '"' + text.replace('\\', '').replace('"', "'").replace("\n", " ") + '"'
 
 
@@ -748,6 +774,69 @@ def _editor_text(page):
         # is the safe direction: it refuses to save, it never saves the wrong thing.
         return page.locator(SEL_EDITOR_TEXT).first.inner_text().replace("\xa0", " ")
     return "\n".join(lines).replace("\xa0", " ")
+
+
+def _editor_matches_source(page, pine, tries=3, settle_ms=900):
+    """True when the editor's visible lines match `pine` EXACTLY, indentation included.
+
+    SEVENTH trap, and the one that let a broken script be declared fixed. Pine is
+    indentation-semantic, and Monaco applies AUTO-INDENT to CDP Input.insertText
+    because it treats it as typing. The damage cascades - measured on the live editor,
+    same buffer, same source:
+
+        line 29: want indent 5,  got 10
+        line 31: want indent 0,  got 10     <- `if barstate.islast` pushed off column 0
+        line 32: want indent 4,  got 14
+        line 33: want indent 4,  got 18
+        line 34: want indent 4,  got 22
+
+    A synthetic paste event over the same text produced ZERO mismatches, which is why
+    that method now runs first: Monaco honours a paste as a paste.
+
+    The old verification checked only that line 1 read //@version=5 and that the line
+    COUNT matched. Both pass on a fully auto-indented buffer, so the run reported
+    "Saved" and "Plan drawn", exited 0, and left a study sitting on the chart with
+    TradingView's own legend reading "Compilation error". Checking the first line and
+    the line count is not checking the script.
+
+    LIMIT, stated because it matters: .view-lines is virtualised, so this compares only
+    the lines currently rendered - about 34 of 78 here. That is enough to catch
+    auto-indent, which begins at the first indented block and cascades from there, and
+    the separate line-count guard still catches doubling. It is NOT a full-file
+    comparison and must not be described as one.
+    """
+    src = pine.split("\n")
+    worst = []
+    for attempt in range(tries):
+        got = _editor_text(page).split("\n")
+        span = min(len(got), len(src))
+        # Compare LEADING WHITESPACE only, never the full line.
+        #
+        # Monaco renders inline decorations - notably a colour swatch beside every
+        # color.red / color.new(...) - and those inject characters into textContent. A
+        # full-text comparison therefore reports a mismatch on a line that is perfectly
+        # correct: the first run of this check flagged line 18 as differing while
+        # reporting "indent want 0, got 0", i.e. the indentation agreed and only the
+        # decoration did not. Comparing text makes this guard cry wolf on every colour
+        # line, and a guard that cries wolf gets switched off.
+        #
+        # Indentation is also the only thing that matters. Pine is
+        # indentation-semantic, auto-indent is precisely what corrupts it, and the
+        # characters themselves arrive intact under both paste methods.
+        bad = []
+        for i in range(span):
+            if not src[i].strip() or not got[i].strip():
+                continue          # a blank line carries no indentation meaning
+            want_indent = len(src[i]) - len(src[i].lstrip())
+            have_indent = len(got[i]) - len(got[i].lstrip())
+            if want_indent != have_indent:
+                bad.append((i + 1, want_indent, have_indent))
+        if not bad:
+            return True, []
+        worst = bad
+        if attempt < tries - 1:
+            page.wait_for_timeout(settle_ms)
+    return False, worst
 
 
 def _editor_starts_clean(page, tries=4, settle_ms=900):
@@ -1167,8 +1256,13 @@ def paste_pine(page, pine, label):
             return true;
         }""", pine)
 
-    for method_name, method in (("CDP insertText", _via_cdp),
-                                ("paste event", _via_paste_event)):
+    # Paste event FIRST. Measured on the live editor with the same source: the
+    # synthetic paste produced 0 mismatches, CDP insertText produced 5 with the
+    # indentation cascading deeper on every line, because Monaco auto-indents an
+    # insertText as if it were typed. CDP stays as the fallback - it is the one that
+    # works without window focus - but it is no longer the default.
+    for method_name, method in (("paste event", _via_paste_event),
+                                ("CDP insertText", _via_cdp)):
         page.wait_for_timeout(1200)
         if not _clear_editor():
             continue
@@ -1180,10 +1274,24 @@ def paste_pine(page, pine, label):
         page.wait_for_timeout(2200)
         got = _editor_line_count(page)
         _scroll_editor_top(page)
-        if got == want_lines and _editor_starts_clean(page)[0]:
+        matches, bad = _editor_matches_source(page, pine)
+        if got == want_lines and _editor_starts_clean(page)[0] and matches:
             break
+        if not matches and bad:
+            ln, want_i, have_i = bad[0]
+            print(f"[TV] {label}: {method_name} mangled the text - first bad line {ln} "
+                  f"(indent want {want_i}, got {have_i}); {len(bad)} line(s) differ")
         print(f"[TV] {label}: {method_name} left {got} lines, want {want_lines}"
               " - trying the next method")
+
+    final_ok, final_bad = _editor_matches_source(page, pine)
+    if not final_ok:
+        ln, want_i, have_i = final_bad[0]
+        print(f"[TV] {label}: buffer does NOT match the source - line {ln} indent "
+              f"want {want_i}, got {have_i}; {len(final_bad)} line(s) differ. Pine is "
+              f"indentation-semantic, so this would save a script that cannot compile. "
+              f"Refusing.")
+        return False
 
     clean, landed = _editor_starts_clean(page)
     if not clean:
