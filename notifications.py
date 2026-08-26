@@ -164,15 +164,68 @@ def notify_signal(symbol: str, direction: str, confidence: str, summary: str) ->
     })
 
 
+def send_telegram(text: str) -> None:
+    """
+    POST a message to the configured Telegram chat. Skips silently if not configured.
+
+    WHY THIS EXISTS: every other channel here is useless on the box that matters.
+    notify_alert was toast + webhook; WEBHOOK_URL is not set, so send_webhook skips
+    silently and the whole thing collapsed to a Windows toast. A toast reaches nobody
+    on the headless VPS - which is the machine that trades continuously - so a band
+    firing or a health alert raised there went to no one at all.
+
+    TELEGRAM_TOKEN and TELEGRAM_CHAT_ID were already sitting in keys.env, read by the
+    server and by nothing else. The credentials existed and this file simply never
+    looked at them: a writer with no reader, the mirror of the bug this project keeps
+    finding in the other direction.
+
+    THE TOKEN IS IN THE URL. urllib raises HTTPError whose str() includes the full URL,
+    so an unscrubbed exception would print the bot token straight into a log file that
+    gets committed and read. Every error path below scrubs it. Never widen these except
+    blocks to print a raw exception.
+    """
+    token = get_cred("TELEGRAM_TOKEN") or os.environ.get("TELEGRAM_TOKEN", "")
+    chat_id = get_cred("TELEGRAM_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+
+    def _scrub(text_in: str) -> str:
+        """Remove the bot token from anything about to be printed."""
+        return str(text_in).replace(token, "<TELEGRAM_TOKEN>")
+
+    try:
+        payload = json.dumps({
+            "chat_id": chat_id,
+            "text": text,
+            "disable_web_page_preview": True,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "JARVIS/1.0"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status != 200:
+                print(f"[NOTIFY] Telegram returned HTTP {resp.status}")
+    except Exception as exc:
+        print(f"[NOTIFY] Telegram failed: {_scrub(exc)[:200]}")
+
+
 def notify_alert(message: str) -> None:
     """
-    System alert — toast + webhook only (no email for alerts).
+    System alert — toast + webhook + Telegram (no email for alerts).
     Use for: server restart, error recovery, health events.
+
+    Telegram is the only one of the three that reaches a phone and works headless, so
+    it is the channel that actually carries an alert off the VPS.
     """
     title = "JARVIS ALERT"
     body = f"JARVIS ALERT: {message}"
 
     toast(title, body)
+
+    send_telegram(body)
 
     send_webhook({
         "content": body,
@@ -242,6 +295,13 @@ def run_test() -> None:
     webhook_configured = bool(get_cred("WEBHOOK_URL"))
     print(f"  Webhook: {'sent' if webhook_configured else 'skipped (not configured)'}")
 
+    send_telegram("JARVIS notification engine test — Telegram channel working.")
+    telegram_configured = bool(get_cred("TELEGRAM_TOKEN") and get_cred("TELEGRAM_CHAT_ID"))
+    print(f"  Telegram: {'sent' if telegram_configured else 'skipped (not configured)'}")
+    if not telegram_configured:
+        print("           ^ this is the only channel that reaches a phone and works "
+              "headless; without it the VPS can raise an alert nobody receives.")
+
     print("Test complete.")
 
 
@@ -296,7 +356,23 @@ def main() -> None:
             send_email(subject=f"[JARVIS] {_title}", body=_body)
         if channel in ("all", "webhook"):
             send_webhook({"content": _body, "embeds": [{"title": _title, "description": _body, "color": 16776960}]})
-        print(f"[NOTIFY] Alert sent via {channel}: {_title} — {_body[:80]}")
+        if channel in ("all", "telegram"):
+            send_telegram(f"{_title}: {_body}")
+        # Name the channels that were actually CONFIGURED, not just the ones asked for.
+        # "Alert sent via all" was printed while WEBHOOK_URL was unset and Telegram was
+        # not wired at all, so the line asserted delivery through channels that silently
+        # skipped - a success message is worse than none when it cannot fail.
+        live = []
+        if channel in ("all", "toast"):
+            live.append("toast")
+        if channel in ("all", "email") and get_cred("EMAIL_FROM"):
+            live.append("email")
+        if channel in ("all", "webhook") and get_cred("WEBHOOK_URL"):
+            live.append("webhook")
+        if channel in ("all", "telegram") and get_cred("TELEGRAM_TOKEN") and get_cred("TELEGRAM_CHAT_ID"):
+            live.append("telegram")
+        print(f"[NOTIFY] Alert sent via {'+'.join(live) if live else 'NOTHING CONFIGURED'}"
+              f": {_title} — {_body[:80]}")
 
     elif command == "trade-closed":
         # python notifications.py trade-closed <SYMBOL> <OUTCOME> <PNL>
