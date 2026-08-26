@@ -806,9 +806,18 @@ def _editor_line_count(page):
     try:
         page.keyboard.press("Control+End")
         page.wait_for_timeout(900)
+        # Scope to the editor that is actually ON SCREEN. There are two
+        # .monaco-editor nodes on a TradingView chart and a page-wide querySelectorAll
+        # takes the max across both, so a detached instance holding an old model
+        # pins this to a stale number forever - the same "the reader was lying" trap
+        # already documented in _editor_text.
         return page.evaluate("""() => {
-            const ns = Array.from(
-                document.querySelectorAll('.margin-view-overlays .line-numbers'))
+            const eds = Array.from(document.querySelectorAll('.monaco-editor'))
+              .filter(e => { const r = e.getBoundingClientRect();
+                             return r.width > 50 && r.height > 50; });
+            const box = eds[0];
+            if (!box) return null;
+            const ns = Array.from(box.querySelectorAll('.margin-view-overlays .line-numbers'))
               .map(e => parseInt(e.textContent, 10))
               .filter(v => !isNaN(v));
             return ns.length ? Math.max.apply(null, ns) : null;
@@ -1019,8 +1028,9 @@ def paste_pine(page, pine, label):
     # scrolled CONTENT - measured at y=-1459 h=2698, so its centre is off-screen at a
     # negative coordinate and the caret never moves.
     cdp = page.context.new_cdp_session(page)
-    for _ in range(2):
-        page.wait_for_timeout(1500)
+    want_lines = pine.count("\n") + 1
+
+    def _select_all():
         try:
             box = page.locator(SEL_EDITOR_ELEMENT).first.bounding_box()
             if box and box["width"] > 50 and box["height"] > 50:
@@ -1033,11 +1043,42 @@ def paste_pine(page, pine, label):
         page.wait_for_timeout(300)
         page.keyboard.press("Control+Shift+End")   # Ctrl+A selects only the current
         page.wait_for_timeout(500)                 # line in this Monaco build
+
+    def _via_cdp():
         cdp.send("Input.insertText", {"text": pine})
-        page.wait_for_timeout(2000)
+
+    def _via_paste_event():
+        # Monaco's paste handler reads e.clipboardData.getData('text') and does not
+        # check isTrusted, so a synthetic ClipboardEvent reaches it without the OS
+        # clipboard and without window focus - the two things that fail silently when
+        # the scheduler launched the browser itself.
+        page.evaluate("""(text) => {
+            const ta = document.querySelector('.monaco-editor textarea.inputarea');
+            if (!ta) return false;
+            ta.focus();
+            const dt = new DataTransfer();
+            dt.setData('text/plain', text);
+            ta.dispatchEvent(new ClipboardEvent('paste',
+                {clipboardData: dt, bubbles: true, cancelable: true}));
+            return true;
+        }""", pine)
+
+    for method_name, method in (("CDP insertText", _via_cdp),
+                                ("paste event", _via_paste_event)):
+        page.wait_for_timeout(1200)
+        _select_all()
+        try:
+            method()
+        except Exception as exc:
+            print(f"[TV] {label}: {method_name} raised {str(exc)[:70]}")
+            continue
+        page.wait_for_timeout(2200)
+        got = _editor_line_count(page)
         _scroll_editor_top(page)
-        if _editor_text(page).lstrip().startswith("//@version=5"):
+        if got == want_lines and _editor_text(page).lstrip().startswith("//@version=5"):
             break
+        print(f"[TV] {label}: {method_name} left {got} lines, want {want_lines}"
+              " - trying the next method")
 
     landed = _editor_text(page).lstrip()
     if not landed.startswith("//@version=5"):
