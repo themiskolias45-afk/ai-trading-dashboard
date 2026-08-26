@@ -1005,6 +1005,100 @@ def list_plan_studies(page):
         return []
 
 
+def plan_study_health(page):
+    """Every plan study on the layout, with the status TradingView itself reports.
+
+    Returns [{"title": str, "status": str}], where status is "" for a healthy study
+    and otherwise TradingView's own words - "Compilation error" being the one that
+    matters.
+
+    WHY THIS EXISTS, and it is the gap that let a broken chart pass for a whole day:
+    plan_study_present() answers "is a study there", which stayed True while the study
+    sat on the chart reporting "Compilation error". So the run printed "Saved", "Plan
+    drawn", and exited 0 with nothing rendering. Presence is not health, and a check
+    that cannot distinguish them is the same "nothing it could observe produced a
+    failure" shape that let a stale chart pass for fourteen days.
+
+    The status lives in the legend row beside the title:
+        div[class*="title-"]                          -> the study name
+        ancestor with [data-qa-id="legend-statuses-wrapper"]
+        [data-qa-id="legend-source-item-status"]      -> title attr is the message
+
+    Matched on a partial class because the suffix is a build hash - list_plan_studies
+    hardcodes ".title-quatTGAC" and would silently return nothing the day TradingView
+    rebuilds. This reads [class*="title-"] instead so it degrades to "found nothing"
+    only when the structure really changes.
+
+    This CAN go green - verified 2026-08-26, the same layout read "Compilation error"
+    before a repoint and no pill at all after. A red light that cannot go green is
+    worse than none, so that mattered before shipping it.
+    """
+    try:
+        return page.evaluate("""(prefix) => {
+            return Array.from(document.querySelectorAll('div[class*="title-"]'))
+              .filter(d => d.textContent.trim().startsWith(prefix))
+              .map(t => {
+                let row = t;
+                for (let i = 0; i < 6 && row.parentElement; i++) {
+                  row = row.parentElement;
+                  if (row.querySelector('[data-qa-id="legend-statuses-wrapper"]')) break;
+                }
+                const w = row.querySelector('[data-qa-id="legend-statuses-wrapper"]');
+                const pills = w
+                  ? Array.from(w.querySelectorAll('[data-qa-id="legend-source-item-status"]'))
+                      .map(b => (b.getAttribute('title') || '').trim()).filter(Boolean)
+                  : [];
+                return {title: t.textContent.trim(), status: pills.join(', ')};
+              });
+        }""", PLAN_NAME_PREFIX)
+    except Exception as exc:
+        print(f"[TV] could not read plan study health ({str(exc)[:70]})")
+        return []
+
+
+def plan_studies_erroring(page):
+    """The plan studies whose status is an actual fault, ignoring benign notes.
+
+    "Opened in Pine Editor" is a status pill too and means nothing is wrong, so a
+    naive "any pill is bad" test would fail every run made with the editor open -
+    which is every run this tool makes.
+    """
+    benign = ("opened in pine editor",)
+    return [s for s in plan_study_health(page)
+            if s["status"] and s["status"].lower() not in benign]
+
+
+def sweep_plan_health(page, symbols, settle_ms=6000):
+    """Health of the plan study on EVERY chart, not just the one that happens to be open.
+
+    Returns {symbol: status}, status "" meaning clean.
+
+    Two faults this exists to avoid, both measured on 2026-08-26 with a deliberately
+    broken script:
+
+    ONE CHART IS NOT THE LAYOUT. The legend belongs to the chart currently displayed,
+    so a check run on BTC says nothing about GOLD. A broken study was reported "clean"
+    while all three charts were in fact erroring - the same shape as a fleet status
+    page that reads one box.
+
+    THE BADGE IS LATE. TradingView recompiles asynchronously, so a check 2.5s after
+    saving sees the study still running its PREVIOUS compile and reports clean. The
+    error surfaced only seconds later. Anything shorter than a real settle here makes
+    this check worse than none, because it would licence a green light.
+    """
+    out = {}
+    for symbol in symbols:
+        try:
+            open_chart(page, symbol)
+            page.wait_for_timeout(settle_ms)
+            bad = plan_studies_erroring(page)
+            out[symbol] = bad[0]["status"] if bad else ""
+        except Exception as exc:
+            # Unknown is NOT clean. Say so, and let the caller treat it as unverified.
+            out[symbol] = f"UNREADABLE ({str(exc)[:50]})"
+    return out
+
+
 def ensure_legend_expanded(page):
     """Expand the collapsed legend so studies become clickable. IDEMPOTENT.
 
@@ -2211,6 +2305,61 @@ def cmd_plan(which="all", shoot=True):
             else:
                 print("[TV] Saved, and a plan study is on the chart. The plan carries "
                       "its own age - a missed run shows STALE in red on the chart.")
+
+            # ---- Is the study HEALTHY, not merely present? --------------------
+            #
+            # The gap this closes: saving the source does NOT make an existing study
+            # recompile. On 2026-08-26 the chart held a study pinned to saved version
+            # 25.0 reporting "Compilation error" while a fresh instance of the SAME
+            # source compiled clean - and every run reported "Saved / Plan drawn /
+            # exit 0" straight through it, because presence was all that was checked.
+            #
+            # Repointing is the documented remedy, so try it before failing: a run
+            # that can fix itself should. If it still errors afterwards the run FAILS,
+            # which is the point - the job could not previously report this at all.
+            if verified:
+                symbols = [p["symbol"] for p in plans]
+                health = sweep_plan_health(page, symbols)
+                broken = {s: v for s, v in health.items() if v}
+                if broken:
+                    for sym, status in broken.items():
+                        print(f"[TV] {sym}: plan study reports {status!r} - saving the "
+                              f"source does not recompile an attached study; "
+                              f"repointing.")
+                    # The editor must be CLOSED first. repoint_plan_study opens it
+                    # itself, and with it already open the click lands on the toggle
+                    # that CLOSES it - measured 2026-08-26, GOLD failed with
+                    # "Could not open the Pine editor (Timeout 8000ms)" for exactly
+                    # this reason while BTC and SPX succeeded.
+                    close_any_open_dialog(page)
+                    for _ in range(3):
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(600)
+                    try:
+                        for plan in plans:
+                            open_chart(page, plan["symbol"])
+                            page.wait_for_timeout(6000)   # same settle cmd_repoint uses
+                            repoint_plan_study(page)
+                    except Exception as exc:
+                        print(f"[TV] repoint attempt raised {str(exc)[:80]}")
+                    # Re-sweep EVERY chart, not just the last one repointed. The
+                    # first version of this checked only whichever chart was open and
+                    # would have declared success while two others were still broken.
+                    still = {s: v for s, v in
+                             sweep_plan_health(page, symbols).items() if v}
+                    if still:
+                        for sym, status in still.items():
+                            print(f"[TV] STILL BROKEN after repoint - {sym}: {status!r}")
+                        print("[TV] The chart is NOT showing a working plan. Run "
+                              "`python tradingview_bot.py repoint` with the Pine "
+                              "editor CLOSED, or remove the study and re-add it.")
+                        verified = False
+                    else:
+                        print(f"[TV] Repointed - all {len(symbols)} plan studies now "
+                              f"report clean.")
+                else:
+                    print(f"[TV] All {len(symbols)} plan studies report clean "
+                          f"(no compilation error).")
 
 
             if applied and shoot:
