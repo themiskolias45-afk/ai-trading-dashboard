@@ -716,20 +716,67 @@ def _editor_text(page):
 
     So read each .view-line with its own top offset and sort numerically.
     """
-    lines = page.evaluate("""(sel) => {
-        const box = document.querySelector(sel);
+    # FOURTH trap, 2026-08-26: scope to the editor that is actually ON SCREEN.
+    #
+    # This used to be `document.querySelector('.monaco-editor .view-lines')`, which
+    # takes the FIRST match in the document. A TradingView chart carries two
+    # .monaco-editor nodes, and when the detached one comes first the read returns its
+    # stale model - the run printed `editor starts '/                    '` while the
+    # gutter simultaneously reported the correct 78 lines. The paste was perfect; this
+    # reader was lying again, in the fourth distinct way.
+    #
+    # _editor_line_count was given exactly this fix and its comment already named
+    # _editor_text as carrying the same trap. The note was written and never applied -
+    # so the counter was scoped and the text reader was not, and the two disagreed
+    # about the same buffer. Fixing one reader and describing the other is not fixing.
+    lines = page.evaluate("""() => {
+        const eds = Array.from(document.querySelectorAll('.monaco-editor'))
+          .filter(e => { const r = e.getBoundingClientRect();
+                         return r.width > 50 && r.height > 50; });
+        const ed = eds[0];
+        if (!ed) return null;
+        const box = ed.querySelector('.view-lines');
         if (!box) return null;
         return Array.from(box.querySelectorAll('.view-line'))
             .map(el => [parseFloat(el.style.top) || 0, el.textContent])
             .sort((a, b) => a[0] - b[0])
             .map(pair => pair[1]);
-    }""", SEL_EDITOR_TEXT)
+    }""")
     if lines is None:
         # Selector missed entirely - fall back rather than crash, and let the
         # caller's own check decide. An empty read reads as "did not land", which
         # is the safe direction: it refuses to save, it never saves the wrong thing.
         return page.locator(SEL_EDITOR_TEXT).first.inner_text().replace("\xa0", " ")
     return "\n".join(lines).replace("\xa0", " ")
+
+
+def _editor_starts_clean(page, tries=4, settle_ms=900):
+    """True when the editor's first line reads as //@version=5, allowing for re-renders.
+
+    FIFTH trap, 2026-08-26. Monaco repaints .view-line elements in more than one pass,
+    and a read taken between passes returns a half-built first line. Measured directly
+    on the live editor: one read came back
+        "/" + 52 non-breaking spaces + "/@version=5"
+    while the SAME buffer read cleanly as "//@version=5" moments later, and the gutter
+    reported the correct 78 lines throughout.
+
+    A single eager read therefore failed a paste that had landed perfectly - the run
+    printed "CDP insertText left 78 lines, want 78 - trying the next method", pasted a
+    second time, and then refused to save. The check was manufacturing the very
+    corruption it existed to catch.
+
+    Re-reading is safe because it can only ever turn a false NEGATIVE into a pass: the
+    line-count guard runs separately and still refuses a doubled buffer, so nothing
+    here can let two copies through.
+    """
+    seen = ""
+    for attempt in range(tries):
+        seen = _editor_text(page).lstrip()
+        if seen.startswith("//@version=5"):
+            return True, seen
+        if attempt < tries - 1:
+            page.wait_for_timeout(settle_ms)
+    return False, seen
 
 
 def _foreground_browser_window():
@@ -1004,14 +1051,24 @@ def paste_pine(page, pine, label):
     page.wait_for_selector(SEL_EDITOR_TEXT, timeout=30000)
     page.wait_for_timeout(4000)
 
+    # This click is a nicety, NOT a precondition, and it must never kill the run.
+    # It used to `raise` on the third failure, which is how 2026-08-26 05:46 died with
+    # "Locator.click: Timeout 8000ms exceeded" before a single paste was attempted -
+    # leaving whatever was already in the editor exactly where it was. Worse, the
+    # target is wrong by this file's own account: SEL_EDITOR_TEXT is .view-lines, the
+    # scrolled CONTENT, measured at y=-1459 so its centre is off-screen and the caret
+    # never moves. _clear_editor() below clicks the .monaco-editor ELEMENT by bounding
+    # box, which is the target that actually works. So a failure here costs nothing.
     for attempt in range(3):
         try:
             page.locator(SEL_EDITOR_TEXT).first.click(timeout=8000)
             break
-        except Exception:
+        except Exception as exc:
             if attempt == 2:
-                raise
-            page.wait_for_timeout(2500)
+                print(f"[TV] {label}: could not click .view-lines ({str(exc)[:60]}) - "
+                      "continuing; _clear_editor clicks the editor element instead.")
+            else:
+                page.wait_for_timeout(2500)
 
     # Paste, never type. keyboard.type pushes every character through CDP as its
     # own event: Monaco's auto-indent mangled the first line ("/  /@version=5") and
@@ -1030,19 +1087,66 @@ def paste_pine(page, pine, label):
     cdp = page.context.new_cdp_session(page)
     want_lines = pine.count("\n") + 1
 
-    def _select_all():
-        try:
-            box = page.locator(SEL_EDITOR_ELEMENT).first.bounding_box()
-            if box and box["width"] > 50 and box["height"] > 50:
-                page.mouse.click(box["x"] + box["width"] / 2,
-                                 box["y"] + box["height"] / 2)
-                page.wait_for_timeout(400)
-        except Exception:
-            pass
-        page.keyboard.press("Control+Home")
-        page.wait_for_timeout(300)
-        page.keyboard.press("Control+Shift+End")   # Ctrl+A selects only the current
-        page.wait_for_timeout(500)                 # line in this Monaco build
+    def _clear_editor():
+        """Empty the buffer and PROVE it emptied. Returns True only when it is empty.
+
+        SIXTH trap, and the one that actually caused the wall of errors on 2026-08-26.
+        This used to be _select_all(): it left the whole buffer SELECTED and handed
+        that selection to insertText. Monaco runs its auto-indent on a
+        replace-selection, and that is what mangles line 1 into
+
+            "/" + 52 non-breaking spaces + "/@version=5"
+
+        - the exact signature this file already attributes to auto-indent further up,
+        where it says keyboard.type produced "/  /@version=5". A first line like that
+        is not valid Pine, so TradingView reports errors down the whole file, and
+        because the corruption is INSIDE the buffer every later paste selected from
+        after the stray "/" and preserved it. Self-perpetuating, which is why repeated
+        runs never recovered.
+
+        Inserting into an EMPTY document does not take that path. Measured directly on
+        the live editor: clear -> {first:"", total:1} -> insert -> line 1 reads
+        "//@version=5". Same keystrokes, correct result, because there was no selection
+        to "replace".
+
+        The empty-check is the load-bearing half. Without it a clear that silently did
+        nothing would be indistinguishable from one that worked, and the insert would
+        append to whatever was already there - which is how a buffer comes to hold two
+        copies of itself. If this returns False the caller inserts NOTHING, so the
+        sequence can never half-apply.
+
+        Leaving the editor empty on a failed insert is deliberate and is the safe
+        direction: empty is obviously empty and trivially recoverable, corrupt looks
+        like a script. The SAVED script on TradingView is never touched - the landing
+        check below still requires //@version=5 before anything is saved - and the
+        source is regenerated every run and kept at tasks/pine_daily_plan_current.pine.
+        """
+        for attempt in range(3):
+            try:
+                box = page.locator(SEL_EDITOR_ELEMENT).first.bounding_box()
+                if box and box["width"] > 50 and box["height"] > 50:
+                    page.mouse.click(box["x"] + box["width"] / 2,
+                                     box["y"] + box["height"] / 2)
+                    page.wait_for_timeout(400)
+            except Exception:
+                pass
+            page.keyboard.press("Control+Home")
+            page.wait_for_timeout(300)
+            page.keyboard.press("Control+Shift+End")   # Ctrl+A selects only the current
+            page.wait_for_timeout(500)                 # line in this Monaco build
+            page.keyboard.press("Delete")
+            page.wait_for_timeout(800)
+
+            remaining = _editor_line_count(page)
+            _scroll_editor_top(page)
+            text_left = _editor_text(page).strip()
+            if (remaining in (None, 0, 1)) and text_left == "":
+                return True
+            print(f"[TV] {label}: clear attempt {attempt + 1} left {remaining} line(s) "
+                  f"/ {len(text_left)} chars - retrying")
+        print(f"[TV] {label}: could NOT empty the editor - inserting nothing rather "
+              f"than appending to a buffer of unknown content.")
+        return False
 
     def _via_cdp():
         cdp.send("Input.insertText", {"text": pine})
@@ -1066,7 +1170,8 @@ def paste_pine(page, pine, label):
     for method_name, method in (("CDP insertText", _via_cdp),
                                 ("paste event", _via_paste_event)):
         page.wait_for_timeout(1200)
-        _select_all()
+        if not _clear_editor():
+            continue
         try:
             method()
         except Exception as exc:
@@ -1075,14 +1180,15 @@ def paste_pine(page, pine, label):
         page.wait_for_timeout(2200)
         got = _editor_line_count(page)
         _scroll_editor_top(page)
-        if got == want_lines and _editor_text(page).lstrip().startswith("//@version=5"):
+        if got == want_lines and _editor_starts_clean(page)[0]:
             break
         print(f"[TV] {label}: {method_name} left {got} lines, want {want_lines}"
               " - trying the next method")
 
-    landed = _editor_text(page).lstrip()
-    if not landed.startswith("//@version=5"):
-        print(f"[TV] {label}: script did not land cleanly; editor starts {landed[:60]!r}")
+    clean, landed = _editor_starts_clean(page)
+    if not clean:
+        print(f"[TV] {label}: script did not land cleanly after retries; editor starts "
+              f"{landed[:60]!r}")
         return False
 
     # "Starts with //@version=5" is NOT enough, and believing it cost a day of a blank
@@ -1095,9 +1201,48 @@ def paste_pine(page, pine, label):
         print(f"[TV] {label}: WARNING - could not read the line gutter, so the buffer "
               f"is UNVERIFIED. Expected {want_lines} lines.")
     elif got_lines > want_lines + 2:          # +2 tolerates trailing blank lines
+        # REPAIR, do not merely refuse.
+        #
+        # Refusing protected the CHART and abandoned the EDITOR: the run returned False
+        # and left the doubled buffer sitting there, so the second //@version=5 and the
+        # second indicator() landed mid-file and TradingView lit up every line below.
+        # That is what the operator opens the Pine editor and sees, and no amount of
+        # "the chart keeps its previous panel" tells them how to get out of it.
+        #
+        # Only OUR OWN corruption is ever overwritten: this branch is reached solely
+        # when the buffer starts with //@version=5 AND is longer than the script we
+        # just pasted, i.e. it holds our text more than once. Nothing the operator
+        # authored can match that, and the replacement is the same script in a single
+        # clean copy - content is restored, never discarded.
         print(f"[TV] {label}: buffer holds {got_lines} lines but the script is "
-              f"{want_lines} - the paste INSERTED instead of replacing. Refusing to "
-              f"save a doubled script; the chart keeps its previous panel.")
+              f"{want_lines} - the paste INSERTED instead of replacing. Repairing.")
+        for repair_attempt in range(2):
+            if not _clear_editor():
+                break
+            try:
+                cdp.send("Input.insertText", {"text": pine})
+            except Exception as exc:
+                print(f"[TV] {label}: repair insert raised {str(exc)[:70]}")
+                break
+            page.wait_for_timeout(2200)
+            now_lines = _editor_line_count(page)
+            _scroll_editor_top(page)
+            if (now_lines is not None and now_lines <= want_lines + 2
+                    and _editor_text(page).lstrip().startswith("//@version=5")):
+                print(f"[TV] {label}: repaired - buffer now {now_lines} lines "
+                      f"(want {want_lines}).")
+                return True
+            print(f"[TV] {label}: repair attempt {repair_attempt + 1} left "
+                  f"{now_lines} lines - retrying." if repair_attempt == 0 else
+                  f"[TV] {label}: repair attempt {repair_attempt + 1} left "
+                  f"{now_lines} lines.")
+        # Still broken. Say exactly how to recover by hand rather than leaving the
+        # operator to work out that Ctrl+A does not do what it does everywhere else.
+        print(f"[TV] {label}: STILL DOUBLED after repair - not saving. The editor is "
+              f"holding a corrupt buffer RIGHT NOW. To clear it by hand: click in the "
+              f"code, then Ctrl+Home, Ctrl+Shift+End, Delete, and paste "
+              f"tasks/pine_daily_plan_current.pine. Plain Ctrl+A selects only the "
+              f"current line in this Monaco build, which is how the doubling starts.")
         return False
     return True
 
