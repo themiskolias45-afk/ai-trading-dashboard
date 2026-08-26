@@ -2017,6 +2017,31 @@ def cmd_plan(which="all", shoot=True):
 
     pine = generate_pine(plans)
 
+    # Write the exact source to disk BEFORE touching the browser.
+    #
+    # paste_pine's recovery message tells the operator to paste this file when the
+    # editor cannot be repaired, and a comment in _clear_editor calls it "regenerated
+    # every run". Both were false when first written: the file existed only because it
+    # had been created by hand once, it is gitignored so no fresh checkout has it, and
+    # it would have gone stale within hours while still carrying today's prices. A
+    # recovery instruction pointing at a file nothing maintains is worse than none -
+    # it fails exactly when it is needed, which is the reader-with-no-writer shape
+    # this codebase keeps rediscovering.
+    #
+    # Written before the browser work so it is available even when the run then fails,
+    # which is precisely the case the recovery message exists for. A write failure is
+    # reported and never aborts the run: the file is a convenience, not the plan.
+    try:
+        plan_source = Path(__file__).parent / "tasks" / "pine_daily_plan_current.pine"
+        plan_source.parent.mkdir(parents=True, exist_ok=True)
+        plan_source.write_text(pine, encoding="utf-8")
+        print(f"[TV] Plan source written: {plan_source.name} "
+              f"({pine.count(chr(10)) + 1} lines) - paste this if the editor needs "
+              f"clearing by hand")
+    except Exception as exc:
+        print(f"[TV] WARNING - could not write the plan source to disk ({exc}); "
+              f"paste_pine's manual-recovery instruction has no file to point at.")
+
     try:
         with sync_playwright() as pw:
             browser, ctx = make_context(pw)
