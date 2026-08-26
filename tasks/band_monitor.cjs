@@ -125,10 +125,33 @@ function alreadyRecordedToday(dedupeKey) {
   }
 }
 
+/**
+ * Resolve the Python interpreter through the shared resolver, never the bare name.
+ *
+ * `execFile("python", ...)` does NOT go through a shell, so it cannot use PATHEXT and
+ * cannot find `python.exe` from the bare word on Windows. Measured: the whole alert
+ * path was dead with `spawn python ENOENT` - detection worked, the record was written,
+ * and the notification silently never happened. A monitor whose alert cannot fire is
+ * decoration shaped like a safety net, and this one would have stayed that way until
+ * the first real band firing, which is exactly the moment it must not.
+ *
+ * server/python_path.js probes real candidates and is what the healer already reports;
+ * here it resolves to the Python312 interpreter. Loaded lazily and defensively so a
+ * missing module degrades to the old behaviour instead of taking the monitor down.
+ */
+function pythonExe() {
+  try {
+    return require(path.join(PROJECT_ROOT, "server", "python_path.js")).pythonBinOrDefault();
+  } catch (e) {
+    console.error(`[band_monitor] python_path.js unavailable (${e.message}) — falling back to "python"`);
+    return "python";
+  }
+}
+
 /** Best-effort notifier. A failure here is reported and never changes the exit code. */
 function sendAlert(message) {
   if (NO_ALERT) return;
-  execFile("python", [path.join(PROJECT_ROOT, "notifications.py"), "alert", message],
+  execFile(pythonExe(), [path.join(PROJECT_ROOT, "notifications.py"), "alert", message],
     { cwd: PROJECT_ROOT, timeout: 20000 },
     (error, stdout, stderr) => {
       if (error) {
