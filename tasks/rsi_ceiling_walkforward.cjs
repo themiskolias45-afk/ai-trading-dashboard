@@ -37,11 +37,35 @@ const { execFileSync } = require("child_process");
 const { costFor, describeBasis, FLAT_COST_R } = require("./_cost_basis.cjs");
 
 const ROOT = process.argv[2] || path.join(__dirname, "..");
-const ASSETS = [
+const ALL_ASSETS = [
   ["XAUUSD", "GC=F"],
   ["BTCUSD", "BTC-USD"],
   ["SP500",  "^GSPC"],
 ];
+
+// Optional asset filter, e.g. RSI_CEILING_ASSETS=BTCUSD. Unset means all three and the
+// run is byte-identical to what it always was, so no existing result changes meaning.
+//
+// It exists because the pooled table CANNOT answer an asset-specific question. Folds mix
+// all three instruments, so "does 88/84 help BTC" is unanswerable from a run where Gold
+// and SPX are voting on it — the same trap as pooling assets for the sizing trigger.
+//
+// READ THE COUNTS BEFORE THE VERDICT on a filtered run. One asset is roughly a third of
+// the trades, so folds thin out fast and MIN_FOLD_CLOSES starts dropping them. A verdict
+// resting on two scored folds is not the same object as one resting on five, and the
+// output says how many were scored precisely so that cannot be skimmed past.
+const ASSET_FILTER = (process.env.RSI_CEILING_ASSETS || "").trim();
+const ASSETS = ASSET_FILTER
+  ? ASSET_FILTER.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean).map((wanted) => {
+      const found = ALL_ASSETS.find(([symbol]) => symbol === wanted);
+      if (!found) {
+        console.error(`rsi_ceiling_walkforward: RSI_CEILING_ASSETS names "${wanted}", which is not one of `
+          + ALL_ASSETS.map(([s]) => s).join(", ") + ". Refusing to guess.");
+        process.exit(1);
+      }
+      return found;
+    })
+  : ALL_ASSETS;
 
 // The two ceilings move together and always have: 72 for MOMENTUM, 68 for TREND_FOLLOW,
 // a 4-point gap. The sweep preserves that gap and slides the pair, so this measures the
@@ -317,6 +341,11 @@ const lines = [];
 lines.push("=".repeat(104));
 lines.push(`  RSI CEILING WALK-FORWARD — generateSignalMTF — ${report.generatedAt}`);
 lines.push(`  scored at gate ${LIVE_GATE}, ${FOLDS} ${FOLD_MODE === "time" ? "EQUAL-TIME" : "equal-count"} folds, cost ${COST_MODE === "perasset" ? "PER-ASSET (spread/risk)" : COST_R + "R/trade"}, judged on WORST FOLD`);
+// Always state which instruments were in the run. A filtered table looks exactly like a
+// pooled one, and a reader who assumes "all three" would draw a fleet-wide conclusion
+// from a single asset.
+lines.push(`  assets: ${ASSETS.map(([s]) => s).join(", ")}`
+  + (ASSET_FILTER ? "   *** FILTERED — this is NOT the pooled result; fewer trades per fold ***" : " (all)"));
 lines.push("=".repeat(104));
 lines.push("  fold ranges: " + report.foldRanges.map(f => `${f.from}..${f.to}`).join("  "));
 lines.push("");
@@ -358,9 +387,14 @@ console.log(text);
 // The cost basis is part of a run's identity, so a perasset run keeps its own report
 // rather than overwriting the flat one it exists to be compared against.
 const costSuffix = COST_MODE === "perasset" ? "-perasset" : "";
+// The asset set is part of a run's identity for the same reason the cost basis is: a
+// BTC-only run that overwrote the pooled report would destroy the comparison it exists
+// to make, and would leave a one-asset table sitting under the filename everything else
+// cites as the fleet-wide result.
+const assetSuffix = ASSET_FILTER ? "-" + ASSETS.map(([s]) => s).join("-").toLowerCase() : "";
 const stem = (FOLD_MODE === "time"
   ? "rsi-ceiling-walkforward-time-latest"
-  : "rsi-ceiling-walkforward-latest") + costSuffix;
+  : "rsi-ceiling-walkforward-latest") + costSuffix + assetSuffix;
 fs.writeFileSync(path.join(OUT_DIR, stem + ".json"), JSON.stringify(report, null, 2));
 fs.writeFileSync(path.join(OUT_DIR, stem + ".txt"), text + "\n");
 process.stderr.write(`\n  written -> tasks/analysis/${stem}.{json,txt}\n`);
