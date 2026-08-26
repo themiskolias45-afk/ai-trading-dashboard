@@ -5,9 +5,9 @@
  * Saves PNGs to dashboard/screenshots/ for the daily plan page.
  *
  * Usage:
- *   node tv_screenshot.js              # all 3 assets, Daily timeframe
- *   node tv_screenshot.js --4h         # Daily + 4H for all assets
- *   node tv_screenshot.js --symbol BTC # single symbol
+ *   node tv_screenshot.cjs              # all 3 assets, Daily timeframe
+ *   node tv_screenshot.cjs --4h         # Daily + 4H for all assets
+ *   node tv_screenshot.cjs --symbol BTC # single symbol
  *
  * Requirements:
  *   npm install puppeteer-core          (in project root, not server/)

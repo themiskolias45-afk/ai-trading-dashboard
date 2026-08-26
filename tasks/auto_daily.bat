@@ -58,6 +58,28 @@ echo --- rejection ledger --- >> "%LOGFILE%"
 "%PY%" "%PROJ%\tasks\learning_from_rejections.py" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM ── Next-candle read, for the TradingView plan panel ──────────────────────────
+REM candle_probability.cjs writes tasks\analysis\candle-today.json, which is the ONLY
+REM source for the "1D read" and "4H read" rows tradingview_bot.py puts on the chart
+REM (it reads that file at tradingview_bot.py:1275).
+REM
+REM Until now NOTHING called it. Found 2026-08-26: a repo-wide grep returned only the
+REM file's own usage comment, the server's "not generated yet" fallback and the bot's
+REM reader - no scheduler entry, no script, no caller anywhere. The artifact was last
+REM written 2026-08-24 17:51 and its rows were asOf 2026-08-21, so the chart had been
+REM showing five-day-old geometry beside live prices with nothing saying so.
+REM
+REM Deterministic, no AI and no network: it replays cached bars. Exit code deliberately
+REM not captured, same as the ledger steps above - a thin read is a normal early state,
+REM not a failed daily check.
+echo --- next-candle read --- >> "%LOGFILE%"
+REM All three symbols, explicitly. Bare `candle_probability.cjs` defaults to XAUUSD
+REM ONLY and rewrites candle-today.json with just those two rows - running it without
+REM arguments cuts the artifact from 6 rows to 2 and silently blanks the BTC and SPX
+REM read lines on the chart. Verified both ways on 2026-08-26.
+node "%PROJ%\tasks\candle_probability.cjs" XAUUSD BTCUSD SP500 >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM ── Do the doctor's own checks still fire? ────────────────────────────────────
 REM Deterministic, no AI, no network, about two seconds. Placed BEFORE the agent for
 REM the same reason the ledger is: its verdict should be on record whether the claude

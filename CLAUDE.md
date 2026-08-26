@@ -385,7 +385,7 @@ silently resolved.
   unprotected.
 - Setup health: GET http://localhost:3001/api/setup-health (which setups to take or avoid today)
 - Daily plan API: GET http://localhost:3001/api/daily-plan (structured JSON for all assets)
-- TV screenshots: node tv_screenshot.js [--4h] [--symbol btc|gold|spx] → dashboard/screenshots/
+- TV screenshots: node tv_screenshot.cjs [--4h] [--symbol btc|gold|spx] → dashboard/screenshots/
 
 ## How the vault stays healthy
 

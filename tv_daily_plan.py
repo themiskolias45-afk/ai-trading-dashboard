@@ -7,7 +7,7 @@ What it does:
   2. Computes key S/R levels from recent price data
   3. Generates a structured daily plan JSON
   4. Saves the plan to tasks/daily_plan_YYYYMMDD.json
-  5. Optionally takes TradingView chart screenshots (node tv_screenshot.js)
+  5. Optionally takes TradingView chart screenshots (node tv_screenshot.cjs)
   6. Draws the plan onto the TradingView charts (tradingview_bot.py plan)
   7. Logs to daily notes + sends morning notification
 
@@ -222,9 +222,9 @@ def build_plan():
 
 def run_tv_screenshots(do_4h: bool = False):
     """Take TradingView screenshots using the Node.js tool."""
-    node_script = ROOT / "tv_screenshot.js"
+    node_script = ROOT / "tv_screenshot.cjs"
     if not node_script.exists():
-        print("[plan] tv_screenshot.js not found — skipping screenshots")
+        print("[plan] tv_screenshot.cjs not found — skipping screenshots")
         return
 
     import shutil

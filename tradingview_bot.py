@@ -60,6 +60,10 @@ API_ASSETS = {"BTC": "btc", "GOLD": "gold", "SPX": "spx"}
 SEL_PINE_BUTTON = '[data-name="pine-dialog-button"]'
 SEL_MONACO      = '.monaco-editor'
 SEL_EDITOR_TEXT = '.monaco-editor .view-lines'
+# The editor WIDGET, as opposed to SEL_EDITOR_TEXT which is the scrolled CONTENT.
+# Click this one: .view-lines measured y=-1459 h=2698, so clicking its centre lands
+# off-screen at a negative coordinate and the caret never moves.
+SEL_EDITOR_ELEMENT = '.monaco-editor.pine-editor-monaco'
 SEL_USER_MENU   = '[class*="userMenu"], button[aria-label*="Open user menu" i]'
 SEL_SIGN_IN     = '[data-name="header-user-menu-sign-in"], button:has-text("Sign in")'
 # "Update on chart" is the apply control in the current editor — Ctrl+Enter does
@@ -728,6 +732,91 @@ def _editor_text(page):
     return "\n".join(lines).replace("\xa0", " ")
 
 
+def _foreground_browser_window():
+    """Put the TradingView Edge window in the OS foreground before typing into it.
+
+    Windows only; a no-op everywhere else and it never raises.
+
+    Why this exists: when tv_daily_plan.ps1 finds no browser it launches Edge itself
+    ("browser: absent - launching Edge on the SmartEntryTV profile"), and that window
+    never becomes the foreground window. Chromium will not deliver native clipboard
+    paste to a renderer whose window is not foreground, so Ctrl+V silently does
+    nothing while every surrounding step still reports success. A select that fails
+    the same way is how the saved script came to hold two copies of itself.
+
+    Returns True when the window is confirmed foreground.
+    """
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _cb(hwnd, _):
+            if not u32.IsWindowVisible(hwnd):
+                return True
+            n = u32.GetWindowTextLengthW(hwnd)
+            if n <= 0:
+                return True
+            buf = ctypes.create_unicode_buffer(n + 1)
+            u32.GetWindowTextW(hwnd, buf, n + 1)
+            t = buf.value or ""
+            if "Edge" in t and any(k in t for k in
+                                   ("TradingView", "XAUUSD", "BTCUSD", "SPX", "SMART ENTRY")):
+                found.append(hwnd)
+            return True
+
+        u32.EnumWindows(_cb, 0)
+        if not found:
+            return False
+        hwnd = found[0]
+        u32.ShowWindow(hwnd, 9)                      # SW_RESTORE
+        fg = u32.GetForegroundWindow()
+        tid_fg = u32.GetWindowThreadProcessId(fg, None)
+        tid_me = k32.GetCurrentThreadId()
+        u32.AttachThreadInput(tid_me, tid_fg, True)
+        u32.BringWindowToTop(hwnd)
+        u32.SetForegroundWindow(hwnd)
+        u32.AttachThreadInput(tid_me, tid_fg, False)
+        return u32.GetForegroundWindow() == hwnd
+    except Exception:
+        return False
+
+
+def _editor_line_count(page):
+    """Total lines in the buffer, read from Monaco's own line-number gutter.
+
+    .view-lines is virtualised and cannot be counted, but the gutter renders the REAL
+    line numbers for whatever is on screen - so scrolling to the end and taking the
+    maximum gives the true total.
+
+    This is the check that catches a paste which INSERTED instead of replacing. On
+    2026-08-25 06:45 exactly that happened: the select silently failed, Ctrl+V added a
+    second copy, and the saved script became 119 lines holding two of everything. It
+    still started with //@version=5, which was all paste_pine ever looked at, so it
+    saved and reported success - and TradingView refused it with "'_sym' is already
+    defined" for a full day while every run kept printing "Saved".
+
+    Returns None when the gutter cannot be read; the caller must treat that as
+    "unverified", never as "fine".
+    """
+    try:
+        page.keyboard.press("Control+End")
+        page.wait_for_timeout(900)
+        return page.evaluate("""() => {
+            const ns = Array.from(
+                document.querySelectorAll('.margin-view-overlays .line-numbers'))
+              .map(e => parseInt(e.textContent, 10))
+              .filter(v => !isNaN(v));
+            return ns.length ? Math.max.apply(null, ns) : null;
+        }""")
+    except Exception:
+        return None
+
+
 def _scroll_editor_top(page):
     """Bring line 1 into Monaco's rendered window. Returns True when it got there.
 
@@ -887,6 +976,11 @@ def paste_pine(page, pine, label):
     every chart already using it picks the change up.
     """
     page.bring_to_front()
+    # bring_to_front raises the TAB. The OS WINDOW also has to be foreground or the
+    # renderer never receives a native paste - see _foreground_browser_window.
+    if not _foreground_browser_window():
+        print(f"[TV] {label}: WARNING - could not put the Edge window in the "
+              "foreground; a paste may silently no-op.")
     page.wait_for_selector(SEL_PINE_BUTTON, timeout=45000)
     page.wait_for_timeout(3000)
     # Was a bare click on the Pine toggle. That button CLOSES the editor when it is
@@ -914,12 +1008,32 @@ def paste_pine(page, pine, label):
     # own event: Monaco's auto-indent mangled the first line ("/  /@version=5") and
     # ~2500 keystrokes was enough to drop the driver connection outright. One
     # clipboard write plus Ctrl+V is a single event and cannot be half-applied.
+    # Do NOT go through the clipboard. navigator.clipboard.writeText() fails silently
+    # when the document is not focused, and then Ctrl+V pastes whatever was in the
+    # clipboard BEFORE - which on 2026-08-26 was a copy of the already-doubled script,
+    # so every "successful" paste reproduced the corruption exactly. CDP Input.insertText
+    # writes into the current selection over the protocol: no clipboard, no focus
+    # dependency, and nothing else can substitute its content.
+    #
+    # Click the .monaco-editor ELEMENT, never SEL_EDITOR_TEXT. .view-lines is the
+    # scrolled CONTENT - measured at y=-1459 h=2698, so its centre is off-screen at a
+    # negative coordinate and the caret never moves.
+    cdp = page.context.new_cdp_session(page)
     for _ in range(2):
         page.wait_for_timeout(1500)
-        page.evaluate("text => navigator.clipboard.writeText(text)", pine)
-        page.keyboard.press("Control+a")
+        try:
+            box = page.locator(SEL_EDITOR_ELEMENT).first.bounding_box()
+            if box and box["width"] > 50 and box["height"] > 50:
+                page.mouse.click(box["x"] + box["width"] / 2,
+                                 box["y"] + box["height"] / 2)
+                page.wait_for_timeout(400)
+        except Exception:
+            pass
+        page.keyboard.press("Control+Home")
         page.wait_for_timeout(300)
-        page.keyboard.press("Control+v")
+        page.keyboard.press("Control+Shift+End")   # Ctrl+A selects only the current
+        page.wait_for_timeout(500)                 # line in this Monaco build
+        cdp.send("Input.insertText", {"text": pine})
         page.wait_for_timeout(2000)
         _scroll_editor_top(page)
         if _editor_text(page).lstrip().startswith("//@version=5"):
@@ -928,6 +1042,21 @@ def paste_pine(page, pine, label):
     landed = _editor_text(page).lstrip()
     if not landed.startswith("//@version=5"):
         print(f"[TV] {label}: script did not land cleanly; editor starts {landed[:60]!r}")
+        return False
+
+    # "Starts with //@version=5" is NOT enough, and believing it cost a day of a blank
+    # chart. A buffer holding the script TWICE also starts with //@version=5. Count the
+    # real lines and refuse anything longer than one copy.
+    want_lines = pine.count("\n") + 1
+    got_lines = _editor_line_count(page)
+    _scroll_editor_top(page)
+    if got_lines is None:
+        print(f"[TV] {label}: WARNING - could not read the line gutter, so the buffer "
+              f"is UNVERIFIED. Expected {want_lines} lines.")
+    elif got_lines > want_lines + 2:          # +2 tolerates trailing blank lines
+        print(f"[TV] {label}: buffer holds {got_lines} lines but the script is "
+              f"{want_lines} - the paste INSERTED instead of replacing. Refusing to "
+              f"save a doubled script; the chart keeps its previous panel.")
         return False
     return True
 
@@ -1551,7 +1680,21 @@ def repoint_plan_study(page):
         print("[TV] repoint: study count changed %d -> %d - CHECK THE CHART"
               % (len(before), len(after)))
     print("[TV] repoint: plan study is now %s" % (plans or "MISSING"))
-    return len(plans) == 1
+    if len(plans) != 1:
+        return False
+
+    # Present by name is NOT the same as working. Repointing a study at a script that
+    # does not compile leaves the legend entry intact and the panel BLANK, which is
+    # what happened on 2026-08-26: repoint printed OK on all three charts while every
+    # one of them was showing "Compilation error - '_sym' is already defined".
+    # A green report on a blank chart is worse than a red one.
+    page.wait_for_timeout(2500)
+    broken = page.query_selector('[title="Compilation error"]')
+    if broken is not None:
+        print("[TV] repoint: the study is on the chart but the SCRIPT DOES NOT "
+              "COMPILE - the panel will be blank. Fix the saved script, then repoint.")
+        return False
+    return True
 
 
 def cmd_repoint(symbol="all"):
