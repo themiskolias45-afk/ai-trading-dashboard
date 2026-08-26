@@ -290,6 +290,77 @@ if (agree) {
   console.log("  drawing any conclusion that pools both boxes.");
 }
 
+// ── EXPERIMENT ARMS ──────────────────────────────────────────────────────────
+//
+// Engine parity answers "can these boxes produce different signals from the same
+// bars". It does NOT answer "are they MEANT to", and those are different questions
+// with opposite correct actions.
+//
+// Today both boxes run identical settings, so they duplicate each other: measured
+// 2026-08-26, the same SP500 signal opened 12:50:17 on one and 12:51:28 on the other.
+// The fleet therefore spends two accounts to produce mostly redundant observations
+// while the system's own blocking constraint is sample size. Running them as champion
+// and challenger fixes that - every signal becomes a PAIRED observation on identical
+// bars, which removes the between-period variance that made the RSI-ceiling verdicts
+// flip between fold modes on the very same trades.
+//
+// But a DECLARED difference and an ACCIDENTAL one look identical in a settings diff,
+// and that is the trap this section exists to avoid. An undeclared split silently
+// corrupts every pooled number; a declared one is the experiment working. So the arm
+// is read from each box and reported in its own right, and the pooling advice follows
+// from it rather than from the file comparison.
+//
+// Network failures degrade to UNKNOWN and never fail the parity run - this is
+// reporting, not a gate, and an unreachable server is already the loudest signal
+// elsewhere in this report.
+async function readArm(label, url) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      const response = await fetch(url + "/api/strategy-settings", { signal: controller.signal });
+      if (!response.ok) return { label, arm: null, note: "HTTP " + response.status };
+      const body = await response.json();
+      // A server predating the arm field returns undefined. That is NOT "champion" -
+      // it is a box that cannot label its own trades, which is worth saying out loud.
+      return { label, arm: typeof body.arm === "string" ? body.arm : null,
+               note: typeof body.arm === "string" ? "" : "no arm field (server predates it)" };
+    } finally { clearTimeout(timer); }
+  } catch (e) {
+    return { label, arm: null, note: (e.name === "AbortError" ? "timeout" : e.message).slice(0, 60) };
+  }
+}
+
+// Named, not a bare IIFE, because this file ends in process.exit() and that kills the
+// process before a floating promise can resolve - the first version of this section
+// simply never printed. The exit is handed to it below instead.
+async function reportExperimentArms() {
+  const [here, peer] = await Promise.all([
+    readArm("this box", "http://localhost:3001"),
+    readArm("peer",     "http://" + HOST + ":3001"),
+  ]);
+  console.log("\nEXPERIMENT ARMS  (which CONFIG each box's trades belong to)");
+  for (const box of [here, peer]) {
+    console.log("  " + box.label.padEnd(10)
+      + (box.arm ? box.arm : "UNKNOWN")
+      + (box.note ? "   (" + box.note + ")" : ""));
+  }
+  if (here.arm && peer.arm) {
+    if (here.arm === peer.arm) {
+      console.log("  Same arm on both boxes. Their journals may be pooled, but they are NOT");
+      console.log("  independent samples: identical configs on identical bars produce the SAME");
+      console.log("  trades, so pooling inflates the row count without adding information.");
+    } else {
+      console.log("  DECLARED SPLIT - this is an experiment, not drift. Do NOT reconcile it.");
+      console.log("  Never pool these journals: filter on `arm` and compare the arms instead.");
+      console.log("  Rows written before 2026-08-26 carry no arm and belong to NEITHER.");
+    }
+  } else {
+    console.log("  At least one arm is unknown, so nothing here can say whether a settings");
+    console.log("  difference is intended. Treat any pooled number as unattributable.");
+  }
+}
+
 // Opt-in only. An answer that lives solely in a terminal is an answer nobody
 // re-reads: this is what puts the verdict on /plan, with its own age attached so a
 // stale check cannot pass itself off as a current one.
@@ -313,4 +384,15 @@ if (process.argv.includes("--emit")) {
   }
 }
 
-process.exit(engineDrift || scalarDrift ? 2 : 0);
+// The arms section is async, so the exit belongs to it. Exiting synchronously here
+// killed the process before it could print. The exit CODE is unchanged and still
+// reflects engine parity only: which arm each box runs is reporting, not a gate, and
+// a declared experiment must never fail this check.
+// Set the code and let Node exit on its own. Calling process.exit() here tore the
+// process down while fetch's socket was still closing and libuv aborted with
+// "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)" - exit 127, which reads as
+// a parity failure when parity had in fact passed. A check that reports a false RED
+// is worse than one that reports nothing.
+reportExperimentArms()
+  .catch(e => console.log("\nEXPERIMENT ARMS  unreadable (" + String(e.message).slice(0, 60) + ")"))
+  .finally(() => { process.exitCode = engineDrift || scalarDrift ? 2 : 0; });

@@ -176,6 +176,28 @@ app.use((req, res, next) => {
 // guard (added earlier); this is specifically "don't let a stranger view the
 // dashboard," which is a page-level concern, not an API-level one.
 const crypto = require("crypto");
+// Which experiment arm this box is running. Per-machine, from keys.env, and it names
+// the CONFIG a trade came from rather than the account that held it.
+//
+// WHY: the two boxes run identical settings today and therefore duplicate each other's
+// trades - measured 2026-08-26, SP500 opened 12:50:17 on one and 12:51:28 on the other
+// from the same signal. So the fleet spends two accounts' exposure to produce mostly
+// redundant observations, while the system's own `blocking.constraint` is sample size.
+//
+// The fix is to run the boxes as champion and challenger so every signal becomes a
+// PAIRED observation on identical bars. A paired design removes between-period variance,
+// which is the exact thing that made the RSI-ceiling verdicts flip between fold modes on
+// 2026-08-26: equal-count REJECTED 80/76 and 88/84 while equal-time ADMITTED both, on
+// the same trades.
+//
+// This constant is the scaffolding for that and changes no behaviour on its own. Nothing
+// reads it to decide a trade; it only labels what already happened, so the arms can be
+// told apart later instead of being silently pooled.
+//
+// `account` is NOT a substitute. It says which broker held the position, not which
+// configuration produced it - move a config between boxes and the account label lies.
+const EXPERIMENT_ARM = (process.env.SMARTENTRY_ARM || "champion").trim() || "champion";
+
 const DASHBOARD_USERNAME = (process.env.DASHBOARD_USERNAME || "").trim();
 const DASHBOARD_PASSWORD = (process.env.DASHBOARD_PASSWORD || "").trim();
 // Session secret, persisted across restarts.
@@ -3950,6 +3972,13 @@ app.get("/api/strategy-settings", (_, res) => {
   // and it changes live position sizing.
   res.json({
     ...strategySettings,
+    // The experiment arm this box runs. Exposed HERE because this route is already
+    // the config surface and is readable without a login, so the peer and
+    // vps_parity.cjs can both ask "are we running the same arm?" without a session.
+    // It is NOT a strategy setting and is deliberately not in STRATEGY_LIMITS: the
+    // POST must never be able to change it, or a dashboard click could silently
+    // relabel which arm a trade belongs to.
+    arm: EXPERIMENT_ARM,
     limits: STRATEGY_LIMITS,
     settingsError: strategySettingsError,
   });
@@ -4574,6 +4603,12 @@ app.post("/api/trade-opened", async (req, res) => {
       // could only be matched on a ticket id that is unique per account, not
       // across the fleet.
       account:   trade.account || "default",
+      // Which experiment arm produced this trade. Distinct from `account`: that says
+      // which broker held it, this says which CONFIG decided it. Rows written before
+      // 2026-08-26 carry no arm at all and must read as UNKNOWN - never backfilled to
+      // "champion", which would assert something nobody verified about trades taken
+      // before arms existed.
+      arm:       EXPERIMENT_ARM,
       openTime:  new Date().toISOString(),
       closeTime: null,
       closePrice: null,
