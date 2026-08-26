@@ -27,6 +27,7 @@ Format:
 Report: "State saved. Next session: /state load to resume exactly here."
 
 ═══ /state load ═══
+If tasks/jarvis-state.json does not exist: output "No saved state found. Run /state save first." and stop.
 Read tasks/jarvis-state.json and resume:
 1. Report what was saved: when, what was being worked on
 2. Show what's next: pending tasks in priority order

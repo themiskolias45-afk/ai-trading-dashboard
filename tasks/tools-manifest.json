@@ -20,7 +20,6 @@
     "get_daily_note":         { "tags": ["read", "notes"],     "cost": "cheap",     "side_effects": "read" },
     "get_ai_work":            { "tags": ["read", "proposals"], "cost": "cheap",     "side_effects": "read" },
     "read_memory":            { "tags": ["read", "memory"],    "cost": "cheap",     "side_effects": "read" },
-    "get_risk_status":        { "tags": ["read", "risk"],      "cost": "cheap",     "side_effects": "read" },
     "run_walkforward":        { "tags": ["compute", "backtest"],"cost": "expensive", "side_effects": "read",  "note": "~90s, runs 5 folds" },
     "run_scan":               { "tags": ["compute", "signals"],"cost": "moderate",  "side_effects": "read" },
     "run_debate":             { "tags": ["compute", "analysis"],"cost": "expensive","side_effects": "read" },
@@ -31,7 +30,6 @@
     "send_alert":             { "tags": ["write", "notify"],   "cost": "cheap",     "side_effects": "write", "note": "sends push notification" },
     "size_position":          { "tags": ["compute", "risk"],   "cost": "cheap",     "side_effects": "read",  "note": "computation only, no order" },
     "force_heal":             { "tags": ["write", "health"],   "cost": "cheap",     "side_effects": "write", "note": "restarts data refresh" },
-    "get_healer":             { "tags": ["read", "health"],    "cost": "cheap",     "side_effects": "read" },
     "full_trade_workflow":    { "tags": ["TRADES"],            "cost": "expensive", "side_effects": "TRADES","gate": "REQUIRES_EXPLICIT_APPROVAL" },
     "execute_trade":          { "tags": ["TRADES"],            "cost": "expensive", "side_effects": "TRADES","gate": "REQUIRES_EXPLICIT_APPROVAL" }
   },

@@ -46,21 +46,27 @@ PHASE 4 — REGIME ANALYSIS:
   Is the system getting most trades in the wrong regime?
 
 PHASE 4b — SIGNAL-DEAD DETECTION:
+  First: call mcp__smartentry__get_strategy_settings → read confidenceThreshold (live gate).
   For each asset (BTC/GC=F/^GSPC):
     From journal: what was the last trade date?
     From signals: what is the current confidence?
-    Calculate: days since last signal ≥ 65%.
+    Calculate: days since last signal ≥ confidenceThreshold.
 
-  SIGNAL-DEAD: asset has not generated confidence ≥ 65 in > 7 days.
-  SIGNAL-SLOW: 4-7 days without a signal.
+  SIGNAL-DEAD: asset has not generated confidence ≥ confidenceThreshold in > 7 days AND current confidence < confidenceThreshold.
+  SIGNAL-SLOW: 4-7 days without a signal ≥ confidenceThreshold.
   SIGNAL-OK: < 4 days.
 
   For any SIGNAL-DEAD asset:
     - Is daily.signal always WAIT? (full trend absence)
     - Is h4.signal always WAIT? (short-term flat)
     - Is the confidence correct but blocked by regime halt?
-    - Is the confidence stuck below 65 (calibration issue vs market issue)?
+    - Is the confidence stuck below confidenceThreshold (calibration issue vs market issue)?
   Output: "SIGNAL-DEAD [asset] — last fired [N] days ago — cause: [one of above]"
+
+PHASE 4c — SIGNAL-DEAD REPORT (runs immediately after 4b):
+  Include in the final report:
+    SIGNAL STATUS: [asset] [DEAD/SLOW/OK] — last fired [N] days ago — cause: [reason]
+  Any SIGNAL-DEAD asset is CRITICAL regardless of other findings.
 
 PHASE 5 — FAILURE PATTERN ANALYSIS:
   From journal: look at losing trades only.
@@ -83,11 +89,6 @@ PHASE 7 — SYNTHESIS:
   2. Missed opportunities (good setup, threshold too tight)
   3. Calibration drift (wrong confidence = wrong position sizing)
   4. Degrading setups (will get worse if not fixed)
-
-PHASE 6b — SIGNAL-DEAD REPORT:
-  Include in report:
-    SIGNAL STATUS: [asset] [DEAD/SLOW/OK] — last fired [N] days ago — cause: [reason]
-  Any SIGNAL-DEAD asset is CRITICAL regardless of other findings.
 
 REPORT FORMAT:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

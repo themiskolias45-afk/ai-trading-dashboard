@@ -7,7 +7,7 @@ Do NOT rely on Python scripts. Run all checks directly.
 ═══ SYNTAX CHECK ═══
 Check these files (use Bash tool directly):
   node --check server/index.js
-  node --check server/mcp_server.js (skip if missing)
+  node --check server/mcp_server.js
 
 Find and check all Python files:
   python -m py_compile [each .py file in project root]

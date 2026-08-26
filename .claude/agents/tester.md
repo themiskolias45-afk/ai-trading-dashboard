@@ -33,10 +33,12 @@ CHECK 3 — LIVE API TEST (skip with [OFFLINE] note if server unreachable):
   Call mcp__smartentry__get_learning      → PASS if returns {setups}, FAIL if null/error
 
 CHECK 4 — SIGNAL INTEGRITY:
+  First: call mcp__smartentry__get_strategy_settings → read confidenceThreshold (live gate).
+  If settingsError is non-null: use 70 as fallback and flag "SETTINGS-ERROR — using fallback gate 70".
   From get_signals result: for each asset (BTC, GOLD, SPX):
-  - If confidence ≥ 65 AND regime not HALTED → direction must NOT be WAIT
-  - If confidence < 65 → direction MUST be WAIT
-  Record any mismatch as SIGNAL-INTEGRITY-FAIL: [asset] confidence=[X] but signal=[Y]
+  - If confidence ≥ confidenceThreshold AND regime not HALTED → direction must NOT be WAIT
+  - If confidence < confidenceThreshold → direction MUST be WAIT
+  Record any mismatch as SIGNAL-INTEGRITY-FAIL: [asset] confidence=[X] vs gate=[confidenceThreshold] but signal=[Y]
 
   H4-ONLY CONFIDENCE RANGE CHECK (for signals where daily=WAIT but h4≠WAIT):
   - BTC/ETH H4-only: confidence must be 40-63 (STRONG→63, MODERATE→50, WEAK→40)

@@ -9,11 +9,11 @@ Source A — Brave Search:
 Use brave-search MCP to get the top 10 results. Note titles, URLs, snippets.
 
 Source B — Exa AI Search:
-Use exa MCP (exa_search tool) with query focused on academic/professional sources.
+Use mcp__exa__web_search_exa with query focused on academic/professional sources.
 Ask for: research papers, quant blogs, professional trading sites.
 
 Source C — Web scrape top results:
-Use Puppeteer or fetch MCP to read full content from the top 2-3 URLs that look most relevant.
+Use mcp__puppeteer__puppeteer_navigate or mcp__exa__web_fetch_exa to read full content from the top 2-3 URLs that look most relevant.
 Extract the actual strategy rules, backtested stats, win rates.
 
 ═══ STEP 2 — SYNTHESISE ═══

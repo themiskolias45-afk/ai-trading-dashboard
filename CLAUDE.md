@@ -27,7 +27,7 @@ Claude Code auto-loads this CLAUDE.md from the working directory. The startup se
 
 At the start of every interactive session:
 1. Read `VAULT-INDEX.md` at the vault root — skip silently if file doesn't exist, do not error.
-2. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
+2a. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
 2b. Call `mcp__memory__search_nodes` **once per term**, with the SINGLE words `lesson`, then `fix`,
    then `trade`. These are lessons explicitly persisted from past sessions via /learn.
    A lesson not recalled is a lesson wasted. Surface any that are relevant to today's context (e.g.
@@ -71,7 +71,7 @@ At the start of every interactive session:
      running on built-in defaults, NOT the saved config — say so before anything else.
    - gap[asset] = max(0, confidenceThreshold - confidence)
    - daysSinceLastTrade[asset] = today minus last journal entry for that asset
-   - SIGNAL-DEAD = daysSinceLastTrade > 7 days
+   - SIGNAL-DEAD = current confidence < confidenceThreshold AND daysSinceLastTrade > 7 days
 
 **Welcome line format (in priority order — use the first that applies):**
 - Server offline: "JARVIS online. WARNING: SmartEntry server is offline — run option S in tasks\menu.bat. What do you need?"
@@ -189,7 +189,7 @@ silently resolved.
 - **Double-confirm before any source-code edit.** State the exact change and wait for confirmation before editing code, config, or pushing/deploying — unless I've already said "do it."
 - **Full reads, no skimming.** Read the whole file front to back. No sampling. If it's too big for one session, say so and let me decide.
 - **Checkpoint persistence.** Any time something changes that a future session needs to know, persist it — update the vault note, today's daily note. Verify each change landed.
-- **No bloat.** One source of truth, written tight. Update existing notes before creating new ones. Delete ONLY what you personally just created and are replacing — never delete user data, learning, memory, or history.
+- **No bloat.** One source of truth, written tight. Update existing notes before creating new ones. Overwrite files you created in this session rather than deleting and recreating them. Never delete user data, learning, memory, or history.
 - **NEVER DELETE without explicit approval.** Before deleting any file, data, configuration, learning record, memory entry, or trade history — stop, name it, explain why, and wait for confirmation. "It seemed redundant" is not a reason. If unsure, move/rename instead of deleting.
 - **Always check what exists first.** Before creating any file, command, agent, or system — search for it first. Grep, Glob, or Read to verify it doesn't already exist. Update the existing one rather than duplicating. A duplicate that diverges from the original is a bug.
 - **Preserve the learning system.** Never modify or delete server/learning.json, any trade journal, any memory MCP entry, or any calibration data without explicit approval. These represent weeks of real trades — destroying them costs real money in lost edge.
