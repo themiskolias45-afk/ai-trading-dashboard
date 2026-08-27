@@ -272,6 +272,9 @@ const CLAIMS = [
       + "minority with shapes that merely resemble it is what made the earlier number "
       + "uninterpretable.",
     harness: "node tasks/geometry_measure.cjs --interval 1h  |  node tasks/crt_amd_mtf_measure.cjs",
+    // RE-RUN 2026-08-27 on the 4.3-YEAR archive as well, and five years changes nothing:
+    // the best AMD cell is btc h4->h4 at n=16, and NOT ONE AMD cell cleared 20 trades.
+    // The pattern is not there, at any timeframe, on any asset. Stop re-running it.
     // RE-CONFIRMED 2026-08-27 on live broker bars, and sharpened. The detectors were
     // called directly on the full series, no point-in-time restriction, so this is the
     // ceiling on how many patterns exist at all - not a harness artefact:
@@ -288,11 +291,11 @@ const CLAIMS = [
   {
     id: "crtmtf",
     title: "CRT bias timeframe x execution timeframe (is 4H bias + 15m execution best?)",
-    status: STATUS.BLOCKED,
+    status: STATUS.MEASURED_NO_EDGE,
     measuredOn: "2026-08-27",
-    evidence: "First measurement of a bias/execution SPLIT in this repo - tasks/crt_walkforward.cjs accepts --interval 1d|1h|1wk only, so the cell could not be expressed before. Run independently on BOTH boxes, agreeing to three decimals. R per trade, CRT: SPX h4→m15 +0.1031 (n=22, 72.7%), h4→h1 +0.1618 (n=20, 75.0%), h4→h4 +0.2014 (n=14). GOLD h4→m15 -0.0935 (n=25), h4→h1 +0.0182 (n=26), h4→h4 +0.3505 (n=26, 76.9%). BTC h4→m15 +0.0226 (n=18), h4→h1 -0.0035 (n=25). 15m execution is NOT best: h1 beats it on 2 of 3 assets and on Gold plain h4→h4 wins outright.",
-    caveat: "EVERY 4H cell is UNDERPOWERED and the table RANKS rather than settles. This repo judges a threshold on 5 out-of-sample folds compared on WORST FOLD, needing >=40 resolved trades; the richest 4H cell has 26. The single cell with enough trades is Gold d1→d1 (n=44) and it FAILS - worst fold -0.5161, 3/5 positive. Faster execution does deliver what it was wanted for (Gold hold 2.8h against 5.5h, risk 0.78% of price) but does not pay for it in R here.",
-    changesTheAnswer: "m15 HISTORY, and nothing else. The bridge ships 4000 m15 and 400 h4 bars, giving 41.7–61.7 days of m15 and 66.5–92.8 of h4 - that is the binding limit, not the harness. Raise the m15 bar count and the same command answers the question. Note the harness enforces both anti-look-ahead rules (point-in-time detection on a trailing window with barsAgo===0, and an as-of join on CLOSE times, not open times) and scores an intrabar stop+target tie as a LOSS.",
+    evidence: "ANSWERED on the 4.3-year archive, run independently on BOTH boxes. The first pass used the bridge cache (4000 m15 / 400 h4 bars, ~42-93 days) and every cell came back UNDERPOWERED; tasks/history/*.csv already held ~102,000 m15 and ~7,900 h4 bars per symbol on the same broker instruments, which is what the m15 push was added to top up. 18 cells now clear 20 trades AND 5 usable folds. EXACTLY ONE PASSES the bar this repo holds a threshold to - worst fold positive and every fold positive: CRT GOLD h4→h4, n=584, worst fold +0.0215, 5/5, R/trade +0.1052 (VPS independently: n=585, +0.0234, 5/5, +0.1034). 15m execution is NOT best and is never best on any asset. Worst-fold ranking - GOLD h4→m15 -0.0766 < h4→h1 -0.0147 < h4→h4 +0.0215; BTC h4→m15 -0.1892 < h4→h1 -0.0802 < h4→h4 -0.0394; SPX h4→m15 -0.1214 < h4→h4 -0.1737 < h4→h1 -0.1016. The 4H BIAS was right - every d1-bias cell is worse, worst folds -0.19 to -0.47 - it is the 15m EXECUTION that is not.",
+    caveat: "The one PASS is SPREAD-SENSITIVE and is not a free edge. Gold h4→h4 breaks even at 2.15% of risk, and its average risk distance is 0.48% of price = about $22 at $4600, so break-even is ~$0.47 round trip. Against the $0.20–$0.50 XAUUSD spread already on record it stays positive at $0.20/$0.30/$0.40 and goes NEGATIVE at $0.50. Break-even here is quoted on the WORST FOLD, not the mean, because a cell whose mean survives a cost while its worst fold does not loses money in the year that matters. Note also how badly a thin sample flattered this: on the bridge cache the same cell read +0.3505 R/trade against +0.1052 on the full archive, 3.3x - which is what UNDERPOWERED means, demonstrated rather than asserted.",
+    changesTheAnswer: "For the 15m question, nothing cheap - it lost on all three assets over five years with 484-611 trades per cell, and that is not a sample problem. For the Gold h4→h4 PASS, the open item is a MEASURED spread: this repo logs only the 50-point cap and never an observed spread, so the $0.20–$0.50 range is inherited, not measured on this account. Log real spreads at fill time and the break-even question answers itself. Do NOT raise the bridge bar count to get more history - the push already sits near 930KB of a 2MB limit and an oversized push is rejected 413 as a WHOLE, after which the server silently falls back to Yahoo bars. The archive is the intended long source.",
     harness: "node tasks/crt_amd_mtf_measure.cjs [--hold 96] [--folds 5] [--emit]",
     // Standalone CRT only. CRT remains CLOSED as an ENGINE INPUT - see the crt claim
     // above: six measurements, six negatives. This is a different question.
