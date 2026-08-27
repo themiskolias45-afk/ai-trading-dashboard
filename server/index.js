@@ -2962,6 +2962,34 @@ function buildWatchlist() {
     .sort((a, b) => WATCHLIST_PRIORITY_RANK[b.priority] - WATCHLIST_PRIORITY_RANK[a.priority]);
 }
 
+// Every broker symbol each asset can legitimately appear as, so "am I already holding
+// this?" can be answered without depending on which data source last wrote the signal.
+//
+// sourceSymbol is NOT stable: it is the MT5 symbol when bars came from the bridge and
+// the YAHOO ticker when the signal fell back to Yahoo, which happens for the first
+// minute after every server restart. Comparing it directly to an open position means a
+// held XAUUSD reads as free the moment the signal says GC=F - the plan then prints
+// "TRADEABLE now" for a trade that is already open, which is the single most misleading
+// thing this panel can say. Both readers below used to do exactly that.
+//
+// MIRRORS SYMBOL_CANDIDATES in mt5_bridge.py:106, plus each Yahoo ticker. If a symbol is
+// added there, add it here - the bridge is the authority, this is a reader. Getting it
+// wrong makes a MESSAGE wrong, never a trade: the real DUPLICATE gate is in the bridge.
+const ASSET_BROKER_SYMBOLS = {
+  btc:  ["BTCUSD", "BTC/USD", "BITCOIN", "BTCUSDT", "BTC-USD"],
+  gold: ["XAUUSD", "GOLD", "XAUUSDM", "GOLDM", "GC=F"],
+  spx:  ["SP500", "US500", "SPX500", "US.500", "SPY", "^GSPC"],
+};
+
+// True when an open position matches the asset, on any of its accepted symbols.
+function isAssetHeld(assetKey, signal) {
+  const accepted = new Set(ASSET_BROKER_SYMBOLS[assetKey] || []);
+  const src = String(signal?.sourceSymbol || "").toUpperCase();
+  if (src) accepted.add(src);   // never narrower than the old behaviour
+  if (!Array.isArray(mt5Positions)) return false;
+  return mt5Positions.some(p => accepted.has(String(p.symbol || "").toUpperCase()));
+}
+
 function generateDailyPlan() {
   const { btc, btcChange, gold, goldChange, spx, spxChange } = priceCache;
   const signals = [signalCache.btc, signalCache.gold, signalCache.spx].filter(Boolean);
@@ -2986,10 +3014,30 @@ function generateDailyPlan() {
       spx:  signalCache.spx
     },
     watchlist: buildWatchlist(),
+    // Whether ANY bridge had checked in when this plan was built. buildRules uses the
+    // same test to decide between "already held" and "holdings UNKNOWN", and the read
+    // paths below use it to rebuild once the answer becomes knowable.
+    positionsKnown: Object.keys(mt5LastSeenByAccount).length > 0,
     rules: buildRules(regime)
   };
   console.log(`[plan] ${regime} — ${now.toISOString()}`);
   return dailyPlan;
+}
+
+/**
+ * The boot plan is ALWAYS built before any bridge has reported - startup calls
+ * generateDailyPlan directly, and the first bridge POST lands seconds later. Without
+ * this the cached plan says "holdings UNKNOWN" until the half-hourly cron rebuilds it, so for
+ * up to half an hour the panel a human reads first cannot tell them whether the
+ * tradeable signal in front of them is already open.
+ *
+ * Rebuild exactly once, when the answer becomes knowable. generateDailyPlan reads
+ * caches only - no network, no disk - so this cannot slow or fail a request, and
+ * after the single rebuild positionsKnown is true and this returns false forever.
+ */
+function planNeedsRebuild() {
+  if (!dailyPlan) return true;
+  return dailyPlan.positionsKnown === false && Object.keys(mt5LastSeenByAccount).length > 0;
 }
 
 /**
@@ -3025,20 +3073,30 @@ function buildRules(regime) {
   // not a cause - the cause lives in the near-miss census.
   let census = null;
   try { census = typeof nearMissCensus === "function" ? nearMissCensus() : null; } catch (e) { census = null; }
-  const heldSymbols = new Set(
-    (Array.isArray(mt5Positions) ? mt5Positions : []).map(p => String(p.symbol || "").toUpperCase()));
+  // An empty position list means one of two completely different things, and saying
+  // "TRADEABLE now" for a symbol that is actually held is the worse of the two.
+  // For ~60s after every server restart NO bridge has posted yet, so mt5Positions is
+  // [] while the trades are still open at the broker - the documented
+  // positions-read-zero-after-a-restart window. mt5LastSeenByAccount is the
+  // discriminator: empty means UNKNOWN, not zero.
+  const positionsKnown = Object.keys(mt5LastSeenByAccount).length > 0;
 
   for (const key of ["btc", "gold", "spx"]) {
     const sig = signalCache[key];
     if (!sig) continue;
     const label = key.toUpperCase();
     const conf = Number(sig.confidence);
-    const held = heldSymbols.has(String(sig.sourceSymbol || "").toUpperCase());
+    const held = isAssetHeld(key, sig);
 
     if (Number.isFinite(conf) && conf >= gate && sig.signal !== "WAIT") {
-      lines.push(held
-        ? `${label}: ${sig.signal} ${conf}% — ABOVE the gate but already held, so the DUPLICATE gate will refuse a new entry. Not a failure.`
-        : `${label}: ${sig.signal} ${conf}% — TRADEABLE now (${String(sig.setup || "").replace(/_/g, " ")}).`);
+      const setupName = String(sig.setup || "").replace(/_/g, " ");
+      if (held) {
+        lines.push(`${label}: ${sig.signal} ${conf}% — ABOVE the gate but already held, so the DUPLICATE gate will refuse a new entry. Not a failure.`);
+      } else if (!positionsKnown) {
+        lines.push(`${label}: ${sig.signal} ${conf}% — above the gate (${setupName}), but NO bridge has reported positions yet, so whether it is already held is UNKNOWN. Do not read this as tradeable until a bridge checks in.`);
+      } else {
+        lines.push(`${label}: ${sig.signal} ${conf}% — TRADEABLE now (${setupName}).`);
+      }
       continue;
     }
 
@@ -3138,7 +3196,7 @@ async function handleMessage(message) {
       "/plan — full daily plan with entries\n/btc — BTC signal + entry\n/gold — Gold signal + entry\n/spx — SP500 signal\n/signals — refresh all signals\n/daily — price summary"
     ),
     "/plan": async () => {
-      if (!dailyPlan) generateDailyPlan();
+      if (planNeedsRebuild()) generateDailyPlan();
       await sendTelegram(chatId, planToTelegram(dailyPlan));
     },
     "/btc": async () => {
@@ -3382,7 +3440,7 @@ app.get("/api/analysis", (req, res) => {
 });
 
 app.get("/api/plan",    (_, res) => {
-  if (!dailyPlan) generateDailyPlan();
+  if (planNeedsRebuild()) generateDailyPlan();
   res.json(dailyPlan);
 });
 app.post("/api/plan/refresh", async (_, res) => {
@@ -5755,9 +5813,10 @@ cron.schedule("*/30 * * * *", async () => {
         // Say WHY it may not have auto-traded. A tradeable signal on a symbol already
         // held is refused by the DUPLICATE gate, which is correct behaviour and looks
         // exactly like a broken system if the alert does not mention it.
-        const held = Array.isArray(mt5Positions)
-          && mt5Positions.some(p => String(p.symbol || "").toUpperCase()
-               === String(s.sourceSymbol || "").toUpperCase());
+        // Same trap as the daily plan: sourceSymbol is the Yahoo ticker on a
+        // Yahoo-derived signal, so a direct comparison misses a held position and
+        // the alert omits the one line that explains why nothing traded.
+        const held = isAssetHeld(key, s);
         const notes = [];
         notes.push(`Gate ${gate} · min strength ${strategySettings.minStrength}`);
         if (held) notes.push("⚠ ALREADY HOLDING this symbol - the DUPLICATE gate will refuse a new entry.");
