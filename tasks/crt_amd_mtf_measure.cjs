@@ -64,6 +64,21 @@ const FOLDS       = Math.max(2, numArg("--folds", 5));
 const WINDOW      = numArg("--window", 100);  // trailing detection window, in bias bars
 const EMIT        = process.argv.includes("--emit");
 
+// live   = the bridge cache via /api/mt5/candles/raw. Current to the minute, but only
+//          4000 m15 / 400 h4 bars, which is ~42-93 days - too thin to fold.
+// archive = tasks/history/<SYMBOL>_<TF>.csv. ~102,000 m15 bars back to 2022 and ~7,900
+//          h4 bars back to 2021, on the SAME broker instruments. Validated 2026-08-27:
+//          0 bad timestamps, 0 duplicates, 0 backwards steps, 0 OHLC violations across
+//          all six files. Its gaps are weekends and session breaks, not corruption.
+// The archive is what the m15 push exists to top up, so this is the intended long
+// source; raising the bridge bar count instead would push the payload toward the 2MB
+// limit, and an oversized push is rejected 413 as a WHOLE and falls back to Yahoo.
+const SOURCE      = strArg("--source", "live");
+const ARCHIVE_DIR = path.join(PROJECT_ROOT, "tasks", "history");
+
+// Asset key -> broker symbol, matching the archive filenames.
+const ARCHIVE_SYMBOL = { btc: "BTCUSD", gold: "XAUUSD", spx: "SP500" };
+
 // A fold with fewer resolved trades than this cannot support a verdict. The repo's
 // convention elsewhere is a floor of 5-8; anything under it is reported as UNDERPOWERED
 // rather than dressed up as a result.
@@ -81,6 +96,42 @@ const COMBOS = [
   { bias: "h4", exec: "h4"  },   // single-timeframe controls, so the MTF claim has a baseline
   { bias: "d1", exec: "d1"  },
 ];
+
+/**
+ * Load one <SYMBOL>_<TF>.csv into the parallel-array shape the detectors expect.
+ *
+ * Returns null rather than a partial series on any structural problem. A silently short
+ * or mis-parsed series would produce a plausible-looking backtest, which is worse than
+ * no backtest - the whole point of this harness is that its numbers can be trusted.
+ */
+function loadArchive(symbol, timeframe) {
+  const file = path.join(ARCHIVE_DIR, `${symbol}_${timeframe.toUpperCase()}.csv`);
+  try {
+    if (!fs.existsSync(file)) return null;
+    const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/);
+    if (lines.length < 3) return null;
+    const header = lines[0].split(",").map(h => h.trim());
+    const iT = header.indexOf("time"), iH = header.indexOf("high");
+    const iL = header.indexOf("low"),  iC = header.indexOf("close");
+    if ([iT, iH, iL, iC].some(i => i === -1)) return null;
+
+    const times = [], highs = [], lows = [], closes = [];
+    let previousTime = -Infinity;
+    for (let i = 1; i < lines.length; i++) {
+      const row = lines[i].split(",");
+      const t = Number(row[iT]), h = Number(row[iH]), l = Number(row[iL]), c = Number(row[iC]);
+      if (![t, h, l, c].every(Number.isFinite)) continue;
+      if (t <= previousTime) continue;   // drop a duplicate or backwards row, never reorder
+      previousTime = t;
+      times.push(t); highs.push(h); lows.push(l); closes.push(c);
+    }
+    if (closes.length < 200) return null;
+    return { times, highs, lows, closes };
+  } catch (e) {
+    console.error(`[archive] ${path.basename(file)}: ${e.message}`);
+    return null;
+  }
+}
 
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
@@ -188,6 +239,8 @@ function runCell(assetBars, biasTf, execTf, detector, holdBars, windowBars) {
   const trades = [];
   let unresolved = 0;
   let outsideExecWindow = 0;
+  // Monotonic because detections ascend in time; see the join below.
+  let execCursor = 0;
 
   for (const { biasIndex, pattern } of detections) {
     const biasOpen = openSeconds(bias.times[biasIndex]);
@@ -195,12 +248,16 @@ function runCell(assetBars, biasTf, execTf, detector, holdBars, windowBars) {
     // RULE 2: the bias bar is not KNOWN until it closes.
     const knownAt = biasOpen + biasTfSec;
 
-    // First exec bar opening at or after the bias bar closed.
-    let execIndex = -1;
-    for (let i = 0; i < execOpens.length; i++) {
-      if (execOpens[i] !== null && execOpens[i] >= knownAt) { execIndex = i; break; }
+    // First exec bar opening at or after the bias bar closed. Detections arrive in
+    // ascending bias order so knownAt only ever increases - a moving cursor turns an
+    // O(detections x execBars) rescan into one pass. At archive scale that is the
+    // difference between seconds and minutes (102,000 m15 bars x ~1,000 detections).
+    while (execCursor < execOpens.length &&
+           (execOpens[execCursor] === null || execOpens[execCursor] < knownAt)) {
+      execCursor++;
     }
-    if (execIndex === -1) { outsideExecWindow++; continue; }
+    const execIndex = execCursor;
+    if (execIndex >= execOpens.length) { outsideExecWindow++; continue; }
 
     // Entry at that bar's close - the first price actually actionable.
     const entry  = exec.closes[execIndex];
@@ -243,10 +300,12 @@ function summarise(trades, costFraction) {
   if (!trades.length) return null;
   let grossR = 0, netR = 0, wins = 0, ambiguous = 0, barsTotal = 0, riskPctTotal = 0;
   for (const t of trades) {
-    // Cost charged against the trade's OWN risk distance, never a flat R and never a
-    // price shared across instruments - that bug inverted the sign of a pooled CRT
-    // result once. See [[crt_survives_costs_on_gold_and_spx]].
-    const costR = costFraction > 0 ? (costFraction * t.risk) / t.risk : 0;
+    // Cost is expressed as a FRACTION OF THE TRADE'S OWN RISK DISTANCE, so it is
+    // already in R units and each instrument is charged on its own scale. Charging a
+    // shared PRICE across instruments is what inverted the sign of a pooled CRT result
+    // once - a Gold trade billed a BTC-sized spread. See
+    // [[crt_survives_costs_on_gold_and_spx]].
+    const costR = costFraction > 0 ? costFraction : 0;
     grossR += t.r;
     netR   += t.r - costR;
     if (t.r > 0) wins++;
@@ -287,7 +346,11 @@ function foldReport(trades, folds) {
   }
   const positive = perFold.filter(r => r !== null && r > 0).length;
   const worst = perFold.reduce((m, r) => (r !== null && (m === null || r < m) ? r : m), null);
-  return { usable: true, perFold, positive, folds, worst };
+  // Break-even is quoted on the WORST fold, not the mean. A cell whose MEAN survives a
+  // cost while its worst fold does not is a cell that loses money in the year that
+  // matters. Expressed as a fraction of each trade's own risk distance.
+  const breakEven = (worst === null || worst <= 0) ? 0 : worst;
+  return { usable: true, perFold, positive, folds, worst, breakEven };
 }
 
 function pad(v, w) { return String(v).padEnd(w); }
@@ -299,23 +362,43 @@ async function main() {
 
   say("=".repeat(100));
   say(`  CRT / AMD  —  BIAS timeframe x EXECUTION timeframe   ${new Date().toISOString()}`);
-  say(`  hold ${MAX_HOLD} exec bars | detection window ${WINDOW} bias bars | folds ${FOLDS}`);
+  say(`  hold ${MAX_HOLD} exec bars | detection window ${WINDOW} bias bars | folds ${FOLDS} | source ${SOURCE}`);
   say(`  Point-in-time detection, as-of join on CLOSE times, ambiguous bar = LOSS.`);
   say("=".repeat(100));
 
   let raw;
-  try {
-    raw = await fetchJson(`${HOST}/api/mt5/candles/raw`);
-  } catch (e) {
-    console.error(`\nCANNOT READ BARS: ${e.message}`);
-    console.error(`/api/mt5/candles/raw is requireLocalOnly - run this ON the box, not over SSH port-forward.`);
-    process.exitCode = 1;
-    return;
-  }
-  if (!raw || !raw.assets) {
-    console.error("\nNo assets in the candle dump.");
-    process.exitCode = 1;
-    return;
+  if (SOURCE === "archive") {
+    say(`  SOURCE: tasks/history archive`);
+    raw = { assets: {} };
+    for (const assetKey of Object.keys(ARCHIVE_SYMBOL)) {
+      const symbol = ARCHIVE_SYMBOL[assetKey];
+      const bars = {};
+      for (const tf of ["d1", "h4", "h1", "m15"]) {
+        const series = loadArchive(symbol, tf);
+        if (series) bars[tf] = series;
+      }
+      if (Object.keys(bars).length) raw.assets[assetKey] = { symbol, bars };
+    }
+    if (!Object.keys(raw.assets).length) {
+      console.error(`\nNo usable CSVs in ${ARCHIVE_DIR}.`);
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    say(`  SOURCE: live bridge cache (thin - pass --source archive for the long series)`);
+    try {
+      raw = await fetchJson(`${HOST}/api/mt5/candles/raw`);
+    } catch (e) {
+      console.error(`\nCANNOT READ BARS: ${e.message}`);
+      console.error(`/api/mt5/candles/raw is requireLocalOnly - run this ON the box, not over SSH port-forward.`);
+      process.exitCode = 1;
+      return;
+    }
+    if (!raw || !raw.assets) {
+      console.error("\nNo assets in the candle dump.");
+      process.exitCode = 1;
+      return;
+    }
   }
 
   // Coverage first. Every verdict below is bounded by this and saying so up front stops
@@ -389,12 +472,19 @@ async function main() {
     say(`  ${powered.length} cell(s) cleared ${MIN_TRADES_FOR_CELL} trades AND ${FOLDS} usable folds:`);
     powered.sort((a, b) => (b.folds.worst ?? -99) - (a.folds.worst ?? -99));
     for (const c of powered) {
-      say(`    ${pad(c.detector, 5)}${pad(c.asset, 7)}${pad(c.bias + "->" + c.exec, 10)}` +
-          `n=${pad(c.summary.n, 6)}worst fold ${fx(c.folds.worst, 4)}  ` +
-          `${c.folds.positive}/${c.folds.folds} positive  R/trade ${fx(c.summary.rPerTrade, 4)}`);
+      const passes = c.folds.worst > 0 && c.folds.positive === c.folds.folds;
+      say(`    ${passes ? "PASS" : "    "} ${pad(c.detector, 5)}${pad(c.asset, 7)}${pad(c.bias + "->" + c.exec, 10)}` +
+          `n=${pad(c.summary.n, 6)}worst fold ${pad(fx(c.folds.worst, 4), 10)}` +
+          `${c.folds.positive}/${c.folds.folds} positive  R/trade ${pad(fx(c.summary.rPerTrade, 4), 10)}` +
+          `break-even ${fx(c.folds.breakEven * 100, 2)}% of risk`);
     }
     say("");
+    say("");
     say("  Ranked on WORST FOLD, not mean - the bar every other threshold in this repo is held to.");
+    say("  PASS = worst fold positive AND every fold positive. Anything else is a ranking, not a result.");
+    say("  Break-even is the cost, as a fraction of each trade's own risk distance, that takes")
+    say("  the WORST fold to zero. A mean that survives a cost while the worst fold does not is")
+    say("  a strategy that loses money in the year that matters.");
   }
   say("");
   say("  Nothing here changes a signal, a stop or a threshold. CRT is CLOSED as an engine");
