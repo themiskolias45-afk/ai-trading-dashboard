@@ -2972,15 +2972,83 @@ function generateDailyPlan() {
   return dailyPlan;
 }
 
+/**
+ * WHAT THIS SYSTEM ACTUALLY KNOWS TODAY - not generic trading advice.
+ *
+ * This returned five hardcoded strings, and one of them was WRONG. In RISK-ON it said
+ * "Trail stops on winners" while mt5_bridge.py:176 has TRAIL_LADDER_ENABLED = "0",
+ * disabled since 2026-08-07 on a measurement: off is the only give-back that is never
+ * negative across 4/5/7-fold walk-forwards. The page a human reads first was advising a
+ * behaviour this system had measured and switched off.
+ *
+ * The rest were true but weightless - "set a stop before entering" is not news to anyone
+ * reading their own trading dashboard, and it crowded out the things only THIS system can
+ * say: what the live gate is, how far each asset is from it, WHICH condition is blocking
+ * and by how much, and what is merely being held rather than rejected.
+ *
+ * Every line below is derived from live state. Nothing is hardcoded that can drift, and
+ * where a number is not knowable the line is omitted rather than guessed.
+ */
 function buildRules(regime) {
-  const base = [
-    "Never risk more than 1-2% of capital per trade",
-    "Set stop-loss BEFORE entering — no exceptions",
-    "Only enter after signal confirms on your chart"
-  ];
-  if (regime === "RISK-ON")  return [...base, "Favour long setups — trend is your friend", "Trail stops on winners"];
-  if (regime === "RISK-OFF") return [...base, "Reduce size — capital protection first", "Cash is a valid position"];
-  return [...base, "Be selective in mixed conditions — fewer, higher-quality trades only"];
+  const lines = [];
+
+  // The gate, read live. CLAUDE.md forbids stating it from memory - it moved 65 -> 70
+  // and several surfaces kept saying 65 for weeks.
+  const gate = strategySettings.confidenceThreshold;
+  const minStrength = strategySettings.minStrength;
+  if (strategySettingsError) {
+    lines.push(`⚠ settingsError — the server is on BUILT-IN DEFAULTS, not the saved config (${strategySettingsError}). Every number below is suspect.`);
+  }
+  lines.push(`Gate ${gate}% · min strength ${minStrength} · a setup must clear BOTH to fire.`);
+
+  // Per asset: the gap, and the REASON when there is one. "low confidence" is a symptom,
+  // not a cause - the cause lives in the near-miss census.
+  let census = null;
+  try { census = typeof nearMissCensus === "function" ? nearMissCensus() : null; } catch (e) { census = null; }
+  const heldSymbols = new Set(
+    (Array.isArray(mt5Positions) ? mt5Positions : []).map(p => String(p.symbol || "").toUpperCase()));
+
+  for (const key of ["btc", "gold", "spx"]) {
+    const sig = signalCache[key];
+    if (!sig) continue;
+    const label = key.toUpperCase();
+    const conf = Number(sig.confidence);
+    const held = heldSymbols.has(String(sig.sourceSymbol || "").toUpperCase());
+
+    if (Number.isFinite(conf) && conf >= gate && sig.signal !== "WAIT") {
+      lines.push(held
+        ? `${label}: ${sig.signal} ${conf}% — ABOVE the gate but already held, so the DUPLICATE gate will refuse a new entry. Not a failure.`
+        : `${label}: ${sig.signal} ${conf}% — TRADEABLE now (${String(sig.setup || "").replace(/_/g, " ")}).`);
+      continue;
+    }
+
+    // Not firing. Name the blocking condition and the MARGIN, from the census.
+    let why = null;
+    if (census && Array.isArray(census.rows)) {
+      const row = census.rows
+        .filter(r => String(r.symbol || "").toUpperCase() === String(sig.sourceSymbol || "").toUpperCase())
+        .sort((a, b) => a.minMargin - b.minMargin)[0];
+      if (row) {
+        why = `${row.condition} on ${row.setup} — threshold ${row.threshold}, actual ${row.lastActual}, missing by ${row.minMargin}`;
+      }
+    }
+    const gap = Number.isFinite(conf) ? Math.max(0, gate - conf) : null;
+    lines.push(why
+      ? `${label}: not firing — ${why}.`
+      : `${label}: not firing — confidence ${Number.isFinite(conf) ? conf : "?"}%${gap !== null ? `, ${gap}pt short of the gate` : ""}.`);
+  }
+
+  // The constraint that actually limits this system. get_brain_status says it on every
+  // call and the plan never did.
+  lines.push("Binding constraint: SAMPLE SIZE, not ideas. A quiet day is a correct read, never a reason to loosen anything.");
+
+  // Regime is context, not instruction - and no advice that contradicts a measured
+  // setting. Trailing is OFF by measurement; the plan must not suggest otherwise.
+  if (regime === "RISK-ON")  lines.push("Regime RISK-ON: 2+ assets biased long. Trailing stops are OFF by measurement — stops already moved stay put.");
+  else if (regime === "RISK-OFF") lines.push("Regime RISK-OFF: 2+ assets biased short. Risk per trade and the 3-loss breaker are unchanged.");
+  else lines.push("Regime MIXED: no majority bias. Nothing here licenses a trade the gate refused.");
+
+  return lines;
 }
 
 // ══════════════════════════════════════════════════════════════
