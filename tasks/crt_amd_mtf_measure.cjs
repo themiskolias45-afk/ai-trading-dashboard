@@ -64,6 +64,13 @@ const FOLDS       = Math.max(2, numArg("--folds", 5));
 const WINDOW      = numArg("--window", 100);  // trailing detection window, in bias bars
 const EMIT        = process.argv.includes("--emit");
 
+// A number that exists only in a terminal cannot be compared against the next run.
+// backtest_health.cjs scores that as a missing safeguard and it scored THIS file as
+// missing it - so the report now lands in tasks/analysis as {json,txt} beside every
+// other harness's, where a later run can diff it.
+const ANALYSIS_DIR = path.join(PROJECT_ROOT, "tasks", "analysis");
+const REPORT_NAME  = "crt-amd-mtf";
+
 // live   = the bridge cache via /api/mt5/candles/raw. Current to the minute, but only
 //          4000 m15 / 400 h4 bars, which is ~42-93 days - too thin to fold.
 // archive = tasks/history/<SYMBOL>_<TF>.csv. ~102,000 m15 bars back to 2022 and ~7,900
@@ -498,10 +505,24 @@ async function main() {
       fs.mkdirSync(path.dirname(logPath), { recursive: true });
       fs.appendFileSync(logPath, out.join("\n") + "\n\n", "utf8");
       console.log(`\nappended to ${logPath}`);
+      writeAnalysis(out);
     } catch (e) {
       console.error(`could not append report: ${e.message}`);
     }
   }
+}
+
+/** {json,txt} into tasks/analysis, so a run can be compared with the next one. */
+function writeAnalysis(reportLines) {
+  try {
+    fs.mkdirSync(ANALYSIS_DIR, { recursive: true });
+    const txt = path.join(ANALYSIS_DIR, REPORT_NAME + "-latest.txt");
+    fs.writeFileSync(txt, reportLines.join("\n") + "\n", "utf8");
+    const jsonPath = path.join(ANALYSIS_DIR, REPORT_NAME + "-latest.json");
+    fs.writeFileSync(jsonPath, JSON.stringify(
+      { report: REPORT_NAME, writtenAt: new Date().toISOString(), lines: reportLines }, null, 2), "utf8");
+    console.log(`written -> ${txt}`);
+  } catch (e) { console.error(`could not write analysis report: ${e.message}`); }
 }
 
 main().catch((e) => {

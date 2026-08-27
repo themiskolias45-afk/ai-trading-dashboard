@@ -56,6 +56,13 @@ const COST_R  = numArg("--cost", 0);          // charged as a fraction of each t
 const HOLD    = numArg("--hold", 96);
 const EMIT    = process.argv.includes("--emit");
 
+// A number that exists only in a terminal cannot be compared against the next run.
+// backtest_health.cjs scores that as a missing safeguard and it scored THIS file as
+// missing it - so the report now lands in tasks/analysis as {json,txt} beside every
+// other harness's, where a later run can diff it.
+const ANALYSIS_DIR = path.join(PROJECT_ROOT, "tasks", "analysis");
+const REPORT_NAME  = "pullback-short";
+
 const ATR_MULT = 1.5;      // index.js:1269
 const ATR_N    = 14;       // index.js:1138
 const TF_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
@@ -279,8 +286,22 @@ function main() {
       fs.mkdirSync(path.dirname(p), { recursive: true });
       fs.appendFileSync(p, out.join("\n") + "\n\n", "utf8");
       console.log(`\nappended to ${p}`);
+      writeAnalysis(out);
     } catch (e) { console.error(`could not append: ${e.message}`); }
   }
+}
+
+/** {json,txt} into tasks/analysis, so a run can be compared with the next one. */
+function writeAnalysis(reportLines) {
+  try {
+    fs.mkdirSync(ANALYSIS_DIR, { recursive: true });
+    const txt = path.join(ANALYSIS_DIR, REPORT_NAME + "-latest.txt");
+    fs.writeFileSync(txt, reportLines.join("\n") + "\n", "utf8");
+    const jsonPath = path.join(ANALYSIS_DIR, REPORT_NAME + "-latest.json");
+    fs.writeFileSync(jsonPath, JSON.stringify(
+      { report: REPORT_NAME, writtenAt: new Date().toISOString(), lines: reportLines }, null, 2), "utf8");
+    console.log(`written -> ${txt}`);
+  } catch (e) { console.error(`could not write analysis report: ${e.message}`); }
 }
 
 try { main(); } catch (e) {
