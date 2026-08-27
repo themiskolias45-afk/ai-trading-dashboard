@@ -49,3 +49,10 @@ tasks/ai_brief.md
 # Built design-canvas payload (2.2MB). Regenerated from design/*.dc.html — see design/README.md
 design/*.html
 !design/*.dc.html
+
+# Per-machine near-miss evidence, appended by server/near_miss.js flushNearMisses().
+# Runtime data like tasks/rejections.jsonl, NOT code: each box records its own bars and
+# its own ceiling, so committing it makes the two boxes conflict on every sync. Ignored
+# rather than merely untracked because the standing rule is to commit immediately after
+# every edit, and one `git add -A` would otherwise sweep it in.
+tasks/near_misses.jsonl
