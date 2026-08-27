@@ -1462,6 +1462,23 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
         )
         return False
 
+    # The spread gate PASSED. Say so loudly when it passed without measuring anything.
+    #
+    # check_spread computes `spread = (ask - bid) / info.trade_tick_size if info else 0`,
+    # so a missing symbol_info gives spread 0, and `0 <= cap` is TRUE. The gate then
+    # passes having measured NOTHING - a risk gate failing OPEN on absent data. Found
+    # 2026-08-27 while instrumenting the spread.
+    #
+    # This deliberately does NOT block the trade. Turning it into a refusal would
+    # suppress setups that would otherwise fire, and on this system sample size is the
+    # binding constraint - a filter costs more than it saves. It is made VISIBLE instead,
+    # and the journal row records spreadAtDecision: null so the gap is never mistaken
+    # for a tight spread. Whether it should refuse is a decision, not a repair.
+    if observed_spread is None:
+        log(f"UNMEASURED SPREAD on {symbol}: the spread gate passed with no quote to "
+            f"measure (symbol_info unavailable). Trade proceeds; the journal will record "
+            f"spreadAtDecision null, never 0.", YELLOW)
+
     order_type = mt5.ORDER_TYPE_BUY if signal_type == "BUY" else mt5.ORDER_TYPE_SELL
     tick       = mt5.symbol_info_tick(symbol)
     price      = tick.ask if signal_type == "BUY" else tick.bid
