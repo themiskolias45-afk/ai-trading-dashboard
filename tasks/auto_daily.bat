@@ -58,6 +58,20 @@ echo --- rejection ledger --- >> "%LOGFILE%"
 "%PY%" "%PROJ%\tasks\learning_from_rejections.py" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM The two ledgers added 2026-08-27, scored here for the same reason the rejection
+REM ledger is: a ledger nothing reads can never become a verdict, which is the exact
+REM failure the near-miss census had for weeks.
+REM Both are READ-ONLY against the engine - no threshold, no stop, no trade - and both
+REM print PENDING rather than guessing while a horizon has not elapsed.
+REM   near-miss    prices the RSI CEILING: the binding constraint on how often this
+REM                system trades, and the only blocker with no rejection-ledger row.
+REM   stop-variant asks whether a lower-timeframe stop would have paid, PAIRED against
+REM                the baseline the engine actually traded on the same signal.
+echo --- near-miss + stop-variant scorers --- >> "%LOGFILE%"
+node "%PROJ%\tasks\score_near_misses.cjs" --emit >> "%LOGFILE%" 2>&1
+node "%PROJ%\tasks\score_stop_variants.cjs" --emit >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM ── Next-candle read, for the TradingView plan panel ──────────────────────────
 REM candle_probability.cjs writes tasks\analysis\candle-today.json, which is the ONLY
 REM source for the "1D read" and "4H read" rows tradingview_bot.py puts on the chart
