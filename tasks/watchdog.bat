@@ -129,7 +129,17 @@ if !RECENT! EQU 1 (
         REM fixed for this in 12e0c12; this file was missed.
         taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT A*" >nul 2>&1
         timeout /t 2 /nobreak >nul
-        start "" /min cmd /k "tasks\start_bridge_A.bat"
+        REM `cmd /k` KEPT THIS SHELL ALIVE FOREVER after the bridge stopped.
+        REM Measured 2026-08-27: 71 orphaned cmd.exe shells across the fleet - 6 on the
+        REM laptop, 65 on the VPS, oldest 476 hours. 30 of the VPS ones came from /k.
+        REM Each held a conhost and NO python child - the bridge had exited and the
+        REM shell simply stayed. /c behaves identically while the bridge RUNS, because
+        REM cmd blocks on the python call either way, and exits when it stops. The
+        REM window title the taskkill above matches is set by the batch itself, so
+        REM recovery still finds a live bridge.
+        REM NO PARENTHESES IN THIS COMMENT - it sits inside an if-block and a literal
+        REM close-paren would end that block early.
+        start "" /min cmd /c "tasks\start_bridge_A.bat"
         echo restarted > "tasks\logs\.restart_A"
         set /a COOL_A=!BRIDGE_STARTUP_GRACE_CYCLES!
         echo [!date! !time!] Bridge A restart triggered - holding off !BRIDGE_STARTUP_GRACE_CYCLES! cycles. >> tasks\logs\watchdog_log.txt
@@ -172,7 +182,17 @@ if !RECENT! EQU 1 (
         echo  [WATCHDOG] Bridge B down - restarting...
         taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT B*" >nul 2>&1
         timeout /t 2 /nobreak >nul
-        start "" /min cmd /k "tasks\start_bridge_B.bat"
+        REM `cmd /k` KEPT THIS SHELL ALIVE FOREVER after the bridge stopped.
+        REM Measured 2026-08-27: 71 orphaned cmd.exe shells across the fleet - 6 on the
+        REM laptop, 65 on the VPS, oldest 476 hours. 30 of the VPS ones came from /k.
+        REM Each held a conhost and NO python child - the bridge had exited and the
+        REM shell simply stayed. /c behaves identically while the bridge RUNS, because
+        REM cmd blocks on the python call either way, and exits when it stops. The
+        REM window title the taskkill above matches is set by the batch itself, so
+        REM recovery still finds a live bridge.
+        REM NO PARENTHESES IN THIS COMMENT - it sits inside an if-block and a literal
+        REM close-paren would end that block early.
+        start "" /min cmd /c "tasks\start_bridge_B.bat"
         echo restarted > "tasks\logs\.restart_B"
         set /a COOL_B=!BRIDGE_STARTUP_GRACE_CYCLES!
         echo [!date! !time!] Bridge B restart triggered - holding off !BRIDGE_STARTUP_GRACE_CYCLES! cycles. >> tasks\logs\watchdog_log.txt
