@@ -6888,11 +6888,22 @@ app.get("/api/regime/:key", (_, res) => {
   const { indicators, trend } = sig;
   const rsi = indicators?.rsi ?? 50;
   const bb  = indicators?.bb;
-  // Detect regime
-  let regime = "RANGING";
-  if (trend === "STRONG UPTREND" || trend === "STRONG DOWNTREND") regime = "TRENDING";
-  if (bb && bb.bandwidth < 8) regime = "SQUEEZE";   // Bollinger squeeze = breakout incoming
-  if (bb && bb.bandwidth > 25) regime = "VOLATILE";
+
+  // SERVE THE ENGINE'S REGIME. Do not classify again here.
+  //
+  // This route used to run its own copy of the classifier, and the copy had INVERTED
+  // PRECEDENCE. The engine (index.js ~2271) is a ternary chain where the FIRST match
+  // wins, so a strong trend beats a narrow band. This was four sequential ifs where the
+  // LAST assignment wins, so the band overwrote the trend. Measured live 2026-08-27,
+  // 2 of 3 assets contradicted: BTC STRONG UPTREND bandwidth 38.3 read TRENDING from
+  // /api/signals and VOLATILE here; SPX STRONG UPTREND bandwidth 3.6 read TRENDING and
+  // SQUEEZE here. Same inputs, same instant, two different answers.
+  //
+  // Aligning the copy would leave a copy. The engine already computed it and every
+  // other consumer reads that value, so this now serves it - one source of truth, and
+  // one fewer thing that can silently diverge. Raised by the AI employee as
+  // morning-39fn7y and verified from source before being applied.
+  const regime = sig.regime ?? "UNKNOWN";
   res.json({ regime, trend, rsi, bandwidth: bb?.bandwidth });
 });
 
