@@ -59,6 +59,23 @@ const SHOW_ROWS = process.argv.includes("--rows");
 const MIN_FOR_VERDICT = numArg("--min", 5);
 
 const TF_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
+
+// THE GEOMETRY IS THE ENGINE'S OWN, MIRRORED - NOT INVENTED.
+//
+// A near miss has no stored entry/stop/target, and earlier this file refused to guess
+// them for good reason. But for RSI_ABOVE_CEILING specifically the levels are fully
+// DETERMINED, because the only failing condition is the ceiling itself:
+//
+//   MOMENTUM      index.js:1546-1548   sl = entry - 1.5*ATR ; target = entry + |entry-sl| * 2.0
+//   TREND_FOLLOW  index.js:1564-1566   identical geometry
+//
+// Every other condition on both branches (inUptrend, above EMA50/EMA20, macd.bullish,
+// rsi above the floor) ALREADY PASSED - that is exactly what the census infers when it
+// records a near miss: "had RSI been in range the branch would have fired". So this is
+// the engine's arithmetic applied to a bar the engine itself qualified, not a second
+// implementation of generateSignal. If those lines ever change, these must follow.
+const CEILING_ATR_MULT = 1.5;
+const CEILING_TARGET_RR = 2.0;
 const ATR_PERIOD = 14;
 
 // The census keys on sourceSymbol, so BOTH the broker symbol and its Yahoo twin appear.
@@ -109,6 +126,27 @@ function engineAtr(bars, endIndex, period) {
   return avg > 0 ? avg : null;
 }
 
+/**
+ * Walk the forgone LONG forward. Same discipline as score_rr_rejections.py: a bar
+ * holding BOTH levels is AMBIGUOUS and excluded rather than resolved the flattering way,
+ * and a trade that never resolves is marked to market rather than scored as a scratch.
+ */
+function walkCeilingTrade(bars, start, entry, stop, target, hold) {
+  const risk = Math.abs(entry - stop);
+  if (!(risk > 0)) return { outcome: "UNSCORABLE", r: null, bars: 0 };
+  const rewardR = Math.abs(target - entry) / risk;
+  const last = Math.min(bars.closes.length - 1, start + hold);
+  for (let i = start; i <= last; i++) {
+    const hitStop   = bars.lows[i]  <= stop;
+    const hitTarget = bars.highs[i] >= target;
+    if (hitStop && hitTarget) return { outcome: "AMBIGUOUS", r: null, bars: i - start + 1 };
+    if (hitStop)   return { outcome: "LOSS", r: -1,      bars: i - start + 1 };
+    if (hitTarget) return { outcome: "WIN",  r: rewardR, bars: i - start + 1 };
+  }
+  if (last <= start) return { outcome: "NO_DATA", r: null, bars: 0 };
+  return { outcome: "TIMEOUT", r: (bars.closes[last] - entry) / risk, bars: last - start + 1 };
+}
+
 function indexAtOrAfter(times, epoch) {
   let lo = 0, hi = times.length - 1, found = -1;
   while (lo <= hi) { const m = (lo + hi) >> 1; if (times[m] >= epoch) { found = m; hi = m - 1; } else lo = m + 1; }
@@ -131,7 +169,8 @@ function main() {
   say("=".repeat(96));
   say(`  NEAR-MISS FORWARD RETURN  ${new Date().toISOString()}   horizon ${HORIZON} bars`);
   say("  What price did AFTER the RSI ceiling blocked a long. Measured in ATR units.");
-  say("  NOT a trade simulation: a blocked setup has no stop, so there is no R and no win rate.");
+  say("  The refused trade is priced in R using the ENGINE'S own stop and target, mirrored");
+  say("  from index.js - the ceiling is the ONLY condition that failed, so the rest is determined.");
   say("=".repeat(96));
 
   if (!fs.existsSync(INPUT)) {
@@ -181,7 +220,13 @@ function main() {
       bestAtr  = Math.max(bestAtr,  (bars.highs[i] - entry) / atr);
       worstAtr = Math.min(worstAtr, (bars.lows[i]  - entry) / atr);
     }
-    scored.push({ row, tf, moveAtr, bestAtr, worstAtr, margin: row.margin, atr, entry, exit });
+    // The trade the ceiling REFUSED, priced with the engine's own geometry.
+    const stop   = entry - atr * CEILING_ATR_MULT;
+    const target = entry + Math.abs(entry - stop) * CEILING_TARGET_RR;
+    const trade  = walkCeilingTrade(bars, i0, entry, stop, target, HORIZON);
+
+    scored.push({ row, tf, moveAtr, bestAtr, worstAtr, margin: row.margin, atr, entry, exit,
+                  stop, target, trade });
   }
 
   if (SHOW_ROWS && scored.length) {
@@ -212,8 +257,9 @@ function main() {
   }
 
   say("");
-  say(`  ${pad("symbol", 9)}${pad("setup", 15)}${pad("n", 5)}${pad("median", 10)}${pad("mean", 10)}` +
-      `${pad("% up", 8)}${pad("med best", 10)}med worst`);
+  say("  THE TRADE THE CEILING REFUSED, priced in R with the engine's own stop and target");
+  say(`  ${pad("symbol", 9)}${pad("setup", 15)}${pad("n", 5)}${pad("WR%", 8)}${pad("R/trade", 10)}` +
+      `${pad("totalR", 10)}${pad("amb", 6)}${pad("timeout", 9)}drift (ATR)`);
   const verdicts = [];
   for (const [k, list] of cells) {
     const [symbol, setup] = k.split("|");
@@ -221,10 +267,18 @@ function main() {
     const med = median(moves);
     const mean = moves.reduce((a, b) => a + b, 0) / moves.length;
     const up = moves.filter(x => x > 0).length / moves.length * 100;
-    say(`  ${pad(symbol, 9)}${pad(setup, 15)}${pad(list.length, 5)}${pad(fx(med, 3), 10)}` +
-        `${pad(fx(mean, 3), 10)}${pad(fx(up, 1), 8)}${pad(fx(median(list.map(x => x.bestAtr)), 2), 10)}` +
-        `${fx(median(list.map(x => x.worstAtr)), 2)}`);
-    verdicts.push({ symbol, setup, n: list.length, med, mean, up });
+    const priced = list.map(x => x.trade).filter(t => t && Number.isFinite(t.r));
+    const wins = list.filter(x => x.trade && x.trade.outcome === "WIN").length;
+    const losses = list.filter(x => x.trade && x.trade.outcome === "LOSS").length;
+    const amb = list.filter(x => x.trade && x.trade.outcome === "AMBIGUOUS").length;
+    const tmo = list.filter(x => x.trade && x.trade.outcome === "TIMEOUT").length;
+    const totalR = priced.reduce((a, t) => a + t.r, 0);
+    const rPer = priced.length ? totalR / priced.length : null;
+    const wr = (wins + losses) ? wins / (wins + losses) * 100 : null;
+    say(`  ${pad(symbol, 9)}${pad(setup, 15)}${pad(priced.length, 5)}${pad(fx(wr, 1), 8)}` +
+        `${pad(fx(rPer, 4), 10)}${pad(fx(totalR, 2), 10)}${pad(amb, 6)}${pad(tmo, 9)}` +
+        `med ${fx(med, 2)}`);
+    verdicts.push({ symbol, setup, n: priced.length, med, mean, up, rPer, totalR, wr });
   }
 
   say("");
@@ -234,23 +288,28 @@ function main() {
     const label = pad(v.symbol + " " + v.setup, 24);
     if (v.n < MIN_FOR_VERDICT) {
       say(`    ${label}TOO FEW TO JUDGE - ${v.n} scored, floor is ${MIN_FOR_VERDICT}`);
-    } else if (v.med > 0.1) {
-      say(`    ${label}BLOCKED MOVES CONTINUED UP - median ${fx(v.med, 3)} ATR over ${v.n}. ` +
-          `Worth a walk-forward, not a config change.`);
-    } else if (v.med < -0.1) {
-      say(`    ${label}BLOCKED MOVES FELL - median ${fx(v.med, 3)} ATR over ${v.n}. The ceiling looks earned.`);
+    } else if (v.rPer !== null && v.rPer > 0) {
+      say(`    ${label}THE CEILING IS COSTING - the trades it refused return ` +
+          `${fx(v.rPer, 4)}R each over ${v.n} (total ${fx(v.totalR, 2)}R, WR ${fx(v.wr, 1)}%).`);
+      say(`    ${pad("", 24)}A REASON TO WALK-FORWARD, never on its own a reason to move the ceiling.`);
+    } else if (v.rPer !== null && v.rPer < 0) {
+      say(`    ${label}THE CEILING IS EARNING ITS KEEP - refused trades return ` +
+          `${fx(v.rPer, 4)}R each over ${v.n} (total ${fx(v.totalR, 2)}R).`);
     } else {
-      say(`    ${label}NO MEASURABLE DRIFT - median ${fx(v.med, 3)} ATR over ${v.n}, inside the noise.`);
+      say(`    ${label}NOTHING PRICED YET - ${v.n} resolved.`);
     }
   }
   const sk = Object.entries(skipped).map(([k, v]) => `${k} ${v}`).join("; ");
   if (sk) say(`\n  not scored: ${sk}`);
 
   say("");
-  say("  There is no stop here, so there is no R, no win rate and no expectancy - any such");
-  say("  number would be invented. A positive drift is a REASON TO MEASURE with");
-  say("  tasks/rsi_ceiling_walkforward.cjs, never on its own a reason to move the ceiling.");
-  say("  feedsTheGate is false.");
+  say("  The stop and target are the ENGINE'S OWN (index.js:1546-1548 for MOMENTUM,");
+  say("  1564-1566 for TREND_FOLLOW) applied to a bar the engine itself qualified on every");
+  say("  condition except the ceiling - mirrored, not invented. But they are still FORGONE");
+  say("  PAPER trades: no spread, no slippage, no fill, and a fixed horizon.");
+  say("  A positive R here is a REASON TO WALK-FORWARD with tasks/rsi_ceiling_walkforward.cjs,");
+  say("  never on its own a reason to move the ceiling - and where the two disagree the");
+  say("  walk-forward wins. feedsTheGate is false.");
   say("=".repeat(96));
   if (EMIT) writeReport(out);
 }
