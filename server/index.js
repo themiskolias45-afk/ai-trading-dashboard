@@ -5319,7 +5319,23 @@ app.get("/api/checksystem", (_, res) => {
   // because the payload stated the result and withheld the reason. It is empty because
   // every tracked setup currently sits below the sample floor, which is a fact about
   // sample size, not about health.
-  const SETUP_HEALTH_MIN_TRADES = 3;
+  // 5, not 3 - matching every other reader in this system.
+  //
+  // At 3 this was THE ONLY READER IN THIS SERVER willing to label a setup GOOD or
+  // REVIEW on evidence the other four explicitly refuse to judge:
+  //   getLearningBoost()                      5-trade floor, boost stays 0 below it
+  //   rejection_evidence.js MIN_RESOLVED       5
+  //   learning_from_rejections.py              5 ("insufficient (n/5)")
+  //   score_near_misses / score_stop_variants  5
+  // A health page that grades a setup the learning engine will not even weight is
+  // giving an opinion the rest of the system has agreed is unsupported, and it is the
+  // page a human reads first.
+  //
+  // REPORTING ONLY - checkSetupHealth() feeds /api/checksystem and the daily-plan panel.
+  // Verified by grep: nothing on the trade path reads setupHealth, so raising this
+  // suppresses no signal and changes no order. It makes a LABEL more honest.
+  // Raised from the AI employee's backlog (morning-mlbgnd), verified before applying.
+  const SETUP_HEALTH_MIN_TRADES = 5;
   const setupHealth = {};
   let setupsBelowMinTrades = 0;
   for (const [setup, s] of Object.entries(learning.setupStats)) {
