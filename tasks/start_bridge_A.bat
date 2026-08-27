@@ -58,4 +58,30 @@ echo  Risk: 1%% per trade. Circuit breaker: 3 consecutive losses.
 echo  Press Ctrl+C to stop.
 echo.
 "%PY%" mt5_bridge.py %BRIDGE_ARGS% >> tasks\logs\bridge_log_A.txt 2>&1
-pause
+REM ---------------------------------------------------------------------------
+REM `pause` PARKED THIS SHELL FOREVER whenever the launcher was started by
+REM automation, and it leaked one stuck cmd.exe per attempt.
+REM
+REM Measured 2026-08-27. ensure_running.ps1:331 starts this with
+REM   Start-Process cmd -ArgumentList '/c','tasks\start_bridge_A.bat'
+REM and safe_server_restart.ps1 goes through ensure_running, so EVERY server restart
+REM tried to refill the bridge. When one is already running the python exits at once
+REM - correctly, that is the one-bridge-per-account guard - and the shell then sat on
+REM this line waiting for a keypress that never came. Six such shells were found
+REM alive, 152-187 minutes old, each with a conhost and NO python child, three of
+REM them created within 20 minutes by consecutive restarts. Inert, but they
+REM accumulate, and a launcher that cannot be run twice is one automation cannot use.
+REM
+REM `timeout` is BOUNDED: a human still gets 30 seconds to read the window, and an
+REM automated caller with no console gets an immediate error and the shell EXITS.
+REM
+REM NOT REMOVED, BOUNDED - deleting the wait would take the window away from someone
+REM who double-clicked this to find out why it failed. The exit code is recorded
+REM first, because the reason python stopped is the thing you actually want and it
+REM was being thrown away.
+REM ---------------------------------------------------------------------------
+set "BRIDGE_EXIT=%ERRORLEVEL%"
+echo [%DATE% %TIME%] start_bridge_A exited with code %BRIDGE_EXIT% >> "tasks\logs\bridge_starts.txt"
+echo.
+echo  Bridge A stopped (exit code %BRIDGE_EXIT%). Closing in 30s.
+timeout /t 30 >nul 2>&1
