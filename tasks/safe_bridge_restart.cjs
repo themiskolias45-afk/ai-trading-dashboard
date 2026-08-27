@@ -172,8 +172,33 @@ function record(name, ok, detail) {
     process.exit(1);
   }
 
-  if (positions.length === 0) {
-    record("no open positions", true, "flat — restart is unambiguous");
+  // AN EMPTY LIST IS NOT THE SAME AS FLAT.
+  //
+  // /api/mt5/positions is populated FROM the bridge. When the bridge is not
+  // reporting - the seconds after a server restart, a terminal that died, an IPC
+  // stall - the route answers with an empty array, which is indistinguishable here
+  // from a genuinely flat account. Caught 2026-08-27 on the VPS: this script printed
+  //
+  //     FAIL  bridge currently reporting   never connected yet
+  //     PASS  no open positions            flat — restart is unambiguous
+  //
+  // for a box holding TWO positions (XAUUSD #1849093967, SP500 #1798857871). Two of
+  // its own checks contradicted each other and the UNSAFE one was treated as
+  // authoritative. Had the bridge been reporting to the previous server process while
+  // positions momentarily read zero, "flat" would have passed and skipped the
+  // broker-SL check, the partial-close check AND the --allow-open-positions gate in
+  // one go - the three things that make this script safe at all.
+  //
+  // So an empty list only counts as flat when the bridge is CONFIRMED reporting.
+  // Otherwise the state is UNKNOWN, and unknown must refuse. This can only ever make
+  // the script refuse more often, never less.
+  // See [[positions_read_zero_after_a_server_restart]].
+  const bridgeReporting = Boolean(health && health.connected === true);
+  if (positions.length === 0 && !bridgeReporting) {
+    record("open positions known", false,
+      "positions read EMPTY while the bridge is not reporting — that is UNKNOWN, not flat");
+  } else if (positions.length === 0) {
+    record("no open positions", true, "flat — bridge reporting, so the empty list can be trusted");
   } else {
     const oversized = positions.filter(p => Number(p.volume) > MAX_LOT);
     console.log("       " + positions.length + " position(s) open:");
