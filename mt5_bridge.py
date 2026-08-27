@@ -1368,14 +1368,46 @@ def check_strategy_limits():
 
 
 def check_spread(symbol):
+    """(ok, spread_points, cap, observed) - `observed` is the raw measurement.
+
+    WHY THE FOURTH VALUE EXISTS. This function measures the spread on EVERY order
+    attempt and, until 2026-08-27, threw it away unless the order was REJECTED: only
+    log_rejection recorded it. Every SUCCESSFUL fill discarded its own spread, so this
+    repo held ZERO observed spreads and every cost claim had to borrow an assumed
+    range. That matters now: the CRT Gold h4 cell breaks even at ~$0.47 round trip
+    against an INHERITED $0.20-0.50 range, so whether it is profitable on this account
+    is decided by a number nobody had ever written down.
+
+    Returns None for `observed` when there is no tick or no symbol_info. A zero would
+    read as "a perfectly tight spread" and quietly flatter every cost study that ever
+    reads this - the same failure the SPREAD rejection row already guards against by
+    recording actual=None rather than 0 on a quote outage.
+    """
     tick = mt5.symbol_info_tick(symbol)
     if not tick:
-        return False, 0, MAX_SPREAD_PTS
+        return False, 0, MAX_SPREAD_PTS, None
     info  = mt5.symbol_info(symbol)
     spread = (tick.ask - tick.bid) / info.trade_tick_size if info else 0
     cap = max_spread_for(symbol)
     ok = spread <= cap
-    return ok, spread, cap
+    observed = None
+    if info:
+        try:
+            observed = {
+                "points":   round(float(spread), 2),
+                "price":    round(float(tick.ask) - float(tick.bid), 6),
+                "cap":      cap,
+                "bid":      round(float(tick.bid), 6),
+                "ask":      round(float(tick.ask), 6),
+                "tickSize": float(info.trade_tick_size),
+                # The spread was read here, BEFORE order_send. It is the spread the
+                # decision was made against, not the realised fill spread, and it must
+                # never be presented as the latter.
+                "measuredAt": "pre-send",
+            }
+        except (TypeError, ValueError, AttributeError, ZeroDivisionError):
+            observed = None
+    return ok, spread, cap, observed
 
 
 def build_order_comment(setup, confidence):
@@ -1412,7 +1444,7 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
     written to the ledger with its ticker, source instrument and timeframe. It is
     never read on the execution path — passing None only costs the ledger row.
     """
-    spread_ok, spread, spread_cap = check_spread(symbol)
+    spread_ok, spread, spread_cap, observed_spread = check_spread(symbol)
     if not spread_ok:
         log(f"Spread too wide on {symbol}: {spread:.0f} pts (max {spread_cap}) — skipping", YELLOW)
         # check_spread returns (False, 0, cap) when the symbol has no tick at all.
@@ -1502,6 +1534,12 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
                 "volume": lots,
                 "account": ACCOUNT_TAG or "default",
                 "signalContext": signal_context,
+                # The spread this trade was actually decided against. Sent on the
+                # EXISTING post-fill POST, which is built only after
+                # result.retcode == TRADE_RETCODE_DONE - so this is strictly
+                # post-execution and cannot change whether or how an order is placed.
+                # None when the quote could not be measured; never 0 as a stand-in.
+                "spread": observed_spread,
             }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
         except Exception as e:
             log(f"Could not POST trade-opened to server: {e}", YELLOW)

@@ -4681,6 +4681,21 @@ app.post("/api/trade-opened", async (req, res) => {
       // instead of overwriting the record of it.
       rr:        impliedRRFromPrices(trade.price, trade.sl, trade.tp),
       plannedRr,
+      // The spread this trade was actually decided against, from the bridge.
+      //
+      // check_spread() has always measured it on every order attempt and thrown it
+      // away unless the order was REJECTED - only the SPREAD rejection row kept it. So
+      // every successful fill discarded its own spread and this system held ZERO
+      // observed spreads, while every cost study borrowed an assumed range. That is
+      // exactly the number the CRT Gold h4 result turns on: it breaks even at ~$0.47
+      // round trip against an INHERITED $0.20-0.50, so whether that edge is real on
+      // THIS account was decided by a figure nobody had written down.
+      //
+      // null, never 0, when the quote could not be measured - a zero would read as a
+      // perfectly tight spread and flatter every study that reads this later. Named
+      // "AtDecision" because it is the pre-send tick, not the realised fill spread;
+      // conflating the two would overstate execution quality.
+      spreadAtDecision: (trade.spread && typeof trade.spread === "object") ? trade.spread : null,
       // Filled in after the response by addCommentaryLater(). Present as null from
       // the start so the shape never changes underneath a reader.
       commentary: null
