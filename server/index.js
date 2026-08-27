@@ -151,6 +151,34 @@ if (typeof flushNearMisses !== "function") {
     error: "near_miss.js predates flushNearMisses - deploy it" });
 }
 
+// Stop-variant shadow ledger. Records what the SAME signal would have looked like with
+// an H4 or H1 ATR stop at the SAME R:R, so the question "why is the stop 3% of price"
+// can be settled with this account's own broker bars instead of an argument. Measured
+// 2026-08-27: 1.5x D1 ATR on Gold is 144 pts (3.13%); the identical rule on H1 ATR is
+// 25.9 pts (0.56%), 5.6x tighter. It changes NO stop, NO target and NO trade.
+//
+// Guarded exactly like near_miss above, and for the reason that one taught: index.js is
+// hand-patched onto the VPS while modules travel as their own tracked files, so a
+// require whose file has not landed yet must degrade, never take down the box that
+// trades continuously.
+let flushStopVariants, stopVariantSummary;
+try {
+  ({ flushStopVariants, stopVariantSummary } = require("./stop_variants"));
+} catch (stopVariantError) {
+  console.error(
+    `[stop-variants] module unavailable (${stopVariantError.message}) ` +
+    `— /api/stop-variants will report unavailable. Signals and trading are unaffected.`
+  );
+}
+if (typeof flushStopVariants !== "function") {
+  flushStopVariants = () => ({ written: 0, skipped: 0, malformed: 0, path: null,
+    error: "server/stop_variants.js is not deployed on this box", reasons: {} });
+}
+if (typeof stopVariantSummary !== "function") {
+  stopVariantSummary = () => ({ available: false,
+    reason: "server/stop_variants.js is not deployed on this box", feedsTheGate: false });
+}
+
 let logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt;
 try {
   ({ logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt } =
@@ -3476,6 +3504,20 @@ app.get("/api/gate-health", (_, res) => {
 // Deliberately NOT merged into gate-health. That route answers "which gate is firing";
 // this one answers "what died before any gate got a vote". Merging them would put a
 // number that is not a gate kill into a payload every reader treats as gate kills.
+// What the SAME signal would have looked like with a lower-timeframe ATR stop, at the
+// SAME R:R. Read-only, and the rows it serves changed nothing: they are shadow geometries
+// for measurement, never fills. No spread, no slippage, no entry ever filled - evidence
+// about stop SCALE and resolution SPEED, and never realised P&L.
+app.get("/api/stop-variants", (req, res) => {
+  try {
+    const limit = Number(req.query.limit);
+    res.json(stopVariantSummary(Number.isFinite(limit) ? limit : undefined));
+  } catch (e) {
+    console.error("[stop-variants]", e.message);
+    res.status(500).json({ available: false, reason: e.message, feedsTheGate: false });
+  }
+});
+
 app.get("/api/near-miss", (_, res) => {
   try {
     res.json(nearMissCensus());
@@ -5540,6 +5582,44 @@ let lastNearMissError = null;
 // I/O because it runs on the signal path. Nothing here votes on a signal — the flush is
 // read-only against the census and append-only against its own file, and it can neither
 // admit a trade nor suppress one.
+// Reported-once trackers for the stop-variant tick, declared BEFORE the cron that uses
+// them rather than after: the callback fires long after module evaluation so a later
+// `let` would still work, but relying on that is how a temporal-dead-zone bug gets
+// introduced the next time someone moves code.
+let lastStopVariantMalformed = 0;
+let lastStopVariantError = null;
+
+// At :05 and :35 - five minutes AFTER the */30 signal refresh, deliberately. The
+// near-miss flush is on */10 and its 08:30Z tick raced that refresh, running against a
+// census the refresh had not repopulated yet and writing nothing. Offsetting means this
+// one always reads a settled signal cache.
+//
+// Reads two caches and appends to its own file. It votes on nothing: no stop, no target,
+// no threshold, no lot size, and feedsTheGate is false in every row it writes.
+cron.schedule("5,35 * * * *", () => {
+  try {
+    const flushed = flushStopVariants({
+      signals: signalCache,
+      candles: mt5CandleCache,
+      gate: strategySettings.confidenceThreshold,
+    });
+    if (flushed.written > 0) {
+      console.log(`[stop-variants] recorded ${flushed.written} shadow row(s), ${flushed.skipped} already on file`);
+    }
+    if (flushed.malformed > 0 && flushed.malformed !== lastStopVariantMalformed) {
+      console.error(`[stop-variants] ${flushed.malformed} malformed line(s) in ${flushed.path} - kept, never dropped`);
+    }
+    lastStopVariantMalformed = flushed.malformed;
+    if (flushed.error && flushed.error !== lastStopVariantError) {
+      console.error(`[stop-variants] flush reported: ${flushed.error}`);
+    }
+    lastStopVariantError = flushed.error;
+  } catch (stopVariantTickError) {
+    console.error(`[stop-variants] flush tick failed: ${stopVariantTickError.message}`);
+  }
+});
+
+
 cron.schedule("*/10 * * * *", () => {
   try {
     const flushed = flushNearMisses();
