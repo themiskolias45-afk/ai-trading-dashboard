@@ -357,8 +357,46 @@ function record(name, ok, detail) {
         { stdio: "inherit" });
     } catch (e) {
       console.log("  restart failed: " + e.message);
-      console.log("  The bridge may now be DOWN. Check GET /api/mt5/health?account=" + ACCOUNT
-        + " and start it with tasks\\start_bridge_" + ACCOUNT + ".bat if needed.");
+      // DO NOT GUESS THE STATE HERE. This used to print "The bridge may now be DOWN"
+      // and point at start_bridge_<A>.bat. Measured 2026-08-27 on the laptop: the kill
+      // failed with "Access is denied" because the bridge runs ELEVATED and this script
+      // does not, so the process was never touched and the bridge was still up, still
+      // pushing candles, still holding both positions. The message said the opposite of
+      // the truth in the ONE direction that causes damage - it invites starting a
+      // SECOND --auto bridge on an account that already has one, and two bridges on one
+      // account double every order. See [[one_auto_bridge_per_account]] and
+      // [[laptop_bridge_cannot_be_restarted_unelevated]].
+      //
+      // A failed Stop-Process almost always means NOTHING was stopped. Ask the health
+      // route instead of asserting, and only ever suggest starting a bridge once the
+      // route has confirmed there is none.
+      let stillUp = null;
+      try {
+        const after = await get("/api/mt5/health?account=" + encodeURIComponent(ACCOUNT));
+        stillUp = after && after.connected === true;
+        if (stillUp) {
+          console.log("  VERIFIED: the bridge is STILL RUNNING (last seen "
+            + Math.round(after.ageMs / 1000) + "s ago). Nothing was stopped and nothing broke.");
+          console.log("  NEVER start a second bridge on this account - two --auto bridges");
+          console.log("  double every order. There is nothing to recover from here.");
+          // Unconditional, and deliberately so. The child runs with stdio:"inherit", so
+          // PowerShell's "Access is denied" goes to the CONSOLE and never reaches
+          // e.message - which is only "Command failed: powershell ...". Gating the hint on
+          // /denied/ therefore never fired, and the one case that needs the hint is exactly
+          // this one: the process is demonstrably still alive after a kill attempt, which on
+          // Windows means the signal was REFUSED, not that it missed.
+          console.log("  A kill that leaves the process running means it was REFUSED. On this box the");
+          console.log("  bridge runs ELEVATED, so re-run from an ADMINISTRATOR shell:");
+          console.log("      node tasks/safe_bridge_restart.cjs --allow-open-positions");
+        } else {
+          console.log("  VERIFIED: the bridge is NOT reporting. It is safe to start exactly one");
+          console.log("  with tasks\\start_bridge_" + ACCOUNT + ".bat");
+        }
+      } catch (healthError) {
+        console.log("  Could not confirm bridge state (" + healthError.message + ").");
+        console.log("  CHECK GET /api/mt5/health?account=" + ACCOUNT + " BEFORE starting anything -");
+        console.log("  starting a second bridge on a live account doubles every order.");
+      }
       process.exit(4);
     }
   } else {
