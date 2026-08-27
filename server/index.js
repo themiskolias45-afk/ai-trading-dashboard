@@ -5563,13 +5563,62 @@ cron.schedule("*/30 * * * *", async () => {
   await fetchPrices();
   await queueSignalRefresh();
   generateDailyPlan();
-  // Alert if strong signal appeared
+  // Alert when a signal is TRADEABLE - which is not the same as "STRONG".
+  //
+  // This block used to require `strength === "STRONG"` and to loop over ["btc","gold"]
+  // only. Measured 2026-08-27: ALL EIGHT trades this system has ever taken are
+  // MODERATE, not one is STRONG, and the live config says `minStrength: "MODERATE"` -
+  // so MODERATE is explicitly tradeable. The alert therefore demanded a HIGHER bar
+  // than the trading gate itself and had never fired for a single trade the system
+  // took, and structurally could not. SPX was excluded outright despite having taken
+  // 2 of those 8. A notification that cannot fire is decoration shaped like an alert.
+  //
+  // The condition now mirrors what the system itself calls tradeable, read LIVE rather
+  // than hardcoded: confidence at or above `confidenceThreshold`, and strength meeting
+  // `minStrength` by the same rule the bridge enforces at mt5_bridge.py:1636
+  // (minStrength STRONG admits only STRONG; otherwise STRONG and MODERATE). Hardcoding
+  // either number here would be the sixth copy of a gate in this project.
   if (TELEGRAM_TOKEN) {
-    for (const key of ["btc", "gold"]) {
-      const s = signalCache[key];
-      if (s && s.signal !== "WAIT" && s.strength === "STRONG") {
-        for (const cid of knownChatIds) await sendTelegram(cid, `⚡ <b>STRONG SIGNAL DETECTED</b>\n\n` + signalToTelegram(s));
+    try {
+      const gate = strategySettings.confidenceThreshold;
+      const allowedStrengths = strategySettings.minStrength === "STRONG"
+        ? ["STRONG"] : ["STRONG", "MODERATE"];
+      const today = new Date().toISOString().slice(0, 10);
+
+      for (const key of ["btc", "gold", "spx"]) {
+        const s = signalCache[key];
+        if (!s || s.signal === "WAIT") continue;
+        if (!Number.isFinite(Number(s.confidence)) || Number(s.confidence) < gate) continue;
+        if (!allowedStrengths.includes(s.strength)) continue;
+
+        // One alert per symbol+setup+direction+day. A signal persists for days and
+        // re-sending it every 30 minutes is how an alert gets muted by its reader.
+        const alertKey = `${key}|${s.setup}|${s.signal}|${today}`;
+        if (alertedSignalKeys.has(alertKey)) continue;
+        alertedSignalKeys.add(alertKey);
+
+        // Say WHY it may not have auto-traded. A tradeable signal on a symbol already
+        // held is refused by the DUPLICATE gate, which is correct behaviour and looks
+        // exactly like a broken system if the alert does not mention it.
+        const held = Array.isArray(mt5Positions)
+          && mt5Positions.some(p => String(p.symbol || "").toUpperCase()
+               === String(s.sourceSymbol || "").toUpperCase());
+        const notes = [];
+        notes.push(`Gate ${gate} · min strength ${strategySettings.minStrength}`);
+        if (held) notes.push("⚠ ALREADY HOLDING this symbol - the DUPLICATE gate will refuse a new entry.");
+        // settingsError means the server is on BUILT-IN DEFAULTS, not the saved config.
+        // Never let an alert imply a gate nobody chose.
+        if (strategySettingsError) notes.push(`⚠ settingsError: running on DEFAULTS, not the saved config (${strategySettingsError})`);
+
+        const header = held ? "⚡ <b>TRADEABLE SIGNAL (position already open)</b>"
+                            : "⚡ <b>TRADEABLE SIGNAL</b>";
+        for (const cid of knownChatIds) {
+          await sendTelegram(cid, `${header}\n\n` + signalToTelegram(s) + `\n\n` + notes.join("\n"));
+        }
       }
+    } catch (alertError) {
+      // An alert must never take the refresh cron down with it.
+      console.error(`[telegram] signal alert failed: ${alertError.message}`);
     }
   }
 });
@@ -5582,6 +5631,11 @@ cron.schedule("*/15 * * * *", async () => { await fetchCongress(); await fetchFl
 
 // Reported-once trackers for the flush tick, so a permanent condition does not become
 // a permanent log stream. Declared beside the cron that owns them.
+// Signal alerts already sent, keyed symbol+setup+direction+UTC day. In memory: a
+// restart may re-send one alert, which is the harmless direction - the failure that
+// matters is an alert that never arrives, not one that arrives twice.
+const alertedSignalKeys = new Set();
+
 let lastNearMissMalformed = 0;
 let lastNearMissError = null;
 // Every 10 min — persist the near-miss census so it survives a restart.
