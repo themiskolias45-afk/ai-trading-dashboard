@@ -46,6 +46,13 @@ const HARNESSES = [
   "time_heatmap.cjs",
   "per_instrument_edge.cjs",
   "go_live_readiness.cjs",
+  // Added 2026-08-27. A harness this file does not list is a harness nobody audits -
+  // which is the same shape as the ledgers that had no scorer. Registering them means
+  // their gaps show up in the heatmap beside everyone else's instead of being invisible.
+  "crt_amd_mtf_measure.cjs",
+  "pullback_short_measure.cjs",
+  "score_stop_variants.cjs",
+  "score_near_misses.cjs",
 ];
 
 // Each column is a safeguard THIS PROJECT has been burned by the absence of. The `why`

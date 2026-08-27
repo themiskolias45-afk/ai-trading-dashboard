@@ -56,6 +56,12 @@ const INPUT     = strArg("--input", path.join(PROJECT_ROOT, "tasks", "near_misse
 const HORIZON   = numArg("--horizon", 20);   // bars of the blocked setup's own timeframe
 const EMIT      = process.argv.includes("--emit");
 const SHOW_ROWS = process.argv.includes("--rows");
+// Cost per trade, as a fraction of its OWN risk distance. 0.05R is this repo's house
+// default and is deliberately CONSERVATIVE - measured 2026-08-22 at 3.8-10.7x the real
+// spread cost on all three instruments. A paper geometry scored at ZERO cost overstates,
+// and this project has the receipt: the same CRT Gold cell read +0.3505 R/trade on a thin
+// sample against +0.1052 on the full archive, and cost moves it again from there.
+const COST_R = numArg("--cost", 0.05);
 const MIN_FOR_VERDICT = numArg("--min", 5);
 
 const TF_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
@@ -167,7 +173,7 @@ function main() {
   const say = (l) => { out.push(l); console.log(l); };
 
   say("=".repeat(96));
-  say(`  NEAR-MISS FORWARD RETURN  ${new Date().toISOString()}   horizon ${HORIZON} bars`);
+  say(`  NEAR-MISS FORWARD RETURN  ${new Date().toISOString()}   horizon ${HORIZON} bars   cost ${COST_R}R`);
   say("  What price did AFTER the RSI ceiling blocked a long. Measured in ATR units.");
   say("  The refused trade is priced in R using the ENGINE'S own stop and target, mirrored");
   say("  from index.js - the ceiling is the ONLY condition that failed, so the rest is determined.");
@@ -272,7 +278,7 @@ function main() {
     const losses = list.filter(x => x.trade && x.trade.outcome === "LOSS").length;
     const amb = list.filter(x => x.trade && x.trade.outcome === "AMBIGUOUS").length;
     const tmo = list.filter(x => x.trade && x.trade.outcome === "TIMEOUT").length;
-    const totalR = priced.reduce((a, t) => a + t.r, 0);
+    const totalR = priced.reduce((a, t) => a + t.r - COST_R, 0);
     const rPer = priced.length ? totalR / priced.length : null;
     const wr = (wins + losses) ? wins / (wins + losses) * 100 : null;
     say(`  ${pad(symbol, 9)}${pad(setup, 15)}${pad(priced.length, 5)}${pad(fx(wr, 1), 8)}` +

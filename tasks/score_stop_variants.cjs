@@ -62,6 +62,12 @@ const EMIT  = process.argv.includes("--emit");
 const SHOW_ROWS = process.argv.includes("--rows");
 // Floor for a verdict. Below this a cell is reported as TOO FEW TO JUDGE rather than
 // given a number that reads like a finding. Same convention as the rejection ledger.
+// Cost per trade, as a fraction of its OWN risk distance. 0.05R is this repo's house
+// default and is deliberately CONSERVATIVE - measured 2026-08-22 at 3.8-10.7x the real
+// spread cost on all three instruments. A paper geometry scored at ZERO cost overstates,
+// and this project has the receipt: the same CRT Gold cell read +0.3505 R/trade on a thin
+// sample against +0.1052 on the full archive, and cost moves it again from there.
+const COST_R = numArg("--cost", 0.05);
 const MIN_FOR_VERDICT = numArg("--min", 5);
 
 const TF_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
@@ -162,7 +168,9 @@ function summarise(list) {
   if (!scored.length) return null;
   const wins = list.filter(x => x.outcome === "WIN").length;
   const losses = list.filter(x => x.outcome === "LOSS").length;
-  const totalR = scored.reduce((s, x) => s + x.r, 0);
+  // Charged here so BOTH the variant and its paired baseline pay it - a cost applied to
+  // one side of a paired test is worse than no cost at all.
+  const totalR = scored.reduce((s, x) => s + x.r - COST_R, 0);
   return {
     resolved: scored.length,
     wins, losses,
@@ -181,6 +189,7 @@ function main() {
 
   say("=".repeat(96));
   say(`  STOP-VARIANT SCORER  ${new Date().toISOString()}`);
+  say(`  cost ${COST_R}R per trade, charged on BOTH sides of the pair`);
   say("  PAIRED: every row scores its variant AND the baseline the engine actually traded,");
   say("  from the same signal at the same instant. One variable changes: the ATR timeframe.");
   say("=".repeat(96));
