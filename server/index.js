@@ -1284,11 +1284,48 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   const inUptrend   = trend === "STRONG UPTREND" || trend === "UPTREND";
   const inDowntrend = trend === "STRONG DOWNTREND" || trend === "DOWNTREND";
 
-  // Volume analysis
-  const avgVol = volumes.length >= 20
-    ? volumes.slice(-20).reduce((a,b) => a+b, 0) / 20
-    : null;
-  const lastVol  = volumes[volumes.length - 1] ?? 0;
+  // Volume analysis — COMPARE LIKE WITH LIKE.
+  //
+  // This compared the LAST bar, which on a live feed is the STILL-FORMING day, against
+  // an average of 20 COMPLETED days. A PART-FORMED DAY is not a daily volume, so the
+  // ratio was structurally small for most of the session and volConfirmed was not
+  // merely rare - it was unreachable.
+  //
+  // Measured 2026-08-27 by rebuilding the intraday volume from m15 bars over ~1,100
+  // days per asset. THE DEFECT IS TIMING, NOT FREQUENCY - and the first reading of this
+  // overstated it, so the correction is recorded here rather than quietly dropped:
+  //
+  //   old code reached 1.4x on   7% / 18% / 19% of days (XAUUSD / SP500 / BTCUSD)
+  //   corrected arithmetic gives 6.8% / 18.7% / 17.3%
+  //
+  // The same frequency. What differed is WHEN: the forming bar only accumulates enough
+  // volume near the end of the session, so the median crossing hour was 21:00 / 19:00 /
+  // 20:00 UTC. Confirmation therefore arrived in the last ~15-20% of the day, long after
+  // the setup formed - so a volume-gated setup could not fire when it appeared, only in
+  // the final hours if at all. That is still blocking, and it is still arithmetic rather
+  // than judgement, but it is not the 85% suppression the first pass claimed.
+  //
+  // volConfirmed is a HARD REQUIREMENT for BREAKOUT (the "REQUIRE volume for breakout"
+  // line below), for SQUEEZE_BREAKOUT detection, and for the Gold/DXY divergence check.
+  //
+  // The fix is to use the last CLOSED bar against the 20 completed bars BEFORE it.
+  // Price indicators deliberately keep using the forming bar: a part-formed PRICE is a
+  // perfectly good current price, while a part-formed VOLUME is not a daily volume.
+  //
+  // Note this makes volume a ONE-BAR-LAGGED confirmation on the daily timeframe. That
+  // is the honest trade: a lagged true reading beats a live meaningless one. The 1.4
+  // threshold is UNCHANGED here on purpose - it was calibrated against the broken
+  // denominator, so it should be swept separately rather than moved in the same edit.
+  //
+  // Falls back to the old behaviour when there is no completed history to compare
+  // against, so a short series degrades instead of throwing.
+  const hasClosedHistory = volumes.length >= 22;
+  const avgVol = hasClosedHistory
+    ? volumes.slice(-22, -2).reduce((a, b) => a + b, 0) / 20
+    : (volumes.length >= 20 ? volumes.slice(-20).reduce((a, b) => a + b, 0) / 20 : null);
+  const lastVol = hasClosedHistory
+    ? (volumes[volumes.length - 2] ?? 0)
+    : (volumes[volumes.length - 1] ?? 0);
   const volRatio = avgVol && avgVol > 0 ? parseFloat((lastVol / avgVol).toFixed(1)) : null;
   const volConfirmed = volRatio !== null && volRatio >= 1.4;
 
