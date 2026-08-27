@@ -21,9 +21,14 @@
  * them.
  *
  * HARD PROPERTIES, all of which the caller depends on:
- *   - IN MEMORY ONLY. Writes no file. It cannot corrupt learning.json, the journal,
- *     rejections.jsonl or the shadow stats, because it never opens any of them.
- *   - Reset on restart, by design. This is a census, not a source of truth.
+ *   - THE COUNTER IS IN MEMORY ONLY. noteNearMiss() opens no file and never has. It
+ *     cannot corrupt learning.json, the journal, rejections.jsonl or the shadow stats,
+ *     because it never touches any of them. That is unchanged and must stay unchanged:
+ *     it is called from inside generateSignal, so any synchronous I/O added there would
+ *     block the signal path on every refresh.
+ *   - flushNearMisses() PERSISTS the counter, and is deliberately a SEPARATE function
+ *     called from a cron tick OUTSIDE signal generation. See its own comment for why
+ *     the in-memory-only property had to be kept while still surviving a restart.
  *   - feedsTheGate is false and stays false. Nothing here votes on confidence, on a
  *     threshold, or on whether a signal fires.
  *   - Every path swallows its own failure and returns false, exactly as
@@ -35,6 +40,14 @@
 // belt-and-braces against a caller that ever passes something unbounded — the map stops
 // growing rather than becoming the reason the process runs out of memory.
 const MAX_TRACKED_KEYS = 500;
+
+// Where the census is persisted. Its own file on purpose: REJECTION-LEDGER-SPEC rule 3.1
+// requires a rejection to have a FORMED setup with a real entry/stop/target triple, and a
+// near miss has no formed setup. Writing here rather than into tasks/rejections.jsonl
+// means the shared contract, both scorers and mt5_bridge.py stay untouched.
+const fs   = require("fs");
+const path = require("path");
+const NEAR_MISS_LOG_PATH = path.join(__dirname, "..", "tasks", "near_misses.jsonl");
 
 const census = new Map();
 const startedAt = new Date().toISOString();
@@ -141,4 +154,109 @@ function nearMissCensus() {
   }
 }
 
-module.exports = { noteNearMiss, nearMissCensus, MAX_TRACKED_KEYS };
+/**
+ * Persist the census so it survives a restart. Append-only; never truncates, never
+ * rewrites, never deletes.
+ *
+ * WHY THIS EXISTS. Measured 2026-08-27: `/api/near-miss` startedAt was
+ * 2026-08-27T07:17:40.501Z and `/api/status` startedAt was 07:17:40.528Z - the same
+ * instant. The census lifetime WAS the server uptime. BTC had been SIGNAL-DEAD for 16
+ * days blocked at `D1 MOMENTUM RSI_ABOVE_CEILING thr 80, actual 80.6` - a margin of 0.6
+ * of one RSI point, with every other MOMENTUM condition passing - and the whole 16 days
+ * of that had accumulated nothing, because every restart wiped it. The RSI ceiling is
+ * the binding constraint on how often this system trades and it is the ONLY blocker with
+ * no rejection-ledger row, so it was unfalsifiable by construction. Observability that
+ * does not survive is not observability.
+ *
+ * WHY IT IS NOT CALLED FROM noteNearMiss. noteNearMiss runs inside generateSignal. An
+ * appendFileSync there would put disk I/O on the signal path on every refresh, which is
+ * a far worse defect than the one being fixed. The counter stays purely in memory and
+ * this runs on a cron tick instead.
+ *
+ * ONE ROW PER KEY PER UTC DAY. The scorable event is "at time T, this setup would have
+ * fired but for RSI X against ceiling Y" - a walk-forward starts from T and needs no
+ * more. Re-writing it every tick would add volume without adding information. Dedupe is
+ * read back FROM THE FILE rather than held in a state file, the same shape
+ * tasks/band_monitor.cjs uses and for the same reason: no second file to corrupt, and a
+ * restart cannot make it forget what it already wrote.
+ *
+ * feedsTheGate stays false. Nothing here votes on confidence, on a threshold, or on
+ * whether a signal fires. Do NOT let these rows move the ceiling on their own - they are
+ * forgone paper setups and a walk-forward still wins wherever the two disagree.
+ *
+ * Returns a plain report and never throws: the caller is a cron tick and a failure here
+ * must degrade to a log line, never take the server down.
+ */
+function flushNearMisses(nowIso) {
+  const report = { written: 0, skipped: 0, malformed: 0, path: NEAR_MISS_LOG_PATH, error: null };
+  try {
+    const stamp = typeof nowIso === "string" ? nowIso : new Date().toISOString();
+    const day   = stamp.slice(0, 10);
+
+    const snapshot = nearMissCensus();
+    if (!snapshot.available || !Array.isArray(snapshot.rows) || snapshot.rows.length === 0) {
+      return report;
+    }
+
+    // Read back what today already has. A missing file is not an error - it is the
+    // first flush. An unreadable one must NOT suppress the write: losing the row is the
+    // failure being fixed, so a duplicate is strictly preferable to a silent drop.
+    const alreadyWritten = new Set();
+    try {
+      if (fs.existsSync(NEAR_MISS_LOG_PATH)) {
+        const lines = fs.readFileSync(NEAR_MISS_LOG_PATH, "utf8").split("\n");
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed && typeof parsed.key === "string") alreadyWritten.add(parsed.key);
+          } catch (lineError) {
+            // One corrupt line must not cost the whole dedupe set.
+            report.malformed++;
+          }
+        }
+      }
+    } catch (readError) {
+      report.error = `dedupe read failed (${readError.message}) - writing anyway`;
+      console.error(`[near-miss] ${report.error}`);
+    }
+
+    const pending = [];
+    for (const row of snapshot.rows) {
+      const key = `${row.symbol}|${row.timeframe}|${row.setup}|${row.condition}|${day}`;
+      if (alreadyWritten.has(key)) { report.skipped++; continue; }
+      alreadyWritten.add(key);
+      pending.push(JSON.stringify({
+        key,
+        at:         stamp,
+        date:       day,
+        symbol:     row.symbol,
+        timeframe:  row.timeframe,
+        setup:      row.setup,
+        condition:  row.condition,
+        threshold:  row.threshold,
+        actual:     row.lastActual,
+        margin:     row.minMargin,
+        count:      row.count,
+        firstAt:    row.firstAt,
+        censusFrom: snapshot.startedAt,
+        feedsTheGate: false,
+      }));
+    }
+
+    if (pending.length === 0) return report;
+
+    // One append for the batch: fewer partial-write windows than a call per row.
+    fs.mkdirSync(path.dirname(NEAR_MISS_LOG_PATH), { recursive: true });
+    fs.appendFileSync(NEAR_MISS_LOG_PATH, pending.join("\n") + "\n", "utf8");
+    report.written = pending.length;
+    return report;
+  } catch (e) {
+    report.error = e.message;
+    console.error(`[near-miss] flush failed: ${e.message}`);
+    return report;
+  }
+}
+
+module.exports = { noteNearMiss, nearMissCensus, flushNearMisses, MAX_TRACKED_KEYS, NEAR_MISS_LOG_PATH };

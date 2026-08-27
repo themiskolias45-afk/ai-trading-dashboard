@@ -116,15 +116,17 @@ try {
 // observability module here, and for the reason spelled out above: index.js is patched
 // by hand onto the VPS, so a require whose file did not travel with it kills the box
 // that trades continuously. In memory only; it opens no file and votes on nothing.
-let noteNearMiss, nearMissCensus;
+let noteNearMiss, nearMissCensus, flushNearMisses;
 try {
-  ({ noteNearMiss, nearMissCensus } = require("./near_miss"));
+  ({ noteNearMiss, nearMissCensus, flushNearMisses } = require("./near_miss"));
 } catch (nearMissError) {
   console.error(
     `[near-miss] census unavailable (${nearMissError.message}) — /api/near-miss will ` +
     `report unavailable. Signals and trading are unaffected.`
   );
-  noteNearMiss   = () => false;
+  noteNearMiss    = () => false;
+  flushNearMisses = () => ({ written: 0, skipped: 0, malformed: 0, path: null,
+    error: "server/near_miss.js is not deployed on this box" });
   nearMissCensus = () => ({
     available: false,
     reason: "server/near_miss.js is not deployed on this box",
@@ -5503,6 +5505,36 @@ cron.schedule("* * * * *", fetchPrices);
 
 // Every 15 min — UW data
 cron.schedule("*/15 * * * *", async () => { await fetchCongress(); await fetchFlow(); });
+
+// Every 10 min — persist the near-miss census so it survives a restart.
+//
+// Measured 2026-08-27: /api/near-miss startedAt and /api/status startedAt were the SAME
+// instant, because the census is in memory by design. BTC had been SIGNAL-DEAD 16 days
+// blocked at D1 MOMENTUM RSI_ABOVE_CEILING thr 80 actual 80.6 — a margin of 0.6 of one
+// RSI point with every other condition passing — and all 16 days of it had accumulated
+// nothing. The RSI ceiling is the binding constraint on how often this system trades and
+// the only blocker with no rejection-ledger row, so it could never be priced.
+//
+// This is a TICK, not a hook inside generateSignal: noteNearMiss must stay free of disk
+// I/O because it runs on the signal path. Nothing here votes on a signal — the flush is
+// read-only against the census and append-only against its own file, and it can neither
+// admit a trade nor suppress one.
+cron.schedule("*/10 * * * *", () => {
+  try {
+    const flushed = flushNearMisses();
+    if (flushed.written > 0) {
+      console.log(`[near-miss] persisted ${flushed.written} row(s), ${flushed.skipped} already on file`);
+    }
+    // Never ignore a warning: a malformed line or a failed dedupe read is reported even
+    // though the write itself succeeded.
+    if (flushed.malformed > 0) {
+      console.error(`[near-miss] ${flushed.malformed} malformed line(s) in ${flushed.path} — kept, never dropped`);
+    }
+    if (flushed.error) console.error(`[near-miss] flush reported: ${flushed.error}`);
+  } catch (nearMissFlushError) {
+    console.error(`[near-miss] flush tick failed: ${nearMissFlushError.message}`);
+  }
+});
 
 // Every 4 hours — Claude position review (offset 30 min from signal refresh)
 cron.schedule("30 */4 * * *", async () => {
