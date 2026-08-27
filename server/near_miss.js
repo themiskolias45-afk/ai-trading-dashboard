@@ -49,6 +49,10 @@ const fs   = require("fs");
 const path = require("path");
 const NEAR_MISS_LOG_PATH = path.join(__dirname, "..", "tasks", "near_misses.jsonl");
 
+// key -> tightest margin this PROCESS has already appended. Only a backstop for a
+// persistent dedupe-read failure; the FILE remains the authority across restarts.
+const writtenThisProcess = new Map();
+
 const census = new Map();
 const startedAt = new Date().toISOString();
 let droppedForCap = 0;
@@ -100,6 +104,23 @@ function noteNearMiss(record) {
         count: 0,
         minMargin: margin,
         maxMargin: margin,
+        // The observation that PRODUCED minMargin. Without these a persisted row pairs
+        // the latest threshold/actual with a lifetime-minimum margin taken from a
+        // DIFFERENT observation - possibly a different day, against a ceiling that has
+        // since moved - so |actual - threshold| does not equal margin. That margin is
+        // the entire point of this census, so the pair is kept matched.
+        minMarginActual: actual,
+        minMarginThreshold: threshold,
+        // The tightest miss WITHIN one UTC day at one threshold. minMargin above is
+        // census-lifetime, which is the wrong unit to persist: a 0.1 miss seen on Monday
+        // against a ceiling of 80 would otherwise be re-emitted on Tuesday under a
+        // ceiling of 88, asserting a miss that never happened that day at that bar.
+        // Reset whenever the day rolls or the ceiling moves, so the persisted number is
+        // always "the closest this got, on this day, against this bar".
+        bucket: null,
+        bucketMinMargin: margin,
+        bucketMinActual: actual,
+        bucketMinThreshold: threshold,
         lastActual: actual,
         lastAt: null,
         firstAt: new Date().toISOString(),
@@ -111,7 +132,25 @@ function noteNearMiss(record) {
     row.threshold  = threshold;
     row.lastActual = actual;
     row.lastAt     = new Date().toISOString();
-    if (margin < row.minMargin) row.minMargin = margin;
+    if (margin < row.minMargin) {
+      row.minMargin          = margin;
+      row.minMarginActual    = actual;
+      row.minMarginThreshold = threshold;
+    }
+
+    // Per-(UTC day, threshold) tightest. A new day or a moved ceiling starts fresh
+    // rather than inheriting a number measured under conditions that no longer hold.
+    const bucket = `${new Date().toISOString().slice(0, 10)}|${threshold}`;
+    if (row.bucket !== bucket) {
+      row.bucket             = bucket;
+      row.bucketMinMargin    = margin;
+      row.bucketMinActual    = actual;
+      row.bucketMinThreshold = threshold;
+    } else if (margin < row.bucketMinMargin) {
+      row.bucketMinMargin    = margin;
+      row.bucketMinActual    = actual;
+      row.bucketMinThreshold = threshold;
+    }
     if (margin > row.maxMargin) row.maxMargin = margin;
     return true;
   } catch (e) {
@@ -190,8 +229,13 @@ function nearMissCensus() {
 function flushNearMisses(nowIso) {
   const report = { written: 0, skipped: 0, malformed: 0, path: NEAR_MISS_LOG_PATH, error: null };
   try {
-    const stamp = typeof nowIso === "string" ? nowIso : new Date().toISOString();
-    const day   = stamp.slice(0, 10);
+    // nowIso is exported and the two boxes run in different timezones, so an unvalidated
+    // string could key a row to the wrong UTC day (a +02:00 stamp at 00:30 is the
+    // PREVIOUS day in UTC) or write a row keyed "not-a-date". Normalise through Date so
+    // slice(0,10) is always a real UTC day.
+    const parsed = nowIso === undefined ? new Date() : new Date(nowIso);
+    const stamp  = Number.isFinite(parsed.getTime()) ? parsed.toISOString() : new Date().toISOString();
+    const day    = stamp.slice(0, 10);
 
     const snapshot = nearMissCensus();
     if (!snapshot.available || !Array.isArray(snapshot.rows) || snapshot.rows.length === 0) {
@@ -201,7 +245,12 @@ function flushNearMisses(nowIso) {
     // Read back what today already has. A missing file is not an error - it is the
     // first flush. An unreadable one must NOT suppress the write: losing the row is the
     // failure being fixed, so a duplicate is strictly preferable to a silent drop.
-    const alreadyWritten = new Set();
+    // key -> tightest margin ALREADY on file for that key. Not a plain Set: a row is
+    // also written when the day produces a TIGHTER miss than anything recorded, because
+    // the tightest margin is the number the ceiling would be argued from and keeping
+    // only the first tick of the day throws it away. minMargin is monotone decreasing,
+    // so this is a handful of extra rows per key per day, not an unbounded stream.
+    const bestOnFile = new Map();
     try {
       if (fs.existsSync(NEAR_MISS_LOG_PATH)) {
         const lines = fs.readFileSync(NEAR_MISS_LOG_PATH, "utf8").split("\n");
@@ -210,7 +259,12 @@ function flushNearMisses(nowIso) {
           if (!trimmed) continue;
           try {
             const parsed = JSON.parse(trimmed);
-            if (parsed && typeof parsed.key === "string") alreadyWritten.add(parsed.key);
+            if (parsed && typeof parsed.key === "string") {
+              const seenMargin = bestOnFile.get(parsed.key);
+              const rowMargin  = Number(parsed.margin);
+              const best = Number.isFinite(rowMargin) ? rowMargin : Infinity;
+              if (seenMargin === undefined || best < seenMargin) bestOnFile.set(parsed.key, best);
+            }
           } catch (lineError) {
             // One corrupt line must not cost the whole dedupe set.
             report.malformed++;
@@ -222,11 +276,44 @@ function flushNearMisses(nowIso) {
       console.error(`[near-miss] ${report.error}`);
     }
 
+    // Backstop for a PERSISTENT read failure (an AV or backup lock holding the file).
+    // Writing anyway is right for one tick - a duplicate beats a dropped row - but with
+    // no cap it appends every key every 10 minutes, 144 times a day, and each duplicate
+    // makes the next read slower and the next failure likelier. This process-local map
+    // bounds it without weakening the cross-restart guarantee, which the FILE still owns.
+    for (const [seenKey, seenMargin] of writtenThisProcess) {
+      const onFile = bestOnFile.get(seenKey);
+      if (onFile === undefined || seenMargin < onFile) bestOnFile.set(seenKey, seenMargin);
+    }
+
     const pending = [];
     for (const row of snapshot.rows) {
-      const key = `${row.symbol}|${row.timeframe}|${row.setup}|${row.condition}|${day}`;
-      if (alreadyWritten.has(key)) { report.skipped++; continue; }
-      alreadyWritten.add(key);
+      // threshold is IN the key: the ceiling is actively being tuned, and a row naming a
+      // superseded bar is worse than no row. A mid-day change writes a NEW row rather
+      // than leaving a stale one to be read as the truth for that whole day.
+      const key = `${row.symbol}|${row.timeframe}|${row.setup}|${row.condition}|thr:${row.threshold}|${day}`;
+
+      // Every number below comes from ONE observation, never mixed. `margin` is derived
+      // from the actual/threshold beside it, so a consumer that recomputes it agrees.
+      // This used to pair the LATEST threshold and actual with the LIFETIME-MINIMUM
+      // margin, which could come from a different day and a ceiling since moved: the
+      // row asserted thr 88 / actual 89 / margin 0.1, and 89-88 is 1.0, not 0.1. That
+      // margin is the whole reason this file exists.
+      // Only ever persist a number measured on the day being written, at the threshold
+      // in the key. If the bucket belongs to another day or another ceiling, this row
+      // has produced nothing today worth recording and is skipped rather than
+      // back-dated - a wrong row is worse than a missing one in an evidence file.
+      if (row.bucket !== `${day}|${row.threshold}`) { report.skipped++; continue; }
+      const actual    = row.bucketMinActual;
+      const threshold = row.bucketMinThreshold;
+      if (!Number.isFinite(actual) || !Number.isFinite(threshold)) { report.skipped++; continue; }
+      const margin    = Number(Math.abs(actual - threshold).toFixed(4));
+
+      const best = bestOnFile.get(key);
+      if (best !== undefined && margin >= best) { report.skipped++; continue; }
+      bestOnFile.set(key, margin);
+      writtenThisProcess.set(key, margin);
+
       pending.push(JSON.stringify({
         key,
         at:         stamp,
@@ -235,10 +322,23 @@ function flushNearMisses(nowIso) {
         timeframe:  row.timeframe,
         setup:      row.setup,
         condition:  row.condition,
-        threshold:  row.threshold,
-        actual:     row.lastActual,
-        margin:     row.minMargin,
-        count:      row.count,
+        // The matched triple: the tightest miss seen, and the bar it was measured
+        // against at that moment. |actual - threshold| === margin, always.
+        threshold,
+        actual,
+        margin,
+        // The latest reading, kept separate and never mixed into the triple above.
+        latestActual:    row.lastActual,
+        latestThreshold: row.threshold,
+        latestAt:        row.lastAt,
+        // Lifetime of THIS census (since censusFrom), not of the day. Named so it
+        // cannot be read as a per-day count.
+        countSinceCensusStart: row.count,
+        // The tightest miss anywhere in this census, which may be another day and
+        // another ceiling. Kept for context, never as the day figure.
+        censusTightestMargin: row.minMargin,
+        censusTightestActual: row.minMarginActual,
+        censusTightestThreshold: row.minMarginThreshold,
         firstAt:    row.firstAt,
         censusFrom: snapshot.startedAt,
         feedsTheGate: false,

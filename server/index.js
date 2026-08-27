@@ -134,6 +134,23 @@ try {
   });
 }
 
+// The catch above only fires when the require THROWS. An OLDER near_miss.js that lacks
+// flushNearMisses requires fine and leaves it undefined - and that combination is not
+// hypothetical here: index.js is hand-patched onto the VPS while near_miss.js travels as
+// its own tracked file (tasks/vps_parity.cjs), so the two can land out of order. Without
+// this guard the flush tick throws "flushNearMisses is not a function" every 10 minutes
+// forever - caught, so the box is safe, but silently persisting nothing while looking
+// like it is merely noisy. Same typeof discipline used at the noteNearMiss call site.
+if (typeof flushNearMisses !== "function") {
+  console.error(
+    "[near-miss] server/near_miss.js is present but exports no flushNearMisses - it is " +
+    "OLDER than this index.js. The census will NOT survive a restart on this box until " +
+    "near_miss.js is deployed. Signals and trading are unaffected."
+  );
+  flushNearMisses = () => ({ written: 0, skipped: 0, malformed: 0, path: null,
+    error: "near_miss.js predates flushNearMisses - deploy it" });
+}
+
 let logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt;
 try {
   ({ logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt } =
@@ -5506,6 +5523,10 @@ cron.schedule("* * * * *", fetchPrices);
 // Every 15 min — UW data
 cron.schedule("*/15 * * * *", async () => { await fetchCongress(); await fetchFlow(); });
 
+// Reported-once trackers for the flush tick, so a permanent condition does not become
+// a permanent log stream. Declared beside the cron that owns them.
+let lastNearMissMalformed = 0;
+let lastNearMissError = null;
 // Every 10 min — persist the near-miss census so it survives a restart.
 //
 // Measured 2026-08-27: /api/near-miss startedAt and /api/status startedAt were the SAME
@@ -5525,12 +5546,17 @@ cron.schedule("*/10 * * * *", () => {
     if (flushed.written > 0) {
       console.log(`[near-miss] persisted ${flushed.written} row(s), ${flushed.skipped} already on file`);
     }
-    // Never ignore a warning: a malformed line or a failed dedupe read is reported even
-    // though the write itself succeeded.
-    if (flushed.malformed > 0) {
-      console.error(`[near-miss] ${flushed.malformed} malformed line(s) in ${flushed.path} — kept, never dropped`);
+    // Never ignore a warning - but never let one become 144 identical lines a day either.
+    // The no-delete rule makes a malformed line permanent, so an unconditional log here
+    // would repeat forever and train you to skim past it. Reported when the count CHANGES.
+    if (flushed.malformed > 0 && flushed.malformed !== lastNearMissMalformed) {
+      console.error(`[near-miss] ${flushed.malformed} malformed line(s) in ${flushed.path} - kept, never dropped`);
     }
-    if (flushed.error) console.error(`[near-miss] flush reported: ${flushed.error}`);
+    lastNearMissMalformed = flushed.malformed;
+    if (flushed.error && flushed.error !== lastNearMissError) {
+      console.error(`[near-miss] flush reported: ${flushed.error}`);
+    }
+    lastNearMissError = flushed.error;
   } catch (nearMissFlushError) {
     console.error(`[near-miss] flush tick failed: ${nearMissFlushError.message}`);
   }
