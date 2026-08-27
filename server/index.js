@@ -4696,6 +4696,20 @@ app.post("/api/trade-opened", async (req, res) => {
       // "AtDecision" because it is the pre-send tick, not the realised fill spread;
       // conflating the two would overstate execution quality.
       spreadAtDecision: (trade.spread && typeof trade.spread === "object") ? trade.spread : null,
+      // How far the fill landed from the price the signal planned.
+      //
+      // Reconstructed for SP500 #1798862395 on 2026-08-27: the signal planned entry
+      // 7705.85, the fill landed at 7744.96 - a drift of +39.11 points that widened the
+      // risk distance 104.60 -> 143.71 (+37.4%) and cut R:R from a planned 2.00 to 1.18.
+      // With fixedLotSize set the LOT cannot change, so the whole cost lands on R:R and
+      // on dollar risk: the same lots over a 37.4% wider stop.
+      //
+      // RECORDED, NOT CORRECTED. Every mechanical fix is a strategy choice - moving the
+      // stop changes the invalidation level, moving the target trades win rate for
+      // reward, refusing on drift suppresses a signal that would otherwise fire. This
+      // accumulates the cost so the choice can be made on a few dozen rows instead of
+      // one. null when the bridge could not measure it; never 0 as a stand-in.
+      entryDrift: (trade.entryDrift && typeof trade.entryDrift === "object") ? trade.entryDrift : null,
       // Filled in after the response by addCommentaryLater(). Present as null from
       // the start so the shape never changes underneath a reader.
       commentary: null

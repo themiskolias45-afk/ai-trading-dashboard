@@ -1155,6 +1155,20 @@ def get_lot_size(symbol, entry, stop, risk_amount=None):
     # balance decide - e.g. always 0.01 lots on gold regardless of the stop.
     fixed = float(strategy_settings.get("fixedLotSize", 0) or 0)
     if fixed > 0:
+        # SAY SO WHEN THIS DISCARDS A BUDGET SOMEONE COMPUTED.
+        #
+        # `risk_amount` is not a default here - when it is passed, it is the server risk
+        # engine's explicit budget, which is how the 6% portfolio cap and the correlation
+        # penalty are supposed to reach a live trade. `raw_lots = fixed` throws all of
+        # that away without a word, so those two controls have no effect on any order
+        # while a fixed size is set. maxLotSize logs when IT overrides; this did not.
+        #
+        # Deliberately a LOG, not a behaviour change: fixed sizing is the configured
+        # intent and overriding the override would be a trading decision, not a fix.
+        if risk_amount is not None and abs(raw_lots - fixed) > 1e-9:
+            log(f"fixedLotSize {fixed} OVERRIDES the risk-engine budget "
+                f"(${risk_amount:.2f} would have sized {raw_lots:.3f} lots). The portfolio "
+                f"cap and correlation penalty do not reach this order.", YELLOW)
         raw_lots = fixed
 
     # Ceiling applies either way, so a wide stop on a big balance can never quietly
@@ -1557,6 +1571,31 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
                 # post-execution and cannot change whether or how an order is placed.
                 # None when the quote could not be measured; never 0 as a stand-in.
                 "spread": observed_spread,
+                # HOW FAR THE FILL LANDED FROM THE PRICE THE SIGNAL PLANNED.
+                #
+                # Measured, not corrected. With fixedLotSize set the lot cannot change,
+                # so drift does not alter position size - it moves the REALISED R:R,
+                # because entry moved while stop and target did not. SP500 #1798862395
+                # filled far enough out to turn a planned 2.00 into 1.18.
+                #
+                # Every mechanical correction is a STRATEGY choice: moving the stop
+                # changes the invalidation level, moving the target trades win rate for
+                # reward, and refusing on drift suppresses a signal that would otherwise
+                # fire. So this records the cost and changes nothing, the same way
+                # spreadAtDecision does. Decide it with a few dozen rows, not with one.
+                "entryDrift": {
+                    "plannedEntry": round(float(entry), 5),
+                    "filledAt":     round(float(price), 5),
+                    "points":       round(float(price) - float(entry), 5),
+                    # Signed so direction is preserved: POSITIVE means the fill landed
+                    # further from the stop than planned (wider risk, lower R:R on a
+                    # BUY), negative means closer.
+                    "riskFraction": (round((abs(float(price) - float(stop))
+                                            - abs(float(entry) - float(stop)))
+                                           / abs(float(entry) - float(stop)), 5)
+                                     if stop is not None and abs(float(entry) - float(stop)) > 0
+                                     else None),
+                },
             }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
         except Exception as e:
             log(f"Could not POST trade-opened to server: {e}", YELLOW)
