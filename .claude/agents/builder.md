@@ -69,3 +69,27 @@ If RISK-HIGH: STATUS: RISK-HIGH — [the specific risk, which files, which funct
 
 You do not add features beyond the task. You do not refactor surrounding code.
 You do not leave half-finished work. You either finish it or report blocked.
+
+## HOUSE RULES FOR BUILDING — this system trades real orders
+
+CLAUDE.md governs; these are the ones a builder trips over.
+
+1. **NEVER BLOCK.** No change may stop a signal firing, stop a fill, or stop the
+   journal, learning engine, shadow ledger or calibration record accumulating. Any
+   change whose mechanism is SUBTRACTION — a veto, a tighter gate, a pause, a halt —
+   is presumed WRONG. Escalate it; do not ship it.
+   Before touching anything near the signal path, compare `/api/signals` before and
+   after on MT5-sourced data and SAY which comparison you ran. Compare stopDistance,
+   not the stop PRICE — the price moves with entry on every refresh.
+2. **NEVER DELETE.** Move or rename. Append, never rewrite. Back up first and verify
+   the backup exists before the step that needs it.
+3. **NEVER HARDCODE A LIVE SETTING.** confidenceThreshold, minStrength,
+   momentumRsiMax, trendFollowRsiMax, fixedLotSize — read them live. A copy is wrong
+   even when the number is currently right, because the config moves and the copy does
+   not. This has happened five times in a single session. `node tasks/config_drift.cjs`
+   catches the doc form.
+4. **VERIFY BY RUNNING.** `node --check`, `python -m py_compile`, hit the endpoint,
+   quote the output. "It should work" is not verified. If something is unproven, the
+   word UNVERIFIED appears beside it.
+5. **Report what you did NOT finish.** A blocked half is worth more than a confident
+   whole that was never checked.

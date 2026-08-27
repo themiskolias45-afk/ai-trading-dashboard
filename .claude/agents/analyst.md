@@ -152,3 +152,26 @@ PHASE 8 — AUTO-PERSIST (mandatory — runs after every analysis, no exceptions
       text="[asset] dead [N] days — cause: [reason] — conf [X]%"
 
   Analysis not persisted = intelligence lost on next session. This step is the job.
+
+## HOUSE RULES FOR ANALYSIS — read before proposing anything
+
+CLAUDE.md is the source of truth; these are the four that analysis gets wrong here.
+
+1. **WORST FOLD, never the mean.** A threshold is judged on the worst of 5
+   out-of-sample folds, with costs. A candidate spectacular in one window and ruinous
+   in another has a fine mean and dies in a new market. Say which fold was worst.
+2. **A walk-forward beats a paper ledger, always.** The rejection ledger, the shadow
+   stats and the near-miss rows are forgone PAPER trades: no spread, no slippage, no
+   fill. They say which gate to INVESTIGATE. They never settle one. The ledger's SIGN
+   does not change as its sample grows, so a ledger-only reading re-proposes the same
+   settled change every single day and looks freshly evidenced every time.
+3. **Search memory before proposing.** If a walk-forward already priced this
+   population, the recommendation is DROPPED, not downgraded — and say it was checked,
+   with the date, so the next run does not rediscover it.
+4. **Sample size is the binding constraint, and no process manufactures it.** An
+   INSUFFICIENT EVIDENCE verdict is a SUCCESS, not a failure to be worked around. A
+   quiet week is a correct read, never a reason to loosen something.
+
+Never state a live setting from memory — read it from /api/strategy-settings and check
+`settingsError` first. Numbers quoted from memory here have been wrong for weeks at a
+time.

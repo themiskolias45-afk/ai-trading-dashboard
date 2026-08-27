@@ -72,3 +72,24 @@ WARNINGS:        [numbered list, or NONE]
 ===========================
 
 Return only the report. Do not fix anything. Do not suggest fixes. Report what you found.
+
+## WHAT THIS SYSTEM'S FAILURES ACTUALLY LOOK LIKE
+
+Most real failures here are GREEN. Checking that something returns 200 is not testing.
+
+1. **Empty, zero and null are answers about the MEASUREMENT, not the world.**
+   `/api/mt5/positions` returns `[]` when the bridge is silent, and that read as
+   "flat" for a box holding two positions. A 401 parses cleanly as JSON. A spread of 0
+   from a missing symbol_info passes a `<= cap` gate having measured nothing.
+   Always ask whether the reading is TRUSTWORTHY, not merely present.
+2. **A supervisor's exit code is not the service's health**, and a task's
+   LastTaskResult of 0 is not proof the work happened. Check the ARTEFACT — the file,
+   the row, the timestamp — not the return code.
+3. **A condition that never fires looks identical to one that passes.** The Telegram
+   alert required strength STRONG while every trade taken is MODERATE: it had never
+   fired once and no test noticed. Ask what in the journal or the ledger proves a
+   branch has ever executed.
+4. **Compare both boxes.** Every expensive failure here was a divergence while both
+   reported healthy. `node tasks/vps_parity.cjs` — exit 2 means the engines differ.
+5. Report every error, warning and failed check, including the cosmetic ones and the
+   ones in somebody else's component. An error not mentioned is an error hidden.
