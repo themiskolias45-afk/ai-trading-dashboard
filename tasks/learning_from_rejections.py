@@ -92,6 +92,23 @@ def build_shadow(rows):
     # setup are one piece of evidence, not seven.
     episodes = {}
     unresolved = defaultdict(lambda: defaultdict(int))
+    # PENDING MUST BE COUNTED IN EPISODES, LIKE EVERY OTHER FIELD BESIDE IT.
+    #
+    # `unresolved` above increments once per ROW, and it does so BEFORE the episode
+    # dedup a few lines below - so `pending` was in rows while wins, losses, totalR
+    # and episodes in the same record were all in episodes. Two units in one dict,
+    # with nothing saying so.
+    #
+    # The live symptom on 2026-08-27: RANGE_TRADE_LONG read 44 episodes against 699
+    # pending, which makes the shadow ledger look as though it has barely scored
+    # anything, when the real ratio is 44 against roughly 43. A reader comparing those
+    # two numbers - which is the obvious thing to do, they sit side by side - draws the
+    # opposite conclusion about how much evidence exists.
+    #
+    # The row counts are KEPT as pendingRows so nothing is lost and the old figure
+    # stays auditable; `pending` becomes the episode count so it is comparable with
+    # the field next to it.
+    unresolved_episodes = defaultdict(lambda: defaultdict(set))
     excluded = defaultdict(int)
 
     for row in rows:
@@ -107,6 +124,13 @@ def build_shadow(rows):
         outcome = row.get("outcome")
         if outcome not in RESOLVED:
             unresolved[setup][outcome or "UNKNOWN"] += 1
+            # Same key the resolved path uses below, so the two are counted in the
+            # same unit. A row with no episode id falls back to the same synthetic
+            # tuple, which keeps genuinely distinct rows distinct.
+            ep_key = row.get("episode")
+            if ep_key is None:
+                ep_key = ("row", row.get("ts"), setup, row.get("entry"))
+            unresolved_episodes[setup][outcome or "UNKNOWN"].add(ep_key)
             continue
 
         key = row.get("episode")
@@ -147,7 +171,11 @@ def build_shadow(rows):
             "symbols":  sorted(entry["symbols"]),
             # Stated per record so nothing downstream can read these as fills.
             "enoughForReading": total >= MIN_EPISODES_FOR_READING,
-            "pending":  dict(unresolved.get(setup, {})),
+            # EPISODES, matching wins / losses / episodes in this same record.
+            "pending": {k: len(v) for k, v in unresolved_episodes.get(setup, {}).items()},
+            # The raw row tally, kept so the previous figure stays auditable and
+            # nothing is lost. Never compare this with `episodes` - different units.
+            "pendingRows": dict(unresolved.get(setup, {})),
         }
 
     return shadow, dict(excluded), {k: dict(v) for k, v in unresolved.items()}
