@@ -825,7 +825,10 @@ function checkTvPlan(root = ROOT) {
 /**
  * Has the sizing trigger come due?
  *
- * The largest single lever on returns in this system is `fixedLotSize: 0.01`,
+ * The largest single lever on returns in this system is the FIXED lot size (read it
+ * live from strategy_settings.json - it was 0.01 and is 0.02 as of 2026-08-25; naming a
+ * number here is how this comment went stale in the first place, caught by
+ * tasks/config_drift.cjs on 2026-08-27),
  * which discards the correct risk-based sizing get_lot_size already computes. It
  * was given a stated trigger — XAUUSD alone, >=30 closed fills with positive
  * expectancy after costs — precisely so it would not be flipped on a feeling.

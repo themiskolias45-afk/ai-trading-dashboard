@@ -72,6 +72,15 @@ node "%PROJ%\tasks\score_near_misses.cjs" --emit >> "%LOGFILE%" 2>&1
 node "%PROJ%\tasks\score_stop_variants.cjs" --emit >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM Config drift, added 2026-08-27. The same failure was found FIVE times in one session:
+REM a number copied out of the config into a doc, a comment or a condition, the config
+REM moves, and the copy stays. Nothing detects it because nothing BREAKS - the copy is
+REM syntactically fine and merely lying. Read-only; --strict is deliberately NOT passed so
+REM a drifted comment cannot fail the nightly run.
+echo --- config drift --- >> "%LOGFILE%"
+node "%PROJ%\tasks\config_drift.cjs" --emit >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM ── Next-candle read, for the TradingView plan panel ──────────────────────────
 REM candle_probability.cjs writes tasks\analysis\candle-today.json, which is the ONLY
 REM source for the "1D read" and "4H read" rows tradingview_bot.py puts on the chart
