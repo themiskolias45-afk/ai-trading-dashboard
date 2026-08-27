@@ -56,3 +56,7 @@ design/*.html
 # rather than merely untracked because the standing rule is to commit immediately after
 # every edit, and one `git add -A` would otherwise sweep it in.
 tasks/near_misses.jsonl
+
+# Per-machine stop-variant shadow rows, appended by server/stop_variants.js. Same
+# reasoning as the line above: each box shadows its own signals against its own bars.
+tasks/stop_variants.jsonl
