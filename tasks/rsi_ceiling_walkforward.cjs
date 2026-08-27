@@ -14,7 +14,8 @@
  *
  * IT CHANGES NOTHING. Nothing on disk is written but the report. The overrides reach the
  * engine through the replay sandbox's private copy of the settings object; the live
- * strategy_settings.json carries neither key, so the running system keeps 72 and 68.
+ * The BASELINE row is READ from strategy_settings.json at run time, never hardcoded -
+ * see readLiveCeiling(). A harness that judges a setting must read that setting.
  *
  * SCORED ON THE WORST FOLD, NOT THE MEAN. This is the standard CLAUDE.md already applies
  * to the confidence gate: 70 survives as the gate because its one negative fold is
@@ -77,11 +78,50 @@ const ASSETS = ASSET_FILTER
 const CANDIDATES = [
   { label: "56/52",  momentum: 56, trendFollow: 52 },
   { label: "64/60",  momentum: 64, trendFollow: 60 },
-  { label: "72/68",  momentum: 72, trendFollow: 68, baseline: true },
+  { label: "72/68",  momentum: 72, trendFollow: 68 },
   { label: "80/76",  momentum: 80, trendFollow: 76 },
   { label: "88/84",  momentum: 88, trendFollow: 84 },
   { label: "none",   momentum: 100, trendFollow: 100 },
 ];
+
+// THE BASELINE IS READ FROM THE LIVE CONFIG, NEVER HARDCODED.
+//
+// It used to be `72/68, baseline: true` in the table above. The ceiling MOVED to 80/76
+// on 2026-08-26 and this file did not, so on 2026-08-27 it still printed
+// "72/68  BASELINE - what ships today" and computed EVERY CHALLENGER/REJECTED verdict
+// against a ceiling that had stopped shipping a day earlier. The BTC run called 88/84
+// "REJECTED - does not beat the baseline's worst fold" against 72/68 (-0.459), when
+// against the ceiling actually in force, 80/76 (-0.550), it is EQUAL and carries +8.4R
+// more. The verdict column was wrong in the direction that matters.
+//
+// That is the same failure this project keeps having in new places - a number copied
+// out of the config and left behind when the config moved. A harness that judges a
+// setting must READ that setting.
+function readLiveCeiling() {
+  try {
+    const settingsPath = require("path").join(__dirname, "..", "server", "strategy_settings.json");
+    const raw = require("fs").readFileSync(settingsPath, "utf8");
+    const cfg = JSON.parse(raw.replace(/^\uFEFF/, ""));
+    const m = Number(cfg.momentumRsiMax), t = Number(cfg.trendFollowRsiMax);
+    if (Number.isFinite(m) && Number.isFinite(t)) return { momentum: m, trendFollow: t, source: "strategy_settings.json" };
+  } catch (e) { /* fall through - reported below, never guessed silently */ }
+  // The engine defaults when the file carries neither key (index.js:797-798).
+  return { momentum: 72, trendFollow: 68, source: "ENGINE DEFAULTS - strategy_settings.json carries neither key" };
+}
+const liveCeiling = readLiveCeiling();
+const liveLabel = `${liveCeiling.momentum}/${liveCeiling.trendFollow}`;
+{
+  let match = CANDIDATES.find(c => c.momentum === liveCeiling.momentum
+                                && c.trendFollow === liveCeiling.trendFollow);
+  if (!match) {
+    // The live pair is not one of the swept candidates - add it, because a sweep that
+    // cannot score what is actually running answers a question nobody asked.
+    match = { label: liveLabel, momentum: liveCeiling.momentum, trendFollow: liveCeiling.trendFollow };
+    CANDIDATES.push(match);
+    CANDIDATES.sort((a, b) => a.momentum - b.momentum);
+  }
+  match.baseline = true;
+}
 
 // COST BASIS. "flat" is the default and is the house 0.05R for every instrument;
 // "perasset" derives each trade's cost from its instrument's spread over its own risk
@@ -374,8 +414,8 @@ lines.push(challengers.length
   ? "  CHALLENGER(S): " + challengers.map(c => `${c.label} (worst ${c.worstFold.toFixed(3)} vs baseline ${base.worstFold.toFixed(3)})`).join(", ")
   : `  NO CHALLENGER. Nothing beat the baseline's worst fold (${base.worstFold === null ? "—" : base.worstFold.toFixed(3)}). The ceiling stays at ${baselineCandidate.label}.`);
 lines.push("");
-lines.push("  This changes nothing by itself. strategy_settings.json carries neither key, so the");
-lines.push("  live engine keeps 72/68 until a human edits it.");
+lines.push(`  This changes nothing by itself. The live ceiling is ${liveLabel} (${liveCeiling.source});`);
+lines.push("  only a human editing strategy_settings.json moves it.");
 lines.push("=".repeat(104));
 
 const text = lines.join("\n");
