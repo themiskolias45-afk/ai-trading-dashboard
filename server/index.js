@@ -852,7 +852,19 @@ const STRATEGY_LIMITS = {
 // closed trades PER SETUP before it adjusts anything (getLearningBoost), and 10
 // before Kelly sizing engages — roughly 60 trades across the ~12 setups. STRONG-only
 // produces about one trade a month, so that threshold is years away and
-// setupStats has sat empty through 42 server sessions.
+// setupStats sat empty through 42 server sessions.
+//
+// MEASURED 2026-08-27 — THIS WORKED, AND THE SENTENCE ABOVE IS NOW HISTORY.
+// sessionCount is 287 and setupStats is no longer empty: MOMENTUM 2W/0L,
+// BB_SQUEEZE_WATCH 0W/1L, RANGE_TRADE_SHORT 0W/1L, SQUEEZE_BREAKOUT 0W/1L.
+// Five closed trades across four setups, where there had been none.
+//
+// getLearningBoost still returns 0 for every one of them, and that is CORRECT,
+// not a dead path: the floor is 5 closed trades PER SETUP and the largest bucket
+// holds 2. The learning engine is running and simply has not been given enough
+// to say. Do not go looking for a fault here - the constraint is sample size, the
+// same one named everywhere else in this system. It clears with time and nothing
+// else.
 //
 // On a demo account the scarce resource is data, not capital. Allowing MODERATE
 // raises the rate to roughly one signal every 2.4 days, which fills the learning
@@ -1919,6 +1931,14 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // tables, which need 5 closed trades per setup before they can say anything.
   // Flagging a weak trend is useful; refusing to trade at all is what left
   // setupStats empty for 42 sessions.
+  //
+  // MEASURED 2026-08-27: the demotion-not-refusal choice paid off. setupStats now
+  // carries 4 setups and 5 closed trades after 287 sessions. Still short of the
+  // 5-per-setup floor getLearningBoost needs, so no boost is live yet - but the
+  // table is filling, which is what this change was for. See the note on
+  // STRENGTH_LEVELS for the current counts; do not restate them here, because two
+  // copies of the same number is how the previous version of this comment went
+  // stale and started describing a system that no longer existed.
   if (signal !== "WAIT" && adxValue !== null && !adxTrending) {
     if (strength === "STRONG") {
       strength = "MODERATE";
