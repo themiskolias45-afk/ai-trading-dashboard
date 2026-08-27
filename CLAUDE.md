@@ -309,13 +309,29 @@ silently resolved.
   - **It must never change what trades.** No gate logic, no threshold, no signal
     admitted or suppressed. `feedsTheGate` is false everywhere and stays false.
 - Price geometry (FVG / CRT / AMD): `server/fvg.js`, `server/structure.js`,
-  `GET /api/fvg`. Measured against a matched control by
-  `node tasks/geometry_measure.cjs [--interval 1h]`. **FVG has NO edge** — 6.9pp
-  worse than random over ~6,800 samples; kept as context only. **CRT** is ahead of
-  its control in 6/6 asset-timeframe cells but only +0.089R/trade, which costs
-  could erase; it needs a walk-forward WITH COSTS before it earns a vote. **AMD**
-  is unmeasurable until the bridge sends bar timestamps, and carries
-  `sessionAligned:false` until then. None of the three feeds confidence or sizing.
+  `GET /api/fvg`. Matched-control screen: `node tasks/geometry_measure.cjs
+  [--interval 1h]`. Bias x execution timeframes: `node tasks/crt_amd_mtf_measure.cjs`.
+  **None of the three feeds confidence or sizing, and none of them should.**
+  - **FVG has NO edge** — 6.9pp worse than random over ~6,800 samples. Context only.
+  - **CRT is CLOSED as an engine input.** The cost walk-forward this file used to ask
+    for RAN on 2026-08-09: 15/15 out-of-sample folds positive gross, break-even $2.95
+    on Gold and 3.68pts on SPX, BTC dead at 2.1%. It then failed TWICE as an engine
+    input — as a setup (0/5 folds, and it DISPLACED 16 Gold trades) and as a
+    confidence contributor (SPX worse at every window). **Six measurements, six
+    negatives. Do not re-open it, and do not re-run the cost walk-forward it already
+    passed.** Its STANDALONE record stands and is a different question.
+  - **AMD: the timestamp blocker is GONE.** This file claimed for weeks that AMD was
+    "unmeasurable until the bridge sends bar timestamps" and carried
+    `sessionAligned:false`. Verified 2026-08-27: the bridge sends `times` on d1, h4,
+    h1 AND m15, 0 malformed, correct 14400s/900s steps, and `detectAMD` returns
+    **`sessionAligned: true`** on all twelve series. The REAL blocker is that the
+    pattern is near-absent — Gold finds 0 at d1/h4/h1, SPX 0 at h4, BTC 1 at h4;
+    even m15 gives 4–9 over 4000 bars. Not measurable, for a different reason.
+  - **4H bias with 15m execution: measured, and 15m is NOT best.** 1H execution beats
+    it on 2 of 3 assets; on Gold plain h4->h4 is far the strongest. But EVERY 4H cell
+    is UNDERPOWERED — broker history is only ~42–62 days of m15 and ~66–93 of h4,
+    while 5 folds need >=40 trades and the richest cell has 26. **The binding limit is
+    m15 HISTORY (the bridge ships 4000 bars), not the harness.**
 - **AI Brain page = the control surface.** `GET /api/evidence-board` (what the
   system KNOWS vs assumes — every claim carries its verdict, evidence, caveat and
   **what would change the answer**, joined to live gate verdicts) and

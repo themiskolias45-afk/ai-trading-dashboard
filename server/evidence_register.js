@@ -271,7 +271,31 @@ const CLAIMS = [
       + "control. Measure the classic subset SEPARATELY from the rest: pooling a 19% "
       + "minority with shapes that merely resemble it is what made the earlier number "
       + "uninterpretable.",
-    harness: "node tasks/geometry_measure.cjs --interval 1h",
+    harness: "node tasks/geometry_measure.cjs --interval 1h  |  node tasks/crt_amd_mtf_measure.cjs",
+    // RE-CONFIRMED 2026-08-27 on live broker bars, and sharpened. The detectors were
+    // called directly on the full series, no point-in-time restriction, so this is the
+    // ceiling on how many patterns exist at all - not a harness artefact:
+    //          d1   h4   h1   m15
+    //   btc     0    1    1     4
+    //   gold    0    0    0     6
+    //   spx     1    0    7     9
+    // sessionAligned is TRUE on all twelve series, so the session work holds. AMD is
+    // near-absent at every timeframe an engine would take a bias from. CLAUDE.md still
+    // claimed the old timestamp blocker until today; this register had it right since
+    // 2026-08-12 and the boot file was the stale copy.
+    feedsTheGate: false,
+  },
+  {
+    id: "crtmtf",
+    title: "CRT bias timeframe x execution timeframe (is 4H bias + 15m execution best?)",
+    status: STATUS.BLOCKED,
+    measuredOn: "2026-08-27",
+    evidence: "First measurement of a bias/execution SPLIT in this repo - tasks/crt_walkforward.cjs accepts --interval 1d|1h|1wk only, so the cell could not be expressed before. Run independently on BOTH boxes, agreeing to three decimals. R per trade, CRT: SPX h4→m15 +0.1031 (n=22, 72.7%), h4→h1 +0.1618 (n=20, 75.0%), h4→h4 +0.2014 (n=14). GOLD h4→m15 -0.0935 (n=25), h4→h1 +0.0182 (n=26), h4→h4 +0.3505 (n=26, 76.9%). BTC h4→m15 +0.0226 (n=18), h4→h1 -0.0035 (n=25). 15m execution is NOT best: h1 beats it on 2 of 3 assets and on Gold plain h4→h4 wins outright.",
+    caveat: "EVERY 4H cell is UNDERPOWERED and the table RANKS rather than settles. This repo judges a threshold on 5 out-of-sample folds compared on WORST FOLD, needing >=40 resolved trades; the richest 4H cell has 26. The single cell with enough trades is Gold d1→d1 (n=44) and it FAILS - worst fold -0.5161, 3/5 positive. Faster execution does deliver what it was wanted for (Gold hold 2.8h against 5.5h, risk 0.78% of price) but does not pay for it in R here.",
+    changesTheAnswer: "m15 HISTORY, and nothing else. The bridge ships 4000 m15 and 400 h4 bars, giving 41.7–61.7 days of m15 and 66.5–92.8 of h4 - that is the binding limit, not the harness. Raise the m15 bar count and the same command answers the question. Note the harness enforces both anti-look-ahead rules (point-in-time detection on a trailing window with barsAgo===0, and an as-of join on CLOSE times, not open times) and scores an intrabar stop+target tie as a LOSS.",
+    harness: "node tasks/crt_amd_mtf_measure.cjs [--hold 96] [--folds 5] [--emit]",
+    // Standalone CRT only. CRT remains CLOSED as an ENGINE INPUT - see the crt claim
+    // above: six measurements, six negatives. This is a different question.
     feedsTheGate: false,
   },
   {
