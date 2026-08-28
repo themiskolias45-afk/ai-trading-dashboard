@@ -82,7 +82,7 @@ AGENTS (spawn automatically via /engineer, /build, /daily, /weekly)
   code-reviewer        Reviews trading code changes for correctness, security, system integrity
 
 ---
-Model: claude-opus-5 | Engineers: up to 6 parallel | Tools: Browser, Search, Filesystem, Memory
+Brain: claude-opus-5 | Analysis: claude-sonnet-5 | Engineers: up to 6 parallel | Tools: Browser, Search, Memory
 Session close: /learn (persist lessons) | Goal tracking: /goal show
 All commands work inside the JARVIS PowerShell window. Just type and press Enter.
 ---

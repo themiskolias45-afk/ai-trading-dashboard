@@ -27,4 +27,6 @@ Report:
 - Behavior changed: NONE
 
 After all changes verified:
+  If server/index.js was changed: node tasks/api_snapshot.cjs → must exit 0
+  If server/index.js was changed: invoke code-reviewer agent on changed functions → fix all CRITICAL
   git add [specific file] && git commit -m "refactor: [what was cleaned up in file]"

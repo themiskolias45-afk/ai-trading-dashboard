@@ -22,8 +22,10 @@ $ARGUMENTS: describe the bug, or use --scan to find bugs automatically.
 
 4. VERIFY
    - Run node --check [file] or python -m py_compile [file]
-   - Hit the relevant API endpoint or run the function
-   - Confirm the fix produces the correct output
+   - Hit the relevant API endpoint — verify response shape is correct, not just 200
+   - Confirm the fix produces the correct output for normal, edge, and null cases
+   - If server/index.js was changed: node tasks/api_snapshot.cjs → must exit 0 (exit 1 = shape regression, fix before commit)
+   - If server/index.js was changed: invoke code-reviewer agent on the changed function — fix all CRITICAL findings before commit
 
 5. COMMIT
    - git add [specific file only]
@@ -53,6 +55,7 @@ $ARGUMENTS: describe the bug, or use --scan to find bugs automatically.
    MANUAL REQUIRED: [list — too risky to auto-apply]
 
 ═══ RULES ═══
+- Before any edit: read tasks/pre-flight.md and answer all 6 questions
 - Root cause only — never patch symptoms
 - Read the FULL file before touching it
 - One fix per commit with a clear message

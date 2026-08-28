@@ -7,13 +7,20 @@ Usage: /daily
 ALL STEPS REQUIRED — NO SKIPPING
 ═══════════════════════════════════════════════════════
 
-STEP 1 — SYSTEM HEALTH (deep check, parallel):
+STEP 1 — SYSTEM HEALTH (deep check, all in parallel):
   mcp__smartentry__get_healer               → 6-point check (flag any RED)
   mcp__smartentry__get_signals              → all 3 assets, confidence, freshness
   mcp__smartentry__get_risk_status          → regime, halted, consecutive losses, P&L
+  mcp__smartentry__get_strategy_settings    → live confidenceThreshold (never hardcode)
+  mcp__smartentry__read_memory query="current-goal"  → surface if a goal is set
   node --check server/index.js              → syntax (FAIL = immediate fix required)
   node --check server/autohealer.js         → syntax
   git ls-files -- 'server/apikey.txt' 'keys.env'  → must return empty
+
+  Read tasks/analysis/strategy-search-latest.txt (last 20 lines) — skip silently if missing.
+  If "PROPOSE" or "score ≥" appears: surface as "⚡ Strategy candidate — run /discover to evaluate"
+
+  If a goal is set: show it at the top of today's report and track progress in STEP 6.
 
   Flag anything that fails as ERROR-[severity]: CRITICAL / HIGH / LOW
 
@@ -75,17 +82,21 @@ STEP 2 — DEEP ERROR SEARCH:
     - Unhandled promise: .then( without .catch(
     - Any console.log in trading logic (performance/leak risk)
 
+STEPS 3 AND 4 — run in parallel (no data dependency between them):
+
 STEP 3 — DEEP LEARNING ANALYSIS:
   mcp__smartentry__get_learning             → all setup stats
   mcp__smartentry__get_performance          → overall WR, P&L, best/worst setup
   mcp__smartentry__get_journal limit=50     → last 50 trades
 
+  Use confidenceThreshold from Step 1 for tier boundaries (never hardcode 65):
+    Tier LOW:  [gate] to [gate+9]%   → expect 55-65% WR
+    Tier MID:  [gate+10] to [gate+19]% → expect 65-75% WR
+    Tier HIGH: [gate+20]+%            → expect 75%+ WR
+
   Analyze each setup with ≥ 3 trades:
     a) WIN RATE TREND: compare first half vs second half of trades — improving or degrading?
-    b) CALIBRATION: does confidence tier match actual WR?
-       65-74% conf → expect ~65-70% WR (flag if actual < 55% or > 80%)
-       75-84% conf → expect ~75% WR
-       85%+ conf   → expect ~85% WR
+    b) CALIBRATION: does confidence tier match actual WR? (flag if actual < tier-10% or > tier+15%)
     c) STREAK RISK: any setup with 3+ consecutive losses recently?
     d) OVERDUE REVIEW: any setup with > 20 trades and WR < 50%?
 
@@ -96,8 +107,8 @@ STEP 3 — DEEP LEARNING ANALYSIS:
     KILL:      WR < 45% with ≥ 5 trades — disable immediately
     LEARNING:  < 5 trades — do not judge yet
 
-STEP 4 — PERFORMANCE DEEP DIVE:
-  From the journal (last 50 trades):
+STEP 4 — PERFORMANCE DEEP DIVE (parallel with Step 3):
+  From the journal (last 50 trades — already fetched in Step 3, reuse data):
   - Trades in last 24h: wins / losses / P&L
   - Overall streak (last 5 trades): W/L/W/L/L etc.
   - Worst trade this week: setup, asset, what went wrong?
@@ -193,7 +204,7 @@ SETUP STATUS:
   [KILL]:    [list — disable immediately]
   [LEARNING]: [list]
 
-CALIBRATION: [65-74%: X% actual | 75-84%: X% actual | 85+: X% actual]
+CALIBRATION: [gate to gate+9%: X% actual | gate+10 to gate+19%: X% actual | gate+20+%: X% actual]
 
 LAST 24H: [X trades | X wins | $X P&L | streak: W/L pattern]
 
