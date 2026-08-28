@@ -147,10 +147,23 @@ function guardrails() {
     },
     {
       rule: "Self-learning is never blocked or modified",
-      enforcement: "ENFORCED IN CODE",
-      detail: "Nothing outside /api/trade-closed writes server/learning.json. Shadow "
-        + "evidence lives in its own file precisely so the server's in-memory rewrite "
-        + "on saveLearning() can never clobber it.",
+      // CORRECTED 2026-08-28. This said "Nothing outside /api/trade-closed writes
+      // server/learning.json" and that is FALSE — saveLearning() has THREE callers, found
+      // by grepping them rather than trusting the claim. A guardrail that overstates its
+      // own enforcement is worse than one that admits a gap, because it is read as proof
+      // and stops anyone looking. The rule still holds where it matters; the wording did
+      // not. Nothing about the code changed here — only what this page says about it.
+      enforcement: "ENFORCED IN CODE — with two named exceptions",
+      detail: "setupStats, the part that carries edge, is written from exactly one place: "
+        + "updateLearning(), reached only from POST /api/trade-closed. Two other callers "
+        + "of saveLearning() exist and are NOT that path. (1) Server boot increments "
+        + "learning.sessionCount and saves — it touches no setup bucket, but it is a write, "
+        + "so learning.json's mtime moves on every restart and cannot be read as 'last "
+        + "outcome recorded'. (2) POST /api/learning/reset CLEARS setupStats outright; it "
+        + "is requireLocalOnly so it is not reachable from the network, but it is a live "
+        + "route that erases weeks of accumulated edge in one call and nothing prompts "
+        + "before it does. Shadow evidence lives in its own file precisely so the "
+        + "in-memory rewrite on saveLearning() can never clobber it.",
     },
     {
       rule: "No deleting — ever, without explicit approval",
