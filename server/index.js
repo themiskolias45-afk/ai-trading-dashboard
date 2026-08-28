@@ -1892,19 +1892,37 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // itself like any other no-trade.
   function recordNearMisses() {
     try {
-      if (typeof noteNearMiss === "function" && rsi !== null) {
+      if (rsi !== null) {
         const nearMissBase = {
           symbol:    barSource?.sourceSymbol ?? null,
           timeframe: barSource?.timeframe ?? null,
         };
 
+        // Collected as well as recorded, so the census can ALSO answer the question on
+        // the surface a human actually reads. Until 2026-08-28 this block wrote the
+        // real cause to /api/near-miss and the `reasons` array said something else
+        // entirely: BTC rendered "No setup — needs: RSI below 50 (now 82.2)" while
+        // MOMENTUM had in fact died on the RSI CEILING by 2.2 points with every other
+        // condition passing. "RSI below 50" is the BUY_DIP path — it is not what was
+        // blocking, and it is the first line anyone reads when asking why an asset has
+        // not fired in nine days. The right number existed and was one array away.
+        //
+        // noteNearMiss is called only when it exists, but the misses are COMPUTED
+        // unconditionally, so the explanation is correct even in the replay sandbox
+        // where that binding is absent. Pushing a string is the only effect.
+        const noted = [];
+        const note  = (row) => {
+          noted.push(row);
+          if (typeof noteNearMiss === "function") noteNearMiss(row);
+        };
+
         // MOMENTUM: inUptrend && aboveEma50 && aboveEma20 && macd.bullish, RSI banded.
         if (inUptrend && aboveEma50 && aboveEma20 && macd?.bullish) {
           if (rsi >= MOMENTUM_RSI_MAX) {
-            noteNearMiss({ ...nearMissBase, setup: "MOMENTUM",
+            note({ ...nearMissBase, setup: "MOMENTUM",
               condition: "RSI_ABOVE_CEILING", threshold: MOMENTUM_RSI_MAX, actual: rsi });
           } else if (rsi <= MOMENTUM_RSI_MIN) {
-            noteNearMiss({ ...nearMissBase, setup: "MOMENTUM",
+            note({ ...nearMissBase, setup: "MOMENTUM",
               condition: "RSI_BELOW_FLOOR", threshold: MOMENTUM_RSI_MIN, actual: rsi });
           }
         }
@@ -1913,12 +1931,44 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
         if ((inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20)
             && macd?.bullish && ema200 && price > ema200 * 1.005) {
           if (rsi >= TREND_FOLLOW_RSI_MAX) {
-            noteNearMiss({ ...nearMissBase, setup: "TREND_FOLLOW",
+            note({ ...nearMissBase, setup: "TREND_FOLLOW",
               condition: "RSI_ABOVE_CEILING", threshold: TREND_FOLLOW_RSI_MAX, actual: rsi });
           } else if (rsi <= TREND_FOLLOW_RSI_MIN) {
-            noteNearMiss({ ...nearMissBase, setup: "TREND_FOLLOW",
+            note({ ...nearMissBase, setup: "TREND_FOLLOW",
               condition: "RSI_BELOW_FLOOR", threshold: TREND_FOLLOW_RSI_MIN, actual: rsi });
           }
+        }
+
+        // ── The census, said out loud ────────────────────────────
+        // The TIGHTEST miss only. A list of four near-misses is a wall of text; the
+        // one that came closest is the actionable fact, and the rest stay available
+        // on /api/near-miss for anyone who wants them.
+        //
+        // The margin is computed from the threshold and actual SITTING BESIDE IT in
+        // the same row, never carried in separately — a persisted near-miss row once
+        // paired a lifetime-minimum margin with a latest threshold and actual, three
+        // numbers that need not share an observation, and any consumer recomputing
+        // |actual - threshold| disagreed with the margin printed next to it.
+        //
+        // DISPLAY ONLY. This pushes a string. It assigns no setup, signal, entry,
+        // stop, target, strength or confidence, and every reader of `reasons` is a
+        // dashboard, an alert body or a brief line — nothing gates on it.
+        if (noted.length > 0) {
+          const tightest = noted.reduce((best, row) =>
+            Math.abs(row.actual - row.threshold) < Math.abs(best.actual - best.threshold) ? row : best);
+          const margin = Math.abs(tightest.actual - tightest.threshold).toFixed(1);
+          const where  = tightest.condition === "RSI_ABOVE_CEILING" ? "above ceiling" : "below floor";
+          // Named as the BLOCKER, not as a thing that is "needed". Everything else
+          // about this setup passed; one bound stopped it, and the margin says by how
+          // much. A reader can act on "by 2.2"; they cannot act on "low confidence".
+          //
+          // unshift, NOT push. dashboard/index.html:3067 renders reasons.slice(0, 2)
+          // and the command page slices to 7 — a line appended last is invisible on
+          // the surface most likely to be read, which would reproduce the exact
+          // failure this fixes: the true cause recorded somewhere nobody looks.
+          reasons.unshift(
+            `BLOCKED: ${tightest.setup} — RSI ${tightest.actual} ${where} ${tightest.threshold} (by ${margin}). ` +
+            `Every other ${tightest.setup} condition passed.`);
         }
       }
     } catch (nearMissError) {
@@ -3722,7 +3772,31 @@ app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
   // leaving a stale futures-derived signal live for the rest of the cron interval.
   // Fires only on the transition — steady-state pushes every 5 minutes do not
   // trigger it, so this cannot become a refresh storm.
-  const flippedToMt5 = Object.keys(accepted).filter(k => sourceWasYahoo[k] && mt5BarsFor(k));
+  // Keyed on what the LIVE SIGNAL was built from, not on what the BAR CACHE held.
+  //
+  // sourceWasYahoo is captured before this payload is stored, so it is true exactly
+  // ONCE — on the first push after the cache is empty. If that single refresh is
+  // skipped, nothing ever retries: the cache is warm from then on, sourceWasYahoo is
+  // false forever, and the Yahoo-derived signal stays live until the next 30-minute
+  // cron while the bridge refuses every setup as STALE SOURCE.
+  //
+  // That is not hypothetical. Observed 2026-08-28 immediately after a restart: the
+  // server booted at 04:48:08 and its own boot refresh was still running (~15s, so
+  // signalRefreshInFlight was true) when the first push landed. The transition was
+  // skipped, and four pushes and eleven minutes later /api/signals still read
+  // dataSource "yahoo" for all three assets with the bridge logging STALE SOURCE on
+  // every poll. A restart could therefore cost up to a full cron interval of
+  // tradeable signal — it blocks good setups, which is the one thing that must not
+  // happen quietly.
+  //
+  // Reading signalCache instead makes the condition SELF-HEALING: it stays true on
+  // every subsequent push until the signal is genuinely MT5-derived, then stops
+  // matching on its own. That is also why this cannot storm — it is extinguished by
+  // its own success, signalRefreshInFlight still serialises the refreshes, and the
+  // pushes are five minutes apart. sourceWasYahoo is retained: it is the correct
+  // signal for the FIRST push, before signalCache has been populated at all.
+  const flippedToMt5 = Object.keys(accepted).filter(k =>
+    mt5BarsFor(k) && (sourceWasYahoo[k] || signalCache[k]?.dataSource === "yahoo"));
   if (flippedToMt5.length && !signalRefreshInFlight) {
     signalRefreshInFlight = true;
     console.log(`[mt5-candles] ${flippedToMt5.join(", ")} switched yahoo -> mt5, recomputing signals now`);
@@ -4189,7 +4263,31 @@ app.get("/api/mt5/health", (req, res) => {
     if (serverAgeMs < MT5_NEVER_CONNECTED_GRACE_MS) {
       return res.status(200).json({ connected: null, reason: "never connected yet — within startup grace period" });
     }
-    return res.status(503).json({ connected: false, reason: `never connected — server has been up ${Math.round(serverAgeMs / 1000)}s, past the startup grace period` });
+    // An account this box does not own is not a fault, and reporting it as one is
+    // worse than saying nothing: a status surface that carries a permanent RED trains
+    // you to skim past the row that matters, and every expensive failure this fleet
+    // has had was a real divergence sitting behind checks nobody read closely.
+    // MT5_EXPECTED_ACCOUNTS is the single source of truth, shared with the healer
+    // (autohealer.js:33), the watchdog and ensure_running.ps1.
+    //
+    // SAFE BECAUSE connected IS null, NEVER true. Callers that act on this route are
+    // gated on the same variable BEFORE they call it — watchdog.bat reads
+    // MT5_EXPECTED_ACCOUNTS and jumps past the bridge-B branch entirely, so a 200 here
+    // cannot start a duplicate bridge on an account this box does not own, which is
+    // the one outcome that would double every trade. The {connected:null} + 200 shape
+    // is not new: it is exactly what the startup-grace branch above already returns,
+    // so every existing reader already handles it.
+    // Default "A,B" matches the healer, so a box with no keys.env behaves as today.
+    const expectedAccounts = (process.env.MT5_EXPECTED_ACCOUNTS ?? "A,B")
+      .split(",").map(tag => tag.trim()).filter(Boolean);
+    if (account !== "default" && !expectedAccounts.includes(account)) {
+      return res.status(200).json({
+        connected: null,
+        expected:  false,
+        reason: `account ${account} is not run on this machine — MT5_EXPECTED_ACCOUNTS is "${expectedAccounts.join(",")}". Not a fault; this clears itself the moment that variable lists ${account}.`,
+      });
+    }
+    return res.status(503).json({ connected: false, expected: true, reason: `never connected — server has been up ${Math.round(serverAgeMs / 1000)}s, past the startup grace period` });
   }
   const ageMs     = Date.now() - new Date(lastSeen).getTime();
   const connected = ageMs < MT5_HEARTBEAT_STALE_MS;

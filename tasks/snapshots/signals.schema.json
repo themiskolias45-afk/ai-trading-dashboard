@@ -27,6 +27,7 @@
         "signal": "number",
         "histogram": "number",
         "crossed": "boolean",
+        "crossedBearish": "boolean",
         "bullish": "boolean"
       },
       "adx": "number",
@@ -115,6 +116,7 @@
         "signal": "number",
         "histogram": "number",
         "crossed": "boolean",
+        "crossedBearish": "boolean",
         "bullish": "boolean"
       },
       "adx": "number",
@@ -183,9 +185,9 @@
     "setup": "string",
     "strength": "string",
     "entry": "number",
-    "stop": "null",
-    "target": "null",
-    "rr": "null",
+    "stop": "number",
+    "target": "number",
+    "rr": "number",
     "atr": "number",
     "indicators": {
       "rsi": "number",
@@ -203,6 +205,7 @@
         "signal": "number",
         "histogram": "number",
         "crossed": "boolean",
+        "crossedBearish": "boolean",
         "bullish": "boolean"
       },
       "adx": "number",

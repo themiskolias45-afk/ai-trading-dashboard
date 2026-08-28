@@ -437,9 +437,28 @@ const TOOLS = [
       let entries = data.entries || [];
       if (query) {
         const q = query.toLowerCase();
+        // Guarded because tasks/jarvis_memory.json has TWO WRITERS and therefore two
+        // row shapes. memory.py writes {key, value, category, ...}; server/index.js
+        // appends session notes in its own {ts, tag, text} shape onto the same file —
+        // memory.py:44 and :95 both say so in their own comments. A note-shaped row has
+        // no key and no value, so the unguarded e.key.toLowerCase() below threw
+        // "Cannot read properties of undefined (reading 'toLowerCase')" and took the
+        // ENTIRE query path down. Measured 2026-08-28: ONE such row against 69 good
+        // ones killed recall across all 70, and CLAUDE.md startup steps 2c and 2e both
+        // call this with a query, so both had been silently erroring every session.
+        //
+        // The fix is the READER, not the row. The row is real data and is never
+        // removed; guarding here also survives the NEXT note-shaped append, whereas
+        // repairing the file leaves the same bug armed for the next one.
         entries = entries.filter(e =>
-          e.key.toLowerCase().includes(q) || e.value.toLowerCase().includes(q) ||
-          (e.category || '').toLowerCase().includes(q)
+          (e.key || '').toLowerCase().includes(q) ||
+          (e.value || '').toLowerCase().includes(q) ||
+          (e.category || '').toLowerCase().includes(q) ||
+          // Note-shaped rows carry their content in `text` and their label in `tag`.
+          // Searching them too means a session note is FINDABLE rather than merely
+          // non-fatal — the file's second half stops being invisible to recall.
+          (e.text || '').toLowerCase().includes(q) ||
+          (e.tag || '').toLowerCase().includes(q)
         );
       }
       return {

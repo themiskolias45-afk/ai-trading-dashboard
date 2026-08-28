@@ -21,7 +21,24 @@ from concurrent.futures import ThreadPoolExecutor
 # Aliased on import: this is NOT the builtin TimeoutError on the Python this runs, and
 # the distinction matters because it is the one exception here whose str() is empty.
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def utcnow_naive():
+    """Exact replacement for the deprecated datetime.utcnow().
+
+    MUST STAY NAIVE. Every call site appends a literal "Z" to .isoformat(), so an
+    aware value would render "2026-08-28T04:30:00+00:00Z" — malformed, and
+    unparseable by datetime.fromisoformat in tasks/score_rr_rejections.py, which
+    reads the `ts` field of every rejection row this file writes. The halt-cooldown
+    path also subtracts this from a naive datetime parsed out of the halt file, and
+    mixing aware with naive raises TypeError at exactly the moment the circuit
+    breaker is trying to work out whether it may release.
+
+    datetime.now(timezone.utc).replace(tzinfo=None) is what utcnow() returned, to the
+    microsecond, so this is a rename and not a behaviour change.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # Force UTF-8 stdout/stderr regardless of how this process is launched — Task
 # Scheduler and some non-console launch paths fall back to the system's legacy
@@ -323,7 +340,7 @@ def load_breaker_state():
     # turns an upgrade into an unannounced resumption of trading. Stamp it NOW instead,
     # so a legacy halt serves a full cooldown from the upgrade rather than none.
     if trading_halted and not halted_at:
-        halted_at = datetime.utcnow().isoformat() + "Z"
+        halted_at = utcnow_naive().isoformat() + "Z"
         log("Halt on disk predates the cooldown clock — starting it from now, "
             f"not releasing early ({HALT_COOLDOWN_HOURS:.0f}h from this moment).", YELLOW)
     # Same reasoning for the cause: an unlabelled halt is treated as a STREAK halt only
@@ -370,7 +387,7 @@ def save_breaker_state():
                 "haltedAt":          halted_at,
                 "haltCause":         halt_cause,
                 "lastCountedClose":  last_counted_close,
-                "updatedAt":         datetime.utcnow().isoformat() + "Z",
+                "updatedAt":         utcnow_naive().isoformat() + "Z",
             }, state_file, indent=2)
     except Exception as exc:
         log(f"Could not persist breaker state ({exc}) — counters are memory-only this run.", YELLOW)
@@ -474,7 +491,7 @@ def halt_cooldown_remaining_seconds():
     except (ValueError, AttributeError) as exc:
         log(f"Halt timestamp unreadable ({exc}) — cooldown not applied, halt stands.", YELLOW)
         return None
-    elapsed = (datetime.utcnow() - started).total_seconds()
+    elapsed = (utcnow_naive() - started).total_seconds()
     return max(0.0, HALT_COOLDOWN_HOURS * 3600 - elapsed)
 
 
@@ -529,7 +546,7 @@ def check_circuit_breaker():
     if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
         trading_halted = True
         halt_reason = f"{consecutive_losses} consecutive losses — pausing"
-        halted_at   = datetime.utcnow().isoformat() + "Z"
+        halted_at   = utcnow_naive().isoformat() + "Z"
         halt_cause  = HALT_CAUSE_STREAK
         cooldown = (f" — releases in {HALT_COOLDOWN_HOURS:.0f}h at streak "
                     f"{max(0, consecutive_losses - HALT_RELEASE_DECAY)}"
@@ -549,7 +566,7 @@ def check_circuit_breaker():
         if loss_pct >= daily_loss_limit:
             trading_halted = True
             halt_reason = f"Daily loss limit hit: -{loss_pct:.1f}% (limit {daily_loss_limit}%)"
-            halted_at   = datetime.utcnow().isoformat() + "Z"
+            halted_at   = utcnow_naive().isoformat() + "Z"
             halt_cause  = HALT_CAUSE_DAILY_LOSS
             log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
             save_breaker_state()
@@ -714,7 +731,7 @@ def log_rejection(gate, sig, broker_symbol, entry, stop, target,
 
         indicators = signal_dict.get("indicators")
         row = {
-            "ts":           datetime.utcnow().isoformat() + "Z",
+            "ts":           utcnow_naive().isoformat() + "Z",
             "gate":         gate,
             "side":         REJECTION_SIDE,
             "ticker":       signal_dict.get("ticker"),
