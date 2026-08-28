@@ -178,8 +178,52 @@ function extractBlock(src, marker) {
   return null;
 }
 
+// The capability surface: everything that IS a skill, an agent, an engine module or a
+// tool. Deliberately not "every file" — logs, daily notes, bar archives and backups are
+// expected to differ and would bury the signal.
+const INVENTORY_DIRS = ["server", "tasks", ".claude/commands", ".claude/agents", "dashboard", "."];
+const INVENTORY_EXT  = /\.(js|cjs|py|ps1|bat|html|css|md)$/i;
+const INVENTORY_SKIP = /node_modules|[\\/]\.git[\\/]|[\\/]logs[\\/]|[\\/]daily[\\/]|[\\/]history[\\/]|[\\/]analysis[\\/]|[\\/]screenshots[\\/]|[\\/]backups?[\\/]|\.bak|[\\/]\.tmp_daily[\\/]/i;
+
+/**
+ * Every capability file present on this box, as repo-relative paths.
+ *
+ * WHY THIS EXISTS. TRACKED above is a HAND-MAINTAINED ALLOWLIST of 46 entries, and this
+ * tool compared nothing else — so "0 files differ" only ever meant "0 of the 46 I was
+ * told to look at". Measured 2026-08-28: of 278 capability files in the repo, parity
+ * covered 37 and was blind to 241. Twenty-three of them, including seven skills and
+ * eight analysis harnesses, were ABSENT from the VPS while this printed ENGINES AGREE
+ * with no files differing. A file nobody adds to the list is invisible forever, and
+ * since the VPS is deployed file-by-file (its git history diverged, so it cannot pull)
+ * every new file starts out missing there by default.
+ *
+ * Presence only, not content. Content-diffing 278 files would be slow and is already
+ * TRACKED's job; what was missing is the ability to see a file that is not there at all.
+ */
+function inventory(root) {
+  const found = new Set();
+  const walk = (dir, depth) => {
+    if (depth > 4) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (INVENTORY_SKIP.test(full)) continue;
+      if (entry.isDirectory()) { walk(full, depth + 1); continue; }
+      if (!INVENTORY_EXT.test(entry.name)) continue;
+      found.add(path.relative(root, full).replace(/\\/g, "/"));
+    }
+  };
+  for (const dir of INVENTORY_DIRS) {
+    const base = path.join(root, dir);
+    // "." is walked at depth 3 so it reaches the named dirs too; the Set dedupes.
+    walk(base, dir === "." ? 3 : 0);
+  }
+  return [...found].sort();
+}
+
 function probe(root) {
-  const out = { files: {}, engine: {}, scalars: {}, routes: [] };
+  const out = { files: {}, engine: {}, scalars: {}, routes: [], inventory: inventory(root) };
   for (const rel of TRACKED) {
     try {
       out.files[rel] = sha(fs.readFileSync(path.join(root, rel), "utf8"));
@@ -246,6 +290,35 @@ for (const rel of TRACKED) {
   console.log("  DIFFERS  " + rel.padEnd(34) + "local " + a + "  vps " + b);
 }
 if (!drift) console.log("  all " + TRACKED.length + " tracked files identical");
+
+// PRESENCE, across the whole capability surface — not the allowlist above.
+// TRACKED is hand-maintained, so a file nobody adds to it is invisible here forever.
+// On 2026-08-28 that hid 23 capability files, including seven skills and eight analysis
+// harnesses, that were absent from the VPS while this printed no drift at all.
+const localInv  = new Set(local.inventory  || []);
+const remoteInv = new Set(remote.inventory || []);
+const missingOnPeer  = [...localInv].filter(f => !remoteInv.has(f)).sort();
+const missingOnLocal = [...remoteInv].filter(f => !localInv.has(f)).sort();
+console.log("\nFILE PRESENCE  (whole capability surface, not the tracked list)");
+console.log("  local " + localInv.size + " files   vps " + remoteInv.size + " files");
+const showList = (label, list) => {
+  if (!list.length) return;
+  console.log("  " + label + " (" + list.length + "):");
+  for (const f of list.slice(0, 40)) console.log("      " + f);
+  if (list.length > 40) console.log("      ... and " + (list.length - 40) + " more");
+};
+showList("ON LOCAL, ABSENT ON THE VPS", missingOnPeer);
+showList("ON THE VPS, ABSENT LOCALLY", missingOnLocal);
+if (!missingOnPeer.length && !missingOnLocal.length) {
+  console.log("  every capability file exists on both boxes");
+} else {
+  // Not folded into the exit code: some absences are DELIBERATE and load-bearing.
+  // tasks/bridge_tags.ps1 must stay laptop-only — the VPS carries that function inline,
+  // and the missing file is what stops a wholesale ensure_running.ps1 copy starting a
+  // second bridge on a one-account box. Reported so it can be judged, never auto-fixed.
+  console.log("  NOTE: some absences are deliberate (bridge_tags.ps1, morning_ready.ps1,");
+  console.log("  deploy_vps_catchup.ps1 and the laptop-hardware scripts). Judge, do not sync blindly.");
+}
 
 console.log("\nENGINE FUNCTIONS  (these decide whether a trade happens)");
 for (const marker of ENGINE_FNS) {
