@@ -72,6 +72,26 @@ node "%PROJ%\tasks\score_near_misses.cjs" --emit >> "%LOGFILE%" 2>&1
 node "%PROJ%\tasks\score_stop_variants.cjs" --emit >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM Shadow short ledger, added 2026-08-28. The two scorers above price setups that FORMED
+REM and were then killed. This one prices the moves for which no setup exists at all: on
+REM 2026-08-28 Gold fell 4631 -> 4530 in one H1 bar and produced no signal, no rejection
+REM row and no near-miss, because every learning surface here keys off a setup forming.
+REM A move that leaves no row cannot be learned from or argued about - it is invisible.
+REM
+REM SAFE BY CONSTRUCTION, and it must stay that way:
+REM   - feedsTheGate is false in every row. It admits nothing and suppresses nothing.
+REM   - it reads /api/mt5/candles/raw, the bars the bridge already pushed, so it opens NO
+REM     second MT5 client and is safe to run with positions open - unlike refresh_bars.
+REM   - the ledger is append-only; the derived _scored file is written to a temp, backed
+REM     up with a verified timestamped copy, then swapped. Nothing is ever deleted.
+REM   - the forming bar is excluded by index. A partial bar is a wrong row, not a late one.
+REM Exit code deliberately NOT captured, exactly like the scorers above: an empty ledger
+REM is a normal early state, not a failed daily check, and this must never be able to fail
+REM the run or delay a step below it.
+echo --- shadow short ledger --- >> "%LOGFILE%"
+"%PY%" "%PROJ%\tasks\shadow_short_ledger.py" >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM Config drift, added 2026-08-27. The same failure was found FIVE times in one session:
 REM a number copied out of the config into a doc, a comment or a condition, the config
 REM moves, and the copy stays. Nothing detects it because nothing BREAKS - the copy is

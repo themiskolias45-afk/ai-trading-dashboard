@@ -201,6 +201,47 @@ def score(row, times, highs, lows, closes):
             "bars": horizon - start}
 
 
+def write_scored(scored):
+    """Replace the derived file WITHOUT a moment in which it does not exist.
+
+    `open(path, "w")` truncates before the first byte is written, so a crash, a lock or
+    a killed process leaves an empty file where a complete one was -- the exact shape of
+    [[swallowed_parse_error_wipes_the_file]]. Instead: write a sibling temp file in full,
+    keep a timestamped copy of the outgoing version and VERIFY that copy exists before
+    anything is replaced, then swap. Nothing is ever deleted; superseded versions stay on
+    disk under .bak-* for a human to remove deliberately.
+    """
+    payload = "".join(json.dumps(row) + "\n" for row in scored)
+
+    # Most nights nothing has resolved and the output is byte-identical. Backing that up
+    # would leave a year of duplicate .bak files nobody may delete under the standing
+    # rules, so an unchanged file is left alone entirely rather than rewritten.
+    if os.path.exists(SCORED_PATH):
+        with open(SCORED_PATH, "r", encoding="utf-8") as handle:
+            if handle.read() == payload:
+                log("  scored file unchanged -- left as is")
+                return
+
+    temp_path = SCORED_PATH + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+    if os.path.getsize(temp_path) == 0 and scored:
+        raise SystemExit("refusing to install an empty %s" % os.path.basename(SCORED_PATH))
+
+    if os.path.exists(SCORED_PATH):
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = "%s.bak-%s" % (SCORED_PATH, stamp)
+        with open(SCORED_PATH, "rb") as src, open(backup_path, "wb") as dst:
+            dst.write(src.read())
+        # Verified, not assumed: a backup nobody checked is not a backup.
+        if not os.path.exists(backup_path) or os.path.getsize(backup_path) == 0:
+            raise SystemExit("backup %s missing or empty -- not replacing the original"
+                             % os.path.basename(backup_path))
+        log("  backed up previous scored file -> %s" % os.path.basename(backup_path))
+
+    os.replace(temp_path, SCORED_PATH)
+
+
 def main():
     assets = fetch_bars()
     existing, corrupt = read_jsonl(LEDGER_PATH)
@@ -250,10 +291,7 @@ def main():
         scored.append(merged)
 
     if scored and not DRY_RUN:
-        # Derived file, rewritten whole. The append-only ledger above is never touched.
-        with open(SCORED_PATH, "w", encoding="utf-8") as handle:
-            for row in scored:
-                handle.write(json.dumps(row) + "\n")
+        write_scored(scored)
 
     log("")
     log("=" * 74)
