@@ -6,12 +6,14 @@
   <title>SmartEntry Pro — Daily Plan</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
-      --text:#e2e8f0; --muted:#6b83a8; --muted-dim:#4a6080; --accent:#7c3aed;
-      --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
-      --font:'Segoe UI',system-ui,Arial,sans-serif;
-    }
+    /* NO :root HERE. There was one, and every token in it was DEAD: theme.css is linked
+       after this block and its :root wins on source order, so these values had not
+       painted a single pixel in months. They were still the OLD palette (#22c55e green,
+       #ef4444 red, #7c3aed accent, Segoe UI) — the exact set dashboard/theme.css exists
+       to retire — so anyone reading this file to learn the page's colours learned the
+       wrong ones. The tints below were hand-mixed FROM these dead values, which is how
+       a green-tinted panel ended up three shades off the green beside it.
+       Tokens come from /dashboard/theme.css. Nothing is redefined here. */
     body { background:var(--bg); color:var(--text); font-family:var(--font); min-height:100vh; font-size:14px; }
 
     header {
@@ -22,7 +24,7 @@
     .logo { display:flex; align-items:center; gap:10px; }
     .logo-mark {
       width:32px; height:32px;
-      background:linear-gradient(135deg,var(--accent),#4f46e5);
+      background:linear-gradient(135deg,var(--accent),var(--accent2));
       border-radius:8px; display:flex; align-items:center;
       justify-content:center; font-weight:900; font-size:16px; color:#fff;
     }
@@ -34,8 +36,8 @@
       display:flex; align-items:center; gap:6px;
       padding:4px 12px; border-radius:20px; font-size:.72rem; font-weight:700;
     }
-    .pill-green { background:#0d2010; border:1px solid var(--green); color:var(--green); }
-    .pill-red   { background:#200d0d; border:1px solid var(--red);   color:var(--red); }
+    .pill-green { background:var(--green-dim); border:1px solid var(--green); color:var(--green); }
+    .pill-red   { background:var(--red-dim); border:1px solid var(--red);   color:var(--red); }
     .pill-muted { background:var(--surface); border:1px solid var(--border2); color:var(--muted); }
     .dot { width:6px; height:6px; border-radius:50%; background:currentColor; animation:blink 2s ease-in-out infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -55,7 +57,7 @@
     .risk-budget { display:flex; gap:20px; flex-wrap:wrap; }
     .risk-item { text-align:center; }
     .risk-label { font-size:.6rem; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
-    .risk-value { font-size:1rem; font-weight:700; margin-top:2px; }
+    .risk-value { font-size:1rem; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
 
     /* Signal grid */
     .signal-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:16px; }
@@ -73,20 +75,60 @@
     .sc-header { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
     .sc-title { font-size:.85rem; font-weight:700; }
     .sc-badge { padding:4px 10px; border-radius:6px; font-size:.7rem; font-weight:700; letter-spacing:.05em; }
-    .badge-long  { background:#0d2010; color:var(--green); }
-    .badge-short { background:#200d0d; color:var(--red); }
-    .badge-wait  { background:#1a1a2e; color:var(--muted); }
+    .badge-long  { background:var(--green-dim); color:var(--green); }
+    .badge-short { background:var(--red-dim); color:var(--red); }
+    .badge-wait  { background:var(--surface3); color:var(--muted); }
 
     .sc-body { padding:14px 16px; }
-    .sc-price { font-size:1.4rem; font-weight:700; font-variant-numeric:tabular-nums; margin-bottom:10px; }
-    .sc-conf  { font-size:.72rem; color:var(--muted); margin-bottom:10px; }
-    .sc-conf span { font-weight:700; color:var(--text); }
+
+    /* CONFIDENCE IS THE CARD. Price used to be 1.4rem/700 here with confidence a .72rem
+       muted line beneath it, which is backwards for what this page is read for: the
+       question every morning is how far each asset is from FIRING, and the price is
+       context for that number rather than the headline. The gap was already computed
+       and printed - it was just printed in --muted-dim, the dimmest colour on the page. */
+    .sc-conf-row { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+    .sc-conf-val {
+      font-size:2.4rem; font-weight:800; line-height:1;
+      font-variant-numeric:tabular-nums; letter-spacing:-.02em;
+    }
+    .sc-conf-lbl { font-size:.55rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+    .sc-conf-gap { font-size:.7rem; font-weight:700; text-align:right; }
+    .sc-conf-gap .sub { display:block; font-weight:400; font-size:.62rem; color:var(--muted); margin-top:2px; }
+
+    /* Gap-to-fire. The track is 0-100 confidence, the notch sits at the LIVE gate and the
+       fill is where this asset actually is, so "how far" is a glance instead of a
+       subtraction. No gate means NO TRACK at all - a track with no notch would imply a
+       bar that has already been met. */
+    .gap-track { position:relative; height:6px; border-radius:3px; background:var(--surface3); margin:12px 0 4px; }
+    .gap-fill  { position:absolute; top:0; bottom:0; left:0; border-radius:3px; }
+    .gap-notch { position:absolute; top:-4px; bottom:-4px; width:2px; background:var(--text); }
+    /* The scale used space-between with the gate label as the middle item, which parked
+       the words "gate 70" at the track's MIDPOINT while the notch they name sat at 70%.
+       The label now rides the notch, so the mark and its name are the same place. */
+    .gap-scale { position:relative; height:11px; font-size:.55rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .gap-scale .end { position:absolute; top:0; }
+    .gap-scale .lo { left:0; } .gap-scale .hi { right:0; }
+    .gap-scale .at-gate { position:absolute; top:0; transform:translateX(-50%); white-space:nowrap; color:var(--text); font-weight:700; }
+
+    /* Price, regime and data age on one demoted context line. */
+    .sc-context { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:.72rem; color:var(--muted); }
+    .sc-price { font-size:1rem; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
+    .sc-sep { color:var(--border2); }
+
+    /* A card whose signals are older than one and a half refresh cycles. It keeps showing
+       its levels - they are the last thing the engine actually said - but it stops looking
+       live. Colour AND a worded chip, never colour alone. */
+    .signal-card.stale { border-color:var(--yellow); }
+    .stale-chip {
+      font-size:.55rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+      color:var(--yellow); border:1px solid var(--yellow); border-radius:4px; padding:1px 5px;
+    }
 
     .level-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
     .level-item { text-align:center; padding:8px 4px; border-radius:8px; }
-    .level-entry { background:#0d1a2e; }
-    .level-stop  { background:#200d0d; }
-    .level-target { background:#0d2010; }
+    .level-entry { background:var(--surface3); }
+    .level-stop  { background:var(--red-dim); }
+    .level-target { background:var(--green-dim); }
     .level-label { font-size:.58rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
     .level-price { font-size:.85rem; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
     .level-entry  .level-price { color:var(--blue); }
@@ -141,12 +183,12 @@
     .health-setup { font-size:.78rem; font-weight:600; }
     .health-wr    { font-size:.78rem; font-variant-numeric:tabular-nums; }
     .health-status { font-size:.62rem; font-weight:700; padding:2px 8px; border-radius:4px; }
-    .status-priority { background:#0d2010; color:var(--green); }
-    .status-avoid    { background:#200d0d; color:var(--red); }
-    .status-ok       { background:#1a1a2e; color:var(--muted); }
+    .status-priority { background:var(--green-dim); color:var(--green); }
+    .status-avoid    { background:var(--red-dim); color:var(--red); }
+    .status-ok       { background:var(--surface3); color:var(--muted); }
 
     /* PnL */
-    .pnl-display { font-size:2rem; font-weight:700; text-align:center; padding:20px 0; }
+    .pnl-display { font-size:2rem; font-weight:700; text-align:center; padding:20px 0; font-variant-numeric:tabular-nums; }
     .pnl-pos { color:var(--green); }
     .pnl-neg { color:var(--red); }
     .pnl-zero { color:var(--muted); }
@@ -159,13 +201,14 @@
 
     /* Screenshot section */
     .screenshot-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+    @media(max-width:900px){ .screenshot-grid{ grid-template-columns:1fr; } }
     .screenshot-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
     .screenshot-card img { width:100%; display:block; }
     .screenshot-label { font-size:.68rem; color:var(--muted); padding:8px 12px; text-align:center; }
     .no-screenshot { padding:40px 20px; text-align:center; color:var(--muted); font-size:.78rem; }
 
     .halted-banner {
-      background:#200d0d; border:1px solid var(--red); border-radius:8px;
+      background:var(--red-dim); border:1px solid var(--red); border-radius:8px;
       padding:10px 16px; margin-bottom:14px; color:var(--red);
       font-size:.8rem; font-weight:700; text-align:center;
     }
@@ -312,6 +355,17 @@ function fmt(n) {
   return '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/* Signed money. fmt() puts the minus INSIDE the currency symbol, so a losing day rendered
+   as "$-42.18" — and the callers then prefixed a '+' only when positive, which left the
+   two P&L figures as the only inconsistently-signed numbers on the page. The sign belongs
+   in front of the symbol, and it is always shown: an explicit '+' is what makes the '-'
+   read as a value rather than as a stray character. */
+function fmtSigned(n) {
+  const v = Number(n);
+  if (n == null || !Number.isFinite(v)) return '—';
+  return (v < 0 ? '-' : '+') + fmt(Math.abs(v));
+}
+
 function signalClass(s) {
   if (!s || s === 'WAIT') return 'wait';
   return s === 'BUY' || s === 'LONG' ? 'long' : 'short';
@@ -338,6 +392,30 @@ let candleRead = null;
 
 // Which broker symbol each card is, so a card can find its own rows in the read.
 const CARD_SYMBOL = { 'card-btc': 'BTCUSD', 'card-gold': 'XAUUSD', 'card-spx': 'SP500' };
+
+// Staleness measured in REAL refresh cycles, not a number chosen to look reasonable.
+// server/index.js refreshes signals on a `*/30 * * * *` cron and prices on `* * * * *`,
+// so these are 1.5 and 5 cycles respectively.
+const SIGNAL_STALE_MS = 45 * 60 * 1000;
+const PRICE_STALE_MS  =  5 * 60 * 1000;
+
+// The age of the data every card is drawn from. `plan.generatedAt` is stamped when the
+// REQUEST arrives, so it always reads "now" and can never be stale — it was this page's
+// only freshness stamp and it was structurally incapable of reporting a problem. These
+// come from signalCache.updatedAt / priceCache.updated, the moments the values actually
+// changed. NaN when the server did not send them (an older build on the other box), and
+// NaN renders as "age unknown" — never as fresh.
+let signalsAgeMs = NaN;
+let pricesAgeMs  = NaN;
+
+function ageText(ms) {
+  return window.SEFresh ? window.SEFresh.agoMs(ms, { unknown: 'age unknown' })
+                        : (Number.isFinite(ms) ? Math.round(ms / 60000) + 'm ago' : 'age unknown');
+}
+function ageMsOf(iso) {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? Math.max(0, Date.now() - t) : NaN;
+}
 
 /* Render the D1 and H4 measured read for one asset.
    Most mornings every row says INSIDE NOISE, and that is printed in those words. A bare
@@ -380,9 +458,22 @@ function renderCard(id, title, sig, price) {
   const card = document.getElementById(id);
   if (!card) return;
   const dir = sig?.signal;
-  card.className = 'signal-card ' + signalClass(dir);
   const hasLevels = sig && dir && dir !== 'WAIT' && sig.entry;
-  const conf = sig?.confidence ?? 0;
+
+  // ABSENT IS NOT ZERO. This read `sig?.confidence ?? 0`, so an asset the engine has
+  // said nothing about — a cold cache, a scan that threw, an asset dropped from the
+  // loop — rendered an authoritative "0%" and "70 pts to fire", which is a measurement
+  // it never made. Same failure as a missing age rendering as fresh. `hasReading` is
+  // false only when there is genuinely no number, and that case says so in words.
+  const rawConf = sig ? Number(sig.confidence) : NaN;
+  const hasReading = Number.isFinite(rawConf);
+  const conf = hasReading ? rawConf : 0;
+
+  // Signals older than 1.5 refresh cycles keep their levels — they are the last thing
+  // the engine actually said — but the card stops looking live. A yellow border AND a
+  // worded chip, because colour alone is not a state.
+  const signalsStale = Number.isFinite(signalsAgeMs) && signalsAgeMs > SIGNAL_STALE_MS;
+  card.className = 'signal-card ' + signalClass(dir) + (signalsStale ? ' stale' : '');
 
   // Colour and label against the LIVE gate, never a hardcoded number. This block used
   // to read `conf >= 80 ? green : conf >= 65 ? yellow : muted` while the gate has been
@@ -390,34 +481,69 @@ function renderCard(id, title, sig, price) {
   // amber as a 66% one five points short — on the page read immediately before trading.
   // Three states now, and each means one thing: at or above the gate, within 10 points
   // of it, or further out. The gap is stated in points so "how far" needs no arithmetic.
-  let confColor, gapNote;
-  if (liveGate == null) {
+  // Each state also carries a GLYPH: on a card where the number itself is coloured,
+  // colour is the only channel left, and colour alone is not a state.
+  let confColor, confGlyph, gapMain, gapSub;
+  if (!hasReading) {
     confColor = 'var(--muted)';
-    gapNote = ' <span style="color:var(--muted-dim)">(gate unknown — server did not send it)</span>';
+    confGlyph = '—';
+    gapMain = 'NO READING';
+    gapSub  = 'the engine has not scored this asset';
+  } else if (liveGate == null) {
+    confColor = 'var(--muted)';
+    confGlyph = '?';
+    gapMain = 'gate unknown';
+    gapSub  = 'server did not send it';
   } else if (conf >= liveGate) {
     confColor = 'var(--green)';
-    gapNote = ` <span style="color:var(--green)">at/above gate ${liveGate}</span>`;
+    confGlyph = '✓';
+    gapMain = 'AT / ABOVE GATE';
+    gapSub  = 'gate ' + liveGate;
   } else {
     const gap = liveGate - conf;
     confColor = gap <= 10 ? 'var(--yellow)' : 'var(--muted)';
-    gapNote = ` <span style="color:var(--muted-dim)">${gap}pt below gate ${liveGate}</span>`;
+    confGlyph = gap <= 10 ? '▲' : '·';
+    gapMain = gap + ' pt' + (gap === 1 ? '' : 's') + ' to fire';
+    gapSub  = 'gate ' + liveGate;
   }
   // A non-null settingsError means the gate above is a built-in DEFAULT, not the saved
   // config. Same failure this page already had: a number that looks authoritative and
   // is not. Said out loud rather than left to be inferred.
   if (gateIsDefaults) {
-    gapNote += ' <span style="color:var(--red)">⚠ DEFAULTS, not saved config</span>';
+    gapSub += ' <span style="color:var(--red)">⚠ DEFAULTS, not saved config</span>';
   }
+
+  // The track only exists when there is a real gate to notch it at. A full-width track
+  // with no notch would read as a bar that has already been met.
+  const gapBar = (liveGate == null || !hasReading) ? '' : `
+      <div class="gap-track">
+        <div class="gap-fill" style="width:${Math.max(0, Math.min(100, conf))}%;background:${confColor}"></div>
+        <div class="gap-notch" style="left:${Math.max(0, Math.min(100, liveGate))}%" title="gate ${liveGate}"></div>
+      </div>
+      <div class="gap-scale">
+        <span class="end lo">0</span>
+        <span class="at-gate" style="left:${Math.max(0, Math.min(100, liveGate))}%">gate ${liveGate}</span>
+        <span class="end hi">100</span>
+      </div>`;
 
   card.innerHTML = `
     <div class="sc-header">
       <span class="sc-title">${title}</span>
-      <span class="sc-badge ${badgeClass(dir)}">${signalLabel(dir)}</span>
+      <span>${signalsStale ? '<span class="stale-chip">stale</span> ' : ''}<span class="sc-badge ${badgeClass(dir)}">${signalLabel(dir)}</span></span>
     </div>
     <div class="sc-body">
-      <div class="sc-price">${price ? fmt(price) : '—'}</div>
-      <div class="sc-conf">Confidence: <span style="color:${confColor}">${conf}%</span>${gapNote}
-        &nbsp;|&nbsp; Regime: <span>${sig?.regime ?? '—'}</span>
+      <div class="sc-conf-row">
+        <div>
+          <div class="sc-conf-lbl">Confidence</div>
+          <div class="sc-conf-val" style="color:${confColor}">${hasReading ? confGlyph + ' ' + conf + '%' : '—'}</div>
+        </div>
+        <div class="sc-conf-gap" style="color:${confColor}">${gapMain}<span class="sub">${gapSub}</span></div>
+      </div>
+      ${gapBar}
+      <div class="sc-context">
+        <span class="sc-price">${price ? fmt(price) : '—'}</span>
+        <span class="sc-sep">|</span><span>${esc(sig?.regime ?? '—')}</span>
+        <span class="sc-sep">|</span><span${signalsStale ? ' style="color:var(--yellow);font-weight:700"' : ''}>signal ${ageText(signalsAgeMs)}</span>
       </div>
       ${hasLevels ? `
         <div class="level-grid">
@@ -435,10 +561,10 @@ function renderCard(id, title, sig, price) {
           </div>
         </div>
         <div class="rr-bar">
-          <span>Setup: <b>${(sig.setup||'').replace(/_/g,' ')}</b></span>
+          <span>Setup: <b>${esc((sig.setup||'').replace(/_/g,' '))}</b></span>
           <span>R:R <span class="rr-val">1:${sig.rr ?? '—'}</span></span>
         </div>
-      ` : `<div class="setup-tag">No actionable setup — ${sig?.regime ?? 'market scanning'}</div>`}
+      ` : `<div class="setup-tag">No actionable setup — ${esc(sig?.regime ?? 'market scanning')}</div>`}
       ${candleBlock(id)}
     </div>
   `;
@@ -503,8 +629,17 @@ async function loadPlan() {
     // unknown" on every card until that server was restarted, which is a worse read than
     // the bug it replaces. /api/strategy-settings exists on BOTH boxes today and is the
     // same value from the same object, so the fallback needs no deploy and no restart.
+    // Number.isFinite alone is NOT enough, and this is the second time this page has
+    // been bitten by the same shape of hole. `Number(null)` is 0 and `Number('')` is 0,
+    // both finite — so a null gate in the payload set liveGate = 0, the fallback below
+    // never ran, and EVERY asset rendered "at/above gate 0" in green. A 41% WAIT reading
+    // as FIRING is the worst thing this page can do, and it is exactly what the comment
+    // above it promises will never happen. A confidence gate is a percentage and is
+    // never 0 — nothing would be gated. Anything outside 1..100 is treated as absent,
+    // which routes it to the fallback and then, if that also fails, to "gate unknown".
+    const isUsableGate = g => Number.isFinite(g) && g > 0 && g <= 100;
     const gateValue = Number(plan.gate);
-    if (Number.isFinite(gateValue)) {
+    if (isUsableGate(gateValue)) {
       liveGate = gateValue;
       gateIsDefaults = Boolean(plan.settingsError);
       candleRead = plan.candleRead || null;
@@ -514,7 +649,7 @@ async function loadPlan() {
         if (sr.ok) {
           const s = await sr.json();
           const fallback = Number(s.confidenceThreshold);
-          liveGate = Number.isFinite(fallback) ? fallback : null;
+          liveGate = isUsableGate(fallback) ? fallback : null;
           gateIsDefaults = Boolean(s.settingsError);
         }
       } catch (e) {
@@ -525,18 +660,33 @@ async function loadPlan() {
       }
     }
 
-    // Date bar
+    // Ages BEFORE any card renders, or the first paint claims a freshness it has not
+    // checked. Absent keys (an older server on the other box) leave these NaN, which
+    // renders as "age unknown" rather than as fresh.
+    signalsAgeMs = ageMsOf(plan.signalsUpdatedAt);
+    pricesAgeMs  = ageMsOf(plan.pricesUpdatedAt);
+
+    // Date bar. `plan.generatedAt` is stamped when the request arrives, so it is the age
+    // of THIS FETCH and nothing else — it used to be the only stamp on the page, which
+    // meant a plan built on nine-hour-old signals looked exactly as current as one built
+    // a minute ago. It is dropped here in favour of the two ages that can actually go bad.
     document.getElementById('plan-date').textContent = 'Daily Plan — ' + plan.date;
-    document.getElementById('plan-meta').textContent = 'Generated ' + new Date(plan.generatedAt).toLocaleTimeString();
+    const sStale = Number.isFinite(signalsAgeMs) && signalsAgeMs > SIGNAL_STALE_MS;
+    const pStale = Number.isFinite(pricesAgeMs)  && pricesAgeMs  > PRICE_STALE_MS;
+    const meta = document.getElementById('plan-meta');
+    meta.innerHTML = 'Signals <b style="color:' + (sStale ? 'var(--yellow)' : 'var(--text)') + '">'
+      + esc(ageText(signalsAgeMs)) + (sStale ? ' ⚠ STALE' : '') + '</b>'
+      + ' &nbsp;·&nbsp; Prices <b style="color:' + (pStale ? 'var(--yellow)' : 'var(--text)') + '">'
+      + esc(ageText(pricesAgeMs)) + (pStale ? ' ⚠ STALE' : '') + '</b>';
     document.getElementById('vix-val').textContent = plan.prices?.vix ? plan.prices.vix.toFixed(1) : '—';
     document.getElementById('dxy-val').textContent = plan.prices?.dxy ? plan.prices.dxy.toFixed(2) : '—';
 
     // Today P&L
     const pnl = plan.todayPnl ?? 0;
-    document.getElementById('today-pnl').textContent = (pnl >= 0 ? '+' : '') + fmt(pnl);
+    document.getElementById('today-pnl').textContent = fmtSigned(pnl);
     document.getElementById('today-pnl').style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
     const pnlBig = document.getElementById('pnl-big');
-    pnlBig.textContent = (pnl >= 0 ? '+' : '') + fmt(pnl);
+    pnlBig.textContent = fmtSigned(pnl);
     pnlBig.className = 'pnl-display ' + (pnl > 0 ? 'pnl-pos' : pnl < 0 ? 'pnl-neg' : 'pnl-zero');
 
     // Halt banner
@@ -640,7 +790,8 @@ async function loadPlan() {
       console.error('[daily-plan] screenshot probe failed:', e);
     });
 
-    document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
+    lastRefreshAt = Date.now();
+    document.getElementById('last-refresh').textContent = 'last refresh just now';
   } catch (e) {
     // Log it. This catch swallowed the CORS failure above in total silence for as
     // long as the bug existed — an empty console and an OFFLINE pill gave nothing
@@ -649,12 +800,37 @@ async function loadPlan() {
     document.getElementById('server-status').className = 'pill pill-red';
     document.getElementById('server-status').innerHTML = '<span class="dot"></span> OFFLINE';
     document.getElementById('plan-meta').textContent = 'Failed to load plan — ' + (e && e.message ? e.message : e);
+    // The cards kept their last values with nothing to say the fetch had died, so a
+    // dead server left three confident entry/stop/target sets on screen indefinitely.
+    // Nothing is hidden — they still show what the engine last said — but they are
+    // marked, with a border AND a word, so they cannot be read as live.
+    // Marked even on a card that was ALREADY stale. "stale" and "no refresh" are two
+    // different failures — old data from a live server, versus a server that has stopped
+    // answering at all — and collapsing the second into the first hides the worse one.
+    ['card-btc','card-gold','card-spx'].forEach(id => {
+      const c = document.getElementById(id);
+      if (!c) return;
+      c.classList.add('stale');
+      const head = c.querySelector('.sc-header');
+      if (!head) return;
+      const existing = [...head.querySelectorAll('.stale-chip')];
+      if (existing.some(el => el.textContent === 'no refresh')) return;
+      const chip = document.createElement('span');
+      chip.className = 'stale-chip';
+      chip.textContent = 'no refresh';
+      head.appendChild(chip);
+    });
   }
 }
 
-// Clock
+// Clock. Also ticks the refresh age: the bar used to print a wall-clock time, which
+// leaves the reader to subtract — and on a page whose fetch can die silently, that is
+// exactly the subtraction nobody performs.
+let lastRefreshAt = null;
 function tick() {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+  const el = document.getElementById('last-refresh');
+  if (el && lastRefreshAt) el.textContent = 'last refresh ' + ageText(Date.now() - lastRefreshAt);
 }
 tick();
 setInterval(tick, 1000);

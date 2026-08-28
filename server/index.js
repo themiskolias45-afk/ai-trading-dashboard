@@ -6075,6 +6075,14 @@ app.get("/api/daily-plan", (_, res) => {
   const plan = {
     date:     new Date().toISOString().slice(0, 10),
     generatedAt: new Date().toISOString(),
+    // generatedAt above is stamped WHEN THE REQUEST ARRIVES, so it always reads "now"
+    // and can never go stale. The page rendered it as its only freshness stamp, which
+    // meant a plan built on signals refreshed nine hours ago looked as current as one
+    // built a minute ago. These two are the REAL ages, both already held in memory and
+    // simply never sent. Null before the first refresh, and null must render as
+    // "age unknown" — never as fresh. Same rule as the healer tick with no age.
+    signalsUpdatedAt: signalCache.updatedAt,
+    pricesUpdatedAt:  priceCache.updated,
     // The number every confidence on this page is measured against. It was NOT in
     // this payload, so dashboard/daily-plan.html had no way to know it and coloured
     // confidence against a hardcoded 80/65 — while the live gate has been 70 since
