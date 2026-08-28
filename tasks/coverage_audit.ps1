@@ -75,6 +75,13 @@ if ($tasks.Count -eq 0) {
         $trigKinds = @($t.Triggers | ForEach-Object { $_.CimClass.CimClassName })
         $hasBoot   = @($trigKinds | Where-Object { $_ -match 'Boot' }).Count -gt 0
         $logonOnly = ($trigKinds.Count -gt 0) -and -not (@($trigKinds | Where-Object { $_ -notmatch 'Logon' }).Count)
+        # An UNLOCK trigger (MSFT_TaskSessionStateChangeTrigger) has no NextRunTime
+        # either, and it is STRONGER coverage than logon-only on a laptop -- it is the
+        # trigger that actually fires when the lid opens. It does not match 'Logon', so
+        # 'Morning Ready' (logon + unlock) fell past $logonOnly and reported AMBER
+        # 'nothing will fire it again' every day while firing every day. A false AMBER
+        # on a status surface is the same failure as a false RED.
+        $eventOnly = ($trigKinds.Count -gt 0) -and -not (@($trigKinds | Where-Object { $_ -notmatch 'Logon|SessionStateChange' }).Count)
 
         if (-not $ranEver -or $i.LastTaskResult -eq 267011) {
             # The question is not "has it run" but "will it". A scheduled next run
@@ -163,6 +170,8 @@ if ($tasks.Count -eq 0) {
                 # exact shape that left the VPS dead after a reboot, and on a laptop it
                 # never fires on a lid-open. Named as a limitation, not a fault.
                 Add-Check 'tasks' $t.TaskName 'INFO' "ok ${ageH}h ago, LOGON-only - fires again at next logon, and never on lid-open or unlock"
+            } elseif ($eventOnly) {
+                Add-Check 'tasks' $t.TaskName 'INFO' "ok ${ageH}h ago, event-triggered (logon + unlock) - fires again at the next logon or lid-open, which is why it has no next run time"
             } else {
                 Add-Check 'tasks' $t.TaskName 'AMBER' "ok ${ageH}h ago but NO next run scheduled and no boot/logon trigger - nothing will fire it again"
             }
