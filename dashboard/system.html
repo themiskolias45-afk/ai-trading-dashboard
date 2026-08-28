@@ -1722,18 +1722,38 @@ async function loadWorkforce() {
   // divergence while both boxes looked healthy. A dead peer degrades this one strip.
   const peer = data.peer || {};
   const pc = peer.counts || {};
-  const cell = (label, a, b) => {
-    const differs = peer.reachable && a != null && b != null && String(a) !== String(b);
+  const BAD = /UNHEALTHY|HALTED|DOWN|unreadable/;
+  const paint = v => BAD.test(String(v)) ? 'var(--red)' : 'inherit';
+  const cell = (label, a, b, compareOn) => {
+    // Two boxes can be equally broken. "They match" must never render as "they are fine",
+    // so a bad value is red on its own merits before any agreement check runs.
+    //
+    // compareOn lets a row DISPLAY more than it COMPARES. bridge A shows "connected 25s"
+    // and "connected 53s" — the heartbeat ages always differ, so comparing the whole
+    // string painted a permanent yellow on two healthy bridges. A disagreement that can
+    // never clear is exactly the false alarm that trains you to skim past a real one.
+    const key = compareOn || (v => v);
+    const differs = peer.reachable && a != null && b != null
+      && String(key(a)) !== String(key(b));
     return `<td style="padding:3px 10px 3px 0">${label}</td>`
-      + `<td style="padding:3px 14px 3px 0;text-align:right;font-variant-numeric:tabular-nums">${a ?? '—'}</td>`
-      + `<td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;color:${differs ? 'var(--yellow)' : 'inherit'}">${peer.reachable ? (b ?? '—') : '—'}</td>`;
+      + `<td style="padding:3px 14px 3px 0;text-align:right;font-variant-numeric:tabular-nums;color:${paint(a)}">${a ?? '—'}</td>`
+      + `<td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;color:${BAD.test(String(b)) ? 'var(--red)' : differs ? 'var(--yellow)' : 'inherit'}">${peer.reachable ? (b ?? '—') : '—'}</td>`;
   };
+  // A COUNT IS NOT HEALTH. Matching tallies on two boxes say nothing about whether
+  // either is working — the VPS ran for weeks with matching counts and no AI at all.
+  const lh = data.health || {}, ph = peer.health || {};
+  const yesNo = v => v === null || v === undefined ? null : (v ? 'HALTED' : 'running');
+  const bridgeCell = h => h.bridgeA ? (h.bridgeA + (h.bridgeAgeSec != null ? ' ' + h.bridgeAgeSec + 's' : '')) : null;
   const fleetRows = [
-    ['employed',  c.employed,        pc.employed],
-    ['skills',    localReg.skills,   pc.skills],
-    ['agents',    localReg.agents,   pc.agents],
-    ['MCP tools', localReg.tools,    pc.tools],
-    ['scripts',   localReg.scripts,  pc.scripts],
+    ['healer',      lh.healer,          ph.healer],
+    ['breaker',     yesNo(lh.halted),   yesNo(ph.halted)],
+    ['consec loss', lh.consecutiveLosses, ph.consecutiveLosses],
+    ['bridge A',    bridgeCell(lh),     bridgeCell(ph), v => String(v).split(' ')[0]],
+    ['employed',    c.employed,         pc.employed],
+    ['skills',      localReg.skills,    pc.skills],
+    ['agents',      localReg.agents,    pc.agents],
+    ['MCP tools',   localReg.tools,     pc.tools],
+    ['scripts',     localReg.scripts,   pc.scripts],
   ].filter(r => r[1] != null || r[2] != null);
   const peerNote = !peer.configured
     ? '<span style="color:var(--muted-dim)">no peer configured (PEER_SERVER_URL unset)</span>'
@@ -1745,9 +1765,9 @@ async function loadWorkforce() {
        <div class="section-desc" style="margin-top:6px">
          <table style="font-size:.7rem;border-collapse:collapse">
            <tr style="color:var(--muted-dim)"><td style="padding-right:10px"></td><td style="padding-right:14px;text-align:right">${esc(data.thisBox || 'this box')}</td><td style="text-align:right">peer</td></tr>
-           ${fleetRows.map(r => '<tr>' + cell(r[0], r[1], r[2]) + '</tr>').join('')}
+           ${fleetRows.map(r => '<tr>' + cell(r[0], r[1], r[2], r[3]) + '</tr>').join('')}
          </table>
-         <div style="margin-top:4px">${peerNote}. A yellow figure means the two boxes disagree.</div>
+         <div style="margin-top:4px">${peerNote}. A yellow figure means the two boxes disagree; red means that box is unhealthy regardless of whether they match.</div>
        </div>`
     : '');
   html('workforce-grid', employees.length

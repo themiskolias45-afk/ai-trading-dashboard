@@ -4092,14 +4092,42 @@ app.get("/api/ai-employees", async (_, res) => {
     //
     // Fetched, never assumed: if the peer is unreachable the field says so and the local
     // half still renders. A dead peer must degrade one column, not blank the page.
+    // A COUNT IS NOT HEALTH. Matching capability tallies on two boxes say nothing about
+    // whether either is actually working — the VPS ran for weeks with matching counts and
+    // no AI at all. So the map carries a health row per box, from endpoints that are
+    // already public on both: healer, risk, and the bridge liveness test that is the only
+    // authoritative one (a process check is not a substitute; Windows reports an empty
+    // command line for the bridge python processes).
+    const healthOf = async (prefix) => {
+      const get = (route) => axios
+        .get(prefix + route, { timeout: 4000, validateStatus: s => s === 200 })
+        .then(r => r.data).catch(() => null);
+      const [healer, risk, bridge] = await Promise.all([
+        get("/api/healer"), get("/api/risk-status"), get("/api/mt5/health?account=A"),
+      ]);
+      return {
+        healer: healer ? (healer.healthy ? "healthy" : "UNHEALTHY") : "unreadable",
+        healCount: healer ? healer.healCount : null,
+        halted: risk ? Boolean(risk.halted) : null,
+        consecutiveLosses: risk ? risk.consecutiveLosses : null,
+        // null means the bridge has never checked in during this server's life, which is
+        // NOT the same as disconnected - reported as its own word rather than as false.
+        bridgeA: bridge ? (bridge.connected === null ? "starting" : bridge.connected ? "connected" : "DOWN") : "unreadable",
+        bridgeAgeSec: bridge && Number.isFinite(bridge.ageMs) ? Math.round(bridge.ageMs / 1000) : null,
+      };
+    };
+
     const base = String(process.env.PEER_SERVER_URL || "").trim().replace(/\/+$/, "");
-    let peer = { configured: false, reachable: false, url: null, counts: null, error: null };
+    let peer = { configured: false, reachable: false, url: null, counts: null, health: null, error: null };
+    const localHealthPromise = healthOf("http://localhost:" + (process.env.PORT || 3001));
+
     if (base) {
-      peer = { configured: true, reachable: false, url: base, counts: null, error: null };
+      peer = { configured: true, reachable: false, url: base, counts: null, health: null, error: null };
       try {
-        const [roster, registry] = await Promise.all([
+        const [roster, registry, peerHealth] = await Promise.all([
           axios.get(base + "/api/ai-employees", { timeout: 4000, validateStatus: s => s === 200 }),
           axios.get(base + "/api/ai-registry",  { timeout: 4000, validateStatus: s => s === 200 }),
+          healthOf(base),
         ]);
         peer.reachable = true;
         peer.counts = {
@@ -4108,14 +4136,16 @@ app.get("/api/ai-employees", async (_, res) => {
           proposed: roster.data && roster.data.counts ? roster.data.counts.proposed : null,
         };
         peer.scriptsByArea = registry.data ? registry.data.scriptsByArea : null;
+        peer.health = peerHealth;
       } catch (e) {
         peer.error = (e && e.message ? e.message : String(e)).slice(0, 120);
       }
     }
+    const localHealth = await localHealthPromise;
 
     // Named so a reader cannot mistake which column is which. "local" is whichever box is
     // serving this response, which is not always the laptop.
-    res.json({ ...local, peer, thisBox: os.hostname() });
+    res.json({ ...local, health: localHealth, peer, thisBox: os.hostname() });
   } catch (e) {
     console.error("[ai-employees]", e.message);
     res.status(500).json({ available: false, reason: e.message, employees: [], feedsTheGate: false });
