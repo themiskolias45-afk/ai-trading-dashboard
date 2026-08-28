@@ -11,6 +11,36 @@ const MIN_CONFIDENCE = 65;
 const MIN_RR = 1.5;
 const CORRELATION_PENALTY = 0.2;
 
+// The smallest budget this module will ever approve, as a fraction of balance.
+//
+// THIS BOUND IS A TRADING GUARD, NOT A TIDINESS ONE. validateTrade deliberately still
+// returns approved:true when it cannot size (see resolveValuePerPoint), because
+// "refusing to size must not refuse the trade" — but mt5_bridge.py then computes
+// `risk_amount = suggestedSize * stop_distance` and REFUSES on `risk_amount <= 0` with
+// "risk engine approved a zero budget". So a zero or negative risk percent arriving
+// from config would silently become a full trading outage, one layer below the place
+// that tried not to block anything. Clamped here so that cannot happen.
+const MIN_RISK_PCT = 0.0001;   // 0.01% of balance
+
+/**
+ * The per-trade risk budget actually in force, as a fraction of balance.
+ *
+ * Reads strategy_settings.riskPercent when it is present and sane, and falls back to
+ * the historical hardcoded 1% otherwise — so a box with no such key behaves EXACTLY as
+ * it did before this existed.
+ *
+ * ALWAYS PERCENT UNITS, never a fraction. `riskPercent: 1` already means 1% in this
+ * project's account config, so 0.10 means one tenth of one percent. A first draft of
+ * this accepted either spelling and guessed by magnitude — which read 0.05 as 5% and
+ * clamped it UP to the 3% ceiling when the author meant 0.05%. Guessing units on a
+ * number that sizes real money is not worth the convenience.
+ */
+function resolveRiskPct(riskPercent) {
+  const percent = Number(riskPercent);
+  if (!Number.isFinite(percent) || percent <= 0) return BASE_RISK_PCT;
+  return Math.min(MAX_SINGLE_TRADE_RISK, Math.max(MIN_RISK_PCT, percent / 100));
+}
+
 function calcKelly(winRate, avgWin, avgLoss) {
   if (
     typeof winRate !== 'number' || typeof avgWin !== 'number' || typeof avgLoss !== 'number' ||
@@ -304,7 +334,10 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
     };
   }
 
-  const suggestedRiskPct = Math.min(BASE_RISK_PCT, maxNewRisk);
+  // The configured per-trade budget, still floored by whatever headroom the 6%
+  // portfolio cap leaves. Absent config reproduces the previous BASE_RISK_PCT exactly.
+  const configuredRiskPct = resolveRiskPct(options.riskPercent);
+  const suggestedRiskPct = Math.min(configuredRiskPct, maxNewRisk);
   const suggestedRiskAmount = accountBalance * suggestedRiskPct;
 
   const projectedTotalRisk = totalRiskPct + (suggestedRiskAmount / accountBalance);

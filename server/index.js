@@ -858,6 +858,18 @@ const STRATEGY_LIMITS = {
   // risk calculation entirely and trades exactly that size.
   fixedLotSize: { min: 0,    max: 100, def: 0,  decimals: 2 },
   maxLotSize:   { min: 0.01, max: 100, def: 10, decimals: 2 },
+  // Per-trade risk budget in PERCENT of balance, used only when fixedLotSize is 0.
+  // 1 means 1%, 0.1 means one tenth of one percent — the same units the account
+  // config has always used. Default 1 reproduces the hardcoded BASE_RISK_PCT that
+  // server/sizing.js used before this key existed, so a box without it is unchanged.
+  //
+  // It has to be listed HERE or it cannot be set by anything: loadStrategySettings
+  // iterates Object.keys(STRATEGY_LIMITS), which is exactly why the RSI ceilings were
+  // a reader with no writer until ec88075. 4 decimals because 0.1 must survive.
+  //
+  // max 3 mirrors MAX_SINGLE_TRADE_RISK in sizing.js, which clamps independently —
+  // this bound is the UI's, that one is the engine's, and neither trusts the other.
+  riskPercent:  { min: 0.01, max: 3,   def: 1,  decimals: 4 },
   // Below this ADX the trend is treated as too weak to size up. Measured on this
   // account's own 5 years: >=20 lifted swing-pullback win rate 52%->65% on Gold
   // and 42%->54% on SPX.
@@ -9637,6 +9649,9 @@ app.post("/api/size", (req, res) => {
     const validation = sizing.validateTrade(signal, accountBalance, openPositions || [], {
       minConfidence: strategySettings.confidenceThreshold,
       valuePerPointBySymbol,
+      // The configured per-trade budget. Absent or unparseable, sizing.js falls back to
+      // its own 1% and this route behaves exactly as it did before the key existed.
+      riskPercent: strategySettings.riskPercent,
     });
     res.json(validation);
   } catch (e) {
