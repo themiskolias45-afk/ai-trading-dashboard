@@ -84,6 +84,14 @@ if not "%CLAUDE_RC%"=="0" (
   REM and the doctor showed RED for a job that had handled its own outage. An alert
   REM that cannot clear trains you to skim past the one that matters.
   if not errorlevel 1 set CLAUDE_RC=0
+  REM AN EXPIRED LOGIN IS NOT A GENERIC FAILURE. park exits 3 for that case, and
+  REM `if not errorlevel 1` is FALSE for 3 - so CLAUDE_RC kept claude's own 1 and the
+  REM scheduler recorded "generic failure" for a box whose only problem is that a
+  REM human has not signed in. The alarm was right, the reason was wrong, and the
+  REM doctor then sent you to read a log instead of naming the one action that fixes
+  REM it. Order matters and was verified by running it: a successful `set` clears
+  REM ERRORLEVEL to 0, so the 0-case must be tested BEFORE the 3-case.
+  if errorlevel 3 set CLAUDE_RC=3
 )
 del "%RUNOUT%" 2>nul
 

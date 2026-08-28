@@ -215,8 +215,10 @@ async function checkBox(label, base, isLocal) {
   if (work.data && Array.isArray(work.data.jobs)) {
     for (const job of work.data.jobs) {
       if (["FAILING", "NO SCHEDULED TASK"].includes(job.verdict)) {
+        // The ledger names the action when it knows one — an expired login is fixed by
+        // signing in, not by reading a log whose entire content says so.
         finding("RED", label, `job ${job.label}: ${job.verdict}`, job.detail || "",
-          `inspect ${job.lastFile || job.script}`);
+          job.remedy || `inspect ${job.lastFile || job.script}`);
       } else if (job.verdict === "REPORTS RED") {
         finding("AMBER", label, `job ${job.label} reports RED`, job.detail || "",
           `inspect ${job.lastFile || job.script}`);

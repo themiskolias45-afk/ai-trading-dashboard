@@ -211,6 +211,49 @@ const EXPECTED_TASK_RESULTS = new Map([
   }],
 ]);
 
+// One wording, five task entries. The brief is queued, so the cost of the outage is
+// delay and not lost work — say that, or the row reads worse than it is.
+const AUTH_EXPIRED_REASON =
+  "the Claude CLI could not authenticate — a human must run `claude` on that box and "
+  + "sign in. The brief was QUEUED, not lost, and resumes on the next drain";
+
+/**
+ * A named REASON for a failing exit code — the failure still stands.
+ *
+ * Distinct from EXPECTED_TASK_RESULTS above, and deliberately so. That map says "this
+ * code is not a fault"; this one says "this code IS a fault, and here is the one action
+ * that clears it". Conflating them is how a real outage gets a green tick.
+ *
+ * The case that forced it: claude_agent.py exits 3 when the CLI cannot authenticate. It
+ * parks and QUEUES the brief first, so no work is lost, and exits 3 rather than 0
+ * precisely so the task stays red — an expired login needs a person, not a retry. But
+ * the runners collapsed 3 into claude's own 1 (`if not errorlevel 1` is false for 3),
+ * so the scheduler recorded "generic failure" and the doctor sent a reader to a log
+ * instead of naming the sign-in. Both halves are now fixed: the .bat propagates 3, and
+ * this says what 3 means.
+ *
+ * Keyed on the normalised name, so one entry covers both boxes' spellings.
+ */
+const AUTH_EXPIRED_REMEDY =
+  "on that box run `claude` interactively and sign in, then the queued brief resumes on "
+  + "the next SmartEntryAgentDrain — nothing else on the box needs restarting";
+
+const TASK_RESULT_REMEDIES = new Map([
+  ["smartentrydailycheck",        { 3: AUTH_EXPIRED_REMEDY }],
+  ["smartentry-dailycheck",       { 3: AUTH_EXPIRED_REMEDY }],
+  ["smartentrymorningagent",      { 3: AUTH_EXPIRED_REMEDY }],
+  ["smartentryweeklyreview",      { 3: AUTH_EXPIRED_REMEDY }],
+  ["smartentry-weeklyalgoreview", { 3: AUTH_EXPIRED_REMEDY }],
+]);
+
+const TASK_RESULT_REASONS = new Map([
+  ["smartentrydailycheck",      { 3: AUTH_EXPIRED_REASON }],
+  ["smartentry-dailycheck",     { 3: AUTH_EXPIRED_REASON }],
+  ["smartentrymorningagent",    { 3: AUTH_EXPIRED_REASON }],
+  ["smartentryweeklyreview",    { 3: AUTH_EXPIRED_REASON }],
+  ["smartentry-weeklyalgoreview", { 3: AUTH_EXPIRED_REASON }],
+]);
+
 /** Both boxes' spellings collapse to one key. */
 function normaliseTaskName(name) {
   return String(name || "").toLowerCase().replace(/\s+/g, "");
@@ -221,10 +264,29 @@ function expectedOutcome(taskName, code) {
   return byTask && byTask[code] ? byTask[code] : null;
 }
 
+/**
+ * The one action that clears a named failure, when there is one.
+ *
+ * Kept separate from the reason string so a reader gets the CAUSE in the detail line and
+ * the ACTION in the fix line, which is how every other finding in the doctor is shaped.
+ * Returns null when the code has no known remedy, and the caller falls back to "inspect
+ * the log" — which is the honest answer when nothing better is known.
+ */
+function taskResultRemedy(code, taskName) {
+  const byTask = TASK_RESULT_REMEDIES.get(normaliseTaskName(taskName));
+  return (byTask && byTask[code]) || null;
+}
+
 function describeTaskResult(code, taskName) {
   if (code === null || code === undefined) return "unknown";
   const expected = expectedOutcome(taskName, code);
   if (expected) return `${code} (${expected})`;
+  // A named reason for a code that IS still a failure. Checked after expectedOutcome so
+  // a task that declares a code harmless keeps that meaning, and deliberately NOT
+  // consulted by taskResultIsFailure — naming a fault must never clear it.
+  const byTask = TASK_RESULT_REASONS.get(normaliseTaskName(taskName));
+  const reason = byTask && byTask[code];
+  if (reason) return `${code} (${reason})`;
   return TASK_RESULT_MEANING[code] ? `${code} (${TASK_RESULT_MEANING[code]})` : String(code);
 }
 
@@ -465,7 +527,8 @@ function build(options = {}) {
     // Verdict, most consequential first. A job that runs and fails is worse than
     // one that is merely late; a job producing recommendations nobody reads is
     // the specific failure this ledger was built for.
-    let verdict, detail;
+    // remedy stays null unless a branch below knows the exact action that clears it.
+    let verdict, detail, remedy = null;
     // The scheduler's own answer outranks anything inferred from a log file: it
     // knows whether the process finished and what it returned, and it is the only
     // source that can say the job has no task at all. Before this, a run that
@@ -502,6 +565,9 @@ function build(options = {}) {
       verdict = "FAILING";
       detail = `the scheduler reports last result ${scheduler.resultMeaning} for task "${scheduler.taskName}"`
         + (scheduler.lastRun ? ` at ${scheduler.lastRun}` : "");
+      // A known code carries its own action. "inspect the log" is the right default and
+      // the wrong answer when the log's whole content is "sign in".
+      remedy = taskResultRemedy(scheduler.lastResult, scheduler.taskName);
     } else if (exit !== null && exit !== 0) {
       verdict = "FAILING";
       detail = "last run exited " + exit + " — " + newest.name;
@@ -558,7 +624,7 @@ function build(options = {}) {
       markers: markerCounts,
       proposals: jobProposals,
       proposalsDecided: jobDecided,
-      verdict, detail,
+      verdict, detail, remedy,
     });
   }
 
