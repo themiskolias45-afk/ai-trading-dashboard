@@ -368,7 +368,7 @@ def _write_queue(jobs):
 
 
 def queue_job(prompt, label, timeout, needs_project, system, require, reset_at,
-              is_limit=True, kind="claude", extra=None):
+              is_limit=True, kind="claude", extra=None, parked_because="limit"):
     """Park one brief so the limit costs a delay instead of the work. Returns the id.
 
     is_limit — True when the run was rate-limited (the normal case). False when it
@@ -382,6 +382,11 @@ def queue_job(prompt, label, timeout, needs_project, system, require, reset_at,
         runner would silently change what the agent is.
     extra — kind-specific fields carried through the queue so the resumed run is the
         same run, not an approximation of it.
+    parked_because — "limit", "transient" or "auth". Written to the row because the
+        queue could not previously say WHY a brief was waiting, and the three do not
+        clear the same way: a limit and a transient fault clear themselves, an expired
+        login never does. coverage_audit reported every parked brief as "waiting on the
+        limit window", which told a reader to wait for something that was not coming.
     """
     jobs = load_queue()
     job_id = _job_id(label, prompt)
@@ -395,6 +400,9 @@ def queue_job(prompt, label, timeout, needs_project, system, require, reset_at,
                 job["attempts"] = int(job.get("attempts", 0)) + 1
             job["resetAt"] = reset_at
             job["lastSeen"] = now_iso
+            # Overwrite, never merge: a brief first parked on a limit and re-parked on an
+            # expired login is now waiting on the login, and the older reason is wrong.
+            job["parkedBecause"] = parked_because
             _write_queue(jobs)
             return job_id
 
@@ -409,6 +417,7 @@ def queue_job(prompt, label, timeout, needs_project, system, require, reset_at,
         "require":      require,
         "extra":        extra or {},
         "resetAt":      reset_at,
+        "parkedBecause": parked_because,
         "attempts":     0 if is_limit else 1,
         "limitHits":    1 if is_limit else 0,
         "queuedAt":     now_iso,
@@ -779,6 +788,7 @@ if __name__ == "__main__":
             # respect - nothing the machine does is wrong, so burning attempts toward
             # MAX_QUEUE_ATTEMPTS would abandon a perfectly good brief for waiting.
             is_limit=not is_transient,
+            parked_because=("auth" if is_auth else "transient" if is_transient else "limit"),
         )
         why = ("upstream was overloaded" if is_transient
                else "the CLI could not authenticate" if is_auth

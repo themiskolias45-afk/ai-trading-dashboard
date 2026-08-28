@@ -257,16 +257,29 @@ if (-not (Test-Path $queue)) {
     if ($lines.Count -eq 0) { Add-Check 'agents' 'parked briefs' 'GREEN' 'queue empty' }
     else {
         $oldest = $null
+        $authParked = 0
         foreach ($l in $lines) {
             try { $j = $l | ConvertFrom-Json } catch { continue }
             if ($j.queuedAt) {
                 $qd = [datetime]$j.queuedAt
                 if ($null -eq $oldest -or $qd -lt $oldest) { $oldest = $qd }
             }
+            # Written by claude_agent.py's queue_job. Absent on rows parked before that
+            # field existed, which read as a limit - the old assumption, and harmless.
+            if ($j.parkedBecause -eq 'auth') { $authParked++ }
         }
         $ageH = if ($oldest) { [math]::Round(($now - $oldest).TotalHours, 1) } else { -1 }
+        # A LIMIT CLEARS ITSELF. AN EXPIRED LOGIN DOES NOT. Saying "waiting on the limit
+        # window" for an auth-parked brief tells the reader to wait for something that is
+        # never coming, and the drain will keep skipping it until a person signs in.
+        $waitingOn = if ($authParked -gt 0) {
+            "$authParked of them waiting on a SIGN-IN, which will not clear on its own - run ``claude`` on this box"
+        } else {
+            'waiting on the limit window'
+        }
         if ($ageH -gt 48) { Add-Check 'agents' 'parked briefs' 'RED' "$($lines.Count) parked, oldest ${ageH}h - past the staleness drop, drain is not running" }
-        elseif ($lines.Count -gt 0) { Add-Check 'agents' 'parked briefs' 'AMBER' "$($lines.Count) parked, oldest ${ageH}h - waiting on the limit window" }
+        elseif ($authParked -gt 0) { Add-Check 'agents' 'parked briefs' 'RED' "$($lines.Count) parked, oldest ${ageH}h - $waitingOn" }
+        elseif ($lines.Count -gt 0) { Add-Check 'agents' 'parked briefs' 'AMBER' "$($lines.Count) parked, oldest ${ageH}h - $waitingOn" }
     }
 }
 
