@@ -385,6 +385,23 @@
   <div id="aiwork-jobs" class="grid grid-2"></div>
   <div id="aiwork-proposals"></div>
 
+  <!-- ═══ THE WORKFORCE ═══
+       One map. /api/ai-registry answers "what CAN be run" — 53 skills, 6 agents, 29
+       tools — and cannot answer who is EMPLOYED, to do what, on which box, reading what,
+       writing where, on whose clock. That lived across two machines' Task Scheduler
+       entries, four .bat files and nobody's head, which is how a weekly agent's correct
+       finding sat unread for five days and how the VPS agents ran for weeks on an older
+       CLAUDE.md with a /signal skill still quoting a gate that had moved.
+
+       PROPOSED rows are specified and NOT employed — shown so the gap is legible, and
+       costing nothing until a human creates the schedule. -->
+  <div class="section-label">The Workforce</div>
+  <div class="section-desc" id="workforce-desc">Read live from /api/ai-employees. Every employee declares seven things — brain, context, tools, skills, loop, memory, playbook, clock — and a missing one is shown as a finding, not left blank. This is a description, not a scheduler: nothing here can hire.</div>
+  <div id="workforce-banner"></div>
+  <div id="workforce-grid" class="grid grid-2">
+    <div class="empty-state">Reading the roster…</div>
+  </div>
+
   <!-- ═══ SKILLS & AGENTS ═══ -->
   <div class="section-label">Skills &amp; Agents</div>
   <div class="section-desc" id="registry-desc">Read live from /api/ai-registry — the same endpoint the AI Brain tab uses — and grouped by job. A skill added to .claude/commands appears here without anyone editing this page.</div>
@@ -1617,6 +1634,75 @@ async function loadLearning() {
 
 loadStatus();
 loadGate();
+// ── THE WORKFORCE ──────────────────────────────────────────────
+// Who is employed, not what could be run. See the markup comment above for why the
+// registry could not answer this.
+// Uses the page's own esc() at line 515 — a second one would shadow it and drift.
+function workforceCard(employee) {
+  const proposed = employee.status === 'PROPOSED';
+  const clock = employee.clock || {};
+  const boxes = Array.isArray(clock.boxes) ? clock.boxes.join(' + ') : '—';
+  const row = (label, value) => value
+    ? `<div style="display:flex;gap:8px;margin-bottom:3px"><span style="color:var(--muted-dim);min-width:64px;flex:none">${label}</span><span>${value}</span></div>`
+    : '';
+  const list = arr => (Array.isArray(arr) && arr.length)
+    ? arr.map(x => `<code style="font-size:.66rem">${esc(x)}</code>`).join(' ')
+    : '<span style="color:var(--muted-dim)">none</span>';
+  const steps = (employee.loop || [])
+    .map((s, i) => `<div style="color:var(--muted);margin-bottom:2px">${i + 1}. ${esc(s)}</div>`).join('');
+  const rules = (employee.playbook || [])
+    .map(r => `<div style="color:var(--muted)">· ${esc(r)}</div>`).join('');
+  // A declared-but-empty field is a real answer ("none"); a MISSING one is a finding and
+  // is shown in red rather than silently rendering as blank.
+  const gaps = (employee.missingFields || []).length
+    ? `<div style="margin-top:6px;color:var(--red)"><strong>UNDECLARED:</strong> ${esc(employee.missingFields.join(', '))}</div>`
+    : '';
+  return `<div class="panel" style="margin-bottom:12px;${proposed ? 'opacity:.72' : ''}">
+    <div class="panel-header">
+      <div class="panel-title">${esc(employee.title)}</div>
+      <span style="font-size:.62rem;font-weight:700;color:${proposed ? 'var(--muted)' : 'var(--green)'}">${esc(employee.status)}</span>
+    </div>
+    <div class="panel-body" style="max-height:none;font-size:.7rem;line-height:1.55">
+      <div style="color:var(--text);margin-bottom:8px">${esc(employee.mission)}</div>
+      ${row('brain', esc(employee.brain))}
+      ${row('clock', `${esc(clock.schedule || '—')} · <strong>${esc(boxes)}</strong>${clock.task ? ' · ' + esc(clock.task) : ''}`)}
+      ${row('context', list(employee.context))}
+      ${row('tools', list(employee.tools))}
+      ${row('skills', list(employee.skills))}
+      ${row('memory', esc(employee.memory))}
+      ${steps ? `<div style="margin-top:8px;color:var(--muted-dim);text-transform:uppercase;font-size:.58rem;letter-spacing:.09em">loop</div>${steps}` : ''}
+      ${rules ? `<div style="margin-top:8px;color:var(--muted-dim);text-transform:uppercase;font-size:.58rem;letter-spacing:.09em">playbook</div>${rules}` : ''}
+      ${employee.whyNotYet ? `<div style="margin-top:8px;color:var(--yellow)"><strong>Not employed yet:</strong> ${esc(employee.whyNotYet)}</div>` : ''}
+      ${gaps}
+    </div>
+  </div>`;
+}
+
+async function loadWorkforce() {
+  let data;
+  try {
+    data = await getJson('/ai-employees');
+  } catch (e) {
+    html('workforce-banner', `<div class="page-banner banner-warn"><strong>Roster unreachable</strong> — ${esc(e.message)}. Nothing else on this page depends on it.</div>`);
+    html('workforce-grid', '');
+    return;
+  }
+  if (data.available === false) {
+    html('workforce-banner', `<div class="page-banner banner-warn"><strong>Roster unavailable</strong> — ${esc(data.reason || 'unknown')}.</div>`);
+    html('workforce-grid', '');
+    return;
+  }
+  const employees = Array.isArray(data.employees) ? data.employees : [];
+  const c = data.counts || {};
+  html('workforce-banner', employees.length
+    ? `<div class="section-desc"><strong>${c.employed ?? 0} employed</strong> · ${c.proposed ?? 0} proposed · ${c.withModel ?? 0} reason with a model, ${c.deterministic ?? 0} deterministic${c.incomplete ? ` · <span style="color:var(--red)">${c.incomplete} with undeclared fields</span>` : ''}</div>`
+    : '');
+  html('workforce-grid', employees.length
+    ? employees.map(workforceCard).join('')
+    : '<div class="empty-state">No employees on the roster.</div>');
+}
+loadWorkforce();
+
 loadRegistry();
 loadDoctor();
 loadLearning();

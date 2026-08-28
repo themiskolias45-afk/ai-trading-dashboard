@@ -192,6 +192,23 @@ if (typeof stopVariantSummary !== "function") {
 // taught: index.js is hand-patched onto the VPS while modules travel as their own tracked
 // files, so a require whose file has not landed yet must degrade rather than take down
 // the box that trades continuously.
+// The employee roster. Guarded like every other optional module, for the reason index.js
+// is hand-patched onto the VPS while modules travel as their own tracked files.
+let employeeRoster;
+try {
+  ({ roster: employeeRoster } = require("./ai_employees"));
+} catch (rosterError) {
+  console.error(
+    `[ai-employees] roster unavailable (${rosterError.message}) — /api/ai-employees will ` +
+    `report unavailable. Signals and trading are unaffected.`
+  );
+}
+if (typeof employeeRoster !== "function") {
+  employeeRoster = () => ({ available: false,
+    reason: "server/ai_employees.js is not deployed on this box",
+    employees: [], counts: {}, feedsTheGate: false });
+}
+
 let shadowShortSummary;
 try {
   ({ shadowShortSummary } = require("./shadow_shorts"));
@@ -430,6 +447,11 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // file and are not served. There is no POST at this path; the rows are written by
   // tasks/shadow_short_ledger.py on disk, never over HTTP.
   "/api/shadow-shorts",
+  // The employee roster: job titles, schedules, which box, and the rules each job works
+  // under. Every value is already visible in this repo's .bat files and Task Scheduler
+  // names. No keys, no account numbers, no positions, no levels. There is no POST — the
+  // roster is a description and cannot hire.
+  "/api/ai-employees",
   // Fair Value Gap zones, derived from the same bars /api/signals already exposes
   // publicly. Read-only geometry: price bands and how far price has eaten into
   // them. Nothing here is not already implied by the candles. No POST at this path.
@@ -4042,6 +4064,26 @@ app.get("/api/shadow-shorts", (_, res) => {
   } catch (e) {
     console.error("[shadow-shorts]", e.message);
     res.status(500).json({ available: false, reason: e.message, byAsset: {}, feedsTheGate: false });
+  }
+});
+
+// WHO is employed, to do what, on which box, reading what, writing where, on whose clock.
+//
+// /api/ai-registry answers "what CAN be run" — 53 skills, 6 agents, 29 tools. It cannot
+// answer who is actually employed. That lived across two boxes' Task Scheduler entries,
+// four .bat files and nobody's head, which is how a weekly agent's correct finding sat
+// unread for five days and how the VPS agents ran for weeks on an older CLAUDE.md.
+//
+// A DESCRIPTION, NOT A SCHEDULER. Nothing here spawns an agent, runs a skill, calls a
+// tool or places a trade; the clock field NAMES the scheduled task that really fires, it
+// does not create one. A roster that could hire would be a roster that could hire by
+// accident.
+app.get("/api/ai-employees", (_, res) => {
+  try {
+    res.json(employeeRoster());
+  } catch (e) {
+    console.error("[ai-employees]", e.message);
+    res.status(500).json({ available: false, reason: e.message, employees: [], feedsTheGate: false });
   }
 });
 
