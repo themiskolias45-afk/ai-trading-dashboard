@@ -2305,7 +2305,31 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
                  : 40;
     } else {
       // BTC H4-only: PF 1.08 (marginal) — STRONG needs a small quality boost to clear gate
-      confidence = h4.strength === "STRONG" ? 63 : h4.strength === "MODERATE" ? 50 : 40;
+      //
+      // MODERATE raised 50 -> 55 on 2026-08-28, deliberately to MATCH the Gold
+      // H4-only MODERATE non-squeeze base immediately above. At 50 the whole cohort
+      // was arithmetically dead: 50 + the maximum +15 boost stack is 65 against a
+      // gate of 70, so it could not fire at ANY combination of setup bonus and
+      // confirmed volume. At 55 it reaches exactly 70 at FULL boost — reachable, but
+      // still only on a genuinely good setup, which is the intended shape.
+      //
+      // Evidence, node tasks/cohort_walkforward.cjs 2026-08-28 (825 trades, 5
+      // equal-count folds, 0.05R cost, gate 70): BTCUSD/H4_ONLY/MODERATE is the
+      // LARGEST slice in the table at 132 closed, +0.103 R/trade, positive in 4 of 5
+      // folds, verdict MOSTLY POSITIVE. Gold's equivalent is +0.261 over 85 at 5/5
+      // and already reaches on base 55 — same cohort shape, and the five points were
+      // the whole difference between reaching the gate and never firing.
+      //
+      // Honest limits: +0.103 is MODEST and 4/5 is not 5/5, the base is coupled to
+      // the other cohorts in server/cohort_table.js, and macro penalties still apply
+      // AFTER this number. It is not a licence to raise the others.
+      //
+      // NOT touched: the `: 40` NONE tail. Its own record degraded as the sample grew
+      // — +0.129 over 53 at 2/5 UNSTABLE today, against the +0.294 over 38 at 4/5
+      // that cohort_table.js used to claim — so it stays dead on purpose.
+      // Also NOT touched: BTC's daily-fires-H4-neutral cohort, measured -0.152 over
+      // 40 at 2/5. Raising that one would buy losing trades.
+      confidence = h4.strength === "STRONG" ? 63 : h4.strength === "MODERATE" ? 55 : 40;
     }
   }
   // Direction to use for macro filters and final gate: H4 provides direction when daily is WAIT

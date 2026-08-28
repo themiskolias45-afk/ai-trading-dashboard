@@ -7,9 +7,9 @@
     "setup": "string",
     "strength": "string",
     "entry": "number",
-    "stop": "null",
-    "target": "null",
-    "rr": "null",
+    "stop": "number",
+    "target": "number",
+    "rr": "number",
     "atr": "number",
     "indicators": {
       "rsi": "number",

@@ -90,14 +90,28 @@ const COHORTS = [
   },
   { name: 'Gold H4-only, MODERATE non-squeeze',   base: 55, guards: ['const goldSqueezeModerate', ': 55;'] },
   { name: 'BTC H4-only, STRONG',                  base: 63, guards: ['h4.strength === "STRONG" ? 63'] },
-  { name: 'BTC H4-only, MODERATE',                base: 50, guards: ['h4.strength === "MODERATE" ? 50'] },
+  // Raised 50 -> 55 on 2026-08-28 to match Gold H4-only MODERATE non-squeeze above.
+  // At 50 this was DEAD: 50 + the maximum +15 boost is 65 against gate 70. At 55 it
+  // reaches exactly 70 at full boost. Evidence: cohort_walkforward 2026-08-28, 132
+  // closed (largest slice in the table), +0.103 R/trade, 4/5 folds MOSTLY POSITIVE.
+  { name: 'BTC H4-only, MODERATE',                base: 55, guards: ['h4.strength === "MODERATE" ? 55'] },
   // The `: 40` tails of the two H4-only ternaries. These were folded into the
   // "Daily fires, H4 disagrees" row until 2026-08-08, which hid them: they are
-  // separate populations reached by a different branch, and BTC H4-only NONE
-  // measures +0.294 R/trade over n=38 (4/5 folds, positive in TRAIN and TEST
-  // independently) — the best-performing dead slice in the system. A table that
-  // does not name a cohort cannot report it dead.
-  { name: 'BTC H4-only, NONE',                    base: 40, guards: ['h4.strength === "MODERATE" ? 50 : 40'] },
+  // separate populations reached by a different branch. A table that does not name
+  // a cohort cannot report it dead.
+  //
+  // CORRECTED 2026-08-28. This comment used to call BTC H4-only NONE "the
+  // best-performing dead slice in the system" at +0.294 R/trade over n=38, 4/5 folds.
+  // Re-measured on a grown sample it is +0.129 over 53 closed at 2 of 5 folds,
+  // verdict UNSTABLE. The result DEGRADED as the sample grew, which is the normal
+  // direction of travel and exactly why a measurement pasted into a comment goes
+  // stale. It stays dead on purpose; re-read the harness output, never this line.
+  // Guard string tracks the LIVE ternary tail, which became `? 55 : 40` when the
+  // MODERATE base was raised on 2026-08-28. Left as `? 50 : 40` it silently failed
+  // its own presence check and cohort_reachability printed
+  // "(missing: h4.strength === "MODERATE" ? 50 : 40)" — the table quietly losing the
+  // ability to verify itself against the engine, which is its only real job.
+  { name: 'BTC H4-only, NONE',                    base: 40, guards: ['h4.strength === "MODERATE" ? 55 : 40'] },
   { name: 'Gold H4-only, NONE',                   base: 40, guards: ['h4.strength === "STRONG" ? 68'] },
   // BLOCKED BY MEASUREMENT, not by arithmetic — the distinction this table exists to
   // make. Every SPX H4-only slice is negative out of sample (tasks/cohort_walkforward.cjs,
