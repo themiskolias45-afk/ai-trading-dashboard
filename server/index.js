@@ -8930,6 +8930,48 @@ app.get("/api/cohort-reachability", (_, res) => {
 // Folding it into a win rate would make a paper result indistinguishable from
 // money, which is the same mistake that once filed a real -449.72 fill under a
 // watch-only setup name. They stay in separate columns, always.
+// The check KNOWN_SETUPS has claimed to have since 2026-08-25 and never actually had.
+//
+// A hardcoded list is the RIGHT design for this board: a setup that has never fired must
+// still get a row, and deriving the list from the data would hide precisely those. But
+// "hardcoded" was quietly doing a second job — it was also unverified. BUY_DIP and
+// BREAKOUT went missing once, DIVERGENCE went missing for the board's entire life, and
+// the comment beside the list asserted a count check that did not exist. An assertion
+// with no code behind it is the same failure as a setting with no reader.
+//
+// So: the list stays hand-written, and this compares it against the engine. Reads THIS
+// file and collects every `setup = "NAME";` assignment. Two filters keep it honest —
+// comment lines are skipped and the assignment must be semicolon-terminated — because
+// the KNOWN_SETUPS comment itself contains the literal `setup  = "NAME"` and a naive
+// regex would have invented a setup called NAME out of the prose describing the check.
+//
+// Cached after the first call: the source cannot change under a running process, and
+// re-reading a 9,000-line file per request would be real cost for an answer that
+// cannot move.
+let engineSetupNamesCache = null;
+function engineSetupNames() {
+  if (engineSetupNamesCache) return engineSetupNamesCache;
+  try {
+    const found = new Set();
+    for (const line of fs.readFileSync(__filename, "utf8").split(/\r?\n/)) {
+      const t = line.trim();
+      if (t.startsWith("//") || t.startsWith("*")) continue;
+      for (const m of line.matchAll(/\bsetup\s*=\s*"([A-Z_]+)"\s*;/g)) {
+        // WAIT is the ABSENCE of a setup, not a setup — the same rule the board's own
+        // journal loop applies. Counting it would invent a strategy out of a null.
+        if (m[1] !== "WAIT") found.add(m[1]);
+      }
+    }
+    engineSetupNamesCache = { names: [...found].sort(), error: null };
+  } catch (e) {
+    // Never throws into the route. "Could not check" is reported as itself, which is a
+    // different fact from "checked, and the list is correct".
+    console.error("[strategy-board] setup-list check could not read the engine:", e.message);
+    engineSetupNamesCache = { names: null, error: e.message };
+  }
+  return engineSetupNamesCache;
+}
+
 app.get("/api/strategy-board", (_, res) => {
   try {
     // Every name the engine can emit. Hardcoded deliberately: a setup that has
@@ -8944,6 +8986,12 @@ app.get("/api/strategy-board", (_, res) => {
       "MOMENTUM", "TREND_FOLLOW", "SQUEEZE_BREAKOUT", "BUY_OVERSOLD",
       "SELL_BOUNCE", "RANGE_TRADE_LONG", "RANGE_TRADE_SHORT", "BB_SQUEEZE_WATCH",
       "BUY_DIP", "BREAKOUT",
+      // Added 2026-08-28. The engine has emitted DIVERGENCE since long before this board
+      // existed — two branches, Gold/DXY correlation breakdown, one BUY and one SELL —
+      // and the board has NEVER shown it. Third time this list has silently omitted a
+      // live setup, after BUY_DIP and BREAKOUT. The count check below now has a body,
+      // which is what stops there being a fourth.
+      "DIVERGENCE",
       // Added 2026-08-28 with the setup itself. It is gated OFF by
       // strategySettings.breakdownEnabled, so this row will read "no history" on both
       // boxes — which is the correct thing for a board to show about a setup that
@@ -9084,6 +9132,27 @@ app.get("/api/strategy-board", (_, res) => {
         measuredOn: c.measuredOn, changesTheAnswer: c.changesTheAnswer,
       })),
       rows,
+      // Surfaced in the response rather than kept in a log, because a drift nobody reads
+      // is how the last three omissions survived. A page can render this as a banner.
+      setupListDrift: (() => {
+        const engine = engineSetupNames();
+        if (!engine.names) return { checked: false, detail: `engine source unreadable: ${engine.error}` };
+        const missingFromBoard = engine.names.filter(n => !KNOWN_SETUPS.includes(n));
+        const notInEngine      = KNOWN_SETUPS.filter(n => !engine.names.includes(n));
+        if (missingFromBoard.length || notInEngine.length) {
+          console.error(`[strategy-board] KNOWN_SETUPS DRIFT — emitted by the engine but not on `
+            + `the board: ${missingFromBoard.join(", ") || "none"}; on the board but not in the `
+            + `engine: ${notInEngine.join(", ") || "none"}`);
+        }
+        return {
+          checked: true,
+          engineSetups: engine.names.length,
+          boardRows: KNOWN_SETUPS.length,
+          missingFromBoard,
+          notInEngine,
+          inSync: missingFromBoard.length === 0 && notInEngine.length === 0,
+        };
+      })(),
       verdictRule: `STRONG >=65% / OK >=55% / REVIEW >=45% / KILL <45%, but ONLY at ${LIVE_JUDGEMENT_FLOOR}+ live fills. `
                  + "Below that it is LEARNING and no conclusion is drawn. SHADOW ONLY means it has never "
                  + "filled live and the number beside it is forgone PAPER trades.",
