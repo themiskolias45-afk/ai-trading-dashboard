@@ -6080,7 +6080,7 @@ app.get("/api/daily-plan", (_, res) => {
     // meant a plan built on signals refreshed nine hours ago looked as current as one
     // built a minute ago. These two are the REAL ages, both already held in memory and
     // simply never sent. Null before the first refresh, and null must render as
-    // "age unknown" — never as fresh. Same rule as the healer tick with no age.
+    // "age unknown" - never as fresh. Same rule as the healer tick with no age.
     signalsUpdatedAt: signalCache.updatedAt,
     pricesUpdatedAt:  priceCache.updated,
     // The number every confidence on this page is measured against. It was NOT in
