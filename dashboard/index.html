@@ -143,30 +143,37 @@
        panel a squat 520px chart with 40px of dead space under it, and resizing
        the window changed nothing at all. */
     .charts-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
-    .charts-grid.layout-1 { grid-template-columns:1fr;            --chart-h:640px; }
-    .charts-grid.layout-2 { grid-template-columns:1fr 1fr;        --chart-h:520px; }
-    .charts-grid.layout-3 { grid-template-columns:repeat(3,1fr);  --chart-h:440px; }
+    .charts-grid.layout-1 { grid-template-columns:1fr;            --chart-h:700px; }
+    .charts-grid.layout-2 { grid-template-columns:1fr 1fr;        --chart-h:580px; }
+    .charts-grid.layout-3 { grid-template-columns:repeat(3,1fr);  --chart-h:500px; }
 
     /* Chart height follows the VIEWPORT, not just the layout.
        Kept as plain px values set by media queries rather than a clamp(): --chart-h is
        an unregistered custom property, so getComputedStyle().getPropertyValue() hands
        back the literal token stream. chartHeight() does parseInt() on it, and
        parseInt("clamp(380px,42vh,520px)") is NaN — which silently falls through to the
-       440 default and would take the RSI pane away at every layout. Registering it with
+       default and would take the RSI pane away at every layout. Registering it with
        @property would fix that but is not supported everywhere this page is opened.
 
-       Short viewports first: a 640px chart on a 768px-tall laptop pushed the signal
-       cards and the whole gate readout below the fold, which is the part you actually
-       need. Tall monitors get the space back. */
-    @media (max-height:820px) {
-      .charts-grid.layout-1 { --chart-h:460px; }
-      .charts-grid.layout-2 { --chart-h:400px; }
-      .charts-grid.layout-3 { --chart-h:340px; }
+       THE FLOOR IS 440px AND NOTHING MAY GO UNDER IT. The first version of this block
+       shrank the three-up layout to 340px on any viewport under 820px tall — which is
+       most laptops in a windowed browser — so the charts got SMALLER than they had
+       been, and because the RSI pane needs 440px they silently lost RSI as well. Both
+       at once, on the layout that is the default. It was fixing a problem nobody had
+       reported ("a 640px chart pushes the gate readout below the fold") by shrinking
+       layouts that were never too tall.
+
+       So: only the genuinely tall layouts are trimmed, only on a genuinely short
+       viewport, and layout-3 never drops below 440. Tall monitors get real space back. */
+    @media (max-height:700px) {
+      .charts-grid.layout-1 { --chart-h:520px; }
+      .charts-grid.layout-2 { --chart-h:470px; }
+      .charts-grid.layout-3 { --chart-h:440px; }
     }
     @media (min-height:1200px) {
-      .charts-grid.layout-1 { --chart-h:780px; }
-      .charts-grid.layout-2 { --chart-h:620px; }
-      .charts-grid.layout-3 { --chart-h:520px; }
+      .charts-grid.layout-1 { --chart-h:860px; }
+      .charts-grid.layout-2 { --chart-h:700px; }
+      .charts-grid.layout-3 { --chart-h:600px; }
     }
     .charts-grid .chart-wrap.chart-hidden { display:none; }
     .chart-wrap { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
