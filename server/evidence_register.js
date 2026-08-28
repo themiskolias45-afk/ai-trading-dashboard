@@ -548,7 +548,11 @@ const CLAIMS = [
       + "UPTREND on h1/h4/d1.",
     changesTheAnswer: "Several hundred resolved episodes from LIVE bars turning the mean "
       + "positive on MORE THAN ONE asset. That is what tasks/shadow_short_ledger.py now "
-      + "accumulates nightly on both boxes, served read-only at /api/shadow-shorts. A "
+      + "accumulates nightly on both boxes, served read-only at /api/shadow-shorts and "
+      + "rendered live as 'Moves With No Setup' on the AUTO TRADE tab, under 'Why Nothing "
+      + "Fired'. It is not repeated here on purpose: this claim is the settled verdict and "
+      + "that card is the running count, and a number kept in two places is the single most "
+      + "repeated defect in this codebase. A "
       + "wider grid over the same 5.1 years is NOT independent evidence and must not be "
       + "run as though it were — that is the thing that already failed. A materially "
       + "bearish regime is the honest re-test, the same caveat BREAKDOWN carries.",

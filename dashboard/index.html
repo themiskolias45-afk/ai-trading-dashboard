@@ -5670,6 +5670,11 @@ async function loadShadowShorts() {
       + 'ever filled. A screening signal, never realised P&amp;L, and it feeds no gate. The family '
       + 'failed a 5.1-year nested walk-forward (GOLD 2/4 out-of-sample folds, BTC 2/4, SPX 1/4); '
       + 'this exists to re-check that against live bars, not to argue for trading it.'
+      // Pointer, not a copy. The full verdict - method, sample, and the look-ahead bug that
+      // first made this family look profitable - lives on the Evidence Board and is NOT
+      // restated here. Two copies of one finding is how they drift apart.
+      + '<br>Full verdict, method and caveats: <strong>AI Brain</strong> tab, Evidence Board, '
+      + 'claim &ldquo;Break-down short&rdquo;.'
       + (typeof overall.meanR === "number"
           ? '<br>All assets pooled: ' + overall.resolved + ' resolved, '
             + (overall.meanR >= 0 ? "+" : "") + overall.meanR.toFixed(3) + 'R per episode.'
