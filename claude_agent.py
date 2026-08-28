@@ -170,6 +170,34 @@ TRANSIENT_MARKERS = (
 # stops the very next drain from hammering an API that just said it was overloaded.
 TRANSIENT_RETRY_MINUTES = 25
 
+# The CLI cannot authenticate at all. A THIRD class, and it is neither of the other two.
+#
+# On 2026-08-28 the VPS daily check and morning agent both died on "Failed to
+# authenticate: OAuth session expired and could not be refreshed". park() looked at that,
+# found no limit marker and no transient marker, correctly said "that run was not stopped
+# by the session limit" and DESTROYED THE BRIEF — which is precisely the failure the queue
+# was built to prevent, surviving in the one wording nobody had seen yet. The same lesson
+# as the weekly-limit gap of 2026-08-12: this list is a guess about someone else's copy.
+#
+# It differs from a limit in the thing that matters: a limit clears ON ITS OWN and an auth
+# expiry NEVER DOES. It waits on a human. So it parks on a slow cadence rather than a
+# tight one, and the message must name the action instead of saying "try later", which
+# would be a lie.
+AUTH_MARKERS = (
+    "failed to authenticate",
+    "oauth session expired",
+    "could not be refreshed",
+    "please run /login",
+    "not logged in",
+    "authentication failed",
+    "invalid api key",
+    "unauthorized",
+)
+
+# Six hours, not the transient 25 minutes. Nothing the machine does will fix this, so a
+# tight retry would only burn attempts and fill the log while the state cannot change.
+AUTH_RETRY_HOURS = 6
+
 
 def looks_transient_upstream(output: str, success: bool) -> bool:
     """True when the run died on a temporary upstream fault rather than a real error.
@@ -184,6 +212,21 @@ def looks_transient_upstream(output: str, success: bool) -> bool:
         return False
     lowered = output.lower()
     return any(marker in lowered for marker in TRANSIENT_MARKERS)
+
+
+def looks_auth_expired(output: str, success: bool) -> bool:
+    """True when the CLI could not authenticate, so no work was possible at all.
+
+    Same short-body discipline as the two above, and for the same reason: an agent that
+    finished its work and happened to discuss authentication in prose has not failed, and
+    parking that output would destroy a real answer.
+    """
+    if success or not output:
+        return False
+    if len(output) > LIMIT_NOTICE_MAX_CHARS:
+        return False
+    lowered = output.lower()
+    return any(marker in lowered for marker in AUTH_MARKERS)
 
 
 MONTH_NAMES = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
@@ -706,8 +749,10 @@ if __name__ == "__main__":
         is_limit_run = looks_rate_limited(run_output, success=False)
         is_transient = (not is_limit_run) and looks_transient_upstream(
             run_output, success=False)
+        is_auth = (not is_limit_run) and (not is_transient) and looks_auth_expired(
+            run_output, success=False)
 
-        if output_path and not is_limit_run and not is_transient:
+        if output_path and not is_limit_run and not is_transient and not is_auth:
             print("park: that run was not stopped by the session limit — not queued")
             sys.exit(2)
 
@@ -717,6 +762,8 @@ if __name__ == "__main__":
         if is_transient:
             reset_at = (datetime.now()
                         + timedelta(minutes=TRANSIENT_RETRY_MINUTES)).isoformat()
+        elif is_auth:
+            reset_at = (datetime.now() + timedelta(hours=AUTH_RETRY_HOURS)).isoformat()
         else:
             reset_at = parse_reset_at(run_output)
 
@@ -728,11 +775,29 @@ if __name__ == "__main__":
             system=None,
             require=None,
             reset_at=reset_at,
+            # is_limit spares the attempt counter. An auth expiry is like a limit in that
+            # respect - nothing the machine does is wrong, so burning attempts toward
+            # MAX_QUEUE_ATTEMPTS would abandon a perfectly good brief for waiting.
             is_limit=not is_transient,
         )
         why = ("upstream was overloaded" if is_transient
+               else "the CLI could not authenticate" if is_auth
                else "the session limit was hit")
         print(f"park: queued {label} as {job_id} — {why}; the next drain resumes it")
+
+        if is_auth:
+            # SAVE THE WORK, KEEP THE ALARM. Exiting 0 here would let auto_daily's
+            # `if not errorlevel 1 set CLAUDE_RC=0` clear the task to green, and the box
+            # would report healthy while having no AI at all - the exact "green check
+            # over a dead component" this project keeps being bitten by. A limit clears
+            # itself and deserves the green; this does not and must not get it.
+            print("park: AUTHENTICATION EXPIRED - no agent can run on this box until a "
+                  "human re-authenticates. The brief is SAVED, not lost.")
+            print(f"park: fix it by running `claude` on this machine and signing in; "
+                  f"the queued brief resumes on the next drain after that.")
+            print("park: exiting 3 so the scheduled task stays RED - this needs a person, "
+                  "not a retry.")
+            sys.exit(3)
     else:
         print("Usage: python claude_agent.py [status|drain|park <label> [--output-file PATH]]")
         sys.exit(1)
