@@ -29,11 +29,14 @@ PHASE 2 — WIN RATE TRAJECTORY ANALYSIS:
   Correlated setups = same exposure, not diversification.
 
 PHASE 3 — CALIBRATION ANALYSIS:
-  Group trades by confidence tier: 65-74 / 75-84 / 85+
-  Compute actual WR per tier.
-  Compare to expected (65% / 75% / 85%).
+  Use confidenceThreshold from get_strategy_settings (already fetched in Phase 4b — or fetch now).
+  Define tiers relative to the live gate (never hardcode 65):
+    Tier LOW:  [gate]    to [gate+9]%   → expected WR ~55-65%
+    Tier MID:  [gate+10] to [gate+19]%  → expected WR ~65-75%
+    Tier HIGH: [gate+20]+%              → expected WR ~75%+
 
-  Calibration gap = actual - expected.
+  Group trades into these tiers. Compute actual WR per tier.
+  Calibration gap = actual - expected midpoint.
   If gap < -10%: OVERCONFIDENT — system fires at lower quality setups than it thinks
   If gap > +10%: UNDERCONFIDENT — signals are stronger than scored (rare, good problem)
   If |gap| ≤ 10%: CALIBRATED
@@ -102,10 +105,10 @@ SETUP TRAJECTORIES:
   STABLE:     [list]
   CORRELATED: [pair if any]
 
-CALIBRATION:
-  65-74%: expected 65-70% | actual [X]% | [CALIBRATED/OVERCONFIDENT/UNDERCONFIDENT]
-  75-84%: expected 75%    | actual [X]% | [status]
-  85%+:   expected 85%    | actual [X]% | [status]
+CALIBRATION (tiers relative to live gate=[gate]%):
+  LOW  ([gate]-[gate+9]%):   expected 55-65% | actual [X]% | [CALIBRATED/OVERCONFIDENT/UNDERCONFIDENT]
+  MID  ([gate+10]-[gate+19]%): expected 65-75% | actual [X]% | [status]
+  HIGH ([gate+20]+%):          expected 75%+   | actual [X]% | [status]
   Worst asset for calibration: [asset + tier]
 
 SIGNAL STATUS:
