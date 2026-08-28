@@ -1482,6 +1482,31 @@
     </div>
   </div>
 
+  <!-- One level UPSTREAM of the panel above, and deliberately its own card.
+       "Why Nothing Fired" lists the ten gates and what they killed. But every gate
+       fires on a setup that already FORMED, and the near-miss census only sees setups
+       that ALMOST formed. Neither can see a move for which no branch exists at all.
+
+       On 2026-08-28 Gold fell 4631 -> 4530 inside ONE H1 bar and produced no signal,
+       no rejection row and no near-miss, while /api/signals still read BUY MOMENTUM
+       confidence 74, unchanged. It was not merely missed, it was UNRECORDED — and a
+       move that leaves no row cannot be argued about or priced. That is what this card
+       exists to stop.
+
+       Its verdicts read the OPPOSITE way round to the funnel above, on purpose. There,
+       a positive net R is RED because the gate threw away setups that would have paid.
+       Here, WOULD HAVE COST is GREEN: the setup this system does not have would have
+       lost money, so its absence is costing nothing. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Moves With No Setup</div>
+      <span id="ss-window" style="font-size:.68rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="ss-body" style="font-size:.75rem;color:var(--muted)">reading the shadow short ledger…</div>
+    </div>
+  </div>
+
   <!-- Strategy settings. Confidence was a literal 65 in three places in
        server/index.js; slots and the daily trade cap did not exist at all. -->
   <div class="panel" style="margin-bottom:16px">
@@ -5557,6 +5582,107 @@ async function loadGateFunnel() {
 }
 loadGateFunnel();
 setInterval(loadGateFunnel, 60_000);
+
+// ── MOVES WITH NO SETUP ────────────────────────────────────────
+// The blind spot behind the gate funnel above. Every gate there fires on a setup that
+// FORMED; the near-miss census sees setups that ALMOST formed. A move for which the
+// engine has no branch at all is invisible to both, and to the learning engine, which
+// keys off closed trades per setup. Gold's 4631 -> 4530 H1 bar on 2026-08-28 left no
+// row anywhere in this system.
+//
+// Read-only. Nothing here feeds a gate, and the payload says so in feedsTheGate.
+const SS_REFRESH_MS = 300_000;   // the writer touches the file once a night
+
+// Verdict colours are INVERTED relative to the gate funnel, and that is not a mistake.
+// There, a gate that threw away winners is red. Here the row is a setup the system does
+// NOT have: if those trades would have LOST, its absence is free, so that is the good
+// case. Green means "correctly absent", red means "we are missing something".
+const SS_VERDICT_COLOUR = {
+  "WOULD HAVE COST":  "var(--green)",
+  "WOULD HAVE PAID":  "var(--red)",
+  "TOO FEW TO JUDGE": "var(--muted)",
+};
+
+const SS_ASSET_LABEL = { btc: "BTC", gold: "GOLD", spx: "SPX" };
+
+async function loadShadowShorts() {
+  const body = document.getElementById("ss-body");
+  const win  = document.getElementById("ss-window");
+  if (!body) return;
+  try {
+    const data = await fetch(API + "/shadow-shorts", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+
+    // A box that has never run tasks/shadow_short_ledger.py has no rows, and that is a
+    // normal early state rather than a fault. Say which it is instead of showing an
+    // empty table that reads like "nothing ever happened".
+    if (!data || data.available === false) {
+      body.innerHTML = '<span style="color:var(--muted)">Shadow short ledger unavailable'
+        + (data && data.reason ? ' — ' + escapeHtml(data.reason) : '')
+        + '. Nothing on this page depends on it.</span>';
+      win.textContent = "";
+      return;
+    }
+
+    const assets = Object.keys(data.byAsset || {});
+    win.textContent = (data.logged || 0) + " logged · " + (data.resolved || 0) + " resolved"
+      + (data.stillOpen ? " · " + data.stillOpen + " still open" : "")
+      + (data.updatedAt ? " · scored " + humanAge(Date.now() - Date.parse(data.updatedAt)) + " ago" : "");
+
+    if (!assets.length) {
+      body.innerHTML = '<div style="color:var(--muted);line-height:1.6">No candidates logged yet. '
+        + 'tasks/shadow_short_ledger.py appends them nightly; this fills in on its own.</div>';
+      return;
+    }
+
+    const overall = data.overall || {};
+    body.innerHTML =
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.72rem">'
+      + '<tr style="color:var(--muted);text-align:left">'
+      + '<th style="padding:5px 8px">asset</th>'
+      + '<th style="padding:5px 8px;text-align:right">resolved</th>'
+      + '<th style="padding:5px 8px;text-align:right">mean R</th>'
+      + '<th style="padding:5px 8px;text-align:right">win %</th>'
+      + '<th style="padding:5px 8px">would the missing setup have paid?</th></tr>'
+      + assets.map(key => {
+          const row = data.byAsset[key] || {};
+          const mean = typeof row.meanR === "number" ? row.meanR : null;
+          const thin = (row.resolved || 0) < (data.minResolvedForVerdict || 5);
+          return '<tr style="opacity:' + (thin ? ".55" : "1") + '">'
+            + '<td style="padding:5px 8px">' + escapeHtml(SS_ASSET_LABEL[key] || key.toUpperCase()) + '</td>'
+            + '<td style="padding:5px 8px;text-align:right;color:var(--muted)">' + (row.resolved || 0) + '</td>'
+            + '<td style="padding:5px 8px;text-align:right;color:'
+              + (mean === null ? "var(--muted)" : mean > 0 ? "var(--red)" : "var(--green)") + '">'
+              + (mean === null ? "—" : (mean >= 0 ? "+" : "") + mean.toFixed(3)) + '</td>'
+            + '<td style="padding:5px 8px;text-align:right;color:var(--muted)">'
+              + (typeof row.winRatePct === "number" ? row.winRatePct.toFixed(0) : "—") + '</td>'
+            + '<td style="padding:5px 8px;color:' + (SS_VERDICT_COLOUR[row.verdict] || "var(--muted)") + '">'
+              + escapeHtml(row.verdict || "—") + '</td></tr>';
+        }).join("")
+      + '</table></div>'
+      + '<div style="margin-top:8px;color:var(--muted);line-height:1.6">'
+      + 'Downside breaks the engine has <strong>no setup for</strong> — upstream of all ten gates '
+      + 'and of the near-miss census, both of which need a setup to have formed. Each is priced as '
+      + 'a paper trade and walked forward on real broker bars.'
+      + '<br><strong>Green is the good case here</strong>: it means the setup this system lacks '
+      + 'would have lost money, so not having it costs nothing. Red would mean the opposite.'
+      + '<br>Forgone PAPER trades — a flat cost in R, no spread modelling, no slippage, no entry '
+      + 'ever filled. A screening signal, never realised P&amp;L, and it feeds no gate. The family '
+      + 'failed a 5.1-year nested walk-forward (GOLD 2/4 out-of-sample folds, BTC 2/4, SPX 1/4); '
+      + 'this exists to re-check that against live bars, not to argue for trading it.'
+      + (typeof overall.meanR === "number"
+          ? '<br>All assets pooled: ' + overall.resolved + ' resolved, '
+            + (overall.meanR >= 0 ? "+" : "") + overall.meanR.toFixed(3) + 'R per episode.'
+          : '')
+      + '</div>';
+  } catch (e) {
+    body.innerHTML = '<span style="color:var(--red)">Shadow short ledger unavailable — '
+      + escapeHtml(e.message) + '</span>';
+    win.textContent = "";
+  }
+}
+loadShadowShorts();
+setInterval(loadShadowShorts, SS_REFRESH_MS);
 
 // ── WHAT HAPPENS NEXT ──────────────────────────────────────────
 // The forecast. Every other panel on this tab is a report; this one answers what the
