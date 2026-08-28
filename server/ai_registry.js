@@ -80,13 +80,38 @@ function readMcpTools() {
   catch (e) { return { items: [], error: e.message }; }
 
   const items = [];
-  const namePattern = /name:\s*'([a-z_]+)'/g;
+  // DIGITS BELONG IN A TOOL NAME. This was /name:\s*'([a-z_]+)'/ and the missing 0-9
+  // made `get_mt5_health` unmatchable — the "5" ended the class, so the pattern never
+  // reached the closing quote. A real, load-bearing tool (the only authoritative bridge
+  // liveness test) was invisible on the AI Brain page and absent from every count, while
+  // the page reported a confident "29 tools".
+  const namePattern = /name:\s*'([a-z0-9_]+)'/g;
   let match;
   while ((match = namePattern.exec(text)) !== null) {
     const toolName = match[1];
     // Take the description string chunks that follow, up to inputSchema.
     const rest = text.slice(match.index, match.index + 3000);
     const descBlock = rest.match(/description:\s*([\s\S]*?)inputSchema/);
+    // A TOOL DECLARES ITS DESCRIPTION IMMEDIATELY. Without this test the parser also
+    // matched `serverInfo: { name: 'smartentry', version: '2.0.0' }` — the server's own
+    // identity — and published it as a read-only tool called "smartentry" with
+    // "(no description found)".
+    //
+    // Measured across the file: all 29 real tools carry `description:` at exactly +6
+    // characters after the closing quote of the name; the serverInfo match carries it at
+    // +216, borrowed from an unrelated block further down. 40 is a generous bound that
+    // separates them structurally. Filtering by name would fix this one case; requiring
+    // the SHAPE of a tool fixes the class and cannot invent a capability that does not
+    // exist.
+    //
+    // The two bugs cancelled in the COUNT, which is why neither was ever noticed: one
+    // phantom in, one real tool out, "29 tools" either way. A total that is right for
+    // two wrong reasons is the hardest kind of wrong to see.
+    const NAME_TO_DESCRIPTION_MAX = 40;
+    const afterName = text.slice(match.index + match[0].length,
+                                 match.index + match[0].length + NAME_TO_DESCRIPTION_MAX);
+    if (!/description:/.test(afterName)) continue;
+    if (!descBlock) continue;
     let description = "";
     if (descBlock) {
       const pieces = descBlock[1].match(/'((?:[^'\\]|\\.)*)'/g) || [];
