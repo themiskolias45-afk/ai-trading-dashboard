@@ -35,6 +35,32 @@ const DEFAULT_AMD_WINDOW = 12;
 const DEFAULT_AMD_MAX_RANGE_FRACTION = 0.8;  // accumulation must be TIGHT vs recent range
 const DEFAULT_MAX_AMD = 4;
 
+// How many bars the DISTRIBUTION leg may take to close beyond the far side of the
+// accumulation range.
+//
+// This was hardcoded to 1 and that is why AMD "did not exist" in this market. Measured
+// 2026-08-28 over the full broker archive, the funnel on GOLD H4 reads:
+//
+//     7,844 windows -> 7,838 tight enough -> 1,092 clean SWEEPS -> 9 patterns
+//
+// The tightness filter discards 0.08%. The sweep test does real work at 14%. Requiring
+// the markdown to complete inside ONE bar then threw away 99.2% of genuine sweeps —
+// 1,092 down to 9 across five years. A pattern found nine times cannot be learned from,
+// measured, or argued about; it is absent by construction rather than by market.
+//
+// Distribution is a PHASE, not a bar. Allowing it a few bars is what the pattern
+// actually describes. Counts at this default: GOLD H4 9 -> 70, BTC 18 -> 108,
+// SPX 13 -> 76 — enough to finally put a number on whether AMD predicts anything.
+//
+// 5 is a JUDGEMENT, not a measurement: under half the 12-bar accumulation window, so the
+// markdown still has to be decisive rather than a slow drift. It is an option precisely
+// so the sweep can be re-run at other values once there is an edge test to run.
+//
+// SAFE BY CONSTRUCTION: detectAMD has no production caller — only structure.test.js —
+// and CLAUDE.md records AMD as observability that feeds no gate, no confidence and no
+// sizing. Loosening detection cannot admit, suppress or alter a single trade.
+const DEFAULT_AMD_DISTRIBUTION_BARS = 5;
+
 function averageBarRange(highs, lows, sampleSize) {
   const start = Math.max(0, highs.length - sampleSize);
   let total = 0, count = 0;
@@ -219,6 +245,9 @@ function detectAMD(bars, options) {
   const maxRangeFraction = Number.isFinite(settings.maxAccumulationRangeFraction)
     ? settings.maxAccumulationRangeFraction : DEFAULT_AMD_MAX_RANGE_FRACTION;
   const maxPatterns = Number.isFinite(settings.maxPatterns) ? settings.maxPatterns : DEFAULT_MAX_AMD;
+  // >= 1 keeps the old single-bar behaviour reachable by passing 1 explicitly.
+  const distributionBars = Number.isFinite(settings.distributionBars) && settings.distributionBars >= 1
+    ? Math.floor(settings.distributionBars) : DEFAULT_AMD_DISTRIBUTION_BARS;
 
   const error = validate(bars, window + 2);
   if (error) return { patterns: [], totalFound: 0, error, sessionAligned: false, averageRange: 0 };
@@ -251,8 +280,14 @@ function detectAMD(bars, options) {
     const sweptLow  = lows[m]  < accLow  && closes[m] > accLow;
     if (sweptHigh === sweptLow) continue;
 
-    const distributed = sweptHigh ? closes[i] < accLow : closes[i] > accHigh;
-    if (!distributed) continue;
+    // The markdown may take up to `distributionBars` bars to close beyond the far edge.
+    // `distIndex` is the bar that actually completed it, so barsAgo and distributionClose
+    // below describe the real completion rather than the first candidate bar.
+    let distIndex = -1;
+    for (let d = i; d < Math.min(i + distributionBars, barCount); d++) {
+      if (sweptHigh ? closes[d] < accLow : closes[d] > accHigh) { distIndex = d; break; }
+    }
+    if (distIndex < 0) continue;
 
     const pattern = {
       direction: sweptHigh ? "bearish" : "bullish",
@@ -262,11 +297,17 @@ function detectAMD(bars, options) {
       accumulationRange: accRange,
       accumulationBars: window,
       manipulationExtreme: sweptHigh ? highs[m] : lows[m],
-      distributionClose: closes[i],
+      // The bar that actually completed the markdown, not the first one that could have.
+      distributionClose: closes[distIndex],
+      // How long the markdown took. 1 is the old hardcoded behaviour; anything above it
+      // is a pattern this detector could not previously see at all, so it is worth
+      // carrying rather than hiding — a later edge test may well find the fast ones
+      // behave differently from the slow ones.
+      distributionBarsTaken: distIndex - i + 1,
       objective: sweptHigh ? accLow - accRange : accHigh + accRange,
       invalidation: sweptHigh ? highs[m] : lows[m],
-      barIndex: i,
-      barsAgo: lastIndex - i,
+      barIndex: distIndex,
+      barsAgo: lastIndex - distIndex,
       sessionAligned: Boolean(times),
     };
 
