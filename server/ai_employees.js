@@ -287,7 +287,7 @@ const ROSTER = [
   {
     id: 'calibration-officer',
     title: 'Calibration Officer',
-    status: PROPOSED,
+    status: EMPLOYED,
     mission: 'Ask whether confidence means anything — does 86% actually win 86% of the time?',
     brain: 'none — deterministic',
     context: ['server/journal.json', 'the replayed cohort table'],
@@ -303,8 +303,12 @@ const ROSTER = [
       'per ASSET, never pooled — pooling lets Gold vote on an SPX question',
       'feedsTheGate false: this measures confidence, it must never adjust it',
     ],
-    clock: { schedule: 'weekly', boxes: ['vps'], task: null, script: null },
-    whyNotYet: 'The need is proven and unmonitored: SP500 fires ONLY at confidence ~86, the '
+    clock: { schedule: 'weekly, inside the algo review', boxes: ['laptop', 'vps'], task: 'SmartEntry - Weekly Algo Review / SmartEntryWeeklyReview', script: 'tasks/calibration_officer.cjs' },
+    hiredNote: 'BUILT AND EMPLOYED 2026-08-28. First replay run: BTC informative (win rate '
+      + 'rises 34 -> 58 -> 55), GOLD BROKEN (highest bucket is the worst, though n=6), '
+      + 'SPX NOT informative (best bucket is 70+, not 90+; the 80-89 bucket wins 4% of 24). '
+      + 'Live is 7 closed trades and every bucket correctly refuses at the floor.',
+    supersededWhyNotYet: 'The need is proven and unmonitored: SP500 fires ONLY at confidence ~86, the '
       + 'highest-confidence cohort in the system, and lost 36 of 39 replayed trades with 21 '
       + 'consecutive losses since 2024-01-31. Nothing watches for confidence that is '
       + 'inverted rather than merely weak. The live learning engine cannot see it — its '

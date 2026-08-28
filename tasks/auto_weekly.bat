@@ -55,6 +55,20 @@ REM retries on Edit, Add-Content and bash >> before giving up and writing the re
 REM to weekly_20260807_review.txt instead -- the analysis was fine, the delivery was
 REM impossible. The redirect below is the whole delivery mechanism; the agent just
 REM has to print.
+REM Calibration officer, added 2026-08-28. Runs BEFORE the agent so its review reads
+REM today's calibration rather than re-deriving it. Confidence is the number every gate
+REM trusts and nothing had ever checked whether it is TRUE: the replay shows SP500 firing
+REM only at ~86 - the HIGHEST-confidence cohort - and losing 36 of 39 with 21 consecutive
+REM losses. The live learning engine structurally cannot see it (floor is 5 closed trades
+REM per setup; SPX has one).
+REM
+REM Read-only: no gate, threshold, confidence or sizing is touched, feedsTheGate is false,
+REM and live vs replay are reported SEPARATELY and never merged. Exit code deliberately
+REM NOT captured, like every other scorer here - a thin journal is a normal early state,
+REM not a failed weekly review. --replay adds ~90s and is the whole point of running it
+REM weekly rather than daily.
+node "%PROJ%\tasks\calibration_officer.cjs" --replay --emit >> "%REPORT%" 2>&1
+
 REM Brief the agent before it works. On 2026-08-09 this review proposed a fix to
 REM /api/trade-opened that was ALREADY IMPLEMENTED, more thoroughly than it asked
 REM for -- sound reasoning, code-cited, and wasted, because it had no way to see
