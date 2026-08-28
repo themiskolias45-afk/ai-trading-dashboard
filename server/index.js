@@ -4078,9 +4078,44 @@ app.get("/api/shadow-shorts", (_, res) => {
 // tool or places a trade; the clock field NAMES the scheduled task that really fires, it
 // does not create one. A roster that could hire would be a roster that could hire by
 // accident.
-app.get("/api/ai-employees", (_, res) => {
+app.get("/api/ai-employees", async (_, res) => {
   try {
-    res.json(employeeRoster());
+    const local = employeeRoster();
+
+    // THE MAP MUST SHOW BOTH BOXES OR IT IS HALF A FLEET.
+    //
+    // Every capability surface in this project reported THIS machine while presenting
+    // itself as the system, and every expensive failure has been a divergence while both
+    // boxes looked healthy: the VPS ran for weeks on an older CLAUDE.md, its /signal skill
+    // quoted a gate that had moved, and 23 capability files were simply absent there. A
+    // roster that answers for one box invites exactly that.
+    //
+    // Fetched, never assumed: if the peer is unreachable the field says so and the local
+    // half still renders. A dead peer must degrade one column, not blank the page.
+    const base = String(process.env.PEER_SERVER_URL || "").trim().replace(/\/+$/, "");
+    let peer = { configured: false, reachable: false, url: null, counts: null, error: null };
+    if (base) {
+      peer = { configured: true, reachable: false, url: base, counts: null, error: null };
+      try {
+        const [roster, registry] = await Promise.all([
+          axios.get(base + "/api/ai-employees", { timeout: 4000, validateStatus: s => s === 200 }),
+          axios.get(base + "/api/ai-registry",  { timeout: 4000, validateStatus: s => s === 200 }),
+        ]);
+        peer.reachable = true;
+        peer.counts = {
+          ...(registry.data && registry.data.counts ? registry.data.counts : {}),
+          employed: roster.data && roster.data.counts ? roster.data.counts.employed : null,
+          proposed: roster.data && roster.data.counts ? roster.data.counts.proposed : null,
+        };
+        peer.scriptsByArea = registry.data ? registry.data.scriptsByArea : null;
+      } catch (e) {
+        peer.error = (e && e.message ? e.message : String(e)).slice(0, 120);
+      }
+    }
+
+    // Named so a reader cannot mistake which column is which. "local" is whichever box is
+    // serving this response, which is not always the laptop.
+    res.json({ ...local, peer, thisBox: os.hostname() });
   } catch (e) {
     console.error("[ai-employees]", e.message);
     res.status(500).json({ available: false, reason: e.message, employees: [], feedsTheGate: false });

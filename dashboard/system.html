@@ -443,7 +443,7 @@
         <div class="pipe-mini">Agent 1 — owns files A</div>
         <div class="pipe-mini">Agent 2 — owns files B</div>
         <div class="pipe-mini">Agent 3 — owns files C</div>
-        <div class="pipe-mini">… up to 6, zero overlap</div>
+        <div class="pipe-mini">… up to <strong>5</strong>, zero overlap</div>
       </div>
       <div class="pipe-arrow">→</div>
       <div class="pipe-stage"><div class="pipe-stage-label">Step 3</div><div class="pipe-stage-val">Verify</div></div>
@@ -1689,9 +1689,17 @@ function workforceCard(employee) {
 }
 
 async function loadWorkforce() {
-  let data;
+  let data, localReg = {};
   try {
-    data = await getJson('/ai-employees');
+    // Both in one place. loadWorkforce runs BEFORE loadRegistry, so reading the hero
+    // tiles or a shared variable would race and leave the local column blank. The
+    // registry is cached server-side for 60s, so the second call is nearly free.
+    const [employees, registry] = await Promise.all([
+      getJson('/ai-employees'),
+      getJson('/ai-registry').catch(() => ({})),
+    ]);
+    data = employees;
+    localReg = (registry && registry.counts) || {};
   } catch (e) {
     html('workforce-banner', `<div class="page-banner banner-warn"><strong>Roster unreachable</strong> — ${esc(e.message)}. Nothing else on this page depends on it.</div>`);
     html('workforce-grid', '');
@@ -1709,8 +1717,38 @@ async function loadWorkforce() {
   // a headline number would be exactly the "quote a proposal as something the system
   // does" this roster was built to prevent.
   text('hero-employees', String(c.employed ?? 0));
+  // BOTH BOXES, SIDE BY SIDE. Every capability surface here used to report THIS machine
+  // while presenting itself as the system, and every expensive failure has been a
+  // divergence while both boxes looked healthy. A dead peer degrades this one strip.
+  const peer = data.peer || {};
+  const pc = peer.counts || {};
+  const cell = (label, a, b) => {
+    const differs = peer.reachable && a != null && b != null && String(a) !== String(b);
+    return `<td style="padding:3px 10px 3px 0">${label}</td>`
+      + `<td style="padding:3px 14px 3px 0;text-align:right;font-variant-numeric:tabular-nums">${a ?? '—'}</td>`
+      + `<td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;color:${differs ? 'var(--yellow)' : 'inherit'}">${peer.reachable ? (b ?? '—') : '—'}</td>`;
+  };
+  const fleetRows = [
+    ['employed',  c.employed,        pc.employed],
+    ['skills',    localReg.skills,   pc.skills],
+    ['agents',    localReg.agents,   pc.agents],
+    ['MCP tools', localReg.tools,    pc.tools],
+    ['scripts',   localReg.scripts,  pc.scripts],
+  ].filter(r => r[1] != null || r[2] != null);
+  const peerNote = !peer.configured
+    ? '<span style="color:var(--muted-dim)">no peer configured (PEER_SERVER_URL unset)</span>'
+    : peer.reachable
+      ? `<span style="color:var(--green)">peer reachable</span> · ${esc(peer.url || '')}`
+      : `<span style="color:var(--red)">peer unreachable</span> — ${esc(peer.error || 'no reason given')}`;
   html('workforce-banner', employees.length
-    ? `<div class="section-desc"><strong>${c.employed ?? 0} employed</strong> · ${c.proposed ?? 0} proposed · ${c.withModel ?? 0} reason with a model, ${c.deterministic ?? 0} deterministic${c.incomplete ? ` · <span style="color:var(--red)">${c.incomplete} with undeclared fields</span>` : ''}</div>`
+    ? `<div class="section-desc"><strong>${c.employed ?? 0} employed</strong> · ${c.proposed ?? 0} proposed · ${c.withModel ?? 0} reason with a model, ${c.deterministic ?? 0} deterministic${c.incomplete ? ` · <span style="color:var(--red)">${c.incomplete} with undeclared fields</span>` : ''}</div>
+       <div class="section-desc" style="margin-top:6px">
+         <table style="font-size:.7rem;border-collapse:collapse">
+           <tr style="color:var(--muted-dim)"><td style="padding-right:10px"></td><td style="padding-right:14px;text-align:right">${esc(data.thisBox || 'this box')}</td><td style="text-align:right">peer</td></tr>
+           ${fleetRows.map(r => '<tr>' + cell(r[0], r[1], r[2]) + '</tr>').join('')}
+         </table>
+         <div style="margin-top:4px">${peerNote}. A yellow figure means the two boxes disagree.</div>
+       </div>`
     : '');
   html('workforce-grid', employees.length
     ? employees.map(workforceCard).join('')
