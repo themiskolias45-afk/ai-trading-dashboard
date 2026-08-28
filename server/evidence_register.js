@@ -469,6 +469,46 @@ const CLAIMS = [
     feedsTheGate: true,
   },
   {
+    // Raised and settled the same day, 2026-08-28, from the question "why does it only
+    // ever go long". The answer was structural rather than statistical, which is why it
+    // had to be BUILT before it could be measured at all.
+    id: "breakdown",
+    title: "BREAKDOWN — a short trend-continuation setup, the mirror of MOMENTUM",
+    status: STATUS.MEASURED_NO_EDGE,
+    measuredOn: "2026-08-28",
+    evidence: "The engine had EIGHT long branches and FOUR short ones, and the gap was a "
+      + "whole CATEGORY: DIVERGENCE and SQUEEZE_BREAKOUT are symmetric pairs, the long "
+      + "side additionally had three trend-continuation setups (BREAKOUT, MOMENTUM, "
+      + "TREND_FOLLOW), and the short side had NONE — SELL_BOUNCE and RANGE_TRADE_SHORT "
+      + "are both mean-reversion. A clean downtrend below all EMAs with bearish MACD "
+      + "matched no branch and fell out as WAIT. BREAKDOWN was built as the exact mirror "
+      + "of MOMENTUM (its RSI band is derived as 100 minus MOMENTUM's, so it cannot "
+      + "drift) and replayed against a flag-off baseline over 4.3 years — 818 baseline "
+      + "trades vs 886 candidate. At the live gate 70 it is 22 closed, −0.368R/trade, "
+      + "worst scored fold −0.383, and only 2 of 5 folds reach 5 closed trades. It also "
+      + "drags the SYSTEM's worst fold from +0.186 to +0.076. Fails all three checks.",
+    caveat: "It ships OFF and stays off: strategySettings.breakdownEnabled defaults false "
+      + "and neither box carries the key. The branch sits LAST in the else-if chain so it "
+      + "can only convert a cycle that was already WAIT — proven, not argued, by "
+      + "replaying both sides of the edit with the flag off and getting byte-identical "
+      + "trade lists on all three assets. Displacement was measured rather than assumed: "
+      + "74 baseline trades vanish under the candidate through position occupancy, but "
+      + "the 12 that closed at the gate were worth −2.60R, so displacement was a small "
+      + "SAVING and is not what sinks this. The cohort's own losses are. Macro filters "
+      + "and the learning boost are stubbed in the replay, so a setup that would live or "
+      + "die on those is not what was measured here.",
+    changesTheAnswer: "A cohort worst fold above zero at the live gate with at least 3 of "
+      + "5 folds scoring, AND a system worst fold no lower than the baseline's. The "
+      + "sample is thin BY CONSTRUCTION — this is the short side of a four-year window "
+      + "that was mostly up — so a materially bearish regime is the honest re-test. The "
+      + "band is derived from momentumRsiMax, so an RSI-ceiling sweep moves this too.",
+    harness: "node tasks/breakdown_walkforward.cjs",
+    sampleAtWriting: { closedAtGate: 22, foldsScored: 2 },
+    sampleTolerance: 0.5,
+    sampleFrom: "MTF replay, both worlds, 2022-04 to 2026-08",
+    feedsTheGate: false,
+  },
+  {
     // The proposal this settles came from the AI employee, not a human, and it was
     // right about the individual trade while being wrong about the population. Both
     // halves are recorded deliberately: dropping the first would read as the agent

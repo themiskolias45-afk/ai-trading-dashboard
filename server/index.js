@@ -1227,6 +1227,14 @@ function calcMACD(closes) {
     signal:    parseFloat(signalLine[last].toFixed(2)),
     histogram: parseFloat((macdLine[last] - signalLine[last]).toFixed(2)),
     crossed:   macdLine[last] > signalLine[last] && macdLine[prev] <= signalLine[prev],
+    // The bearish mirror of `crossed`. Added for the BREAKDOWN setup, which needs the
+    // same "fresh cross" quality test MOMENTUM gets — `crossed` is bullish-only, so
+    // without this a short could never be graded STRONG on a cross the way a long can,
+    // and the mirror would not be a mirror.
+    //
+    // ADDITIVE ONLY: a new field on the returned object. Nothing existing reads it, and
+    // no branch condition changes. `crossed` and `bullish` are byte-identical to before.
+    crossedBearish: macdLine[last] < signalLine[last] && macdLine[prev] >= signalLine[prev],
     bullish:   macdLine[last] > signalLine[last]
   };
 }
@@ -1458,6 +1466,34 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   const TREND_FOLLOW_RSI_MAX = (typeof strategySettings !== "undefined"
     && Number.isFinite(strategySettings.trendFollowRsiMax))
     ? strategySettings.trendFollowRsiMax : 68;
+
+  // ── BREAKDOWN: the short mirror of MOMENTUM, OFF unless explicitly enabled ──
+  //
+  // WHY IT EXISTS. Counted 2026-08-28: the setup chain below has EIGHT long branches and
+  // FOUR short ones, and the asymmetry is not where it looks. Both DIVERGENCE and
+  // SQUEEZE_BREAKOUT are symmetric pairs; what is missing is an entire CATEGORY. The long
+  // side has three trend-continuation setups (BREAKOUT, MOMENTUM, TREND_FOLLOW) and the
+  // short side has none — its only two setups of its own, SELL_BOUNCE and
+  // RANGE_TRADE_SHORT, are both mean-reversion. A clean downtrend below all EMAs with
+  // bearish MACD therefore matches NO branch and falls out of the final else as WAIT.
+  // That is why the journal reads 6 BUY / 2 SELL and why every recent fill is long.
+  //
+  // The bands are DERIVED from MOMENTUM's rather than copied, so this is an exact mirror
+  // by construction and stays one when the ceiling sweep moves momentumRsiMax. A
+  // duplicated threshold is the single most repeated bug in this codebase — the gate had
+  // five copies — and a mirror that drifts from its original measures nothing.
+  const BREAKDOWN_RSI_MIN = 100 - MOMENTUM_RSI_MAX;
+  const BREAKDOWN_RSI_MAX = 100 - MOMENTUM_RSI_MIN;
+
+  // OFF unless strategy_settings.json explicitly carries `"breakdownEnabled": true`.
+  // Neither box carries the key, so this is false on both and the firing set is provably
+  // unchanged — verified by replaying 4 years of bars either side of the edit and
+  // diffing the trade lists, not by reading the condition.
+  //
+  // `=== true` and not a truthy test: a stray "false" string in a hand-edited settings
+  // file must not arm a live short-selling setup.
+  const BREAKDOWN_ENABLED = (typeof strategySettings !== "undefined"
+    && strategySettings.breakdownEnabled === true);
 
   // ── Gold/DXY divergence detection ────────────────────────────
   // Detected BEFORE the setup chain so a non-match falls through to the remaining
@@ -1758,6 +1794,48 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
       reasons.push(`Not tradeable — MOMENTUM still needs: ${watchMissing.join(", ")}`);
     }
     recordNearMisses();
+  }
+
+  // ── BREAKDOWN: all EMAs aligned DOWN + MACD bearish — the mirror of MOMENTUM ──
+  //
+  // PLACED LAST ON PURPOSE, and the position is the safety argument. Every branch above
+  // is an `else if`, so a new branch inserted higher up would STEAL cycles from whatever
+  // sits below it. Sitting here, after BB_SQUEEZE_WATCH and immediately before the final
+  // else, it can only ever convert a cycle that was going to be WAIT anyway. It cannot
+  // displace a setup, cannot change a single existing entry, stop or target, and cannot
+  // suppress a signal that would otherwise have fired — the standing rule this edit was
+  // written under.
+  //
+  // NO NEAR-MISS ROW IS LOST by taking a cycle from the else below. recordNearMisses()
+  // only reports MOMENTUM and TREND_FOLLOW, and both of those require inUptrend (or MIXED
+  // above both EMAs), which is false by construction whenever this branch is entered —
+  // it requires inDowntrend. The census would have recorded nothing on these cycles.
+  //
+  // Occupancy is the one real interaction and it is NOT visible here: a BREAKDOWN that
+  // opens holds the symbol, so a later long can be blocked by a position rather than by
+  // a rule. That is measured explicitly by tasks/breakdown_walkforward.cjs and reported
+  // as a displacement count — it is the honest cost of adding any setup, and it is a
+  // reason to check the number, not a reason to assume it is zero.
+  //
+  // UNMEASURED UNTIL THE HARNESS SAYS OTHERWISE. This ships OFF. Turning it on is a
+  // separate decision that needs a walk-forward whose worst fold clears zero.
+  else if (
+    BREAKDOWN_ENABLED &&
+    inDowntrend &&
+    !aboveEma50 && !aboveEma20 &&
+    rsi !== null && rsi > BREAKDOWN_RSI_MIN && rsi < BREAKDOWN_RSI_MAX &&
+    macd && !macd.bullish
+  ) {
+    setup  = "BREAKDOWN";
+    signal = "SELL";
+    const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((entry * 1.015).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry - Math.abs(sl - entry) * 2.0).toFixed(2));
+    strength = (macd.crossedBearish || (volRatio !== null && volRatio >= 1.8)) ? "STRONG" : rsi < 40 ? "MODERATE" : "NONE";
+    reasons.push(`All EMAs aligned down — trend structure intact to the downside`);
+    reasons.push(`MACD bearish${macd.crossedBearish ? " — fresh crossover" : ""} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
+    if (volConfirmed) reasons.push(`Volume ${volRatio}x avg — institutional participation`);
+    else reasons.push(`Volume ${volRatio ?? "?"}x avg (monitoring for breakdown confirmation)`);
   }
 
   else {
@@ -2218,6 +2296,11 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   if (signalTf.setup === "SQUEEZE_BREAKOUT" && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 10);
   if (signalTf.setup === "DIVERGENCE"       && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 6);
   if (signalTf.setup === "MOMENTUM"         && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 5);
+  // Same +5 as MOMENTUM, because BREAKDOWN is its mirror and a mirror that collects
+  // fewer confidence points than its original is not being measured against it — it is
+  // being measured against a handicap. Unreachable while breakdownEnabled is false: no
+  // signal can carry setup "BREAKDOWN" for this line to match.
+  if (signalTf.setup === "BREAKDOWN"        && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 5);
   if (signalTf.setup === "BUY_DIP"          && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 3);
   if (signalTf.setup === "SELL_BOUNCE"      && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 3);
 
@@ -8861,6 +8944,12 @@ app.get("/api/strategy-board", (_, res) => {
       "MOMENTUM", "TREND_FOLLOW", "SQUEEZE_BREAKOUT", "BUY_OVERSOLD",
       "SELL_BOUNCE", "RANGE_TRADE_LONG", "RANGE_TRADE_SHORT", "BB_SQUEEZE_WATCH",
       "BUY_DIP", "BREAKOUT",
+      // Added 2026-08-28 with the setup itself. It is gated OFF by
+      // strategySettings.breakdownEnabled, so this row will read "no history" on both
+      // boxes — which is the correct thing for a board to show about a setup that
+      // exists and has never been armed, and is precisely why the list is hardcoded
+      // rather than derived from the data.
+      "BREAKDOWN",
     ];
     // Below this many closed fills a win rate is noise, not a verdict. Same floor
     // the learning engine uses to withhold a boost.

@@ -167,6 +167,32 @@ if (process.env.MTF_TREND_FOLLOW_RSI_MAX) {
 // later signal through that was previously blocked. Filtering afterwards would
 // miss those, and on this engine they are not rare: the census reports 2270 steps
 // blocked by an open position on BTC and 2549 on SPX.
+// MEASUREMENT-ONLY switch for the BREAKDOWN setup — the short mirror of MOMENTUM.
+// Same contract as every override above: nothing on disk changes, only this replay's
+// copy of the settings object.
+//
+// BREAKDOWN ships OFF (server/index.js reads strategySettings.breakdownEnabled === true
+// and neither box's strategy_settings.json carries the key), so without this the harness
+// could not see the setup at all and the only way to measure it would be to arm it live
+// first. That is exactly backwards.
+//
+// Swept by re-replaying rather than by filtering the output, for the reason MTF_MIN_ENTRY
+// _RSI is: the setup forms inside generateSignal and runs on the daily and 4H legs
+// independently, so arming it changes which multi-timeframe combinations exist — and a
+// BREAKDOWN that opens occupies the symbol through `openUntil`, which can block a LONG
+// that the baseline took. Neither effect is reconstructible from a filtered trade list,
+// and the second one is the whole safety question.
+if (process.env.MTF_BREAKDOWN) {
+  const raw = String(process.env.MTF_BREAKDOWN).trim();
+  if (raw !== "0" && raw !== "1") {
+    console.error(`MTF_BREAKDOWN=${process.env.MTF_BREAKDOWN} must be exactly "0" or "1" — ` +
+                  `refusing to replay, because anything else would silently report the ` +
+                  `baseline under the candidate's label.`);
+    process.exit(1);
+  }
+  settings.breakdownEnabled = raw === "1";
+}
+
 if (process.env.MTF_DAILY_ONLY_MIN_CONF) {
   const floor = Number(process.env.MTF_DAILY_ONLY_MIN_CONF);
   if (Number.isFinite(floor)) settings.dailyOnlyMinConfidence = floor;
@@ -708,6 +734,9 @@ process.stderr.write("MTF_CENSUS " + JSON.stringify({
   adxTrendingMin: settings.adxTrendingMin ?? null,
   minRrReplayed: settings.minRrReplayed ?? null,
   pivotMinAtrReplayed: settings.pivotMinAtrReplayed ?? null,
+  // null means "engine default, untouched" — same convention as the fields above, so a
+  // stored census can never be mistaken for the baseline it is being compared against.
+  breakdownEnabled: settings.breakdownEnabled ?? null,
   stubbed: ["priceCache.dxy", "priceCache.vix", "sentimentCache.fearGreed",
             "signalCache (cross-asset)", "getLearningBoost -> 0"],
   windowBars: WINDOW,
