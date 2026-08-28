@@ -146,6 +146,28 @@
     .charts-grid.layout-1 { grid-template-columns:1fr;            --chart-h:640px; }
     .charts-grid.layout-2 { grid-template-columns:1fr 1fr;        --chart-h:520px; }
     .charts-grid.layout-3 { grid-template-columns:repeat(3,1fr);  --chart-h:440px; }
+
+    /* Chart height follows the VIEWPORT, not just the layout.
+       Kept as plain px values set by media queries rather than a clamp(): --chart-h is
+       an unregistered custom property, so getComputedStyle().getPropertyValue() hands
+       back the literal token stream. chartHeight() does parseInt() on it, and
+       parseInt("clamp(380px,42vh,520px)") is NaN — which silently falls through to the
+       440 default and would take the RSI pane away at every layout. Registering it with
+       @property would fix that but is not supported everywhere this page is opened.
+
+       Short viewports first: a 640px chart on a 768px-tall laptop pushed the signal
+       cards and the whole gate readout below the fold, which is the part you actually
+       need. Tall monitors get the space back. */
+    @media (max-height:820px) {
+      .charts-grid.layout-1 { --chart-h:460px; }
+      .charts-grid.layout-2 { --chart-h:400px; }
+      .charts-grid.layout-3 { --chart-h:340px; }
+    }
+    @media (min-height:1200px) {
+      .charts-grid.layout-1 { --chart-h:780px; }
+      .charts-grid.layout-2 { --chart-h:620px; }
+      .charts-grid.layout-3 { --chart-h:520px; }
+    }
     .charts-grid .chart-wrap.chart-hidden { display:none; }
     .chart-wrap { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
 
@@ -621,6 +643,16 @@
     @media (max-width:900px) {
       .price-strip,.charts-grid,.bottom-grid,.perf-stats-grid,.mode-grid,.circuit-grid,.perf-two-col { grid-template-columns:1fr; }
       .bt-grid { grid-template-columns:1fr; }
+      /* THIS RULE WAS DEAD FOR THE CHARTS. `.charts-grid` above is specificity (0,1,0)
+         while `.charts-grid.layout-3` is (0,2,0), and specificity beats a media query —
+         so on a phone the three-up layout still rendered THREE columns inside 900px,
+         roughly 290px each, and every TradingView pane was unreadable. Re-stating the
+         layout classes here matches that specificity so the collapse actually applies.
+         The layout buttons keep working; only the COLUMN COUNT is overridden, and
+         chartAssetOrder still decides which charts are on screen. */
+      .charts-grid.layout-1,
+      .charts-grid.layout-2,
+      .charts-grid.layout-3 { grid-template-columns:1fr; --chart-h:380px; }
     }
     /* ── ECONOMIC CALENDAR ──────────────────────────────────────
        Built as classes rather than inline styles so it uses the page's own tokens and
@@ -2120,7 +2152,15 @@ const CHART_ASSETS = {
 // the same two rather than a bare candle series. Both are price overlays and cost
 // no vertical space; RSI opens its own pane and is only worth it on a tall chart.
 const EMA_PERIOD = 200;
-const RSI_MIN_CHART_HEIGHT = 600;
+// 440, not 600. At 600 the RSI pane appeared ONLY on layout-1, so the default
+// three-up view never showed it — and RSI is the single most load-bearing number on
+// this dashboard: the RSI CEILING is what blocks trades here, and on 2026-08-28 it
+// was the sole reason BTC had not fired in 17 days (RSI 81.2 against a ceiling of
+// 80). A chart that omits the one series that decides whether you trade is the wrong
+// default. 440 is the layout-3 height, so every layout shows RSI on a normal
+// viewport; the short-viewport heights below it correctly drop the pane when there
+// is genuinely no room for it.
+const RSI_MIN_CHART_HEIGHT = 440;
 const VALID_INTERVALS = ["60", "240", "D"];
 
 // Last payloads from /api/signals and /api/status. Held because three things on
