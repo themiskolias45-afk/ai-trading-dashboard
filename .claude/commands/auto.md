@@ -11,6 +11,9 @@ a Windows scheduled task. Produces a concise overnight brief and auto-fixes what
   mcp__smartentry__get_rejection_evidence   → any gate flip to COSTING MONEY since last check?
   mcp__smartentry__read_memory query="tomorrow priorities" → what did yesterday's session plan?
 
+  Also read tasks/analysis/strategy-search-latest.txt (last 20 lines) — skip silently if missing.
+  Flag as STRATEGY-PENDING if "PROPOSE" or "score ≥" appears in the text.
+
 ═══ STEP 2 — TRIAGE (priority order) ═══
   P1. Fleet diverges or bridge down → log_note tag="AUTO-ALERT" + surface in brief
   P2. Circuit breaker tripped overnight → log_note + surface in brief
@@ -18,6 +21,7 @@ a Windows scheduled task. Produces a concise overnight brief and auto-fixes what
   P4. New trade(s) executed overnight → note outcome, check if stop was respected
   P5. Gate flipped to COSTING MONEY → flag for /profit run
   P6. "tomorrow priorities" from memory → surface top 3
+  P7. STRATEGY-PENDING → surface in brief as "⚡ Strategy candidate — run /discover to evaluate"
 
 ═══ STEP 3 — AUTO-FIX (LOW-RISK only, no approval needed) ═══
   - Stale healer data → force_heal
@@ -34,6 +38,7 @@ AUTO-BRIEF — [date] [time]
 OVERNIGHT:   [trades executed: count + P&L | or: no trades]
 FLEET:       [HEALTHY / DIVERGED — what differs]
 SIGNALS NOW: BTC [X]% | GOLD [X]% | SPX [X]%
+STRATEGY:    [⚡ candidate pending — run /discover | or: NONE]
 ISSUES:      [list — or NONE]
 AUTO-FIXED:  [what was healed — or NONE]
 

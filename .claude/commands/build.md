@@ -47,7 +47,7 @@ If $ARGUMENTS is empty, ask: "What do you want to build?"
 
 ═══ STEP 5 — TEST ═══
   After building, verify it actually works:
-  - New API endpoint → curl or mcp__fetch to hit it, confirm 200 and correct JSON shape
+  - New API endpoint → curl http://localhost:3001/api/[route] or mcp__exa__web_fetch_exa to hit it, confirm 200 and correct JSON shape
   - Changed signal logic → trace with confidence=65, 64, 100, 0
   - New dashboard element → confirm data appears at the endpoint it fetches from
   - If a test file exists (server/tests/) → run it

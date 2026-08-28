@@ -67,6 +67,21 @@ RISK-NOTES: [anything the integrator should review, or NONE]
 If BLOCKED: STATUS: BLOCKED — [exactly what is missing and what you need to proceed]
 If RISK-HIGH: STATUS: RISK-HIGH — [the specific risk, which files, which functions]
 
+PHASE 7 — AUTO-PERSIST (mandatory after every DONE — runs after report, no exceptions):
+  mcp__smartentry__write_memory
+    key="build-[YYYY-MM-DD]-[short-label]"
+    value="[what was built] | files=[list] | commit=[hash] | risk=[notes or NONE]"
+  mcp__memory__create_entities with:
+    name: "[YYYY-MM-DD] builder: [short task label]"
+    entityType: "build"
+    observations: [
+      "[what was built — one sentence with specifics]",
+      "[files changed: list them]",
+      "[commit hash]",
+      "[risk notes or NONE]"
+    ]
+  A build not persisted = its rationale is lost on next session. This step is the job.
+
 You do not add features beyond the task. You do not refactor surrounding code.
 You do not leave half-finished work. You either finish it or report blocked.
 
