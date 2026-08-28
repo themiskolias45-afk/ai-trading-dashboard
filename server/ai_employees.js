@@ -264,7 +264,7 @@ const ROSTER = [
   {
     id: 'fleet-warden',
     title: 'Fleet Warden',
-    status: PROPOSED,
+    status: EMPLOYED,
     mission: 'Watch the two boxes for drift in code, config and capability — not just the engine.',
     brain: 'none — deterministic',
     context: ['tasks/vps_parity.cjs output'],
@@ -280,9 +280,14 @@ const ROSTER = [
       'never sync blindly — bridge_tags.ps1 must stay laptop-only or a second bridge starts on a one-account box',
       'report; a human decides direction',
     ],
-    clock: { schedule: 'daily', boxes: ['laptop'], task: null, script: 'tasks/vps_parity.cjs' },
-    whyNotYet: 'The tool exists and now sees the whole surface, but nothing runs it on a schedule — '
-      + 'it only ever ran when someone looked, which is how 23 capability files went missing unnoticed.',
+    clock: { schedule: 'daily 08:15', boxes: ['laptop'], task: 'SmartEntry Fleet Warden', script: 'tasks/fleet_warden.ps1' },
+    hiredNote: 'BUILT AND EMPLOYED 2026-08-28. LAPTOP ONLY by design: it compares this box '
+      + 'against the peer, and the laptop cannot be reached from outside, so the VPS has no '
+      + 'peer to check. 08:15 lands after the daily check has finished deploying, so it reads '
+      + 'a settled state. Exit 2 ONLY on engine drift — file-presence drift is reported and '
+      + 'never failed, because some absences are load-bearing. First run: engines=AGREE, '
+      + 'trackedDrift=0, absentOnVps=19, contentDiffers=29 — and it caught its own undeployed '
+      + 'file on the very first run, which is exactly the job.',
   },
   {
     id: 'calibration-officer',
