@@ -253,39 +253,83 @@ const CLAIMS = [
   {
     id: "amd",
     title: "AMD (Accumulation / Manipulation / Distribution)",
-    status: STATUS.BLOCKED,
-    measuredOn: "2026-08-12",
-    evidence: "NOW SESSION-ALIGNED, and still far too thin to judge. On 13,757 real "
+    status: STATUS.MEASURED_NO_EDGE,
+    measuredOn: "2026-08-28",
+    evidence: "THE PATTERN WAS ABSENT BY CONSTRUCTION, NOT BY MARKET — every count below "
+      + "dated before 2026-08-28 came from a detector that could not see it. detectAMD "
+      + "required the distribution to close beyond the FULL opposite side of the "
+      + "accumulation range inside ONE bar. Funnel on GOLD H4 over the whole archive: "
+      + "7,844 windows -> 7,838 tight enough -> 1,092 clean SWEEPS -> 9 patterns. The "
+      + "tightness filter discards 0.08% and the sweep test does real work at 14%; the "
+      + "single-bar rule then threw away 99.2% of genuine sweeps. BTC D1 found ZERO in "
+      + "1,821 bars. Distribution is a PHASE, not a bar. Fixed in 8d08145 "
+      + "(distributionBars, default 5). Counts by the real detector: D1 gold 3->11, btc "
+      + "0->14, spx 1->15; H4 gold 9->70, btc 18->108, spx 13->76; H1 gold 97->432, btc "
+      + "78->479, spx 176->685 — 1,596 H1 patterns where there were 351, sessionAligned "
+      + "true throughout. AND THEN IT STILL DOES NOT PAY. Entry at the distribution "
+      + "close, stop at the pattern's own invalidation, target swept as a multiple of "
+      + "that risk, cost 0.05R, 5 sequential out-of-sample folds: NOTHING reaches 4 of 5 "
+      + "folds on any asset or timeframe. Best cells are BTC H1 at 0.5R (+0.009R, 3/5, "
+      + "n=422) and SPX H4 at 1.0R (+0.111R, 3/5, n=62). The native objective averages "
+      + "only ~0.44R, which is why a 67% hit rate still lost.",
+    caveat: "THE WIN RATE IS A TRAP AND MUST NOT BE QUOTED ALONE. At a 0.5R target the "
+      + "pattern is right 64-75% of the time, which reads like a strong edge; demand a "
+      + "real move and it collapses — GOLD H1 goes 66% at 0.5R, 50% at 1R, 38% at 1.5R, "
+      + "26% at 2R. Win rate decaying in lockstep with target distance is the signature "
+      + "of price wiggling near entry, not of prediction. A 67% hit rate at sub-1R "
+      + "payoff is exactly how a losing system looks reassuring. Also: this scores the "
+      + "pattern's own geometry only, the detection fix is one judgement (5 bars, under "
+      + "half the 12-bar accumulation window) rather than a measurement, and AMD feeds "
+      + "no gate, no confidence and no sizing — detectAMD has no production caller at "
+      + "all, so none of this has ever touched a trade.",
+    changesTheAnswer: "THIS IS NOW OPEN, NOT CLOSED — the previous version of this claim "
+      + "said 'the pattern is not there, at any timeframe, on any asset, stop re-running "
+      + "it', and that was true of a detector that could not see it. What is refuted is "
+      + "AMD'S OWN GEOMETRY, not AMD. Worth trying, in order: a target derived from "
+      + "something other than one accumulation range (session range, ATR, the next "
+      + "opposing structure); the distributionBarsTaken field now carried on every "
+      + "pattern, to ask whether fast markdowns behave differently from slow ones; the "
+      + "classic ASIA-accumulation / LONDON-sweep / NEW-YORK-distribution subset scored "
+      + "SEPARATELY, since pooling a minority shape with things that merely resemble it "
+      + "is what made the 2026-08-12 number uninterpretable; and a materially bearish "
+      + "regime, the same caveat BREAKDOWN carries. Re-running the OLD sweep on the same "
+      + "bars is not independent evidence and should not be repeated.",
+    harness: "node tasks/geometry_measure.cjs --interval 1h  |  node tasks/crt_amd_mtf_measure.cjs",
+    supersededEvidence: "NOW SESSION-ALIGNED, and still far too thin to judge. On 13,757 real "
       + "Gold hourly bars (2 years) the detector finds 16 patterns, of which only 3 are "
       + "the textbook ASIA accumulation → LONDON sweep → NEW YORK distribution. The "
       + "most common sequence is ASIA → NEW YORK → NEW YORK (6). An earlier run that "
       + "pooled every shape together reported 33 resolved trades across three assets.",
-    caveat: "The block has MOVED and its old reason was stale. The bridge has sent bar "
-      + "open times since 2026-08-09; what was actually missing is that detectAMD never "
-      + "read them and hardcoded sessionAligned:false, while geometry_measure.cjs threw "
-      + "the timestamps away in its own loader. Both fixed 2026-08-12. What blocks AMD "
-      + "now is SAMPLE SIZE, not missing data: 16 patterns in two years, 3 of them "
-      + "classic, cannot support any claim about edge.",
-    changesTheAnswer: "More patterns — which means more history, or a looser window, and "
-      + "loosening the window changes what the pattern IS so it would need its own "
-      + "control. Measure the classic subset SEPARATELY from the rest: pooling a 19% "
-      + "minority with shapes that merely resemble it is what made the earlier number "
-      + "uninterpretable.",
-    harness: "node tasks/geometry_measure.cjs --interval 1h  |  node tasks/crt_amd_mtf_measure.cjs",
-    // RE-RUN 2026-08-27 on the 4.3-YEAR archive as well, and five years changes nothing:
-    // the best AMD cell is btc h4->h4 at n=16, and NOT ONE AMD cell cleared 20 trades.
-    // The pattern is not there, at any timeframe, on any asset. Stop re-running it.
-    // RE-CONFIRMED 2026-08-27 on live broker bars, and sharpened. The detectors were
-    // called directly on the full series, no point-in-time restriction, so this is the
-    // ceiling on how many patterns exist at all - not a harness artefact:
-    //          d1   h4   h1   m15
-    //   btc     0    1    1     4
-    //   gold    0    0    0     6
-    //   spx     1    0    7     9
-    // sessionAligned is TRUE on all twelve series, so the session work holds. AMD is
-    // near-absent at every timeframe an engine would take a bias from. CLAUDE.md still
-    // claimed the old timestamp blocker until today; this register had it right since
-    // 2026-08-12 and the boot file was the stale copy.
+    // The historical caveat and falsifier, kept rather than dropped because they record
+    // a real diagnostic path — the 2026-08-12 session correctly found and fixed the
+    // sessionAligned bug — and because the conclusion they led to was reasonable given
+    // the detector they had. It is the DETECTOR that was wrong, not the reasoning.
+    supersededCaveat: "The block has MOVED and its old reason was stale. The bridge has "
+      + "sent bar open times since 2026-08-09; what was actually missing is that "
+      + "detectAMD never read them and hardcoded sessionAligned:false, while "
+      + "geometry_measure.cjs threw the timestamps away in its own loader. Both fixed "
+      + "2026-08-12. What blocks AMD now is SAMPLE SIZE, not missing data.",
+    //
+    // THE COUNTS BELOW ARE THE BROKEN DETECTOR'S, AND THE CONCLUSION DRAWN FROM THEM WAS
+    // WRONG. Kept verbatim because this is the exact shape of the mistake: a measurement
+    // repeated on more history, re-confirmed on live bars, sharpened into a table, and
+    // stated with total confidence — while every number came from an instrument that
+    // could not see the thing. More data cannot rescue a detector that is broken, and
+    // "we re-ran it on five years and it replicated" is not the check people think it is.
+    //
+    //   RE-RUN 2026-08-27 on the 4.3-YEAR archive, and five years changes nothing:
+    //   the best AMD cell is btc h4->h4 at n=16, and NOT ONE AMD cell cleared 20 trades.
+    //   The pattern is not there, at any timeframe, on any asset. Stop re-running it.
+    //            d1   h4   h1   m15
+    //     btc     0    1    1     4
+    //     gold    0    0    0     6
+    //     spx     1    0    7     9
+    //
+    // Re-measured 2026-08-28 with the distribution leg allowed more than one bar, the
+    // same H1 series yield 432 / 479 / 685. The sentence "the pattern is not there" was
+    // the single most expensive line in this register: it is what told every agent
+    // reading ai_brief.md that AMD was closed, which is why 23 AI-employee proposals
+    // never once touched it.
     feedsTheGate: false,
   },
   {
