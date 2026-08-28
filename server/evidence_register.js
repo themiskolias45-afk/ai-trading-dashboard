@@ -509,6 +509,57 @@ const CLAIMS = [
     feedsTheGate: false,
   },
   {
+    // Placed directly under BREAKDOWN because the two are constantly confused and are
+    // NOT the same question. BREAKDOWN is MOMENTUM's mirror: a trend-continuation short
+    // that needs an established downtrend. This is a RANGE-BREAK short, which needs no
+    // trend at all — and it is the one people reach for after watching a fast drop out
+    // of a range. Both fail, for different reasons, and neither is a reason to try the
+    // other.
+    id: "shadowshort",
+    title: "Break-down short — chasing a fast drop out of the range",
+    status: STATUS.MEASURED_NO_EDGE,
+    measuredOn: "2026-08-28",
+    evidence: "Raised 2026-08-28 after Gold fell 4631 -> 4530 inside ONE H1 bar while "
+      + "/api/signals still read BUY MOMENTUM confidence 74, unchanged. Tested against "
+      + "the 5.1-year H1 archive (GOLD 30,024 bars, BTC 42,200, SPX 29,992). Plain "
+      + "Donchian break-down — close below the 20-bar low, 1.5x ATR14 stop, 2R target, "
+      + "0.05R cost, stop assumed filled before target when both land in one bar, no "
+      + "overlapping positions: GOLD −0.119R over 594 trades and 0/5 folds positive, BTC "
+      + "−0.063R over 844 and 1/5, SPX −0.116R over 685 and 1/5. The decisive test is the "
+      + "NESTED walk-forward, where each fold's parameters are chosen only on folds "
+      + "before it: GOLD in-sample +0.26R -> OOS 2/4 folds and mean +0.005R; BTC +0.85R "
+      + "-> 2/4 and +0.185R; SPX +0.93R -> 1/4 and −0.063R. In-sample +0.26..+0.93R "
+      + "collapsing to zero is the whole finding. Live confirmation from a different "
+      + "source the same day: the shadow ledger's first run priced 240 resolved episodes "
+      + "over ~50 days of live bars at GOLD −0.013R, BTC −0.142R, SPX −0.110R.",
+    caveat: "A FLAT 216-VARIANT SWEEP FIRST RETURNED +1.45R WITH 108 OF 216 VARIANTS "
+      + "'WINNING', AND THAT WAS A LOOK-AHEAD BUG — recorded here because the shape "
+      + "recurs. The variant filled a resting sell-stop at the break level while the "
+      + "volatility filter read (high−low)/ATR of the TRIGGERING bar, a number that does "
+      + "not exist until that bar closes, hours after the fill; resolution also began at "
+      + "bar i+1, banking the whole intrabar collapse before the first stop check. 108 of "
+      + "216 winning was itself the tell — a real edge does not appear in half a grid. "
+      + "Corrected, survivors fell to 2 of 216, neither holding on BTC or SPX. Separately, "
+      + "the move that prompted this was smaller than it looked: 59% of the 101-point bar "
+      + "sat ABOVE the 10-bar low, inside the range where nothing can trigger, leaving "
+      + "41.6 points against an H1 ATR of 22.16 — about 1.9R at a perfect fill, not the "
+      + "4.5R the headline number suggests. Enabling BREAKDOWN would NOT have caught it "
+      + "either: that setup requires a downtrend, and Gold was MIXED/UPTREND/STRONG "
+      + "UPTREND on h1/h4/d1.",
+    changesTheAnswer: "Several hundred resolved episodes from LIVE bars turning the mean "
+      + "positive on MORE THAN ONE asset. That is what tasks/shadow_short_ledger.py now "
+      + "accumulates nightly on both boxes, served read-only at /api/shadow-shorts. A "
+      + "wider grid over the same 5.1 years is NOT independent evidence and must not be "
+      + "run as though it were — that is the thing that already failed. A materially "
+      + "bearish regime is the honest re-test, the same caveat BREAKDOWN carries.",
+    harness: "python tasks/shadow_short_ledger.py  (live) · "
+      + "python tasks/would_a_short_have_fired.py [asset] [bars]  (does any branch fire)",
+    sampleAtWriting: { resolvedEpisodes: 240, oosFoldsPositiveGold: 2 },
+    sampleTolerance: 0.5,
+    sampleFrom: "5.1y H1 archive nested walk-forward + live shadow ledger, 2026-08-28",
+    feedsTheGate: false,
+  },
+  {
     // The proposal this settles came from the AI employee, not a human, and it was
     // right about the individual trade while being wrong about the population. Both
     // halves are recorded deliberately: dropping the first would read as the agent

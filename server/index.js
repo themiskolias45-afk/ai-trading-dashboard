@@ -179,6 +179,34 @@ if (typeof stopVariantSummary !== "function") {
     reason: "server/stop_variants.js is not deployed on this box", feedsTheGate: false });
 }
 
+// The read side of the shadow SHORT ledger. tasks/shadow_short_ledger.py writes the rows
+// nightly; without this nothing reads them, and a ledger nothing reads can never become a
+// verdict — the exact failure the near-miss census had for weeks.
+//
+// It answers a question upstream of BOTH surfaces above: /api/gate-health counts gates
+// firing on setups that FORMED, /api/near-miss counts setups that ALMOST formed, and
+// neither can see a move for which no branch exists at all. On 2026-08-28 Gold fell
+// 4631 -> 4530 in one H1 bar and left no row on any surface in this system.
+//
+// Guarded exactly like near_miss and stop_variants above, for the reason those two
+// taught: index.js is hand-patched onto the VPS while modules travel as their own tracked
+// files, so a require whose file has not landed yet must degrade rather than take down
+// the box that trades continuously.
+let shadowShortSummary;
+try {
+  ({ shadowShortSummary } = require("./shadow_shorts"));
+} catch (shadowShortError) {
+  console.error(
+    `[shadow-shorts] module unavailable (${shadowShortError.message}) ` +
+    `— /api/shadow-shorts will report unavailable. Signals and trading are unaffected.`
+  );
+}
+if (typeof shadowShortSummary !== "function") {
+  shadowShortSummary = () => ({ available: false,
+    reason: "server/shadow_shorts.js is not deployed on this box", byAsset: {},
+    feedsTheGate: false });
+}
+
 let logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt;
 try {
   ({ logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt } =
@@ -395,6 +423,13 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // account numbers, no positions, no levels. There is no POST at this path — the
   // census has no write route at all, only the engine increments it.
   "/api/near-miss",
+  // Moves for which no setup exists at all, priced as paper trades. Strictly less
+  // sensitive again than the line above: a row is an asset name, a count, a mean R and a
+  // verdict string, all of it about trades that were never taken. No keys, no account
+  // numbers, no positions, and no live levels — the entry and stop prices stay in the
+  // file and are not served. There is no POST at this path; the rows are written by
+  // tasks/shadow_short_ledger.py on disk, never over HTTP.
+  "/api/shadow-shorts",
   // Fair Value Gap zones, derived from the same bars /api/signals already exposes
   // publicly. Read-only geometry: price bands and how far price has eaten into
   // them. Nothing here is not already implied by the candles. No POST at this path.
@@ -3944,6 +3979,30 @@ app.get("/api/near-miss", (_, res) => {
   } catch (e) {
     console.error("[near-miss]", e.message);
     res.status(500).json({ available: false, reason: e.message, rows: [], feedsTheGate: false });
+  }
+});
+
+// One level upstream of the census above. /api/near-miss counts setups that ALMOST
+// formed — a setup one measurable condition short. This counts moves for which NO branch
+// exists at all, so there is no condition to be short of and nothing to count anywhere
+// else: on 2026-08-28 Gold fell 4631 -> 4530 in a single H1 bar and left no row on any
+// surface in this system, while /api/signals still read BUY MOMENTUM confidence 74.
+//
+// Deliberately NOT merged into /api/near-miss, for the same reason that route is not
+// merged into /api/gate-health: "a setup missed by 0.6 RSI" and "no setup could exist"
+// are different facts, and putting them in one payload makes every reader treat them as
+// the same kind of number.
+//
+// Read-only over tasks/shadow_shorts_scored.jsonl, which tasks/shadow_short_ledger.py
+// writes nightly. It is NOT evidence for trading the short side — the family failed a
+// 5.1-year nested walk-forward — it is the instrument that lets that verdict be
+// re-checked against live bars instead of re-argued.
+app.get("/api/shadow-shorts", (_, res) => {
+  try {
+    res.json(shadowShortSummary());
+  } catch (e) {
+    console.error("[shadow-shorts]", e.message);
+    res.status(500).json({ available: false, reason: e.message, byAsset: {}, feedsTheGate: false });
   }
 });
 
