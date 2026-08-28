@@ -74,6 +74,10 @@ Launch all agents in ONE response turn. Do not wait for one before spawning the 
 Max 5 parallel agents.
 
 ═══ STEP 3 — VERIFY RESULTS ═══
+TIMEOUT RULE: If any agent has not produced a REPORT within 10 minutes, treat it as
+STATUS: BLOCKED — timeout. Do not wait longer. Fix the workstream yourself immediately
+before proceeding to Step 4.
+
 For each agent that reports DONE:
 1. Validate the agent's report matches the EXPECTED OUTPUT SCHEMA — if fields are missing, treat as BLOCKED.
 2. Run node --check on every .js file it touched.

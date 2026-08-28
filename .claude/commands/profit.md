@@ -45,7 +45,8 @@ STEP 4 — IMPLEMENT:
       Prompt: "[CHANGING/NOW/AFTER/RISK scaffold from analyst]
       Implement this change to [FILE]. Read the full file first.
       Verify: node --check [file] after edit.
-      Commit: git add [file] && git commit -m '[what changed and why]'
+      Commit: git commit -m 'profit: [what changed and why]' -- [FILE]
+      (pathspec form ONLY — never git add; /profit may spawn multiple builders sharing one working tree)
       Report: DONE or FAILED with reason."
 
 STEP 5 — VERIFY:

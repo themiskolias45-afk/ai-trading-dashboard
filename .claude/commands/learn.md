@@ -28,6 +28,7 @@ Run this before closing JARVIS. Takes 2 minutes. Makes every future session smar
       observations: ["[what happened]", "[root cause or reason]", "[what to do differently / keep doing]"]
 
   mcp__smartentry__write_memory key="session-[date]" value="[3-line summary of what changed today]"
+  mcp__smartentry__write_memory key="last-session-state" value="[what was being built: file/feature] | [open issues] | [pending approvals] | [commits: last 3 hashes]"
   mcp__smartentry__log_note tag="SESSION-END" text="[what was built/fixed/learned — one paragraph]"
 
   If goal is set (check /goal show):

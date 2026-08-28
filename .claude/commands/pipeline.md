@@ -50,6 +50,11 @@ Nothing touches live code until it passes every gate. No shortcuts.
   - Commit with pathspec (never git add -A)
 
 ═══ GATE 6 — POST-IMPLEMENTATION VERIFICATION ═══
+  BASELINE VALIDITY CHECK: Gate 2 and Gate 6 are only comparable if no setting changed
+  between them. If Gate 5 changed strategy_settings.json (any threshold), the Gate 2
+  baseline was measured under the old setting — the comparison is INVALID. In that case:
+  re-run Gate 2 now (before declaring KEPT) to get a fresh baseline under the new setting.
+
   Run: mcp__smartentry__run_walkforward (second run — compare to Gate 2 baseline)
   Compare: new worst fold vs baseline worst fold
   If new worst fold < baseline worst fold: REVERT — the change made things worse.

@@ -14,6 +14,8 @@ SIGNALS & ANALYSIS
   /sentiment           Full sentiment brief — Fear & Greed + macro + asset outlook
   /news                Live market news briefing + trading impact
   /morning             Full morning brief — signals + sentiment + pre-market research
+  /vision [sym]        Chart vision AI — screenshot analysis + signal cross-reference
+  /debate [sym] [dir]  Multi-agent debate for/against a trade direction — verdict + approval
 
 TRADINGVIEW
   /draw [sym]          Draw daily plan on TradingView — entry/stop/target/S&R lines
@@ -61,6 +63,7 @@ DAILY & WEEKLY CYCLES
   /morning             Morning brief — signals + yesterday recap + pre-market research
 
 SYSTEM & IMPROVEMENT
+  /voice [start|stop|test]  Voice interface — listen for commands, read signals aloud
   /status              One-screen snapshot — signals, risk, code health, action item
   /health              Server + API + syntax + security health check
   /check [scope]       Deep check — syntax|security|api|git
@@ -72,6 +75,7 @@ SYSTEM & IMPROVEMENT
   /auto                Overnight brief + self-heal — runs in < 30s, no input needed. Schedule daily.
 
 MEMORY
+  /state save|load|show   Save/restore full session context — working-on, decisions, pending tasks, signals
   Say: "remember that Gold rejects hard at $2400" — stored for all future sessions
 
 AGENTS (spawn automatically via /engineer, /build, /daily, /weekly)

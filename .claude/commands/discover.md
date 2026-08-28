@@ -10,8 +10,14 @@ WITH --implement:    research + score + spawn builder on the top-ranked candidat
 ═══ STEP 1 — READ EXISTING FINDINGS ═══
   Read tasks/analysis/strategy-search-latest.txt  — the latest automated search result
   Read tasks/logs/strategy_search.txt             — last 20 lines (recent run status)
+  Read tasks/analysis/discovery-log.jsonl         — prior decisions (skip silently if missing)
   mcp__smartentry__read_memory query="strategy discovery proposal"  → any prior proposals
   mcp__smartentry__get_performance                → current WR and P&L baseline
+
+  DEDUPE CHECK: Before spawning researcher agents in Step 3, cross-reference each candidate
+  against discovery-log.jsonl. If a candidate's description matches a prior entry with
+  decision=REJECTED, skip it and note "already decided [date]: [reason]". Only research
+  candidates not yet in the log.
 
   If strategy-search-latest.txt is missing or empty:
     "Strategy search has not run yet. Run: node tasks/strategy_search.cjs --axis ceiling"
@@ -81,3 +87,6 @@ Persist findings regardless:
   mcp__smartentry__write_memory key="discover-[date]" value="[winner + score + decision]"
   mcp__smartentry__log_note tag="DISCOVER" text="[candidate + evidence + verdict]"
   mcp__memory__create_entities if any finding is a genuine new lesson.
+
+  WRITE TO DEDUPE LOG: append each candidate's decision to tasks/analysis/discovery-log.jsonl:
+  {"date":"[YYYY-MM-DD]","candidate":"[description]","score":[N],"decision":"PROPOSED|REJECTED","reason":"[one sentence]"}

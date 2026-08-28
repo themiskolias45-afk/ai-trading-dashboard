@@ -76,10 +76,16 @@
     "sequentialthinking": { "tags": ["compute", "reasoning"], "cost": "expensive", "side_effects": "read", "note": "use for complex multi-step analysis only" }
   },
 
+  "fetch": {
+    "fetch_url": { "tags": ["read", "web"], "cost": "moderate", "side_effects": "read", "note": "raw HTTP — use for local endpoints, webhooks, non-indexed pages" }
+  },
+
   "_rules": {
     "before_autonomous_operation": "Read this manifest. Select minimum tool set. Never call TRADES-tagged tools without gate confirmation.",
     "TRADES_gate": "Any tool with side_effects=TRADES requires the user to type 'APPROVE TRADE' — not inferred from context.",
     "DESTRUCTIVE_gate": "Any tool with side_effects=DESTRUCTIVE requires 'CONFIRM DELETE' — not inferred.",
-    "expensive_tools": "run_walkforward, run_debate, sequentialthinking — use only when cheaper tools cannot answer the question."
+    "expensive_tools": "run_walkforward, run_debate, sequentialthinking — use only when cheaper tools cannot answer the question.",
+    "MAX_AGENT_CALLS": 10,
+    "MAX_AGENT_CALLS_note": "Hard limit for autonomous loops (/profit, /agent). If rounds × agent-calls-per-round exceeds this, stop and report. Prevents unbounded spend on unattended runs."
   }
 }

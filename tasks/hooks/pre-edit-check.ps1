@@ -18,4 +18,16 @@ foreach ($pattern in $blocked) {
     }
 }
 
+# Warn (not block) when editing high-risk trading logic files
+$highRisk = @('server[/\\]index\.js$', 'server[/\\]mcp_server\.js$')
+foreach ($pattern in $highRisk) {
+    if ($filePath -match $pattern) {
+        Write-Host ""
+        Write-Host "PRE-FLIGHT REQUIRED: editing $filePath" -ForegroundColor Yellow
+        Write-Host "Answer all 6 questions in tasks/pre-flight.md before this edit." -ForegroundColor Yellow
+        Write-Host "Write the CHANGING/NOW/AFTER/RISK scaffold. If RISK is HIGH -- show user first." -ForegroundColor Yellow
+        Write-Host ""
+    }
+}
+
 exit 0

@@ -29,7 +29,9 @@ At the start of every interactive session:
 1. Read `VAULT-INDEX.md` at the vault root — skip silently if file doesn't exist, do not error.
 2a. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
 2b. Call `mcp__memory__search_nodes` **once per term**, with the SINGLE words `lesson`, then `fix`,
-   then `trade`. These are lessons explicitly persisted from past sessions via /learn.
+   then `trade`, then `decision`, then `build`. These are lessons, decisions, and build records
+   persisted from past sessions via /learn and AUTO-PERSIST. Surface any relevant to today.
+   **One term per call, never a phrase** — the AND-search rule applies here too.
    A lesson not recalled is a lesson wasted. Surface any that are relevant to today's context (e.g.
    a prior fix to the same component, a gate decision, a trade setup outcome).
    **One term per call, never a phrase.** `search_nodes` ANDs its terms: measured 2026-08-23,
@@ -37,11 +39,19 @@ At the start of every interactive session:
    every word. This step used to pass the phrase `"lesson fix improvement decision trade"` and
    had therefore **never returned a single result in its life** — the recall step this file calls
    mandatory was silently dead, which is the same shape as a setting with no reader.
-2c. Read `tasks/analysis/strategy-search-latest.txt` (last 20 lines only) — skip silently if missing.
+2c. Call `mcp__smartentry__read_memory query="last-session-commits"` — the session-stop hook writes
+   the last 3 commit hashes here. Surface as "Last session built: [commits]" so you know what
+   was being worked on. Skip silently if server is offline or key is empty.
+2d. Read `tasks/analysis/strategy-search-latest.txt` (last 20 lines only) — skip silently if missing.
    If it contains an unreviewed proposal (look for "PROPOSE" or "score ≥" in the text):
    surface it in the welcome context as: "⚡ Strategy search found a candidate — run /discover to evaluate."
+2e. Call `mcp__smartentry__read_memory query="last-session-state"` — the /learn command writes a
+   session-end summary here. Surface if found: "Last session: [what was being built / decided]".
 3. Read `tasks/daily/YYYY-MM-DD.json` for today and yesterday — load any trade signals, outcomes, or notes. Skip silently if missing.
 4. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
+4b. Call `TaskList` — surface any pending or in-progress tasks from prior sessions. If tasks exist,
+   show them before the welcome line: "Open tasks from last session: [list]". Skip silently if
+   TaskList returns empty or errors.
 5. **Call `get_brain_status` first.** One call composes the time context, the fleet
    verdict across both boxes, live signals against the live gate, risk state, the AI
    employee's verdicts and unread proposals, and the evidence board. Read its
