@@ -132,6 +132,55 @@ function readMcpTools() {
 }
 
 /**
+ * How many runnable scripts this repo actually has.
+ *
+ * The System page showed "Scripts 13" from a hand-written TOOLS array inside the page,
+ * while tasks/ alone holds over a hundred. Thirteen was never wrong as a list of FEATURED
+ * commands — it was wrong as a number labelled "Scripts", and a hand-maintained count is
+ * the same failure as TRACKED in vps_parity and SEARCH in config_drift: it only ever
+ * covers what someone remembered.
+ *
+ * Counted, not listed. Excludes:
+ *   _-prefixed  one-off patch and probe scripts, deliberately not part of the toolkit
+ *   .bak / backup dirs, node_modules, logs  historical copies that are SUPPOSED to differ
+ * so the number means "things a person could run", not "files on disk".
+ */
+const SCRIPT_EXT = /\.(cjs|js|py|ps1|bat)$/i;
+const SCRIPT_SKIP = /node_modules|[\\/]\.git[\\/]|[\\/]logs[\\/]|[\\/]bak-|\.bak|[\\/]_stage|[\\/]backups?[\\/]/i;
+
+function countScripts() {
+  const root = path.join(__dirname, "..");
+  const buckets = { tasks: 0, root: 0, engineModules: 0 };
+  const tally = (dir, key, recurse) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (SCRIPT_SKIP.test(full)) continue;
+      if (entry.isDirectory()) { if (recurse) tally(full, key, false); continue; }
+      if (!SCRIPT_EXT.test(entry.name)) continue;
+      if (entry.name.startsWith("_")) continue;      // one-off patches, not toolkit
+      if (/\.test\.js$/i.test(entry.name)) continue; // tests are not runnable tools
+      buckets[key]++;
+    }
+  };
+  tally(path.join(root, "tasks"), "tasks", false);
+  tally(root, "root", false);
+  tally(path.join(root, "server"), "engineModules", false);
+  // server/ is NOT in the total. Those are library modules — sizing.js, fvg.js,
+  // ai_registry.js — that nothing runs directly; counting them as "Scripts" would
+  // overstate by the same kind of error the hardcoded 13 understated by, just in the
+  // other direction. Reported separately because "how much engine is there" is a real
+  // question, and answering it with the wrong label is what this fix is about.
+  return {
+    tasks: buckets.tasks,
+    root: buckets.root,
+    engineModules: buckets.engineModules,
+    total: buckets.tasks + buckets.root,
+  };
+}
+
+/**
  * The rules, with a machine-checkable status where one exists. A rule displayed
  * without evidence of enforcement is decoration; where the code genuinely proves
  * it, say so, and where it rests on discipline, say that instead.
@@ -232,6 +281,7 @@ function build() {
   const skills = readMarkdownDir(COMMANDS_DIR, "skill");
   const agents = readMarkdownDir(AGENTS_DIR, "agent");
   const tools  = readMcpTools();
+  const scriptCounts = countScripts();
   return {
     skills: skills.items,
     skillsError: skills.error || null,
@@ -246,7 +296,10 @@ function build() {
       tools: tools.items.length,
       toolsThatTrade: tools.items.filter(t => t.mutates === "TRADES").length,
       toolsThatWrite: tools.items.filter(t => t.mutates === "writes").length,
+      // Live, not a hand-written list. See countScripts() for what is excluded and why.
+      scripts: scriptCounts.total,
     },
+    scriptsByArea: scriptCounts,
     updatedAt: new Date().toISOString(),
   };
 }

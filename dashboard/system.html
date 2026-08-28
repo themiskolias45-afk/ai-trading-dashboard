@@ -271,6 +271,7 @@
       <div class="hero-stat"><div class="hero-stat-val" id="hero-agents">—</div><div class="hero-stat-label">Agents</div></div>
       <div class="hero-stat"><div class="hero-stat-val" id="hero-mcp">—</div><div class="hero-stat-label">MCP Tools</div></div>
       <div class="hero-stat"><div class="hero-stat-val" id="hero-tools">—</div><div class="hero-stat-label">Scripts</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-employees">—</div><div class="hero-stat-label">AI Employees</div></div>
     </div>
   </div>
 
@@ -566,7 +567,12 @@ html('tools-grid', TOOLS.map(t => `
     <div class="card-body-text" style="font-family:var(--mono);font-size:.68rem;word-break:break-word">${esc(t.cmd)}</div>
   </div>
 `).join(''));
-text('hero-tools', TOOLS.length.toString());
+// TOOLS below is a CURATED list of featured commands and stays that way — it is the
+// cards, not the count. The Scripts number now comes from the live registry; this line
+// used to read TOOLS.length and showed 13 while tasks/ alone held 161. A hand-maintained
+// count is the same failure as TRACKED in vps_parity and SEARCH in config_drift.
+// Left as a pre-registry fallback so the tile is never blank if the fetch fails.
+text('hero-tools', TOOLS.length.toString() + '*');
 
 // ── SKILL GROUPING ─────────────────────────────────────────────
 // The curation stays; the LIST does not. These groups say which job each command
@@ -636,6 +642,10 @@ async function loadRegistry() {
   text('hero-skills', String(counts.skills ?? skills.length));
   text('hero-agents', String(counts.agents ?? agents.length));
   text('hero-mcp',    String(counts.tools  ?? tools.length));
+  // Live script count. server/ is deliberately NOT in it — those are library modules,
+  // and counting them would overstate by the same kind of error the hardcoded 13
+  // understated by.
+  if (counts.scripts) text('hero-tools', String(counts.scripts));
 
   renderSkillGroups(skills.map(skill => skill.name));
 
@@ -1694,6 +1704,11 @@ async function loadWorkforce() {
   }
   const employees = Array.isArray(data.employees) ? data.employees : [];
   const c = data.counts || {};
+  // The hero tile, so the workforce is in the summary row and not only further down.
+  // EMPLOYED only: a PROPOSED employee is specified and not working, and counting one in
+  // a headline number would be exactly the "quote a proposal as something the system
+  // does" this roster was built to prevent.
+  text('hero-employees', String(c.employed ?? 0));
   html('workforce-banner', employees.length
     ? `<div class="section-desc"><strong>${c.employed ?? 0} employed</strong> · ${c.proposed ?? 0} proposed · ${c.withModel ?? 0} reason with a model, ${c.deterministic ?? 0} deterministic${c.incomplete ? ` · <span style="color:var(--red)">${c.incomplete} with undeclared fields</span>` : ''}</div>`
     : '');
