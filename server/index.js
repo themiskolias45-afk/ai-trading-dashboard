@@ -9764,8 +9764,22 @@ function loadMemory() {
     // Validate the ELEMENTS, not just the container. saveMemoryEntry does
     // e.key.toLowerCase() on every row, so one entry without a key throws a bare
     // TypeError deep in the writer instead of naming the file that is malformed.
-    const bad = parsed.entries.findIndex(e => !e || typeof e.key !== "string");
-    if (bad !== -1) throw new Error(`entry ${bad} has no string key`);
+    //
+    // BUT A NOTE-SHAPED ROW IS NOT MALFORMED. This file has TWO writers by design —
+    // memory.py writes {key, value, category, ...} and this server appends session
+    // notes as {ts, tag, text} (memory.py:44 and :95 both say so). Requiring a string
+    // `key` therefore rejected rows the system itself had legitimately written, and
+    // GET /api/memory answered 500 "entry 70 has no string key" — the entire memory
+    // API down because of one valid note. Found 2026-08-28 by check_errors.py, which
+    // had been reporting it as a plain FAIL every run.
+    //
+    // Accepting them is SAFER than the old rule, not weaker: the guard existed only
+    // to stop e.key.toLowerCase() throwing inside the writer, and saveMemoryEntry now
+    // guards that call directly, which protects it whatever shape arrives. A row that
+    // is neither shape is still rejected, and still names the index.
+    const bad = parsed.entries.findIndex(e =>
+      !e || (typeof e.key !== "string" && typeof e.text !== "string"));
+    if (bad !== -1) throw new Error(`entry ${bad} is neither a memory row (key) nor a note row (text)`);
     return parsed;
   } catch (e) {
     console.error(`[memory] CORRUPT ${MEMORY_PATH}: ${e.message} — ${raw.length} bytes on ` +
@@ -9779,7 +9793,11 @@ function loadMemory() {
 function saveMemoryEntry(key, value, category, source = "manual") {
   const data = loadMemory();
   const now = new Date().toISOString();
-  const idx = data.entries.findIndex(e => e.key.toLowerCase() === key.toLowerCase());
+  // (e.key || "") because the same file legitimately holds note-shaped rows with no
+  // key at all. Unguarded, this threw a bare TypeError from inside the WRITER, which
+  // is why loadMemory used to refuse the whole file rather than let it get here.
+  // Guarding at the point of use protects every caller regardless of row shape.
+  const idx = data.entries.findIndex(e => (e?.key || "").toLowerCase() === key.toLowerCase());
   const entry = { key, value, category: (category || "GENERAL").toUpperCase(), source, updated_at: now };
   if (idx >= 0) data.entries[idx] = { ...data.entries[idx], ...entry };
   else { entry.created_at = now; data.entries.unshift(entry); }
