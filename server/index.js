@@ -2950,15 +2950,42 @@ function judgeBarFreshness(bars, timeframe) {
              reason: "no bar timestamps — bridge predates this check, so staleness is UNVERIFIED" };
   }
   const lastSec = bars.times[bars.times.length - 1];
-  const ageMs = Date.now() - lastSec * 1000;
   const limit = BAR_MAX_AGE_MS[timeframe] ?? BAR_MAX_AGE_MS.h1;
+
+  // A DAILY bar stamped Friday, read on a Saturday or Sunday, is a closed market — not a
+  // wedged feed. Without saying so the reason reads "newest d1 bar is 48h old" and every
+  // indicator is byte-identical to yesterday's, which is indistinguishable from a frozen
+  // push. The morning agent raised this on 2026-08-23, predicted the unfreeze, and was
+  // CONFIRMED on Monday 08-24 (GOLD rsi 80.8->81.1, SPX rsi 56.2->39.7, lastBarAt rolled
+  // for all three) — then re-flagged it on 08-24 and 08-25 because it had not landed.
+  // Three cycles of a correct diagnosis costing a reviewer the same investigation each
+  // weekend is exactly what an unread proposal costs.
+  //
+  // DIAGNOSTIC STRING ONLY. `stale` is untouched, so nothing this decides changes: the
+  // Yahoo fallback, the bridge's STALE SOURCE refusal and every gate behave identically.
+  // d1 only — an H1 or H4 bar that old on a weekday is a real fault, not a closure.
+  // ONE clock source. A first draft took ageMs from Date.now() and the weekday from
+  // `new Date()`, which is the same instant in production and two different instants
+  // under any test that stubs the clock — so the flag read false in every case,
+  // including the ones it exists for. A function that cannot be tested is a function
+  // whose bugs are found in production.
+  const nowMs = Date.now();
+  const ageMs = nowMs - lastSec * 1000;
+  const lastBar = new Date(lastSec * 1000);
+  const nowDay = new Date(nowMs).getUTCDay();     // 0 Sun, 6 Sat
+  const spansWeekend = timeframe === "d1"
+    && lastBar.getUTCDay() === 5                  // last bar is a Friday
+    && (nowDay === 6 || nowDay === 0);            // and it is now the weekend
+
   return {
     checked: true,
     stale: ageMs > limit,
     ageMs,
-    lastBarAt: new Date(lastSec * 1000).toISOString(),
+    lastBarAt: lastBar.toISOString(),
+    spansWeekend,
     reason: ageMs > limit
       ? `newest ${timeframe} bar is ${Math.round(ageMs / 3600e3)}h old, limit ${Math.round(limit / 3600e3)}h`
+        + (spansWeekend ? " (spans weekend market closure)" : "")
       : "current",
   };
 }
