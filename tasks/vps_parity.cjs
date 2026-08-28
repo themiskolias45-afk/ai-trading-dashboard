@@ -197,8 +197,13 @@ const INVENTORY_SKIP = /node_modules|[\\/]\.git[\\/]|[\\/]logs[\\/]|[\\/]daily[\
  * since the VPS is deployed file-by-file (its git history diverged, so it cannot pull)
  * every new file starts out missing there by default.
  *
- * Presence only, not content. Content-diffing 278 files would be slow and is already
- * TRACKED's job; what was missing is the ability to see a file that is not there at all.
+ * Returns { relPath: contentHash } — PRESENCE AND CONTENT, both.
+ *
+ * A first version returned paths only, which closed exactly half the hole: it could see a
+ * file that was absent but not one that was PRESENT AND DIFFERENT. Two boxes carrying the
+ * same 366 filenames with different code inside would have read as identical. Hashing is
+ * cheap here — the files are small and it is one local read each, carried back over the
+ * probe channel that already exists.
  */
 function inventory(root) {
   const found = new Set();
@@ -219,7 +224,14 @@ function inventory(root) {
     // "." is walked at depth 3 so it reaches the named dirs too; the Set dedupes.
     walk(base, dir === "." ? 3 : 0);
   }
-  return [...found].sort();
+  // Hashed with the SAME normaliser TRACKED uses, so CRLF and trailing whitespace do not
+  // make every file on a Windows-to-Windows pair look different.
+  const out = {};
+  for (const rel of [...found].sort()) {
+    try { out[rel] = sha(fs.readFileSync(path.join(root, rel), "utf8")); }
+    catch (e) { out[rel] = "UNREADABLE"; }
+  }
+  return out;
 }
 
 function probe(root) {
@@ -295,22 +307,38 @@ if (!drift) console.log("  all " + TRACKED.length + " tracked files identical");
 // TRACKED is hand-maintained, so a file nobody adds to it is invisible here forever.
 // On 2026-08-28 that hid 23 capability files, including seven skills and eight analysis
 // harnesses, that were absent from the VPS while this printed no drift at all.
-const localInv  = new Set(local.inventory  || []);
-const remoteInv = new Set(remote.inventory || []);
+const localHashes  = local.inventory  || {};
+const remoteHashes = remote.inventory || {};
+const localInv  = new Set(Object.keys(localHashes));
+const remoteInv = new Set(Object.keys(remoteHashes));
 const missingOnPeer  = [...localInv].filter(f => !remoteInv.has(f)).sort();
 const missingOnLocal = [...remoteInv].filter(f => !localInv.has(f)).sort();
-console.log("\nFILE PRESENCE  (whole capability surface, not the tracked list)");
+// Present on BOTH but not the same file. This is the half a presence-only sweep misses,
+// and it is the half that can silently run different code on the box that trades.
+const contentDiffers = [...localInv]
+  .filter(f => remoteInv.has(f) && localHashes[f] !== remoteHashes[f])
+  .sort();
+console.log("\nFILE PRESENCE + CONTENT  (whole capability surface, not the tracked list)");
 console.log("  local " + localInv.size + " files   vps " + remoteInv.size + " files");
 const showList = (label, list) => {
   if (!list.length) return;
   console.log("  " + label + " (" + list.length + "):");
-  for (const f of list.slice(0, 40)) console.log("      " + f);
-  if (list.length > 40) console.log("      ... and " + (list.length - 40) + " more");
+  // 40 hid the tail of the very list this exists to act on — the content-differing set
+  // ran to 54 and the last 14 were "... and 14 more", which is the shape of an alarm you
+  // cannot follow. --full prints everything; the default still caps the VPS-side scratch
+  // dirs, which are long and expected.
+  const cap = process.argv.includes("--full") ? list.length : 80;
+  for (const f of list.slice(0, cap)) console.log("      " + f);
+  if (list.length > cap) console.log("      ... and " + (list.length - cap) + " more  (--full to list all)");
 };
 showList("ON LOCAL, ABSENT ON THE VPS", missingOnPeer);
 showList("ON THE VPS, ABSENT LOCALLY", missingOnLocal);
-if (!missingOnPeer.length && !missingOnLocal.length) {
-  console.log("  every capability file exists on both boxes");
+showList("PRESENT ON BOTH, CONTENT DIFFERS", contentDiffers);
+if (!missingOnPeer.length && !missingOnLocal.length && !contentDiffers.length) {
+  console.log("  every capability file exists on both boxes and matches");
+} else if (!missingOnPeer.length && !missingOnLocal.length) {
+  console.log("  every capability file exists on both boxes, but " + contentDiffers.length
+    + " differ in CONTENT — same name, different code");
 } else {
   // Not folded into the exit code: some absences are DELIBERATE and load-bearing.
   // tasks/bridge_tags.ps1 must stay laptop-only — the VPS carries that function inline,
