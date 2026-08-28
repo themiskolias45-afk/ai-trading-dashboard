@@ -59,6 +59,29 @@ echo --- rejection ledger --- >> "%LOGFILE%"
 "%PY%" "%PROJ%\tasks\learning_from_rejections.py" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM Shadow short ledger, added 2026-08-28. The rejection ledger above prices setups that
+REM FORMED and were then killed by a gate. This one prices the moves for which no setup
+REM exists at all: on 2026-08-28 Gold fell 4631 -> 4530 in one H1 bar and produced no
+REM signal, no rejection row and no near-miss, because every learning surface here keys
+REM off a setup forming. A move that leaves no row cannot be learned from or argued
+REM about. It matters MORE on this box, which is the one that trades continuously.
+REM
+REM SAFE BY CONSTRUCTION, and it must stay that way:
+REM   - feedsTheGate is false in every row. It admits nothing and suppresses nothing.
+REM   - it reads /api/mt5/candles/raw, the bars the bridge already pushed, so it opens NO
+REM     second MT5 client and is safe to run with positions open - unlike refresh_bars,
+REM     which correctly refuses whenever this box is holding a trade.
+REM   - the ledger is append-only and idempotent; the derived _scored file is written to
+REM     a temp, the outgoing version copied to a VERIFIED timestamped .bak, then swapped.
+REM     Nothing is deleted, ever.
+REM   - the forming bar is excluded by index. A partial bar is a wrong row, not a late one.
+REM Exit code deliberately NOT captured, exactly like the ledger steps above: an empty
+REM ledger is a normal early state, not a failed daily check, and this must never be able
+REM to fail the run or delay the doctor self-test below it.
+echo --- shadow short ledger --- >> "%LOGFILE%"
+"%PY%" "%PROJ%\tasks\shadow_short_ledger.py" >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM ── Do the doctor's own checks still fire? ────────────────────────────────────
 REM Identical to the block in tasks\auto_daily.bat, and it matters MORE here: this is
 REM the box that trades continuously, and every expensive failure on it has been a
