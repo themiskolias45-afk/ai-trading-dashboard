@@ -148,6 +148,95 @@ const ROSTER = [
     clock: { schedule: 'every 12h', boxes: ['laptop', 'vps'], task: 'SmartEntryCoverageAudit', script: 'tasks/coverage_audit.ps1' },
   },
 
+  {
+    id: 'gate-auditor',
+    title: 'Gate Auditor',
+    status: EMPLOYED,
+    mission: 'Find every place that states a live setting as a number and is now wrong.',
+    brain: 'none — deterministic, no model, no tokens',
+    context: ['server/strategy_settings.json — the live values, never a guessed default'],
+    tools: [],
+    skills: [],
+    loop: [
+      'read the LIVE settings; no settings means no verdict, never a fallback',
+      'scan 68 files — 9 named plus every skill and agent, expanded by directory so a skill added tomorrow is covered',
+      'flag only CLAIMS about a setting, never every integer; a phrase marked historical is exempt',
+    ],
+    memory: 'tasks/logs/daily_YYYYMMDD.txt (runs inside the daily check, --emit)',
+    playbook: [
+      'read-only; --strict deliberately NOT passed so a drifted comment cannot fail the nightly run',
+      'never flag a line that READS the setting live — that is the correct pattern',
+    ],
+    clock: { schedule: 'nightly, inside the daily check', boxes: ['laptop', 'vps'], task: 'SmartEntry - Daily Check', script: 'tasks/config_drift.cjs' },
+  },
+  {
+    id: 'plan-drafter',
+    title: 'Pre-Open Plan Drafter',
+    status: EMPLOYED,
+    mission: 'Write the day\'s plan from live state before the New York open.',
+    brain: 'none — deterministic',
+    context: ['/api/signals', '/api/strategy-settings', 'the economic calendar'],
+    tools: ['get_signals', 'get_strategy_settings'],
+    skills: ['/plan'],
+    loop: [
+      'walk BACKWARD from 60 minutes before the open in 15-minute steps until outside every news blackout',
+      'build the plan from live signals and levels, never from a cached copy',
+      'state what the system KNOWS versus what it assumes',
+    ],
+    memory: 'tasks/analysis/ + the Plan page',
+    playbook: ['a plan that fires inside the blackout it exists to prepare for is worse than none'],
+    clock: { schedule: 'daily, blackout-aware slot', boxes: ['laptop', 'vps'], task: 'SmartEntry Pre-Open Plan', script: 'tasks/deep_plan.cjs' },
+  },
+  {
+    id: 'band-monitor',
+    title: 'Band Monitor',
+    status: EMPLOYED,
+    mission: 'Watch what the RSI ceiling move actually bought, on both boxes.',
+    brain: 'none — deterministic',
+    context: ['/api/near-miss', '/api/signals'],
+    tools: ['get_signals'],
+    skills: [],
+    loop: ['sample both boxes every 15 minutes', 'record what sits inside the new band', 'never act — only record'],
+    memory: 'tasks/logs/band_monitor.txt',
+    playbook: ['read-only; it measures a decision already taken and must not re-take it'],
+    clock: { schedule: 'every 15 min', boxes: ['laptop', 'vps'], task: 'SmartEntry Band Monitor', script: 'tasks/band_monitor.cjs' },
+  },
+  {
+    id: 'peer-watch',
+    title: 'Peer Watch',
+    status: EMPLOYED,
+    mission: 'Notice when the other box stops answering, and say so once.',
+    brain: 'none — deterministic',
+    context: ['the peer\'s /api/status and heartbeat'],
+    tools: ['get_fleet_status'],
+    skills: [],
+    loop: ['poll the peer', 'require TWO consecutive failures before alerting', 'alert once, then say RECOVERED once'],
+    memory: 'tasks/logs/vps_monitor.txt',
+    playbook: ['an alarm that repeats every cycle is one you stop reading'],
+    clock: { schedule: 'every 5 min', boxes: ['laptop'], task: 'SmartEntryVpsMonitor', script: 'tasks/vps_monitor.ps1' },
+  },
+  {
+    id: 'bar-keeper',
+    title: 'Bar Keeper',
+    status: EMPLOYED,
+    mission: 'Keep the research bars current without ever risking the live bridge.',
+    brain: 'none — deterministic',
+    context: ['/api/mt5/candles/raw — the bars the bridge already pushed'],
+    tools: [],
+    skills: [],
+    loop: [
+      'REFUSE outright while any position is open — the exporter opens a second MT5 client and a conflict can drop the bridge',
+      'otherwise append only rows strictly newer than the last on disk',
+      'never bridge a gap: a discontinuous series is worse than a stale one',
+    ],
+    memory: 'tasks/history/*.csv',
+    playbook: [
+      'exit 3 means REFUSED and is the expected result most days, not a failure',
+      'never overwrite — append only, or years of history vanish silently',
+    ],
+    clock: { schedule: 'hourly', boxes: ['laptop', 'vps'], task: 'SmartEntry Refresh Bars', script: 'tasks/refresh_bars.cjs + tasks/persist_bars.cjs' },
+  },
+
   // ── PROPOSED — specified, not employed. Visible so the gap is legible. ──────────
   {
     id: 'evidence-scorer',
@@ -194,6 +283,32 @@ const ROSTER = [
     clock: { schedule: 'daily', boxes: ['laptop'], task: null, script: 'tasks/vps_parity.cjs' },
     whyNotYet: 'The tool exists and now sees the whole surface, but nothing runs it on a schedule — '
       + 'it only ever ran when someone looked, which is how 23 capability files went missing unnoticed.',
+  },
+  {
+    id: 'calibration-officer',
+    title: 'Calibration Officer',
+    status: PROPOSED,
+    mission: 'Ask whether confidence means anything — does 86% actually win 86% of the time?',
+    brain: 'none — deterministic',
+    context: ['server/journal.json', 'the replayed cohort table'],
+    tools: ['get_performance', 'get_learning'],
+    skills: [],
+    loop: [
+      'bucket closed trades by the confidence they fired at',
+      'compare realised win rate to the confidence claimed, per asset',
+      'refuse a verdict below the sample floor rather than publishing an anecdote',
+    ],
+    memory: 'a scored calibration record beside the journal',
+    playbook: [
+      'per ASSET, never pooled — pooling lets Gold vote on an SPX question',
+      'feedsTheGate false: this measures confidence, it must never adjust it',
+    ],
+    clock: { schedule: 'weekly', boxes: ['vps'], task: null, script: null },
+    whyNotYet: 'The need is proven and unmonitored: SP500 fires ONLY at confidence ~86, the '
+      + 'highest-confidence cohort in the system, and lost 36 of 39 replayed trades with 21 '
+      + 'consecutive losses since 2024-01-31. Nothing watches for confidence that is '
+      + 'inverted rather than merely weak. The live learning engine cannot see it — its '
+      + 'floor is 5 closed trades per setup and SPX has one.',
   },
 ];
 

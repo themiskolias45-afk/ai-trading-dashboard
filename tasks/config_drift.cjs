@@ -46,7 +46,7 @@ const STRICT = process.argv.includes("--strict");
  * logs directory are full of historical copies that are SUPPOSED to be stale, and
  * flagging them would bury the two lines that matter.
  */
-const SEARCH = [
+const SEARCH_FILES = [
   "CLAUDE.md",
   "server/index.js",
   "server/evidence_register.js",
@@ -57,6 +57,33 @@ const SEARCH = [
   "tasks/ai_brief.cjs",
   "tasks/doctor.cjs",
 ];
+
+/**
+ * ...plus every SKILL and AGENT, expanded at run time rather than listed by hand.
+ *
+ * The list above is exactly the kind of allowlist this tool exists to protect against: a
+ * hand-maintained set that only covers what someone remembered. It did not include
+ * .claude/, and on 2026-08-28 that was found to matter — the VPS copy of
+ * .claude/commands/signal.md still read "needs [65-X]pt more to fire", hardcoding a
+ * confidence gate of 65 four weeks after it moved to 70. Agents read those files as
+ * INSTRUCTIONS, so a stale number there is not a stale comment; it is a stale rule.
+ *
+ * Expanded by directory scan so a skill added tomorrow is covered without anyone editing
+ * this file. That is the whole difference between a check that keeps working and one that
+ * quietly stops.
+ */
+function expandSearch(root) {
+  const out = [...SEARCH_FILES];
+  for (const dir of [".claude/commands", ".claude/agents"]) {
+    let names;
+    try { names = fs.readdirSync(path.join(root, dir)); }
+    catch (e) { continue; }                       // absent directory is not an error
+    for (const name of names.sort()) {
+      if (name.endsWith(".md")) out.push(dir + "/" + name);
+    }
+  }
+  return out;
+}
 
 /**
  * Each rule names a live setting and the shapes a CLAIM about it takes in prose or code.
@@ -191,6 +218,7 @@ function main() {
 
   const findings = [];
   const skipped = [];
+  const SEARCH = expandSearch(PROJECT_ROOT);
   for (const rel of SEARCH) {
     const res = checkFile(rel, cfg, findings);
     if (res.skipped) skipped.push(`${rel} (${res.skipped})`);

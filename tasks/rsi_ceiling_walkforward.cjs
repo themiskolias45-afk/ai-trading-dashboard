@@ -91,8 +91,15 @@ const CANDIDATES = [
 // "72/68  BASELINE - what ships today" and computed EVERY CHALLENGER/REJECTED verdict
 // against a ceiling that had stopped shipping a day earlier. The BTC run called 88/84
 // "REJECTED - does not beat the baseline's worst fold" against 72/68 (-0.459), when
-// against the ceiling actually in force, 80/76 (-0.550), it is EQUAL and carries +8.4R
+// against what was in force at the time, 80/76 (-0.550), it is EQUAL and carries +8.4R
 // more. The verdict column was wrong in the direction that matters.
+//
+// "actually in force" is now WRONG here too: the ceiling moved again, to 88/84 on
+// 2026-08-28, and this sentence described 80/76 as current. Caught by
+// tasks/config_drift.cjs on the same day it was taught to read this kind of claim —
+// the tool finding a stale number inside the very comment about stale numbers. Phrased
+// as history now, which is what it is; the harness itself reads the live values from
+// strategy_settings.json and was never affected.
 //
 // That is the same failure this project keeps having in new places - a number copied
 // out of the config and left behind when the config moved. A harness that judges a
