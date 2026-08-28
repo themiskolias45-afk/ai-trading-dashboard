@@ -48,3 +48,24 @@ if ($dirty) {
     Write-Host ""
     Write-Host "WARNING: $count uncommitted file(s) when session ended. Run: git add [files] && git commit" -ForegroundColor Red
 }
+
+# --- 4. Write structured state snapshot to tasks/jarvis-state.json ---
+# A lightweight snapshot so the next session can reconstruct context even if
+# the vault note and MCP memory are both offline. /learn writes the richer
+# last-session-state; this only records git facts that the hook knows.
+$stateFile = Join-Path $proj 'tasks\jarvis-state.json'
+try {
+    $lastCommits = @(git -C $proj log --oneline -5 2>$null)
+    $dirtyList   = @(if ($dirty) { $dirty | Select-Object -First 10 | ForEach-Object { $_.ToString().Trim() } })
+    $stateSnap   = [ordered]@{
+        saved        = (Get-Date -Format 'o')
+        source       = 'session-stop hook'
+        commits      = $lastCommits
+        dirty_files  = $dirtyList
+        note         = 'Run /state load or /learn recall to restore session context'
+    }
+    $stateJson = $stateSnap | ConvertTo-Json -Depth 3
+    [System.IO.File]::WriteAllText($stateFile, $stateJson, (New-Object System.Text.UTF8Encoding($false)))
+} catch {
+    # Write failure must never crash the hook — state file is a convenience, not a blocker.
+}

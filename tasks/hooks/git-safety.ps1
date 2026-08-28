@@ -131,6 +131,23 @@ JARVIS DESTRUCTIVE-COMMAND BLOCK
     exit 2
 }
 
+# 0. Secret file staging: block `git add` on credential files before they reach a commit.
+#    These files must NEVER enter the index. The post-edit hook already blocks writing
+#    them, but a manual `git add` in a shell bypasses that hook entirely.
+$secretFilePatterns = @(
+    'server[\\/]apikey\.txt',
+    '(?<![.\w])keys\.env(\b|$|\.)',
+    '(?<![.\w])\.env(\b|$|\.)'
+)
+if ($cmd -match '\bgit\s+add\b') {
+    foreach ($sf in $secretFilePatterns) {
+        if ($cmd -match $sf) {
+            Deny "Attempt to stage a secrets file." `
+                 "Pattern matched: $sf`n  These files must NEVER be committed. Stage specific non-secret files instead."
+        }
+    }
+}
+
 # 1. Repo-wide destructive git operations. Always refused: they can revert or drop
 #    learning.json, the journal and the SQLite WAL together, which is the exact
 #    accident already on record for `git stash` in this repo.

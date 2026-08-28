@@ -76,6 +76,9 @@ SYSTEM & IMPROVEMENT
 
 MEMORY
   /state save|load|show   Save/restore full session context — working-on, decisions, pending tasks, signals
+  /state checkpoint [lbl] Append a named snapshot to history — use before any major change
+  /memory prune           Archive memory entities older than 90 days (never deletes)
+  /brain                  Full intelligence picture — evidence board + signals + gate verdicts
   Say: "remember that Gold rejects hard at $2400" — stored for all future sessions
 
 AGENTS (spawn automatically via /engineer, /build, /daily, /weekly)

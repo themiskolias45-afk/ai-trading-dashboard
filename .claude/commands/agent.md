@@ -12,6 +12,14 @@ lot sizing, stop calculation), which always require explicit approval.
   full_trade_workflow) without the user typing "APPROVE TRADE" explicitly.
   Never call DESTRUCTIVE-tagged tools (memory delete) without "CONFIRM DELETE".
 
+═══ P0.5 — EVIDENCE BOARD SCAN (once per session, not each round) ═══
+  mcp__smartentry__get_evidence_board → read all curated claims
+  Surface only CANDIDATE claims (status = "CANDIDATE — NEEDS WALK-FORWARD"):
+    "CANDIDATE: [id] — [title] — measured [measuredOn] — trigger: [whatWouldChangeThis]"
+  Flag any CANDIDATE not re-measured in > 30 days as STALE:
+    "STALE CANDIDATE: [id] — [N] days since [measuredOn] — run /backtest to settle"
+  Do NOT act on these automatically. Surface for awareness only — they inform the P6/P7 priority below.
+
 ═══ ROUND START — gather all state in parallel ═══
 
   mcp__smartentry__get_brain_status         → time context, fleet verdict, signals, risk, AI work
@@ -32,6 +40,7 @@ lot sizing, stop calculation), which always require explicit approval.
   P5. SIGNAL-DEAD asset (no trade > 7 days) → run /diagnose logic, identify cause
   P6. Setup WR < 40% over ≥ 5 trades → spawn profit loop for that setup only
   P7. Gate verdict COSTING MONEY (rejection evidence) → spawn analyst + researcher → fix
+  P7b. STALE CANDIDATE from evidence board (P0.5) with ≥ 50 new trades since last measure → run /backtest
   P8. AI employee has unreviewed proposals → read them, implement if LOW-RISK
   P9. Any log error > 24h old and unresolved → trace and fix
 

@@ -237,6 +237,30 @@ def main():
     os.replace(tmp, args.out)
     print(f"\nwrote {os.path.relpath(args.out, ROOT)} "
           f"({len(shadow)} setup(s)) — server/learning.json untouched.")
+
+    # Write summary to SmartEntry memory for next-session recall.
+    # Soft failure: server offline must never abort the script.
+    try:
+        import urllib.request
+        usable = [s for s, v in shadow.items() if v.get("enoughForReading")]
+        top    = ", ".join(usable[:5]) if usable else "none yet"
+        summary = (
+            f"{len(shadow)} setup(s) shadow-scored; "
+            f"{len(usable)} USABLE ({top}); "
+            f"generatedAt {payload['generatedAt'][:10]}"
+        )
+        body = json.dumps({"key": "rejection-shadow-summary", "value": summary}).encode()
+        req  = urllib.request.Request(
+            "http://localhost:3001/api/memory",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=3)
+        print(f"[shadow] memory updated: {summary}")
+    except Exception:
+        pass  # server offline is not a failure here
+
     return 0
 
 
