@@ -70,6 +70,51 @@ function Get-OverrideApplied {
     return ($out -match '(?im)^\s*node\.exe')
 }
 
+# THERE ARE TWO FIXES, AND THIS FILE ONLY KNEW ABOUT ONE.
+# Option A is the elevated powercfg override above. Option B is tasks\stay_awake.ps1 -
+# an unelevated SetThreadExecutionState holder registered as "SmartEntry Stay Awake",
+# which is the fix actually installed on this box. Reporting "applied: NO" while B runs
+# told the reader to apply an elevated override that had already been superseded, which
+# is a stale instruction of exactly the kind this project keeps paying for.
+#
+# RUNNING IS THE TEST, not merely registered: the holder releases and exits if the server
+# stops answering, and a Ready task holds nothing.
+function Get-HolderApplied {
+    try {
+        $t = Get-ScheduledTask -TaskName 'SmartEntry Stay Awake' -ErrorAction Stop
+        return ($t.State -eq 'Running')
+    } catch {
+        return $false
+    }
+}
+
+function Get-SleepFixApplied {
+    if (Get-OverrideApplied) { return 'A' }
+    if (Get-HolderApplied)   { return 'B' }
+    return $null
+}
+
+# WHEN the fix started running, which is not the same as when the baseline was recorded.
+# The baseline here is 7 days old and the holder has been up for ~1 hour, so every sleep
+# episode in the window happened BEFORE the fix existed - and judging the fix on them
+# would print "applied but NOT holding" for a fix that has not yet had a night to hold.
+# A verdict on a window that predates the change is not a measurement.
+# Null for Option A: a powercfg override records no start time, so the baseline stands.
+function Get-FixAppliedAt {
+    param([string]$Which)
+    if ($Which -ne 'B') { return $null }
+    try {
+        $i = Get-ScheduledTaskInfo -TaskName 'SmartEntry Stay Awake' -ErrorAction Stop
+        if ($i.LastRunTime -and $i.LastRunTime -gt [datetime]'2000-01-01') { return $i.LastRunTime }
+        return $null
+    } catch { return $null }
+}
+
+# One clear night. Below this there is nothing to judge - this box sleeps in multi-hour
+# episodes, so a one-hour window can be quiet for reasons that have nothing to do with
+# the fix.
+$MIN_HOURS_BEFORE_JUDGING = 24
+
 if ($Baseline) {
     $s = Get-SleepStats
     $s | Add-Member -NotePropertyName RecordedAt -NotePropertyValue (Get-Date).ToString('o')
@@ -88,13 +133,14 @@ if (-not (Test-Path $statePath)) {
 $base  = Get-Content $statePath -Raw | ConvertFrom-Json
 $since = [datetime]$base.RecordedAt
 $now   = Get-SleepStats -Since $since
-$applied = Get-OverrideApplied
+$appliedWhich = Get-SleepFixApplied
+$applied      = [bool]$appliedWhich
 
 "================================================================"
 "  SLEEP VERIFY   baseline $([datetime]$base.RecordedAt | Get-Date -Format 'yyyy-MM-dd HH:mm')  ->  now"
 "================================================================"
 ""
-"  Option A (powercfg requestsoverride node.exe) applied: {0}" -f $(if ($applied) { 'YES' } else { 'NO' })
+"  Sleep fix applied: {0}" -f $(if ($appliedWhich -eq 'A') { 'YES - Option A (powercfg requestsoverride node.exe)' } elseif ($appliedWhich -eq 'B') { 'YES - Option B (SmartEntry Stay Awake holder, running)' } else { 'NO' })
 ""
 "  {0,-22} {1,12} {2,12}" -f '', 'BEFORE', 'SINCE'
 "  {0,-22} {1,12} {2,12}" -f 'episodes',       $base.Episodes,      $now.Episodes
@@ -110,6 +156,20 @@ if (-not $applied) {
     "           This is a correct null result, not a failed fix."
     "           See tasks\SLEEP-RUNBOOK.md, Option A."
     exit 0
+}
+
+# Too soon to judge, reported as its own verdict rather than folded into NOT FIXED.
+$fixAt = Get-FixAppliedAt -Which $appliedWhich
+if ($fixAt) {
+    $heldHours = [math]::Round(((Get-Date) - $fixAt).TotalHours, 1)
+    "  Fix running for ${heldHours}h (started $($fixAt.ToString('yyyy-MM-dd HH:mm')))"
+    ""
+    if ($heldHours -lt $MIN_HOURS_BEFORE_JUDGING) {
+        "  VERDICT: TOO EARLY TO JUDGE. The fix has been up ${heldHours}h against a baseline"
+        "           recorded $([math]::Round(((Get-Date) - $since).TotalHours,1))h ago, so the episodes counted above"
+        "           mostly happened BEFORE it was applied. Re-check after ${MIN_HOURS_BEFORE_JUDGING}h."
+        exit 0
+    }
 }
 
 if ($now.Episodes -eq 0) {

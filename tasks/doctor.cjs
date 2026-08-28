@@ -669,6 +669,18 @@ function checkSleepFix(root = ROOT) {
     return;
   }
 
+  // TOO EARLY is not a failure and must not read as one. sleep_verify emits it when the
+  // fix has been running for less than a night against a baseline days older, so every
+  // episode in the window predates the change. Without this the doctor printed "applied
+  // but NOT holding" for a fix that had not yet had a chance to hold.
+  if (/TOO EARLY/i.test(verdict)) {
+    const heldFor = (out.match(/Fix running for ([\d.]+)h/) || [])[1];
+    finding("INFO", "local", "sleep fix applied — too early to judge",
+      verdict || `running ${heldFor || "<1"}h, baseline is older than that`,
+      "re-check after 24h: powershell -File tasks\\sleep_verify.ps1");
+    return;
+  }
+
   if (/HELD|IMPROVED/i.test(verdict)) {
     finding("INFO", "local", "sleep fix is holding",
       verdict || `asleep ${wasPct}% before, ${nowPct}% since`,
