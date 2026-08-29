@@ -201,6 +201,75 @@ def phase_ai_proposal(perf: dict, health: dict, scan: dict, research: str) -> st
     return _call_claude(prompt, timeout=120)
 
 
+# ── Phase 6b: Autonomous strategy pipeline ────────────────────────────────
+# Reads the nightly strategy search results. If a candidate scores ≥ 12/20 AND
+# the risk flag is LOW, triggers discover --implement automatically.
+# GATE: never runs if halted (tasks/jarvis-halt.json exists).
+# GATE: never auto-implements HIGH-RISK changes (stops and shows user).
+
+def phase_auto_pipeline() -> dict:
+    result = {"ran": False, "reason": "", "candidate": "", "action": ""}
+
+    # Halt gate
+    halt_path = TASKS_DIR / "jarvis-halt.json"
+    if halt_path.exists():
+        result["reason"] = "HALT flag set — skipping autonomous pipeline"
+        print(f"  [pipeline] {result['reason']}")
+        return result
+
+    # Read strategy search latest
+    search_file = TASKS_DIR / "analysis" / "strategy-search-latest.txt"
+    if not search_file.exists():
+        result["reason"] = "No strategy-search-latest.txt — run strategy_search.cjs first"
+        return result
+
+    text = search_file.read_text(encoding="utf-8", errors="replace")
+
+    # Look for a PROPOSE line with a score
+    import re
+    propose_match = re.search(r'PROPOSE.*?score[:\s]+(\d+)', text, re.IGNORECASE)
+    if not propose_match:
+        result["reason"] = "No PROPOSE candidate found in search results"
+        return result
+
+    score = int(propose_match.group(1))
+    if score < 12:
+        result["reason"] = f"Candidate score {score}/20 below gate (need ≥12)"
+        print(f"  [pipeline] {result['reason']}")
+        return result
+
+    # Read risk flag — look for RISK: LOW in the search text
+    risk_low  = bool(re.search(r'RISK[:\s]+LOW', text, re.IGNORECASE))
+    risk_high = bool(re.search(r'RISK[:\s]+HIGH', text, re.IGNORECASE))
+
+    candidate_line = propose_match.group(0)[:120]
+    result["candidate"] = candidate_line
+    result["score"]     = score
+
+    if risk_high:
+        result["reason"] = f"RISK=HIGH — candidate logged but NOT auto-implemented. Run /pipeline manually."
+        result["action"] = "SKIPPED_HIGH_RISK"
+        print(f"  [pipeline] ⚠ HIGH RISK candidate (score {score}/20) — requires manual /pipeline")
+        return result
+
+    if not risk_low:
+        result["reason"] = "Risk level unclear — skipping autonomous implementation"
+        result["action"] = "SKIPPED_UNCLEAR_RISK"
+        return result
+
+    # LOW risk + score ≥ 12 — auto-implement
+    print(f"  [pipeline] Score {score}/20 | RISK=LOW — running discover --implement")
+    output = _run("tasks/strategy_search.cjs", ["--discover", "--implement"], timeout=300)
+    if not output:
+        output = "(no output)"
+
+    result["ran"]    = True
+    result["action"] = "IMPLEMENTED"
+    result["output"] = output[:500]
+    print(f"  [pipeline] Done. {output[:200]}")
+    return result
+
+
 # ── Phase 6: Save + notify ─────────────────────────────────────────────────
 
 def phase_save(report: dict) -> Path:
@@ -288,6 +357,16 @@ def main():
     proposal = phase_ai_proposal(perf, health, scan, research)
     report["proposal"] = proposal
     print(f"  ✓ AI proposal generated ({len(proposal)} chars)")
+
+    # Phase 6b — autonomous strategy pipeline (LOW-risk candidates only)
+    pipeline = phase_auto_pipeline()
+    report["auto_pipeline"] = pipeline
+    if pipeline.get("ran"):
+        print(f"  ✓ Auto-pipeline: IMPLEMENTED (score {pipeline.get('score')}/20)")
+    elif pipeline.get("action") == "SKIPPED_HIGH_RISK":
+        print(f"  ⚠ Auto-pipeline: HIGH RISK candidate held — run /pipeline manually")
+    else:
+        print(f"  - Auto-pipeline: {pipeline.get('reason', 'skipped')}")
 
     # Phase 6
     path = phase_save(report)

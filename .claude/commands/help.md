@@ -63,6 +63,7 @@ DAILY & WEEKLY CYCLES
   /morning             Morning brief — signals + yesterday recap + pre-market research
 
 SYSTEM & IMPROVEMENT
+  /halt                Emergency stop — kill all active agents and pause automation
   /voice [start|stop|test]  Voice interface — listen for commands, read signals aloud
   /status              One-screen snapshot — signals, risk, code health, action item
   /health              Server + API + syntax + security health check

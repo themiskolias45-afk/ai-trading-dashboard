@@ -20,8 +20,19 @@ Before spawning anything:
 3. Define the exact interface between them: function names, API routes, data shapes, return types.
 4. Write the plan to tasks/engineer-plan.md — file ownership + interface contracts.
 5. TaskCreate for each workstream. Set status: in_progress when spawning.
+6. Write the shared agent context file BEFORE spawning:
+   Write tasks/jarvis-agent-context.json with:
+   {
+     "session": "[ISO timestamp]",
+     "task": "[one line description]",
+     "interfaces": { "[workstream]": { "file": "...", "exports": "...", "contract": "..." } },
+     "constraints": ["list of must-not-break constraints"],
+     "gate": [live confidenceThreshold from get_strategy_settings]
+   }
+   Each builder reads this file at step 0 of their work so they share the same
+   interface contracts and constraints without relying on the parent message chain.
 
-Only spawn after plan is written and every interface is defined.
+Only spawn after plan is written, every interface is defined, and context file is written.
 
 ═══ STEP 2 — SPAWN PARALLEL AGENTS ═══
 Use the Agent tool to launch all workstreams simultaneously in a SINGLE response.
@@ -31,6 +42,9 @@ Each agent prompt must include:
 
 ```
 SmartEntry Pro sub-engineer — one task, then stop.
+
+STEP 0: Read tasks/jarvis-agent-context.json — this is the shared context for this
+engineering session. Use its interface contracts and constraints. Do not deviate from them.
 
 TASK: [exactly what to build — specific, not vague]
 YOUR FILES: [exact file paths — space separated]

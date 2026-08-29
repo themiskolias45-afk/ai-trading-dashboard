@@ -101,6 +101,14 @@ echo --- config drift --- >> "%LOGFILE%"
 node "%PROJ%\tasks\config_drift.cjs" --emit >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM Calibration drift check — compares live setup win rates against shadow stats.
+REM Fires a notification if any setup has drifted > 15pp from expected.
+REM --silent suppresses duplicate toasts (the agent's report already surfaces this).
+REM Exit code deliberately NOT captured: a server-offline is not a failed daily check.
+echo --- calibration drift --- >> "%LOGFILE%"
+"%PY%" "%PROJ%\tasks\calibration_drift_alert.py" --silent >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM ── Next-candle read, for the TradingView plan panel ──────────────────────────
 REM candle_probability.cjs writes tasks\analysis\candle-today.json, which is the ONLY
 REM source for the "1D read" and "4H read" rows tradingview_bot.py puts on the chart

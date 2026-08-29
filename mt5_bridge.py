@@ -227,6 +227,14 @@ POSITION_EXCURSION_PATH = os.path.join(
     f"position_excursion_{ACCOUNT_TAG or 'default'}.json",
 )
 
+# Mirrors POSITION_R_PATH and POSITION_EXCURSION_PATH — same fail-open contract.
+# Persists position_partial_taken across restarts so a bridge that restarts while
+# a position is open does not attempt a second partial close at 1R.
+POSITION_PARTIAL_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "tasks",
+    f"position_partial_{ACCOUNT_TAG or 'default'}.json",
+)
+
 # Tickets already reported as having no recoverable R, so the warning below is loud
 # once per position rather than once per 60s poll forever.
 trail_unresolved_logged = set()
@@ -2126,6 +2134,45 @@ def save_position_excursion():
         log(f"Could not persist excursions ({exc}) - MFE/MAE may reset on restart.", YELLOW)
 
 
+def load_position_partial():
+    """Restore the set of tickets that already had 50% closed at 1R.
+
+    Fail-open: a missing or unreadable file leaves the set empty, which is the safe
+    direction — at worst we attempt a partial close that the volume_min check will
+    catch. Never raises; logged if the file is corrupt.
+    """
+    try:
+        with open(POSITION_PARTIAL_PATH, "r", encoding="utf-8") as p_file:
+            stored = json.load(p_file)
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        log(f"Partial-taken store unreadable ({exc}) — starting with empty set.", YELLOW)
+        return
+
+    if not isinstance(stored, list):
+        log("Partial-taken store is not a list — ignoring it.", YELLOW)
+        return
+
+    for ticket in stored:
+        try:
+            position_partial_taken.add(int(ticket))
+        except (TypeError, ValueError):
+            continue
+
+    if position_partial_taken:
+        log(f"Restored partial-taken flag for {len(position_partial_taken)} position(s).", CYAN)
+
+
+def save_position_partial():
+    """Persist position_partial_taken. Never raises — a write failure must not stop trading."""
+    try:
+        with open(POSITION_PARTIAL_PATH, "w", encoding="utf-8") as p_file:
+            json.dump(sorted(position_partial_taken), p_file, indent=2)
+    except Exception as exc:
+        log(f"Could not persist partial-taken set ({exc}) — may re-attempt partial on restart.", YELLOW)
+
+
 def track_excursions():
     """Record how far each open position has run in favour of and against its entry.
 
@@ -2509,6 +2556,7 @@ def take_partial_profit():
         result = mt5.order_send(close_req)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
             position_partial_taken.add(ticket)
+            save_position_partial()
             log(f"PARTIAL PROFIT: Closed 50% of #{ticket} {p.symbol} @ {close_price:.2f} (+1R)", GREEN + BOLD)
             # Move SL to breakeven
             be_req = {
@@ -2776,6 +2824,7 @@ def track_closed_positions():
         partial_too_small_logged.discard(ticket)
         position_excursion.pop(ticket, None)
         save_position_r()
+        save_position_partial()
         save_position_excursion()
 
     known_positions = current_tickets
@@ -2990,6 +3039,7 @@ def main():
     # stop the last run left behind.
     load_position_r()
     load_position_excursion()
+    load_position_partial()
 
     # The startup pass is kept because it is the only one that runs BEFORE
     # known_positions is seeded, but it is no longer the only pass — see

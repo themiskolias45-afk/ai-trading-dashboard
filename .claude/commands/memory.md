@@ -32,6 +32,20 @@ Show entries added in the last 24 hours.
 2. Also run: python memory.py forget KEY
 3. Confirm what was removed.
 
+═══ SCHEMA — enforce this on every create_entities call ═══
+Every entity MUST include these observations (add them explicitly, never skip):
+  - "date: [YYYY-MM-DD]"              — when it happened or was recorded
+  - "source: [lesson|fix|trade|decision|build|market|system]"  — what kind of thing this is
+  - "[the actual content — one clear sentence]"
+
+When calling mcp__memory__create_entities, always pass:
+  entityType: one of — lesson | fix | trade | decision | build | market | system | general
+  observations: ["date: YYYY-MM-DD", "source: [type]", "[content]"]
+
+This schema prevents the silent recall failure documented in CLAUDE.md (2026-08-22):
+freeform entity types caused search_nodes to return inconsistent results because
+common terms matched too broadly and specific terms matched nothing.
+
 ═══ CATEGORIES ═══
 TRADE    — trade setups, outcomes, specific trade lessons
 SYSTEM   — server/config decisions and changes
