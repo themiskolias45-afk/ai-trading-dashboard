@@ -41,6 +41,12 @@
     { href: "/system", label: "System",
       match: ["/system", "/dashboard/system.html"] },
     { sep: true },
+    // Served from its static path rather than a clean /fleet route, like Performance
+    // above: express.static picks up a new file immediately, whereas a clean route
+    // needs an app.get in server/index.js and therefore a server restart. The match
+    // list carries /fleet anyway, so the tab lights correctly the day that route lands.
+    { href: "/dashboard/fleet.html", label: "Fleet Map",
+      match: ["/dashboard/fleet.html", "/fleet"] },
     { href: "/architecture", label: "Architecture",
       match: ["/architecture", "/dashboard/architecture.html"] },
     { href: "/plan", label: "Systems Plan",

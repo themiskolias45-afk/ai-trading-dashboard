@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartEntry Pro — Fleet Map</title>
+<style>
+/* ============================================================================
+   FLEET MAP — the two boxes, their clock, and where the evidence accumulates
+   ============================================================================
+
+   WHY THIS PAGE EXISTS, AND WHAT IT DELIBERATELY DOES NOT DO
+
+   This started life as a static artifact on claude.ai: a hand-written map with
+   every number typed into the HTML. It read well and it was wrong within a day —
+   which is the same failure the boot file's fill-count line caused for weeks. So
+   the port carries the STRUCTURE and the prose, and reads every figure live.
+
+   It is scoped AGAINST /architecture rather than beside it. That page already
+   draws, from these same endpoints, the four things this one therefore does not:
+
+     the signal-path spine        -> /architecture
+     the ten-gate table + funnel  -> /architecture
+     the settings divergence rows -> /architecture and /plan
+     the off-path feedsTheGate grid -> /architecture
+
+   Duplicating them here would give the system two live maps over one dataset,
+   and the one that stopped being maintained would keep looking authoritative.
+   What is left is genuinely unhosted anywhere: the two boxes as MACHINES (not as
+   a settings diff), the scheduler, the ledger inventory with its row counts, and
+   the items waiting on a human.
+
+   WHAT IT TOUCHES
+   Nine GETs, no POST, no form, no button that calls anything. It cannot affect a
+   signal, a gate, an order or a position. Two of the nine (/api/fleet and
+   /api/system-plan) are session-gated, so a logged-out reader gets a stated
+   "not logged in" on those cards and a rendered page everywhere else.
+
+   THE ONE RULE FOR EDITING IT
+   No figure gets typed in. If a number cannot be read from an endpoint it is
+   named as unavailable, with the reason — see the server-cron row in the clock.
+   ============================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Tokens come from theme.css, linked last in <head> as on every other page. */
+body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.5; font-size: 14px; }
+
+/* ── header ──────────────────────────────────────────────────────────────── */
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; gap: 14px;
+  padding: 20px 22px 16px; border-bottom: 1px solid var(--border);
+}
+.h-title { font-size: 1.35rem; font-weight: 750; letter-spacing: -.02em; }
+.h-sub   { font-size: .78rem; color: var(--muted-dim); margin-top: 3px; max-width: 62ch; }
+.h-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.stamp   { font-family: var(--mono); font-size: .68rem; color: var(--muted-dim); }
+
+main { max-width: 1180px; margin: 0 auto; padding: 18px 22px 72px; }
+
+/* ── the live strip ──────────────────────────────────────────────────────── */
+/* One-pixel gaps over a border colour: a grid of cells that reads as one
+   instrument rather than six floating tiles. */
+.strip {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  gap: 1px; background: var(--border); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; margin-bottom: 8px;
+}
+.cell { background: var(--surface); padding: 12px 14px; }
+.cell .k { font-family: var(--mono); font-size: .6rem; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); }
+.cell .v { font-size: 1.32rem; font-weight: 700; letter-spacing: -.02em; margin-top: 2px; }
+.cell .n { font-size: .68rem; color: var(--muted-dim); margin-top: 1px; }
+.strip-note { font-size: .7rem; color: var(--muted-dim); margin-bottom: 30px; }
+
+/* ── sections ────────────────────────────────────────────────────────────── */
+section { margin-top: 34px; }
+.s-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--border2); padding-bottom: 7px; margin-bottom: 12px; }
+.s-title { font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; }
+.s-note  { font-family: var(--mono); font-size: .64rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.s-desc  { font-size: .8rem; color: var(--muted-dim); max-width: 76ch; margin-bottom: 14px; }
+
+/* ── box cards ───────────────────────────────────────────────────────────── */
+.boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 14px; }
+.box { padding: 16px 18px; border-top: 3px solid var(--accent); }
+.box.peer { border-top-color: var(--blue); }
+.box .eye  { font-family: var(--mono); font-size: .6rem; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); }
+.box h3    { font-size: 1.02rem; font-weight: 700; margin-top: 3px; letter-spacing: -.01em; }
+.box .role { font-size: .78rem; color: var(--muted-dim); margin-top: 7px; }
+dl.kv { margin-top: 13px; display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: .76rem; align-items: baseline; }
+dl.kv dt { font-family: var(--mono); font-size: .64rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+/* min-width:auto is the default on a grid item and lets a long value push the
+   column wider than the card; overflow-wrap keeps a hostname or a path inside it. */
+dl.kv dd { font-family: var(--mono); min-width: 0; overflow-wrap: anywhere; }
+
+/* ── tables ──────────────────────────────────────────────────────────────── */
+/* Wide content scrolls inside its own box. The page body never scrolls sideways. */
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.grid { width: 100%; font-size: .78rem; }
+table.grid th { text-align: left; padding: 8px 11px; font-size: .6rem; letter-spacing: .1em; }
+table.grid td { padding: 8px 11px; vertical-align: top; }
+table.grid tbody tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+td.mono { font-family: var(--mono); }
+.sub { display: block; font-size: .68rem; color: var(--muted-dim); margin-top: 2px; }
+
+/* ── pills ───────────────────────────────────────────────────────────────── */
+.pill {
+  display: inline-block; font-family: var(--mono); font-size: .6rem; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; padding: 2px 7px;
+  border: 1px solid currentColor; border-radius: 20px; white-space: nowrap;
+}
+.p-ok   { color: var(--green); }
+.p-bad  { color: var(--red); }
+.p-warn { color: var(--yellow); }
+.p-idle { color: var(--muted-dim); }
+.p-info { color: var(--blue); }
+
+/* ── banners and items ───────────────────────────────────────────────────── */
+.banner { border: 1px solid; border-radius: var(--radius); padding: 11px 15px; font-size: .78rem; line-height: 1.55; margin-bottom: 14px; }
+.banner strong { display: block; font-size: .82rem; margin-bottom: 2px; }
+.b-ok   { background: rgba(43,208,124,.06);  border-color: rgba(43,208,124,.3);  color: #86efac; }
+.b-bad  { background: rgba(242,85,95,.08);   border-color: rgba(242,85,95,.45);  color: #fca5a5; }
+.b-warn { background: rgba(240,180,41,.07);  border-color: rgba(240,180,41,.35); color: #fde047; }
+
+.item { display: flex; gap: 11px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.item:last-child { border-bottom: none; }
+.sev { width: 3px; border-radius: 2px; flex-shrink: 0; }
+.sev-high { background: var(--red); } .sev-medium { background: var(--yellow); } .sev-low { background: var(--muted-dim); }
+.item-title  { font-size: .8rem; font-weight: 600; }
+.item-detail { font-size: .72rem; color: var(--muted-dim); margin-top: 3px; }
+
+.card-pad { padding: 14px 16px; }
+.empty { font-size: .74rem; color: var(--muted-dim); padding: 12px 0; }
+footer { margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--border); font-size: .7rem; color: var(--muted-dim); line-height: 1.7; }
+footer a, main a { color: var(--accent); }
+</style>
+<link rel="stylesheet" href="/dashboard/theme.css">
+<link rel="stylesheet" href="/dashboard/nav.css">
+<script src="/dashboard/nav.js" defer></script>
+<link rel="stylesheet" href="/dashboard/freshness.css">
+<script src="/dashboard/freshness.js" defer></script>
+<link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+<meta name="theme-color" content="#070b12">
+</head>
+<body>
+
+<header class="page-head">
+  <div>
+    <div class="h-title">Fleet Map</div>
+    <div class="h-sub">Two Windows boxes running one engine. Which machine is which, what runs on it without being asked, and where the evidence accumulates — every figure read live.</div>
+  </div>
+  <div class="h-right">
+    <span class="pill p-idle" id="arm-pill">arm —</span>
+    <span class="stamp" id="stamp">reading live state…</span>
+  </div>
+</header>
+
+<main>
+  <div id="err-slot"></div>
+
+  <!-- ══ the live strip ══ -->
+  <div class="strip" id="strip"></div>
+  <div class="strip-note" id="strip-note">Reading /api/signals and /api/strategy-settings…</div>
+
+  <!-- ══ 1. the fleet ══ -->
+  <section>
+    <div class="s-head"><div class="s-title">The fleet</div><div class="s-note">two boxes · one never sleeps</div></div>
+    <div class="s-desc">
+      Same engine, same gate, same arm. They differ in <em>schedule</em>, not code — and in the
+      one property that decides how fast evidence accumulates: the VPS is always on, the laptop
+      is not. Field-by-field settings divergence is on <a href="/architecture">Architecture</a>
+      and <a href="/plan">Systems Plan</a>; this section is about the machines themselves.
+    </div>
+    <div id="fleet-banner"></div>
+    <div class="boxes" id="boxes"><div class="card card-pad empty">Loading…</div></div>
+  </section>
+
+  <!-- ══ 2. the clock ══ -->
+  <section>
+    <div class="s-head"><div class="s-title">The clock</div><div class="s-note">what runs without being asked</div></div>
+    <div class="s-desc">
+      Every scheduled task registered on this box, with the state Windows reports and when it
+      next fires. A task reading <b>Ready</b> is armed, not idle. Sorted by what happens next.
+    </div>
+    <div class="card scroll-x" id="clock"><div class="card-pad empty">Loading…</div></div>
+  </section>
+
+  <!-- ══ 3. the ledgers ══ -->
+  <section>
+    <div class="s-head"><div class="s-title">The ledgers</div><div class="s-note">evidence without risk</div></div>
+    <div class="s-desc">
+      The binding constraint on this system is sample size, not ideas — so every one of these
+      accumulates evidence at zero risk, and every one carries <code>feedsTheGate: false</code>.
+      Two of them are counted <em>since the last server start</em> and say so: a zero there means
+      "not exercised this uptime", never "nothing ever happened".
+    </div>
+    <div class="card scroll-x" id="ledgers"><div class="card-pad empty">Loading…</div></div>
+  </section>
+
+  <!-- ══ 4. open ══ -->
+  <section>
+    <div class="s-head"><div class="s-title">Open</div><div class="s-note">waiting on a human</div></div>
+    <div class="s-desc">
+      Derived, never written down. An action item states the condition that retires it; a standing
+      note is true, accepted, and waiting on nobody today.
+    </div>
+    <div class="card card-pad" style="margin-bottom:12px"><div id="actions"><div class="empty">Loading…</div></div></div>
+    <div class="card card-pad"><div id="standing"><div class="empty">Loading…</div></div></div>
+  </section>
+
+  <footer>
+    Nine endpoints, all GET: /api/fleet, /api/system-plan, /api/strategy-settings, /api/signals,
+    /api/rejection-evidence, /api/gate-health, /api/near-miss, /api/learning, /api/journal.
+    Nothing on this page runs a script, arms a bridge or writes a setting.<br />
+    The trade path and the ten gates are drawn live on <a href="/architecture">Architecture</a>;
+    the health comparison is on <a href="/plan">Systems Plan</a>. Refreshes every 60s.
+  </footer>
+</main>
+
+<script>
+// Same-origin only. The one page that ever hardcoded an absolute origin
+// (daily-plan.html) was broken everywhere except a localhost-served dashboard.
+const REFRESH_MS = 60000;
+
+const SOURCES = {
+  fleet:      "/api/fleet",
+  plan:       "/api/system-plan",
+  settings:   "/api/strategy-settings",
+  signals:    "/api/signals",
+  rejections: "/api/rejection-evidence",
+  gates:      "/api/gate-health",
+  nearMiss:   "/api/near-miss",
+  learning:   "/api/learning",
+  journal:    "/api/journal?limit=500",
+};
+
+// The three assets, in the order every other surface lists them.
+const ASSETS = [
+  { key: "btc",  label: "BTC"  },
+  { key: "gold", label: "Gold" },
+  { key: "spx",  label: "SPX"  },
+];
+
+function esc(value) {
+  return String(value == null ? "" : value).replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+/** Absent is not zero. Every renderer routes an unknown through here so a missing
+ *  field shows a dash rather than silently rendering as 0, false or "" — a gate
+ *  of null once painted "AT/ABOVE GATE 0" in green on another page. */
+function dash(value) {
+  return value === null || value === undefined || value === "" ? "—" : String(value);
+}
+
+function ago(when) {
+  return window.SEFresh ? window.SEFresh.ago(when, { unknown: "" }) : "";
+}
+
+/** One fetch shape for all nine sources. A rejected promise here would take down
+ *  every section, so a failure resolves to a described absence instead: `ok` false
+ *  plus the reason, and 401 is named as a login rather than left as a number. */
+async function getJson(url) {
+  try {
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      return { ok: false, status: response.status,
+               reason: response.status === 401 ? "not logged in" : "HTTP " + response.status };
+    }
+    return { ok: true, status: response.status, data: await response.json() };
+  } catch (err) {
+    return { ok: false, status: 0, reason: err.message || "network error" };
+  }
+}
+
+// ── the live strip ───────────────────────────────────────────────────────────
+// Six cells: the gate, the three assets against it, the size, the ceilings. The
+// gate is READ, never written here — it moved 65 -> 70 once and the last thing
+// still claiming 65 was a file with the number typed into it.
+function renderStrip(settingsResult, signalsResult) {
+  const host = document.getElementById("strip");
+  const note = document.getElementById("strip-note");
+  const settings = settingsResult.ok ? settingsResult.data : null;
+  const signals  = signalsResult.ok  ? signalsResult.data  : null;
+  const gate = settings && typeof settings.confidenceThreshold === "number"
+    ? settings.confidenceThreshold : null;
+
+  const cells = [];
+  cells.push(cell("Gate", dash(gate), gate === null ? "unavailable" : "confidence, this box"));
+
+  ASSETS.forEach(asset => {
+    const row = signals ? signals[asset.key] : null;
+    if (!row) { cells.push(cell(asset.label, "—", "no signal reported")); return; }
+    const confidence = typeof row.confidence === "number" ? row.confidence : null;
+    // The gap is the number that decides whether to care, and it was the one thing
+    // the artifact showed that no endpoint returns — so it is computed, not typed.
+    const gap = (gate !== null && confidence !== null) ? Math.max(0, gate - confidence) : null;
+    const detail = esc(dash(row.signal)) + " · " + esc(dash(row.setup))
+      + (gap !== null ? " · gap " + gap + "pt" : "");
+    cells.push(cell(asset.label, dash(confidence), detail, true));
+  });
+
+  const lot = settings && typeof settings.fixedLotSize === "number" ? settings.fixedLotSize : null;
+  const slots = settings && typeof settings.maxConcurrentPositions === "number" ? settings.maxConcurrentPositions : null;
+  cells.push(cell("Lot", dash(lot), lot === null ? "unavailable"
+    : (lot === 0 ? "risk-based sizing" : "fixed · max " + dash(slots) + " open")));
+
+  const momentumCeiling = settings ? settings.momentumRsiMax : null;
+  const trendCeiling    = settings ? settings.trendFollowRsiMax : null;
+  cells.push(cell("RSI ceiling",
+    momentumCeiling == null && trendCeiling == null ? "—" : dash(momentumCeiling) + "/" + dash(trendCeiling),
+    "momentum / trend"));
+
+  host.innerHTML = cells.join("");
+
+  // The note must never claim more than was read. Each failed source is named.
+  const missing = [];
+  if (!settingsResult.ok) missing.push("/api/strategy-settings (" + settingsResult.reason + ")");
+  if (!signalsResult.ok)  missing.push("/api/signals (" + signalsResult.reason + ")");
+  if (missing.length) {
+    note.innerHTML = '<span class="p-bad">Incomplete</span> — could not read ' + esc(missing.join(", ")) + ".";
+    return;
+  }
+  // A settingsError means the engine is running on built-in defaults, not the saved
+  // file, and every number in this strip then describes something else.
+  if (settings && settings.settingsError) {
+    note.innerHTML = '<span class="p-bad">RUNNING DEFAULTS</span> — ' + esc(settings.settingsError)
+      + ". The figures above are the built-in defaults, not the saved config.";
+    return;
+  }
+  const updated = signals && signals.btc ? signals.btc.updatedAt : null;
+  const source  = signals && signals.btc ? signals.btc.dataSource : null;
+  note.textContent = "Signals " + (ago(updated) || "at an unknown time")
+    + (source ? ", sourced from " + String(source).toUpperCase() : "")
+    + ". All three sit below the gate on most days — that is the ordinary state, not a fault.";
+}
+
+function cell(key, value, note, isNumeric) {
+  return '<div class="cell"><div class="k">' + esc(key) + "</div>"
+       + '<div class="v"' + (isNumeric ? ' style="font-variant-numeric:tabular-nums"' : "") + ">" + esc(value) + "</div>"
+       + '<div class="n">' + note + "</div></div>";
+}
+
+// ── the fleet ────────────────────────────────────────────────────────────────
+// Two machines as MACHINES: what each one is for, what it is running, and the
+// property that separates them — the laptop sleeps and the VPS does not.
+function renderFleet(fleetResult, planResult) {
+  const host   = document.getElementById("boxes");
+  const banner = document.getElementById("fleet-banner");
+
+  if (!fleetResult.ok) {
+    // Silence must never render as agreement. This is the failure that has cost
+    // most on this system: both boxes reporting healthy while they diverged.
+    banner.innerHTML = '<div class="banner b-warn"><strong>Fleet unavailable</strong>'
+      + "Could not read /api/fleet — " + esc(fleetResult.reason)
+      + (fleetResult.status === 401 ? ". Sign in at /login to compare the two boxes." : ".")
+      + " Nothing below is a comparison that passed.</div>";
+    host.innerHTML = '<div class="card card-pad empty">Unreachable.</div>';
+    return;
+  }
+
+  const fleet = fleetResult.data;
+  const plan  = planResult.ok ? planResult.data : null;
+  const here  = fleet.thisBox || {};
+  const peer  = fleet.peer || { configured: false, reachable: false };
+  const parity = (plan && plan.parity) || { available: false };
+
+  renderFleetBanner(banner, fleet, peer, parity, planResult);
+
+  const tasks = plan && plan.scheduledTasks && plan.scheduledTasks.available
+    ? (plan.scheduledTasks.tasks || []).length : null;
+  const planBox = (plan && plan.thisBox) || {};
+
+  const cards = [];
+
+  // ── this box ──
+  cards.push(boxCard({
+    className: "box",
+    eye: "Local · this machine",
+    name: here.label || "this box",
+    role: "The box you are reading this on. Whether it is the development laptop or the "
+        + "always-on peer is decided by its uptime and its schedule, not by its name — "
+        + "so both are stated below rather than assumed.",
+    rows: [
+      ["Address",   "this box"],
+      ["Health",    planBox.healthy === undefined ? "—" : (planBox.healthy ? "healthy" : "DEGRADED")],
+      ["Gate",      dash(planBox.gate)],
+      ["Lot",       dash(planBox.fixedLotSize)],
+      ["Bridges",   armingText(here.arming, plan && plan.bridges)],
+      ["Breaker",   here.halted ? "OPEN — " + dash(here.haltReason) : "closed"],
+      ["Tasks",     tasks === null ? "not readable from this host" : tasks + " scheduled"],
+      ["Uptime",    plan ? uptimeText(plan.uptimeSeconds) : "—"],
+      ["Started",   plan ? (ago(plan.serverStartedAt) || "—") : "—"],
+      ["Config",    planBox.settingsError ? "DEFAULTS — " + planBox.settingsError : "saved file"],
+      ["Unreviewed", dash(fleet.proposals && fleet.proposals.local)],
+    ],
+  }));
+
+  // ── the peer ──
+  if (!peer.configured) {
+    cards.push('<div class="card box peer card-pad">'
+      + '<div class="eye">Peer</div><h3>Not configured</h3>'
+      + '<div class="role">PEER_SERVER_URL is unset in this box\'s keys.env, so everything on '
+      + "this page describes one machine. A single-box view of a two-box system is the shape "
+      + "of every expensive failure here.</div></div>");
+  } else {
+    // The peer reports no hostname of its own — probePeer reads its public endpoints,
+    // and none of them carry os.hostname(). Its URL is therefore its identity here,
+    // rather than a name typed in that nothing would ever correct.
+    cards.push(boxCard({
+      className: "box peer",
+      eye: peer.reachable ? "Peer · reachable" : "Peer · UNREACHABLE",
+      name: peer.url || "peer",
+      role: peer.reachable
+        ? "The other half of the fleet. If this is the VPS it is the box that trades "
+        + "continuously and runs the nightly strategy search; it reports no hostname of "
+        + "its own, so its address is its name here."
+        : "Did not answer. Every number that pools both boxes is unattributable until it does.",
+      rows: peer.reachable ? [
+        ["Address",   peer.url],
+        ["Health",    peer.healthy === undefined ? "—" : (peer.healthy ? "healthy" : "DEGRADED")],
+        ["Gate",      dash(peer.gate)],
+        ["Lot",       dash(peer.fixedLotSize)],
+        ["Bridges",   armingText(peer.arming, peer.bridges)],
+        ["Breaker",   peer.halted ? "OPEN — " + dash(peer.haltReason) : "closed"],
+        ["Tasks",     "not exposed by the peer"],
+        ["Probed",    ago(peer.probedAt) || "—"],
+        ["Config",    peer.settingsError ? "DEFAULTS — " + peer.settingsError : "saved file"],
+        ["Unreviewed", dash(fleet.proposals && fleet.proposals.peer)],
+      ] : [
+        ["Address", peer.url],
+        ["Error",   dash(peer.error || "no response")],
+        ["Probed",  ago(peer.probedAt) || "—"],
+      ],
+    }));
+  }
+
+  host.innerHTML = cards.join("");
+}
+
+/** What is ARMED, per account tag — the bridge's own reported config, not a
+ *  localStorage value a page wrote to itself. The account LOGIN is deliberately
+ *  not rendered: the tag is what identifies a bridge, and the login is a broker
+ *  credential that has no reason to be on a screen. */
+function armingText(arming, bridges) {
+  const entries = arming || [];
+  if (entries.length === 0) {
+    const silent = bridges && bridges.expected ? bridges.expected : [];
+    return silent.length ? silent.join(", ") + " expected, none reporting" : "none reporting";
+  }
+  return entries.map(entry => {
+    const state = entry.halted ? "HALTED" : (entry.autoMode ? "auto" : "semi");
+    return entry.tag + " " + state + (entry.remoteHalted ? " · remote-halted" : "");
+  }).join(" · ");
+}
+
+function uptimeText(seconds) {
+  if (typeof seconds !== "number" || !isFinite(seconds)) return "—";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours > 24 ? Math.floor(hours / 24) + "d " + (hours % 24) + "h" : hours + "h " + minutes + "m";
+}
+
+function boxCard(spec) {
+  return '<div class="card ' + spec.className + '">'
+    + '<div class="eye">' + esc(spec.eye) + "</div>"
+    + "<h3>" + esc(spec.name) + "</h3>"
+    + '<div class="role">' + esc(spec.role) + "</div>"
+    + '<dl class="kv">'
+    + spec.rows.map(row => "<dt>" + esc(row[0]) + "</dt><dd>" + esc(dash(row[1])) + "</dd>").join("")
+    + "</dl></div>";
+}
+
+/** Green is a claim that the fleet is verified in agreement RIGHT NOW, so it is
+ *  only earned by a parity run fresh enough to still describe these machines.
+ *  A recorded AGREE has already outlived the truth once. */
+const PARITY_FRESH_HOURS = 12;
+
+function renderFleetBanner(host, fleet, peer, parity, planResult) {
+  const splits = [];
+  const differing = (fleet.settingsComparison || []).filter(row => row.differs && !row.byDesign);
+
+  if (peer.configured && !peer.reachable) {
+    splits.push("The other box did not answer (" + (peer.error || "no response") + ").");
+  }
+  differing.forEach(row => {
+    splits.push(row.label + " is " + dash(row.local) + " here and " + dash(row.peer) + " there.");
+  });
+  if (peer.halted === true) splits.push("Circuit breaker is OPEN on the other box.");
+  if (fleet.thisBox && fleet.thisBox.halted === true) splits.push("Circuit breaker is OPEN on this box.");
+  if (parity.available && (parity.engineDrift > 0 || parity.scalarDrift > 0)) {
+    splits.push("Engine parity failed: " + parity.engineDrift + " function(s) and "
+      + parity.scalarDrift + " constant(s) differ.");
+  }
+
+  if (splits.length > 0) {
+    host.innerHTML = '<div class="banner b-bad"><strong>The fleet does not agree with itself</strong>'
+      + splits.map(esc).join("<br />")
+      + "<br />Any number that pools both boxes is unattributable until this is reconciled.</div>";
+    return;
+  }
+  if (!peer.configured) {
+    host.innerHTML = '<div class="banner b-warn"><strong>Single-box view</strong>'
+      + "No peer is configured, so everything below describes this machine only.</div>";
+    return;
+  }
+  if (!planResult.ok) {
+    host.innerHTML = '<div class="banner b-warn"><strong>Config agrees — the engines are unverified</strong>'
+      + "Both boxes answered and their settings match, but /api/system-plan could not be read ("
+      + esc(planResult.reason) + "), so no engine-parity verdict is available here.</div>";
+    return;
+  }
+  const stale = parity.available && parity.ageHours !== null
+    && parity.ageHours !== undefined && Number(parity.ageHours) > PARITY_FRESH_HOURS;
+  if (parity.available && !stale) {
+    host.innerHTML = '<div class="banner b-ok"><strong>Both boxes agree</strong>'
+      + "Same settings, both answering, neither halted — and the last engine-parity run said "
+      + esc(parity.verdict) + " " + esc(parity.ageHours) + "h ago.</div>";
+    return;
+  }
+  host.innerHTML = '<div class="banner b-warn"><strong>Config agrees — the engines are unverified</strong>'
+    + (parity.available
+        ? "The only engine-parity run on record is " + esc(parity.ageHours)
+          + "h old, which is more than one trading cycle: it says " + esc(parity.verdict)
+          + " about the machines as they were then, not as they are now."
+        : "Engine parity has not been recorded at all, so this is agreement on config, "
+          + "not proof of a shared engine.")
+    + " Run node tasks/vps_parity.cjs --emit to settle it.</div>";
+}
+
+// ── the clock ────────────────────────────────────────────────────────────────
+// Windows reports nextRun as dd/MM/yyyy HH:mm:ss in this locale. Date.parse reads
+// that as MM/dd, which silently reorders the table for any day past the 12th — so
+// it is parsed by field, and an unparseable value sorts last rather than to 1970.
+function parseTaskTime(value) {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/.exec(String(value || "").trim());
+  if (!match) return NaN;
+  return new Date(+match[3], +match[2] - 1, +match[1], +match[4], +match[5], +match[6]).getTime();
+}
+
+function renderClock(planResult) {
+  const host = document.getElementById("clock");
+
+  if (!planResult.ok) {
+    host.innerHTML = '<div class="card-pad empty">Could not read the scheduler — ' + esc(planResult.reason)
+      + (planResult.status === 401 ? ". Sign in at /login." : ".") + "</div>";
+    return;
+  }
+  const info = planResult.data.scheduledTasks || {};
+  if (!info.available || !(info.tasks || []).length) {
+    host.innerHTML = '<div class="card-pad empty">schtasks is not readable from this host, '
+      + "so nothing here can say what is scheduled on it.</div>";
+    return;
+  }
+
+  const tasks = (info.tasks || []).slice().sort((a, b) => {
+    const left = parseTaskTime(a.nextRun), right = parseTaskTime(b.nextRun);
+    if (isNaN(left) && isNaN(right)) return String(a.name).localeCompare(String(b.name));
+    if (isNaN(left)) return 1;
+    if (isNaN(right)) return -1;
+    return left - right;
+  });
+
+  const rows = tasks.map(task => {
+    const status = String(task.status || "");
+    // Ready means ARMED and waiting, which is the healthy resting state of almost
+    // every job here — it must not be coloured like an idle one.
+    const cls = status === "Running" ? "p-info"
+              : status === "Ready"   ? "p-ok"
+              : status === "Disabled" ? "p-idle" : "p-bad";
+    const at = parseTaskTime(task.nextRun);
+    // The countdown is appended only when freshness.js is present — built
+    // unconditionally it renders as a dangling "· in " with nothing after it.
+    // A nextRun in the PAST is reported as overdue rather than counted down:
+    // SEFresh.agoMs clamps a negative duration to zero, so a task that should
+    // have fired an hour ago would otherwise read "· in 0s", which says the
+    // opposite of what it means. An overdue task is the visible edge of the
+    // failure this box actually has — it was asleep when the trigger came.
+    const remainingMs = isNaN(at) ? NaN : at - Date.now();
+    let countdown = "";
+    if (!isNaN(at) && window.SEFresh) {
+      countdown = remainingMs >= 0
+        ? " · in " + window.SEFresh.agoMs(remainingMs, { bare: true })
+        : " · OVERDUE by " + window.SEFresh.agoMs(-remainingMs, { bare: true });
+    }
+    const when = isNaN(at)
+      ? "continuous or unscheduled"
+      : new Date(at).toLocaleString() + countdown;
+    return "<tr><td>" + esc(task.name) + "</td>"
+         + '<td class="mono">' + esc(when) + "</td>"
+         + '<td><span class="pill ' + cls + '">' + esc(status || "unknown") + "</span></td></tr>";
+  });
+
+  // The server's own in-process cron jobs are NOT in this table and it must say so.
+  // node-cron holds them in memory and no endpoint enumerates them, so listing them
+  // would mean typing a schedule into this file — which is how a page starts lying.
+  rows.push('<tr><td>Server cron jobs<span class="sub">price refresh, signal refresh, daily plan, '
+    + "EOD review and the rest run inside server/index.js</span></td>"
+    + '<td class="mono">not exposed by any endpoint<span class="sub">node-cron holds them in '
+    + "memory; typing their schedules here would make this table a copy that drifts</span></td>"
+    + '<td><span class="pill p-idle">unlisted</span></td></tr>');
+
+  host.innerHTML = '<table class="grid"><thead><tr><th>Task</th><th>Next run</th><th>State</th></tr></thead>'
+    + "<tbody>" + rows.join("") + "</tbody></table>";
+}
+
+// ── the ledgers ──────────────────────────────────────────────────────────────
+// One row per place evidence lands, with its live size and the endpoint that reads
+// it. A ledger with a writer and no reader is decoration, so the READS column is
+// the load-bearing one.
+function renderLedgers(results) {
+  const host = document.getElementById("ledgers");
+  const rows = [];
+
+  // Rejection ledger — every gate kill, walked forward on real broker bars.
+  const rejections = results.rejections;
+  if (rejections.ok && rejections.data && rejections.data.gates) {
+    const gates = Object.values(rejections.data.gates);
+    const totals = gates.reduce((acc, gate) => ({
+      rows:     acc.rows + (gate.rows || 0),
+      episodes: acc.episodes + (gate.total || 0),
+      resolved: acc.resolved + (gate.resolved || 0),
+      // Only QUALITY gates carry a signed R. A state gate returns netR 0 with no
+      // verdict, and a DUPLICATE is not a forgone trade at all — summing those in
+      // would price a trade the system actually took.
+      netR:     acc.netR + (gate.gateClass === "QUALITY" ? (gate.netR || 0) : 0),
+    }), { rows: 0, episodes: 0, resolved: 0, netR: 0 });
+    const costing = gates.filter(gate => gate.verdict === "COSTING MONEY").length;
+    const earning = gates.filter(gate => gate.verdict === "EARNING ITS KEEP").length;
+    rows.push(ledgerRow("Rejection ledger", "tasks/rejections_scored.jsonl",
+      totals.rows.toLocaleString() + " rows",
+      "Gate kills walked forward on real broker bars — whether a gate <em>should</em> have fired. "
+      + totals.episodes + " episodes, " + totals.resolved + " resolved, "
+      + (totals.netR >= 0 ? "+" : "") + totals.netR.toFixed(2) + "R across the quality gates. "
+      + earning + " earning their keep, " + costing + " costing money.",
+      "/api/rejection-evidence"));
+  } else {
+    rows.push(ledgerRow("Rejection ledger", "tasks/rejections_scored.jsonl", "—",
+      "Unreadable — " + esc(rejections.reason) + ".", "/api/rejection-evidence"));
+  }
+
+  // Gate health — counters that reset with the process, which the row must say.
+  const gateHealth = results.gates;
+  if (gateHealth.ok && gateHealth.data && gateHealth.data.gates) {
+    const entries = Object.entries(gateHealth.data.gates);
+    const killed = entries.reduce((sum, entry) => sum + (entry[1].killed || 0), 0);
+    const passed = entries.reduce((sum, entry) => sum + (entry[1].passed || 0), 0);
+    const silent = entries.filter(entry => !entry[1].killed && !entry[1].passed).length;
+    rows.push(ledgerRow("Gate counters", "in memory",
+      killed + " killed / " + passed + " passed",
+      entries.length + " gates, " + silent + " not exercised since the server started "
+      + esc(ago(gateHealth.data.since)) + ". A zero is "
+      + "<b>not exercised this uptime</b>, not a broken gate — the per-gate table is on "
+      + '<a href="/architecture">Architecture</a>.',
+      "/api/gate-health"));
+  } else {
+    rows.push(ledgerRow("Gate counters", "in memory", "—",
+      "Unreadable — " + esc(gateHealth.reason) + ".", "/api/gate-health"));
+  }
+
+  // Near-miss census — prices the one blocker with no ledger row of its own.
+  const nearMiss = results.nearMiss;
+  if (nearMiss.ok && nearMiss.data) {
+    const census = nearMiss.data;
+    rows.push(ledgerRow("Near-miss census", "tasks/near_misses.jsonl",
+      dash(census.totalNearMisses) + " since restart",
+      "Setups that died on ONE condition, with the margin. It prices the RSI ceiling, which is "
+      + "the only blocker with no rejection-ledger row. Counted since "
+      + esc(ago(census.startedAt) || "the last restart") + "; "
+      + dash(census.tracked) + " tracked"
+      + (census.droppedForCap ? ", " + census.droppedForCap + " dropped at the cap" : "") + ".",
+      "/api/near-miss"));
+  } else {
+    rows.push(ledgerRow("Near-miss census", "tasks/near_misses.jsonl", "—",
+      "Unreadable — " + esc(nearMiss.reason) + ".", "/api/near-miss"));
+  }
+
+  // Shadow book + the live learning table, both out of /api/learning.
+  const learning = results.learning;
+  if (learning.ok && learning.data) {
+    const shadow = learning.data.shadow || {};
+    const shadowSetups = shadow.stats ? Object.keys(shadow.stats).length : 0;
+    const liveSetups = learning.data.setupStats ? Object.keys(learning.data.setupStats).length : 0;
+    rows.push(ledgerRow("Shadow book", "server/learning_shadow.json",
+      shadowSetups + " setups",
+      "Forgone PAPER trades by setup — no spread, no slippage, entries never filled. A screening "
+      + "signal for which gate to investigate, never realised P&amp;L. Rebuilt "
+      + esc(shadow.ageHours != null ? shadow.ageHours + "h ago" : "at an unknown time") + ".",
+      "/api/learning"));
+    rows.push(ledgerRow("Learning table", "server/learning.json",
+      liveSetups + " setups · " + dash(learning.data.sessionCount) + " sessions",
+      "The live calibration record. "
+      + (learning.data.learningError
+          ? '<span class="p-bad">ERROR: ' + esc(learning.data.learningError) + "</span>"
+          : (learning.data.reconciliation
+              ? learning.data.reconciliation.attributedToSetups + " of "
+                + learning.data.reconciliation.closedFills + " closed fills attributed to a setup"
+                + (learning.data.reconciliation.unattributed
+                    ? ", " + learning.data.reconciliation.unattributed + " unattributed"
+                    : "") + "."
+              : "")),
+      "/api/learning"));
+  } else {
+    rows.push(ledgerRow("Shadow book", "server/learning_shadow.json", "—",
+      "Unreadable — " + esc(learning.reason) + ".", "/api/learning"));
+  }
+
+  // The journal — the only real money on the page.
+  const journal = results.journal;
+  if (journal.ok && journal.data && Array.isArray(journal.data.journal)) {
+    const trades = journal.data.journal;
+    const closed = trades.filter(trade => trade.status !== "OPEN");
+    const scored = closed.filter(trade => typeof trade.realizedR === "number");
+    const netR = scored.reduce((sum, trade) => sum + trade.realizedR, 0);
+    rows.push(ledgerRow("Live journal", "server/journal.json",
+      trades.length + " trades",
+      closed.length + " closed, " + (trades.length - closed.length) + " open. "
+      + (scored.length
+          ? "<b>" + (netR >= 0 ? "+" : "") + netR.toFixed(2) + "R</b> over " + scored.length + " scored. "
+          : "")
+      + "<b>R is the unit, not dollars</b> — two closed trades have both been exactly −1.00R while "
+      + "one lost 4.5× the money of the other. The dollars measure lot size, not edge.",
+      "/api/journal"));
+  } else {
+    rows.push(ledgerRow("Live journal", "server/journal.json", "—",
+      "Unreadable — " + esc(journal.reason) + ".", "/api/journal"));
+  }
+
+  host.innerHTML = '<table class="grid"><thead><tr>'
+    + "<th>Ledger</th><th>File</th><th>Size</th><th>What it prices</th><th>Reads</th>"
+    + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
+}
+
+/** `detail` carries deliberate markup built above and is already escaped where it
+ *  interpolates live values; every other column is plain text and is escaped here. */
+function ledgerRow(name, file, size, detail, endpoint) {
+  return "<tr><td><b>" + esc(name) + "</b></td>"
+       + '<td class="mono">' + esc(file) + "</td>"
+       + '<td class="num">' + esc(size) + "</td>"
+       + "<td>" + detail + "</td>"
+       + '<td class="mono">' + esc(endpoint) + "</td></tr>";
+}
+
+// ── open ─────────────────────────────────────────────────────────────────────
+function renderItems(hostId, items, emptyText, lead) {
+  const host = document.getElementById(hostId);
+  if (!items) { host.innerHTML = '<div class="empty">' + esc(emptyText) + "</div>"; return; }
+  if (items.length === 0) { host.innerHTML = '<div class="empty">' + esc(emptyText) + "</div>"; return; }
+  host.innerHTML = (lead ? '<div class="item-detail" style="padding-bottom:6px">' + esc(lead) + "</div>" : "")
+    + items.map(item =>
+        '<div class="item"><div class="sev sev-' + esc(item.severity || "low") + '"></div>'
+        + '<div><div class="item-title">' + esc(item.title) + "</div>"
+        + '<div class="item-detail">' + esc(item.detail) + "</div></div></div>"
+      ).join("");
+}
+
+function renderOpen(planResult) {
+  if (!planResult.ok) {
+    const message = "Could not read /api/system-plan — " + planResult.reason
+      + (planResult.status === 401 ? ". Sign in at /login." : ".");
+    document.getElementById("actions").innerHTML  = '<div class="empty">' + esc(message) + "</div>";
+    document.getElementById("standing").innerHTML = '<div class="empty">' + esc(message) + "</div>";
+    return;
+  }
+  renderItems("actions", planResult.data.actionItems, "Nothing waiting on you.", null);
+  renderItems("standing", planResult.data.standingNotes, "Nothing standing.",
+    "True, accepted, and waiting on nobody today. Each states what would retire it.");
+}
+
+// ── the header stamp ─────────────────────────────────────────────────────────
+function renderStamp(results) {
+  const failed = Object.keys(SOURCES).filter(key => !results[key].ok);
+  const stamp = document.getElementById("stamp");
+  stamp.textContent = failed.length === 0
+    ? "all 9 sources read · " + new Date().toLocaleTimeString()
+    : (9 - failed.length) + " of 9 sources read · " + failed.join(", ") + " unavailable";
+  stamp.className = "stamp" + (failed.length ? " p-warn" : "");
+
+  const settings = results.settings.ok ? results.settings.data : null;
+  const armPill = document.getElementById("arm-pill");
+  armPill.textContent = "arm " + (settings && settings.arm ? settings.arm : "—");
+  armPill.className = "pill " + (settings && settings.arm === "champion" ? "p-ok" : "p-idle");
+}
+
+// ── load ─────────────────────────────────────────────────────────────────────
+// All nine in parallel: nine serial round trips would leave the page half-drawn
+// for seconds, and no source here depends on another.
+async function load() {
+  const keys = Object.keys(SOURCES);
+  const settled = await Promise.all(keys.map(key => getJson(SOURCES[key])));
+  const results = {};
+  keys.forEach((key, index) => { results[key] = settled[index]; });
+
+  try {
+    renderStrip(results.settings, results.signals);
+    renderFleet(results.fleet, results.plan);
+    renderClock(results.plan);
+    renderLedgers(results);
+    renderOpen(results.plan);
+    renderStamp(results);
+    document.getElementById("err-slot").innerHTML = "";
+  } catch (err) {
+    // A render bug must announce itself. A page that throws half way through leaves
+    // stale panels on screen that look current, which is the failure mode this whole
+    // system is built to avoid.
+    console.error("[fleet] render failed:", err);
+    document.getElementById("err-slot").innerHTML =
+      '<div class="banner b-bad"><strong>This page failed to draw</strong>'
+      + esc(err.message) + " — the panels below may be from an earlier refresh. "
+      + "The console carries the stack.</div>";
+  }
+}
+
+// freshness.js and nav.js are both `defer`, which means they run AFTER the parser
+// reaches this point but BEFORE DOMContentLoaded. An inline script that called
+// load() straight away would therefore draw its FIRST paint with window.SEFresh
+// still undefined — every age on the page reading "at an unknown time" until the
+// 60-second refresh quietly fixed it. Waiting for the event costs nothing and is
+// the same guard freshness.js uses on itself.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", load);
+} else {
+  load();
+}
+setInterval(load, REFRESH_MS);
+</script>
+</body>
+</html>
