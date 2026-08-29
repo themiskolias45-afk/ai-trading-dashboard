@@ -3826,6 +3826,35 @@ app.get("/api/analysis", (req, res) => {
     }
     const report = JSON.parse(fs.readFileSync(ANALYSIS_FILE, "utf8"));
     const ageHours = (Date.now() - new Date(report.generatedAt).getTime()) / 3_600_000;
+
+    /* A FAILED analysis must not read as an EMPTY one.
+     *
+     * parallel_analysis.py writes its report whatever happens, recording a
+     * per-agent `_error` when an agent could not complete. On 2026-08-29 the
+     * 01:01 run had all FIVE analysts and the synthesiser die with "Failed to
+     * authenticate: OAuth session expired and could not be refreshed" — the run
+     * happened hours before the sign-in was restored.
+     *
+     * This route read synthesis.verdict / .actions / .blindSpots, found them
+     * undefined, and served `available: true, actions: [], blindSpots: []` — which
+     * is indistinguishable from an analysis that ran fine and found nothing worth
+     * flagging. The 825-trade fact pack underneath it was perfect, so nothing else
+     * looked wrong either.
+     *
+     * Same defect as gate:null rendering AT/ABOVE GATE 0, an empty calendar
+     * reading as a clean trading day, and an empty setupHealth reading as a dead
+     * feed. The reasoning layer's failure is now a first-class field, and the
+     * deterministic half is still served — the facts are real and worth having.
+     */
+    const analystErrors = Object.entries(report.analysts || {})
+      .filter(([, a]) => a && a._error)
+      .map(([name, a]) => ({ agent: name, error: String(a._error).slice(0, 300) }));
+    const synthesisError = report.synthesis && report.synthesis._error
+      ? String(report.synthesis._error).slice(0, 300)
+      : null;
+    const analystCount = Object.keys(report.analysts || {}).length;
+    const reasoningFailed = Boolean(synthesisError) || analystErrors.length > 0;
+
     res.json({
       ...brains,
       available:   true,
@@ -3835,6 +3864,22 @@ app.get("/api/analysis", (req, res) => {
       verdict:     report.synthesis?.verdict ?? null,
       actions:     report.synthesis?.actions ?? [],
       blindSpots:  report.synthesis?.blindSpots ?? [],
+      // Absent is not zero. Without these, "no actions" is ambiguous.
+      reasoningFailed,
+      synthesisError,
+      analystErrors,
+      analystsRun:   analystCount - analystErrors.length,
+      analystsTotal: analystCount,
+      // The replays are independent of the Claude calls and are the reason the
+      // report is still worth serving when the reasoning half has failed.
+      replaysOk:   Array.isArray(report.facts?.replayErrors) && report.facts.replayErrors.length === 0,
+      replayErrors: report.facts?.replayErrors ?? null,
+      reasoningNote: reasoningFailed
+        ? `The measured fact pack is real (${report.facts?.overall?.trades ?? "?"} replayed trades), `
+          + `but ${analystErrors.length} of ${analystCount} analyst(s)`
+          + (synthesisError ? " and the synthesiser" : "")
+          + " did not complete, so an empty verdict here means NOT RUN, not 'nothing found'."
+        : null,
       facts:       req.query.full === "1" ? report.facts : undefined,
     });
   } catch (e) {

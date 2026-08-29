@@ -41,6 +41,29 @@ if "%MISSING%"=="0" (
   echo [%date% %time%] Catch-up complete - %PULLED% of %MISSING% missing backups pulled >> "%DEST%\pull_log.txt"
 )
 
+rem ── the deep analysis report ────────────────────────────────────────────────
+rem The laptop served a 26-DAY-OLD analysis. tasks\analysis\latest.json here was
+rem dated 08-03 while the VPS had a fresh one from 01:01 that morning, and
+rem /api/analysis handed out that stale verdict with 12 "actions" and 6 "blind
+rem spots" describing 213/104/611 closed trades - replay numbers, against a live
+rem journal holding 7 fills.
+rem
+rem PULLED, NOT RECOMPUTED, and that is the whole point. The job is six replays,
+rem five analysts in parallel and a synthesiser - 6+ Claude calls. Scheduling it
+rem here would cost that every night to produce a near-identical answer AND would
+rem mostly not run, because this laptop is asleep at 01:00 by design. The VPS
+rem never sleeps, already runs it, and is the box that trades. Copy its answer.
+rem
+rem Ordering is deliberate: SmartEntryAnalysis writes at 01:00, this pull is 04:00.
+rem Non-fatal by construction - a failed copy leaves the previous file untouched
+rem and the route keeps reporting its own ageHours honestly.
+scp -i "%KEY%" "%VPS%:/C:/ai-trading-dashboard/tasks/analysis/latest.json" "C:\Users\User\ai-trading-dashboard\tasks\analysis\latest.json" 2>>"%DEST%\pull_errors.txt"
+if exist "C:\Users\User\ai-trading-dashboard\tasks\analysis\latest.json" (
+  echo [%date% %time%] Pulled deep-analysis latest.json from VPS >> "%DEST%\pull_log.txt"
+) else (
+  echo [%date% %time%] FAILED to pull deep-analysis latest.json >> "%DEST%\pull_log.txt"
+)
+
 rem Keep more than the VPS does, so this copy outlives the source.
 powershell -Command "Get-ChildItem '%DEST%\*.zip' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip 21 | Remove-Item -Force"
 endlocal
