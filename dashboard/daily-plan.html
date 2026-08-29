@@ -570,20 +570,87 @@ function renderCard(id, title, sig, price) {
   `;
 }
 
-function renderCalendar(events) {
+/* `events` is plan.calendar — HIGH-impact events dated TODAY, already filtered
+   server-side. `feed` is /api/newsfilter, and it is the whole point of this
+   function's rewrite.
+ *
+ * An empty array here used to print "No high-impact events today — clean trading
+ * day." That is a confident all-clear GENERATED FROM AN EMPTY ARRAY, and the
+ * array is empty in two completely different situations: a genuinely quiet day,
+ * and a calendar feed that failed so newsCache is []. The page said "clean
+ * trading day" in both. That is the same defect the weekly review caught on
+ * setupHealth — correct, and indistinguishable from a dead feed — except this
+ * one tells you it is safe to trade.
+ *
+ * /api/newsfilter already reports how many events the feed actually holds, so
+ * the two cases can be told apart with no server change: 72 events loaded and
+ * none high today is a quiet day; ZERO events loaded is an unread feed. */
+function renderCalendar(events, feed) {
   const body = document.getElementById('calendar-body');
-  document.getElementById('cal-count').textContent = events.length + ' events';
+  const count = document.getElementById('cal-count');
+
+  // The count now describes the FEED, not the filtered slice. "0 events" beside a
+  // feed holding 72 was true of the filter and false of the world.
+  if (feed && Number.isFinite(feed.events)) {
+    count.textContent = events.length + ' today · ' + feed.events + ' this week';
+  } else {
+    count.textContent = events.length + ' today';
+  }
+
+  // The blackout gate is live trade state and was not on this page at all. When
+  // it is open, a setup is being refused right now for a reason the morning read
+  // should show before anything else.
+  let blackoutHtml = '';
+  if (feed && feed.blackout) {
+    blackoutHtml = '<div style="border:1px solid rgba(242,85,95,.45);background:rgba(242,85,95,.08);'
+      + 'color:#fca5a5;border-radius:8px;padding:8px 11px;font-size:.74rem;margin-bottom:9px">'
+      + '<b>NEWS BLACKOUT ACTIVE</b> — the gate is refusing setups right now'
+      + (feed.reason ? ': ' + esc(feed.reason) : '') + '.</div>';
+  } else if (feed && Number.isFinite(feed.watching) && feed.watching > 0) {
+    blackoutHtml = '<div style="border:1px solid rgba(240,180,41,.35);background:rgba(240,180,41,.07);'
+      + 'color:#fde047;border-radius:8px;padding:8px 11px;font-size:.74rem;margin-bottom:9px">'
+      + esc(feed.watching) + ' event(s) inside the ' + esc(feed.windowMinutes)
+      + '-minute watch window.</div>';
+  }
+
   if (!events.length) {
-    body.innerHTML = '<div style="color:var(--muted);font-size:.78rem">No high-impact events today — clean trading day.</div>';
+    let note;
+    if (!feed) {
+      // Could not read the feed at all. Say that, and do NOT call the day clean.
+      note = '<span style="color:var(--yellow)">Calendar state unknown</span> — /api/newsfilter '
+        + 'did not answer, so this panel cannot tell a quiet day from a dead feed. '
+        + 'It is not saying the day is clear.';
+    } else if (!feed.events) {
+      // Zero events for a whole WEEK is not a quiet week, it is an unread feed.
+      note = '<span style="color:var(--red)">The calendar feed holds zero events for the entire week</span> '
+        + '— that is a feed problem, not a quiet week. High-impact news would not be '
+        + 'flagged today. Check the [news] lines in server_log.txt.';
+    } else {
+      note = 'No high-impact events today. '
+        + '<span style="color:var(--muted-dim)">The feed holds ' + esc(feed.events)
+        + ' event(s) this week, so this is a quiet day rather than a silent feed.</span>';
+    }
+    body.innerHTML = blackoutHtml
+      + '<div style="color:var(--muted);font-size:.78rem;line-height:1.55">' + note + '</div>';
     return;
   }
-  body.innerHTML = events.map(ev => {
+  body.innerHTML = blackoutHtml + renderCalendarRows(events);
+}
+
+/* Returns HTML rather than writing it, so the caller can put the blackout banner
+   above these rows. It previously assigned to a `body` it no longer has in scope.
+
+   Every field is escaped. These titles come from a third-party calendar feed
+   (nfs.faireconomy.media), which makes them untrusted external content — they
+   were being interpolated raw into innerHTML. */
+function renderCalendarRows(events) {
+  return events.map(ev => {
     const t = ev.date ? new Date(ev.date).toUTCString().slice(17, 22) + ' UTC' : '';
     return `
       <div class="cal-event">
-        <div class="cal-time">${t}</div>
-        <div class="cal-name impact-high">${ev.title || ev.name || ''}</div>
-        <div class="cal-cur">${ev.currency || ''}</div>
+        <div class="cal-time">${esc(t)}</div>
+        <div class="cal-name impact-high">${esc(ev.title || ev.name || '')}</div>
+        <div class="cal-cur">${esc(ev.currency || '')}</div>
       </div>`;
   }).join('');
 }
@@ -616,6 +683,15 @@ async function loadPlan() {
         + (response.status === 401 ? ' (log in first)' : ''));
     }
     const plan = await response.json();
+
+    // The calendar FEED state, fetched alongside the plan. plan.calendar is only
+    // the high-impact-today slice, and an empty slice cannot say whether the feed
+    // behind it is alive — see renderCalendar. Failure here resolves to null so
+    // the panel reports "state unknown" rather than taking the whole page down;
+    // this is a second opinion about one panel, not a dependency of the page.
+    const newsFeed = await fetch(BASE + '/api/newsfilter', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .catch(() => null);
 
     // Set the gate BEFORE any card renders, or the first paint colours against null.
     // Number() guards a string; a non-finite value stays null so the card says the gate
@@ -702,7 +778,7 @@ async function loadPlan() {
     renderCard('card-spx',  'SPX / S&P 500', plan.signals?.spx,  p.spx);
 
     // Calendar
-    renderCalendar(plan.calendar || []);
+    renderCalendar(plan.calendar || [], newsFeed);
 
     // Setup health
     renderHealth(plan.setupHealth || []);
