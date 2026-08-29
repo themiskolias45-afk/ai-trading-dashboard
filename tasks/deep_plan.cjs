@@ -29,6 +29,38 @@ const path = require("path");
 const http = require("http");
 const os = require("os");
 
+/* ── COLOUR ────────────────────────────────────────────────────────────────────
+   Applied ONLY to the terminal, and ONLY when stdout is a TTY.
+
+   The document is also appended to tasks/logs/deep_plan.txt and rendered into a
+   Telegram message. ANSI escapes in either of those would be corruption, not
+   colour — the log would fill with [32m and Telegram would show the escapes as
+   text. So push() keeps producing plain strings all the way through and the
+   paint happens once, at the moment of writing to the console.
+
+   Colour is applied to lines that already SAY what they mean. It is a second
+   channel on a message that survives without it, never the only channel — the
+   plan is read on a phone and in a log file where none of this exists. */
+const COLOUR = process.stdout.isTTY && !process.argv.includes("--no-colour");
+const C = {
+  reset: "\u001b[0m", dim: "\u001b[2m", bold: "\u001b[1m",
+  green: "\u001b[32m", red: "\u001b[31m", amber: "\u001b[33m",
+  blue: "\u001b[36m", grey: "\u001b[90m",
+};
+function paintLine(line) {
+  if (!COLOUR) return line;
+  // Rules are ordered most-specific first; the first match wins so a line is
+  // never painted twice.
+  if (/AT GATE|FIRES AT BASE|READY/.test(line))      return C.green + line + C.reset;
+  if (/DEAD|HALTED|BREAKER OPEN|NOT sent/.test(line)) return C.red + line + C.reset;
+  if (/short of the gate|NEEDS BOOST|too few to judge|below the ledger/.test(line)) return C.amber + line + C.reset;
+  if (/^={3,}|^\s*~{3,}/.test(line))                                  return C.grey + line + C.reset;
+  // Section headings: "  1. THE TRADING DAY AHEAD" and the ---- under them.
+  if (/^\s{2}\d+\. [A-Z]/.test(line) || /^\s{2}[A-Z][A-Z &,'-]{4,}$/.test(line)) return C.bold + line + C.reset;
+  if (/^\s*-{4,}$/.test(line))                                        return C.grey + line + C.reset;
+  return line;
+}
+
 const base = require("./preopen_plan.cjs");
 
 const ROOT = path.join(__dirname, "..");
@@ -773,7 +805,21 @@ function renderDeep(doc) {
       }
       if (a.record.shadow) {
         const s = a.record.shadow;
-        push(`                shadow: ${JSON.stringify(s).slice(0, 70)}`);
+        /* This printed `JSON.stringify(s).slice(0, 70)` — a raw object dumped into a
+           document and CUT OFF MID-VALUE, so the line ended "rPerEpisode":-0.44 with
+           no closing brace and the win rate never shown at all. It is the only
+           machine-formatted line in an otherwise written report, and the one number
+           that matters here (R per episode) was the one being truncated.
+           Formatted like the `live:` line above it, in the same units. */
+        const rPer = Number.isFinite(s.rPerEpisode) ? s.rPerEpisode : null;
+        push(`                shadow: ${s.episodes} episode(s), ${num(s.winRate, 0)}% win`
+          + `, ${rPer === null ? "R/episode unknown" : num(rPer, 3) + "R per episode"}`
+          + `, total ${num(s.totalR, 2)}R`);
+        // enoughForReading is the ledger's own floor. Saying "20% win" off two
+        // episodes reads as a finding; it is not one.
+        if (s.enoughForReading === false) {
+          push(`                      below the ledger's own reading floor — ${s.episodes} episode(s).`);
+        }
         push(`                      paper episodes from gate rejections. No spread, no slippage,`);
         push(`                      never filled. A screen, not a jury.`);
       }
@@ -957,7 +1003,8 @@ if (require.main === module) {
       console.log(JSON.stringify(doc, null, 2));
     } else {
       fs.appendFileSync(path.join(ROOT, "tasks", "logs", "deep_plan.txt"), text + "\n");
-      process.stdout.write(text);
+      // Plain text to the log above; painted only for the terminal.
+      process.stdout.write(COLOUR ? text.split(String.fromCharCode(10)).map(paintLine).join(String.fromCharCode(10)) : text);
     }
 
     const stamp = doc.generatedAt.replace(/[-:]/g, "").slice(0, 15);
