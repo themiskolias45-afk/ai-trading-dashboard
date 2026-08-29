@@ -132,4 +132,16 @@ if not "%CLAUDE_RC%"=="0" (
 )
 
 echo [exit %CLAUDE_RC%] >> "%REPORT%"
+
+REM Re-index the weekly reports so /dashboard/weekly.html shows this run. The page
+REM reads a static JSON out of /dashboard rather than an endpoint, which is why it
+REM needed no server route and no restart - so THIS line is what makes a new review
+REM visible. Without it the analysis goes back to being written and never read,
+REM which is the exact failure the page was built to end.
+REM
+REM Deliberately AFTER the exit marker and deliberately not allowed to change the
+REM exit code: indexing is a reporting step, and a failed index must never turn a
+REM successful review - or a correctly PARKED one - into a failed scheduled task.
+node "%PROJ%\tasks\weekly_report_index.cjs" --quiet >> "%REPORT%" 2>&1
+
 endlocal & exit /b %CLAUDE_RC%

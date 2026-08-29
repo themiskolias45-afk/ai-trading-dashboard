@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartEntry Pro — Weekly Review</title>
+<style>
+/* ============================================================================
+   WEEKLY REVIEW — the deepest analysis this system produces, finally on a screen
+   ============================================================================
+
+   WHAT THIS IS
+
+   The weekly job runs Sunday on both boxes and writes tasks/logs/weekly_*.txt.
+   Until this page, NOTHING read the content: ai_work_ledger.js matched the
+   filename to prove the job ran, plan_coverage.cjs counted the files, and the
+   analysis itself — six scored calls, a stop-quality catch no dashboard made,
+   a fix proposal with file:line and sample cost — had never been rendered.
+
+   HOW IT GETS ITS DATA, AND WHY THERE IS NO ENDPOINT
+
+   tasks/weekly_report_index.cjs parses the logs into dashboard/weekly-latest.json.
+   /dashboard is already served by express.static, so this page needs no route in
+   server/index.js and therefore no server restart. That was the deciding
+   constraint: the box that trades has open positions, and a status page is not
+   worth bouncing a server for.
+
+   The cost of that choice is that the JSON is a SNAPSHOT. So the page leads with
+   how old it is and says plainly when the index is older than the newest report
+   on disk would be — a stale summary that looks live is the failure this whole
+   system is built to avoid.
+
+   WHAT IT WILL NOT DO
+
+   - It never shows an outcome it did not read. A report that was PARKED (the run
+     hit a limit) renders as parked, not as a week with no findings — those are
+     different facts and the distinction is load-bearing.
+   - It never hides a report it could not parse. `prose` and `empty` get a row and
+     a reason, and every report keeps a "read the original" toggle.
+   - It reads one static JSON and nothing else. No POST, no button that runs
+     anything. It cannot affect a signal, a gate, an order or a position.
+   ============================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.55; font-size: 14px; }
+
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; gap: 14px; padding: 20px 22px 16px; border-bottom: 1px solid var(--border);
+}
+.h-title { font-size: 1.35rem; font-weight: 750; letter-spacing: -.02em; }
+.h-sub { font-size: .78rem; color: var(--muted-dim); margin-top: 3px; max-width: 64ch; }
+.h-right { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.stamp { font-family: var(--mono); font-size: .68rem; color: var(--muted-dim); }
+
+main { max-width: 1080px; margin: 0 auto; padding: 18px 22px 72px; }
+
+/* ── the headline strip ──────────────────────────────────────────────────── */
+.strip {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px; background: var(--border); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; margin-bottom: 22px;
+}
+.cell { background: var(--surface); padding: 12px 14px; }
+.cell .k { font-family: var(--mono); font-size: .6rem; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); }
+.cell .v { font-size: 1.3rem; font-weight: 700; letter-spacing: -.02em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.cell .n { font-size: .68rem; color: var(--muted-dim); margin-top: 1px; }
+
+.banner { border: 1px solid; border-radius: var(--radius); padding: 11px 15px; font-size: .78rem; line-height: 1.55; margin-bottom: 18px; }
+.banner strong { display: block; font-size: .82rem; margin-bottom: 2px; }
+.b-ok   { background: rgba(43,208,124,.06); border-color: rgba(43,208,124,.3);  color: #86efac; }
+.b-warn { background: rgba(240,180,41,.07); border-color: rgba(240,180,41,.35); color: #fde047; }
+.b-bad  { background: rgba(242,85,95,.08);  border-color: rgba(242,85,95,.45);  color: #fca5a5; }
+
+/* ── sections ────────────────────────────────────────────────────────────── */
+section { margin-top: 30px; }
+.s-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--border2); padding-bottom: 7px; margin-bottom: 13px; }
+.s-title { font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; }
+.s-note { font-family: var(--mono); font-size: .64rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.s-desc { font-size: .79rem; color: var(--muted-dim); max-width: 76ch; margin-bottom: 13px; }
+
+/* ── a finding: the numbered sections of the review ──────────────────────── */
+.finding { padding: 15px 18px; margin-bottom: 11px; border-left: 3px solid var(--accent); }
+.finding .n {
+  font-family: var(--mono); font-size: .6rem; letter-spacing: .11em; text-transform: uppercase;
+  color: var(--muted);
+}
+.finding h3 { font-size: .95rem; font-weight: 700; margin: 3px 0 7px; letter-spacing: -.01em; }
+.finding .body { font-size: .84rem; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.finding .body b { color: var(--text); font-weight: 700; }
+.finding code {
+  font-family: var(--mono); font-size: .78rem; background: var(--surface3);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 4px;
+  overflow-wrap: anywhere;
+}
+
+/* ── scored calls: the agent grading its own past proposals ──────────────── */
+.call { display: flex; gap: 11px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.call:last-child { border-bottom: none; }
+.call .mark { width: 3px; border-radius: 2px; flex-shrink: 0; }
+.m-right { background: var(--green); } .m-wrong { background: var(--red); } .m-other { background: var(--muted-dim); }
+.call .id { font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+.call .detail { font-size: .8rem; color: var(--muted-dim); margin-top: 3px; overflow-wrap: anywhere; }
+
+/* ── pills ───────────────────────────────────────────────────────────────── */
+.pill {
+  display: inline-block; font-family: var(--mono); font-size: .6rem; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; padding: 2px 7px;
+  border: 1px solid currentColor; border-radius: 20px; white-space: nowrap;
+}
+.p-ok { color: var(--green); } .p-bad { color: var(--red); }
+.p-warn { color: var(--yellow); } .p-idle { color: var(--muted-dim); }
+.p-info { color: var(--blue); }
+
+/* ── history ─────────────────────────────────────────────────────────────── */
+.hist { padding: 0; overflow: hidden; }
+details.rep { border-bottom: 1px solid var(--border); }
+details.rep:last-child { border-bottom: none; }
+details.rep > summary {
+  list-style: none; cursor: pointer; padding: 12px 16px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+details.rep > summary::-webkit-details-marker { display: none; }
+details.rep > summary:hover { background: rgba(255,255,255,.022); }
+summary .date { font-family: var(--mono); font-size: .8rem; font-weight: 600; min-width: 96px; }
+summary .meta { font-size: .72rem; color: var(--muted-dim); margin-left: auto; }
+.rep-body { padding: 4px 16px 16px; }
+.raw {
+  font-family: var(--mono); font-size: .72rem; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--surface3); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 11px 13px; margin-top: 10px; max-height: 460px; overflow: auto; color: var(--muted);
+}
+.toggle {
+  font-family: var(--mono); font-size: .66rem; color: var(--accent); cursor: pointer;
+  background: none; border: 1px solid var(--border2); border-radius: 20px; padding: 3px 10px; margin-top: 10px;
+}
+.toggle:hover { border-color: var(--accent); }
+
+.card-pad { padding: 14px 16px; }
+.empty { font-size: .76rem; color: var(--muted-dim); padding: 13px 0; }
+footer { margin-top: 40px; padding-top: 15px; border-top: 1px solid var(--border); font-size: .7rem; color: var(--muted-dim); line-height: 1.7; }
+footer a, main a { color: var(--accent); }
+</style>
+<link rel="stylesheet" href="/dashboard/theme.css">
+<link rel="stylesheet" href="/dashboard/nav.css">
+<script src="/dashboard/nav.js" defer></script>
+<link rel="stylesheet" href="/dashboard/freshness.css">
+<script src="/dashboard/freshness.js" defer></script>
+<link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+<meta name="theme-color" content="#070b12">
+</head>
+<body>
+
+<header class="page-head">
+  <div>
+    <div class="h-title">Weekly Review</div>
+    <div class="h-sub">The deepest analysis this system produces — its own findings, and its own past calls graded against the code as it stands now.</div>
+  </div>
+  <div class="h-right">
+    <span class="pill p-idle" id="score-pill">calls —</span>
+    <span class="stamp" id="stamp">reading…</span>
+  </div>
+</header>
+
+<main>
+  <div id="banner"></div>
+  <div class="strip" id="strip"></div>
+
+  <section>
+    <div class="s-head"><div class="s-title">This week's findings</div><div class="s-note" id="latest-date">—</div></div>
+    <div class="s-desc" id="latest-desc">Reading the most recent review…</div>
+    <div id="findings"><div class="card card-pad empty">Loading…</div></div>
+  </section>
+
+  <section>
+    <div class="s-head"><div class="s-title">Scored calls</div><div class="s-note">the agent grading itself</div></div>
+    <div class="s-desc">
+      Each line is an earlier proposal re-checked against the code as it stands today, with the
+      commit or the file:line that settles it. A proposal nobody scored is an opinion — this is
+      the only place the system marks its own work right or wrong.
+    </div>
+    <div class="card card-pad" id="calls"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section>
+    <div class="s-head"><div class="s-title">Every review</div><div class="s-note">newest first</div></div>
+    <div class="s-desc">
+      Including the weeks that produced nothing. A run that stopped on a usage limit is marked
+      <span class="pill p-warn">parked</span>, not failed — and a week never indexed must never
+      look like a week with no findings.
+    </div>
+    <div class="card hist" id="history"><div class="card-pad empty">Loading…</div></div>
+  </section>
+
+  <footer>
+    Source: <code>tasks/logs/weekly_*.txt</code>, parsed by <code>tasks/weekly_report_index.cjs</code>
+    into <code>dashboard/weekly-latest.json</code>. Read-only — this page runs nothing and the
+    indexer never writes to a log.<br />
+    None of this creates edge. It makes evidence the system already produced legible, so a
+    decision gets made on it instead of on a number nobody read.
+  </footer>
+</main>
+
+<script>
+// One static artifact, same origin. No endpoint, so no server restart was needed
+// to ship this page — see the header comment for why that mattered.
+const SOURCE = "/dashboard/weekly-latest.json";
+
+function esc(value) {
+  return String(value == null ? "" : value).replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+/** The reports are written in light markdown — **bold** for the claim that
+ *  matters and `code` for a file:line. Rendering it flat loses the author's own
+ *  emphasis, which in these reports is where the finding actually is.
+ *  ESCAPE FIRST, then add markup: the input is a log file, and a log file that
+ *  can inject markup into a page is an injection vector, not a formatting one. */
+function richText(text) {
+  return esc(text)
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function ago(when) {
+  return window.SEFresh ? window.SEFresh.ago(when, { unknown: "" }) : "";
+}
+
+const OUTCOME = {
+  analysis: { pill: "p-ok",   label: "analysis" },
+  prose:    { pill: "p-info", label: "unparsed prose" },
+  parked:   { pill: "p-warn", label: "parked" },
+  empty:    { pill: "p-idle", label: "no content" },
+};
+
+function renderBanner(data) {
+  const host = document.getElementById("banner");
+  if (!data.available) {
+    host.innerHTML = '<div class="banner b-warn"><strong>No weekly review has been indexed</strong>'
+      + esc(data.reason || "No weekly_*.txt files were found.")
+      + " Run <code>node tasks/weekly_report_index.cjs</code> after the next Sunday review.</div>";
+    return;
+  }
+  // Two different kinds of stale, and they need different sentences. The INDEX
+  // can be old (nobody re-ran the parser) while the newest REPORT is current,
+  // and the fix is different in each case.
+  const indexAge = data.generatedAt ? (Date.now() - Date.parse(data.generatedAt)) / 86400000 : null;
+  if (data.ageDays !== null && data.ageDays > data.staleAfterDays) {
+    host.innerHTML = '<div class="banner b-warn"><strong>The newest review is '
+      + esc(data.ageDays) + ' days old</strong>'
+      + "The weekly job runs Sunday; past " + esc(data.staleAfterDays) + " days this describes a week "
+      + "that has already been overtaken. Check whether the review ran — a parked or failed run "
+      + "leaves the last good report in place, looking current.</div>";
+    return;
+  }
+  if (indexAge !== null && indexAge > 8) {
+    host.innerHTML = '<div class="banner b-warn"><strong>This index is '
+      + Math.round(indexAge) + " days old</strong>"
+      + "The reports on disk may be newer than what is shown. Re-run "
+      + "<code>node tasks/weekly_report_index.cjs</code>.</div>";
+    return;
+  }
+  host.innerHTML = '<div class="banner b-ok"><strong>Current</strong>'
+    + "Newest review is " + esc(data.ageDays) + " day(s) old, indexed "
+    + esc(ago(data.generatedAt) || "just now") + ".</div>";
+}
+
+function renderStrip(data) {
+  const host = document.getElementById("strip");
+  const t = data.totals || {};
+  const cell = (k, v, n) => '<div class="cell"><div class="k">' + esc(k) + "</div>"
+    + '<div class="v">' + esc(v) + "</div><div class=\"n\">" + esc(n) + "</div></div>";
+
+  const scored = (t.right || 0) + (t.wrong || 0);
+  host.innerHTML =
+      cell("Reviews", data.reports.length, (t.analysis || 0) + " with findings")
+    + cell("Scored calls", t.scoredCalls || 0,
+           scored ? (t.right || 0) + " right · " + (t.wrong || 0) + " wrong" : "none graded yet")
+    + cell("Newest", data.ageDays === null ? "—" : data.ageDays + "d", "since the last review")
+    + cell("Parked", t.parked || 0, "runs stopped on a limit")
+    + cell("No content", (t.empty || 0) + (t.prose || 0), "empty or unparsed");
+
+  const pill = document.getElementById("score-pill");
+  if (scored) {
+    pill.textContent = (t.right || 0) + " right / " + (t.wrong || 0) + " wrong";
+    pill.className = "pill " + ((t.wrong || 0) === 0 ? "p-ok" : "p-warn");
+  } else {
+    pill.textContent = "no calls graded";
+    pill.className = "pill p-idle";
+  }
+}
+
+/** The newest report that actually contains findings. The newest report OVERALL
+ *  may be parked or empty, and leading with that would show a blank page on a
+ *  week the job did not complete — while the last real analysis sat one row down. */
+function newestWithFindings(reports) {
+  return reports.find(r => r.sections.length > 0 || r.scoredCalls.length > 0) || null;
+}
+
+function renderFindings(data) {
+  const host = document.getElementById("findings");
+  const dateSlot = document.getElementById("latest-date");
+  const descSlot = document.getElementById("latest-desc");
+  const latest = newestWithFindings(data.reports);
+
+  if (!latest) {
+    dateSlot.textContent = "—";
+    descSlot.textContent = "No review on record contains parsed findings.";
+    host.innerHTML = '<div class="card card-pad empty">Nothing to show. Every indexed report is '
+      + "parked, empty, or in a shape the parser did not recognise — the History section below "
+      + "lists each one with its reason and its original text.</div>";
+    return;
+  }
+
+  dateSlot.textContent = latest.date || latest.file;
+  const newest = data.reports[0];
+  descSlot.innerHTML = latest.reviewBanner
+    ? esc(latest.reviewBanner)
+    : "From " + esc(latest.file);
+  if (newest !== latest) {
+    // Say it, rather than quietly showing older analysis under a current heading.
+    descSlot.innerHTML += ' <span class="pill p-warn">newer run produced nothing</span> — '
+      + esc(newest.date || newest.file) + " was " + esc(OUTCOME[newest.outcome].label) + ".";
+  }
+
+  host.innerHTML = latest.sections.map(s =>
+    '<div class="card finding">'
+    + '<div class="n">' + (s.number !== null ? "Finding " + esc(s.number) : "Section") + "</div>"
+    + "<h3>" + esc(s.title) + "</h3>"
+    + (s.body ? '<div class="body">' + richText(s.body) + "</div>" : "")
+    + "</div>"
+  ).join("");
+}
+
+function renderCalls(data) {
+  const host = document.getElementById("calls");
+  const calls = [];
+  data.reports.forEach(r => r.scoredCalls.forEach(c => calls.push({ ...c, date: r.date || r.file })));
+
+  if (calls.length === 0) {
+    host.innerHTML = '<div class="empty">No review has scored a call yet. The weekly job writes '
+      + "these as <code>SCORED CALL: &lt;id&gt; right|wrong — &lt;verification&gt;</code>; "
+      + "only the 2026-08-23 review has done so.</div>";
+    return;
+  }
+  host.innerHTML = calls.map(c => {
+    const mark = c.verdict === "right" ? "m-right" : c.verdict === "wrong" ? "m-wrong" : "m-other";
+    const pill = c.verdict === "right" ? "p-ok" : c.verdict === "wrong" ? "p-bad" : "p-idle";
+    return '<div class="call"><div class="mark ' + mark + '"></div><div>'
+      + '<span class="id">' + esc(c.id) + "</span> "
+      + '<span class="pill ' + pill + '">' + esc(c.verdict) + "</span> "
+      + '<span class="id">' + esc(c.date) + "</span>"
+      + '<div class="detail">' + richText(c.detail) + "</div></div></div>";
+  }).join("");
+}
+
+function renderHistory(data) {
+  const host = document.getElementById("history");
+  if (!data.reports.length) {
+    host.innerHTML = '<div class="card-pad empty">No weekly reports on disk.</div>';
+    return;
+  }
+  host.innerHTML = data.reports.map((r, index) => {
+    const o = OUTCOME[r.outcome] || OUTCOME.empty;
+    const bits = [];
+    if (r.scoredCalls.length) bits.push(r.scoredCalls.length + " call(s)");
+    if (r.sections.length) bits.push(r.sections.length + " section(s)");
+    bits.push(r.bytes + "B");
+    return '<details class="rep"' + (index === 0 ? " open" : "") + ">"
+      + "<summary>"
+      + '<span class="date">' + esc(r.date || "unknown date") + "</span>"
+      + '<span class="pill ' + o.pill + '">' + esc(o.label) + "</span>"
+      + (r.isReviewVariant ? ' <span class="pill p-idle">_review</span>' : "")
+      + (r.dateWarning ? ' <span class="pill p-bad">bad filename date</span>' : "")
+      + '<span class="meta">' + esc(bits.join(" · ")) + "</span>"
+      + "</summary>"
+      + '<div class="rep-body">'
+      + (r.dateWarning ? '<div class="detail" style="color:var(--red);font-size:.74rem">'
+          + esc(r.dateWarning) + "</div>" : "")
+      + (r.parkedReason
+          ? '<div class="body" style="font-size:.82rem;color:var(--muted-dim)">'
+            + richText(r.parkedReason) + "</div>"
+          : "")
+      + (r.outcome === "prose"
+          ? '<div class="body" style="font-size:.82rem">' + richText(r.bodyText) + "</div>"
+          : "")
+      + r.sections.map(s =>
+          '<div style="margin-top:11px"><div class="n" style="font-family:var(--mono);font-size:.6rem;'
+          + 'letter-spacing:.11em;text-transform:uppercase;color:var(--muted)">'
+          + (s.number !== null ? "Finding " + esc(s.number) : "Section") + "</div>"
+          + '<div style="font-size:.88rem;font-weight:650;margin:2px 0 5px">' + esc(s.title) + "</div>"
+          + (s.body ? '<div class="body" style="font-size:.82rem;white-space:pre-wrap">'
+              + richText(s.body) + "</div>" : "")
+          + "</div>").join("")
+      + '<button class="toggle" data-raw="' + index + '">show the original file</button>'
+      + '<div class="raw" data-rawbody="' + index + '" hidden>' + esc(r.raw) + "</div>"
+      + "</div></details>";
+  }).join("");
+
+  // Delegated so it survives a re-render, and uses el.hidden rather than a style
+  // write so nothing depends on a display value this page did not set.
+  host.onclick = (event) => {
+    const button = event.target.closest("[data-raw]");
+    if (!button) return;
+    const body = host.querySelector('[data-rawbody="' + button.dataset.raw + '"]');
+    if (!body) return;
+    body.hidden = !body.hidden;
+    button.textContent = body.hidden ? "show the original file" : "hide the original file";
+  };
+}
+
+async function load() {
+  const stamp = document.getElementById("stamp");
+  try {
+    // cache:no-store — the indexer rewrites this file in place, and a browser
+    // serving yesterday's copy is exactly the staleness this page reports on.
+    const response = await fetch(SOURCE, { cache: "no-store" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const data = await response.json();
+
+    renderBanner(data);
+    renderStrip(data);
+    renderFindings(data);
+    renderCalls(data);
+    renderHistory(data);
+    stamp.textContent = data.reports.length + " review(s) · indexed " + (ago(data.generatedAt) || "just now");
+    stamp.className = "stamp";
+  } catch (err) {
+    console.error("[weekly] load failed:", err);
+    stamp.textContent = "could not read the index";
+    stamp.className = "stamp p-bad";
+    document.getElementById("banner").innerHTML =
+      '<div class="banner b-bad"><strong>Could not read the weekly index</strong>'
+      + esc(err.message) + ". The file is <code>dashboard/weekly-latest.json</code>; "
+      + "generate it with <code>node tasks/weekly_report_index.cjs</code>. "
+      + "Nothing below is current.</div>";
+    ["findings", "calls", "history"].forEach(id => {
+      document.getElementById(id).innerHTML = '<div class="card card-pad empty">Unavailable.</div>';
+    });
+  }
+}
+
+// freshness.js is deferred, so it has NOT run when an inline end-of-body script
+// fires — without this wait the first paint renders every age as blank.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", load);
+} else {
+  load();
+}
+</script>
+</body>
+</html>

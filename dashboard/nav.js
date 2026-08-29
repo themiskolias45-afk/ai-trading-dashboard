@@ -38,6 +38,10 @@
       match: ["/report", "/dashboard/report.html"] },
     { href: "/dashboard/performance.html", label: "Performance",
       match: ["/dashboard/performance.html", "/performance"] },
+    // Static path for the same reason as Fleet Map and Performance: it reads a
+    // generated JSON out of /dashboard, so it needs no route and no restart.
+    { href: "/dashboard/weekly.html", label: "Weekly",
+      match: ["/dashboard/weekly.html", "/weekly"] },
     { href: "/system", label: "System",
       match: ["/system", "/dashboard/system.html"] },
     { sep: true },
