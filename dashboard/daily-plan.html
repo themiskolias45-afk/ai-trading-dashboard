@@ -212,6 +212,32 @@
       padding:10px 16px; margin-bottom:14px; color:var(--red);
       font-size:.8rem; font-weight:700; text-align:center;
     }
+
+    /* The verdict. One sentence, the largest type on the page, because it is the
+       only thing most mornings require. Its left edge carries the state as colour
+       AND the sentence says it in words — colour alone is invisible to about one
+       man in twelve, and this is the line that decides whether you act. */
+    .verdict {
+      background:var(--surface); border:1px solid var(--border);
+      border-left:4px solid var(--muted); border-radius:10px;
+      padding:14px 18px; margin-bottom:14px;
+    }
+    .verdict.ready { border-left-color:var(--green); }
+    .verdict.halted { border-left-color:var(--red); }
+    .verdict.blocked { border-left-color:var(--yellow); }
+    .verdict.unknown { border-left-color:var(--yellow); }
+    .v-label { font-size:.55rem; text-transform:uppercase; letter-spacing:.11em; color:var(--muted); }
+    .v-line  { font-size:1.05rem; font-weight:700; margin-top:4px; letter-spacing:-.01em; line-height:1.35; }
+    .v-why   { font-size:.74rem; color:var(--muted-dim); margin-top:5px; line-height:1.55; }
+    .v-why b { color:var(--muted); font-weight:600; }
+
+    /* The P&L panel was the largest element on the page: a full-width card with a
+       2rem number that reads $0.00 on most days. It is the least meaningful figure
+       here — this system's own doctrine is that dollars measure lot size, not edge,
+       and R is the unit. Kept, because nothing is deleted, but sized like the
+       context it is rather than the headline it was. */
+    .pnl-display { font-size:1.25rem; padding:10px 0; text-align:left; }
+    .pnl-note { font-size:.66rem; color:var(--muted-dim); margin-top:2px; }
   </style>
   <link rel="stylesheet" href="/dashboard/theme.css">
   <link rel="stylesheet" href="/dashboard/nav.css">
@@ -234,7 +260,7 @@
   <div class="header-right">
     <div class="clock" id="clock">--:--:--</div>
     <div class="pill pill-green" id="server-status"><span class="dot"></span> LIVE</div>
-    <a class="back" href="/">← Dashboard</a>
+    <a class="back" href="/dashboard">← Dashboard</a>
   </div>
 </header>
 
@@ -244,16 +270,40 @@
     ⛔ TRADING HALTED — <span id="halt-reason"></span>
   </div>
 
+  <!-- THE VERDICT. This page is read once a morning to answer one question — is
+       there anything to do today — and it did not answer it anywhere. You had to
+       read three cards and subtract from the gate yourself. Computed from live
+       state, never written down. -->
+  <div class="verdict" id="verdict">
+    <div class="v-label">What this morning says</div>
+    <div class="v-line" id="v-line">reading live state…</div>
+    <div class="v-why" id="v-why"></div>
+  </div>
+
   <!-- Date & risk budget -->
   <div class="date-bar">
     <div>
       <h1 id="plan-date">Loading…</h1>
       <div class="meta" id="plan-meta">Fetching plan…</div>
     </div>
+    <!-- REAL limits, read from the bridge's own reported config. This row used to
+         lead with "Max Daily Loss $200" — a number hardcoded in the markup that no
+         code ever wrote and that corresponds to nothing: there is no maxDailyLoss
+         constant, field or enforcement anywhere in the server. The limit that DOES
+         exist is dailyLossPct, and the page never showed it. A risk row is the last
+         place a decorative number belongs. -->
     <div class="risk-budget">
       <div class="risk-item">
-        <div class="risk-label">Max Daily Loss</div>
-        <div class="risk-value" id="max-loss">$200</div>
+        <div class="risk-label">Daily loss limit</div>
+        <div class="risk-value" id="max-loss">—</div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-label">Breaker</div>
+        <div class="risk-value" id="breaker-val">—</div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-label">Risk / trade</div>
+        <div class="risk-value" id="risk-pct">—</div>
       </div>
       <div class="risk-item">
         <div class="risk-label">Today's P&L</div>
@@ -309,7 +359,7 @@
   <div class="two-col">
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title">📅 High-Impact Events Today</div>
+        <div class="panel-title">High-impact events today</div>
         <div id="cal-count" style="font-size:.65rem;color:var(--muted)"></div>
       </div>
       <div class="panel-body" id="calendar-body">
@@ -319,7 +369,7 @@
 
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title">📊 Setup Health</div>
+        <div class="panel-title">Setup health</div>
         <div style="font-size:.65rem;color:var(--muted)">Min 5 trades</div>
       </div>
       <div class="panel-body" id="health-body">
@@ -331,10 +381,15 @@
   <!-- Today PnL -->
   <div class="panel" style="margin-bottom:16px">
     <div class="panel-header">
-      <div class="panel-title">💰 Today's Performance</div>
+      <div class="panel-title">Today's P&amp;L</div>
     </div>
     <div class="panel-body">
       <div class="pnl-display" id="pnl-big">$0.00</div>
+      <!-- Stated on the page, not just in a commit: this system's own measurement
+           doctrine is that dollars are lot-weighted and R is the unit. Two closed
+           trades here are both exactly -1.00R and one lost 4.5x the money. -->
+      <div class="pnl-note">Dollars are lot-weighted — R is the unit this system
+        judges edge by. See <a href="/dashboard/performance.html">Performance</a> for realised R.</div>
     </div>
   </div>
 
@@ -655,6 +710,154 @@ function renderCalendarRows(events) {
   }).join('');
 }
 
+/* The limits that actually exist, from risk.accounts[TAG].config — the bridge
+   owns them and reports them. Before this the row led with a hardcoded "$200"
+   that nothing wrote and nothing enforced, while dailyLossPct, maxConsecLosses
+   and riskPercent — all real, all live — appeared nowhere on the page. */
+function renderRiskLimits(risk) {
+  const accounts = (risk && risk.accounts) ? Object.values(risk.accounts) : [];
+  const cfg = accounts.map(a => a && a.config).filter(Boolean)[0] || null;
+
+  const set = (id, text, colour) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = colour || '';
+  };
+
+  if (!cfg) {
+    // No bridge reporting means the limits are UNKNOWN, not zero and not default.
+    set('max-loss', 'no bridge', 'var(--yellow)');
+    set('breaker-val', '—');
+    set('risk-pct', '—');
+    return;
+  }
+
+  set('max-loss', Number.isFinite(cfg.dailyLossPct) ? cfg.dailyLossPct + '% equity' : '—');
+  set('risk-pct', Number.isFinite(cfg.riskPercent) ? cfg.riskPercent + '%' : '—');
+
+  const streak = risk && Number.isFinite(risk.consecutiveLosses) ? risk.consecutiveLosses : null;
+  const limit  = Number.isFinite(cfg.maxConsecLosses) ? cfg.maxConsecLosses : null;
+  if (streak === null || limit === null) { set('breaker-val', '—'); return; }
+  // One below the limit is the row that matters and it was never coloured here.
+  const colour = streak >= limit ? 'var(--red)'
+               : streak >= limit - 1 ? 'var(--yellow)' : '';
+  set('breaker-val', streak + ' / ' + limit, colour);
+}
+
+/* THE VERDICT — what this morning actually says, in one sentence.
+ *
+ * The page never answered its own question. It showed three cards and left the
+ * reader to subtract each confidence from the gate. The order below is the order
+ * that matters: a halt beats everything, then a fired signal, then a blackout
+ * that is refusing setups right now, then the ordinary case — nothing is ready,
+ * and here is what is closest.
+ *
+ * Every branch states the EVIDENCE, so the line can be checked rather than
+ * believed. Unknown state is its own branch and never renders as "nothing to
+ * do" — a page that cannot read the gate must not imply the day is quiet. */
+function renderVerdict(plan, feed) {
+  const box  = document.getElementById('verdict');
+  const line = document.getElementById('v-line');
+  const why  = document.getElementById('v-why');
+  // Number(null) is 0 and Number('') is 0, and Number.isFinite(0) is TRUE — so a
+  // guard written as Number.isFinite(Number(plan.gate)) accepts a MISSING gate as
+  // zero. Caught here in test: an unreadable gate rendered "Gate is 0" with all
+  // three assets green and "at or above the gate", which is the exact failure the
+  // fleet page already has on record. Absent must be checked before coercion.
+  const rawGate = plan.gate;
+  const gate = (rawGate === null || rawGate === undefined || rawGate === ''
+                || !Number.isFinite(Number(rawGate)))
+    ? null : Number(rawGate);
+
+  const assets = [
+    { key: 'btc',  label: 'BTC'  },
+    { key: 'gold', label: 'GOLD' },
+    { key: 'spx',  label: 'SPX'  },
+  ].map(a => {
+    const s = plan.signals ? plan.signals[a.key] : null;
+    return {
+      label: a.label,
+      signal: s && s.signal,
+      setup: s && s.setup,
+      confidence: s && Number.isFinite(s.confidence) ? s.confidence : null,
+    };
+  });
+
+  const setState = (state, text, detail) => {
+    box.className = 'verdict ' + state;
+    line.textContent = text;
+    why.innerHTML = detail;
+  };
+
+  if (plan.risk && plan.risk.halted) {
+    setState('halted', 'Trading is halted — nothing will fire today until it clears.',
+      'Reason: <b>' + esc(plan.risk.haltReason || 'risk limit reached') + '</b>. '
+      + 'The breaker is enforced in the bridge, so this holds regardless of what the cards below show.');
+    return;
+  }
+
+  // settingsError means the engine is on built-in defaults, so the gate every
+  // card is compared against is not the saved one. That outranks the signals.
+  if (plan.settingsError) {
+    setState('unknown', 'The engine is running on built-in defaults, not your saved config.',
+      'strategy_settings.json could not be read: <b>' + esc(plan.settingsError) + '</b>. '
+      + 'Every threshold below is a default, so treat the gate and the levels as unverified.');
+    return;
+  }
+
+  if (gate === null) {
+    setState('unknown', 'The live gate could not be read, so nothing below can be judged against it.',
+      'This page compares each confidence to <b>confidenceThreshold</b> from /api/strategy-settings. '
+      + 'Without it the cards show numbers with no bar — it is not saying the day is quiet.');
+    return;
+  }
+
+  const ready = assets.filter(a => a.confidence !== null && a.confidence >= gate);
+  if (ready.length) {
+    const named = ready.map(a => a.label + ' ' + a.confidence + (a.signal ? ' ' + a.signal : '')).join(' · ');
+    // Colour follows the OUTCOME, not the confidence. A setup above the gate that
+    // the blackout will refuse is not a green light, and painting it green would
+    // be the page disagreeing with what the system is about to do.
+    if (feed && feed.blackout) {
+      setState('blocked', named + ' — above the gate, but the news blackout will refuse it.',
+        'Gate is <b>' + gate + '</b>.'
+        + (feed.reason ? ' Blackout: ' + esc(feed.reason) + '.' : '')
+        + ' Nothing will be placed while the blackout holds.');
+      return;
+    }
+    setState('ready', named + ' — at or above the gate.',
+      'Gate is <b>' + gate + '</b>. '
+      + 'Check the levels on the card before acting; the bridge applies its own gates too.');
+    return;
+  }
+
+  const judged = assets.filter(a => a.confidence !== null);
+  if (!judged.length) {
+    setState('unknown', 'No asset reported a confidence, so there is nothing to compare to the gate.',
+      'The signal cache may not have refreshed yet. This is not a quiet market — it is an unread one.');
+    return;
+  }
+
+  const closest = judged.reduce((best, a) => (a.confidence > best.confidence ? a : best), judged[0]);
+  const gap = gate - closest.confidence;
+
+  if (feed && feed.blackout) {
+    setState('blocked', 'Nothing is ready, and a news blackout is refusing setups anyway.',
+      'Closest is <b>' + esc(closest.label) + ' ' + closest.confidence + '</b>, '
+      + gap + 'pt below the gate of <b>' + gate + '</b>.'
+      + (feed.reason ? ' Blackout: ' + esc(feed.reason) + '.' : ''));
+    return;
+  }
+
+  setState('', 'Nothing is ready — closest is ' + closest.label + ' at ' + closest.confidence
+    + ', ' + gap + ' point' + (gap === 1 ? '' : 's') + ' below the gate.',
+    'Gate is <b>' + gate + '</b>'
+    + (closest.setup ? ', and ' + esc(closest.label) + ' is reading <b>' + esc(closest.setup) + '</b>' : '')
+    + '. All three below the gate is the ordinary state of this system, not a fault — it is '
+    + 'designed to trade rarely.');
+}
+
 function renderHealth(alerts) {
   const body = document.getElementById('health-body');
   if (!alerts || !alerts.length) {
@@ -756,6 +959,13 @@ async function loadPlan() {
       + esc(ageText(pricesAgeMs)) + (pStale ? ' ⚠ STALE' : '') + '</b>';
     document.getElementById('vix-val').textContent = plan.prices?.vix ? plan.prices.vix.toFixed(1) : '—';
     document.getElementById('dxy-val').textContent = plan.prices?.dxy ? plan.prices.dxy.toFixed(2) : '—';
+
+    // Real risk limits, from the bridge's own reported config — the same place
+    // index.html reads them. Any account will do for the LIMITS (they are config,
+    // not state); if no account is reporting, every cell says so rather than
+    // falling back to a plausible-looking number.
+    renderRiskLimits(plan.risk);
+    renderVerdict(plan, newsFeed);
 
     // Today P&L
     const pnl = plan.todayPnl ?? 0;
