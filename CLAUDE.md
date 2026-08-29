@@ -49,6 +49,8 @@ At the start of every interactive session:
    session-end summary here. Surface if found: "Last session: [what was being built / decided]".
 3. Read `tasks/daily/YYYY-MM-DD.json` for today and yesterday — load any trade signals, outcomes, or notes. Skip silently if missing.
 4. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
+4c. Read `SYSTEM-MAP.md` — the five-stage architecture map (Foundations/Automation/Real World/RAG/Multi Agents).
+   Surface current stage completion and any items listed as Missing. Skip silently if file doesn't exist.
 4b. Call `TaskList` — surface any pending or in-progress tasks from prior sessions. If tasks exist,
    show them before the welcome line: "Open tasks from last session: [list]". Skip silently if
    TaskList returns empty or errors.
