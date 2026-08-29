@@ -341,6 +341,20 @@
     .chart-header { padding:10px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); }
     .chart-title { font-size:.75rem; font-weight:600; letter-spacing:.05em; }
     .chart-sub   { font-size:.65rem; color:var(--muted); }
+    /* The gate chip. This card showed the SYMBOL and nothing else, so the question the
+       page is opened to answer - how far is this asset from firing - was on the card
+       above but not on the chart itself. Confidence, the live gate and the gap, read
+       from the same payload every other surface uses. Colour AND the number, never
+       colour alone. */
+    .chart-gate {
+      font-family:var(--mono,monospace); font-size:.6rem; font-weight:700;
+      letter-spacing:.06em; text-transform:uppercase; margin-bottom:2px;
+    }
+    .chart-gate .gap { color:var(--muted); font-weight:400; }
+    .chart-gate.ready { color:var(--green); }
+    .chart-gate.near  { color:var(--yellow); }
+    .chart-gate.far   { color:var(--muted); }
+    .chart-gate.unknown { color:var(--muted-dim); }
     .tf-btns { display:flex; gap:4px; }
     .tf-btn {
       background:var(--bg); border:1px solid var(--border2); color:var(--muted);
@@ -999,11 +1013,13 @@
   <div class="charts-grid" id="charts-grid">
     <div class="chart-wrap" data-chart-asset="btc">
       <div class="chart-header">
-        <div><div class="chart-title">BTC / USD</div><div class="chart-sub" id="sub-btc">BITSTAMP:BTCUSD</div></div>
+        <div><div class="chart-title">BTC / USD</div><div class="chart-gate" id="gate-btc"></div><div class="chart-sub" id="sub-btc">BITSTAMP:BTCUSD</div></div>
         <div class="tf-btns">
+          <button class="tf-btn" data-asset="btc" data-interval="15"  onclick="switchChart('btc','15')">15m</button>
           <button class="tf-btn" data-asset="btc" data-interval="60"  onclick="switchChart('btc','60')">1H</button>
           <button class="tf-btn" data-asset="btc" data-interval="240" onclick="switchChart('btc','240')">4H</button>
           <button class="tf-btn active" data-asset="btc" data-interval="D" onclick="switchChart('btc','D')">1D</button>
+          <button class="tf-btn" data-asset="btc" data-interval="W" onclick="switchChart('btc','W')">1W</button>
           <button class="icon-btn tv-link" onclick="openInTradingView('btc')" title="Open in TradingView — your account, your drawings">↗ TV</button>
           <button class="icon-btn" onclick="toggleChartFullscreen('btc')" title="Fullscreen (Esc to exit)">⛶</button>
         </div>
@@ -1015,11 +1031,13 @@
     </div>
     <div class="chart-wrap" data-chart-asset="gold">
       <div class="chart-header">
-        <div><div class="chart-title">GOLD / XAUUSD</div><div class="chart-sub" id="sub-gold">OANDA:XAUUSD</div></div>
+        <div><div class="chart-title">GOLD / XAUUSD</div><div class="chart-gate" id="gate-gold"></div><div class="chart-sub" id="sub-gold">OANDA:XAUUSD</div></div>
         <div class="tf-btns">
+          <button class="tf-btn" data-asset="gold" data-interval="15"  onclick="switchChart('gold','15')">15m</button>
           <button class="tf-btn" data-asset="gold" data-interval="60"  onclick="switchChart('gold','60')">1H</button>
           <button class="tf-btn" data-asset="gold" data-interval="240" onclick="switchChart('gold','240')">4H</button>
           <button class="tf-btn active" data-asset="gold" data-interval="D" onclick="switchChart('gold','D')">1D</button>
+          <button class="tf-btn" data-asset="gold" data-interval="W" onclick="switchChart('gold','W')">1W</button>
           <button class="icon-btn tv-link" onclick="openInTradingView('gold')" title="Open in TradingView — your account, your drawings">↗ TV</button>
           <button class="icon-btn" onclick="toggleChartFullscreen('gold')" title="Fullscreen (Esc to exit)">⛶</button>
         </div>
@@ -1031,11 +1049,13 @@
     </div>
     <div class="chart-wrap" data-chart-asset="spx">
       <div class="chart-header">
-        <div><div class="chart-title">S&amp;P 500 Index</div><div class="chart-sub" id="sub-spx">FOREXCOM:SPXUSD</div></div>
+        <div><div class="chart-title">S&amp;P 500 Index</div><div class="chart-gate" id="gate-spx"></div><div class="chart-sub" id="sub-spx">FOREXCOM:SPXUSD</div></div>
         <div class="tf-btns">
+          <button class="tf-btn" data-asset="spx" data-interval="15"  onclick="switchChart('spx','15')">15m</button>
           <button class="tf-btn" data-asset="spx" data-interval="60"  onclick="switchChart('spx','60')">1H</button>
           <button class="tf-btn" data-asset="spx" data-interval="240" onclick="switchChart('spx','240')">4H</button>
           <button class="tf-btn active" data-asset="spx" data-interval="D" onclick="switchChart('spx','D')">1D</button>
+          <button class="tf-btn" data-asset="spx" data-interval="W" onclick="switchChart('spx','W')">1W</button>
           <button class="icon-btn tv-link" onclick="openInTradingView('spx')" title="Open in TradingView — your account, your drawings">↗ TV</button>
           <button class="icon-btn" onclick="toggleChartFullscreen('spx')" title="Fullscreen (Esc to exit)">⛶</button>
         </div>
@@ -2193,6 +2213,10 @@ const EMA_PERIOD = 200;
 // viewport; the short-viewport heights below it correctly drop the pane when there
 // is genuinely no room for it.
 const RSI_MIN_CHART_HEIGHT = 440;
+// A second oscillator pane needs roughly another 120px before the price candles
+// are squeezed into a strip. Sized against the layout-1/2/3 heights in the media
+// queries above (440-860px), so MACD appears on tall cards and 3-up stays clean.
+const MACD_MIN_CHART_HEIGHT = 560;
 const VALID_INTERVALS = ["60", "240", "D"];
 
 // Last payloads from /api/signals and /api/status. Held because three things on
@@ -2223,8 +2247,25 @@ function mkChart(assetKey) {
   if (!container) return;
   container.innerHTML = "";
 
+  /* The studies the ENGINE actually reads, so the chart shows the same evidence the
+     signal was computed from rather than a generic template. generateSignalMTF uses
+     EMA20/50/200, Bollinger bands, RSI, MACD and ADX — MACD and ADX were on no chart
+     at all, which meant a reader could not see the condition that killed a setup.
+
+     Panes cost vertical space, so the oscillators are added by height in order of how
+     often they decide something here: RSI first (the ceiling that blocks longs), then
+     MACD (BUY_DIP is strangled by macd.bullish), then ADX (the trending gate). On a
+     short card you still get bands and moving averages, which are the overlays.
+
+     ADX is deliberately NOT added. The engine reads it (adxTrendingMin gates the
+     trending regime) and it belongs here, but its tv-basicstudies id is not one I
+     could verify, and an unrecognised id is dropped by the widget WITHOUT an error —
+     which would look exactly like the study being there and reading flat. Add it once
+     the id is confirmed against a live widget, not before. */
   const studies = ["BB@tv-basicstudies", "MAExp@tv-basicstudies"];
-  if (chartHeight() >= RSI_MIN_CHART_HEIGHT) studies.push("RSI@tv-basicstudies");
+  const h = chartHeight();
+  if (h >= RSI_MIN_CHART_HEIGHT)  studies.push("RSI@tv-basicstudies");
+  if (h >= MACD_MIN_CHART_HEIGHT) studies.push("MACD@tv-basicstudies");
 
   const palette = chartPalette();
   showChartSkeleton(container);
@@ -2235,7 +2276,7 @@ function mkChart(assetKey) {
       symbol:asset.symbol, interval:chartIntervals[assetKey],
       timezone:"Etc/UTC", theme:"dark", style:"1", locale:"en",
       toolbar_bg:palette.surface, enable_publishing:false, hide_top_toolbar:false,
-      hide_side_toolbar:true, withdateranges:true, details:false,
+      hide_side_toolbar:false, withdateranges:true, details:false,
       // The engine trades one instrument per panel. Letting the chart be switched
       // to another one turns this into a picture of something we do not trade.
       allow_symbol_change:false,
@@ -2482,7 +2523,41 @@ function priceDecimals(value) {
   return Math.abs(value) >= 10000 ? 0 : Math.abs(value) >= 100 ? 2 : 2;
 }
 
+/* Confidence against the LIVE gate, on the chart card itself.
+ *
+ * The gate is read, never hardcoded - it moved 65 -> 70 once and the last thing
+ * still claiming 65 was a file with the number typed into it. A missing gate
+ * renders UNKNOWN rather than 0: Number(null) is 0 and every confidence is >= 0,
+ * so a coerced null would paint all three assets green and "at gate", which is
+ * exactly the bug this page has already had once.
+ */
+function renderChartGate(assetKey, signal) {
+  const el = document.getElementById("gate-" + assetKey);
+  if (!el) return;
+  // The page's own liveGate, read from /api/strategy-settings by loadSettings().
+  const raw = (typeof liveGate !== "undefined") ? liveGate : null;
+  const gate = (raw === null || raw === undefined || raw === "" || !Number.isFinite(Number(raw)))
+    ? null : Number(raw);
+  const conf = signal && Number.isFinite(signal.confidence) ? signal.confidence : null;
+
+  if (conf === null || gate === null) {
+    el.className = "chart-gate unknown";
+    el.textContent = conf === null ? "no signal" : "conf " + conf + " · gate unknown";
+    return;
+  }
+  const gap = gate - conf;
+  el.className = "chart-gate " + (gap <= 0 ? "ready" : gap <= 10 ? "near" : "far");
+  el.innerHTML = (gap <= 0 ? "AT GATE " : "") + conf + " / " + gate
+    + ' <span class="gap">' + (gap <= 0 ? "clear by " + Math.abs(gap) : gap + "pt to go")
+    + (signal.setup ? " · " + signal.setup : "") + "</span>";
+}
+
 function renderLevelRail(assetKey, signal) {
+  // Chip first: renderLevelRail returns early when there is no signal, and the gate
+  // chip must still say so rather than keep whatever it showed last refresh. Called
+  // from here rather than the five rail call sites so the two can never drift apart.
+  try { renderChartGate(assetKey, signal); } catch (e) { console.error("renderChartGate:", e); }
+
   const rail = document.getElementById("rail-" + assetKey);
   if (!rail) return;
   // Collapse rather than stand empty. The rail is 24% of the chart card, and levels only
