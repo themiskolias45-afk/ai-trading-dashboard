@@ -163,6 +163,21 @@ REM list is self-tested every run and the job REFUSES to probe if it leaks.
 REM Always exits 0 - a content finding must never fail a daily run.
 echo --- content quality --- >> "%LOGFILE%"
 node "%PROJ%\tasks\content_quality_audit.cjs" >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
+REM -- durable state: what a restart would take with it ------------------------
+REM On 2026-08-29 the server was restarted twice. Nine state FILES were backed up
+REM and verified by sha1 first, and all nine survived. What was lost lived in none
+REM of them: tvAlerts was an in-memory array with no writer, so the alert feed went
+REM with the process. A backup cannot protect state that was never on disk.
+REM This enumerates every module-level binding in server/index.js and requires each
+REM one to be classified: persisted (VERIFIED - loader and saver must exist and be
+REM called), regenerable (says from where it refills), or accepted (a decision on
+REM record). New state with no entry is the finding. Mutation-tested: removing a
+REM saver call, commenting out a loader, or deleting a save function each go RED.
+REM Always exits 0 - knowing what a restart would cost must never fail a daily run.
+echo --- durable state --- >> "%LOGFILE%"
+node "%PROJ%\tasks\durable_state_audit.cjs" >> "%LOGFILE%" 2>&1
 
 REM ── Next-candle read, for the TradingView plan panel ──────────────────────────
 REM candle_probability.cjs writes tasks\analysis\candle-today.json, which is the ONLY

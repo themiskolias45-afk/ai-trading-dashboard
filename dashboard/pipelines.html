@@ -116,6 +116,7 @@ footer a, main a { color: var(--accent); }
   <div id="fleet"></div>
   <div id="quality"></div>
   <div id="content"></div>
+  <div id="durable"></div>
   <div id="banner"></div>
   <div class="strip" id="strip"></div>
   <div id="pipes"><div class="card" style="padding:14px 16px"><div class="empty">Loading…</div></div></div>
@@ -146,6 +147,12 @@ const QUALITY_SOURCE = "/dashboard/page-quality.json";
    byte-identical to a healthy one, which is how /daily-plan showed a price for every
    asset — all of them null — for twenty-six days. */
 const CONTENT_SOURCE = "/dashboard/content-quality.json";
+/* The third daily pass, and the only one that asks what a RESTART would cost.
+   Nine state files were backed up and verified by sha1 before the 2026-08-29
+   restarts and all nine survived; what was lost lived in none of them, because
+   tvAlerts was an in-memory array with no writer. A backup cannot protect state
+   that was never on disk. */
+const DURABLE_SOURCE = "/dashboard/durable-state.json";
 
 function esc(v) {
   return String(v == null ? "" : v).replace(/[&<>"']/g, c => (
@@ -233,6 +240,46 @@ function renderContent(c) {
     + esc(c.ok) + " ok</strong>" + rows
     + (c.findings.length > 10 ? "<br>+" + (c.findings.length - 10) + " more" : "")
     + tail + "</div>";
+}
+
+/* Says what a restart takes with it. "persisted" is VERIFIED here, not claimed:
+   the audit checks the loader and saver exist and are called, because a claim of
+   persistence with no saver is exactly what tvAlerts looked like from outside. */
+function renderDurable(d) {
+  const host = document.getElementById("durable");
+  if (!host) return;
+  if (!d) { host.innerHTML = ""; return; }
+  if (!d.available) {
+    host.innerHTML = '<div class="banner b-bad"><strong>Durable-state audit did not run</strong>'
+      + esc(d.reason || "no reason given") + "</div>";
+    return;
+  }
+
+  const b = d.byClass || {};
+  const st = d.selfTest;
+  const proof = !st ? ""
+    : st.allChecksFire
+      ? " All " + esc(st.fired.length) + " checks verified against canary sources."
+      : " <b>SELF-TEST FAILED — " + esc(st.dead.join(", ")) + "</b>";
+  const tail = '<br><span style="color:var(--muted-dim)">'
+    + esc(b.persisted || 0) + " persisted (loader and saver verified present and called), "
+    + esc(b.regenerable || 0) + " regenerable, "
+    + esc(b.accepted || 0) + " lost on purpose." + proof + "</span>";
+
+  if (!d.totalFindings) {
+    host.innerHTML = '<div class="banner ' + (st && !st.allChecksFire ? "b-warn" : "b-ok") + '">'
+      + "<strong>Restart safety: all " + esc(d.stateFound) + " server states accounted for</strong>"
+      + "Nothing in the server would be lost by a restart without that being a decision on record."
+      + tail + "</div>";
+    return;
+  }
+
+  const rows = d.findings.slice(0, 8).map(f =>
+    "<b>" + esc(f.name) + (f.line ? ":" + esc(f.line) : "") + "</b> — "
+    + esc(f.check) + ": " + esc(f.detail)).join("<br>");
+  host.innerHTML = '<div class="banner ' + (d.red ? "b-bad" : "b-warn") + '">'
+    + "<strong>Restart safety: " + esc(d.red) + " red, " + esc(d.amber) + " amber</strong>"
+    + rows + tail + "</div>";
 }
 
 function renderFleet(d, peer) {
@@ -402,6 +449,9 @@ async function load() {
     const content = await fetch(CONTENT_SOURCE, { cache: "no-store" })
       .then(r => (r.ok ? r.json() : null)).catch(() => null);
     renderContent(content);
+    const durable = await fetch(DURABLE_SOURCE, { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null);
+    renderDurable(durable);
     renderFleet(d, PEER_BY_ID ? peer : null);
     renderBanner(d);
     renderStrip(d);

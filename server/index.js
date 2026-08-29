@@ -837,6 +837,88 @@ function saveAlerts() {
   catch (e) { console.error(`[alerts] SAVE FAILED — ${tvAlerts.length} alert(s) are in memory only and will be lost on restart:`, e.message); }
 }
 
+// ── Persistent feature flags ──────────────────────────────────
+//
+// `features` was six booleans in memory with nothing behind them, so EVERY
+// restart silently set all six back to true. Two of them change what the system
+// does, not merely what it shows:
+//   newsFilter   gates the news blackout (isNewsBlackout). Back ON, it can BLOCK
+//                a setup that would otherwise have fired — against the standing
+//                rule that nothing may suppress a good signal.
+//   trailingStop is read by mt5_bridge.py over GET /api/features. Back ON, the
+//                bridge resumes advancing stops on live positions.
+// A toggle that reverts itself at the next restart, with nothing said, is worse
+// than no toggle: the dashboard shows OFF until you reload it and then shows ON.
+//
+// Persisting means a flag left OFF now STAYS off. That is the point — it honours
+// an explicit decision instead of quietly undoing it — but it is a real change in
+// behaviour, so every non-default flag is named loudly at boot rather than left
+// to be discovered.
+const FEATURES_FILE = require("path").join(__dirname, "features.json");
+const FEATURE_DEFAULTS = { ...features };
+
+function loadFeatures() {
+  try {
+    if (!fs.existsSync(FEATURES_FILE)) return;
+    const saved = JSON.parse(fs.readFileSync(FEATURES_FILE, "utf8"));
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return;
+    // Only keys this build knows, and only booleans. A hand-edited or stale file
+    // must not be able to introduce a flag nothing reads, or a string where a
+    // boolean is expected — `if (features.newsFilter)` is true for "false".
+    for (const key of Object.keys(FEATURE_DEFAULTS)) {
+      if (typeof saved[key] === "boolean") features[key] = saved[key];
+    }
+    const offDefault = Object.keys(FEATURE_DEFAULTS)
+      .filter(k => features[k] !== FEATURE_DEFAULTS[k]);
+    if (offDefault.length) {
+      console.log(`[features] Restored from disk. NOT AT DEFAULT: `
+        + offDefault.map(k => `${k}=${features[k] ? "ON" : "OFF"}`).join(", "));
+    } else {
+      console.log("[features] Restored from disk, all at default");
+    }
+    const ignored = Object.keys(saved).filter(k => !(k in FEATURE_DEFAULTS));
+    if (ignored.length) console.log(`[features] Ignored unknown key(s) in features.json: ${ignored.join(", ")}`);
+  } catch (e) {
+    // Defaults are the safe fallback here, and the file is left alone so a
+    // hand-fixable typo is still hand-fixable.
+    console.error("[features] Load error, using defaults. features.json untouched:", e.message);
+  }
+}
+
+function saveFeatures() {
+  try { writeJsonAtomic(FEATURES_FILE, features); }
+  catch (e) { console.error("[features] SAVE FAILED — this toggle will revert on the next restart:", e.message); }
+}
+loadFeatures();
+
+// ── Persistent manual-trade queue ─────────────────────────────
+//
+// A trade sits here waiting for a human to approve it. In memory only, it did not
+// wait through a restart — it disappeared, and the only trace was a queue that
+// used to have something in it. Losing a pending DECISION is worse than losing a
+// log line, because nothing downstream notices it is gone.
+const MANUAL_QUEUE_FILE = require("path").join(__dirname, "manual_trade_queue.json");
+
+function loadManualQueue() {
+  try {
+    if (!fs.existsSync(MANUAL_QUEUE_FILE)) return;
+    const saved = JSON.parse(fs.readFileSync(MANUAL_QUEUE_FILE, "utf8"));
+    if (Array.isArray(saved)) {
+      manualTradeQueue = saved;
+      if (manualTradeQueue.length) {
+        console.log(`[manual-queue] Restored ${manualTradeQueue.length} pending trade(s) awaiting approval`);
+      }
+    }
+  } catch (e) {
+    console.error("[manual-queue] Load error, starting empty. The file on disk is untouched:", e.message);
+  }
+}
+
+function saveManualQueue() {
+  try { writeJsonAtomic(MANUAL_QUEUE_FILE, manualTradeQueue); }
+  catch (e) { console.error(`[manual-queue] SAVE FAILED — ${manualTradeQueue.length} pending trade(s) will be lost on restart:`, e.message); }
+}
+
 /** The one way an alert enters the feed: display buffer, archive, disk. */
 function pushAlert(alert) {
   tvAlerts.unshift(alert);
@@ -3984,20 +4066,26 @@ app.get("/api/sentiment", (_, res) => res.json(sentimentCache));
 
 // Manual trade queue — bridge polls this to pick up trades queued from dashboard
 let manualTradeQueue = [];
+// Called here and not beside loadFeatures(): the helper is defined further up,
+// but manualTradeQueue is a `let` declared on the line above, so calling the
+// loader any earlier would hit the temporal dead zone and stop the boot.
+loadManualQueue();
 app.get("/api/manual-trade/pending",  (_, res) => res.json({ trades: manualTradeQueue }));
 app.post("/api/manual-trade/queue",   (req, res) => {
   const trade = req.body;
   if (!trade || !trade.symbol) return res.status(400).json({ error: "symbol required" });
   trade.queuedAt = new Date().toISOString();
   manualTradeQueue.push(trade);
+  saveManualQueue();
   console.log(`[manual] Trade queued: ${trade.symbol} ${trade.direction}`);
   res.json({ ok: true, queued: manualTradeQueue.length });
 });
-app.post("/api/manual-trade/clear",   (_, res) => { manualTradeQueue = []; res.json({ ok: true }); });
+app.post("/api/manual-trade/clear",   (_, res) => { manualTradeQueue = []; saveManualQueue(); res.json({ ok: true }); });
 app.delete("/api/manual-trade/:idx",  (req, res) => {
   const idx = parseInt(req.params.idx, 10);
   if (isNaN(idx) || idx < 0 || idx >= manualTradeQueue.length) return res.status(400).json({ error: "invalid index" });
   manualTradeQueue.splice(idx, 1);
+  saveManualQueue();
   res.json({ ok: true, remaining: manualTradeQueue.length });
 });
 
@@ -6325,7 +6413,8 @@ app.post("/api/features/:name/toggle", requireLocalOnly, (req, res) => {
   const { name } = req.params;
   if (!(name in features)) return res.status(404).json({ error: "unknown feature" });
   features[name] = !features[name];
-  console.log(`[feature] ${name} → ${features[name] ? "ON" : "OFF"}`);
+  saveFeatures();
+  console.log(`[feature] ${name} → ${features[name] ? "ON" : "OFF"} (persisted — it will survive a restart)`);
   res.json({ feature: name, enabled: features[name] });
 });
 
