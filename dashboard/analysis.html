@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartEntry Pro — Deep Analysis</title>
+<style>
+/* ============================================================================
+   DEEP ANALYSIS — 825 replayed trades that had never been on a screen
+   ============================================================================
+
+   parallel_analysis.py runs nightly on the VPS: six replays feed one measured
+   fact pack, five analysts read it in parallel, a synthesiser merges them. It
+   writes a 542 KB report. NO PAGE HAS EVER FETCHED IT — grepped every file under
+   dashboard/, not one reads /api/analysis. This is the largest body of
+   measurement the system produces and it has been invisible its whole life.
+
+   HOW IT GETS ITS DATA
+   tasks/analysis_index.cjs trims the report to dashboard/analysis-latest.json.
+   /dashboard is already served by express.static, so no route and no server
+   restart — the same constraint as the Weekly and Fleet pages, for the same
+   reason: the box that trades has open positions.
+
+   THE RULE THIS PAGE EXISTS TO ENFORCE
+   A FAILED reasoning layer must never render as an EMPTY one. On 2026-08-29 all
+   five analysts and the synthesiser died with "OAuth session expired" and the
+   API served actions:[] blindSpots:[] verdict:null — indistinguishable from an
+   analysis that ran fine and found nothing. This page leads with that failure
+   and says in words that an empty verdict means NOT RUN.
+
+   WHAT THESE NUMBERS ARE NOT
+   Replayed trades over historical bars at a fixed cost assumption. NOT realised
+   P&L, and never to be merged with /api/performance, which counts real fills —
+   there are 825 here and 7 of those. Where this disagrees with a walk-forward,
+   the walk-forward wins. Stated on the page, not just in this comment.
+
+   Reads one static JSON. No POST, nothing that runs anything.
+   ============================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.55; font-size: 14px; }
+
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; gap: 14px; padding: 20px 22px 16px; border-bottom: 1px solid var(--border);
+}
+.h-title { font-size: 1.35rem; font-weight: 750; letter-spacing: -.02em; }
+.h-sub { font-size: .78rem; color: var(--muted-dim); margin-top: 3px; max-width: 66ch; }
+.stamp { font-family: var(--mono); font-size: .68rem; color: var(--muted-dim); }
+
+main { max-width: 1120px; margin: 0 auto; padding: 18px 22px 72px; }
+
+.strip {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1px; background: var(--border); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden; margin-bottom: 8px;
+}
+.cell { background: var(--surface); padding: 12px 14px; }
+.cell .k { font-family: var(--mono); font-size: .6rem; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); }
+.cell .v { font-size: 1.3rem; font-weight: 700; letter-spacing: -.02em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.cell .n { font-size: .67rem; color: var(--muted-dim); margin-top: 1px; }
+.strip-note { font-size: .72rem; color: var(--muted-dim); margin-bottom: 26px; line-height: 1.6; }
+
+.banner { border: 1px solid; border-radius: var(--radius); padding: 12px 15px; font-size: .78rem; line-height: 1.6; margin-bottom: 16px; }
+.banner strong { display: block; font-size: .84rem; margin-bottom: 3px; }
+.b-ok { background: rgba(43,208,124,.06); border-color: rgba(43,208,124,.3); color: #86efac; }
+.b-warn { background: rgba(240,180,41,.07); border-color: rgba(240,180,41,.35); color: #fde047; }
+.b-bad { background: rgba(242,85,95,.08); border-color: rgba(242,85,95,.45); color: #fca5a5; }
+.banner code { font-family: var(--mono); font-size: .74rem; }
+
+section { margin-top: 30px; }
+.s-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--border2); padding-bottom: 7px; margin-bottom: 12px; }
+.s-title { font-size: 1.02rem; font-weight: 700; letter-spacing: -.01em; }
+.s-note { font-family: var(--mono); font-size: .64rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.s-desc { font-size: .79rem; color: var(--muted-dim); max-width: 78ch; margin-bottom: 13px; }
+
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.grid { width: 100%; font-size: .78rem; }
+table.grid th { text-align: left; padding: 8px 11px; font-size: .6rem; letter-spacing: .1em; white-space: nowrap; }
+table.grid td { padding: 7px 11px; vertical-align: middle; }
+table.grid tbody tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.name { font-weight: 600; }
+.pos { color: var(--green); } .neg { color: var(--red); } .flat { color: var(--muted-dim); }
+
+/* The R bar. expectancyR is the number that decides, so it gets a shape as well
+   as a value — a column of near-identical decimals hides its own ranking. */
+.rbar { position: relative; height: 5px; background: var(--surface3); border-radius: 3px; margin-top: 4px; min-width: 70px; }
+.rbar span { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.rbar .mid { left: 50%; width: 1px; background: var(--border2); border-radius: 0; }
+
+.pill { display: inline-block; font-family: var(--mono); font-size: .58rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; padding: 1px 6px; border: 1px solid currentColor; border-radius: 20px; white-space: nowrap; }
+.p-ok { color: var(--green); } .p-bad { color: var(--red); } .p-warn { color: var(--yellow); } .p-idle { color: var(--muted-dim); }
+
+.card-pad { padding: 14px 16px; }
+.empty { font-size: .76rem; color: var(--muted-dim); padding: 13px 0; }
+.item { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: .8rem; }
+.item:last-child { border-bottom: none; }
+details.rep { border-bottom: 1px solid var(--border); }
+details.rep:last-child { border-bottom: none; }
+details.rep > summary { list-style: none; cursor: pointer; padding: 11px 16px; display: flex; gap: 12px; align-items: center; }
+details.rep > summary::-webkit-details-marker { display: none; }
+details.rep > summary:hover { background: rgba(255,255,255,.022); }
+.rep-body { padding: 2px 16px 15px; font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+footer { margin-top: 40px; padding-top: 15px; border-top: 1px solid var(--border); font-size: .7rem; color: var(--muted-dim); line-height: 1.7; }
+footer a, main a { color: var(--accent); }
+</style>
+<link rel="stylesheet" href="/dashboard/theme.css">
+<link rel="stylesheet" href="/dashboard/nav.css">
+<script src="/dashboard/nav.js" defer></script>
+<link rel="stylesheet" href="/dashboard/freshness.css">
+<script src="/dashboard/freshness.js" defer></script>
+<link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+<meta name="theme-color" content="#070b12">
+</head>
+<body>
+
+<header class="page-head">
+  <div>
+    <div class="h-title">Deep Analysis</div>
+    <div class="h-sub">The nightly replay: six passes over historical bars, graded by setup, regime, trend, direction and asset. Measured, not opinion — and not realised P&amp;L.</div>
+  </div>
+  <div class="stamp" id="stamp">reading…</div>
+</header>
+
+<main>
+  <div id="banner"></div>
+  <div class="strip" id="strip"></div>
+  <div class="strip-note" id="strip-note"></div>
+
+  <section>
+    <div class="s-head"><div class="s-title">What the synthesis concluded</div><div class="s-note">verdict · actions · blind spots</div></div>
+    <div class="s-desc">
+      Written by the synthesiser after reading all five analysts. When this is empty, the
+      banner above says whether that means <em>nothing found</em> or <em>never ran</em> —
+      they are different facts and only one of them is good news.
+    </div>
+    <div class="card card-pad" id="synthesis"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section>
+    <div class="s-head"><div class="s-title">The breakdowns</div><div class="s-note">sorted by expectancy R</div></div>
+    <div class="s-desc">
+      Sorted by <b>expectancy R</b>, not win rate — a 33% win rate with a profit factor above 1
+      is an ordinary trend profile, and sorting by wins would rank the book upside down.
+      A row marked <span class="pill p-warn">thin</span> is under the sample floor and is shown
+      rather than hidden, because an absent row and an untrustworthy one are not the same thing.
+    </div>
+    <div id="tables"></div>
+  </section>
+
+  <section>
+    <div class="s-head"><div class="s-title">The analysts</div><div class="s-note">five specialists, read in parallel</div></div>
+    <div class="card" id="analysts"><div class="card-pad empty">Loading…</div></div>
+  </section>
+
+  <footer>
+    Source: <code>tasks/analysis/latest.json</code>, written nightly by <code>parallel_analysis.py</code>
+    on the VPS and trimmed by <code>tasks/analysis_index.cjs</code>. Read-only.<br />
+    <b>These are REPLAYED trades over historical bars at a fixed cost assumption — not realised
+    P&amp;L.</b> Never merge them with <a href="/dashboard/performance.html">Performance</a>, which
+    counts real fills. Where this disagrees with a walk-forward, the walk-forward wins.
+  </footer>
+</main>
+
+<script>
+const SOURCE = "/dashboard/analysis-latest.json";
+
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+function ago(when) { return window.SEFresh ? window.SEFresh.ago(when, { unknown: "" }) : ""; }
+function num(v, dp) {
+  return (v === null || v === undefined || !isFinite(v)) ? "—" : Number(v).toFixed(dp === undefined ? 2 : dp);
+}
+function signClass(v) {
+  if (v === null || v === undefined || !isFinite(v)) return "flat";
+  return v > 0 ? "pos" : v < 0 ? "neg" : "flat";
+}
+
+/* The reasoning layer's state, said in words. This banner is the reason the page
+   exists in this shape: an empty verdict is ambiguous and the ambiguity is
+   dangerous, because the harmless reading ("nothing found") is the reassuring one. */
+function renderBanner(d) {
+  const host = document.getElementById("banner");
+  if (!d.available) {
+    host.innerHTML = '<div class="banner b-warn"><strong>No analysis has been indexed</strong>'
+      + esc(d.reason || "The report could not be read.")
+      + " Run <code>node tasks/analysis_index.cjs</code> after the nightly analysis.</div>";
+    return;
+  }
+  if (d.reasoningFailed) {
+    const failed = (d.analystErrors || []).map(e => e.agent).join(", ");
+    host.innerHTML = '<div class="banner b-bad"><strong>The reasoning layer did not run — an empty verdict below means NOT RUN, not "nothing found"</strong>'
+      + esc(d.analystsRun) + " of " + esc(d.analystsTotal) + " analyst(s) completed"
+      + (failed ? ". Failed: <code>" + esc(failed) + "</code>" : "")
+      + (d.synthesisError ? ". Synthesiser: <code>" + esc(d.synthesisError) + "</code>" : "")
+      + ".<br />The measured half is unaffected and is shown below — "
+      + (d.replaysOk ? "every replay completed cleanly" : "but the replays reported errors, see below")
+      + ", so the breakdowns are real evidence even though the commentary is missing.</div>";
+    return;
+  }
+  const stale = d.ageHours !== null && d.staleAfterHours && d.ageHours > d.staleAfterHours;
+  if (stale) {
+    host.innerHTML = '<div class="banner b-warn"><strong>This analysis is ' + esc(d.ageHours) + 'h old</strong>'
+      + "It runs nightly, so it has missed at least one run. The numbers describe the market as it "
+      + "was, not as it is.</div>";
+    return;
+  }
+  host.innerHTML = '<div class="banner b-ok"><strong>Complete</strong>'
+    + "All " + esc(d.analystsTotal) + " analysts and the synthesiser ran. Report is "
+    + esc(d.ageHours) + "h old and every replay completed cleanly.</div>";
+}
+
+function renderStrip(d) {
+  const host = document.getElementById("strip");
+  const note = document.getElementById("strip-note");
+  const o = d.overall || {};
+  const cell = (k, v, n) => '<div class="cell"><div class="k">' + esc(k) + '</div><div class="v">'
+    + v + '</div><div class="n">' + esc(n) + "</div></div>";
+
+  host.innerHTML =
+      cell("Replayed", o.trades != null ? o.trades : "—", "trades over historical bars")
+    + cell("Expectancy", '<span class="' + signClass(o.expectancyR) + '">' + num(o.expectancyR, 3) + "R</span>", "per trade, after cost")
+    + cell("Total R", '<span class="' + signClass(o.totalR) + '">' + num(o.totalR, 1) + "</span>", "summed across the book")
+    + cell("Profit factor", num(o.profitFactor, 2), "gross win / gross loss")
+    + cell("Win rate", o.winRatePct != null ? o.winRatePct + "%" : "—", "low is normal for trend")
+    + cell("Analysts", esc(d.analystsRun) + " / " + esc(d.analystsTotal), d.reasoningFailed ? "REASONING FAILED" : "all completed");
+
+  const cov = d.coverage
+    ? Object.entries(d.coverage).map(([k, v]) => esc(k) + " " + esc(v)).join(" · ")
+    : "coverage not reported";
+  note.innerHTML = "Coverage: " + cov
+    + (d.costAssumptionR != null ? " · cost " + esc(d.costAssumptionR) + "R per trade" : "")
+    + (d.replaysOk ? " · replays clean" : ' · <span class="neg">replay errors reported</span>')
+    + ". <b>Replayed, not realised</b> — there are " + (d.overall ? esc(d.overall.trades) : "?")
+    + " trades here and 7 real fills in the journal. Never merge the two.";
+}
+
+function renderSynthesis(d) {
+  const host = document.getElementById("synthesis");
+  if (d.reasoningFailed) {
+    host.innerHTML = '<div class="empty">Nothing to show — the synthesiser did not complete. '
+      + "This is an absence of output, not a finding of nothing. See the banner above.</div>";
+    return;
+  }
+  const parts = [];
+  if (d.verdict) parts.push('<div style="font-size:.85rem;line-height:1.65">' + esc(d.verdict) + "</div>");
+  if ((d.actions || []).length) {
+    parts.push('<div style="margin-top:12px"><div class="s-note">Actions</div>'
+      + d.actions.map(a => '<div class="item">' + esc(typeof a === "string" ? a : JSON.stringify(a)) + "</div>").join("")
+      + "</div>");
+  }
+  if ((d.blindSpots || []).length) {
+    parts.push('<div style="margin-top:12px"><div class="s-note">Blind spots</div>'
+      + d.blindSpots.map(b => '<div class="item">' + esc(typeof b === "string" ? b : JSON.stringify(b)) + "</div>").join("")
+      + "</div>");
+  }
+  host.innerHTML = parts.length ? parts.join("")
+    : '<div class="empty">The synthesiser ran and produced no verdict, no actions and no blind '
+      + "spots. That is a real finding of nothing, not a failure — the banner above confirms all "
+      + "analysts completed.</div>";
+}
+
+function renderTables(d) {
+  const host = document.getElementById("tables");
+  if (!d.tables || !d.tables.length) {
+    host.innerHTML = '<div class="card card-pad empty">No breakdowns in this report.</div>';
+    return;
+  }
+  // One scale across every table so the bars are comparable between them.
+  let peak = 0;
+  d.tables.forEach(t => t.rows.forEach(r => {
+    if (isFinite(r.expectancyR)) peak = Math.max(peak, Math.abs(r.expectancyR));
+  }));
+  if (peak === 0) peak = 1;
+
+  host.innerHTML = d.tables.map(t =>
+    '<section style="margin-top:22px"><div class="s-head">'
+    + '<div class="s-title" style="font-size:.92rem">' + esc(t.label) + "</div>"
+    + '<div class="s-note">' + esc(t.note) + "</div></div>"
+    + '<div class="card scroll-x"><table class="grid"><thead><tr>'
+    + "<th>Name</th><th class=\"num\">Closed</th><th class=\"num\">Win %</th>"
+    + "<th class=\"num\">PF</th><th class=\"num\">Total R</th><th class=\"num\">Expectancy R</th>"
+    + "</tr></thead><tbody>"
+    + t.rows.map(r => {
+        const w = Math.min(50, Math.abs(r.expectancyR || 0) / peak * 50);
+        const bar = '<div class="rbar"><span class="mid"></span><span style="'
+          + (r.expectancyR >= 0 ? "left:50%;" : "right:50%;")
+          + "width:" + w + "%;background:var(--" + (r.expectancyR >= 0 ? "green" : "red") + ');"></span></div>';
+        return "<tr><td class=\"name\">" + esc(r.name)
+          + (r.belowMinSample ? ' <span class="pill p-warn">thin</span>' : "")
+          + "</td>"
+          + '<td class="num">' + esc(r.closed != null ? r.closed : "—") + "</td>"
+          + '<td class="num">' + (r.winRatePct != null ? esc(r.winRatePct) : "—") + "</td>"
+          + '<td class="num">' + num(r.profitFactor, 2) + "</td>"
+          + '<td class="num ' + signClass(r.totalR) + '">' + num(r.totalR, 1) + "</td>"
+          + '<td class="num ' + signClass(r.expectancyR) + '">' + num(r.expectancyR, 3) + bar + "</td>"
+          + "</tr>";
+      }).join("")
+    + "</tbody></table></div></section>"
+  ).join("");
+}
+
+function renderAnalysts(d) {
+  const host = document.getElementById("analysts");
+  const failed = d.analystErrors || [];
+  const ran = d.analystReports || [];
+  if (!ran.length && !failed.length) {
+    host.innerHTML = '<div class="card-pad empty">This report carries no analyst section.</div>';
+    return;
+  }
+  host.innerHTML =
+    failed.map(e =>
+      '<details class="rep"><summary><span class="pill p-bad">failed</span>'
+      + '<span style="font-family:var(--mono);font-size:.78rem">' + esc(e.agent) + "</span></summary>"
+      + '<div class="rep-body">' + esc(e.error) + "</div></details>").join("")
+    + ran.map((r, i) =>
+      '<details class="rep"' + (i === 0 ? " open" : "") + '><summary><span class="pill p-ok">ran</span>'
+      + '<span style="font-family:var(--mono);font-size:.78rem">' + esc(r.agent) + "</span></summary>"
+      + '<div class="rep-body">' + esc(r.text) + "</div></details>").join("");
+}
+
+async function load() {
+  const stamp = document.getElementById("stamp");
+  try {
+    const res = await fetch(SOURCE, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const d = await res.json();
+    renderBanner(d);
+    renderStrip(d);
+    renderSynthesis(d);
+    renderTables(d);
+    renderAnalysts(d);
+    stamp.textContent = d.available
+      ? "report " + d.ageHours + "h old · indexed " + (ago(d.generatedAt) || "just now")
+      : "unavailable";
+  } catch (err) {
+    console.error("[analysis] load failed:", err);
+    stamp.textContent = "could not read the index";
+    document.getElementById("banner").innerHTML =
+      '<div class="banner b-bad"><strong>Could not read the analysis index</strong>'
+      + esc(err.message) + ". Generate it with <code>node tasks/analysis_index.cjs</code>. "
+      + "Nothing below is current.</div>";
+    ["synthesis", "tables", "analysts"].forEach(id => {
+      document.getElementById(id).innerHTML = '<div class="card card-pad empty">Unavailable.</div>';
+    });
+  }
+}
+
+// freshness.js is deferred and has NOT run when an inline end-of-body script fires.
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", load);
+else load();
+</script>
+</body>
+</html>

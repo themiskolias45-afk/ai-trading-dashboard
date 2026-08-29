@@ -122,6 +122,18 @@ echo --- agent auth --- >> "%LOGFILE%"
 node "%PROJ%\tasks\agent_auth_check.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM Index the nightly deep analysis for /dashboard/analysis.html. The report is
+REM 542 KB and NO PAGE HAS EVER FETCHED IT - the largest body of measurement this
+REM system produces has been invisible its whole life. This trims it to a 10 KB
+REM artifact the page loads directly out of /dashboard, so no route and no restart.
+REM
+REM On this box the report ARRIVES by the 04:00 VPS pull, which is why this runs
+REM at 07:30 and not before. Exit code deliberately not captured: a reporting step
+REM must never turn a good daily run red.
+echo --- analysis index --- >> "%LOGFILE%"
+node "%PROJ%\tasks\analysis_index.cjs" >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM ── Next-candle read, for the TradingView plan panel ──────────────────────────
 REM candle_probability.cjs writes tasks\analysis\candle-today.json, which is the ONLY
 REM source for the "1D read" and "4H read" rows tradingview_bot.py puts on the chart

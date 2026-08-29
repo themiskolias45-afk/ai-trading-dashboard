@@ -42,6 +42,10 @@
     // generated JSON out of /dashboard, so it needs no route and no restart.
     { href: "/dashboard/weekly.html", label: "Weekly",
       match: ["/dashboard/weekly.html", "/weekly"] },
+    // Static path again: it reads a generated JSON out of /dashboard, so no route
+    // and no restart. The nightly deep analysis had no surface at all before this.
+    { href: "/dashboard/analysis.html", label: "Analysis",
+      match: ["/dashboard/analysis.html", "/analysis"] },
     { href: "/system", label: "System",
       match: ["/system", "/dashboard/system.html"] },
     { sep: true },

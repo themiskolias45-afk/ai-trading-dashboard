@@ -120,6 +120,17 @@ echo --- agent auth --- >> "%LOGFILE%"
 node "%PROJ%\tasks\agent_auth_check.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM Index the nightly deep analysis for /dashboard/analysis.html. THIS box writes
+REM the report at 01:00 (SmartEntryAnalysis), so by 07:30 it is fresh. 542 KB, 825
+REM replayed trades, and no page had ever fetched it - trimmed here to a 10 KB
+REM artifact the page loads straight out of /dashboard: no route, no restart.
+REM
+REM Exit code deliberately not captured - a reporting step must never turn a good
+REM daily run red.
+echo --- analysis index --- >> "%LOGFILE%"
+node "%PROJ%\tasks\analysis_index.cjs" >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM ── Do the doctor's own checks still fire? ────────────────────────────────────
 REM Identical to the block in tasks\auto_daily.bat, and it matters MORE here: this is
 REM the box that trades continuously, and every expensive failure on it has been a

@@ -1,0 +1,400 @@
+{
+  "generatedAt": "2026-08-29T15:17:33.554Z",
+  "available": true,
+  "source": "tasks/analysis/latest.json",
+  "reportGeneratedAt": "2026-08-28T23:01:03.887201+00:00",
+  "ageHours": 16.3,
+  "staleAfterHours": 36,
+  "overall": {
+    "trades": 825,
+    "winRatePct": 33.4,
+    "profitFactor": 1.1,
+    "totalR": 46.8,
+    "expectancyR": 0.071
+  },
+  "coverage": {
+    "BTC": 404,
+    "Gold": 291,
+    "SPX": 130
+  },
+  "costAssumptionR": 0.05,
+  "minSampleForRecommendation": 5,
+  "replayErrors": [],
+  "replaysOk": true,
+  "reasoningFailed": true,
+  "synthesisError": "agent did not complete: Failed to authenticate: OAuth session expired and could not be refreshed",
+  "analystErrors": [
+    {
+      "agent": "setup-forensics",
+      "error": "agent did not complete: Failed to authenticate: OAuth session expired and could not be refreshed"
+    },
+    {
+      "agent": "strength-gate",
+      "error": "agent did not complete: Failed to authenticate: OAuth session expired and could not be refreshed"
+    },
+    {
+      "agent": "regime-fit",
+      "error": "agent did not complete: Failed to authenticate: OAuth session expired and could not be refreshed"
+    },
+    {
+      "agent": "loss-autopsy",
+      "error": "agent did not complete: Failed to authenticate: OAuth session expired and could not be refreshed"
+    },
+    {
+      "agent": "risk-and-config",
+      "error": "agent did not complete: Failed to authenticate: OAuth session expired and could not be refreshed"
+    }
+  ],
+  "analystsRun": 0,
+  "analystsTotal": 5,
+  "verdict": null,
+  "actions": [],
+  "blindSpots": [],
+  "analystReports": [],
+  "tables": [
+    {
+      "key": "bySetup",
+      "label": "By setup",
+      "note": "which pattern the engine matched",
+      "rows": [
+        {
+          "name": "BREAKOUT",
+          "trades": 14,
+          "closed": 11,
+          "wins": 4,
+          "losses": 7,
+          "winRatePct": 36.4,
+          "profitFactor": 1.7,
+          "totalR": 5.11,
+          "expectancyR": 0.465,
+          "belowMinSample": false
+        },
+        {
+          "name": "TREND_FOLLOW",
+          "trades": 25,
+          "closed": 18,
+          "wins": 7,
+          "losses": 11,
+          "winRatePct": 38.9,
+          "profitFactor": 1.44,
+          "totalR": 5.11,
+          "expectancyR": 0.284,
+          "belowMinSample": false
+        },
+        {
+          "name": "MOMENTUM",
+          "trades": 527,
+          "closed": 401,
+          "wins": 144,
+          "losses": 257,
+          "winRatePct": 35.9,
+          "profitFactor": 1.26,
+          "totalR": 69.49,
+          "expectancyR": 0.173,
+          "belowMinSample": false
+        },
+        {
+          "name": "BUY_DIP",
+          "trades": 11,
+          "closed": 8,
+          "wins": 2,
+          "losses": 6,
+          "winRatePct": 25,
+          "profitFactor": 0.95,
+          "totalR": -0.34,
+          "expectancyR": -0.042,
+          "belowMinSample": false
+        },
+        {
+          "name": "SQUEEZE_BREAKOUT",
+          "trades": 101,
+          "closed": 86,
+          "wins": 24,
+          "losses": 62,
+          "winRatePct": 27.9,
+          "profitFactor": 0.9,
+          "totalR": -6.3,
+          "expectancyR": -0.073,
+          "belowMinSample": false
+        },
+        {
+          "name": "SELL_BOUNCE",
+          "trades": 30,
+          "closed": 27,
+          "wins": 7,
+          "losses": 20,
+          "winRatePct": 25.9,
+          "profitFactor": 0.84,
+          "totalR": -3.38,
+          "expectancyR": -0.125,
+          "belowMinSample": false
+        },
+        {
+          "name": "RANGE_TRADE_SHORT",
+          "trades": 65,
+          "closed": 60,
+          "wins": 19,
+          "losses": 41,
+          "winRatePct": 31.7,
+          "profitFactor": 0.76,
+          "totalR": -10.19,
+          "expectancyR": -0.17,
+          "belowMinSample": false
+        },
+        {
+          "name": "RANGE_TRADE_LONG",
+          "trades": 35,
+          "closed": 29,
+          "wins": 9,
+          "losses": 20,
+          "winRatePct": 31,
+          "profitFactor": 0.73,
+          "totalR": -5.74,
+          "expectancyR": -0.198,
+          "belowMinSample": false
+        },
+        {
+          "name": "BUY_OVERSOLD",
+          "trades": 17,
+          "closed": 15,
+          "wins": 3,
+          "losses": 12,
+          "winRatePct": 20,
+          "profitFactor": 0.45,
+          "totalR": -6.96,
+          "expectancyR": -0.464,
+          "belowMinSample": false
+        }
+      ]
+    },
+    {
+      "key": "byRegime",
+      "label": "By regime",
+      "note": "the market state at entry",
+      "rows": [
+        {
+          "name": "VOLATILE",
+          "trades": 2,
+          "closed": 2,
+          "wins": 1,
+          "losses": 1,
+          "winRatePct": 50,
+          "profitFactor": 1.43,
+          "totalR": 0.45,
+          "expectancyR": 0.225,
+          "belowMinSample": true
+        },
+        {
+          "name": "TRENDING",
+          "trades": 559,
+          "closed": 424,
+          "wins": 138,
+          "losses": 286,
+          "winRatePct": 32.5,
+          "profitFactor": 1.11,
+          "totalR": 34.35,
+          "expectancyR": 0.081,
+          "belowMinSample": false
+        },
+        {
+          "name": "SQUEEZE",
+          "trades": 125,
+          "closed": 106,
+          "wins": 39,
+          "losses": 67,
+          "winRatePct": 36.8,
+          "profitFactor": 1.12,
+          "totalR": 8.56,
+          "expectancyR": 0.081,
+          "belowMinSample": false
+        },
+        {
+          "name": "RANGING",
+          "trades": 139,
+          "closed": 123,
+          "wins": 41,
+          "losses": 82,
+          "winRatePct": 33.3,
+          "profitFactor": 1.04,
+          "totalR": 3.44,
+          "expectancyR": 0.028,
+          "belowMinSample": false
+        }
+      ]
+    },
+    {
+      "key": "byTrend",
+      "label": "By trend",
+      "note": "multi-timeframe trend at entry",
+      "rows": [
+        {
+          "name": "STRONG UPTREND",
+          "trades": 559,
+          "closed": 425,
+          "wins": 154,
+          "losses": 271,
+          "winRatePct": 36.2,
+          "profitFactor": 1.28,
+          "totalR": 80.9,
+          "expectancyR": 0.19,
+          "belowMinSample": false
+        },
+        {
+          "name": "STRONG DOWNTREND",
+          "trades": 98,
+          "closed": 83,
+          "wins": 23,
+          "losses": 60,
+          "winRatePct": 27.7,
+          "profitFactor": 0.89,
+          "totalR": -6.65,
+          "expectancyR": -0.08,
+          "belowMinSample": false
+        },
+        {
+          "name": "DOWNTREND",
+          "trades": 26,
+          "closed": 23,
+          "wins": 6,
+          "losses": 17,
+          "winRatePct": 26.1,
+          "profitFactor": 0.88,
+          "totalR": -2.08,
+          "expectancyR": -0.09,
+          "belowMinSample": false
+        },
+        {
+          "name": "MIXED",
+          "trades": 126,
+          "closed": 113,
+          "wins": 34,
+          "losses": 79,
+          "winRatePct": 30.1,
+          "profitFactor": 0.74,
+          "totalR": -21.38,
+          "expectancyR": -0.189,
+          "belowMinSample": false
+        },
+        {
+          "name": "UPTREND",
+          "trades": 16,
+          "closed": 11,
+          "wins": 2,
+          "losses": 9,
+          "winRatePct": 18.2,
+          "profitFactor": 0.58,
+          "totalR": -3.99,
+          "expectancyR": -0.363,
+          "belowMinSample": false
+        }
+      ]
+    },
+    {
+      "key": "byDirection",
+      "label": "By direction",
+      "note": "long against short",
+      "rows": [
+        {
+          "name": "BUY",
+          "trades": 631,
+          "closed": 484,
+          "wins": 169,
+          "losses": 315,
+          "winRatePct": 34.9,
+          "profitFactor": 1.2,
+          "totalR": 64.57,
+          "expectancyR": 0.133,
+          "belowMinSample": false
+        },
+        {
+          "name": "SELL",
+          "trades": 194,
+          "closed": 171,
+          "wins": 50,
+          "losses": 121,
+          "winRatePct": 29.2,
+          "profitFactor": 0.86,
+          "totalR": -17.77,
+          "expectancyR": -0.104,
+          "belowMinSample": false
+        }
+      ]
+    },
+    {
+      "key": "byAsset",
+      "label": "By asset",
+      "note": "instrument",
+      "rows": [
+        {
+          "name": "Gold",
+          "trades": 291,
+          "closed": 235,
+          "wins": 88,
+          "losses": 147,
+          "winRatePct": 37.4,
+          "profitFactor": 1.46,
+          "totalR": 70.47,
+          "expectancyR": 0.3,
+          "belowMinSample": false
+        },
+        {
+          "name": "BTC",
+          "trades": 404,
+          "closed": 353,
+          "wins": 125,
+          "losses": 228,
+          "winRatePct": 35.4,
+          "profitFactor": 1.12,
+          "totalR": 27.97,
+          "expectancyR": 0.079,
+          "belowMinSample": false
+        },
+        {
+          "name": "SPX",
+          "trades": 130,
+          "closed": 67,
+          "wins": 6,
+          "losses": 61,
+          "winRatePct": 9,
+          "profitFactor": 0.19,
+          "totalR": -51.64,
+          "expectancyR": -0.771,
+          "belowMinSample": false
+        }
+      ]
+    },
+    {
+      "key": "byStrength",
+      "label": "By strength",
+      "note": "the engine's own MODERATE / STRONG grading",
+      "rows": [
+        {
+          "name": "STRONG",
+          "trades": 34,
+          "closed": 21,
+          "wins": 9,
+          "losses": 12,
+          "winRatePct": 42.9,
+          "profitFactor": 1.53,
+          "totalR": 6.69,
+          "expectancyR": 0.319,
+          "belowMinSample": false
+        },
+        {
+          "name": "MODERATE",
+          "trades": 791,
+          "closed": 634,
+          "wins": 210,
+          "losses": 424,
+          "winRatePct": 33.1,
+          "profitFactor": 1.09,
+          "totalR": 40.11,
+          "expectancyR": 0.063,
+          "belowMinSample": false
+        }
+      ]
+    }
+  ],
+  "caveat": "These are REPLAYED trades over historical bars at a fixed cost assumption, not realised P&L. Never merge them with get_performance, which counts real fills. Where this disagrees with a walk-forward, the walk-forward wins.",
+  "feedsTheGate": false
+}
