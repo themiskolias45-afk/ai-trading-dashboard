@@ -112,6 +112,7 @@ footer a, main a { color: var(--accent); }
 
 <main>
   <div id="fleet"></div>
+  <div id="quality"></div>
   <div id="banner"></div>
   <div class="strip" id="strip"></div>
   <div id="pipes"><div class="card" style="padding:14px 16px"><div class="empty">Loading…</div></div></div>
@@ -133,6 +134,10 @@ const SOURCE = "/dashboard/pipeline-latest.json";
    states that age rather than presenting it as current. Absent is fine — the fleet
    column simply says the peer has not been indexed here. */
 const PEER_SOURCE = "/dashboard/pipeline-peer.json";
+/* The daily page-quality queue. Written by tasks/page_quality_audit.cjs, which
+   PROPOSES and never edits. Shown here because an audit nobody reads is precisely
+   the writer-with-no-reader failure this whole page exists to catch. */
+const QUALITY_SOURCE = "/dashboard/page-quality.json";
 
 function esc(v) {
   return String(v == null ? "" : v).replace(/[&<>"']/g, c => (
@@ -144,6 +149,28 @@ function ago(when) { return window.SEFresh ? window.SEFresh.ago(when, { unknown:
 /* This box beside the peer. A pipeline healthy here and broken there is the case
    that matters most: the VPS trades continuously, so a stage that stopped THERE
    costs evidence on the machine actually producing fills. */
+/* One line per page with open findings, newest audit. Deliberately compact: this
+   is a daily improvement QUEUE, not an alarm — nothing here blocks or fails a run. */
+function renderQuality(q) {
+  const host = document.getElementById("quality");
+  if (!host) return;
+  if (!q || !q.available) { host.innerHTML = ""; return; }
+  if (!q.totalFindings) {
+    host.innerHTML = '<div class="banner b-ok"><strong>Page quality: clean</strong>'
+      + esc(q.pagesChecked) + " page(s) checked, no findings.</div>";
+    return;
+  }
+  const rows = (q.pages || []).slice(0, 8).map(p =>
+    "<b>" + esc(p.page) + "</b> — "
+    + p.findings.slice(0, 3).map(f => esc(f.check) + (f.line ? ":" + esc(f.line) : "")).join(", ")
+    + (p.findings.length > 3 ? " +" + (p.findings.length - 3) + " more" : "")).join("<br>");
+  host.innerHTML = '<div class="banner b-warn"><strong>Page quality: '
+    + esc(q.totalFindings) + " open finding(s) across " + esc((q.pages || []).length) + " page(s)</strong>"
+    + rows
+    + "<br><span style=\"color:var(--muted-dim)\">Proposals only — this audit never edits a page. "
+    + esc(q.clean ? q.clean.length : 0) + " page(s) clean.</span></div>";
+}
+
 function renderFleet(d, peer) {
   const host = document.getElementById("fleet");
   if (!host) return;
@@ -301,6 +328,9 @@ async function load() {
       PEER_BY_ID = {};
       peer.pipelines.forEach(x => { PEER_BY_ID[x.id] = x; });
     }
+    const quality = await fetch(QUALITY_SOURCE, { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null);
+    renderQuality(quality);
     renderFleet(d, PEER_BY_ID ? peer : null);
     renderBanner(d);
     renderStrip(d);

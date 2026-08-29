@@ -6396,9 +6396,17 @@ function ladderAlignment(a) {
    1 ATR is the shape of that mistake and is flagged. */
 function ladderGeometry(a) {
   const bits = [];
-  if (Number.isFinite(Number(a.rr))) bits.push("R:R <b>1:" + Number(a.rr).toFixed(2) + "</b>");
-  if (Number.isFinite(Number(a.stopAtr))) {
-    const atr = Number(a.stopAtr);
+  // ABSENT BEFORE COERCED. Number(null) is 0 and Number.isFinite(0) is true, so
+  // `Number.isFinite(Number(a.rr))` accepts a MISSING r:r and renders "R:R 1:0.00" —
+  // a fabricated ratio presented as a measured one. Found by tasks/page_quality_audit.cjs
+  // on this very function, 90 minutes after it was written.
+  const num = v => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)))
+    ? null : Number(v);
+  const rr = num(a.rr);
+  const stopAtr = num(a.stopAtr);
+  if (rr !== null) bits.push("R:R <b>1:" + rr.toFixed(2) + "</b>");
+  if (stopAtr !== null) {
+    const atr = stopAtr;
     const tight = atr > 0 && atr < 1;
     bits.push("stop <b" + (tight ? ' class="thin"' : "") + ">" + atr.toFixed(2) + " ATR</b>"
       + (tight ? " (tight)" : ""));

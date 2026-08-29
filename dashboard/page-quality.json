@@ -1,0 +1,271 @@
+{
+  "generatedAt": "2026-08-29T16:19:29.084Z",
+  "box": "Themis",
+  "available": true,
+  "pagesChecked": 15,
+  "totalFindings": 20,
+  "byCheck": {
+    "orphan-style": 10,
+    "deferred-race": 3,
+    "absent-as-zero": 5,
+    "shell-includes": 2
+  },
+  "checks": [
+    {
+      "id": "absent-as-zero",
+      "title": "A missing value could be coerced to zero",
+      "why": "Number(null) is 0 and Number.isFinite(0) is true, so a guard written this way accepts an ABSENT value as a real zero. This exact line shape rendered every asset green and 'at or above the gate' when the gate could not be read.",
+      "fix": "Check for null/undefined/'' BEFORE coercing, then Number() the survivor."
+    },
+    {
+      "id": "deferred-race",
+      "title": "Inline script may run before freshness.js has loaded",
+      "why": "freshness.js is loaded with `defer`, which executes AFTER the parser reaches an inline end-of-body script but BEFORE DOMContentLoaded. A page that calls its loader immediately draws its FIRST paint with window.SEFresh undefined, so every age renders as unknown until the next refresh quietly hides it.",
+      "fix": "Wrap the first load in the same guard freshness.js uses on itself: if (document.readyState === 'loading') addEventListener('DOMContentLoaded', load); else load();"
+    },
+    {
+      "id": "raw-interpolation",
+      "title": "External text may reach innerHTML unescaped",
+      "why": "Calendar titles, analyst text and log lines come from feeds and files this system does not control. Interpolated into innerHTML without escaping, they are an injection surface — and one was found live in the daily-plan calendar.",
+      "fix": "Escape at the boundary: esc(value) / escapeHtml(value) before concatenating."
+    },
+    {
+      "id": "orphan-style",
+      "title": "A CSS class is defined and never used",
+      "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+      "fix": "Either render the state the class was written for, or note in the CSS why it is kept."
+    },
+    {
+      "id": "shell-includes",
+      "title": "Page is missing a shared shell include",
+      "why": "theme.css carries the one palette and nav.css/nav.js the one rail. A page without them renders its own colours and cannot be navigated to from anywhere — which is how /architecture ended up with exactly one inbound link in the whole product.",
+      "fix": "Add the standard <head> block: theme.css, nav.css, nav.js defer, freshness.*"
+    }
+  ],
+  "pages": [
+    {
+      "page": "analysis.html",
+      "bytes": 21593,
+      "findings": [
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".static"
+        }
+      ]
+    },
+    {
+      "page": "architecture.html",
+      "bytes": 56751,
+      "findings": [
+        {
+          "check": "deferred-race",
+          "title": "Inline script may run before freshness.js has loaded",
+          "why": "freshness.js is loaded with `defer`, which executes AFTER the parser reaches an inline end-of-body script but BEFORE DOMContentLoaded. A page that calls its loader immediately draws its FIRST paint with window.SEFresh undefined, so every age renders as unknown until the next refresh quietly hides it.",
+          "fix": "Wrap the first load in the same guard freshness.js uses on itself: if (document.readyState === 'loading') addEventListener('DOMContentLoaded', load); else load();",
+          "line": null,
+          "excerpt": "page uses SEFresh with no DOMContentLoaded guard"
+        }
+      ]
+    },
+    {
+      "page": "daily-plan.html",
+      "bytes": 58005,
+      "findings": [
+        {
+          "check": "absent-as-zero",
+          "title": "A missing value could be coerced to zero",
+          "why": "Number(null) is 0 and Number.isFinite(0) is true, so a guard written this way accepts an ABSENT value as a real zero. This exact line shape rendered every asset green and 'at or above the gate' when the gate could not be read.",
+          "fix": "Check for null/undefined/'' BEFORE coercing, then Number() the survivor.",
+          "line": 770,
+          "excerpt": "|| !Number.isFinite(Number(rawGate)))"
+        },
+        {
+          "check": "deferred-race",
+          "title": "Inline script may run before freshness.js has loaded",
+          "why": "freshness.js is loaded with `defer`, which executes AFTER the parser reaches an inline end-of-body script but BEFORE DOMContentLoaded. A page that calls its loader immediately draws its FIRST paint with window.SEFresh undefined, so every age renders as unknown until the next refresh quietly hides it.",
+          "fix": "Wrap the first load in the same guard freshness.js uses on itself: if (document.readyState === 'loading') addEventListener('DOMContentLoaded', load); else load();",
+          "line": null,
+          "excerpt": "page uses SEFresh with no DOMContentLoaded guard"
+        }
+      ]
+    },
+    {
+      "page": "index.html",
+      "bytes": 390683,
+      "findings": [
+        {
+          "check": "absent-as-zero",
+          "title": "A missing value could be coerced to zero",
+          "why": "Number(null) is 0 and Number.isFinite(0) is true, so a guard written this way accepts an ABSENT value as a real zero. This exact line shape rendered every asset green and 'at or above the gate' when the gate could not be read.",
+          "fix": "Check for null/undefined/'' BEFORE coercing, then Number() the survivor.",
+          "line": 5324,
+          "excerpt": "const same = (typeof now === \"number\" && Number.isFinite(Number(was)))"
+        },
+        {
+          "check": "absent-as-zero",
+          "title": "A missing value could be coerced to zero",
+          "why": "Number(null) is 0 and Number.isFinite(0) is true, so a guard written this way accepts an ABSENT value as a real zero. This exact line shape rendered every asset green and 'at or above the gate' when the gate could not be read.",
+          "fix": "Check for null/undefined/'' BEFORE coercing, then Number() the survivor.",
+          "line": 6385,
+          "excerpt": "const rsi = Number.isFinite(Number(rsiOf[key])) ? Number(rsiOf[key]).toFixed(1) : \"—\";"
+        },
+        {
+          "check": "absent-as-zero",
+          "title": "A missing value could be coerced to zero",
+          "why": "Number(null) is 0 and Number.isFinite(0) is true, so a guard written this way accepts an ABSENT value as a real zero. This exact line shape rendered every asset green and 'at or above the gate' when the gate could not be read.",
+          "fix": "Check for null/undefined/'' BEFORE coercing, then Number() the survivor.",
+          "line": 6436,
+          "excerpt": "const rPer = Number.isFinite(Number(S.rPerEpisode)) ? Number(S.rPerEpisode).toFixed(3) + \"R/ep\" : \"R unknown\";"
+        },
+        {
+          "check": "absent-as-zero",
+          "title": "A missing value could be coerced to zero",
+          "why": "Number(null) is 0 and Number.isFinite(0) is true, so a guard written this way accepts an ABSENT value as a real zero. This exact line shape rendered every asset green and 'at or above the gate' when the gate could not be read.",
+          "fix": "Check for null/undefined/'' BEFORE coercing, then Number() the survivor.",
+          "line": 6473,
+          "excerpt": "if (!Number.isFinite(Number(v))) return '—';"
+        },
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".medium"
+        },
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".lvl-table"
+        }
+      ]
+    },
+    {
+      "page": "jarvis.html",
+      "bytes": 109084,
+      "findings": [
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".sell"
+        },
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".SELL"
+        },
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".main-col"
+        },
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".chat-col"
+        }
+      ]
+    },
+    {
+      "page": "pipelines.html",
+      "bytes": 17801,
+      "findings": [
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".amber"
+        },
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".fleet-row"
+        },
+        {
+          "check": "orphan-style",
+          "title": "A CSS class is defined and never used",
+          "why": "A styled element nothing renders is a state the page cannot reach. .no-screenshot was styled for months while a missing chart rendered as nothing at all, which is indistinguishable from a page that never had charts.",
+          "fix": "Either render the state the class was written for, or note in the CSS why it is kept.",
+          "line": null,
+          "excerpt": ".disagree"
+        }
+      ]
+    },
+    {
+      "page": "plan.html",
+      "bytes": 34289,
+      "findings": [
+        {
+          "check": "deferred-race",
+          "title": "Inline script may run before freshness.js has loaded",
+          "why": "freshness.js is loaded with `defer`, which executes AFTER the parser reaches an inline end-of-body script but BEFORE DOMContentLoaded. A page that calls its loader immediately draws its FIRST paint with window.SEFresh undefined, so every age renders as unknown until the next refresh quietly hides it.",
+          "fix": "Wrap the first load in the same guard freshness.js uses on itself: if (document.readyState === 'loading') addEventListener('DOMContentLoaded', load); else load();",
+          "line": null,
+          "excerpt": "page uses SEFresh with no DOMContentLoaded guard"
+        }
+      ]
+    },
+    {
+      "page": "report.html",
+      "bytes": 13813,
+      "findings": [
+        {
+          "check": "shell-includes",
+          "title": "Page is missing a shared shell include",
+          "why": "theme.css carries the one palette and nav.css/nav.js the one rail. A page without them renders its own colours and cannot be navigated to from anywhere — which is how /architecture ended up with exactly one inbound link in the whole product.",
+          "fix": "Add the standard <head> block: theme.css, nav.css, nav.js defer, freshness.*",
+          "line": null,
+          "excerpt": "missing theme.css"
+        }
+      ]
+    },
+    {
+      "page": "strategy.html",
+      "bytes": 21318,
+      "findings": [
+        {
+          "check": "shell-includes",
+          "title": "Page is missing a shared shell include",
+          "why": "theme.css carries the one palette and nav.css/nav.js the one rail. A page without them renders its own colours and cannot be navigated to from anywhere — which is how /architecture ended up with exactly one inbound link in the whole product.",
+          "fix": "Add the standard <head> block: theme.css, nav.css, nav.js defer, freshness.*",
+          "line": null,
+          "excerpt": "missing theme.css"
+        }
+      ]
+    }
+  ],
+  "clean": [
+    "command.html",
+    "fleet.html",
+    "login.html",
+    "performance.html",
+    "system.html",
+    "weekly.html"
+  ],
+  "note": "PROPOSES ONLY — not one byte of any page is written by this audit. Every check here is a defect that really shipped on these pages, not a style opinion.",
+  "feedsTheGate": false
+}

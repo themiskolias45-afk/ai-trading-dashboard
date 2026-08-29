@@ -134,6 +134,16 @@ REM Every pipeline stage, and whether anything reads what it writes. Runs LAST s
 REM it sees the artifacts every step above just produced.
 echo --- pipeline index --- >> "%LOGFILE%"
 node "%PROJ%\tasks\pipeline_index.cjs" >> "%LOGFILE%" 2>&1
+
+REM Daily page-quality audit. Every check is a defect that really shipped on these
+REM pages - absent-as-zero, the deferred-script race, unescaped external text, an
+REM orphan style, a missing shared include. It PROPOSES and never edits: not one
+REM byte of any page is written, for the same reason the auto-tuner never writes a
+REM threshold - a job that edits unattended breaks a page at 07:30 with nobody there.
+REM Deterministic: no LLM, no tokens, so it still runs on the day the ceiling closes.
+REM Always exits 0 - a quality finding must never fail a daily run.
+echo --- page quality --- >> "%LOGFILE%"
+node "%PROJ%\tasks\page_quality_audit.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
 REM ── Do the doctor's own checks still fire? ────────────────────────────────────
