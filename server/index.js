@@ -793,6 +793,62 @@ function saveJournal() {
 }
 loadJournal();
 
+// ── Persistent alert feed ─────────────────────────────────────
+//
+// tvAlerts was `let tvAlerts = []` and nothing else: four writers, a 50-entry
+// cap, and no disk anywhere. Every server restart emptied it in silence. Both
+// restarts on 2026-08-29 did exactly that, and the only reason anyone noticed is
+// that tasks/content_quality_audit.cjs went RED on /api/alerts within minutes —
+// "200 with no non-null value anywhere in the payload".
+//
+// TWO FILES, because they answer two different questions.
+//   tv_alerts.json  is the DISPLAY buffer: the same 50 entries the panel shows,
+//                   now surviving a restart.
+//   tv_alerts.jsonl is the ARCHIVE: append-only, never capped, never rewritten.
+//                   The 50-cap therefore trims what is DISPLAYED and never what
+//                   is kept — an alert that scrolls off the panel is still on
+//                   disk. Nothing here deletes anything, ever.
+//
+// Every disk touch logs and continues. These routes must not fail because a file
+// is locked: an alert that reaches the panel and Telegram but not the disk is a
+// far better outcome than a webhook that 500s.
+const ALERTS_FILE   = require("path").join(__dirname, "tv_alerts.json");
+const ALERTS_ARCHIVE = require("path").join(__dirname, "..", "tasks", "logs", "tv_alerts.jsonl");
+const MAX_DISPLAYED_ALERTS = 50;
+
+function loadAlerts() {
+  try {
+    if (!fs.existsSync(ALERTS_FILE)) return;
+    const data = JSON.parse(fs.readFileSync(ALERTS_FILE, "utf8"));
+    if (Array.isArray(data)) {
+      tvAlerts = data.slice(0, MAX_DISPLAYED_ALERTS);
+      console.log(`[alerts] Loaded ${tvAlerts.length} alert(s) from disk`);
+    }
+  } catch (e) {
+    // Start empty rather than crash, and DO NOT write over the unreadable file —
+    // the next successful save would otherwise erase whatever is still in it.
+    console.error("[alerts] Load error, starting with an empty feed. The file on disk"
+      + " is untouched and can still be recovered:", e.message);
+  }
+}
+
+function saveAlerts() {
+  try { writeJsonAtomic(ALERTS_FILE, tvAlerts); }
+  catch (e) { console.error(`[alerts] SAVE FAILED — ${tvAlerts.length} alert(s) are in memory only and will be lost on restart:`, e.message); }
+}
+
+/** The one way an alert enters the feed: display buffer, archive, disk. */
+function pushAlert(alert) {
+  tvAlerts.unshift(alert);
+  if (tvAlerts.length > MAX_DISPLAYED_ALERTS) tvAlerts = tvAlerts.slice(0, MAX_DISPLAYED_ALERTS);
+  // Archive FIRST. If only one of the two writes can succeed, the append-only
+  // record is the one worth having.
+  try { fs.appendFileSync(ALERTS_ARCHIVE, JSON.stringify(alert) + "\n"); }
+  catch (e) { console.error("[alerts] archive append failed:", e.message); }
+  saveAlerts();
+}
+loadAlerts();
+
 // ── Self-learning engine ──────────────────────────────────────
 const LEARNING_FILE = require("path").join(__dirname, "learning.json");
 let learning = { setupStats: {}, sessionCount: 0, updatedAt: null };
@@ -3906,8 +3962,7 @@ app.post("/api/tv-alert", (req, res) => {
     price:   body.price   || body.close   || null,
     message: body.message || JSON.stringify(body)
   };
-  tvAlerts.unshift(alert);
-  if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+  pushAlert(alert);
   for (const cid of knownChatIds) {
     sendTelegram(cid,
       `🔔 <b>TradingView Alert</b>\n\nTicker: <b>${alert.ticker}</b>\nSignal: <b>${alert.action}</b>` +
@@ -5545,7 +5600,7 @@ async function addCommentaryLater(trade, journalEntry) {
       saveJournal();
     }
 
-    tvAlerts.unshift({
+    pushAlert({
       id:      Date.now(),
       ts:      new Date().toISOString(),
       ticker:  trade.symbol,
@@ -5553,7 +5608,6 @@ async function addCommentaryLater(trade, journalEntry) {
       price:   trade.price,
       message: commentary
     });
-    if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
   } catch (e) {
     console.warn(`[trade] commentary for #${trade.ticket} failed: ${e.message}`);
   }
@@ -7257,8 +7311,7 @@ async function reviewOpenPositions() {
     });
     const review = msg.content?.[0]?.text;
     if (review) {
-      tvAlerts.unshift({ id: Date.now(), ts: new Date().toISOString(), ticker: "PORTFOLIO", action: "POSITION REVIEW", price: null, message: review });
-      if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+      pushAlert({ id: Date.now(), ts: new Date().toISOString(), ticker: "PORTFOLIO", action: "POSITION REVIEW", price: null, message: review });
       console.log("[review] Position review posted to alerts");
     }
   } catch (e) {
@@ -7294,8 +7347,7 @@ async function generateWeeklyReport() {
     });
     const report = msg.content?.[0]?.text;
     if (report) {
-      tvAlerts.unshift({ id: Date.now(), ts: new Date().toISOString(), ticker: "WEEKLY", action: "WEEKLY REPORT", price: null, message: report });
-      if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+      pushAlert({ id: Date.now(), ts: new Date().toISOString(), ticker: "WEEKLY", action: "WEEKLY REPORT", price: null, message: report });
       console.log("[weekly] Weekly report posted to alerts");
     }
   } catch (e) {

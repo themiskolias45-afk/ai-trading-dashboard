@@ -37,6 +37,14 @@ server/trading_control.json
 server/strategy_settings.json
 server/journal.json
 
+# The TradingView alert feed and its append-only archive. Per-machine live state,
+# same as journal.json: each box receives its own webhooks, and a shared commit
+# would splice one box's alert history into the other's. Untracked, NOT
+# unimportant — tv_alerts.jsonl is never trimmed and is the record that survives
+# the 50-entry display cap.
+server/tv_alerts.json
+tasks/logs/tv_alerts.jsonl
+
 # Derived from each box's own rejection ledger by tasks/learning_from_rejections.py.
 # Regenerable, per-machine, and would conflict on every sync if tracked.
 server/learning_shadow.json
