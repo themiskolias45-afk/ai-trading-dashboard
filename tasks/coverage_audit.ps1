@@ -376,6 +376,59 @@ if ($null -eq $planCoverage) {
     }
 }
 
+# ── 5d. Two things that were happening with nobody watching ──────────────────
+#
+# ADDED 2026-08-29, both for the same reason: something was going on and no surface
+# could say so.
+#
+# SERVER RESTARTS. On 2026-08-29 this server restarted at 09:45 local and nothing on
+# the box could say when or why. /api/status carries only the CURRENT startedAt, which
+# the next restart overwrites, and the boot banner in server_log.txt has no timestamp.
+# The count is now recorded per boot. It is INFO at normal rates -- a restart is not a
+# fault, and alarming on one would be an item that fires on every ordinary deploy --
+# and RED only at a rate that means thrashing.
+#
+# STOP-VARIANT LEDGER. It had a writer and no reader for two days. A file that only
+# grows is indistinguishable from a file nothing is doing, which is why it needs a row
+# of its own rather than being assumed healthy because its writer is running.
+$startsFile = Join-Path $Proj 'tasks\logs\server_starts.txt'
+if (-not (Test-Path $startsFile)) {
+    Add-Check 'server' 'restarts' 'INFO' 'no starts recorded yet - this server has not rebooted since the recorder shipped'
+} else {
+    $cutoff = $now.AddHours(-24)
+    $recent = @(Get-Content $startsFile | ForEach-Object {
+        if ($_ -match '^\[(?<ts>[^\]]+)\]') {
+            try { [datetime]::Parse($Matches['ts']).ToLocalTime() } catch { $null }
+        }
+    } | Where-Object { $_ -and $_ -gt $cutoff })
+    $lastStart = if ($recent.Count) { ($recent | Sort-Object)[-1].ToString('HH:mm') } else { 'none in 24h' }
+    if ($recent.Count -gt 6) {
+        Add-Check 'server' 'restarts' 'RED' "$($recent.Count) starts in 24h (last $lastStart) - that is thrashing, not deploys"
+    } elseif ($recent.Count -gt 0) {
+        Add-Check 'server' 'restarts' 'INFO' "$($recent.Count) start(s) in the last 24h, last at $lastStart"
+    } else {
+        Add-Check 'server' 'restarts' 'GREEN' 'no restarts in the last 24h'
+    }
+}
+
+$variantLedger = Join-Path $Proj 'tasks\stop_variants.jsonl'
+$variantScored = Join-Path $Proj 'tasks\stop_variants_scored.jsonl'
+if (-not (Test-Path $variantLedger)) {
+    Add-Check 'learning' 'stop-variant ledger' 'INFO' 'nothing recorded yet - the writer only fires when a setup forms'
+} else {
+    $variantRows = @(Get-Content $variantLedger | Where-Object { $_.Trim() }).Count
+    if (-not (Test-Path $variantScored)) {
+        Add-Check 'learning' 'stop-variant ledger' 'AMBER' "$variantRows row(s) accumulating, never scored - run node/python tasks\score_stop_variants.py"
+    } else {
+        $scoredAgeH = [math]::Round(($now - (Get-Item $variantScored).LastWriteTime).TotalHours, 1)
+        if ($scoredAgeH -gt 48) {
+            Add-Check 'learning' 'stop-variant ledger' 'AMBER' "$variantRows row(s), last scored ${scoredAgeH}h ago"
+        } else {
+            Add-Check 'learning' 'stop-variant ledger' 'GREEN' "$variantRows row(s), scored ${scoredAgeH}h ago"
+        }
+    }
+}
+
 # ── 6. The OTHER box ──────────────────────────────────────────────────────────
 #
 # Only meaningful on the box that RECEIVES heartbeats. The laptop pushes one every 5

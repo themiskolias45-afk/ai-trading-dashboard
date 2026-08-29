@@ -10406,8 +10406,36 @@ app.get("/api/engineer/runs", requireLocalOnly, (_, res) => {
 });
 
 // ── Boot ──────────────────────────────────────────────────────
+// One timestamped line per boot, appended forever.
+//
+// WHY. On 2026-08-29 this server restarted at 09:45 local and NOTHING on the box
+// could say when, why, or that it was the third start of the day. `/api/status`
+// exposes only the CURRENT `startedAt`, which the next restart overwrites, and
+// server_log.txt prints "SmartEntry Pro v12 on port 3001" with NO TIMESTAMP — so the
+// boot banner cannot even be correlated against the scheduler or the healer. Three
+// separate surfaces reported the system healthy while the fact of the restart was
+// unrecoverable ten minutes later.
+//
+// This does not explain a restart. It makes one COUNTABLE, which is the prerequisite:
+// a start with no matching entry in server_crash.txt was an external stop — a
+// scheduled task, a supervisor, or a kill — rather than a process that died on its
+// own. That single distinction is what took the longest to establish by hand today.
+//
+// Append-only, never rotated. Best-effort: a failure to record a boot must never be
+// the thing that stops the server booting.
+function recordServerStart() {
+  try {
+    const startsPath = path.join(__dirname, "..", "tasks", "logs", "server_starts.txt");
+    fs.mkdirSync(path.dirname(startsPath), { recursive: true });
+    fs.appendFileSync(startsPath, `[${new Date().toISOString()}] pid=${process.pid} port=${PORT}\n`, "utf8");
+  } catch (startLogError) {
+    console.error("[boot] could not record this start:", startLogError.message);
+  }
+}
+
 app.listen(PORT, async () => {
-  console.log(`✅ SmartEntry Pro v12 on port ${PORT}`);
+  recordServerStart();
+  console.log(`✅ SmartEntry Pro v12 on port ${PORT} — started ${new Date().toISOString()} pid ${process.pid}`);
 
   // Init SQLite (graceful if better-sqlite3 not installed)
   const dbPath = process.env.DB_PATH || path.join(__dirname, "smartentry.db");
