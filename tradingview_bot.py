@@ -157,6 +157,50 @@ def make_context(playwright):
         ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin=TV_BASE)
     except Exception as exc:
         print(f"[TV] Clipboard permission not granted ({exc}) — paste may fail")
+
+    # Own the dialogs, because Playwright's default handling of them can kill the run.
+    #
+    # With NO dialog listener registered, Playwright auto-dismisses every dialog. That
+    # dismiss is a round trip, and TradingView's own JS sometimes closes the dialog
+    # first, so the dismiss arrives at a dialog that is already gone. The driver raises
+    #   ProtocolError (Page.handleJavaScriptDialog): No dialog is showing
+    # as an UNHANDLED rejection inside the node driver process, which tears down the
+    # CDP connection. The failure then surfaces somewhere else entirely — on
+    # 2026-08-29 as "Page.goto: Connection closed while reading from the driver",
+    # which reads like a browser problem and is not one. The job exited 1 and
+    # tasks/tv_daily_plan.ps1 reported exit 5, the only RED on the coverage board.
+    #
+    # Registering a handler makes the dismiss OURS, so the race is caught in Python
+    # where it can be swallowed instead of killing the connection.
+    #
+    # DISMISS, never accept: dismiss is exactly what Playwright already did, so this
+    # changes no behaviour on the happy path. Accepting an unknown TradingView confirm
+    # could agree to discard a chart layout.
+    #
+    # This must never raise. Registering a listener switches the auto-dismiss OFF, so
+    # a handler that threw would leave a dialog up and block the page forever — which
+    # is worse than what it replaces.
+    def _dismiss_dialog(dialog):
+        try:
+            message = (dialog.message or "")[:120]
+        except Exception:
+            message = "<unreadable>"
+        try:
+            dialog.dismiss()
+        except Exception as dialog_exc:
+            # The dialog closed itself first. Nothing is wrong and nothing is lost —
+            # it is gone, which is the state we were asking for.
+            print(f"[TV] dialog vanished before dismiss ({dialog_exc}) — continuing")
+        else:
+            if message:
+                print(f"[TV] dismissed dialog: {message}")
+
+    try:
+        ctx.on("dialog", _dismiss_dialog)
+    except Exception as exc:
+        print(f"[TV] could not register the dialog handler ({exc}) — "
+              f"falling back to Playwright's auto-dismiss")
+
     print("[TV] Attached to running Edge")
     return browser, ctx
 
