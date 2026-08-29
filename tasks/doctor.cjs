@@ -751,15 +751,33 @@ function checkCoverageGaps(root = ROOT) {
     : "";
 
   if (restarted.length) {
-    finding("AMBER", "local", `${others}${gap} with no ensure_running tick, and ${restarted.length} component(s) had to be restarted after it`,
+    /* INFO, not AMBER, and the wording is the point.
+     *
+     * USER DECISION 2026-08-29: "is the laptop, i can't keep laptop 24/7". The
+     * laptop sleeping is INTENDED. It is the development box; the VPS is the one
+     * that trades continuously, and that is the whole reason the VPS exists.
+     *
+     * So this can never clear, and CLAUDE.md is explicit that an action item which
+     * cannot clear is worse than none — it trains you to skim past the row that
+     * matters. It was AMBER with a "read Kernel-Power 42" remedy, which sent two
+     * sessions hunting a fault that was a laptop being a laptop.
+     *
+     * The measurement is KEPT in full, because the RECOVERY is the useful part:
+     * what came back tells you ensure_running did its job. Only the severity and
+     * the call to action change. If this box ever stops being a laptop, or the
+     * gaps start appearing on the PEER, that is a different finding entirely —
+     * the peer branch is unaffected and a VPS hole stays an alarm.
+     */
+    finding("INFO", "local", `${others}${gap} with no ensure_running tick, and ${restarted.length} component(s) restarted after it`,
       `${window}. The heartbeat runs every ${ENSURE_TICK_MINUTES} minutes, so this is `
       + `${Math.floor(worst.gapMin / ENSURE_TICK_MINUTES)} missed ticks. What came back: `
       + restarted.map(l => l.replace(/^\[[^\]]+\]\s*/, "").trim()).join("; ")
-      + ". This box was NOT running for that window — the log reads healthy either side "
-      + "because the tick after a hole restarts things before reporting them",
-      "read Kernel-Power 42's Sleep Reason first (Application API, Idle and Lid are three "
-      + "different faults): powershell -Command \"Get-WinEvent -FilterHashtable "
-      + "@{LogName='System';ProviderName='Microsoft-Windows-Kernel-Power';Id=42} -MaxEvents 5\"");
+      + ". This box was asleep for that window, which is EXPECTED — it is a laptop and "
+      + "is not kept on 24/7 by decision. The recovery is what this row is for: "
+      + "ensure_running restarted what it found missing. The VPS is the box that runs "
+      + "continuously, and a hole THERE would be a real alarm",
+      "no action — laptop sleep is accepted. Coverage that must not have gaps belongs "
+      + "on the VPS, not here");
   } else {
     finding("INFO", "local", `${others}${gap} with no ensure_running tick, but nothing needed restarting`,
       `${window}. Everything was still up when the heartbeat resumed, so this is the `
