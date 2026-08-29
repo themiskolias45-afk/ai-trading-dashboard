@@ -88,9 +88,13 @@ def index_trades(client, model, rebuild: bool = False):
         client.delete_collection("trades")
         collection = _get_collection(client, "trades")
 
-    journal = _fetch("/api/journal?limit=1000")
-    if "_error" in journal or not isinstance(journal, list):
+    raw = _fetch("/api/journal?limit=1000")
+    if "_error" in raw:
         print("  [trades] Server offline or no journal — skipping.")
+        return 0
+    journal = raw.get("journal", raw) if isinstance(raw, dict) else raw
+    if not isinstance(journal, list):
+        print("  [trades] Unexpected journal format — skipping.")
         return 0
 
     existing_ids = set(collection.get(include=[])["ids"])
