@@ -411,18 +411,22 @@ if (-not (Test-Path $startsFile)) {
     }
 }
 
+# The scorer is tasks\score_stop_variants.cjs, which auto_daily.bat already runs
+# nightly with --emit, and its artifact is the report it appends. Checking for the
+# REPORT rather than for the ledger is the point: the ledger growing proves only that
+# the writer runs, and it was the READER that was missing.
 $variantLedger = Join-Path $Proj 'tasks\stop_variants.jsonl'
-$variantScored = Join-Path $Proj 'tasks\stop_variants_scored.jsonl'
+$variantReport = Join-Path $Proj 'tasks\logs\stop_variant_scores.txt'
 if (-not (Test-Path $variantLedger)) {
     Add-Check 'learning' 'stop-variant ledger' 'INFO' 'nothing recorded yet - the writer only fires when a setup forms'
 } else {
     $variantRows = @(Get-Content $variantLedger | Where-Object { $_.Trim() }).Count
-    if (-not (Test-Path $variantScored)) {
-        Add-Check 'learning' 'stop-variant ledger' 'AMBER' "$variantRows row(s) accumulating, never scored - run node/python tasks\score_stop_variants.py"
+    if (-not (Test-Path $variantReport)) {
+        Add-Check 'learning' 'stop-variant ledger' 'AMBER' "$variantRows row(s) accumulating, never scored - run node tasks\score_stop_variants.cjs --emit"
     } else {
-        $scoredAgeH = [math]::Round(($now - (Get-Item $variantScored).LastWriteTime).TotalHours, 1)
+        $scoredAgeH = [math]::Round(($now - (Get-Item $variantReport).LastWriteTime).TotalHours, 1)
         if ($scoredAgeH -gt 48) {
-            Add-Check 'learning' 'stop-variant ledger' 'AMBER' "$variantRows row(s), last scored ${scoredAgeH}h ago"
+            Add-Check 'learning' 'stop-variant ledger' 'AMBER' "$variantRows row(s), last scored ${scoredAgeH}h ago - the nightly scorer has not run"
         } else {
             Add-Check 'learning' 'stop-variant ledger' 'GREEN' "$variantRows row(s), scored ${scoredAgeH}h ago"
         }
