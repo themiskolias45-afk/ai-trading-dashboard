@@ -772,6 +772,28 @@
     .lad-row.below .lad-px { color:var(--red); }
     /* Spot is the reference every other rung is measured from, so it reads as a rule
        across the ladder rather than as one more level in the list. */
+    /* The evidence that was already in the payload and only reachable inside the
+       collapsed 12KB text blob: multi-timeframe alignment, the geometry the setup
+       would trade, and the record behind the setup name. A ladder without them
+       shows WHERE the levels are and never WHETHER to act on them. */
+    .lad-align { display:flex; gap:6px; margin:8px 0 6px; }
+    .lad-leg {
+      flex:1; text-align:center; border:1px solid var(--border2); border-radius:5px;
+      padding:3px 2px; font-size:.58rem; line-height:1.35;
+    }
+    .lad-leg b { display:block; font-size:.62rem; font-weight:700; }
+    .lad-leg .tf { color:var(--muted); font-size:.53rem; text-transform:uppercase; letter-spacing:.08em; }
+    .lad-leg.buy  { border-color:rgba(43,208,124,.5); }
+    .lad-leg.buy  b { color:var(--green); }
+    .lad-leg.sell { border-color:rgba(242,85,95,.5); }
+    .lad-leg.sell b { color:var(--red); }
+    .lad-leg.wait b { color:var(--muted); }
+    .lad-geo { font-size:.62rem; color:var(--muted); margin-bottom:6px; }
+    .lad-geo b { color:var(--text); font-variant-numeric:tabular-nums; }
+    .lad-rec { font-size:.6rem; color:var(--muted); margin-top:8px; padding-top:6px;
+               border-top:1px dashed var(--border2); line-height:1.5; }
+    .lad-rec .thin { color:var(--yellow); }
+    .lad-rec .lbl { color:var(--muted-dim); text-transform:uppercase; letter-spacing:.07em; font-size:.54rem; }
     .lad-row.spot { background:rgba(59,130,246,.10); border-top:1px solid rgba(59,130,246,.45);
                     border-bottom:1px solid rgba(59,130,246,.45); font-weight:700; }
     .lad-row.spot .lad-name, .lad-row.spot .lad-px, .lad-row.spot .lad-atr { color:var(--blue); }
@@ -6302,6 +6324,73 @@ setInterval(loadPreopenPlan, PREOPEN_POLL_MS);
 // The two things the deep plan had that no screen did: the day's blackout timeline, and
 // the level ladder per asset. Reads the artifact via /api/deep-plan — never rebuilds it,
 // because building the deep plan sends a Telegram message and nobody wants one per tab.
+/* MULTI-TIMEFRAME ALIGNMENT. The engine is generateSignalMTF — it reads D1, 4H and
+   1H together and a setup only forms when they agree. That agreement was in the
+   payload as a.legs plus a.h4 / a.h1, and the panel showed none of it, so a card
+   could read "5pt short" with no way to see WHICH timeframe was holding it back.
+   RSI travels with each leg because the RSI ceiling is the blocker this system
+   actually hits most. */
+function ladderAlignment(a) {
+  const legs = a.legs || {};
+  const rsiOf = { d1: a.indicators && a.indicators.rsi, h4: a.h4 && a.h4.rsi, h1: a.h1 && a.h1.rsi };
+  const trendOf = { d1: a.trend, h4: a.h4 && a.h4.trend, h1: a.h1 && a.h1.trend };
+  const order = [["d1", "D1"], ["h4", "4H"], ["h1", "1H"]];
+  const cells = order.map(function (pair) {
+    const key = pair[0], label = pair[1];
+    const sig = legs[key] || "—";
+    const cls = sig === "BUY" ? "buy" : sig === "SELL" ? "sell" : "wait";
+    const rsi = Number.isFinite(Number(rsiOf[key])) ? Number(rsiOf[key]).toFixed(1) : "—";
+    return '<div class="lad-leg ' + cls + '" title="' + escapeHtml(String(trendOf[key] || "")) + '">'
+      + '<span class="tf">' + label + '</span><b>' + escapeHtml(sig) + '</b>RSI ' + rsi + "</div>";
+  });
+  return '<div class="lad-align">' + cells.join("") + "</div>";
+}
+
+/* THE GEOMETRY THE SETUP WOULD TRADE. R:R and the stop measured in ATR were both in
+   the payload and on no surface. Stop-in-ATR is the one that matters most here: the
+   largest loss in the journal came from a stop of 0.63 ATR — high implied R:R BECAUSE
+   the stop was too tight to survive the instrument's own noise. A number under about
+   1 ATR is the shape of that mistake and is flagged. */
+function ladderGeometry(a) {
+  const bits = [];
+  if (Number.isFinite(Number(a.rr))) bits.push("R:R <b>1:" + Number(a.rr).toFixed(2) + "</b>");
+  if (Number.isFinite(Number(a.stopAtr))) {
+    const atr = Number(a.stopAtr);
+    const tight = atr > 0 && atr < 1;
+    bits.push("stop <b" + (tight ? ' class="thin"' : "") + ">" + atr.toFixed(2) + " ATR</b>"
+      + (tight ? " (tight)" : ""));
+  }
+  if (a.strength) bits.push("strength <b>" + escapeHtml(a.strength) + "</b>");
+  if (!bits.length) return "";
+  return '<div class="lad-geo">' + bits.join(" · ") + "</div>";
+}
+
+/* THE RECORD behind the setup name. live and shadow side by side, because on this
+   system they routinely disagree and the disagreement is the point: MOMENTUM reads
+   67% over 3 real fills and 21% over 14 paper episodes. Sample size is stated on
+   both, and anything under the engine's own 5-trade floor says so rather than
+   letting a percentage off one trade read as a finding. */
+function ladderRecord(a) {
+  const rec = a.record;
+  if (!rec || (!rec.live && !rec.shadow)) return "";
+  const out = ['<div class="lad-rec"><span class="lbl">' + escapeHtml(rec.setup || "record") + "</span><br>"];
+  if (rec.live) {
+    const L = rec.live;
+    const thin = Number(L.total) < 5;
+    out.push("live " + L.total + " fill(s), " + Math.round(Number(L.winRate) || 0) + "% win"
+      + (thin ? ' <span class="thin">— too few to judge</span>' : "") + "<br>");
+  }
+  if (rec.shadow) {
+    const S = rec.shadow;
+    const rPer = Number.isFinite(Number(S.rPerEpisode)) ? Number(S.rPerEpisode).toFixed(3) + "R/ep" : "R unknown";
+    out.push("shadow " + S.episodes + " ep, " + Math.round(Number(S.winRate) || 0) + "% win, " + rPer
+      + (S.enoughForReading === false ? ' <span class="thin">— below the reading floor</span>' : "")
+      + "<br><span class=\"lbl\">paper episodes from rejections — a screen, not a jury</span>");
+  }
+  out.push("</div>");
+  return out.join("");
+}
+
 function ladderRows(a) {
   if (!a.ladder || !a.ladder.length) return '<div style="color:var(--muted);font-size:.66rem">No levels computed.</div>';
   const spot = Number(a.price);
@@ -6400,7 +6489,8 @@ async function loadDeepPlan() {
         + '<div class="lad-head">' + escapeHtml(a.label) + '</div>'
         + '<div class="lad-sub">' + escapeHtml(a.trend || '') + ' · ATR '
         + fmtLevel(a.atr) + ' · ' + (a.ready ? 'READY' : a.gap + 'pt short') + '</div>'
-        + ladderRows(a) + '</div>').join('') + '</div>');
+        + ladderAlignment(a) + ladderGeometry(a)
+        + ladderRows(a) + ladderRecord(a) + '</div>').join('') + '</div>');
       out.push('<div class="cal-foot">Right-hand column is distance from spot in ATR multiples, not '
         + 'points — the same $40 gap is close on Gold and enormous on SPX. Green above spot, red below.</div>');
     }
