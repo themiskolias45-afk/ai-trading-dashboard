@@ -36,6 +36,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const http = require("http");
 
 const ROOT = path.join(__dirname, "..");
 
@@ -173,7 +174,157 @@ function inspect(stage) {
   return out;
 }
 
-function build() {
+/* ── THE SIGNAL PIPELINE ───────────────────────────────────────────────────────
+   The nine pipelines above are EVIDENCE pipelines: a break there costs a
+   measurement. This one is the chain that costs a TRADE — bars arrive, the engine
+   scores them, ten gates decide, an order is placed, the fill lands in the journal
+   and the learning table attributes it.
+
+   It is checked differently on purpose. The others are files with modification
+   times; this one is LIVE STATE, and a stale file tells you nothing about whether
+   the bridge is pushing bars right now. So these stages read the running server.
+
+   IT REPORTS, IT NEVER ACTS. Every call is a GET on a route already in the
+   no-login allowlist. Nothing here places, cancels, or modifies anything, and
+   nothing it finds changes a threshold.
+
+   WHEN THE SERVER IS DOWN the whole pipeline reports ONE finding saying so,
+   rather than seven stages each claiming to be broken — a cascade of red from a
+   single cause is how a reader learns to ignore the page. */
+function getJson(pathname, timeoutMs) {
+  return new Promise(resolve => {
+    const req = http.get({ host: "127.0.0.1", port: 3001, path: pathname, timeout: timeoutMs || 4000 },
+      res => {
+        let body = "";
+        res.on("data", d => { body += d; });
+        res.on("end", () => {
+          if (res.statusCode !== 200) return resolve({ ok: false, reason: "HTTP " + res.statusCode });
+          try { resolve({ ok: true, data: JSON.parse(body) }); }
+          catch (e) { resolve({ ok: false, reason: "unparseable JSON" }); }
+        });
+      });
+    req.on("timeout", () => { req.destroy(); resolve({ ok: false, reason: "timed out" }); });
+    req.on("error", e => resolve({ ok: false, reason: e.code || e.message }));
+  });
+}
+
+const ASSETS = ["btc", "gold", "spx"];
+
+async function buildSignalPipeline() {
+  const [status, signals, gates, health, positions, risk] = await Promise.all([
+    getJson("/api/status"), getJson("/api/signals"), getJson("/api/gate-health"),
+    getJson("/api/mt5/health?account=A"), getJson("/api/mt5/positions"), getJson("/api/risk-status"),
+  ]);
+
+  const base = {
+    id: "signal", label: "Signal → order",
+    what: "The chain that costs a TRADE rather than a measurement: bars arrive, the engine scores them, "
+        + "ten gates decide, an order is placed, the fill lands in the journal. Checked against the "
+        + "RUNNING server, not against file timestamps.",
+    live: true,
+  };
+
+  if (!status.ok) {
+    return Object.assign({}, base, {
+      stages: [], level: "RED",
+      findings: [{ level: "RED", stage: "server",
+        detail: "The server did not answer on 127.0.0.1:3001 (" + status.reason + "), so no stage of this "
+              + "pipeline can be checked. This is ONE fault, not seven." }],
+    });
+  }
+
+  const stages = [];
+  const findings = [];
+  const stage = (name, what, state, detail, by, consumedBy) => {
+    stages.push({ name, what, state, detail, by, consumedBy, present: state !== "BROKEN", live: true });
+    if (state === "BROKEN") findings.push({ level: "RED", stage: name, detail });
+    else if (state === "DEGRADED") findings.push({ level: "AMBER", stage: name, detail });
+  };
+
+  // 1 — bars. barFreshness already distinguishes a stale feed from a closed market.
+  const sig = signals.ok ? signals.data : null;
+  if (!sig) {
+    stage("MT5 bars", "the broker series the engine reads", "BROKEN",
+      "/api/signals did not answer (" + signals.reason + ").", "mt5_bridge.py push", "generateSignalMTF");
+  } else {
+    const judged = ASSETS.map(k => sig[k] && sig[k].barFreshness).filter(Boolean);
+    const stale = ASSETS.filter(k => sig[k] && sig[k].barFreshness && sig[k].barFreshness.stale);
+    const weekend = ASSETS.filter(k => sig[k] && sig[k].barFreshness && sig[k].barFreshness.spansWeekend);
+    stage("MT5 bars", "the broker series the engine reads",
+      stale.length ? "DEGRADED" : "OK",
+      stale.length
+        ? "Broker series STALE on " + stale.join(", ").toUpperCase() + " — a wedged terminal keeps its "
+          + "bridge posting on schedule, so nothing else turns red."
+        : judged.length + " asset series current"
+          + (weekend.length ? "; " + weekend.join(", ").toUpperCase() + " span a closed market, which is not staleness" : ""),
+      "mt5_bridge.py push", "generateSignalMTF");
+  }
+
+  // 2 — the bridge itself.
+  const h = health.ok ? health.data : null;
+  stage("Bridge heartbeat", "the only process that can place an order",
+    h && h.connected ? "OK" : "BROKEN",
+    h ? (h.connected ? "account A connected, last seen " + (h.lastSeen || "unknown")
+                     : "account A is NOT connected — nothing can be placed")
+      : "/api/mt5/health did not answer (" + health.reason + ")",
+    "mt5_bridge.py --auto", "place_order");
+
+  // 3 — the engine.
+  if (sig) {
+    const scored = ASSETS.filter(k => sig[k] && Number.isFinite(sig[k].confidence));
+    const src = ASSETS.map(k => sig[k] && sig[k].dataSource).filter(Boolean);
+    const yahoo = src.filter(x => x !== "mt5");
+    stage("Engine scoring", "generateSignalMTF over D1 + H4 + H1",
+      scored.length === ASSETS.length ? (yahoo.length ? "DEGRADED" : "OK") : "DEGRADED",
+      scored.length + " of " + ASSETS.length + " assets scored"
+        + (yahoo.length ? "; " + yahoo.length + " on a FALLBACK source, not MT5" : "; all from MT5")
+        + (sig.btc && sig.btc.updatedAt ? ", updated " + sig.btc.updatedAt : ""),
+      "server generateSignalMTF", "the gate chain");
+  }
+
+  // 4 — the gates. Counters reset with the process, so a row of zeros is "not
+  // exercised this uptime", never "broken" — this must not invent an alarm.
+  const g = gates.ok ? gates.data.gates : null;
+  if (g) {
+    const entries = Object.entries(g);
+    const active = entries.filter(([, v]) => v.killed || v.passed);
+    const killed = entries.reduce((n, [, v]) => n + (v.killed || 0), 0);
+    const passed = entries.reduce((n, [, v]) => n + (v.passed || 0), 0);
+    stage("The ten gates", "any one ends the trade", "OK",
+      entries.length + " gates, " + active.length + " exercised since the server started: "
+        + killed + " killed, " + passed + " passed. A zero is NOT EXERCISED this uptime, not broken.",
+      "the gate chain", "place_order");
+  }
+
+  // 5 — execution and protection.
+  const posRaw = positions.ok ? (positions.data.positions || positions.data) : null;
+  const pos = Array.isArray(posRaw) ? posRaw : null;
+  if (pos) {
+    const unprotected = pos.filter(t => !(Number(t.sl) > 0));
+    stage("Execution", "place_order → broker, SL/TP set server-side",
+      unprotected.length ? "BROKEN" : "OK",
+      pos.length + " position(s) open"
+        + (unprotected.length ? ", " + unprotected.length + " with NO broker-side stop — deal with this first"
+                              : pos.length ? ", all with a broker-side stop" : ""),
+      "mt5_bridge.py place_order", "server/journal.json");
+  }
+
+  // 6 — the breaker, which can stop the whole chain.
+  const r = risk.ok ? risk.data : null;
+  if (r) {
+    stage("Circuit breaker", "halts the chain after consecutive losses",
+      r.halted ? "BROKEN" : "OK",
+      r.halted ? "OPEN — " + (r.haltReason || "halted") + ". Nothing can fire."
+               : "closed, " + (r.consecutiveLosses ?? "?") + " consecutive loss(es)",
+      "server risk state", "every gate downstream");
+  }
+
+  const level = findings.some(f => f.level === "RED") ? "RED" : findings.length ? "AMBER" : "OK";
+  return Object.assign({}, base, { stages, findings, level });
+}
+
+async function build() {
+  const signal = await buildSignalPipeline();
   const pipelines = PIPELINES.map(p => {
     const stages = p.stages.map(inspect);
     const findings = [];
@@ -224,7 +375,11 @@ function build() {
     return Object.assign({}, p, { stages, findings, level });
   });
 
-  const totals = pipelines.reduce((acc, p) => {
+  // Totals must count the SIGNAL pipeline too. It was reduced over the file-based
+  // list alone, so the page said "10 pipelines" and "17 stages" in the same breath —
+  // a header disagreeing with the body it summarises.
+  const allPipelines = [signal].concat(pipelines);
+  const totals = allPipelines.reduce((acc, p) => {
     acc[p.level] = (acc[p.level] || 0) + 1;
     acc.stages += p.stages.length;
     acc.missing += p.stages.filter(s => !s.present).length;
@@ -234,7 +389,7 @@ function build() {
   return {
     generatedAt: new Date().toISOString(),
     box: os.hostname(),
-    pipelines,
+    pipelines: allPipelines,
     totals,
     note: "A stage marked EVENT-DRIVEN is written only when a real trading event occurs. "
         + "This system fills about once every four days, so a still artifact there is the "
@@ -243,7 +398,8 @@ function build() {
   };
 }
 
-const index = build();
+(async () => {
+const index = await build();
 try {
   fs.writeFileSync(OUT, JSON.stringify(index, null, 2));
 } catch (e) {
@@ -265,3 +421,4 @@ if (AS_JSON) {
   console.log(`[pipeline-index] wrote ${path.relative(ROOT, OUT)}`);
 }
 process.exit(0);
+})();

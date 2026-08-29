@@ -1,7 +1,77 @@
 {
-  "generatedAt": "2026-08-29T15:57:27.304Z",
+  "generatedAt": "2026-08-29T16:08:00.336Z",
   "box": "Themis",
   "pipelines": [
+    {
+      "id": "signal",
+      "label": "Signal → order",
+      "what": "The chain that costs a TRADE rather than a measurement: bars arrive, the engine scores them, ten gates decide, an order is placed, the fill lands in the journal. Checked against the RUNNING server, not against file timestamps.",
+      "live": true,
+      "stages": [
+        {
+          "name": "MT5 bars",
+          "what": "the broker series the engine reads",
+          "state": "OK",
+          "detail": "3 asset series current; GOLD, SPX span a closed market, which is not staleness",
+          "by": "mt5_bridge.py push",
+          "consumedBy": "generateSignalMTF",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "Bridge heartbeat",
+          "what": "the only process that can place an order",
+          "state": "OK",
+          "detail": "account A connected, last seen 2026-08-29T16:07:45.534Z",
+          "by": "mt5_bridge.py --auto",
+          "consumedBy": "place_order",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "Engine scoring",
+          "what": "generateSignalMTF over D1 + H4 + H1",
+          "state": "OK",
+          "detail": "3 of 3 assets scored; all from MT5, updated 2026-08-29T16:00:01.197Z",
+          "by": "server generateSignalMTF",
+          "consumedBy": "the gate chain",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "The ten gates",
+          "what": "any one ends the trade",
+          "state": "OK",
+          "detail": "10 gates, 2 exercised since the server started: 56 killed, 63 passed. A zero is NOT EXERCISED this uptime, not broken.",
+          "by": "the gate chain",
+          "consumedBy": "place_order",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "Execution",
+          "what": "place_order → broker, SL/TP set server-side",
+          "state": "OK",
+          "detail": "2 position(s) open, all with a broker-side stop",
+          "by": "mt5_bridge.py place_order",
+          "consumedBy": "server/journal.json",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "Circuit breaker",
+          "what": "halts the chain after consecutive losses",
+          "state": "OK",
+          "detail": "closed, 1 consecutive loss(es)",
+          "by": "server risk state",
+          "consumedBy": "every gate downstream",
+          "present": true,
+          "live": true
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    },
     {
       "id": "rejection",
       "label": "Rejection ledger",
@@ -15,10 +85,10 @@
           "cadenceHours": 6,
           "eventDriven": false,
           "present": true,
-          "bytes": 871557,
-          "rows": 2328,
-          "modified": "2026-08-29T15:30:01.048Z",
-          "ageHours": 0.5
+          "bytes": 871935,
+          "rows": 2329,
+          "modified": "2026-08-29T16:00:01.199Z",
+          "ageHours": 0.1
         },
         {
           "name": "forward-scored",
@@ -31,8 +101,8 @@
           "bytes": 1075379,
           "rows": 2290,
           "modified": "2026-08-29T07:19:45.213Z",
-          "ageHours": 8.6,
-          "behindInputHours": 8.1,
+          "ageHours": 8.8,
+          "behindInputHours": 8.7,
           "behindInput": true
         },
         {
@@ -46,7 +116,7 @@
           "bytes": 4003,
           "rows": null,
           "modified": "2026-08-29T07:19:45.894Z",
-          "ageHours": 8.6,
+          "ageHours": 8.8,
           "behindInputHours": 0,
           "behindInput": false
         }
@@ -70,7 +140,7 @@
           "bytes": 14268,
           "rows": 28,
           "modified": "2026-08-28T05:00:00.809Z",
-          "ageHours": 35
+          "ageHours": 35.1
         },
         {
           "name": "forward-scored",
@@ -83,8 +153,8 @@
           "bytes": 4129,
           "rows": null,
           "modified": "2026-08-29T07:19:46.229Z",
-          "ageHours": 8.6,
-          "behindInputHours": -26.4,
+          "ageHours": 8.8,
+          "behindInputHours": -26.3,
           "behindInput": false
         }
       ],
@@ -107,7 +177,7 @@
           "bytes": 2540,
           "rows": 4,
           "modified": "2026-08-28T03:35:00.130Z",
-          "ageHours": 36.4
+          "ageHours": 36.6
         },
         {
           "name": "forward-scored",
@@ -120,8 +190,8 @@
           "bytes": 4040,
           "rows": null,
           "modified": "2026-08-29T09:11:33.993Z",
-          "ageHours": 6.8,
-          "behindInputHours": -29.6,
+          "ageHours": 6.9,
+          "behindInputHours": -29.7,
           "behindInput": false
         }
       ],
@@ -144,7 +214,7 @@
           "bytes": 11841,
           "rows": null,
           "modified": "2026-08-28T16:19:08.481Z",
-          "ageHours": 23.6
+          "ageHours": 23.8
         },
         {
           "name": "learning table",
@@ -157,7 +227,7 @@
           "bytes": 458,
           "rows": null,
           "modified": "2026-08-29T09:22:16.714Z",
-          "ageHours": 6.6,
+          "ageHours": 6.8,
           "behindInputHours": -17,
           "behindInput": false
         }
@@ -181,7 +251,7 @@
           "bytes": 3348,
           "rows": null,
           "modified": "2026-08-29T07:19:50.984Z",
-          "ageHours": 8.6
+          "ageHours": 8.8
         },
         {
           "name": "deep plan",
@@ -194,7 +264,7 @@
           "bytes": 47477,
           "rows": null,
           "modified": "2026-08-29T15:39:49.287Z",
-          "ageHours": 0.3,
+          "ageHours": 0.5,
           "behindInputHours": -8.3,
           "behindInput": false
         }
@@ -218,7 +288,7 @@
           "bytes": 635810,
           "rows": null,
           "modified": "2026-08-29T15:53:45.310Z",
-          "ageHours": 0.1
+          "ageHours": 0.2
         },
         {
           "name": "page index",
@@ -231,7 +301,7 @@
           "bytes": 73292,
           "rows": null,
           "modified": "2026-08-29T15:53:45.377Z",
-          "ageHours": 0.1,
+          "ageHours": 0.2,
           "behindInputHours": 0,
           "behindInput": false
         }
@@ -255,7 +325,7 @@
           "bytes": 6842,
           "rows": null,
           "modified": "2026-08-23T09:03:03.112Z",
-          "ageHours": 150.9
+          "ageHours": 151.1
         },
         {
           "name": "page index",
@@ -268,7 +338,7 @@
           "bytes": 63770,
           "rows": null,
           "modified": "2026-08-29T13:09:11.271Z",
-          "ageHours": 2.8,
+          "ageHours": 3,
           "behindInputHours": -148.1,
           "behindInput": false
         }
@@ -292,7 +362,7 @@
           "bytes": 841,
           "rows": null,
           "modified": "2026-08-29T14:25:05.332Z",
-          "ageHours": 1.5
+          "ageHours": 1.7
         }
       ],
       "findings": [],
@@ -314,7 +384,7 @@
           "bytes": 1051,
           "rows": null,
           "modified": "2026-08-29T07:19:49.753Z",
-          "ageHours": 8.6
+          "ageHours": 8.8
         }
       ],
       "findings": [],
@@ -322,10 +392,10 @@
     }
   ],
   "totals": {
-    "OK": 9,
+    "OK": 10,
     "AMBER": 0,
     "RED": 0,
-    "stages": 17,
+    "stages": 23,
     "missing": 0
   },
   "note": "A stage marked EVENT-DRIVEN is written only when a real trading event occurs. This system fills about once every four days, so a still artifact there is the ordinary case and is NOT aged against a cadence. Only continuous stages are.",

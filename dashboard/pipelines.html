@@ -153,11 +153,27 @@ function renderStrip(d) {
     + v + '</div><div class="n">' + esc(n) + "</div></div>";
   document.getElementById("strip").innerHTML =
       cell("Pipelines", (d.pipelines || []).length, "declared end to end")
-    + cell("Stages", t.stages || 0, "artifacts checked")
-    + cell("Healthy", '<span style="color:var(--green)">' + (t.OK || 0) + "</span>", "reader current with input")
+    + cell("Stages", t.stages || 0, "artifacts + live checks")
+    + cell("Healthy", '<span style="color:var(--green)">' + (t.OK || 0) + "</span>", "no finding on any stage")
     + cell("Late", '<span style="color:var(--yellow)">' + (t.AMBER || 0) + "</span>", "behind and overdue")
-    + cell("Broken", '<span style="color:' + (t.RED ? "var(--red)" : "var(--muted-dim)") + '">' + (t.RED || 0) + "</span>", "artifact absent")
+    + cell("Broken", '<span style="color:' + (t.RED ? "var(--red)" : "var(--muted-dim)") + '">' + (t.RED || 0) + "</span>", "absent, or a dead live stage")
     + cell("Box", esc(d.box || "—"), "these are per-machine");
+}
+
+/* A LIVE stage is checked against the running server, not a file mtime — the signal
+   chain has no artifact whose age means anything. It carries state/detail instead of
+   bytes and rows, so it is rendered on its own terms rather than showing "0h old" for
+   something that was never a file. */
+function liveStageCard(s) {
+  const bad = s.state === "BROKEN";
+  const warn = s.state === "DEGRADED";
+  const pill = bad ? "p-bad" : warn ? "p-warn" : "p-ok";
+  return '<div class="stage' + (bad ? " missing" : "") + '">'
+    + '<div class="stage-name">' + esc(s.name) + ' <span class="pill ' + pill + '">' + esc(s.state) + "</span></div>"
+    + '<div class="stage-file">' + esc(s.what || "") + "</div>"
+    + '<div class="stage-meta">' + esc(s.detail || "") + "</div>"
+    + '<div class="stage-by">written by <b>' + esc(s.by) + "</b><br>read by <b>" + esc(s.consumedBy) + "</b></div>"
+    + "</div>";
 }
 
 function stageCard(s) {
@@ -193,7 +209,7 @@ function renderPipes(d) {
   if (!pipes.length) { host.innerHTML = '<div class="card" style="padding:14px 16px"><div class="empty">No pipelines declared.</div></div>'; return; }
 
   host.innerHTML = pipes.map(p => {
-    const chain = p.stages.map(stageCard).join('<div class="arrow">&rarr;</div>');
+    const chain = p.stages.map(st => st.live ? liveStageCard(st) : stageCard(st)).join('<div class="arrow">&rarr;</div>');
     const findings = (p.findings || []).map(f =>
       '<div class="finding ' + esc(f.level) + '"><div class="sev"></div>'
       + '<div class="finding-text"><b>' + esc(f.stage) + '</b> — ' + esc(f.detail) + "</div></div>").join("");
