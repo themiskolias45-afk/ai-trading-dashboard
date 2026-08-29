@@ -233,6 +233,11 @@ const SOURCES = {
   nearMiss:   "/api/near-miss",
   learning:   "/api/learning",
   journal:    "/api/journal?limit=500",
+  // Not an endpoint: a static artifact written by tasks/agent_auth_check.cjs on
+  // each box's nightly run. It answers the one question no live route does —
+  // will the CLI agents still be able to sign in? On 2026-08-28 that session
+  // expired, both autonomous agents died at the auth layer, and nothing watched.
+  agentAuth:  "/dashboard/agent-auth.json",
 };
 
 // The three assets, in the order every other surface lists them.
@@ -346,7 +351,7 @@ function cell(key, value, note, isNumeric) {
 // ── the fleet ────────────────────────────────────────────────────────────────
 // Two machines as MACHINES: what each one is for, what it is running, and the
 // property that separates them — the laptop sleeps and the VPS does not.
-function renderFleet(fleetResult, planResult) {
+function renderFleet(fleetResult, planResult, authResult) {
   const host   = document.getElementById("boxes");
   const banner = document.getElementById("fleet-banner");
 
@@ -366,6 +371,7 @@ function renderFleet(fleetResult, planResult) {
   const here  = fleet.thisBox || {};
   const peer  = fleet.peer || { configured: false, reachable: false };
   const parity = (plan && plan.parity) || { available: false };
+  const auth = authResult && authResult.ok ? authResult.data : null;
 
   renderFleetBanner(banner, fleet, peer, parity, planResult);
 
@@ -394,6 +400,7 @@ function renderFleet(fleetResult, planResult) {
       ["Uptime",    plan ? uptimeText(plan.uptimeSeconds) : "—"],
       ["Started",   plan ? (ago(plan.serverStartedAt) || "—") : "—"],
       ["Config",    planBox.settingsError ? "DEFAULTS — " + planBox.settingsError : "saved file"],
+      ["Agent auth", authText(auth)],
       ["Unreviewed", dash(fleet.proposals && fleet.proposals.local)],
     ],
   }));
@@ -438,6 +445,24 @@ function renderFleet(fleetResult, planResult) {
   }
 
   host.innerHTML = cards.join("");
+}
+
+/* Agent auth, from tasks/agent_auth_check.cjs. It watches refreshTokenExpiresAt,
+   NOT expiresAt: the access token refreshes itself and is routinely hours away,
+   which is normal — an alarm on that would fire daily and teach you to ignore it.
+   The refresh token lapsing is what produces "OAuth session expired and could not
+   be refreshed" and needs a person. */
+function authText(auth) {
+  if (!auth) return "not checked on this box yet";
+  const days = auth.daysUntilReauth;
+  if (auth.state === "RED") {
+    return "EXPIRED — agents cannot sign in"
+      + (days !== null ? " (" + Math.abs(days) + "d ago)" : "");
+  }
+  const plan = auth.subscriptionType || "unknown plan";
+  if (days === null) return plan + " · re-auth date unknown";
+  return plan + " · re-auth in " + days + "d"
+    + (auth.state === "WARN" ? " — SIGN IN SOON" : "");
 }
 
 /** What is ARMED, per account tag — the bridge's own reported config, not a
@@ -795,7 +820,7 @@ async function load() {
 
   try {
     renderStrip(results.settings, results.signals);
-    renderFleet(results.fleet, results.plan);
+    renderFleet(results.fleet, results.plan, results.agentAuth);
     renderClock(results.plan);
     renderLedgers(results);
     renderOpen(results.plan);

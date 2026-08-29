@@ -80,6 +80,16 @@ REM ledger is a normal early state, not a failed daily check, and this must neve
 REM to fail the run or delay the doctor self-test below it.
 echo --- shadow short ledger --- >> "%LOGFILE%"
 "%PY%" "%PROJ%\tasks\shadow_short_ledger.py" >> "%LOGFILE%" 2>&1
+
+REM Will the CLI agents still be able to sign in tomorrow? On 2026-08-28 this
+REM box's OAuth session expired, both autonomous agents died at the auth layer,
+REM and NOTHING WATCHED FOR IT. Reads the refresh-token expiry from the
+REM credentials file: free, no API call, no token ever printed.
+REM
+REM Exit code deliberately NOT captured - a reporting step must never turn a
+REM good daily run red. It publishes dashboard\agent-auth.json for the Fleet Map.
+echo --- agent auth --- >> "%LOGFILE%"
+node "%PROJ%\tasks\agent_auth_check.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
 REM ── Do the doctor's own checks still fire? ────────────────────────────────────

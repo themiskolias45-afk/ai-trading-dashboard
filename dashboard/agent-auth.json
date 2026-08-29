@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-08-29T14:18:57.518Z",
+  "box": "Themis",
+  "credentialsPath": "~\\.claude\\.credentials.json",
+  "present": true,
+  "subscriptionType": "max",
+  "rateLimitTier": "default_claude_max_5x",
+  "accessTokenExpiresAt": "2026-08-29T15:14:39.104Z",
+  "refreshTokenExpiresAt": "2026-09-16T03:14:27.104Z",
+  "daysUntilReauth": 17.5,
+  "usingApiKeyForAgents": false,
+  "warnDays": 7,
+  "state": "OK",
+  "findings": [],
+  "note": "Watches refreshTokenExpiresAt, not expiresAt: the access token refreshes itself and is routinely hours away, which is normal. An API-key probe cannot test this — claude_agent.py strips ANTHROPIC_API_KEY so agents bill the subscription.",
+  "remedy": "On that box run `claude` then `/login` (with the leading slash) and choose the Claude subscription, not the API key.",
+  "feedsTheGate": false
+}

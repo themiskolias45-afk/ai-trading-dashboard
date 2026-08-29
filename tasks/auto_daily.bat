@@ -109,6 +109,19 @@ echo --- calibration drift --- >> "%LOGFILE%"
 "%PY%" "%PROJ%\tasks\calibration_drift_alert.py" --silent >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM Will the CLI agents still be able to sign in tomorrow? On 2026-08-28 the VPS
+REM OAuth session expired, both autonomous agents died at the auth layer, and
+REM NOTHING WATCHED FOR IT - the doctor inferred it a day later from task exit
+REM codes. This reads the refresh-token expiry out of the credentials file: free,
+REM no API call, no token ever printed.
+REM
+REM Exit code deliberately NOT captured. This is a REPORTING step and must never
+REM turn a good daily run red - it publishes dashboard\agent-auth.json, which the
+REM Fleet Map renders, and that is where the alarm belongs.
+echo --- agent auth --- >> "%LOGFILE%"
+node "%PROJ%\tasks\agent_auth_check.cjs" >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM ── Next-candle read, for the TradingView plan panel ──────────────────────────
 REM candle_probability.cjs writes tasks\analysis\candle-today.json, which is the ONLY
 REM source for the "1D read" and "4H read" rows tradingview_bot.py puts on the chart
