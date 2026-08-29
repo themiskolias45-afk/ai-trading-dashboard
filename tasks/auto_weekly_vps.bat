@@ -89,4 +89,16 @@ if not "%CLAUDE_RC%"=="0" (
 )
 
 echo [exit %CLAUDE_RC%] >> %REPORT%
+
+REM Re-index the weekly reports so /dashboard/weekly.html shows this run. The page
+REM reads dashboard\weekly-latest.json, a static file express.static already serves,
+REM so no route and no server restart were needed - which makes THIS line the thing
+REM that actually publishes a new review. The index is generated per box: this one
+REM has its own weekly_*.txt and must not be handed the laptop copy.
+REM
+REM After the exit marker and never allowed to change the exit code: indexing is a
+REM reporting step, and a failed index must not turn a successful review - or a
+REM correctly PARKED one - into a failed scheduled task.
+node tasks\weekly_report_index.cjs --quiet >> %REPORT% 2>&1
+
 exit /b %CLAUDE_RC%
