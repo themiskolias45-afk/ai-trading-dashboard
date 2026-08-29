@@ -64,6 +64,22 @@ if exist "C:\Users\User\ai-trading-dashboard\tasks\analysis\latest.json" (
   echo [%date% %time%] FAILED to pull deep-analysis latest.json >> "%DEST%\pull_log.txt"
 )
 
+rem The PEER box's pipeline health, for the fleet column on /dashboard/pipelines.html.
+rem Each box indexes only ITSELF, and the VPS is the machine that trades - its ledgers
+rem were the ones going unscored for weeks, which is precisely the case a one-box view
+rem cannot show.
+rem
+rem PULLED rather than fetched live: the VPS serves /dashboard behind its login gate
+rem and this laptop holds no session for it. The copy is up to a day old and the page
+rem says so from the file's own generatedAt - a stale peer column that admits its age
+rem beats a live one that does not exist.
+scp -i "%KEY%" "%VPS%:/C:/ai-trading-dashboard/dashboard/pipeline-latest.json" "C:\Users\User\ai-trading-dashboard\dashboard\pipeline-peer.json" 2>>"%DEST%\pull_errors.txt"
+if exist "C:\Users\User\ai-trading-dashboard\dashboard\pipeline-peer.json" (
+  echo [%date% %time%] Pulled peer pipeline index >> "%DEST%\pull_log.txt"
+) else (
+  echo [%date% %time%] FAILED to pull peer pipeline index >> "%DEST%\pull_log.txt"
+)
+
 rem Keep more than the VPS does, so this copy outlives the source.
 powershell -Command "Get-ChildItem '%DEST%\*.zip' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip 21 | Remove-Item -Force"
 endlocal

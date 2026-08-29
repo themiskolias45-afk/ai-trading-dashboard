@@ -82,6 +82,13 @@ main { max-width: 1120px; margin: 0 auto; padding: 18px 22px 72px; }
 .finding-text b { color: var(--text); }
 
 .empty { font-size: .76rem; color: var(--muted-dim); padding: 13px 0; }
+/* The peer badge. Each box indexes only itself, so without this the page reports
+   one machine while presenting itself as the system — the exact shape of the
+   failure it exists to catch, since the VPS is where the unscored ledgers were. */
+.peer-badge { margin-left: auto; font-size: .62rem; color: var(--muted-dim); white-space: nowrap; }
+.peer-badge .lbl { font-family: var(--mono); letter-spacing: .06em; text-transform: uppercase; font-size: .55rem; }
+.fleet-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.disagree { border-left-color: var(--yellow) !important; }
 footer { margin-top: 36px; padding-top: 15px; border-top: 1px solid var(--border); font-size: .7rem; color: var(--muted-dim); line-height: 1.7; }
 footer a, main a { color: var(--accent); }
 </style>
@@ -104,6 +111,7 @@ footer a, main a { color: var(--accent); }
 </header>
 
 <main>
+  <div id="fleet"></div>
   <div id="banner"></div>
   <div class="strip" id="strip"></div>
   <div id="pipes"><div class="card" style="padding:14px 16px"><div class="empty">Loading…</div></div></div>
@@ -119,6 +127,12 @@ footer a, main a { color: var(--accent); }
 
 <script>
 const SOURCE = "/dashboard/pipeline-latest.json";
+/* The peer's own index, pulled to this box by tasks/pull_vps_backup.bat at 04:00.
+   It is PULLED, not fetched live: the other box serves /dashboard behind its login
+   gate and this one holds no session for it. So it is up to a day old, and the page
+   states that age rather than presenting it as current. Absent is fine — the fleet
+   column simply says the peer has not been indexed here. */
+const PEER_SOURCE = "/dashboard/pipeline-peer.json";
 
 function esc(v) {
   return String(v == null ? "" : v).replace(/[&<>"']/g, c => (
@@ -126,6 +140,41 @@ function esc(v) {
   ));
 }
 function ago(when) { return window.SEFresh ? window.SEFresh.ago(when, { unknown: "" }) : ""; }
+
+/* This box beside the peer. A pipeline healthy here and broken there is the case
+   that matters most: the VPS trades continuously, so a stage that stopped THERE
+   costs evidence on the machine actually producing fills. */
+function renderFleet(d, peer) {
+  const host = document.getElementById("fleet");
+  if (!host) return;
+  if (!peer) {
+    host.innerHTML = '<div class="banner b-warn"><strong>Single-box view</strong>'
+      + "The peer's pipeline index has not been pulled to this box, so everything below "
+      + "describes <b>" + esc(d.box || "this machine") + "</b> alone. It arrives with the 04:00 VPS pull.</div>";
+    return;
+  }
+  const ageH = peer.generatedAt ? (Date.now() - Date.parse(peer.generatedAt)) / 3600000 : null;
+  const byId = {};
+  (peer.pipelines || []).forEach(p => { byId[p.id] = p; });
+  const differing = (d.pipelines || []).filter(p => byId[p.id] && byId[p.id].level !== p.level);
+
+  const stale = ageH !== null && ageH > 26;
+  const head = '<div class="banner ' + (differing.length ? "b-warn" : stale ? "b-warn" : "b-ok") + '">'
+    + "<strong>" + esc(d.box) + " &middot; " + esc(peer.box) + "</strong>";
+
+  if (differing.length) {
+    host.innerHTML = head
+      + differing.map(p => esc(p.label) + " is <b>" + esc(p.level) + "</b> here and <b>"
+          + esc(byId[p.id].level) + "</b> there").join("<br>")
+      + "<br>The peer index is " + (ageH === null ? "of unknown age" : Math.round(ageH) + "h old")
+      + ", so a difference may be a stage that has since recovered there.</div>";
+    return;
+  }
+  host.innerHTML = head
+    + "Both boxes report the same level on all " + esc((d.pipelines || []).length) + " pipelines. "
+    + "Peer index is " + (ageH === null ? "of unknown age" : Math.round(ageH) + "h old")
+    + (stale ? " — <b>older than a day, so it may not reflect the peer now</b>." : ".") + "</div>";
+}
 
 function renderBanner(d) {
   const host = document.getElementById("banner");
@@ -203,6 +252,18 @@ function stageCard(s) {
     + "</div>";
 }
 
+let PEER_BY_ID = null;
+function peerBadge(p) {
+  if (!PEER_BY_ID) return "";
+  const other = PEER_BY_ID[p.id];
+  if (!other) {
+    return '<span class="peer-badge"><span class="lbl">peer</span> not declared there</span>';
+  }
+  const cls = other.level === "OK" ? "p-ok" : other.level === "AMBER" ? "p-warn" : "p-bad";
+  return '<span class="peer-badge"><span class="lbl">peer</span> '
+    + '<span class="pill ' + cls + '">' + esc(other.level) + "</span></span>";
+}
+
 function renderPipes(d) {
   const host = document.getElementById("pipes");
   const pipes = d.pipelines || [];
@@ -216,7 +277,8 @@ function renderPipes(d) {
     const pill = p.level === "OK" ? "p-ok" : p.level === "AMBER" ? "p-warn" : "p-bad";
     return '<div class="card pipe ' + esc(p.level.toLowerCase()) + '">'
       + '<div class="pipe-head"><div class="pipe-title">' + esc(p.label) + "</div>"
-      + '<span class="pill ' + pill + '">' + esc(p.level) + "</span></div>"
+      + '<span class="pill ' + pill + '">' + esc(p.level) + "</span>"
+      + peerBadge(p) + "</div>"
       + '<div class="pipe-what">' + esc(p.what) + "</div>"
       + '<div class="chain">' + chain + "</div>"
       + findings
@@ -230,6 +292,16 @@ async function load() {
     const res = await fetch(SOURCE, { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const d = await res.json();
+    // The peer is optional by design: a missing file makes this a single-box view
+    // that SAYS it is one, never a silent one.
+    const peer = await fetch(PEER_SOURCE, { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null);
+    PEER_BY_ID = null;
+    if (peer && Array.isArray(peer.pipelines)) {
+      PEER_BY_ID = {};
+      peer.pipelines.forEach(x => { PEER_BY_ID[x.id] = x; });
+    }
+    renderFleet(d, PEER_BY_ID ? peer : null);
     renderBanner(d);
     renderStrip(d);
     renderPipes(d);
