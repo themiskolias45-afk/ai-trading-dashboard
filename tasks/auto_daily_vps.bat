@@ -81,6 +81,34 @@ REM to fail the run or delay the doctor self-test below it.
 echo --- shadow short ledger --- >> "%LOGFILE%"
 "%PY%" "%PROJ%\tasks\shadow_short_ledger.py" >> "%LOGFILE%" 2>&1
 
+REM ---- measurement steps the VPS was missing ----------------------------
+REM All five scripts were already present on this box; only this runner never
+REM called them. So the VPS wrote near_misses.jsonl and stop_variants.jsonl and
+REM scored neither - a writer with no reader, on the box that actually trades
+REM and therefore produces the fills the evidence is about.
+REM
+REM Read-only measurement. No gate, no threshold, no signal, no order. Exit
+REM codes deliberately NOT captured: a failing measurement must never turn a
+REM good daily run red, and must never block anything.
+echo --- near-miss + stop-variant scorers --- >> "%LOGFILE%"
+node "%PROJ%\tasks\score_near_misses.cjs" --emit >> "%LOGFILE%" 2>&1
+node "%PROJ%\tasks\score_stop_variants.cjs" --emit >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
+echo --- config drift --- >> "%LOGFILE%"
+node "%PROJ%\tasks\config_drift.cjs" --emit >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
+echo --- calibration drift --- >> "%LOGFILE%"
+"%PY%" "%PROJ%\tasks\calibration_drift_alert.py" --silent >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
+REM Feeds the 1D read / 4H read rows on the daily plan. candle-today.json did
+REM not exist on this box at all, so the VPS daily plan carried neither.
+echo --- next-candle read --- >> "%LOGFILE%"
+node "%PROJ%\tasks\candle_probability.cjs" XAUUSD BTCUSD SP500 >> "%LOGFILE%" 2>&1
+echo. >> "%LOGFILE%"
+
 REM Will the CLI agents still be able to sign in tomorrow? On 2026-08-28 this
 REM box's OAuth session expired, both autonomous agents died at the auth layer,
 REM and NOTHING WATCHED FOR IT. Reads the refresh-token expiry from the
