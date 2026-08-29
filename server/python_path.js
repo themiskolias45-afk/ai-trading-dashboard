@@ -137,6 +137,16 @@ function recheck() {
 // An operator's existing value always wins: a box that deliberately sets either of
 // these in keys.env keeps what it set. This never mutates process.env - it returns a
 // copy, so one caller cannot change another's environment.
+//
+// ONE TRAP, RECORDED SO NOBODY "FIXES" IT. On Windows `process.env` is a
+// case-INSENSITIVE proxy, so `process.env.PATH` reads a variable actually named
+// `Path`. Spreading it produces a PLAIN object, which is case-SENSITIVE — so
+// `pythonEnv().PATH` is undefined on a box whose variable is `Path`, and a probe
+// written that way reports the PATH as lost when nothing has been lost at all.
+// Measured on the VPS 2026-08-29: 41 keys in, 43 out, every original key present.
+// It does not matter to the child either way, because Windows env vars are
+// case-insensitive at the OS level and pythonBinOrDefault() returns an ABSOLUTE
+// path, so nothing here depends on PATH to find the interpreter.
 function pythonEnv(extra) {
   const env = { ...process.env };
   if (!env.PYTHONIOENCODING) env.PYTHONIOENCODING = "utf-8";
