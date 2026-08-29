@@ -221,22 +221,48 @@ function renderStrip(d) {
   const cell = (k, v, n) => '<div class="cell"><div class="k">' + esc(k) + '</div><div class="v">'
     + v + '</div><div class="n">' + esc(n) + "</div></div>";
 
+  /* LEAD WITH THE AT-GATE VIEW, because the headline describes an engine that does
+     not exist. The replay scores every signal generateSignal emits, including
+     hundreds below the live confidenceThreshold that the system would never open —
+     354 of them, carrying -49R. The synthesiser flagged this itself and said four
+     of its own five analysts had built their case on the unconditioned number.
+     The headline is kept beside it, not deleted: the difference between the two IS
+     the measurement of what the gate is worth. */
+  const g = d.atGate && d.atGate.available ? d.atGate : null;
+  const lead = g && g.overall ? g.overall : o;
+  const scope = g ? "at gate " + g.gate : "all signals";
+
   host.innerHTML =
-      cell("Replayed", o.trades != null ? o.trades : "—", "trades over historical bars")
-    + cell("Expectancy", '<span class="' + signClass(o.expectancyR) + '">' + num(o.expectancyR, 3) + "R</span>", "per trade, after cost")
-    + cell("Total R", '<span class="' + signClass(o.totalR) + '">' + num(o.totalR, 1) + "</span>", "summed across the book")
-    + cell("Profit factor", num(o.profitFactor, 2), "gross win / gross loss")
-    + cell("Win rate", o.winRatePct != null ? o.winRatePct + "%" : "—", "low is normal for trend")
+      cell("Closed", lead.closed != null ? lead.closed : (lead.trades != null ? lead.trades : "—"), scope)
+    + cell("Expectancy", '<span class="' + signClass(lead.expectancyR) + '">' + num(lead.expectancyR, 3) + "R</span>", "per trade, after cost")
+    + cell("Total R", '<span class="' + signClass(lead.totalR) + '">' + num(lead.totalR, 1) + "</span>", scope)
+    + cell("Profit factor", num(lead.profitFactor, 2), "gross win / gross loss")
+    + cell("Win rate", lead.winRatePct != null ? lead.winRatePct + "%" : "—", "low is normal for trend")
     + cell("Analysts", esc(d.analystsRun) + " / " + esc(d.analystsTotal), d.reasoningFailed ? "REASONING FAILED" : "all completed");
 
   const cov = d.coverage
     ? Object.entries(d.coverage).map(([k, v]) => esc(k) + " " + esc(v)).join(" · ")
     : "coverage not reported";
+  // The comparison, in words. A reader who sees only one of these two numbers
+  // draws the wrong conclusion whichever one it is.
+  let gateLine = "";
+  if (g && g.overall && d.overall) {
+    const rej = g.rejected;
+    gateLine = '<br><b>At the live gate of ' + esc(g.gate) + '</b>: ' + esc(g.overall.closed)
+      + " closed, PF " + num(g.overall.profitFactor, 2) + ", "
+      + '<span class="' + signClass(g.overall.totalR) + '">' + num(g.overall.totalR, 1) + "R</span>, "
+      + '<span class="' + signClass(g.overall.expectancyR) + '">' + num(g.overall.expectancyR, 3) + "R</span> per trade. "
+      + "Unconditioned, the same replay reads PF " + num(d.overall.profitFactor, 2) + " and "
+      + num(d.overall.expectancyR, 3) + "R — because it includes "
+      + (rej ? esc(rej.closed) + " sub-gate trades carrying " + num(rej.totalR, 1) + "R" : "sub-gate signals")
+      + " that the live system would never open. <b>The difference between those two is what the gate is worth.</b>";
+  }
   note.innerHTML = "Coverage: " + cov
     + (d.costAssumptionR != null ? " · cost " + esc(d.costAssumptionR) + "R per trade" : "")
     + (d.replaysOk ? " · replays clean" : ' · <span class="neg">replay errors reported</span>')
     + ". <b>Replayed, not realised</b> — there are " + (d.overall ? esc(d.overall.trades) : "?")
-    + " trades here and 7 real fills in the journal. Never merge the two.";
+    + " signals here and 7 real fills in the journal. Never merge the two."
+    + gateLine;
 }
 
 function renderSynthesis(d) {
@@ -266,6 +292,18 @@ function renderSynthesis(d) {
 
 function renderTables(d) {
   const host = document.getElementById("tables");
+  /* Swap in the at-gate rows where they exist. Same six tables, same columns —
+     only the population changes, from "every signal the engine emitted" to "the
+     ones the live gate admits". The label on each table says which it is, so the
+     two can never be confused for one another. */
+  const g = d.atGate && d.atGate.available ? d.atGate : null;
+  if (g && g.tables) {
+    d = Object.assign({}, d, {
+      tables: d.tables.map(t => g.tables[t.key] && g.tables[t.key].length
+        ? Object.assign({}, t, { rows: g.tables[t.key], note: t.note + " · at gate " + g.gate })
+        : Object.assign({}, t, { note: t.note + " · ALL signals, not gate-conditioned" })),
+    });
+  }
   if (!d.tables || !d.tables.length) {
     host.innerHTML = '<div class="card card-pad empty">No breakdowns in this report.</div>';
     return;

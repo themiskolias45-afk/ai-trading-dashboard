@@ -61,6 +61,91 @@ const BREAKDOWNS = [
   ["byStrength",  "By strength",  "the engine's own MODERATE / STRONG grading"],
 ];
 
+/* ── THE AT-GATE VIEW ─────────────────────────────────────────────────────────
+   The replay scores EVERY signal generateSignal emits, including hundreds the live
+   confidenceThreshold would never admit. So the headline describes an engine that
+   does not exist: at the time of writing it read PF 1.10 / +0.068R over 657 closed,
+   while the 354 sub-gate trades inside it carried -49R on their own.
+
+   The synthesiser caught this and said four of its own five analysts had built their
+   case on that headline. Conditioning on conf >= the live gate gives PF 1.48 and
+   +0.310R over 303 closed — the same replay, describing what the system actually
+   opens.
+
+   DERIVED HERE, NOT TRUSTED. The aggregation below was checked by reproducing the
+   fact pack's OWN published overall from the same trade rows: 33.3% win, PF 1.10,
+   +44.7R, +0.068R, exact to every decimal. Only then was it pointed at the gate
+   subset, where it independently reproduced the synthesiser's 303 / 1.48 / +93.96R
+   / +0.310. Two derivations agreeing is why this is publishable.
+
+   R per trade is the fact pack's own convention: a win pays rr minus the cost
+   assumption, a loss pays 1 plus it. EXPIRED rows are not closed and are excluded
+   from every aggregate rather than counted as flat. */
+function aggregateTrades(rows, cost) {
+  const closed = rows.filter(t => t.outcome === "WIN" || t.outcome === "LOSS");
+  if (!closed.length) return null;
+  const wins = closed.filter(t => t.outcome === "WIN");
+  const losses = closed.filter(t => t.outcome === "LOSS");
+  const gross = wins.reduce((sum, t) => sum + (Number(t.rr) || 0) - cost, 0);
+  const bad = losses.reduce((sum) => sum + 1 + cost, 0);
+  const totalR = gross - bad;
+  return {
+    trades: rows.length,
+    closed: closed.length,
+    wins: wins.length,
+    losses: losses.length,
+    winRatePct: +(wins.length / closed.length * 100).toFixed(1),
+    profitFactor: bad > 0 ? +(gross / bad).toFixed(2) : null,
+    totalR: +totalR.toFixed(2),
+    expectancyR: +(totalR / closed.length).toFixed(3),
+  };
+}
+
+/* The same six breakdowns, recomputed over the gate subset. Keyed off the trade
+   fields the fact pack already carries, so nothing is re-derived from prices. */
+const TRADE_KEY_BY_TABLE = {
+  bySetup: t => t.setup, byRegime: t => t.regime, byTrend: t => t.trend,
+  byDirection: t => t.dir, byAsset: t => t.asset, byStrength: t => t.strength,
+};
+
+function buildAtGate(facts, minSample) {
+  const gate = facts.liveState
+    && facts.liveState.strategySettings
+    && Number(facts.liveState.strategySettings.confidenceThreshold);
+  const rows = Array.isArray(facts.trades) ? facts.trades : null;
+  // No gate or no trade rows means no at-gate view — stated, never estimated.
+  if (!Number.isFinite(gate) || !rows) {
+    return { available: false, reason: !rows ? "the report carries no trade rows" : "no live gate in the report" };
+  }
+  const admitted = rows.filter(t => Number(t.conf) >= gate);
+  const rejected = rows.filter(t => Number(t.conf) < gate);
+  const cost = Number(facts.costAssumptionR) || 0;
+
+  const tables = {};
+  for (const key of Object.keys(TRADE_KEY_BY_TABLE)) {
+    const pick = TRADE_KEY_BY_TABLE[key];
+    const groups = {};
+    admitted.forEach(t => {
+      const name = pick(t);
+      if (name === undefined || name === null || name === "") return;
+      (groups[name] = groups[name] || []).push(t);
+    });
+    tables[key] = Object.entries(groups).map(([name, group]) => {
+      const agg = aggregateTrades(group, cost);
+      return agg ? Object.assign({ name }, agg, { belowMinSample: agg.closed < minSample }) : null;
+    }).filter(Boolean).sort((a, b) => (b.expectancyR ?? -99) - (a.expectancyR ?? -99));
+  }
+
+  return {
+    available: true,
+    gate,
+    overall: aggregateTrades(admitted, cost),
+    // What the gate threw away, which is the other half of the argument.
+    rejected: aggregateTrades(rejected, cost),
+    tables,
+  };
+}
+
 function build() {
   let report;
   try {
@@ -130,6 +215,7 @@ function build() {
     // The analysis runs nightly, so past ~36h it has missed a run.
     staleAfterHours: 36,
     overall: facts.overall || null,
+    atGate: buildAtGate(facts, facts.minSampleForRecommendation || 5),
     coverage: facts.coverage || null,
     costAssumptionR: facts.costAssumptionR ?? null,
     minSampleForRecommendation: facts.minSampleForRecommendation ?? null,
