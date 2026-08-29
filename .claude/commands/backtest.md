@@ -63,3 +63,33 @@ VERDICT:
   Recommendation: [KEEP / RAISE TO N / LOWER TO N] — one sentence with evidence
 
 After report: "Run challenger at a different threshold? (Y/N)"
+
+═══ STEP 5 — EVIDENCE REGISTER UPDATE ═══
+  Every backtest result is a measured claim. Generate a template block for
+  server/evidence_register.js so the finding does not live only in chat.
+
+  Determine STATUS:
+    - Worst fold positive AND ≥4/5 folds positive → STATUS.ROBUST
+    - Worst fold positive but only 3/5 positive, OR fold spread > 20% → STATUS.INCONCLUSIVE
+    - Overall negative or worst fold clearly negative → STATUS.MEASURED_NO_EDGE
+    - DEGRADED warning → STATUS.BLOCKED
+
+  Print the template:
+  ─────────────────────────────────────────
+  {
+    id: "[gate-or-threshold]-[YYYY-MM-DD]",
+    title: "[what was measured in one line]",
+    status: STATUS.[ROBUST|INCONCLUSIVE|MEASURED_NO_EDGE|BLOCKED],
+    measuredOn: "[YYYY-MM-DD]",
+    evidence: "[fold summary: worst fold X%, overall WR Y%, Z trades, N/5 folds positive]",
+    caveat: "[what the test cannot prove — stubs, sample size, cost assumption]",
+    whatWouldChangeThis: "[the specific measurement that would move this status]",
+  }
+  ─────────────────────────────────────────
+  Ask: "Append this claim to server/evidence_register.js? (Y/N)"
+  If Y:
+    Read server/evidence_register.js — find the closing `];` of the CLAIMS array.
+    Insert the new block before it.
+    Run: node --check server/evidence_register.js → exit 1 if fails, do not commit.
+    Commit: git add server/evidence_register.js && git commit -m "evidence: add [id] claim"
+  If N: "Template printed above — paste into evidence_register.js when ready."

@@ -38,3 +38,17 @@ Read tasks/jarvis-state.json and resume:
 ═══ /state show ═══
 Print the current state file contents in a readable format.
 If no state file exists, say so and offer to create one.
+
+═══ /state checkpoint [label] ═══
+Capture a timestamped snapshot and append it to tasks/jarvis-state-history.jsonl.
+Use before major changes (deploys, strategy edits, refactors) so state is auditable.
+
+1. Gather current state exactly as /state save (steps 1-7 above)
+2. Add "label": "[label or 'checkpoint']" field to the object
+3. Append as a single JSON line to tasks/jarvis-state-history.jsonl (create file if missing)
+   — one line per checkpoint, each self-contained — never overwrite existing lines
+4. Also overwrite tasks/jarvis-state.json with this snapshot (same as /state save)
+5. Report: "Checkpoint '[label]' saved — [N] total checkpoints in history."
+
+To review history: read tasks/jarvis-state-history.jsonl and show each checkpoint's
+  saved, label, working_on, and commits fields in a table.

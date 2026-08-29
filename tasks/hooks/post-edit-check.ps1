@@ -88,32 +88,45 @@ if ($rel -match '^server\\index\.js$') {
             Write-Host "JARVIS: Tests passed."
         }
     }
+
+    # -- 4b. API SHAPE CHECK -- catches endpoint contract regressions -----------
+    $snapshot = Join-Path $root 'tasks\api_snapshot.cjs'
+    if (Test-Path $snapshot) {
+        Write-Host "JARVIS: Checking API shape..."
+        $snapOut = & node $snapshot 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "API SHAPE REGRESSION -- $rel changed an endpoint shape:`n$snapOut`nJARVIS: Restore the endpoint contract before committing."
+            exit 1
+        }
+        Write-Host "JARVIS: API shape OK."
+    }
 }
 
 # -- 5. COMMIT -- specific file only, never git add -A -------------------------
-if (git status --porcelain 2>$null) {
-    $fileStatus = git status --porcelain $rel 2>$null
-    if ($fileStatus) {
-        git add $rel 2>$null
-        git commit -m "update $rel" --quiet 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "JARVIS: $rel committed -- syntax OK, security OK."
+# Trading-logic files are NEVER auto-committed: code review must pass first.
+# Commit them manually after the review gate below.
+$tradingFiles = @('server\index.js','server\autohealer.js','mt5_bridge.py','parallel_analysis.py')
+$isTrading = ($tradingFiles | Where-Object { $rel -ieq $_ }).Count -gt 0
+if (-not $isTrading) {
+    if (git status --porcelain 2>$null) {
+        $fileStatus = git status --porcelain $rel 2>$null
+        if ($fileStatus) {
+            git add $rel 2>$null
+            git commit -m "update $rel" --quiet 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "JARVIS: $rel committed -- syntax OK, security OK."
+            }
         }
     }
 }
 
 # -- 6. CODE REVIEW SIGNAL -- visible to JARVIS for trading logic changes --------
-$tradingFiles = @(
-    'server\index.js',
-    'server\autohealer.js',
-    'mt5_bridge.py',
-    'parallel_analysis.py'
-)
 foreach ($tf in $tradingFiles) {
     if ($rel -ieq $tf) {
         Write-Host ""
         Write-Host ">>> CODE REVIEW REQUIRED: $rel is a trading logic file." -ForegroundColor Cyan
         Write-Host ">>> JARVIS: invoke the code-reviewer agent on the changed function(s) before declaring done." -ForegroundColor Cyan
+        Write-Host ">>> Auto-commit SKIPPED. Run: git add $rel && git commit -m '...' after review passes." -ForegroundColor Cyan
         Write-Host ""
         break
     }
