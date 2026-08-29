@@ -44,6 +44,101 @@ const { YouTube } = require("youtube-sr");
   }
 })();
 
+// ── Last-resort process handlers ──────────────────────────────
+//
+// This file had NO process handlers at all. Since Node 15 the default disposition for
+// an unhandled promise rejection is to TERMINATE, so one rejected promise in any
+// fire-and-forget path took the whole server down: the signal cache, /api/signals, the
+// bridge's only source of levels and the risk endpoints, all at once. Nothing wrote
+// down why. `tasks/ensure_running.ps1` polls every 10 minutes, so the cost was up to
+// ten minutes of dead signal path — while positions were open — followed by a silent
+// restart indistinguishable from a scheduled one.
+//
+// THE TWO ARE TREATED DIFFERENTLY, ON PURPOSE. They are not the same event.
+//
+//   unhandledRejection — an async branch failed and nobody awaited it. The rest of the
+//     process is intact. Killing a healthy server because one background fetch
+//     rejected is a worse outcome than the rejection itself, so this one is RECORDED
+//     AND SURVIVED. Nothing is suppressed: it reaches the console and the disk.
+//
+//   uncaughtException — a synchronous throw escaped every frame. Whatever invariant
+//     that code was maintaining is now half-applied and the process state is genuinely
+//     unknown. Staying up would mean serving trades from it. So this one is recorded
+//     and then EXITS 1 — which is exactly what Node already did. The only thing added
+//     is that the death now names its cause. The supervisor restarts it.
+//
+// THE SINK IS A FILE, NOT THE HEALER'S RING BUFFER. autohealer's errorLog lives in
+// memory and dies with the process, which makes it worthless for precisely the case
+// that kills the process. This appends synchronously, before any exit can happen.
+//
+// APPEND-ONLY, NEVER ROTATED, NEVER TRUNCATED — the standing rule is that nothing here
+// gets deleted. Unbounded growth is held off by rate-limiting instead: a hot loop
+// emitting the same rejection thousands of times a second writes one line per distinct
+// message per minute and counts the rest, so the file records that it happened and how
+// often without itself becoming the next outage.
+const CRASH_LOG_PATH = path.join(__dirname, "..", "tasks", "logs", "server_crash.txt");
+const CRASH_LOG_QUIET_MS = 60 * 1000;
+const crashLogLastWriteByKey = new Map();
+const crashLogSuppressedByKey = new Map();
+
+function recordProcessFault(kind, error) {
+  const message = (error && (error.stack || error.message)) || String(error);
+  const firstLine = message.split("\n")[0];
+  const key = kind + "|" + firstLine;
+  const now = Date.now();
+  const lastWrite = crashLogLastWriteByKey.get(key);
+
+  if (lastWrite !== undefined && now - lastWrite < CRASH_LOG_QUIET_MS) {
+    crashLogSuppressedByKey.set(key, (crashLogSuppressedByKey.get(key) || 0) + 1);
+    return;
+  }
+
+  const suppressed = crashLogSuppressedByKey.get(key) || 0;
+  crashLogSuppressedByKey.set(key, 0);
+  crashLogLastWriteByKey.set(key, now);
+
+  const repeats = suppressed > 0 ? ` (+${suppressed} identical in the last minute)` : "";
+  const line = `[${new Date().toISOString()}] ${kind}${repeats}\n${message}\n\n`;
+
+  // Best-effort and deliberately last: a failure to LOG the fault must never become
+  // the thing that stops us reporting it on the console.
+  try {
+    fs.mkdirSync(path.dirname(CRASH_LOG_PATH), { recursive: true });
+    fs.appendFileSync(CRASH_LOG_PATH, line, "utf8");
+  } catch (writeError) {
+    console.error("[fault] could not write the crash log:", writeError.message);
+  }
+  console.error(`[fault] ${kind}${repeats}:`, message);
+}
+
+// The rate limiter above reports a suppressed count on the NEXT write for that key —
+// which never arrives if the storm simply stops, or if the process dies during it.
+// Caught by testing rather than by reading: 500 identical faults collapsed to a single
+// line that claimed to be one occurrence. An error under-reported is an error hidden,
+// so any outstanding counts are flushed on the way out. `exit` handlers may only do
+// synchronous work, which is why the sink was appendFileSync from the start.
+function flushSuppressedFaults() {
+  for (const [key, suppressed] of crashLogSuppressedByKey) {
+    if (!suppressed) continue;
+    crashLogSuppressedByKey.set(key, 0);
+    const line = `[${new Date().toISOString()}] ${key} (+${suppressed} more, never individually logged)\n\n`;
+    try { fs.appendFileSync(CRASH_LOG_PATH, line, "utf8"); } catch (_) { /* already exiting */ }
+  }
+}
+process.on("exit", flushSuppressedFaults);
+
+process.on("unhandledRejection", (reason) => {
+  recordProcessFault("unhandledRejection", reason);
+  // Deliberately no exit. See above.
+});
+
+process.on("uncaughtException", (error) => {
+  recordProcessFault("uncaughtException", error);
+  // Node's own default disposition, restated here so the exit is a decision with a
+  // reason written beside it rather than the absence of a handler.
+  process.exit(1);
+});
+
 // ── New modules ───────────────────────────────────────────────
 const autohealer = require("./autohealer");
 const db         = require("./db");
