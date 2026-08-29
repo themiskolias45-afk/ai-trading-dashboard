@@ -129,6 +129,11 @@ REM Exit code deliberately not captured - a reporting step must never turn a goo
 REM daily run red.
 echo --- analysis index --- >> "%LOGFILE%"
 node "%PROJ%\tasks\analysis_index.cjs" >> "%LOGFILE%" 2>&1
+
+REM Every pipeline stage, and whether anything reads what it writes. Runs LAST so
+REM it sees the artifacts every step above just produced.
+echo --- pipeline index --- >> "%LOGFILE%"
+node "%PROJ%\tasks\pipeline_index.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
 REM ── Do the doctor's own checks still fire? ────────────────────────────────────

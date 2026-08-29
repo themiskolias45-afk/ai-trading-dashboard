@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartEntry Pro — Pipelines</title>
+<style>
+/* ============================================================================
+   PIPELINES — every stage, and whether anything reads what it writes
+   ============================================================================
+
+   This system's recurring failure is not a crash, it is a WRITER WITH NO READER:
+   something produces evidence daily and nothing consumes it, so the gap stays
+   invisible for weeks. Four separate instances were found on 2026-08-29 alone —
+   the weekly review, the deep analysis, the VPS's unscored ledgers, and the deep
+   plan's own alignment data. Every one was found by hand.
+
+   This page shows the chain instead. Each pipeline is drawn as ordered stages,
+   each stage names the artifact it produces, what writes it, and what consumes
+   it — so a dead end reads as a dead end.
+
+   THE DISTINCTION THAT KEEPS IT HONEST: a stage marked EVENT-DRIVEN is written
+   only when a real trading event happens. This engine fills about once every
+   four days, so a still artifact there is the ordinary case and is never aged
+   against a cadence. Judging those the same as a nightly job would produce an
+   alarm that fires every day — the exact thing this page exists to prevent.
+
+   Reads one static JSON. No route, no restart, nothing that runs anything.
+   ============================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.55; font-size: 14px; }
+
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 20px 22px 16px; border-bottom: 1px solid var(--border); }
+.h-title { font-size: 1.35rem; font-weight: 750; letter-spacing: -.02em; }
+.h-sub { font-size: .78rem; color: var(--muted-dim); margin-top: 3px; max-width: 68ch; }
+.stamp { font-family: var(--mono); font-size: .68rem; color: var(--muted-dim); }
+main { max-width: 1120px; margin: 0 auto; padding: 18px 22px 72px; }
+
+.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 18px; }
+.cell { background: var(--surface); padding: 12px 14px; }
+.cell .k { font-family: var(--mono); font-size: .6rem; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); }
+.cell .v { font-size: 1.3rem; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.cell .n { font-size: .67rem; color: var(--muted-dim); margin-top: 1px; }
+
+.banner { border: 1px solid; border-radius: var(--radius); padding: 11px 15px; font-size: .78rem; line-height: 1.6; margin-bottom: 16px; }
+.banner strong { display: block; font-size: .83rem; margin-bottom: 2px; }
+.b-ok { background: rgba(43,208,124,.06); border-color: rgba(43,208,124,.3); color: #86efac; }
+.b-warn { background: rgba(240,180,41,.07); border-color: rgba(240,180,41,.35); color: #fde047; }
+.b-bad { background: rgba(242,85,95,.08); border-color: rgba(242,85,95,.45); color: #fca5a5; }
+
+/* ── one pipeline ────────────────────────────────────────────────────────── */
+.pipe { margin-bottom: 14px; padding: 15px 17px; border-left: 3px solid var(--muted-dim); }
+.pipe.ok { border-left-color: var(--green); }
+.pipe.amber { border-left-color: var(--yellow); }
+.pipe.red { border-left-color: var(--red); }
+.pipe-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pipe-title { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; }
+.pipe-what { font-size: .76rem; color: var(--muted-dim); margin-top: 5px; max-width: 82ch; line-height: 1.55; }
+
+/* The chain. Stages read left to right with an arrow between them, because the
+   dependency direction IS the thing being checked. Wraps on a phone rather than
+   scrolling the page sideways. */
+.chain { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin-top: 12px; }
+.stage { flex: 1 1 200px; min-width: 0; border: 1px solid var(--border2); border-radius: 7px; padding: 9px 11px; background: var(--bg); }
+.stage.missing { border-color: var(--red); background: rgba(242,85,95,.06); }
+.stage.event { border-style: dashed; }
+.stage-name { font-size: .74rem; font-weight: 650; }
+.stage-file { font-family: var(--mono); font-size: .6rem; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+.stage-meta { font-size: .64rem; color: var(--muted-dim); margin-top: 5px; font-variant-numeric: tabular-nums; }
+.stage-by { font-size: .61rem; color: var(--muted-dim); margin-top: 4px; overflow-wrap: anywhere; }
+.stage-by b { color: var(--muted); font-weight: 600; }
+.arrow { align-self: center; color: var(--border2); font-size: 1.1rem; padding: 0 7px; flex: 0 0 auto; }
+
+.pill { display: inline-block; font-family: var(--mono); font-size: .57rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; padding: 1px 6px; border: 1px solid currentColor; border-radius: 20px; white-space: nowrap; }
+.p-ok { color: var(--green); } .p-bad { color: var(--red); } .p-warn { color: var(--yellow); } .p-idle { color: var(--muted-dim); } .p-info { color: var(--blue); }
+
+.finding { display: flex; gap: 9px; margin-top: 9px; font-size: .74rem; }
+.finding .sev { width: 3px; border-radius: 2px; flex-shrink: 0; }
+.finding.RED .sev { background: var(--red); } .finding.AMBER .sev { background: var(--yellow); }
+.finding-text { color: var(--muted-dim); line-height: 1.55; }
+.finding-text b { color: var(--text); }
+
+.empty { font-size: .76rem; color: var(--muted-dim); padding: 13px 0; }
+footer { margin-top: 36px; padding-top: 15px; border-top: 1px solid var(--border); font-size: .7rem; color: var(--muted-dim); line-height: 1.7; }
+footer a, main a { color: var(--accent); }
+</style>
+<link rel="stylesheet" href="/dashboard/theme.css">
+<link rel="stylesheet" href="/dashboard/nav.css">
+<script src="/dashboard/nav.js" defer></script>
+<link rel="stylesheet" href="/dashboard/freshness.css">
+<script src="/dashboard/freshness.js" defer></script>
+<link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+<meta name="theme-color" content="#070b12">
+</head>
+<body>
+
+<header class="page-head">
+  <div>
+    <div class="h-title">Pipelines</div>
+    <div class="h-sub">Every stage of every pipeline, and the one question that matters at each: does anything read what it writes?</div>
+  </div>
+  <div class="stamp" id="stamp">reading…</div>
+</header>
+
+<main>
+  <div id="banner"></div>
+  <div class="strip" id="strip"></div>
+  <div id="pipes"><div class="card" style="padding:14px 16px"><div class="empty">Loading…</div></div></div>
+
+  <footer>
+    Built by <code>tasks/pipeline_index.cjs</code> into <code>dashboard/pipeline-latest.json</code>,
+    re-indexed on each box's nightly run. Read-only — it opens artifacts and writes one JSON.<br />
+    <b>A stage marked <span class="pill p-idle">event-driven</span> is written only when a real
+    trading event happens.</b> This engine fills about once every four days, so a still artifact
+    there is the ordinary case and is never aged against a cadence.
+  </footer>
+</main>
+
+<script>
+const SOURCE = "/dashboard/pipeline-latest.json";
+
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+function ago(when) { return window.SEFresh ? window.SEFresh.ago(when, { unknown: "" }) : ""; }
+
+function renderBanner(d) {
+  const host = document.getElementById("banner");
+  const t = d.totals || {};
+  if (t.RED) {
+    host.innerHTML = '<div class="banner b-bad"><strong>' + esc(t.RED) + ' pipeline(s) have a broken stage</strong>'
+      + "An artifact below does not exist, so whatever should read it has nothing to read. "
+      + "That is the writer-with-no-reader failure this page exists to catch.</div>";
+    return;
+  }
+  if (t.AMBER) {
+    host.innerHTML = '<div class="banner b-warn"><strong>' + esc(t.AMBER) + ' pipeline(s) have a stage running late</strong>'
+      + "Every artifact exists, but a reader is behind its input AND past its own cadence — "
+      + "which means the job that produces it has missed a run.</div>";
+    return;
+  }
+  host.innerHTML = '<div class="banner b-ok"><strong>Every pipeline is complete</strong>'
+    + esc(t.stages) + " stage(s) across " + esc((d.pipelines || []).length)
+    + " pipeline(s): every artifact exists and every reader is current with its input.</div>";
+}
+
+function renderStrip(d) {
+  const t = d.totals || {};
+  const cell = (k, v, n) => '<div class="cell"><div class="k">' + esc(k) + '</div><div class="v">'
+    + v + '</div><div class="n">' + esc(n) + "</div></div>";
+  document.getElementById("strip").innerHTML =
+      cell("Pipelines", (d.pipelines || []).length, "declared end to end")
+    + cell("Stages", t.stages || 0, "artifacts checked")
+    + cell("Healthy", '<span style="color:var(--green)">' + (t.OK || 0) + "</span>", "reader current with input")
+    + cell("Late", '<span style="color:var(--yellow)">' + (t.AMBER || 0) + "</span>", "behind and overdue")
+    + cell("Broken", '<span style="color:' + (t.RED ? "var(--red)" : "var(--muted-dim)") + '">' + (t.RED || 0) + "</span>", "artifact absent")
+    + cell("Box", esc(d.box || "—"), "these are per-machine");
+}
+
+function stageCard(s) {
+  const cls = "stage" + (s.present ? "" : " missing") + (s.eventDriven ? " event" : "");
+  const bits = [];
+  if (s.present) {
+    bits.push(s.ageHours + "h old");
+    if (s.rows !== null && s.rows !== undefined) bits.push(s.rows + " rows");
+    if (s.bytes !== null && s.bytes !== undefined) bits.push(Math.max(1, Math.round(s.bytes / 1024)) + "KB");
+  } else {
+    bits.push("DOES NOT EXIST");
+  }
+  // The lag is shown even when it is not a fault, so "behind" is legible without
+  // being an alarm — a nightly reader is behind a live writer 23 hours a day.
+  let lag = "";
+  if (s.behindInput) {
+    lag = ' <span class="pill p-idle">' + esc(s.behindInputHours) + "h behind input</span>";
+  }
+  return '<div class="' + cls + '">'
+    + '<div class="stage-name">' + esc(s.name)
+    + (s.eventDriven ? ' <span class="pill p-idle">event-driven</span>' : "")
+    + lag + "</div>"
+    + '<div class="stage-file">' + esc(s.file) + "</div>"
+    + '<div class="stage-meta">' + esc(bits.join(" · ")) + "</div>"
+    + '<div class="stage-by">written by <b>' + esc(s.by) + "</b><br>read by <b>"
+    + esc(s.consumedBy) + "</b></div>"
+    + "</div>";
+}
+
+function renderPipes(d) {
+  const host = document.getElementById("pipes");
+  const pipes = d.pipelines || [];
+  if (!pipes.length) { host.innerHTML = '<div class="card" style="padding:14px 16px"><div class="empty">No pipelines declared.</div></div>'; return; }
+
+  host.innerHTML = pipes.map(p => {
+    const chain = p.stages.map(stageCard).join('<div class="arrow">&rarr;</div>');
+    const findings = (p.findings || []).map(f =>
+      '<div class="finding ' + esc(f.level) + '"><div class="sev"></div>'
+      + '<div class="finding-text"><b>' + esc(f.stage) + '</b> — ' + esc(f.detail) + "</div></div>").join("");
+    const pill = p.level === "OK" ? "p-ok" : p.level === "AMBER" ? "p-warn" : "p-bad";
+    return '<div class="card pipe ' + esc(p.level.toLowerCase()) + '">'
+      + '<div class="pipe-head"><div class="pipe-title">' + esc(p.label) + "</div>"
+      + '<span class="pill ' + pill + '">' + esc(p.level) + "</span></div>"
+      + '<div class="pipe-what">' + esc(p.what) + "</div>"
+      + '<div class="chain">' + chain + "</div>"
+      + findings
+      + "</div>";
+  }).join("");
+}
+
+async function load() {
+  const stamp = document.getElementById("stamp");
+  try {
+    const res = await fetch(SOURCE, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const d = await res.json();
+    renderBanner(d);
+    renderStrip(d);
+    renderPipes(d);
+    stamp.textContent = esc(d.box || "") + " · indexed " + (ago(d.generatedAt) || "just now");
+  } catch (err) {
+    console.error("[pipelines] load failed:", err);
+    stamp.textContent = "could not read the index";
+    document.getElementById("banner").innerHTML =
+      '<div class="banner b-bad"><strong>Could not read the pipeline index</strong>'
+      + esc(err.message) + ". Generate it with <code>node tasks/pipeline_index.cjs</code>. "
+      + "Nothing below is current.</div>";
+    document.getElementById("pipes").innerHTML =
+      '<div class="card" style="padding:14px 16px"><div class="empty">Unavailable.</div></div>';
+  }
+}
+
+// freshness.js is deferred and has NOT run when an inline end-of-body script fires.
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", load);
+else load();
+</script>
+</body>
+</html>

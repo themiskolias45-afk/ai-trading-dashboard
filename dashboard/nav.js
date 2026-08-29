@@ -46,6 +46,10 @@
     // and no restart. The nightly deep analysis had no surface at all before this.
     { href: "/dashboard/analysis.html", label: "Analysis",
       match: ["/dashboard/analysis.html", "/analysis"] },
+    // Every pipeline stage and whether anything reads what it writes. Static path
+    // for the same reason as its neighbours: generated JSON, no route, no restart.
+    { href: "/dashboard/pipelines.html", label: "Pipelines",
+      match: ["/dashboard/pipelines.html", "/pipelines"] },
     { href: "/system", label: "System",
       match: ["/system", "/dashboard/system.html"] },
     { sep: true },

@@ -132,6 +132,13 @@ REM at 07:30 and not before. Exit code deliberately not captured: a reporting st
 REM must never turn a good daily run red.
 echo --- analysis index --- >> "%LOGFILE%"
 node "%PROJ%\tasks\analysis_index.cjs" >> "%LOGFILE%" 2>&1
+
+REM Every pipeline stage, and whether anything reads what it writes. Runs LAST so it
+REM sees the artifacts every step above has just produced - an audit that ran first would
+REM grade yesterday's run and quietly report it as today's.
+REM Exit code not captured: a reporting step must never turn a good daily run red.
+echo --- pipeline index --- >> "%LOGFILE%"
+node "%PROJ%\tasks\pipeline_index.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
 REM ── Next-candle read, for the TradingView plan panel ──────────────────────────
