@@ -648,7 +648,13 @@ async function loadPlan() {
 
 tick();
 setInterval(tick, 1000);
-loadPlan();
+/* freshness.js is deferred, so it has not run yet when the parser reaches this
+   line. Without the guard the first paint renders every age as unknown. */
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", loadPlan);
+} else {
+  loadPlan();
+}
 setInterval(loadPlan, REFRESH_MS);
 </script>
 </body>

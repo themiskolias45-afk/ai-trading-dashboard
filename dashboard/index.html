@@ -865,9 +865,11 @@
       .chart-header { flex-wrap:wrap; gap:8px; }
       .tf-btns { flex-wrap:wrap; }
 
-      /* Any table wide enough to need it scrolls in its own box. The economic calendar
-         already had this wrapper; the levels tables did not. */
-      .cal-table, .lvl-table { font-size:.68rem; }
+      /* Any table wide enough to need it scrolls in its own box. This used to read
+         ".cal-table, .lvl-table", and .lvl-table matches nothing on this page: the
+         Levels panel is built from divs and a grid, never a table. A selector for an
+         element that does not exist reads as a mobile fix that is in place. */
+      .cal-table { font-size:.68rem; }
     }
   </style>
   <link rel="stylesheet" href="/dashboard/theme.css">
@@ -3290,6 +3292,19 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
+/* The one place absence is separated from zero. Number(null) is 0 and Number("")
+   is 0, and Number.isFinite(0) is TRUE — so the natural guard
+   `Number.isFinite(Number(v)) ? Number(v).toFixed(1) : "—"` renders a MISSING
+   RSI as "RSI 0.0" and a missing shadow result as "0.000R/ep": a precise-looking
+   measurement that was never taken. Only `undefined` fails that guard, which is
+   why it reads as correct until an API returns an explicit null.
+   Returns null for absent — callers pick their own fallback text. */
+function seNum(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 // Green is reserved for claims that are genuinely established. A candidate that
 // has not survived a walk-forward must not look the same as gate 70.
 const CLAIM_TONE = {
@@ -3942,7 +3957,7 @@ async function runAIBrain() {
     status.textContent=`3 brains done in ${elapsed}s`;
     const cards=[{k:"btc",icon:"₿",lbl:"BTC AI Brain",c:"#f7931a"},{k:"gold",icon:"🥇",lbl:"GOLD AI Brain",c:"#eab308"},{k:"spx",icon:"📈",lbl:"SPY AI Brain",c:"#3b82f6"}];
     body.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">`+cards.map(x=>`<div style="background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:12px"><div style="font-size:.68rem;color:${x.c};font-weight:700;margin-bottom:8px">${x.icon} ${x.lbl}</div><div style="font-size:.72rem;color:var(--text);line-height:1.6">${d[x.k]?mdToHtml(d[x.k]):'<span style="color:var(--muted)">No analysis</span>'}</div></div>`).join("")+`</div>`;
-  } catch(e) { status.textContent="Error"; body.innerHTML=`<div style="color:var(--red);font-size:.78rem">AI Brain error: ${e.message}</div>`; }
+  } catch(e) { status.textContent="Error"; body.innerHTML=`<div style="color:var(--red);font-size:.78rem">AI Brain error: ${escapeHtml(e.message)}</div>`; }
 }
 
 // ── Quick prompts ────────────────────────────────────────────
@@ -3986,7 +4001,7 @@ async function runBacktest() {
     const d=await getJson(`/backtest?years=${years}`);
     status.textContent=`Last run: ${new Date(d.runAt).toLocaleString()}`;
     renderBacktest(d);
-  } catch(e) { status.textContent=""; body.innerHTML=`<div style="color:var(--red);font-size:.78rem">Backtest failed: ${e.message}</div>`; }
+  } catch(e) { status.textContent=""; body.innerHTML=`<div style="color:var(--red);font-size:.78rem">Backtest failed: ${escapeHtml(e.message)}</div>`; }
 }
 
 function renderBacktest(d) {
@@ -4981,7 +4996,7 @@ async function loadFeedTab() {
         <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Max Risk/Trade</span><span>${risk.max_risk_pct != null ? risk.max_risk_pct+'%' : '—'}</span></div>
         <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Daily Loss Limit</span><span>${risk.daily_loss_pct != null ? risk.daily_loss_pct+'%' : '—'}</span></div>
         <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">News Block</span><span style="color:${risk.news_blackout?'var(--red)':'var(--muted)'}">${risk.news_blackout?'ACTIVE':'OFF'}</span></div>
-        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Reason</span><span style="font-size:.7rem;color:var(--muted)">${risk.reason||'OK'}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Reason</span><span style="font-size:.7rem;color:var(--muted)">${escapeHtml(risk.reason||'OK')}</span></div>
       `;
     }
 
@@ -5321,8 +5336,11 @@ async function saveStrategySettings() {
       const was = _strategySaved[key], now = body[key];
       // Compare numerically where the form field is a number, so 0.02 and "0.02"
       // and 0.020 are one value rather than three spurious changes.
-      const same = (typeof now === "number" && Number.isFinite(Number(was)))
-        ? Number(was) === now
+      // seNum keeps ABSENT out of the numeric branch: a saved null against a new 0
+      // compared equal and the change never appeared in the confirm dialog.
+      const wasNum = seNum(was);
+      const same = (typeof now === "number" && wasNum !== null)
+        ? wasNum === now
         : String(was) === String(now);
       if (!same) changes.push({ key, was, now });
     }
@@ -6382,7 +6400,8 @@ function ladderAlignment(a) {
     const key = pair[0], label = pair[1];
     const sig = legs[key] || "—";
     const cls = sig === "BUY" ? "buy" : sig === "SELL" ? "sell" : "wait";
-    const rsi = Number.isFinite(Number(rsiOf[key])) ? Number(rsiOf[key]).toFixed(1) : "—";
+    const rsiVal = seNum(rsiOf[key]);
+    const rsi = rsiVal === null ? "—" : rsiVal.toFixed(1);
     return '<div class="lad-leg ' + cls + '" title="' + escapeHtml(String(trendOf[key] || "")) + '">'
       + '<span class="tf">' + label + '</span><b>' + escapeHtml(sig) + '</b>RSI ' + rsi + "</div>";
   });
@@ -6433,7 +6452,8 @@ function ladderRecord(a) {
   }
   if (rec.shadow) {
     const S = rec.shadow;
-    const rPer = Number.isFinite(Number(S.rPerEpisode)) ? Number(S.rPerEpisode).toFixed(3) + "R/ep" : "R unknown";
+    const rPerVal = seNum(S.rPerEpisode);
+    const rPer = rPerVal === null ? "R unknown" : rPerVal.toFixed(3) + "R/ep";
     out.push("shadow " + S.episodes + " ep, " + Math.round(Number(S.winRate) || 0) + "% win, " + rPer
       + (S.enoughForReading === false ? ' <span class="thin">— below the reading floor</span>' : "")
       + "<br><span class=\"lbl\">paper episodes from rejections — a screen, not a jury</span>");
@@ -6470,8 +6490,8 @@ function ladderRows(a) {
 }
 
 function fmtLevel(v) {
-  if (!Number.isFinite(Number(v))) return '—';
-  const n = Number(v);
+  const n = seNum(v);
+  if (n === null) return '—';
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 

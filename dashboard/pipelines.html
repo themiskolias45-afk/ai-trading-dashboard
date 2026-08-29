@@ -87,7 +87,9 @@ main { max-width: 1120px; margin: 0 auto; padding: 18px 22px 72px; }
    failure it exists to catch, since the VPS is where the unscored ledgers were. */
 .peer-badge { margin-left: auto; font-size: .62rem; color: var(--muted-dim); white-space: nowrap; }
 .peer-badge .lbl { font-family: var(--mono); letter-spacing: .06em; text-transform: uppercase; font-size: .55rem; }
-.fleet-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+/* The card whose PEER reports a different level. The banner says how many differ;
+   this says which one, on the card itself. !important because .pipe.ok/.amber/.red
+   already set the left border and this must win over all three. */
 .disagree { border-left-color: var(--yellow) !important; }
 footer { margin-top: 36px; padding-top: 15px; border-top: 1px solid var(--border); font-size: .7rem; color: var(--muted-dim); line-height: 1.7; }
 footer a, main a { color: var(--accent); }
@@ -155,9 +157,17 @@ function renderQuality(q) {
   const host = document.getElementById("quality");
   if (!host) return;
   if (!q || !q.available) { host.innerHTML = ""; return; }
+  /* A dead check reports clean, which is why the self-test is shown BESIDE the
+     count and not instead of it. raw-interpolation was dead from the day it was
+     written and reported every page clean for its whole life. */
+  const st = q.selfTest;
+  const proof = !st ? ""
+    : st.allChecksFire
+      ? " All " + esc(st.fired.length) + " checks verified against a canary page carrying each defect."
+      : " <b>SELF-TEST FAILED — " + esc(st.dead.join(", ")) + " cannot fire, so this count is not trustworthy.</b>";
   if (!q.totalFindings) {
-    host.innerHTML = '<div class="banner b-ok"><strong>Page quality: clean</strong>'
-      + esc(q.pagesChecked) + " page(s) checked, no findings.</div>";
+    host.innerHTML = '<div class="banner ' + (st && !st.allChecksFire ? "b-warn" : "b-ok") + '"><strong>Page quality: clean</strong>'
+      + esc(q.pagesChecked) + " page(s) checked, no findings." + proof + "</div>";
     return;
   }
   const rows = (q.pages || []).slice(0, 8).map(p =>
@@ -168,7 +178,7 @@ function renderQuality(q) {
     + esc(q.totalFindings) + " open finding(s) across " + esc((q.pages || []).length) + " page(s)</strong>"
     + rows
     + "<br><span style=\"color:var(--muted-dim)\">Proposals only — this audit never edits a page. "
-    + esc(q.clean ? q.clean.length : 0) + " page(s) clean.</span></div>";
+    + esc(q.clean ? q.clean.length : 0) + " page(s) clean." + proof + "</span></div>";
 }
 
 function renderFleet(d, peer) {
@@ -302,7 +312,11 @@ function renderPipes(d) {
       '<div class="finding ' + esc(f.level) + '"><div class="sev"></div>'
       + '<div class="finding-text"><b>' + esc(f.stage) + '</b> — ' + esc(f.detail) + "</div></div>").join("");
     const pill = p.level === "OK" ? "p-ok" : p.level === "AMBER" ? "p-warn" : "p-bad";
-    return '<div class="card pipe ' + esc(p.level.toLowerCase()) + '">'
+    // A pipeline the peer grades differently is the case that matters most: the VPS
+    // is the box that trades, so a stage healthy here and broken there costs evidence
+    // on the machine producing the fills.
+    const peerDiffers = PEER_BY_ID && PEER_BY_ID[p.id] && PEER_BY_ID[p.id].level !== p.level;
+    return '<div class="card pipe ' + esc(p.level.toLowerCase()) + (peerDiffers ? ' disagree' : '') + '">'
       + '<div class="pipe-head"><div class="pipe-title">' + esc(p.label) + "</div>"
       + '<span class="pill ' + pill + '">' + esc(p.level) + "</span>"
       + peerBadge(p) + "</div>"

@@ -1080,7 +1080,13 @@ async function load() {
   document.getElementById("stamp").textContent = "updated " + new Date().toLocaleTimeString();
 }
 
-load();
+/* freshness.js is deferred, so it has not run yet when the parser reaches this
+   line. Without the guard the first paint renders every age as unknown. */
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", load);
+} else {
+  load();
+}
 setInterval(load, REFRESH_MS);
 </script>
 </body>

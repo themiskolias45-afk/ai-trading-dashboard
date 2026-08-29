@@ -575,7 +575,11 @@ body.focus-mode .focus-exit{display:block}
                               scrollbar-width:none; -webkit-overflow-scrolling:touch; }
       header > *:last-child::-webkit-scrollbar { display:none; }
       .hbtn { flex-shrink:0; }
-      .sidebar, .main-col, .chat-col { min-width:0; }
+      /* A grid/flex child defaults to min-width:auto and refuses to shrink below its
+         content, so one long line pushes the whole layout wider than the screen. This
+         used to name .main-col and .chat-col, neither of which exists here — the
+         columns are .sidebar and .chat, so the fix was inert on every phone. */
+      .sidebar, .chat { min-width:0; }
     }
   </style>
   <link rel="stylesheet" href="/dashboard/theme.css">
