@@ -73,9 +73,12 @@ def query(question: str, top_k: int = 5, sources: list[str] | None = None) -> li
         except Exception:
             continue
 
+        count = col.count()
+        if count == 0:
+            continue
         res = col.query(
             query_embeddings=[embedding],
-            n_results=min(top_k, col.count()),
+            n_results=min(top_k, count),
             include=["documents", "metadatas", "distances"],
         )
 
