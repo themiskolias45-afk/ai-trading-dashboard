@@ -277,7 +277,41 @@ function taskResultRemedy(code, taskName) {
   return (byTask && byTask[code]) || null;
 }
 
-function describeTaskResult(code, taskName) {
+/**
+ * Has the sign-in that caused an exit-3 SINCE been restored?
+ *
+ * A scheduled task's last result is a fact about the past. SmartEntryDailyCheck
+ * failed at 07:30 on 2026-08-29 because the CLI could not authenticate; the user
+ * signed in at 16:01 and the queued brief drained successfully at 16:05 — and the
+ * doctor still reported "[RED] a human must run claude and sign in", because the
+ * task will not run again until 07:30 tomorrow. A RED that outlives its fix by up
+ * to 24 hours teaches you to skim past the one that matters.
+ *
+ * dashboard/agent-auth.json is written by tasks/agent_auth_check.cjs and carries
+ * the LIVE state. Read here so an exit-3 older than a healthy auth reading is
+ * reported as "since restored", not as an outstanding action.
+ *
+ * This NEVER clears the failure — taskResultIsFailure does not consult it, and the
+ * row stays a failure until a real run proves otherwise. It only corrects what the
+ * row SAYS to do about it. Absence of the artifact changes nothing.
+ */
+function authRestoredSince(lastRunTime) {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, "..", "dashboard", "agent-auth.json"), "utf8");
+    const auth = JSON.parse(raw);
+    if (!auth || auth.state !== "OK" || !auth.generatedAt) return null;
+    const checkedAt = Date.parse(auth.generatedAt);
+    const ranAt = lastRunTime ? Date.parse(lastRunTime) : NaN;
+    // Only meaningful when the healthy reading is NEWER than the failing run.
+    if (!Number.isFinite(checkedAt) || !Number.isFinite(ranAt) || checkedAt <= ranAt) return null;
+    return auth;
+  } catch (e) {
+    // No artifact, unreadable, or never run here — say nothing rather than guess.
+    return null;
+  }
+}
+
+function describeTaskResult(code, taskName, lastRunTime) {
   if (code === null || code === undefined) return "unknown";
   const expected = expectedOutcome(taskName, code);
   if (expected) return `${code} (${expected})`;
@@ -286,7 +320,18 @@ function describeTaskResult(code, taskName) {
   // consulted by taskResultIsFailure — naming a fault must never clear it.
   const byTask = TASK_RESULT_REASONS.get(normaliseTaskName(taskName));
   const reason = byTask && byTask[code];
-  if (reason) return `${code} (${reason})`;
+  if (reason) {
+    const restored = code === 3 ? authRestoredSince(lastRunTime) : null;
+    if (restored) {
+      return `${code} (that run could not authenticate, but THE SIGN-IN HAS SINCE BEEN `
+        + `RESTORED — auth verified healthy at ${restored.generatedAt}`
+        + (restored.daysUntilReauth !== null && restored.daysUntilReauth !== undefined
+            ? `, ${restored.daysUntilReauth}d until the next re-auth` : "")
+        + `. The queued brief resumes on the next drain and the next scheduled run will `
+        + `clear this row — no action needed unless it fails again)`;
+    }
+    return `${code} (${reason})`;
+  }
   return TASK_RESULT_MEANING[code] ? `${code} (${TASK_RESULT_MEANING[code]})` : String(code);
 }
 
@@ -382,7 +427,7 @@ function summariseUnappraised(scheduledTasks, linkedTaskNames) {
       state: task.status || null,
       lastRun: task.lastRun || null,
       lastResult: task.lastResult ?? null,
-      resultMeaning: describeTaskResult(task.lastResult, task.name),
+      resultMeaning: describeTaskResult(task.lastResult, task.name, task.lastRun),
       failing: taskResultIsFailure(task.lastResult, task.status, task.name),
       disabled: String(task.status || "").toLowerCase() === "disabled",
       runs: task.taskToRun || null,
@@ -422,7 +467,7 @@ function build(options = {}) {
               lastRun: linkedTask.lastRun || null,
               nextRun: linkedTask.nextRun || null,
               lastResult: linkedTask.lastResult ?? null,
-              resultMeaning: describeTaskResult(linkedTask.lastResult, linkedTask.name),
+              resultMeaning: describeTaskResult(linkedTask.lastResult, linkedTask.name, linkedTask.lastRun),
               failing: taskResultIsFailure(linkedTask.lastResult, linkedTask.status, linkedTask.name),
               runs: linkedTask.taskToRun || null,
             }
