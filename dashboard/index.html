@@ -738,6 +738,24 @@
     .pop-gap   { font-size:1.35rem; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.25; }
     .pop-card.ready .pop-gap { color:var(--green); }
     .pop-legs  { font-size:.63rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+    /* Gap-to-fire, drawn. Three cards reading "30pt short", "5pt short" and
+       "13pt short" rank the day, but only if you subtract them yourself. Same
+       track-and-notch the daily-plan cards use, so the two surfaces teach one
+       vocabulary rather than two. No gate means NO TRACK — a bar with no notch
+       would imply a bar that has already been met. */
+    .pop-track { position:relative; height:5px; border-radius:3px; background:var(--surface3); margin:7px 0 3px; }
+    .pop-fill  { position:absolute; top:0; bottom:0; left:0; border-radius:3px; background:var(--muted); }
+    .pop-fill.near  { background:var(--yellow); }
+    .pop-fill.ready { background:var(--green); }
+    .pop-notch { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--text); }
+    .pop-scale { position:relative; height:10px; font-size:.52rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .pop-scale .gate-at { position:absolute; top:0; transform:translateX(-50%); white-space:nowrap; font-weight:700; color:var(--text); }
+    /* Legs carry colour AND the word, never colour alone. */
+    .pop-leg { display:inline-block; margin-right:7px; }
+    .pop-leg b { font-weight:700; }
+    .pop-leg.buy  b { color:var(--green); }
+    .pop-leg.sell b { color:var(--red); }
+    .pop-leg.wait b { color:var(--muted); }
     .pop-setup { font-size:.63rem; color:var(--muted); margin-top:3px; }
 
     .pop-sec { font-size:.62rem; text-transform:uppercase; letter-spacing:.12em; color:var(--muted);
@@ -6201,17 +6219,42 @@ function popAgeText(mins) {
   return Math.floor(mins / 1440) + 'd ago';
 }
 
-function popAssetCard(a) {
+function popAssetCard(a, gate) {
   if (a.unavailable) {
     return '<div class="pop-card"><div class="pop-asset">' + escapeHtml(a.key.toUpperCase()) + '</div>'
       + '<div class="pop-gap" style="color:var(--muted)">?</div>'
       + '<div class="pop-legs">signal unavailable</div></div>';
   }
-  const legs = ['D1=' + (a.legs.d1 || '?'), '4H=' + (a.legs.h4 || '?'), '1H=' + (a.legs.h1 || '?')].join('  ');
+  // Each leg coloured by its own signal, with the word kept — colour alone is
+  // invisible to about one man in twelve, and this is the row that says which
+  // timeframe is holding the setup back.
+  const legHtml = [['D1', a.legs.d1], ['4H', a.legs.h4], ['1H', a.legs.h1]].map(function (pair) {
+    const sig = pair[1] || '?';
+    const cls = sig === 'BUY' ? 'buy' : sig === 'SELL' ? 'sell' : 'wait';
+    return '<span class="pop-leg ' + cls + '">' + pair[0] + '=<b>' + escapeHtml(sig) + '</b></span>';
+  }).join('');
+
+  // The track is 0-100 confidence with the notch at the LIVE gate. Absent gate or
+  // absent confidence means no track at all rather than a bar drawn against zero:
+  // Number(null) is 0 and every confidence clears it, which would paint every asset
+  // as met. Same guard as the chart gate chip and the daily-plan cards.
+  const conf = Number.isFinite(Number(a.confidence)) ? Number(a.confidence) : null;
+  const g = (gate === null || gate === undefined || gate === '' || !Number.isFinite(Number(gate)))
+    ? null : Number(gate);
+  let track = '';
+  if (conf !== null && g !== null) {
+    const fillCls = a.ready ? 'ready' : (g - conf) <= 10 ? 'near' : '';
+    track = '<div class="pop-track">'
+      + '<div class="pop-fill ' + fillCls + '" style="width:' + Math.max(0, Math.min(100, conf)) + '%"></div>'
+      + '<div class="pop-notch" style="left:' + Math.max(0, Math.min(100, g)) + '%"></div></div>'
+      + '<div class="pop-scale"><span class="gate-at" style="left:' + Math.max(0, Math.min(100, g)) + '%">gate ' + g + '</span></div>';
+  }
+
   return '<div class="pop-card' + (a.ready ? ' ready' : '') + '">'
     + '<div class="pop-asset">' + escapeHtml(a.label) + '</div>'
     + '<div class="pop-gap">' + (a.ready ? 'READY' : a.gap + 'pt short') + '</div>'
-    + '<div class="pop-legs">conf ' + a.confidence + '%  ·  ' + escapeHtml(legs) + '</div>'
+    + track
+    + '<div class="pop-legs">conf ' + a.confidence + '%  ·  ' + legHtml + '</div>'
     + '<div class="pop-setup">' + escapeHtml(a.setup || 'no setup') + ' ('
     + escapeHtml(a.dataSource || '?') + ')</div>'
     + '</div>';
@@ -6255,7 +6298,7 @@ async function loadPreopenPlan() {
     }
 
     out.push('<div class="pop-sec">Distance to fire</div>');
-    out.push('<div class="pop-grid">' + (p.assets || []).map(popAssetCard).join('') + '</div>');
+    out.push('<div class="pop-grid">' + (p.assets || []).map(function (a) { return popAssetCard(a, p.gate); }).join('') + '</div>');
 
     out.push('<div class="pop-sec">The session ahead</div>');
     if (p.sessionEvidence) {
