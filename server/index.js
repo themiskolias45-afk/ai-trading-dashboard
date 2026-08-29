@@ -6318,6 +6318,91 @@ app.get("/api/newsfilter", (_, res) => {
 //  SCHEDULED JOBS
 // ══════════════════════════════════════════════════════════════
 
+// Make sure TODAY has a daily-plan artifact, and generate it if it does not.
+//
+// WHY THIS EXISTS
+// The plan JSON was written by ONE caller: the 06:45 cron. If the box was asleep or
+// the server was down at 06:45, that day's plan was never created and nothing on any
+// board noticed. Measured 2026-08-29: SIX of the last fourteen days had no
+// tasks/daily_plan_*.json at all — 2026-08-16, -17, -20, -21, -23 and -27. A 43% miss
+// rate on the artifact the morning briefing is built from.
+//
+// It was invisible because the coverage audit checks the TASK, not the ARTIFACT. It
+// reads `SmartEntry TV Daily Plan`'s last exit code, which describes the most recent
+// run that HAPPENED and can say nothing about a day on which nothing ran. The same
+// shape as a supervisor's exit code standing in for the service's health.
+//
+// Waking the laptop did not recover it either: morning_ready.ps1 step 3 runs
+// tasks/tv_daily_plan.ps1, which draws the CHART from live /api/signals. That is a
+// different artifact. Nothing regenerated the JSON.
+//
+// So the fix is a catch-up rather than another schedule: one function owns "today has
+// a plan", the 06:45 cron calls it, and the existing 30-minute cron calls it too. A
+// box that wakes at 08:14 or at 14:00 gets its plan on the next tick instead of losing
+// the day. Every extra call is an fs.existsSync that returns before anything is
+// spawned, so the cost on the 30-minute path is one stat.
+//
+// SELF-HEALING, NOT ONE-SHOT: a failed run clears the flag and is retried on the next
+// tick. The predecessor bug this replaces failed silently at 06:45 and then waited a
+// full day for another chance.
+const DAILY_PLAN_TIMEOUT_MS = 60 * 1000;
+let dailyPlanArtifactInFlight = false;
+
+// The SAME date string tv_daily_plan.py names the file with —
+// datetime.now(timezone.utc).strftime("%Y-%m-%d"). Deriving it any other way (local
+// time, or a different formatter) would look for a file the script never writes and
+// regenerate the plan forever.
+function dailyPlanArtifactPath() {
+  const utcDate = new Date().toISOString().slice(0, 10);
+  return path.join(__dirname, "..", "tasks", `daily_plan_${utcDate}.json`);
+}
+
+function ensureDailyPlanArtifact(reason) {
+  const artifactPath = dailyPlanArtifactPath();
+
+  // The 06:45 run passes through here too. It does not need a force flag: at 06:45 the
+  // file for that UTC day does not exist yet, so the check below is already false.
+  if (fs.existsSync(artifactPath)) return;
+
+  // Two overlapping runs would write the same file from two processes. The 30-minute
+  // cron and the 06:45 cron can land within a minute of each other.
+  if (dailyPlanArtifactInFlight) return;
+  dailyPlanArtifactInFlight = true;
+
+  const { execFile } = require("child_process");
+  // Probed, not taken from PATH — see server/python_path.js.
+  const PYTHON_BIN = require("./python_path").pythonBinOrDefault();
+  console.log(`[plan] no artifact for today — generating (${reason})`);
+
+  // env: pythonEnv() — the child used to inherit cp1252 stdout, and this script prints
+  // its warning strings, which begin with U+26A0. It therefore failed on exactly the
+  // days the plan HAD a warning and passed on the quiet ones.
+  execFile(
+    PYTHON_BIN,
+    [path.join(__dirname, "..", "tv_daily_plan.py"), "--no-tv", "--silent"],
+    { cwd: path.join(__dirname, ".."), timeout: DAILY_PLAN_TIMEOUT_MS,
+      env: require("./python_path").pythonEnv() },
+    (err, out, stderr) => {
+      dailyPlanArtifactInFlight = false;
+      if (err) {
+        // Report the interpreter's own last line, not just execFile's summary. "Command
+        // failed" names nothing; the traceback's final line names the fault.
+        const detail = (stderr || "").trim().split("\n").pop() || err.message;
+        console.error(`[plan] daily plan generation failed (${reason}):`, detail);
+        return;
+      }
+      // Say whether the ARTIFACT landed, not merely whether the process exited 0. The
+      // script writes the file before it prints its report, so a zero exit and a
+      // missing file are different failures and must not read the same.
+      if (fs.existsSync(artifactPath)) {
+        console.log(`[plan] daily plan written: ${path.basename(artifactPath)}`);
+      } else {
+        console.error(`[plan] script exited 0 but ${path.basename(artifactPath)} is still absent`);
+      }
+    }
+  );
+}
+
 // 6:45 AM — refresh signals + run full morning plan
 cron.schedule("45 6 * * *", async () => {
   await fetchPrices();
@@ -6326,18 +6411,7 @@ cron.schedule("45 6 * * *", async () => {
   await fetchFlow();
   generateDailyPlan();
   console.log("[cron] 6:45 AM — plan ready");
-  // Run Python daily plan generator in background
-  const { execFile } = require("child_process");
-  // Probed, not taken from PATH — see server/python_path.js.
-  const PYTHON_BIN = require("./python_path").pythonBinOrDefault();
-  // env: pythonEnv() -- the child used to inherit cp1252 stdout, and this script
-  // prints its warning strings, which begin with U+26A0. It therefore failed on
-  // exactly the days the plan HAD a warning and passed on the quiet ones.
-  execFile(PYTHON_BIN, [require("path").join(__dirname, "..", "tv_daily_plan.py"), "--no-tv", "--silent"],
-    { cwd: require("path").join(__dirname, ".."), timeout: 60000,
-      env: require("./python_path").pythonEnv() },
-    (err, out) => { if (err) console.error("[cron] daily plan error:", err.message); else console.log("[cron] daily plan done:", out.trim().slice(0, 100)); }
-  );
+  ensureDailyPlanArtifact("06:45 cron");
 });
 
 // 7:00 AM — send morning plan to Telegram
@@ -6352,6 +6426,8 @@ cron.schedule("*/30 * * * *", async () => {
   await fetchPrices();
   await queueSignalRefresh();
   generateDailyPlan();
+  // Catch-up. Costs one fs.existsSync on the days the 06:45 run already succeeded.
+  ensureDailyPlanArtifact("30-min catch-up");
   // Alert when a signal is TRADEABLE - which is not the same as "STRONG".
   //
   // This block used to require `strength === "STRONG"` and to loop over ["btc","gold"]
@@ -10344,6 +10420,10 @@ app.listen(PORT, async () => {
   await fetchEconomicCalendar();
   await fetchFearGreed();
   generateDailyPlan();
+  // On boot as well as on the 30-minute tick. A laptop that wakes at 08:14 has already
+  // missed 06:45, and waiting up to another 30 minutes for the artifact is the same
+  // lost morning in miniature. Returns immediately when today's plan already exists.
+  ensureDailyPlanArtifact("server boot");
   ensureTelegramPolling();
   if (ANTHROPIC_API_KEY) console.log("[ai] Claude AI enabled ✅");
   else console.log("[ai] No ANTHROPIC_API_KEY — using rule-based analysis");

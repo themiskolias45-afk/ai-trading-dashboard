@@ -328,6 +328,54 @@ if (-not (Test-Path $barFile)) {
     }
 }
 
+# ── 5c. The PLAN ARTIFACTS, not the runner that makes them ───────────────────
+#
+# ADDED 2026-08-29. Section 1 above reads `SmartEntry TV Daily Plan`'s last exit code
+# and reported it GREEN while SIX of the previous fourteen days had no daily plan at
+# all (2026-08-16, -17, -20, -21, -23, -27 -- a 43% miss rate). That is not a bug in
+# section 1; it is what an exit code IS. It describes the most recent run that
+# HAPPENED and is structurally incapable of saying anything about a day on which
+# nothing ran, which is exactly what a sleeping laptop produces.
+#
+# So this checks the ARTIFACT. Same reason the bridge is checked by its heartbeat and
+# not by a process listing.
+#
+# TODAY absent is the only RED, and it is one a reader can actually clear: the server
+# regenerates a missing plan on boot and on every 30-minute tick, so if it is still
+# absent the generator itself is failing. The historical gaps are INFO forever -- a
+# plan cannot be generated for a day whose market has moved on, and an alarm that can
+# never clear teaches the reader to skim past the one that matters.
+$planCoverage = $null
+try {
+    $planJson = & node (Join-Path $Proj 'tasks\plan_coverage.cjs') --json 2>$null
+    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 1) { $planCoverage = $planJson | ConvertFrom-Json }
+} catch { $planCoverage = $null }
+
+if ($null -eq $planCoverage) {
+    Add-Check 'learning' 'plan coverage' 'UNKNOWN' 'tasks\plan_coverage.cjs did not return usable JSON'
+} else {
+    if ($planCoverage.todayPresent) {
+        Add-Check 'learning' 'daily plan today' 'GREEN' "$($planCoverage.todayDate) is on disk"
+    } else {
+        Add-Check 'learning' 'daily plan today' 'RED' "no plan for $($planCoverage.todayDate) - the server catch-up is not producing one"
+    }
+
+    $missCount = @($planCoverage.missing).Count
+    if ($missCount -eq 0) {
+        Add-Check 'learning' 'daily plan history' 'GREEN' "$($planCoverage.coveragePct)% over the last $($planCoverage.windowDays) days - no gaps"
+    } else {
+        Add-Check 'learning' 'daily plan history' 'INFO' "$($planCoverage.coveragePct)% over $($planCoverage.windowDays) days - $missCount missing (history, not recoverable): $(@($planCoverage.missing) -join ', ')"
+    }
+
+    if ($null -eq $planCoverage.weekly.newest) {
+        Add-Check 'learning' 'weekly review' 'AMBER' 'no tasks\logs\weekly_YYYYMMDD.txt has ever been written on this box'
+    } elseif ($planCoverage.weekly.overdue) {
+        Add-Check 'learning' 'weekly review' 'RED' "newest is $($planCoverage.weekly.newest), $($planCoverage.weekly.ageDays)d ago - a full cycle has been skipped"
+    } else {
+        Add-Check 'learning' 'weekly review' 'GREEN' "$($planCoverage.weekly.newest), $($planCoverage.weekly.ageDays)d ago - on cadence"
+    }
+}
+
 # ── 6. The OTHER box ──────────────────────────────────────────────────────────
 #
 # Only meaningful on the box that RECEIVES heartbeats. The laptop pushes one every 5
