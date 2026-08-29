@@ -10627,12 +10627,39 @@ app.listen(PORT, async () => {
   const dbPath = process.env.DB_PATH || path.join(__dirname, "smartentry.db");
   db.init(dbPath);
 
-  await fetchPrices();
+  /* SENTIMENT IS FETCHED BEFORE THE FIRST SIGNAL CYCLE, NOT AFTER IT.
+   *
+   * This used to read `fetchPrices(); queueSignalRefresh(); ...; fetchFearGreed();`
+   * so the first cycle after EVERY restart scored with sentimentCache at its
+   * hardcoded default of 50 — a value where neither the >= 60 nor the <= 40
+   * branch at the Fear & Greed term fires. Every BUY in that cycle came out
+   * THREE POINTS LOW, and in the extreme bands the miss is 6 or 7.
+   *
+   * Measured on 2026-08-29, and it is why the two boxes disagreed on Gold after
+   * a restart: identical inputs — price 4454.31, MACD +7.11, ADX 34.9, swing low
+   * 4311.01 — and the laptop's boot cycle simply lacked the reason
+   * "Fear & Greed 68 (Greed) — risk appetite supports BUY". 62 here, 65 there.
+   *
+   * With the gate at 70, a setup genuinely at 70-72 reads 67-69 on the first
+   * cycle after a restart and does not fire. That is a good signal suppressed by
+   * cache ordering rather than by any gate, which is the one thing that must
+   * never happen.
+   *
+   * Concurrent, not sequential: both are independent network calls and
+   * fetchPrices is already the slower, so this costs no extra boot time.
+   * allSettled because a boot must not be taken down by a third-party API —
+   * though both functions already swallow their own errors and leave their
+   * defaults in place, so a dead sentiment API just restores today's behaviour.
+   *
+   * priceCache is the engine's other boot-filled input (VIX, DXY) and was
+   * already fetched first. newsCache, congressCache and flowCache are NOT read
+   * by the signal engine — checked, not assumed — so they stay where they are.
+   */
+  await Promise.allSettled([fetchPrices(), fetchFearGreed()]);
   await queueSignalRefresh();
   await fetchCongress();
   await fetchFlow();
   await fetchEconomicCalendar();
-  await fetchFearGreed();
   generateDailyPlan();
   // On boot as well as on the 30-minute tick. A laptop that wakes at 08:14 has already
   // missed 06:45, and waiting up to another 30 minutes for the artifact is the same
