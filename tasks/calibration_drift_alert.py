@@ -89,33 +89,52 @@ def main():
 
     learning = _fetch("/api/learning")
     if "_error" in learning:
-        print(f"  Server offline: {learning['_error']} — skipping.")
+        print(f"  Server offline: {learning['_error']} - skipping.")
         return 1
 
     shadow = _load_shadow()
-    live_setups = learning.get("setups", {}) if isinstance(learning, dict) else {}
+    # /api/learning returns the per-setup table under "setupStats". This read
+    # "setups" — a key that route has never emitted — so live_setups was {} on
+    # every single run, the loop below never executed once, and the check printed
+    # "Compared 0 setup(s). Alerts: 0" nightly. That output is indistinguishable
+    # from a healthy system with no drift, which is why it survived this long.
+    # "setups" is kept as a fallback in case an older payload is ever replayed.
+    live_setups = {}
+    if isinstance(learning, dict):
+        live_setups = learning.get("setupStats") or learning.get("setups") or {}
 
     alerts   = []
     drifts   = []
     compared = 0
+    # The funnel, so "compared 0" can never again mean "nothing to report".
+    # Each counter is a DIFFERENT reason, and they are not interchangeable:
+    # too few fills is arithmetic and fixes itself with time; no shadow row is a
+    # pipeline gap and does not.
+    skipped_thin_live   = 0
+    skipped_no_shadow   = 0
+    skipped_thin_shadow = 0
 
     for setup, live in live_setups.items():
         w = live.get("wins", 0)
         l = live.get("losses", 0)
         total = w + l
         if total < 5:
+            skipped_thin_live += 1
             continue
 
         live_wr = round(w / total * 100, 1)
 
         if setup not in shadow:
+            skipped_no_shadow += 1
             continue
         shadow_data = shadow[setup]
         if not shadow_data.get("enoughForReading"):
+            skipped_thin_shadow += 1
             continue
 
         shadow_wr = shadow_data.get("winRate", None)
         if shadow_wr is None:
+            skipped_thin_shadow += 1
             continue
 
         drift = abs(live_wr - shadow_wr)
@@ -129,11 +148,25 @@ def main():
 
         if drift >= threshold:
             alerts.append(f"{setup}: live {live_wr}% vs shadow {shadow_wr}% = {drift:.1f}pp drift")
-            print(f"  ⚠ DRIFT: {setup} live={live_wr}% shadow={shadow_wr}% drift={drift:.1f}pp")
+            print(f"  DRIFT: {setup} live={live_wr}% shadow={shadow_wr}% drift={drift:.1f}pp")
         else:
-            print(f"  ✓ OK:    {setup} live={live_wr}% shadow={shadow_wr}% drift={drift:.1f}pp")
+            print(f"  ok:    {setup} live={live_wr}% shadow={shadow_wr}% drift={drift:.1f}pp")
 
     print(f"\n  Compared {compared} setup(s). Alerts: {len(alerts)}")
+    if compared == 0:
+        # Say WHY nothing was compared. A check that reports nothing and a check
+        # that cannot run print the same line otherwise.
+        if not live_setups:
+            print("    nothing to compare: /api/learning returned no per-setup table "
+                  "(looked for setupStats, then setups)")
+        else:
+            print(f"    nothing to compare, out of {len(live_setups)} live setup(s): "
+                  f"{skipped_thin_live} under the 5-fill floor, "
+                  f"{skipped_no_shadow} with no shadow row, "
+                  f"{skipped_thin_shadow} whose shadow row is below its reading floor")
+            if skipped_thin_live == len(live_setups):
+                print("    that is ARITHMETIC, not a fault - this engine fills about once "
+                      "every four days, so the floor is reached by waiting")
 
     if alerts:
         title   = f"CALIBRATION DRIFT: {len(alerts)} setup(s)"
