@@ -146,6 +146,19 @@ echo --- page quality --- >> "%LOGFILE%"
 node "%PROJ%\tasks\page_quality_audit.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
+REM -- content quality: the panel that renders perfectly and says nothing ------
+REM page_quality_audit reads the MARKUP and cannot tell a healthy panel from one
+REM whose data has been null since the third of the month - both are the same HTML.
+REM /daily-plan showed a price for every asset and every one was null for 26 days.
+REM This reads what the pages actually fetch and reports unreachable, empty,
+REM mostly-null, stale, frozen and never-populated panels.
+REM GET ONLY, with a deny list for the routes that ACT on GET - /api/backtest runs
+REM a 5-year backtest, /api/doctor SSHes to the peer, /api/chat spends tokens. That
+REM list is self-tested every run and the job REFUSES to probe if it leaks.
+REM Always exits 0 - a content finding must never fail a daily run.
+echo --- content quality --- >> "%LOGFILE%"
+node "%PROJ%\tasks\content_quality_audit.cjs" >> "%LOGFILE%" 2>&1
+
 REM ── Do the doctor's own checks still fire? ────────────────────────────────────
 REM Identical to the block in tasks\auto_daily.bat, and it matters MORE here: this is
 REM the box that trades continuously, and every expensive failure on it has been a

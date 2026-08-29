@@ -1,0 +1,742 @@
+{
+  "generatedAt": "2026-08-29T16:43:43.107Z",
+  "box": "Themis",
+  "available": true,
+  "session": {
+    "authenticated": true,
+    "reason": null
+  },
+  "endpointsDiscovered": 56,
+  "probed": 46,
+  "skipped": 10,
+  "red": 0,
+  "amber": 0,
+  "ok": 46,
+  "totalFindings": 0,
+  "findings": [],
+  "panels": [
+    {
+      "endpoint": "/api/ai-employees",
+      "pages": [
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "294 value(s)",
+      "bytes": 14319,
+      "hash": "8101c8a562963f8f"
+    },
+    {
+      "endpoint": "/api/ai-registry",
+      "pages": [
+        "index.html",
+        "jarvis.html",
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "392 value(s), 3 empty field(s)",
+      "bytes": 20143,
+      "hash": "b7dd56d673ff3be5"
+    },
+    {
+      "endpoint": "/api/ai-work",
+      "pages": [
+        "index.html",
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "809 value(s)",
+      "bytes": 35253,
+      "hash": "4b48b82c0299d179"
+    },
+    {
+      "endpoint": "/api/alerts",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "5 value(s)",
+      "bytes": 1682,
+      "hash": "ad11cf61efb85806"
+    },
+    {
+      "endpoint": "/api/analysis",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "114 value(s)",
+      "bytes": 26799,
+      "hash": "d0f23849eab23970"
+    },
+    {
+      "endpoint": "/api/backtest?years=5",
+      "pages": [
+        "system.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "GET runs a 5-year backtest when its cache is >12h old",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/broker-specs",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "48 value(s)",
+      "bytes": 1379,
+      "hash": "5e6c45f2cdc404bb"
+    },
+    {
+      "endpoint": "/api/calendar",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "617 value(s), 2 empty field(s)",
+      "bytes": 13580,
+      "hash": "75eb4f14c55fe6b7"
+    },
+    {
+      "endpoint": "/api/chat",
+      "pages": [
+        "jarvis.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "spends Claude tokens",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/checksystem",
+      "pages": [
+        "index.html",
+        "performance.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "49 value(s), 1 empty field(s)",
+      "bytes": 1150,
+      "hash": "c6202c077f55597f"
+    },
+    {
+      "endpoint": "/api/congress",
+      "pages": [
+        "index.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "GET calls the Unusual Whales API when its cache is empty",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/daily-plan",
+      "pages": [
+        "daily-plan.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "152 value(s), 3 empty field(s)",
+      "bytes": 3666,
+      "hash": "e4a9107bc937b552"
+    },
+    {
+      "endpoint": "/api/deep-plan",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "868 value(s)",
+      "bytes": 33655,
+      "hash": "b8116102e7a07139"
+    },
+    {
+      "endpoint": "/api/doctor",
+      "pages": [
+        "system.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "GET runs the fleet doctor, which SSHes to the peer",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/engineer/status",
+      "pages": [
+        "system.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "requires a run id in the path",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/evidence-board",
+      "pages": [
+        "index.html",
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "277 value(s)",
+      "bytes": 44018,
+      "hash": "05bf63c8f7a7b524"
+    },
+    {
+      "endpoint": "/api/features",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "6 value(s)",
+      "bytes": 136,
+      "hash": "c1545f6010a9e6ab"
+    },
+    {
+      "endpoint": "/api/fleet",
+      "pages": [
+        "architecture.html",
+        "fleet.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "1271 value(s)",
+      "bytes": 73974,
+      "hash": "4ed3478b3c774bd7"
+    },
+    {
+      "endpoint": "/api/fleet-performance",
+      "pages": [
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "148 value(s), 1 empty field(s)",
+      "bytes": 3834,
+      "hash": "d0722743f832d37e"
+    },
+    {
+      "endpoint": "/api/gate-health",
+      "pages": [
+        "architecture.html",
+        "fleet.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "22 value(s)",
+      "bytes": 431,
+      "hash": "2d0663e5cd752a4d"
+    },
+    {
+      "endpoint": "/api/go-live-readiness",
+      "pages": [
+        "performance.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "58 value(s)",
+      "bytes": 2066,
+      "hash": "a1a8647e26f58ebc"
+    },
+    {
+      "endpoint": "/api/growth",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "119 value(s)",
+      "bytes": 1879,
+      "hash": "9c075212fe0e206e"
+    },
+    {
+      "endpoint": "/api/healer",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "29 value(s), 2 empty field(s)",
+      "bytes": 1070,
+      "hash": "9eb474a0dbadb0b2"
+    },
+    {
+      "endpoint": "/api/healer/heal",
+      "pages": [
+        "jarvis.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "forces a heal — it ACTS",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/hermes",
+      "pages": [
+        "jarvis.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "94 value(s), 2 empty field(s)",
+      "bytes": 1710,
+      "hash": "46ed824e6b3f641b"
+    },
+    {
+      "endpoint": "/api/journal?limit=200",
+      "pages": [
+        "architecture.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "230 value(s)",
+      "bytes": 10512,
+      "hash": "dbf6646bbbcf1bc4"
+    },
+    {
+      "endpoint": "/api/journal?limit=50",
+      "pages": [
+        "command.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "230 value(s)",
+      "bytes": 10512,
+      "hash": "dbf6646bbbcf1bc4"
+    },
+    {
+      "endpoint": "/api/journal?limit=500",
+      "pages": [
+        "fleet.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "230 value(s)",
+      "bytes": 10512,
+      "hash": "dbf6646bbbcf1bc4"
+    },
+    {
+      "endpoint": "/api/learning",
+      "pages": [
+        "command.html",
+        "fleet.html",
+        "index.html",
+        "jarvis.html",
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "147 value(s), 1 empty field(s)",
+      "bytes": 3307,
+      "hash": "a09a73bbd71586c8"
+    },
+    {
+      "endpoint": "/api/learning-growth",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "242 value(s)",
+      "bytes": 4397,
+      "hash": "2d30dae72efc2b93"
+    },
+    {
+      "endpoint": "/api/live-vs-replay",
+      "pages": [
+        "performance.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "49 value(s), 1 empty field(s)",
+      "bytes": 1996,
+      "hash": "53cbb6a2fa0ca344"
+    },
+    {
+      "endpoint": "/api/login",
+      "pages": [
+        "login.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "authentication endpoint",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/measured-evidence",
+      "pages": [
+        "strategy.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "479 value(s)",
+      "bytes": 21131,
+      "hash": "0a4efbcb7b5ebddc"
+    },
+    {
+      "endpoint": "/api/measurements",
+      "pages": [
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "146 value(s)",
+      "bytes": 11496,
+      "hash": "2ee9f532b2cacdd3"
+    },
+    {
+      "endpoint": "/api/mt5/control",
+      "pages": [
+        "index.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "controls the bridge — it ACTS",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/mt5/health?account=A",
+      "pages": [
+        "architecture.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "3 value(s)",
+      "bytes": 70,
+      "hash": "64bd6e0c453e3a5c"
+    },
+    {
+      "endpoint": "/api/mt5/positions",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "38 value(s)",
+      "bytes": 643,
+      "hash": "66e5d9e38e1baf3c"
+    },
+    {
+      "endpoint": "/api/near-miss",
+      "pages": [
+        "fleet.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "7 value(s), 1 empty field(s)",
+      "bytes": 565,
+      "hash": "0b7e8a1b78cfb999"
+    },
+    {
+      "endpoint": "/api/newsfilter",
+      "pages": [
+        "daily-plan.html",
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "6 value(s), 1 empty field(s)",
+      "bytes": 106,
+      "hash": "107508b62cea808b"
+    },
+    {
+      "endpoint": "/api/preopen-plan",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "68 value(s)",
+      "bytes": 1529,
+      "hash": "7d01f0f65053c848"
+    },
+    {
+      "endpoint": "/api/prices",
+      "pages": [
+        "command.html",
+        "index.html",
+        "jarvis.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "10 value(s)",
+      "bytes": 172,
+      "hash": "97c7db609d7f8735"
+    },
+    {
+      "endpoint": "/api/rejection-evidence",
+      "pages": [
+        "fleet.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "136 value(s)",
+      "bytes": 3679,
+      "hash": "4cdc8a62cf6b82bd"
+    },
+    {
+      "endpoint": "/api/research",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "1192 value(s)",
+      "bytes": 27383,
+      "hash": "0e61fb3fc810e5e3"
+    },
+    {
+      "endpoint": "/api/risk-status",
+      "pages": [
+        "architecture.html",
+        "index.html",
+        "jarvis.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "15 value(s), 1 empty field(s)",
+      "bytes": 396,
+      "hash": "df3d6048ab7eb729"
+    },
+    {
+      "endpoint": "/api/robustness-report",
+      "pages": [
+        "report.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "1816 value(s)",
+      "bytes": 38723,
+      "hash": "7ce465b825a7511c"
+    },
+    {
+      "endpoint": "/api/settings",
+      "pages": [
+        "jarvis.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "17 value(s)",
+      "bytes": 494,
+      "hash": "e70c2187c4bdda64"
+    },
+    {
+      "endpoint": "/api/setup-health",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "1 value(s), 1 empty field(s)",
+      "bytes": 52,
+      "hash": "9e5e84ac53e47acb"
+    },
+    {
+      "endpoint": "/api/signal-history",
+      "pages": [
+        "command.html",
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "642 value(s)",
+      "bytes": 20151,
+      "hash": "02fd2983473bab24"
+    },
+    {
+      "endpoint": "/api/signals",
+      "pages": [
+        "architecture.html",
+        "command.html",
+        "fleet.html",
+        "index.html",
+        "jarvis.html",
+        "performance.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "213 value(s)",
+      "bytes": 4566,
+      "hash": "39dbc49a7ff18dc2"
+    },
+    {
+      "endpoint": "/api/stats/by-setup",
+      "pages": [
+        "performance.html",
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "81 value(s)",
+      "bytes": 1697,
+      "hash": "1b5cd7f2dcff03eb"
+    },
+    {
+      "endpoint": "/api/status",
+      "pages": [
+        "index.html",
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "15 value(s)",
+      "bytes": 290,
+      "hash": "5c12573342eef0d8"
+    },
+    {
+      "endpoint": "/api/strategy-board",
+      "pages": [
+        "strategy.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "230 value(s), 3 empty field(s)",
+      "bytes": 14899,
+      "hash": "0171504f3277be50"
+    },
+    {
+      "endpoint": "/api/strategy-settings",
+      "pages": [
+        "command.html",
+        "daily-plan.html",
+        "fleet.html",
+        "index.html",
+        "jarvis.html",
+        "system.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "51 value(s), 1 empty field(s)",
+      "bytes": 951,
+      "hash": "d187dbfea6d3bef2"
+    },
+    {
+      "endpoint": "/api/system-plan",
+      "pages": [
+        "architecture.html",
+        "fleet.html",
+        "index.html",
+        "plan.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "951 value(s), 1 empty field(s)",
+      "bytes": 48387,
+      "hash": "cf9b3130d82f547a"
+    },
+    {
+      "endpoint": "/api/tts",
+      "pages": [
+        "jarvis.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "spends tokens and synthesises audio",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/youtube-search",
+      "pages": [
+        "jarvis.html"
+      ],
+      "level": "SKIPPED",
+      "check": null,
+      "detail": "GET calls the YouTube API and requires a query",
+      "bytes": null,
+      "hash": null
+    }
+  ],
+  "denyList": [
+    {
+      "endpoint": "/api/backtest",
+      "why": "GET runs a 5-year backtest when its cache is >12h old"
+    },
+    {
+      "endpoint": "/api/doctor",
+      "why": "GET runs the fleet doctor, which SSHes to the peer"
+    },
+    {
+      "endpoint": "/api/congress",
+      "why": "GET calls the Unusual Whales API when its cache is empty"
+    },
+    {
+      "endpoint": "/api/youtube-search",
+      "why": "GET calls the YouTube API and requires a query"
+    },
+    {
+      "endpoint": "/api/chat",
+      "why": "spends Claude tokens"
+    },
+    {
+      "endpoint": "/api/tts",
+      "why": "spends tokens and synthesises audio"
+    },
+    {
+      "endpoint": "/api/login",
+      "why": "authentication endpoint"
+    },
+    {
+      "endpoint": "/api/logout",
+      "why": "would end this audit's own session"
+    },
+    {
+      "endpoint": "/api/healer/heal",
+      "why": "forces a heal — it ACTS"
+    },
+    {
+      "endpoint": "/api/mt5/control",
+      "why": "controls the bridge — it ACTS"
+    },
+    {
+      "endpoint": "/api/engineer/status",
+      "why": "requires a run id in the path"
+    },
+    {
+      "endpoint": "/api/scan",
+      "why": "runs a scan"
+    },
+    {
+      "endpoint": "/api/debate",
+      "why": "spends tokens"
+    }
+  ],
+  "historyRows": 92,
+  "historyCorrupt": null,
+  "historyError": null,
+  "note": "PROPOSES ONLY — GET requests to the running server and two JSON artifacts. No page, setting, gate or record is written. Endpoints are DERIVED from dashboard/*.html on every run, so a new panel is audited the next day.",
+  "feedsTheGate": false,
+  "selfTest": {
+    "allChecksFire": true,
+    "fired": [
+      "unreachable",
+      "not-authorised",
+      "unparseable",
+      "empty",
+      "mostly-null",
+      "stale",
+      "frozen",
+      "never-populated",
+      "deny-list holds for 15 shapes"
+    ],
+    "dead": [],
+    "endpointsDiscovered": 56
+  }
+}
