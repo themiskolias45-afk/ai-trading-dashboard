@@ -84,7 +84,6 @@
       "stale": "boolean",
       "ageMs": "number",
       "lastBarAt": "string",
-      "spansWeekend": "boolean",
       "reason": "string",
       "usedForThisSignal": "boolean"
     }
@@ -174,7 +173,6 @@
       "stale": "boolean",
       "ageMs": "number",
       "lastBarAt": "string",
-      "spansWeekend": "boolean",
       "reason": "string",
       "usedForThisSignal": "boolean"
     }
@@ -264,7 +262,6 @@
       "stale": "boolean",
       "ageMs": "number",
       "lastBarAt": "string",
-      "spansWeekend": "boolean",
       "reason": "string",
       "usedForThisSignal": "boolean"
     }
