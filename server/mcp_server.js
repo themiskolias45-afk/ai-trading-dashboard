@@ -50,7 +50,7 @@ const SERVER_URL = 'http://localhost:3001';
 // Resolved by probing, not by PATH order. This used to be the bare string 'python',
 // which on 2026-08-23 meant a Smart-App-Control-blocked uv trampoline. See
 // server/python_path.js for what that cost. Lazy so nothing is spawned at import.
-const { pythonBin, tried: pythonCandidates } = require('./python_path');
+const { pythonBin, pythonEnv, tried: pythonCandidates } = require('./python_path');
 // The walk-forward replays 5 folds x 3 assets through the live engine. Measured at
 // roughly 90s on this machine; 10 minutes leaves headroom for a slower VPS without
 // letting a hung run hold an MCP call open indefinitely.
@@ -171,7 +171,10 @@ function execPython(script, args = [], timeout = 60000) {
     }
     execFile(
       binary, [path.join(ROOT, script), ...args],
-      { cwd: ROOT, timeout, env: { ...process.env, NO_COLOR: '1' } },
+      // pythonEnv() forces UTF-8 stdout on the child. Without it every MCP python
+      // tool inherits the host console code page and dies on the first non-cp1252
+      // character it prints -- reported to the caller as an ordinary script failure.
+      { cwd: ROOT, timeout, env: pythonEnv({ NO_COLOR: '1' }) },
       (err, stdout, stderr) => {
         const stdoutText = (stdout || '').trim();
         const stderrText = (stderr || '').trim();

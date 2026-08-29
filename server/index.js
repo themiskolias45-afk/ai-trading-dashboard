@@ -4557,7 +4557,10 @@ app.post("/api/mt5/login", (req, res) => {
   // Probed, not taken from PATH — see server/python_path.js.
   const PYTHON_BIN = require("./python_path").pythonBinOrDefault();
   const child = require("child_process").spawn(PYTHON_BIN, [path.join(__dirname, "..", "mt5_login_helper.py")], {
-    cwd: path.join(__dirname, "..")
+    cwd: path.join(__dirname, ".."),
+    // A broker or server name carrying a non-cp1252 character would otherwise crash
+    // this helper on print rather than returning a usable error.
+    env: require("./python_path").pythonEnv()
   });
 
   // Hard ceiling independent of the Python-side timeouts — a hung child process
@@ -6232,8 +6235,12 @@ cron.schedule("45 6 * * *", async () => {
   const { execFile } = require("child_process");
   // Probed, not taken from PATH — see server/python_path.js.
   const PYTHON_BIN = require("./python_path").pythonBinOrDefault();
+  // env: pythonEnv() -- the child used to inherit cp1252 stdout, and this script
+  // prints its warning strings, which begin with U+26A0. It therefore failed on
+  // exactly the days the plan HAD a warning and passed on the quiet ones.
   execFile(PYTHON_BIN, [require("path").join(__dirname, "..", "tv_daily_plan.py"), "--no-tv", "--silent"],
-    { cwd: require("path").join(__dirname, ".."), timeout: 60000 },
+    { cwd: require("path").join(__dirname, ".."), timeout: 60000,
+      env: require("./python_path").pythonEnv() },
     (err, out) => { if (err) console.error("[cron] daily plan error:", err.message); else console.log("[cron] daily plan done:", out.trim().slice(0, 100)); }
   );
 });
@@ -6425,7 +6432,10 @@ cron.schedule("0 22 * * 1-5", async () => {
   const { execFile } = require("child_process");
   // Probed, not taken from PATH — see server/python_path.js.
   const PYTHON = require("./python_path").pythonBinOrDefault();
-  execFile(PYTHON, [require("path").join(__dirname, "..", "eod_review.py")], { cwd: require("path").join(__dirname, ".."), timeout: 120000 }, (err, out, se) => {
+  // Same env for the same reason: eod_review.py builds a status string from
+  // U+1F534/U+1F7E2/U+26AA. It only reaches notifications.py today, so this has never
+  // fired -- one print() of that string away from being the identical bug.
+  execFile(PYTHON, [require("path").join(__dirname, "..", "eod_review.py")], { cwd: require("path").join(__dirname, ".."), timeout: 120000, env: require("./python_path").pythonEnv() }, (err, out, se) => {
     if (err) console.error("[EOD] Error:", se || err.message);
     else console.log("[EOD] Done:", out.trim().slice(0, 200));
   });

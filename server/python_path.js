@@ -108,4 +108,40 @@ function recheck() {
   return pythonBin();
 }
 
-module.exports = { pythonBin, pythonBinOrDefault, tried, recheck };
+// The ENVIRONMENT a Python child must be spawned with. Resolving WHICH interpreter to
+// run was only half the contract; this is the other half, and it lived nowhere.
+//
+// WHY THIS EXISTS
+// Every execFile/spawn site here passed `{ cwd, timeout }` and no env, so the child
+// inherited the server console's code page. On Windows that is cp1252, and cp1252
+// cannot encode U+26A0. tv_daily_plan.py builds its warning strings with a leading
+// warning sign, so `print(f"  {w}")` raised UnicodeEncodeError and the script exited
+// non-zero AFTER it had already written its plan JSON - the artifact landed, the
+// report died, and the cron logged a total failure. 10 times in server_log.txt.
+//
+// THE PART THAT MADE IT HARD TO SEE: it is CONTENT-DEPENDENT. On a day with
+// `warnings: []` the loop body never runs and the same command exits 0. So the job
+// fails on precisely the days it has something to warn about - an incomplete plan,
+// high VIX, consecutive losses, high-impact events - and passes on the quiet ones.
+// Running it by hand from a UTF-8 shell also exits 0 and tells you it is healthy.
+//
+// A SOURCE-LEVEL FIX WOULD NOT HAVE WORKED. The hostile characters are not in the
+// print() literals; they arrive as runtime data built elsewhere in the script. You
+// cannot enumerate in advance what a script will print. Setting the child's encoding
+// is the only fix that covers the payload as well as the source - eod_review.py
+// already carries emoji in a string that is one print() away from the same crash.
+//
+// PYTHONUTF8=1 additionally puts the interpreter in UTF-8 mode so file reads and
+// writes with no explicit encoding stop depending on the machine's code page.
+//
+// An operator's existing value always wins: a box that deliberately sets either of
+// these in keys.env keeps what it set. This never mutates process.env - it returns a
+// copy, so one caller cannot change another's environment.
+function pythonEnv(extra) {
+  const env = { ...process.env };
+  if (!env.PYTHONIOENCODING) env.PYTHONIOENCODING = "utf-8";
+  if (!env.PYTHONUTF8) env.PYTHONUTF8 = "1";
+  return extra ? { ...env, ...extra } : env;
+}
+
+module.exports = { pythonBin, pythonBinOrDefault, pythonEnv, tried, recheck };
