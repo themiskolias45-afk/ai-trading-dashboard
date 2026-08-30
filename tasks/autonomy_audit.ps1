@@ -91,6 +91,71 @@ function Resolve-ActionTarget($action) {
     return [pscustomobject]@{ Path = $action.Execute; Exists = $true; Checked = $false }
 }
 
+# Does the SYSTEM safety net cover this task if it ever stops?
+#
+# WHY THIS MATTERS MORE THAN IT LOOKS. A logon-only task on a headless box cannot
+# restart itself - true, and worth saying once. But ensure_running.ps1 runs as SYSTEM
+# off a BOOT trigger every 10 minutes and starts the bridges, the guardian and the
+# server itself. So for those, "the task cannot restart it" is not the same as "nothing
+# can", and reporting them as a gap forever is a red light that can never go green -
+# which this project has already learned is worse than no light at all: it teaches
+# people to skim past the one that matters.
+$EnsureScript = Join-Path $Proj 'tasks\ensure_running.ps1'
+$EnsureBody = if (Test-Path $EnsureScript) { Get-Content -Raw $EnsureScript } else { '' }
+
+function Get-SafetyNetCover([string]$taskName) {
+    if (-not $EnsureBody) { return '' }
+    # Bridges: ensure_running resolves the launcher per tag and starts it.
+    if ($taskName -match '^SmartEntryBridge([A-Z])$') {
+        $tag = $Matches[1]
+        if ($EnsureBody -match 'start_bridge_' ) {
+            return ("ensure_running restarts bridge " + $tag + " (SYSTEM, every 10 min)")
+        }
+    }
+    if ($taskName -match 'Watchdog' -and $EnsureBody -match 'watchdog_guardian') {
+        return 'ensure_running restarts the guardian (SYSTEM, every 10 min)'
+    }
+    if ($taskName -match 'Server$' -and $EnsureBody -match 'index\.js') {
+        return 'ensure_running restarts the server (SYSTEM, every 10 min)'
+    }
+    return ''
+}
+
+# An exit code is a claim; the artifact is the evidence.
+#
+# The Claude CLI exits 255 on runs that fully succeeded. SmartEntryDailyCheck and
+# SmartEntryMorningAgent on the VPS both report 255 while having written complete
+# analyses - 27KB and 11KB - minutes earlier. Their wrappers are HONEST: they compute
+# the CLI's code carefully and pass it through, which is right. The CLI is the part
+# that lies.
+#
+# So this does not trust either number. It asks whether the job's OUTPUT landed after
+# the job started. A wrapper rewritten to swallow 255 would also swallow a real
+# failure; checking the artifact separates them without touching live automation on
+# the box that trades.
+$ArtifactForTask = @{
+    'SmartEntryDailyCheck'      = ('tasks\logs\daily_' + (Get-Date -Format 'yyyyMMdd') + '.txt')
+    'SmartEntry - Daily Check'  = ('tasks\logs\daily_' + (Get-Date -Format 'yyyyMMdd') + '.txt')
+    'SmartEntryMorningAgent'    = 'tasks\logs\morning_summary.txt'
+    'JARVIS Morning Agent'      = 'tasks\logs\morning_summary.txt'
+}
+
+function Test-TaskArtifact([string]$taskName, $lastRun) {
+    if (-not $ArtifactForTask.ContainsKey($taskName)) { return '' }
+    $path = Join-Path $Proj $ArtifactForTask[$taskName]
+    if (-not (Test-Path $path)) { return ("artifact ABSENT: " + $ArtifactForTask[$taskName]) }
+    $item = Get-Item $path
+    if ($lastRun -and $lastRun.Year -gt 1999) {
+        # Written at or after the run started = this run produced it.
+        if ($item.LastWriteTime -ge $lastRun.AddMinutes(-5)) {
+            return ("artifact VERIFIED: " + $item.Name + ", " + $item.Length + " bytes, written " +
+                    $item.LastWriteTime.ToString('HH:mm') + " - the job DID its work")
+        }
+        return ("artifact STALE: " + $item.Name + " predates this run - the failure is REAL")
+    }
+    return ("artifact present: " + $item.Name)
+}
+
 $tasks = @(Get-ScheduledTask | Where-Object {
     $_.TaskName -like 'SmartEntry*' -or $_.TaskName -like 'JARVIS*'
 } | Sort-Object TaskName)
@@ -128,6 +193,13 @@ foreach ($t in $tasks) {
 
     $flag = 'OK  '
     $notes = @()
+
+    # A non-zero exit that the artifact contradicts is a false alarm, and a false alarm
+    # left standing is how a real one gets skimmed past.
+    if ($info -and [long]$info.LastTaskResult -ne 0) {
+        $verdict = Test-TaskArtifact $name $info.LastRunTime
+        if ($verdict) { $notes += $verdict }
+    }
     if ($missing.Count -gt 0) {
         $flag = 'BROKEN'
         $notes += ("TARGET MISSING: " + ($missing | ForEach-Object { $_.Path }) -join '; ')
@@ -140,9 +212,16 @@ foreach ($t in $tasks) {
         # once existed, and calling a working process broken is the kind of false red
         # that trains people to skim the report. The real fault is narrower and worse:
         # if it ever STOPS, this task cannot restart it.
-        if ($state -ne 'Running') { $flag = 'DEAD' } else { $flag = 'NORSTRT' }
-        $notes += 'LOGON-ONLY on a headless box - if this ever stops, THIS TASK CANNOT RESTART IT'
-        $cannotFire += $name
+        $cover = Get-SafetyNetCover $name
+        if ($cover) {
+            # The task cannot restart it; something else demonstrably can. Say both,
+            # and do NOT count it as an open gap.
+            $notes += ('logon-only (cannot self-restart) BUT COVERED: ' + $cover)
+        } else {
+            if ($state -ne 'Running') { $flag = 'DEAD' } else { $flag = 'NORSTRT' }
+            $notes += 'LOGON-ONLY on a headless box, and NOTHING ELSE RESTARTS IT - a real gap'
+            $cannotFire += $name
+        }
     } elseif ($logonOnly) {
         $notes += 'logon/unlock triggered - no fixed next run, fires on logon'
     }
