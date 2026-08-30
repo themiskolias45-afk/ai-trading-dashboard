@@ -305,6 +305,28 @@ if (JSON_OUT) {
   console.log('');
 }
 
+// A scheduled run's stdout goes nowhere. Without this the nightly task would leave only
+// an exit code behind, and an exit code cannot tell you WHICH field moved - which is the
+// whole reason this exists. Append, never truncate: the history of when the boxes drifted
+// apart is the evidence, and rule 6 says nothing here gets deleted.
+try {
+  const logDir = path.join(ROOT, 'tasks', 'logs');
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+  const stamp = new Date().toISOString();
+  const lines = report.map(sec => {
+    const rows = sec.rows.map(r =>
+      `    ${r.context ? '.' : (r.same ? ' ' : '*')} ${String(r.field).padEnd(22)} local ${String(r.local).padEnd(22)} peer ${r.peer}`);
+    return `  ${sec.page}   <- ${sec.file}\n` + rows.join('\n');
+  });
+  fs.appendFileSync(path.join(logDir, 'page_parity.txt'),
+    `\n========== ${stamp}  drifted=${drifted} unreadable=${unreadable} ==========\n` +
+    lines.join('\n') + '\n', 'utf8');
+} catch (e) {
+  // A log that cannot be written must not take the check down with it. Say so and carry
+  // the real verdict out through the exit code regardless.
+  console.error('  (could not append tasks/logs/page_parity.txt: ' + e.message + ')');
+}
+
 // Exit 1 on drift so a scheduled run can act on it. Unreadable is NOT drift - it is an
 // unanswered question, and reporting it as agreement would be the worse error.
 process.exit(drifted > 0 ? 1 : 0);

@@ -266,6 +266,24 @@ Install-PlanTask -Name 'SmartEntry Strategy Search' `
     -Description 'Continuous strategy search, gated on new bars. Proposes, never applies: no gate, no threshold, no setting.'
 }
 
+# ---- Page parity: daily, LAPTOP ONLY -----------------------------------------
+# Registered only on the box that can reach the peer. The laptop pulls the VPS over
+# ssh; the VPS cannot reach the laptop at all - it is behind a home NAT, which is why
+# the laptop pushes a heartbeat there rather than the VPS polling it. Installing this
+# on the headless box would create a task that fails every night forever, and a task
+# that always fails is one nobody reads, including on the nights it means something.
+if ($isHeadless) {
+    Write-Host ''
+    Write-Host '  [SKIP] SmartEntry Page Parity'
+    Write-Host '         this box cannot reach the peer inbound. Runs from the laptop only.'
+} else {
+    $parityTriggers = @(New-ScheduledTaskTrigger -Daily -At 07:40)
+    Install-PlanTask -Name 'SmartEntry Page Parity' `
+        -Arguments 'tasks\page_parity.cjs' `
+        -Triggers $parityTriggers `
+        -Description 'Do both boxes SHOW the same thing? Compares the artifacts /report and /strategy render. Read-only: regenerates nothing, copies nothing, changes nothing.'
+}
+
 Write-Host ''
 if ($Execute) {
     Write-Host 'Done. Verify with:  Get-ScheduledTask -TaskName "SmartEntry Plan *"'
