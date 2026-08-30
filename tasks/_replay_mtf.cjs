@@ -771,6 +771,34 @@ if (engineThrows > 0) {
                 `result below — do not treat it as a complete measurement.`);
 }
 
+
+// EXPIRED IS AN ARTIFACT, NOT AN OUTCOME. There is no max-hold anywhere in the live
+// system -- not in mt5_bridge.py, not in server/index.js -- so a trade the replay
+// closes at MAX_HOLD would in reality still be running toward its stop or target.
+// Truncation therefore scores a live-unresolved trade as a flat scratch, which biases
+// every result DOWNWARD, and worst for slow instruments.
+//
+// Measured 2026-08-30 on real broker bars, sweeping MTF_MAX_HOLD: SP500 went from
+// -0.379R/trade at hold 40 (55% expired, 1/5 folds) to +0.241 at hold 320 (4% expired,
+// 3/5 folds) -- a NEGATIVE instrument reading POSITIVE once its trades were allowed to
+// resolve. XAUUSD went +0.173 -> +0.575 (5/5 folds), NAS100 -0.098 -> +0.223.
+//
+// The default stays 40 ON PURPOSE: cohort_walkforward.cjs and nine other callers have
+// stored claims scored against it, and silently moving the default would move every one
+// of those numbers without anyone seeing it happen. So this WARNS instead, on stderr,
+// leaving stdout a clean JSON array for the callers that parse it.
+{
+  const expired = trades.filter(t => t.outcome === "EXPIRED").length;
+  const share = trades.length ? expired / trades.length : 0;
+  if (share > 0.20) {
+    console.error(
+      `HORIZON WARNING: ${expired} of ${trades.length} trades (${(share * 100).toFixed(0)}%) ` +
+      `hit MAX_HOLD=${MAX_HOLD} H4 bars and were scored EXPIRED. The live system has NO ` +
+      `max-hold, so these are unresolved, not flat — this result is biased LOW. Re-run ` +
+      `with MTF_MAX_HOLD=320 to let them resolve, and compare.`);
+  }
+}
+
 process.stdout.write(JSON.stringify(trades));
 
 if (engineThrows > 0) process.exitCode = 3;

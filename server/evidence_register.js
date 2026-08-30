@@ -543,6 +543,44 @@ const CLAIMS = [
     feedsTheGate: false,
   },
   {
+    // Raised 2026-08-30. Placed high because it does not merely add a claim -- it says
+    // a measurement parameter has been biasing OTHER claims on this board downward.
+    id: "holdhorizon",
+    title: "MAX_HOLD=40 is a backtest artifact that made SP500 look far worse than it is",
+    status: STATUS.ROBUST,
+    measuredOn: "2026-08-30",
+    evidence: "There is NO max-hold anywhere in the live system -- not in mt5_bridge.py, "
+      + "not in server/index.js -- so a replay that closes a trade at 40 H4 bars scores a "
+      + "still-running trade as a flat scratch. Swept MTF_MAX_HOLD on REAL BROKER BARS "
+      + "(exported 6y via tasks/export_mt5_history.py), live MTF path, gate 70, 0.05R: "
+      + "SP500 -0.379R/trade at hold 40 (88 trades, 55% EXPIRED, 1/5 folds) -> -0.220 at "
+      + "80 -> +0.086 at 160 -> **+0.241 at 320** (50 trades, 4% expired, 3/5 folds). "
+      + "XAUUSD +0.173 (40% expired, 3/5) -> **+0.575 at 320** (1% expired, 5/5 folds). "
+      + "NAS100 -0.098 (56% expired) -> +0.223 at 320 (4/5). The harness ALREADY models "
+      + "position occupancy (`if (i <= openUntil) continue`), so the falling trade counts "
+      + "are the DUPLICATE gate being respected, not overlapping positions being counted.",
+    caveat: "THE DEFAULT WAS DELIBERATELY LEFT AT 40. cohort_walkforward.cjs and nine "
+      + "other callers have stored claims scored against it -- including spxonepath and "
+      + "edgeisgold on this same board -- and moving the default would silently move every "
+      + "one of those numbers. The harness now WARNS on stderr above a 20% expired share "
+      + "instead. This does NOT mean the long-horizon numbers are the true ones and the "
+      + "short ones false: a 53-day hold is real (the live Gold position opened 2026-08-28 "
+      + "is still open) but it also means that symbol is blocked to new entries for 53 "
+      + "days, so throughput falls -- SP500 goes from 88 trades to 50. Higher R per trade "
+      + "on fewer trades is not automatically more money.",
+    changesTheAnswer: "REVERSES the standing advice to reduce SP500. At a horizon that "
+      + "matches live behaviour SP500 is +0.241R/trade and positive in 3 of 5 folds, not "
+      + "the -0.375 disaster the 40-bar default reported. It is still the weakest of the "
+      + "instruments measured and still worth watching, but the case for removing it is "
+      + "GONE. Re-score spxonepath and edgeisgold at MTF_MAX_HOLD=320 before either is "
+      + "quoted again -- both were measured under the artifact. The open question this "
+      + "raises is whether the ENGINE should carry a time stop at all: nothing closes a "
+      + "stalled trade today, and a symbol held 53 days is a symbol not trading.",
+    harness: "MTF_MAX_HOLD=320 node tasks/_replay_mtf.cjs . SP500 ^GSPC 70  ·  "
+      + "python tasks/export_mt5_history.py NAS100 BAC",
+    feedsTheGate: false,
+  },
+  {
     id: "minrr",
     title: "MIN_RR = 1.5",
     status: STATUS.ROBUST,
