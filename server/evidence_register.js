@@ -491,10 +491,29 @@ const CLAIMS = [
       + "basis. No spread, slippage, commission or gap-through-stop is modelled beyond "
       + "the flat 0.05R, and as of this writing NAS100's live spread is still "
       + "UNMEASURED -- every weekend reading is a stale last-quote, not a cost.",
-    changesTheAnswer: "NAS100 earns the SPX slot on a cohort/MTF fold table, not on "
-      + "this screen -- run the same per-instrument walk-forward at gate 70 that "
-      + "edgeisgold used, on broker bars, and require most folds positive judged on the "
-      + "WORST fold. Before that, two cheaper things can kill the proposal outright: a "
+    // 2026-08-30, same day: the MTF run this asked for WAS ATTEMPTED and FAILED ITS
+    // OWN CONTROL. Recorded here rather than dropped, so the next session does not
+    // spend another pass rediscovering that Yahoo bars cannot answer this.
+    mtfAttempt: "Built matched D1/H4/H1 sets for ^NDX and ^GSPC from Yahoo (H4 "
+      + "resampled from hourly, both capped at Yahoo's 730d hourly limit) and ran "
+      + "tasks/_replay_mtf.cjs at gate 70. Result: NDX -0.052R/trade over 43, 2/5 folds; "
+      + "Yahoo-SPX +0.386 over 43, 2/5 folds -- which would say NDX is WORSE than SPX, "
+      + "the opposite of the D1 screen. BUT THE CONTROL DISAGREES WITH ITSELF: on the "
+      + "identical 2024-03+ window, real MT5 SP500 scores -0.542 over 59 with ZERO wins, "
+      + "while Yahoo ^GSPC scores +0.468 over 40. Same index, same window, opposite sign, "
+      + "so the difference is the DATA SOURCE. Root cause found: MAX_HOLD is 40 H4 BARS, "
+      + "and a broker 24h CFD gives 6 H4 bars a day (6.7 days of hold) while H4 resampled "
+      + "from a 6.5h US cash session gives ~1.6 a day (24.6 days) -- 3.7x longer to reach "
+      + "target. The EXPIRED share confirms it: 54.5% on broker bars, 16.3% on Yahoo. "
+      + "CONCLUSION: neither NDX number here is usable, in either direction.",
+    changesTheAnswer: "NAS100 IS NOT SETTLED AND THE SWAP IS NOT SUPPORTED BY EVIDENCE "
+      + "YET -- the D1 screen favours it, the only MTF attempt could not be trusted, and "
+      + "those are the two cuts that exist. It needs BROKER NAS100 bars on D1/H4/H1, "
+      + "which means adding NAS100 to the bridge's SYMBOL_CANDIDATES for DATA COLLECTION "
+      + "ONLY, never to TRADABLE_KEYS, and waiting for enough history to fold. Do not "
+      + "retry this on Yahoo intraday bars: the holding horizon cannot be made to match. "
+      + "Then run the same walk-forward edgeisgold used and require most folds positive "
+      + "judged on the WORST fold. Before that, two cheaper things can kill the proposal outright: a "
       + "measured NAS100 spread that trips maxSpreadPts (SP500 already reads 45 against "
       + "a cap of 50, and tasks/spread_probe.py is sampling the Monday session on both "
       + "boxes), or a min-lot/point-value combination that breaks sizing. Note also "
