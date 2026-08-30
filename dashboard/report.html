@@ -269,6 +269,25 @@ function render(d, meta) {
     + stat(s.p95MaxDDPct.toFixed(0) + "%", "worst-case DD (95th pct)", "var(--red)")
     + '</div>'
 
+    // THE SAME TRADES RESAMPLED IN BLOCKS, so losing streaks survive. The IID row above
+    // shuffles trades independently and destroys ordering; this one preserves it. The
+    // pair is the point - the gap between them is how much the independence assumption
+    // is worth, and it is not assumed, it is shown.
+    + (function(b){
+        if (!b) return '';
+        var worse = b.p95DDWorseThanIidPts;
+        return '<div class="sub-line" style="margin-top:14px">block bootstrap · '
+          + 'contiguous blocks of ~' + b.expectedBlockTrades + ' trades, so losing streaks survive</div>'
+          + '<div class="stats">'
+          + stat(b.chanceOfProfit.toFixed(1) + '%', 'chance of profit (blocks)', b.chanceOfProfit >= 50 ? 'var(--green)' : 'var(--red)')
+          + stat(f1(b.p50ReturnPct) + '%', 'median return (blocks)', b.p50ReturnPct >= 0 ? 'var(--green)' : 'var(--red)')
+          + stat(b.medianMaxDDPct.toFixed(0) + '%', 'typical max DD (blocks)', 'var(--yellow)')
+          + stat(b.p95MaxDDPct.toFixed(0) + '%', 'worst-case DD (blocks)', 'var(--red)')
+          + stat((worse >= 0 ? '+' : '') + worse.toFixed(1) + ' pts', 'block p95 DD vs IID', worse > 0 ? 'var(--red)' : 'var(--green)')
+          + '</div>'
+          + '<div class="sub-line">' + esc(b.note) + '</div>';
+      })(meta.blockSimulated)
+
     + '<div class="grid2">'
     +   '<div class="card"><div class="card-head"><span>Monte-Carlo equity fan</span>'
     +     '<span class="sub">every path is the same edge, reshuffled by luck</span></div>'

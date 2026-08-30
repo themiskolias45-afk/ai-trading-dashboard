@@ -10436,6 +10436,7 @@ app.get("/api/robustness-report", (_, res) => {
       engineConfig: raw.engineConfig || null,
       // Same reason as engineConfig: the page's header reads the envelope.
       horizon: raw.horizon || null,
+      blockSimulated: raw.blockSimulated || null,
       report: raw,
       feedsTheGate: false,
     });
