@@ -1377,13 +1377,30 @@ def paste_pine(page, pine, label):
 
     def _via_cdp():
         cdp.send("Input.insertText", {"text": pine})
+        return True
 
     def _via_paste_event():
-        # Monaco's paste handler reads e.clipboardData.getData('text') and does not
-        # check isTrusted, so a synthetic ClipboardEvent reaches it without the OS
-        # clipboard and without window focus - the two things that fail silently when
-        # the scheduler launched the browser itself.
-        page.evaluate("""(text) => {
+        """Dispatch a synthetic paste. Returns False when it did not even dispatch.
+
+        EIGHTH trap, 2026-08-30, and it cost a whole run. Monaco's paste handler reads
+        e.clipboardData.getData('text') and does not check isTrusted, so a synthetic
+        ClipboardEvent reaches it without the OS clipboard and without window focus -
+        the two things that fail silently when the scheduler launched the browser
+        itself. That part works and is why this method runs first.
+
+        But the JS returns FALSE when textarea.inputarea is not in the DOM, and the
+        caller used to THROW THAT AWAY. A paste that never dispatched then looked
+        exactly like a paste that dispatched into a void: both printed only
+        "left 1 lines, want 78". Measured on the 04:15 run of 2026-08-30 - the clear
+        proved the buffer empty, this returned into nothing, and the run fell straight
+        through to CDP insertText, which mangled the indentation at line 29 and forced
+        the buffer guard to refuse the save. Plan drawn: none, on all three charts.
+
+        A no-op and a failure need different words, because they have different fixes:
+        no textarea means the editor is not mounted (wait longer, re-open it), while a
+        dispatch that lands nothing means Monaco ignored the event (retry it).
+        """
+        return bool(page.evaluate("""(text) => {
             const ta = document.querySelector('.monaco-editor textarea.inputarea');
             if (!ta) return false;
             ta.focus();
@@ -1392,22 +1409,36 @@ def paste_pine(page, pine, label):
             ta.dispatchEvent(new ClipboardEvent('paste',
                 {clipboardData: dt, bubbles: true, cancelable: true}));
             return true;
-        }""", pine)
+        }""", pine))
 
-    # Paste event FIRST. Measured on the live editor with the same source: the
-    # synthetic paste produced 0 mismatches, CDP insertText produced 5 with the
-    # indentation cascading deeper on every line, because Monaco auto-indents an
+    # Paste event FIRST, AND MORE THAN ONCE. Measured on the live editor with the same
+    # source: the synthetic paste produced 0 mismatches, CDP insertText produced 5 with
+    # the indentation cascading deeper on every line, because Monaco auto-indents an
     # insertText as if it were typed. CDP stays as the fallback - it is the one that
     # works without window focus - but it is no longer the default.
-    for method_name, method in (("paste event", _via_paste_event),
-                                ("CDP insertText", _via_cdp)):
+    #
+    # The GOOD method now gets PASTE_EVENT_ATTEMPTS tries before the corrupting one is
+    # reached at all. On 2026-08-30 it got exactly one, dispatched into nothing, and the
+    # run fell through to CDP insertText on its first miss - which mangled line 29 and
+    # ended in a refused save with no plan on any chart. Retrying the method that is
+    # measured at zero mismatches is strictly better than reaching sooner for the one
+    # measured at five, and each retry re-clears, so a retry can never append.
+    PASTE_EVENT_ATTEMPTS = 3
+    methods = [("paste event", _via_paste_event)] * PASTE_EVENT_ATTEMPTS
+    methods.append(("CDP insertText", _via_cdp))
+    for method_name, method in methods:
         page.wait_for_timeout(1200)
         if not _clear_editor():
             continue
         try:
-            method()
+            dispatched = method()
         except Exception as exc:
             print(f"[TV] {label}: {method_name} raised {str(exc)[:70]}")
+            continue
+        if dispatched is False:
+            # Distinct from "pasted and nothing landed" - see _via_paste_event.
+            print(f"[TV] {label}: {method_name} did NOT dispatch - no Monaco "
+                  f"textarea.inputarea in the DOM; the editor is not mounted.")
             continue
         page.wait_for_timeout(2200)
         got = _editor_line_count(page)
