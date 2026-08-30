@@ -443,7 +443,21 @@ if (d1.length < 250 || h4.length < 300 || h1.length < 100) {
 }
 
 const WINDOW   = 400;   // trailing bars per timeframe; EMA200 needs ~210
-const MAX_HOLD = 40;    // H4 bars, same as tasks/_replay_engine.cjs
+// H4 BARS, not days -- and that distinction is load-bearing the moment a series with a
+// different bars-per-day is replayed. A broker 24h CFD yields 6 H4 bars a day, so 40 is
+// 6.7 days. H4 resampled from a 6.5h US cash session yields ~1.6 a day, so the SAME 40
+// is 24.6 days: 3.7x longer to reach target, which silently turns a losing instrument
+// into a winning one. Measured 2026-08-30: real MT5 SP500 scored -0.542R/trade with
+// ZERO wins while Yahoo ^GSPC over the identical window scored +0.468, and the EXPIRED
+// share was 54.5% against 16.3%.
+//
+// MTF_MAX_HOLD exists to MATCH THE HOLDING HORIZON IN REAL TIME across feeds, never to
+// tune the number until a result appears. Default is unchanged at 40, so every existing
+// caller behaves exactly as before.
+const MAX_HOLD = (() => {
+  const override = Number(process.env.MTF_MAX_HOLD);
+  return Number.isFinite(override) && override > 0 ? Math.round(override) : 40;
+})();
 
 // ── Trailing-stop ladder, OFF by default ──────────────────────────────────────
 //

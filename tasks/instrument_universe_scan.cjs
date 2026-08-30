@@ -39,6 +39,12 @@ const TRAIN_FRACTION = 0.7;
 // handful of trades must never reach a league table.
 const MIN_TRADES_TO_RANK = 25;
 const MIN_HOLDOUT_TRADES = 8;
+// Sequential folds over the whole history. The project's standing rule -- the one that
+// kept the confidence gate at 70 -- judges a candidate on its WORST fold, not its mean,
+// because a strong mean with one bad fold is usually one lucky window. Ranking by mean
+// alone is how a scan promotes noise.
+const FOLDS = 5;
+const MIN_TRADES_FOR_FOLDS = 40;   // under this, 5 folds are too thin to mean anything
 const DEFAULT_COST_R = 0.05;   // matches the 0.05R cost used in the MTF walk-forwards
 
 // Where /api/measurements looks. The endpoint is READ-ONLY over this file and runs
@@ -95,6 +101,28 @@ function summarise(trades, costR) {
     winRate: decided > 0 ? wins / decided : 0,
     totalR,
     expectancy: totalR / trades.length,
+  };
+}
+
+// Splits the trade list into FOLDS equal-count sequential windows and scores each.
+// Returns null when the sample cannot support it, so a thin name reports "not scored"
+// rather than a worst fold computed from three trades.
+function foldStats(trades, costR) {
+  if (trades.length < MIN_TRADES_FOR_FOLDS) return null;
+  const size = Math.floor(trades.length / FOLDS);
+  const expectancies = [];
+  for (let i = 0; i < FOLDS; i++) {
+    const slice = trades.slice(i * size, i === FOLDS - 1 ? trades.length : (i + 1) * size);
+    if (!slice.length) continue;
+    expectancies.push(slice.reduce((sum, t) => sum + tradeResultR(t, costR), 0) / slice.length);
+  }
+  if (expectancies.length < FOLDS) return null;
+  return {
+    folds: expectancies.length,
+    foldsPositive: expectancies.filter(e => e > 0).length,
+    worstFold: Math.min(...expectancies),
+    meanFold: expectancies.reduce((a, b) => a + b, 0) / expectancies.length,
+    expectancies,
   };
 }
 
@@ -169,6 +197,7 @@ function main() {
       train: summarise(trainTrades, args.cost),
       holdout: summarise(holdoutTrades, args.cost),
       all: summarise(trades, args.cost),
+      folds: foldStats(trades, args.cost),
     });
   }
 
@@ -180,6 +209,7 @@ function main() {
 
   rows.sort((a, b) => b.train.expectancy - a.train.expectancy);
 
+  const chr10 = String.fromCharCode(10);
   const pct = n => (n * 100).toFixed(1) + "%";
   const r3 = n => (n >= 0 ? "+" : "") + n.toFixed(3);
 
@@ -203,6 +233,30 @@ function main() {
       verdict
     );
   });
+
+  // THE RANKING THAT MATTERS. Sorted by folds-positive then worst fold, which is the
+  // project's own bar, rather than by mean expectancy, which flatters one lucky window.
+  const byFold = rows.filter(r => r.folds)
+    .sort((a, b) => b.folds.foldsPositive - a.folds.foldsPositive
+                 || b.folds.worstFold - a.folds.worstFold);
+
+  console.log(chr10 + "=".repeat(112));
+  console.log(`BY THE PROJECT'S OWN BAR — ${FOLDS} sequential folds, judged on the WORST fold`);
+  console.log("(a strong mean with one bad fold is usually one lucky window)" + chr10);
+  console.log("rank symbol      | folds+ |  worst  |   mean  | trades | per-fold");
+  console.log("-".repeat(112));
+  byFold.slice(0, 20).forEach((row, i) => {
+    console.log(
+      String(i + 1).padStart(3) + " " + row.symbol.padEnd(12) + " |  "
+      + row.folds.foldsPositive + "/" + row.folds.folds + "   | "
+      + r3(row.folds.worstFold).padStart(7) + " | " + r3(row.folds.meanFold).padStart(7) + " | "
+      + String(row.all.trades).padStart(6) + " | "
+      + row.folds.expectancies.map(e => (e >= 0 ? "+" : "") + e.toFixed(2)).join("  ")
+    );
+  });
+  const unanimous = byFold.filter(r => r.folds.foldsPositive === FOLDS);
+  console.log(chr10 + `${unanimous.length} of ${byFold.length} scored names are positive in ALL ${FOLDS} folds.`);
+  console.log(`${rows.length - byFold.length} had under ${MIN_TRADES_FOR_FOLDS} trades and were not fold-scored.`);
 
   // The number that decides whether the whole exercise means anything.
   const TOP_N = Math.min(10, rows.length);
@@ -274,6 +328,10 @@ function writeAnalysisJson(args, rows, skipped, survivors, allPositiveHoldout, t
       holdoutWinRate: r.holdout.winRate,
       holdoutTotalR: r.holdout.totalR,
       heldUp: r.holdout.expectancy > 0,
+      foldsPositive: r.folds ? r.folds.foldsPositive : null,
+      worstFold: r.folds ? r.folds.worstFold : null,
+      meanFold: r.folds ? r.folds.meanFold : null,
+      allTrades: r.all.trades,
     })),
     skipped,
     feedsTheGate: false,

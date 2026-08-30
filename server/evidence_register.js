@@ -506,6 +506,22 @@ const CLAIMS = [
       + "from a 6.5h US cash session gives ~1.6 a day (24.6 days) -- 3.7x longer to reach "
       + "target. The EXPIRED share confirms it: 54.5% on broker bars, 16.3% on Yahoo. "
       + "CONCLUSION: neither NDX number here is usable, in either direction.",
+    // 2026-08-30, third cut: the horizon bug was FIXED and everything re-measured on
+    // the live MTF path. The answer is that nothing clears the bar.
+    mtfCorrected: "MTF_MAX_HOLD added to tasks/_replay_mtf.cjs (default unchanged at 40) "
+      + "so the holding horizon can be matched across feeds: 40 broker H4 bars = 6.7 days "
+      + "= 11 Yahoo cash-session H4 bars. Re-run at hold=11, gate 70. The control largely "
+      + "recovered -- Yahoo ^GSPC fell from +0.386 to +0.020 and its EXPIRED share rose "
+      + "from 16.3% to 64.9%, against MT5 SP500's 52.5% -- but did NOT close: the same "
+      + "index still reads +0.020 on Yahoo against -0.525 on broker bars, a RESIDUAL FEED "
+      + "BIAS of +0.545R/trade. Raw results at the corrected horizon: BAC +0.476 (n=57, "
+      + "3/5 folds), NWG +0.381 (79, 2/5), HUBS +0.328 (16, 3/5), TDOC +0.075 (16, 3/5), "
+      + "SPX +0.020 (57, 2/5), NDX -0.053 (62, 1/5 folds -- the worst record of anything "
+      + "tested). SUBTRACT THE MEASURED BIAS AND EVERY ONE GOES NEGATIVE: BAC -0.069, "
+      + "NWG -0.164, HUBS -0.217, TDOC -0.470, SPX -0.525, NDX -0.598. XAUUSD's +0.219 "
+      + "needs no adjustment because it was measured on real broker bars. CONCLUSION: no "
+      + "index and no stock is demonstrably profitable on the live path, and NAS100 is the "
+      + "weakest of them.",
     changesTheAnswer: "NAS100 IS NOT SETTLED AND THE SWAP IS NOT SUPPORTED BY EVIDENCE "
       + "YET -- the D1 screen favours it, the only MTF attempt could not be trusted, and "
       + "those are the two cuts that exist. It needs BROKER NAS100 bars on D1/H4/H1, "
