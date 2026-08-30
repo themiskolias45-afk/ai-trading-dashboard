@@ -68,3 +68,6 @@ tasks/near_misses.jsonl
 # Per-machine stop-variant shadow rows, appended by server/stop_variants.js. Same
 # reasoning as the line above: each box shadows its own signals against its own bars.
 tasks/stop_variants.jsonl
+
+# Regenerable Yahoo bar cache for tasks/instrument_universe_scan.cjs
+tasks/history_yahoo/
