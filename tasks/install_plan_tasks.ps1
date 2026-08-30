@@ -1,0 +1,127 @@
+# Register the two scheduled jobs the daily plan was missing: the intraday monitor
+# and the nightly review.
+#
+#   powershell -File tasks\install_plan_tasks.ps1              # dry run, changes nothing
+#   powershell -File tasks\install_plan_tasks.ps1 -Execute
+#
+# ASCII ONLY, DELIBERATELY. Windows PowerShell 5.1 reads a .ps1 as ANSI unless the file
+# carries a BOM, so a single em-dash in a double-quoted string arrives as garbage
+# containing a quote character and the whole script fails to parse. Same rule as
+# tasks\safe_server_restart.ps1.
+#
+# WHAT THESE DO
+#   SmartEntry Plan Monitor  every 15 min  node tasks\plan_monitor.cjs --quiet
+#       Reports CROSSINGS since the last pass: plan entry/stop/target crossed, a
+#       confluence zone entered or left, the day passing 100% of its ATR range, and
+#       confidence crossing the LIVE gate hours after a briefing that said WAIT.
+#
+#   SmartEntry Plan Review   nightly 23:40  node tasks\plan_review.cjs
+#       Grades completed days against the bars the bridge already pushed and
+#       accumulates tasks\analysis\plan-scorecard.json. Never grades today: a forming
+#       bar has no final close.
+#
+# NEITHER WRITES A SIGNAL, A SETTING OR AN ORDER. Neither has any path to the engine.
+# They cannot suppress a setup, which is the standing rule they were built under.
+#
+# PRINCIPAL IS CHOSEN PER BOX, ON EVIDENCE
+#   The VPS is headless and nobody signs in. A task registered Interactive/AtLogOn
+#   there CANNOT START - that is ERROR_NO_INTERACTIVE_SESSION (0x800710E0), which is
+#   exactly why SmartEntryServer could not be restarted on demand and why every
+#   logon-only job on that box was silently dead. So on the VPS these register as
+#   SYSTEM with a boot trigger; on the laptop they match the existing
+#   'SmartEntry Band Monitor' convention (current user, interactive).
+
+param([switch]$Execute)
+
+$ErrorActionPreference = 'Stop'
+$proj = Split-Path -Parent $PSScriptRoot
+$mode = if ($Execute) { 'EXECUTE' } else { 'DRY RUN' }
+Write-Host "install_plan_tasks [$mode]  project=$proj  box=$env:COMPUTERNAME"
+
+# Refuse rather than register a task whose action does not exist. A scheduled job
+# pointing at a missing script fails every run and reports it nowhere anyone reads.
+$required = @('tasks\plan_monitor.cjs', 'tasks\plan_review.cjs')
+$missing = @($required | Where-Object { -not (Test-Path (Join-Path $proj $_)) })
+if ($missing.Count -gt 0) {
+    Write-Host "REFUSING: missing $($missing -join ', ')"
+    exit 1
+}
+
+$node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+if (-not $node) { Write-Host 'REFUSING: node.exe not on PATH'; exit 1 }
+Write-Host "  node: $node"
+
+# Headless box detection. The VPS hostname is vmi3465345; anything without an
+# interactive desktop should take the SYSTEM path.
+$isHeadless = ($env:COMPUTERNAME -like 'VMI*')
+if ($isHeadless) {
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    Write-Host '  principal: SYSTEM / ServiceAccount  (headless box)'
+} else {
+    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+    Write-Host "  principal: $env:USERNAME / Interactive  (matches SmartEntry Band Monitor)"
+}
+
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
+    -MultipleInstances IgnoreNew
+
+function Install-PlanTask {
+    param([string]$Name, [string]$Arguments, [object[]]$Triggers, [string]$Description)
+
+    $existing = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+    $verb = if ($existing) { 'UPDATE' } else { 'CREATE' }
+    Write-Host ''
+    Write-Host "  [$verb] $Name"
+    Write-Host "     node.exe $Arguments"
+    Write-Host "     wd $proj"
+    foreach ($t in $Triggers) {
+        $rep = if ($t.Repetition.Interval) { " rep=$($t.Repetition.Interval)" } else { '' }
+        Write-Host "     trigger $($t.CimClass.CimClassName)$rep"
+    }
+    if (-not $Execute) { return }
+
+    $action = New-ScheduledTaskAction -Execute $node -Argument $Arguments -WorkingDirectory $proj
+    # Register-ScheduledTask -Force UPDATES in place. It does not delete history and it
+    # does not touch any other task - re-running this script is safe.
+    Register-ScheduledTask -TaskName $Name -Action $action -Trigger $Triggers `
+        -Principal $principal -Settings $settings -Description $Description -Force | Out-Null
+
+    $check = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+    if ($check) { Write-Host "     registered, state=$($check.State)" }
+    else { Write-Host '     FAILED: task not present after registration' }
+}
+
+# ---- Monitor: every 15 minutes, all day -------------------------------------
+# All day rather than market hours only: BTC trades continuously, and the gate
+# crossing this exists to catch does not respect a session.
+$monitorTriggers = @()
+$t = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(2) `
+        -RepetitionInterval (New-TimeSpan -Minutes 15)
+$monitorTriggers += $t
+if ($isHeadless) { $monitorTriggers += (New-ScheduledTaskTrigger -AtStartup) }
+
+Install-PlanTask -Name 'SmartEntry Plan Monitor' `
+    -Arguments 'tasks\plan_monitor.cjs --quiet' `
+    -Triggers $monitorTriggers `
+    -Description 'Intraday plan monitor. Reports crossings since the last pass. Read-only: no signal, no setting, no order.'
+
+# ---- Review: nightly ---------------------------------------------------------
+# 23:40 local. It refuses to grade a date that is not yet complete, so the exact
+# minute is not load-bearing; late enough that the day is done, early enough to be
+# clear of the post-close jobs.
+$reviewTriggers = @(New-ScheduledTaskTrigger -Daily -At '23:40')
+
+Install-PlanTask -Name 'SmartEntry Plan Review' `
+    -Arguments 'tasks\plan_review.cjs' `
+    -Triggers $reviewTriggers `
+    -Description 'Nightly plan grading into tasks\analysis\plan-scorecard.json. Read-only: no signal, no setting, no order.'
+
+Write-Host ''
+if ($Execute) {
+    Write-Host 'Done. Verify with:  Get-ScheduledTask -TaskName "SmartEntry Plan *"'
+    Write-Host 'Run one now with:   Start-ScheduledTask -TaskName "SmartEntry Plan Monitor"'
+} else {
+    Write-Host 'DRY RUN. Nothing was registered. Re-run with -Execute.'
+}
