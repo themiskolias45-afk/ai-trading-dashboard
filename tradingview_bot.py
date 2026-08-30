@@ -623,8 +623,33 @@ def plan_study_present(page):
     for a study added from a saved user script, so the stamp never appeared there and
     the check could never have passed. The chart answers the version question itself,
     with the STALE marker Pine renders from its own embedded timestamp.
+
+    NOT SUFFICIENT ON ITS OWN. See bound_plan_study_present below.
     """
     return bool(list_plan_studies(page))
+
+
+def bound_plan_study_present(page):
+    """Is the study on this chart the one SAVING can update?
+
+    THE CHECK THAT WAS MISSING, measured 2026-08-30. plan_study_present() matches on
+    the PREFIX, so it returns True for an orphan - a study titled with a timestamp,
+    added out of an unsaved editor and backed by no saved script. Saving the source
+    can never update one of those.
+
+    That is not hypothetical. On 2026-08-30 all three charts carried exactly one plan
+    study, 'JARVIS Daily Plan 08-29 08:15', and nothing else. The run saved the source
+    correctly, reported "Saved, and a plan study is on the chart", swept all three
+    charts, found no compilation error - an orphan compiles fine, it is merely OLD -
+    and printed "Plan drawn: BTC, GOLD, SPX". Not one chart had been updated. The
+    charts were still rendering the previous day's plan, 33.6 hours stale.
+
+    Both existing checks were individually correct and jointly blind: presence cannot
+    tell bound from orphan, and health cannot tell current from stale. Only the TITLE
+    can, and it was already being read - list_plan_studies returns it - and thrown
+    away. The bound study is titled EXACTLY SAVED_SCRIPT_NAME.
+    """
+    return SAVED_SCRIPT_NAME in list_plan_studies(page)
 
 
 def generate_pine(plans):
@@ -1259,6 +1284,36 @@ def ensure_legend_expanded(page):
     rows = page.locator(".title-quatTGAC")
     if rows.count() and rows.first.is_visible():
         return True
+    # FIRST: the actual button. SEL_LEGEND_TOGGLER has been declared in this file the
+    # whole time and this function never used it - it guessed coordinates off a
+    # CONTAINER div instead, which is why the docstring above records it expanding the
+    # legend on one attempt and doing nothing on the next with no state change between.
+    #
+    # Measured on the live chart 2026-08-30: there IS a real
+    # `button[title="Show indicators legend"]`, visible, 31x21 at (65,49). The
+    # coordinate guess clicked (72,61) - inside that button's box, which is why it
+    # sometimes worked - but it is derived from a 779x31 wrapper whose geometry moves
+    # with the symbol name, the timeframe and the exchange label. A click computed from
+    # a box that resizes with its text is a coin flip by construction.
+    #
+    # The coordinate path is KEPT as a fallback rather than deleted: it is the only
+    # thing that works if TradingView renames that title, and it has demonstrably
+    # worked before.
+    def _expanded():
+        rows_now = page.locator(".title-quatTGAC")
+        return bool(rows_now.count() and rows_now.first.is_visible())
+
+    try:
+        toggler = page.locator(SEL_LEGEND_TOGGLER).first
+        if toggler.count() if hasattr(toggler, "count") else True:
+            toggler.click(timeout=6000)
+            page.wait_for_timeout(2500)
+            if _expanded():
+                return True
+    except Exception as exc:
+        print(f"[TV] legend toggler click failed ({str(exc)[:60]}) - trying the "
+              "coordinate fallback")
+
     box = page.evaluate("""() => {
       const c=[...document.querySelectorAll('[class*="legend-"]')].map(e=>{
         const r=e.getBoundingClientRect();
@@ -1270,8 +1325,7 @@ def ensure_legend_expanded(page):
         return False
     page.mouse.click(int(box["x"]) + 12, int(box["y"]) + int(box["h"] / 2))
     page.wait_for_timeout(2500)
-    rows = page.locator(".title-quatTGAC")
-    return bool(rows.count() and rows.first.is_visible())
+    return _expanded()
 
 
 def report_orphan_studies(page):
@@ -2601,21 +2655,49 @@ def cmd_plan(which="all", shoot=True):
             # plan's embedded timestamp against timenow and shows STALE in red.
             page.wait_for_timeout(2500)
 
-            # Gated on `applied`: adding a study can only help if the save landed.
-            if not plan_study_present(page) and applied:
-                print("[TV] No plan study on the chart - adding it.")
+            # PRESENCE IS NOT ENOUGH. An ORPHAN study - one titled with a timestamp,
+            # backed by no saved script - satisfies plan_study_present() and compiles
+            # cleanly, so both existing checks pass while the chart renders a plan from
+            # a previous day. That is what happened on 2026-08-30: all three charts held
+            # 'JARVIS Daily Plan 08-29 08:15' and nothing else, the run reported "Plan
+            # drawn: BTC, GOLD, SPX", and not one chart had been updated.
+            #
+            # So the condition for adding the bound script is the absence of the BOUND
+            # study, never the absence of any study.
+            if not bound_plan_study_present(page) and applied:
+                orphans = report_orphan_studies(page)
+                if orphans:
+                    print("[TV] Only ORPHAN plan study(ies) on this chart - saving cannot "
+                          "update them. Removing them so the bound script can be added.")
+                    remove_plan_studies(page)
+                    page.wait_for_timeout(1500)
+                print("[TV] Bound plan study not on the chart - adding it.")
                 add_script_to_chart(page)
                 page.wait_for_timeout(2500)
                 after = list_plan_studies(page)
 
-            present = plan_study_present(page)
+            present = bound_plan_study_present(page)
             verified = applied and present
             if not applied:
                 print("[TV] Save did not land - the chart was left exactly as it was.")
             elif not present:
-                print(f"[TV] Save landed but no plan study is on the chart. Add "
-                      f"{SAVED_SCRIPT_NAME!r} to the layout once by hand; every run "
-                      "after that updates it in place.")
+                # Deliberately loud, and it fails the run. The old wording here said
+                # "no plan study is on the chart", which is FALSE when an orphan is
+                # sitting on it drawing yesterday's plan - the operator would look at
+                # the chart, see a JARVIS panel, and conclude the message was wrong.
+                leftover = list_plan_studies(page)
+                print(f"[TV] SAVE LANDED BUT THE CHART IS NOT SHOWING IT.")
+                if leftover:
+                    print(f"[TV] The chart carries {leftover} - none of which is the bound "
+                          f"study {SAVED_SCRIPT_NAME!r}. A study titled with a TIMESTAMP is "
+                          f"an orphan: it is backed by no saved script, so no amount of "
+                          f"saving can ever update it, and it draws the OLD panel.")
+                    print(f"[TV] Fix by hand, once: expand the legend (click the counter at "
+                          f"the chart's top-left), hover {leftover[0]!r}, click its Remove (x), "
+                          f"then add {SAVED_SCRIPT_NAME!r} from Indicators > My scripts.")
+                else:
+                    print(f"[TV] Add {SAVED_SCRIPT_NAME!r} to the layout once by hand; every "
+                          "run after that updates it in place.")
             else:
                 print("[TV] Saved, and a plan study is on the chart. The plan carries "
                       "its own age - a missed run shows STALE in red on the chart.")
