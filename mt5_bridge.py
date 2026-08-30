@@ -305,13 +305,24 @@ last_counted_close = ""
 
 
 def breaker_day():
-    """Local date the daily P&L counter is scoped to.
+    """UTC date the daily P&L counter is scoped to.
 
-    Local rather than UTC because close times come from datetime.fromtimestamp(),
-    which is local — scoping the counter in one zone and stamping the outcomes in
-    another would misfile every close in the offset window.
+    PAIRED WITH summarize_closed_position AND NOT SEPARABLE FROM IT. This used to be
+    local, and its own docstring gave the reason: "close times come from
+    datetime.fromtimestamp(), which is local". That premise was removed on 2026-08-30
+    when close times became explicit UTC, so this had to move with them.
+
+    The two must agree because record_closed_outcome() decides whether a close spends
+    TODAY's loss budget with `close_time[:10] == breaker_day()`. Scoping the counter in
+    one zone while stamping the outcomes in another would misfile every close in the
+    offset window - which on this account is four hours wide.
+
+    Changing them together moves the boundary from local midnight to UTC midnight (one
+    hour earlier under BST) and, as a side effect worth having, makes the two boxes
+    agree: they sit in different timezones and previously scoped the same counter to
+    two different days.
     """
-    return datetime.now().strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def load_breaker_state():
@@ -2650,10 +2661,28 @@ def summarize_closed_position(deals):
         return None
     net_pnl = sum(float(d.profit) + float(d.commission) + float(d.swap) for d in deals)
     final_deal = max(closing_deals, key=lambda d: d.time)
+    # CLOSE TIME IS STAMPED AT OBSERVATION, IN EXPLICIT UTC.
+    #
+    # It used to be datetime.fromtimestamp(final_deal.time).isoformat(), which was
+    # wrong by FOUR HOURS on this account and silently so.
+    #
+    # MT5 returns deal.time as the BROKER's wall clock expressed as an epoch, not a
+    # true UTC epoch. fromtimestamp() then treats that number as UTC and renders it in
+    # LOCAL time, so the two offsets add rather than cancel: broker UTC+3, local BST
+    # UTC+1, total +4h. Measured 2026-08-30 without touching MT5, using bars this
+    # bridge already pushes: the newest H1 bar decoded to 22:00 while real UTC was
+    # 19:33 - an H1 bar cannot open 2.44h in the future. That matches the 3h59m32s
+    # contradiction found in the weekly review, settled there by three independent
+    # sources (journal bid, bridge log wall clock, exitReasonCode 4).
+    #
+    # The close is detected within one POLL_INTERVAL, so stamping it now trades a
+    # ~60s error for the ~4h one. The raw broker figure is carried alongside rather
+    # than discarded, so nothing is lost and the offset stays auditable.
     return (
         round(net_pnl, 2),
         float(final_deal.price),
-        datetime.fromtimestamp(final_deal.time).isoformat(),
+        datetime.now(timezone.utc).isoformat(),
+        datetime.fromtimestamp(final_deal.time, timezone.utc).isoformat(),
     )
 
 
@@ -2753,7 +2782,7 @@ def track_closed_positions():
         outcome = summarize_closed_position(deals)
         exit_reason, exit_reason_code = exit_reason_for(deals)
         if outcome:
-            pnl, close_price, close_time = outcome
+            pnl, close_price, close_time, close_time_broker = outcome
         else:
             # The position is genuinely gone, so the journal must not keep calling it
             # open — post the close with an unknown P&L rather than silently dropping
@@ -2773,6 +2802,9 @@ def track_closed_positions():
                 "pnl":        pnl,
                 "closePrice": close_price,
                 "closeTime":  close_time,
+                # The raw broker-clock figure, kept so the offset stays auditable and
+                # nothing is thrown away. closeTime is the observation stamp.
+                "closeTimeBroker": close_time_broker,
                 "account":    ACCOUNT_TAG or "default",
                 # How far this trade ran in favour and against before it ended.
                 # RECORD-ONLY and SAMPLED at the poll interval, so both are floors.
@@ -2909,13 +2941,14 @@ def journal_entry_is_ours(journal_entry, deals):
 
 def report_reconciled_close(ticket, outcome):
     """POST one recovered close to the server. True when the server accepted it."""
-    pnl, close_price, close_time = outcome
+    pnl, close_price, close_time, close_time_broker = outcome
     try:
         res = requests.post(f"{SERVER_URL}/api/trade-closed", json={
             "ticket":     ticket,
             "pnl":        pnl,
             "closePrice": close_price,
             "closeTime":  close_time,
+            "closeTimeBroker": close_time_broker,
             "account":    ACCOUNT_TAG or "default",
         }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
         res.raise_for_status()

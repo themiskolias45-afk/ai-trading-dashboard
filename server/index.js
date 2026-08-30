@@ -6102,9 +6102,9 @@ function persistDailyPerformance(closeTime) {
 
 // MT5 bridge notifies server when a trade is closed
 app.post("/api/trade-closed", (req, res) => {
-  const { ticket, pnl, closePrice, closeTime, account, exitReason, exitReasonCode,
-          mfePrice, maePrice, mfeR, maeR, excursionSamples, excursionIntervalSec,
-          excursionSampled } = req.body;
+  const { ticket, pnl, closePrice, closeTime, closeTimeBroker, account, exitReason,
+          exitReasonCode, mfePrice, maePrice, mfeR, maeR, excursionSamples,
+          excursionIntervalSec, excursionSampled } = req.body;
   if (!ticket) return res.status(400).json({ error: "ticket required" });
   // Ticket ids are unique per ACCOUNT, not across the fleet (mt5_bridge.py:1384),
   // and accounts A, B and the VPS all post into this one journal. Prefer the exact
@@ -6138,6 +6138,20 @@ app.post("/api/trade-closed", (req, res) => {
     trade.pnl        = pnl       ?? null;
     trade.closePrice = closePrice ?? null;
     trade.closeTime  = closeTime  ?? new Date().toISOString();
+    // The broker's own clock reading for the same close, kept beside the observation
+    // stamp. mt5_bridge.py used to derive closeTime from this figure via
+    // fromtimestamp(), which was wrong by FOUR HOURS on this account: MT5 returns
+    // deal.time as the BROKER's wall clock as an epoch, and fromtimestamp() reads it
+    // as UTC and renders it local, so a +3h broker and a +1h local offset ADD.
+    //
+    // closeTime is now stamped at observation in explicit UTC. This field exists so
+    // the raw figure is not discarded and the offset stays auditable - and because
+    // the bridge sends it, so without this line it would be a writer with no reader:
+    // the destructure above takes named fields and would drop it silently.
+    //
+    // RECORD ONLY. Nothing reads it; the day-scoping comparison in the bridge's
+    // record_closed_outcome uses closeTime against breaker_day(), both now UTC.
+    if (closeTimeBroker) trade.closeTimeBroker = closeTimeBroker;
     // WHY it closed, straight from MT5's deal record — the journal could not previously
     // tell "hit its stop" from "someone closed it". RECORD ONLY: updateLearning below
     // stays P&L-based and no gate, threshold, confidence or sizing path reads either
