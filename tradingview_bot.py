@@ -694,6 +694,17 @@ def plan_study_is_current(page, expected_stamp):
     return True, titles, ""
 
 
+def pine_editor_visible(page):
+    """Is the Pine editor actually ON SCREEN?
+
+    Not `count() > 0`. The pine-dialog node survives in the DOM after the editor is
+    collapsed, with offsetParent null and a full-size bounding box, so a presence
+    test reports a closed editor as open. Everything in this file that decides
+    whether to open or close the editor must use this instead.
+    """
+    return bool(page.evaluate(JS_VISIBLE_BOX, SEL_PINE_DIALOG))
+
+
 def close_pine_editor(page):
     """Collapse the Pine editor. IDEMPOTENT - the toggle OPENS it when it is closed.
 
@@ -703,7 +714,12 @@ def close_pine_editor(page):
     stops with "not visible in the Object tree" on a row that is genuinely there,
     just off-screen.
     """
-    if page.locator(SEL_PINE_DIALOG).count() == 0:
+    # PRESENCE IS NOT OPENNESS. TradingView keeps the pine-dialog node in the DOM
+    # after the editor is collapsed - measured 2026-08-30: count()==1 with
+    # offsetParent null and a 1070x747 box. The old test was count()==0, so a CLOSED
+    # editor read as open and this function clicked the toggle, which OPENED it. It
+    # did the exact opposite of its name, every time.
+    if not pine_editor_visible(page):
         return True
     try:
         box = page.evaluate(JS_VISIBLE_BOX, SEL_PINE_BUTTON)
@@ -711,10 +727,93 @@ def close_pine_editor(page):
             return False
         page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
         page.wait_for_timeout(2500)
-        return page.locator(SEL_PINE_DIALOG).count() == 0
+        return not pine_editor_visible(page)
     except Exception as exc:
         print(f"[TV] could not close the Pine editor ({str(exc)[:60]})")
         return False
+
+
+def open_object_tree(page, attempts=3):
+    """Open the Object tree panel and PROVE it opened. Returns True/False.
+
+    The toggle is a TOGGLE, so a blind click on an already-open panel closes it.
+    Presence is therefore checked before every click and again after, and the whole
+    thing retries - the panel can take longer than one wait to mount when the Pine
+    editor has just been collapsed and the layout is still reflowing, which is
+    exactly the condition a cmd_plan run hits and a standalone script does not.
+    """
+    for attempt in range(attempts):
+        if page.evaluate(JS_VISIBLE_TEXT_BOX, "Object tree"):
+            return True
+        box = page.evaluate(JS_VISIBLE_BOX, 'button[data-name="object_tree"]')
+        if not box:
+            print("[TV] Object tree button is not visible")
+            page.wait_for_timeout(1500)
+            continue
+        page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
+        page.wait_for_timeout(3500)
+    return bool(page.evaluate(JS_VISIBLE_TEXT_BOX, "Object tree"))
+
+
+def replace_plan_study(page, expected_stamp, symbol_for_chart):
+    """Make the chart show THIS plan: remove every plan study, add the saved script.
+
+    THE WHOLE REASON THIS EXISTS. Saving the Pine source does not update a study on
+    this build - measured 2026-08-30, the saved script read shorttitle '08-30 18:55'
+    while the study on the chart drew its own table header as '08-30 18:23', and
+    that header is rendered BY the running source. A study is pinned to the version
+    it was ADDED at, so the only way to update the chart is to replace the study.
+
+    ORDER IS LOAD-BEARING and every step is verified rather than assumed:
+      1. close the Pine editor - it covers the bottom half of the window and pushes
+         the Object tree's rows into a scroll region where they read as not visible
+      2. open the Object tree, PROVEN open, not assumed
+      3. remove every JARVIS study (this also clears stacked duplicates)
+      4. add the saved script from Indicators > My scripts
+      5. Ctrl+S - without it the study is discarded on the next navigation, because
+         accepting the beforeunload discards unsaved LAYOUT state
+
+    Returns (ok, detail).
+    """
+    # RE-OPEN THE CHART FIRST, and this is the whole difference between this working
+    # and not. Every standalone run that succeeded navigated to the chart immediately
+    # before replacing; cmd_plan navigates BEFORE saving, so by the time it gets here
+    # the page has been through the Pine editor and the panel state is stale - the
+    # Object tree mounts but its row hovers produce no controls. A fresh navigation
+    # resets the right-hand panel to a known state and costs a few seconds.
+    try:
+        open_chart(page, symbol_for_chart)
+        page.wait_for_timeout(5000)
+    except Exception as exc:
+        print(f"[TV] could not re-open the chart before replacing ({str(exc)[:60]})")
+
+    _foreground_browser_window()
+    if not close_pine_editor(page):
+        # Not fatal on its own: the tree may still be reachable. Say so and continue,
+        # because refusing here would turn a recoverable run into a failed one.
+        print("[TV] could not confirm the Pine editor closed - continuing anyway")
+    make_focus_safe(page)
+    page.wait_for_timeout(1500)
+
+    if not open_object_tree(page):
+        return False, "the Object tree panel would not open, so old studies cannot be removed"
+    # The panel mounts before it populates, and the reflow from closing the editor is
+    # still settling. Removing against a half-drawn list is how the hover finds
+    # nothing.
+    page.wait_for_timeout(2500)
+
+    removed = remove_plan_studies_via_tree(page)
+    leftover = [t for t in list_plan_studies(page) if t.startswith(PLAN_NAME_PREFIX)]
+    if leftover:
+        return False, f"{len(leftover)} old study(ies) would not remove: {leftover}"
+
+    if not add_saved_script_to_chart(page):
+        return False, "the saved script could not be added from Indicators > My scripts"
+
+    ok, titles, note = plan_study_is_current(page, expected_stamp)
+    if not ok:
+        return False, f"added, but the chart still shows {titles}"
+    return True, f"removed {len(removed)}, added 1, chart now on {expected_stamp}"
 
 
 def remove_plan_studies_via_tree(page, limit=8):
@@ -741,20 +840,7 @@ def remove_plan_studies_via_tree(page, limit=8):
     if not targets:
         return removed
 
-    # Open the panel, detecting its own HEADER rather than a row.
-    #
-    # The first cut of this tested "is a target row visible" and clicked the toggle
-    # when not - which CLOSED an already-open panel whose rows were merely scrolled,
-    # guaranteeing the row stayed invisible. The toggle is a toggle; the only safe
-    # precondition is the panel's own presence.
-    if not page.evaluate(JS_VISIBLE_TEXT_BOX, "Object tree"):
-        box = page.evaluate(JS_VISIBLE_BOX, 'button[data-name="object_tree"]')
-        if not box:
-            print("[TV] Object tree button not visible - cannot remove studies this run")
-            return removed
-        page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
-        page.wait_for_timeout(3000)
-    if not page.evaluate(JS_VISIBLE_TEXT_BOX, "Object tree"):
+    if not open_object_tree(page):
         print("[TV] Object tree panel did not open - cannot remove studies this run")
         return removed
 
@@ -763,14 +849,39 @@ def remove_plan_studies_via_tree(page, limit=8):
         if not current:
             break
         name = current[0]
-        row = page.evaluate(JS_VISIBLE_TEXT_BOX, name)
+        # Scroll it into view BEFORE measuring. The list scrolls, and an off-screen
+        # row still passes every visibility test while being unhoverable.
+        row = page.evaluate(JS_SCROLL_TEXT_INTO_VIEW, name)
         if not row:
-            print(f"[TV] {name!r} is not visible in the Object tree - stopping")
+            print(f"[TV] {name!r} is not in the Object tree - stopping")
             break
-        # Hover reveals the row's controls; the wait is not optional.
-        page.mouse.move(row["x"] + row["w"] / 2, row["y"] + row["h"] / 2)
-        page.wait_for_timeout(1800)
-        remove = page.evaluate(JS_ROW_REMOVE_BOX, row)
+        page.wait_for_timeout(800)
+        row = page.evaluate(JS_SCROLL_TEXT_INTO_VIEW, name) or row
+        if not row.get("onScreen"):
+            print(f"[TV] {name!r} will not scroll into view (y={int(row['y'])}) - stopping")
+            break
+        # Hover reveals the row's controls. The pointer must ARRIVE at the row from
+        # somewhere else: if it is already parked there no mouseover fires, the
+        # controls never render, and the row looks like it has none. That is why the
+        # second and later passes of this loop used to fail on a row the first pass
+        # had just hovered successfully.
+        remove = None
+        for hover_attempt in range(4):
+            # RE-MEASURE every attempt. The panel reflows - it was only just opened,
+            # and closing the Pine editor above resizes everything - so a box
+            # measured once and reused points at where the row WAS. That is the
+            # difference between this working standalone, where the panel had been
+            # open and settled for minutes, and failing inside a plan run.
+            fresh = page.evaluate(JS_SCROLL_TEXT_INTO_VIEW, name)
+            if fresh and fresh.get("onScreen"):
+                row = fresh
+            page.mouse.move(row["x"] + row["w"] / 2, row["y"] - 60)
+            page.wait_for_timeout(400)
+            page.mouse.move(row["x"] + row["w"] / 2, row["y"] + row["h"] / 2)
+            page.wait_for_timeout(1500 + hover_attempt * 700)
+            remove = page.evaluate(JS_ROW_REMOVE_BOX, row)
+            if remove:
+                break
         if not remove:
             print(f"[TV] no Remove control appeared for {name!r} - stopping")
             break
@@ -847,6 +958,28 @@ JS_VISIBLE_BOX = """(selector) => {
     const r = e.getBoundingClientRect();
     if (e.offsetParent === null || r.width === 0 || r.height === 0) continue;
     return {x: r.x, y: r.y, w: r.width, h: r.height};
+  }
+  return null;
+}"""
+
+# Scroll a row into view, THEN measure it. Returns the post-scroll box.
+#
+# THE TRAP THIS CLOSES, measured 2026-08-30. The Object tree's list scrolls, and a
+# row below the fold still reports offsetParent non-null with a real width - so it
+# passes every "is it visible" test while sitting at y=1361 in a 950px window.
+# Hovering that coordinate lands on nothing, no controls render, and the removal
+# reports "no Remove control appeared" for a row that is genuinely there. Its Remove
+# button was measurably present the whole time, at y=1321, equally off-screen.
+JS_SCROLL_TEXT_INTO_VIEW = """(name) => {
+  for (const e of document.querySelectorAll('*')) {
+    if (e.children.length) continue;
+    if ((e.textContent || '').trim() !== name) continue;
+    if (e.offsetParent === null) continue;
+    e.scrollIntoView({block: 'center', inline: 'nearest'});
+    const r = e.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    return {x: r.x, y: r.y, w: r.width, h: r.height,
+            onScreen: r.y >= 0 && r.y + r.height <= window.innerHeight};
   }
   return null;
 }"""
@@ -2901,16 +3034,9 @@ def cmd_plan(which="all", shoot=True):
             current, titles, note = plan_study_is_current(page, expected_stamp)
             if not current and applied:
                 print(f"[TV] Chart is not showing this plan ({note}) - replacing the study.")
-                _foreground_browser_window()
-                # The editor covers the bottom half of the window and pushes the
-                # Object tree's rows into a scroll region, where they read as not
-                # visible. Close it before touching the tree.
-                close_pine_editor(page)
-                make_focus_safe(page)
-                remove_plan_studies_via_tree(page)
-                page.wait_for_timeout(1500)
-                add_saved_script_to_chart(page)
-                page.wait_for_timeout(2500)
+                replaced, detail = replace_plan_study(page, expected_stamp, plans[0]["symbol"])
+                print(f"[TV] {'replaced' if replaced else 'REPLACE FAILED'}: {detail}")
+                page.wait_for_timeout(2000)
                 current, titles, note = plan_study_is_current(page, expected_stamp)
                 after = titles
 
