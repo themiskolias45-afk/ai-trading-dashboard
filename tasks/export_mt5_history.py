@@ -22,8 +22,17 @@ except ImportError:
 TERMINAL_PATH = os.environ.get("MT5_TERMINAL_PATH", "")
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history")
 
-# Broker symbols as the bridge auto-detected them.
-SYMBOLS = ["BTCUSD", "XAUUSD", "SP500"]
+# Broker symbols as the bridge auto-detected them. Overridable so a CANDIDATE
+# instrument can be exported on the broker's own bars WITHOUT touching the bridge or
+# the server -- measuring a candidate must never require editing the live trading path.
+#
+#   python tasks/export_mt5_history.py NAS100 BAC
+#
+# Why this matters: measured 2026-08-30, the same index reads +0.020R/trade on Yahoo
+# bars and -0.525 on broker bars over an identical window with the holding horizon
+# already matched -- a feed bias of +0.545R/trade, larger than any edge being argued
+# about. A candidate judged on Yahoo bars is not judged.
+SYMBOLS = sys.argv[1:] or ["BTCUSD", "XAUUSD", "SP500"]
 
 TIMEFRAMES = {
     "M15": mt5.TIMEFRAME_M15,
@@ -93,12 +102,28 @@ def main():
     start = end - timedelta(days=365 * YEARS_BACK)
     print(f"requesting {YEARS_BACK}y: {start.date()} -> {end.date()}\n")
 
+    # copy_rates needs the symbol selected. Market Watch is state the live bridge
+    # shares, so anything selected here is recorded and put back afterwards; the
+    # bridge's own symbols are never deselected even if they appear in the list.
+    bridge_owned = {"BTCUSD", "XAUUSD", "SP500"}
+    selected_by_us = []
+    book = {sym.name: sym for sym in (mt5.symbols_get() or [])}
+    for symbol in SYMBOLS:
+        if symbol in book and not book[symbol].visible:
+            if mt5.symbol_select(symbol, True):
+                selected_by_us.append(symbol)
+
     for symbol in SYMBOLS:
         for tf_name, tf_const in TIMEFRAMES.items():
             try:
                 print("  " + export(symbol, tf_name, tf_const, start, end))
             except Exception as exc:
                 print(f"  {symbol} {tf_name}: ERROR {exc}")
+
+    for symbol in selected_by_us:
+        if symbol in bridge_owned:
+            continue
+        mt5.symbol_select(symbol, False)
 
     mt5.shutdown()
     print(f"\nwritten to {OUT_DIR}")
