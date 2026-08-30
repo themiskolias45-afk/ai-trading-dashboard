@@ -656,7 +656,8 @@ def plan_study_present(page):
     the check could never have passed. The chart answers the version question itself,
     with the STALE marker Pine renders from its own embedded timestamp.
 
-    NOT SUFFICIENT ON ITS OWN. See bound_plan_study_present below.
+    NOT SUFFICIENT ON ITS OWN: it cannot tell a CURRENT study from a stale one, and
+    a stale study compiles perfectly well. See plan_study_is_current below.
     """
     return bool(list_plan_studies(page))
 
