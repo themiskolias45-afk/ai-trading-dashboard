@@ -128,7 +128,30 @@ const bars = rows.map(line => {
 // Only STRONG/MODERATE are tradeable; which of those actually trades live is
 // decided by minStrength, applied here so the replay matches the bridge.
 const allowed = settings.minStrength === "MODERATE" ? ["STRONG", "MODERATE"] : ["STRONG"];
+// Which timeframe these bars ARE. generateSignal takes it on barSource and several
+// setups are scoped to one timeframe -- SWING_PULLBACK_H4, EMA_REVERSAL_H1 and
+// M15_MOMENTUM all test it -- so a harness that never sets it makes those setups
+// UNREACHABLE and silently reports that they never fire. That is measurement saying
+// "no edge" when it means "never ran", which is the worse of the two failures.
+//
+// Derived from the filename (XAUUSD_H4.csv -> "H4") because every file in
+// tasks/history and tasks/history_yahoo is named that way; REPLAY_TIMEFRAME overrides
+// it for a file that is not. Null when it cannot be derived, which is exactly the old
+// behaviour, so every existing caller is unaffected.
+const REPLAY_TIMEFRAME = (() => {
+  const override = (process.env.REPLAY_TIMEFRAME || "").trim().toUpperCase();
+  if (override) return override;
+  const m = path.basename(csvPath).match(/_(D1|H4|H1|M15)\.csv$/i);
+  return m ? m[1].toUpperCase() : null;
+})();
+
+// Bars handed to the engine per cycle, per timeframe -- the SAME counts
+// BAR_COUNT_BY_TIMEFRAME in mt5_bridge.py pushes live. Anything not recognised falls
+// back to the largest, so an unusual file is never given LESS history than live would.
+const LIVE_BAR_COUNTS = { D1: 600, H4: 400, H1: 1200, M15: 4000 };
+
 const WARMUP = 210;      // EMA200 needs history before any signal means anything
+const REPLAY_WINDOW = LIVE_BAR_COUNTS[REPLAY_TIMEFRAME] || 1200;
 const MAX_HOLD = 40;
 
 // Regime thresholds, kept identical to generateSignalMTF in server/index.js so a
@@ -147,11 +170,28 @@ let engineThrows = 0;
 let firstEngineThrow = "";
 
 for (let i = WARMUP; i < bars.length - 1; i++) {
-  const w = bars.slice(0, i + 1);
+  // TRAILING WINDOW, matching what the bridge actually pushes. This used to be
+  // bars.slice(0, i + 1) -- the ENTIRE history, re-sliced and re-mapped four times on
+  // every bar, which is O(n^2): 102,011 M15 bars cost ~5.2 BILLION element operations
+  // and the run took hours rather than minutes.
+  //
+  // Speed is the smaller half. The bigger half is FIDELITY: live never sees the full
+  // history. mt5_bridge.py pushes exactly {d1:600, h4:400, h1:1200, m15:4000}, so a
+  // replay computing EMA200 over 102,011 bars was computing a DIFFERENT indicator than
+  // production computes over 4,000 -- and EMA200 on this system is documented as
+  // seed-sensitive. Windowing to the live bar counts makes the backtest match live
+  // instead of merely being faster.
+  const from = Math.max(0, i + 1 - REPLAY_WINDOW);
+  const w = bars.slice(from, i + 1);
   let sig;
   try {
     sig = generateSignal("replay", "REPLAY",
-      w.map(b => b.c), w.map(b => b.h), w.map(b => b.l), w.map(b => b.v));
+      w.map(b => b.c), w.map(b => b.h), w.map(b => b.l), w.map(b => b.v),
+      // `opens` rides on barSource rather than as a new positional argument, so
+      // generateSignal's signature is untouched and every other caller is unaffected.
+      // SWING_PULLBACK_H4 needs it: the Pine it mirrors requires a bullish entry bar
+      // (close > open), and that is not derivable from closes/highs/lows.
+      null, { timeframe: REPLAY_TIMEFRAME, opens: w.map(b => b.o) });
   } catch (err) {
     engineThrows++;
     if (!firstEngineThrow) firstEngineThrow = err.message;
