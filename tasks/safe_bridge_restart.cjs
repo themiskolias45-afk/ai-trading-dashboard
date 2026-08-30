@@ -327,6 +327,45 @@ function record(name, ok, detail) {
     process.exit(2);
   }
 
+/**
+ * WHICH launcher starts this tag's bridge ON THIS BOX. Ask the box; never guess.
+ *
+ * THE DEFECT THIS CLOSES, found 2026-08-30 and caught BEFORE it was allowed to run.
+ * Both restart paths below were wrong on the VPS, in different ways, and either would
+ * have taken the trading bridge down:
+ *
+ *   PID PATH  started tasks\start_bridge_<TAG>.bat. On the VPS that file pins
+ *             MT5_EXPECTED_LOGIN=25446287 - the LAPTOP's account - while the VPS trades
+ *             11581419 from start_bridge_A_vps.bat. The bridge would come back and then
+ *             refuse every order: alive, and placing nothing.
+ *
+ *   TASK PATH did Stop-ScheduledTask then Start-ScheduledTask on SmartEntryBridgeA.
+ *             That task is logon-only and the VPS is headless, so the START CANNOT
+ *             SUCCEED - 0x800710E0. It would stop the bridge and fail to bring it back.
+ *
+ * The box's own SmartEntryBridge<tag> task names the right launcher and is correct on
+ * both machines: the VPS task says start_bridge_A_vps.bat, and the laptop has no bridge
+ * task at all so it falls through to the plain launcher, correct there. Same resolver
+ * and same reasoning as ensure_running.ps1::Get-BridgeLauncher.
+ *
+ * 'Prefer the _vps variant when it exists' was rejected: the laptop carries that file
+ * too, so that rule would start the VPS's account on the laptop.
+ */
+function bridgeLauncherFor(tag) {
+  const fallback = "start_bridge_" + tag + ".bat";
+  try {
+    const out = execFileSync("powershell", ["-NoProfile", "-Command",
+      "$t = Get-ScheduledTask -TaskName 'SmartEntryBridge" + tag + "' -ErrorAction Stop; "
+      + "$t.Actions | ForEach-Object { $_.Execute + ' ' + $_.Arguments }"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const hit = /start_bridge_[A-Za-z](_vps)?\.bat/i.exec(out || "");
+    if (hit) return hit[0];
+  } catch (e) {
+    // No such task on this box. That is the laptop's normal state, not an error.
+  }
+  return fallback;
+}
+
   console.log("\nAll pre-flight checks passed.");
   if (DRY_RUN) { console.log("DRY RUN — stopping here. Nothing was touched."); return; }
 
@@ -350,10 +389,11 @@ function record(name, ok, detail) {
     try {
       execFileSync("powershell", ["-NoProfile", "-Command",
         "Stop-Process -Id " + pidFromFile + " -Force -Confirm:$false"], { stdio: "inherit" });
-      console.log("  stopped pid " + pidFromFile + "; starting tasks\\start_bridge_" + ACCOUNT + ".bat");
+      const launcher = bridgeLauncherFor(ACCOUNT);
+      console.log("  stopped pid " + pidFromFile + "; starting tasks\\" + launcher);
       execFileSync("powershell", ["-NoProfile", "-Command",
-        "Start-Process -FilePath 'cmd' -ArgumentList '/c','tasks\\start_bridge_" + ACCOUNT
-        + ".bat' -WorkingDirectory '" + PROJECT_ROOT.replace(/'/g, "''") + "' -WindowStyle Minimized"],
+        "Start-Process -FilePath 'cmd' -ArgumentList '/c','tasks\\" + launcher
+        + "' -WorkingDirectory '" + PROJECT_ROOT.replace(/'/g, "''") + "' -WindowStyle Minimized"],
         { stdio: "inherit" });
     } catch (e) {
       console.log("  restart failed: " + e.message);
@@ -401,7 +441,27 @@ function record(name, ok, detail) {
     }
   } else {
   console.log("\nRestarting scheduled task " + TASK + " …");
-  const ps = "Stop-ScheduledTask -TaskName " + TASK + "; Start-Sleep -Seconds 3; Start-ScheduledTask -TaskName " + TASK;
+  // START VIA THE TASK IS NOT SAFE ON A HEADLESS BOX, and the VPS is headless.
+  //
+  // This was Stop-ScheduledTask then Start-ScheduledTask on the SAME task. On the VPS
+  // SmartEntryBridgeA is Interactive/AtLogOn, so the START cannot succeed - 0x800710E0,
+  // ERROR_NO_INTERACTIVE_SESSION. The stop would work, the start would not, and the
+  // bridge that trades would be left down with the tool reporting a restart.
+  //
+  // So the stop still goes through the task (it owns the process), and the START goes
+  // through SmartEntryEnsureRunning - SYSTEM, boot-triggered, and the only thing on that
+  // box that demonstrably CAN start a bridge. It resolves the launcher per box, so it
+  // brings the bridge back on the right account. Triggering it explicitly turns a wait
+  // of up to 10 minutes into a few seconds.
+  //
+  // If that task is absent (the laptop names its equivalent differently), fall back to
+  // starting the resolved launcher directly rather than a task that cannot fire.
+  const launcherTask = bridgeLauncherFor(ACCOUNT);
+  const ps = "Stop-ScheduledTask -TaskName " + TASK + "; Start-Sleep -Seconds 3; "
+    + "if (Get-ScheduledTask -TaskName 'SmartEntryEnsureRunning' -ErrorAction SilentlyContinue) "
+    + "{ Start-ScheduledTask -TaskName 'SmartEntryEnsureRunning' } "
+    + "else { Start-Process -FilePath 'cmd' -ArgumentList '/c','tasks\\" + launcherTask + "' "
+    + "-WorkingDirectory '" + PROJECT_ROOT.replace(/'/g, "''") + "' -WindowStyle Minimized }";
   try {
     if (HOST === "localhost" || HOST === "127.0.0.1") {
       execFileSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "inherit" });
