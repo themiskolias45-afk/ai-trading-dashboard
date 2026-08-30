@@ -63,9 +63,25 @@ function replay(symbol, ticker) {
   return JSON.parse(stdout);
 }
 
+// The live closed-trade count, read from the journal at report time. Returns a word
+// rather than a wrong number when the journal cannot be read: a caveat that overstates
+// the live sample is worse than one that declines to name it.
+function liveClosedTrades() {
+  try {
+    const jp = path.join(ROOT, "server", "journal.json");
+    if (!fs.existsSync(jp)) return "very few";
+    const j = JSON.parse(fs.readFileSync(jp, "utf8"));
+    const rows = Array.isArray(j) ? j : (j.trades || j.journal || []);
+    return rows.filter(t => t && t.status === "CLOSED").length;
+  } catch (e) {
+    return "very few";
+  }
+}
+
 // ── collect the trades ──────────────────────────────────────────────────────
 const trades = [];
 const perAsset = {};
+const horizonDrop = {};
 for (const [symbol, ticker] of ASSETS) {
   let rows;
   try {
@@ -75,9 +91,29 @@ for (const [symbol, ticker] of ASSETS) {
     continue;
   }
   let kept = 0;
+  // TRADES THIS REPORT THREW AWAY, counted rather than silently dropped.
+  //
+  // The filter below excludes every outcome that is not WIN or LOSS - which means
+  // EXPIRED, the replay's label for a trade still open when it hit MAX_HOLD (40 H4
+  // bars by default). Those were removed from the population with no disclosure
+  // anywhere, so the headline chance-of-profit was computed over a filtered sample
+  // and nothing said so.
+  //
+  // It is a material share, not a rounding detail: SP500 returns 48 EXPIRED against
+  // 37 LOSS and 3 WIN. _replay_mtf.cjs already warns about exactly this - "the live
+  // system has NO max-hold, so these are unresolved, not flat - this result is biased
+  // LOW" - but it writes that to STDERR to keep stdout clean JSON, and this script
+  // reads only stdout, so the warning was discarded too.
+  //
+  // Counted from the DATA rather than by scraping that message: the rows carry
+  // `outcome`, which cannot drift out of sync with a log string. Only rows that clear
+  // the gate are counted, so this describes the population the report actually
+  // considered rather than everything the replay produced.
+  let expired = 0;
   for (const t of rows) {
-    if (t.outcome !== "WIN" && t.outcome !== "LOSS") continue;
     if (Number(t.conf) < GATE) continue;
+    if (t.outcome === "EXPIRED") { expired++; continue; }
+    if (t.outcome !== "WIN" && t.outcome !== "LOSS") continue;
     const secs = Number(t.t);
     if (!Number.isFinite(secs) || secs <= 0) continue;
     // _replay_mtf emits SECONDS. Read as ms every trade lands in January 1970 and
@@ -88,6 +124,7 @@ for (const [symbol, ticker] of ASSETS) {
     kept++;
   }
   perAsset[symbol] = kept;
+  horizonDrop[symbol] = { resolved: kept, expired, ofGated: kept + expired };
 }
 
 if (trades.length < 30) {
@@ -266,9 +303,40 @@ const result = {
     maxDrawdown: histogram(dds.map(d => d * 100), 0, Math.min(100, pct(dds, 0.99) * 100 * 1.4), 40),
     perTradeR:   histogram(rs, -1.6, 2.6, 42),
   },
+  // WHAT THIS REPORT LEFT OUT, as a first-class field rather than a console line.
+  // The page renders it; a reader can see the size of the exclusion instead of
+  // taking the headline over a filtered sample at face value.
+  horizon: (() => {
+    const maxHoldBars = Number(process.env.MTF_MAX_HOLD || 40);
+    let expired = 0, resolved = 0;
+    for (const v of Object.values(horizonDrop)) {
+      if (!v || typeof v !== "object") continue;
+      expired += v.expired; resolved += v.resolved;
+    }
+    const ofGated = expired + resolved;
+    const sharePct = ofGated ? parseFloat(((expired / ofGated) * 100).toFixed(1)) : 0;
+    return {
+      maxHoldBars,
+      perAsset: horizonDrop,
+      expiredDropped: expired,
+      resolvedKept: resolved,
+      ofGated,
+      sharePct,
+      // 20% is the same floor _replay_mtf.cjs uses for its own stderr warning; kept
+      // identical so the two cannot disagree about when this matters.
+      material: sharePct > 20,
+      note: "EXPIRED means the trade was still open at MAX_HOLD and was DROPPED from this "
+        + "report, not scored flat. The live system has no max-hold, so these are "
+        + "unresolved rather than losses - the distribution above is computed on the "
+        + "resolved remainder only. Re-run with MTF_MAX_HOLD=320 to let them resolve.",
+    };
+  })(),
   caveats: [
-    "REPLAYED trades, not live fills. This system has 8 closed live trades; eight cannot "
-      + "produce a drawdown distribution that means anything.",
+    // The live count is read from the journal rather than baked in. It said "8" while
+    // the journal held 7, and it moves with every fill - a figure hardcoded into a
+    // caveat is correct only until the next trade closes.
+    "REPLAYED trades, not live fills. This system has " + liveClosedTrades() + " closed "
+      + "live trades, which cannot produce a drawdown distribution that means anything.",
     "A bootstrap resamples the SAME trades. It shows the range of LUCK around an edge — "
       + "it does NOT test whether the edge survives out of sample.",
     "Out-of-sample is a different question, answered by rsi_ceiling_walkforward.cjs "

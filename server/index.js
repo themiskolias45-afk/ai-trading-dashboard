@@ -10434,6 +10434,8 @@ app.get("/api/robustness-report", (_, res) => {
       // provenance header reads from. It also stays inside `report` for anything
       // consuming the raw artifact - one value, two readers, no second source.
       engineConfig: raw.engineConfig || null,
+      // Same reason as engineConfig: the page's header reads the envelope.
+      horizon: raw.horizon || null,
       report: raw,
       feedsTheGate: false,
     });

@@ -212,6 +212,23 @@ function render(d, meta) {
     // 43.6% chance of profit over 227 trades and the next run showed 97.1% over 302,
     // on the same gate, risk, sims and costs - because momentumRsiMax had drifted from
     // 72 to 88 underneath. Without this line the two look comparable and are not.
+    // WHAT THIS REPORT EXCLUDED. The headline is computed on the resolved remainder:
+    // every EXPIRED trade - still open at MAX_HOLD - is DROPPED, not scored flat. That
+    // was invisible on the page and absent from the artifact, so a chance-of-profit
+    // over a filtered sample read as one over the whole population.
+    + (function(h){
+        if (!h || !h.material) return '';
+        var per = Object.keys(h.perAsset || {}).map(function(k){
+          var v = h.perAsset[k];
+          return esc(k) + ' ' + v.expired + ' dropped / ' + v.resolved + ' kept';
+        }).join(' · ');
+        return '<div class="banner" style="border-color:var(--red);color:var(--red);background:#1a0a0a">'
+          + '<strong>' + h.expiredDropped + ' TRADES (' + h.sharePct + '%) WERE EXCLUDED FROM THIS REPORT.</strong> '
+          + 'They were still open at MAX_HOLD=' + h.maxHoldBars + ' H4 bars and are DROPPED, not scored flat. '
+          + 'The live system has no max-hold, so they are <em>unresolved</em> rather than losses — every number '
+          + 'above is computed on the ' + h.resolvedKept + ' that resolved. ' + per + '. '
+          + 'Re-run with <code>MTF_MAX_HOLD=320</code> to let them resolve and compare.</div>';
+      })(meta.horizon)
     + (function(c){
         if (!c || !c.available) return '';
         var drift = [];
