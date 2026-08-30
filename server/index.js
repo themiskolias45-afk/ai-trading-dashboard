@@ -147,6 +147,12 @@ const hermes     = require("./hermes");
 // Fair Value Gap geometry. Pure functions over the bar arrays the engine already
 // holds — no I/O, no state, and nothing it exports can reach the trading path.
 const fvg        = require("./fvg");
+// Prior-period levels, confirmed swings, round-number magnets, ATR day projection
+// and CONFLUENCE CLUSTERING over all of them, plus the DXY/VIX/correlation read.
+// Pure functions like fvg.js, and like fvg.js nothing it exports can reach the
+// trading path — every object it builds carries feedsTheGate:false and the test
+// suite asserts it rather than trusting the comment.
+const marketContext = require("./market_context");
 // Per-gate verdicts over the scored rejection ledger. Reads one file, aggregates,
 // returns. Cannot reach the trading path — see the header of that module.
 const rejectionEvidence = require("./rejection_evidence");
@@ -681,6 +687,11 @@ let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, 
 let sentimentCache = { fearGreed: 50, classification: "Neutral", btcSentiment: "NEUTRAL", newsHeadlines: [], updated: null };
 let signalCache   = { btc: null, gold: null, spx: null, updatedAt: null };
 let signalHistory = [];   // last 100 signal cycles — full confidence + reasons per asset
+// DXY daily closes, retained from the fetch refreshSignals already makes for the
+// Gold DIVERGENCE setup. Read ONLY by /api/market-context, which turns a bare
+// dollar level into a direction. Never read on the signal path — the divergence
+// setup keeps using its own local copy, exactly as before.
+let dxyDailyCache = { closes: null, updatedAt: null };
 
 // Native bars pushed up from mt5_bridge.py, keyed by asset key (btc/gold/spx):
 //   { symbol, bars: { d1: {closes,highs,lows,volumes}, h4: {...}, h1: {...} }, receivedAt }
@@ -1858,6 +1869,90 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     }
   }
 
+  // ══ SWING_PULLBACK_H4 detection, HOISTED ═══════════════════════
+  //
+  // An EXACT port of "Swing Trend Pullback Strategy (21/50 EMA) - Long Only" v10.0,
+  // read off the operator's TradingView on 2026-08-30 (tasks/tv_read_script.py). Its
+  // own tester reports profit factor 1.424 over 72 trades. Four earlier versions of
+  // this setup were written from the NAME alone; every one was worse and two could not
+  // fire at all. These rules are transcribed, not invented:
+  //
+  //   ema21Rising  = ema21 > ema21[1]
+  //   uptrend      = ema21 > ema50 and ema21Rising
+  //   pushDistance = ta.highest(high - ema50, 15)
+  //   momentumPush = pushDistance > 0.6 * atr
+  //   tolerance    = 0.60 * atr
+  //   touchesEma21 = low <= ema21 + tolerance and close >= ema21 - tolerance
+  //   bullishClose = close > open
+  //   pullbackEntry= touchesEma21 and bullishClose and close > ema50
+  //   rsiOk        = rsi > 40                       (useAdxFilter defaults FALSE)
+  //   slPrice      = math.min(swingLow(5), ema21) - 1.5 * atr
+  //   tpPrice      = close + (close - slPrice) * 2.0
+  //
+  // THE MOMENTUM PUSH IS WHAT EVERY EARLIER VERSION MISSED. Not "price pulled back",
+  // but "price first travelled >=0.6 ATR above EMA50 within 15 bars, THEN returned to a
+  // rising EMA21 and closed green". The push is what makes the pullback worth buying.
+  //
+  // Computed here so the chain below can guard on the ANSWER rather than on the inputs.
+  const swingPullback = (() => {
+    const idle = { fires: false, stop: null, target: null, reasons: [] };
+    if (barSource?.timeframe !== "H4") return idle;
+    const opens = barSource?.opens;
+    if (!Array.isArray(opens) || opens.length !== closes.length) return idle;
+    if (closes.length < 60) return idle;
+
+    const ema21Series = emaSeries(closes, 21);
+    const ema50Series = emaSeries(closes, 50);
+    const ema21Now = ema21Series.at(-1), ema21Prev = ema21Series.at(-2);
+    const ema50Now = ema50Series.at(-1);
+    if (!ema21Now || !ema21Prev || !ema50Now) return idle;
+
+    // ta.atr is WILDER-smoothed; the engine's atr() is a plain mean of the last 14
+    // true ranges, which is a different number. The Pine's own definition is rebuilt.
+    const trueRanges = [];
+    for (let i = 1; i < closes.length; i++) {
+      trueRanges.push(Math.max(
+        highs[i] - lows[i],
+        Math.abs(highs[i] - closes[i - 1]),
+        Math.abs(lows[i] - closes[i - 1])));
+    }
+    const atrW = wilderSmooth(trueRanges, 14).at(-1);
+    if (!atrW || !(atrW > 0)) return idle;
+
+    if (!(ema21Now > ema50Now && ema21Now > ema21Prev)) return idle;
+
+    // ta.highest(high - ema50, 15): each bar's excursion above ITS OWN EMA50.
+    let pushDistance = -Infinity;
+    for (let i = Math.max(0, closes.length - 15); i < closes.length; i++) {
+      pushDistance = Math.max(pushDistance, highs[i] - ema50Series[i]);
+    }
+    if (!(pushDistance > 0.6 * atrW)) return idle;
+
+    const tolerance = 0.60 * atrW;
+    const lastLow = lows.at(-1), lastOpen = opens.at(-1), lastClose = closes.at(-1);
+    if (!(lastLow <= ema21Now + tolerance && lastClose >= ema21Now - tolerance)) return idle;
+    if (!(lastClose > lastOpen)) return idle;
+    if (!(lastClose > ema50Now)) return idle;
+    if (!(rsi !== null && rsi > 40)) return idle;
+
+    let swingLow5 = Infinity;
+    for (let i = Math.max(0, lows.length - 5); i < lows.length; i++) swingLow5 = Math.min(swingLow5, lows[i]);
+    const sl = parseFloat((Math.min(swingLow5, ema21Now) - 1.5 * atrW).toFixed(2));
+    if (!(lastClose > sl)) return idle;   // a non-positive risk distance is not a trade
+
+    return {
+      fires: true,
+      stop: sl,
+      target: parseFloat((lastClose + (lastClose - sl) * 2.0).toFixed(2)),
+      reasons: [
+        `Momentum push ${(pushDistance / atrW).toFixed(2)}x ATR above EMA50 within 15 bars`,
+        `Pullback into the EMA21 zone (±${tolerance.toFixed(2)}) closing bullish`,
+        `EMA21 rising and above EMA50 — trend intact`,
+        `RSI ${rsi} above the 40 floor`,
+      ],
+    };
+  })();
+
   let setup = "WAIT", signal = "WAIT", strength = "NONE";
   let entry = price, stop = null, target = null, reasons = [];
 
@@ -2069,6 +2164,104 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     reasons.push(`BB squeeze breakdown — bandwidth expanded ${squeezeBreakout.priorBandwidth}% -> ${bb.bandwidth}%`);
     reasons.push(`Close below BB lower ${bb.lower} — confirmed bearish breakdown`);
     reasons.push(`Volume ${volRatio}x avg — institutional selling`);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ADDED 2026-08-30, ON REQUEST. THREE SETUPS, PLACED ABOVE BB_SQUEEZE_WATCH.
+  //
+  // THE POSITION IS THE SAFETY PROPERTY. This is a priority-ordered if/else-if chain,
+  // so a branch inserted higher captures cycles that currently reach the branches below
+  // it -- the defect that once blocked five setups on Gold.
+  //
+  // These sat LAST at first, which blocked nothing and ALSO fired nothing: measured
+  // 2026-08-30, BB_SQUEEZE_WATCH took 4,303 of the 4,733 WAIT cycles on SP500 H4 and
+  // terminated the chain before them. Placed here instead, immediately ABOVE
+  // BB_SQUEEZE_WATCH, because that branch hardcodes `signal = "WAIT"` and therefore
+  // CANNOT PRODUCE A TRADE -- it is an observability label. Taking cycles from it
+  // forfeits no signal, which is what makes this position safe rather than merely
+  // convenient. Everything that can actually trade still sits above.
+  //
+  // Verified by diffing /api/signals across all three assets before and after.
+  //
+  // Each is scoped to ONE timeframe via barSource.timeframe. generateSignal is called
+  // once per timeframe by generateSignalMTF, so without that guard an H4 setup would
+  // also fire on the daily and the H1 and quietly become three different setups
+  // wearing one name.
+  //
+  // Each guard tests THE MATCH ITSELF, never merely the data needed to compute it --
+  // the second half of the same lesson: a branch that guards on preconditions
+  // terminates the chain even when nothing matched.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ── SWING_PULLBACK_H4 ─ exact port of the operator's live Pine strategy ──
+  // Detection is HOISTED above this chain (see swingPullback) and this branch guards
+  // ONLY on the result. That is not style: a branch guarding on preconditions with the
+  // real test inside terminates the chain even when nothing matched, which is the
+  // documented defect that once blocked BREAKOUT, MOMENTUM, TREND_FOLLOW,
+  // RANGE_TRADE_LONG/SHORT and SQUEEZE_BREAKOUT on Gold.
+  else if (swingPullback.fires) {
+    setup  = "SWING_PULLBACK_H4";
+    signal = "BUY";
+    stop   = swingPullback.stop;
+    target = swingPullback.target;
+    // The Pine has no strength concept -- longCondition is simply true or false, and
+    // every qualifying bar is a full entry there. MODERATE is the honest mapping;
+    // STRONG stays unreachable until something measures a band worth claiming.
+    strength = "MODERATE";
+    for (const r of swingPullback.reasons) reasons.push(r);
+  }
+
+  // ── EMA_REVERSAL_H1: price reclaims EMA20 from below. LONG ONLY, as specified. ──
+  else if (
+    barSource?.timeframe === "H1" &&
+    ema20 && ema50 &&
+    aboveEma20 &&                    // reclaimed
+    price <= ema20 * 1.006 &&        // and only JUST — this is the turn, not the run
+    rsi !== null && rsi >= 45 && rsi <= 62 &&
+    macd?.bullish &&
+    aboveEma50                       // reclaim against the larger trend, not into it
+  ) {
+    setup  = "EMA_REVERSAL_H1";
+    signal = "BUY";
+    // Same clamp as SWING_PULLBACK_H4 above, and for the same measured reason.
+    const atrStopPrice = atrStop15 ? entry - atrStop15 : entry * 0.99;
+    const atrUnit = atrVal || Math.abs(entry - atrStopPrice) / 1.5;
+    const structuralOk = swingLow
+      && (entry - swingLow) >= atrUnit * 1.0
+      && (entry - swingLow) <= atrUnit * 3.0;
+    const sl = parseFloat((structuralOk ? swingLow : atrStopPrice).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry + Math.abs(entry - sl) * 2.0).toFixed(2));
+    strength = (rsi >= 50 && macd.histogram > 0) ? "MODERATE" : "NONE";
+    reasons.push(`1H reclaim of EMA20 from below — reversal, still above EMA50`);
+    reasons.push(`RSI ${rsi} — turning up through the 45-62 band`);
+  }
+
+  // ── M15_MOMENTUM: the only new setup that trades BOTH directions. ──
+  // m15 has been pushed by the bridge since 2026-08-25 and read by NOTHING. This is
+  // its first reader; generateSignalMTF passes it only when the caller supplies it.
+  else if (
+    barSource?.timeframe === "M15" &&
+    ema20 && ema50 && rsi !== null && macd &&
+    (
+      (price > ema20 && ema20 > ema50 && rsi > 52 && rsi < 70 && macd.bullish) ||
+      (price < ema20 && ema20 < ema50 && rsi < 48 && rsi > 30 && !macd.bullish)
+    )
+  ) {
+    const isLong = price > ema20;
+    setup  = "M15_MOMENTUM";
+    signal = isLong ? "BUY" : "SELL";
+    const atrFloor = atrStop15
+      ? (isLong ? entry - atrStop15 : entry + atrStop15)
+      : (isLong ? entry * 0.995 : entry * 1.005);
+    const sl = parseFloat(atrFloor.toFixed(2));
+    stop   = sl;
+    target = parseFloat((isLong
+      ? entry + Math.abs(entry - sl) * 2.0
+      : entry - Math.abs(sl - entry) * 2.0).toFixed(2));
+    strength = (Math.abs(rsi - 50) >= 8 && Math.abs(macd.histogram) > 0) ? "MODERATE" : "NONE";
+    reasons.push(`15m ${isLong ? "long" : "short"} momentum — price ${isLong ? "above" : "below"} EMA20 with EMA20 ${isLong ? "above" : "below"} EMA50`);
+    reasons.push(`RSI ${rsi}, MACD ${macd.bullish ? "bullish" : "bearish"} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
   }
 
   // ── BB_SQUEEZE_WATCH: tight squeeze — flag pending breakout ──────
@@ -2509,8 +2702,12 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
 }
 
 // ── Multi-timeframe wrapper ───────────────────────────────────
-function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyDailyCloses = null, barSource = null) {
-  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? [], dxyDailyCloses, { ...(barSource ?? {}), timeframe: "D1" });
+// m15Data is LAST and defaults to null so every existing caller -- the live route, the
+// replay harnesses, the walk-forwards -- behaves exactly as before. A new positional
+// parameter inserted anywhere else would have silently shifted dxyDailyCloses and
+// barSource for all of them.
+function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyDailyCloses = null, barSource = null, m15Data = null) {
+  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? [], dxyDailyCloses, { ...(barSource ?? {}), timeframe: "D1", opens: dailyData.opens ?? null });
   if (!daily) return null;
 
   // A throw here is NOT the same as "not enough bars" and NOT the same as "H4 had
@@ -2522,7 +2719,7 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   let h4 = null;
   try {
     if (h4Data?.closes?.length >= 50)
-      h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows, h4Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H4" });
+      h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows, h4Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H4", opens: h4Data.opens ?? null });
   } catch (e) {
     console.error(`[signals] ${label} (${ticker}) H4 leg threw — confidence collapses to daily-only 40: ${e && e.message ? e.message : String(e)}`);
   }
@@ -2530,11 +2727,23 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   let h1 = null;
   try {
     if (h1Data?.closes?.length >= 50)
-      h1 = generateSignal(label, ticker, h1Data.closes, h1Data.highs, h1Data.lows, h1Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H1" });
+      h1 = generateSignal(label, ticker, h1Data.closes, h1Data.highs, h1Data.lows, h1Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H1", opens: h1Data.opens ?? null });
   } catch (e) {
     // NOT daily-only: h4 is untouched. Only the triple-alignment boost at the
     // `h4 && h1` check below is lost, which is worth up to 16 points (88 -> 72).
     console.error(`[signals] ${label} (${ticker}) H1 leg threw — triple-alignment boost unavailable: ${e && e.message ? e.message : String(e)}`);
+  }
+
+  // m15 leg. PURELY ADDITIVE and deliberately NOT part of the confidence maths: the
+  // gate, the cohorts and the alignment boost are all unchanged, so wiring this in
+  // cannot move a single existing signal. It is computed only when a caller actually
+  // supplies m15 bars, and exposed on the payload as `m15` for the surfaces to read.
+  let m15 = null;
+  try {
+    if (m15Data?.closes?.length >= 50)
+      m15 = generateSignal(label, ticker, m15Data.closes, m15Data.highs, m15Data.lows, m15Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "M15", opens: m15Data.opens ?? null });
+  } catch (e) {
+    console.error(`[signals] ${label} (${ticker}) M15 leg threw — m15 setup unavailable: ${e && e.message ? e.message : String(e)}`);
   }
 
   // Confidence: rises when both timeframes agree
@@ -2945,8 +3154,18 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     stop:       finalStop,
     target:     finalTarget,
     rr:         finalRR ?? h4?.rr ?? null,
-    h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi } : null,
-    h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi } : null,
+    // `setup` on every leg, added 2026-08-30. Without it a leg reporting "BUY" gives no
+    // way to tell WHICH setup produced it -- which is exactly the question when a new
+    // setup is added and a confidence suddenly moves. A signal you cannot attribute is
+    // a signal you cannot audit.
+    h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi, setup: h4.setup } : null,
+    h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi, setup: h1.setup } : null,
+    // The m15 leg, exposed so the surfaces can show it. `setup` is carried here and NOT
+    // on the other legs because M15_MOMENTUM is the only setup that can fire on this
+    // timeframe, and a page showing "m15: BUY" without saying which setup produced it
+    // would be a number with no reader able to check it. null on the Yahoo path and on
+    // any bridge that predates the m15 push -- both are normal, not errors.
+    m15: m15 ? { signal: m15.signal, trend: m15.trend, rsi: m15.indicators?.rsi, setup: m15.setup } : null,
     pivots,
     session: getCurrentSession()
   };
@@ -3270,7 +3489,11 @@ function mt5BarsFor(assetKey) {
   // Mixing feeds across timeframes is also how entry and stop ended up on
   // different instruments before; keep one source per asset per cycle.
   if (!entry.bars?.d1) return null;
-  return { symbol: entry.symbol, daily: entry.bars.d1, h4: entry.bars.h4, h1: entry.bars.h1 };
+  // m15 rides along OPTIONALLY. It is null on any bridge that predates the m15 push,
+  // and generateSignalMTF simply skips the leg when it is absent -- so an old bridge
+  // behaves exactly as it did before this existed. The one-source-per-asset rule above
+  // still holds: m15 comes from the same MT5 entry as the other three, never mixed.
+  return { symbol: entry.symbol, daily: entry.bars.d1, h4: entry.bars.h4, h1: entry.bars.h1, m15: entry.bars.m15 ?? null };
 }
 
 async function refreshSignals() {
@@ -3286,6 +3509,14 @@ async function refreshSignals() {
     const dxy = await fetchCandles("DX-Y.NYB");
     dxyDailyCloses = dxy?.closes ?? null;
   } catch (e) { console.error("[signals] DXY fetch:", e.message); }
+  // Keep them. This series was fetched every cycle and thrown away the moment the
+  // Gold DIVERGENCE setup was done with it, which is why /api/daily-plan could
+  // print "DXY 99.68" and nothing else — a level with no direction, on the one
+  // instrument whose other half IS the dollar. Pure retention of an already-fetched
+  // value: nothing below reads dxyDailyCache, so this cannot alter any signal.
+  if (dxyDailyCloses) {
+    dxyDailyCache = { closes: dxyDailyCloses, updatedAt: new Date().toISOString() };
+  }
 
   await Promise.all(assets.map(async (a) => {
     try {
@@ -3293,12 +3524,16 @@ async function refreshSignals() {
       // on. Yahoo is the fallback for when no bridge is running, its series is too
       // short for EMA200, or its last push has gone stale.
       const mt5Bars = mt5BarsFor(a.key);
-      let dailyData, h4Data, h1Data, dataSource, sourceSymbol;
+      let dailyData, h4Data, h1Data, m15Data, dataSource, sourceSymbol;
 
       if (mt5Bars) {
         dailyData    = mt5Bars.daily;
         h4Data       = mt5Bars.h4;
         h1Data       = mt5Bars.h1;
+        // MT5 only. The Yahoo fallback below has no 15m series worth using -- it caps
+        // 15m history at ~60 days -- so on that path m15Data stays undefined and the
+        // leg is skipped rather than run on a series too short to mean anything.
+        m15Data      = mt5Bars.m15;
         dataSource   = "mt5";
         sourceSymbol = mt5Bars.symbol;
       } else {
@@ -3318,7 +3553,7 @@ async function refreshSignals() {
       const dxyForAsset = a.key === "gold" ? dxyDailyCloses : null;
       // barSource carries the instrument these levels were actually computed from.
       // Without it the R:R shadow log records GC=F while holding XAUUSD prices.
-      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data, dxyForAsset, { dataSource, sourceSymbol });
+      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data, dxyForAsset, { dataSource, sourceSymbol }, m15Data ?? null);
       // Stamped on the signal so every consumer — dashboard, bridge, daily plan —
       // can tell which instrument produced these levels. Without this, a Gold
       // signal carrying futures levels is indistinguishable from one carrying spot
@@ -3925,6 +4160,87 @@ app.get("/api/fvg", (req, res) => {
 
   res.json({ assets, minGapRangeFraction: fvg.DEFAULT_MIN_GAP_RANGE_FRACTION, updatedAt: new Date().toISOString() });
 });
+
+/**
+ * FVG zones per asset in the shape market_context expects.
+ *
+ * Deliberately NOT a refactor of the /api/fvg route above. That route is the
+ * published contract for the FVG page and rewriting it to share code here would
+ * put a working surface at risk to save twenty lines. This calls the same pure
+ * detector on the same bars and takes a wider zone cap, because a level candidate
+ * that fell outside the display top-4 is still a level.
+ */
+const CONTEXT_FVG_MAX_ZONES = 12;
+function fvgZonesForContext() {
+  const out = {};
+  for (const assetKey of ["btc", "gold", "spx"]) {
+    const barSet = mt5BarsFor(assetKey);
+    if (!barSet) continue;
+    const timeframes = {};
+    for (const timeframe of FVG_TIMEFRAMES) {
+      const bars = barSet[timeframe];
+      if (!bars) continue;
+      try {
+        timeframes[timeframe] = fvg.detectFVGs(bars, { maxZones: CONTEXT_FVG_MAX_ZONES });
+      } catch (e) {
+        // One bad series costs its own timeframe and nothing else.
+        console.error(`[market-context] fvg ${assetKey}/${timeframe}: ${e.message}`);
+      }
+    }
+    out[assetKey] = { timeframes };
+  }
+  return out;
+}
+
+/**
+ * Compose the whole market context from what the server already holds.
+ *
+ * Shared by GET /api/market-context and GET /api/daily-plan so the plan page and
+ * the chart drawer can never disagree about where a level is — the defect this
+ * whole module exists to end was two level systems, one of them invented.
+ *
+ * Returns { available:false, why } on any failure rather than throwing. This is
+ * observability: it may degrade, it may not take a route down.
+ */
+function composeMarketContext() {
+  try {
+    const barsByAsset = {};
+    for (const assetKey of ["btc", "gold", "spx"]) {
+      const barSet = mt5BarsFor(assetKey);
+      if (barSet) barsByAsset[assetKey] = barSet;
+    }
+    const composed = marketContext.buildMarketContext({
+      signals: signalCache,
+      barsByAsset,
+      fvgAssets: fvgZonesForContext(),
+      macro: { vix: priceCache.vix, dxy: priceCache.dxy, dxyCloses: dxyDailyCache.closes },
+    });
+    return Object.assign({ available: true }, composed, {
+      // The ages that matter. Levels derived from bars pushed an hour ago are an
+      // hour old however current the HTTP response is — the same trap the
+      // daily-plan payload names about its own generatedAt.
+      signalsUpdatedAt: signalCache.updatedAt,
+      pricesUpdatedAt: priceCache.updated,
+      dxyUpdatedAt: dxyDailyCache.updatedAt,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error(`[market-context] compose failed: ${e.message}`);
+    return { available: false, why: `compose failed: ${e.message}`, feedsTheGate: false };
+  }
+}
+
+// Confluence-ranked levels, the ATR day projection and the macro read, per asset.
+//
+// NOT on the public allowlist above, and that is deliberate. Every input is already
+// public on /api/signals, but the OUTPUT is a ranked map of where this system thinks
+// price reacts — which is closer to the plan than to the candles. Session-gated
+// until the surface is stable, per the standing rule; tv_daily_plan.py and the MCP
+// server both already hold their own login, so nothing that needs it is blocked.
+app.get("/api/market-context", (_, res) => {
+  res.json(composeMarketContext());
+});
+
 app.get("/api/signal-history", (_, res) => res.json({ history: signalHistory.slice(0, 50) }));
 // Latest parallel_analysis.py run. Served from disk rather than held in memory:
 // the analysis is produced by a separate process on its own schedule, so the
@@ -6389,6 +6705,18 @@ app.get("/api/daily-plan", (_, res) => {
     // false, and most mornings every read says INSIDE NOISE — which is the honest
     // answer and is printed in those words rather than left as a bare percentage.
     candleRead: readCandleToday(),
+    // Confluence-ranked levels, the ATR day projection, prior day/week, confirmed
+    // swings, round-number magnets and the DXY/VIX/correlation read.
+    //
+    // This is the field that retires tv_daily_plan.py::_key_levels(), which built
+    // "key levels" as round numbers at +/-2% of spot and wrote BTC "R1 80000 /
+    // S1 76000" on a day the engine's own pivots said 78544 / 77465. Two level
+    // systems existed and the one every consumer of this payload read was the
+    // invented one.
+    //
+    // Rides ALONGSIDE the signals, exactly like candleRead: feedsTheGate is false
+    // through every nested object and nothing here is an input to anything.
+    marketContext: composeMarketContext(),
     risk:     riskStatus,
     setupHealth: checkSetupHealth(),
     calendar: newsCache.filter(ev => {
@@ -6567,7 +6895,13 @@ function ensureDailyPlanArtifact(reason) {
   // days the plan HAD a warning and passed on the quiet ones.
   execFile(
     PYTHON_BIN,
-    [path.join(__dirname, "..", "tv_daily_plan.py"), "--no-tv", "--silent"],
+    // --no-draw was MISSING and that was the whole bug. tv_daily_plan.py gates
+    // screenshots on --no-tv but drawing on a SEPARATE --no-draw, so run_tv_draw() ran
+    // unconditionally here: it attaches to a live Edge over CDP and opens three
+    // TradingView charts, ~2.5 minutes against this 60-second budget. Ten
+    // "[cron] daily plan error: Command failed" lines and a 64% history rate came from
+    // this one omission. A scheduled job must never drive a browser.
+    [path.join(__dirname, "..", "tv_daily_plan.py"), "--no-tv", "--no-draw", "--silent"],
     { cwd: path.join(__dirname, ".."), timeout: DAILY_PLAN_TIMEOUT_MS,
       env: require("./python_path").pythonEnv() },
     (err, out, stderr) => {
@@ -9781,6 +10115,12 @@ app.get("/api/strategy-board", (_, res) => {
       // live setup, after BUY_DIP and BREAKOUT. The count check below now has a body,
       // which is what stops there being a fourth.
       "DIVERGENCE",
+      // Added 2026-08-30 WITH the setups themselves, in the same commit, because this
+      // list has silently omitted a live setup three times already -- BUY_DIP, BREAKOUT
+      // and DIVERGENCE -- and each time the strategy page showed a setup the engine was
+      // emitting as if it did not exist. All three are timeframe-scoped and appended at
+      // the END of the chain, so they cannot displace an existing signal.
+      "SWING_PULLBACK_H4", "EMA_REVERSAL_H1", "M15_MOMENTUM",
       // Added 2026-08-28 with the setup itself. It is gated OFF by
       // strategySettings.breakdownEnabled, so this row will read "no history" on both
       // boxes — which is the correct thing for a board to show about a setup that

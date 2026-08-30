@@ -491,8 +491,15 @@ TICKER_TESTS = {
 # explaining the trade; everything that did not (session, volume, swing, feed,
 # strength, two spare reason lines) is gone, because a cluttered panel over a
 # chart that already carries ten indicators is worse than no panel.
-PLAN_ROWS = ["Entry", "SL", "TP", "R:R", "Levels", "Pivots", "Confidence", "Setup",
-             "Regime", "Trend D1", "Trend H4", "Trend H1", "1D read", "4H read", "Note"]
+#
+# "Zones" and "Day range" sit directly under "Pivots" because they are the same
+# KIND of fact — where price is likely to react — and the eye should find them
+# together. Two rows, not four: the confluence detail (which methods, how far in
+# ATR) is on the chart as a box label, and duplicating it here would push the panel
+# past the height at which it stops being read.
+PLAN_ROWS = ["Entry", "SL", "TP", "R:R", "Levels", "Pivots", "Zones", "Day range",
+             "Confidence", "Setup", "Regime", "Trend D1", "Trend H4", "Trend H1",
+             "1D read", "4H read", "Note"]
 
 # Broker symbol per API asset, so a plan can find its own rows in the measured read.
 READ_SYMBOL = {"BTC": "BTCUSD", "GOLD": "XAUUSD", "SPX": "SP500"}
@@ -530,6 +537,24 @@ CONTEXT_LEVELS = [("resistance", "R1"), ("support", "S1"),
 # user's own indicators stay legible through the fill.
 ZONE_RISK_COLOUR = "color.new(color.red, 88)"
 ZONE_REWARD_COLOUR = "color.new(color.green, 88)"
+
+# CONFLUENCE ZONES AND THE PRIOR SESSION ARE DELIBERATELY NOT RED OR GREEN.
+#
+# On this chart red means stop and green means target — SETUP_LEVELS establishes
+# that and the whole point of the note above it is that a true number dressed as an
+# instruction is the expensive kind of wrong. A confluence zone is neither an entry
+# nor an exit; it is where independent methods agree price has reacted. So it gets
+# a neutral orange band, and the prior session gets the faintest grey there is.
+# Nobody can mistake either for an order.
+ZONE_CONFLUENCE_FILL   = "color.new(color.orange, 85)"
+ZONE_CONFLUENCE_BORDER = "color.new(color.orange, 55)"
+ZONE_LABEL_COLOUR      = "color.new(color.orange, 30)"
+PRIOR_DAY_FILL         = "color.new(color.gray, 92)"
+PRIOR_DAY_BORDER       = "color.new(color.gray, 65)"
+
+# How far left the context boxes start. Shorter than the 120 bars the trade levels
+# use, so the trade — which is the thing being decided — still dominates the canvas.
+ZONE_BARS_BACK = 60
 
 BIAS_COLOURS = {"LONG": "color.new(color.green, 0)",
                 "SHORT": "color.new(color.red, 0)"}
@@ -693,6 +718,78 @@ def generate_pine(plans):
             "border_color=color.new(color.green, 70), bgcolor=" + ZONE_REWARD_COLOUR
             + ", extend=extend.right)")
 
+    # ── Confluence zones, as boxes ─────────────────────────────────────
+    #
+    # NOT gated on _isSetup, and that is the point. Entry, stop and target belong to
+    # a trade and a WAIT chart must not show them. "Where does this stop going up"
+    # is the question a WAIT chart is being read to answer, so the zones are drawn
+    # either way.
+    #
+    # Slot count is the widest any plan on this script needs. A symbol with fewer
+    # zones emits `na` into its slots and draws nothing — the same pattern the level
+    # ternaries already use, so a chart can never inherit another symbol's zone.
+    zone_slots = min(MAX_DRAWN_ZONES,
+                     max([len(plan.get("zones") or []) for plan in plans] or [0]))
+    for slot in range(zone_slots):
+        def zone_number(plan, field, index=slot):
+            zones = plan.get("zones") or []
+            if index >= len(zones) or zones[index].get(field) is None:
+                return "na"
+            # Rounded, or Python's float repr emits 4604.030000000001 into the
+            # source. Valid Pine, but the plan is read by a human and a level with
+            # twelve decimals looks like a bug in the level.
+            return round(zones[index][field], plan["decimals"] + 2)
+
+        def zone_text(plan, index=slot):
+            zones = plan.get("zones") or []
+            if index >= len(zones):
+                return _pine_str("")
+            zone = zones[index]
+            side = {"above": "R", "below": "S", "at": "IN"}.get(zone.get("side"), "?")
+            return _pine_str("x%s %s  %s" % (
+                zone.get("score"), side, _fmt(zone.get("mid"), plan["decimals"])))
+
+        level_vars.append("_zone%dLow = " % slot + _ternary(
+            plans, lambda p, s=slot: zone_number(p, "low", s), "na"))
+        level_vars.append("_zone%dHigh = " % slot + _ternary(
+            plans, lambda p, s=slot: zone_number(p, "high", s), "na"))
+        level_vars.append("_zone%dTxt = " % slot + _ternary(
+            plans, lambda p, s=slot: zone_text(p, s), '""'))
+        draw_block.append(
+            "    if not na(_zone%dLow) and not na(_zone%dHigh)\n"
+            "        box.new(bar_index - %d, _zone%dHigh, bar_index + 20, _zone%dLow, "
+            "border_color=%s, bgcolor=%s, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _zone%dHigh, _zone%dTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (slot, slot, ZONE_BARS_BACK, slot, slot,
+               ZONE_CONFLUENCE_BORDER, ZONE_CONFLUENCE_FILL,
+               slot, slot, ZONE_LABEL_COLOUR))
+
+    # ── The prior session's range ──────────────────────────────────────
+    #
+    # One box, not two lines. Yesterday's high and low drawn as separate lines look
+    # like a pair of orders; drawn as a band they read as what they are — the range
+    # price actually traded in the last completed session.
+    if any(plan.get("prior_day") for plan in plans):
+        level_vars.append("_pdHigh = " + _ternary(
+            plans, lambda p: (p.get("prior_day") or {}).get("high", "na") or "na", "na"))
+        level_vars.append("_pdLow = " + _ternary(
+            plans, lambda p: (p.get("prior_day") or {}).get("low", "na") or "na", "na"))
+        level_vars.append("_pdTxt = " + _ternary(
+            plans,
+            lambda p: _pine_str("Prior day %s-%s" % (
+                _fmt((p.get("prior_day") or {}).get("low"), p["decimals"]),
+                _fmt((p.get("prior_day") or {}).get("high"), p["decimals"])))
+            if p.get("prior_day") else '""',
+            '""'))
+        draw_block.append(
+            "    if not na(_pdHigh) and not na(_pdLow)\n"
+            "        box.new(bar_index - %d, _pdHigh, bar_index + 20, _pdLow, "
+            "border_color=%s, bgcolor=%s, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _pdLow, _pdTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (ZONE_BARS_BACK, PRIOR_DAY_BORDER, PRIOR_DAY_FILL, PRIOR_DAY_BORDER))
+
     cells = [
         # The ternary MUST be parenthesised. Pine binds + tighter than ?: , so
         # `_isGOLD ? "a" : "b" + _suffix` attaches the suffix to the FALLBACK branch
@@ -727,7 +824,7 @@ def generate_pine(plans):
 
     newline = chr(10)
     return """//@version=5
-indicator("JARVIS Daily Plan", shorttitle="%s", overlay=true, max_lines_count=40, max_labels_count=40)
+indicator("JARVIS Daily Plan", shorttitle="%s", overlay=true, max_lines_count=40, max_labels_count=40, max_boxes_count=40)
 
 // Generated by JARVIS - %s
 // Covers: %s
@@ -1822,11 +1919,30 @@ def draw_via_pine_editor(page, symbol, levels):
 
 
 # ── Plan data ─────────────────────────────────────────────────────────────────
+def _session_cookie():
+    """The session cookie value IS server/session_secret.txt.
+
+    Same helper as tv_daily_plan.py and check_errors.py — the gated routes are not
+    opened up, this script simply holds its own login the way the MCP server does.
+    A missing file is NOT fatal: the cookie goes empty and every public route still
+    answers, which is exactly how this file behaved before the cookie existed.
+    """
+    try:
+        return (Path(__file__).parent / "server" / "session_secret.txt").read_text(
+            encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
 def _get_json(path):
     """GET a SmartEntry endpoint. Returns None rather than raising — a dead server
     must not look like an empty plan."""
     try:
-        with urllib.request.urlopen(f"{SERVER_URL}{path}", timeout=6) as response:
+        request = urllib.request.Request(f"{SERVER_URL}{path}")
+        secret = _session_cookie()
+        if secret:
+            request.add_header("Cookie", f"smartentry_session={secret}")
+        with urllib.request.urlopen(request, timeout=6) as response:
             if response.status != 200:
                 print(f"[TV] {path} returned HTTP {response.status}")
                 return None
@@ -1834,6 +1950,71 @@ def _get_json(path):
     except Exception as exc:
         print(f"[TV] {path} unreachable: {exc}")
         return None
+
+
+# How many confluence zones get a box on the chart. Three, and no more.
+#
+# The count is a DESIGN limit, not a data limit. This file already learned the
+# lesson at SETUP_LEVELS: on 2026-08-24 the Gold chart carried five plan lines on
+# top of APEX SMC, Clean Structure PRO and TK Swing Trend, and the honest panel in
+# the corner was invisible behind them. The clustering finds nine to twenty-three
+# zones per asset; drawing them all would repeat that mistake with boxes instead of
+# lines.
+MAX_DRAWN_ZONES = 3
+
+# A "zone" only one method found is not confluence — it is that one method, and the
+# panel already prints the pivots and the prior day. Only agreement earns a box.
+MIN_DRAWN_CONFLUENCE = 2
+
+
+def load_market_context():
+    """Confluence zones and the ATR day projection, per asset key.
+
+    Returns {} when the endpoint is unavailable, so the rows print "no context"
+    rather than a blank. An absent measurement and a measurement showing nothing
+    are different facts — the same rule load_candle_reads() follows.
+    """
+    payload = _get_json("/api/market-context")
+    if not isinstance(payload, dict) or payload.get("available") is not True:
+        why = (payload or {}).get("why", "endpoint unavailable")
+        print(f"[TV] Market context: NOT available ({why}) - zone rows will say so")
+        return {}
+    assets = payload.get("assets") or {}
+    usable = {k: v for k, v in assets.items() if isinstance(v, dict) and v.get("available")}
+    print(f"[TV] Market context: {len(usable)} asset(s) with ranked zones")
+    return usable
+
+
+def _pick_drawn_zones(asset_context):
+    """The three zones worth a box: the nearest wall above, the nearest floor below,
+    and then the strongest thing left.
+
+    Above-and-below FIRST is deliberate. Ranking purely by confluence score can
+    return three zones all on the same side of price, which tells a trader nothing
+    about where the move stops in the direction it is actually going.
+    """
+    ranked = (asset_context or {}).get("zones") or {}
+    candidates = [z for z in (ranked.get("byConfluence") or [])
+                  if (z.get("score") or 0) >= MIN_DRAWN_CONFLUENCE]
+    if not candidates:
+        return []
+
+    above = sorted((z for z in candidates if z.get("side") == "above"),
+                   key=lambda z: z.get("distance", 0))
+    below = sorted((z for z in candidates if z.get("side") == "below"),
+                   key=lambda z: z.get("distance", 0))
+
+    chosen = []
+    if above:
+        chosen.append(above[0])
+    if below:
+        chosen.append(below[0])
+    for zone in candidates:                      # already strongest-first
+        if len(chosen) >= MAX_DRAWN_ZONES:
+            break
+        if zone not in chosen:
+            chosen.append(zone)
+    return chosen[:MAX_DRAWN_ZONES]
 
 
 def fetch_live_gate():
@@ -1895,7 +2076,45 @@ def _read_row(reads, symbol, tf):
     return f'{cell.get("state")} -> {pct}% up  INSIDE NOISE (bar {cell.get("noiseBarPP")}pp)'
 
 
-def build_plan(symbol, asset, gate=None, overrides=None, reads=None):
+def _zones_row(drawn, decimals):
+    """The nearest wall above and floor below, with the number that says how much
+    independent agreement is behind each.
+
+    `x4` is not decoration. It is the difference between a level four unrelated
+    methods found and one that pivot arithmetic invented, and before this row the
+    chart had no way to tell them apart.
+    """
+    if not drawn:
+        return "no confluence zone within range"
+    above = next((z for z in drawn if z.get("side") == "above"), None)
+    below = next((z for z in drawn if z.get("side") == "below"), None)
+    parts = []
+    if above:
+        parts.append(f"R {_fmt(above['low'], decimals)} x{above['score']}")
+    if below:
+        parts.append(f"S {_fmt(below['high'], decimals)} x{below['score']}")
+    inside = next((z for z in drawn if z.get("side") == "at"), None)
+    if inside:
+        parts.append(f"IN {_fmt(inside['low'], decimals)}-{_fmt(inside['high'], decimals)} x{inside['score']}")
+    return "  ".join(parts) if parts else "no confluence zone within range"
+
+
+def _day_range_row(asset_context, decimals):
+    """How much of a normal day's range today has already spent.
+
+    A DESCRIPTION and nothing more. It suppresses no setup, it reaches no gate, and
+    the engine never sees it — a day at 180% of ATR is still a day the engine may
+    fire on, and rule 3 says nothing here may change that.
+    """
+    projection = (asset_context or {}).get("projection") or {}
+    if not projection.get("available"):
+        return projection.get("why") or "no ATR projection"
+    return (f"{projection['rangeUsedPct']}% of ATR - {projection['reading']}"
+            f"  band {_fmt(projection['expectedLow'], decimals)}"
+            f"-{_fmt(projection['expectedHigh'], decimals)}")
+
+
+def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=None):
     """
     Turn one asset block from /api/signals into everything the chart should show.
 
@@ -1945,6 +2164,10 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None):
 
     reasons = (asset.get("reasons") or [])
     is_setup = levels_from == "engine"
+    # Confluence zones for this symbol. Computed once here and carried on the plan,
+    # so the panel row and the boxes on the canvas can never disagree about which
+    # zones were chosen.
+    drawn_zones = _pick_drawn_zones(context)
     rows = {
         # The pivot fallback is not a trade, so its prices must not be dressed up
         # as one. They are shown, but named for what they are.
@@ -1960,6 +2183,11 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None):
         # after this dict is built) is known. A placeholder here would ship if that
         # refresh ever stopped running, so it says so rather than showing a stale "-".
         "Pivots":     "(not computed)",
+        # Where independent methods AGREE, and how much of today's normal range is
+        # already gone. Both are context and neither is an instruction — same
+        # footing as the 1D/4H reads further down.
+        "Zones":      _zones_row(drawn_zones, decimals),
+        "Day range":  _day_range_row(context, decimals),
         "Confidence": f'{confidence} vs gate {gate}'
                       + (f'  gap {gap}pt' if gap else '  MEETS GATE'),
         "Setup":      f'{asset.get("setup", "-")} ({asset.get("setupTimeframe", "-")})',
@@ -1999,6 +2227,12 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None):
         "source_note": f'{asset.get("dataSource", "unknown")} '
                        f'{asset.get("sourceSymbol", "")} '
                        f'updated {asset.get("updatedAt", "?")}',
+        # The zones that get a box on the canvas, and the prior session's range.
+        # Both are CONTEXT: they are drawn on a WAIT chart too, unlike entry/stop/
+        # target, which are drawn only for a real engine setup.
+        "zones": drawn_zones,
+        "prior_day": ((context or {}).get("periods") or {}).get("prevDay")
+                     if ((context or {}).get("periods") or {}).get("available") else None,
         "rows": rows,
     }
 
@@ -2276,6 +2510,10 @@ def cmd_plan(which="all", shoot=True):
     print(f"[TV] Candle read: {sum(len(v) for v in candle_reads.values())} row(s) loaded"
           if candle_reads else "[TV] Candle read: none on disk - rows will say so")
 
+    # Fetched ONCE for all three symbols. The endpoint composes every asset in one
+    # call, so three fetches would be three different instants of the same read.
+    market_context = load_market_context()
+
     wanted = list(API_ASSETS) if which.lower() == "all" else [which.upper()]
     results = {}
 
@@ -2286,7 +2524,8 @@ def cmd_plan(which="all", shoot=True):
         if not asset:
             print(f"[TV] {name}: not in /api/signals — skipped")
             continue
-        plans.append(build_plan(name, asset, gate, reads=candle_reads))
+        plans.append(build_plan(name, asset, gate, reads=candle_reads,
+                                context=market_context.get(key)))
 
     if not plans:
         print("[TV] Nothing to draw")
