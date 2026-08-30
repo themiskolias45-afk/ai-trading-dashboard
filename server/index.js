@@ -7985,8 +7985,25 @@ app.post("/api/ai-brain", async (req, res) => {
 
     const msg = await anthropic.messages.create({
       model: "claude-opus-5",
-      max_tokens: 1000,
-      thinking: { type: "enabled", budget_tokens: 500 },
+      // Adaptive thinking, matching the AI-filter call site above. This was
+      // { type: "enabled", budget_tokens: 500 } until 2026-08-30 - a form that is
+      // REMOVED on claude-opus-5 and returns 400, with 500 additionally below the
+      // old 1024 floor, so it failed two independent ways on all three assets on
+      // every single call. It never surfaced because wrapAnthropicWithCliFallback
+      // caught the 400 and silently re-served each brief through the Claude CLI:
+      // the page rendered, the handler logged success, and the only trace was 83
+      // lines of "[anthropic] API rail failed (400 ... thinking.) - served via
+      // CLI/subscription". A working fallback masking a broken primary is the
+      // hardest kind of bug to see, and it cost three CLI subprocesses per load.
+      //
+      // max_tokens 1000 -> 4096 is part of the fix, not a tidy-up. With thinking on,
+      // max_tokens has to cover the thinking AND the reply; left at 1000 the briefs
+      // would truncate mid-sentence, which looks exactly like the fix not working.
+      // effort "low" is deliberate and mirrors the filter site: the prompt already
+      // carries every number, and the ask is a five-sentence brief, not analysis.
+      max_tokens: 4096,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
       messages: [{ role: "user", content: prompt }]
     });
     const analysis = (msg.content ?? []).find(b => b.type === "text")?.text ?? null;
