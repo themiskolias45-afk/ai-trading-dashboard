@@ -661,40 +661,98 @@ assert(
   'validateTrade duplicate rejection says "Already holding" (got "' + duplicatePosition.reason + '")'
 );
 
-// The duplicate guard matches on SYMBOL ALONE, not symbol+direction. Requiring both
-// let an opposite-direction entry through every gate, and on 2026-08-08 account A was
-// found holding XAUUSD BUY #1713655080 and XAUUSD SELL #1726672007 at once. The MT5
-// accounts are in hedging mode, so nothing downstream would ever have objected.
+// The duplicate guard is DIRECTION-AWARE as of 2026-08-30, by explicit operator
+// decision. It previously matched on SYMBOL ALONE — added 2026-08-08 after account A
+// was found holding XAUUSD BUY #1713655080 and XAUUSD SELL #1726672007 at once — but
+// that form also refused valid opposite-side entries, i.e. suppressed tradeable
+// signals. These two assertions are INVERTED from their originals on purpose; the
+// hedging cost they used to guard is now an accepted, documented consequence.
 const oppositeDirection = validateTrade(
   { symbol: 'BTC', direction: 'SHORT', entry: 100000, stop: 102000, target: 96000, confidence: 80 },
   NORMAL_BALANCE,
   [{ symbol: 'BTC', direction: 'LONG', entry: 99000, stop: 97000, lots: 0.05 }]
 );
-assert(oppositeDirection.approved === false, 'validateTrade rejects a BTC SHORT while a BTC LONG is open');
 assert(
-  oppositeDirection.reason === 'Already holding BTC LONG',
-  'validateTrade opposite-direction rejection names the direction HELD, not the one requested (got "' + oppositeDirection.reason + '")'
+  oppositeDirection.approved === true,
+  'validateTrade ALLOWS a BTC SHORT while a BTC LONG is open (got "' + oppositeDirection.reason + '")'
 );
-assert(oppositeDirection.suggestedSize === 0, 'validateTrade opposite-direction rejection suggests size 0');
 
-// The live pair that exposed this, with real prices off the 2026-08-08 journal.
+// The live pair that drove the original symbol-only guard, with real prices off the
+// 2026-08-08 journal. It is now permitted.
 const goldHedge = validateTrade(
   { symbol: 'XAUUSD', direction: 'SELL', entry: 4296.78, stop: 4431.30, target: 4083.07, confidence: 73 },
   NORMAL_BALANCE,
   [{ symbol: 'XAUUSD', direction: 'BUY', entry: 4241.74, stop: 4166.05, lots: 0.01 }]
 );
-assert(goldHedge.approved === false, 'validateTrade blocks the real Gold SELL that hedged an open Gold BUY');
 assert(
-  goldHedge.reason === 'Already holding XAUUSD BUY',
-  'validateTrade Gold hedge rejection reads "Already holding XAUUSD BUY" (got "' + goldHedge.reason + '")'
+  goldHedge.approved === true,
+  'validateTrade ALLOWS the Gold SELL that faces an open Gold BUY (got "' + goldHedge.reason + '")'
 );
 
-// mt5_bridge.py:437 matches this literal lowercase prefix to write a DUPLICATE row to
-// the rejection ledger. If this assertion fails, that gate stops being recorded and
-// the ledger silently loses a whole category of rejection.
+// Same side, same symbol, MUST still be refused — this is the half of the guard that
+// did not change, and the one that stops a genuine double-entry.
+const sameSideSell = validateTrade(
+  { symbol: 'XAUUSD', direction: 'SELL', entry: 4296.78, stop: 4431.30, target: 4083.07, confidence: 73 },
+  NORMAL_BALANCE,
+  [{ symbol: 'XAUUSD', direction: 'SELL', entry: 4300.00, stop: 4400.00, lots: 0.01 }]
+);
+assert(sameSideSell.approved === false, 'validateTrade still refuses a SECOND XAUUSD SELL');
 assert(
-  goldHedge.reason.trim().toLowerCase().indexOf('already holding') === 0,
+  sameSideSell.reason === 'Already holding XAUUSD SELL',
+  'validateTrade same-side refusal names the held direction (got "' + sameSideSell.reason + '")'
+);
+
+// VOCABULARY: MT5 says BUY/SELL, callers have also said LONG/SHORT. If the two sides
+// were compared raw, LONG-vs-BUY would read as OPPOSITE and let a true duplicate
+// through. This is the assertion that catches that.
+const longVersusHeldBuy = validateTrade(
+  { symbol: 'XAUUSD', direction: 'LONG', entry: 4454.31, stop: 4311.01, target: 4767.79, confidence: 75 },
+  NORMAL_BALANCE,
+  [{ symbol: 'XAUUSD', direction: 'BUY', entry: 4485.02, stop: 4376.10, lots: 0.02 }]
+);
+assert(
+  longVersusHeldBuy.approved === false,
+  'validateTrade treats LONG and BUY as the SAME side (got "' + longVersusHeldBuy.reason + '")'
+);
+
+// SHORT vs held BUY is the mirror: different vocabulary, genuinely opposite.
+const shortVersusHeldBuy = validateTrade(
+  { symbol: 'XAUUSD', direction: 'SHORT', entry: 4454.31, stop: 4560.00, target: 4240.00, confidence: 75 },
+  NORMAL_BALANCE,
+  [{ symbol: 'XAUUSD', direction: 'BUY', entry: 4485.02, stop: 4376.10, lots: 0.02 }]
+);
+assert(
+  shortVersusHeldBuy.approved === true,
+  'validateTrade treats SHORT and BUY as opposite sides (got "' + shortVersusHeldBuy.reason + '")'
+);
+
+// FAIL CLOSED: a signal with no readable direction cannot be proven to be the
+// opposite side, so it is refused rather than assumed safe.
+const requestWithoutDirection = validateTrade(
+  { symbol: 'XAUUSD', entry: 4454.31, stop: 4311.01, target: 4767.79, confidence: 75 },
+  NORMAL_BALANCE,
+  [{ symbol: 'XAUUSD', direction: 'BUY', entry: 4485.02, stop: 4376.10, lots: 0.02 }]
+);
+assert(
+  requestWithoutDirection.approved === false,
+  'validateTrade refuses an entry whose own direction is unreadable (got "' + requestWithoutDirection.reason + '")'
+);
+assert(
+  requestWithoutDirection.reason.indexOf('undefined') === -1,
+  'validateTrade never leaks "undefined" for an unreadable requested direction'
+);
+
+// mt5_bridge.py matches this literal lowercase prefix to write a DUPLICATE row to the
+// rejection ledger. If this fails, that gate stops being recorded and the ledger
+// silently loses a whole category of rejection — that would block LEARNING, not just
+// a trade. Asserted on a SAME-SIDE refusal now that the hedge case is approved.
+assert(
+  sameSideSell.reason.trim().toLowerCase().indexOf('already holding') === 0,
   'validateTrade duplicate reason keeps the "already holding" prefix the bridge ledger matches on'
+);
+assert(
+  requestWithoutDirection.reason.trim().toLowerCase().indexOf('already holding') === 0,
+  'validateTrade unreadable-direction refusal ALSO keeps the ledger prefix'
 );
 
 // A position with no direction must not interpolate `undefined` into the reason —

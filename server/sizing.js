@@ -41,6 +41,24 @@ function resolveRiskPct(riskPercent) {
   return Math.min(MAX_SINGLE_TRADE_RISK, Math.max(MIN_RISK_PCT, percent / 100));
 }
 
+// BUY/SELL is the only vocabulary the live path uses: MT5 reports positions as
+// "BUY"/"SELL" (mt5_bridge.py:1237) and the signal engine emits the same through
+// sig["signal"] (mt5_bridge.py:1731). But /api/size is a public route and callers
+// have historically also said LONG/SHORT, so BOTH sides of the duplicate comparison
+// are normalised here.
+//
+// Returns null for anything it cannot classify. That null is load-bearing: the
+// duplicate guard treats an unclassifiable direction as a REASON TO REFUSE, never as
+// evidence the sides differ. Guessing "opposite" from an absence is how a true
+// duplicate would slip through.
+function normaliseDirection(direction) {
+  if (typeof direction !== 'string') return null;
+  const value = direction.trim().toUpperCase();
+  if (value === 'BUY' || value === 'LONG') return 'BUY';
+  if (value === 'SELL' || value === 'SHORT') return 'SELL';
+  return null;
+}
+
 function calcKelly(winRate, avgWin, avgLoss) {
   if (
     typeof winRate !== 'number' || typeof avgWin !== 'number' || typeof avgLoss !== 'number' ||
@@ -253,9 +271,9 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
     ? suppliedMin
     : MIN_CONFIDENCE;
 
-  // No `direction` here on purpose: the duplicate guard below matches on symbol
-  // alone, so the incoming signal's direction no longer decides anything.
-  const { entry, stop, target, confidence, symbol } = signal;
+  // `direction` is read again. The duplicate guard below is DIRECTION-AWARE: a
+  // same-side entry is still refused, an opposite-side one is allowed through.
+  const { entry, stop, target, confidence, symbol, direction } = signal;
 
   if (typeof confidence !== 'number' || confidence < minConfidence) {
     return {
@@ -287,38 +305,52 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
 
   const positions = Array.isArray(openPositions) ? openPositions : [];
 
-  // Matches on SYMBOL ALONE. It used to require symbol AND direction, which meant an
-  // opposite-direction entry passed every gate: on 2026-08-08 account A was found
-  // holding XAUUSD BUY #1713655080 @4241.74 (opened 08-05) and XAUUSD SELL
-  // #1726672007 @4296.78 (opened 08-07) at the same time. The MT5 accounts are in
-  // HEDGING mode, so the platform is happy to carry both sides and nothing
-  // downstream objects — this check is the only thing that could have stopped it.
+  // DIRECTION-AWARE duplicate guard. Refuses a SAME-SIDE entry; lets the opposite
+  // side through to the portfolio checks below.
   //
-  // The cost is not the doubled spread on 0.01 lots. It is that one market state
-  // then writes two opposing outcomes into the learning tables under two different
-  // setup names, and the journal has three entries in its whole life. That is a
-  // permanently corrupted per-setup win rate.
+  // History, because this has now been both things. It originally matched symbol AND
+  // direction, which let a hedge through: on 2026-08-08 account A held XAUUSD BUY
+  // #1713655080 @4241.74 (opened 08-05) and XAUUSD SELL #1726672007 @4296.78 (opened
+  // 08-07) at once. The accounts are in HEDGING mode, so the platform carries both
+  // sides happily and nothing downstream objects. It was then widened to match on
+  // SYMBOL ALONE to stop exactly that.
+  //
+  // Narrowed back to direction-aware on 2026-08-30 by explicit operator decision,
+  // after the symbol-only form was found refusing a valid opposite-side SELL while a
+  // BUY was open — i.e. suppressing a tradeable signal, which the standing rules put
+  // above the statistical cost below.
+  //
+  // THE COST THAT COMES BACK, stated rather than hidden: one market state can again
+  // write two opposing outcomes into the per-setup learning tables. The rows stay
+  // structurally separate (each has its own ticket and setup), so nothing is lost or
+  // overwritten — the damage is purely statistical, in the per-setup win rate, and it
+  // is worst while the journal is small. Accepted deliberately, not overlooked.
   //
   // The reason string MUST keep starting with "Already holding":
-  // mt5_bridge.py:437 (RISK_ENGINE_DUPLICATE_PREFIX) matches that literal prefix to
-  // decide whether to write a DUPLICATE row to the rejection ledger. Reword it and
-  // the gate silently stops being recorded.
-  //
-  // If a deliberate reversal is ever wanted, it belongs here as an explicit
-  // close-then-open, not as a second position that happens to face the other way.
+  // mt5_bridge.py (RISK_ENGINE_DUPLICATE_PREFIX) matches that literal prefix to decide
+  // whether to write a DUPLICATE row to the rejection ledger. Reword it and the gate
+  // silently stops being recorded — which would block LEARNING, not just a trade.
   if (symbol) {
-    const held = positions.find(p => p && p.symbol === symbol);
+    const requestedDirection = normaliseDirection(direction);
+
+    // Only a position whose direction is KNOWN and matches can be dismissed as the
+    // opposite side. Everything else is a refusal, so an unreadable direction can
+    // never be mistaken for a safe hedge.
+    const held = positions.find(p => {
+      if (!p || p.symbol !== symbol) return false;
+      const heldDirection = normaliseDirection(p.direction);
+      if (heldDirection === null || requestedDirection === null) return true;
+      return heldDirection === requestedDirection;
+    });
+
     if (held) {
       // Never interpolate a missing direction — "Already holding XAUUSD undefined"
       // is what the operator would have to debug from.
-      const heldDirection = typeof held.direction === 'string' && held.direction
-        ? held.direction
-        : 'UNKNOWN';
-      return {
-        approved: false,
-        reason: `Already holding ${symbol} ${heldDirection}`,
-        suggestedSize: 0
-      };
+      const heldLabel = normaliseDirection(held.direction) || 'UNKNOWN';
+      const reason = requestedDirection === null
+        ? `Already holding ${symbol} ${heldLabel} and this signal has no readable direction`
+        : `Already holding ${symbol} ${heldLabel}`;
+      return { approved: false, reason, suggestedSize: 0 };
     }
   }
 
