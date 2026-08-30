@@ -10437,6 +10437,20 @@ app.get("/api/robustness-report", (_, res) => {
       // Same reason as engineConfig: the page's header reads the envelope.
       horizon: raw.horizon || null,
       blockSimulated: raw.blockSimulated || null,
+      // PSR / Deflated Sharpe / MinTRL, written by tasks/sharpe_robustness.cjs. Served
+      // beside the bootstrap because they answer DIFFERENT questions and the page is
+      // misleading with only one: the bootstrap measures luck in the DRAW, this
+      // measures luck in the SEARCH. Absent until the weekly job has run once, and
+      // absent must read as absent rather than as a pass.
+      sharpeRobustness: (() => {
+        try {
+          const sp = path.join(__dirname, "..", "tasks", "analysis", "sharpe-robustness.json");
+          if (!fs.existsSync(sp)) return { available: false, why: "not generated yet - run node tasks/sharpe_robustness.cjs" };
+          return Object.assign({ available: true }, JSON.parse(fs.readFileSync(sp, "utf8")));
+        } catch (e) {
+          return { available: false, why: "unreadable: " + e.message };
+        }
+      })(),
       report: raw,
       feedsTheGate: false,
     });

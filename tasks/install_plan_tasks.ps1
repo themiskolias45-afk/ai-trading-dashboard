@@ -173,6 +173,22 @@ Install-PlanTask -Name 'SmartEntry Robustness Report' `
     -Triggers $robustnessTriggers `
     -Description 'Weekly Monte-Carlo robustness report behind /report. Read-only replay over cached bars: no signal, no setting, no order.'
 
+# ---- Deflated Sharpe: the search-bias correction --------------------------------
+#
+# Runs 20 minutes after the Monte-Carlo so it reads that run's fresh perTradeRSeries.
+# Separate task rather than chained inside montecarlo_report.cjs, so a failure in one
+# cannot take the other down and each can be run on its own.
+#
+# It answers the two questions the bootstrap cannot: how much of the result is luck in
+# the SEARCH (Deflated Sharpe, correcting for every configuration ever tried), and how
+# many trades are needed before the Sharpe is distinguishable from zero (MinTRL).
+$sharpeTriggers = @(New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '09:20')
+
+Install-PlanTask -Name 'SmartEntry Sharpe Robustness' `
+    -Arguments 'tasks\sharpe_robustness.cjs --out tasks\analysis\sharpe-robustness.json' `
+    -Triggers $sharpeTriggers `
+    -Description 'Weekly PSR / Deflated Sharpe / MinTRL over the Monte-Carlo population. Read-only: no signal, no setting, no order.'
+
 Write-Host ''
 if ($Execute) {
     Write-Host 'Done. Verify with:  Get-ScheduledTask -TaskName "SmartEntry Plan *"'
