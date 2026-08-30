@@ -245,10 +245,26 @@ $st = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(25) `
 $searchTriggers += $st
 if ($isHeadless) { $searchTriggers += (New-ScheduledTaskTrigger -AtStartup) }
 
+# REFUSE TO CREATE A SECOND SEARCHER. The VPS already carries SmartEntryStrategySearch
+# (daily, via strategy_search_vps.bat, which passes the same --skip-if-bars-unchanged).
+# Registering this one there gave the box TWO tasks running the same searcher into the
+# SAME multiplicity ledger - which inflates the trial count twice as fast and RAISES the
+# bar every future candidate must clear. That is the exact harm this schedule exists to
+# avoid, so the installer now checks rather than trusting the operator to notice.
+$existingSearch = @(Get-ScheduledTask | Where-Object {
+    $_.TaskName -replace '\s','' -match 'StrategySearch' -and $_.TaskName -ne 'SmartEntry Strategy Search'
+})
+if ($existingSearch.Count -gt 0) {
+    Write-Host ''
+    Write-Host "  [SKIP] SmartEntry Strategy Search"
+    Write-Host "         this box already runs a searcher: $($existingSearch[0].TaskName)"
+    Write-Host "         two tasks would double-count the multiplicity ledger. Not registering."
+} else {
 Install-PlanTask -Name 'SmartEntry Strategy Search' `
     -Arguments 'tasks\strategy_search.cjs --axis all --skip-if-bars-unchanged' `
     -Triggers $searchTriggers `
     -Description 'Continuous strategy search, gated on new bars. Proposes, never applies: no gate, no threshold, no setting.'
+}
 
 Write-Host ''
 if ($Execute) {
