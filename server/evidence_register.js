@@ -236,6 +236,42 @@ const CLAIMS = [
     feedsTheGate: false,
   },
   {
+    // Added 2026-08-30 with the confluence clustering. It goes ABOVE the FVG claim
+    // deliberately: it is the claim the new daily-plan levels rest on, it is NOT yet
+    // measured, and a reader who scrolls past it would take the levels on the chart
+    // as validated when nothing has validated them.
+    id: "confluence",
+    title: "Confluence scoring — does a level more methods agree on hold more often?",
+    status: STATUS.UNMEASURED,
+    measuredOn: "2026-08-30",
+    evidence: "NONE YET, and that is the entry. server/market_context.js clusters "
+      + "prior day/week levels, confirmed fractal swings, engine pivots, EMAs, "
+      + "Bollinger edges, ATR-scaled round numbers, the ATR day projection and "
+      + "unfilled FVG edges into zones, and scores each zone by how many DISTINCT "
+      + "method FAMILIES land in it (8 possible). Those scores now drive what the "
+      + "daily plan publishes as R1/R2/S1/S2 and what draws as an orange box on the "
+      + "TradingView charts. The claim that a x5 zone holds more often than a x2 zone "
+      + "is the design's whole premise and it is UNTESTED. What IS measured is the "
+      + "thing it replaced: over 14 asset-days that actually published levels, the "
+      + "old round-number band put 56 levels on the plan and price touched 4 of them. "
+      + "The other 25 asset-days published no level at all (price:null, the daily-plan "
+      + "outage), which is why the coverage block prints above every rate.",
+    caveat: "The old band's 4-of-56 touch rate is not, by itself, proof the new zones "
+      + "are better — it is proof the old ones were rarely near price. Both are below "
+      + "the n=8 floor and print TOO FEW TO JUDGE. Nothing here feeds the gate, and "
+      + "the two geometry inputs it consumes are on record as having no edge as "
+      + "engine inputs (FVG) and being CLOSED as one (CRT); they are context here and "
+      + "may not be promoted out of it.",
+    changesTheAnswer: "holdRateByConfluence in tasks/analysis/plan-scorecard.json, "
+      + "once any bucket clears n=8. If x2 and x5 hold at the same rate, the SCORE is "
+      + "decoration and only the zone location is doing work — the boxes should then "
+      + "lose their count labels. If the high-score buckets hold materially more "
+      + "often, the score has earned a place in what the plan emphasises. Either way "
+      + "this stays out of the gate.",
+    harness: "node tasks/plan_review.cjs  (accumulates daily; --summary to read)",
+    feedsTheGate: false,
+  },
+  {
     id: "fvg",
     title: "FVG (Fair Value Gap) as support/resistance",
     status: STATUS.MEASURED_NO_EDGE,
