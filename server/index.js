@@ -7721,6 +7721,12 @@ function runClaudeCli(prompt, timeoutMs) {
 // can afford a longer ceiling than the filter's 20s.
 const CLAUDE_CLI_GENERAL_TIMEOUT_MS = 90000;
 
+// Per-request ceiling for one ai-brain analysis. The SDK default is a 600s timeout
+// with 2 retries, so three of those in parallel could hold a socket for ~30 minutes
+// while the dashboard spins "Thinking..." - neither express nor the page sets a
+// deadline of its own. Measured runs are 13-17s, so this is roughly 7x headroom.
+const AI_BRAIN_REQUEST_TIMEOUT_MS = 120000;
+
 /**
  * Put the WHOLE client on the working rail, not just the trade filter.
  *
@@ -7999,22 +8005,69 @@ app.post("/api/ai-brain", async (req, res) => {
       // max_tokens 1000 -> 4096 is part of the fix, not a tidy-up. With thinking on,
       // max_tokens has to cover the thinking AND the reply; left at 1000 the briefs
       // would truncate mid-sentence, which looks exactly like the fix not working.
-      // effort "low" is deliberate and mirrors the filter site: the prompt already
-      // carries every number, and the ask is a five-sentence brief, not analysis.
-      max_tokens: 4096,
+      // effort: the first version of this fix used "low" to mirror the filter site.
+      // That was wrong by the same standard this file keeps applying elsewhere. The
+      // filter asks for ~50 tokens of JSON under a 25s bridge deadline; this asks for
+      // a five-sentence brief that synthesises ~20 inputs across three timeframes and
+      // names levels, a plan and a risk. They are not the same ask. Worse, for the 15
+      // days the API rail was dead EVERY brief was produced by runClaudeCli at Claude
+      // Code defaults, so shipping "low" silently DOWNGRADED a user-visible output,
+      // and the change was "verified" by character count - which measures length and
+      // termination, not quality. "medium" restores roughly what was actually
+      // shipping. No controlled side-by-side quality read has been done.
+      //
+      // max_tokens 8192 breaks the coupling between these two lines. At 4096 the
+      // headroom existed only BECAUSE effort was low, so raising effort later would
+      // have walked into truncation. Verified safe: the SDK throws for non-streaming
+      // above 21,333 (3600000*max/128000 > 600000) and claude-opus-5 is absent from
+      // MODEL_NONSTREAMING_TOKENS, so no streaming is required at this value.
+      max_tokens: 8192,
       thinking: { type: "adaptive" },
-      output_config: { effort: "low" },
+      output_config: { effort: "medium" },
       messages: [{ role: "user", content: prompt }]
+    }, {
+      // Without this a hung call inherits the SDK defaults - 600s timeout with 2
+      // retries - so a stalled rail could hold the socket for ~30 minutes while the
+      // page spins "Thinking..." forever, because neither express nor the fetch at
+      // dashboard/index.html sets a deadline. Measured runs are 13-17s.
+      timeout: AI_BRAIN_REQUEST_TIMEOUT_MS
     });
+    // stop_reason was unchecked, which made two different silent failures look normal:
+    // a max_tokens cut renders as a complete brief, and adaptive thinking eating the
+    // whole budget before any text block leaves analysis null - identical on the page
+    // to an asset with no cached signal. Neither is silent now.
+    if (msg.stop_reason === "max_tokens") {
+      console.warn(`[ai-brain] ${key}: hit max_tokens (${msg.usage?.output_tokens ?? "?"} out) - brief may be truncated`);
+    }
     const analysis = (msg.content ?? []).find(b => b.type === "text")?.text ?? null;
+    if (analysis === null) {
+      console.warn(`[ai-brain] ${key}: no text block in response (stop_reason=${msg.stop_reason ?? "?"})`);
+    }
     return { key, analysis };
   }));
 
-  const out = { elapsed: Date.now() - start };
+  // A rejected promise used to leave NO trace: r.reason was never read, the key was
+  // simply absent, and the line below still said "3 parallel analyses done". That is
+  // the same masking shape that hid the budget_tokens 400 for 15 days - a clean log
+  // and a 200 over the top of three failures - so repairing the rail without
+  // repairing this would have left the detector broken for the next outage.
+  //
+  // The precondition is documented on these boxes: with Anthropic credit exhausted
+  // AND the CLI rail unavailable, wrapAnthropicWithCliFallback rethrows and all three
+  // reject. `failed` is emitted so a consumer can tell "this asset failed" from "this
+  // asset had nothing to say" - the page renders both as "No analysis" today and has
+  // no way to separate them without it.
+  const out = { elapsed: Date.now() - start, failed: 0 };
   for (const r of results) {
-    if (r.status === "fulfilled") out[r.value.key] = r.value.analysis;
+    if (r.status === "fulfilled") {
+      out[r.value.key] = r.value.analysis;
+    } else {
+      out.failed++;
+      console.error(`[ai-brain] analysis FAILED: ${String(r.reason?.message ?? r.reason).slice(0, 200)}`);
+    }
   }
-  console.log(`[ai-brain] 3 parallel analyses done in ${out.elapsed}ms`);
+  console.log(`[ai-brain] ${results.length - out.failed}/${results.length} analyses done in ${out.elapsed}ms` +
+              (out.failed ? ` (${out.failed} FAILED)` : ""));
   res.json(out);
 });
 
