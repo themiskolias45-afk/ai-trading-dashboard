@@ -236,6 +236,39 @@ const CLAIMS = [
     feedsTheGate: false,
   },
   {
+    id: "learningpayoff",
+    title: "The confidence boost is computed from WIN RATE alone — is payoff-weighting better?",
+    status: STATUS.UNMEASURED,
+    measuredOn: "2026-08-30",
+    evidence: "getLearningBoost(setup) returns a confidence adjustment computed purely "
+      + "from wins/(wins+losses), with a shrink prior below break-even. It never reads "
+      + "totalPnl, which updateLearning has tracked per setup all along. That boost "
+      + "feeds confidence at index.js and therefore reaches the gate. The live table "
+      + "shows why it matters: MOMENTUM is 2W-1L, 66.7% win rate, totalPnl -$31.27 - "
+      + "one loss larger than both wins together - and at 5 closed trades a 60% win "
+      + "rate would hand it a POSITIVE boost while it loses money. The system-wide "
+      + "record is the same shape: 9 trades, 55.6% win rate, -$72.13. Two REPORTING "
+      + "labels that had the identical flaw were fixed on 2026-08-30 (PRIORITY/GOOD "
+      + "now require positive P&L, and a high win rate with negative P&L is named "
+      + "PAYOFF-NEGATIVE); the BOOST was left alone on purpose.",
+    caveat: "Nothing here says the boost is wrong. Its docblock records the "
+      + "positive-branch asymmetry as a decision traced exhaustively to n=200, and a "
+      + "win rate is a far lower-variance estimator than a mean P&L at these sample "
+      + "sizes - an expectancy computed from 5 trades can be dominated by one outlier, "
+      + "which is precisely the failure mode BB_SQUEEZE_WATCH shows at -$449.72 on a "
+      + "single fill. Payoff-weighting could easily be WORSE here. That is the "
+      + "question, not the answer.",
+    changesTheAnswer: "A walk-forward comparing the live win-rate boost against an "
+      + "expectancy-weighted or R-multiple-weighted variant, judged on WORST FOLD, as "
+      + "the gate and RSI-ceiling sweeps were. If the payoff variant does not beat the "
+      + "current one on its worst fold, the boost stays exactly as it is. NOT a code "
+      + "change until that runs: this reaches the gate, and no setup has yet cleared "
+      + "the 5-trade floor that would make the boost non-zero at all.",
+    harness: "node tasks/mtf_walkforward.cjs  (or run_walkforward via MCP) with a "
+      + "boost-variant arm; no such arm exists yet",
+    feedsTheGate: false,
+  },
+  {
     // Added 2026-08-30 with the confluence clustering. It goes ABOVE the FVG claim
     // deliberately: it is the claim the new daily-plan levels rest on, it is NOT yet
     // measured, and a reader who scrolls past it would take the levels on the chart
