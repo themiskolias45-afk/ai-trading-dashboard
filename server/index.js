@@ -2692,6 +2692,22 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     structure: {
       swingLow:  swingLow  ? parseFloat(swingLow.price.toFixed(2))  : null,
       swingHigh: swingHigh ? parseFloat(swingHigh.price.toFixed(2)) : null,
+      // AGE, not just price. findSwingLow/findSwingHigh both already return
+      // { price, barsAgo } and every caller kept the price and threw the age away, so
+      // a swing far from spot could not be told from a stale one without reading the
+      // finder and both consumer guards.
+      //
+      // The case that raised it (morning agent, 2026-08-30): BTC reported
+      // structure.swingHigh 65478.68 against spot 78116.79 - a swing high 16.2% BELOW
+      // price - with nothing in the payload saying whether it was 8 bars old or 300,
+      // while GOLD in the same response said "10 bars ago" in its reason text. The
+      // numbers were already in memory; only the write-out was missing.
+      //
+      // Additive. Nothing reads `structure` to make a decision - the sole consumer is
+      // tasks/deep_plan.cjs, which uses it as a display level-candidate - so no gate,
+      // confidence, stop or size can move. Verified by grep before the edit.
+      swingLowBarsAgo:  swingLow  ? swingLow.barsAgo  : null,
+      swingHighBarsAgo: swingHigh ? swingHigh.barsAgo : null,
       trending:  adxTrending,
     },
     trend,

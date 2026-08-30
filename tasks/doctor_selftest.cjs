@@ -385,8 +385,23 @@ async function main() {
 
   put("tasks/logs/ensure_running.txt",
     logOf(tick(300, HEALTHY), tick(290, HEALTHY), tick(20, RESTARTED), tick(10, HEALTHY)));
-  check("4h+ hole followed by components restarting -> AMBER",
-    { severity: "AMBER", box: "local", match: /no ensure_running tick.*had to be restarted/i },
+  // WAS: expected AMBER and /had to be restarted/. That is no longer the specified
+  // behaviour and this case had been failing ever since, which is worse than it looks -
+  // a failing self-test makes the doctor's whole report inadmissible, by its own
+  // checkDoctorSelftest rule ("until this passes, a clean doctor report is not evidence
+  // of a clean fleet"). So ONE stale expectation was disqualifying all 62 that pass.
+  //
+  // USER DECISION 2026-08-29, recorded in doctor.cjs::checkCoverageGaps: the laptop
+  // sleeps ON PURPOSE. It is the development box; the VPS is the one that trades
+  // continuously. An AMBER that can never clear trains you to skim past the row that
+  // matters, and this one had already sent two sessions hunting a Kernel-Power fault
+  // that was a laptop being a laptop.
+  //
+  // The measurement is unchanged and still asserted - the hole, and that components
+  // came back. Only the severity and the call to action moved. The test now pins the
+  // DECISION rather than the superseded wording.
+  check("4h+ hole followed by components restarting -> INFO (laptop sleep is accepted)",
+    { severity: "INFO", box: "local", match: /no ensure_running tick, and \d+ component\(s\) restarted after it/i },
     await isolate(() => doctor.checkCoverageGaps(SCRATCH)));
 
   // Same size hole, ordinary block after it: a suspended machine or a DST step, not an

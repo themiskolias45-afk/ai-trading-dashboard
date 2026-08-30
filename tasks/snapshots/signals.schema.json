@@ -37,6 +37,8 @@
     "structure": {
       "swingLow": "number",
       "swingHigh": "number",
+      "swingLowBarsAgo": "number",
+      "swingHighBarsAgo": "number",
       "trending": "boolean"
     },
     "trend": "string",
@@ -54,12 +56,20 @@
     "h4": {
       "signal": "string",
       "trend": "string",
-      "rsi": "number"
+      "rsi": "number",
+      "setup": "string"
     },
     "h1": {
       "signal": "string",
       "trend": "string",
-      "rsi": "number"
+      "rsi": "number",
+      "setup": "string"
+    },
+    "m15": {
+      "signal": "string",
+      "trend": "string",
+      "rsi": "number",
+      "setup": "string"
     },
     "pivots": {
       "pp": "number",
@@ -127,6 +137,8 @@
     "structure": {
       "swingLow": "number",
       "swingHigh": "number",
+      "swingLowBarsAgo": "number",
+      "swingHighBarsAgo": "number",
       "trending": "boolean"
     },
     "trend": "string",
@@ -144,12 +156,20 @@
     "h4": {
       "signal": "string",
       "trend": "string",
-      "rsi": "number"
+      "rsi": "number",
+      "setup": "string"
     },
     "h1": {
       "signal": "string",
       "trend": "string",
-      "rsi": "number"
+      "rsi": "number",
+      "setup": "string"
+    },
+    "m15": {
+      "signal": "string",
+      "trend": "string",
+      "rsi": "number",
+      "setup": "string"
     },
     "pivots": {
       "pp": "number",
@@ -217,6 +237,8 @@
     "structure": {
       "swingLow": "number",
       "swingHigh": "number",
+      "swingLowBarsAgo": "number",
+      "swingHighBarsAgo": "number",
       "trending": "boolean"
     },
     "trend": "string",
@@ -234,12 +256,20 @@
     "h4": {
       "signal": "string",
       "trend": "string",
-      "rsi": "number"
+      "rsi": "number",
+      "setup": "string"
     },
     "h1": {
       "signal": "string",
       "trend": "string",
-      "rsi": "number"
+      "rsi": "number",
+      "setup": "string"
+    },
+    "m15": {
+      "signal": "string",
+      "trend": "string",
+      "rsi": "number",
+      "setup": "string"
     },
     "pivots": {
       "pp": "number",
