@@ -288,6 +288,47 @@ function render(d, meta) {
           + '<div class="sub-line">' + esc(b.note) + '</div>';
       })(meta.blockSimulated)
 
+    // SEARCH-BIAS CORRECTION. Everything above measures luck in the DRAW - how the same
+    // trades could have fallen in a different order. This measures luck in the SEARCH:
+    // this project has swept RSI ceilings, gates, MIN_RR, stop variants, cohort floors
+    // and hold horizons, and the best of N trials is biased upward by construction.
+    // Without it the page reports a backtest's significance while ignoring how many
+    // times the backtest was re-run to find it.
+    + (function(sr){
+        if (!sr) return '';
+        if (!sr.available) {
+          return '<div class="sub-line" style="margin-top:14px">search-bias correction: '
+            + esc(sr.why || 'not generated yet') + '</div>';
+        }
+        var d = sr.deflated || {};
+        var dsr = (sr.dsr != null ? sr.dsr : d.dsr);
+        var survives = dsr != null && dsr >= 0.95;
+        var pc = function(x){ return x == null ? 'n/a' : (x * 100).toFixed(1) + '%'; };
+        var trl = sr.minTrackRecordLength == null ? null : Math.ceil(sr.minTrackRecordLength);
+        return '<div class="sub-line" style="margin-top:14px">search-bias correction · '
+            + 'Deflated Sharpe and Minimum Track Record Length (Bailey &amp; López de Prado)</div>'
+          + '<div class="stats">'
+          + stat(Number(sr.sharpePerTrade).toFixed(3), 'Sharpe per trade', 'var(--text)')
+          + stat(pc(sr.psr), 'PSR vs zero', sr.psr >= 0.95 ? 'var(--green)' : 'var(--yellow)')
+          + stat(String(d.trialsAssumed), 'configurations tried', 'var(--muted)')
+          + stat(pc(dsr), 'DEFLATED Sharpe', survives ? 'var(--green)' : 'var(--red)')
+          + stat(trl == null ? 'n/a' : trl, 'trades needed (MinTRL 95%)', 'var(--yellow)')
+          + '</div>'
+          + '<div class="banner" style="border-color:' + (survives ? 'var(--green)' : 'var(--red)')
+            + ';color:' + (survives ? 'var(--green)' : 'var(--red)')
+            + ';background:' + (survives ? '#0a160a' : '#1a0a0a') + '">'
+            + '<strong>' + esc(sr.verdict || '') + '</strong> '
+            + 'PSR says the backtest beats zero with ' + pc(sr.psr) + ' confidence. After correcting for '
+            + esc(String(d.trialsAssumed)) + ' configurations tried, that falls to ' + pc(dsr) + ' — '
+            + 'the bar the best of ' + esc(String(d.trialsAssumed)) + ' random trials would clear is a Sharpe of '
+            + Number(d.expectedMaxSharpe).toFixed(3) + ' against the observed '
+            + Number(sr.sharpePerTrade).toFixed(3) + '.'
+            + (trl == null ? '' : ' <strong>' + trl + ' trades</strong> are needed before this Sharpe is '
+              + 'distinguishable from zero at 95%; there are ' + esc(String(meta.liveClosedTrades)) + ' closed live trades.')
+            + '</div>'
+          + '<div class="sub-line">' + (sr.caveats || []).map(esc).join(' · ') + '</div>';
+      })(meta.sharpeRobustness)
+
     + '<div class="grid2">'
     +   '<div class="card"><div class="card-head"><span>Monte-Carlo equity fan</span>'
     +     '<span class="sub">every path is the same edge, reshuffled by luck</span></div>'
