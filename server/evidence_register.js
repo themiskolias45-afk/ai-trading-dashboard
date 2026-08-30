@@ -454,6 +454,60 @@ const CLAIMS = [
     feedsTheGate: false,
   },
   {
+    // Raised 2026-08-30. Sits directly under edgeisgold because it is the work that
+    // claim ASKED FOR -- "a candidate instrument must clear the same per-instrument
+    // fold table before it is wired in" -- and it corroborates it from a different
+    // direction: Gold first of 51, SPX last.
+    id: "instrumentscan",
+    title: "The engine is long-beta, and SPX is the weakest instrument it trades",
+    status: STATUS.CANDIDATE,
+    measuredOn: "2026-08-30",
+    evidence: "51 instruments replayed through the LIVE engine (generateSignal via "
+      + "tasks/_replay_engine.cjs), 10y daily bars, 0.05R/trade, EXPIRED scored 0R. "
+      + "THE ENGINE IS LONG-BETA: pooled across all 51 names, expectancy per trade "
+      + "tracks the S&P calendar return almost one-for-one -- 2017 (+19.4%) +0.418, "
+      + "2019 (+28.9%) +0.247, 2024 (+23.3%) +0.207, 2018 (-6.2%) +0.011, and 2022 "
+      + "(-19.4%) -0.232 across 591 trades for -136.9R. It is ~92% long (QQQ 154 BUY / "
+      + "14 SELL; NVDA 51/1). GOLD IS FIRST ON EVERY CUT: #1 on the naive ranking, #1 "
+      + "on an identical-window comparison at +0.471R/trade, 5/5 folds with the "
+      + "strongest worst fold at +0.142, and positive through 2022 (+4.97R). SPX IS "
+      + "LAST: on the identical window (2022-07-28..2026-08-03) SP500 is -0.047R/trade "
+      + "against QQQ +0.438, NVDA +0.434, TSM +0.380, GLD +0.315; on 5 folds SP500 is "
+      + "2/5 with a worst fold of -0.863, the worst record measured. SPY at +0.065 "
+      + "rules out a data-source artifact -- same index, same feed as the rest. Broker "
+      + "check 2026-08-30: NAS100, QQQ, SMH and BAC are all in the book at "
+      + "trade_mode 4 (FULL), and NAS100's min lot is 0.1, identical to SP500.",
+    caveat: "THIS IS A D1 SCREEN, NOT THE HARNESS edgeisgold USED. That claim ran "
+      + "generateSignalMTF at gate 70 -- the live multi-timeframe path; this ran the "
+      + "single-timeframe daily replay, so its trade counts are far higher than live "
+      + "firing rates and its trade set is not the one the live engine would take. It "
+      + "therefore does NOT yet clear the bar edgeisgold set for wiring an instrument "
+      + "in. The naive ranking is also mostly beta and must not be read as skill: 31 of "
+      + "51 names were positive out-of-sample because every holdout window fell in the "
+      + "2023-26 bull run, so a 61% base rate is the number to compare any hit rate "
+      + "against. The 48 candidates were replayed on YAHOO bars, not broker bars, while "
+      + "the three owned instruments used real MT5 history -- a CFD's prices differ "
+      + "from the underlying, which on this system is the known gold futures/spot "
+      + "basis. No spread, slippage, commission or gap-through-stop is modelled beyond "
+      + "the flat 0.05R, and as of this writing NAS100's live spread is still "
+      + "UNMEASURED -- every weekend reading is a stale last-quote, not a cost.",
+    changesTheAnswer: "NAS100 earns the SPX slot on a cohort/MTF fold table, not on "
+      + "this screen -- run the same per-instrument walk-forward at gate 70 that "
+      + "edgeisgold used, on broker bars, and require most folds positive judged on the "
+      + "WORST fold. Before that, two cheaper things can kill the proposal outright: a "
+      + "measured NAS100 spread that trips maxSpreadPts (SP500 already reads 45 against "
+      + "a cap of 50, and tasks/spread_probe.py is sampling the Monday session on both "
+      + "boxes), or a min-lot/point-value combination that breaks sizing. Note also "
+      + "that mt5_bridge.py's own comment independently records SPX at PF 0.32 full "
+      + "sample and 0.00 on the held-out half through generateSignalMTF, which is the "
+      + "stronger path and agrees with this. Nothing here argues for adding instruments "
+      + "generally: the binding constraint is sample size, and a second index trading "
+      + "~15 times a year does not fix it.",
+    harness: "node tasks/instrument_universe_scan.cjs  ·  node tasks/fetch_yahoo_history.cjs "
+      + "<sym> tasks/history_yahoo/<sym>_D1.csv  ·  python tasks/spread_probe.py --report",
+    feedsTheGate: false,
+  },
+  {
     id: "minrr",
     title: "MIN_RR = 1.5",
     status: STATUS.ROBUST,
