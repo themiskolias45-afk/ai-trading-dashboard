@@ -213,6 +213,39 @@ if ($serverUp) {
 # /api/mt5/health?account=X is written only by POST /api/mt5/positions, so a "true"
 # there means a bridge is alive AND talking to both MT5 and the server - a stronger
 # statement than any process check, and immune to WMI.
+function Get-BridgeLauncher($tag) {
+    # WHICH .bat starts this tag's bridge ON THIS BOX. Ask the box, do not guess.
+    #
+    # THE FAULT THIS FIXES, found 2026-08-30 and latent until then. This script
+    # hardcoded "tasks\start_bridge_$tag.bat". On the VPS that file sets
+    # MT5_EXPECTED_LOGIN=25446287 - the LAPTOP's account - while the VPS trades
+    # 11581419 out of start_bridge_A_vps.bat. So if the VPS bridge ever stopped, the
+    # only thing able to restart it (this script, SYSTEM, every 10 min) would bring it
+    # back pinned to the wrong account, and MT5_EXPECTED_LOGIN would make it refuse
+    # every order. A bridge that looks alive and places nothing - the exact silent
+    # shape this project keeps rediscovering. Meanwhile SmartEntryBridgeA, which HAS
+    # the right launcher, is logon-only on a headless box and can never fire.
+    #
+    # "Prefer the _vps variant when it exists" would be WRONG: the laptop carries
+    # start_bridge_A_vps.bat too, so that rule would start the VPS's account here.
+    #
+    # The box's own SmartEntryBridge<tag> task is the authoritative statement of how
+    # THIS machine starts its bridge, and it is already correct on both: the VPS task
+    # names start_bridge_A_vps.bat, and the laptop has no bridge task at all, so it
+    # falls through to the plain launcher - which is the correct one there.
+    try {
+        $task = Get-ScheduledTask -TaskName ("SmartEntryBridge" + $tag) -ErrorAction Stop
+        foreach ($action in $task.Actions) {
+            $line = "" + $action.Execute + " " + $action.Arguments
+            $hit = [regex]::Match($line, 'start_bridge_[A-Za-z](_vps)?\.bat', 'IgnoreCase')
+            if ($hit.Success) { return $hit.Value }
+        }
+    } catch {
+        # No such task on this box. That is the laptop's normal state, not an error.
+    }
+    return ("start_bridge_" + $tag + ".bat")
+}
+
 function Get-BridgeAge($tag) {
     # Returns age in seconds, or $null when that account has never reported or the
     # server cannot be reached. $null means "start it"; a number means "leave it".
@@ -299,6 +332,7 @@ elseif ($null -ne ($strayAge = Get-BridgeAge 'default') -and $strayAge -lt $BRID
 } else {
     $expectedTags = Get-ExpectedBridgeTags
     Write-Log "BRIDGES: this machine owns tag(s) $($expectedTags -join ',')"
+    # (Get-BridgeLauncher is defined above; it decides WHICH .bat starts this tag.)
     foreach ($tag in $expectedTags) {
         $age = Get-BridgeAge $tag
         if ($null -ne $age -and $age -lt $BRIDGE_STALE_S) {
@@ -326,9 +360,10 @@ elseif ($null -ne ($strayAge = Get-BridgeAge 'default') -and $strayAge -lt $BRID
         $fails = (Get-BridgeFailCount $tag) + 1
         Set-BridgeFailCount $tag $fails
 
-        Write-Log "BRIDGE $($tag): not reporting -- starting"
+        $launcher = Get-BridgeLauncher $tag
+        Write-Log "BRIDGE $($tag): not reporting -- starting via $launcher"
         Set-Content -Path $marker -Value (Get-Date -Format 'o') -Encoding ascii
-        Start-Process -FilePath 'cmd' -ArgumentList '/c', "tasks\start_bridge_$tag.bat" `
+        Start-Process -FilePath 'cmd' -ArgumentList '/c', "tasks\$launcher" `
             -WorkingDirectory $Proj -WindowStyle Minimized
         Start-Sleep -Seconds 3
 
