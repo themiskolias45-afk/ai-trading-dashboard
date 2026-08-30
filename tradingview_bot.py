@@ -694,6 +694,95 @@ def plan_study_is_current(page, expected_stamp):
     return True, titles, ""
 
 
+def close_pine_editor(page):
+    """Collapse the Pine editor. IDEMPOTENT - the toggle OPENS it when it is closed.
+
+    Needed before any Object-tree work. cmd_plan leaves the editor open after
+    saving, and the editor takes the bottom half of the window, so the Object tree's
+    rows are pushed into a scroll region and report as not visible. The removal then
+    stops with "not visible in the Object tree" on a row that is genuinely there,
+    just off-screen.
+    """
+    if page.locator(SEL_PINE_DIALOG).count() == 0:
+        return True
+    try:
+        box = page.evaluate(JS_VISIBLE_BOX, SEL_PINE_BUTTON)
+        if not box:
+            return False
+        page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
+        page.wait_for_timeout(2500)
+        return page.locator(SEL_PINE_DIALOG).count() == 0
+    except Exception as exc:
+        print(f"[TV] could not close the Pine editor ({str(exc)[:60]})")
+        return False
+
+
+def remove_plan_studies_via_tree(page, limit=8):
+    """Delete every JARVIS plan study using the Object tree, not the legend.
+
+    WHY A SECOND REMOVER EXISTS. remove_plan_studies() drives the LEGEND, and the
+    legend will not expand on this layout - measured 2026-08-30, the real
+    `button[title="Show indicators legend"]` is present and visible at 31x21, and a
+    mouse click at its own centre AND a JS .click() both leave all 212 rows at zero
+    height. That path is kept because it has worked before and may work elsewhere;
+    this one is what works here.
+
+    The Object tree lists the same studies in a panel that opens reliably, and each
+    row exposes a [data-name="remove"] control on hover. Rows are located by exact
+    text and clicked by COORDINATES, because TradingView keeps invisible duplicates
+    in the DOM and Playwright's .first resolves to those.
+
+    The title guard is strict and non-negotiable: this layout also carries the
+    user's own work - APEX SMC, Clean Structure PRO, TK Swing Trend and others - and
+    nothing without the JARVIS prefix may ever be touched.
+    """
+    removed = []
+    targets = [t for t in list_plan_studies(page) if t.startswith(PLAN_NAME_PREFIX)]
+    if not targets:
+        return removed
+
+    # Open the panel, detecting its own HEADER rather than a row.
+    #
+    # The first cut of this tested "is a target row visible" and clicked the toggle
+    # when not - which CLOSED an already-open panel whose rows were merely scrolled,
+    # guaranteeing the row stayed invisible. The toggle is a toggle; the only safe
+    # precondition is the panel's own presence.
+    if not page.evaluate(JS_VISIBLE_TEXT_BOX, "Object tree"):
+        box = page.evaluate(JS_VISIBLE_BOX, 'button[data-name="object_tree"]')
+        if not box:
+            print("[TV] Object tree button not visible - cannot remove studies this run")
+            return removed
+        page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
+        page.wait_for_timeout(3000)
+    if not page.evaluate(JS_VISIBLE_TEXT_BOX, "Object tree"):
+        print("[TV] Object tree panel did not open - cannot remove studies this run")
+        return removed
+
+    for _ in range(limit):
+        current = [t for t in list_plan_studies(page) if t.startswith(PLAN_NAME_PREFIX)]
+        if not current:
+            break
+        name = current[0]
+        row = page.evaluate(JS_VISIBLE_TEXT_BOX, name)
+        if not row:
+            print(f"[TV] {name!r} is not visible in the Object tree - stopping")
+            break
+        # Hover reveals the row's controls; the wait is not optional.
+        page.mouse.move(row["x"] + row["w"] / 2, row["y"] + row["h"] / 2)
+        page.wait_for_timeout(1800)
+        remove = page.evaluate(JS_ROW_REMOVE_BOX, row)
+        if not remove:
+            print(f"[TV] no Remove control appeared for {name!r} - stopping")
+            break
+        page.mouse.click(remove["x"] + remove["w"] / 2, remove["y"] + remove["h"] / 2)
+        page.wait_for_timeout(2500)
+        removed.append(name)
+
+    if removed:
+        print(f"[TV] Removed {len(removed)} stale plan study(ies) via the Object tree")
+    return removed
+
+
 def add_saved_script_to_chart(page):
     """Add the plan from Indicators > My scripts, then SAVE THE LAYOUT.
 
@@ -745,6 +834,31 @@ JS_VISIBLE_TEXT_BOX = """(name) => {
     if ((e.textContent || '').trim() !== name) continue;
     const r = e.getBoundingClientRect();
     if (e.offsetParent === null || r.width === 0 || r.height === 0) continue;
+    return {x: r.x, y: r.y, w: r.width, h: r.height};
+  }
+  return null;
+}"""
+
+# The first VISIBLE element matching a selector. Same reason as above: .first in
+# Playwright resolves to detached duplicates and times out on elements that are
+# plainly on screen.
+JS_VISIBLE_BOX = """(selector) => {
+  for (const e of document.querySelectorAll(selector)) {
+    const r = e.getBoundingClientRect();
+    if (e.offsetParent === null || r.width === 0 || r.height === 0) continue;
+    return {x: r.x, y: r.y, w: r.width, h: r.height};
+  }
+  return null;
+}"""
+
+# The Remove control belonging to ONE Object-tree row, found by vertical band. Every
+# row has one; without the band filter this would return the first row's control and
+# delete the wrong study.
+JS_ROW_REMOVE_BOX = """(band) => {
+  for (const e of document.querySelectorAll('[data-name="remove"]')) {
+    const r = e.getBoundingClientRect();
+    if (e.offsetParent === null || r.width === 0) continue;
+    if (r.y < band.y - 14 || r.y > band.y + band.h + 14) continue;
     return {x: r.x, y: r.y, w: r.width, h: r.height};
   }
   return null;
@@ -2763,10 +2877,38 @@ def cmd_plan(which="all", shoot=True):
             #
             # So the condition for adding the bound script is the absence of the BOUND
             # study, never the absence of any study.
+            # SAVING DOES NOT UPDATE THE STUDY ON THIS BUILD, and that is the single
+            # most important thing measured on 2026-08-30.
+            #
+            # This file's design rests on the opposite claim - "saving it pushes the
+            # new source into every chart already using it, which is how the plan
+            # updates without adding a study". Measured directly: the saved script
+            # carried shorttitle '08-30 18:55' while the study on the chart still
+            # rendered its own table header as '08-30 18:23'. The header is drawn BY
+            # the running Pine source, so that is not a caching artefact in the
+            # legend - the study had not recompiled at all.
+            #
+            # A study is pinned to the version it was ADDED at. So the chart is
+            # updated by REPLACING it: remove every plan study, add the saved script
+            # again, save the layout. This is also what stops copies stacking, since
+            # the removal runs first.
+            #
+            # That premise being false is the explanation for every stale-chart
+            # symptom in this project's history, including the Gold chart that
+            # rendered an Aug-7 plan for fourteen days while each run reported
+            # success.
             expected_stamp = plan_stamp(plans[0]["generated_at"])
             current, titles, note = plan_study_is_current(page, expected_stamp)
             if not current and applied:
-                print(f"[TV] Chart is not showing this plan ({note}) - adding the saved script.")
+                print(f"[TV] Chart is not showing this plan ({note}) - replacing the study.")
+                _foreground_browser_window()
+                # The editor covers the bottom half of the window and pushes the
+                # Object tree's rows into a scroll region, where they read as not
+                # visible. Close it before touching the tree.
+                close_pine_editor(page)
+                make_focus_safe(page)
+                remove_plan_studies_via_tree(page)
+                page.wait_for_timeout(1500)
                 add_saved_script_to_chart(page)
                 page.wait_for_timeout(2500)
                 current, titles, note = plan_study_is_current(page, expected_stamp)
