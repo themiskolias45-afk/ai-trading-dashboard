@@ -10399,9 +10399,41 @@ app.get("/api/robustness-report", (_, res) => {
     }
     const raw = JSON.parse(fs.readFileSync(p, "utf8"));
     const ms = Date.parse(raw.generatedAt || "");
+    const ageHours = Number.isFinite(ms) ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+    // STALE IS A STATUS, NOT A NUMBER THE READER HAS TO DERIVE.
+    //
+    // ageHours has always been in this payload and the page never rendered it, so a
+    // report generated five days ago looked exactly like one generated this morning -
+    // on the page read to decide whether the system is sound. Same trap as a healer
+    // tick with no age, and the daily plan's own STALE marker exists because of it.
+    //
+    // The threshold is set against the regeneration cadence (weekly, SmartEntry
+    // Robustness Report), with a day of slack so a healthy schedule never trips it and
+    // a MISSED run does. Below it, "OK" now means fresh rather than merely parseable.
+    const STALE_AFTER_HOURS = 192;  // 8 days: a weekly job plus one day of slack
+    const stale = ageHours !== null && ageHours > STALE_AFTER_HOURS;
+    // `status` DELIBERATELY STAYS "OK". report.html does
+    // `if (d.status !== "OK") { show detail; return; }` - so putting "STALE" here would
+    // BLANK the whole page and hide the very report it is warning about. Staleness is
+    // its own boolean beside the data; a stale report is still the best evidence
+    // available and must render, loudly marked. Same rule as the Pine plan, which shows
+    // STALE in red and still draws the levels.
     res.json({
       status: "OK",
-      ageHours: Number.isFinite(ms) ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null,
+      ageHours,
+      stale,
+      staleAfterHours: STALE_AFTER_HOURS,
+      generatedAt: raw.generatedAt || null,
+      // The LIVE closed-trade count, so the page stops carrying a hardcoded one.
+      // report.html said "this system has 8 closed live trades"; the journal holds 7,
+      // and that number moves every time a trade closes. A figure baked into a page is
+      // correct only until the next fill - and this one is load-bearing, because the
+      // whole banner argues that the live sample is too small to mean anything.
+      liveClosedTrades: tradeJournal.filter(t => t && t.status === "CLOSED").length,
+      // Lifted onto the ENVELOPE beside the age, because that is where the page's
+      // provenance header reads from. It also stays inside `report` for anything
+      // consuming the raw artifact - one value, two readers, no second source.
+      engineConfig: raw.engineConfig || null,
       report: raw,
       feedsTheGate: false,
     });

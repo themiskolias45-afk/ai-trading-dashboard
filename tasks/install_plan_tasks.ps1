@@ -151,6 +151,28 @@ Install-PlanTask -Name 'SmartEntry Doctor' `
     -Triggers $doctorTriggers `
     -Description 'Diagnose both boxes and apply the SAFE remedies. Never restarts a server, never touches a bridge, never changes a setting, never decides a proposal.'
 
+# ---- Robustness report: a generator with no scheduler ------------------------
+#
+# tasks\montecarlo_report.cjs writes tasks\analysis\montecarlo-latest.json, which is
+# the entire content of the Robustness page. NOTHING RAN IT. The file on disk was
+# five days old and the page rendered it with no date at all, so a stale report and a
+# fresh one were indistinguishable on the page read to judge whether the system is
+# sound. Same shape as the doctor: the tool existed, the trigger did not.
+#
+# WEEKLY, and Sunday 09:00 specifically. The harness replays three assets and
+# bootstraps 4,000 paths - minutes of CPU on a box that trades - so it runs when Gold
+# and SP500 are closed, and an hour ahead of the 10:00 Weekly Algo Review so that
+# review reads a report generated today rather than last week's.
+#
+# The /api/robustness-report staleness threshold is 192h (8 days): this cadence plus a
+# day of slack, so a healthy schedule never trips it and a MISSED run does.
+$robustnessTriggers = @(New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '09:00')
+
+Install-PlanTask -Name 'SmartEntry Robustness Report' `
+    -Arguments 'tasks\montecarlo_report.cjs' `
+    -Triggers $robustnessTriggers `
+    -Description 'Weekly Monte-Carlo robustness report behind /report. Read-only replay over cached bars: no signal, no setting, no order.'
+
 Write-Host ''
 if ($Execute) {
     Write-Host 'Done. Verify with:  Get-ScheduledTask -TaskName "SmartEntry Plan *"'

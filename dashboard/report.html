@@ -188,8 +188,9 @@ function heat(rows) {
   return "<table><thead>"+head+"</thead><tbody>"+body+"</tbody></table>";
 }
 
-function render(d) {
+function render(d, meta) {
   var s = d.simulated, a = d.actual;
+  meta = meta || {};
   document.getElementById("hdr-meta").textContent =
     d.trades + " replayed trades · gate " + d.params.gate;
 
@@ -199,8 +200,45 @@ function render(d) {
     + ' bootstrap resamples of the trade history · ' + esc(d.span.from) + ' – ' + esc(d.span.to)
     + ' · risk ' + d.params.riskPct + '% per trade · costs ' + d.params.costR + 'R</div>'
 
+    // WHEN this was computed, and whether that is recent enough to act on. ageHours
+    // was in the payload from the start and nothing rendered it, so a five-day-old
+    // report read exactly like this morning's on the page used to judge the system.
+    + '<div class="sub-line">computed ' + esc(meta.generatedAt ? new Date(meta.generatedAt).toLocaleString() : 'at an unknown time')
+    + (meta.ageHours === null || meta.ageHours === undefined ? ' · age unknown'
+        : ' · ' + (meta.ageHours < 48 ? meta.ageHours + 'h' : (meta.ageHours / 24).toFixed(1) + ' days') + ' old')
+    + '</div>'
+    // THE CONFIG THIS REPORT RAN UNDER. Two reports with identical params can be
+    // produced by materially different engines: on 2026-08-30 the 08-25 run showed a
+    // 43.6% chance of profit over 227 trades and the next run showed 97.1% over 302,
+    // on the same gate, risk, sims and costs - because momentumRsiMax had drifted from
+    // 72 to 88 underneath. Without this line the two look comparable and are not.
+    + (function(c){
+        if (!c || !c.available) return '';
+        var drift = [];
+        if (c.momentumRsiMax != null && c.defaults && c.momentumRsiMax !== c.defaults.momentumRsiMax)
+          drift.push('momentumRsiMax ' + c.momentumRsiMax + ' (default ' + c.defaults.momentumRsiMax + ')');
+        if (c.trendFollowRsiMax != null && c.defaults && c.trendFollowRsiMax !== c.defaults.trendFollowRsiMax)
+          drift.push('trendFollowRsiMax ' + c.trendFollowRsiMax + ' (default ' + c.defaults.trendFollowRsiMax + ')');
+        var line = '<div class="sub-line">engine config: gate ' + esc(c.confidenceThreshold)
+          + ' · momentumRsiMax ' + esc(c.momentumRsiMax) + ' · trendFollowRsiMax ' + esc(c.trendFollowRsiMax) + '</div>';
+        if (!drift.length) return line;
+        return line + '<div class="banner" style="border-color:var(--yellow);color:var(--yellow)">'
+          + '<strong>THIS RAN UNDER NON-DEFAULT RSI CEILINGS:</strong> ' + esc(drift.join(', '))
+          + '. Those decide WHICH TRADES EXIST, so this report is not comparable with one run '
+          + 'under different ceilings, however similar the params look.</div>';
+      })(meta.engineConfig)
+    + (meta.stale
+        ? '<div class="banner" style="border-color:var(--red);color:var(--red);background:#1a0a0a">'
+          + '<strong>THIS REPORT IS STALE.</strong> It was computed '
+          + (meta.ageHours / 24).toFixed(1) + ' days ago, past the ' + (meta.staleAfterHours / 24)
+          + '-day mark. It is still the best evidence available and is shown in full, but it '
+          + 'does not include anything that has closed since. Regenerate with '
+          + '<code>node tasks/montecarlo_report.cjs</code>.</div>'
+        : '')
+
     + '<div class="banner"><strong>READ THIS FIRST.</strong> These are <strong>REPLAYED</strong> trades, '
-    + 'not live fills — this system has 8 closed live trades and eight cannot produce a drawdown '
+    + 'not live fills — this system has ' + (meta.liveClosedTrades === undefined ? 'very few' : meta.liveClosedTrades)
+    + ' closed live trades, which cannot produce a drawdown '
     + 'distribution that means anything. And a bootstrap resamples the <strong>same</strong> trades: it shows '
     + 'the range of <strong>luck around an edge</strong>, it does <strong>not</strong> test whether the edge '
     + 'survives out of sample. That is a different question, answered on the Strategy page by the '
@@ -268,7 +306,9 @@ fetch("/api/robustness-report")
       document.getElementById("hdr-meta").textContent = d.status;
       return;
     }
-    render(d.report);
+    // The envelope carries the age, the stale verdict and the live trade count;
+    // the report itself carries none of them. Pass both.
+    render(d.report, d);
   })
   .catch(function(e){
     console.error("robustness-report:", e);

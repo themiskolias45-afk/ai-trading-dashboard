@@ -206,6 +206,44 @@ const result = {
   generatedAt: new Date().toISOString(),
   source: "REPLAY of the live engine over cached broker bars — NOT live fills",
   params: { gate: GATE, riskPct: RISK_PCT * 100, start: START, sims: SIMS, costR: COST_R },
+  // THE CONFIG THIS RAN UNDER, not just the harness knobs.
+  //
+  // Two reports used to look directly comparable while having been produced by
+  // materially different engines. Measured 2026-08-30: the 08-25 report held 227
+  // trades with a 43.6% chance of profit; the very next run held 302 with 97.1%, on
+  // IDENTICAL params - gate 70, risk 1%, 4,000 sims, 0.05R costs. Nothing in either
+  // artifact explained the gap.
+  //
+  // The cause was config drift underneath the harness. momentumRsiMax had been raised
+  // from its 72 default to 88 and trendFollowRsiMax from 68 to 84 by the automated
+  // jarvis-daily-unblock-btc, which admitted 79% more BTCUSD trades (67 -> 120). The
+  // report was right both times and comparing them was meaningless.
+  //
+  // So the settings that decide WHICH TRADES EXIST are stamped into the artifact. A
+  // reader can now see that two reports are not comparable instead of assuming they
+  // are, and settingsError says when the engine was running built-in defaults rather
+  // than the saved file. Read-only: this records config, it never writes it.
+  engineConfig: (() => {
+    try {
+      const sp = path.join(__dirname, "..", "server", "strategy_settings.json");
+      if (!fs.existsSync(sp)) return { available: false, why: "strategy_settings.json not on this box (it is per-machine and untracked)" };
+      const cfg = JSON.parse(fs.readFileSync(sp, "utf8"));
+      return {
+        available: true,
+        confidenceThreshold: cfg.confidenceThreshold ?? null,
+        momentumRsiMax: cfg.momentumRsiMax ?? null,
+        trendFollowRsiMax: cfg.trendFollowRsiMax ?? null,
+        // Defaults named beside the live values, so drift is visible without a lookup.
+        defaults: { momentumRsiMax: 72, trendFollowRsiMax: 68 },
+        arm: cfg.arm ?? null,
+        lastWrittenBy: cfg.lastWrittenBy ?? null,
+        lastWrittenAt: cfg.updatedAt ?? cfg.lastWrittenAt ?? null,
+      };
+    } catch (e) {
+      // Never take the report down over its own provenance block.
+      return { available: false, why: "unreadable: " + e.message };
+    }
+  })(),
   population: perAsset,
   trades: n,
   span: { from: new Date(trades[0].ms).toISOString().slice(0, 10),
