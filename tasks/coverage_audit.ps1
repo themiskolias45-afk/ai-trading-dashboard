@@ -152,7 +152,39 @@ if ($tasks.Count -eq 0) {
             # alarm rather than away from it.
             Add-Check 'tasks' $t.TaskName 'INFO' "task is $($t.State) with exit $($i.LastTaskResult), but the server IS answering on 3001 - the process was started by EnsureRunning, not by this task"
         } elseif ($i.LastTaskResult -ne 0 -and $i.LastTaskResult -ne 267009) {
-            Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
+            # AN EXIT CODE IS A CLAIM; THE ARTIFACT IS THE EVIDENCE.
+            #
+            # The Claude CLI exits 255 on runs that fully succeeded, so the two agent
+            # jobs on the VPS reported RED every day while having written complete
+            # analyses minutes earlier - daily_YYYYMMDD.txt at 27KB, morning_summary.txt
+            # at 11KB. Their wrappers are HONEST: they compute the CLI's code carefully
+            # and pass it through. The CLI is the part that lies, so the fix belongs
+            # here rather than in a wrapper - rewriting one to swallow 255 would swallow
+            # a real failure too.
+            #
+            # This checks whether the OUTPUT landed at or after the run started. A stale
+            # artifact still reads RED, so it separates the false alarm from the real
+            # one instead of excusing both. Same rule as tasksutonomy_audit.ps1.
+            $artifactMap = @{
+                'SmartEntryDailyCheck'     = ('tasks\logs\daily_' + (Get-Date -Format 'yyyyMMdd') + '.txt')
+                'SmartEntry - Daily Check' = ('tasks\logs\daily_' + (Get-Date -Format 'yyyyMMdd') + '.txt')
+                'SmartEntryMorningAgent'   = 'tasks\logs\morning_summary.txt'
+                'JARVIS Morning Agent'     = 'tasks\logs\morning_summary.txt'
+            }
+            $proved = $false
+            if ($artifactMap.ContainsKey($t.TaskName)) {
+                $ap = Join-Path $Proj $artifactMap[$t.TaskName]
+                if (Test-Path $ap) {
+                    $ai = Get-Item $ap
+                    if ($i.LastRunTime -and $ai.LastWriteTime -ge $i.LastRunTime.AddMinutes(-5)) {
+                        Add-Check 'tasks' $t.TaskName 'INFO' ("exit $($i.LastTaskResult) but the ARTIFACT PROVES it worked: " + $ai.Name + ", " + $ai.Length + " bytes at " + $ai.LastWriteTime.ToString('HH:mm') + " (the Claude CLI exits non-zero on success)")
+                        $proved = $true
+                    }
+                }
+            }
+            if (-not $proved) {
+                Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
+            }
         } elseif ($null -eq $i.NextRunTime) {
             # No next run, and it is not running. The same reasoning the never-run branch
             # above already applies was missing here, so every boot- and logon-triggered
