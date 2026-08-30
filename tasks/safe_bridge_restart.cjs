@@ -456,12 +456,29 @@ function bridgeLauncherFor(tag) {
   //
   // If that task is absent (the laptop names its equivalent differently), fall back to
   // starting the resolved launcher directly rather than a task that cannot fire.
+  // STOP VIA THE TASK, START THE LAUNCHER DIRECTLY.
+  //
+  // Two corrections live here, and the second one was learned the hard way on
+  // 2026-08-30 by taking the VPS bridge down for several minutes.
+  //
+  // FIRST: this used to Start-ScheduledTask the SAME task it had just stopped. On the
+  // VPS SmartEntryBridgeA is Interactive/AtLogOn and the box is headless, so the start
+  // could never succeed (0x800710E0).
+  //
+  // SECOND, and this is the one that bit: the replacement routed the start through
+  // SmartEntryEnsureRunning. That does not work IMMEDIATELY AFTER A KILL.
+  // ensure_running.ps1 only starts a bridge whose last report is older than
+  // BRIDGE_STALE_S (180s) - it is a GAP FILLER, not a starter. Seconds after a stop the
+  // health age is still small, so it correctly sees "reporting" and does nothing. The
+  // bridge stayed down until it was started by hand. It would have recovered on its own
+  // once the age crossed 180s, but that is up to ten minutes with positions open.
+  //
+  // So the tool starts the resolved launcher ITSELF, which is immediate and uses the
+  // right account for this box. ensure_running remains the safety net underneath.
   const launcherTask = bridgeLauncherFor(ACCOUNT);
   const ps = "Stop-ScheduledTask -TaskName " + TASK + "; Start-Sleep -Seconds 3; "
-    + "if (Get-ScheduledTask -TaskName 'SmartEntryEnsureRunning' -ErrorAction SilentlyContinue) "
-    + "{ Start-ScheduledTask -TaskName 'SmartEntryEnsureRunning' } "
-    + "else { Start-Process -FilePath 'cmd' -ArgumentList '/c','tasks\\" + launcherTask + "' "
-    + "-WorkingDirectory '" + PROJECT_ROOT.replace(/'/g, "''") + "' -WindowStyle Minimized }";
+    + "Start-Process -FilePath 'cmd' -ArgumentList '/c','tasks\\" + launcherTask + "' "
+    + "-WorkingDirectory '" + PROJECT_ROOT.replace(/'/g, "''") + "' -WindowStyle Minimized";
   try {
     if (HOST === "localhost" || HOST === "127.0.0.1") {
       execFileSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "inherit" });
