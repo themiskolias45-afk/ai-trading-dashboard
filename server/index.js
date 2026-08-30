@@ -1065,17 +1065,60 @@ function checkSetupHealth() {
   const alerts = [];
   const AVOID_THRESHOLD    = 0.40;  // below 40% WR → avoid
   const PRIORITY_THRESHOLD = 0.65;  // above 65% WR → prioritise
+  // WIN RATE IS NOT EDGE, AND THIS LABEL USED TO ACT AS IF IT WERE.
+  //
+  // The whole judgement was `wins / total`. totalPnl has been tracked per setup since
+  // updateLearning was written and was never once consulted here, so a setup could be
+  // announced "Setup PRIORITY ✅" while having lost money.
+  //
+  // Not hypothetical, and not far off: MOMENTUM currently sits 2W-1L, 66.7% WR,
+  // totalPnl -$31.27 — its single loss exceeds both wins combined. It is TWO closed
+  // trades from clearing this floor, at which point the old code would have printed
+  // PRIORITY for a setup that loses money. The system's whole record has the same
+  // shape: 9 trades, 5 wins, 55.6% WR, -$72.13 total. Winning more than half and
+  // losing money is precisely what a win-rate-only label cannot see.
+  //
+  // So PRIORITY now requires the setup to have MADE money, and the case that used to
+  // be invisible gets a name of its own rather than being folded into a pass or a
+  // fail: a high win rate with negative P&L is PAYOFF-NEGATIVE, which is a specific
+  // and fixable diagnosis (the losses are too big, not the entries too rare).
+  //
+  // REPORTING ONLY. Nothing on the trade path reads this — the callers are a console
+  // log, GET /api/setup-health and the daily-plan panel. getLearningBoost, which does
+  // feed confidence, is deliberately NOT touched here: whether payoff-weighting beats
+  // win-rate weighting on the GATE is a walk-forward question, not an edit.
   for (const [setup, s] of Object.entries(learning.setupStats)) {
     const total = s.wins + s.losses;
     if (total < 5) continue;
     const wr = s.wins / total;
-    if (wr < AVOID_THRESHOLD)    alerts.push({ setup, wr: Math.round(wr * 100), status: 'AVOID',    trades: total });
-    else if (wr > PRIORITY_THRESHOLD) alerts.push({ setup, wr: Math.round(wr * 100), status: 'PRIORITY', trades: total });
+    const pnl = Number(s.totalPnl ?? 0);
+    // Per-trade expectancy in account currency. The number that decides whether a
+    // setup is worth taking, and the one a win rate cannot express.
+    const expectancy = parseFloat((pnl / total).toFixed(2));
+    const base = { setup, wr: Math.round(wr * 100), trades: total, totalPnl: parseFloat(pnl.toFixed(2)), expectancy };
+    if (wr < AVOID_THRESHOLD) {
+      alerts.push({ ...base, status: 'AVOID' });
+    } else if (wr > PRIORITY_THRESHOLD && pnl > 0) {
+      alerts.push({ ...base, status: 'PRIORITY' });
+    } else if (wr > PRIORITY_THRESHOLD) {
+      alerts.push({ ...base, status: 'PAYOFF-NEGATIVE' });
+    } else if (pnl < 0 && wr >= AVOID_THRESHOLD) {
+      // Middling win rate AND losing money. Not an AVOID on win rate alone, but it
+      // must not read as silence either.
+      alerts.push({ ...base, status: 'LOSING' });
+    }
   }
   if (alerts.length > 0) {
     for (const a of alerts) {
-      const emoji = a.status === 'AVOID' ? '⚠️' : '✅';
-      console.log(`[learning] ${emoji} Setup ${a.status}: ${a.setup} ${a.wr}% WR (${a.trades} trades)`);
+      // Only a setup that MADE money gets the tick. PAYOFF-NEGATIVE and LOSING used
+      // to fall through to the else and print ✅ beside a negative P&L, which is the
+      // one rendering that could actively mislead.
+      const emoji = a.status === 'PRIORITY' ? '✅' : '⚠️';
+      // The P&L is on the line, not left to be looked up. A win rate without the money
+      // beside it is the thing this whole change exists to stop printing.
+      console.log(`[learning] ${emoji} Setup ${a.status}: ${a.setup} ${a.wr}% WR `
+        + `(${a.trades} trades, ${a.totalPnl >= 0 ? '+' : ''}${a.totalPnl}, `
+        + `${a.expectancy >= 0 ? '+' : ''}${a.expectancy}/trade)`);
     }
   }
   return alerts;
@@ -6585,7 +6628,24 @@ app.get("/api/checksystem", (_, res) => {
     const total = s.wins + s.losses;
     if (total >= SETUP_HEALTH_MIN_TRADES) {
       const wr = s.wins / total;
-      setupHealth[setup] = { wr: parseFloat((wr * 100).toFixed(1)), status: wr > 0.55 ? "GOOD" : wr < 0.4 ? "REVIEW" : "OK" };
+      // SAME PAYOFF RULE AS checkSetupHealth, because this is the SECOND label in this
+      // codebase that graded a setup on win rate alone, and two labels that can
+      // disagree about the same setup are worse than one. "GOOD" now requires the
+      // setup to have made money; a high win rate with negative P&L is named
+      // PAYOFF-NEGATIVE rather than passed. Expectancy is published beside the rate so
+      // the number that actually decides is on the payload, not inferable from it.
+      const pnl = Number(s.totalPnl ?? 0);
+      const expectancy = parseFloat((pnl / total).toFixed(2));
+      const status = wr < 0.4 ? "REVIEW"
+        : (wr > 0.55 && pnl > 0) ? "GOOD"
+        : (wr > 0.55) ? "PAYOFF-NEGATIVE"
+        : pnl < 0 ? "LOSING" : "OK";
+      setupHealth[setup] = {
+        wr: parseFloat((wr * 100).toFixed(1)),
+        totalPnl: parseFloat(pnl.toFixed(2)),
+        expectancy,
+        status,
+      };
     } else {
       setupsBelowMinTrades++;
     }
