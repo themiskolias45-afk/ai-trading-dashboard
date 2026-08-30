@@ -445,6 +445,12 @@ const result = {
         + "resolved remainder only. Re-run with MTF_MAX_HOLD=320 to let them resolve.",
     };
   })(),
+  // The RAW R-multiple series in time order - distinct from histograms.perTradeR,
+  // which is bucketed and lossy. Emitted so tasks/sharpe_robustness.cjs computes PSR,
+  // Deflated Sharpe and MinTRL over the SAME population this report bootstraps rather
+  // than re-running the replay and creating a second source of truth that can drift.
+  // Moments cannot be recovered from a histogram, so the series is required.
+  perTradeRSeries: rs,
   caveats: [
     // The live count is read from the journal rather than baked in. It said "8" while
     // the journal held 7, and it moves with every fill - a figure hardcoded into a
