@@ -118,6 +118,39 @@ Install-PlanTask -Name 'SmartEntry Plan Review' `
     -Triggers $reviewTriggers `
     -Description 'Nightly plan grading into tasks\analysis\plan-scorecard.json. Read-only: no signal, no setting, no order.'
 
+# ---- The doctor: diagnose BOTH boxes and apply the safe remedies --------------
+#
+# THE GAP THIS CLOSES, and it is the reason "auto-healing never fixes anything".
+#
+#   server/autohealer.js watches the DATA plane and can repair exactly two things:
+#   a stale signal cache (>6h) and a stale price cache. Everything else it only
+#   OBSERVES. Its healCount has been 0 for the life of the box, because the
+#   30-minute signal cron refreshes long before 6h - so its one repair path is
+#   effectively unreachable in normal operation. That is not a fault; it is a
+#   data-plane watchdog and its own header says so.
+#
+#   tasks\doctor.cjs is the thing that covers the CONTROL plane - failing jobs,
+#   undecided proposals, stale triggers, bridges not reporting - and every finding
+#   carries the exact command that fixes it, with the safe subset executable via
+#   --heal. It was never scheduled on either box. The only script that invoked it
+#   ran it WITHOUT --heal. Its own header called the outcome in advance: "a remedy
+#   nobody runs is a comment."
+#
+# WHY --heal IS SAFE HERE, on the doctor's own documented envelope: it runs only
+# idempotent, non-destructive commands that already run on a schedule anyway. It
+# never restarts a server, never touches a bridge, never changes a setting and
+# never decides a proposal. Anything needing judgement is reported and left alone.
+# Verified by running it: it healed the stale pre-open trigger and did nothing else.
+#
+# 07:10 local, ahead of the 07:30 daily check, so the daily agent reads a fleet the
+# doctor has already tidied rather than one it is about to.
+$doctorTriggers = @(New-ScheduledTaskTrigger -Daily -At '07:10')
+
+Install-PlanTask -Name 'SmartEntry Doctor' `
+    -Arguments 'tasks\doctor.cjs --heal' `
+    -Triggers $doctorTriggers `
+    -Description 'Diagnose both boxes and apply the SAFE remedies. Never restarts a server, never touches a bridge, never changes a setting, never decides a proposal.'
+
 Write-Host ''
 if ($Execute) {
     Write-Host 'Done. Verify with:  Get-ScheduledTask -TaskName "SmartEntry Plan *"'

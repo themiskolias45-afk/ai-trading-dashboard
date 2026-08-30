@@ -108,6 +108,16 @@ if ($tasks.Count -eq 0) {
                 " (previous instance exited $($i.LastTaskResult))"
             } else { '' }
             Add-Check 'tasks' $t.TaskName 'GREEN' "running (started ${ageH}h ago)$prior"
+        } elseif ($t.TaskName -match 'Doctor' -and $i.LastTaskResult -eq 1) {
+            # SAME CONVENTION AS COVERAGE AUDIT BELOW, and it must be exempted for the
+            # same reason. tasks\doctor.cjs:1275 exits 1 when any finding is RED - by
+            # design, so a scheduled task can act on it. Read literally that makes the
+            # doctor permanently "failing" from the first RED it ever reports, which
+            # buries the findings it exists to surface behind its own name.
+            #
+            # Only rc=1, only this task. A real crash (2, or a Node fault code) still
+            # reads RED.
+            Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 1 = a RED finding in its own report, not a crash)"
         } elseif ($t.TaskName -match 'CoverageAudit' -and $i.LastTaskResult -eq 1) {
             # THIS AUDIT, JUDGING ITSELF. Exit 1 is how this script SAYS SOMETHING IS
             # RED -- server/ai_work_ledger.js already encodes that as exitOneIsFinding.
