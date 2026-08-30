@@ -50,6 +50,10 @@
     // for the same reason as its neighbours: generated JSON, no route, no restart.
     { href: "/dashboard/pipelines.html", label: "Pipelines",
       match: ["/dashboard/pipelines.html", "/pipelines"] },
+    // Static path, same reason as its neighbours: it reads a generated JSON out of
+    // /dashboard, so it needs no route in index.js and no server restart to appear.
+    { href: "/dashboard/instruments.html", label: "Instruments",
+      match: ["/dashboard/instruments.html", "/instruments"] },
     { href: "/system", label: "System",
       match: ["/system", "/dashboard/system.html"] },
     { sep: true },

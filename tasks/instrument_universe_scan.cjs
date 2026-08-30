@@ -283,6 +283,15 @@ function writeAnalysisJson(args, rows, skipped, survivors, allPositiveHoldout, t
   fs.writeFileSync(args.json, JSON.stringify(payload, null, 2), "utf8");
   console.log(`
 wrote ${args.json}`);
+
+  // Second copy under dashboard/, which express.static serves directly. This is what
+  // lets /dashboard/instruments.html exist with NO route in index.js and therefore NO
+  // server restart -- the same pattern Weekly, Analysis, Pipelines and Fleet Map use.
+  // A page that needs a restart to appear is a page that does not appear on the box
+  // whose restart is blocked.
+  const dashboardCopy = path.join(__dirname, "..", "dashboard", "instrument-scan.json");
+  fs.writeFileSync(dashboardCopy, JSON.stringify(payload, null, 2), "utf8");
+  console.log(`wrote ${dashboardCopy}`);
 }
 
 main();
