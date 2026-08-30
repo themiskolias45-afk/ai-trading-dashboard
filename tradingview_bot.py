@@ -181,10 +181,42 @@ def make_context(playwright):
     # a handler that threw would leave a dialog up and block the page forever — which
     # is worse than what it replaces.
     def _dismiss_dialog(dialog):
+        """Dismiss dialogs — EXCEPT beforeunload, where dismiss means "stay here".
+
+        THE BUG THIS FIXES, measured 2026-08-30. Dismissing is the safe answer for an
+        alert, a confirm or a prompt: it declines whatever was proposed. For a
+        `beforeunload` dialog the semantics INVERT — dismiss is the Cancel button,
+        i.e. "do not leave the page" — so every dismiss silently cancelled the
+        navigation that raised it.
+
+        The symptom was `Page.goto: net::ERR_ABORTED` on every open_chart to a
+        different symbol, with the URL still on the previous chart afterwards. It
+        looked like a network fault or a TradingView block. It was this handler
+        answering "no" on our behalf, once per navigation, for as long as the Pine
+        editor had unsaved changes — which is most of a plan run.
+
+        Accepting a beforeunload discards unsaved editor content, and that is the
+        correct trade here: the saved script is the source of truth, cmd_plan writes
+        the exact source to tasks/pine_daily_plan_current.pine BEFORE it touches the
+        browser, and make_focus_safe exists to stop stray edits reaching the buffer.
+        A human clicking "Leave" is doing the same thing.
+        """
         try:
             message = (dialog.message or "")[:120]
         except Exception:
             message = "<unreadable>"
+        try:
+            kind = dialog.type
+        except Exception:
+            kind = ""
+        if kind == "beforeunload":
+            try:
+                dialog.accept()
+                print("[TV] accepted beforeunload (leaving the page) — dismissing it "
+                      "would have cancelled this navigation")
+            except Exception as dialog_exc:
+                print(f"[TV] beforeunload vanished before accept ({dialog_exc}) — continuing")
+            return
         try:
             dialog.dismiss()
         except Exception as dialog_exc:
@@ -629,27 +661,94 @@ def plan_study_present(page):
     return bool(list_plan_studies(page))
 
 
-def bound_plan_study_present(page):
-    """Is the study on this chart the one SAVING can update?
+def plan_study_is_current(page, expected_stamp):
+    """Is the plan ON THE CHART the one just generated? The only check that matters.
 
-    THE CHECK THAT WAS MISSING, measured 2026-08-30. plan_study_present() matches on
-    the PREFIX, so it returns True for an orphan - a study titled with a timestamp,
-    added out of an unsaved editor and backed by no saved script. Saving the source
-    can never update one of those.
+    HOW THE LEGEND ACTUALLY BEHAVES, measured directly on 2026-08-30 rather than
+    reasoned about - and it contradicts two earlier beliefs in this file.
 
-    That is not hypothetical. On 2026-08-30 all three charts carried exactly one plan
-    study, 'JARVIS Daily Plan 08-29 08:15', and nothing else. The run saved the source
-    correctly, reported "Saved, and a plan study is on the chart", swept all three
-    charts, found no compilation error - an orphan compiles fine, it is merely OLD -
-    and printed "Plan drawn: BTC, GOLD, SPX". Not one chart had been updated. The
-    charts were still rendering the previous day's plan, 33.6 hours stale.
+    The legend shows the study's SHORTTITLE. generate_pine sets that to
+    plan_legend_name() = SAVED_SCRIPT_NAME + " " + plan_stamp(), so a legend title
+    carrying a TIMESTAMP is NORMAL and is not evidence of an orphan. The older
+    comment on plan_study_present - "the legend shows the SAVED SCRIPT NAME and
+    nothing else" - is wrong on this build: a study added from Indicators > My
+    scripts still reads 'JARVIS Daily Plan 08-30 18:23'.
 
-    Both existing checks were individually correct and jointly blind: presence cannot
-    tell bound from orphan, and health cannot tell current from stale. Only the TITLE
-    can, and it was already being read - list_plan_studies returns it - and thrown
-    away. The bound study is titled EXACTLY SAVED_SCRIPT_NAME.
+    So the earlier fix here, requiring the title to equal SAVED_SCRIPT_NAME exactly,
+    could NEVER pass. It replaced a check that was blind with one that was always
+    red, which is the worse failure of the two.
+
+    What the stamp DOES answer is the question actually worth asking: is the chart
+    rendering THIS plan? A study stuck at '08-29 08:15' across repeated saves is
+    stale whatever its provenance; one reading today's stamp is current. Both the
+    orphan case and the never-updated case collapse into that one comparison.
     """
-    return SAVED_SCRIPT_NAME in list_plan_studies(page)
+    titles = list_plan_studies(page)
+    if not titles:
+        return False, titles, "no plan study on the chart"
+    current = [t for t in titles if t.endswith(expected_stamp)]
+    if not current:
+        return False, titles, f"chart shows {titles!r}, expected the stamp {expected_stamp!r}"
+    if len(titles) > 1:
+        return True, titles, f"{len(titles)} copies stacked - they draw over each other"
+    return True, titles, ""
+
+
+def add_saved_script_to_chart(page):
+    """Add the plan from Indicators > My scripts, then SAVE THE LAYOUT.
+
+    Two things this gets right that add_script_to_chart does not.
+
+    ONE: it adds the SAVED script rather than the Pine editor's buffer. The editor's
+    "Add to chart" applies whatever is in the buffer, which is how a study that no
+    later save can update gets created in the first place.
+
+    TWO: it saves the layout afterwards. Measured 2026-08-30 and genuinely
+    surprising: a study added and then navigated away from is GONE. Accepting the
+    beforeunload dialog - which is what makes navigation work at all here - discards
+    unsaved LAYOUT state, not merely unsaved editor text. Three studies were added,
+    verified present, and had vanished by the next screenshot. Ctrl+S with focus
+    outside the editor persists them.
+
+    The dialog is opened with the "/" hotkey rather than by clicking the toolbar
+    button: that button has an invisible duplicate in the DOM and Playwright's
+    .first resolves to it, so every click times out on an element that is there.
+    """
+    make_focus_safe(page)
+    page.keyboard.press("/")
+    page.wait_for_timeout(3500)
+    for label in ("My scripts", SAVED_SCRIPT_NAME):
+        box = page.evaluate(JS_VISIBLE_TEXT_BOX, label)
+        if not box:
+            print(f"[TV] indicators dialog: no visible row for {label!r}")
+            page.keyboard.press("Escape")
+            return False
+        page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
+        page.wait_for_timeout(2500)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(1500)
+    # Persist, or the study is lost the moment the chart navigates.
+    make_focus_safe(page)
+    page.keyboard.press("Control+s")
+    page.wait_for_timeout(4000)
+    return True
+
+
+# Find an element by its EXACT text, but only one that is actually on screen.
+# TradingView keeps detached duplicates of many nodes, and Playwright's .first
+# resolves to them - which is why text locators and [data-name] .first clicks time
+# out here on elements that are plainly visible. Every click in this file that goes
+# through coordinates does so for that reason.
+JS_VISIBLE_TEXT_BOX = """(name) => {
+  for (const e of document.querySelectorAll('*')) {
+    if (e.children.length) continue;
+    if ((e.textContent || '').trim() !== name) continue;
+    const r = e.getBoundingClientRect();
+    if (e.offsetParent === null || r.width === 0 || r.height === 0) continue;
+    return {x: r.x, y: r.y, w: r.width, h: r.height};
+  }
+  return null;
+}"""
 
 
 def generate_pine(plans):
@@ -2664,20 +2763,21 @@ def cmd_plan(which="all", shoot=True):
             #
             # So the condition for adding the bound script is the absence of the BOUND
             # study, never the absence of any study.
-            if not bound_plan_study_present(page) and applied:
-                orphans = report_orphan_studies(page)
-                if orphans:
-                    print("[TV] Only ORPHAN plan study(ies) on this chart - saving cannot "
-                          "update them. Removing them so the bound script can be added.")
-                    remove_plan_studies(page)
-                    page.wait_for_timeout(1500)
-                print("[TV] Bound plan study not on the chart - adding it.")
-                add_script_to_chart(page)
+            expected_stamp = plan_stamp(plans[0]["generated_at"])
+            current, titles, note = plan_study_is_current(page, expected_stamp)
+            if not current and applied:
+                print(f"[TV] Chart is not showing this plan ({note}) - adding the saved script.")
+                add_saved_script_to_chart(page)
                 page.wait_for_timeout(2500)
-                after = list_plan_studies(page)
+                current, titles, note = plan_study_is_current(page, expected_stamp)
+                after = titles
 
-            present = bound_plan_study_present(page)
+            present = current
             verified = applied and present
+            if present and note:
+                # Stacked copies draw identical panels over each other. Worth saying;
+                # not worth failing the run over, since the plan on screen IS current.
+                print(f"[TV] NOTE: {note}")
             if not applied:
                 print("[TV] Save did not land - the chart was left exactly as it was.")
             elif not present:
@@ -2686,18 +2786,18 @@ def cmd_plan(which="all", shoot=True):
                 # sitting on it drawing yesterday's plan - the operator would look at
                 # the chart, see a JARVIS panel, and conclude the message was wrong.
                 leftover = list_plan_studies(page)
-                print(f"[TV] SAVE LANDED BUT THE CHART IS NOT SHOWING IT.")
+                print(f"[TV] SAVE LANDED BUT THE CHART IS NOT SHOWING THIS PLAN.")
                 if leftover:
-                    print(f"[TV] The chart carries {leftover} - none of which is the bound "
-                          f"study {SAVED_SCRIPT_NAME!r}. A study titled with a TIMESTAMP is "
-                          f"an orphan: it is backed by no saved script, so no amount of "
-                          f"saving can ever update it, and it draws the OLD panel.")
-                    print(f"[TV] Fix by hand, once: expand the legend (click the counter at "
-                          f"the chart's top-left), hover {leftover[0]!r}, click its Remove (x), "
-                          f"then add {SAVED_SCRIPT_NAME!r} from Indicators > My scripts.")
+                    print(f"[TV] The chart carries {leftover}, and none of them ends in "
+                          f"{expected_stamp!r} - so the panel on screen is an OLDER plan "
+                          f"that saving is not updating.")
+                    print(f"[TV] Fix by hand, once: open the Object tree (right rail), hover "
+                          f"{leftover[0]!r}, click Remove, then add {SAVED_SCRIPT_NAME!r} from "
+                          f"Indicators > My scripts and press Ctrl+S to save the layout. "
+                          f"WITHOUT the Ctrl+S the study is discarded on the next navigation.")
                 else:
-                    print(f"[TV] Add {SAVED_SCRIPT_NAME!r} to the layout once by hand; every "
-                          "run after that updates it in place.")
+                    print(f"[TV] Add {SAVED_SCRIPT_NAME!r} from Indicators > My scripts, then "
+                          "Ctrl+S to save the layout. Every run after that updates it in place.")
             else:
                 print("[TV] Saved, and a plan study is on the chart. The plan carries "
                       "its own age - a missed run shows STALE in red on the chart.")
