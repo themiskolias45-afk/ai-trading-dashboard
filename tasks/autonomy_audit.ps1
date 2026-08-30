@@ -52,6 +52,7 @@ function Decode-Result([long]$code) {
         0          { return 'ok' }
         1          { return 'exit 1 - the script itself reported a failure' }
         3          { return 'exit 3 - refresh_bars refusal (a position is open): EXPECTED' }
+        4          { return 'exit 4 - strategy_search skipped, bars unchanged: EXPECTED' }
         5          { return 'exit 5 - wrapper: the tool it called failed' }
         255        { return 'exit 255 - often the Claude CLI exiting non-zero on success; CHECK THE ARTIFACT' }
         267009     { return 'currently running' }

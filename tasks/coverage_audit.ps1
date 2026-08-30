@@ -108,6 +108,18 @@ if ($tasks.Count -eq 0) {
                 " (previous instance exited $($i.LastTaskResult))"
             } else { '' }
             Add-Check 'tasks' $t.TaskName 'GREEN' "running (started ${ageH}h ago)$prior"
+        } elseif ($t.TaskName -match 'Strategy\s*Search' -and $i.LastTaskResult -eq 4) {
+            # Exit 4 is strategy_search.cjs SKIPPING because the bar fingerprint is
+            # unchanged - the --skip-if-bars-unchanged contract, and the correct result
+            # far more often than not. New D1 bars arrive about once a day and this runs
+            # every 6 hours, so most runs SHOULD skip.
+            #
+            # Re-testing identical bars would inflate the multiplicity ledger and RAISE
+            # the significance bar every future candidate must clear, with no new
+            # evidence behind it. Skipping is the searcher protecting its own statistics.
+            #
+            # Only rc=4, only this task. A real crash still reads RED.
+            Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 4 = skipped, bars unchanged since the last run - the intended result)"
         } elseif ($t.TaskName -match 'Doctor' -and $i.LastTaskResult -eq 1) {
             # SAME CONVENTION AS COVERAGE AUDIT BELOW, and it must be exempted for the
             # same reason. tasks\doctor.cjs:1275 exits 1 when any finding is RED - by

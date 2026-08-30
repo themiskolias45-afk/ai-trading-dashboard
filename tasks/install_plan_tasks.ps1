@@ -40,7 +40,7 @@ Write-Host "install_plan_tasks [$mode]  project=$proj  box=$env:COMPUTERNAME"
 
 # Refuse rather than register a task whose action does not exist. A scheduled job
 # pointing at a missing script fails every run and reports it nowhere anyone reads.
-$required = @('tasks\plan_monitor.cjs', 'tasks\plan_review.cjs')
+$required = @('tasks\plan_monitor.cjs', 'tasks\plan_review.cjs', 'tasks\persist_bars.cjs', 'tasks\strategy_search.cjs')
 $missing = @($required | Where-Object { -not (Test-Path (Join-Path $proj $_)) })
 if ($missing.Count -gt 0) {
     Write-Host "REFUSING: missing $($missing -join ', ')"
@@ -188,6 +188,67 @@ Install-PlanTask -Name 'SmartEntry Sharpe Robustness' `
     -Arguments 'tasks\sharpe_robustness.cjs --out tasks\analysis\sharpe-robustness.json' `
     -Triggers $sharpeTriggers `
     -Description 'Weekly PSR / Deflated Sharpe / MinTRL over the Monte-Carlo population. Read-only: no signal, no setting, no order.'
+
+# ---- The data pipeline that makes the search worth running --------------------
+#
+# THE CHAIN THAT WAS BROKEN, and why "run the search 24/7" would have done nothing.
+#
+#   tasks\refresh_bars.cjs REFUSES whenever a position is open, because the MT5
+#   exporter opens a SECOND MetaTrader5 client and that can drop the live bridge off
+#   IPC. That refusal is correct. But positions have been open for 11+ days, so the
+#   three trading CSVs had not grown since 2026-08-25.
+#
+#   The strategy searcher already passes --skip-if-bars-unchanged and exits without
+#   running when the bar fingerprint is identical - which is exactly right, because
+#   re-testing the SAME bars adds no evidence while still inflating the multiplicity
+#   ledger and RAISING the bar every future candidate must clear.
+#
+#   So scheduling the search more often against stale bars would have made it skip more
+#   often, not search more. The bottleneck was never the search. It was the data.
+#
+# tasks\persist_bars.cjs is the piece that fixes it: it appends from the bars the
+# BRIDGE ALREADY PUSHED, read back out of the server's memory over HTTP. It opens no
+# terminal and no second MT5 client, so it is safe with positions open - which is
+# precisely why it can run when the exporter cannot. It appends only rows strictly newer
+# than the last on disk, refuses any series that would leave a GAP, and never rewrites.
+# Verified before scheduling: 393 rows across 9 files, 0 refused, every file still
+# monotonic with no malformed rows.
+$barTriggers = @()
+$bt = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(7) `
+        -RepetitionInterval (New-TimeSpan -Hours 1)
+$barTriggers += $bt
+if ($isHeadless) { $barTriggers += (New-ScheduledTaskTrigger -AtStartup) }
+
+Install-PlanTask -Name 'SmartEntry Bar Keeper' `
+    -Arguments 'tasks\persist_bars.cjs --execute' `
+    -Triggers $barTriggers `
+    -Description 'Appends bars the bridge already pushed. Safe with positions open: no second MT5 client. Append-only, refuses gaps, never rewrites.'
+
+# ---- Continuous strategy search, gated on NEW DATA ----------------------------
+#
+# Every 6 hours, always with --skip-if-bars-unchanged. New D1 bars arrive about once a
+# day, so in practice this does real work once and skips the rest - which is the only
+# statistically sound way to "always be searching".
+#
+# WHY NOT MORE OFTEN. The searcher counts its own multiplicity: every candidate ever
+# tested is appended to strategy_search_ledger.jsonl and the significance bar is
+# DEFLATED by that count. The gate axis already carries 24 prior trials. Running against
+# unchanged bars would raise the bar with no new evidence behind it, making a genuine
+# improvement HARDER to detect - the same search-bias effect the Deflated Sharpe on the
+# Robustness page measures. More searching against fixed data is worse, not better.
+#
+# It PROPOSES and never applies: it cannot write strategy_settings.json, the gate or any
+# threshold. A human decides with tasks\ai_decide.cjs.
+$searchTriggers = @()
+$st = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(25) `
+        -RepetitionInterval (New-TimeSpan -Hours 6)
+$searchTriggers += $st
+if ($isHeadless) { $searchTriggers += (New-ScheduledTaskTrigger -AtStartup) }
+
+Install-PlanTask -Name 'SmartEntry Strategy Search' `
+    -Arguments 'tasks\strategy_search.cjs --axis all --skip-if-bars-unchanged' `
+    -Triggers $searchTriggers `
+    -Description 'Continuous strategy search, gated on new bars. Proposes, never applies: no gate, no threshold, no setting.'
 
 Write-Host ''
 if ($Execute) {
