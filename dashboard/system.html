@@ -375,6 +375,7 @@
   <div id="measure-heatmap"></div>
   <div id="measure-sessions"></div>
   <div id="measure-folds"></div>
+  <div id="measure-instruments"></div>
 
   <!-- ═══ AI EMPLOYEE ═══ -->
   <div class="section-label">AI Employee</div>
@@ -1317,12 +1318,100 @@ async function loadMeasurements() {
 
     folds.innerHTML = foldTable(m.sessionFolds, 'Would excluding a SESSION have helped?')
                     + foldTable(m.setupFolds,   'Would excluding a SETUP have helped?');
+
+    renderInstruments(m.instrumentScan);
   } catch (e) {
     banner.innerHTML = '';
     sess.innerHTML = '';
     folds.innerHTML = '<div class="empty-state" style="color:var(--red)">Measurements unavailable — '
       + esc(e.message) + '</div>';
   }
+}
+
+// ── INSTRUMENT SCAN ────────────────────────────────────────────
+// Which instruments this engine is actually good at, replayed through the live
+// generateSignal.
+//
+// THE BASE RATE IS RENDERED BESIDE THE HIT RATE AND IS NOT OPTIONAL. "8 of the top 10
+// held up out-of-sample" is a meaningless boast when 31 of all 51 names also held up —
+// every holdout window fell in the 2023-26 bull run and the engine is ~92% long, so the
+// ranking was largely measuring beta. Showing the hit rate alone would make market
+// direction look like skill, which is the same failure as a pooled R with no fold count.
+//
+// Owned instruments are ALWAYS shown even when they rank badly. SP500 sits near the
+// bottom, and a panel that quietly truncated before reaching it would hide the single
+// most actionable thing on it.
+function renderInstruments(scan) {
+  const box = el('measure-instruments');
+  if (!box) return;
+
+  if (!scan || !scan.available) {
+    box.innerHTML = '<div style="margin-top:22px"><div style="font-size:13px;font-weight:600;margin-bottom:6px">'
+      + 'Which instruments does this engine suit?</div>'
+      + '<div class="empty-state">Instrument scan not run on this box.<br>'
+      + '<span style="font-family:ui-monospace,monospace;font-size:11px">'
+      + esc((scan && scan.command) || 'node tasks/instrument_universe_scan.cjs --json')
+      + '</span></div></div>';
+    return;
+  }
+
+  const rows = scan.rows || [];
+  const TOP_SHOWN = 12;
+  const shown = rows.slice(0, TOP_SHOWN);
+  // Append any owned instrument that fell outside the top slice, keeping rank order.
+  rows.forEach((r, i) => { if (r.owned && i >= TOP_SHOWN) shown.push(r); });
+
+  const pct = n => (n * 100).toFixed(1) + '%';
+  const sgn = n => (n >= 0 ? '+' : '') + n.toFixed(3);
+  const col = n => n > 0 ? 'var(--green)' : n < 0 ? 'var(--red)' : 'var(--muted-dim)';
+
+  const beats = scan.rankingBeatsBaseRate;
+  const header = '<div style="border-left:3px solid ' + (beats ? 'var(--green)' : '#ffb800') + ';'
+    + 'background:rgba(255,255,255,.03);border-radius:0 8px 8px 0;padding:10px 14px;'
+    + 'margin-bottom:12px;font-size:12px;line-height:1.7">'
+    + '<strong>' + scan.topNheldUp + ' of the top ' + scan.topN + '</strong> held up out-of-sample — '
+    + 'but <strong>' + pct(scan.baseRate) + ' of all ' + scan.candidates + '</strong> names did too. '
+    + (beats
+        ? 'The ranking beats the base rate, so it carries some signal.'
+        : 'The ranking does NOT beat the base rate — these ranks are noise.')
+    + '<br><span style="color:var(--muted-dim)">The engine is ~92% long and every holdout window '
+    + 'fell in a bull run, so most of this column is beta, not skill. '
+    + esc(scan.harness || '') + '</span></div>';
+
+  const body = shown.map((r, i) => {
+    const rank = rows.indexOf(r) + 1;
+    return '<tr' + (r.owned ? ' style="background:rgba(255,184,0,.05)"' : '') + '>'
+      + '<td style="padding:6px 10px;color:var(--muted-dim)">' + rank + '</td>'
+      + '<td style="padding:6px 10px;font-weight:600">' + esc(r.symbol)
+      + (r.owned ? '<span style="font-size:10px;color:#ffb800;margin-left:6px">TRADED</span>' : '')
+      + (r.degraded ? '<span style="font-size:10px;color:var(--red);margin-left:6px">DEGRADED</span>' : '')
+      + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + r.trainTrades + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:' + col(r.trainExpectancy) + '">'
+      + sgn(r.trainExpectancy) + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + r.holdoutTrades + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:' + col(r.holdoutExpectancy) + '">'
+      + sgn(r.holdoutExpectancy) + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;font-size:11px;color:'
+      + (r.heldUp ? 'var(--green)' : 'var(--red)') + '">'
+      + (r.heldUp ? 'held up' : 'collapsed') + '</td></tr>';
+  }).join('');
+
+  box.innerHTML = '<div style="margin-top:22px">'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:6px">Which instruments does this engine suit?</div>'
+    + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:8px">'
+    + scan.candidates + ' instruments replayed · cost ' + scan.costR + 'R/trade · '
+    + scan.ageHours + 'h old · ranked on TRAIN, holdout never used to rank</div>'
+    + header
+    + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left">'
+    + '<th style="padding:6px 10px">#</th><th style="padding:6px 10px">symbol</th>'
+    + '<th style="padding:6px 10px;text-align:right">train n</th>'
+    + '<th style="padding:6px 10px;text-align:right">train R/trade</th>'
+    + '<th style="padding:6px 10px;text-align:right">holdout n</th>'
+    + '<th style="padding:6px 10px;text-align:right">holdout R/trade</th>'
+    + '<th style="padding:6px 10px;text-align:right">verdict</th></tr>'
+    + body + '</table></div></div>';
 }
 
 // ── EVIDENCE BOARD ─────────────────────────────────────────────

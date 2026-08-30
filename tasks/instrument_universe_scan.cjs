@@ -41,10 +41,21 @@ const MIN_TRADES_TO_RANK = 25;
 const MIN_HOLDOUT_TRADES = 8;
 const DEFAULT_COST_R = 0.05;   // matches the 0.05R cost used in the MTF walk-forwards
 
+// Where /api/measurements looks. The endpoint is READ-ONLY over this file and runs
+// nothing, because a full scan spawns 51 replays and an HTTP request must never kick
+// one off -- the same contract the other harnesses on that endpoint keep.
+const ANALYSIS_OUT = path.join(__dirname, "analysis", "instrument-scan-latest.json");
+
 function parseArgs(argv) {
-  const args = { dir: path.join(__dirname, "history_yahoo"), cost: DEFAULT_COST_R };
+  const args = { dir: path.join(__dirname, "history_yahoo"), cost: DEFAULT_COST_R, json: null };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === "--dir" && argv[i + 1]) { args.dir = argv[++i]; continue; }
+    if (argv[i] === "--json") {
+      // Bare --json means the standard location the endpoint reads.
+      const next = argv[i + 1];
+      args.json = (next && !next.startsWith("--")) ? (i++, next) : ANALYSIS_OUT;
+      continue;
+    }
     if (argv[i] === "--cost" && argv[i + 1]) {
       const parsed = Number(argv[++i]);
       if (!Number.isFinite(parsed) || parsed < 0) {
@@ -222,6 +233,56 @@ function main() {
 
   console.log(`\nPaper trades: no spread, slippage, commission, borrow or gap-through-stop, fixed`);
   console.log(`MAX_HOLD horizon. A screening signal for what to investigate, never realised P&L.`);
+
+  if (args.json) {
+    writeAnalysisJson(args, rows, skipped, survivors, allPositiveHoldout, TOP_N);
+  }
+}
+
+// The served shape carries the SELECTION CHECK, not just the league table. A ranking
+// published without its base rate is the exact thing that made 8-of-10 look like a
+// result when 31 of 51 names were positive anyway -- a consumer reading only `rows`
+// would re-make that mistake, so `basis` ships the base rate beside them.
+function writeAnalysisJson(args, rows, skipped, survivors, allPositiveHoldout, topN) {
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    basis: {
+      costR: args.cost,
+      trainFraction: TRAIN_FRACTION,
+      candidates: rows.length,
+      skipped: skipped.length,
+      totalTrades: rows.reduce((sum, r) => sum + r.all.trades, 0),
+      topN,
+      topNheldUp: survivors.length,
+      universePositiveHoldout: allPositiveHoldout,
+      baseRate: allPositiveHoldout / rows.length,
+      rankingBeatsBaseRate: (survivors.length / topN) > (allPositiveHoldout / rows.length),
+      harness: "D1 single-timeframe replay of the live generateSignal. NOT the "
+        + "generateSignalMTF path the live engine trades, so trade counts run well "
+        + "above live firing rates and the trade set is not the one it would take.",
+    },
+    rows: rows.map(r => ({
+      symbol: r.symbol.replace(/^zBASE-/, ""),
+      owned: r.symbol.startsWith("zBASE-"),
+      degraded: r.degraded,
+      splitAt: r.splitAt,
+      trainTrades: r.train.trades,
+      trainExpectancy: r.train.expectancy,
+      trainWinRate: r.train.winRate,
+      holdoutTrades: r.holdout.trades,
+      holdoutExpectancy: r.holdout.expectancy,
+      holdoutWinRate: r.holdout.winRate,
+      holdoutTotalR: r.holdout.totalR,
+      heldUp: r.holdout.expectancy > 0,
+    })),
+    skipped,
+    feedsTheGate: false,
+  };
+
+  fs.mkdirSync(path.dirname(args.json), { recursive: true });
+  fs.writeFileSync(args.json, JSON.stringify(payload, null, 2), "utf8");
+  console.log(`
+wrote ${args.json}`);
 }
 
 main();

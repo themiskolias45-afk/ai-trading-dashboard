@@ -9350,6 +9350,7 @@ const MEASUREMENT_FILES = [
   ["timeHeatmap",  "time-heatmap-latest.json",        "node tasks/time_heatmap.cjs"],
   ["sessionFolds", "session-walkforward-latest.json", "node tasks/session_walkforward.cjs"],
   ["setupFolds",   "setup-walkforward-latest.json",   "node tasks/session_walkforward.cjs --by setup"],
+  ["instrumentScan", "instrument-scan-latest.json",   "node tasks/instrument_universe_scan.cjs --json"],
 ];
 
 app.get("/api/measurements", (_, res) => {
@@ -9391,6 +9392,22 @@ app.get("/api/measurements", (_, res) => {
           },
           confFloor: raw.basis && raw.basis.confFloor,
         };
+      } else if (key === "instrumentScan") {
+        // The BASE RATE travels with the ranking, always. 31 of 51 names were positive
+        // out-of-sample simply because every holdout window fell in a bull run, so a
+        // panel showing only "8 of the top 10 held up" would make beta look like skill
+        // — the same failure shape as a pooled number shown without its fold count.
+        entry.costR = raw.basis && raw.basis.costR;
+        entry.candidates = raw.basis && raw.basis.candidates;
+        entry.topN = raw.basis && raw.basis.topN;
+        entry.topNheldUp = raw.basis && raw.basis.topNheldUp;
+        entry.baseRate = raw.basis && raw.basis.baseRate;
+        entry.rankingBeatsBaseRate = raw.basis && raw.basis.rankingBeatsBaseRate;
+        // Named here rather than left to the reader: this is the D1 screen, not the
+        // generateSignalMTF walk-forward that "edgeisgold" set as the bar for wiring an
+        // instrument in. A panel that omitted this would read as a settled result.
+        entry.harness = raw.basis && raw.basis.harness;
+        entry.rows = raw.rows || [];
       } else {
         const view = raw.atLiveGate || {};
         entry.baseline = view.baseline && view.baseline.rpt;
