@@ -15,6 +15,20 @@ Requirements:
 import sys
 from pathlib import Path
 
+# Windows consoles on this fleet default to cp1252, and this script's own output uses
+# the arrows, box characters and en-dashes every other report here uses. Printing them
+# raised UnicodeEncodeError and killed /recall AFTER the search had already run and
+# succeeded — the work was done and thrown away at the last line, which reads exactly
+# like the search failing. Scheduled runs inherit the same codepage, so this is not a
+# terminal-only concern. Guarded because reconfigure() is 3.7+ and a detached stdout
+# has no reconfigure at all; a console that cannot be switched must not take the
+# script down with it.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
 ROOT   = Path(__file__).parent.parent
 DB_DIR = ROOT / "tasks" / "rag_db"
 
@@ -33,7 +47,13 @@ _model_cache = None
 def _get_model():
     global _model_cache
     if _model_cache is None:
-        _model_cache = SentenceTransformer(MODEL_NAME, show_progress_bar=False)
+        # show_progress_bar WAS a constructor argument and is not one in
+        # sentence-transformers 6.x — it moved to encode(). Passing it here raised
+        # TypeError: SentenceTransformer.__init__() got an unexpected keyword argument
+        # 'show_progress_bar', which killed /recall outright on this box. The intent
+        # (no progress bar noise in a scripted call) is preserved at the encode call
+        # below, where the argument actually lives now.
+        _model_cache = SentenceTransformer(MODEL_NAME)
     return _model_cache
 
 
@@ -76,7 +96,7 @@ def recall(context: str, top_k: int = 5) -> dict:
         return {"error": "Trades collection is empty — run python tasks/rag_index.py --source trades with server running"}
 
     model     = _get_model()
-    embedding = model.encode([context]).tolist()[0]
+    embedding = model.encode([context], show_progress_bar=False).tolist()[0]
 
     res = col.query(
         query_embeddings=[embedding],
