@@ -8468,9 +8468,29 @@ function runAiFilterViaCli(prompt) {
     try {
       child = require("child_process").spawn(
         process.env.COMSPEC || "cmd.exe",
-        ["/c", "claude", "-p", "--output-format", "text"],
+        ["/c", resolveClaudeCliPath(), "-p", "--output-format", "text",
+         "--strict-mcp-config", "--append-system-prompt", CLAUDE_CLI_ROLE_PROMPT],
         {
           windowsHide: true,
+          // Neutral cwd, resolved path and an explicit role - the same three pieces
+          // runClaudeCli got, and they matter MORE here than anywhere else.
+          //
+          // Measured on this exact filter prompt, 2026-08-31:
+          //   repo cwd, bare claude, no flags : 10641 ms, prose BEFORE the JSON
+          //   neutral cwd + flags             :  5126 / 4759 ms, ZERO leading text
+          //
+          // Latency: the internal ceiling here is 20s against the bridge's 25s
+          // abandon, so halving a 10.6s call is the difference between a verdict
+          // and a timeout that fails OPEN on a loaded box.
+          //
+          // Correctness: the close handler below takes the FIRST {...} in stdout.
+          // Prose that happens to contain braces would therefore be parsed AS THE
+          // VERDICT. Removing the project CLAUDE.md removes that hazard at source.
+          //
+          // Nothing here changes the approve/reject rules, the thresholds, the
+          // timeout, or the fail-open: a null still means the API rail decides and
+          // an unreachable CLI still auto-approves exactly as before.
+          cwd: os.tmpdir(),
           // Emptied, not deleted: the CLI treats a set key as "use the API" and
           // would bill the same dead rail this exists to route around.
           env: { ...process.env, ANTHROPIC_API_KEY: "" },
