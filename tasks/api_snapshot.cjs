@@ -58,22 +58,54 @@ function extractSchema(value, depth = 0) {
   return typeof value;
 }
 
+// NULL IS AN ABSENT VALUE, NOT A CHANGED SHAPE — and conflating the two made this
+// check unable to be green in any steady state.
+//
+// Measured 2026-08-31. The stored schema recorded `spx.stop: "number"`. SPX has no setup
+// today, so it publishes stop/target/rr/h1Agree as null and the check read FAIL with 4
+// differences. On Yahoo-sourced bars, taken during a restart window, it read 16 (m15
+// null, barFreshness.spansWeekend absent). Nothing was wrong on any of those runs: an
+// asset without a setup HAS no stop, and that is ordinary market variation.
+//
+// This mattered because tasks/hooks/post-edit-check.ps1 does `exit 1` on a non-zero exit
+// here, so a check that flips with the market was hard-blocking every edit to
+// server/index.js. `--update` cannot fix it: recording "null" merely re-arms the same
+// oscillation from the other side, going red the moment SPX finds a setup again.
+//
+// So a null on either side is reported as a WARNING and does not fail the run. Everything
+// that actually describes a shape still FAILS HARD:
+//   - KEY ADDED / KEY REMOVED           (a field appearing or vanishing)
+//   - number -> string, object -> string (a real type change between two real values)
+// A field that goes PERMANENTLY null therefore stops blocking, which is the cost — so it
+// is printed on every run rather than swallowed. Visible and non-blocking beats invisible,
+// and beats an alarm people learn to skip past.
+const NULL_SCHEMA = 'null';
+
 function diffSchemas(stored, current, path = '') {
   const diffs = [];
+  // Checked BEFORE the typeof comparison: both sides are the string "null" vs e.g.
+  // "number", so typeof is 'string' on both and the type guard below would not catch it.
+  if (stored === NULL_SCHEMA || current === NULL_SCHEMA) {
+    if (stored !== current) {
+      diffs.push({ soft: true, text: `${path}: ${stored} -> ${current}`
+        + ` (value absent this run, not a shape change)` });
+    }
+    return diffs;
+  }
   if (typeof stored !== typeof current) {
-    diffs.push(`${path}: type changed from ${JSON.stringify(stored)} to ${JSON.stringify(current)}`);
+    diffs.push({ soft: false, text: `${path}: type changed from ${JSON.stringify(stored)} to ${JSON.stringify(current)}` });
     return diffs;
   }
   if (typeof stored !== 'object' || stored === null) {
     if (stored !== current) {
-      diffs.push(`${path}: changed from "${stored}" to "${current}"`);
+      diffs.push({ soft: false, text: `${path}: changed from "${stored}" to "${current}"` });
     }
     return diffs;
   }
   const allKeys = new Set([...Object.keys(stored), ...Object.keys(current)]);
   for (const key of allKeys) {
-    if (!(key in stored)) diffs.push(`${path}.${key}: KEY ADDED`);
-    else if (!(key in current)) diffs.push(`${path}.${key}: KEY REMOVED`);
+    if (!(key in stored)) diffs.push({ soft: false, text: `${path}.${key}: KEY ADDED` });
+    else if (!(key in current)) diffs.push({ soft: false, text: `${path}.${key}: KEY REMOVED` });
     else diffs.push(...diffSchemas(stored[key], current[key], `${path}.${key}`));
   }
   return diffs;
@@ -119,16 +151,29 @@ async function main() {
       continue;
     }
 
-    const diffs = diffSchemas(storedSchema, currentSchema, endpoint.name);
-    if (diffs.length === 0) {
+    const allDiffs = diffSchemas(storedSchema, currentSchema, endpoint.name);
+    const hard = allDiffs.filter(d => !d.soft);
+    const soft = allDiffs.filter(d => d.soft);
+
+    // Warnings print on EVERY run, including a passing one. A null that has become
+    // permanent is exactly what this no longer blocks on, so it must stay visible.
+    if (soft.length > 0) {
+      console.log(`[WARN] ${endpoint.name}: ${soft.length} field(s) null this run — not blocking`);
+      const shownSoft = (VERBOSE || soft.length <= 5) ? soft : soft.slice(0, 5);
+      shownSoft.forEach(d => console.log(`  ~ ${d.text}`));
+      if (shownSoft.length < soft.length) {
+        console.log(`  ~ ... and ${soft.length - shownSoft.length} more (run --verbose to see all)`);
+      }
+    }
+
+    if (hard.length === 0) {
       console.log(`[OK] ${endpoint.name}: shape unchanged`);
     } else {
-      console.log(`[FAIL] ${endpoint.name}: SHAPE CHANGED — ${diffs.length} difference(s)`);
-      if (VERBOSE || diffs.length <= 5) {
-        diffs.forEach(d => console.log(`  ↳ ${d}`));
-      } else {
-        diffs.slice(0, 5).forEach(d => console.log(`  ↳ ${d}`));
-        console.log(`  ↳ ... and ${diffs.length - 5} more (run --verbose to see all)`);
+      console.log(`[FAIL] ${endpoint.name}: SHAPE CHANGED — ${hard.length} difference(s)`);
+      const shown = (VERBOSE || hard.length <= 5) ? hard : hard.slice(0, 5);
+      shown.forEach(d => console.log(`  ↳ ${d.text}`));
+      if (shown.length < hard.length) {
+        console.log(`  ↳ ... and ${hard.length - shown.length} more (run --verbose to see all)`);
       }
       console.log(`  If intentional: node tasks/api_snapshot.cjs --update`);
       anyFailed = true;
