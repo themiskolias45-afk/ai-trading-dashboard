@@ -8244,6 +8244,30 @@ const AI_FILTER_CLI_ENABLED = process.env.AI_FILTER_CLI_FALLBACK !== "0";
 // nothing on a screen saying so - the same shape as a setting with no reader.
 //
 // So take the first candidate that ACTUALLY EXISTS on this box, and say which one once.
+// The CLI takes its context from its CWD. Spawned from the server's own directory it
+// walks up, finds the 40KB project CLAUDE.md and OBEYS it - on 2026-08-31 an
+// /api/backtest verdict came back beginning "JARVIS online. SmartEntry Pro - what are we
+// building?" - and it also finds .mcp.json and stands up seven MCP servers no prompt here
+// will ever use.
+//
+// Measured on one box, same analytic prompt: 15.4s WITH the persona greeting from the
+// repo directory, 11.6-12.5s and clean from a neutral one. On a trivial prompt, 10.5s vs
+// 4.5s. runClaudeCli is shared with the AI filter's 20s budget against the bridge's 25s
+// abandon, so this was never only cosmetic.
+//
+// Accidental context replaced with correct context, three parts:
+//   cwd                     a neutral dir, so no CLAUDE.md and no .mcp.json are found
+//   --strict-mcp-config     never load MCP servers that discovery turned up
+//   --append-system-prompt  state what this call actually is
+//
+// The role text is deliberately plain ASCII with no quotes, braces or newlines. It
+// crosses cmd.exe as a single argv token, which is precisely where .bat files in this
+// repo have lost everything after the word `claude`.
+const CLAUDE_CLI_ROLE_PROMPT =
+  "You are being called as a subroutine by an automated trading system. " +
+  "Return only the requested content: no greeting, no persona, no preamble, " +
+  "no sign-off, no offer of further help.";
+
 let _resolvedClaudeCliPath = null;
 function resolveClaudeCliPath() {
   if (_resolvedClaudeCliPath) return _resolvedClaudeCliPath;
@@ -8289,9 +8313,14 @@ function runClaudeCli(prompt, timeoutMs) {
     try {
       child = require("child_process").spawn(
         process.env.COMSPEC || "cmd.exe",
-        ["/c", claudeCliPath, "-p", "--output-format", "text"],
+        ["/c", claudeCliPath, "-p", "--output-format", "text",
+         "--strict-mcp-config", "--append-system-prompt", CLAUDE_CLI_ROLE_PROMPT],
         {
           windowsHide: true,
+          // Neutral cwd: this is what stops the project CLAUDE.md and .mcp.json
+          // being discovered. A missing dir would make spawn throw, which the
+          // surrounding try/catch already turns into the same safe null.
+          cwd: os.tmpdir(),
           env: { ...process.env, ANTHROPIC_API_KEY: "" },
         }
       );
