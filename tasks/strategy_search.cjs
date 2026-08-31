@@ -527,14 +527,39 @@ for (const key of keys) {
     failures[key] = String(err.message || err).slice(0, 300);
     process.stderr.write("  " + key + ": FAILED — " + failures[key] + "\n");
   }
+  // Persist what has finished. A kill at the ceiling now costs only the axes still
+  // running, never the ones already done.
+  //
+  // Wrapped: a fault in rendering must never kill a search that is working.
+  try {
+    renderAndWriteReport({ partial: true });
+  } catch (e) {
+    process.stderr.write("  partial report failed, run continues: " + e.message + "\n");
+  }
 }
 
+// Render and persist the report from whatever has completed so far.
+//
+// Called after EVERY axis, not just at the end. The report used to be written once,
+// so a kill at the ExecutionTimeLimit discarded every axis that had already finished.
+// The ledger survived - it is appended per axis - but the readable report did not,
+// and PT2H runs were dying about three minutes from the end with nothing to show.
+//
+// A hoisted function declaration, so the axis loop above can call it despite sitting
+// textually earlier. The body is the original end-of-run code, wrapped verbatim.
+function renderAndWriteReport(opts) {
+  const partial = !!(opts && opts.partial);
 const testedToDate = ledgerCount();
 const allPromotable = results.flatMap(r => r.promotable.map(c => ({ axis: r.axis, ...c })));
 
 const lines = [];
 lines.push("=".repeat(100));
 lines.push("  STRATEGY SEARCH — " + stamp);
+  if (partial) {
+    lines.push("  PARTIAL - " + results.length + " of " + keys.length + " axes finished so far.");
+    lines.push("  Rewritten after every axis, so a scheduler kill cannot throw away work");
+    lines.push("  that was already done. A finished run replaces this with the full report.");
+  }
 lines.push("  proposes, never applies. A challenger must beat the incumbent under EVERY cut,");
 lines.push("  by more than the incumbent's own fold-to-fold spread.");
 lines.push("=".repeat(100));
@@ -593,11 +618,15 @@ if (!allPromotable.length) {
 lines.push("=".repeat(100));
 
 const text = lines.join("\n");
-console.log(text);
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const report = {
   generatedAt: stamp, axes: keys, dryRun: DRY_RUN,
+  // partial:true means the run was still going when this was written. Without it a
+  // reader cannot tell an interrupted run from one that genuinely found nothing.
+  partial,
+  axesPlanned: keys,
+  axesCompleted: results.map(r => r.axis),
   bars, barsUnchanged, barAgeDays,
   testedToDate, results, failures,
   promotable: allPromotable,
@@ -605,8 +634,13 @@ const report = {
 };
 fs.writeFileSync(path.join(OUT_DIR, "strategy-search-latest.json"), JSON.stringify(report, null, 2));
 fs.writeFileSync(path.join(OUT_DIR, "strategy-search-latest.txt"), text + "\n");
+  return { text, testedToDate };
+}
+
+const finalReport = renderAndWriteReport({ partial: false });
+console.log(finalReport.text);
 process.stderr.write("\n  written -> tasks/analysis/strategy-search-latest.{json,txt}\n");
-process.stderr.write("  ledger   -> tasks/strategy_search_ledger.jsonl (" + testedToDate + " rows)\n");
+process.stderr.write("  ledger   -> tasks/strategy_search_ledger.jsonl (" + finalReport.testedToDate + " rows)\n");
 
 // Exit 0 whether or not anything was found: "no challenger" is a successful run, and a
 // non-zero exit would train the scheduler's watcher to treat the normal case as a fault.
