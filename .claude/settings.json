@@ -68,7 +68,7 @@
           {
             "type": "command",
             "command": "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"& (Join-Path (Get-Item .).FullName 'tasks/hooks/startup-check.ps1')\"",
-            "async": true,
+            "timeout": 10,
             "statusMessage": "Running startup checks..."
           },
           {

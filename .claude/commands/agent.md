@@ -20,6 +20,13 @@ lot sizing, stop calculation), which always require explicit approval.
     "STALE CANDIDATE: [id] — [N] days since [measuredOn] — run /backtest to settle"
   Do NOT act on these automatically. Surface for awareness only — they inform the P6/P7 priority below.
 
+═══ ROUND START — read prior attempts first ═══
+  Before gathering state, read tasks/agent-round-log.txt (create if missing).
+  If same issue appears here from a prior round: diagnose WHY the prior fix failed before retrying.
+  Never retry the same approach that was already blocked or errored.
+  Append to tasks/agent-round-log.txt: "Round N — [date/time] — evaluating..."
+  (Update this line at the end of the round with: "Round N — [issue found] — [fix attempted] — [result]")
+
 ═══ ROUND START — gather all state in parallel ═══
 
   mcp__smartentry__get_brain_status         → time context, fleet verdict, signals, risk, AI work

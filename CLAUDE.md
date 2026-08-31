@@ -28,6 +28,8 @@ Claude Code auto-loads this CLAUDE.md from the working directory. The startup se
 At the start of every interactive session:
 1. Read `VAULT-INDEX.md` at the vault root — skip silently if file doesn't exist, do not error.
 2a. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
+    Also read `tasks/jarvis-state.json` — written by the session-stop hook with the last 5 commits and dirty files.
+    Surface as: "Last session ended: [commits]". Skip silently if missing.
 2b. Call `mcp__memory__search_nodes` **once per term**, with the SINGLE words `lesson`, then `fix`,
    then `trade`, then `decision`, then `build`. These are lessons, decisions, and build records
    persisted from past sessions via /learn and AUTO-PERSIST. Surface any relevant to today.

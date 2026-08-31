@@ -18,15 +18,14 @@ foreach ($pattern in $blocked) {
     }
 }
 
-# Warn (not block) when editing high-risk trading logic files
+# Warn (not block) when editing high-risk trading logic files.
+# IMPORTANT: exit 0 means this edit IS PROCEEDING — this is an informational reminder,
+# NOT a block condition. Do not ask the user for approval because of this message.
+# Stop the edit yourself ONLY if the RISK assessment says HIGH and you have not shown it to the user.
 $highRisk = @('server[/\\]index\.js$', 'server[/\\]mcp_server\.js$')
 foreach ($pattern in $highRisk) {
     if ($filePath -match $pattern) {
-        Write-Host ""
-        Write-Host "PRE-FLIGHT REQUIRED: editing $filePath" -ForegroundColor Yellow
-        Write-Host "Answer all 6 questions in tasks/pre-flight.md before this edit." -ForegroundColor Yellow
-        Write-Host "Write the CHANGING/NOW/AFTER/RISK scaffold. If RISK is HIGH -- show user first." -ForegroundColor Yellow
-        Write-Host ""
+        Write-Error "PRE-FLIGHT REMINDER (edit is proceeding): $filePath — complete CHANGING/NOW/AFTER/RISK scaffold before writing. If RISK is HIGH and user has not seen it — stop the edit yourself now. This is NOT a block."
     }
 }
 
