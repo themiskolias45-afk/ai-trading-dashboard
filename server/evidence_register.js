@@ -103,6 +103,56 @@ const CLAIMS = [
     feedsTheGate: true,
   },
   {
+    // Raised 2026-08-31 after the user asked why the system buys when the daily, 4H and
+    // 1H are all bearish. The honest answer was that nothing had ever measured it,
+    // because CLAUDE.md asserted a three-timeframe agreement the engine does not have.
+    id: "h1agreement",
+    title: "Entering AGAINST the 1-hour trend flips MOMENTUM's sign — and h1 gates nothing",
+    status: STATUS.CANDIDATE,
+    measuredOn: "2026-08-31",
+    evidence: "`h1` appears exactly TWICE in server/index.js — a BONUS branch in the "
+      + "confidence assembly that RAISES confidence when Daily+H4+H1 all agree, and a "
+      + "copy into the payload for display. No branch anywhere lets H1 reduce confidence "
+      + "or block a setup, and mt5_bridge.py never reads h1 or m15 to refuse a trade. A "
+      + "bearish hourly is DISPLAY ONLY. Replayed over 859 entries at gate 70 through "
+      + "the live engine (tasks/_replay_mtf.cjs extracts generateSignalMTF from source, "
+      + "so this is the path that trades, not a reimplementation): with the H1 trend 718 "
+      + "trades, 49.0% win, +0.487R/trade, 5/5 folds positive, worst +0.367; AGAINST it "
+      + "99 trades, 23.2% win, −0.435R/trade, 4/5 folds negative, worst −0.842. The "
+      + "disambiguation is what makes it a finding rather than an artifact: a "
+      + "counter-trend bucket is by construction full of mean-reversion setups, so it "
+      + "could simply be those setups. It is not — MOMENTUM is 51% of the bucket and is "
+      + "the SAME setup on both sides, with the sign flipping on H1 alone: with H1 517 "
+      + "trades 53.8% win +0.634R 5/5 folds POSITIVE worst +0.52; against H1 50 trades "
+      + "16.0% win −0.599R 5/5 folds NEGATIVE worst −0.914. Stable at every fold "
+      + "boundary on both legs.",
+    caveat: "REPLAY on archived bars, not a walk-forward and not live P&L — which is why "
+      + "this is CANDIDATE and not ROBUST. The engine is ~92% long, so 'against H1' and "
+      + "'long into a dip' overlap heavily; the MOMENTUM counter-test is the only leg "
+      + "with real sample on BOTH sides and is what separates them. n=50 on the against "
+      + "leg is thin. BUY_OVERSOLD and RANGE_TRADE_LONG are never taken WITH the trend "
+      + "at all, so they cannot separate and must not be read as confirming this. "
+      + "Nothing has been changed in the engine on the strength of it: the only code "
+      + "shipped was h1Agree, a derived LABEL on the payload, proven inert by a "
+      + "byte-identical replay diff (SP500, 61633 bytes, sha 9f11a14619a475dd before and "
+      + "after). No gate, no threshold, no confidence and no sizing reads it.",
+    changesTheAnswer: "The obvious action — penalise or veto MOMENTUM against the H1 — is "
+      + "SUBTRACTION, which is presumed wrong here: it would discard ~11.5% of entries, "
+      + "spend the binding constraint, and freeze this evidence at 50 replayed trades "
+      + "forever. The user ruled it out explicitly on 2026-08-31 ('do not block learning, "
+      + "do not block good signals'). So the label is published instead and the LIVE "
+      + "record accumulates the same split from real fills. What would settle it: enough "
+      + "live MOMENTUM fills to split by h1Agree — or, if it is ever wanted sooner, "
+      + "run_walkforward at MORE THAN ONE fold count, because a mean that dies on re-cut "
+      + "is the trailing-ladder trap of 2026-08-07. The non-suppressing version of acting "
+      + "on it is SIZING (smaller stake, trade still fires, sample still accumulates), "
+      + "which is blocked behind the bridge risk budget disagreeing with itself 74x — "
+      + "unresolved since 2026-08-29.",
+    harness: "node tasks/h1_agreement_measure.cjs --threshold 70 --folds 5  ·  "
+      + "log at tasks/logs/h1_agreement.txt",
+    feedsTheGate: false,
+  },
+  {
     // First on the board deliberately: it governs how every OTHER ledger number here
     // should be read. Anyone acting on a netR figure without this claim in front of
     // them is acting on one row.
