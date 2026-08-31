@@ -404,6 +404,69 @@ function checkParity(canReachPeer, root = ROOT) {
 //
 // Read-only: file reads under `root`, and a PRESENCE test on keys.env that never
 // reads a value. Nothing here feeds a gate, a threshold, confidence or sizing.
+// POSITIONS HELD BELOW THE R:R FLOOR THE GATE ENFORCES.
+//
+// MIN_RR is checked when the SIGNAL is built, against the PLANNED entry. The bridge
+// then fills at the live tick, the stop and target do not move, and nothing ever
+// re-checks the result. So a trade clears a 1.5 floor on paper and is held at 1.18.
+//
+// Measured by hand on 2026-08-31: THREE of the six positions open across the fleet
+// were below the floor as held. SP500 was approved at a planned 2.00 and is 1.18 on
+// the laptop and 1.26 on the VPS; a BTCUSD entry planned exactly AT 1.50 drifted to
+// 1.47. None of that was visible anywhere, because the only R:R anyone reads is the
+// PLAN, and the plan is not what is in the account.
+//
+// IT REPORTS, IT DOES NOT ACT. There is no safe automatic response: closing a live
+// position is forbidden here, and re-gating a trade already open would be inventing
+// a veto after the fact. This names the risk as held, which is the thing that was
+// missing, and leaves the judgement where it belongs.
+//
+// realisedRr is IMPORTED from tasks/entry_drift_audit.cjs rather than reimplemented.
+// A second copy of that arithmetic is how two surfaces end up disagreeing about
+// whether a position clears the floor.
+function checkHeldRr(root = ROOT) {
+  let audit;
+  try { audit = require("./entry_drift_audit.cjs"); }
+  catch (e) { return; }            // tool absent on this box is not a fault
+
+  const jf = path.join(root, "server", "journal.json");
+  if (!fs.existsSync(jf)) return;
+  let rows;
+  try { rows = audit.readJournal(jf); }
+  catch (e) { return; }            // an unreadable journal is checkBox's finding, not this one
+
+  // The floor actually in force on THIS box, never hardcoded.
+  let minRr = 1.5;
+  try {
+    const raw = fs.readFileSync(path.join(root, "server", "strategy_settings.json"), "utf8")
+      .replace(/^\uFEFF/, "");
+    const cfg = JSON.parse(raw);
+    if (Number.isFinite(Number(cfg.minRr))) minRr = Number(cfg.minRr);
+  } catch (e) { /* documented default */ }
+
+  const open = rows.filter(t => t && t.status === "OPEN");
+  const below = [];
+  for (const t of open) {
+    const rr = audit.realisedRr(t);
+    if (rr === null) continue;
+    const planned = Number(t.plannedRr);
+    // Only a trade APPROVED at or above the floor counts. One planned below it was
+    // never a gate pass, so flagging it would be blaming the fill for a decision the
+    // engine made deliberately.
+    if (rr < minRr && Number.isFinite(planned) && planned >= minRr) {
+      below.push({ symbol: t.symbol, planned, realised: Number(rr.toFixed(3)) });
+    }
+  }
+  if (!below.length) return;
+
+  finding("AMBER", "local",
+    `${below.length} open position(s) held BELOW the ${minRr} R:R floor`,
+    below.map(b => `${b.symbol} approved at ${b.planned}, held at ${b.realised}`).join("; ") +
+    " - MIN_RR is enforced on the PLANNED entry and never re-checked after the fill, " +
+    "so the gate passed a trade the account does not hold",
+    "node tasks/entry_drift_audit.cjs   (read-only; no automatic action is safe here)");
+}
+
 function checkLab(root = ROOT) {
   const labDir = path.join(root, "tasks", "analysis", "lab");
   const drainLog = path.join(root, "tasks", "logs", "lab_drain.txt");
@@ -1341,6 +1404,7 @@ async function diagnose() {
   checkDoctorSelftest();
   checkLearningIntegrity();
   checkLab();
+  checkHeldRr();
 
   const rank = { RED: 0, AMBER: 1, INFO: 2 };
   findings.sort((a, b) => rank[a.severity] - rank[b.severity]);
@@ -1430,5 +1494,6 @@ module.exports = {
   checkDashboardEncoding, checkDoctorSelftest,
   checkLearningIntegrity,
   checkLab,
+  checkHeldRr,
   checkPeerViaHeartbeat,
   _findings: () => findings, _reset: () => { findings = []; } };

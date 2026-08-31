@@ -39,6 +39,20 @@ function check(name, expectation, findings) {
   // A case passes only if the EXPECTED finding is present. Extra findings are reported
   // rather than failed: a scratch root legitimately triggers several "missing file"
   // branches at once, and failing on those would make the harness fight itself.
+  // `none: true` asserts INTENDED SILENCE. Asserting that a check stays quiet on
+  // good state matters as much as asserting it fires on bad state: a check that
+  // fires on everything is exactly as useless as one that never fires, and this
+  // harness could previously only express one half of that.
+  if (expectation.none) {
+    const quiet = findings.length === 0;
+    results.push({ name, ok: quiet, expectation, findings, hit: null });
+    console.log("  [" + (quiet ? "PASS" : "FAIL") + "] " + name);
+    if (!quiet) {
+      console.log("         expected NO finding, got: " +
+        findings.map(f => "[" + f.severity + "] " + f.box + ": " + f.what).join("; "));
+    }
+    return;
+  }
   const hit = findings.find(f =>
     (!expectation.severity || f.severity === expectation.severity) &&
     (!expectation.box || f.box === expectation.box) &&
@@ -645,6 +659,47 @@ async function main() {
   // Each branch is forced. On a healthy box checkLab prints nothing, and "nothing"
   // is what a dead 24/7 loop also prints -- which is the entire reason this section
   // exists. Two of these were real defects on 2026-08-31 found only by hand.
+  // ── positions held below the R:R floor the gate enforces ─────────────────
+  // Three of the six fleet positions were in this state on 2026-08-31 and nothing
+  // reported it, because the only R:R anyone reads is the PLAN.
+  console.log("\ncheckHeldRr");
+
+  put("server/strategy_settings.json", JSON.stringify({ minRr: 1.5 }));
+  // Approved at 2.0, held at 1.18 - the SP500 case, exactly.
+  put("server/journal.json", JSON.stringify([
+    { symbol: "SP500", status: "OPEN", direction: "BUY", entry: 7744.96,
+      sl: 7601.25, tp: 7915.05, plannedRr: 2 },
+  ]));
+  check("open position held below the floor -> AMBER",
+    { severity: "AMBER", box: "local", match: /held BELOW the 1\.5 R:R floor/i },
+    await isolate(() => doctor.checkHeldRr(SCRATCH)));
+
+  // A position comfortably above the floor must be SILENT.
+  put("server/journal.json", JSON.stringify([
+    { symbol: "XAUUSD", status: "OPEN", direction: "BUY", entry: 100, sl: 90, tp: 130, plannedRr: 2 },
+  ]));
+  check("a position above the floor is silent",
+    { none: true },
+    await isolate(() => doctor.checkHeldRr(SCRATCH)));
+
+  // A trade PLANNED below the floor was never a gate pass; blaming the fill for it
+  // would be wrong, so it must not fire.
+  put("server/journal.json", JSON.stringify([
+    { symbol: "BTCUSD", status: "OPEN", direction: "BUY", entry: 100, sl: 90, tp: 111, plannedRr: 1.1 },
+  ]));
+  check("a trade planned below the floor does not fire",
+    { none: true },
+    await isolate(() => doctor.checkHeldRr(SCRATCH)));
+
+  // A CLOSED trade below the floor is history, not a live risk.
+  put("server/journal.json", JSON.stringify([
+    { symbol: "SP500", status: "CLOSED", direction: "BUY", entry: 7744.96,
+      sl: 7601.25, tp: 7915.05, plannedRr: 2 },
+  ]));
+  check("a CLOSED trade below the floor does not fire",
+    { none: true },
+    await isolate(() => doctor.checkHeldRr(SCRATCH)));
+
   console.log("\ncheckLab");
 
   const labQueue = "tasks/analysis/lab/_queue.jsonl";
