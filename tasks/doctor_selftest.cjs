@@ -641,6 +641,81 @@ async function main() {
     }, base => doctor.checkPeerViaHeartbeat(70, base))));
 
   // ── verdict ──────────────────────────────────────────────────────────────
+  // ── the strategy lab, whose every failure mode is silence ────────────────
+  // Each branch is forced. On a healthy box checkLab prints nothing, and "nothing"
+  // is what a dead 24/7 loop also prints -- which is the entire reason this section
+  // exists. Two of these were real defects on 2026-08-31 found only by hand.
+  console.log("\ncheckLab");
+
+  const labQueue = "tasks/analysis/lab/_queue.jsonl";
+  const labLog = "tasks/logs/lab_drain.txt";
+
+  // A fresh log so the staleness branches do not fire while testing the others.
+  const freshLog = () => { const f = put(labLog, "[x] tick: nothing pending\n");
+    fs.utimesSync(f, new Date(), new Date()); return f; };
+
+  // 1. the loop has stopped turning
+  {
+    const f = freshLog();
+    const old = new Date(Date.now() - 7 * 3600000);
+    fs.utimesSync(f, old, old);
+    check("lab drain silent 7h -> RED",
+      { severity: "RED", box: "local", match: /drain silent/i },
+      await isolate(() => doctor.checkLab(SCRATCH)));
+
+    const mid = new Date(Date.now() - 2 * 3600000);
+    fs.utimesSync(f, mid, mid);
+    check("lab drain last ran 2h ago -> AMBER",
+      { severity: "AMBER", box: "local", match: /drain last ran/i },
+      await isolate(() => doctor.checkLab(SCRATCH)));
+  }
+
+  // 2. a FAILED job recorded and never read
+  freshLog();
+  put(labQueue, JSON.stringify({ id: "a", status: "QUEUED", queuedAt: hoursAgo(1) }) + "\n"
+    + JSON.stringify({ id: "a", status: "FAILED", error: "not enough bars for FOO H4" }) + "\n");
+  check("a FAILED lab job -> AMBER, naming the reason",
+    { severity: "AMBER", box: "local", match: /FAILED/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // 3. queued and never run: the drain is dead or falling behind
+  put(labQueue, JSON.stringify({ id: "b", status: "QUEUED", queuedAt: hoursAgo(5) }) + "\n");
+  check("lab job queued 5h and never run -> AMBER",
+    { severity: "AMBER", box: "local", match: /queued over/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // 4. THE ONE THAT MATTERS: something cleared the bar and nobody has looked
+  put(labQueue, JSON.stringify({ id: "c", status: "DONE", queuedAt: hoursAgo(1) }) + "\n");
+  put("tasks/analysis/lab/_promotable.jsonl",
+    JSON.stringify({ specHash: "abc", label: "donchian_break lookback:20 BTCUSD H4",
+      appliedToLive: false }) + "\n");
+  check("a candidate cleared the bar, unreviewed -> AMBER",
+    { severity: "AMBER", box: "local", match: /cleared the bar/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // 5. the alert could never reach anyone. PRESENCE only - no value is read.
+  fs.rmSync(path.join(SCRATCH, "tasks", "analysis", "lab", "_promotable.jsonl"));
+  put("keys.env", "TELEGRAM_TOKEN=\nTELEGRAM_CHAT_ID=\n");
+  check("no Telegram credentials -> AMBER, the alert would be swallowed",
+    { severity: "AMBER", box: "local", match: /notifier has no Telegram/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // A placeholder must count as unset too, or ${VAR} reads as configured.
+  put("keys.env", "TELEGRAM_TOKEN=${TELEGRAM_TOKEN}\nTELEGRAM_CHAT_ID=123\n");
+  check("a ${placeholder} token counts as unset -> AMBER",
+    { severity: "AMBER", box: "local", match: /notifier has no Telegram/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // 6. exhausted space: running, but generating nothing. Idle looks like working.
+  put("keys.env", "TELEGRAM_TOKEN=realtokenvalue\nTELEGRAM_CHAT_ID=123456\n");
+  {
+    const f = put(labLog, "[x] generate: declared space fully explored - nothing new\n");
+    fs.utimesSync(f, new Date(), new Date());
+  }
+  check("declared space fully explored -> INFO, not a fault",
+    { severity: "INFO", box: "local", match: /whole declared space/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
   const failed = results.filter(r => !r.ok);
   console.log("\n" + "=".repeat(78));
   console.log("  " + (results.length - failed.length) + " of " + results.length + " cases behaved as specified");

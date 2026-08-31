@@ -387,6 +387,131 @@ function checkParity(canReachPeer, root = ROOT) {
   }
 }
 
+// THE STRATEGY LAB, whose every failure mode is silence.
+//
+// The lab is a 24/7 loop of generate -> drain -> promote across two boxes, and every
+// way it can break looks identical from outside: nothing happens. The scheduled task
+// stops firing and the log simply stops. The drain throws and records FAILED rows
+// nobody reads. A candidate clears the bar and the Telegram credentials are missing,
+// so the one alert the whole system exists to produce is swallowed. None of that
+// raises an error anywhere.
+//
+// Two of these were REAL on 2026-08-31, found by hand rather than by any check: the
+// promotion bar was unclearable in principle (no axis had enough values, so nothing
+// could EVER be promoted and it read as 'no strategy is good enough'), and the
+// notifier's credential parser matched zero keys on a CRLF file and reported 'not
+// configured' forever. Both would have run silently for months.
+//
+// Read-only: file reads under `root`, and a PRESENCE test on keys.env that never
+// reads a value. Nothing here feeds a gate, a threshold, confidence or sizing.
+function checkLab(root = ROOT) {
+  const labDir = path.join(root, "tasks", "analysis", "lab");
+  const drainLog = path.join(root, "tasks", "logs", "lab_drain.txt");
+
+  // A box with no lab is not a fault. Say nothing rather than inventing a finding.
+  if (!fs.existsSync(labDir) && !fs.existsSync(drainLog)) return;
+
+  // ── 1. is the loop still turning? ──────────────────────────────────────
+  // The cycle runs every 15 minutes. A log that has stopped growing is the ONLY
+  // outward sign that the task died, because a dead task raises nothing.
+  const STALE_AMBER_MIN = 60;
+  const STALE_RED_MIN = 360;
+  if (!fs.existsSync(drainLog)) {
+    finding("AMBER", "local", "lab drain has never run here",
+      "the queue will fill and nothing will execute it",
+      "powershell -NoProfile -ExecutionPolicy Bypass -File tasks\\install_lab_drain.ps1 -Execute");
+  } else {
+    const ageMin = (Date.now() - fs.statSync(drainLog).mtimeMs) / 60000;
+    if (ageMin > STALE_RED_MIN) {
+      finding("RED", "local", `lab drain silent for ${human(ageMin * 60000)}`,
+        "the 15-minute cycle has stopped; nothing is being generated, run or judged",
+        "Get-ScheduledTask -TaskName 'SmartEntry Lab Drain' | Get-ScheduledTaskInfo");
+    } else if (ageMin > STALE_AMBER_MIN) {
+      finding("AMBER", "local", `lab drain last ran ${human(ageMin * 60000)} ago`,
+        "expected every 15 minutes",
+        "Get-ScheduledTask -TaskName 'SmartEntry Lab Drain' | Get-ScheduledTaskInfo");
+    }
+  }
+
+  // ── 2. the queue: failures recorded but unread, and jobs that never ran ──
+  const queueFile = path.join(labDir, "_queue.jsonl");
+  if (fs.existsSync(queueFile)) {
+    const byId = new Map();
+    for (const line of fs.readFileSync(queueFile, "utf8").split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t) continue;
+      try { const r = JSON.parse(t); if (r && r.id) byId.set(r.id, Object.assign(byId.get(r.id) || {}, r)); }
+      catch (e) { /* a torn line must not kill the check */ }
+    }
+    const jobs = [...byId.values()];
+    const failed = jobs.filter(j => j.status === "FAILED");
+    if (failed.length) {
+      finding("AMBER", "local", `${failed.length} lab job(s) FAILED`,
+        (failed[0].error || "no reason recorded").slice(0, 120),
+        "node tasks/lab_queue.cjs --status");
+    }
+    // QUEUED and old means the drain is not keeping up, or is not running at all.
+    const STUCK_HOURS = 2;
+    const stuck = jobs.filter(j => j.status === "QUEUED" && j.queuedAt &&
+      (Date.now() - Date.parse(j.queuedAt)) > STUCK_HOURS * 3600000);
+    if (stuck.length) {
+      finding("AMBER", "local", `${stuck.length} lab job(s) queued over ${STUCK_HOURS}h and never run`,
+        "the generator is adding faster than the drain is clearing, or the drain is dead",
+        "node tasks/lab_queue.cjs --drain");
+    }
+  }
+
+  // ── 3. a candidate cleared the bar and is WAITING FOR A HUMAN ───────────
+  // The entire loop exists to produce this. It must never sit unread.
+  const staged = path.join(labDir, "_promotable.jsonl");
+  if (fs.existsSync(staged)) {
+    const rows = [];
+    for (const line of fs.readFileSync(staged, "utf8").split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t) continue;
+      try { rows.push(JSON.parse(t)); } catch (e) { /* ignore a torn line */ }
+    }
+    const open = rows.filter(r => r && r.appliedToLive !== true);
+    if (open.length) {
+      finding("AMBER", "local", `${open.length} lab candidate(s) cleared the bar and are unreviewed`,
+        "staged only - nothing has been applied to live, and nothing will be without you: " +
+        (open[open.length - 1].label || "").slice(0, 100),
+        "node tasks/lab_promote.cjs --list   then open /lab and read the plateau");
+    }
+  }
+
+  // ── 4. could an alert even reach you? ──────────────────────────────────
+  // PRESENCE ONLY - this never reads a credential value. A clearing candidate with no
+  // notifier configured is the loop's whole purpose landing in a file nobody opens.
+  const keys = path.join(root, "keys.env");
+  if (fs.existsSync(keys)) {
+    const raw = fs.readFileSync(keys, "utf8");
+    const has = n => {
+      const m = new RegExp("^\\s*" + n + "\\s*=\\s*(.*)$", "m").exec(raw);
+      const v = m ? m[1].trim().replace(/^[\"']|[\"']$/g, "") : "";
+      return Boolean(v) && !v.startsWith("${");
+    };
+    if (!has("TELEGRAM_TOKEN") || !has("TELEGRAM_CHAT_ID")) {
+      finding("AMBER", "local", "lab notifier has no Telegram credentials",
+        "a candidate that clears the bar would be staged silently and never reach you",
+        "set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in keys.env (never in a tracked file)");
+    }
+  }
+
+  // ── 5. the search space is exhausted ───────────────────────────────────
+  // Not a fault - the generator correctly stops rather than inventing noise. But a
+  // loop with nothing left to explore is idle, and idle looks exactly like working.
+  if (fs.existsSync(drainLog)) {
+    const tail = fs.readFileSync(drainLog, "utf8").split(/\r?\n/).slice(-40).join("\n");
+    if (/fully explored/i.test(tail)) {
+      finding("INFO", "local", "lab has explored its whole declared space",
+        "it is running but generating nothing new; widening is a deliberate act because " +
+        "every new cell is a trial that raises the deflation bar for its family",
+        "edit PARAM_GRID in tasks/lab_generate.cjs, then: node tasks/lab_generate.cjs --space");
+    }
+  }
+}
+
 function checkAgentQueue(root = ROOT) {
   const file = path.join(root, "tasks", "agent_queue.jsonl");
   let jobs = [];
@@ -1215,6 +1340,7 @@ async function diagnose() {
   checkDashboardEncoding();
   checkDoctorSelftest();
   checkLearningIntegrity();
+  checkLab();
 
   const rank = { RED: 0, AMBER: 1, INFO: 2 };
   findings.sort((a, b) => rank[a.severity] - rank[b.severity]);
@@ -1303,5 +1429,6 @@ module.exports = {
   checkMarketJobs, checkBackup, checkSizingTrigger, checkCoverageGaps, checkSleepFix, checkTvPlan,
   checkDashboardEncoding, checkDoctorSelftest,
   checkLearningIntegrity,
+  checkLab,
   checkPeerViaHeartbeat,
   _findings: () => findings, _reset: () => { findings = []; } };
