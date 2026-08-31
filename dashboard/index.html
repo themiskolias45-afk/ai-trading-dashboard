@@ -5560,9 +5560,25 @@ async function loadTrust() {
       setTrustCell('tr-fleet', 'trust-bad', 'SPLIT',
         gateDiffers ? 'gate ' + div.gate.local + ' here vs ' + div.gate.peer + ' there'
                     : 'engines differ — pooled numbers are unattributable', false);
+    } else if (div.halted && div.halted.differs) {
+      // A HALTED BOX IS A SPLIT, and this tile used to call it agreement.
+      //
+      // It judged only the gate and the engine. On 2026-08-31 the VPS circuit breaker
+      // opened on three consecutive losses while the laptop kept trading, and this
+      // cell read 'Agrees — same gate and same engine on both boxes'. Both halves of
+      // that sentence were TRUE, and the tile was still wrong: the boxes were not
+      // running the same experiment, so every pooled number was unattributable.
+      //
+      // Same shape as the failures listed above it — AutoTrading off on the VPS for
+      // 11 days behind green checks. A cell that reports agreement on the two things
+      // it happens to compare, while a third differs, is worse than one that says
+      // nothing: it actively tells you not to look.
+      setTrustCell('tr-fleet', 'trust-bad', 'HALT SPLIT',
+        (div.halted.peer ? 'peer' : 'this box') + ' is HALTED and the other is live — '
+        + 'pooled numbers are unattributable until both run', false);
     } else {
       setTrustCell('tr-fleet', 'trust-ok', 'Agrees',
-        'same gate and same engine on both boxes', false);
+        'same gate, same engine, and both boxes in the same trading state', false);
     }
 
     // ── Broker feed, worst of the two boxes ─────────────────────────────────
