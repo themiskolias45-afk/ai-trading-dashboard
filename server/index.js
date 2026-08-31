@@ -644,10 +644,28 @@ let ANTHROPIC_API_KEY = loadApiKey();
 // Wrapped at BOTH construction sites. wrapAnthropicWithCliFallback is a hoisted
 // function declaration so it is callable here; the constants it reads are only
 // touched when a request actually fails, long after module init.
-let anthropic = ANTHROPIC_API_KEY ? wrapAnthropicWithCliFallback(new Anthropic({ apiKey: ANTHROPIC_API_KEY })) : null;
+//
+// TWO clients, and they must be TWO SEPARATE Anthropic instances: the wrapper REPLACES
+// client.messages.create, so wrapping one object twice would stack the two rails on top
+// of each other instead of giving each its own direction.
+//
+//   anthropic    API-first, CLI fallback. The trade path (/api/claude-approve-trade)
+//                and the tool-use loop in askClaude. Unchanged from before.
+//   anthropicBg  CLI/subscription-first, API underneath. Background and display work
+//                only - nothing it serves can admit, suppress, size or exit a trade.
+//
+// Built together and cleared together, so every existing `if (!anthropic)` guard still
+// correctly covers both.
+let anthropic = null;
+let anthropicBg = null;
+function buildAnthropicClients() {
+  anthropic   = ANTHROPIC_API_KEY ? wrapAnthropicWithCliFallback(new Anthropic({ apiKey: ANTHROPIC_API_KEY }), { cliFirst: false }) : null;
+  anthropicBg = ANTHROPIC_API_KEY ? wrapAnthropicWithCliFallback(new Anthropic({ apiKey: ANTHROPIC_API_KEY }), { cliFirst: true  }) : null;
+}
+buildAnthropicClients();
 function reloadAnthropicClient() {
   ANTHROPIC_API_KEY = loadApiKey();
-  anthropic = ANTHROPIC_API_KEY ? wrapAnthropicWithCliFallback(new Anthropic({ apiKey: ANTHROPIC_API_KEY })) : null;
+  buildAnthropicClients();
   console.log(ANTHROPIC_API_KEY ? "[settings] Anthropic key reloaded" : "[settings] Anthropic key cleared");
 }
 const UW_BASE        = "https://api.unusualwhales.com/api";
@@ -7900,7 +7918,7 @@ async function generateTradeCommentary(trade) {
       `Cover: (1) why this trade makes technical sense, (2) key risk to watch, (3) target expectation. ` +
       `Be specific about price levels. No bullet points — prose only.`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       model:      "claude-sonnet-5",
       max_tokens: 300,
       messages:   [{ role: "user", content: prompt }]
@@ -7927,7 +7945,7 @@ async function reviewOpenPositions() {
       `For each position: (1) is it progressing as expected? (2) should the stop be adjusted? ` +
       `(3) any exit consideration? End with an overall portfolio risk assessment. Keep it concise and actionable.`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       model:      "claude-sonnet-5",
       max_tokens: 600,
       messages:   [{ role: "user", content: prompt }]
@@ -7963,7 +7981,7 @@ async function generateWeeklyReport() {
       `Provide: (1) performance summary, (2) what worked well, (3) key improvement areas, ` +
       `(4) strategy suggestions for next week. Practical and concise.`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       model:      "claude-sonnet-5",
       max_tokens: 800,
       messages:   [{ role: "user", content: prompt }]
@@ -8145,7 +8163,7 @@ app.get("/api/backtest", async (req, res) => {
         `${r.label}: ${r.totalTrades} trades over ${years}y | Win rate ${r.winRate}% | Profit factor ${r.profitFactor} | Max drawdown ${r.maxDrawdown}% | Return on $10k: $${r.finalEquity} (${r.returnPct}%)`
       ).join("\n");
 
-      const msg = await anthropic.messages.create({
+      const msg = await anthropicBg.messages.create({
         model: "claude-sonnet-5", max_tokens: 500,
         messages: [{ role: "user", content:
           `You are a professional quant analyst. Here are backtesting results for a rule-based trading strategy over ${years} years:\n\n${summary}\n\n` +
@@ -8271,42 +8289,96 @@ const AI_BRAIN_REQUEST_TIMEOUT_MS = 120000;
  * rejects, which is exactly why today's SP500 fill carries no commentary and the log
  * repeats "[review] Error: 400".
  *
- * Every one of them is a PLAIN TEXT call — no tools, no streaming, verified by
- * inspection — so a single wrapper on messages.create covers all ten without touching
- * a single call site. Wrapping the client rather than editing ten places also means a
- * future call site inherits the fallback automatically instead of quietly not having it.
+ * TWO RAILS, AND THE DIRECTION IS THE WHOLE POINT.
  *
- * If the CLI is unavailable too it rethrows the ORIGINAL error, so every existing
- * catch block behaves exactly as it does today.
+ *   cliFirst:false (default, `anthropic`)   API -> CLI when the API throws
+ *   cliFirst:true  (`anthropicBg`)          CLI -> API when the CLI returns null
+ *
+ * The API sits underneath in BOTH directions, so neither client can lose an answer.
+ * The only cost of a missing or slow CLI is latency, never a refusal, which is what
+ * keeps this compatible with rule 3.
+ *
+ * WHICH CALL SITE GETS WHICH IS NOT A PREFERENCE. Three MUST stay API-first:
+ *
+ *   /api/claude-approve-trade - the ONLY trade-path call. The bridge abandons at 25s,
+ *      so the fastest rail goes first and the CLI stays its fallback.
+ *   askClaude (/api/chat), BOTH of its calls - CORRECTED 2026-08-31: the older claim
+ *      that all ten are "PLAIN TEXT, no tools, verified by inspection" is WRONG. This
+ *      is the one call site carrying `tools:` and a real
+ *      `while (response.stop_reason === "tool_use")` loop. The CLI shim returns
+ *      stop_reason "end_turn", so on that rail the loop NEVER ENTERS: save_memory,
+ *      web search, force_heal and approve_proposal quietly stop working while the
+ *      reply still reads perfectly fine. It must never be CLI-first.
+ *
+ * The rest are display or after-the-fact and can serve from the subscription. None of
+ * them can admit, suppress, size or exit a trade - reviewOpenPositions in particular
+ * only pushAlert()s text, it cannot move a stop or close anything.
+ *
+ * There is no streaming anywhere in this file, so that half of the old note holds.
+ * /api/ai-brain reads stop_reason to warn on max_tokens; on the CLI rail that warning
+ * cannot fire. Accepted, and written down here rather than discovered later.
+ *
+ * The kill switch is unchanged: AI_FILTER_CLI_FALLBACK=0 makes runClaudeCli return
+ * null, which collapses cliFirst back into a straight API call.
  */
-function wrapAnthropicWithCliFallback(client) {
+// Flattens SDK params into the single prompt the CLI takes. Content is a string or the
+// block-array form; both appear in this file. Returns "" when there is nothing to send,
+// which both rails read as "do not use the CLI for this one".
+function flattenParamsToCliPrompt(params) {
+  const parts = [];
+  if (params && typeof params.system === "string") parts.push(params.system);
+  for (const message of (params && params.messages) || []) {
+    const content = message && message.content;
+    if (typeof content === "string") parts.push(content);
+    else if (Array.isArray(content)) {
+      for (const block of content) if (block && typeof block.text === "string") parts.push(block.text);
+    }
+  }
+  return parts.join("\n\n").trim();
+}
+
+// The exact shape every caller in this file already destructures: content[].type === "text".
+function cliReplyEnvelope(text) {
+  return { content: [{ type: "text", text }], stop_reason: "end_turn", _viaCli: true };
+}
+
+function wrapAnthropicWithCliFallback(client, options) {
   if (!client || !client.messages || typeof client.messages.create !== "function") return client;
+  const cliFirst = !!(options && options.cliFirst);
   const realCreate = client.messages.create.bind(client.messages);
 
-  client.messages.create = async (params) => {
-    try {
-      return await realCreate(params);
-    } catch (apiError) {
-      // Flatten to the prompt the CLI needs. Content can be a string or the block
-      // array form; both appear in this file.
-      const parts = [];
-      if (params && typeof params.system === "string") parts.push(params.system);
-      for (const message of (params && params.messages) || []) {
-        const content = message && message.content;
-        if (typeof content === "string") parts.push(content);
-        else if (Array.isArray(content)) {
-          for (const block of content) if (block && typeof block.text === "string") parts.push(block.text);
-        }
+  // requestOptions is forwarded, not dropped: /api/ai-brain passes its 120s ceiling
+  // as the SDK's SECOND argument and the previous wrapper signature swallowed it,
+  // leaving that call on the SDK default of 600s with 2 retries. The CLI rail has its
+  // own 90s ceiling, which is already under it.
+  client.messages.create = async (params, requestOptions) => {
+    if (cliFirst) {
+      // Subscription rail first. This client is handed ONLY to call sites that are off
+      // the trade path and read nothing but a text block. A null here means the CLI is
+      // absent, disabled or slow, and the API answers instead - so this branch can cost
+      // latency but can never cost an answer.
+      const prompt = flattenParamsToCliPrompt(params);
+      if (prompt) {
+        const text = await runClaudeCli(prompt, CLAUDE_CLI_GENERAL_TIMEOUT_MS);
+        if (text !== null) return cliReplyEnvelope(text);
+        console.log("[anthropic] CLI/subscription rail unavailable - falling through to the API");
       }
-      const prompt = parts.join("\n\n").trim();
+      return await realCreate(params, requestOptions);
+    }
+
+    try {
+      return await realCreate(params, requestOptions);
+    } catch (apiError) {
+      const prompt = flattenParamsToCliPrompt(params);
       if (!prompt) throw apiError;
 
       const text = await runClaudeCli(prompt, CLAUDE_CLI_GENERAL_TIMEOUT_MS);
+      // If the CLI is down too, rethrow the ORIGINAL error so every existing catch
+      // block behaves exactly as it does today.
       if (text === null) throw apiError;
 
-      console.log(`[anthropic] API rail failed (${String(apiError.message || apiError).slice(0, 80)}) — served via CLI/subscription`);
-      // Same shape every caller already destructures: content[].type === "text".
-      return { content: [{ type: "text", text }], stop_reason: "end_turn", _viaCli: true };
+      console.log(`[anthropic] API rail failed (${String(apiError.message || apiError).slice(0, 80)}) - served via CLI/subscription`);
+      return cliReplyEnvelope(text);
     }
   };
   return client;
@@ -8523,7 +8595,7 @@ app.post("/api/ai-brain", async (req, res) => {
       `(3) key levels to watch, (4) execution plan if signal fires, (5) main risk. ` +
       `Be specific with prices. Institutional quality.`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       model: "claude-opus-5",
       // Adaptive thinking, matching the AI-filter call site above. This was
       // { type: "enabled", budget_tokens: 500 } until 2026-08-30 - a form that is
@@ -11396,7 +11468,7 @@ app.post("/api/engineer/architect", requireLocalOnly, async (req, res) => {
       `{"workstreams":[{"name":"short-id","files":"which files this agent owns","task":"exact self-contained ` +
       `instructions for this agent, written as if briefing a colleague with no other context"}]}`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       // Opus 5: this call decides how work is split across parallel agents, and a
       // bad split costs every downstream agent's time plus a merge conflict.
       model: "claude-opus-5",
