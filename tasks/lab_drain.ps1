@@ -22,7 +22,8 @@
 # ============================================================================
 
 param(
-    [int]$Max = 50
+    [int]$Max = 50,
+    [string]$NodeExe = ''
 )
 
 $ErrorActionPreference = 'Continue'
@@ -39,8 +40,40 @@ function Write-Log([string]$msg) {
     Add-Content -LiteralPath $Log -Value $line -Encoding utf8
 }
 
+# RESOLVING NODE IS THE HEADLESS TRAP, not an afterthought.
+#
+# Under a SYSTEM / S4U principal there is no user PATH, so a bare `node` resolves to
+# nothing and the task fails EVERY tick while reporting a tidy exit code. This project
+# has already been bitten by "a PATH fix only reaches processes started after it".
+# So: an explicitly passed path wins, then PATH, then the usual install locations, and
+# the one actually used is written to the log so a failure names itself.
+function Resolve-Node([string]$explicit) {
+    if ($explicit -and (Test-Path $explicit)) { return $explicit }
+    $cmd = Get-Command node -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    # Forward slashes deliberately: PowerShell resolves them, and every backslash in
+    # a Windows path is one more chance for a layer of escaping to eat it. The first
+    # version of this list was written with backslashes and arrived corrupted, with
+    # the \n of \nodejs turned into a literal newline. It still passed its test,
+    # because node was on PATH and this branch never ran - which is precisely the
+    # headless case it exists for.
+    foreach ($c in @(
+        "$env:ProgramFiles/nodejs/node.exe",
+        "${env:ProgramFiles(x86)}/nodejs/node.exe",
+        "$env:LOCALAPPDATA/Programs/nodejs/node.exe",
+        "C:/Program Files/nodejs/node.exe")) {
+        if ($c -and (Test-Path $c)) { return $c }
+    }
+    return $null
+}
 try {
     Set-Location $Proj
+
+    $node = Resolve-Node $NodeExe
+    if (-not $node) {
+        Write-Log 'ERROR: node could not be resolved (no PATH under a service principal, and no known install location). Nothing ran.'
+        exit 0
+    }
 
     # Nothing queued is the NORMAL case and must stay quiet in the log, or the
     # signal drowns. One line, not a report.
@@ -50,7 +83,7 @@ try {
         exit 0
     }
 
-    $out = & node (Join-Path $Proj 'tasks\lab_queue.cjs') '--drain' '--max' $Max 2>&1
+    $out = & $node (Join-Path $Proj 'tasks\lab_queue.cjs') '--drain' '--max' $Max 2>&1
     $code = $LASTEXITCODE
 
     $text = ($out | Out-String).Trim()
@@ -58,7 +91,7 @@ try {
     if ($text -match 'ran:\s*(\d+)') { $ran = [int]$Matches[1] }
 
     if ($ran -gt 0) {
-        Write-Log ("drained {0} (exit {1})" -f $ran, $code)
+        Write-Log ("drained {0} (exit {1}) via {2}" -f $ran, $code, $node)
         foreach ($l in ($text -split "`n")) {
             $t = $l.Trim()
             if ($t -match '^(DONE|FAILED)') { Write-Log ('  ' + $t) }

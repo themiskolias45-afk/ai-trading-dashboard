@@ -38,6 +38,11 @@
 param(
     [switch]$Execute,
     [switch]$Force,
+    # HEADLESS: register under SYSTEM instead of the interactive user, so the task
+    # runs on a box with nobody logged on. Required on the VPS -- a logon-triggered
+    # task there reports Ready and never fires, which is a failure mode this project
+    # has already been bitten by and is worse than having no task at all.
+    [switch]$Headless,
     [int]$IntervalMinutes = 15,
     [int]$Max = 50
 )
@@ -63,6 +68,7 @@ Write-Output ('  project   : {0}' -f $Proj)
 Write-Output ('  task name : {0}' -f $TaskName)
 Write-Output ('  runs      : powershell -File "{0}" -Max {1}' -f $Script, $Max)
 Write-Output ('  every     : {0} minutes, indefinitely' -f $IntervalMinutes)
+Write-Output ('  principal : {0}' -f $(if ($Headless) { 'SYSTEM (ServiceAccount) - runs with nobody logged on' } else { 'current user, Interactive - needs a logged-on session' }))
 Write-Output ('  time limit: {0} minutes per run' -f $RunLimit.TotalMinutes)
 Write-Output ('  log       : {0}' -f (Join-Path $LogDir 'lab_drain.txt'))
 Write-Output ''
@@ -141,8 +147,17 @@ $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit $RunLimit
 
-$me = "$env:USERDOMAIN\$env:USERNAME"
-$principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
+# SYSTEM runs regardless of who is logged on, which is the whole point on a headless
+# box. RunLevel stays Limited: this job reads CSVs and writes JSON and has no business
+# holding more privilege than that. lab_drain.ps1 resolves node explicitly because a
+# service principal has no user PATH -- verified by running it with node stripped from
+# PATH, where it still resolved and drained a real job.
+if ($Headless) {
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Limited
+} else {
+    $me = "$env:USERDOMAIN\$env:USERNAME"
+    $principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
+}
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal `
@@ -156,6 +171,16 @@ if (-not $check) {
     exit 1
 }
 Write-Output ('  verified   : state {0}' -f $check.State)
+Write-Output ('  principal  : {0}' -f $check.Principal.UserId)
+# STATE "Ready" IS NOT PROOF. A logon-triggered task on a headless box also reports
+# Ready and never fires. The only proof is a run, so trigger one and read the result.
+Start-ScheduledTask -TaskName $TaskName
+Start-Sleep -Seconds 6
+$info = Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo
+Write-Output ('  test run   : lastResult {0}  lastRun {1}' -f $info.LastTaskResult, $info.LastRunTime)
+if ($info.LastTaskResult -ne 0) {
+    Write-Output '  WARNING: the test run did not return 0. Read tasks\logs\lab_drain.txt before relying on this.'
+}
 Write-Output ''
 Write-Output '  Check it with:'
 Write-Output ("    Get-ScheduledTask -TaskName '{0}' | Get-ScheduledTaskInfo" -f $TaskName)
