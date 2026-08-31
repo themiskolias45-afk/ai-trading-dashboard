@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartEntry Pro — Strategy Lab</title>
+  <link rel="stylesheet" href="/dashboard/theme.css">
+  <link rel="stylesheet" href="/dashboard/nav.css">
+  <script src="/dashboard/nav.js" defer></script>
+  <style>
+    /* Tokens come from theme.css. This page defines NO palette of its own: report.html
+       carries a comment explaining that it once redefined the whole palette here and
+       then drifted from every other page on the next theme change. One source of
+       truth. Only page-specific layout lives below. */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background:var(--bg); color:var(--text); font-family:var(--font); min-height:100vh; font-size:14px; }
+
+    header {
+      background:var(--surface); border-bottom:1px solid var(--border);
+      padding:12px 24px; display:flex; align-items:center; justify-content:space-between;
+      position:sticky; top:0; z-index:100; flex-wrap:wrap; gap:10px;
+    }
+    .logo { display:flex; align-items:center; gap:10px; }
+    .logo-mark {
+      width:32px; height:32px; background:linear-gradient(135deg,var(--accent),#4f46e5);
+      border-radius:8px; display:flex; align-items:center; justify-content:center;
+      font-weight:900; font-size:16px; color:#fff;
+    }
+    .logo-text { font-size:1rem; font-weight:700; }
+    .logo-sub  { font-size:.65rem; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
+
+    .container { padding:20px 24px; max-width:1400px; margin:0 auto; }
+    h1 { font-size:1.4rem; font-weight:800; letter-spacing:-.01em; }
+    .sub-line { font-size:.75rem; color:var(--muted); margin-top:5px; line-height:1.6; }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:10px;
+            overflow:hidden; margin-bottom:16px; }
+    .card-head { padding:11px 16px; border-bottom:1px solid var(--border); font-size:.78rem;
+                 font-weight:700; display:flex; justify-content:space-between; align-items:center;
+                 gap:10px; flex-wrap:wrap; }
+    .card-head .sub { font-size:.67rem; font-weight:400; color:var(--muted); }
+    .card-body { padding:14px 16px; }
+
+    .grid2 { display:grid; grid-template-columns:1.4fr 1fr; gap:16px; }
+    @media(max-width:1050px){ .grid2{ grid-template-columns:1fr; } }
+
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px; }
+    .stat { background:var(--surface); border:1px solid var(--border2); border-radius:9px; padding:13px 15px; }
+    .stat .v { font-size:1.35rem; font-weight:800; font-variant-numeric:tabular-nums; }
+    .stat .l { font-size:.63rem; color:var(--muted); margin-top:4px; line-height:1.4; text-transform:uppercase; letter-spacing:.05em; }
+    .stat .n { font-size:.6rem; color:var(--muted-dim); margin-top:3px; font-variant-numeric:tabular-nums; }
+
+    .verdict-bar { border-radius:10px; padding:14px 18px; margin-bottom:16px; border:1px solid; }
+    .v-SURVIVES     { background:#0c1a12; border-color:var(--green);  color:var(--green); }
+    .v-MARGINAL     { background:#1a160a; border-color:var(--yellow); color:var(--yellow); }
+    .v-DIED         { background:#1c0f11; border-color:var(--red);    color:var(--red); }
+    .v-INCONCLUSIVE { background:#0e1620; border-color:var(--blue);   color:var(--blue); }
+    .v-TOOFEW       { background:var(--surface2); border-color:var(--border2); color:var(--muted); }
+    .verdict-bar .vw { font-size:1.25rem; font-weight:900; letter-spacing:.02em; }
+    .verdict-bar .vc { font-size:.72rem; margin-top:4px; opacity:.85; font-variant-numeric:tabular-nums; }
+
+    table.checks { width:100%; border-collapse:collapse; font-size:.74rem; }
+    table.checks td { padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+    table.checks tr:last-child td { border-bottom:none; }
+    .tag { display:inline-block; min-width:46px; text-align:center; border-radius:4px;
+           padding:2px 7px; font-size:.62rem; font-weight:800; letter-spacing:.04em; }
+    .t-PASS { background:rgba(34,197,94,.14);  color:var(--green);  border:1px solid rgba(34,197,94,.35); }
+    .t-FAIL { background:rgba(239,68,68,.14);  color:var(--red);    border:1px solid rgba(239,68,68,.35); }
+    .t-UNK  { background:rgba(148,163,184,.12);color:var(--muted);  border:1px solid var(--border2); }
+
+    .kv { display:grid; grid-template-columns:auto 1fr; gap:5px 14px; font-size:.74rem; }
+    .kv dt { color:var(--muted); }
+    .kv dd { font-variant-numeric:tabular-nums; }
+
+    .rule-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:6px 18px;
+                 font-size:.7rem; font-variant-numeric:tabular-nums; }
+    .rule-grid span { color:var(--muted); }
+
+    .quarters { display:flex; flex-wrap:wrap; gap:6px; }
+    .q { border-radius:6px; padding:5px 8px; font-size:.63rem; font-weight:700; border:1px solid;
+         font-variant-numeric:tabular-nums; text-align:center; min-width:74px; }
+    .q-pos { background:rgba(34,197,94,.10);  border-color:rgba(34,197,94,.35);  color:var(--green); }
+    .q-neg { background:rgba(239,68,68,.10);  border-color:rgba(239,68,68,.35);  color:var(--red); }
+    .q .qn { display:block; font-size:.58rem; color:var(--muted); font-weight:500; }
+    .q.best { outline:2px solid var(--yellow); outline-offset:1px; }
+
+    /* Wide content scrolls INSIDE its own container. The page body must never scroll
+       sideways — that is the rule the other pages already follow. */
+    .scroll-x { overflow-x:auto; }
+
+    .note { font-size:.7rem; color:var(--muted); line-height:1.65; margin-top:10px; }
+    .warn { color:var(--yellow); }
+    .sel { background:var(--surface2); color:var(--text); border:1px solid var(--border2);
+           border-radius:7px; padding:6px 10px; font-size:.74rem; font-family:var(--font); }
+    .stale-flag { background:#1a160a; border:1px solid var(--yellow); color:var(--yellow);
+                  border-radius:8px; padding:10px 14px; font-size:.72rem; margin-bottom:14px; line-height:1.6; }
+    .empty { padding:40px 20px; text-align:center; color:var(--muted); font-size:.8rem; line-height:1.8; }
+    code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.95em;
+           background:var(--surface2); padding:1px 5px; border-radius:4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <div class="logo-mark">S</div>
+      <div>
+        <div class="logo-text">SmartEntry Pro</div>
+        <div class="logo-sub">Strategy Lab</div>
+      </div>
+    </div>
+    <select id="picker" class="sel" aria-label="Select assessment"></select>
+  </header>
+
+  <div class="container">
+    <h1 id="title">Strategy Lab</h1>
+    <div class="sub-line" id="subtitle">Loading assessments…</div>
+    <div id="body"></div>
+  </div>
+
+<script>
+"use strict";
+/* ============================================================================
+   /lab — renders an assessment tasks/lab_report.cjs has ALREADY written.
+   ----------------------------------------------------------------------------
+   This page runs no harness, starts no replay and posts nothing. It is a GET
+   against /api/lab-report, which itself only reads a file — because the box this
+   renders on is the box that trades, and a page request must never begin minutes
+   of CPU there.
+
+   Every number shown is printed with the n it was computed on. That is not
+   decoration: the lab screenshot this replaced showed TOTAL TRADES 540 beside an
+   out-of-sample P&L computed over 162, and nothing on the page said so.
+   ========================================================================== */
+
+// Every string that reaches innerHTML goes through this. Labels come out of a file
+// on disk, and a file is not a trusted input just because we wrote it.
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+// ABSENT IS NOT ZERO. A missing metric renders as an em dash, never as 0 — the
+// two mean opposite things and this project has been bitten by conflating them.
+function num(x, dp) {
+  return (x === null || x === undefined || typeof x !== "number" || !isFinite(x))
+    ? "—" : x.toFixed(dp === undefined ? 3 : dp);
+}
+function pct(x, dp) {
+  return (x === null || x === undefined || typeof x !== "number" || !isFinite(x))
+    ? "—" : (x * 100).toFixed(dp === undefined ? 1 : dp) + "%";
+}
+function signClass(x) {
+  if (typeof x !== "number" || !isFinite(x)) return "";
+  return x > 0 ? "style=\"color:var(--green)\"" : x < 0 ? "style=\"color:var(--red)\"" : "";
+}
+
+function stat(label, value, sub, colour) {
+  return '<div class="stat"><div class="v" ' + (colour || "") + '>' + value + '</div>'
+       + '<div class="l">' + esc(label) + '</div>'
+       + (sub ? '<div class="n">' + esc(sub) + '</div>' : '') + '</div>';
+}
+
+/** Equity curve as an inline SVG. No library: one polyline and a zero line. */
+function curveSvg(curve) {
+  if (!Array.isArray(curve) || curve.length < 2) {
+    return '<div class="note">No equity curve in this artifact.</div>';
+  }
+  var W = 1000, H = 260, PAD = 8;
+  var lo = Math.min.apply(null, curve), hi = Math.max.apply(null, curve);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  var span = hi - lo;
+  var x = function (i) { return PAD + (i / (curve.length - 1)) * (W - 2 * PAD); };
+  var y = function (v) { return PAD + (1 - (v - lo) / span) * (H - 2 * PAD); };
+  var pts = curve.map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ");
+  var zeroY = (lo <= 0 && hi >= 0) ? y(0) : null;
+  var end = curve[curve.length - 1];
+  var stroke = end >= 0 ? "var(--green)" : "var(--red)";
+  return ''
+    + '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" '
+    + 'style="width:100%;height:260px;display:block" role="img" '
+    + 'aria-label="Cumulative R equity curve, ending at ' + esc(num(end, 2)) + ' R">'
+    + (zeroY !== null
+        ? '<line x1="0" y1="' + zeroY.toFixed(1) + '" x2="' + W + '" y2="' + zeroY.toFixed(1)
+          + '" stroke="var(--border2)" stroke-width="1" stroke-dasharray="4 4"/>' : '')
+    + '<polyline points="' + pts + '" fill="none" stroke="' + stroke + '" stroke-width="2" '
+    + 'vector-effect="non-scaling-stroke"/>'
+    + '</svg>';
+}
+
+function quartersHtml(quarters, bestKey) {
+  if (!quarters || !quarters.length) {
+    return '<div class="note warn">No dated trades in this artifact, so it cannot be '
+         + 'bucketed into quarters. The concentration checks are UNRESOLVED rather than '
+         + 'failed — a missing measurement is not a bad one.</div>';
+  }
+  return '<div class="quarters">' + quarters.map(function (q) {
+    var cls = q.totalR > 0 ? "q-pos" : "q-neg";
+    var best = (bestKey && q.key === bestKey) ? " best" : "";
+    return '<div class="q ' + cls + best + '">' + esc(q.key)
+         + '<span class="qn">' + (q.totalR > 0 ? "+" : "") + num(q.totalR, 1) + 'R · n=' + q.n + '</span></div>';
+  }).join("") + '</div>';
+}
+
+function checksHtml(a) {
+  if (!a || !a.checks) return "";
+  return '<table class="checks">' + a.checks.map(function (c) {
+    var tag = c.pass === true ? ["PASS", "t-PASS"]
+            : c.pass === false ? ["FAIL", "t-FAIL"] : ["UNRESOLVED", "t-UNK"];
+    return '<tr><td style="width:96px"><span class="tag ' + tag[1] + '">' + tag[0] + '</span></td>'
+         + '<td>' + esc(c.name) + '</td>'
+         + '<td style="color:var(--muted);font-variant-numeric:tabular-nums">' + esc(c.detail) + '</td></tr>';
+  }).join("") + '</table>';
+}
+
+function verdictClass(v) {
+  if (v === "SURVIVES") return "v-SURVIVES";
+  if (v === "MARGINAL") return "v-MARGINAL";
+  if (v === "DIED") return "v-DIED";
+  if (v === "INCONCLUSIVE") return "v-INCONCLUSIVE";
+  return "v-TOOFEW";
+}
+
+function render(env) {
+  var r = env.report;
+  var a = r.assessment || {};
+  var all = r.all || {}, oos = r.outOfSample || {}, isS = r.inSample || {};
+  var d = r.deflated || {}, c = r.concentration || {}, b = r.bootstrap || null;
+  var den = r.denominators || {};
+  var h = [];
+
+  document.getElementById("title").textContent = "Strategy Lab";
+  document.getElementById("subtitle").innerHTML =
+    esc(r.label) + ' &nbsp;·&nbsp; ' + esc(r.provenance && r.provenance.unit)
+    + ' &nbsp;·&nbsp; generated ' + esc(r.generatedAt || "—")
+    + (env.ageHours !== null && env.ageHours !== undefined ? ' (' + esc(env.ageHours) + 'h ago)' : '');
+
+  if (env.stale) {
+    h.push('<div class="stale-flag"><strong>STALE.</strong> This assessment is '
+      + esc(env.ageHours) + ' hours old, past the ' + esc(env.staleAfterHours)
+      + '-hour mark. It still renders — a stale assessment is the best evidence available '
+      + 'and hiding it would hide the warning too — but re-run the lab before leaning on it.</div>');
+  }
+
+  // ── verdict ──
+  h.push('<div class="verdict-bar ' + verdictClass(a.verdict) + '">'
+    + '<div class="vw">' + esc(a.verdict || "—") + '</div>'
+    + '<div class="vc">' + (a.checksTotal
+        ? esc(a.checksPassed + " passed · " + (a.checksFailed || 0) + " failed · "
+              + (a.checksUnknown || 0) + " unresolved  of " + a.checksTotal)
+        : "") + '</div></div>');
+
+  // ── denominators, first, deliberately ──
+  h.push('<div class="card"><div class="card-head">Denominators'
+    + '<span class="sub">every figure below states which of these it used</span></div>'
+    + '<div class="card-body"><div class="rule-grid">'
+    + '<div><span>all trades</span> <strong>' + esc(den.all) + '</strong></div>'
+    + '<div><span>in-sample</span> <strong>' + esc(den.inSample) + '</strong></div>'
+    + '<div><span>out-of-sample</span> <strong>' + esc(den.outOfSample) + '</strong></div>'
+    + '<div><span>quarters</span> <strong>' + esc(den.quarters) + '</strong></div>'
+    + '</div><div class="note">' + esc(den.note || "") + '</div></div></div>');
+
+  // ── core tiles ──
+  var nAll = "n=" + den.all;
+  h.push('<div class="stats">'
+    + stat("Expectancy", num(all.expectancyR) + "R", nAll + " · per trade", signClass(all.expectancyR))
+    + stat("Total", num(all.totalR, 2) + "R", nAll, signClass(all.totalR))
+    + stat("Profit factor", num(all.profitFactor, 3), nAll)
+    + stat("Win rate", pct(all.winRate), nAll + " · " + all.wins + "W/" + all.losses + "L")
+    + stat("Breakeven WR", pct(all.breakevenWr), "payoff " + num(all.payoff, 2) + ":1")
+    + stat("Edge vs breakeven",
+        (typeof all.winRateEdgePp === "number" && all.winRateEdgePp >= 0 ? "+" : "")
+        + num(all.winRateEdgePp, 2) + "pp",
+        "what this payoff requires", signClass(all.winRateEdgePp))
+    + stat("Max drawdown", num(all.maxDrawdownR, 2) + "R", nAll)
+    + stat("Longest losing run", esc(all.longestLoss), nAll)
+    + '</div>');
+
+  // ── curve + in/out of sample ──
+  h.push('<div class="grid2">'
+    + '<div class="card"><div class="card-head">Equity curve'
+    + '<span class="sub">cumulative R, additive, every trade (n=' + esc(den.all) + ')</span></div>'
+    + '<div class="card-body scroll-x">' + curveSvg(r.equityCurve)
+    + '<div class="note">Additive rather than compounded on purpose: compounding folds a '
+    + 'position-sizing policy into a question about the signal, so two strategies with '
+    + 'identical trades would score differently because of a risk constant chosen elsewhere. '
+    + 'The line ends on exactly the Total tile above.</div></div></div>'
+
+    + '<div class="card"><div class="card-head">In-sample → out-of-sample'
+    + '<span class="sub">chronological split, never random</span></div><div class="card-body">'
+    + '<dl class="kv">'
+    + '<dt>profit factor</dt><dd>' + num(isS.profitFactor, 3) + ' (n=' + esc(den.inSample) + ')'
+    + ' &nbsp;→&nbsp; ' + num(oos.profitFactor, 3) + ' (n=' + esc(den.outOfSample) + ')</dd>'
+    + '<dt>expectancy</dt><dd>' + num(isS.expectancyR) + 'R &nbsp;→&nbsp; ' + num(oos.expectancyR) + 'R</dd>'
+    + '</dl>'
+    + '<div class="note"><strong>Reading:</strong> ' + esc(r.degradation && r.degradation.reading) + '</div>'
+    + '<div class="note">Overfit and never-worked are different diagnoses with different '
+    + 'remedies, so this names which one it is instead of leaving it to be inferred.</div>'
+    + '</div></div></div>');
+
+  // ── multiple testing + concentration ──
+  h.push('<div class="grid2">'
+    + '<div class="card"><div class="card-head">Multiple-testing correction'
+    + '<span class="sub">n=' + esc(den.all) + ' · ' + esc(d.trialsDeclared) + ' trial(s) declared</span></div>'
+    + '<div class="card-body"><dl class="kv">'
+    + '<dt>Sharpe / trade</dt><dd>' + num(d.sharpePerTrade, 4) + '</dd>'
+    + '<dt>PSR — P(true &gt; 0)</dt><dd>' + pct(d.psr, 2) + '</dd>'
+    + '<dt>Deflated Sharpe</dt><dd>' + pct(d.deflatedSharpe, 2) + '</dd>'
+    + '<dt>MinTRL</dt><dd>' + (d.minTrackRecordLength === null || d.minTrackRecordLength === undefined
+        ? "no edge to detect above the trials bar"
+        : Math.ceil(d.minTrackRecordLength) + " trades"
+          + (d.tradesShortOfMinTrl ? " — SHORT BY " + d.tradesShortOfMinTrl : " — met")) + '</dd>'
+    + '</dl><div class="note">The maximum of N noisy trials is positive by construction, so '
+    + 'an uncorrected Sharpe taken from a search is not evidence. At 1 trial the deflated '
+    + 'figure equals the PSR by definition.</div></div></div>'
+
+    + '<div class="card"><div class="card-head">Concentration'
+    + '<span class="sub">a grind, or one lucky window?</span></div><div class="card-body">'
+    + '<dl class="kv">'
+    + '<dt>positive quarters</dt><dd>' + esc(c.positivePeriods) + '/' + esc(c.periods) + '</dd>'
+    + '<dt>best quarter</dt><dd>' + esc(c.bestPeriod || "—") + ' &nbsp;' + num(c.bestPeriodR, 2) + 'R</dd>'
+    + '<dt>its share of gross</dt><dd>' + pct(c.bestPeriodShareOfGross, 1) + '</dd>'
+    + '<dt>total excluding it</dt><dd ' + signClass(c.totalExcludingBestR) + '>'
+    + num(c.totalExcludingBestR, 2) + 'R</dd>'
+    + '<dt>top 5% of trades</dt><dd>' + pct(c.top5pctTradeShareOfGross, 1) + ' of gross profit</dd>'
+    + '</dl>'
+    + '<div class="note">A result resting on one quarter out of twenty-one is a different '
+    + 'object from one that grinds, and an equity curve alone cannot tell you which you '
+    + 'are looking at.</div></div></div></div>');
+
+  // ── quarters ──
+  h.push('<div class="card"><div class="card-head">Quarters'
+    + '<span class="sub">outlined quarter is the largest contributor</span></div>'
+    + '<div class="card-body scroll-x">' + quartersHtml(r.quarters, c.bestPeriod) + '</div></div>');
+
+  // ── bootstrap + cost ──
+  var boot = b
+    ? '<dl class="kv">'
+      + '<dt>probability of loss</dt><dd>' + pct(b.probOfLoss, 1) + '</dd>'
+      + '<dt>median outcome</dt><dd>' + num(b.medianFinalR, 2) + 'R</dd>'
+      + '<dt>worst 5%</dt><dd>' + num(b.worst5pctFinalR, 2) + 'R</dd>'
+      + '<dt>median max DD</dt><dd>' + num(b.medianMaxDdR, 2) + 'R</dd>'
+      + '<dt>worst 5% DD</dt><dd>' + num(b.worst5pctMaxDdR, 2) + 'R</dd>'
+      + '</dl><div class="note">Resampled in blocks of ' + esc(b.blockLength)
+      + ' (√n), not one trade at a time: independent resampling destroys losing runs and '
+      + 'understates drawdown, worst on exactly the strategies whose runs are the risk.</div>'
+    : '<div class="note">Too few trades to bootstrap.</div>';
+
+  var cs = r.costStress || {};
+  var costRows = Object.keys(cs).map(function (k) {
+    var v = cs[k];
+    return '<tr><td style="width:60px"><strong>' + esc(k) + '</strong></td>'
+      + '<td>PF ' + num(v.profitFactor, 3) + '</td>'
+      + '<td>expectancy ' + num(v.expectancyR) + 'R</td>'
+      + '<td>total ' + num(v.totalR, 2) + 'R</td></tr>';
+  }).join("");
+
+  h.push('<div class="grid2">'
+    + '<div class="card"><div class="card-head">Block bootstrap'
+    + '<span class="sub">' + (b ? esc(b.paths) + ' paths' : "") + '</span></div>'
+    + '<div class="card-body">' + boot + '</div></div>'
+    + '<div class="card"><div class="card-head">Cost stress'
+    + '<span class="sub">increment ' + esc(r.provenance && r.provenance.costIncrementR) + 'R/trade</span></div>'
+    + '<div class="card-body scroll-x"><table class="checks">' + costRows + '</table>'
+    + '<div class="note">A real edge degrades gracefully; a marginal one inverts.</div>'
+    + '</div></div></div>');
+
+  // ── the rule, then the checks ──
+  var ruleRows = Object.keys(r.rule || {}).map(function (k) {
+    return '<div><span>' + esc(k) + '</span> <strong>' + esc(r.rule[k]) + '</strong></div>';
+  }).join("");
+  h.push('<div class="card"><div class="card-head">Verdict rule — pre-registered'
+    + '<span class="sub">declared in the harness, not chosen after seeing this result</span></div>'
+    + '<div class="card-body"><div class="rule-grid">' + ruleRows + '</div>'
+    + '<div style="margin-top:14px" class="scroll-x">' + checksHtml(a) + '</div>'
+    + (a.unresolvedNote ? '<div class="note warn">' + esc(a.unresolvedNote) + '</div>' : '')
+    + (a.note ? '<div class="note">' + esc(a.note) + '</div>' : '')
+    + '</div></div>');
+
+  // ── diagnostics ──
+  var g = r.diagnostics || {};
+  h.push('<div class="card"><div class="card-head">Trade diagnostics'
+    + '<span class="sub">coverage is printed first — a distribution over 12 of 540 trades is a '
+    + 'fact about the data, not the strategy</span></div><div class="card-body"><dl class="kv">'
+    + '<dt>exit reasons</dt><dd>' + esc(g.exitReasonCoverage || "—") + '</dd>'
+    + '<dt>hold hours</dt><dd>' + esc(g.holdHoursCoverage || "—")
+    + ' &nbsp;median ' + num(g.holdHoursMedian, 1) + ' &nbsp;p90 ' + num(g.holdHoursP90, 1) + '</dd>'
+    + '<dt>MAE</dt><dd>' + esc(g.maeCoverage || "—") + ' &nbsp;median ' + num(g.maeMedianR) + '</dd>'
+    + '</dl></div></div>');
+
+  h.push('<div class="note">Reading surface only. This page runs no harness and posts nothing; '
+    + 'it renders an artifact already on disk. Nothing here feeds the gate, a threshold, '
+    + 'a position size or a stop.</div>');
+
+  document.getElementById("body").innerHTML = h.join("");
+}
+
+function showEmpty(msg) {
+  document.getElementById("subtitle").textContent = "";
+  document.getElementById("body").innerHTML = '<div class="card"><div class="empty">' + msg + '</div></div>';
+}
+
+function load(name) {
+  fetch("/api/lab-report" + (name ? "?name=" + encodeURIComponent(name) : ""))
+    .then(function (res) { return res.json(); })
+    .then(function (env) {
+      var picker = document.getElementById("picker");
+      var names = env.reports || [];
+      picker.innerHTML = names.map(function (n) {
+        return '<option value="' + esc(n) + '"' + (n === env.name ? " selected" : "") + '>' + esc(n) + '</option>';
+      }).join("");
+      picker.style.display = names.length ? "" : "none";
+
+      if (env.status === "NOT RUN" || !names.length) {
+        showEmpty('No assessments on this box yet.<br><br>Generate one with:<br>'
+          + '<code>node tasks/lab_report.cjs --trades &lt;file.json&gt; --out tasks/analysis/lab/&lt;name&gt;.json</code>');
+        return;
+      }
+      if (env.status === "ERROR") { showEmpty("Could not read the assessment: " + esc(env.detail)); return; }
+      if (!env.report) { load(names[0]); return; }
+      render(env);
+    })
+    .catch(function (e) { showEmpty("Could not reach /api/lab-report: " + esc(e && e.message)); });
+}
+
+document.getElementById("picker").addEventListener("change", function (ev) { load(ev.target.value); });
+load(new URLSearchParams(location.search).get("name") || "");
+</script>
+</body>
+</html>
