@@ -1,5 +1,11 @@
 # ============================================================================
-#  lab_drain.ps1 - run the queued backtests, out of band
+#  lab_drain.ps1 - the 24/7 lab cycle: GENERATE -> DRAIN -> PROMOTE
+#
+#  Kept as ONE task rather than three. Three tasks would each carry their own
+#  IgnoreNew guard but nothing would stop a generate overlapping a drain, and two
+#  drains running together would execute one queued job twice and register it as two
+#  distinct runs - corrupting the trial count the entire lab rests on. One task, one
+#  instance, strict order.
 # ============================================================================
 #
 #  What the scheduled task actually executes. It exists as its own file rather
@@ -23,6 +29,10 @@
 
 param(
     [int]$Max = 50,
+    # How many NEW candidates to propose per cycle. Small on purpose: every cell is
+    # a trial that raises the deflation bar for its whole family, so searching fast
+    # makes the bar harder, not the answer better.
+    [int]$GenMax = 8,
     [string]$NodeExe = ''
 )
 
@@ -83,7 +93,22 @@ try {
         exit 0
     }
 
-    $out = & $node (Join-Path $Proj 'tasks\lab_queue.cjs') '--drain' '--max' $Max 2>&1
+    # ---- 1. GENERATE ------------------------------------------------------
+    # Propose candidates nobody has tried. It refuses to pile up on its own when
+    # the queue is already deep, so a slow cycle cannot build a backlog nobody reads.
+    $gen = & $node (Join-Path $Proj 'tasks/lab_generate.cjs') '--max' $GenMax 2>&1
+    $genText = ($gen | Out-String).Trim()
+    if ($genText -match 'fully explored') {
+        Write-Log 'generate: declared space fully explored - nothing new'
+    } elseif ($genText -match 'already pending') {
+        Write-Log 'generate: queue still deep, generated nothing'
+    } else {
+        $q = ([regex]::Matches($genText, '(?m)^\s*queued')).Count
+        if ($q -gt 0) { Write-Log ("generate: queued {0}" -f $q) }
+    }
+
+    # ---- 2. DRAIN ---------------------------------------------------------
+    $out = & $node (Join-Path $Proj 'tasks/lab_queue.cjs') '--drain' '--max' $Max 2>&1
     $code = $LASTEXITCODE
 
     $text = ($out | Out-String).Trim()
@@ -99,6 +124,29 @@ try {
     } else {
         Write-Log ("tick: nothing pending (exit {0})" -f $code)
     }
+
+    # ---- 3. PROMOTE -------------------------------------------------------
+    # Judges finished assessments against a pre-registered bar and, for anything
+    # that clears it, STAGES the candidate and sends one Telegram. It stages; it
+    # never promotes. No gate, threshold, size or stop is reachable from it, and
+    # each candidate is notified once ever, keyed by its spec hash.
+    $prom = & $node (Join-Path $Proj 'tasks/lab_promote.cjs') 2>&1
+    $promText = ($prom | Out-String).Trim()
+    if ($promText -match 'checked\s+(\d+).*?(\d+) cleared the bar,\s*(\d+) notified') {
+        $clearedN = [int]$Matches[2]; $notifiedN = [int]$Matches[3]
+        # Silent unless something actually cleared. A line every 15 minutes saying
+        # 'nothing cleared' is how a log stops being read.
+        if ($clearedN -gt 0 -or $notifiedN -gt 0) {
+            Write-Log ("promote: {0} cleared the bar, {1} notified" -f $clearedN, $notifiedN)
+            foreach ($l in ($promText -split "`n")) {
+                $t = $l.Trim()
+                if ($t -match '^STAGED') { Write-Log ('  ' + $t) }
+            }
+        }
+    } else {
+        Write-Log 'promote: could not parse its output - investigate'
+    }
+
     exit 0
 }
 catch {

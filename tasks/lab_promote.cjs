@@ -151,7 +151,13 @@ function readCreds() {
   const p = path.join(ROOT, 'keys.env');
   const out = { token: '', chat: '' };
   if (!fs.existsSync(p)) return out;
-  for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
+  // SPLIT ON /\r?\n/, NOT '\n'. keys.env is CRLF, and splitting on '\n' alone leaves
+  // a trailing '\r' on every line. In JS `.` does not match a line terminator, so
+  // `(.*)$` stopped before the '\r' and the `$` anchor then failed: the regex matched
+  // ZERO keys while the file plainly contained them, and sendTelegram reported 'not
+  // configured' forever. Caught only because the notifier was actually TESTED. A
+  // notifier that silently fails is worse than no notifier at all.
+  for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
     const m = /^\s*([A-Z_]+)\s*=\s*(.*)$/.exec(line);
     if (!m) continue;
     const v = m[2].trim().replace(/^["']|["']$/g, '');
