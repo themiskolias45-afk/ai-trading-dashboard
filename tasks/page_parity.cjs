@@ -26,8 +26,24 @@
  * with every existing parity check green.
  *
  * So this compares the ARTIFACTS the pages actually render, field by field, and names
- * which box is behind. It reads them over ssh rather than over HTTP because the gated
- * routes answer 401 to a CLI on the peer - see the standing note about the VPS session.
+ * which box is behind. It reads them over ssh, which is reliable and needs no session.
+ *
+ * BUT ARTIFACTS ALONE ARE NOT ENOUGH, and this file learned that the hard way on
+ * 2026-08-31: it printed "BOTH BOXES SHOW THE SAME THING" while the VPS /report served
+ * NO Deflated Sharpe section at all. Both boxes held an identical sharpe-robustness.json,
+ * so every artifact field matched - but the VPS process had started four hours before the
+ * commit that added the route block which READS that file. File present, code absent,
+ * page blank, parity green. That is this file's own founding bug one level down: it was
+ * written because vps_parity compares files and cannot see the page, and then it compared
+ * files too.
+ *
+ * Hence the SERVED CHECK near the end, which does one authenticated GET per box and asks
+ * whether the RUNNING code exposes the section. The old note here claimed the gated routes
+ * "answer 401 to a CLI on the peer" and that is what stopped anyone trying: it is FALSE.
+ * Each box's cookie value IS its session_secret.txt (index.js compares them with
+ * timingSafeStringEqual), and curl with that cookie answers 200 from the laptop against
+ * the peer. What actually 401s is PowerShell's Invoke-RestMethod passing the cookie via
+ * -Headers - a client bug that was nearly recorded as a VPS auth fault.
  *
  * READ-ONLY. It fetches, compares and prints. It regenerates nothing, copies nothing and
  * changes nothing: the remedy is named and left for a human or the weekly job.
@@ -283,6 +299,101 @@ if (JSON_OUT) {
       console.log(`${mark} ${String(r.field).padEnd(22)} local ${String(r.local).padEnd(22)} peer ${String(r.peer)}${tail}`);
     }
   }
+// ─────────────────────────────────────────────────────────────────────────────
+// IS THE SECTION ACTUALLY *SERVED*? — added 2026-08-31, because this tool MISSED a
+// real divergence and reported BOTH BOXES SHOW THE SAME THING while they did not.
+//
+// Everything above compares ARTIFACTS ON DISK, read over ssh, because the header said
+// the gated routes need a session. That is a blind spot exactly the size of this bug:
+// on 2026-08-31 both boxes held an identical `sharpe-robustness.json`, so every field
+// above matched — while the VPS SERVED NO DEFLATED SHARPE SECTION AT ALL. Its running
+// process started 2026-08-30T17:15:07Z, four hours before commit 08ce9c5 added the
+// route block that reads that file. File present, code absent, page blank, parity green.
+//
+// That is the SAME failure this file was written for, one level down: vps_parity compares
+// files and cannot see the rendered page, so page_parity was built — and then page_parity
+// compared files too. A parity check that reads what is on disk cannot answer "do both
+// boxes SHOW the same thing", because serving needs the CODE to be running, not merely
+// deployed. See [[the_vps_has_the_ai_brain_fix_on_disk_but_runs_old_code]].
+//
+// The session objection is solvable and was simply never tried: each box's cookie value
+// IS its session_secret.txt (index.js compares them with timingSafeStringEqual), so the
+// secret is read the same way every other peer artifact is and used for one GET. The
+// secret is never printed, never logged and never written anywhere.
+//
+// READ-ONLY, like the rest of this file: one GET per box, nothing regenerated.
+const SERVED = [
+  {
+    page: '/report  (served)',
+    route: '/api/robustness-report',
+    // Presence, not value. The values are already compared above from the artifacts;
+    // what was unmeasured is whether the running code EXPOSES them at all.
+    keys: ['sharpeRobustness', 'report', 'status'],
+    remedy: 'restart the server on the box that is missing it — the code is deployed but ' +
+            'not loaded:\n        tasks/safe_server_restart.ps1 -Execute   ' +
+            '(proof is startedAt moving, never a file hash)',
+  },
+];
+
+function secretLocal() {
+  try { return fs.readFileSync(path.join(ROOT, 'server', 'session_secret.txt'), 'utf8').trim(); }
+  catch (e) { return null; }
+}
+function secretPeer() {
+  const ps = `[Convert]::ToBase64String([IO.File]::ReadAllBytes('${PEER_ROOT}/server/session_secret.txt'))`;
+  const b64 = Buffer.from(ps, 'utf16le').toString('base64');
+  try {
+    const out = execFileSync('ssh', ['-i', KEY, '-o', 'StrictHostKeyChecking=no', PEER,
+      `powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`],
+      { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'ignore'] });
+    return Buffer.from(out.replace(/\s+/g, ''), 'base64').toString('utf8').trim() || null;
+  } catch (e) { return null; }
+}
+
+// curl rather than a node http client, to keep this file synchronous like the rest of it.
+// PowerShell's Invoke-RestMethod is deliberately NOT used from here: passing the cookie
+// through -Headers returned 401 against a route that answers 200 to the identical cookie
+// via curl, which cost an hour and nearly got logged as a VPS auth fault.
+function fetchServed(base, secret) {
+  if (!secret) return { unreadable: 'no session secret' };
+  try {
+    const out = execFileSync('curl', ['-s', '-m', '25', '-H', `Cookie: smartentry_session=${secret}`,
+      base + SERVED[0].route], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+    if (!out || !out.trim()) return { unreadable: 'empty reply' };
+    const j = JSON.parse(out);
+    // An auth failure parses cleanly and would otherwise read as "section absent" —
+    // which would report drift on every run and train you to ignore it.
+    if (j && j.error) return { unreadable: String(j.error).slice(0, 60) };
+    return j;
+  } catch (e) { return { unreadable: String(e.message || e).slice(0, 80) }; }
+}
+
+console.log('  SERVED CHECK — does the running code expose the section, not just hold the file?');
+{
+  const lSec = secretLocal(), pSec = secretPeer();
+  const lRes = fetchServed('http://localhost:3001', lSec);
+  const peerHost = (process.env.VPS_HOST || PEER).replace(/^.*@/, '');
+  const pRes = fetchServed(`http://${peerHost}:3001`, pSec);
+  const servedRows = [];
+  if (lRes.unreadable || pRes.unreadable) {
+    // Unreadable is an unanswered question, never agreement — same rule as above.
+    unreadable++;
+    console.log(`    could not compare: local=${lRes.unreadable || 'ok'}  peer=${pRes.unreadable || 'ok'}`);
+    servedRows.push({ field: SERVED[0].route, local: lRes.unreadable || 'ok', peer: pRes.unreadable || 'ok', same: true, context: true });
+  } else {
+    for (const k of SERVED[0].keys) {
+      const lHas = Object.prototype.hasOwnProperty.call(lRes, k);
+      const pHas = Object.prototype.hasOwnProperty.call(pRes, k);
+      const same = lHas === pHas;
+      if (!same) drifted++;
+      console.log(`  ${same ? ' ' : '*'} ${String(k).padEnd(22)} local ${lHas ? 'SERVED' : 'ABSENT'}      peer ${pHas ? 'SERVED' : 'ABSENT'}`);
+      servedRows.push({ field: k, local: lHas ? 'SERVED' : 'ABSENT', peer: pHas ? 'SERVED' : 'ABSENT', same, context: false });
+    }
+  }
+  report.push({ page: SERVED[0].page, file: SERVED[0].route, remedy: SERVED[0].remedy, rows: servedRows });
+}
+console.log('');
+
   console.log('');
   console.log('  ' + '-'.repeat(76));
   console.log('  legend:  * = drift, must be reconciled   . = differs by design, context only');
@@ -304,6 +415,7 @@ if (JSON_OUT) {
   console.log('  Read-only: nothing was regenerated, copied or changed.');
   console.log('');
 }
+
 
 // A scheduled run's stdout goes nowhere. Without this the nightly task would leave only
 // an exit code behind, and an exit code cannot tell you WHICH field moved - which is the
