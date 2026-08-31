@@ -3219,6 +3219,40 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     // a signal you cannot audit.
     h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi, setup: h4.setup } : null,
     h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi, setup: h1.setup } : null,
+    // Does the HOURLY agree with the direction this setup points? Added 2026-08-31 after
+    // being asked why the system buys when the daily, 4H and 1H are all bearish.
+    //
+    // THIS CHANGES NOTHING. It is a derived label on a payload — no gate, no threshold,
+    // no confidence, no entry, stop, target or size reads it, and nothing is suppressed.
+    // `h1` still gates nothing in this engine: it appears in the confidence assembly
+    // exactly once, as a BONUS at the triple-alignment branch above. CLAUDE.md claimed
+    // for weeks that Daily+4H+1H had to agree; that was never true and is now corrected.
+    //
+    // WHY IT IS WORTH A FIELD. Replayed over 859 entries (tasks/h1_agreement_measure.cjs),
+    // MOMENTUM is the SAME setup on both sides of this label and the sign flips:
+    //   with the H1 trend    517 trades  53.8% win  +0.634R  5/5 folds positive
+    //   against the H1 trend  50 trades  16.0% win  -0.599R  5/5 folds NEGATIVE
+    // That is replay. Publishing the label is what lets the LIVE record accumulate the
+    // same split from real fills, so the question can eventually be settled by trades
+    // this system actually took rather than by a backtest — which is the only way it
+    // ever gets settled properly. Suppressing the cohort instead would have spent the
+    // sample and frozen the evidence at 50 replayed trades forever.
+    //
+    // Read against `signalDir`, NOT `finalSignal`, on purpose: signalDir is the direction
+    // the setup points whether or not it cleared the gate, so this stays populated on the
+    // near-misses too. A label that goes null exactly when the signal does not fire would
+    // answer only the easy half of the question.
+    h1Agree: (() => {
+      if (!h1 || !h1.trend || !signalDir || signalDir === "WAIT") return null;
+      const bullish = h1.trend === "UPTREND" || h1.trend === "STRONG UPTREND";
+      const bearish = h1.trend === "DOWNTREND" || h1.trend === "STRONG DOWNTREND";
+      // MIXED is a real third state, not a missing reading, and must not collapse into
+      // either side — 42 of the 859 replayed entries sat here and they behave like the
+      // AGREE bucket, not the AGAINST one (+0.389R vs -0.435R).
+      if (!bullish && !bearish) return "NEUTRAL";
+      const withTrend = (signalDir === "BUY" && bullish) || (signalDir === "SELL" && bearish);
+      return withTrend ? "AGREE" : "AGAINST";
+    })(),
     // The m15 leg, exposed so the surfaces can show it. `setup` is carried here and NOT
     // on the other legs because M15_MOMENTUM is the only setup that can fire on this
     // timeframe, and a page showing "m15: BUY" without saying which setup produced it
