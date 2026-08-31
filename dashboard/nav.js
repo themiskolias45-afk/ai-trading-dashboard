@@ -36,6 +36,8 @@
       match: ["/strategy", "/dashboard/strategy.html"] },
     { href: "/report", label: "Robustness",
       match: ["/report", "/dashboard/report.html"] },
+    { href: "/lab", label: "Lab",
+      match: ["/lab", "/dashboard/lab.html"] },
     { href: "/dashboard/performance.html", label: "Performance",
       match: ["/dashboard/performance.html", "/performance"] },
     // Static path for the same reason as Fleet Map and Performance: it reads a

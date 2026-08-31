@@ -8570,6 +8570,12 @@ app.get("/system",     (_, res) => res.sendFile(path.join(__dirname, "..", "dash
 app.get("/plan",       (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "plan.html")));
 app.get("/strategy",   (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "strategy.html")));
 app.get("/report",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "report.html")));
+// Strategy Lab. Reading surface only: it renders artifacts tasks/lab_report.cjs has
+// ALREADY written and runs no harness. Deliberately NOT added to
+// PAGES_NO_LOGIN_REQUIRED, so it inherits the session gate like every other page
+// under /dashboard - a candidate assessment names strategies and their measured
+// edge, which is the last thing that should answer to an unauthenticated GET.
+app.get("/lab",        (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "lab.html")));
 // Reading surface only. It composes /api/fleet, /api/gate-health, /api/signals,
 // /api/risk-status and /api/mt5/health — it runs nothing and posts nothing.
 app.get("/architecture", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "architecture.html")));
@@ -10532,6 +10538,77 @@ app.get("/api/robustness-report", (_, res) => {
 // blank. "Not measured" and "measured as zero" are different facts.
 //
 // Read-only, session-gated by the /api/ rule, feedsTheGate false.
+// -- /api/lab-report -- the strategy-lab assessments behind /lab -------------
+// Reads artifacts tasks/lab_report.cjs has already written into
+// tasks/analysis/lab/. It DOES NOT RUN THE LAB, for the same reason
+// /api/robustness-report does not run the Monte Carlo: a page request must never
+// start minutes of CPU on the box that trades.
+//
+// Session-gated by omission - it is in neither API_NO_LOGIN_GET_ONLY nor
+// API_NO_LOGIN_REQUIRED, so the middleware above answers 401 without a cookie.
+// That is the intended state and it must stay that way.
+app.get("/api/lab-report", (req, res) => {
+  const dir = path.join(__dirname, "..", "tasks", "analysis", "lab");
+  try {
+    if (!fs.existsSync(dir)) {
+      return res.json({ status: "NOT RUN", reports: [],
+        detail: "No lab artifacts on this box yet. Generate one with: "
+          + "node tasks/lab_report.cjs --trades <file> --out tasks/analysis/lab/<name>.json",
+        feedsTheGate: false });
+    }
+    const names = fs.readdirSync(dir)
+      .filter(f => f.endsWith(".json"))
+      .map(f => f.slice(0, -5))
+      // SAME filter as the one applied to the query below. A file whose name could
+      // not be requested must not be advertised either, or the page offers a link
+      // that always 400s.
+      .filter(n => /^[A-Za-z0-9_-]+$/.test(n))
+      .sort();
+
+    const want = String(req.query.name || "");
+    if (!want) return res.json({ status: "OK", reports: names, report: null, feedsTheGate: false });
+
+    // PATH TRAVERSAL, CLOSED TWICE. The allowlist regex alone would be enough, but
+    // a second check that the RESOLVED path is still inside the directory costs
+    // nothing and does not depend on getting a regex exactly right. Rejects
+    // "../../server/apikey", any separator, any dot segment, and any absolute path.
+    if (!/^[A-Za-z0-9_-]+$/.test(want)) {
+      return res.status(400).json({ error: "bad report name" });
+    }
+    const file = path.join(dir, want + ".json");
+    if (path.relative(dir, file) !== want + ".json") {
+      return res.status(400).json({ error: "bad report name" });
+    }
+    if (!fs.existsSync(file)) {
+      return res.status(404).json({ error: "no such report", reports: names });
+    }
+
+    const raw = JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, ""));
+    const ms = Date.parse(raw.generatedAt || "");
+    const ageHours = Number.isFinite(ms)
+      ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+    // Staleness is a STATUS, not a number the reader has to derive - the same lesson
+    // /api/robustness-report already carries. `status` stays "OK" on purpose: a stale
+    // assessment is still the best evidence available and must render, loudly marked,
+    // rather than blanking the page that warns about it.
+    const STALE_AFTER_HOURS = 192;
+    res.json({
+      status: "OK",
+      reports: names,
+      name: want,
+      ageHours,
+      stale: ageHours !== null && ageHours > STALE_AFTER_HOURS,
+      staleAfterHours: STALE_AFTER_HOURS,
+      report: raw,
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    // Never 500 a reading surface into a blank page. Name the failure instead.
+    res.json({ status: "ERROR", reports: [], report: null,
+      detail: String(e && e.message ? e.message : e), feedsTheGate: false });
+  }
+});
+
 app.get("/api/measured-evidence", (_, res) => {
   const dir = path.join(__dirname, "..", "tasks", "analysis");
 

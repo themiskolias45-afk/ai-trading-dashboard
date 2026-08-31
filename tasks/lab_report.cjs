@@ -97,6 +97,7 @@ const RULE = {
 const BOOT_SEED  = 20260831;
 const BOOT_PATHS = 2000;
 const CONFIDENCE = 0.95;
+const CURVE_POINTS = 300;   // rendering cap for the equity path in the artifact
 
 // ── argv ────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -388,7 +389,16 @@ function diagnostics(trades) {
 function verdict(rep) {
   const checks = [];
   const oos = rep.outOfSample;
+  // `pass` is TRUE, FALSE, or NULL for UNKNOWN — and the third state is load-bearing.
+  //
+  // The first run of this file on the 469-trade replay returned DIED, and two of its
+  // three failures were only that the input carried no dates, so the concentration
+  // checks had NO DATA rather than bad data. Scoring an absent input as a failure is
+  // the "absent is not zero" defect this project has already been bitten by, and here
+  // it would have condemned a strategy for the shape of its artifact. A check that
+  // could not run must never read the same as a check that ran and failed.
   const push = (name, pass, detail) => checks.push({ name, pass, detail });
+  const UNKNOWN = null;
 
   if (rep.all.n < RULE.MIN_TRADES) {
     return {
@@ -402,31 +412,54 @@ function verdict(rep) {
   push('OOS profit factor >= ' + RULE.MIN_PROFIT_FACTOR,
     oos.profitFactor >= RULE.MIN_PROFIT_FACTOR, round(oos.profitFactor, 3) + ' over ' + oos.n);
   push('prob of loss <= ' + RULE.MAX_PROB_OF_LOSS,
-    rep.bootstrap ? rep.bootstrap.probOfLoss <= RULE.MAX_PROB_OF_LOSS : false,
-    rep.bootstrap ? round(rep.bootstrap.probOfLoss, 3) : 'unavailable');
+    rep.bootstrap ? rep.bootstrap.probOfLoss <= RULE.MAX_PROB_OF_LOSS : UNKNOWN,
+    rep.bootstrap ? round(rep.bootstrap.probOfLoss, 3) : 'no bootstrap — too few trades');
   push('deflated Sharpe >= ' + RULE.MIN_DSR,
-    rep.deflated.deflatedSharpe !== null && rep.deflated.deflatedSharpe >= RULE.MIN_DSR,
+    rep.deflated.deflatedSharpe === null ? UNKNOWN : rep.deflated.deflatedSharpe >= RULE.MIN_DSR,
     rep.deflated.deflatedSharpe === null ? 'undefined' : round(rep.deflated.deflatedSharpe, 4)
       + ' at ' + rep.deflated.trialsDeclared + ' trial(s)');
-  const posFrac = rep.concentration.periods
-    ? rep.concentration.positivePeriods / rep.concentration.periods : 0;
+  // Both concentration checks are UNKNOWN, never FAIL, when the trade rows carried no
+  // usable dates. The remedy is to fix the emitter, not to condemn the strategy.
+  const hasPeriods = rep.concentration.periods > 0;
+  const posFrac = hasPeriods
+    ? rep.concentration.positivePeriods / rep.concentration.periods : null;
   push('positive periods >= ' + (RULE.MIN_POSITIVE_PERIODS * 100) + '%',
-    posFrac >= RULE.MIN_POSITIVE_PERIODS,
-    rep.concentration.positivePeriods + '/' + rep.concentration.periods);
+    hasPeriods ? posFrac >= RULE.MIN_POSITIVE_PERIODS : UNKNOWN,
+    hasPeriods ? (rep.concentration.positivePeriods + '/' + rep.concentration.periods)
+               : 'no dated trades — cannot bucket into periods');
   const share = rep.concentration.bestPeriodShareOfGross;
   push('best period <= ' + (RULE.MAX_TOP_PERIOD_SHARE * 100) + '% of gross profit',
-    share === null ? false : share <= RULE.MAX_TOP_PERIOD_SHARE,
-    share === null ? 'unavailable' : (round(share * 100, 1) + '% from ' + rep.concentration.bestPeriod));
+    share === null ? UNKNOWN : share <= RULE.MAX_TOP_PERIOD_SHARE,
+    share === null ? 'no dated trades — cannot identify a best period'
+                   : (round(share * 100, 1) + '% from ' + rep.concentration.bestPeriod));
   const stressed = rep.costStress['x' + RULE.SURVIVES_COST_MULT];
   push('profit factor >= ' + RULE.MIN_PROFIT_FACTOR + ' at ' + RULE.SURVIVES_COST_MULT + 'x costs',
-    stressed ? stressed.profitFactor >= RULE.MIN_PROFIT_FACTOR : false,
-    stressed ? String(stressed.profitFactor) : 'unavailable');
+    stressed ? stressed.profitFactor >= RULE.MIN_PROFIT_FACTOR : UNKNOWN,
+    stressed ? String(stressed.profitFactor) : 'no cost stress available');
 
-  const failed = checks.filter(c => !c.pass).length;
+  const failed  = checks.filter(c => c.pass === false).length;
+  const unknown = checks.filter(c => c.pass === null).length;
+  const passed  = checks.filter(c => c.pass === true).length;
+
+  // A clean sheet with unresolved checks is NOT a pass. It is an incomplete
+  // assessment, and saying so is the difference between an answer and a guess.
+  let v;
+  if (failed === 0 && unknown === 0)      v = 'SURVIVES';
+  else if (failed === 0)                  v = 'INCONCLUSIVE';
+  else if (failed <= 2)                   v = 'MARGINAL';
+  else                                    v = 'DIED';
+
   return {
-    verdict: failed === 0 ? 'SURVIVES' : (failed <= 2 ? 'MARGINAL' : 'DIED'),
-    checksPassed: checks.length - failed,
+    verdict: v,
+    checksPassed: passed,
+    checksFailed: failed,
+    checksUnknown: unknown,
     checksTotal: checks.length,
+    unresolvedNote: unknown
+      ? unknown + ' check(s) could not be evaluated from this input and are NOT counted '
+        + 'as failures. Fix the input, then re-run — an unknown is a missing measurement, '
+        + 'not a bad one.'
+      : null,
     checks,
   };
 }
@@ -489,6 +522,22 @@ function buildReport(trades, o) {
           : 'holds out of sample so far',
     },
     quarters: q.periods,
+    // The equity path, DOWNSAMPLED for rendering. Cumulative R after each trade,
+    // additive for the reason equity() gives. Capped at CURVE_POINTS by taking every
+    // k-th point and ALWAYS keeping the last, so the line a reader sees ends on the
+    // same number the tiles report — a curve whose endpoint disagrees with the
+    // headline is worse than no curve.
+    equityCurve: (() => {
+      const full = equity(rs).curve;
+      if (full.length <= CURVE_POINTS) return full.map(x => round(x, 3));
+      const step = Math.ceil(full.length / CURVE_POINTS);
+      const out = [];
+      for (let i = 0; i < full.length; i += step) out.push(round(full[i], 3));
+      if (out[out.length - 1] !== round(full[full.length - 1], 3)) {
+        out.push(round(full[full.length - 1], 3));
+      }
+      return out;
+    })(),
     concentration: concentration(clean, q.periods),
     deflated: deflated(rs, o.trials),
     bootstrap: blockBootstrap(rs, BOOT_PATHS, BOOT_SEED),
@@ -599,9 +648,15 @@ function print(rep) {
 
   const v = rep.assessment;
   L('='.repeat(84));
-  L('  VERDICT: ' + v.verdict + (v.checksTotal ? '   (' + v.checksPassed + '/' + v.checksTotal + ' checks passed)' : ''));
+  L('  VERDICT: ' + v.verdict + (v.checksTotal
+    ? '   (' + v.checksPassed + ' passed, ' + (v.checksFailed || 0) + ' failed, '
+      + (v.checksUnknown || 0) + ' unresolved of ' + v.checksTotal + ')' : ''));
   L('='.repeat(84));
-  for (const ch of (v.checks || [])) L('    [' + (ch.pass ? 'PASS' : 'FAIL') + ']  ' + ch.name.padEnd(46) + ch.detail);
+  for (const ch of (v.checks || [])) {
+    const tag = ch.pass === true ? 'PASS' : ch.pass === false ? 'FAIL' : ' ?? ';
+    L('    [' + tag + ']  ' + ch.name.padEnd(46) + ch.detail);
+  }
+  if (v.unresolvedNote) L('    ' + v.unresolvedNote);
   if (v.note) L('    ' + v.note);
   L('');
   L('  Read-only. This report changes no config, no gate, no threshold and no size.');
@@ -663,7 +718,30 @@ function selftest() {
     { label: 't', isFrac: 0.7, costR: 0.05, trials: 1, tradesFile: null });
   ok('under the floor returns TOO FEW TO JUDGE', tiny.assessment.verdict === 'TOO FEW TO JUDGE');
 
-  // 8. The screenshot's own arithmetic, reproduced. A payoff of 1109.25/439.55 needs
+  // 8. UNDATED trades must produce UNKNOWN checks, never failures. This is the
+  //    regression guard for the bug this file shipped with for one run: a healthy
+  //    strategy read DIED purely because its artifact carried no timestamps.
+  //    Built to be comfortably profitable so any FAIL here is the date bug, not edge.
+  const good = [];
+  for (let i = 0; i < 120; i++) good.push(i % 5 === 0 ? -1 : 0.45);
+  const undated = buildReport(good.map(r => ({ r })),
+    { label: 'undated', isFrac: 0.7, costR: 0.01, trials: 1, tradesFile: null });
+  ok('undated input yields UNKNOWN checks', undated.assessment.checksUnknown >= 2,
+    'unknown=' + undated.assessment.checksUnknown);
+  ok('undated input is never DIED on dates alone', undated.assessment.verdict !== 'DIED',
+    'got ' + undated.assessment.verdict);
+  ok('a clean sheet with unknowns is INCONCLUSIVE, not SURVIVES',
+    undated.assessment.checksFailed !== 0 || undated.assessment.verdict === 'INCONCLUSIVE',
+    'failed=' + undated.assessment.checksFailed + ' verdict=' + undated.assessment.verdict);
+  //    The SAME trades WITH dates must resolve those checks.
+  const dated = buildReport(good.map((r, i) => ({
+    r, closeTime: new Date(Date.UTC(2024, Math.floor(i / 10), 1 + (i % 10))).toISOString(),
+  })), { label: 'dated', isFrac: 0.7, costR: 0.01, trials: 1, tradesFile: null });
+  ok('adding dates resolves the concentration checks',
+    dated.assessment.checksUnknown < undated.assessment.checksUnknown,
+    'dated unknown=' + dated.assessment.checksUnknown);
+
+  // 9. The screenshot's own arithmetic, reproduced. A payoff of 1109.25/439.55 needs
   //    28.4% and it had 25.3% — the file must agree with the hand calculation.
   const payoff = 1109.25 / 439.55;
   const be = 1 / (1 + payoff);
