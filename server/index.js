@@ -2969,6 +2969,25 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   // Preliminary signal for macro filter checks
   let finalSignal = confidence >= strategySettings.confidenceThreshold ? signalDir : "WAIT";
 
+  // The confidence this setup assembled from PRICE ALONE, captured before any macro
+  // filter touches it. Published, never read by a branch.
+  //
+  // WHY. `confidence` below is mutated in place by DXY, VIX, Fear & Greed and the
+  // cross-asset block, so the single number this function publishes cannot distinguish
+  // a setup that was always weak from one that cleared the gate and was pushed back
+  // under it. Those are opposite situations — the first is a quiet market, the second is
+  // a macro veto on a setup that fired — and every "why did nothing trade today" answer
+  // has had to guess between them.
+  //
+  // THIS CHANGES NOTHING. It is a `const` snapshot of a value that already exists. No
+  // gate, threshold, entry, stop, target, strength or size reads it, and no branch
+  // anywhere tests it. Deliberately captured BEFORE the DXY filter and therefore before
+  // the Gold neutral-H4 sizing clamp further down as well, so the difference from the
+  // final `confidence` covers every post-assembly adjustment, not only the macro ones.
+  // The delta is left for the reader to subtract rather than published as its own field:
+  // a second number derived from these two is one more thing that can drift out of step.
+  const preMacroConfidence = confidence;
+
   // DXY filter: strong dollar hurts Gold and BTC
   const dxy = priceCache.dxy;
   if (dxy && dxy > 105 && (ticker === "GC=F" || ticker === "BTC-USD") && finalSignal === "BUY") {
@@ -3208,6 +3227,7 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     setup:      finalSetup,
     setupTimeframe: finalSetupTimeframe,
     confidence,
+    preMacroConfidence,
     regime,
     entry:      finalEntry,
     stop:       finalStop,

@@ -100,6 +100,18 @@ const CLAIMS = [
       + "momentumRsiMax nor trendFollowRsiMax on either box, so both fall through to the "
       + "literals in generateSignal.",
     harness: "node tasks/rsi_ceiling_walkforward.cjs [RSI_CEILING_FOLD_MODE=count|time]",
+    // The engine settings this claim was MEASURED against. Declared 2026-08-31, and it
+    // fires immediately — which is the point. The prose above still says "the live engine
+    // keeps 72/68 — strategy_settings.json carries neither momentumRsiMax nor
+    // trendFollowRsiMax on either box". Both were written on 2026-08-28 by
+    // jarvis-daily-unblock-btc and the live engine now runs 88/84, so the single claim on
+    // this board with feedsTheGate true has been describing an engine that no longer
+    // exists, and nothing could see it: recurationCheck only watched sample COUNTS and
+    // this claim declares no sample at all.
+    //
+    // The text is deliberately NOT rewritten here. Re-curation is a human judgement about
+    // what the sweep now says, not a find-and-replace — the board flags it and leaves it.
+    configAtWriting: { momentumRsiMax: 72, trendFollowRsiMax: 68 },
     feedsTheGate: true,
   },
   {
@@ -1006,7 +1018,19 @@ function liveSample() {
     closedFills: null, openPositions: null, sessions: null,
     ledgerResolved: null, minRrResolved: null,
     rangeTradeShortWon: null, rangeTradeShortLost: null,
+    // The live engine CONFIG, for claims that declare configAtWriting. Nested under its
+    // own key so it can never collide with a sampleAtWriting counter name.
+    config: null,
   };
+  // strategy_settings.json is PER-MACHINE and untracked, so this legitimately differs
+  // between the two boxes — and unlike a sample count, that difference MATTERS: a claim
+  // measured under one ceiling does not describe an engine running another. sampleFrom
+  // already names the box the prose was written against, so a config flag on the other
+  // box is a true statement, not noise.
+  try {
+    const settings = JSON.parse(fs.readFileSync(path.join(__dirname, "strategy_settings.json"), "utf8"));
+    if (settings && typeof settings === "object") out.config = settings;
+  } catch (e) { /* config stays null; every sample check still works */ }
   try {
     const journal = JSON.parse(fs.readFileSync(path.join(__dirname, "journal.json"), "utf8"));
     if (Array.isArray(journal)) {
@@ -1043,10 +1067,15 @@ function liveSample() {
 // exists to avoid. 0.5 says "flag when it has moved enough that the conclusion could have
 // changed" — MIN_RR going 86 -> 394 is a 358% move and would fire; a day's growth will not.
 function recurationCheck(claim, live) {
-  if (!claim.sampleAtWriting || !live) return null;
+  // A claim may declare EITHER basis, or both. This guard used to demand sampleAtWriting,
+  // which meant a claim resting on a CONFIG rather than a sample could never be checked —
+  // and rsiceiling, the one claim on this board with feedsTheGate true, is exactly that
+  // shape.
+  if (!live) return null;
+  if (!claim.sampleAtWriting && !claim.configAtWriting) return null;
   const tolerance = Number.isFinite(claim.sampleTolerance) ? claim.sampleTolerance : 0;
   const drifted = [];
-  for (const key of Object.keys(claim.sampleAtWriting)) {
+  for (const key of Object.keys(claim.sampleAtWriting || {})) {
     const wrote = claim.sampleAtWriting[key];
     const now   = live[key];
     if (now === null || now === undefined) continue;
@@ -1068,6 +1097,29 @@ function recurationCheck(claim, live) {
         + (tolerance > 0 ? `, tolerance ${Math.round(tolerance * 100)}%)` : ")"));
     }
   }
+
+  // CONFIG drift. EXACT equality, and in BOTH directions — unlike a sample count, where
+  // only growth matters. A measurement taken at momentumRsiMax 72 describes an engine
+  // running 72; moving to 88 invalidates it, and moving back to 64 invalidates it just
+  // as much. There is no tolerance and there must not be one: a threshold is not a
+  // sample that gets better as it grows.
+  //
+  // An ABSENT live key is skipped rather than treated as a change. strategy_settings.json
+  // carries only the keys someone has overridden; everything else falls through to a
+  // literal in generateSignal, so absent means "unknown from here", not "differs". Reading
+  // that as drift would flag every config claim on a default box permanently.
+  const liveConfig = live.config;
+  if (claim.configAtWriting && liveConfig && typeof liveConfig === "object") {
+    for (const key of Object.keys(claim.configAtWriting)) {
+      const wrote = claim.configAtWriting[key];
+      const now   = liveConfig[key];
+      if (now === null || now === undefined) continue;
+      if (now === wrote) continue;
+      drifted.push(`${key}: MEASURED at ${wrote}, engine is now ${now}`
+        + " (config, not sample — the measurement describes a different engine)");
+    }
+  }
+
   if (!drifted.length) return null;
   return {
     needsRecuration: true,
@@ -1076,9 +1128,11 @@ function recurationCheck(claim, live) {
     // a claim written against one box legitimately reads as drifted on the other. Saying
     // which box turns an item that looks unclearable into one a reader can act on.
     sampleFrom: claim.sampleFrom || null,
-    detail: "This claim's prose quotes a sample that has since moved. It is shown "
-      + "unchanged on purpose — re-curate it by hand in server/evidence_register.js "
-      + "rather than trusting the numbers in it.",
+    detail: "This claim's prose quotes a sample or a config that has since moved. It is "
+      + "shown unchanged on purpose — re-curate it by hand in server/evidence_register.js "
+      + "rather than trusting the numbers in it. A line marked (config, not sample) means "
+      + "the measurement was taken against engine settings that are no longer live, which "
+      + "no amount of further sample growth will fix.",
   };
 }
 
