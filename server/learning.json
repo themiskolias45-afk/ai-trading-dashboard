@@ -9,8 +9,56 @@
       "wins": 0,
       "losses": 1,
       "totalPnl": -99.1
+    },
+    "SQUEEZE_BREAKOUT": {
+      "wins": 0,
+      "losses": 1,
+      "totalPnl": -6.64
+    },
+    "MOMENTUM": {
+      "wins": 2,
+      "losses": 1,
+      "totalPnl": -31.27
     }
   },
-  "sessionCount": 163,
-  "updatedAt": "2026-08-12T10:19:30.486Z"
+  "sessionCount": 369,
+  "updatedAt": "2026-08-31T19:38:32.513Z",
+  "bySymbol": {
+    "XAUUSD": {
+      "MOMENTUM": {
+        "wins": 1,
+        "losses": 1,
+        "totalPnl": -34.21
+      },
+      "RANGE_TRADE_SHORT": {
+        "wins": 0,
+        "losses": 1,
+        "totalPnl": -99.1
+      },
+      "UNATTRIBUTED": {
+        "wins": 1,
+        "losses": 0,
+        "totalPnl": 135.91
+      },
+      "BB_SQUEEZE_WATCH": {
+        "wins": 0,
+        "losses": 1,
+        "totalPnl": -449.72
+      }
+    },
+    "SP500": {
+      "MOMENTUM": {
+        "wins": 1,
+        "losses": 0,
+        "totalPnl": 2.94
+      }
+    },
+    "BTCUSD": {
+      "SQUEEZE_BREAKOUT": {
+        "wins": 0,
+        "losses": 1,
+        "totalPnl": -6.64
+      }
+    }
+  }
 }

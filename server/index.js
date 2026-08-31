@@ -995,20 +995,74 @@ function saveLearning() {
 // inventing one — the trade's P&L is still recorded in the journal either way.
 const NON_SETUP_NAMES = new Set(["WAIT", "NONE", "UNKNOWN"]);
 
-function updateLearning(setup, pnl) {
+// `symbol` is optional ON PURPOSE: entries written before this change carry no
+// symbol, and they must still record exactly as they do today rather than throw or
+// be skipped. A missing symbol costs the per-asset row, never the setup row.
+// Bucket for a closed trade whose SETUP name was lost but whose ASSET is known.
+const UNATTRIBUTED_SETUP = "UNATTRIBUTED";
+
+// Per-asset recorder. Separate function because it must run for trades that
+// setupStats correctly refuses - see the comment in updateLearning below.
+function recordPerAssetOutcome(symbol, setupKey, pnl) {
+  if (!symbol) {
+    console.warn(`[learning] ${setupKey} recorded with NO SYMBOL - per-asset row skipped.`);
+    return;
+  }
+  if (!learning.bySymbol) learning.bySymbol = {};
+  if (!learning.bySymbol[symbol]) learning.bySymbol[symbol] = {};
+  if (!learning.bySymbol[symbol][setupKey]) learning.bySymbol[symbol][setupKey] = { wins: 0, losses: 0, totalPnl: 0 };
+  const a = learning.bySymbol[symbol][setupKey];
+  if (pnl > 0) a.wins++; else a.losses++;
+  a.totalPnl = parseFloat(((a.totalPnl ?? 0) + pnl).toFixed(2));
+}
+
+function updateLearning(setup, pnl, symbol) {
   if (!setup || pnl === null || pnl === undefined) return;
-  if (NON_SETUP_NAMES.has(String(setup).trim().toUpperCase())) {
+  const isNonSetup = NON_SETUP_NAMES.has(String(setup).trim().toUpperCase());
+
+  // THE ASSET TABLE DOES NOT INHERIT THE SETUP TABLE'S EXCLUSION.
+  //
+  // Refusing to attribute a trade to "WAIT" is right for setupStats - WAIT is the
+  // absence of a setup, and a phantom bucket would eventually feed getLearningBoost.
+  // It is WRONG for an asset: XAUUSD is XAUUSD whether or not the label survived.
+  //
+  // Measured 2026-08-31 against the real trade list: Gold's five closed trades are
+  // 2W/3L net -447.12, but excluding the 05/08 +135.91 winner (setup "WAIT") made
+  // the per-asset row read 1W/3L -583.03 - it HID A WIN and made Gold look worse
+  // than it is. Unknown setups go to UNATTRIBUTED so nothing is dropped and nothing
+  // is misattributed.
+  recordPerAssetOutcome(symbol, isNonSetup ? UNATTRIBUTED_SETUP : setup, pnl);
+
+  if (isNonSetup) {
     console.warn(
       `[learning] REFUSED to attribute a closed trade to "${setup}" — that is the ` +
-      `absence of a setup, not a setup. P&L ${pnl} stays in the journal but is not ` +
-      `learned from. A row like this means the setup name was lost upstream.`
+      `absence of a setup, not a setup. P&L ${pnl} stays in the journal and is now ` +
+      `counted against ${symbol || "an unknown asset"} as ${UNATTRIBUTED_SETUP}, but it ` +
+      `is not learned from as a setup. The setup name was lost upstream.`
     );
+    saveLearning();
     return;
   }
   if (!learning.setupStats[setup]) learning.setupStats[setup] = { wins: 0, losses: 0, totalPnl: 0 };
   const s = learning.setupStats[setup];
   if (pnl > 0) s.wins++; else s.losses++;
   s.totalPnl = parseFloat(((s.totalPnl ?? 0) + pnl).toFixed(2));
+
+  // PER-ASSET, alongside and never instead of the pooled row.
+  //
+  // setupStats is keyed by SETUP ONLY, so until now the engine could not answer
+  // "what has this system learned about Gold?" at all - five of the seven closed
+  // trades on this box are XAUUSD and every one of them was pooled into a setup
+  // bucket with the asset discarded at write time. The journal already carries the
+  // symbol; only this function was throwing it away.
+  //
+  // It rides ALONGSIDE for the same reason `shadow` does in /api/learning: mixing
+  // populations is how a paper result becomes indistinguishable from a real fill.
+  //
+  // getLearningBoost() reads learning.setupStats and NOTHING ELSE, so this table
+  // cannot move a confidence score, cannot admit a trade and cannot suppress one.
+  // It is evidence, not a gate. Wiring it into a boost is a separate decision that
+  // needs its own walk-forward.
   saveLearning();
   console.log(`[learning] ${setup} updated — W:${s.wins} L:${s.losses} (boost: ${getLearningBoost(setup)})`);
 }
@@ -6345,7 +6399,7 @@ app.post("/api/trade-closed", (req, res) => {
     // both stores, so learning.json and SQLite can never disagree on a trade.
     const outcome = outcomeKnown ? (trade.pnl > 0 ? "WIN" : "LOSS") : null;
     if (trade.setup && outcomeKnown) {
-      updateLearning(trade.setup, trade.pnl);
+      updateLearning(trade.setup, trade.pnl, trade.symbol);
       const healthAlerts = checkSetupHealth();
       if (healthAlerts.length > 0) {
         riskStatus.setupAlerts = healthAlerts;
@@ -6615,8 +6669,26 @@ app.get("/api/learning", (_, res) => {
     const closedFills = tradeJournal.filter(t =>
       t && t.status === "CLOSED" && typeof t.pnl === "number").length;
 
+    // Per-asset rows, built the same way as `summary` but WITHOUT a boost field,
+    // because nothing boosts off them. Exposed here so this table has a reader on
+    // day one - an unread table is how the near-miss census sat invisible for weeks.
+    const bySymbol = {};
+    for (const [sym, setups] of Object.entries(learning.bySymbol || {})) {
+      bySymbol[sym] = {};
+      for (const [setup, s] of Object.entries(setups)) {
+        const total = s.wins + s.losses;
+        bySymbol[sym][setup] = {
+          wins: s.wins, losses: s.losses, total,
+          winRate: total > 0 ? parseFloat((s.wins / total * 100).toFixed(1)) : null,
+          totalPnl: s.totalPnl,
+          feedsTheGate: false
+        };
+      }
+    }
+
     res.json({
       setupStats: summary,
+      bySymbol,
       sessionCount: learning.sessionCount,
       updatedAt: learning.updatedAt,
       shadow,
