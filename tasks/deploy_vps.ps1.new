@@ -1,3 +1,13 @@
+# SUPERSEDED - DO NOT RUN. The live script is tasks\deploy_vps.ps1.
+#
+# This is an intermediate draft that an auto-commit hook captured (36dd90f) before
+# three fixes landed in the real file: the newline join, the PowerShell comma/plus
+# precedence bug in the probe array, and judging reachability by a BOX= marker rather
+# than ssh's exit code. Run this one and it reports the VPS as unreachable and exits 3.
+#
+# Kept rather than deleted, and marked here rather than in a note, because the point
+# of use is the only place a warning reliably gets read.
+#
 # VPS DEPLOY CHECK - it REFUSES to git-pull, and verifies instead.
 # Usage: .\tasks\deploy_vps.ps1 [-Branch <name>]
 #
