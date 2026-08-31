@@ -125,6 +125,60 @@ function rsiSeries(c, period) {
   return out;
 }
 
+/** Simple moving average. Used as a slow trend filter, where an EMA's recency
+    weighting is not wanted. */
+function smaSeries(values, period) {
+  const out = new Array(values.length).fill(null);
+  if (values.length < period) return out;
+  let run = 0;
+  for (let i = 0; i < values.length; i++) {
+    run += values[i];
+    if (i >= period) run -= values[i - period];
+    if (i >= period - 1) out[i] = run / period;
+  }
+  return out;
+}
+
+/**
+ * Bollinger bands and BANDWIDTH as a fraction of the middle band.
+ * Bandwidth is what defines a 'squeeze', and it is expressed as a fraction rather
+ * than in price units so a threshold means the same thing on Gold at 4400 and on
+ * BTC at 78000 -- a squeeze defined in points is a different strategy per symbol.
+ */
+function bollinger(values, period, mult) {
+  const mid = smaSeries(values, period);
+  const up = new Array(values.length).fill(null);
+  const lo = new Array(values.length).fill(null);
+  const bw = new Array(values.length).fill(null);
+  for (let i = period - 1; i < values.length; i++) {
+    if (mid[i] === null) continue;
+    let sq = 0;
+    for (let k = i - period + 1; k <= i; k++) { const d = values[k] - mid[i]; sq += d * d; }
+    const sd = Math.sqrt(sq / period);
+    up[i] = mid[i] + mult * sd;
+    lo[i] = mid[i] - mult * sd;
+    bw[i] = mid[i] !== 0 ? (up[i] - lo[i]) / Math.abs(mid[i]) : null;
+  }
+  return { mid, up, lo, bw };
+}
+
+/**
+ * Index of the first bar of each UTC day, so a strategy can find a session's
+ * OPENING RANGE without needing a broker calendar. Day boundaries are UTC midnight,
+ * which is a convention rather than a market fact -- stated here because an opening
+ * range measured from the wrong boundary is a different strategy wearing the name.
+ */
+function dayStarts(times) {
+  const starts = new Array(times.length).fill(false);
+  let prev = null;
+  for (let i = 0; i < times.length; i++) {
+    const d = new Date(times[i] * 1000).getUTCDate();
+    if (prev === null || d !== prev) starts[i] = true;
+    prev = d;
+  }
+  return starts;
+}
+
 // ── sessions ────────────────────────────────────────────────────────────────
 // UTC hour windows, [from, to). `any` disables the filter entirely.
 const SESSIONS = {
@@ -204,6 +258,155 @@ const STRATEGIES = {
         if (r[i] === null || r[i - 1] === null) continue;
         if (r[i - 1] <= p.oversold && r[i] > p.oversold) out.push({ i, dir: 'BUY' });
         else if (r[i - 1] >= p.overbought && r[i] < p.overbought) out.push({ i, dir: 'SELL' });
+      }
+      return out;
+    },
+  },
+
+  // ── researched additions, 2026-08-31 ────────────────────────────────────
+  // Each carries the EVIDENCE AND THE CAVEAT from the literature, because a
+  // strategy added on a headline number is how a lab becomes a machine for
+  // rediscovering other people's overfits. Every one of these is famous, and every
+  // one has a published reason to doubt it. That is exactly why they are worth
+  // measuring HERE, on these instruments, with the deflation this lab applies.
+
+  opening_range_breakout: {
+    id: 'opening_range_breakout',
+    label: 'Opening range breakout (ORB)',
+    describe: 'Marks the high and low of the first N bars of each UTC day, then trades '
+      + 'the first break of that range. Zarattini, Barbon and Aziz (SSRN 4729284) report '
+      + 'large returns on US equities 2016-2023.',
+    // CAVEATS, on the record: the published work is on STOCKS IN PLAY (unusual-volume
+    // names on news), not on the index and metal CFDs traded here, so this is a
+    // DIFFERENT POPULATION and the headline numbers do not transfer. An independent
+    // replication found break-even at roughly 2.2 cents/share of slippage and that 76%
+    // of the confirmation filter's P&L came from 2022 alone. The authors also run
+    // day-trading education businesses. Concentration and cost-sensitivity are exactly
+    // what lab_report's concentration block and cost stress are built to expose.
+    params: {
+      rangeBars: { def: 4, min: 1, max: 24, step: 1 },
+    },
+    generate(bars, p) {
+      const n = Math.max(1, Math.round(p.rangeBars));
+      const starts = dayStarts(bars.t);
+      const out = [];
+      let hi = null, lo = null, readyAt = -1, firedToday = false;
+      for (let i = 0; i < bars.n; i++) {
+        if (starts[i]) {
+          // New day: begin a fresh range. The range is not usable until it closes.
+          hi = -Infinity; lo = Infinity; readyAt = i + n; firedToday = false;
+        }
+        if (hi === null) continue;
+        if (i < readyAt) {
+          if (bars.h[i] > hi) hi = bars.h[i];
+          if (bars.l[i] < lo) lo = bars.l[i];
+          continue;
+        }
+        // ONE trade per day, the FIRST break. Taking every break would re-enter the
+        // same move repeatedly and inflate the trade count with correlated rows.
+        if (firedToday || !isFinite(hi) || !isFinite(lo)) continue;
+        if (bars.c[i] > hi) { out.push({ i, dir: 'BUY' }); firedToday = true; }
+        else if (bars.c[i] < lo) { out.push({ i, dir: 'SELL' }); firedToday = true; }
+      }
+      return out;
+    },
+  },
+
+  tsmom: {
+    id: 'tsmom',
+    label: 'Time-series momentum (absolute momentum)',
+    describe: 'Long when the return over the last N bars is positive, short when it is '
+      + 'negative. Moskowitz, Ooi and Pedersen (2012) found 12-month time-series momentum '
+      + 'positive for every one of 58 futures contracts they tested.',
+    // CAVEATS, and they are serious. A bootstrap study of TSMOM on ETFs finds in-sample
+    // Sharpes clustering at only 0.1-0.2 and turning NEGATIVE out of sample for nearly
+    // every parameterisation. Worse for this system specifically: the original paper's
+    // one exception -- the instrument where the trend pattern does not appear -- is the
+    // S&P 500, which is the instrument this engine already loses on. That is recorded
+    // in the vault as time_series_momentum_fails_on_the_sp500. Expect this to fail on
+    // SP500 and treat it as a control rather than a candidate there.
+    params: {
+      lookback: { def: 100, min: 10, max: 500, step: 1 },
+    },
+    generate(bars, p) {
+      const n = Math.max(2, Math.round(p.lookback));
+      const out = [];
+      let last = null;
+      for (let i = n; i < bars.n; i++) {
+        const sign = bars.c[i] > bars.c[i - n] ? 'BUY' : bars.c[i] < bars.c[i - n] ? 'SELL' : null;
+        if (!sign) continue;
+        // Signal only on a FLIP. Emitting every bar the sign holds would produce one
+        // entry per bar, which the executor would mostly skip anyway (one position at
+        // a time) but which makes the signal count meaningless.
+        if (sign !== last) { out.push({ i, dir: sign }); last = sign; }
+      }
+      return out;
+    },
+  },
+
+  bb_squeeze_break: {
+    id: 'bb_squeeze_break',
+    label: 'Bollinger squeeze, then break',
+    describe: 'Waits for bandwidth to compress below a threshold, then trades the first '
+      + 'close outside the band. Tests directly the hypothesis the live engine already '
+      + 'holds in BB_SQUEEZE_WATCH, which is watch-only and has never been measured.',
+    // CAVEAT: the supporting numbers for this one come from vendor and blog backtests,
+    // not peer review, and the reported profit-factor ladder from stacking filters
+    // (1.15 -> 1.52 with RSI -> 1.89 with ADX) is the exact shape of a multiple-testing
+    // artefact: each added filter is another trial, and none of those figures is
+    // deflated for the search that produced it. Treated here as a HYPOTHESIS, and the
+    // reason it is worth running is that the live engine already believes it.
+    params: {
+      period:       { def: 20,   min: 5,    max: 100, step: 1 },
+      mult:         { def: 2.0,  min: 1.0,  max: 4.0, step: 0.5 },
+      squeezePct:   { def: 0.04, min: 0.005, max: 0.25, step: 0.005 },
+    },
+    generate(bars, p) {
+      const period = Math.max(5, Math.round(p.period));
+      const b = bollinger(bars.c, period, p.mult);
+      const out = [];
+      let squeezed = false;
+      for (let i = 1; i < bars.n; i++) {
+        if (b.bw[i] === null) continue;
+        if (b.bw[i] < p.squeezePct) { squeezed = true; continue; }
+        // Only a break that FOLLOWS a squeeze counts. Without that the rule degenerates
+        // into 'trade every band touch', which is a different and much-traded idea.
+        if (!squeezed) continue;
+        if (bars.c[i] > b.up[i]) { out.push({ i, dir: 'BUY' }); squeezed = false; }
+        else if (bars.c[i] < b.lo[i]) { out.push({ i, dir: 'SELL' }); squeezed = false; }
+      }
+      return out;
+    },
+  },
+
+  rsi2_pullback: {
+    id: 'rsi2_pullback',
+    label: 'Connors RSI(2) pullback with a trend filter',
+    describe: 'Buys a very short-term oversold reading ONLY while price is above a long '
+      + 'moving average, and mirrors it short below. Larry Connors popularised the '
+      + '2-period RSI; the trend filter is what separates it from catching knives.',
+    // Distinct from rsi_reversion above, which needs a cross back through the level and
+    // has no trend filter. This is the classic formulation: dips are only bought WITH
+    // the longer trend.
+    // CAVEAT: reported out-of-sample decay 2015-2025 attributed to HFT competition, and
+    // it degrades badly in sustained bear markets -- win rates fell below 60% through
+    // 2008 and March 2020, when buying the dip repeatedly failed. A strategy that works
+    // until it is most needed is a specific and testable weakness; the concentration
+    // and quarter-by-quarter blocks are where that will show.
+    params: {
+      rsiPeriod:  { def: 2,  min: 2,  max: 10,  step: 1 },
+      entry:      { def: 10, min: 2,  max: 30,  step: 1 },
+      trendLen:   { def: 200, min: 20, max: 400, step: 10 },
+    },
+    generate(bars, p) {
+      const r = rsiSeries(bars.c, Math.max(2, Math.round(p.rsiPeriod)));
+      const ma = smaSeries(bars.c, Math.max(20, Math.round(p.trendLen)));
+      const out = [];
+      for (let i = 1; i < bars.n; i++) {
+        if (r[i] === null || ma[i] === null) continue;
+        const up = bars.c[i] > ma[i];
+        if (up && r[i] < p.entry) out.push({ i, dir: 'BUY' });
+        else if (!up && r[i] > (100 - p.entry)) out.push({ i, dir: 'SELL' });
       }
       return out;
     },
@@ -380,6 +583,81 @@ function selftest() {
       maxHoldBars: 0, costR: 0, session: 'any', symbol: 'TEST' });
   ok('a position still open at the end is not a trade', t4.length === 0, 'got ' + t4.length);
 
+  // ---- the researched additions ----------------------------------------
+
+  // SMA is the plain mean over the window.
+  ok('SMA is the window mean', Math.abs(smaSeries([1, 2, 3, 4], 2)[3] - 3.5) < 1e-12);
+
+  // Bollinger bandwidth is a FRACTION, so a flat series has bandwidth 0 and a
+  // threshold means the same thing on Gold at 4400 as on BTC at 78000.
+  const flat = bollinger([10, 10, 10, 10, 10], 3, 2);
+  ok('bandwidth of a flat series is 0', Math.abs(flat.bw[4]) < 1e-12, 'got ' + flat.bw[4]);
+  const scaled = bollinger([100, 102, 98, 101, 99], 3, 2);
+  const scaled10 = bollinger([1000, 1020, 980, 1010, 990], 3, 2);
+  ok('bandwidth is scale-free', Math.abs(scaled.bw[4] - scaled10.bw[4]) < 1e-9,
+    scaled.bw[4] + ' vs ' + scaled10.bw[4]);
+
+  // dayStarts marks the first bar of each UTC day and nothing else.
+  const dayT = [
+    Date.UTC(2024, 0, 1, 22) / 1000, Date.UTC(2024, 0, 1, 23) / 1000,
+    Date.UTC(2024, 0, 2, 0) / 1000,  Date.UTC(2024, 0, 2, 1) / 1000,
+  ];
+  const ds = dayStarts(dayT);
+  ok('dayStarts marks exactly the day boundaries',
+    ds[0] === true && ds[1] === false && ds[2] === true && ds[3] === false,
+    JSON.stringify(ds));
+
+  // ORB fires AT MOST ONCE per day. Two breaks on one day must not become two trades.
+  {
+    const t = [], o = [], h = [], l = [], c = [];
+    // 8 hourly bars inside one UTC day: 2 range bars, then repeated breaks.
+    for (let i = 0; i < 8; i++) {
+      t.push(Date.UTC(2024, 0, 3, i) / 1000);
+      const base = i < 2 ? 100 : 110;      // range 99..101, then break upward
+      o.push(base); h.push(base + 1); l.push(base - 1); c.push(base);
+    }
+    const sigs = STRATEGIES.opening_range_breakout.generate({ t, o, h, l, c, n: 8 }, { rangeBars: 2 });
+    ok('ORB fires at most once per day', sigs.length === 1, 'got ' + sigs.length);
+    ok('ORB fires on the first break, not inside the range', sigs[0] && sigs[0].i === 2,
+      'got i=' + (sigs[0] && sigs[0].i));
+  }
+
+  // tsmom signals only on a FLIP, never once per bar while the sign holds.
+  {
+    const c2 = [];
+    for (let i = 0; i < 40; i++) c2.push(100 + i);          // monotonic rise
+    const bars2 = { t: c2.map((_, i) => 1700000000 + i * 3600), o: c2, h: c2, l: c2, c: c2, n: c2.length };
+    const sig = STRATEGIES.tsmom.generate(bars2, { lookback: 5 });
+    ok('tsmom emits one signal for an unbroken trend', sig.length === 1, 'got ' + sig.length);
+    ok('and it is a BUY', sig[0] && sig[0].dir === 'BUY');
+  }
+
+  // bb_squeeze_break requires a squeeze FIRST. A break with no prior compression is
+  // a different and much-traded idea, and must not fire here.
+  {
+    const c3 = [];
+    for (let i = 0; i < 60; i++) c3.push(100 + (i % 2 ? 8 : -8));   // permanently wide
+    const bars3 = { t: c3.map((_, i) => 1700000000 + i * 3600), o: c3, h: c3, l: c3, c: c3, n: c3.length };
+    const sig3 = STRATEGIES.bb_squeeze_break.generate(bars3, { period: 20, mult: 2, squeezePct: 0.001 });
+    ok('no squeeze means no breakout signal', sig3.length === 0, 'got ' + sig3.length);
+  }
+
+  // rsi2_pullback only buys ABOVE its trend filter. Below it, a low RSI must not buy.
+  {
+    const c4 = [];
+    for (let i = 0; i < 300; i++) c4.push(200 - i * 0.5);     // steady downtrend
+    const bars4 = { t: c4.map((_, i) => 1700000000 + i * 3600), o: c4, h: c4, l: c4, c: c4, n: c4.length };
+    const sig4 = STRATEGIES.rsi2_pullback.generate(bars4, { rsiPeriod: 2, entry: 10, trendLen: 100 });
+    ok('rsi2 never buys below its trend filter', sig4.every(x => x.dir === 'SELL'),
+      'buys=' + sig4.filter(x => x.dir === 'BUY').length);
+  }
+
+  // Every strategy must be well-formed and only ever look backwards.
+  for (const [id, st] of Object.entries(STRATEGIES)) {
+    ok('strategy ' + id + ' declares params and a generate',
+      !!st.params && typeof st.generate === 'function' && typeof st.describe === 'string');
+  }
+
   console.log('');
   console.log(failed === 0 ? '  ALL CHECKS PASSED' : '  ' + failed + ' CHECK(S) FAILED');
   return failed;
@@ -396,5 +674,5 @@ if (require.main === module) {
 module.exports = {
   STRATEGIES, SESSIONS, TIMEFRAMES,
   loadBars, availableSymbols, runStrategy, inSession,
-  emaSeries, atrSeries, rsiSeries, selftest,
+  emaSeries, atrSeries, rsiSeries, smaSeries, bollinger, dayStarts, selftest,
 };

@@ -58,6 +58,13 @@ const PARAM_GRID = {
   ema_cross:      { fast: [10, 20, 50], slow: [50, 100, 200] },
   donchian_break: { lookback: [20, 55, 100] },
   rsi_reversion:  { period: [7, 14], oversold: [25, 30], overbought: [70, 75] },
+  // Researched additions. Grids stay COARSE: every cell is a trial that raises the
+  // deflation bar for its whole family, so a wide grid makes the bar harder to clear
+  // rather than the answer better.
+  opening_range_breakout: { rangeBars: [2, 4, 8] },
+  tsmom:                   { lookback: [50, 100, 200] },
+  bb_squeeze_break:        { period: [20, 50], mult: [2.0], squeezePct: [0.02, 0.04] },
+  rsi2_pullback:           { rsiPeriod: [2], entry: [5, 10], trendLen: [100, 200] },
 };
 
 // Execution variants. The trailing pair is the shape the original screenshot used.
