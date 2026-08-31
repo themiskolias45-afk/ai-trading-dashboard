@@ -51,6 +51,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const os = require('os');
 
 const ROOT = path.join(__dirname, '..');
 const LAB_DIR = path.join(ROOT, 'tasks', 'analysis', 'lab');
@@ -196,7 +197,13 @@ function messageFor(rep, verdict) {
   const plat = verdict.plateau;
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return [
+    // WHICH BOX. Both machines run this loop against their own registry, and their
+    // registries are per-machine by design, so the SAME candidate can clear on both
+    // and alert twice. That is not a bug to suppress -- two independent searches
+    // agreeing is worth more than one -- but an unlabelled duplicate is just
+    // confusing. The box is named so a pair reads as confirmation, not noise.
     '<b>STRATEGY LAB — a candidate cleared the bar</b>',
+    '<i>on ' + esc(os.hostname()) + '</i>',
     '',
     esc(rep.label),
     '',
