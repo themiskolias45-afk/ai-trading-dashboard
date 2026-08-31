@@ -1083,9 +1083,10 @@ const TOOLS = [
       },
     },
     async handler({ full } = {}) {
-      const [now, plan, fleet, signals, risk, work, board, settings] = await fetchParallel([
+      const [now, plan, fleet, signals, risk, work, board, settings, ctx] = await fetchParallel([
         '/api/now', '/api/system-plan', '/api/fleet', '/api/signals',
         '/api/risk-status', '/api/ai-work', '/api/evidence-board', '/api/strategy-settings',
+        '/api/market-context',
       ]);
 
       const gate = typeof settings?.confidenceThreshold === 'number' ? settings.confidenceThreshold : null;
@@ -1094,12 +1095,32 @@ const TOOLS = [
       for (const asset of assets) {
         const s = signals?.[asset];
         if (!s) continue;
+        const zones = ctx?.[asset]?.zones;
+        const zoneProximity = zones ? {
+          nearestAbove: zones.nearestAbove ? {
+            score: zones.nearestAbove.score ?? null,
+            distanceAtr: zones.nearestAbove.distanceAtr ?? null,
+            low: zones.nearestAbove.low ?? null,
+            high: zones.nearestAbove.high ?? null,
+            methods: zones.nearestAbove.methods ?? [],
+          } : null,
+          nearestBelow: zones.nearestBelow ? {
+            score: zones.nearestBelow.score ?? null,
+            distanceAtr: zones.nearestBelow.distanceAtr ?? null,
+            low: zones.nearestBelow.low ?? null,
+            high: zones.nearestBelow.high ?? null,
+            methods: zones.nearestBelow.methods ?? [],
+          } : null,
+          priceInside: zones.priceInside ?? null,
+        } : null;
         signalSummary[asset] = {
           signal: s.signal ?? null,
           confidence: s.confidence ?? null,
           gapToGate: gate !== null && typeof s.confidence === 'number'
             ? Math.max(0, gate - s.confidence) : null,
           setup: s.setup ?? null,
+          h1Agree: s.h1Agree ?? null,
+          zoneProximity,
         };
       }
 
