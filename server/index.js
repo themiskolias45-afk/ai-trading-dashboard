@@ -9480,6 +9480,25 @@ app.get("/api/system-plan", async (_, res) => {
 
     const localGate     = typeof strategySettings?.confidenceThreshold === "number" ? strategySettings.confidenceThreshold : null;
     const localLotSize  = typeof strategySettings?.fixedLotSize === "number" ? strategySettings.fixedLotSize : null;
+    // haltCooldownHours is a bridge env var (HALT_COOLDOWN_HOURS), POSTed on every
+    // risk-status heartbeat inside config{}. A mismatch means one box resumes after
+    // 1 hour and the other stays dark for 48 on the same streak — divergence with
+    // real trading consequences that gate/engine parity cannot catch.
+    const localCooldownHours = (() => {
+      for (const tag of reportingAccounts) {
+        const v = riskStatusByAccount[tag]?.config?.haltCooldownHours;
+        if (typeof v === "number") return v;
+      }
+      return null;
+    })();
+    const peerCooldownHours = (() => {
+      const accounts = peer.accounts || {};
+      for (const tag of Object.keys(accounts)) {
+        const v = accounts[tag]?.config?.haltCooldownHours;
+        if (typeof v === "number") return v;
+      }
+      return null;
+    })();
     const parity        = readParityResult();
     const backup        = readLatestBackup();
     const logDirSizeMB  = readLogDirSizeMB();
@@ -9586,6 +9605,9 @@ app.get("/api/system-plan", async (_, res) => {
               ranAt: parity.ranAt,
               ageHours: parity.ageHours,
             }
+          : null,
+        haltCooldownHours: peer.reachable && localCooldownHours !== null && peerCooldownHours !== null
+          ? { local: localCooldownHours, peer: peerCooldownHours, differs: peerCooldownHours !== localCooldownHours }
           : null,
       },
       parity,

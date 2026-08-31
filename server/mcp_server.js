@@ -1214,13 +1214,14 @@ const TOOLS = [
 
       const peer = fleet && fleet.peer ? fleet.peer : (plan.peer || {});
       const divergence = plan.divergence || {};
-      const gateDiffers = !!(divergence.gate && divergence.gate.differs);
-      const engineDiffers = !!(divergence.engine && divergence.engine.differs);
+      const gateDiffers     = !!(divergence.gate             && divergence.gate.differs);
+      const engineDiffers   = !!(divergence.engine           && divergence.engine.differs);
+      const cooldownDiffers = !!(divergence.haltCooldownHours && divergence.haltCooldownHours.differs);
 
       let verdict;
       if (!peer.configured)            verdict = 'SINGLE BOX — no peer configured, everything below is one machine';
       else if (!peer.reachable)        verdict = 'PEER UNREACHABLE — the other box did not answer';
-      else if (gateDiffers || engineDiffers) verdict = 'FLEET DIVERGES — the two boxes do not agree';
+      else if (gateDiffers || engineDiffers || cooldownDiffers) verdict = 'FLEET DIVERGES — the two boxes do not agree';
       else                             verdict = 'FLEET AGREES';
 
       const summary = {
