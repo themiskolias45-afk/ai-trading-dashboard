@@ -5498,6 +5498,24 @@ app.get("/api/broker-specs", (req, res) => {
       ageMs:         spec.updatedAt ? now - Date.parse(spec.updatedAt) : null,
       effectiveLots,
       flooredUpToMin,
+      // MONEY PER POINT AT THE LOT THIS SYMBOL WILL ACTUALLY TRADE.
+      //
+      // Added because a LOT COUNT IS NOT A RISK, and reading it as one produced a
+      // confident and completely wrong conclusion on 2026-08-31: SP500 is floored to
+      // 0.1 lots against a fixedLotSize of 0.02, which looks like 5x the size of Gold
+      // and BTC. It is the OPPOSITE. SP500 carries 0.738 per point per lot and Gold
+      // carries 73.84 -- a 100x contract-size difference -- so on the positions open
+      // that day the real money at risk was Gold 160.86, BTC 64.48 and SP500 10.59.
+      // The instrument with FIVE TIMES THE LOTS had ONE FIFTEENTH THE RISK.
+      //
+      // So the number a reader needs is this one, not the lot. Multiply by the stop
+      // distance in points to get the money at risk on any given trade. Serving it
+      // means nobody has to rediscover the contract size to size a position, and the
+      // dispersion that fixed-lot sizing creates is visible rather than inferred.
+      riskPerPointAtEffectiveLots: (Number.isFinite(effectiveLots)
+        && Number.isFinite(Number(spec.valuePerPoint)))
+        ? Number((effectiveLots * Number(spec.valuePerPoint)).toFixed(6))
+        : null,
       partialClose:  partial,
     };
   }
@@ -5512,6 +5530,18 @@ app.get("/api/broker-specs", (req, res) => {
     symbols,
     // Absent specs are a bridge that has not pushed yet, not a broker without
     // minimums. Say which, so the page shows "unknown" instead of inventing 0.01.
+    // The spread between the cheapest and dearest point, at the lots each symbol will
+    // really trade. This is what "fixed lot size" actually costs in comparability: one
+    // setting, wildly different money per instrument.
+    riskDispersion: (() => {
+      const vals = Object.values(symbols)
+        .map(x => x.riskPerPointAtEffectiveLots)
+        .filter(v => Number.isFinite(v) && v > 0);
+      if (vals.length < 2) return null;
+      const lo = Math.min(...vals), hi = Math.max(...vals);
+      return { lowest: lo, highest: hi, ratio: Number((hi / lo).toFixed(2)),
+        note: "money per point at the effective lot. A fixed LOT is not a fixed RISK." };
+    })(),
     note: available
       ? "Reported by the bridge on its candle push (~60s). partialClose mirrors mt5_bridge.py:2133-2135."
       : "No bridge has pushed contract specs yet — nothing here is known, and none of it is guessed.",
