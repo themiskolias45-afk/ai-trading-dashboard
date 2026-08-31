@@ -472,6 +472,58 @@ function buildReport(trades, o) {
 
   // IN-SAMPLE / OUT-OF-SAMPLE split is CHRONOLOGICAL, never random. A random split
   // lets the model see the future, which is the most common way a backtest lies.
+  // ZERO TRADES IS AN ANSWER, NOT A CRASH.
+  //
+  // A parameter combination that never fires is a completely normal outcome of a
+  // sweep -- a squeeze threshold nothing reaches, a lookback longer than the history,
+  // an RSI band nothing crosses. coreStats returns null for an empty series, and
+  // `inS` and `oos` below were already guarded with `|| { n: 0 }` while `all` was
+  // not. That inconsistency killed 28 of 1,310 candidates in the first full NAS100
+  // sweep with "Cannot read properties of null (reading n)", and every one of them
+  // would have been a clean "this fires nothing" result.
+  //
+  // Returned early rather than patched downstream, because an empty series also
+  // makes moments() divide by zero and would poison the deflation maths with NaN
+  // rather than throwing where it can be seen.
+  if (!clean.length) {
+    return {
+      label: o.label,
+      generatedAt: new Date().toISOString(),
+      rule: RULE,
+      provenance: {
+        tradesFile: o.tradesFile, rowsRead: trades.length, rowsDropped: dropped,
+        unit: "R (risk multiples) — NOT points, NOT currency",
+        splitMethod: "chronological", inSampleFraction: o.isFrac,
+        costIncrementR: o.costR, trialsDeclared: o.trials, undatedTrades: 0,
+      },
+      denominators: { all: 0, inSample: 0, outOfSample: 0, quarters: 0,
+        note: "This candidate produced NO trades. Every figure below is empty for that "
+            + "reason and not because a measurement failed." },
+      all: { n: 0, wins: 0, losses: 0 },
+      inSample: { n: 0 }, outOfSample: { n: 0 },
+      degradation: { reading: "no trades — this rule never fired on these bars" },
+      quarters: [], equityCurve: [0],
+      concentration: { periods: 0, positivePeriods: 0, bestPeriod: null,
+        bestPeriodR: null, bestPeriodShareOfGross: null, totalExcludingBestR: 0,
+        top5pctTradeShareOfGross: null, grossProfitR: 0 },
+      deflated: { trialsDeclared: o.trials, sharpePerTrade: null, psr: null,
+        deflatedSharpe: null, benchmarkSharpeFromTrials: null,
+        minTrackRecordLength: null, tradesShortOfMinTrl: null },
+      bootstrap: null,
+      costStress: {},
+      diagnostics: { exitReasonCoverage: "0/0", exitReasons: null,
+        holdHoursCoverage: "0/0", holdHoursMedian: null, holdHoursP90: null,
+        maeCoverage: "0/0", maeMedianR: null },
+      assessment: {
+        verdict: "NO TRADES",
+        checksPassed: 0, checksFailed: 0, checksUnknown: 0, checksTotal: 0, checks: [],
+        note: "This rule and parameter set produced no trades at all on these bars. "
+            + "That is a fact about the candidate, not a failure of the harness.",
+      },
+      feedsTheGate: false,
+    };
+  }
+
   const cut = Math.floor(clean.length * o.isFrac);
   const isTrades = clean.slice(0, cut);
   const oosTrades = clean.slice(cut);
@@ -717,6 +769,26 @@ function selftest() {
   const tiny = buildReport(Array.from({ length: 5 }, () => ({ r: 1 })),
     { label: 't', isFrac: 0.7, costR: 0.05, trials: 1, tradesFile: null });
   ok('under the floor returns TOO FEW TO JUDGE', tiny.assessment.verdict === 'TOO FEW TO JUDGE');
+
+  // 7b. ZERO trades must return an honest report, never throw. 28 of 1,310 NAS100
+  //     candidates died on this before it was guarded.
+  {
+    let threw = null, empty = null;
+    try {
+      empty = buildReport([], { label: "none", isFrac: 0.7, costR: 0.05, trials: 1, tradesFile: null });
+    } catch (e) { threw = e; }
+    ok("zero trades does not throw", threw === null, threw && threw.message);
+    ok("zero trades reports NO TRADES", empty && empty.assessment.verdict === "NO TRADES");
+    ok("zero trades has n=0 everywhere", empty && empty.denominators.all === 0
+      && empty.all.n === 0 && empty.outOfSample.n === 0);
+    ok("zero trades leaves the deflation null, not NaN",
+      empty && empty.deflated.deflatedSharpe === null);
+    // A row with an unusable r must be DROPPED and still not throw.
+    let threw2 = null;
+    try { buildReport([{ r: "abc" }, { r: null }], { label: "x", isFrac: 0.7, costR: 0.05, trials: 1, tradesFile: null }); }
+    catch (e) { threw2 = e; }
+    ok("rows with unusable r are dropped without throwing", threw2 === null, threw2 && threw2.message);
+  }
 
   // 8. UNDATED trades must produce UNKNOWN checks, never failures. This is the
   //    regression guard for the bug this file shipped with for one run: a healthy
