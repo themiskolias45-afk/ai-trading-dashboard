@@ -7346,14 +7346,14 @@ cron.schedule("0 21 * * 0", async () => {
   }
   // A setup is only worth a "tighten or disable" recommendation if it is actually
   // LOSING. The loop below is an argmin over whatever cleared the sample gate, and an
-  // argmin of one element is that element — so when exactly one setup has >= 3 closed
+  // argmin of one element is that element - so when exactly one setup has >= 3 closed
   // trades it is nominated as "worst" no matter how well it did, beating the sentinel
   // worstWR = 1 trivially.
   //
   // Not hypothetical: tasks/improvement_proposal.json generated 2026-08-30T20:00:00Z
   // read "MOMENTUM has 66.7% WR - review and tighten entry criteria or disable" while
   // MOMENTUM was the only bucket with a POSITIVE win rate. BB_SQUEEZE_WATCH (0%,
-  // -$449.72), RANGE_TRADE_SHORT (0%, -$99.10) and SQUEEZE_BREAKOUT (0%, -$6.64) each
+  // -449.72), RANGE_TRADE_SHORT (0%, -99.10) and SQUEEZE_BREAKOUT (0%, -6.64) each
   // held one closed trade, so all three `continue` and went unmentioned. The system
   // recommended disabling its best setup and stayed silent about its three worst, on
   // /api/checksystem, which is the operator's main status surface.
