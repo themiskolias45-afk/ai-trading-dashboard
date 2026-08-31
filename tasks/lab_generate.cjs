@@ -55,16 +55,38 @@ const SESSIONS_USED = ['any', 'london', 'ny'];
 
 // Parameter grids per strategy, coarse and declared.
 const PARAM_GRID = {
-  ema_cross:      { fast: [10, 20, 50], slow: [50, 100, 200] },
-  donchian_break: { lookback: [20, 55, 100] },
-  rsi_reversion:  { period: [7, 14], oversold: [25, 30], overbought: [70, 75] },
-  // Researched additions. Grids stay COARSE: every cell is a trial that raises the
-  // deflation bar for its whole family, so a wide grid makes the bar harder to clear
-  // rather than the answer better.
-  opening_range_breakout: { rangeBars: [2, 4, 8] },
-  tsmom:                   { lookback: [50, 100, 200] },
-  bb_squeeze_break:        { period: [20, 50], mult: [2.0], squeezePct: [0.02, 0.04] },
-  rsi2_pullback:           { rsiPeriod: [2], entry: [5, 10], trendLen: [100, 200] },
+  // EVERY STRATEGY MUST HAVE AT LEAST ONE AXIS WITH >= lab_promote BAR.MIN_NEIGHBOURS
+  // DISTINCT VALUES, or its candidates can never satisfy the plateau requirement and
+  // are unpromotable in principle.
+  //
+  // This was NOT true when the grids were first written: MIN_NEIGHBOURS was 4 and not
+  // one axis in the entire lab had 4 values. The promotion bar was unclearable, the
+  // 24/7 loop would have searched forever and promoted nothing, and it would have
+  // read as "no strategy is good enough" rather than "the gate is impossible" -- the
+  // same shape as every other check in this project that could not fire and
+  // therefore looked clean.
+  //
+  // Only ONE axis per strategy needs the width, because plateauEvidence picks the
+  // BEST axis rather than requiring all of them. That is the cheap fix: widening every
+  // axis would multiply the space and raise the deflation bar for no extra evidence.
+  // The widened axis is marked <-- PLATEAU AXIS on each line. Guarded by a test in
+  // lab_generate --selftest so it cannot silently regress.
+
+  ema_cross:      { fast: [10, 20, 35, 50],            //  <-- PLATEAU AXIS
+                    slow: [50, 100, 200] },
+  donchian_break: { lookback: [20, 40, 55, 100] },     //  <-- PLATEAU AXIS
+  rsi_reversion:  { period: [5, 7, 10, 14],            //  <-- PLATEAU AXIS
+                    oversold: [25, 30], overbought: [70, 75] },
+
+  // Researched additions. Grids stay COARSE otherwise: every cell is a trial that
+  // raises the deflation bar for its whole family, so a wide grid makes the bar
+  // harder to clear rather than the answer better.
+  opening_range_breakout: { rangeBars: [1, 2, 4, 8] }, //  <-- PLATEAU AXIS
+  tsmom:                  { lookback: [25, 50, 100, 200] }, // <-- PLATEAU AXIS
+  bb_squeeze_break:       { period: [20, 50], mult: [2.0],
+                            squeezePct: [0.01, 0.02, 0.04, 0.08] }, // <-- PLATEAU AXIS
+  rsi2_pullback:          { rsiPeriod: [2], entry: [3, 5, 10, 15], // <-- PLATEAU AXIS
+                            trendLen: [100, 200] },
 };
 
 // Execution variants. The trailing pair is the shape the original screenshot used.
@@ -214,6 +236,30 @@ function selftest() {
   // And nothing already run may reappear.
   const seen = seenHashes();
   ok('a batch never re-queues a known spec', b.every(s => !seen.has(registry.specHash(s))));
+
+  // THE REACHABILITY GUARD. Every strategy must have at least one axis wide enough
+  // to satisfy the promotion bar's plateau requirement. Without this the bar is
+  // unclearable in principle and the whole 24/7 loop is decoration -- which is
+  // exactly what shipped the first time, on every single axis.
+  {
+    let minNeighbours = 4;
+    try { minNeighbours = require(path.join(__dirname, 'lab_promote.cjs')).BAR.MIN_NEIGHBOURS; }
+    catch (e) { /* fall back to the documented default */ }
+    const fams = enumerateSpace();
+    const perStrat = {};
+    for (const [key, specs] of fams) {
+      const strat = key.split('|')[0];
+      if (perStrat[strat] || !specs.length) continue;
+      const axes = {};
+      for (const p of Object.keys(specs[0].params)) axes[p] = new Set(specs.map(x => x.params[p]));
+      perStrat[strat] = axes;
+    }
+    for (const [strat, axes] of Object.entries(perStrat)) {
+      const widest = Math.max(...Object.values(axes).map(v => v.size));
+      ok(strat + ' has a plateau axis (>= ' + minNeighbours + ' values)',
+        widest >= minNeighbours, 'widest axis has ' + widest);
+    }
+  }
 
   console.log('');
   console.log(failed === 0 ? '  ALL CHECKS PASSED' : '  ' + failed + ' CHECK(S) FAILED');

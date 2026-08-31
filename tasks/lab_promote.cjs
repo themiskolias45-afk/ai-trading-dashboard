@@ -57,6 +57,8 @@ const ROOT = path.join(__dirname, '..');
 const LAB_DIR = path.join(ROOT, 'tasks', 'analysis', 'lab');
 const STAGED = path.join(LAB_DIR, '_promotable.jsonl');
 const registry = require(path.join(__dirname, 'lab_registry.cjs'));
+const { probabilisticSharpe, expectedMaxSharpe } =
+  require(path.join(__dirname, 'sharpe_robustness.cjs'));
 
 // ── the bar ─────────────────────────────────────────────────────────────────
 const BAR = {
@@ -101,6 +103,45 @@ function plateauEvidence(spec) {
   return best;
 }
 
+/**
+ * RE-DEFLATE AT JUDGEMENT TIME, not at run time.
+ *
+ * An artifact freezes `trialsDeclared` at the moment it ran. A candidate assessed
+ * when its family held ONE spec keeps a deflated Sharpe computed against one trial
+ * forever -- while the 24/7 generator goes on adding siblings to that same family.
+ * The earliest candidate would therefore always carry the most generous DSR, purely
+ * because it was measured first, and would clear a bar its later siblings could not.
+ *
+ * Caught on the first candidate that ever reached the plateau check: it read
+ * 'deflated Sharpe >= 0.95 at 1 trials' when its family already held four.
+ *
+ * So the bar is applied to a DSR recomputed against the CURRENT trial count. The
+ * stored figure is kept and reported beside it, because the gap between them is
+ * itself the cost of the search and is worth seeing. The moments needed
+ * (Sharpe/trade, n, skew, kurtosis) are already in the artifact, so nothing has to
+ * be re-run to do this.
+ */
+function redeflate(report) {
+  const all = report.all || {};
+  const d = report.deflated || {};
+  const stored = typeof d.deflatedSharpe === 'number' ? d.deflatedSharpe : null;
+  const sr = all.sharpePerTrade, T = all.n;
+  if (!report.spec || typeof sr !== 'number' || !(T > 2)
+      || typeof all.skew !== 'number' || typeof all.kurt !== 'number') {
+    return { stored, current: stored, trials: d.trialsDeclared || 1, recomputed: false };
+  }
+  let trials;
+  try { trials = registry.trialsFor(report.spec); }
+  catch (e) { return { stored, current: stored, trials: d.trialsDeclared || 1, recomputed: false }; }
+  // Same null variance convention as sharpe_robustness.cjs and lab_report.cjs: 1/(T-1).
+  // Three surfaces agreeing is the point; a fourth convention here would put the same
+  // population at two different DSRs again.
+  const varTrial = 1 / Math.max(1, T - 1);
+  const sr0 = trials > 1 ? expectedMaxSharpe(trials, varTrial) : 0;
+  const current = probabilisticSharpe(sr, sr0, T, all.skew, all.kurt);
+  return { stored, current, trials, recomputed: true };
+}
+
 /** Apply the bar. Returns { pass, reasons } — reasons are listed either way. */
 function judge(report) {
   const reasons = [];
@@ -119,9 +160,15 @@ function judge(report) {
     'no unresolved checks (got ' + (a.checksUnknown || 0) + ')') && pass;
   pass = push((all.n || 0) >= BAR.MIN_TRADES,
     'trades >= ' + BAR.MIN_TRADES + ' (got ' + (all.n || 0) + ')') && pass;
-  pass = push(typeof d.deflatedSharpe === 'number' && d.deflatedSharpe >= BAR.MIN_DSR,
-    'deflated Sharpe >= ' + BAR.MIN_DSR + ' at ' + d.trialsDeclared + ' trials (got '
-      + (typeof d.deflatedSharpe === 'number' ? d.deflatedSharpe.toFixed(4) : 'n/a') + ')') && pass;
+  const rd = redeflate(report);
+  pass = push(typeof rd.current === 'number' && rd.current >= BAR.MIN_DSR,
+    'deflated Sharpe >= ' + BAR.MIN_DSR + ' at ' + rd.trials + ' trials NOW (got '
+      + (typeof rd.current === 'number' ? rd.current.toFixed(4) : 'n/a')
+      + (rd.recomputed && rd.stored !== null && Math.abs(rd.stored - rd.current) > 1e-9
+          ? '; artifact stored ' + rd.stored.toFixed(4) + ' at ' + (d.trialsDeclared || 1)
+            + ' trials, superseded'
+          : '')
+      + ')') && pass;
   pass = push(typeof oos.expectancyR === 'number' && oos.expectancyR > BAR.MIN_OOS_EXPECTANCY_R,
     'OOS expectancy > 0 (got ' + (typeof oos.expectancyR === 'number' ? oos.expectancyR.toFixed(4) : 'n/a') + ')') && pass;
   pass = push(cost2 && typeof cost2.profitFactor === 'number' && cost2.profitFactor >= BAR.MIN_PF_AT_2X_COST,
@@ -134,7 +181,7 @@ function judge(report) {
       + (plat ? (plat.positive + '/' + plat.evaluated + ' on ' + plat.parameter) : 'too few neighbours run yet')
       + ')') && pass;
 
-  return { pass, reasons, plateau: plat };
+  return { pass, reasons, plateau: plat, deflation: rd };
 }
 
 // ── Telegram ────────────────────────────────────────────────────────────────
@@ -210,7 +257,8 @@ function messageFor(rep, verdict) {
     'trades        ' + all.n + '   (' + (rep.barsUsed ? rep.barsUsed.from + ' .. ' + rep.barsUsed.to : '') + ')',
     'expectancy    ' + (all.expectancyR || 0).toFixed(4) + 'R      OOS ' + (oos.expectancyR || 0).toFixed(4) + 'R',
     'profit factor ' + (all.profitFactor || 0).toFixed(3),
-    'deflated SR   ' + ((d.deflatedSharpe || 0) * 100).toFixed(1) + '%  at ' + d.trialsDeclared + ' trials',
+    'deflated SR   ' + (((verdict.deflation && verdict.deflation.current) || 0) * 100).toFixed(1)
+      + '%  at ' + ((verdict.deflation && verdict.deflation.trials) || 1) + ' trials',
     'plateau       ' + (plat ? plat.positive + '/' + plat.evaluated + ' neighbours positive on ' + plat.parameter : 'n/a'),
     '',
     '<b>NOTHING HAS BEEN CHANGED.</b> This is staged for your review only — no gate,',
