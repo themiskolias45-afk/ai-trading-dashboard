@@ -8234,6 +8234,48 @@ const AI_FILTER_CLI_ENABLED = process.env.AI_FILTER_CLI_FALLBACK !== "0";
 // Raw text from the CLI, or null if that rail is unavailable too. Shared by the
 // trade filter and by the client-level fallback that covers the other nine call
 // sites — see wrapAnthropicWithCliFallback.
+// Which `claude` to spawn. Resolving by PATH alone is not enough: when the server runs
+// as NT AUTHORITY\SYSTEM (scheduled-task context) Administrator's npm bin dir is not on
+// PATH, which is exactly how this rail died on 2026-08-31.
+//
+// But a HARDCODED Administrator path is wrong on the laptop, whose server runs as
+// THEMIS\User and has no C:\Users\Administrator at all. It would spawn a path that does
+// not exist, return null, and move every CLI-first call quietly back onto the API with
+// nothing on a screen saying so - the same shape as a setting with no reader.
+//
+// So take the first candidate that ACTUALLY EXISTS on this box, and say which one once.
+let _resolvedClaudeCliPath = null;
+function resolveClaudeCliPath() {
+  if (_resolvedClaudeCliPath) return _resolvedClaudeCliPath;
+
+  // An explicit override wins even when it does not exist, so a wrong value fails
+  // visibly instead of being silently ignored.
+  if (process.env.CLAUDE_CLI_PATH) {
+    _resolvedClaudeCliPath = process.env.CLAUDE_CLI_PATH;
+    console.log(`[claude-cli] using CLAUDE_CLI_PATH=${_resolvedClaudeCliPath}`);
+    return _resolvedClaudeCliPath;
+  }
+
+  const candidates = [
+    // Whichever user owns this process - correct on both boxes without configuration.
+    path.join(os.homedir(), "AppData", "Roaming", "npm", "claude.cmd"),
+    // Kept from 103f3f7: covers the SYSTEM case, where homedir is systemprofile.
+    "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\claude.cmd",
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) { _resolvedClaudeCliPath = candidate; break; }
+    } catch (e) { /* unreadable candidate is just a miss */ }
+  }
+
+  // Last resort is the bare name, i.e. the original PATH lookup - correct whenever the
+  // server runs as a user who has the CLI on PATH. Worst case here is exactly the
+  // behaviour this function replaced.
+  if (!_resolvedClaudeCliPath) _resolvedClaudeCliPath = "claude";
+  console.log(`[claude-cli] resolved to ${_resolvedClaudeCliPath}`);
+  return _resolvedClaudeCliPath;
+}
+
 function runClaudeCli(prompt, timeoutMs) {
   return new Promise((resolve) => {
     if (!AI_FILTER_CLI_ENABLED || process.platform !== "win32") return resolve(null);
@@ -8241,11 +8283,7 @@ function runClaudeCli(prompt, timeoutMs) {
     let settled = false;
     const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
 
-    // Absolute path so the CLI rail works when the server runs as NT AUTHORITY\SYSTEM
-    // (scheduled-task context), where Administrator's npm bin dir is not in PATH.
-    // Override via CLAUDE_CLI_PATH env var if Claude is installed elsewhere.
-    const claudeCliPath = process.env.CLAUDE_CLI_PATH
-      || "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\claude.cmd";
+    const claudeCliPath = resolveClaudeCliPath();
 
     let child;
     try {
