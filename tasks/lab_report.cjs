@@ -305,10 +305,15 @@ function deflated(rs, trials) {
   const sr = m.sd > 0 ? m.mean / m.sd : 0;
   const T = rs.length;
   const psr = probabilisticSharpe(sr, 0, T, m.skew, m.kurt);
-  // Under the null that no trial has an edge, the trial Sharpes vary; their variance
-  // is approximated by the observed per-trade Sharpe variance, 1/T being the standard
-  // null variance of a Sharpe estimate over T observations.
-  const varTrial = 1 / Math.max(1, T);
+  // Null variance of a Sharpe estimate over T observations.
+  //
+  // 1/(T-1), NOT 1/T, and the distinction is not pedantry: tasks/sharpe_robustness.cjs
+  // already uses 1/(m.n - 1) and /report renders its number. When this file first used
+  // 1/T the two surfaces reported the SAME 469-trade population as DSR 36.08% here and
+  // 35.99% there. Small, and exactly the defect this codebase names as its most
+  // repeated: a number kept in two places drifts, and then two pages disagree about
+  // whether a strategy has an edge. Matched deliberately so they cannot.
+  const varTrial = 1 / Math.max(1, T - 1);
   const sr0 = trials > 1 ? expectedMaxSharpe(trials, varTrial) : 0;
   const dsr = probabilisticSharpe(sr, sr0, T, m.skew, m.kurt);
   const minTrl = minTrackRecordLength(sr, sr0, m.skew, m.kurt, CONFIDENCE);

@@ -187,6 +187,26 @@ function selftest() {
   process.exit(fail ? 1 : 0);
 }
 
+// ── CLI BOUNDARY ─────────────────────────────────
+// EVERYTHING BELOW RUNS ONLY WHEN THIS FILE IS THE ENTRY POINT.
+//
+// It used to run on `require`, and that is not a style point. The block below reads
+// tasks/analysis/montecarlo-latest.json and calls process.exit(1) when it is missing
+// or carries no perTradeRSeries -- so ANY module that required this one to reuse its
+// audited PSR/DSR maths inherited a hard exit, a printed report, and a file write if
+// --out happened to be in argv. module.exports sat on the LAST line, after all of it.
+//
+// Found 2026-08-31 by tasks/lab_report.cjs, whose own --selftest never ran: requiring
+// this file consumed the flag, ran THIS selftest and exited 0, so the new file looked
+// like it had passed 13 checks it never executed. A test that silently runs a
+// different test is worse than no test.
+//
+// The exports are hoisted above the boundary so a consumer gets the functions and
+// nothing else. Running this file directly is completely unchanged.
+module.exports = { normCdf, normInv, moments, probabilisticSharpe, minTrackRecordLength, expectedMaxSharpe };
+
+if (require.main !== module) return;
+
 if (has('--selftest')) selftest();
 
 // ── the trades ──────────────────────────────────────────────────────────────
@@ -273,4 +293,4 @@ else {
 const out = opt('--out', null);
 if (out) { fs.writeFileSync(out, JSON.stringify(result, null, 2)); console.log(out); }
 
-module.exports = { normCdf, normInv, moments, probabilisticSharpe, minTrackRecordLength, expectedMaxSharpe };
+// (exports are declared above the CLI boundary)
