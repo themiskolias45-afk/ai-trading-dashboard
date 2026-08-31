@@ -8241,11 +8241,17 @@ function runClaudeCli(prompt, timeoutMs) {
     let settled = false;
     const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
 
+    // Absolute path so the CLI rail works when the server runs as NT AUTHORITY\SYSTEM
+    // (scheduled-task context), where Administrator's npm bin dir is not in PATH.
+    // Override via CLAUDE_CLI_PATH env var if Claude is installed elsewhere.
+    const claudeCliPath = process.env.CLAUDE_CLI_PATH
+      || "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\claude.cmd";
+
     let child;
     try {
       child = require("child_process").spawn(
         process.env.COMSPEC || "cmd.exe",
-        ["/c", "claude", "-p", "--output-format", "text"],
+        ["/c", claudeCliPath, "-p", "--output-format", "text"],
         {
           windowsHide: true,
           env: { ...process.env, ANTHROPIC_API_KEY: "" },
