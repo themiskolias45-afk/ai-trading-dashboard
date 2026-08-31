@@ -356,8 +356,29 @@ function updateLearning(setup, outcome, pnl) {
     return;
   }
 
-  const winDelta  = outcome === 'WIN'  ? 1 : 0;
-  const lossDelta = outcome === 'LOSS' ? 1 : 0;
+  // A P&L with NO counter is how BB_SQUEEZE_WATCH ended up as 0W/0L carrying
+  // -449.72 on the laptop. These deltas were exact string comparisons, so ANY
+  // outcome that was not precisely 'WIN' or 'LOSS' - a lowercase 'win', a null, an
+  // exit reason like 'STOP' - left BOTH at 0 while total_pnl still moved, and
+  // nothing said a word. The row then reads as a setup that has never traded while
+  // carrying a real result, and the two learning stores silently disagree.
+  //
+  // Normalise first, so a lowercase outcome is COUNTED rather than dropped, then
+  // refuse anything unrecognised - loudly, exactly as the NON_SETUP_NAMES guard
+  // above does. The trade still lives in the journal and in learning.json; only
+  // this row is skipped, and the warning names the value that caused it.
+  const normalisedOutcome = String(outcome ?? '').trim().toUpperCase();
+  if (normalisedOutcome !== 'WIN' && normalisedOutcome !== 'LOSS') {
+    console.warn(
+      `[DB] updateLearning() refused outcome ${JSON.stringify(outcome)} for "${setup}" \u2014 ` +
+      `only WIN or LOSS can be counted. Recording the P&L with neither counter would ` +
+      `leave a row reading 0W/0L while carrying a real result.`
+    );
+    return;
+  }
+
+  const winDelta  = normalisedOutcome === 'WIN'  ? 1 : 0;
+  const lossDelta = normalisedOutcome === 'LOSS' ? 1 : 0;
   const pnlDelta  = typeof pnl === 'number' ? pnl : 0;
   const now       = new Date().toISOString();
 
