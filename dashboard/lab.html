@@ -9,35 +9,36 @@
   <script src="/dashboard/nav.js" defer></script>
   <style>
     /* Tokens come from theme.css. This page defines NO palette of its own: report.html
-       carries a comment explaining that it once redefined the whole palette here and
-       then drifted from every other page on the next theme change. One source of
-       truth. Only page-specific layout lives below. */
+       carries the scar from redefining one here and then drifting from every other page
+       on the next theme change. Only page-specific layout lives below. */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background:var(--bg); color:var(--text); font-family:var(--font); min-height:100vh; font-size:14px; }
 
-    header {
-      background:var(--surface); border-bottom:1px solid var(--border);
+    header { background:var(--surface); border-bottom:1px solid var(--border);
       padding:12px 24px; display:flex; align-items:center; justify-content:space-between;
-      position:sticky; top:0; z-index:100; flex-wrap:wrap; gap:10px;
-    }
+      position:sticky; top:0; z-index:100; flex-wrap:wrap; gap:10px; }
     .logo { display:flex; align-items:center; gap:10px; }
-    .logo-mark {
-      width:32px; height:32px; background:linear-gradient(135deg,var(--accent),#4f46e5);
+    .logo-mark { width:32px; height:32px; background:linear-gradient(135deg,var(--accent),#4f46e5);
       border-radius:8px; display:flex; align-items:center; justify-content:center;
-      font-weight:900; font-size:16px; color:#fff;
-    }
+      font-weight:900; font-size:16px; color:#fff; }
     .logo-text { font-size:1rem; font-weight:700; }
-    .logo-sub  { font-size:.65rem; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
+    .logo-sub { font-size:.65rem; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
 
     .container { padding:20px 24px; max-width:1400px; margin:0 auto; }
     h1 { font-size:1.4rem; font-weight:800; letter-spacing:-.01em; }
     .sub-line { font-size:.75rem; color:var(--muted); margin-top:5px; line-height:1.6; }
 
+    .tabs { display:flex; gap:4px; margin:16px 0 14px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .tab { padding:8px 16px; font-size:.76rem; font-weight:700; color:var(--muted);
+      border:none; background:none; cursor:pointer; border-bottom:2px solid transparent;
+      font-family:var(--font); }
+    .tab[aria-selected="true"] { color:var(--text); border-bottom-color:var(--accent); }
+
     .card { background:var(--surface); border:1px solid var(--border); border-radius:10px;
-            overflow:hidden; margin-bottom:16px; }
+      overflow:hidden; margin-bottom:16px; }
     .card-head { padding:11px 16px; border-bottom:1px solid var(--border); font-size:.78rem;
-                 font-weight:700; display:flex; justify-content:space-between; align-items:center;
-                 gap:10px; flex-wrap:wrap; }
+      font-weight:700; display:flex; justify-content:space-between; align-items:center;
+      gap:10px; flex-wrap:wrap; }
     .card-head .sub { font-size:.67rem; font-weight:400; color:var(--muted); }
     .card-body { padding:14px 16px; }
 
@@ -47,56 +48,86 @@
     .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px; }
     .stat { background:var(--surface); border:1px solid var(--border2); border-radius:9px; padding:13px 15px; }
     .stat .v { font-size:1.35rem; font-weight:800; font-variant-numeric:tabular-nums; }
-    .stat .l { font-size:.63rem; color:var(--muted); margin-top:4px; line-height:1.4; text-transform:uppercase; letter-spacing:.05em; }
+    .stat .l { font-size:.63rem; color:var(--muted); margin-top:4px; line-height:1.4;
+      text-transform:uppercase; letter-spacing:.05em; }
     .stat .n { font-size:.6rem; color:var(--muted-dim); margin-top:3px; font-variant-numeric:tabular-nums; }
 
     .verdict-bar { border-radius:10px; padding:14px 18px; margin-bottom:16px; border:1px solid; }
-    .v-SURVIVES     { background:#0c1a12; border-color:var(--green);  color:var(--green); }
-    .v-MARGINAL     { background:#1a160a; border-color:var(--yellow); color:var(--yellow); }
-    .v-DIED         { background:#1c0f11; border-color:var(--red);    color:var(--red); }
-    .v-INCONCLUSIVE { background:#0e1620; border-color:var(--blue);   color:var(--blue); }
-    .v-TOOFEW       { background:var(--surface2); border-color:var(--border2); color:var(--muted); }
+    .v-SURVIVES{background:#0c1a12;border-color:var(--green);color:var(--green)}
+    .v-MARGINAL{background:#1a160a;border-color:var(--yellow);color:var(--yellow)}
+    .v-DIED{background:#1c0f11;border-color:var(--red);color:var(--red)}
+    .v-INCONCLUSIVE{background:#0e1620;border-color:var(--blue);color:var(--blue)}
+    .v-TOOFEW{background:var(--surface2);border-color:var(--border2);color:var(--muted)}
     .verdict-bar .vw { font-size:1.25rem; font-weight:900; letter-spacing:.02em; }
     .verdict-bar .vc { font-size:.72rem; margin-top:4px; opacity:.85; font-variant-numeric:tabular-nums; }
 
-    table.checks { width:100%; border-collapse:collapse; font-size:.74rem; }
-    table.checks td { padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
-    table.checks tr:last-child td { border-bottom:none; }
+    table.t { width:100%; border-collapse:collapse; font-size:.73rem; }
+    table.t th { text-align:left; padding:7px 10px; border-bottom:1px solid var(--border2);
+      color:var(--muted); font-weight:600; font-size:.65rem; text-transform:uppercase; letter-spacing:.05em; }
+    table.t td { padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:top;
+      font-variant-numeric:tabular-nums; }
+    table.t tr:last-child td { border-bottom:none; }
+    table.t tbody tr.click { cursor:pointer; }
+    table.t tbody tr.click:hover { background:var(--surface2); }
+
     .tag { display:inline-block; min-width:46px; text-align:center; border-radius:4px;
-           padding:2px 7px; font-size:.62rem; font-weight:800; letter-spacing:.04em; }
-    .t-PASS { background:rgba(34,197,94,.14);  color:var(--green);  border:1px solid rgba(34,197,94,.35); }
-    .t-FAIL { background:rgba(239,68,68,.14);  color:var(--red);    border:1px solid rgba(239,68,68,.35); }
-    .t-UNK  { background:rgba(148,163,184,.12);color:var(--muted);  border:1px solid var(--border2); }
+      padding:2px 7px; font-size:.62rem; font-weight:800; letter-spacing:.04em; }
+    .t-PASS{background:rgba(34,197,94,.14);color:var(--green);border:1px solid rgba(34,197,94,.35)}
+    .t-FAIL{background:rgba(239,68,68,.14);color:var(--red);border:1px solid rgba(239,68,68,.35)}
+    .t-UNK{background:rgba(148,163,184,.12);color:var(--muted);border:1px solid var(--border2)}
 
     .kv { display:grid; grid-template-columns:auto 1fr; gap:5px 14px; font-size:.74rem; }
     .kv dt { color:var(--muted); }
     .kv dd { font-variant-numeric:tabular-nums; }
 
-    .rule-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:6px 18px;
-                 font-size:.7rem; font-variant-numeric:tabular-nums; }
+    .rule-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+      gap:6px 18px; font-size:.7rem; font-variant-numeric:tabular-nums; }
     .rule-grid span { color:var(--muted); }
 
     .quarters { display:flex; flex-wrap:wrap; gap:6px; }
     .q { border-radius:6px; padding:5px 8px; font-size:.63rem; font-weight:700; border:1px solid;
-         font-variant-numeric:tabular-nums; text-align:center; min-width:74px; }
-    .q-pos { background:rgba(34,197,94,.10);  border-color:rgba(34,197,94,.35);  color:var(--green); }
-    .q-neg { background:rgba(239,68,68,.10);  border-color:rgba(239,68,68,.35);  color:var(--red); }
+      font-variant-numeric:tabular-nums; text-align:center; min-width:74px; }
+    .q-pos{background:rgba(34,197,94,.10);border-color:rgba(34,197,94,.35);color:var(--green)}
+    .q-neg{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.35);color:var(--red)}
     .q .qn { display:block; font-size:.58rem; color:var(--muted); font-weight:500; }
     .q.best { outline:2px solid var(--yellow); outline-offset:1px; }
 
-    /* Wide content scrolls INSIDE its own container. The page body must never scroll
-       sideways — that is the rule the other pages already follow. */
+    /* Wide content scrolls INSIDE its container. The page body never scrolls sideways. */
     .scroll-x { overflow-x:auto; }
 
     .note { font-size:.7rem; color:var(--muted); line-height:1.65; margin-top:10px; }
     .warn { color:var(--yellow); }
-    .sel { background:var(--surface2); color:var(--text); border:1px solid var(--border2);
-           border-radius:7px; padding:6px 10px; font-size:.74rem; font-family:var(--font); }
-    .stale-flag { background:#1a160a; border:1px solid var(--yellow); color:var(--yellow);
-                  border-radius:8px; padding:10px 14px; font-size:.72rem; margin-bottom:14px; line-height:1.6; }
+    .bad  { color:var(--red); }
+    .good { color:var(--green); }
+
+    .form { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px 14px; }
+    .f label { display:block; font-size:.62rem; color:var(--muted); text-transform:uppercase;
+      letter-spacing:.05em; margin-bottom:4px; }
+    .f input, .f select { width:100%; background:var(--surface2); color:var(--text);
+      border:1px solid var(--border2); border-radius:7px; padding:7px 9px; font-size:.76rem;
+      font-family:var(--font); font-variant-numeric:tabular-nums; }
+    .f .rng { font-size:.58rem; color:var(--muted-dim); margin-top:3px; }
+    .btn { background:var(--accent); color:#fff; border:none; border-radius:8px;
+      padding:9px 18px; font-size:.76rem; font-weight:700; cursor:pointer; font-family:var(--font); }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .btn.ghost { background:var(--surface2); color:var(--text); border:1px solid var(--border2); }
+    .actions { display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; }
+    .msg { font-size:.72rem; line-height:1.6; }
+
+    .plateau-row { display:flex; gap:5px; flex-wrap:wrap; align-items:center; margin:4px 0 12px; }
+    .pv { border:1px solid var(--border2); border-radius:6px; padding:4px 8px; font-size:.62rem;
+      font-variant-numeric:tabular-nums; background:var(--surface2); }
+    .pv.pos { border-color:rgba(34,197,94,.4); color:var(--green); }
+    .pv.neg { border-color:rgba(239,68,68,.4); color:var(--red); }
+    .pv.this { outline:2px solid var(--accent); outline-offset:1px; }
+
     .empty { padding:40px 20px; text-align:center; color:var(--muted); font-size:.8rem; line-height:1.8; }
     code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.95em;
-           background:var(--surface2); padding:1px 5px; border-radius:4px; }
+      background:var(--surface2); padding:1px 5px; border-radius:4px; }
+    .sel { background:var(--surface2); color:var(--text); border:1px solid var(--border2);
+      border-radius:7px; padding:6px 10px; font-size:.74rem; font-family:var(--font); }
+    .stale-flag { background:#1a160a; border:1px solid var(--yellow); color:var(--yellow);
+      border-radius:8px; padding:10px 14px; font-size:.72rem; margin-bottom:14px; line-height:1.6; }
   </style>
 </head>
 <body>
@@ -113,34 +144,49 @@
 
   <div class="container">
     <h1 id="title">Strategy Lab</h1>
-    <div class="sub-line" id="subtitle">Loading assessments…</div>
-    <div id="body"></div>
+    <div class="sub-line" id="subtitle">Loading…</div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="bench"  aria-selected="true">Workbench</button>
+      <button class="tab" role="tab" data-tab="board"  aria-selected="false">Leaderboard</button>
+      <button class="tab" role="tab" data-tab="report" aria-selected="false">Assessment</button>
+      <button class="tab" role="tab" data-tab="queue"  aria-selected="false">Queue</button>
+    </div>
+
+    <div id="pane-bench"></div>
+    <div id="pane-board" hidden></div>
+    <div id="pane-report" hidden></div>
+    <div id="pane-queue" hidden></div>
   </div>
 
 <script>
 "use strict";
 /* ============================================================================
-   /lab — renders an assessment tasks/lab_report.cjs has ALREADY written.
+   /lab — the workbench.
    ----------------------------------------------------------------------------
-   This page runs no harness, starts no replay and posts nothing. It is a GET
-   against /api/lab-report, which itself only reads a file — because the box this
-   renders on is the box that trades, and a page request must never begin minutes
-   of CPU there.
+   FOUR THINGS THIS PAGE WILL NOT DO, each on purpose:
 
-   Every number shown is printed with the n it was computed on. That is not
-   decoration: the lab screenshot this replaced showed TOTAL TRADES 540 beside an
-   out-of-sample P&L computed over 162, and nothing on the page said so.
+   1. IT NEVER RUNS A BACKTEST. Queueing a candidate POSTs a spec and returns.
+      A scheduled drain executes it out of band, because this is the box that
+      trades and a page request must never start CPU work on it.
+   2. IT NEVER SETS THE TRIAL COUNT. That comes from the registry, incremented by
+      every run. A workbench where you declare your own multiple-testing penalty
+      is a workbench that under-reports it exactly when it matters.
+   3. IT NEVER SHOWS A NUMBER WITHOUT ITS n. The screenshot this replaced put
+      TOTAL TRADES 540 beside a P&L computed over 162.
+   4. IT CHANGES NOTHING LIVE. No gate, threshold, size or stop is reachable
+      from here. feedsTheGate is false on every payload it reads.
    ========================================================================== */
 
-// Every string that reaches innerHTML goes through this. Labels come out of a file
-// on disk, and a file is not a trusted input just because we wrote it.
+var CATALOG = null, CURRENT = null;
+
 function esc(s) {
   return String(s === null || s === undefined ? "" : s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
-// ABSENT IS NOT ZERO. A missing metric renders as an em dash, never as 0 — the
-// two mean opposite things and this project has been bitten by conflating them.
+// ABSENT IS NOT ZERO. A missing metric is an em dash, never 0 — they mean opposite
+// things and this project has been bitten by conflating them.
 function num(x, dp) {
   return (x === null || x === undefined || typeof x !== "number" || !isFinite(x))
     ? "—" : x.toFixed(dp === undefined ? 3 : dp);
@@ -149,23 +195,236 @@ function pct(x, dp) {
   return (x === null || x === undefined || typeof x !== "number" || !isFinite(x))
     ? "—" : (x * 100).toFixed(dp === undefined ? 1 : dp) + "%";
 }
-function signClass(x) {
+function sc(x) {
   if (typeof x !== "number" || !isFinite(x)) return "";
-  return x > 0 ? "style=\"color:var(--green)\"" : x < 0 ? "style=\"color:var(--red)\"" : "";
+  return x > 0 ? ' style="color:var(--green)"' : x < 0 ? ' style="color:var(--red)"' : "";
+}
+function vClass(v) {
+  return v === "SURVIVES" ? "v-SURVIVES" : v === "MARGINAL" ? "v-MARGINAL"
+    : v === "DIED" ? "v-DIED" : v === "INCONCLUSIVE" ? "v-INCONCLUSIVE" : "v-TOOFEW";
 }
 
-function stat(label, value, sub, colour) {
-  return '<div class="stat"><div class="v" ' + (colour || "") + '>' + value + '</div>'
-       + '<div class="l">' + esc(label) + '</div>'
-       + (sub ? '<div class="n">' + esc(sub) + '</div>' : '') + '</div>';
+// ── tabs ────────────────────────────────────────────────────────────────────
+var TABS = ["bench","board","report","queue"];
+function showTab(name) {
+  TABS.forEach(function (t) {
+    document.getElementById("pane-" + t).hidden = (t !== name);
+    var b = document.querySelector('.tab[data-tab="' + t + '"]');
+    if (b) b.setAttribute("aria-selected", String(t === name));
+  });
+  if (name === "queue") loadQueue();
+}
+Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (b) {
+  b.addEventListener("click", function () { showTab(b.dataset.tab); });
+});
+
+// ── workbench ───────────────────────────────────────────────────────────────
+function field(id, label, value, extra, hint) {
+  return '<div class="f"><label for="' + id + '">' + esc(label) + '</label>'
+    + '<input id="' + id + '" value="' + esc(value) + '" ' + (extra || "") + '>'
+    + (hint ? '<div class="rng">' + esc(hint) + '</div>' : '') + '</div>';
+}
+function selectField(id, label, options, selected) {
+  return '<div class="f"><label for="' + id + '">' + esc(label) + '</label>'
+    + '<select id="' + id + '">' + options.map(function (o) {
+        return '<option value="' + esc(o) + '"' + (o === selected ? " selected" : "") + '>' + esc(o) + '</option>';
+      }).join("") + '</select></div>';
 }
 
-/** Equity curve as an inline SVG. No library: one polyline and a zero line. */
-function curveSvg(curve) {
-  if (!Array.isArray(curve) || curve.length < 2) {
-    return '<div class="note">No equity curve in this artifact.</div>';
+function renderBench() {
+  var c = CATALOG;
+  if (!c || c.status !== "OK") {
+    document.getElementById("pane-bench").innerHTML =
+      '<div class="card"><div class="empty">Catalog unavailable'
+      + (c && c.detail ? ': ' + esc(c.detail) : '') + '</div></div>';
+    return;
   }
-  var W = 1000, H = 260, PAD = 8;
+  var stratId = (document.getElementById("f-strategy") || {}).value || c.strategies[0].id;
+  var strat = c.strategies.filter(function (s) { return s.id === stratId; })[0] || c.strategies[0];
+
+  var paramFields = Object.keys(strat.params).map(function (k) {
+    var d = strat.params[k];
+    return field("p-" + k, k, d.def, 'type="number" step="' + (d.step || 1) + '"',
+      d.min + " .. " + d.max);
+  }).join("");
+
+  var e = c.exec;
+  var execFields = [
+    ["atrLen","ATR length"], ["atrMult","stop × ATR"], ["targetR","target R (0 = none)"],
+    ["trailStartR","trail start R (0 = off)"], ["trailGiveR","trail give-back R"],
+    ["maxHoldBars","max hold bars (0 = none)"], ["costR","cost R / trade"],
+  ].map(function (p) {
+    var d = e[p[0]];
+    return field("e-" + p[0], p[1], d.def, 'type="number" step="any"', d.min + " .. " + d.max);
+  }).join("");
+
+  document.getElementById("pane-bench").innerHTML =
+    '<div class="card"><div class="card-head">Candidate'
+    + '<span class="sub">' + esc(strat.describe) + '</span></div><div class="card-body">'
+    + '<div class="form">'
+    + selectField("f-strategy", "strategy", c.strategies.map(function (s) { return s.id; }), strat.id)
+    + selectField("f-symbol", "symbol", c.symbols, c.symbols.indexOf("XAUUSD") >= 0 ? "XAUUSD" : c.symbols[0])
+    + selectField("f-timeframe", "timeframe", c.timeframes, "M15")
+    + selectField("f-session", "session", c.sessions, "any")
+    + paramFields
+    + '</div>'
+    + '<div class="note" style="margin:14px 0 4px"><strong>Execution</strong> — shared by every '
+    + 'strategy so none of them can invent a friendlier fill. Entry is the next bar&#39;s open; '
+    + 'stop and target are checked against high and low; a bar touching both books a LOSS.</div>'
+    + '<div class="form">' + execFields + '</div>'
+    + '<div class="actions">'
+    + '<button class="btn" id="btn-queue">Queue backtest</button>'
+    + '<button class="btn ghost" id="btn-sweep">Queue sweep of this parameter neighbourhood</button>'
+    + '<span class="msg" id="queue-msg"></span></div>'
+    + '<div class="note">Queuing does not run anything here. The spec is validated, appended to a '
+    + 'queue, and executed out of band by <code>node tasks/lab_queue.cjs --drain</code> — because '
+    + 'this is the box that trades.</div>'
+    + '</div></div>';
+
+  document.getElementById("f-strategy").addEventListener("change", renderBench);
+  document.getElementById("btn-queue").addEventListener("click", function () { queue(false); });
+  document.getElementById("btn-sweep").addEventListener("click", function () { queue(true); });
+}
+
+function readSpec() {
+  var stratId = document.getElementById("f-strategy").value;
+  var strat = CATALOG.strategies.filter(function (s) { return s.id === stratId; })[0];
+  var params = {};
+  Object.keys(strat.params).forEach(function (k) {
+    params[k] = Number(document.getElementById("p-" + k).value);
+  });
+  var exec = {};
+  Object.keys(CATALOG.exec).forEach(function (k) {
+    var el = document.getElementById("e-" + k);
+    if (el) exec[k] = Number(el.value);
+  });
+  return {
+    strategy: stratId,
+    symbol: document.getElementById("f-symbol").value,
+    timeframe: document.getElementById("f-timeframe").value,
+    session: document.getElementById("f-session").value,
+    params: params, exec: exec,
+  };
+}
+
+/**
+ * A sweep queues the candidate AND its neighbours on every parameter, one axis at a
+ * time. That is what makes the plateau view possible later: without neighbours there
+ * is nothing to compare a winner against, and a lone cell can never be shown to be a
+ * lone SPIKE. It also, deliberately, raises the trial count — searching should cost.
+ */
+function neighbours(spec) {
+  var strat = CATALOG.strategies.filter(function (s) { return s.id === spec.strategy; })[0];
+  var out = [JSON.parse(JSON.stringify(spec))];
+  Object.keys(strat.params).forEach(function (k) {
+    var d = strat.params[k], base = spec.params[k];
+    var step = Math.max(d.step || 1, Math.round(Math.abs(base) * 0.25)) || 1;
+    [-2, -1, 1, 2].forEach(function (m) {
+      var v = base + m * step;
+      if (v < d.min || v > d.max) return;
+      var s2 = JSON.parse(JSON.stringify(spec));
+      s2.params[k] = v;
+      out.push(s2);
+    });
+  });
+  return out;
+}
+
+function queue(sweep) {
+  var msg = document.getElementById("queue-msg");
+  var spec = readSpec();
+  var specs = sweep ? neighbours(spec) : [spec];
+  msg.textContent = "queuing " + specs.length + "…";
+  document.getElementById("btn-queue").disabled = true;
+  document.getElementById("btn-sweep").disabled = true;
+  fetch("/api/lab-queue", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ specs: specs }),
+  }).then(function (r) { return r.json().then(function (j) { return { code: r.status, j: j }; }); })
+    .then(function (res) {
+      if (res.code !== 200) {
+        msg.innerHTML = '<span class="bad">rejected: ' + esc(res.j.error || res.code) + '</span>';
+      } else {
+        msg.innerHTML = '<span class="good">queued ' + res.j.queued.length + '</span> — '
+          + esc(res.j.pending) + ' pending. Nothing has run yet; run the drain, then reload.';
+        loadQueue();
+      }
+    })
+    .catch(function (e) { msg.innerHTML = '<span class="bad">' + esc(e && e.message) + '</span>'; })
+    .then(function () {
+      document.getElementById("btn-queue").disabled = false;
+      document.getElementById("btn-sweep").disabled = false;
+    });
+}
+
+// ── queue pane ──────────────────────────────────────────────────────────────
+function loadQueue() {
+  fetch("/api/lab-queue").then(function (r) { return r.json(); }).then(function (d) {
+    var jobs = d.jobs || [];
+    var counts = Object.keys(d.counts || {}).map(function (k) {
+      return esc(k) + " " + esc(d.counts[k]);
+    }).join(" · ") || "empty";
+    document.getElementById("pane-queue").innerHTML =
+      '<div class="card"><div class="card-head">Queue<span class="sub">' + counts + '</span></div>'
+      + '<div class="card-body scroll-x">'
+      + (jobs.length
+        ? '<table class="t"><thead><tr><th>status</th><th>queued</th><th>candidate</th><th>verdict</th></tr></thead><tbody>'
+          + jobs.map(function (j) {
+              return '<tr><td>' + esc(j.status) + '</td>'
+                + '<td>' + esc(String(j.queuedAt || "").slice(0, 19)) + '</td>'
+                + '<td>' + esc(j.name || (j.spec ? j.spec.strategy + " " + j.spec.symbol + " " + j.spec.timeframe : "")) + '</td>'
+                + '<td>' + esc(j.verdict || j.error || "") + '</td></tr>';
+            }).join("") + '</tbody></table>'
+        : '<div class="empty">Queue is empty.</div>')
+      + '<div class="note">The queue is append-only: completion is a new line, never a '
+      + 'deletion, so the record of what was asked survives. Drain it with '
+      + '<code>node tasks/lab_queue.cjs --drain</code>.</div>'
+      + '</div></div>';
+  }).catch(function (e) {
+    document.getElementById("pane-queue").innerHTML =
+      '<div class="card"><div class="empty">Could not read the queue: ' + esc(e && e.message) + '</div></div>';
+  });
+}
+
+// ── leaderboard ─────────────────────────────────────────────────────────────
+function renderBoard(board) {
+  var rows = board || [];
+  document.getElementById("pane-board").innerHTML =
+    '<div class="card"><div class="card-head">Leaderboard'
+    + '<span class="sub">ranked by OUT-OF-SAMPLE expectancy</span></div>'
+    + '<div class="card-body scroll-x">'
+    + (rows.length
+      ? '<table class="t"><thead><tr><th>candidate</th><th>family</th><th>trials</th>'
+        + '<th>trades</th><th>OOS exp</th><th>PF</th><th>DSR</th><th>verdict</th></tr></thead><tbody>'
+        + rows.map(function (r) {
+            var s = r.summary || {};
+            return '<tr class="click" data-name="' + esc(r.name) + '">'
+              + '<td>' + esc(r.name) + '</td>'
+              + '<td style="color:var(--muted)">' + esc(r.family) + '</td>'
+              + '<td>' + esc(r.familyTrials) + '</td>'
+              + '<td>' + esc(s.trades === undefined ? "—" : s.trades) + '</td>'
+              + '<td' + sc(s.oosExpectancyR) + '>' + num(s.oosExpectancyR) + '</td>'
+              + '<td>' + num(s.profitFactor, 3) + '</td>'
+              + '<td>' + pct(s.deflatedSharpe, 1) + '</td>'
+              + '<td>' + esc(s.verdict || "—") + '</td></tr>';
+          }).join("") + '</tbody></table>'
+      : '<div class="empty">No candidates yet. Queue one from the Workbench.</div>')
+    + '<div class="note"><strong>trials</strong> is how many DISTINCT specs have been run in '
+    + 'that family (same strategy, symbol and timeframe). It rises on its own with every run '
+    + 'and the deflated Sharpe is charged against it — searching costs, automatically. Ranked '
+    + 'on out-of-sample expectancy because total R would simply reward whichever candidate '
+    + 'traded most, and ranking on anything in-sample would rank the search itself.</div>'
+    + '</div></div>';
+
+  Array.prototype.forEach.call(document.querySelectorAll("tr.click"), function (tr) {
+    tr.addEventListener("click", function () { load(tr.dataset.name); showTab("report"); });
+  });
+}
+
+// ── assessment pane (the report) ────────────────────────────────────────────
+function curveSvg(curve) {
+  if (!Array.isArray(curve) || curve.length < 2) return '<div class="note">No equity curve.</div>';
+  var W = 1000, H = 240, PAD = 8;
   var lo = Math.min.apply(null, curve), hi = Math.max.apply(null, curve);
   if (lo === hi) { lo -= 1; hi += 1; }
   var span = hi - lo;
@@ -174,256 +433,227 @@ function curveSvg(curve) {
   var pts = curve.map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ");
   var zeroY = (lo <= 0 && hi >= 0) ? y(0) : null;
   var end = curve[curve.length - 1];
-  var stroke = end >= 0 ? "var(--green)" : "var(--red)";
-  return ''
-    + '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" '
-    + 'style="width:100%;height:260px;display:block" role="img" '
-    + 'aria-label="Cumulative R equity curve, ending at ' + esc(num(end, 2)) + ' R">'
-    + (zeroY !== null
-        ? '<line x1="0" y1="' + zeroY.toFixed(1) + '" x2="' + W + '" y2="' + zeroY.toFixed(1)
-          + '" stroke="var(--border2)" stroke-width="1" stroke-dasharray="4 4"/>' : '')
-    + '<polyline points="' + pts + '" fill="none" stroke="' + stroke + '" stroke-width="2" '
-    + 'vector-effect="non-scaling-stroke"/>'
-    + '</svg>';
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" '
+    + 'style="width:100%;height:240px;display:block" role="img" '
+    + 'aria-label="Cumulative R equity curve ending at ' + esc(num(end, 2)) + ' R">'
+    + (zeroY !== null ? '<line x1="0" y1="' + zeroY.toFixed(1) + '" x2="' + W + '" y2="'
+        + zeroY.toFixed(1) + '" stroke="var(--border2)" stroke-width="1" stroke-dasharray="4 4"/>' : '')
+    + '<polyline points="' + pts + '" fill="none" stroke="'
+    + (end >= 0 ? "var(--green)" : "var(--red)") + '" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>';
 }
 
-function quartersHtml(quarters, bestKey) {
-  if (!quarters || !quarters.length) {
-    return '<div class="note warn">No dated trades in this artifact, so it cannot be '
-         + 'bucketed into quarters. The concentration checks are UNRESOLVED rather than '
-         + 'failed — a missing measurement is not a bad one.</div>';
+function plateauHtml(plateau) {
+  var keys = Object.keys(plateau || {});
+  if (!keys.length) {
+    return '<div class="note warn">No neighbours have been run for this candidate, so it cannot '
+      + 'be told apart from a lone spike. Use <strong>Queue sweep</strong> on the Workbench — a '
+      + 'winner with no neighbours is an untested winner.</div>';
   }
-  return '<div class="quarters">' + quarters.map(function (q) {
-    var cls = q.totalR > 0 ? "q-pos" : "q-neg";
-    var best = (bestKey && q.key === bestKey) ? " best" : "";
-    return '<div class="q ' + cls + best + '">' + esc(q.key)
-         + '<span class="qn">' + (q.totalR > 0 ? "+" : "") + num(q.totalR, 1) + 'R · n=' + q.n + '</span></div>';
-  }).join("") + '</div>';
+  return keys.map(function (k) {
+    return '<div style="font-size:.7rem;color:var(--muted);margin-top:8px">' + esc(k) + '</div>'
+      + '<div class="plateau-row">' + plateau[k].map(function (p) {
+          var cls = typeof p.oosExpectancyR === "number"
+            ? (p.oosExpectancyR > 0 ? "pos" : "neg") : "";
+          return '<span class="pv ' + cls + (p.isThis ? " this" : "") + '">'
+            + esc(p.value) + ' &nbsp;' + num(p.oosExpectancyR) + '</span>';
+        }).join("") + '</div>';
+  }).join("")
+    + '<div class="note">Each chip is a sibling differing in exactly ONE parameter, labelled with '
+    + 'its out-of-sample expectancy; the outlined chip is this candidate. A winner surrounded by '
+    + 'losers is a spike the search found, not an effect — however good its own numbers look.</div>';
 }
 
 function checksHtml(a) {
   if (!a || !a.checks) return "";
-  return '<table class="checks">' + a.checks.map(function (c) {
-    var tag = c.pass === true ? ["PASS", "t-PASS"]
-            : c.pass === false ? ["FAIL", "t-FAIL"] : ["UNRESOLVED", "t-UNK"];
-    return '<tr><td style="width:96px"><span class="tag ' + tag[1] + '">' + tag[0] + '</span></td>'
-         + '<td>' + esc(c.name) + '</td>'
-         + '<td style="color:var(--muted);font-variant-numeric:tabular-nums">' + esc(c.detail) + '</td></tr>';
-  }).join("") + '</table>';
+  return '<table class="t"><tbody>' + a.checks.map(function (c) {
+    var t = c.pass === true ? ["PASS","t-PASS"] : c.pass === false ? ["FAIL","t-FAIL"] : ["UNRESOLVED","t-UNK"];
+    return '<tr><td style="width:104px"><span class="tag ' + t[1] + '">' + t[0] + '</span></td>'
+      + '<td>' + esc(c.name) + '</td><td style="color:var(--muted)">' + esc(c.detail) + '</td></tr>';
+  }).join("") + '</tbody></table>';
 }
 
-function verdictClass(v) {
-  if (v === "SURVIVES") return "v-SURVIVES";
-  if (v === "MARGINAL") return "v-MARGINAL";
-  if (v === "DIED") return "v-DIED";
-  if (v === "INCONCLUSIVE") return "v-INCONCLUSIVE";
-  return "v-TOOFEW";
-}
-
-function render(env) {
-  var r = env.report;
-  var a = r.assessment || {};
-  var all = r.all || {}, oos = r.outOfSample || {}, isS = r.inSample || {};
-  var d = r.deflated || {}, c = r.concentration || {}, b = r.bootstrap || null;
-  var den = r.denominators || {};
+function renderReport(env) {
+  var r = env.report, a = r.assessment || {}, all = r.all || {}, oos = r.outOfSample || {},
+      isS = r.inSample || {}, d = r.deflated || {}, c = r.concentration || {},
+      b = r.bootstrap || null, den = r.denominators || {};
   var h = [];
 
-  document.getElementById("title").textContent = "Strategy Lab";
-  document.getElementById("subtitle").innerHTML =
-    esc(r.label) + ' &nbsp;·&nbsp; ' + esc(r.provenance && r.provenance.unit)
-    + ' &nbsp;·&nbsp; generated ' + esc(r.generatedAt || "—")
-    + (env.ageHours !== null && env.ageHours !== undefined ? ' (' + esc(env.ageHours) + 'h ago)' : '');
-
   if (env.stale) {
-    h.push('<div class="stale-flag"><strong>STALE.</strong> This assessment is '
-      + esc(env.ageHours) + ' hours old, past the ' + esc(env.staleAfterHours)
-      + '-hour mark. It still renders — a stale assessment is the best evidence available '
-      + 'and hiding it would hide the warning too — but re-run the lab before leaning on it.</div>');
+    h.push('<div class="stale-flag"><strong>STALE.</strong> ' + esc(env.ageHours)
+      + 'h old, past ' + esc(env.staleAfterHours) + 'h. Shown anyway — a stale assessment is '
+      + 'still the best evidence available, and hiding it would hide this warning too.</div>');
   }
 
-  // ── verdict ──
-  h.push('<div class="verdict-bar ' + verdictClass(a.verdict) + '">'
-    + '<div class="vw">' + esc(a.verdict || "—") + '</div>'
-    + '<div class="vc">' + (a.checksTotal
-        ? esc(a.checksPassed + " passed · " + (a.checksFailed || 0) + " failed · "
-              + (a.checksUnknown || 0) + " unresolved  of " + a.checksTotal)
-        : "") + '</div></div>');
+  h.push('<div class="verdict-bar ' + vClass(a.verdict) + '">'
+    + '<div class="vw">' + esc(a.verdict || "—") + '</div><div class="vc">'
+    + (a.checksTotal ? esc(a.checksPassed + " passed · " + (a.checksFailed || 0) + " failed · "
+        + (a.checksUnknown || 0) + " unresolved of " + a.checksTotal) : "") + '</div></div>');
 
-  // ── denominators, first, deliberately ──
   h.push('<div class="card"><div class="card-head">Denominators'
-    + '<span class="sub">every figure below states which of these it used</span></div>'
+    + '<span class="sub">every figure states which of these it used</span></div>'
     + '<div class="card-body"><div class="rule-grid">'
     + '<div><span>all trades</span> <strong>' + esc(den.all) + '</strong></div>'
     + '<div><span>in-sample</span> <strong>' + esc(den.inSample) + '</strong></div>'
     + '<div><span>out-of-sample</span> <strong>' + esc(den.outOfSample) + '</strong></div>'
     + '<div><span>quarters</span> <strong>' + esc(den.quarters) + '</strong></div>'
-    + '</div><div class="note">' + esc(den.note || "") + '</div></div></div>');
+    + (r.barsUsed ? '<div><span>bars</span> <strong>' + esc(r.barsUsed.n) + '</strong> '
+        + esc(r.barsUsed.from) + ' → ' + esc(r.barsUsed.to) + '</div>' : '')
+    + '</div></div></div>');
 
-  // ── core tiles ──
   var nAll = "n=" + den.all;
   h.push('<div class="stats">'
-    + stat("Expectancy", num(all.expectancyR) + "R", nAll + " · per trade", signClass(all.expectancyR))
-    + stat("Total", num(all.totalR, 2) + "R", nAll, signClass(all.totalR))
-    + stat("Profit factor", num(all.profitFactor, 3), nAll)
-    + stat("Win rate", pct(all.winRate), nAll + " · " + all.wins + "W/" + all.losses + "L")
-    + stat("Breakeven WR", pct(all.breakevenWr), "payoff " + num(all.payoff, 2) + ":1")
-    + stat("Edge vs breakeven",
-        (typeof all.winRateEdgePp === "number" && all.winRateEdgePp >= 0 ? "+" : "")
-        + num(all.winRateEdgePp, 2) + "pp",
-        "what this payoff requires", signClass(all.winRateEdgePp))
-    + stat("Max drawdown", num(all.maxDrawdownR, 2) + "R", nAll)
-    + stat("Longest losing run", esc(all.longestLoss), nAll)
+    + '<div class="stat"><div class="v"' + sc(all.expectancyR) + '>' + num(all.expectancyR) + 'R</div>'
+      + '<div class="l">Expectancy</div><div class="n">' + nAll + ' · per trade</div></div>'
+    + '<div class="stat"><div class="v"' + sc(all.totalR) + '>' + num(all.totalR, 2) + 'R</div>'
+      + '<div class="l">Total</div><div class="n">' + nAll + '</div></div>'
+    + '<div class="stat"><div class="v">' + num(all.profitFactor, 3) + '</div>'
+      + '<div class="l">Profit factor</div><div class="n">' + nAll + '</div></div>'
+    + '<div class="stat"><div class="v">' + pct(all.winRate) + '</div>'
+      + '<div class="l">Win rate</div><div class="n">' + esc(all.wins) + 'W/' + esc(all.losses) + 'L</div></div>'
+    + '<div class="stat"><div class="v">' + pct(all.breakevenWr) + '</div>'
+      + '<div class="l">Breakeven WR</div><div class="n">payoff ' + num(all.payoff, 2) + ':1</div></div>'
+    + '<div class="stat"><div class="v"' + sc(all.winRateEdgePp) + '>'
+      + (typeof all.winRateEdgePp === "number" && all.winRateEdgePp >= 0 ? "+" : "")
+      + num(all.winRateEdgePp, 2) + 'pp</div><div class="l">Edge vs breakeven</div>'
+      + '<div class="n">what this payoff needs</div></div>'
+    + '<div class="stat"><div class="v">' + num(all.maxDrawdownR, 2) + 'R</div>'
+      + '<div class="l">Max drawdown</div><div class="n">' + nAll + '</div></div>'
+    + '<div class="stat"><div class="v">' + esc(all.longestLoss) + '</div>'
+      + '<div class="l">Longest losing run</div><div class="n">' + nAll + '</div></div>'
     + '</div>');
 
-  // ── curve + in/out of sample ──
   h.push('<div class="grid2">'
-    + '<div class="card"><div class="card-head">Equity curve'
-    + '<span class="sub">cumulative R, additive, every trade (n=' + esc(den.all) + ')</span></div>'
-    + '<div class="card-body scroll-x">' + curveSvg(r.equityCurve)
-    + '<div class="note">Additive rather than compounded on purpose: compounding folds a '
-    + 'position-sizing policy into a question about the signal, so two strategies with '
-    + 'identical trades would score differently because of a risk constant chosen elsewhere. '
-    + 'The line ends on exactly the Total tile above.</div></div></div>'
-
+    + '<div class="card"><div class="card-head">Equity curve<span class="sub">cumulative R, additive, n='
+      + esc(den.all) + '</span></div><div class="card-body scroll-x">' + curveSvg(r.equityCurve)
+      + '<div class="note">Additive, not compounded: compounding folds a sizing policy into a '
+      + 'question about the signal. The line ends on exactly the Total tile.</div></div></div>'
     + '<div class="card"><div class="card-head">In-sample → out-of-sample'
-    + '<span class="sub">chronological split, never random</span></div><div class="card-body">'
-    + '<dl class="kv">'
-    + '<dt>profit factor</dt><dd>' + num(isS.profitFactor, 3) + ' (n=' + esc(den.inSample) + ')'
-    + ' &nbsp;→&nbsp; ' + num(oos.profitFactor, 3) + ' (n=' + esc(den.outOfSample) + ')</dd>'
-    + '<dt>expectancy</dt><dd>' + num(isS.expectancyR) + 'R &nbsp;→&nbsp; ' + num(oos.expectancyR) + 'R</dd>'
-    + '</dl>'
-    + '<div class="note"><strong>Reading:</strong> ' + esc(r.degradation && r.degradation.reading) + '</div>'
-    + '<div class="note">Overfit and never-worked are different diagnoses with different '
-    + 'remedies, so this names which one it is instead of leaving it to be inferred.</div>'
-    + '</div></div></div>');
+      + '<span class="sub">chronological, never random</span></div><div class="card-body">'
+      + '<dl class="kv"><dt>profit factor</dt><dd>' + num(isS.profitFactor, 3) + ' (n=' + esc(den.inSample)
+      + ') → ' + num(oos.profitFactor, 3) + ' (n=' + esc(den.outOfSample) + ')</dd>'
+      + '<dt>expectancy</dt><dd>' + num(isS.expectancyR) + 'R → ' + num(oos.expectancyR) + 'R</dd></dl>'
+      + '<div class="note"><strong>Reading:</strong> ' + esc(r.degradation && r.degradation.reading) + '</div>'
+      + '</div></div></div>');
 
-  // ── multiple testing + concentration ──
   h.push('<div class="grid2">'
     + '<div class="card"><div class="card-head">Multiple-testing correction'
-    + '<span class="sub">n=' + esc(den.all) + ' · ' + esc(d.trialsDeclared) + ' trial(s) declared</span></div>'
-    + '<div class="card-body"><dl class="kv">'
-    + '<dt>Sharpe / trade</dt><dd>' + num(d.sharpePerTrade, 4) + '</dd>'
-    + '<dt>PSR — P(true &gt; 0)</dt><dd>' + pct(d.psr, 2) + '</dd>'
-    + '<dt>Deflated Sharpe</dt><dd>' + pct(d.deflatedSharpe, 2) + '</dd>'
-    + '<dt>MinTRL</dt><dd>' + (d.minTrackRecordLength === null || d.minTrackRecordLength === undefined
-        ? "no edge to detect above the trials bar"
-        : Math.ceil(d.minTrackRecordLength) + " trades"
-          + (d.tradesShortOfMinTrl ? " — SHORT BY " + d.tradesShortOfMinTrl : " — met")) + '</dd>'
-    + '</dl><div class="note">The maximum of N noisy trials is positive by construction, so '
-    + 'an uncorrected Sharpe taken from a search is not evidence. At 1 trial the deflated '
-    + 'figure equals the PSR by definition.</div></div></div>'
-
+      + '<span class="sub">' + esc(d.trialsDeclared) + ' trial(s)'
+      + (r.trialsFrom ? ' — ' + esc(r.trialsFrom) : '') + '</span></div><div class="card-body">'
+      + '<dl class="kv"><dt>Sharpe / trade</dt><dd>' + num(d.sharpePerTrade, 4) + '</dd>'
+      + '<dt>PSR</dt><dd>' + pct(d.psr, 2) + '</dd>'
+      + '<dt>Deflated Sharpe</dt><dd>' + pct(d.deflatedSharpe, 2) + '</dd>'
+      + '<dt>MinTRL</dt><dd>' + (d.minTrackRecordLength === null || d.minTrackRecordLength === undefined
+          ? "no edge to detect above the trials bar"
+          : Math.ceil(d.minTrackRecordLength) + " trades"
+            + (d.tradesShortOfMinTrl ? " — SHORT BY " + d.tradesShortOfMinTrl : " — met")) + '</dd></dl>'
+      + '<div class="note">The maximum of N noisy trials is positive by construction. The trial '
+      + 'count comes from the registry, not from a flag — you cannot search without paying for it.'
+      + '</div></div></div>'
     + '<div class="card"><div class="card-head">Concentration'
-    + '<span class="sub">a grind, or one lucky window?</span></div><div class="card-body">'
-    + '<dl class="kv">'
-    + '<dt>positive quarters</dt><dd>' + esc(c.positivePeriods) + '/' + esc(c.periods) + '</dd>'
-    + '<dt>best quarter</dt><dd>' + esc(c.bestPeriod || "—") + ' &nbsp;' + num(c.bestPeriodR, 2) + 'R</dd>'
-    + '<dt>its share of gross</dt><dd>' + pct(c.bestPeriodShareOfGross, 1) + '</dd>'
-    + '<dt>total excluding it</dt><dd ' + signClass(c.totalExcludingBestR) + '>'
-    + num(c.totalExcludingBestR, 2) + 'R</dd>'
-    + '<dt>top 5% of trades</dt><dd>' + pct(c.top5pctTradeShareOfGross, 1) + ' of gross profit</dd>'
-    + '</dl>'
-    + '<div class="note">A result resting on one quarter out of twenty-one is a different '
-    + 'object from one that grinds, and an equity curve alone cannot tell you which you '
-    + 'are looking at.</div></div></div></div>');
+      + '<span class="sub">a grind, or one lucky window?</span></div><div class="card-body">'
+      + '<dl class="kv"><dt>positive quarters</dt><dd>' + esc(c.positivePeriods) + '/' + esc(c.periods) + '</dd>'
+      + '<dt>best quarter</dt><dd>' + esc(c.bestPeriod || "—") + ' ' + num(c.bestPeriodR, 2) + 'R</dd>'
+      + '<dt>its share of gross</dt><dd>' + pct(c.bestPeriodShareOfGross, 1) + '</dd>'
+      + '<dt>total excluding it</dt><dd' + sc(c.totalExcludingBestR) + '>' + num(c.totalExcludingBestR, 2) + 'R</dd>'
+      + '<dt>top 5% of trades</dt><dd>' + pct(c.top5pctTradeShareOfGross, 1) + ' of gross</dd></dl>'
+      + '</div></div></div>');
 
-  // ── quarters ──
-  h.push('<div class="card"><div class="card-head">Quarters'
-    + '<span class="sub">outlined quarter is the largest contributor</span></div>'
-    + '<div class="card-body scroll-x">' + quartersHtml(r.quarters, c.bestPeriod) + '</div></div>');
+  h.push('<div class="card"><div class="card-head">Parameter plateau'
+    + '<span class="sub">is this a shelf, or a lone spike?</span></div>'
+    + '<div class="card-body scroll-x">' + plateauHtml(env.plateau) + '</div></div>');
 
-  // ── bootstrap + cost ──
-  var boot = b
-    ? '<dl class="kv">'
-      + '<dt>probability of loss</dt><dd>' + pct(b.probOfLoss, 1) + '</dd>'
-      + '<dt>median outcome</dt><dd>' + num(b.medianFinalR, 2) + 'R</dd>'
+  h.push('<div class="card"><div class="card-head">Quarters</div>'
+    + '<div class="card-body scroll-x">'
+    + ((r.quarters && r.quarters.length)
+      ? '<div class="quarters">' + r.quarters.map(function (q) {
+          return '<div class="q ' + (q.totalR > 0 ? "q-pos" : "q-neg")
+            + (c.bestPeriod === q.key ? " best" : "") + '">' + esc(q.key)
+            + '<span class="qn">' + (q.totalR > 0 ? "+" : "") + num(q.totalR, 1) + 'R · n=' + q.n + '</span></div>';
+        }).join("") + '</div>'
+      : '<div class="note warn">No dated trades, so the concentration checks are UNRESOLVED '
+        + 'rather than failed — a missing measurement is not a bad one.</div>')
+    + '</div></div>');
+
+  var boot = b ? '<dl class="kv"><dt>probability of loss</dt><dd>' + pct(b.probOfLoss, 1) + '</dd>'
+      + '<dt>median</dt><dd>' + num(b.medianFinalR, 2) + 'R</dd>'
       + '<dt>worst 5%</dt><dd>' + num(b.worst5pctFinalR, 2) + 'R</dd>'
       + '<dt>median max DD</dt><dd>' + num(b.medianMaxDdR, 2) + 'R</dd>'
-      + '<dt>worst 5% DD</dt><dd>' + num(b.worst5pctMaxDdR, 2) + 'R</dd>'
-      + '</dl><div class="note">Resampled in blocks of ' + esc(b.blockLength)
-      + ' (√n), not one trade at a time: independent resampling destroys losing runs and '
-      + 'understates drawdown, worst on exactly the strategies whose runs are the risk.</div>'
+      + '<dt>worst 5% DD</dt><dd>' + num(b.worst5pctMaxDdR, 2) + 'R</dd></dl>'
+      + '<div class="note">Blocks of ' + esc(b.blockLength) + ' (√n), not IID: independent '
+      + 'resampling destroys losing runs and understates drawdown.</div>'
     : '<div class="note">Too few trades to bootstrap.</div>';
-
   var cs = r.costStress || {};
-  var costRows = Object.keys(cs).map(function (k) {
-    var v = cs[k];
-    return '<tr><td style="width:60px"><strong>' + esc(k) + '</strong></td>'
-      + '<td>PF ' + num(v.profitFactor, 3) + '</td>'
-      + '<td>expectancy ' + num(v.expectancyR) + 'R</td>'
-      + '<td>total ' + num(v.totalR, 2) + 'R</td></tr>';
-  }).join("");
-
   h.push('<div class="grid2">'
-    + '<div class="card"><div class="card-head">Block bootstrap'
-    + '<span class="sub">' + (b ? esc(b.paths) + ' paths' : "") + '</span></div>'
-    + '<div class="card-body">' + boot + '</div></div>'
-    + '<div class="card"><div class="card-head">Cost stress'
-    + '<span class="sub">increment ' + esc(r.provenance && r.provenance.costIncrementR) + 'R/trade</span></div>'
-    + '<div class="card-body scroll-x"><table class="checks">' + costRows + '</table>'
-    + '<div class="note">A real edge degrades gracefully; a marginal one inverts.</div>'
-    + '</div></div></div>');
+    + '<div class="card"><div class="card-head">Block bootstrap<span class="sub">'
+      + (b ? esc(b.paths) + ' paths' : "") + '</span></div><div class="card-body">' + boot + '</div></div>'
+    + '<div class="card"><div class="card-head">Cost stress</div><div class="card-body scroll-x">'
+      + '<table class="t"><tbody>' + Object.keys(cs).map(function (k) {
+          var v = cs[k];
+          return '<tr><td style="width:56px"><strong>' + esc(k) + '</strong></td><td>PF '
+            + num(v.profitFactor, 3) + '</td><td>exp ' + num(v.expectancyR) + 'R</td><td>total '
+            + num(v.totalR, 2) + 'R</td></tr>';
+        }).join("") + '</tbody></table>'
+      + '<div class="note">A real edge degrades gracefully; a marginal one inverts.</div>'
+      + '</div></div></div>');
 
-  // ── the rule, then the checks ──
-  var ruleRows = Object.keys(r.rule || {}).map(function (k) {
-    return '<div><span>' + esc(k) + '</span> <strong>' + esc(r.rule[k]) + '</strong></div>';
-  }).join("");
   h.push('<div class="card"><div class="card-head">Verdict rule — pre-registered'
-    + '<span class="sub">declared in the harness, not chosen after seeing this result</span></div>'
-    + '<div class="card-body"><div class="rule-grid">' + ruleRows + '</div>'
-    + '<div style="margin-top:14px" class="scroll-x">' + checksHtml(a) + '</div>'
+    + '<span class="sub">declared in the harness, not chosen after seeing this</span></div>'
+    + '<div class="card-body"><div class="rule-grid">'
+    + Object.keys(r.rule || {}).map(function (k) {
+        return '<div><span>' + esc(k) + '</span> <strong>' + esc(r.rule[k]) + '</strong></div>';
+      }).join("")
+    + '</div><div style="margin-top:14px" class="scroll-x">' + checksHtml(a) + '</div>'
     + (a.unresolvedNote ? '<div class="note warn">' + esc(a.unresolvedNote) + '</div>' : '')
     + (a.note ? '<div class="note">' + esc(a.note) + '</div>' : '')
     + '</div></div>');
 
-  // ── diagnostics ──
-  var g = r.diagnostics || {};
-  h.push('<div class="card"><div class="card-head">Trade diagnostics'
-    + '<span class="sub">coverage is printed first — a distribution over 12 of 540 trades is a '
-    + 'fact about the data, not the strategy</span></div><div class="card-body"><dl class="kv">'
-    + '<dt>exit reasons</dt><dd>' + esc(g.exitReasonCoverage || "—") + '</dd>'
-    + '<dt>hold hours</dt><dd>' + esc(g.holdHoursCoverage || "—")
-    + ' &nbsp;median ' + num(g.holdHoursMedian, 1) + ' &nbsp;p90 ' + num(g.holdHoursP90, 1) + '</dd>'
-    + '<dt>MAE</dt><dd>' + esc(g.maeCoverage || "—") + ' &nbsp;median ' + num(g.maeMedianR) + '</dd>'
-    + '</dl></div></div>');
+  h.push('<div class="note">Reading surface only. This page runs no harness and posts nothing '
+    + 'except a queue request. Nothing here feeds the gate, a threshold, a size or a stop.</div>');
 
-  h.push('<div class="note">Reading surface only. This page runs no harness and posts nothing; '
-    + 'it renders an artifact already on disk. Nothing here feeds the gate, a threshold, '
-    + 'a position size or a stop.</div>');
-
-  document.getElementById("body").innerHTML = h.join("");
+  document.getElementById("pane-report").innerHTML = h.join("");
 }
 
-function showEmpty(msg) {
-  document.getElementById("subtitle").textContent = "";
-  document.getElementById("body").innerHTML = '<div class="card"><div class="empty">' + msg + '</div></div>';
-}
-
+// ── load ────────────────────────────────────────────────────────────────────
 function load(name) {
   fetch("/api/lab-report" + (name ? "?name=" + encodeURIComponent(name) : ""))
-    .then(function (res) { return res.json(); })
+    .then(function (r) { return r.json(); })
     .then(function (env) {
-      var picker = document.getElementById("picker");
       var names = env.reports || [];
+      var picker = document.getElementById("picker");
       picker.innerHTML = names.map(function (n) {
         return '<option value="' + esc(n) + '"' + (n === env.name ? " selected" : "") + '>' + esc(n) + '</option>';
       }).join("");
       picker.style.display = names.length ? "" : "none";
+      renderBoard(env.leaderboard);
 
-      if (env.status === "NOT RUN" || !names.length) {
-        showEmpty('No assessments on this box yet.<br><br>Generate one with:<br>'
-          + '<code>node tasks/lab_report.cjs --trades &lt;file.json&gt; --out tasks/analysis/lab/&lt;name&gt;.json</code>');
+      if (!names.length) {
+        document.getElementById("subtitle").textContent =
+          "No assessments yet — queue a candidate from the Workbench, then run the drain.";
+        document.getElementById("pane-report").innerHTML =
+          '<div class="card"><div class="empty">Nothing to show yet.</div></div>';
         return;
       }
-      if (env.status === "ERROR") { showEmpty("Could not read the assessment: " + esc(env.detail)); return; }
       if (!env.report) { load(names[0]); return; }
-      render(env);
+      CURRENT = env;
+      document.getElementById("subtitle").innerHTML =
+        esc(env.report.label) + ' &nbsp;·&nbsp; ' + esc(env.report.provenance && env.report.provenance.unit)
+        + ' &nbsp;·&nbsp; ' + esc(env.report.generatedAt || "")
+        + (env.ageHours !== null && env.ageHours !== undefined ? ' (' + esc(env.ageHours) + 'h ago)' : '');
+      renderReport(env);
     })
-    .catch(function (e) { showEmpty("Could not reach /api/lab-report: " + esc(e && e.message)); });
+    .catch(function (e) {
+      document.getElementById("subtitle").textContent = "Could not reach /api/lab-report: " + (e && e.message);
+    });
 }
 
-document.getElementById("picker").addEventListener("change", function (ev) { load(ev.target.value); });
+fetch("/api/lab-catalog").then(function (r) { return r.json(); }).then(function (c) {
+  CATALOG = c; renderBench();
+}).catch(function () { renderBench(); });
+
 load(new URLSearchParams(location.search).get("name") || "");
+document.getElementById("picker").addEventListener("change", function (ev) {
+  load(ev.target.value); showTab("report");
+});
 </script>
 </body>
 </html>
