@@ -10547,6 +10547,91 @@ app.get("/api/robustness-report", (_, res) => {
 // Session-gated by omission - it is in neither API_NO_LOGIN_GET_ONLY nor
 // API_NO_LOGIN_REQUIRED, so the middleware above answers 401 without a cookie.
 // That is the intended state and it must stay that way.
+// -- /api/lab-catalog -- what the workbench may ask for --------------------
+// The strategies, their parameter RANGES, the symbols that have bars on this box,
+// the timeframes and the sessions. Served so the page cannot offer a control the
+// validator would then reject: a form that lets you ask for something impossible
+// is a form that teaches you to distrust its error messages.
+app.get("/api/lab-catalog", (_, res) => {
+  try {
+    // Lazily required INSIDE the handler, never at module scope. This is the process
+    // that trades; it should not carry the backtest stack just to answer a page.
+    const { STRATEGIES, SESSIONS, TIMEFRAMES, availableSymbols } =
+      require(path.join(__dirname, "..", "tasks", "lab_strategies.cjs"));
+    const { EXEC_SPEC } = require(path.join(__dirname, "..", "tasks", "lab_run.cjs"));
+    res.json({
+      status: "OK",
+      strategies: Object.values(STRATEGIES).map(s => ({
+        id: s.id, label: s.label, describe: s.describe, params: s.params,
+      })),
+      exec: EXEC_SPEC,
+      symbols: availableSymbols(),
+      timeframes: TIMEFRAMES,
+      sessions: Object.keys(SESSIONS),
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    res.json({ status: "ERROR", detail: String(e && e.message ? e.message : e), feedsTheGate: false });
+  }
+});
+
+// -- /api/lab-queue -- ask for a backtest; NEVER run one here ---------------
+// THE SERVER DOES NOT RUN BACKTESTS. It validates a spec and appends it to a queue;
+// tasks/lab_queue.cjs --drain does the work out of band. That boundary is structural
+// rather than a matter of judgement, because this is the box that trades and "it is
+// only 0.3 seconds" stops being true the moment somebody adds a slower strategy.
+//
+// Session-gated by omission, like every /api path not on an allowlist. The POST is a
+// WRITE, so it is gated in the strongest sense available here.
+const LAB_QUEUE_MAX_PENDING = 500;
+app.post("/api/lab-queue", express.json({ limit: "16kb" }), (req, res) => {
+  try {
+    const { validateSpec } = require(path.join(__dirname, "..", "tasks", "lab_run.cjs"));
+    const queue = require(path.join(__dirname, "..", "tasks", "lab_queue.cjs"));
+
+    // ONE validator, shared with the CLI. Validation written twice is validation that
+    // disagrees, and the half that disagrees is always the half facing the network. It
+    // allowlists the strategy id, checks the symbol against the CSVs actually on disk,
+    // and clamps every parameter to its declared range -- so nothing in this body can
+    // reach a file path, a require, or an unbounded loop.
+    const specs = [];
+    const raw = Array.isArray(req.body && req.body.specs) ? req.body.specs
+      : [req.body && req.body.spec ? req.body.spec : req.body];
+    if (raw.length > 100) {
+      return res.status(400).json({ error: "at most 100 specs per request" });
+    }
+    for (const one of raw) specs.push(validateSpec(one));
+
+    const pending = queue.state().filter(j => j.status === "QUEUED").length;
+    if (pending + specs.length > LAB_QUEUE_MAX_PENDING) {
+      return res.status(429).json({ error: "queue full", pending, max: LAB_QUEUE_MAX_PENDING });
+    }
+
+    const queued = specs.map(sp => queue.enqueue(sp, "dashboard"));
+    res.json({ status: "QUEUED", queued: queued.map(q => ({ id: q.id, spec: q.spec })),
+      pending: pending + queued.length,
+      note: "Nothing has run yet. A scheduled drain executes the queue out of band; "
+        + "this server never runs a backtest.",
+      feedsTheGate: false });
+  } catch (e) {
+    // A rejected spec is a 400 carrying the REASON, not a 500. The reason is what tells
+    // the user which control was wrong.
+    res.status(400).json({ error: String(e && e.message ? e.message : e) });
+  }
+});
+
+app.get("/api/lab-queue", (_, res) => {
+  try {
+    const queue = require(path.join(__dirname, "..", "tasks", "lab_queue.cjs"));
+    const jobs = queue.state();
+    const counts = jobs.reduce((a, j) => { a[j.status] = (a[j.status] || 0) + 1; return a; }, {});
+    res.json({ status: "OK", counts, jobs: jobs.slice(-40).reverse(), feedsTheGate: false });
+  } catch (e) {
+    res.json({ status: "ERROR", counts: {}, jobs: [],
+      detail: String(e && e.message ? e.message : e), feedsTheGate: false });
+  }
+});
+
 app.get("/api/lab-report", (req, res) => {
   const dir = path.join(__dirname, "..", "tasks", "analysis", "lab");
   try {
@@ -10565,8 +10650,15 @@ app.get("/api/lab-report", (req, res) => {
       .filter(n => /^[A-Za-z0-9_-]+$/.test(n))
       .sort();
 
+    // The LEADERBOARD, so candidates can be compared, with the per-family trial count
+    // visible beside each one -- the cost of the search shown next to its result.
+    let board = [];
+    try {
+      board = require(path.join(__dirname, "..", "tasks", "lab_registry.cjs")).leaderboard();
+    } catch (e) { /* an unreadable registry must not blank the page */ }
+
     const want = String(req.query.name || "");
-    if (!want) return res.json({ status: "OK", reports: names, report: null, feedsTheGate: false });
+    if (!want) return res.json({ status: "OK", reports: names, leaderboard: board, report: null, feedsTheGate: false });
 
     // PATH TRAVERSAL, CLOSED TWICE. The allowlist regex alone would be enough, but
     // a second check that the RESOLVED path is still inside the directory costs
@@ -10600,6 +10692,17 @@ app.get("/api/lab-report", (req, res) => {
       stale: ageHours !== null && ageHours > STALE_AFTER_HOURS,
       staleAfterHours: STALE_AFTER_HOURS,
       report: raw,
+      leaderboard: board,
+      // THE PLATEAU: siblings differing in exactly ONE parameter, so a reader can see
+      // whether this candidate sits on a shelf or is a lone spike surrounded by losers.
+      // A spike is an artefact of the search however good its own numbers look, and no
+      // per-candidate report can ever reveal it.
+      plateau: (() => {
+        try {
+          if (!raw.spec) return null;
+          return require(path.join(__dirname, "..", "tasks", "lab_registry.cjs")).plateau(raw.spec);
+        } catch (e) { return null; }
+      })(),
       feedsTheGate: false,
     });
   } catch (e) {

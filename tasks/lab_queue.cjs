@@ -84,7 +84,7 @@ function append(update) {
 
 function drain(max) {
   // Required lazily and INSIDE the drain, never at module scope: the server requires
-  // this file to enqueue, and it must not pull the whole strategy/бars stack into the
+  // this file to enqueue, and it must not pull the whole strategy/bars stack into the
   // trading process just to append one line.
   const { runOne } = require(path.join(__dirname, 'lab_run.cjs'));
   const pending = state().filter(j => j.status === 'QUEUED');

@@ -335,22 +335,33 @@ function selftest() {
     'got ' + JSON.stringify(sigs.slice(0, 3)));
 
   // THE CENTRAL RULE: a bar touching stop AND target books a LOSS.
-  // Entry 100 on bar 1's open, ATR 1 so risk = 1: stop 99, target 102.
-  // Bar 1 spans 98..103, touching both.
+  //
+  // The signal sits on bar 1, NOT bar 0, because ATR is undefined on the first bar
+  // (it needs a previous close) and the executor correctly SKIPS a signal with no
+  // ATR. The first version of this test signalled on bar 0, produced nothing, and
+  // was a bug in the test rather than the executor — worth keeping the note, since
+  // an empty result reads identically to a rule that never fired.
+  //   atr[1] = TR = max(101-99, |101-100|, |99-100|) = 2, atrMult 1 -> risk 2
+  //   entry  = bar 2 open = 100 -> stop 98, target (2R) 104
+  //   bar 2 spans 97..105, touching BOTH.
   const both = mk([
-    [100, 101, 99, 100], [100, 103, 98, 100], [100, 101, 99, 100],
+    [100, 101, 99, 100],
+    [100, 101, 99, 100],
+    [100, 105, 97, 100],
+    [100, 101, 99, 100],
   ]);
-  const fakeStrat = { generate: () => [{ i: 0, dir: 'BUY' }] };
+  const fakeStrat = { generate: () => [{ i: 1, dir: 'BUY' }] };
   const t2 = runStrategy(
     { ...both, }, fakeStrat, {},
     { atrLen: 1, atrMult: 1, targetR: 2, trailStartR: 0, trailGiveR: 0,
       maxHoldBars: 0, costR: 0, session: 'any', symbol: 'TEST' });
   ok('a bar touching both books a LOSS', t2.length === 1 && t2[0].r < 0,
     'got ' + JSON.stringify(t2));
+  ok('the loss is exactly -1R', t2.length === 1 && Math.abs(t2[0].r + 1) < 1e-12, 'got ' + (t2[0] || {}).r);
   ok('and names the reason', t2.length === 1 && t2[0].exitReason === 'STOP_AND_TARGET');
 
   // Entry is the NEXT bar's open, never the signal bar's close.
-  ok('entry is next bar open', t2.length === 1 && t2[0].openTime === new Date(both.t[1] * 1000).toISOString());
+  ok('entry is next bar open', t2.length === 1 && t2[0].openTime === new Date(both.t[2] * 1000).toISOString());
 
   // Cost is charged on every trade.
   const t3 = runStrategy({ ...both }, fakeStrat, {},
@@ -359,8 +370,11 @@ function selftest() {
   ok('cost charged on a loser too', Math.abs(t3[0].r - (t2[0].r - 0.05)) < 1e-12,
     'got ' + t3[0].r + ' vs ' + t2[0].r);
 
-  // An unresolved position at the end of history is NOT booked.
-  const openEnd = mk([[100, 101, 99.5, 100], [100, 100.5, 99.6, 100]]);
+  // An unresolved position at the end of history is NOT booked. Signal on bar 1
+  // again, for the ATR reason above; the stop is far enough away never to be hit.
+  const openEnd = mk([
+    [100, 101, 99.5, 100], [100, 101, 99.5, 100], [100, 100.5, 99.6, 100],
+  ]);
   const t4 = runStrategy(openEnd, fakeStrat, {},
     { atrLen: 1, atrMult: 5, targetR: 10, trailStartR: 0, trailGiveR: 0,
       maxHoldBars: 0, costR: 0, session: 'any', symbol: 'TEST' });
