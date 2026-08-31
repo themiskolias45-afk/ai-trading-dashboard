@@ -33,6 +33,10 @@ const REJECTIONS_PATH = path.join(__dirname, "..", "tasks", "rejections.jsonl");
 const GATE_NAMES = Object.freeze([
   "MIN_RR", "ENTRY_RSI", "CONFIDENCE", "COHORT_FLOOR", "SPREAD",
   "AI_FILTER", "NEWS_BLACKOUT", "STALE_SOURCE", "DUPLICATE", "MAX_POSITIONS",
+  // A setup retired from EXECUTION by executionDisabledSetups. It still fires
+  // and still lands here, so the decision to retire it stays MEASURABLE: every
+  // skipped trade becomes a scored counterfactual instead of a silence.
+  "SETUP_DISABLED",
 ]);
 const GATE_NAME_SET = new Set(GATE_NAMES);
 

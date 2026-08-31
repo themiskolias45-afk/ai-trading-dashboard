@@ -1360,6 +1360,13 @@ const STRENGTH_LEVELS = ["MODERATE", "STRONG"];
 let strategySettings = {
   confidenceThreshold:    STRATEGY_LIMITS.confidenceThreshold.def,
   maxConcurrentPositions: STRATEGY_LIMITS.maxConcurrentPositions.def,
+  // Setups retired from EXECUTION. They still fire, still display and are still
+  // scored in the rejection ledger under SETUP_DISABLED - retiring one must never
+  // stop the evidence that would say whether retiring it was right.
+  //
+  // NOT in STRATEGY_LIMITS: that table is numeric min/max/def and drives
+  // clampStrategyValue and the dashboard number inputs. A list has neither.
+  executionDisabledSetups: [],
   maxTradesPerDay:        STRATEGY_LIMITS.maxTradesPerDay.def,
   fixedLotSize:           STRATEGY_LIMITS.fixedLotSize.def,
   maxLotSize:             STRATEGY_LIMITS.maxLotSize.def,
@@ -1420,6 +1427,14 @@ function loadStrategySettings() {
       if (clamped !== null) strategySettings[name] = clamped;
     }
     if (STRENGTH_LEVELS.includes(saved.minStrength)) strategySettings.minStrength = saved.minStrength;
+    // Only a real array moves this, and only non-empty strings survive. A missing
+    // or malformed key leaves the last known value, and on a cold start that value
+    // is [] - so a corrupt config can never be the thing that retires a setup.
+    if (Array.isArray(saved.executionDisabledSetups)) {
+      strategySettings.executionDisabledSetups = saved.executionDisabledSetups
+        .filter(v => typeof v === "string" && v.trim())
+        .map(v => v.trim().toUpperCase());
+    }
     strategySettings.updatedAt = saved.updatedAt || null;
     strategySettings.updatedBy = saved.updatedBy || null;
     strategySettingsError = null;

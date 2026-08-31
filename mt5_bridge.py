@@ -631,6 +631,7 @@ REJECTION_SIDE           = "bridge"
 LEDGER_GATES = frozenset((
     "MIN_RR", "ENTRY_RSI", "CONFIDENCE", "COHORT_FLOOR", "SPREAD",
     "AI_FILTER", "NEWS_BLACKOUT", "STALE_SOURCE", "DUPLICATE", "MAX_POSITIONS",
+    "SETUP_DISABLED",
 ))
 
 # server/sizing.js returns only a prose reason, so its duplicate-position guard can
@@ -1329,6 +1330,10 @@ strategy_settings = {
     # breakeven stop) has never been measurable because nothing recorded how far a
     # trade travelled before it closed.
     "partialCloseEnabled": False,
+    # Setups retired from EXECUTION by the operator. EMPTY means trade everything,
+    # which is the behaviour this bridge has always had - so a server outage or a
+    # malformed config can never be the thing that retires a setup.
+    "executionDisabledSetups": [],
 }
 
 # Trades opened today, reset on date change. Counted here rather than server-side
@@ -1358,6 +1363,17 @@ def refresh_strategy_settings():
         # thing that turns scaling-out ON.
         if isinstance(data.get("partialCloseEnabled"), bool):
             strategy_settings["partialCloseEnabled"] = data["partialCloseEnabled"]
+        # Same shape as the bool above: only a real list moves it, only non-empty
+        # strings survive, and a missing key leaves the last known value. WITHOUT
+        # THIS the SETUP_DISABLED gate reads its empty default forever, however
+        # loudly strategy_settings.json disagrees - the gate reads this dict, and
+        # nothing else writes to it.
+        if isinstance(data.get("executionDisabledSetups"), list):
+            strategy_settings["executionDisabledSetups"] = [
+                str(v).strip().upper()
+                for v in data["executionDisabledSetups"]
+                if isinstance(v, str) and str(v).strip()
+            ]
     except Exception:
         pass
 
@@ -1846,6 +1862,46 @@ def process_signal(key, sig):
     if not entry or not stop or not target:
         log(f"Incomplete levels for {key} — skipping", YELLOW)
         executed_signals[key] = cache_key
+        return
+
+    # Setups retired from EXECUTION, but NOT from generation.
+    #
+    # Deleting a setup from the engine would stop it firing, stop its rejections
+    # reaching the ledger, and therefore stop the system ever learning whether
+    # retiring it was right. So it still fires, still displays, and still gets
+    # priced here as a forgone paper trade - every skipped fill is now a scored
+    # counterfactual rather than a silence.
+    #
+    # RANGE_TRADE_SHORT is the first entry, 2026-08-31. It is the only slice that
+    # has ever cleared this project's stated bar of 5 of 5 folds:
+    #   walk-forward, 650 trades at the live gate: own -0.457 R/t, removing it
+    #     gains +0.0244 R/trade, 5/5 folds
+    #   live per-asset learning:  XAUUSD 0W/1L -98.31
+    #   shadow ledger:            16 episodes, 18.8% WR, -11.4R
+    # It costs 18 of 650 trades - 2.8% of the book - at an average of -0.457 R.
+    #
+    # Defaults to an EMPTY list, so a missing or unreadable setting disables
+    # nothing: the failure direction is 'trade normally', never 'stop trading'.
+    # To re-enable, clear executionDisabledSetups in strategy_settings.json.
+    setup_name = str(sig.get("setup") or "").strip().upper()
+    _disabled_raw = strategy_settings.get("executionDisabledSetups") or []
+    if not isinstance(_disabled_raw, list):
+        _disabled_raw = []
+    disabled_setups = {str(x).strip().upper() for x in _disabled_raw if str(x).strip()}
+    if setup_name and setup_name in disabled_setups:
+        disabled_reason = (
+            setup_name + " is retired from execution (executionDisabledSetups). "
+            "It still fires and is still scored in the rejection ledger."
+        )
+        if last_rejection.get(key) != disabled_reason:
+            log(f"SETUP DISABLED blocked {direction} {symbol}: {setup_name}", YELLOW)
+            last_rejection[key] = disabled_reason
+        # threshold/actual stay null: the ledger keeps them numeric-or-null and
+        # nothing numeric explains this kill. The explanation goes in reason.
+        log_rejection(
+            "SETUP_DISABLED", sig, symbol, entry, stop, target,
+            reason=disabled_reason,
+        )
         return
 
     # Slot and daily-trade caps. Cheapest checks first — both are local counts.
