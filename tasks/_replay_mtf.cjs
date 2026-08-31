@@ -683,6 +683,15 @@ for (let i = 0; i < h4.length - 1; i++) {
   trades.push({
     t: h4[i].t, dir: sig.signal, setup: sig.setup, conf: sig.confidence,
     strength: sig.strength, h4dir: sig.h4 ? sig.h4.signal : null,
+    // The H1 leg the replay has ALWAYS computed (it is passed to generateSignalMTF at
+    // line 599) and never recorded. Without it nothing could ask the one question a
+    // user asks first: does it buy when the hourly is falling, and does that cost
+    // anything? h1 gates NOTHING in the live engine — it appears twice in the whole of
+    // server/index.js, a bonus branch at :2909 and a payload copy at :3221 — so the
+    // answer was unmeasurable rather than known. Purely additive: a new field on the
+    // row, no existing reader touched, no threshold and no gate involved.
+    h1dir: sig.h1 ? sig.h1.signal : null,
+    h1trend: sig.h1 ? sig.h1.trend : null,
     // Kept as-is so existing readers of this field keep working. `cohort` below
     // is the accurate one - it comes from the daily and 4H signals themselves
     // rather than inferring the branch from a confidence cutoff.
