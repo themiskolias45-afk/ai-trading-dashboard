@@ -139,8 +139,43 @@ function redeflate(report) {
   const varTrial = 1 / Math.max(1, T - 1);
   const sr0 = trials > 1 ? expectedMaxSharpe(trials, varTrial) : 0;
   const current = probabilisticSharpe(sr, sr0, T, all.skew, all.kurt);
-  return { stored, current, trials, recomputed: true };
+
+  // THE SAME CANDIDATE AT LAB SCOPE, because the bar's scope is a CHOICE and the
+  // reader is entitled to see what it cost.
+  //
+  // Trials are counted per FAMILY (strategy|symbol|timeframe) on purpose: different
+  // families answer different questions, and deflating a Gold ema_cross result by
+  // BTC squeeze trials over-penalises it. But the moment a candidate is surfaced by
+  // ranking across EVERY family — which is how a human actually looks at a
+  // leaderboard — the selection was global, and the honest multiplicity for THAT
+  // claim is every assessment on disk.
+  //
+  // Measured 2026-08-31 on the first candidate ever to clear: DSR 96.3% at its
+  // family's 96 trials, 77.8% at the lab's 1,947. It passes at one scope and fails
+  // at the other, and reporting only the flattering one would be a choice dressed
+  // as a fact.
+  //
+  // THE BAR STILL USES FAMILY SCOPE, deliberately. The generator runs 24/7, so a
+  // lab-wide count grows without bound and its DSR tends to zero — a bar that
+  // becomes unclearable by the mere passage of time, which is the exact defect
+  // already fixed once in this file's history. So: family scope decides, lab scope
+  // is disclosed, and the reader judges the gap.
+  let labTrials = null, labScope = null;
+  try {
+    const dir = LAB_DIR;
+    labTrials = fs.existsSync(dir)
+      ? fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.startsWith('_')).length
+      : null;
+    if (labTrials && labTrials > 1) {
+      const sr0Lab = expectedMaxSharpe(labTrials, varTrial);
+      labScope = probabilisticSharpe(sr, sr0Lab, T, all.skew, all.kurt);
+    }
+  } catch (e) { /* disclosure is best-effort; it must never block the judgement */ }
+
+  return { stored, current, trials, recomputed: true, labTrials, labScope };
 }
+
+
 
 /** Apply the bar. Returns { pass, reasons } — reasons are listed either way. */
 function judge(report) {
@@ -164,6 +199,10 @@ function judge(report) {
   pass = push(typeof rd.current === 'number' && rd.current >= BAR.MIN_DSR,
     'deflated Sharpe >= ' + BAR.MIN_DSR + ' at ' + rd.trials + ' trials NOW (got '
       + (typeof rd.current === 'number' ? rd.current.toFixed(4) : 'n/a')
+      + (rd.labScope !== null && rd.labScope !== undefined
+          ? '; at LAB scope (' + rd.labTrials + ' assessments) it is '
+            + rd.labScope.toFixed(4) + ' — the bar uses FAMILY scope by design'
+          : '')
       + (rd.recomputed && rd.stored !== null && Math.abs(rd.stored - rd.current) > 1e-9
           ? '; artifact stored ' + rd.stored.toFixed(4) + ' at ' + (d.trialsDeclared || 1)
             + ' trials, superseded'
@@ -260,6 +299,10 @@ function messageFor(rep, verdict) {
     'deflated SR   ' + (((verdict.deflation && verdict.deflation.current) || 0) * 100).toFixed(1)
       + '%  at ' + ((verdict.deflation && verdict.deflation.trials) || 1) + ' trials',
     'plateau       ' + (plat ? plat.positive + '/' + plat.evaluated + ' neighbours positive on ' + plat.parameter : 'n/a'),
+    ((verdict.deflation && verdict.deflation.labScope !== null && verdict.deflation.labScope !== undefined)
+      ? 'lab scope     ' + (verdict.deflation.labScope * 100).toFixed(1) + '%  at '
+        + verdict.deflation.labTrials + ' assessments  (the bar uses FAMILY scope)'
+      : ''),
     '',
     '<b>NOTHING HAS BEEN CHANGED.</b> This is staged for your review only — no gate,',
     'threshold, size or stop has moved. Open /lab and read the plateau and the',
