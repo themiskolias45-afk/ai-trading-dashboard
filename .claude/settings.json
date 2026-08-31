@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path $PWD 'tasks/hooks/git-safety.ps1')\"",
+            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path (Get-Item .).FullName 'tasks/hooks/git-safety.ps1')\"",
             "timeout": 15,
             "statusMessage": "Destructive-command check..."
           }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path $PWD 'tasks/hooks/pre-edit-check.ps1')\""
+            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path (Get-Item .).FullName 'tasks/hooks/pre-edit-check.ps1')\""
           }
         ]
       }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path $PWD 'tasks/hooks/post-edit-check.ps1')\"",
+            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path (Get-Item .).FullName 'tasks/hooks/post-edit-check.ps1')\"",
             "statusMessage": "Quality + security check..."
           }
         ]
@@ -67,13 +67,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path $PWD 'tasks/hooks/startup-check.ps1')\"",
+            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path (Get-Item .).FullName 'tasks/hooks/startup-check.ps1')\"",
             "async": true,
             "statusMessage": "Running startup checks..."
           },
           {
             "type": "command",
-            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path $PWD 'tasks/hooks/daily-runner.ps1')\"",
+            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path (Get-Item .).FullName 'tasks/hooks/daily-runner.ps1')\"",
             "async": true,
             "statusMessage": "Running daily AI analysis..."
           }
@@ -86,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path $PWD 'tasks/hooks/session-stop.ps1')\"",
+            "command": "powershell -NoProfile -NonInteractive -Command \"& (Join-Path (Get-Item .).FullName 'tasks/hooks/session-stop.ps1')\"",
             "async": true
           }
         ]
