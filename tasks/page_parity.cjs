@@ -326,9 +326,15 @@ const SERVED = [
   {
     page: '/report  (served)',
     route: '/api/robustness-report',
-    // Presence, not value. The values are already compared above from the artifacts;
-    // what was unmeasured is whether the running code EXPOSES them at all.
-    keys: ['sharpeRobustness', 'report', 'status'],
+    // EVERY top-level key present on EITHER box, enumerated from the responses — never a
+    // hand-written list. The first cut of this check named three keys by hand
+    // ('sharpeRobustness', 'report', 'status') and therefore reported ONE missing section
+    // when SEVEN were missing: blockSimulated, engineConfig, generatedAt, horizon,
+    // liveClosedTrades, sharpeRobustness and stale/staleAfterHours were all absent from
+    // the VPS response. A curated list can only find what its author already suspected,
+    // which is the same defect as the /strategy paths that resolved to null on both boxes
+    // and made every row "match". Enumerate, then compare.
+    keys: null,
     remedy: 'restart the server on the box that is missing it — the code is deployed but ' +
             'not loaded:\n        tasks/safe_server_restart.ps1 -Execute   ' +
             '(proof is startedAt moving, never a file hash)',
@@ -381,13 +387,27 @@ console.log('  SERVED CHECK — does the running code expose the section, not ju
     console.log(`    could not compare: local=${lRes.unreadable || 'ok'}  peer=${pRes.unreadable || 'ok'}`);
     servedRows.push({ field: SERVED[0].route, local: lRes.unreadable || 'ok', peer: pRes.unreadable || 'ok', same: true, context: true });
   } else {
-    for (const k of SERVED[0].keys) {
+    // The union of what BOTH boxes serve, so a section either side is missing shows up.
+    // Sorted for a stable diff between runs; a set built from one box could only ever
+    // report that box's own sections.
+    const keys = SERVED[0].keys ||
+      Array.from(new Set([...Object.keys(lRes), ...Object.keys(pRes)])).sort();
+    let missing = 0;
+    for (const k of keys) {
       const lHas = Object.prototype.hasOwnProperty.call(lRes, k);
       const pHas = Object.prototype.hasOwnProperty.call(pRes, k);
       const same = lHas === pHas;
-      if (!same) drifted++;
+      if (!same) { drifted++; missing++; }
       console.log(`  ${same ? ' ' : '*'} ${String(k).padEnd(22)} local ${lHas ? 'SERVED' : 'ABSENT'}      peer ${pHas ? 'SERVED' : 'ABSENT'}`);
       servedRows.push({ field: k, local: lHas ? 'SERVED' : 'ABSENT', peer: pHas ? 'SERVED' : 'ABSENT', same, context: false });
+    }
+    // Say the COUNT out loud. Seven absent sections scrolling past as seven separate
+    // starred rows reads like seven small problems; it is one problem — a process running
+    // code older than the routes it is meant to serve — and the count is what makes that
+    // legible at a glance.
+    if (missing) {
+      console.log(`    => ${missing} of ${keys.length} section(s) differ in PRESENCE, not value.`);
+      console.log('       One box is running code older than the routes it should expose.');
     }
   }
   report.push({ page: SERVED[0].page, file: SERVED[0].route, remedy: SERVED[0].remedy, rows: servedRows });
