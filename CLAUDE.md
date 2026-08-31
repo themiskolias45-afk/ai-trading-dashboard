@@ -243,8 +243,31 @@ silently resolved.
 - Models: `claude-opus-5` for the JARVIS brain and the /engineer workstream split;
   `claude-sonnet-5` for per-asset commentary, summaries and analysis. Do not
   reintroduce `claude-opus-4-8` — both remaining call sites were upgraded 2026-08-02.
-- Signal fires only at or above the live `confidenceThreshold` across Daily + 4H + 1H.
-  It is **70**, set 2026-08-02 (a0862d1) and re-measured 2026-08-18 on 769 trades,
+- **THE TIMEFRAMES ARE NOT ALL REQUIRED TO AGREE. This line used to claim they were.**
+  It read *"Signal fires only at or above the live `confidenceThreshold` across Daily +
+  4H + 1H"*, which states a safety property the engine does not have and which a user
+  reasonably read as "it will not buy into a bearish 4H/1H". Corrected 2026-08-31 after
+  being asked why it buys when every lower timeframe is red. What `generateSignal`
+  actually does (`server/index.js:2814-2911`):
+  - Daily + H4 **agree** → 72 / 88 / 95.
+  - Daily + H4 + H1 **all agree** → 88 / 97. This is a **BONUS branch, not a gate.**
+  - Daily fires while **H4 says WAIT** → **72 on Gold**, i.e. it clears a gate of 70
+    with H4 not agreeing. Gold-only and evidenced (+0.464R over 424 held-out trades),
+    but it is a real path to a fill without H4 confirmation.
+  - H4-only, daily WAIT → 55 / 63 / 68, below the gate without boosts.
+  **`h1` appears exactly TWICE in the whole engine** — the bonus at :2909 and the
+  payload copy at :3221. **No branch anywhere lets H1 reduce confidence or block a
+  setup**, and the bridge never reads `h1` or `m15` to refuse a trade. A bearish H1 and
+  a bearish M15 are DISPLAY ONLY. Whether H1 disagreement predicts anything is
+  UNMEASURED — see `tasks/logs/h1_agreement.txt`. Do not add an H1 veto on intuition:
+  that is subtraction, it spends the scarce resource, and rule 3 governs it.
+- **"STRONG UPTREND" is EMA STACKING, NOT CANDLE DIRECTION** (`index.js:1711`):
+  `price > ema20 && > ema50 && > ema200`. On 2026-08-31 Gold printed STRONG UPTREND
+  while sitting **$1.55 above its 20 EMA** with MACD histogram −5.35 and
+  `crossedBearish: true`. The label says where price IS, never where it is going. The
+  setup that fires there is named `BUY_OVERSOLD` and buys the fall on purpose — H4 RSI
+  27.2, H1 RSI 23.7 that day. Both readings are correct; they measure different things.
+- The gate is **70**, set 2026-08-02 (a0862d1) and re-measured 2026-08-18 on 769 trades,
   5 folds, 0.05R cost. **It is 4 of 5, not the "5 of 5" this file claimed** — the
   sample grew and unanimity did not survive it. 55, 60 and 75 are also 4/5, so the
   argument for 70 is now its BEST WORST FOLD: its one negative is −0.016 against
