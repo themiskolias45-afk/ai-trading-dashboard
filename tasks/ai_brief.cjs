@@ -247,7 +247,7 @@ else {
       line("- **" + c.title + "** — " + c.status
         + (c.feedsTheGate ? "  _(FEEDS THE GATE)_" : ""));
       if (c.staleness) {
-        line("  - !! its declared sample has MOVED, so its own numbers are unverified: "
+        line("  - !! its declared sample or config has MOVED, so its own numbers are unverified: "
           + c.staleness.drifted.join("; "));
       }
       line("  - what would settle it: " + c.changesTheAnswer.replace(/\s+/g, " "));
@@ -275,7 +275,7 @@ else {
     // ASCII only in these strings. daily_notes.py died on a U+2212 today because the
     // console is cp1252, and a briefing that cannot be printed is a briefing nobody reads.
     if (c.staleness) {
-      line("  - !! SAMPLE HAS MOVED - treat the numbers below as UNVERIFIED: "
+      line("  - !! SAMPLE OR CONFIG HAS MOVED - treat the numbers below as UNVERIFIED: "
         + c.staleness.drifted.join("; "));
       if (c.staleness.sampleFrom) {
         line("    - written against: " + c.staleness.sampleFrom);

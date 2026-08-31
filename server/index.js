@@ -2969,7 +2969,10 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   // Preliminary signal for macro filter checks
   let finalSignal = confidence >= strategySettings.confidenceThreshold ? signalDir : "WAIT";
 
-  // The confidence this setup assembled from PRICE ALONE, captured before any macro
+  // The confidence this setup had assembled BEFORE any macro filter touched it.
+  // NOT "price alone": getLearningBoost (index.js:1043) reads learning.setupStats win
+  // rates and is applied at :2957, above this line. A reader diffing this against a past
+  // value must not attribute the move to price when learning.json is what drifted.
   // filter touches it. Published, never read by a branch.
   //
   // WHY. `confidence` below is mutated in place by DXY, VIX, Fear & Greed and the

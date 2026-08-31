@@ -112,6 +112,9 @@ const CLAIMS = [
     // The text is deliberately NOT rewritten here. Re-curation is a human judgement about
     // what the sweep now says, not a find-and-replace — the board flags it and leaves it.
     configAtWriting: { momentumRsiMax: 72, trendFollowRsiMax: 68 },
+    // Which engine the prose describes. config is PER-MACHINE, so without this the flag
+    // reads as unclearable on whichever box a reader happens to be looking at.
+    sampleFrom: "engine config at the 2026-08-22 ceiling sweep — momentumRsiMax 72 / trendFollowRsiMax 68, both boxes",
     feedsTheGate: true,
   },
   {
@@ -1021,6 +1024,7 @@ function liveSample() {
     // The live engine CONFIG, for claims that declare configAtWriting. Nested under its
     // own key so it can never collide with a sampleAtWriting counter name.
     config: null,
+    configError: null,
   };
   // strategy_settings.json is PER-MACHINE and untracked, so this legitimately differs
   // between the two boxes — and unlike a sample count, that difference MATTERS: a claim
@@ -1028,9 +1032,35 @@ function liveSample() {
   // already names the box the prose was written against, so a config flag on the other
   // box is a true statement, not noise.
   try {
-    const settings = JSON.parse(fs.readFileSync(path.join(__dirname, "strategy_settings.json"), "utf8"));
-    if (settings && typeof settings === "object") out.config = settings;
-  } catch (e) { /* config stays null; every sample check still works */ }
+    // BOM STRIP, and it is load-bearing. PowerShell 5.1 `Set-Content -Encoding utf8`
+    // writes a UTF-8 BOM, which is how the VPS silently reset to default sizing on
+    // 2026-08-02. server/index.js:1344 already strips it before parsing this same file;
+    // this leg did not, and without it JSON.parse throws into the catch below, config
+    // stays null, every configAtWriting claim is SKIPPED, and the board reports
+    // "all current" — the exact failure this check exists to end, reintroduced one level
+    // down. A guard that switches itself off is worse than no guard.
+    const rawSettings = fs.readFileSync(path.join(__dirname, "strategy_settings.json"), "utf8").replace(/^﻿/, "");
+    const settings = JSON.parse(rawSettings);
+    if (settings && typeof settings === "object") {
+      // PUBLISH ONLY WHAT A CLAIM ASKS ABOUT. /api/evidence-board is on the public
+      // allowlist, whose stated rationale is "descriptions of this repo's own contents…
+      // no keys, no positions, no levels". Serving JSON.parse(file) verbatim would
+      // auto-publish, unauthenticated and unreviewed, any key a future script adds to
+      // that file. /api/strategy-settings publishes an ALLOWLIST for exactly this reason.
+      const declared = new Set();
+      for (const c of CLAIMS) {
+        if (c.configAtWriting) for (const k of Object.keys(c.configAtWriting)) declared.add(k);
+      }
+      const picked = {};
+      for (const k of declared) if (k in settings) picked[k] = settings[k];
+      out.config = picked;
+    }
+  } catch (e) {
+    // UNREADABLE is not the same as NO CONFIG DECLARED, and collapsing them is what made
+    // the silent-open possible. Named so a reader can tell the two apart.
+    out.config = null;
+    out.configError = String(e && e.message ? e.message : e);
+  }
   try {
     const journal = JSON.parse(fs.readFileSync(path.join(__dirname, "journal.json"), "utf8"));
     if (Array.isArray(journal)) {
@@ -1114,7 +1144,16 @@ function recurationCheck(claim, live) {
       const wrote = claim.configAtWriting[key];
       const now   = liveConfig[key];
       if (now === null || now === undefined) continue;
-      if (now === wrote) continue;
+      // An object-valued live setting is compared by REFERENCE by ===, so it could never
+      // match and would raise an alarm printing "[object Object] vs [object Object]" that
+      // nothing could ever clear. No config key is object-valued today; treat it as
+      // unknown rather than as drift.
+      if (typeof now === "object") continue;
+      // Compare NUMERICALLY when both sides are numeric, so a hand-edited string "72"
+      // against a declared 72 does not print an alarm whose two numbers look identical.
+      const bothNumeric = Number.isFinite(Number(wrote)) && Number.isFinite(Number(now))
+        && wrote !== "" && now !== "";
+      if (bothNumeric ? Number(wrote) === Number(now) : now === wrote) continue;
       drifted.push(`${key}: MEASURED at ${wrote}, engine is now ${now}`
         + " (config, not sample — the measurement describes a different engine)");
     }

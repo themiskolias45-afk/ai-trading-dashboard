@@ -52,7 +52,6 @@
     "updatedAt": "string",
     "setupTimeframe": "string",
     "confidence": "number",
-    "preMacroConfidence": "number",
     "regime": "string",
     "h4": {
       "signal": "string",
@@ -66,7 +65,6 @@
       "rsi": "number",
       "setup": "string"
     },
-    "h1Agree": "string",
     "m15": {
       "signal": "string",
       "trend": "string",
@@ -154,7 +152,6 @@
     "updatedAt": "string",
     "setupTimeframe": "string",
     "confidence": "number",
-    "preMacroConfidence": "number",
     "regime": "string",
     "h4": {
       "signal": "string",
@@ -168,7 +165,6 @@
       "rsi": "number",
       "setup": "string"
     },
-    "h1Agree": "string",
     "m15": {
       "signal": "string",
       "trend": "string",
@@ -256,7 +252,6 @@
     "updatedAt": "string",
     "setupTimeframe": "string",
     "confidence": "number",
-    "preMacroConfidence": "number",
     "regime": "string",
     "h4": {
       "signal": "string",
@@ -270,7 +265,6 @@
       "rsi": "number",
       "setup": "string"
     },
-    "h1Agree": "string",
     "m15": {
       "signal": "string",
       "trend": "string",

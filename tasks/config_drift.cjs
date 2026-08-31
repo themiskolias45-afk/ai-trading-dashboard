@@ -101,7 +101,7 @@ const RULES = [
       /confidenceThreshold\s*[:=]\s*(\d{2})\b/g,
     ],
     // Historical statements are legitimate when they SAY they are historical.
-    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|predates|retired)\b/i,
+    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|predates|retired|MEASURED at|configAtWriting)\b/i,
   },
   {
     setting: "momentumRsiMax",
@@ -111,7 +111,7 @@ const RULES = [
       /momentumRsiMax\s*[:=]\s*(\d{2,3})\b/g,
       /MOMENTUM_RSI_MAX\s*=\s*(\d{2,3})\b/g,
     ],
-    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|baseline|candidate|default|def:|predates|retired)\b/i,
+    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|baseline|candidate|default|def:|predates|retired|MEASURED at|configAtWriting)\b/i,
   },
   {
     setting: "trendFollowRsiMax",
@@ -121,7 +121,7 @@ const RULES = [
       /trendFollowRsiMax\s*[:=]\s*(\d{2,3})\b/g,
       /TREND_FOLLOW_RSI_MAX\s*=\s*(\d{2,3})\b/g,
     ],
-    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|baseline|candidate|default|def:|predates|retired)\b/i,
+    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|baseline|candidate|default|def:|predates|retired|MEASURED at|configAtWriting)\b/i,
   },
   {
     setting: "fixedLotSize",
