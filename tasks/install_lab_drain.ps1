@@ -52,7 +52,10 @@ $LogDir   = Join-Path $Proj 'tasks\logs'
 # Wall-clock cap, independent of -Max. Two limits must both fail before a drain
 # can occupy this machine for long.
 $RunLimit = New-TimeSpan -Minutes 20
-$Duration = ([TimeSpan]::MaxValue)   # repeat indefinitely
+# 10 years, NOT [TimeSpan]::MaxValue. MaxValue serialises to P99999999DT23H59M59S,
+# which Task Scheduler rejects outright with 0x80041318 - caught on the first
+# -Execute here. install_autostart.ps1 already uses 3650 days for the same reason.
+$Duration = New-TimeSpan -Days 3650
 
 Write-Output ''
 Write-Output ('  install_lab_drain  [{0}]' -f $(if ($Execute) { 'EXECUTE' } else { 'DRY RUN' }))
