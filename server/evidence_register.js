@@ -39,6 +39,56 @@ const STATUS = {
 // Ordered most-actionable first; the board renders in this order.
 const CLAIMS = [
   {
+    // Added 2026-08-31. It goes first because it is the only thing this project has
+    // measured that looks like an edge AND survives its own robustness checks -- and
+    // because it tests a belief the LIVE ENGINE ALREADY HOLDS and had never tested.
+    id: "squeezegold",
+    title: "BB_SQUEEZE_WATCH is watch-only, and on Gold H4 the squeeze-then-break it declines to trade looks like a real shelf",
+    status: STATUS.INCONCLUSIVE,
+    measuredOn: "2026-08-31",
+    evidence: "server/index.js carries a setup named BB_SQUEEZE_WATCH which hardcodes "
+      + "signal 'WAIT', and hermes.js skips it as 'watch-only state, not an entry'. The "
+      + "engine therefore holds the belief that a volatility squeeze is worth NOTICING "
+      + "but not worth TRADING, and that belief had never once been measured. Swept with "
+      + "tasks/lab_run.cjs over 576 candidates on the three traded instruments, H1 and "
+      + "H4, 2018-09..2026-08: XAUUSD H4 median out-of-sample +0.2658R with 37 of 44 "
+      + "judgeable cells positive. IT IS A SHELF, NOT A SPIKE -- every parameter axis is "
+      + "positive independently: squeezePct 0.02 (19/20) and 0.04 (16/16), period 20 "
+      + "(22/28) and 50 (15/16), target 2R/3R/4R all positive with 4R at 11/11, sessions "
+      + "any/london/ny all positive, stop 2xATR (29/33) and 3xATR (8/11). The best cell "
+      + "is also NOT concentrated: 11 of 21 quarters positive, its best quarter is only "
+      + "9.1% of gross, and removing that quarter leaves 17.68R of 21.63R.",
+    caveat: "NOT ENOUGH TRADES TO PROVE IT, and that is the binding constraint rather "
+      + "than any weakness in the result. 89 of the 96 Gold H4 cells fail the 100-trade "
+      + "floor: the squeeze is a RARE setup and the best cells hold only 32 to 47 trades. "
+      + "The strongest cell (out-of-sample +0.9730R, profit factor 1.99) still deflates "
+      + "to a Sharpe of just 15.3%, because 32 trades cannot produce a high PSR however "
+      + "good the mean is. NOT ONE Gold cell reaches SURVIVES. The single candidate that "
+      + "cleared the full bar anywhere was BTCUSD H1, and it PASSES at family scope "
+      + "(96 trials, DSR 96.3%) while FAILING at lab scope (1,947 assessments, 77.8%) -- "
+      + "it was surfaced by ranking across every family, which is a global selection. "
+      + "Everything here is BACKTEST: out-of-sample means the chronological last 30% of "
+      + "the bar history, not forward trading.",
+    changesTheAnswer: "TRADES, and only trades. The parameter robustness and the lack of "
+      + "concentration are already as good as this sample can show; what is missing is "
+      + "sample. Either the same cells accumulating past 100 trades as history extends, "
+      + "or the effect reproducing on Gold H1, which has three times the bars and "
+      + "currently reads a weaker median +0.1551R at 47/60 positive. A WIDER PARAMETER "
+      + "GRID IS NOT THE ANSWER and must not be mistaken for one: every extra cell is "
+      + "another trial that raises the deflation bar for the whole family, so searching "
+      + "harder makes this claim harder to prove, not easier.",
+    harness: "node tasks/lab_run.cjs --strategy bb_squeeze_break --symbol XAUUSD "
+      + "--timeframe H4 --squeezePct 0.04 --period 20 --target-r 4   ·   full table in "
+      + "tasks/analysis/squeeze_traded_sweep.json",
+    // The count that must move for this claim to be re-read: judgeable Gold H4 cells.
+    sampleAtWriting: { squeezeGoldH4Judgeable: 44 },
+    sampleTolerance: 0.5,
+    sampleFrom: "laptop lab sweep of 576 bb_squeeze_break candidates, 2026-08-31",
+    // Nothing here reaches the engine. BB_SQUEEZE_WATCH remains watch-only and this
+    // measurement does not change that: a setup is not promoted by a backtest.
+    feedsTheGate: false,
+  },
+  {
     // Raised 2026-08-22. It goes near the top because it is the constraint the whole
     // system is currently bounded by, and because every surface in the project reports
     // the CONFIDENCE gate instead — which is not what is stopping the trades.
@@ -1020,6 +1070,9 @@ function liveSample() {
   const out = {
     closedFills: null, openPositions: null, sessions: null,
     ledgerResolved: null, minRrResolved: null,
+    // Judgeable Gold H4 squeeze cells, counted off the lab artifacts. Without this the
+    // squeezegold claim would declare a sample nothing could verify.
+    squeezeGoldH4Judgeable: null,
     rangeTradeShortWon: null, rangeTradeShortLost: null,
     // The live engine CONFIG, for claims that declare configAtWriting. Nested under its
     // own key so it can never collide with a sampleAtWriting counter name.
@@ -1087,6 +1140,24 @@ function liveSample() {
       if (Number.isFinite(shortSetup?.lost)) out.rangeTradeShortLost = shortSetup.lost;
     }
   } catch (e) { /* ledger figures stay null; the journal ones still work */ }
+
+  try {
+    const labDir = path.join(__dirname, "..", "tasks", "analysis", "lab");
+    if (fs.existsSync(labDir)) {
+      let count = 0;
+      for (const f of fs.readdirSync(labDir)) {
+        if (!f.endsWith(".json") || f.startsWith("_")) continue;
+        let rep;
+        try { rep = JSON.parse(fs.readFileSync(path.join(labDir, f), "utf8")); }
+        catch (e) { continue; }
+        const sp = rep && rep.spec;
+        if (!sp || sp.strategy !== "bb_squeeze_break") continue;
+        if (sp.symbol !== "XAUUSD" || sp.timeframe !== "H4") continue;
+        if (rep.all && Number(rep.all.n) >= 30) count++;
+      }
+      out.squeezeGoldH4Judgeable = count;
+    }
+  } catch (e) { /* stays null; every other sample check still works */ }
   return out;
 }
 
