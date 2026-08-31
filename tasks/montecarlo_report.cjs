@@ -451,6 +451,23 @@ const result = {
   // than re-running the replay and creating a second source of truth that can drift.
   // Moments cannot be recovered from a histogram, so the series is required.
   perTradeRSeries: rs,
+  // THE SAME TRADES, WITH THEIR DATES. perTradeRSeries above is 469 bare numbers, and
+  // flattening to numbers threw away a timestamp this file already holds -- `trades`
+  // carries `ms` from the replay row's `t` (tasks/_replay_mtf.cjs:683). Nothing could
+  // therefore ask WHEN of this population, so no consumer could compute concentration:
+  // whether a result grinds, or rests on one quarter out of twenty-one. That question
+  // is the difference between an equity curve and an assessment.
+  //
+  // PURELY ADDITIVE. perTradeRSeries is untouched and every existing reader of it,
+  // including tasks/sharpe_robustness.cjs and /report, is unaffected. The watched
+  // fields in tasks/page_parity.cjs are named individually, so a new key cannot
+  // trip fleet parity.
+  perTradeRows: trades.map(t => ({
+    openTime: new Date(t.ms).toISOString(),
+    r: t.r,
+    symbol: t.symbol || null,
+    setup: t.setup || null,
+  })),
   caveats: [
     // The live count is read from the journal rather than baked in. It said "8" while
     // the journal held 7, and it moves with every fill - a figure hardcoded into a
