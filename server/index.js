@@ -1525,8 +1525,11 @@ app.post("/api/trade-closed", (req, res) => {
         riskStatus.setupAlerts = healthAlerts;
       }
     }
-    // Also update SQLite
-    db.updateLearning(trade.setup, pnl > 0 ? 'win' : 'loss', trade.pnl || 0);
+    // Also update SQLite — db.updateLearning() only counts outcome === 'WIN' | 'LOSS'
+    // (uppercase, see server/db.js), and only when a real P&L was reported.
+    if (trade.setup && pnl !== null && pnl !== undefined) {
+      db.updateLearning(trade.setup, pnl > 0 ? 'WIN' : pnl < 0 ? 'LOSS' : 'BREAKEVEN', pnl);
+    }
     db.insertTrade(trade);
   }
   console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);
