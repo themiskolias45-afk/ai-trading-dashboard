@@ -9541,6 +9541,42 @@ app.get("/api/system-plan", async (_, res) => {
         fixedLotSize: peer.reachable && peer.fixedLotSize !== null && localLotSize !== null
           ? { local: localLotSize, peer: peer.fixedLotSize, differs: peer.fixedLotSize !== localLotSize, byDesign: true }
           : null,
+        // THE BREAKER. Two boxes can hold the same rule and disagree about how long
+        // it holds them, and nothing here compared that until 2026-08-31, when the
+        // VPS tripped on 3 consecutive losses and this endpoint reported FLEET AGREES
+        // while one box was out for 48 hours and the other would have resumed in 1.
+        //
+        // It was invisible for a specific reason worth writing down: haltCooldownHours
+        // is a BRIDGE-side constant (mt5_bridge.py HALT_COOLDOWN_HOURS), pushed up
+        // inside each account config. It is not in strategy_settings.json, so
+        // vps_parity legitimately never sees it, and it was in no cross-box check at
+        // all. A setting that decides how long trading stops, compared by nothing.
+        //
+        // NOT byDesign. fixedLotSize differs deliberately; there is no recorded
+        // decision that these should, so a difference is reported as a difference.
+        breakerCooldownHours: (() => {
+          const pull = accs => {
+            const out = new Set();
+            for (const a of Object.values(accs || {})) {
+              const v = a && a.config && a.config.haltCooldownHours;
+              if (Number.isFinite(Number(v))) out.add(Number(v));
+            }
+            return [...out].sort((x, y) => x - y);
+          };
+          const local = pull(riskStatusByAccount);
+          const remote = pull(peer.accounts);
+          if (!peer.reachable || !local.length || !remote.length) return null;
+          return { local, peer: remote,
+            differs: JSON.stringify(local) !== JSON.stringify(remote) };
+        })(),
+        // ONE BOX HALTED AND THE OTHER LIVE is not merely an action item, it is a
+        // statement about every pooled number: while it holds, the two boxes are
+        // not running the same experiment and their journals cannot be added.
+        halted: peer.reachable
+          ? { local: riskStatus.halted === true, peer: peer.halted === true,
+              differs: (riskStatus.halted === true) !== (peer.halted === true),
+              poolingValid: (riskStatus.halted === true) === (peer.halted === true) }
+          : null,
         engine: parity.available
           ? {
               differs: (parity.engineDrift > 0 || parity.scalarDrift > 0),

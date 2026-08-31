@@ -424,6 +424,60 @@ function checkParity(canReachPeer, root = ROOT) {
 // realisedRr is IMPORTED from tasks/entry_drift_audit.cjs rather than reimplemented.
 // A second copy of that arithmetic is how two surfaces end up disagreeing about
 // whether a position clears the floor.
+// ONE BOX HALTED BESIDE A LIVE ONE, and the breaker settings that decide how long.
+//
+// On 2026-08-31 the VPS tripped its circuit breaker on three genuine consecutive
+// losses (-226.87, -27.68, -8.60) while the laptop kept trading. get_fleet_status
+// printed FLEET AGREES and raised a single action item. Both were true and neither
+// said the thing that matters: WHILE THIS HOLDS, THE TWO BOXES ARE NOT RUNNING THE
+// SAME EXPERIMENT AND THEIR JOURNALS CANNOT BE ADDED.
+//
+// Worse, the halts are not even the same length. haltCooldownHours is 1 on the
+// laptop and 48 on the VPS, so an identical rule on an identical streak stops one
+// box for an hour and the other for two days. That was compared by NOTHING:
+// haltCooldownHours is a BRIDGE-side constant (mt5_bridge.py HALT_COOLDOWN_HOURS)
+// pushed inside each account config, so it is not in strategy_settings.json and
+// vps_parity legitimately never sees it. A setting that decides how long trading
+// stops, in no cross-box check at all.
+//
+// REPORTS ONLY. It does not clear a breaker, does not touch a cooldown, and must
+// not: the breaker fired correctly and which cooldown is right is a human decision
+// that is not recorded anywhere.
+function checkFleetPooling(root = ROOT, fleet = null) {
+  // The fleet payload is read from the artifact the fleet route already writes, so
+  // this check needs no network of its own and can be pointed at a scratch root.
+  let data = fleet;
+  if (!data) {
+    const f = path.join(root, "dashboard", "pipeline-peer.json");
+    if (!fs.existsSync(f)) return;
+    try { data = JSON.parse(fs.readFileSync(f, "utf8")); } catch (e) { return; }
+  }
+  const div = data && data.divergence;
+  if (!div) return;
+
+  if (div.halted && div.halted.differs) {
+    const which = div.halted.peer ? "the peer" : "this box";
+    finding("RED", "fleet", `trading is HALTED on ${which} and live on the other`,
+      "the two boxes are not running the same experiment while this holds, so any " +
+      "number that pools their journals is unattributable — expectancy, win rate and " +
+      "the calibration record all included",
+      "read each box separately until both are live again; do NOT clear a breaker to " +
+      "restore symmetry");
+  }
+
+  const cd = div.breakerCooldownHours;
+  if (cd && cd.differs) {
+    finding("AMBER", "fleet",
+      `breaker cooldown differs: ${cd.local.join("/")}h here vs ${cd.peer.join("/")}h on the peer`,
+      "the same rule on the same streak stops the two boxes for different lengths of " +
+      "time, so a divergence created by one breaker trip persists for the LONGER of " +
+      "the two. This is a bridge constant (HALT_COOLDOWN_HOURS), not a setting in " +
+      "strategy_settings.json, which is why no parity check has ever seen it",
+      "decide which cooldown is intended, then set HALT_COOLDOWN_HOURS to match on " +
+      "both bridges — there is no recorded decision that they should differ");
+  }
+}
+
 function checkHeldRr(root = ROOT) {
   let audit;
   try { audit = require("./entry_drift_audit.cjs"); }
@@ -1405,6 +1459,7 @@ async function diagnose() {
   checkLearningIntegrity();
   checkLab();
   checkHeldRr();
+  checkFleetPooling();
 
   const rank = { RED: 0, AMBER: 1, INFO: 2 };
   findings.sort((a, b) => rank[a.severity] - rank[b.severity]);
@@ -1495,5 +1550,6 @@ module.exports = {
   checkLearningIntegrity,
   checkLab,
   checkHeldRr,
+  checkFleetPooling,
   checkPeerViaHeartbeat,
   _findings: () => findings, _reset: () => { findings = []; } };

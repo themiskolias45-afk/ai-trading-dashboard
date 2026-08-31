@@ -662,6 +662,36 @@ async function main() {
   // ── positions held below the R:R floor the gate enforces ─────────────────
   // Three of the six fleet positions were in this state on 2026-08-31 and nothing
   // reported it, because the only R:R anyone reads is the PLAN.
+  // ── one box halted beside a live one ─────────────────────────────────────
+  // Real on 2026-08-31: the VPS tripped on three genuine losses while the laptop
+  // traded on, and every surface said FLEET AGREES.
+  console.log("\ncheckFleetPooling");
+
+  check("peer halted while this box is live -> RED, pooling invalid",
+    { severity: "RED", box: "fleet", match: /HALTED on the peer/i },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { halted: { local: false, peer: true, differs: true, poolingValid: false } } })));
+
+  check("both boxes live -> silent",
+    { none: true },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { halted: { local: false, peer: false, differs: false, poolingValid: true } } })));
+
+  check("both boxes halted -> silent on pooling (symmetric, still comparable)",
+    { none: true },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { halted: { local: true, peer: true, differs: false, poolingValid: true } } })));
+
+  check("breaker cooldown 1h vs 48h -> AMBER naming both",
+    { severity: "AMBER", box: "fleet", match: /cooldown differs: 1h here vs 48h/i },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { breakerCooldownHours: { local: [1], peer: [48], differs: true } } })));
+
+  check("matching cooldowns -> silent",
+    { none: true },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { breakerCooldownHours: { local: [48], peer: [48], differs: false } } })));
+
   console.log("\ncheckHeldRr");
 
   put("server/strategy_settings.json", JSON.stringify({ minRr: 1.5 }));
