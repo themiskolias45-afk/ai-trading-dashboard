@@ -28,17 +28,82 @@ $($commits -join "`n")
     }
 }
 
-# --- 2. Push last 3 commits to MCP memory for next session recall ---
-# Uses the SmartEntry MCP write_memory tool via HTTP since MCP isn't
-# available in hook context. Falls back silently if server is offline.
+# --- 2. Push last 3 commits to server memory for next session recall ---
+# This write failed on EVERY session end for the whole life of the hook, and both
+# failures were swallowed by `2>$null | Out-Null`. Found and reproduced 2026-09-01:
+#
+#   1. HTTP 400. Windows PowerShell 5.1 strips the embedded double quotes when it
+#      hands an argument to a native exe, so `curl.exe -d $body` — correct JSON
+#      inside PowerShell — arrived as {key:...} and body-parser threw
+#      "Expected property name or '}' in JSON at position 1". 66 of those in
+#      server_log.txt, all dated 2026-08-31, one per session end.
+#      Fixed by writing the body to a file and sending --data-binary "@file".
+#
+#   2. HTTP 401. /api/memory is deliberately NOT in API_NO_LOGIN_REQUIRED, so even
+#      a valid body was rejected — curl carries no session. Fixed by logging in
+#      first with the same keys.env credential server/mcp_server.js:122 already
+#      uses. The route STAYS gated; the hook acquires a session like every other
+#      local process does.
+#
+# Never blocks and never throws: a missing credential, an offline server or any
+# non-200 is recorded in tasks\logs\session_stop.txt and the hook continues.
+# Section 4 below is the independent local rail and does not depend on any of this.
+$hookLog = Join-Path $proj 'tasks\logs\session_stop.txt'
+function Write-HookLog([string]$text) {
+    try { Add-Content -Path $hookLog -Value "[$ts] $text" -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
+}
+
 $recentLog = git -C $proj log --oneline -3 2>$null
 if ($recentLog) {
-    $summary = $recentLog -join " | "
-    $body = "{`"key`":`"last-session-commits`",`"value`":`"$summary`"}"
-    curl.exe -s -X POST http://localhost:3001/api/memory `
-        -H 'Content-Type: application/json' `
-        -d $body `
-        --max-time 3 2>$null | Out-Null
+    $summary   = $recentLog -join " | "
+    $memOk     = $false
+    $memWhy    = 'not attempted'
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $bodyFile  = Join-Path $env:TEMP 'jarvis_session_stop_body.json'
+    $loginFile = Join-Path $env:TEMP 'jarvis_session_stop_login.json'
+    $cookieJar = Join-Path $env:TEMP 'jarvis_session_stop_cookies.txt'
+    try {
+        $dashUser = $null
+        $dashPass = $null
+        $keysPath = Join-Path $proj 'keys.env'
+        if (Test-Path $keysPath) {
+            foreach ($kv in [System.IO.File]::ReadAllLines($keysPath)) {
+                if ($kv -match '^\s*DASHBOARD_USERNAME\s*=\s*(.+?)\s*$') { $dashUser = $Matches[1] }
+                if ($kv -match '^\s*DASHBOARD_PASSWORD\s*=\s*(.+?)\s*$') { $dashPass = $Matches[1] }
+            }
+        }
+        if (-not $dashUser -or -not $dashPass) {
+            $memWhy = 'DASHBOARD_USERNAME/DASHBOARD_PASSWORD absent from keys.env - the route is gated, so the write is skipped, not forced'
+        } else {
+            $loginJson = @{ username = $dashUser; password = $dashPass } | ConvertTo-Json -Compress
+            [System.IO.File]::WriteAllText($loginFile, $loginJson, $utf8NoBom)
+            $loginCode = curl.exe -s -o NUL -w '%{http_code}' -X POST 'http://localhost:3001/api/login' `
+                -H 'Content-Type: application/json' --data-binary "@$loginFile" -c $cookieJar --max-time 3 2>$null
+            # Emptied, never deleted: the password must not linger in %TEMP%, and the
+            # standing rule is that nothing on this system gets deleted.
+            [System.IO.File]::WriteAllText($loginFile, '', $utf8NoBom)
+            if ("$loginCode" -ne '200') {
+                $memWhy = "POST /api/login returned $loginCode"
+            } else {
+                $bodyJson = @{ key = 'last-session-commits'; value = $summary } | ConvertTo-Json -Compress
+                [System.IO.File]::WriteAllText($bodyFile, $bodyJson, $utf8NoBom)
+                $memCode = curl.exe -s -o NUL -w '%{http_code}' -X POST 'http://localhost:3001/api/memory' `
+                    -H 'Content-Type: application/json' --data-binary "@$bodyFile" -b $cookieJar --max-time 3 2>$null
+                if ("$memCode" -eq '200') { $memOk = $true; $memWhy = 'ok' }
+                else { $memWhy = "POST /api/memory returned $memCode" }
+            }
+            # Same treatment as the login body — the jar holds the live session secret.
+            [System.IO.File]::WriteAllText($cookieJar, '', $utf8NoBom)
+        }
+    } catch {
+        $memWhy = "exception: $($_.Exception.Message)"
+    }
+    if ($memOk) {
+        Write-HookLog "last-session-commits written: $summary"
+    } else {
+        Write-HookLog "last-session-commits NOT written - $memWhy"
+        Write-Host "session-stop: last-session-commits not persisted ($memWhy). tasks\jarvis-state.json still carries them." -ForegroundColor DarkYellow
+    }
 }
 
 # --- 3. Check for uncommitted changes — warn so nothing is lost ---
