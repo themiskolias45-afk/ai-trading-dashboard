@@ -331,6 +331,8 @@ def notify_alert(message: str) -> None:
 
     send_telegram(body)
 
+    send_slack(f":warning: *ALERT*: {message}")
+
     send_webhook({
         "content": body,
         "embeds": [{
@@ -435,6 +437,10 @@ def run_test() -> None:
         print("           ^ this is the only channel that reaches a phone and works "
               "headless; without it the VPS can raise an alert nobody receives.")
 
+    send_slack("JARVIS notification engine test — Slack channel working.")
+    slack_configured = bool(get_cred("SLACK_BOT_TOKEN"))
+    print(f"  Slack:    {'sent' if slack_configured else 'skipped (SLACK_BOT_TOKEN not in keys.env)'}")
+
     print("Test complete.")
 
 
@@ -494,9 +500,6 @@ def main() -> None:
         if channel in ("all", "slack"):
             send_slack("*" + _title + "*\n" + _body)
         # Name the channels that were actually CONFIGURED, not just the ones asked for.
-        # "Alert sent via all" was printed while WEBHOOK_URL was unset and Telegram was
-        # not wired at all, so the line asserted delivery through channels that silently
-        # skipped - a success message is worse than none when it cannot fail.
         live = []
         if channel in ("all", "toast"):
             live.append("toast")
@@ -506,8 +509,7 @@ def main() -> None:
             live.append("webhook")
         if channel in ("all", "telegram") and get_cred("TELEGRAM_TOKEN") and get_cred("TELEGRAM_CHAT_ID"):
             live.append("telegram")
-        # Same rule as the others: name it only if it is actually CONFIGURED. A channel
-        # id alone is not a credential, so SLACK_BOT_TOKEN is what decides.
+        # A channel id alone is not a credential; SLACK_BOT_TOKEN decides.
         if channel in ("all", "slack") and get_cred("SLACK_BOT_TOKEN"):
             live.append("slack")
         print(f"[NOTIFY] Alert sent via {'+'.join(live) if live else 'NOTHING CONFIGURED'}"
