@@ -361,10 +361,18 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
 
 
 def index_brain(client, model, rebuild: bool = False):
+    # THE DELETE IS DEFERRED, deliberately. It used to happen HERE, before the corpus
+    # was read and before ~1700 chunks were embedded — so a --rebuild left the index
+    # empty for the entire duration of the slow part, and a kill anywhere in there
+    # (a 2-minute tool timeout did exactly this on 2026-09-01) destroyed the index and
+    # left no trace but an unusually large "new" count on the next run.
+    #
+    # Now the expensive work happens against the LIVE index and the delete fires
+    # immediately before the add, shrinking the window from minutes to milliseconds.
+    # Not a transaction — chromadb has none — but the difference between "empty while
+    # a model loads and 1700 embeddings compute" and "empty for one call" is the
+    # difference between a likely failure and an unlikely one.
     collection = _get_collection(client, "brain")
-    if rebuild:
-        client.delete_collection("brain")
-        collection = _get_collection(client, "brain")
 
     corpus = _find_brain_corpus()
     if corpus is None:
