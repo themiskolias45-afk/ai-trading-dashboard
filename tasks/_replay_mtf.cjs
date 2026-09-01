@@ -82,6 +82,21 @@ const SCALAR_CONSTS = [
   // Third occurrence of this exact bug, which is why the list is read from source and
   // why callers must check perAsset for an `error` key rather than trusting the total.
   "SPX_H4_ONLY_BLOCKED_FLOOR",
+  // Added 2026-09-01 — the FOURTH occurrence of exactly the bug this list documents,
+  // and it was caught only because the numbers came back TOO clean. After changing
+  // BUY_DIP and MOMENTUM in the engine, the walk-forward returned trade counts
+  // identical to the pre-change run to the digit (308/413/115) and worst folds
+  // identical to three decimals. A change that admits 33% more MOMENTUM candidates
+  // cannot leave the trade count untouched, which is what gave it away. Had the
+  // change been smaller the run would have "validated" it and I would have reported
+  // a pass that never happened.
+  //
+  // generateSignal reads all three unconditionally on the BUY_DIP and MOMENTUM
+  // branches, so without them here every bar reaching either branch throws and is
+  // swallowed by the caller's catch.
+  "BUY_DIP_REQUIRE_MACD_BULLISH",
+  "BUY_DIP_RSI_MAX",
+  "MOMENTUM_REQUIRE_MACD_BULLISH",
 ];
 
 let code = "";
