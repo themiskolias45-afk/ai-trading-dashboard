@@ -2091,7 +2091,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     (inUptrend || (trend === "MIXED" && aboveEma50)) &&
     !aboveEma20 &&
     price >= ema20 * 0.978 &&       // within 2.2% of EMA20
-    rsi !== null && rsi < 50 &&
+    rsi !== null && rsi < BUY_DIP_RSI_MAX &&
     (!BUY_DIP_REQUIRE_MACD_BULLISH || macd?.bullish)
   ) {
     setup  = "BUY_DIP";
@@ -3472,6 +3472,29 @@ const GOLD_SQUEEZE_MODERATE_CONFIDENCE = 70;
 //
 // Flip to true to restore the old behaviour — one word, no other edit.
 const BUY_DIP_REQUIRE_MACD_BULLISH = false;
+
+// BUY_DIP's RSI ceiling. Was a hardcoded 50; raised to 55 on 2026-09-01.
+//
+// `node tasks/ceiling_measure.cjs --setup buydip_rsi --horizon 10` — the same method
+// as above, re-measured WITHOUT the macd condition because the engine no longer has
+// one. 466 bars where every other BUY_DIP condition passes:
+//
+//   FIRED   (RSI < 50, what the engine took)   326 bars  +0.188 ATR  56.7% win
+//   BLOCKED (RSI >= 50, what it refused)       140 bars  +0.440 ATR  60.7% win
+//   BLOCKED minus FIRED  +0.251 ATR  against a noise band of +/-0.234
+//
+// This points the SAME way as the MACD result but it is MUCH weaker: 1.07x the noise
+// band against MACD's 3.0x. That is why this is a bounded step and not a deletion.
+// Removing the condition entirely would turn BUY_DIP into "any pullback to EMA20 in
+// an uptrend", a large behavioural change on evidence a whisker outside noise.
+//
+// 55 IS A JUDGEMENT CALL, NOT A MEASURED OPTIMUM. The measurement compares RSI<50
+// against RSI>=50 as one block; it does not say where inside that block the line
+// belongs. 55 was chosen because it admits the live case that prompted this - Gold
+// refused at RSI 52.6 with every other condition passing - while keeping a bound, and
+// because a single named constant is trivial to sweep later. Anyone re-measuring
+// should sweep 50/55/60/65 per asset before moving it again.
+const BUY_DIP_RSI_MAX = 55;
 
 // SPX H4-only is BLOCKED BY MEASUREMENT, not by arithmetic.
 //

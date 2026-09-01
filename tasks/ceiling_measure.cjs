@@ -111,6 +111,43 @@ const SETUPS = {
     firedDesc: "MACD still bullish",
     blockedDesc: "MACD rolled over",
   },
+  // BUY_DIP's RSI floor, measured WITHOUT the macd requirement - because as of
+  // 2026-09-01 the engine no longer has one (BUY_DIP_REQUIRE_MACD_BULLISH = false).
+  // The `buydip` mode below still conditions on macdBullish, which now measures a
+  // branch the engine does not take and leaves only ~42 bars to split. This is the
+  // live question: with MACD gone, is rsi < 50 still worth what it discards? Gold
+  // sat at 52.6 and was refused on this alone.
+  buydip_rsi: {
+    label: "BUY_DIP - is the RSI<50 floor earning its keep, now that MACD is gone?",
+    nonRsi: o => (o.inUptrend || (o.trend === "MIXED" && o.aboveEma50))
+              && !o.aboveEma20
+              && o.price >= o.ema20 * 0.978,
+    fired:   r => r < 50,
+    blocked: r => r >= 50,
+    firedDesc: "RSI < 50",
+    blockedDesc: "RSI >= 50",
+  },
+  // SELL_BOUNCE is the exact mirror of BUY_DIP - downtrend, rejection at EMA20,
+  // rsi > 50, and `!macd.bullish` where BUY_DIP had `macd.bullish`. If that condition
+  // was costing money going long it is worth asking on the short side too, and the
+  // short side is where this engine is thinnest: eight long branches against four
+  // short, with no trend-continuation setup at all.
+  //
+  // short:true inverts the forward return AND the control. Without it every verdict
+  // here would come out backwards.
+  sellbounce_macd: {
+    short: true,
+    label: "SELL_BOUNCE - is the !macd.bullish requirement earning its keep?",
+    nonRsi: o => (((o.trend === "STRONG DOWNTREND" || o.trend === "DOWNTREND")
+                   || (o.trend === "MIXED" && !o.aboveEma50))
+              && o.aboveEma20
+              && o.price <= o.ema20 * 1.022
+              && o.rsi > 50),
+    fired:   (r, o) => o.macdBullish === false,
+    blocked: (r, o) => o.macdBullish === true,
+    firedDesc: "MACD bearish",
+    blockedDesc: "MACD still bullish",
+  },
   // server/index.js generateSignal, BUY_DIP branch: pullback to EMA20.
   buydip: {
     label: "BUY_DIP - EMA20 pullback reversal (RSI floor 50)",
@@ -277,7 +314,12 @@ function classify(bars, i) {
 function forward(bars, i, obs) {
   const j = i + HORIZON;
   if (j >= bars.c.length) return null;
-  const move = bars.c[j] - bars.c[i];
+  // A SHORT setup profits when price FALLS, so its forward return is the negative of
+  // the move. Negated HERE rather than at the call sites on purpose: the control is
+  // built from this same function, and a control measured long against short
+  // observations would invert the excess and read as a finding. DEF is module scope
+  // and is resolved before this ever runs.
+  const move = (bars.c[j] - bars.c[i]) * (DEF.short ? -1 : 1);
   const inAtr = (obs.atr && obs.atr > 0) ? move / obs.atr : null;
   return { atrUnits: inAtr, pct: (move / bars.c[i]) * 100, up: move > 0 };
 }
