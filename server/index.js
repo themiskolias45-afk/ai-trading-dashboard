@@ -2585,7 +2585,24 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
         };
 
         // MOMENTUM: inUptrend && aboveEma50 && aboveEma20 && macd.bullish, RSI banded.
-        if (inUptrend && aboveEma50 && aboveEma20 && macd?.bullish) {
+        //
+        // `macd.bullish` USED TO SIT IN THIS GUARD, which made the census blind to the
+        // single most common reason a setup does not fire. It was a PRECONDITION FOR
+        // BEING LOOKED AT, never a reported condition, so when MACD was the only thing
+        // failing nothing was recorded at all. Measured 2026-09-01: across both boxes
+        // the census held 64 rows and every one was RSI — 36 on the VPS, 28 here, and
+        // ZERO for Gold on either machine, ever. Gold fails MOMENTUM on macd.bullish
+        // and nothing else, so the instrument CLAUDE.md calls the binding constraint
+        // could not see the asset it was most needed for. why_zero_confidence.cjs
+        // reported "nothing got close enough to a setup to be counted — a QUIET MARKET,
+        // not a blocked one" while Gold sat one condition away.
+        //
+        // Now reported as its own condition. REPORTING ONLY: this records and pushes a
+        // string. It assigns no setup, signal, entry, stop, target, strength or
+        // confidence, and changes no gate — the branch that decides MOMENTUM is
+        // untouched above.
+        const momentumStructureOk = inUptrend && aboveEma50 && aboveEma20;
+        if (momentumStructureOk && macd?.bullish) {
           if (rsi >= MOMENTUM_RSI_MAX) {
             note({ ...nearMissBase, setup: "MOMENTUM",
               condition: "RSI_ABOVE_CEILING", threshold: MOMENTUM_RSI_MAX, actual: rsi });
@@ -2593,11 +2610,21 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
             note({ ...nearMissBase, setup: "MOMENTUM",
               condition: "RSI_BELOW_FLOOR", threshold: MOMENTUM_RSI_MIN, actual: rsi });
           }
+        } else if (momentumStructureOk && !macd?.bullish
+                   && rsi > MOMENTUM_RSI_MIN && rsi < MOMENTUM_RSI_MAX
+                   && Number.isFinite(macd?.histogram)) {
+          // threshold 0 because the crossover IS the zero line for the histogram, so
+          // |actual - threshold| stays the true distance-to-fire, the same meaning it
+          // carries for the RSI rows beside it.
+          note({ ...nearMissBase, setup: "MOMENTUM",
+            condition: "MACD_NOT_BULLISH", threshold: 0, actual: macd.histogram });
         }
 
         // TREND_FOLLOW: same idea, its own band and its own EMA200 distance rule.
-        if ((inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20)
-            && macd?.bullish && ema200 && price > ema200 * 1.005) {
+        // Same correction as MOMENTUM above — macd.bullish moved out of the guard.
+        const trendFollowStructureOk = (inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20)
+            && ema200 && price > ema200 * 1.005;
+        if (trendFollowStructureOk && macd?.bullish) {
           if (rsi >= TREND_FOLLOW_RSI_MAX) {
             note({ ...nearMissBase, setup: "TREND_FOLLOW",
               condition: "RSI_ABOVE_CEILING", threshold: TREND_FOLLOW_RSI_MAX, actual: rsi });
@@ -2605,6 +2632,11 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
             note({ ...nearMissBase, setup: "TREND_FOLLOW",
               condition: "RSI_BELOW_FLOOR", threshold: TREND_FOLLOW_RSI_MIN, actual: rsi });
           }
+        } else if (trendFollowStructureOk && !macd?.bullish
+                   && rsi > TREND_FOLLOW_RSI_MIN && rsi < TREND_FOLLOW_RSI_MAX
+                   && Number.isFinite(macd?.histogram)) {
+          note({ ...nearMissBase, setup: "TREND_FOLLOW",
+            condition: "MACD_NOT_BULLISH", threshold: 0, actual: macd.histogram });
         }
 
         // ── The census, said out loud ────────────────────────────
@@ -2621,8 +2653,17 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
         // DISPLAY ONLY. This pushes a string. It assigns no setup, signal, entry,
         // stop, target, strength or confidence, and every reader of `reasons` is a
         // dashboard, an alert body or a brief line — nothing gates on it.
-        if (noted.length > 0) {
-          const tightest = noted.reduce((best, row) =>
+        // RSI rows are ranked among THEMSELVES and MACD rows among themselves. An RSI
+        // margin is in RSI points and a MACD margin is in histogram units — Gold's
+        // -12.82 histogram against BTC's 1.2 RSI points are not the same quantity, and
+        // one reduce over both would silently pick whichever number was smaller. RSI
+        // keeps priority, so this line is BYTE-IDENTICAL whenever an RSI row exists;
+        // the MACD line appears only in the case that previously produced nothing at
+        // all. `where` below is a two-way RSI branch and must never see a MACD row.
+        const rsiNoted  = noted.filter(row => row.condition !== "MACD_NOT_BULLISH");
+        const macdNoted = noted.filter(row => row.condition === "MACD_NOT_BULLISH");
+        if (rsiNoted.length > 0) {
+          const tightest = rsiNoted.reduce((best, row) =>
             Math.abs(row.actual - row.threshold) < Math.abs(best.actual - best.threshold) ? row : best);
           const margin = Math.abs(tightest.actual - tightest.threshold).toFixed(1);
           const where  = tightest.condition === "RSI_ABOVE_CEILING" ? "above ceiling" : "below floor";
@@ -2637,6 +2678,16 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
           reasons.unshift(
             `BLOCKED: ${tightest.setup} — RSI ${tightest.actual} ${where} ${tightest.threshold} (by ${margin}). ` +
             `Every other ${tightest.setup} condition passed.`);
+        } else if (macdNoted.length > 0) {
+          // The line Gold has never been able to show. Same shape and same unshift as
+          // the RSI line above, for the same reason: reasons.slice(0, 2) is what the
+          // dashboard renders, so a cause appended last is a cause nobody reads.
+          const tightest = macdNoted.reduce((best, row) =>
+            Math.abs(row.actual) < Math.abs(best.actual) ? row : best);
+          const gap = Math.abs(tightest.actual).toFixed(2);
+          reasons.unshift(
+            `BLOCKED: ${tightest.setup} — MACD not bullish (histogram ${tightest.actual}, ` +
+            `${gap} below its signal line). Every other ${tightest.setup} condition passed.`);
         }
       }
     } catch (nearMissError) {
