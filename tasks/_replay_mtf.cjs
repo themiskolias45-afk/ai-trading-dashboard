@@ -107,6 +107,14 @@ const SCALAR_CONSTS = [
 ];
 
 let code = "";
+// Engine consts a harness may flip to compare two worlds. Empty by default, so a plain
+// run reproduces the live engine exactly. Only booleans belong here; anything numeric
+// already has an MTF_* settings knob.
+const CONST_OVERRIDES = {};
+if (process.env.MTF_SELL_BOUNCE_REQUIRE_DOWNTREND === "false") {
+  CONST_OVERRIDES.SELL_BOUNCE_REQUIRE_DOWNTREND = "false";
+}
+
 for (const name of SCALAR_CONSTS) {
   const m = serverSrc.match(new RegExp(`^const\\s+${name}\\s*=\\s*([^;]+);`, "m"));
   if (!m) {
