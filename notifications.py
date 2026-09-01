@@ -455,6 +455,8 @@ def main() -> None:
             send_webhook({"content": _body, "embeds": [{"title": _title, "description": _body, "color": 16776960}]})
         if channel in ("all", "telegram"):
             send_telegram(f"{_title}: {_body}")
+        if channel in ("all", "slack"):
+            send_slack("*" + _title + "*\n" + _body)
         # Name the channels that were actually CONFIGURED, not just the ones asked for.
         # "Alert sent via all" was printed while WEBHOOK_URL was unset and Telegram was
         # not wired at all, so the line asserted delivery through channels that silently
@@ -468,6 +470,10 @@ def main() -> None:
             live.append("webhook")
         if channel in ("all", "telegram") and get_cred("TELEGRAM_TOKEN") and get_cred("TELEGRAM_CHAT_ID"):
             live.append("telegram")
+        # Same rule as the others: name it only if it is actually CONFIGURED. A channel
+        # id alone is not a credential, so SLACK_BOT_TOKEN is what decides.
+        if channel in ("all", "slack") and get_cred("SLACK_BOT_TOKEN"):
+            live.append("slack")
         print(f"[NOTIFY] Alert sent via {'+'.join(live) if live else 'NOTHING CONFIGURED'}"
               f": {_title} — {_body[:80]}")
 
