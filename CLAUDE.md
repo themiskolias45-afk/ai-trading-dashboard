@@ -269,18 +269,39 @@ silently resolved.
   `crossedBearish: true`. The label says where price IS, never where it is going. The
   setup that fires there is named `BUY_OVERSOLD` and buys the fall on purpose — H4 RSI
   27.2, H1 RSI 23.7 that day. Both readings are correct; they measure different things.
-- The gate is **70**, set 2026-08-02 (a0862d1) and re-measured 2026-08-18 on 769 trades,
-  5 folds, 0.05R cost. **It is 4 of 5, not the "5 of 5" this file claimed** — the
-  sample grew and unanimity did not survive it. 55, 60 and 75 are also 4/5, so the
-  argument for 70 is now its BEST WORST FOLD: its one negative is −0.016 against
-  −0.165 at 55, −0.098 at 60 and −0.204 at 75. 65 has DEGRADED to 2/5 UNSTABLE;
-  85 is negative in 4 of 4. **The gate has not moved and this is not a reason to
-  move it** — a challenger has to beat 70's worst fold in most folds, not its mean.
-  Re-measure with `run_walkforward` (MCP) or `node tasks/mtf_walkforward.cjs`
-  before changing it, and read `tasks/logs/mtf_walkforward.txt` timestamps — that
-  file also holds a superseded run from the pre-b55b5f5 broken harness.
-- **Gold's squeeze cohort is pinned to exactly the gate** (`GOLD_SQUEEZE_MODERATE_CONFIDENCE`
-  = 70). Raise `confidenceThreshold` above 70 and that cohort silently stops firing.
+- **The gate is 65.** Moved 70 → 65 by the user on 2026-09-01, deliberately, for trade
+  FREQUENCY. Verified on both boxes the same day: `FLEET AGREES`, local 65 / peer 65,
+  `settingsError` null on each, no BOM, `ENGINES AGREE` at 0 drift. **Never quote 70
+  from this file again** — it said 70 for hours after the change and that is the first
+  line every session reads.
+  - The choice, `MTF_MAX_HOLD=320`, 5 folds, 0.05R, from the baseline table of
+    `tasks/breakdown_walkforward.cjs`. **Every gate 45–85 is 5/5 positive at this
+    horizon**, so this is frequency vs per-trade quality, NOT good vs bad:
+
+    | gate | closed | R/trade | worst fold |
+    |---|---|---|---|
+    | 55 | 619 | +0.255 | +0.034 |
+    | **65** | **494** | **+0.323** | **+0.053** |
+    | 70 (was) | 454 | +0.369 | +0.055 |
+    | 75 | 275 | +0.360 | +0.219 |
+
+    65 buys ~9% more trades at a worst fold of +0.053 against 70's +0.055 — effectively
+    unchanged — for about 5% less total R (159R vs 168R). Total R peaks at 70; COUNT is
+    what 65 buys, and sample size is the binding constraint.
+  - **THE OLD NUMBERS IN THIS BULLET WERE PROBABLY AN ARTIFACT.** It used to report the
+    2026-08-18 run as 4/5 with "65 DEGRADED to 2/5 UNSTABLE" and "85 negative in 4 of 4".
+    That run used the harness default `MTF_MAX_HOLD=40`, which scores an unresolved trade
+    as EXPIRED — and **the live system has no max-hold at all**. Corrected to 320 the same
+    data turned SP500 from `0/5 CONSISTENTLY NEGATIVE` into `4/5 MOSTLY POSITIVE`. Any
+    gate verdict quoted without its hold horizon is not a verdict.
+  - **Re-measure per ASSET, never pooled.** Added 2026-09-01 to `mtf_walkforward.cjs`
+    (ae4a197) because every verdict here had been pooled across three assets and then
+    used to answer asset-specific questions. At gate 70 / 320: XAUUSD 5/5 +0.051,
+    BTCUSD 5/5 +0.172, SP500 4/5 −0.042.
+- **Gold's squeeze cohort is pinned to a LITERAL 70** (`GOLD_SQUEEZE_MODERATE_CONFIDENCE`,
+  `server/index.js:3486`) — it did NOT follow the gate down. At 65 it still clears
+  comfortably; it silently stops firing only if the gate is ever raised ABOVE 70. Moving
+  the gate DOWN was the safe direction; moving it up is the one that needs this checked.
 - `strategy_settings.json` is per-machine and untracked, so a shared commit does NOT
   mean shared behaviour — change it on the laptop AND the VPS. Never write it with
   PowerShell `Set-Content -Encoding utf8`: that emits a UTF-8 BOM and on 2026-08-02 it
