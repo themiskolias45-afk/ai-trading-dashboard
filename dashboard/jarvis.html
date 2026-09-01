@@ -12,19 +12,39 @@ html{height:100%}
      .32 alpha, so the "background" was really a purple wash and every surface
      floated on it with no separation. Surfaces are now opaque enough to read as
      panels, and the glow is scenery behind them rather than the substrate. */
+  /* MEASURED 2026-09-01, not eyeballed. Every ratio below is against the surface the
+     token is actually painted on, computed with the WCAG relative-luminance formula.
+
+     Three real failures were found and all three were load-bearing:
+       --border    1.28:1 vs --surface. It is `border:1px solid var(--border)` on every
+                   card, so the card edges were mathematically invisible. This is why
+                   the boxes read as flat.
+       --muted-dim 2.96:1 as TEXT. The old comment here claimed "decoration only - dots,
+                   hairlines - where the AA floor does not apply". That was false: grep
+                   finds `color:var(--muted-dim)` and three JS branches that paint the
+                   "too few to judge" labels with it. It was body text at 2.96:1.
+       --muted     4.39:1 on --surface3. Passed on --surface and was assumed to pass
+                   everywhere; the raised cards are a different background.
+
+     The surface ladder was the other half. #0a1020 -> #0e1628 -> #121c33 differ by
+     1.05:1 and 1.06:1 - a panel on a panel was indistinguishable from the panel. Depth
+     now comes from THREE cues (fill, edge, shadow) so no single one has to shout. */
   --bg:#03060d;
-  --surface:#0a1020;
-  --surface2:#0e1628;
-  --surface3:#121c33;      /* raised: inputs, hovered rows */
-  --border:#1b2742;
-  --border2:#2a3a5e;
-  --text:#e6edf7;
-  --muted:#6b83a8;         /* 4.73:1 on --surface; the earlier #5b7096 still measured only 3.66:1 */
-  --muted-dim:#4a6080;     /* decoration only - dots, hairlines - where the AA floor does not apply */
-  --accent:#8b5cf6;
+  --surface:#0b1222;       /* 1.09:1 on --bg */
+  --surface2:#111a2e;      /* 1.12:1 on --surface - was 1.05, a difference you could not see */
+  --surface3:#18243f;      /* raised: inputs, hovered rows. 1.15:1 on --surface2 */
+  --border:#31456f;        /* 2.00:1 vs --surface, was 1.28:1 and invisible */
+  --border2:#42598c;       /* 2.74:1 - emphasis edges, focus rings */
+  --text:#e6edf7;          /* 16.09 / 15.31 / 14.38 on the three surfaces */
+  --muted:#8fa7c9;         /* 7.71 / 7.34 / 6.89 - passes AA on ALL THREE, was 4.39 on surface3 */
+  --muted-dim:#7590b5;     /* 5.79 / 5.51 / 5.17 - it IS text, so it clears 4.5 everywhere */
+  --accent:#8b5cf6;        /* 4.79:1 on --bg - unchanged, it already passed */
   --accent2:#4f46e5;
   --accent-dim:rgba(139,92,246,.14);
   --green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6;
+  /* Elevation, so separation never rests on a 1px hairline alone. */
+  --shadow-1:0 1px 2px rgba(0,0,0,.40), 0 0 0 1px rgba(255,255,255,.03) inset;
+  --shadow-2:0 4px 14px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.04) inset;
   --font:'Segoe UI',system-ui,Arial,sans-serif;
 }
 body{background:var(--bg);color:var(--text);font-family:var(--font);height:100vh;display:flex;flex-direction:column;overflow:hidden}
