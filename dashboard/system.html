@@ -804,9 +804,12 @@ async function runBacktest() {
       return `<tr class="${i === 0 ? 'top-rank' : ''}">
         <td><span class="rank-badge ${rankCls}">${i + 1}</span></td>
         <td style="font-weight:600">${a.icon} ${esc(a.r.label)}</td>
-        <td>${a.r.totalTrades}</td>
+        <td>${a.r.totalTrades}${a.r.tradesPerYear != null ? `<span style="color:var(--muted);font-size:.85em"> · ${a.r.tradesPerYear}/yr</span>` : ''}</td>
         <td style="color:${wc}">${a.r.winRate}%</td>
-        <td>${a.r.profitFactor ?? 'N/A'}</td>
+        <td>${a.r.profitFactor ?? 'N/A'}${
+          a.r.profitFactorGross != null && a.r.profitFactorGross !== a.r.profitFactor
+            ? `<span style="color:var(--muted);font-size:.85em"> (gross ${a.r.profitFactorGross})</span>` : ''
+        }</td>
         <td>${a.r.maxDrawdown}%</td>
         <td style="color:${rc};font-weight:700">${a.r.returnPct >= 0 ? '+' : ''}${a.r.returnPct}%</td>
       </tr>`;
