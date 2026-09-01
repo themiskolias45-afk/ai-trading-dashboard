@@ -8448,9 +8448,9 @@ async function runBacktest(symbol, label, years = 5) {
     // What the live system would actually have traded. AUTO mode refuses anything
     // that is not STRONG, so this is the headline figure — the previous one
     // included MODERATE setups the broker connection would never have taken.
-    ...summariseBacktest(trades.filter(t => t.strength === "STRONG")),
+    ...summariseBacktest(trades.filter(t => t.strength === "STRONG"), years),
     // Kept alongside so the cost of that filter is visible rather than implied.
-    allSetups: summariseBacktest(trades),
+    allSetups: summariseBacktest(trades, years),
     filter: {
       applied: "STRONG only — matches AUTO_MODE in mt5_bridge.py",
       caveat:  "Real live confidence also requires Daily/4H/1H agreement, which daily bars "
@@ -8461,25 +8461,43 @@ async function runBacktest(symbol, label, years = 5) {
 
 // Shared so the live-equivalent and all-setups figures are computed identically and
 // any difference between them is the filter, not the arithmetic.
-function summariseBacktest(trades) {
+function summariseBacktest(trades, years) {
   const wins   = trades.filter(t => t.outcome === "WIN").length;
   const losses = trades.filter(t => t.outcome === "LOSS").length;
   const closed = wins + losses;
   const winRate = closed > 0 ? parseFloat((wins / closed * 100).toFixed(1)) : 0;
 
-  // Equity curve — 1% risk per trade on $10 000 start
+  // COSTS. This function modelled NONE — no spread, no slippage, no commission — so
+  // every number it produced was GROSS and read as net. That is not a rounding issue:
+  // the journal records BTCUSD spreadAtDecision at 1698 points = $16.98 PER TRADE, and
+  // a profit factor of 1.91 gross can sit near 1.0 once the spread is paid.
+  //
+  // 0.05R is the basis every other harness in this project uses — mtf_walkforward,
+  // breakdown_walkforward, _regime_xtab — and tasks/_cost_basis.cjs exists precisely
+  // because hardcoding it in each one kept drifting. This table was the only replay
+  // in the repo charging nothing, which is also why it ranked Gold first while the
+  // per-asset walk-forward and the live journal both rank it last.
+  const COST_R = 0.05;
+
+  // Applied on BOTH sides: a win returns rr minus the cost, a loss costs 1 PLUS it.
+  // Charging only the winners would flatter the loser-heavy tail.
   let equity = 10000, peak = 10000, maxDD = 0;
   const curve = [10000];
   for (const t of trades) {
-    if (t.outcome === "WIN")  equity *= (1 + 0.01 * t.rr);
-    if (t.outcome === "LOSS") equity *= 0.99;
+    if (t.outcome === "WIN")  equity *= (1 + 0.01 * (t.rr - COST_R));
+    if (t.outcome === "LOSS") equity *= (1 - 0.01 * (1 + COST_R));
     curve.push(parseFloat(equity.toFixed(0)));
     peak  = Math.max(peak, equity);
     maxDD = Math.max(maxDD, (peak - equity) / peak * 100);
   }
 
-  const winRRsum  = trades.filter(t => t.outcome === "WIN").reduce((s, t) => s + t.rr, 0);
-  const profitFactor = losses > 0 ? parseFloat((winRRsum / losses).toFixed(2)) : null;
+  // Gross kept alongside net so the cost is VISIBLE rather than silently absorbed —
+  // the same reason allSetups sits beside the STRONG-only figure above.
+  const winRRsum      = trades.filter(t => t.outcome === "WIN").reduce((s, t) => s + t.rr, 0);
+  const profitFactorGross = losses > 0 ? parseFloat((winRRsum / losses).toFixed(2)) : null;
+  const netWinR  = Math.max(0, winRRsum - wins * COST_R);
+  const netLossR = losses * (1 + COST_R);
+  const profitFactor = netLossR > 0 ? parseFloat((netWinR / netLossR).toFixed(2)) : null;
 
   // Averaged over CLOSED trades only. Including EXPIRED ones — which never hit a
   // stop or target and move equity not at all — dragged the average R down and
@@ -8489,18 +8507,31 @@ function summariseBacktest(trades) {
     ? closedTrades.reduce((s, t) => s + t.rr, 0) / closedTrades.length
     : 0;
 
+  // SAMPLE SIZE IS A VERDICT, NOT A FOOTNOTE. 55 resolved trades over FIVE YEARS is
+  // ~11 a year, and a profit factor computed on that cannot separate an edge from a
+  // run of luck. The repo's own floor elsewhere is 5 per fold with >=40 for a 5-fold
+  // read; 30 resolved is the minimum at which this table says anything at all.
+  const SAMPLE_OK = 100, SAMPLE_THIN = 30;
+  const sampleVerdict = closed >= SAMPLE_OK  ? "adequate"
+                      : closed >= SAMPLE_THIN ? "THIN — treat the profit factor as indicative, not established"
+                      : "TOO FEW TO JUDGE — this row is a description, not a result";
+
   return {
     totalTrades:  trades.length,
     resolved:     closed,
     expired:      trades.length - closed,
     wins, losses, winRate,
     avgRR:        parseFloat(avgRR.toFixed(1)),
-    profitFactor,
+    profitFactor,                                   // NET of costs
+    profitFactorGross,                              // what this table used to report
+    costRPerTrade: COST_R,
+    tradesPerYear: years > 0 ? parseFloat((closed / years).toFixed(1)) : null,
+    sampleVerdict,
     startEquity:  10000,
     finalEquity:  parseFloat(equity.toFixed(0)),
     returnPct:    parseFloat(((equity - 10000) / 100).toFixed(1)),
     maxDrawdown:  parseFloat(maxDD.toFixed(1)),
-    expectancy:   parseFloat(((winRate / 100 * avgRR) - (1 - winRate / 100)).toFixed(2)),
+    expectancy:   parseFloat((((winRate / 100) * (avgRR - COST_R)) - ((1 - winRate / 100) * (1 + COST_R))).toFixed(2)),
     curve:        curve.slice(-120),
     recentTrades: trades.slice(-15),
   };
@@ -8547,8 +8578,25 @@ app.get("/api/backtest", async (req, res) => {
           `In 4-5 concise sentences: (1) is this strategy viable? (2) which asset performs best? (3) biggest risk/weakness? (4) one concrete improvement suggestion.`
         }]
       });
-      out.claudeVerdict = msg.content?.[0]?.text ?? null;
-    } catch {}
+      // AN AUTH FAILURE IS NOT A VERDICT. anthropicBg is CLI-first, and the CLI's
+      // sign-in error arrives as ordinary message TEXT rather than as a throw — so
+      // "Not logged in · Please run /login" was rendered to the user in the
+      // verdict box, under the heading "Claude verdict", as though a quant had
+      // said it. Same shape as the expired login that destroyed the morning brief.
+      //
+      // The empty catch below is also why a real failure showed nothing rather than
+      // saying so: it now records WHY, because a silent absence and a refusal look
+      // identical to the reader and only one of them needs a person.
+      const verdictText = msg.content?.[0]?.text ?? null;
+      const looksLikeAuthError = verdictText && /not logged in|please run \/login|unauthori[sz]ed|authentication/i.test(verdictText);
+      out.claudeVerdict      = looksLikeAuthError ? null : verdictText;
+      out.claudeVerdictError = looksLikeAuthError
+        ? "the Claude CLI is not signed in on this box — run `claude` interactively and sign in. The backtest NUMBERS above are unaffected; only the commentary is missing."
+        : null;
+    } catch (e) {
+      out.claudeVerdict      = null;
+      out.claudeVerdictError = "commentary unavailable: " + String(e.message || e).slice(0, 160);
+    }
   }
 
   backtestCache = out;

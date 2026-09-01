@@ -838,7 +838,7 @@ async function runBacktest() {
     // the live gate was a walk-forward, and it is not this.
     out += `<div class="verdict-box" style="background:rgba(255,184,48,.06);border-color:rgba(255,184,48,.3)">
       <strong style="color:var(--yellow)">What this replayed:</strong><br>
-      Single-timeframe signal generation over ${esc(d.years)} years of history. The live system requires
+      All figures are NET of ${esc(String(d.gold?.costRPerTrade ?? 0.05))}R per trade (spread and slippage) — the basis every other harness here uses. This table charged NOTHING until 2026-09-01, so any screenshot of it before that date is gross. <strong style="color:var(--yellow)">Sample: ${esc(d.gold?.sampleVerdict || "unknown")}</strong> — a profit factor over ~11 trades a year cannot separate an edge from a lucky run.<br><br>Single-timeframe signal generation over ${esc(d.years)} years of history. The live system requires
       confluence across Daily, 4H and 1H, so these returns describe a related path, not the traded one.
       The live gate was set by walk-forward validation (5 of 5 out-of-sample folds positive), not by this table.</div>`;
 
