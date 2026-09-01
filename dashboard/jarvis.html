@@ -1676,15 +1676,36 @@ function briefRow(label, sig, gate) {
   const gapPts = Math.max(0, gate - conf);
   const right  = !scored ? "no setup"
                : gapPts === 0 ? "at the gate" : gapPts + "pt short";
+  // The tick now carries the gate's VALUE. Without it the reader sees a line at an
+  // arbitrary position and has to hunt the number out of the sentence below.
   const tick   = gate > 0 && gate <= 100
-    ? '<div class="brief-gate" style="left:' + gate + '%"></div>' : "";
+    ? '<div class="brief-gate" data-gate="' + esc(String(gate)) + '" style="left:' + gate + '%"></div>' : "";
+  // Hatch the track when the engine found NO SETUP, so it cannot be misread as a
+  // setup that scored zero. Same distinction the colour already makes, made visible
+  // in the bar itself rather than only in the right-hand label.
+  const trackCls = scored ? "brief-track" : "brief-track no-setup";
   return '<div class="brief-row">'
     + '<div class="brief-sym">' + esc(label) + '</div>'
-    + '<div class="brief-track">'
+    + '<div class="' + trackCls + '">'
     +   '<div class="brief-fill" style="width:' + Math.min(100, conf) + '%;background:' + colour + '"></div>'
     +   tick
     + '</div>'
     + '<div class="brief-gap" style="color:' + colour + '">' + esc(right) + '</div>'
+    + '</div>';
+}
+
+// The axis, once, under the rows. Three labels is the most a 300px track can carry
+// without crowding the gate tick that sits between them.
+function briefScale(gate) {
+  const g = (gate > 0 && gate <= 100) ? gate : null;
+  return '<div class="brief-scale">'
+    + '<div></div>'
+    + '<div class="brief-scale-track">'
+    +   '<span class="s0">0</span>'
+    +   (g ? '<span style="left:' + g + '%;transform:translateX(-50%)">gate</span>' : '')
+    +   '<span class="s100">100</span>'
+    + '</div>'
+    + '<div></div>'
     + '</div>';
 }
 
