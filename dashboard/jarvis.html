@@ -299,7 +299,17 @@ header{
   pointer-events:none;z-index:0;opacity:.24;animation:heroPulse 6s ease-in-out infinite;
   transition:opacity .6s ease;
 }
-.hero-logo svg{width:min(50vw,520px);height:min(50vw,520px);overflow:visible;transition:width .6s ease,height .6s ease,transform .09s linear}
+/* RESTING SIZE REDUCED 2026-09-01, 520px -> 340px.
+   This is a WATERMARK: position:absolute, inset:0, z-index:0, pointer-events:none,
+   with .messages on z-index:1 floating over it. It never stole layout space -- the
+   apparent "dead half of the column" was simply an empty chat, and the ring showing
+   through it. Nothing was wrong with the layering.
+   What WAS wrong is scale. At min(50vw,520px) on a 1440px viewport it rendered 520px
+   across and pulsed between .18 and .34 opacity, so on first load -- exactly when the
+   chat has one greeting in it and nothing else -- the largest, most animated thing on
+   the page was decoration. Focus mode still enlarges it to 640px, which is that
+   mode's entire purpose and is left alone. */
+.hero-logo svg{width:min(34vw,340px);height:min(34vw,340px);overflow:visible;transition:width .6s ease,height .6s ease,transform .09s linear}
 .hero-logo::after{
   content:'';position:absolute;top:50%;left:50%;width:min(54vw,560px);height:min(54vw,560px);
   border-radius:50%;background:conic-gradient(from 0deg,transparent 0%,rgba(167,139,250,.5) 6%,transparent 16%);
