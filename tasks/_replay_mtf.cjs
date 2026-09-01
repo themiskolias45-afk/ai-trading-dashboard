@@ -97,6 +97,13 @@ const SCALAR_CONSTS = [
   "BUY_DIP_REQUIRE_MACD_BULLISH",
   "BUY_DIP_RSI_MAX",
   "MOMENTUM_REQUIRE_MACD_BULLISH",
+  // Added 2026-09-01 with SELL_BOUNCE's condition-1 flag. Omitting it would be the
+  // FIFTH occurrence of the bug this list documents: the const is read inside the
+  // SELL_BOUNCE branch, so its absence throws on every step and the run reads as
+  // "the short side never traded" — which is the very claim being tested. Its RHS is
+  // an env-driven ternary and the extractor copies the expression verbatim, so
+  // SELL_BOUNCE_REQUIRE_DOWNTREND=false switches the ENGINE and the REPLAY together.
+  "SELL_BOUNCE_REQUIRE_DOWNTREND",
 ];
 
 let code = "";
