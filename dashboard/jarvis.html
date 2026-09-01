@@ -1745,7 +1745,8 @@ async function renderBriefing() {
     return;
   }
 
-  const rows = BRIEF_ASSETS.map(([key, label]) => briefRow(label, signals[key], gate)).join("");
+  const rows = BRIEF_ASSETS.map(([key, label]) => briefRow(label, signals[key], gate)).join("")
+             + briefScale(gate);
 
   let state = "Gate " + gate + "% across Daily, 4H and 1H together.";
   if (risk) {
