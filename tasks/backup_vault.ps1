@@ -68,10 +68,42 @@ if (-not $files -or $files.Count -eq 0) {
 # still finds mcp-memory.json at the top level and older snapshots stay comparable.
 # Extra roots go under prefixes so nothing can collide. A missing root is logged and
 # skipped - it must never stop a backup from being taken.
+# NAMING FOUR FILES HERE WAS THE WRONG SHAPE. The first version of this listed
+# rejections.jsonl, rejections_scored.jsonl, journal.json and strategy_settings.json
+# by hand - and a sweep immediately afterwards found near_misses.jsonl,
+# learning_shadow.json, agent_queue.jsonl, stop_variants.jsonl, tv_alerts.json,
+# hermes_state.json, features.json, trading_control.json, everything under
+# tasks\analysis, and part of tasks\daily all sitting outside it. An allowlist
+# protects what you remembered; it silently drops whatever comes next. Same
+# failure as the parity check's tracked-file allowlist.
+#
+# So the rule is by KIND, not by name: every .json / .jsonl / .db under tasks\ and
+# server\, minus noise and minus secrets. A new state file is covered the day it
+# is created, without anyone remembering to add it.
+$DATA_EXTENSIONS  = @('.json', '.jsonl', '.db')
+$DATA_MAX_BYTES   = 2MB
+$DATA_SKIP_DIRS   = @('node_modules', 'logs', 'backups', '__pycache__', 'history', 'history_yahoo', 'screenshots')
+
+# Secrets are excluded ON PURPOSE and must stay excluded: this zip is copied
+# off-box to the VPS every run, and keys.env / apikey.txt / session_secret.txt
+# are exactly the things that must not travel in it. They live on both machines
+# already and are recreated, not restored.
+$DATA_SKIP_NAMES  = @('keys.env', 'apikey.txt', 'session_secret.txt', 'package-lock.json')
+
+function Test-DataFile($file) {
+    if ($DATA_EXTENSIONS -notcontains $file.Extension.ToLower()) { return $false }
+    if ($file.Length -gt $DATA_MAX_BYTES) { return $false }
+    if ($file.Name -like '*.bak*') { return $false }
+    foreach ($n in $DATA_SKIP_NAMES) { if ($file.Name -like ($n + '*')) { return $false } }
+    foreach ($d in $DATA_SKIP_DIRS) { if ($file.FullName -like ('*\' + $d + '\*')) { return $false } }
+    if ($file.FullName -like '*\_prerestart*') { return $false }
+    return $true
+}
+
 $extraRoots = @(
-    [pscustomobject]@{ Path = 'C:\Users\User\.claude\projects\C--Users-User-ai-trading-dashboard\memory'; Prefix = '_claude-memory'; Only = $null },
-    [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\tasks';  Prefix = '_repo-untracked\tasks';  Only = @('rejections.jsonl','rejections_scored.jsonl') },
-    [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\server'; Prefix = '_repo-untracked\server'; Only = @('journal.json','strategy_settings.json') }
+    [pscustomobject]@{ Path = 'C:\Users\User\.claude\projects\C--Users-User-ai-trading-dashboard\memory'; Prefix = '_claude-memory'; DataOnly = $false },
+    [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\tasks';  Prefix = '_repo-data\tasks';  DataOnly = $true },
+    [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\server'; Prefix = '_repo-data\server'; DataOnly = $true }
 )
 
 $items = New-Object System.Collections.ArrayList
@@ -85,17 +117,10 @@ foreach ($root in $extraRoots) {
         continue
     }
     $before = $items.Count
-    if ($root.Only) {
-        foreach ($name in $root.Only) {
-            $fp = Join-Path $root.Path $name
-            if (Test-Path $fp) { [void]$items.Add([pscustomobject]@{ Full = $fp; Rel = (Join-Path $root.Prefix $name) }) }
-            else { Write-VaultLog ('EXTRA FILE MISSING - ' + $fp) }
-        }
-    } else {
-        Get-ChildItem -Path $root.Path -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
-            $rel = $_.FullName.Substring($root.Path.Length).TrimStart('\')
-            [void]$items.Add([pscustomobject]@{ Full = $_.FullName; Rel = (Join-Path $root.Prefix $rel) })
-        }
+    Get-ChildItem -Path $root.Path -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($root.DataOnly -and -not (Test-DataFile $_)) { return }
+        $rel = $_.FullName.Substring($root.Path.Length).TrimStart('\')
+        [void]$items.Add([pscustomobject]@{ Full = $_.FullName; Rel = (Join-Path $root.Prefix $rel) })
     }
     Write-VaultLog ('Extra root ' + $root.Prefix + ' -> ' + ($items.Count - $before) + ' file(s)')
 }
