@@ -7020,7 +7020,15 @@ app.get("/api/checksystem", (_, res) => {
   let proposal = null;
   try {
     const pp = require("path").join(__dirname, "..", "tasks", "improvement_proposal.json");
-    if (fs.existsSync(pp)) proposal = JSON.parse(fs.readFileSync(pp, "utf8"));
+    if (fs.existsSync(pp)) {
+      const raw = JSON.parse(fs.readFileSync(pp, "utf8"));
+      // A RETIRED proposal is not a proposal. Serving one is precisely how "MOMENTUM
+      // ... or disable" stayed on this endpoint for two days after the guard that was
+      // supposed to suppress it — the guard stopped the WRITE and nothing cleared the
+      // READ. The file keeps its history under `previous`; this endpoint reports only
+      // a live recommendation.
+      proposal = (raw && raw.superseded) ? null : raw;
+    }
   } catch {}
 
   // MT5 bridge connectivity — based on last heartbeat per account, not open-position
@@ -7625,10 +7633,48 @@ cron.schedule("0 21 * * 0", async () => {
     if (wr < worstWR) { worstWR = wr; worstSetup = setup; }
   }
 
-  if (!worstSetup) return;
+  // Both no-proposal paths used to `return` and leave the PREVIOUS run's file on disk,
+  // so a suppressed proposal stayed pinned on /api/checksystem permanently instead of
+  // transiently. Raised by the morning agent as morning-czrky8 with 8 of 8 citations
+  // resolving, and confirmed live 2026-09-01: the 2026-08-30T20:00Z file recommending
+  // "MOMENTUM has 66.7% WR — review and tighten entry criteria or disable" was STILL
+  // being served two days after aae7883 added the guard meant to stop exactly that.
+  // MOMENTUM is the setup the walk-forward says carries the book (450 trades,
+  // +0.309 R/trade, removing it costs -0.2822 across 0/5 folds), so the operator's main
+  // status surface was standing advice to disable the best thing in the system.
+  //
+  // SUPERSEDED, NOT DELETED. The retired proposal is kept inside the record: nothing on
+  // this system is deleted, and what was once recommended is worth keeping. Same
+  // treatment as the auto-committed deploy_vps draft in cddadb4.
+  function retireProposal(reason) {
+    try {
+      const p = require("path").join(__dirname, "..", "tasks", "improvement_proposal.json");
+      let previous = null;
+      try { if (fs.existsSync(p)) previous = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+      // Already retired — rewriting would churn the timestamp every hour and make the
+      // file look freshly decided when nothing happened.
+      if (previous && previous.superseded) return;
+      fs.writeFileSync(p, JSON.stringify({
+        superseded: true,
+        supersededAt: new Date().toISOString(),
+        reason,
+        previous,
+      }, null, 2));
+      console.log(`[agent] Retired stale proposal: ${reason}`);
+    } catch (err) {
+      console.log(`[agent] Could not retire stale proposal: ${err.message}`);
+    }
+  }
+
+  if (!worstSetup) {
+    retireProposal("no setup has >= 3 closed trades, so there is nothing to rank");
+    return;
+  }
   if (worstWR > WORST_SETUP_MAX_WR) {
     console.log(`[agent] No proposal: lowest-WR eligible setup ${worstSetup} is at `
       + `${(worstWR * 100).toFixed(1)}% WR - nothing is underperforming.`);
+    retireProposal(`lowest-WR eligible setup ${worstSetup} is at `
+      + `${(worstWR * 100).toFixed(1)}% WR - nothing is underperforming`);
     return;
   }
   const proposal = {
