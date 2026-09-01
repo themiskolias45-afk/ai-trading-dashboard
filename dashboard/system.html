@@ -310,7 +310,14 @@
     <div class="card">
       <div class="card-icon">🧠</div>
       <div class="card-title">Self-Learning Calibration</div>
-      <div class="card-body-text">Every closed trade updates per-setup win rate. Setups above 55% win rate get boosted confidence; under 45% get penalised automatically.</div>
+      <!-- QUALIFIED 2026-09-01. The mechanism described here is real and the code runs,
+           but it has never once changed a confidence score. getLearningBoost returns 0
+           unless a setup has LEARNING_MIN_TRADES = 5 closed trades, and on 2026-09-01
+           the whole book was MOMENTUM 4/5, BB_SQUEEZE_WATCH 1/5, RANGE_TRADE_SHORT 1/5,
+           SQUEEZE_BREAKOUT 1/5 - seven outcomes total, every one below the floor.
+           Describing a dormant mechanism in the present tense reads as "this is
+           adjusting your trades", which it is not yet. -->
+      <div class="card-body-text">Every closed trade updates per-setup win rate. Once a setup reaches 5 closed trades, above 55% earns boosted confidence and under 45% is penalised. <strong>Not yet active:</strong> with 7 closed trades across 4 setups, none has reached the 5-trade floor, so the boost is currently 0 everywhere. It starts adjusting signals when the sample arrives.</div>
       <div class="card-tag">server/learning.json</div>
     </div>
     <div class="card">
