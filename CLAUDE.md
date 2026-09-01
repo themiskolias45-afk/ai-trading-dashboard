@@ -30,6 +30,22 @@ At the start of every interactive session:
 2a. Read `tasks/jarvis_memory.json` — load the 10 most recent entries into active context. Skip silently if missing.
     Also read `tasks/jarvis-state.json` — written by the session-stop hook with the last 5 commits and dirty files.
     Surface as: "Last session ended: [commits]". Skip silently if missing.
+2a-bis. **The memory index no longer lists everything, and that is deliberate.** `MEMORY.md`
+   carries the standing decisions and nothing else; the full listing is `MEMORY-FULL.md`
+   beside it. The reason is arithmetic: the loader truncates `MEMORY.md` by BYTES at 24576
+   and 313 pointers cost 24591B with every word of description already stripped, so 17% of
+   it — the whole AI-employee section — had silently stopped reaching a booting session.
+   **The way in is semantic search over the memory CONTENT, not the titles:**
+
+   ```
+   python tasks/rag_query.py "your question" --source brain
+   ```
+
+   313 memories, 1699 chunks, local (chromadb + all-MiniLM-L6-v2, nothing leaves the box).
+   Rebuild after writing a memory: `python tasks/rag_index.py --source brain`.
+   **Run it before concluding something is not recorded.** On 2026-09-01 five measured
+   findings turned out to have sat on the other box for a month, unknown here.
+
 2b. Call `mcp__memory__search_nodes` **once per term**, with the SINGLE words `lesson`, then `fix`,
    then `trade`, then `decision`, then `build`. These are lessons, decisions, and build records
    persisted from past sessions via /learn and AUTO-PERSIST. Surface any relevant to today.
