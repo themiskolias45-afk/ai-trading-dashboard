@@ -369,11 +369,37 @@ body.focus-mode .focus-exit{display:block}
 .brief-row{display:grid;grid-template-columns:52px 1fr auto;gap:11px;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05)}
 .brief-row:last-of-type{border-bottom:none}
 .brief-sym{font-size:.72rem;font-weight:700;letter-spacing:.04em}
-.brief-track{position:relative;height:5px;background:rgba(255,255,255,.07);border-radius:3px}
-.brief-fill{height:100%;border-radius:3px;transition:width .6s ease}
+/* The track is a 0-100 CONFIDENCE scale and nothing on screen said so. A bar with an
+   unlabelled tick two-thirds along is not a reading. Height 5 -> 7 because a 5px bar
+   cannot carry a fill colour and a boundary at once. */
+.brief-track{position:relative;height:7px;background:rgba(255,255,255,.07);border-radius:4px}
+.brief-fill{height:100%;border-radius:4px;transition:width .6s ease}
+/* NO SETUP IS NOT ZERO CONFIDENCE, and an empty track rendered both identically - an
+   asset the engine never scored looked exactly like one it scored and gave nothing.
+   Hatching reads "not measured" where a flat bar reads "measured, low". */
+.brief-track.no-setup{
+  background-image:repeating-linear-gradient(135deg,
+    rgba(255,255,255,.055) 0 4px, transparent 4px 8px);
+}
 /* The gate tick is the point of the whole row: a confidence number means nothing
-   without the line it has to clear. */
-.brief-gate{position:absolute;top:-3px;width:2px;height:11px;background:var(--text);opacity:.75}
+   without the line it has to clear. It now carries its own VALUE - previously the
+   only way to learn the threshold was to read a sentence under the panel. */
+.brief-gate{position:absolute;top:-4px;width:2px;height:15px;background:var(--text);opacity:.85;border-radius:1px}
+.brief-gate::after{
+  content:attr(data-gate);position:absolute;left:50%;transform:translateX(-50%);
+  top:-12px;font-size:.55rem;font-weight:700;color:var(--text);opacity:.85;
+  letter-spacing:.03em;white-space:nowrap;
+}
+/* Axis, drawn ONCE beneath the rows rather than repeated on each. */
+.brief-scale{
+  display:grid;grid-template-columns:52px 1fr auto;gap:11px;
+  padding-top:3px;font-size:.55rem;color:var(--muted-dim);
+  font-variant-numeric:tabular-nums;letter-spacing:.04em;
+}
+.brief-scale-track{position:relative;height:10px}
+.brief-scale-track span{position:absolute;top:0}
+.brief-scale-track span.s0{left:0}
+.brief-scale-track span.s100{right:0}
 .brief-gap{font-size:.63rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .brief-state{margin-top:11px;padding-top:10px;border-top:1px solid rgba(255,255,255,.07);font-size:.66rem;color:var(--muted);line-height:1.6}
 .brief-ask{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
