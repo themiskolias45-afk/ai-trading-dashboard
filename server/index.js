@@ -8443,16 +8443,34 @@ async function runBacktest(symbol, label, years = 5) {
     });
   }
 
+  // Mirrors mt5_bridge.py:1780 exactly. NONE is never tradeable in AUTO mode, so it
+  // is excluded from the headline whatever the setting says.
+  const liveMinStrength  = (strategySettings && strategySettings.minStrength) || "MODERATE";
+  const allowedStrengths = liveMinStrength === "STRONG" ? ["STRONG"] : ["STRONG", "MODERATE"];
+
   return {
     symbol, label, years,
-    // What the live system would actually have traded. AUTO mode refuses anything
-    // that is not STRONG, so this is the headline figure — the previous one
-    // included MODERATE setups the broker connection would never have taken.
-    ...summariseBacktest(trades.filter(t => t.strength === "STRONG"), years),
-    // Kept alongside so the cost of that filter is visible rather than implied.
-    allSetups: summariseBacktest(trades, years),
+    // THE HEADLINE MUST MATCH THE LIVE FILTER, AND IT DID NOT.
+    //
+    // This filtered to STRONG only and justified it with "AUTO mode refuses anything
+    // that is not STRONG". mt5_bridge.py:1780 says otherwise:
+    //     allowed = ("STRONG",) if minStrength == "STRONG" else ("STRONG","MODERATE")
+    // and the live setting is minStrength=MODERATE, so the bridge takes BOTH. The
+    // backtest was stricter than the system it claimed to model, and the cost of that
+    // is not cosmetic: on Gold, STRONG-only is 54 trades over five years (10.8/yr)
+    // where the full allowed set is several times that at the SAME win rate. A gate
+    // that discards most of the sample without improving per-trade quality does not
+    // make the estimate safer, it makes it unmeasurable -- which is exactly what "55
+    // trades in 5 years is nothing" means.
+    //
+    // Read from config, never hardcoded, so this cannot drift from the bridge again.
+    ...summariseBacktest(trades.filter(t => allowedStrengths.includes(t.strength)), years),
+    // Both neighbours kept so the cost of the filter stays visible in either direction.
+    strongOnly: summariseBacktest(trades.filter(t => t.strength === "STRONG"), years),
+    allSetups:  summariseBacktest(trades, years),
     filter: {
-      applied: "STRONG only — matches AUTO_MODE in mt5_bridge.py",
+      applied: `strength in [${allowedStrengths.join(", ")}] — read from strategySettings.minStrength `
+             + `(${liveMinStrength}), matching mt5_bridge.py:1780`,
       caveat:  "Real live confidence also requires Daily/4H/1H agreement, which daily bars "
              + "cannot reproduce. Live will therefore trade the same or fewer times than shown here, never more.",
     },
