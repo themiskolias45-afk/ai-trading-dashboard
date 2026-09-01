@@ -199,11 +199,28 @@ def index_memory(client, model, rebuild: bool = False):
 
     mem_path = ROOT / "tasks" / "jarvis_memory.json"
     try:
-        entries = json.loads(mem_path.read_text(encoding="utf-8"))
-        if not isinstance(entries, list):
-            entries = list(entries.values()) if isinstance(entries, dict) else []
+        raw = json.loads(mem_path.read_text(encoding="utf-8"))
     except Exception:
         print("  [memory] jarvis_memory.json not found — skipping.")
+        return 0
+
+    # THE FILE IS {"version", "entries", "last_updated"} — NOT a bare list.
+    # This used to do `list(raw.values())` on that wrapper, which hands the loop
+    # [1, [...93 entries...], "2026-..."]: the int is skipped, the LIST is skipped
+    # (it is neither str nor dict), and the last_updated STRING is indexed as a
+    # memory. Measured 2026-09-01: the collection held exactly ONE document and it
+    # was a bare timestamp. The source has never worked, and it reported success
+    # every run — a count of 1 looks like a nearly-empty index, not a bug.
+    if isinstance(raw, dict):
+        entries = raw.get("entries")
+        if not isinstance(entries, list):
+            # Some older dumps really were {key: value}; keep them working, but only
+            # after the documented shape has been ruled out.
+            entries = [v for v in raw.values() if isinstance(v, (str, dict))]
+    elif isinstance(raw, list):
+        entries = raw
+    else:
+        print(f"  [memory] unexpected top-level type {type(raw).__name__} — skipping.")
         return 0
 
     existing_ids = set(collection.get(include=[])["ids"])
