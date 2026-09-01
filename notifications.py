@@ -163,6 +163,13 @@ def notify_signal(symbol: str, direction: str, confidence: str, summary: str) ->
         }],
     })
 
+    # SIGNAL FIRES -> Slack #smartentry-alerts.
+    # Last in the function and returning nothing any caller branches on: a Slack
+    # outage, a bad token or a timeout must cost a MESSAGE, never a TRADE. send_slack
+    # is try/except throughout and cannot raise, so this cannot suppress a setup that
+    # would otherwise have fired (rule 3).
+    send_slack("*" + title + "*" + chr(10) + body)
+
 
 def send_telegram(text: str) -> None:
     """
