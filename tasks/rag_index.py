@@ -82,6 +82,31 @@ def _embed(model, texts: list[str]) -> list:
     return model.encode(texts, show_progress_bar=False).tolist()
 
 
+def _existing_ids(collection, rebuild: bool) -> set:
+    """Ids already in the collection — and a LOUD warning when there are none.
+
+    A REBUILD IS NOT ATOMIC. `--rebuild` calls delete_collection() and only then
+    re-adds, so a run killed in that window leaves the collection EMPTY. That happened
+    on 2026-09-01: a reindex was killed by a 2-minute timeout (exit 143), and the next
+    ordinary run re-added all 1716 chunks and reported "1716 new | 1716 total" — which
+    is indistinguishable, in the output, from a healthy incremental run. The index was
+    briefly empty and nothing said so.
+
+    An empty index is the worst possible silent state here: every query returns
+    "no relevant results", which reads as "the system never recorded that" rather than
+    "the index is gone". Same shape as the near-miss census dying at every restart.
+
+    So: on a NON-rebuild run, an empty collection means a previous run did not finish.
+    Say it, rather than quietly refilling and printing a total that looks fine.
+    """
+    ids = set(collection.get(include=[])["ids"])
+    if not ids and not rebuild:
+        print(f"  [{collection.name}] WARNING: collection is EMPTY on a non-rebuild run. "
+              f"A previous --rebuild was interrupted (delete_collection succeeded, the "
+              f"re-add did not). Everything below is a full re-add, not an increment.")
+    return ids
+
+
 # ── Source: trades ────────────────────────────────────────────────────────────
 
 def index_trades(client, model, rebuild: bool = False):
