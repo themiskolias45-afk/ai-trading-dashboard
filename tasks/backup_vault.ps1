@@ -90,10 +90,76 @@ try {
     exit 1
 }
 
-Get-ChildItem (Join-Path $backupDir 'vault_*.zip') -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -Skip $KEEP_SNAPSHOTS |
-    Remove-Item -Force -ErrorAction SilentlyContinue
+# --- knowledge-graph regression guard -------------------------------------
+# Added 2026-09-01 after the MCP knowledge graph was lost entirely. Until then it
+# lived inside the npx package cache because MEMORY_FILE_PATH was never set,
+# and npx re-extracting the package took the store with it. Nothing on this machine
+# held a copy. It now lives in the vault, so the zip above captures it and the scp
+# below puts it on the VPS too.
+#
+# But a backup with no content check turns a wipe into a PERMANENT loss: the empty
+# file gets zipped just as happily as a full one, and 30 rotations later every
+# surviving snapshot is empty. The rotation is the dangerous half, not the zip.
+#
+# So: count the entities, record the count every run, and if it has GONE DOWN
+# against the newest previous snapshot - or the file has vanished - keep every
+# snapshot instead of rotating. Deletes nothing, blocks nothing, and never
+# prevents a backup: this runs AFTER the zip is already written, so a fault here
+# costs the rotation, not the snapshot.
+function Get-GraphEntityCount($jsonPath) {
+    if (-not (Test-Path $jsonPath)) { return 0 }
+    try {
+        $n = 0
+        foreach ($line in [System.IO.File]::ReadAllLines($jsonPath)) {
+            if ($line -match '"type"\s*:\s*"entity"') { $n++ }
+        }
+        return $n
+    } catch { return -1 }
+}
+
+$graphPath   = Join-Path $vaultDir 'mcp-memory.json'
+$graphNow    = Get-GraphEntityCount $graphPath
+$graphBefore = -1
+$prevZip = Get-ChildItem (Join-Path $backupDir 'vault_*.zip') -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -ne $destZip } |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($prevZip) {
+    try {
+        Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+        $pz = [System.IO.Compression.ZipFile]::OpenRead($prevZip.FullName)
+        $entry = $pz.Entries | Where-Object { $_.FullName -eq 'mcp-memory.json' } | Select-Object -First 1
+        if ($entry) {
+            $sr = New-Object System.IO.StreamReader($entry.Open())
+            $txt = $sr.ReadToEnd(); $sr.Close()
+            $graphBefore = ([regex]::Matches($txt, '"type"\s*:\s*"entity"')).Count
+        } else {
+            # No graph in the previous snapshot is EXPECTED for every zip taken
+            # before 2026-09-01. Not a regression - there was nothing to lose yet.
+            $graphBefore = -1
+        }
+        $pz.Dispose()
+    } catch { $graphBefore = -1 }
+}
+
+$graphRegressed = $false
+if ($graphNow -lt 0) {
+    Write-VaultLog 'GRAPH WARNING - mcp-memory.json could not be read; keeping every snapshot'
+    $graphRegressed = $true
+} elseif ($graphBefore -ge 0 -and $graphNow -lt $graphBefore) {
+    Write-VaultLog ('GRAPH REGRESSION - mcp-memory.json holds ' + $graphNow + ' entities, previous snapshot had ' + $graphBefore + '. KEEPING every snapshot so the good copies cannot age out. Investigate before trusting the newest backup.')
+    $graphRegressed = $true
+} else {
+    Write-VaultLog ('Graph OK - mcp-memory.json holds ' + $graphNow + ' entities (previous snapshot: ' + $(if ($graphBefore -lt 0) { 'none' } else { $graphBefore }) + ')')
+}
+
+if ($graphRegressed) {
+    Write-VaultLog ('Rotation SKIPPED this run - ' + (Get-ChildItem (Join-Path $backupDir 'vault_*.zip') -ErrorAction SilentlyContinue | Measure-Object).Count + ' snapshots retained')
+} else {
+    Get-ChildItem (Join-Path $backupDir 'vault_*.zip') -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -Skip $KEEP_SNAPSHOTS |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+}
 
 # --- push a copy off this machine ------------------------------------------
 # The vault lives on this PC, so a snapshot that also lives on this PC protects
