@@ -385,11 +385,9 @@ body.focus-mode .focus-exit{display:block}
    without the line it has to clear. It now carries its own VALUE - previously the
    only way to learn the threshold was to read a sentence under the panel. */
 .brief-gate{position:absolute;top:-4px;width:2px;height:15px;background:var(--text);opacity:.85;border-radius:1px}
-.brief-gate::after{
-  content:attr(data-gate);position:absolute;left:50%;transform:translateX(-50%);
-  top:-12px;font-size:.55rem;font-weight:700;color:var(--text);opacity:.85;
-  letter-spacing:.03em;white-space:nowrap;
-}
+/* The value sits on the AXIS, not on every row. Labelling all three ticks printed
+   "80" three times for one threshold that applies to all of them - repetition the
+   reader has to filter out before reading the bars. */
 /* Axis, drawn ONCE beneath the rows rather than repeated on each. */
 .brief-scale{
   display:grid;grid-template-columns:52px 1fr auto;gap:11px;
