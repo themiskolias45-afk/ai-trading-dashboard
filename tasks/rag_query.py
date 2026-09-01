@@ -21,6 +21,21 @@ import json
 import sys
 from pathlib import Path
 
+# Windows consoles on this fleet default to cp1252, and format_results prints the box
+# characters and en-dashes every report here uses. Without this the query RUNS, the
+# search SUCCEEDS, and the process dies on the last print with UnicodeEncodeError --
+# which reads exactly like the search failing. Measured on the VPS 2026-09-01:
+# "'charmap' codec can't encode characters in position 50-109".
+# tasks/rag_recall.py already carried this guard; this file did not, and the pair was
+# only ever exercised on the laptop where the codepage happened to be fine.
+# Guarded because reconfigure() is 3.7+ and a detached stdout has no reconfigure at
+# all; a console that cannot be switched must not take the script down with it.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        pass
+
 ROOT   = Path(__file__).parent.parent
 DB_DIR = ROOT / "tasks" / "rag_db"
 
