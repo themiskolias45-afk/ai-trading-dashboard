@@ -380,6 +380,12 @@ def notify_trade_closed(symbol: str, outcome: str, pnl: float) -> None:
         }],
     })
 
+    # TRADE CLOSED -> Slack #smartentry-alerts. Same rule as notify_signal: last in
+    # the function, advisory only, cannot raise. A closed trade is already recorded in
+    # the journal and the learning engine before this line runs, so a failed Slack post
+    # loses a notification and never a record.
+    send_slack("*" + title + "*" + chr(10) + body)
+
 
 def run_test() -> None:
     """Send a test notification through every configured channel."""
