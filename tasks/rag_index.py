@@ -2,7 +2,7 @@
 RAG Index — embed trades, lessons, vault notes, and strategy research into
 a local ChromaDB vector store for semantic search.
 
-  python tasks/rag_index.py [--rebuild] [--source all|trades|lessons|vault|shadow]
+  python tasks/rag_index.py [--rebuild] [--source all|trades|lessons|memory|brain|vault|shadow]
 
 Requirements:
   pip install chromadb sentence-transformers
@@ -10,7 +10,9 @@ Requirements:
 WHAT IT INDEXES
   trades      — every entry in /api/journal (outcome, setup, symbol, entry, note)
   lessons     — all entities in server/learning_shadow.json shadow stats
-  memory      — reads tasks/jarvis_memory.json last 100 entries
+  memory      — tasks/jarvis_memory.json entries (session notes, plans, EOD)
+  brain       — the Claude Code memory corpus, one fact per .md, DISCOVERED
+                at ~/.claude/projects/<slug>/memory (the slug differs per box)
   vault       — markdown files from the vault path (C:/Users/User/Documents/Brain)
   shadow      — setup-level findings from server/learning_shadow.json
 
@@ -493,6 +495,8 @@ def main():
         total += index_shadow(client, model, rebuild)
     if source in ("all", "memory"):
         total += index_memory(client, model, rebuild)
+    if source in ("all", "brain"):
+        total += index_brain(client, model, rebuild)
     if source in ("all", "vault"):
         total += index_vault(client, model, rebuild)
 

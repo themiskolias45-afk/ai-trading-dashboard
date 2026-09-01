@@ -5,6 +5,7 @@ RAG Query — semantic search over the indexed trading knowledge base.
   python tasks/rag_query.py "what setups work best in trending markets?" --top 5
   python tasks/rag_query.py "RANGE_TRADE_LONG performance" --source trades
   python tasks/rag_query.py "what did JARVIS learn about RSI ceiling?" --source memory,vault
+  python tasks/rag_query.py "why does it buy when the 4H is bearish?" --source brain
 
 Usage from Python:
   from tasks.rag_query import query
@@ -64,7 +65,7 @@ def query(question: str, top_k: int = 5, sources: list[str] | None = None) -> li
     model     = _get_model()
     embedding = model.encode([question]).tolist()[0]
 
-    all_sources = sources or ["trades", "lessons", "memory", "vault"]
+    all_sources = sources or ["brain", "trades", "lessons", "memory", "vault"]
     results     = []
 
     for src in all_sources:
@@ -124,6 +125,11 @@ def format_results(results: list[dict], question: str) -> str:
             label = f"MEMORY — {meta.get('key','')} [{meta.get('tag','')}]"
         elif src == "vault":
             label = f"VAULT — {meta.get('file','')} chunk {meta.get('chunk','')}"
+        elif src == "brain":
+            # The FILENAME is the payload here: the caller's next move is to open
+            # that memory, and a hit that does not name the file cannot be acted on.
+            label = (f"BRAIN — {meta.get('file','')} [{meta.get('type','')}]"
+                     f"  {meta.get('description','')[:90]}")
         else:
             label = f"{src}"
 
