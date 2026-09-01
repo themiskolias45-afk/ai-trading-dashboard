@@ -380,7 +380,9 @@ def index_brain(client, model, rebuild: bool = False):
               "Set JARVIS_BRAIN_PATH to override.")
         return 0
 
-    existing_ids = _existing_ids(collection, rebuild)
+    # On a rebuild nothing counts as already-present, so every chunk is rebuilt —
+    # but the collection is not emptied until the add below.
+    existing_ids = set() if rebuild else _existing_ids(collection, rebuild)
     new_docs, new_ids, new_metas = [], [], []
     files = skipped = 0
 
@@ -426,6 +428,11 @@ def index_brain(client, model, rebuild: bool = False):
         embeds = []
         for i in range(0, len(new_docs), batch):
             embeds.extend(_embed(model, new_docs[i:i + batch]))
+        # The embeddings are computed and in hand. NOW swap, so the index is empty
+        # for one call rather than for the whole run.
+        if rebuild:
+            client.delete_collection("brain")
+            collection = _get_collection(client, "brain")
         collection.add(documents=new_docs, embeddings=embeds,
                        ids=new_ids, metadatas=new_metas)
 
