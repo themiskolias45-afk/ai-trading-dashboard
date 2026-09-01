@@ -216,3 +216,26 @@ TOP RECOMMENDATIONS:
 TASKS CREATED: [X]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 After report: "Implement recommendation #1 now? (Y/N)"
+
+## Publish the report — Slack summary + Notion page
+
+AFTER the report is printed above, publish it. Both are ADDITIVE and neither may block
+the report: if a channel is unconfigured or fails, say so in one line and carry on.
+The report on screen is the deliverable; these are copies.
+
+```
+python notifications.py alert "DAILY [DATE]: [one-line verdict] | [key numbers]"
+```
+That reaches Slack #smartentry-alerts (C0BUC0SQWTW) plus every other configured
+channel. It prints which ones were actually live — never claim delivery it does not.
+
+Then append the full report to the SmartEntry Pro Notion page:
+
+```python
+python -c "import notifications as n; n.notion_append('Daily Report', open('tasks/logs/daily_latest.txt',encoding='utf-8').read().splitlines())"
+```
+
+`notion_append` is APPEND-ONLY — it never edits or archives an existing block, so no
+previous day's report can be lost. It returns False and prints why when NOTION_TOKEN is
+absent or the page is not shared with the integration. **Report that outcome; do not
+present an unwritten report as written.**

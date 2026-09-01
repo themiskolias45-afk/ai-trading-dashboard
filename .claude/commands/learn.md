@@ -55,3 +55,24 @@ TOMORROW'S PRIORITIES:
   [3] [third]
 ━━━━━━━━━━━━━━━━━━━━━━━━
 Session closed cleanly. Next JARVIS boot will load these lessons.
+
+## Persist the decisions — Notion page
+
+AFTER the session summary above, append the DECISIONS to the SmartEntry Pro Notion page.
+Decisions only: what was decided and why, not the narrative. This is the same record
+tasks/ai_decisions.jsonl holds for AI proposals, in a place a human reads.
+
+```python
+python -c "import notifications as n; n.notion_append('Session decisions', ['<one line per decision: what was decided, the evidence, and what would reverse it>'])"
+```
+
+Rules that are not optional here:
+- **APPEND ONLY.** `notion_append` adds children and never edits or archives. Nothing
+  already on that page can be lost by this command.
+- **Every decision carries its evidence and its falsifier**, exactly as the memory files
+  do. A decision recorded without what would change it is an opinion with a date on it.
+- **A failed write is reported, never hidden.** It returns False and prints the reason
+  (missing NOTION_TOKEN, or the page not shared with the integration). Say so — a
+  decision believed to be recorded and actually lost is worse than one never written.
+- This runs AFTER the memory files are written, never instead of them. The vault and
+  ~/.claude/projects/<slug>/memory remain the source of truth; Notion is a mirror.
