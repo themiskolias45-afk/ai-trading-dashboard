@@ -284,7 +284,21 @@
     <div class="card">
       <div class="card-icon">🎯</div>
       <div class="card-title">Multi-Timeframe Confluence</div>
-      <div class="card-body-text">A signal only fires when confidence is ≥<span id="gate-inline">the live gate</span> across Daily, 4H, and 1H simultaneously — filters out noise from any single timeframe.</div>
+      <!-- CORRECTED 2026-09-01. This read "A signal only fires when confidence is >= the
+           live gate across Daily, 4H and 1H SIMULTANEOUSLY - filters out noise from any
+           single timeframe." That states a SAFETY PROPERTY THE ENGINE DOES NOT HAVE, and
+           a reader reasonably took it to mean the system will not buy into a bearish 4H.
+           CLAUDE.md carried the same false claim and was corrected in e14b968 after the
+           user asked why it buys when every lower timeframe is red.
+           What generateSignal actually does (server/index.js:2814-2911):
+             Daily + H4 AGREE            -> 72 / 88 / 95
+             Daily + H4 + H1 all agree   -> 88 / 97   (a BONUS branch, not a gate)
+             Daily fires, H4 says WAIT   -> 72 on Gold, which CLEARS the gate with H4
+                                            not agreeing
+             H4-only, daily WAIT         -> 55 / 63 / 68
+           `h1` appears exactly TWICE in the whole engine and no branch lets it reduce
+           confidence or block a setup. A bearish H1 and M15 are DISPLAY ONLY. -->
+      <div class="card-body-text">Daily, 4H and 1H are scored together and agreement RAISES confidence — Daily+4H aligned reaches 72–95, all three aligned reaches 88–97. They are not all required to agree: a Daily setup with 4H neutral can still clear the gate. A bearish 1H never blocks or reduces a signal — it is shown, not enforced.</div>
       <div class="card-tag">/api/signals</div>
     </div>
     <div class="card">
