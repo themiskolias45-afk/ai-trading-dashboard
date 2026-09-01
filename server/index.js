@@ -2099,7 +2099,20 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
     stop   = sl;
     target = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
-    strength = (rsi < 38 && volConfirmed) ? "STRONG" : rsi < 42 ? "MODERATE" : "NONE";
+    // The MODERATE band used to be `rsi < 42` while the ENTRY condition was `rsi < 50`,
+    // so every BUY_DIP formed in the 42-50 band carried strength NONE - and a setup must
+    // clear the gate AND minStrength (MODERATE) to fire. Those bars produced a named
+    // setup that was structurally untradeable, a hidden second RSI filter duplicating
+    // the entry test eight points tighter. That dead zone is the most likely reason
+    // BUY_DIP has never fired once in this system's history, and raising the entry
+    // ceiling to 55 would have widened it to thirteen points rather than fixing
+    // anything: Gold at RSI 52.7 passes every entry condition and would still have
+    // scored NONE.
+    //
+    // MODERATE now means "passed every entry condition", which is what the minimum
+    // tradeable strength should mean. STRONG is deliberately UNCHANGED at deep-oversold
+    // plus volume: STRONG can raise position size, and nothing here measured that.
+    strength = (rsi < 38 && volConfirmed) ? "STRONG" : rsi < BUY_DIP_RSI_MAX ? "MODERATE" : "NONE";
     reasons.push(`Uptrend intact — EMA50/200 structural support`);
     reasons.push(`RSI ${rsi} — dip into oversold territory`);
     reasons.push(`Pullback to EMA20 support zone`);
