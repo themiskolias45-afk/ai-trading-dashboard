@@ -2146,8 +2146,24 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   }
 
   // ── SELL_BOUNCE: rejection at EMA20 in downtrend or mixed below EMA50 ──
+  // CONDITION 1 IS THE WHOLE SHORT SIDE'S BOTTLENECK. Measured 2026-08-28 per daily
+  // bar: SELL_BOUNCE forms 2 times in 1090 Gold bars and ZERO in 1092 SPX bars, while
+  // 502 bars across the three assets are blocked by this condition ALONE - price above
+  // EMA20, within 2.2% of it, RSI > 50 and MACD bearish, a textbook rejection into
+  // resistance, refused only because the trend LABEL is not DOWNTREND. And that label
+  // is EMA STACKING, not direction: on 2026-09-01 Gold and SPX both read "UPTREND"
+  // with MACD histogram -17.45 and -12.39 while price was falling.
+  //
+  // Relaxing it is PURELY ADDITIVE - those bars fall through the else-if chain to WAIT
+  // today, so nothing is suppressed and rule 3 is satisfied by construction.
+  //
+  // DEFAULT TRUE = the engine behaves exactly as before. Flipping it admits ~500 more
+  // shorts, and the SELL side currently runs -0.058R, so that is a large loss until a
+  // replay says otherwise. Measure both worlds before changing the default - the same
+  // discipline BREAKDOWN got, and the same one MOMENTUM_REQUIRE_MACD_BULLISH skipped
+  // before being reverted within the hour on 2026-09-01.
   else if (
-    (inDowntrend || (trend === "MIXED" && !aboveEma50)) &&
+    (!SELL_BOUNCE_REQUIRE_DOWNTREND || inDowntrend || (trend === "MIXED" && !aboveEma50)) &&
     aboveEma20 &&
     price <= ema20 * 1.022 &&       // within 2.2% above EMA20
     rsi !== null && rsi > 50 &&
@@ -3642,6 +3658,25 @@ const BUY_DIP_RSI_MAX = 50;
 // walk-forward wins" — and a bar-return screen is weaker evidence than either.
 // Do not re-open this on a bar-return result alone.
 const MOMENTUM_REQUIRE_MACD_BULLISH = true;
+
+// SELL_BOUNCE's condition 1 — see the branch for the measurement. TRUE reproduces the
+// engine exactly as it has always run; the flag exists so both worlds can be replayed
+// and compared instead of argued about. `tasks/_replay_mtf.cjs` overrides it through
+// MTF_SELL_BOUNCE_REQUIRE_DOWNTREND, measurement-only.
+//
+// DO NOT flip this to false on the strength of "the system never sells". It admits
+// roughly 500 additional shorts and the SELL side's measured mean is -0.058R against
+// BUY's +0.315R, so the expected first-order effect is a LOSS. What would justify the
+// flip: a per-asset walk-forward at the live gate and MAX_HOLD=320 where the candidate
+// world's WORST FOLD beats the baseline's on XAUUSD and SP500 — the two assets that sit
+// at confidence 0 in a bearish tape — without degrading BTCUSD.
+// A PLAIN LITERAL, deliberately. The first version read process.env here, and
+// _replay_mtf.cjs runs the extracted engine inside a `vm` context where `process` does
+// not exist — so every replay died with "ReferenceError: process is not defined". It
+// failed loudly, which is the only reason it was caught; a quieter version of the same
+// mistake is the bug SCALAR_CONSTS exists to prevent. The replay overrides this through
+// MTF_SELL_BOUNCE_REQUIRE_DOWNTREND at extraction time instead.
+const SELL_BOUNCE_REQUIRE_DOWNTREND = true;
 
 // SPX H4-only is BLOCKED BY MEASUREMENT, not by arithmetic.
 //
