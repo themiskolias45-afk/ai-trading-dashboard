@@ -111,6 +111,22 @@ const SETUPS = {
     firedDesc: "MACD still bullish",
     blockedDesc: "MACD rolled over",
   },
+  // MOMENTUM's macd.bullish requirement. The `momentum` mode above holds macdBullish
+  // FIXED in nonRsi and splits on RSI, so it can never say anything about MACD itself.
+  //
+  // This is the live question as of 2026-09-01: Gold sits in a STRONG UPTREND above
+  // EMA20 and EMA50 with RSI 53.9 inside the 52-88 band, and fails MOMENTUM on
+  // macd.bullish and nothing else. Run with the live band:
+  //   node tasks/ceiling_measure.cjs --setup momentum_macd --floor 52 --ceiling 88
+  momentum_macd: {
+    label: "MOMENTUM - is the macd.bullish requirement earning its keep?",
+    nonRsi: o => o.inUptrend && o.aboveEma50 && o.aboveEma20
+              && o.rsi > RSI_MIN && o.rsi < CEILING,
+    fired:   (r, o) => o.macdBullish === true,
+    blocked: (r, o) => o.macdBullish === false,
+    firedDesc: "MACD bullish",
+    blockedDesc: "MACD bearish",
+  },
   // BUY_DIP's RSI floor, measured WITHOUT the macd requirement - because as of
   // 2026-09-01 the engine no longer has one (BUY_DIP_REQUIRE_MACD_BULLISH = false).
   // The `buydip` mode below still conditions on macdBullish, which now measures a
