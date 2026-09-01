@@ -101,9 +101,11 @@ def _existing_ids(collection, rebuild: bool) -> set:
     """
     ids = set(collection.get(include=[])["ids"])
     if not ids and not rebuild:
-        print(f"  [{collection.name}] WARNING: collection is EMPTY on a non-rebuild run. "
-              f"A previous --rebuild was interrupted (delete_collection succeeded, the "
-              f"re-add did not). Everything below is a full re-add, not an increment.")
+        print(f"  [{collection.name}] NOTE: collection is EMPTY on a non-rebuild run, so "
+              f"everything below is a FULL BUILD, not an increment. Either this source "
+              f"has never been indexed on this box, or a previous --rebuild was killed "
+              f"between delete_collection and the re-add. Both are worth knowing and "
+              f"neither used to be reported.")
     return ids
 
 
