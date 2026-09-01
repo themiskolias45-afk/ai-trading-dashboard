@@ -311,13 +311,14 @@ header{
    mode's entire purpose and is left alone. */
 .hero-logo svg{width:min(34vw,340px);height:min(34vw,340px);overflow:visible;transition:width .6s ease,height .6s ease,transform .09s linear}
 .hero-logo::after{
-  content:'';position:absolute;top:50%;left:50%;width:min(54vw,560px);height:min(54vw,560px);
+  content:'';position:absolute;top:50%;left:50%;width:min(37vw,370px);height:min(37vw,370px);
   border-radius:50%;background:conic-gradient(from 0deg,transparent 0%,rgba(167,139,250,.5) 6%,transparent 16%);
   -webkit-mask:radial-gradient(circle,transparent 61%,#000 62%,#000 65%,transparent 66%);
   mask:radial-gradient(circle,transparent 61%,#000 62%,#000 65%,transparent 66%);
   animation:sweepRotate 5s linear infinite;transition:width .6s ease,height .6s ease;
 }
-@keyframes heroPulse{0%,100%{opacity:.18;transform:scale(1)}50%{opacity:.34;transform:scale(1.04)}}
+/* Pulse calmed: .18-.34 is a 90% swing on something the eye should never track. */
+@keyframes heroPulse{0%,100%{opacity:.13;transform:scale(1)}50%{opacity:.20;transform:scale(1.02)}}
 @keyframes sweepRotate{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
 .messages{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px;position:relative;z-index:1}
 
