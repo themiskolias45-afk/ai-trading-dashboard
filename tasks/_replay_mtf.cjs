@@ -115,7 +115,12 @@ for (const name of SCALAR_CONSTS) {
                   `result silently looks like "this cohort never traded".`);
     process.exit(1);
   }
-  code += `const ${name} = ${m[1].trim()};\n`;
+  // MEASUREMENT-ONLY const overrides. Substituted at EXTRACTION time rather than
+  // reassigned afterwards, because these are `const` in the engine and a later
+  // assignment would throw inside the vm. The engine keeps a plain literal; the
+  // switch lives here, so the server is never edited to run a measurement.
+  const override = CONST_OVERRIDES[name];
+  code += `const ${name} = ${override !== undefined ? override : m[1].trim()};\n`;
 }
 for (const marker of NEEDED) {
   const block = extractBlock(marker);
