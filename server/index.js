@@ -7578,7 +7578,15 @@ cron.schedule("0 22 * * 1-5", async () => {
 cron.schedule("0 21 * * 0", async () => {
   console.log("[agent] Sunday auto-improvement run starting…");
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
-  if (closed.length < 5) { console.log("[agent] Not enough trades for improvement analysis"); return; }
+  // THE THIRD no-proposal path, and the one I missed on the first pass. The morning
+  // agent's proposal said "all three no-proposal return paths"; I fixed two and had to
+  // be told. retireProposal is a hoisted function declaration at the top level of this
+  // callback, so it is callable here despite being written below.
+  if (closed.length < 5) {
+    console.log("[agent] Not enough trades for improvement analysis");
+    retireProposal(`only ${closed.length} closed trade(s) — below the 5 needed to rank setups`);
+    return;
+  }
 
   // Find worst setup.
   //
