@@ -408,6 +408,29 @@ def run_test() -> None:
     send_telegram("JARVIS notification engine test — Telegram channel working.")
     telegram_configured = bool(get_cred("TELEGRAM_TOKEN") and get_cred("TELEGRAM_CHAT_ID"))
     print(f"  Telegram: {'sent' if telegram_configured else 'skipped (not configured)'}")
+
+    # Slack and Notion report the SPECIFIC missing credential rather than a bare
+    # "not configured". A channel id and a page id are not credentials, and the most
+    # likely reason either of these fails is a token that was never added or a
+    # bot/integration that was never granted access to the target.
+    slack_ok = send_slack("JARVIS notification engine test — Slack channel working.")
+    if slack_ok:
+        print(f"  Slack:    sent to {get_cred('SLACK_CHANNEL_ID') or 'C0BUC0SQWTW'}")
+    elif not get_cred("SLACK_BOT_TOKEN"):
+        print("  Slack:    skipped — SLACK_BOT_TOKEN not in keys.env "
+              "(needs a xoxb- token with chat:write, and the bot invited to the channel)")
+    else:
+        print("  Slack:    FAILED — token present but the post was refused (see error above)")
+
+    notion_ok = notion_append("Notification engine test",
+                              ["Slack + Notion wiring check from notifications.py test."])
+    if notion_ok:
+        print(f"  Notion:   appended to {get_cred('NOTION_PAGE_ID') or '3ce788d6-2fca-81e1-aa28-caf7c4ab6630'}")
+    elif not get_cred("NOTION_TOKEN"):
+        print("  Notion:   skipped — NOTION_TOKEN not in keys.env "
+              "(needs an internal integration secret, and the page shared with it)")
+    else:
+        print("  Notion:   FAILED — token present but the append was refused (see error above)")
     if not telegram_configured:
         print("           ^ this is the only channel that reaches a phone and works "
               "headless; without it the VPS can raise an alert nobody receives.")
