@@ -2112,7 +2112,15 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     // MODERATE now means "passed every entry condition", which is what the minimum
     // tradeable strength should mean. STRONG is deliberately UNCHANGED at deep-oversold
     // plus volume: STRONG can raise position size, and nothing here measured that.
-    strength = (rsi < 38 && volConfirmed) ? "STRONG" : rsi < BUY_DIP_RSI_MAX ? "MODERATE" : "NONE";
+    // REVERTED to 42 with everything else on 2026-09-01. The finding behind the change
+    // STANDS and is worth measuring properly: entry allows rsi < 50 while MODERATE needs
+    // rsi < 42, so every BUY_DIP formed in the 42-50 band is born with strength NONE and
+    // cannot clear minStrength. It is a real dead zone and a plausible part of why
+    // BUY_DIP has never fired live. But the walk-forward could not see the change at all
+    // — 836/308/413/115 identical before and after — so there is NO evidence either way,
+    // and today's lesson is that this engine punishes unmeasured edits. Measure it with a
+    // harness that models minStrength before touching it again.
+    strength = (rsi < 38 && volConfirmed) ? "STRONG" : rsi < 42 ? "MODERATE" : "NONE";
     reasons.push(`Uptrend intact — EMA50/200 structural support`);
     reasons.push(`RSI ${rsi} — dip into oversold territory`);
     reasons.push(`Pullback to EMA20 support zone`);
@@ -2212,7 +2220,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     inUptrend &&
     aboveEma50 && aboveEma20 &&
     rsi !== null && rsi > MOMENTUM_RSI_MIN && rsi < MOMENTUM_RSI_MAX &&
-    macd?.bullish
+    (!MOMENTUM_REQUIRE_MACD_BULLISH || macd?.bullish)
   ) {
     setup  = "MOMENTUM";
     signal = "BUY";
@@ -3505,8 +3513,17 @@ const GOLD_SQUEEZE_MODERATE_CONFIDENCE = 70;
 // binding constraint on this system. It is an addition, not a filter, which is the
 // only direction the standing rules permit without a positive-edge claim.
 //
-// Flip to true to restore the old behaviour — one word, no other edit.
-const BUY_DIP_REQUIRE_MACD_BULLISH = false;
+// REVERTED TO TRUE, 2026-09-01, by the walk-forward on realised R. The bar-return
+// screen said this was costing money at 3.0x its noise band and it was measuring
+// honestly — but a forward return on a BAR has no stop, no target and no position
+// sequencing, and realised R disagreed at gate 70 / MAX_HOLD=320:
+//   XAUUSD  5/5 ROBUST worst +0.051  ->  4/5 worst -0.307
+//   BTCUSD  5/5 ROBUST worst +0.172  ->  4/5 worst -0.008
+//   SP500   4/5        worst -0.042  ->  3/5 worst -0.061
+// Both leading assets fell out of ROBUST and SP500 lost a fold. Kept as a named
+// constant with the evidence attached rather than reverted silently, so the next
+// session does not re-derive the same wrong answer from the same bar-return screen.
+const BUY_DIP_REQUIRE_MACD_BULLISH = true;
 
 // BUY_DIP's RSI ceiling. Was a hardcoded 50; raised to 55 on 2026-09-01.
 //
@@ -3529,7 +3546,51 @@ const BUY_DIP_REQUIRE_MACD_BULLISH = false;
 // refused at RSI 52.6 with every other condition passing - while keeping a bound, and
 // because a single named constant is trivial to sweep later. Anyone re-measuring
 // should sweep 50/55/60/65 per asset before moving it again.
-const BUY_DIP_RSI_MAX = 55;
+// REVERTED TO 50, 2026-09-01, by the same walk-forward. Raising it to 55 was part of
+// the degraded run above. The +0.251 ATR bar-return signal at 1.07x its noise band was
+// always marginal; realised R says it is not there.
+const BUY_DIP_RSI_MAX = 50;
+
+// Does MOMENTUM still require macd.bullish? MEASURED 2026-09-01 and set to false.
+//
+// Gold sat in a STRONG UPTREND above EMA20 (4443.54 / 4432.64) and above EMA50, RSI
+// 53.9 well inside the 52-88 band, and failed MOMENTUM on macd.bullish AND NOTHING
+// ELSE. That is the condition, not the gate and not the RSI band.
+//
+// `node tasks/ceiling_measure.cjs --setup momentum_macd --floor 52 --ceiling 88`
+// over 2,966 bars where every other MOMENTUM condition passes:
+//
+//   FIRED   (MACD bullish, what the engine took)  1992 bars  +0.592 ATR  60.8% win
+//   BLOCKED (MACD bearish, what it refused)        974 bars  +0.523 ATR  58.3% win
+//   BLOCKED minus FIRED  -0.069 ATR  against a noise band of +/-0.094
+//
+// INSIDE THE NOISE. This is not "it costs money" like the BUY_DIP case at 3.0x the
+// band - it is a WELL-POWERED NULL at n=2966. The condition buys no measurable edge
+// and discards 33% of MOMENTUM's candidates (278 of Gold's 939) to do it. Sample size
+// is the binding constraint on this system, so dropping a filter that provably adds
+// nothing while removing a third of the flow ADDS signal at no measured cost. That is
+// the only justification claimed here: MORE TRADES, NOT BETTER ONES.
+//
+// Honest caveat: both groups underperform the unconditioned control (-0.122 and
+// -0.191 ATR). MOMENTUM's forward-return profile is weak on this horizon regardless
+// of MACD; this changes the flow, not that.
+//
+// MOMENTUM CARRIES THE BOOK - 450 trades, +0.309 R/trade, removing it costs -0.2822
+// in 0/5 folds - so a bar-return null was NOT considered sufficient on its own. The
+// walk-forward on realised R was re-run immediately after this change and compared
+// against the pre-change baseline recorded the same day (gate 70, MAX_HOLD=320:
+// XAUUSD 5/5 +0.051, BTCUSD 5/5 +0.172, SP500 4/5 -0.042). See the commit for the
+// after-numbers. Flip to true to restore the old behaviour.
+// REVERTED TO TRUE, 2026-09-01, within the hour, by the walk-forward above.
+// The bar-return null was real but it was the WRONG INSTRUMENT: forward return on a
+// bar has no stop, no target and no position sequencing. Realised R at gate 70,
+// MAX_HOLD=320, before -> after with this false:
+//   XAUUSD  5/5 ROBUST worst +0.051  ->  4/5 worst -0.357
+//   BTCUSD  5/5 ROBUST worst +0.172  ->  4/5 worst -0.003
+// Both assets fell out of ROBUST. "Where the ledger contradicts a walk-forward, the
+// walk-forward wins" — and a bar-return screen is weaker evidence than either.
+// Do not re-open this on a bar-return result alone.
+const MOMENTUM_REQUIRE_MACD_BULLISH = true;
 
 // SPX H4-only is BLOCKED BY MEASUREMENT, not by arithmetic.
 //
