@@ -451,9 +451,17 @@ def index_vault(client, model, rebuild: bool = False):
         client.delete_collection("vault")
         collection = _get_collection(client, "vault")
 
+    # HOME-RELATIVE FIRST. This listed C:/Users/User/Documents/Brain — the LAPTOP's
+    # path — as candidate one, so on the VPS it did not exist, the list fell through to
+    # ROOT/"vault-setup", and the vault collection was silently built from the WRONG
+    # DIRECTORY: 17 chunks there against 260 here, from the same 22-file vault. The
+    # collection was populated and the run reported success, which is why it went
+    # unnoticed. Exactly the failure _find_brain_corpus was written to avoid; this
+    # function was simply never given the same treatment.
     vault_candidates = [
-        Path("C:/Users/User/Documents/Brain"),
         Path(os.environ.get("JARVIS_VAULT_PATH", "nonexistent")),
+        Path.home() / "Documents" / "Brain",
+        Path("C:/Users/User/Documents/Brain"),
         ROOT / "vault-setup",
     ]
     vault_root = next((p for p in vault_candidates if p.exists()), None)
