@@ -104,9 +104,13 @@ header{
 }
 /* Hexagonal aperture. Straight edges survive downscaling; the old radial-gradient
    core did not — a gradient has no edge left to resolve at 52px. */
+/* Weights raised 2026-09-01. The geometry was right and the reasoning above holds;
+   the mark was simply too faint to carry the header. The fill at .16 alpha over a
+   near-black surface resolved to about 3% of the page's contrast range, so the
+   hexagon read as a smudge rather than an aperture and the J appeared to float. */
 .logo-aperture{
-  fill:rgba(124,58,237,.16);
-  stroke:rgba(196,181,253,.75);stroke-width:1.6;stroke-linejoin:round;
+  fill:rgba(124,58,237,.30);
+  stroke:rgba(214,203,255,.92);stroke-width:2.1;stroke-linejoin:round;
 }
 /* The J. Flat cap, generous weight — this is the part that has to read at 24px
    in a browser tab, so it gets the strongest contrast in the mark. */
