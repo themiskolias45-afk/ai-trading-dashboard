@@ -12,7 +12,12 @@ $candidates = @(
   "C:\ai-trading-dashboard\server\journal.json",
   "C:\ai-trading-dashboard\server\learning.json",
   "C:\ai-trading-dashboard\server\smartentry.db",
-  "C:\ai-trading-dashboard\tasks\logs"
+  "C:\ai-trading-dashboard\tasks\logs",
+  # The agent memory vault. It lives under the user profile, OUTSIDE $projectRoot, so
+  # the recursive sweep below has never once seen it - 455 files on this box with no
+  # copy anywhere. The same blind spot the laptop had for its own .claude memory, found
+  # the same day.
+  "C:\Users\Administrator\.claude\projects"
 )
 $existing = $candidates | Where-Object { Test-Path $_ }
 
@@ -30,7 +35,14 @@ $existing = $candidates | Where-Object { Test-Path $_ }
 $projectRoot    = "C:\ai-trading-dashboard"
 $secretNames    = @("keys.env", "keys.env.bak", "apikey.txt")
 $excludedDirs   = @("node_modules", "__pycache__", ".git")
-$codeExtensions = @(".js", ".py", ".bat", ".ps1", ".json", ".md", ".html", ".css", ".pine")
+# .jsonl and .db added 2026-09-01. Their absence meant the LEDGERS on the box that
+# actually trades were protected by nothing at all: rejections.jsonl (1.24 MB),
+# rejections_scored.jsonl (1.35 MB), near_misses.jsonl, ai_decisions.jsonl and
+# strategy_search_ledger.jsonl. Every one of them sat outside this list and outside
+# $candidates, so no backup on either box held them. An extension allowlist drops
+# whatever format arrives next, exactly as the laptop's file allowlist did the same
+# morning.
+$codeExtensions = @(".js", ".py", ".bat", ".ps1", ".json", ".jsonl", ".db", ".md", ".html", ".css", ".pine")
 
 $codeFiles = Get-ChildItem -Path $projectRoot -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
   $relativePath = $_.FullName.Substring($projectRoot.Length + 1)
