@@ -2478,10 +2478,32 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
 
   else {
     // WAIT — explain exactly what's needed to trigger each setup
-    const needsUptrend   = !inUptrend   ? `price above EMA200 (${ema200 ? ema200.toFixed(0) : "N/A"})` : null;
-    const needsOversold  = rsi !== null && rsi >= 50 ? `RSI below 50 (now ${rsi})` : null;
-    const needsMACD      = !macd?.bullish ? `MACD bullish crossover` : null;
-    const blockReasons   = [needsUptrend, needsOversold, needsMACD].filter(Boolean);
+    // THIS LIST WAS A SECOND, HARDCODED COPY OF BUY_DIP'S CONDITIONS AND IT WAS WRONG
+    // IN BOTH DIRECTIONS. Rewritten 2026-09-01 after it cost most of a session.
+    //
+    // It reported two conditions the engine no longer has — a bare `rsi >= 50` and
+    // `!macd.bullish`, both frozen at their old values while the real branch moved to
+    // BUY_DIP_RSI_MAX and dropped MACD entirely — and it OMITTED the one condition that
+    // was actually binding: BUY_DIP needs price BELOW EMA20, because it buys a pullback
+    // TO that average. Gold and SP500 both sat ABOVE their EMA20 and were told they
+    // needed a lower RSI and a MACD cross. Every diagnosis built on this string aimed at
+    // the wrong thing, mine included.
+    //
+    // Now derived from the SAME constants the branch tests, so it cannot drift again:
+    // change BUY_DIP_RSI_MAX or BUY_DIP_REQUIRE_MACD_BULLISH and this text follows.
+    const inBuyDipTrend  = inUptrend || (trend === "MIXED" && aboveEma50);
+    const needsUptrend   = !inBuyDipTrend
+      ? `an uptrend, or MIXED with price above EMA50 (${ema50 ? ema50.toFixed(0) : "N/A"})` : null;
+    // The binding condition, and the one that was missing from this list entirely.
+    const needsPullback  = (inBuyDipTrend && aboveEma20 && ema20)
+      ? `a pullback — price ${price} is ABOVE EMA20 ${ema20.toFixed(2)}, and BUY_DIP buys dips TO it` : null;
+    const needsInWindow  = (inBuyDipTrend && !aboveEma20 && ema20 && !(price >= ema20 * 0.978))
+      ? `price within 2.2% of EMA20 — it is ${(((ema20 - price) / ema20) * 100).toFixed(2)}% below, too deep` : null;
+    const needsOversold  = rsi !== null && rsi >= BUY_DIP_RSI_MAX
+      ? `RSI below ${BUY_DIP_RSI_MAX} (now ${rsi})` : null;
+    const needsMACD      = (BUY_DIP_REQUIRE_MACD_BULLISH && !macd?.bullish)
+      ? `MACD bullish crossover` : null;
+    const blockReasons   = [needsUptrend, needsPullback, needsInWindow, needsOversold, needsMACD].filter(Boolean);
     // "needs:", not a bare colon. blockReasons is a list of things that are MISSING —
     // needsUptrend/needsOversold/needsMACD above are each the CONDITION STILL REQUIRED,
     // not a reading of the market. Under the old prefix Gold rendered
