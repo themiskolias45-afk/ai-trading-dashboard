@@ -124,7 +124,7 @@ def index_trades(client, model, rebuild: bool = False):
         print("  [trades] Unexpected journal format — skipping.")
         return 0
 
-    existing_ids = set(collection.get(include=[])["ids"])
+    existing_ids = _existing_ids(collection, rebuild)
     new_docs, new_ids, new_metas = [], [], []
 
     for trade in journal:
@@ -179,7 +179,7 @@ def index_shadow(client, model, rebuild: bool = False):
         print("  [shadow] learning_shadow.json not found — run learning_from_rejections.py first.")
         return 0
 
-    existing_ids = set(collection.get(include=[])["ids"])
+    existing_ids = _existing_ids(collection, rebuild)
     new_docs, new_ids, new_metas = [], [], []
 
     for setup, stats in shadow.items():
@@ -250,7 +250,7 @@ def index_memory(client, model, rebuild: bool = False):
         print(f"  [memory] unexpected top-level type {type(raw).__name__} — skipping.")
         return 0
 
-    existing_ids = set(collection.get(include=[])["ids"])
+    existing_ids = _existing_ids(collection, rebuild)
     new_docs, new_ids, new_metas = [], [], []
 
     for i, entry in enumerate(entries[-500:]):   # last 500
@@ -372,7 +372,7 @@ def index_brain(client, model, rebuild: bool = False):
               "Set JARVIS_BRAIN_PATH to override.")
         return 0
 
-    existing_ids = set(collection.get(include=[])["ids"])
+    existing_ids = _existing_ids(collection, rebuild)
     new_docs, new_ids, new_metas = [], [], []
     files = skipped = 0
 
@@ -446,7 +446,7 @@ def index_vault(client, model, rebuild: bool = False):
         print("  [vault] Vault path not found — skipping. Set JARVIS_VAULT_PATH env var.")
         return 0
 
-    existing_ids = set(collection.get(include=[])["ids"])
+    existing_ids = _existing_ids(collection, rebuild)
     new_docs, new_ids, new_metas = [], [], []
 
     for md_file in vault_root.rglob("*.md"):
