@@ -256,6 +256,151 @@ def index_memory(client, model, rebuild: bool = False):
     return len(new_docs)
 
 
+# ── Source: brain — the Claude Code memory corpus ─────────────────────────────
+#
+# WHY THIS EXISTS. The corpus is 312 one-fact markdown files behind a single
+# hand-written index, MEMORY.md, which the session loader truncates by BYTES.
+# Measured 2026-09-01: 29,626B against a 24,576B limit, so 32 of 166 index lines
+# — 17%, the whole "AI Employee, agents and scripts" section — never reach a
+# booting session. The facts are all on disk; the pointer to them is not. Growing
+# the corpus makes that strictly worse, which is why more memories were not the
+# answer and retrieval was.
+#
+# READ-ONLY over the corpus. This opens .md files and writes only to tasks/rag_db/.
+
+def _find_brain_corpus() -> Path | None:
+    """Locate the Claude Code memory dir. DISCOVERED, never hardcoded.
+
+    The two boxes disagree on every component of this path — the laptop is
+    ~/.claude/projects/C--Users-User-ai-trading-dashboard/memory and the VPS is
+    ~/.claude/projects/C--ai-trading-dashboard/memory, because the slug is derived
+    from the repo's own location. A hardcoded path silently indexes nothing on one
+    of them, and an index that is empty for the right-looking reason is the failure
+    mode this whole file exists to fix.
+    """
+    override = os.environ.get("JARVIS_BRAIN_PATH")
+    if override and Path(override).is_dir():
+        return Path(override)
+
+    projects = Path.home() / ".claude" / "projects"
+    if not projects.is_dir():
+        return None
+
+    # Prefer the project dir whose slug matches THIS repo; fall back to whichever
+    # memory dir holds the most files, so a renamed repo still finds its own brain.
+    slug_hint = str(ROOT).replace(":", "-").replace(os.sep, "-").replace("/", "-")
+    candidates = []
+    for proj in projects.iterdir():
+        mem = proj / "memory"
+        if not mem.is_dir():
+            continue
+        count = len(list(mem.glob("*.md")))
+        if count == 0:
+            continue
+        candidates.append((proj.name == slug_hint, count, mem))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
+    return candidates[0][2]
+
+
+def _parse_frontmatter(text: str) -> tuple[dict, str]:
+    """Pull name/description/type out of the --- block. Returns (meta, body).
+
+    Deliberately not a YAML parse: the frontmatter here is a fixed three-field
+    shape, and adding a yaml dependency to read it would be the larger change.
+    A file with no frontmatter is normal and returns ({}, whole text).
+    """
+    meta = {}
+    if not text.startswith("---"):
+        return meta, text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return meta, text
+    block, body = text[3:end], text[end + 4:]
+    current = None
+    for line in block.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not line.startswith((" ", "\t")) and ":" in stripped:
+            key, _, val = stripped.partition(":")
+            current = key.strip()
+            meta[current] = val.strip().strip('"').strip("'")
+        elif current == "metadata" and ":" in stripped:
+            key, _, val = stripped.partition(":")
+            meta[f"metadata.{key.strip()}"] = val.strip().strip('"').strip("'")
+    return meta, body
+
+
+def index_brain(client, model, rebuild: bool = False):
+    collection = _get_collection(client, "brain")
+    if rebuild:
+        client.delete_collection("brain")
+        collection = _get_collection(client, "brain")
+
+    corpus = _find_brain_corpus()
+    if corpus is None:
+        print("  [brain] no Claude Code memory dir found — skipping. "
+              "Set JARVIS_BRAIN_PATH to override.")
+        return 0
+
+    existing_ids = set(collection.get(include=[])["ids"])
+    new_docs, new_ids, new_metas = [], [], []
+    files = skipped = 0
+
+    for md in sorted(corpus.glob("*.md")):
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            print(f"  [brain] unreadable, skipped: {md.name} ({exc})")
+            skipped += 1
+            continue
+        if len(text.strip()) < 40:
+            skipped += 1
+            continue
+        files += 1
+
+        fm, body = _parse_frontmatter(text)
+        name  = fm.get("name") or md.stem
+        desc  = fm.get("description") or ""
+        mtype = fm.get("metadata.type") or ("index" if md.name == "MEMORY.md" else "unknown")
+
+        # The description is the recall surface the memory system itself was
+        # designed around, so it leads every chunk. Without it a chunk from the
+        # middle of a file arrives with no idea what claim it belongs to.
+        header = f"{name}: {desc}".strip().rstrip(":")
+        base   = f"brain_{md.stem}"
+
+        step, size = 700, 800
+        chunks = [body[i:i + size].strip() for i in range(0, max(len(body), 1), step)]
+        chunks = [c for c in chunks if c]
+        for ci, chunk in enumerate(chunks):
+            cid = f"{base}_c{ci}"
+            if cid in existing_ids:
+                continue
+            new_docs.append(f"{header}\n\n{chunk}" if header else chunk)
+            new_ids.append(cid)
+            new_metas.append({
+                "source": "brain", "file": md.name, "name": str(name),
+                "description": str(desc)[:300], "type": str(mtype), "chunk": ci,
+            })
+
+    if new_docs:
+        batch = 64
+        embeds = []
+        for i in range(0, len(new_docs), batch):
+            embeds.extend(_embed(model, new_docs[i:i + batch]))
+        collection.add(documents=new_docs, embeddings=embeds,
+                       ids=new_ids, metadatas=new_metas)
+
+    total = collection.count()
+    print(f"  [brain] {corpus}")
+    print(f"  [brain] {files} file(s) read, {skipped} skipped | "
+          f"{len(new_docs)} new chunk(s) | {total} total in index")
+    return len(new_docs)
+
+
 # ── Source: vault markdown notes ──────────────────────────────────────────────
 
 def index_vault(client, model, rebuild: bool = False):
