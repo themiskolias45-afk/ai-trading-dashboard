@@ -2092,7 +2092,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     !aboveEma20 &&
     price >= ema20 * 0.978 &&       // within 2.2% of EMA20
     rsi !== null && rsi < 50 &&
-    macd?.bullish
+    (!BUY_DIP_REQUIRE_MACD_BULLISH || macd?.bullish)
   ) {
     setup  = "BUY_DIP";
     signal = "BUY";
@@ -3441,6 +3441,37 @@ const STRUCTURAL_STOP_MIN_ATR = 0.5;
 // the live gate (confidenceThreshold 70) so the cohort trades; see the block in
 // generateSignalMTF for why this is pinned rather than following the setting.
 const GOLD_SQUEEZE_MODERATE_CONFIDENCE = 70;
+
+// Does BUY_DIP still require macd.bullish? MEASURED 2026-09-01 and set to false.
+//
+// Asked repeatedly why Gold and SP500 do not trade. The near-miss census could not
+// answer it: all 28 of its rows are BTC, because it only records setups that miss on
+// ONE condition and Gold misses on two (RSI and MACD). The diagnostic was blind to
+// exactly the two assets in question, which is why every previous answer fell back to
+// the gate.
+//
+// `node tasks/ceiling_measure.cjs --setup buydip_macd --horizon 10` — forward returns
+// on the bar, no invented entry/stop/target, matched control, 466 bars where every
+// OTHER BUY_DIP condition passes:
+//
+//   FIRED   (macd.bullish true, what the engine took)    42 bars  -1.117 ATR  40.5% win
+//   BLOCKED (macd rolled over, what it refused)         424 bars  +0.401 ATR  59.7% win
+//   BLOCKED minus FIRED  +1.518 ATR  against a noise band of +/-0.513
+//
+// It discarded 172 of Gold's 184 candidates and 131 of SP500's 144 — 93% and 91% — and
+// the discarded bars OUTPERFORM the taken ones by three times the noise band. Same
+// shape as the RSI ceiling that was starving BTC before it was swept, and consistent
+// with the earlier finding that macd.bullish removes 91% of BUY_DIP's candidates.
+//
+// HONEST CAVEAT, because this is not a profit claim: both groups underperform the
+// unconditioned control (+1.031 ATR) — FIRED by -2.148, BLOCKED by -0.631. Removing
+// this makes the setup markedly LESS BAD, not better than random. What it does is ADD
+// candidates on the two assets that generate almost nothing, and sample size is the
+// binding constraint on this system. It is an addition, not a filter, which is the
+// only direction the standing rules permit without a positive-edge claim.
+//
+// Flip to true to restore the old behaviour — one word, no other edit.
+const BUY_DIP_REQUIRE_MACD_BULLISH = false;
 
 // SPX H4-only is BLOCKED BY MEASUREMENT, not by arithmetic.
 //
