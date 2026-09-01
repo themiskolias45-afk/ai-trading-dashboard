@@ -819,6 +819,14 @@ async function runBacktest() {
 
     if (d.claudeVerdict) {
       out += `<div class="verdict-box"><strong>Claude verdict:</strong><br>${esc(d.claudeVerdict).replace(/\n/g, '<br>')}</div>`;
+    } else if (d.claudeVerdictError) {
+      // A missing commentary and a REFUSED one look identical when both render as
+      // nothing, and only one of them needs a person. This box previously showed the
+      // CLI's own "Not logged in - Please run /login" under the heading "Claude
+      // verdict", so an auth error was presented as quant analysis.
+      out += `<div class="verdict-box" style="background:rgba(239,68,68,.06);border-color:rgba(239,68,68,.35)">`
+           + `<strong style="color:var(--red)">Claude verdict unavailable:</strong><br>`
+           + `${esc(d.claudeVerdictError)}</div>`;
     }
 
     // Say what this actually replayed. The table ranks by return %, which reads as
