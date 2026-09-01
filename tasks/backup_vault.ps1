@@ -50,6 +50,56 @@ if (-not $files -or $files.Count -eq 0) {
     exit 1
 }
 
+# --- EXTRA ROOTS - added 2026-09-01 ----------------------------------------
+# Until today this script protected the vault and NOTHING ELSE. An audit that day
+# found the three most irreplaceable things on this laptop had no copy anywhere:
+#
+#   .claude\projects\...\memory   302 files, 1.9 MB. The file memory vault - the
+#                                 rail that actually held every lesson while the
+#                                 MCP graph was quietly being wiped. It lives under
+#                                 ~/.claude, OUTSIDE the git repo, so "it is in git"
+#                                 was never true for it.
+#   tasks\rejections*.jsonl       2.5 MB. UNTRACKED - never git-added. The rejection
+#                                 ledger, which is the evidence the whole
+#                                 measurement strategy rests on.
+#   server\journal.json           GITIGNORED. The actual trade history.
+#
+# The vault still lands at the ROOT of the zip, unchanged, so the graph guard below
+# still finds mcp-memory.json at the top level and older snapshots stay comparable.
+# Extra roots go under prefixes so nothing can collide. A missing root is logged and
+# skipped - it must never stop a backup from being taken.
+$extraRoots = @(
+    [pscustomobject]@{ Path = 'C:\Users\User\.claude\projects\C--Users-User-ai-trading-dashboard\memory'; Prefix = '_claude-memory'; Only = $null },
+    [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\tasks';  Prefix = '_repo-untracked\tasks';  Only = @('rejections.jsonl','rejections_scored.jsonl') },
+    [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\server'; Prefix = '_repo-untracked\server'; Only = @('journal.json','strategy_settings.json') }
+)
+
+$items = New-Object System.Collections.ArrayList
+foreach ($file in $files) {
+    [void]$items.Add([pscustomobject]@{ Full = $file.FullName; Rel = $file.FullName.Substring($vaultDir.Length).TrimStart('\') })
+}
+
+foreach ($root in $extraRoots) {
+    if (-not (Test-Path $root.Path)) {
+        Write-VaultLog ('EXTRA ROOT MISSING - ' + $root.Path + ' (skipped; backup continues)')
+        continue
+    }
+    $before = $items.Count
+    if ($root.Only) {
+        foreach ($name in $root.Only) {
+            $fp = Join-Path $root.Path $name
+            if (Test-Path $fp) { [void]$items.Add([pscustomobject]@{ Full = $fp; Rel = (Join-Path $root.Prefix $name) }) }
+            else { Write-VaultLog ('EXTRA FILE MISSING - ' + $fp) }
+        }
+    } else {
+        Get-ChildItem -Path $root.Path -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $rel = $_.FullName.Substring($root.Path.Length).TrimStart('\')
+            [void]$items.Add([pscustomobject]@{ Full = $_.FullName; Rel = (Join-Path $root.Prefix $rel) })
+        }
+    }
+    Write-VaultLog ('Extra root ' + $root.Prefix + ' -> ' + ($items.Count - $before) + ' file(s)')
+}
+
 $stamp   = Get-Date -Format 'yyyyMMdd_HHmmss'
 $destZip = Join-Path $backupDir ('vault_' + $stamp + '.zip')
 
@@ -60,13 +110,13 @@ try {
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::Open($destZip, [System.IO.Compression.ZipArchiveMode]::Create)
 
-    foreach ($file in $files) {
-        $relativePath = $file.FullName.Substring($vaultDir.Length).TrimStart('\')
+    foreach ($item in $items) {
+        $relativePath = $item.Rel
         try {
             $entry  = $zip.CreateEntry($relativePath, [System.IO.Compression.CompressionLevel]::Optimal)
             $stream = $entry.Open()
             # ReadWrite+Delete share so a note open in Obsidian can still be captured.
-            $source = [System.IO.File]::Open($file.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+            $source = [System.IO.File]::Open($item.Full, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
             $source.CopyTo($stream)
             $source.Close()
             $stream.Close()
