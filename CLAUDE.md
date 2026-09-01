@@ -253,10 +253,14 @@ silently resolved.
   actually does (`server/index.js:2814-2911`):
   - Daily + H4 **agree** → 72 / 88 / 95.
   - Daily + H4 + H1 **all agree** → 88 / 97. This is a **BONUS branch, not a gate.**
-  - Daily fires while **H4 says WAIT** → **72 on Gold**, i.e. it clears a gate of 70
-    with H4 not agreeing. Gold-only and evidenced (+0.464R over 424 held-out trades),
-    but it is a real path to a fill without H4 confirmation.
-  - H4-only, daily WAIT → 55 / 63 / 68, below the gate without boosts.
+  - Daily fires while **H4 says WAIT** → **72 on Gold**, which clears the gate (65 since
+    2026-09-01, and cleared 70 before it) with H4 not agreeing. Gold-only and evidenced
+    (+0.464R over 424 held-out trades), but it is a real path to a fill without H4
+    confirmation.
+  - H4-only, daily WAIT → 55 / 63 / 68. **This band moved when the gate did**: at 70 all
+    three sat below it, at 65 the 68 cohort now CLEARS without boosts and the 63 is two
+    points away. Lowering the gate admitted a cohort this file used to describe as
+    unreachable — check this line before quoting "H4-only cannot fire".
   **`h1` appears exactly TWICE in the whole engine** — the bonus at :2909 and the
   payload copy at :3221. **No branch anywhere lets H1 reduce confidence or block a
   setup**, and the bridge never reads `h1` or `m15` to refuse a trade. A bearish H1 and
