@@ -212,6 +212,103 @@ def send_telegram(text: str) -> None:
         print(f"[NOTIFY] Telegram failed: {_scrub(exc)[:200]}")
 
 
+def send_slack(text: str, channel_id: str = "") -> bool:
+    """POST to Slack. Skips silently and returns False if not configured.
+
+    NEVER RAISES. This sits on the alert path, and the alert path is reached from
+    trade-open and signal-fire handlers. Rule 3 says no change may suppress a setup
+    that would otherwise have fired, so a Slack outage, a bad token or a network
+    timeout must cost a MESSAGE and never a TRADE. Everything below is inside
+    try/except and the return value is advisory only - no caller branches on it in a
+    way that can stop an order.
+
+    Needs BOTH, and a channel id is not a credential:
+      SLACK_BOT_TOKEN   xoxb-... with chat:write
+      SLACK_CHANNEL_ID  defaults to the #smartentry-alerts id below
+    The bot must also be INVITED to the channel - `/invite @YourBot` in Slack. A valid
+    token posting to a channel it was never added to fails with `not_in_channel`, which
+    is reported here rather than swallowed, because that failure is fixed by a human
+    action and no amount of retrying helps.
+    """
+    token = get_cred("SLACK_BOT_TOKEN")
+    chan  = channel_id or get_cred("SLACK_CHANNEL_ID") or "C0BUC0SQWTW"
+    if not token:
+        return False
+    try:
+        import json as _json
+        import urllib.request as _rq
+        req = _rq.Request(
+            "https://slack.com/api/chat.postMessage",
+            data=_json.dumps({"channel": chan, "text": text[:3900]}).encode("utf-8"),
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json; charset=utf-8"},
+        )
+        with _rq.urlopen(req, timeout=10) as r:
+            body = _json.loads(r.read().decode("utf-8", "replace"))
+        if not body.get("ok"):
+            # Slack returns HTTP 200 with ok:false, so a status check alone reads as
+            # success. Name the error - `not_in_channel` and `invalid_auth` need a
+            # person, and a silent false would look identical to "not configured".
+            print(f"[NOTIFY] Slack refused: {body.get('error')} (channel {chan})")
+            return False
+        return True
+    except Exception as exc:
+        print(f"[NOTIFY] Slack send failed, continuing: {exc}")
+        return False
+
+
+def notion_append(heading: str, lines: list) -> bool:
+    """Append a dated block to the SmartEntry Pro Notion page. Never raises.
+
+    APPEND ONLY. It adds children to the page and never updates or archives an existing
+    block, so nothing already written can be lost - the same rule the decision ledger
+    and the rejection ledger follow.
+
+    Needs BOTH, and a page id is not a credential:
+      NOTION_TOKEN    an internal integration secret (ntn_... / secret_...)
+      NOTION_PAGE_ID  defaults to the SmartEntry Pro page id below
+    The page must be SHARED with that integration from Notion's UI - a valid token
+    against an unshared page returns 404 `object_not_found`, which looks exactly like a
+    wrong id. Reported rather than swallowed for that reason.
+    """
+    token = get_cred("NOTION_TOKEN")
+    page  = get_cred("NOTION_PAGE_ID") or "3ce788d6-2fca-81e1-aa28-caf7c4ab6630"
+    if not token:
+        return False
+    try:
+        import json as _json
+        import urllib.request as _rq
+        from datetime import datetime, timezone
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        children = [{
+            "object": "block", "type": "heading_3",
+            "heading_3": {"rich_text": [{"type": "text",
+                          "text": {"content": f"{heading} — {stamp}"[:2000]}}]},
+        }]
+        for ln in [l for l in lines if str(l).strip()][:90]:   # Notion caps at 100/request
+            children.append({
+                "object": "block", "type": "paragraph",
+                "paragraph": {"rich_text": [{"type": "text",
+                              "text": {"content": str(ln)[:2000]}}]},
+            })
+        req = _rq.Request(
+            f"https://api.notion.com/v1/blocks/{page}/children",
+            data=_json.dumps({"children": children}).encode("utf-8"),
+            headers={"Authorization": f"Bearer {token}",
+                     "Notion-Version": "2022-06-28",
+                     "Content-Type": "application/json"},
+            method="PATCH",
+        )
+        with _rq.urlopen(req, timeout=15) as r:
+            if r.status not in (200, 201):
+                print(f"[NOTIFY] Notion HTTP {r.status}")
+                return False
+        return True
+    except Exception as exc:
+        print(f"[NOTIFY] Notion append failed, continuing: {exc}")
+        return False
+
+
 def notify_alert(message: str) -> None:
     """
     System alert — toast + webhook + Telegram (no email for alerts).
