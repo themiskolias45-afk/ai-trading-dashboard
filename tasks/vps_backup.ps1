@@ -112,7 +112,13 @@ try {
   foreach ($item in $existing) {
     if (Test-Path $item -PathType Container) {
       $base = Split-Path $item -Leaf
-      Get-ChildItem -Path $item -Recurse -File | ForEach-Object {
+      # THIS is the sweep that pulled in the installer, not the code sweep below - that one
+      # uses an extension ALLOWLIST and would never have matched .msi. This one takes a
+      # named directory WHOLESALE, and tasks\logs happened to contain a 29.1 MB
+      # tailscale-setup.msi. Filtered here, where the bloat actually enters.
+      Get-ChildItem -Path $item -Recurse -File | Where-Object {
+        $excludedExts -notcontains $_.Extension.ToLower()
+      } | ForEach-Object {
         $rel = $base + "\" + $_.FullName.Substring($item.Length + 1)
         if (Add-FileToZip $zip $_.FullName $rel) { $added++ } else { $skipped++ }
       }
