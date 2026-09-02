@@ -191,13 +191,43 @@ def all_entries() -> list:
 
 
 def format_entries(entries: list) -> str:
+    """Render a list of rows. Must survive BOTH shapes this file contains.
+
+    tasks/jarvis_memory.json has TWO WRITERS. memory.py writes {key, value,
+    category, ...}; server/index.js appends the /learn session log to the SAME file
+    as {ts, tag, text} - see _owned() above, which exists precisely to skip those
+    rows for lookups.
+
+    Every lookup path goes through _owned() and is therefore safe. This formatter
+    does not, and it is reached from summary() and get_today(), both of which read
+    the RAW entries list. Indexing e["key"] here raised KeyError on a SESSION-END row
+    written 2026-08-24T20:33, so `python memory.py summary` and `today` died - after
+    printing the totals, which made it read as a rendering hiccup rather than a dead
+    command - for nine days, while recall and add kept working. That asymmetry is why
+    it went unnoticed.
+
+    Fixed in the READER, never the row - the same call server/mcp_server.js:441 made
+    when this identical file broke its query path on 2026-08-28. The row is real data:
+    not rewritten, not reshaped, not dropped.
+    """
     if not entries:
         return "  (no entries)"
     lines = []
     for e in entries:
-        ts = e.get("updated_at", e.get("created_at", ""))[:10]
-        lines.append(f"  [{e.get('category','?'):8s}] {ts}  {e['key']}")
-        lines.append(f"           {e['value']}")
+        if not isinstance(e, dict):
+            lines.append(f"  [{'?':8s}] ----------  (unreadable row: {type(e).__name__})")
+            continue
+        ts = str(e.get("updated_at") or e.get("created_at") or e.get("ts") or "")[:10]
+        if "key" in e:
+            lines.append(f"  [{e.get('category','?'):8s}] {ts}  {e['key']}")
+            lines.append(f"           {e.get('value','')}")
+        else:
+            # Rendered, not hidden. A session note is worth reading in `today`, and
+            # silently skipping it would make the printed total disagree with the
+            # printed list for a reason nothing on screen explains.
+            tag = str(e.get("tag") or "NOTE")
+            lines.append(f"  [{tag:8.8s}] {ts}  (session note - not a memory.py row)")
+            lines.append(f"           {str(e.get('text',''))[:300]}")
     return "\n".join(lines)
 
 
