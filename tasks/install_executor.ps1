@@ -20,7 +20,11 @@
 param(
     [ValidateSet('fvg','tk')][string]$Model = 'fvg',
     [switch]$Arm,
-    [switch]$Remove
+    [switch]$Remove,
+    # Concurrency was never modelled in the backtest -- every measurement assumed one
+    # position at a time per model. Bounding it here rather than assuming it away, and
+    # 1 for the first armed run so an undiscovered bug can produce at most one position.
+    [int]$MaxOpen = 1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,11 +54,14 @@ $logDir = Split-Path -Parent $logFile
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 
 $modeArgs = if ($Arm) { "--model $Model --execute --verbose" } else { "--model $Model --verbose" }
+# Set in the task's own command so it applies to the scheduled run only, never to a shell
+# where someone runs the executor by hand.
+$envPrefix = "`$env:FVG_MAX_OPEN='$MaxOpen'; " 
 
 # powershell.exe, not cmd.exe: cmd strips the outer quote pair of a /c string and the
 # nested path quotes break before the interpreter starts -- measured, the task returned
 # result 1 with no log at all.
-$inner  = "& '$py' '$script' " + $modeArgs + " *>> '$logFile'"
+$inner  = $envPrefix + "& '$py' '$script' " + $modeArgs + " *>> '$logFile'"
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
     -Argument ('-NoProfile -ExecutionPolicy Bypass -Command "' + $inner + '"') `
     -WorkingDirectory $root
@@ -84,7 +91,7 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal -Description $desc | Out-Null
 
 $mode = if ($Arm) { "ARMED (--execute)" } else { "DRY RUN (places nothing)" }
-"Registered '$TaskName' -- every 5 minutes, $mode, as $me."
+"Registered '$TaskName' -- every 5 minutes, $mode, max $MaxOpen open, as $me."
 "  executor : $script --model $Model"
 "  log      : $logFile"
 if (-not $Arm) { "  to arm   : re-run this with -Arm" }

@@ -198,6 +198,15 @@ async function tick() {
   catch (e) { console.error("[tk] cannot read bars: " + e.message); return; }
   const assets = raw && raw.assets ? raw.assets : null;
   if (!assets) { console.error("[tk] no assets in the candle dump"); return; }
+  // AN EMPTY DUMP IS NOT A QUIET MARKET. After a server restart the candle cache is empty
+  // until the bridge's first MT5 push, and with no assets the loop below never runs -- so
+  // "no new setups" printed identically whether the model declined or there was nothing to
+  // decline on. Said out loud instead.
+  if (!Object.keys(assets).length) {
+    console.error("[tk] CANDLE CACHE EMPTY -- the bridge has not pushed since the last "
+      + "server restart. Not a market state; nothing was evaluated.");
+    return;
+  }
 
   let found = 0;
   for (const key of Object.keys(assets)) {
