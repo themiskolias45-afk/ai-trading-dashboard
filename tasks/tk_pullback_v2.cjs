@@ -78,6 +78,10 @@ const ALLOW_SHORTS  = numArg("--shorts", 1) !== 0;
 const USE_PARTIAL   = numArg("--partial", 1) !== 0;
 const USE_BE        = numArg("--be", 1) !== 0;
 const USE_TRAIL     = numArg("--trail", 1) !== 0;
+// v1's LEGACY exit: a plain ATR trailing stop, no partial, no break-even, no R-ratchet.
+// v2 replaced it with the R-engine, so the two versions are different strategies from the
+// entry onward and cannot be compared by entry parameters alone.
+const ATR_TRAIL     = numArg("--atrtrail", 0);   // 0 = off; v1 live runs 4.5
 
 // Live terminal, 2026-09-02. Spread only.
 const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36 };
@@ -153,7 +157,7 @@ const lowestIn  = (a, end, n) => { let m =  Infinity; for (let i = Math.max(0, e
  * Walk one position forward with the full factory exit engine.
  * Returns realised R for the WHOLE position, partial included.
  */
-function manage(bars, entryIdx, dir, entry, initialStop, target) {
+function manage(bars, entryIdx, dir, entry, initialStop, target, atrAtEntry) {
   const risk = Math.abs(entry - initialStop);
   if (!(risk > 0)) return null;
   const long = dir === 1;
@@ -161,6 +165,7 @@ function manage(bars, entryIdx, dir, entry, initialStop, target) {
   let peakR = 0;
   let partialDone = false;
   let realised = 0;              // R already banked by the partial
+  let extreme = long ? bars.highs[entryIdx] : bars.lows[entryIdx];
   let remaining = 1;             // fraction of the position still open
   const limit = Math.min(entryIdx + MAX_BARS, bars.highs.length - 1);
 
@@ -193,6 +198,14 @@ function manage(bars, entryIdx, dir, entry, initialStop, target) {
     if (hitTarget) {
       const r = long ? (target - entry) / risk : (entry - target) / risk;
       return { r: realised + remaining * r, bars: i - entryIdx, outcome: "TARGET" };
+    }
+
+    // LEGACY ATR TRAIL (v1). Uses the running extreme since entry, and like every other
+    // stop move here it only affects LATER bars.
+    if (ATR_TRAIL > 0 && atrAtEntry > 0) {
+      extreme = long ? Math.max(extreme, hi) : Math.min(extreme, lo);
+      const t = long ? extreme - ATR_TRAIL * atrAtEntry : extreme + ATR_TRAIL * atrAtEntry;
+      stop = long ? Math.max(stop, t) : Math.min(stop, t);
     }
 
     // Now the bar's extreme updates the peak and may ratchet the stop for LATER bars.
@@ -263,7 +276,7 @@ function run(symbol) {
     const risk = Math.abs(entry - stop);
     if (!(risk > 0)) continue;
     const target = dir === 1 ? entry + risk * RR : entry - risk * RR;
-    const res = manage(b, i, dir, entry, stop, target);
+    const res = manage(b, i, dir, entry, stop, target, a);
     if (!res) continue;
     trades.push({ r: res.r, outcome: res.outcome, entryTime: times[i], symbol,
       direction: dir === 1 ? "BUY" : "SELL", riskPrice: risk });
@@ -274,7 +287,7 @@ function run(symbol) {
       const cEntry = closes[cIdx];
       const cStop = dir === 1 ? cEntry - risk : cEntry + risk;
       const cTarget = dir === 1 ? cEntry + risk * RR : cEntry - risk * RR;
-      const cRes = manage(b, cIdx, dir, cEntry, cStop, cTarget);
+      const cRes = manage(b, cIdx, dir, cEntry, cStop, cTarget, a);
       if (cRes) controls.push({ r: cRes.r, entryTime: times[cIdx], symbol,
         direction: dir === 1 ? "BUY" : "SELL", riskPrice: risk });
     }
