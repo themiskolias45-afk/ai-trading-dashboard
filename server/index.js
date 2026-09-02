@@ -3786,6 +3786,33 @@ const MOMENTUM_REQUIRE_MACD_BULLISH = true;
 // world's WORST FOLD beating the baseline on XAUUSD and SP500 without degrading
 // BTCUSD. Baseline recorded 2026-09-02 in tasks/analysis/tf-macd-BASELINE.txt:
 // XAUUSD 5/5 +0.051, BTCUSD 5/5 +0.172, SP500 4/5 -0.042.
+//
+// THAT WALK-FORWARD RAN THE SAME DAY, AND THE ANSWER IS NO. The condition is EARNING ITS
+// KEEP. tasks/analysis/tf-macd-COMPARE.txt holds both worlds in full; worst fold per
+// asset, flag ON (live) -> flag OFF (candidate):
+//
+//   gate   XAUUSD              BTCUSD              SP500
+//   70     +0.051 -> -0.097    +0.172 -> +0.051    -0.042 -> -0.121
+//   75     +0.071 -> -0.025    +0.307 -> +0.057    -0.108 -> +0.065
+//   80     +0.086 -> +0.015    +0.450 -> -0.050    -0.108 -> -0.287
+//
+// XAUUSD and BTCUSD degrade at EVERY gate, and XAUUSD falls out of ROBUST at the live
+// one. The single cell where removing it helps is SP500 at gate 75, and buying that means
+// degrading the two strongest assets to help the weakest, on a gate that is global.
+//
+// THE COUNTS ARE THE PART WORTH REMEMBERING. Removing a filter made Gold and BTC trade
+// LESS: 308 -> 276 and 413 -> 388. TREND_FOLLOW sits in a first-match-wins else-if chain,
+// so a TREND_FOLLOW that now matches DISPLACES whatever sat later in the chain and scored
+// better. Additive in bars, subtractive in outcomes - the same occupancy cost that killed
+// the SELL_BOUNCE flip on 2026-09-01. "It is purely additive" is never a safety argument
+// in this chain, and a rising trade count is not the same as a rising trade count of the
+// trades you wanted.
+//
+// So all THREE macd.bullish requirements have now been measured on realised R and all
+// three survived. The census counting 24 near-misses on this condition was measuring how
+// often it FIRES, not whether it SHOULD - exactly the distinction get_gate_health and
+// get_rejection_evidence exist to keep apart. Do not re-open this without new data; the
+// next honest question is per-asset setup gating, which is a new mechanism, not this flag.
 const TREND_FOLLOW_REQUIRE_MACD_BULLISH = true;
 
 // SELL_BOUNCE's condition 1 — see the branch for the measurement. TRUE reproduces the
