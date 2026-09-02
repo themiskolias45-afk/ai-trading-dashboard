@@ -334,6 +334,69 @@ function collect(symbol) {
   return { symbol, trades };
 }
 
+// ── OUT-OF-SAMPLE WEIGHT FIT ─────────────────────────────────────────────────────
+//
+// Everything above scores trades with weights chosen BEFORE seeing them (--profile
+// proposed) or fitted on the very trades being scored (--profile measured). The second
+// is worthless as evidence and said so, and it still inverted. This is the honest
+// version: fit the weights on the FIRST 60% of the trades chronologically, then score
+// the LAST 40% with them and never look back.
+//
+// TWO CHOICES THAT KEEP IT HONEST:
+//
+// 1. QUINTILES, NOT FIXED THRESHOLDS. The A+/A/B/no-trade cut points are themselves
+//    fitted quantities -- 85 and 75 were chosen looking at a score distribution. Ranking
+//    the test trades into fifths by their own score adds no second fitted parameter and
+//    asks the cleaner question: do the highest-scoring fifth beat the lowest?
+// 2. NEGATIVE LIFTS ARE CLIPPED TO ZERO, NOT INVERTED. Flipping the sign of a component
+//    that looked bad on the training half is another degree of freedom, and every extra
+//    degree of freedom is another way to fit noise.
+function oosTest(all) {
+  const sorted = [...all].sort((a, b) => a.entryTime - b.entryTime);
+  const cut = Math.floor(sorted.length * 0.6);
+  const train = sorted.slice(0, cut), test = sorted.slice(cut);
+  if (train.length < 60 || test.length < 60) return { error: "not enough trades to split" };
+
+  // Fit: each component's lift on the TRAINING half only.
+  const fitted = {}, lifts = {};
+  for (const key of Object.keys(WEIGHTS)) {
+    const full = train.filter(t => t.parts[key] >= WEIGHTS[key] * 0.999);
+    const zero = train.filter(t => t.parts[key] <= 0.001);
+    if (full.length < 10 || zero.length < 10) { lifts[key] = null; fitted[key] = 0; continue; }
+    const lift = stat(full).rpt - stat(zero).rpt;
+    lifts[key] = lift;
+    fitted[key] = Math.max(0, lift);
+  }
+  const totalLift = Object.values(fitted).reduce((a, v) => a + v, 0);
+  if (!(totalLift > 0)) return { error: "no component had positive lift on the training half" };
+  const weights = {};
+  for (const key of Object.keys(fitted)) weights[key] = (fitted[key] / totalLift) * 100;
+
+  // Score both halves with the SAME fitted weights. The training half is shown only to
+  // make the overfit visible -- it is not evidence of anything.
+  const rescore = (rows) => rows.map(t => {
+    let s = 0;
+    for (const key of Object.keys(weights)) {
+      const share = WEIGHTS[key] > 0 ? t.parts[key] / WEIGHTS[key] : 0;
+      s += share * weights[key];
+    }
+    return { ...t, oos: s };
+  });
+  const quintiles = (rows) => {
+    const byScore = [...rows].sort((a, b) => a.oos - b.oos);
+    const size = Math.floor(byScore.length / 5);
+    if (size < 5) return null;
+    const out = [];
+    for (let k = 0; k < 5; k++) {
+      const slice = byScore.slice(k * size, k === 4 ? byScore.length : (k + 1) * size);
+      out.push({ ...stat(slice), lo: slice[0].oos, hi: slice[slice.length - 1].oos });
+    }
+    return out;
+  };
+  return { weights, lifts, trainN: train.length, testN: test.length,
+    trainQ: quintiles(rescore(train)), testQ: quintiles(rescore(test)) };
+}
+
 const BUCKETS = [
   { name: "A+  85-100", min: 85, max: 101 },
   { name: "A   75-84",  min: 75, max: 85 },
