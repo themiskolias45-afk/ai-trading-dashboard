@@ -118,10 +118,35 @@ function main() {
     if (good.length === 1 && bad.length) for (const b of bad) mapping.set(b, good[0]);
   }
 
+  // --align-names: every link that currently resolves ONLY through `name:` must first be
+  // rewritten to the filename it actually lives at, or aligning the frontmatter kills it.
+  const nameToStem = new Map();
+  if (ALIGN) {
+    for (const f of mems) {
+      const stem = f.slice(0, -3);
+      const txt = fs.readFileSync(path.join(dir, f), "utf8");
+      const fm = txt.startsWith("---") ? txt.split("---", 3)[1] || "" : "";
+      const n = (fm.match(/^name:\s*(.+)$/m) || [])[1];
+      if (n && n.trim() !== stem) nameToStem.set(n.trim(), stem);
+    }
+    const viaNameOnly = [...targets].filter(t => !stems.has(t) && names.has(t));
+    const unmappable = viaNameOnly.filter(t => !nameToStem.has(t));
+    if (unmappable.length) {
+      // Refuse rather than half-apply. A link that resolves today and would not after
+      // this run is data loss dressed as tidying.
+      console.log("REFUSING --align-names: " + unmappable.length + " link(s) resolve only "
+        + "via name: and cannot be mapped to a file:");
+      for (const u of unmappable.slice(0, 10)) console.log("   [[" + u + "]]");
+      return 0;
+    }
+    for (const t of viaNameOnly) mapping.set(t, nameToStem.get(t));
+  }
+
   console.log("memory dir : " + dir);
   console.log("memories   : " + mems.length + ", " + targets.size + " unique link target(s)");
   console.log("rewrites   : " + mapping.size + (APPLY ? "" : "   (dry run — pass --apply)"));
-  if (!mapping.size) { console.log("\nnothing to canonicalise."); return 0; }
+  if (ALIGN) console.log("align      : " + nameToStem.size + " name: field(s) to set equal to their filename");
+  if (!mapping.size && !nameToStem.size) { console.log("\nnothing to canonicalise."); return 0; }
   for (const [b, g] of [...mapping].sort()) console.log("   [[" + b + "]]  ->  [[" + g + "]]");
 
   if (!APPLY) { console.log("\ndry run: no file was written."); return 0; }
