@@ -1786,6 +1786,36 @@ function findSwingHigh(highs, lookback = 3) {
 function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyCloses = null, barSource = null) {
   if (!closes || closes.length < 50) return null;
 
+  // REPLAY MODE — do not write to the rejection ledger or the gate counters.
+  //
+  // This function is called two ways. LIVE, once per refresh, on the current bars: those
+  // gate decisions are real, and every rejection is a fully priced paper trade the whole
+  // rejection-evidence system depends on. And by runBacktest (:8553), which walks five
+  // YEARS of history one bar at a time and calls this on every step.
+  //
+  // Until 2026-09-02 both wrote to the same ledger. Measured that day: 1,536 of 3,344 rows
+  // — 45.9% — carried dataSource, sourceSymbol and timeframe all null, because runBacktest
+  // passes six arguments and barSource defaults to null. Those rows can NEVER be walked
+  // forward: nothing records which instrument the levels were priced on. MIN_RR alone held
+  // 109 unscorable episodes against 189 total, and 182 rows landed in a single minute —
+  // the fingerprint of a replay loop, not of live trading.
+  //
+  // The ledger therefore looked healthy at 3,344 rows while nearly half of it could never
+  // become evidence. That matters more than it sounds: sample size is the binding
+  // constraint on this system, and this is the one mechanism that manufactures evidence at
+  // zero risk. Half of it was being thrown away.
+  //
+  // The counters are suppressed too, not just the ledger writes. Suppressing kills while
+  // still counting passes would skew every ratio on /api/gate-health in the opposite
+  // direction — a fix that creates a subtler version of the same lie.
+  //
+  // A CONST, evaluated once, and NOT a free variable: generateSignal is extracted
+  // TEXTUALLY into a bare vm sandbox by tasks/_replay_mtf.cjs and tasks/_replay_engine.cjs,
+  // where an undefined binding is a ReferenceError the harness catch swallows, silently
+  // deleting the whole cohort from the measurement. That has already happened twice here.
+  // Declared inside the function, it travels with the extracted text.
+  const ledgerEnabled = barSource?.replay !== true;
+
   const price  = closes[closes.length - 1];
   const rsi    = calcRSI(closes);
   const bb     = calcBB(closes);
@@ -2843,7 +2873,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
       // no-op instead of a deletion. In the live server the require sits at the top
       // of this file and a failed require crashes at boot, so it is always true
       // here and no evidence is lost.
-      if (typeof logGateRejection === "function") logGateRejection({
+      if (ledgerEnabled && typeof logGateRejection === "function") logGateRejection({
         gate:      "MIN_RR",
         side:      "engine",
         ticker,
@@ -2886,7 +2916,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     } else if (typeof noteGatePass === "function") {
       // The denominator. Rejections alone cannot tell you a gate is dead; a gate
       // with a healthy kill count and zero passes is the alarm.
-      noteGatePass("MIN_RR");
+      if (ledgerEnabled) noteGatePass("MIN_RR");
     }
   }
 
@@ -2909,7 +2939,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     // structural-stop block below narrows the stop. That is the correct paper trade
     // for this gate — it is what existed at the moment of the kill — but a scorer
     // must not expect it to match a live fill.
-    if (typeof logGateRejection === "function") logGateRejection({
+    if (ledgerEnabled && typeof logGateRejection === "function") logGateRejection({
       gate:      "ENTRY_RSI",
       side:      "engine",
       ticker,
@@ -2939,7 +2969,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   } else if (entryRsiGateArmed && typeof noteGatePass === "function") {
     // Only counted while the gate is ARMED. minEntryRsi ships at 0, and counting a
     // pass for a disarmed gate would make the zero-pass alarm unreadable.
-    noteGatePass("ENTRY_RSI");
+    if (ledgerEnabled) noteGatePass("ENTRY_RSI");
   }
 
   // ── Trend-strength gate ─────────────────────────────────────
@@ -8571,8 +8601,14 @@ async function runBacktest(symbol, label, years = 5) {
 
   for (let i = MIN; i < bars.length; i++) {
     const w = bars.slice(0, i + 1);
+    // { replay: true } as barSource. This is five YEARS of history walked one bar at a
+    // time, so every gate decision it produces is a re-enactment, not a forgone live
+    // trade. Passing it silently filled 45.9% of tasks/rejections.jsonl with rows that
+    // carry no instrument and can never be scored. See the note at the top of
+    // generateSignal. dxyCloses stays null because a backtest has no DXY series.
     const sig = generateSignal(label, symbol,
-      w.map(b => b.close), w.map(b => b.high), w.map(b => b.low), w.map(b => b.volume ?? 0));
+      w.map(b => b.close), w.map(b => b.high), w.map(b => b.low), w.map(b => b.volume ?? 0),
+      null, { replay: true });
     if (!sig || sig.signal === "WAIT" || !sig.stop || !sig.target) { lastKey = null; continue; }
 
     // Keep every setup that produced a tradeable signal. Filtering to what live
