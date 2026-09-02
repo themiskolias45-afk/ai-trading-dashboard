@@ -98,26 +98,49 @@ function commitsBetween(from, to) {
   return out;
 }
 
-// Memory FILE MTIME is local filesystem time already. Frontmatter `modified` is UTC ISO.
-// mtime is used for bucketing because 100% of files have it and only 66% carry the field,
-// and a store that silently covers two thirds of the corpus is not a timeline.
+// MTIME IS NOT WHEN IT WAS LEARNED, and the first version of this used it.
+//
+// Caught by running it: today's timeline reported "LEARNED 191 memories" because the
+// memory_canon name alignment rewrote 183 files an hour earlier, and mtime cannot tell a
+// link rewrite from a new insight. A timeline that reports a bulk edit as a day's learning
+// is worse than none — it manufactures a productive-looking day out of housekeeping.
+//
+// So the date is the memory's OWN, in this order, and the source is carried on the row so
+// the output can be honest about it:
+//   1. frontmatter `modified` — UTC ISO, written when the memory was (66% of the corpus)
+//   2. the first ISO date in the file — memories here consistently date themselves in the
+//      description or the first heading (100% of the corpus carries at least one)
+//   3. file mtime — last resort only, and flagged, because it is the unreliable one
+function memoryDate(fullPath, text) {
+  const fm = text.startsWith("---") ? text.split("---", 3)[1] || "" : "";
+  const mod = (fm.match(/^\s*modified:\s*(\S+)/m) || [])[1];
+  if (mod) {
+    const d = new Date(mod);
+    if (!isNaN(d)) return { day: localDay(d), src: "modified" };
+  }
+  // Restricted to the frontmatter plus the opening of the body: a date deep in a memory is
+  // usually a date it is TALKING about, not the day it was written.
+  const head = text.slice(0, 1600);
+  const iso = (head.match(/\b(20\d\d-\d\d-\d\d)\b/) || [])[1];
+  if (iso) return { day: iso, src: "self-dated" };
+  try { return { day: localDay(fs.statSync(fullPath).mtime), src: "mtime" }; }
+  catch (e) { return null; }
+}
+
 function memoriesBetween(from, to) {
   const dir = memoryDir();
   if (!dir) return { dir: null, rows: [] };
   const rows = [];
   for (const f of fs.readdirSync(dir).filter(x => x.endsWith(".md"))) {
     if (f === "MEMORY.md" || f === "MEMORY-FULL.md") continue;
-    let st;
-    try { st = fs.statSync(path.join(dir, f)); } catch (e) { continue; }
-    const day = localDay(st.mtime);
-    if (day < from || day > to) continue;
-    let desc = "";
-    try {
-      const head = fs.readFileSync(path.join(dir, f), "utf8").slice(0, 1200);
-      desc = (head.match(/^description:\s*(.+)$/m) || [])[1] || "";
-      desc = desc.trim().replace(/^["']|["']$/g, "");
-    } catch (e) { /* description is a nicety, not a reason to drop the row */ }
-    rows.push({ day, file: f.replace(/\.md$/, ""), desc });
+    const full = path.join(dir, f);
+    let text;
+    try { text = fs.readFileSync(full, "utf8"); } catch (e) { continue; }
+    const dated = memoryDate(full, text);
+    if (!dated || dated.day < from || dated.day > to) continue;
+    let desc = (text.slice(0, 1200).match(/^description:\s*(.+)$/m) || [])[1] || "";
+    desc = desc.trim().replace(/^["']|["']$/g, "");
+    rows.push({ day: dated.day, src: dated.src, file: f.replace(/\.md$/, ""), desc });
   }
   return { dir, rows };
 }
