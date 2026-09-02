@@ -60,6 +60,36 @@ switch ($LASTEXITCODE) {
     2 { $warn += "CLAUDE.md: claims_check FAILED to run -- not a clean result" }
 }
 
+# 9. BOOT CONTEXT -- what is already known about the work in front of you.
+#
+# NOT a warning, which is why it prints on its own rather than joining $warn. A standing
+# decision in a file you have open is not a problem with the environment; it is the thing
+# you most need to read before you touch that file.
+#
+# Added 2026-09-02, the day the absence cost a day. Every recall mechanism in this project
+# is PULL -- rag_query.py, decisions.cjs check, opening a memory. All of it works and none
+# of it fires on its own, so an agent spent an afternoon rediscovering a decision written
+# down five days earlier, while a query that would have returned it sat one command away.
+# SYSTEM-MAP.md listed boot-time context injection as the last unbuilt piece of the RAG
+# stage.
+#
+# NO EMBEDDINGS HERE. This hook has a 10-second budget and loading the model alone exceeds
+# it; a boot check that times out is one that silently does nothing. boot_context.cjs is
+# deterministic and measured at 0.27s, and it prints the semantic command for depth.
+#
+# It exits 0 unconditionally by design, and this block still guards -- a context helper
+# must never be the reason a session fails to start.
+try {
+    $bootCtx = Join-Path $proj 'tasks\boot_context.cjs'
+    if (Test-Path $bootCtx) {
+        $ctxOut = & node $bootCtx --quiet 2>&1
+        if ($ctxOut) { $ctxOut | ForEach-Object { Write-Host $_ -ForegroundColor Cyan } }
+    }
+} catch {
+    # Swallowed on purpose. Losing the context block is a small cost; losing the session
+    # start is not.
+}
+
 # Output -- only if there are warnings
 if ($warn.Count -gt 0) {
     Write-Host ""
