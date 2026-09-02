@@ -127,9 +127,15 @@ empty store, a STALE banner that could not fire, a harvester blind to CRLF files
 - Nightly re-embed wired into `auto_daily.bat`
 
 **Still missing:**
-- Context injection at boot is MANUAL — `rag_query.py` must be called; nothing surfaces
-  top-K memories automatically at session start
+- ~~Context injection at boot is MANUAL~~ — **BUILT 2026-09-02:** `tasks/boot_context.cjs`,
+  wired into the SessionStart hook. Surfaces standing decisions in files you have
+  uncommitted changes in, plus memories matching those filenames, and prints the semantic
+  command for depth. Deliberately NO embeddings: the hook has a 10s budget and loading
+  the model alone exceeds it, so a boot check that used one would silently do nothing.
+  Measured 0.27s alone, 1.35s for the whole startup hook.
 - No semantic edges in the MCP knowledge graph — that layer is still keyword-only
+- Boot recall is DETERMINISTIC, not semantic. It matches filenames against memory
+  descriptions, so it finds what you are touching and not what you are thinking about.
 
 As memory accumulates, keyword search degrades — common terms return too many hits, specific lessons
 are missed. The CLAUDE.md boot itself documents a case where the five-word query silently returned
@@ -183,7 +189,7 @@ zero results for months. Semantic search fixes this permanently.
 
 | Rank | Upgrade | Stage | Impact |
 |------|---------|-------|--------|
-| ~~01~~ | ~~**RAG / Semantic Memory**~~ — **DONE.** ChromaDB + MiniLM, 6 sources. Only boot-time auto-injection remains | S–04 | ~~CRITICAL~~ |
+| ~~01~~ | ~~**RAG / Semantic Memory**~~ — **DONE 2026-09-02.** ChromaDB + MiniLM, 6 sources, and boot-time injection via `boot_context.cjs` | S–04 | ~~CRITICAL~~ |
 | 02 | **Autonomous Pipeline** — /discover --implement auto-triggered when score ≥ 12, LOW risk | S–03/05 | CRITICAL |
 | ~~03~~ | ~~**Continuous Signal Alert Daemon**~~ — **DONE.** Six scheduled monitors; Band, Plan, MACD Cross, CRT/FVG/TK runners | S–02 | ~~HIGH~~ |
 | 04 | **Agent Memory Sharing** — PARTLY DONE: `tasks/ai_brief.md` is shared and nightly. Agents still hold no state BETWEEN spawns | S–05 | HIGH |

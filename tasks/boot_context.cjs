@@ -17,14 +17,14 @@
  * WHY THERE IS NO EMBEDDING HERE, deliberately. The SessionStart hook has a 10-second
  * budget and loading all-MiniLM-L6-v2 alone exceeds it. A boot check that times out is a
  * boot check that silently does nothing — the failure this repo keeps finding. So this is
- * fast and deterministic: it derives the topic from what you are ACTUALLY touching (files
- * dirty in git, recent commit subjects) and matches against stores it can read directly.
+ * fast and deterministic: it derives the topic from what you are ACTUALLY touching (the
+ * source files dirty in git) and matches against stores it can read directly.
  * Semantic depth stays one printed command away.
  *
  * WHAT IT SURFACES, in priority order:
  *   1. STANDING DECISIONS in files you have uncommitted changes in. Highest value and
  *      zero ambiguity: you are editing a file that already decided something.
- *   2. MEMORIES whose description matches those files or recent commit subjects.
+ *   2. MEMORIES whose description matches those files.
  *   3. The exact semantic query to run for depth.
  *
  *   node tasks/boot_context.cjs [--quiet] [--limit N]
@@ -94,10 +94,6 @@ function dirtyFiles() {
   return files;
 }
 
-function recentSubjects(n) {
-  const out = git(["log", "-n", String(n), "--format=%s"]);
-  return out.split(/\r?\n/).filter(Boolean);
-}
 
 function readRegister() {
   if (!fs.existsSync(REGISTER)) return [];
@@ -156,7 +152,10 @@ function terms(files) {
   for (const f of files) {
     for (const part of path.basename(f).split(/[._\-\/]/)) {
       const w = part.toLowerCase();
-      if (w.length > 3 && !STOP.has(w)) t.add(w);
+      // >= 3, not > 3. The domain's most specific terms are three letters -- crt, fvg,
+      // rsi, atr, macd, ema -- and a 4-char floor silently dropped every one. Measured:
+      // tasks/crt_runner.cjs surfaced NOTHING because "crt" was filtered out.
+      if (w.length >= 3 && !STOP.has(w)) t.add(w);
     }
   }
   return [...t];
@@ -171,7 +170,6 @@ function score(haystack, termList) {
 
 function main() {
   const files = dirtyFiles();
-  const subjects = recentSubjects(5);
   const lines = [];
 
   // 1. DECISIONS IN FILES YOU ARE EDITING — the highest-signal thing available, and the
@@ -199,7 +197,7 @@ function main() {
 
   // 2. MEMORIES matching the topic. Ranked, capped, and silent below 2 matching terms —
   //    a single shared word is a coincidence, not relevance.
-  const termList = terms(files, subjects);
+  const termList = terms(files);
   if (termList.length) {
     const mem = memoryDescriptions()
       .map(m => ({ ...m, s: score(m.file + " " + m.description, termList) }))
