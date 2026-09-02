@@ -445,6 +445,101 @@ def index_brain(client, model, rebuild: bool = False):
     return len(new_docs)
 
 
+# ── Source: standing decisions ────────────────────────────────────────────────
+
+def index_decisions(client, model, rebuild: bool = False):
+    """Standing decisions, harvested out of source comments by tasks/decisions.cjs.
+
+    THE GAP THIS CLOSES. Until 2026-09-02 this indexer covered trades, shadow, memory,
+    brain and vault -- everything except the CODE. Measured that day: 38 standing
+    decisions lived only inside source comments, so "has this already been decided?"
+    could not be asked semantically. An agent rewrote the chart to draw pivot lines, a
+    change reversed once already after a real incident, with the reasoning sitting in a
+    comment at tradingview_bot.py:539 that nothing indexed. It found the note by
+    accident, after shipping.
+
+    The corpus is DERIVED. `node tasks/decisions.cjs export` regenerates it from the
+    append-only register, so this never becomes a second place a decision can rot: the
+    comment is the source, the register is the index, this is the recall surface.
+
+    Chunking is deliberately larger than brain's (1200/1100 vs 800/700). A decision's
+    REASONING is the part worth retrieving -- the title alone tells you a rule exists,
+    not why it holds or what a proposed change has in common with the last attempt --
+    and most harvested blocks fit whole in one chunk at this size.
+    """
+    collection = _get_collection(client, "decisions")
+
+    corpus = Path(__file__).resolve().parent / "decision_corpus"
+    if not corpus.is_dir():
+        print("  [decisions] no corpus yet -- run: node tasks/decisions.cjs export")
+        return 0
+
+    try:
+        existing_ids = set(collection.get(include=[])["ids"])
+    except Exception:
+        existing_ids = set()
+
+    new_docs, new_ids, new_metas = [], [], []
+    files = skipped = 0
+
+    for md in sorted(corpus.glob("*.md")):
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            print(f"  [decisions] unreadable, skipped: {md.name} ({exc})")
+            skipped += 1
+            continue
+        if len(text.strip()) < 40:
+            skipped += 1
+            continue
+        files += 1
+
+        fm, body = _parse_frontmatter(text)
+        src = fm.get("source") or md.stem
+        key = fm.get("decision_key") or md.stem
+
+        # Every chunk carries "STANDING DECISION" and the file:line it governs, because a
+        # chunk retrieved from the middle of the reasoning must still announce that it is
+        # a rule and say where the rule lives. A paragraph of argument with no such marker
+        # reads as commentary and gets weighed as an opinion.
+        header = f"STANDING DECISION at {src}"
+        base   = f"decision_{key}"
+
+        step, size = 1100, 1200
+        chunks = [body[i:i + size].strip() for i in range(0, max(len(body), 1), step)]
+        chunks = [c for c in chunks if c]
+        for ci, chunk in enumerate(chunks):
+            cid = f"{base}_c{ci}"
+            if cid in existing_ids:
+                continue
+            new_docs.append(f"{header}\n\n{chunk}")
+            new_ids.append(cid)
+            new_metas.append({
+                "source": "decisions", "file": md.name, "name": str(src),
+                "description": str(fm.get("status") or "standing")[:300],
+                "type": "decision", "chunk": ci,
+            })
+
+    if new_docs:
+        batch = 64
+        embeds = []
+        for i in range(0, len(new_docs), batch):
+            embeds.extend(_embed(model, new_docs[i:i + batch]))
+        # Same deferred delete as brain: embeddings in hand FIRST, so a kill mid-run
+        # cannot leave the index empty for the duration of the slow part.
+        if rebuild:
+            client.delete_collection("decisions")
+            collection = _get_collection(client, "decisions")
+        collection.add(documents=new_docs, embeddings=embeds,
+                       ids=new_ids, metadatas=new_metas)
+
+    total = collection.count()
+    print(f"  [decisions] {corpus}")
+    print(f"  [decisions] {files} file(s) read, {skipped} skipped | "
+          f"{len(new_docs)} new chunk(s) | {total} total in index")
+    return len(new_docs)
+
+
 # ── Source: vault markdown notes ──────────────────────────────────────────────
 
 def index_vault(client, model, rebuild: bool = False):
