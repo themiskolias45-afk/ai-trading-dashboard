@@ -32,6 +32,7 @@
  */
 
 const https = require("https");
+const fs = require("fs");
 const path  = require("path");
 
 const { detectFVGs }          = require(path.join(__dirname, "..", "server", "fvg.js"));
@@ -69,6 +70,53 @@ const INTERVAL = intervalArg();
 // Yahoo refuses multi-year ranges on intraday intervals.
 const RANGE = INTERVAL === "1d" || INTERVAL === "1wk" ? YEARS + "y" : "730d";
 
+// ── BROKER ARCHIVE SOURCE ────────────────────────────────────────────────────────
+// Yahoo caps intraday history at 730 days and 15m at ~60, so "FVG on 15m" could not be
+// asked here at all: the sample was a few hundred bars. tasks/history/<SYMBOL>_<TF>.csv
+// holds ~100,000 m15 bars back to 2022 on the SAME broker instruments the bridge trades,
+// which is the only feed a 15m answer can come from.
+//
+// It is also the only feed that is not systematically different: 948f21e measured the
+// same index at +0.020R/trade on Yahoo bars and -0.525 on broker bars over an identical
+// window. A geometry verdict from Yahoo intraday is a verdict about Yahoo.
+//
+//   node tasks/geometry_measure.cjs --source archive --tf M15 --hold 96
+const SOURCE = (() => {
+  const i = process.argv.indexOf("--source");
+  return (i !== -1 && process.argv[i + 1] === "archive") ? "archive" : "yahoo";
+})();
+const ARCHIVE_TF = (() => {
+  const i = process.argv.indexOf("--tf");
+  const v = (i !== -1 && process.argv[i + 1]) ? String(process.argv[i + 1]).toUpperCase() : "M15";
+  return ["M15", "H1", "H4", "D1"].indexOf(v) !== -1 ? v : "M15";
+})();
+// Yahoo ticker -> the broker symbol the archive is keyed by. Same mapping the engine
+// carries in server/assets.js; kept local because this harness must run against the
+// archive with no server and no registry loaded.
+const ARCHIVE_SYMBOL = { "BTC-USD": "BTCUSD", "GC=F": "XAUUSD", "^GSPC": "SP500" };
+
+function loadArchive(ticker) {
+  const symbol = ARCHIVE_SYMBOL[ticker];
+  if (!symbol) throw new Error("no archive symbol mapped for " + ticker);
+  const file = path.join(__dirname, "history", symbol + "_" + ARCHIVE_TF + ".csv");
+  if (!fs.existsSync(file)) {
+    throw new Error("missing " + path.basename(file) + " — export it first: "
+      + "python tasks/export_mt5_history.py " + symbol);
+  }
+  const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/);
+  lines.shift();   // time,open,high,low,close,tick_volume
+  const highs = [], lows = [], closes = [], times = [];
+  for (const line of lines) {
+    const parts = line.split(",");
+    if (parts.length < 5) continue;
+    const t = Number(parts[0]), h = Number(parts[2]), l = Number(parts[3]), c = Number(parts[4]);
+    // A malformed row is DROPPED WITH ITS TIMESTAMP, never with a substituted value:
+    // an interpolated bar would be indistinguishable from a real one downstream.
+    if (![t, h, l, c].every(Number.isFinite)) continue;
+    highs.push(h); lows.push(l); closes.push(c); times.push(t);
+  }
+  return { highs, lows, closes, times };
+}
 function fetchBars(ticker) {
   const url = "https://query1.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(ticker)
     + "?range=" + RANGE + "&interval=" + INTERVAL;
@@ -240,7 +288,9 @@ function amdTrades(bars, holdBars) {
 /* ── run ──────────────────────────────────────────────────────── */
 
 (async () => {
-  console.log("GEOMETRY MEASUREMENT — " + RANGE + " of " + INTERVAL + " bars, " + HOLD_BARS + "-bar hold limit");
+  console.log(SOURCE === "archive"
+    ? "GEOMETRY MEASUREMENT — BROKER ARCHIVE " + ARCHIVE_TF + " bars, " + HOLD_BARS + "-bar hold limit"
+    : "GEOMETRY MEASUREMENT — " + RANGE + " of " + INTERVAL + " bars (YAHOO), " + HOLD_BARS + "-bar hold limit");
   console.log("Stop and target both hit in one bar counts as a LOSS. No costs modelled.");
   console.log("Control = same direction and same stop/target distances, entered "
     + CONTROL_LAG_BARS + " bars earlier for no reason.\n");
@@ -249,7 +299,7 @@ function amdTrades(bars, holdBars) {
 
   for (const asset of ASSETS) {
     let bars;
-    try { bars = await fetchBars(asset.ticker); }
+    try { bars = SOURCE === "archive" ? loadArchive(asset.ticker) : await fetchBars(asset.ticker); }
     catch (e) { console.log(asset.name + ": fetch failed — " + e.message + "\n"); continue; }
 
     console.log("═".repeat(78));
