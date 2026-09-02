@@ -139,18 +139,23 @@ function memoryDescriptions() {
   return out;
 }
 
-// Topic terms drawn from what you are touching. Filenames contribute their distinctive
-// stem, commit subjects their content words.
-function terms(files, subjects) {
+// Topic terms come from DIRTY FILENAMES ONLY.
+//
+// Commit subjects were in here and had to come out. Measured on the live tree: subjects
+// contributed "boot", "context", "system", "wrong", "about", "seven" — generic enough
+// that four unrelated memories cleared the 2-term bar, and they surfaced IDENTICALLY
+// whether the tree was clean or had tradingview_bot.py open. A section that prints the
+// same four rows regardless of what you are doing is not context, it is furniture, and
+// you stop reading it by the third session.
+//
+// A dirty filename is a much narrower claim: someone is editing this, right now, and has
+// not committed it. When nothing source-like is dirty there is no topic, and the honest
+// output is silence rather than four plausible-looking rows.
+function terms(files) {
   const t = new Set();
   for (const f of files) {
     for (const part of path.basename(f).split(/[._\-\/]/)) {
       const w = part.toLowerCase();
-      if (w.length > 3 && !STOP.has(w)) t.add(w);
-    }
-  }
-  for (const s of subjects) {
-    for (const w of s.toLowerCase().split(/[^a-z0-9]+/)) {
       if (w.length > 3 && !STOP.has(w)) t.add(w);
     }
   }
