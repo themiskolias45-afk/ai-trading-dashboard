@@ -110,6 +110,22 @@ REM First run, 2026-09-02: 1,124 wikilinks, 31 resolving nowhere, and FIVE alias
 REM clusters - one concept written three ways with every spelling dead. Read-only,
 REM exits 0 always; it reports, it never fixes.
 node "%PROJ%\tasks\memory_lint.cjs" >> "%LOGFILE%" 2>&1
+
+REM Keep the two brains from drifting apart. They were synced BY HAND on 2026-09-01
+REM ("the VPS had 6 memories vs 311") and by hand again on 2026-09-02, when they had
+REM already drifted back to 315 against 333. Memories are written on whichever box a
+REM session ran on, so they diverge EVERY DAY, and the VPS - the box that trades
+REM continuously - is the one that ends up behind. Two manual syncs in two days is a
+REM symptom, not a fix.
+REM
+REM SAFE BY CONSTRUCTION, which is what lets it run unattended: UNION ONLY, nothing is
+REM ever deleted on either side, a file that exists on both with different content is
+REM REPORTED and left alone (choosing a winner is a judgement, not a scheduled job),
+REM and both sides are backed up and verified before a single byte is written.
+REM
+REM It skips itself on the VPS - that box cannot reach the laptop, and without the
+REM guard it would ssh to its own address and "sync" successfully with nothing.
+node "%PROJ%\tasks\brain_sync.cjs" --apply >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
 REM Calibration drift check — compares live setup win rates against shadow stats.
