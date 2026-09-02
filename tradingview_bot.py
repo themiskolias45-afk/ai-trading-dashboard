@@ -560,7 +560,9 @@ SETUP_LEVELS = [
     ("target", "color.new(color.blue, 0)",  2, "line.style_dashed"),
 ]
 
-# Context levels: carried in the panel, never drawn as lines.
+# Context levels: carried in the panel AND, since 2026-09-02, drawn as named lines.
+# The old text here said 'never drawn as lines'. Leaving that standing after the
+# decision changed would have made it the stale claim this project keeps finding.
 CONTEXT_LEVELS = [("resistance", "R1"), ("pp", "PP"), ("support", "S1"),
                   ("breakout_up", "Brk+"), ("breakout_down", "Brk-")]
 
@@ -1182,24 +1184,90 @@ def generate_pine(plans):
             "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
             % (ZONE_BARS_BACK, PRIOR_DAY_BORDER, PRIOR_DAY_FILL, PRIOR_DAY_BORDER))
 
-    # NO PIVOT OR ATR LINES. THIS IS A LOCKED DECISION, REVERSED ONCE AND RESTORED.
+    # -- The pivot ladder and the ATR envelope, as NAMED lines -------------
     #
-    # On 2026-09-02 a pivot ladder and an ATR envelope were added here as 7 line.new
-    # calls, by an agent that had READ the note above and added them anyway because more
-    # drawing had been asked for. That note records a real 2026-08-24 incident on this
-    # exact chart and its conclusion is unchanged: on a chart used to trade MANUALLY, a
-    # labelled level line is a true number dressed as an instruction, and the qualifier
-    # that says otherwise lives rows away in a table the eye reaches second.
+    # THIS REVERSES THE 2026-08-24 DECISION, DELIBERATELY, ON AN EXPLICIT USER
+    # INSTRUCTION GIVEN 2026-09-02 AFTER THE CONFLICT WAS PUT TO THEM IN FULL.
+    # It was added once before without surfacing the conflict, and correctly
+    # reverted for that reason. This is the recorded, deliberate version.
     #
-    # Dotted blue instead of red pills weakens the signal; it does not remove it. And the
-    # user traded this chart by hand the same day, which is precisely the condition the
-    # original decision was written for.
+    # The original note's failure mode was precise, and worth quoting because the
+    # mitigation is aimed at it exactly:
     #
-    # The pivot band still ships IN FULL as panel TEXT, where "S1" reads as a level
-    # rather than an order. That is the safe half of the trade-off and it stays.
+    #   "A red dashed line with a pill reading 'S2 4,458.07' looks exactly like a
+    #    stop loss, and the qualifier that says it is not one lived twelve rows
+    #    away in a table the eye does not reach first."
     #
-    # If lines are ever wanted here, that is a decision to take deliberately and record
-    # ABOVE, not one to re-derive from "the chart looks empty on a WAIT day".
+    # Two things answer that:
+    #   1. THE LABEL NAMES ITSELF. It reads 'pivot S2 4,232.51', not 'S2 4,232.51'.
+    #      The qualifier now travels WITH the line instead of sitting in a row the
+    #      eye reaches second. A number that calls itself a pivot is not dressed as
+    #      an instruction.
+    #   2. NOTHING HERE IS RED OR GREEN. Dotted blue and dashed teal, against a
+    #      solid green entry and a dashed red stop.
+    #
+    # WHAT IS NOT SOLVED: crowding. This chart also carries APEX SMC, Clean
+    # Structure PRO, TK Swing and EMA Ribbon, each drawing its own levels. That was
+    # the other half of the 2026-08-24 objection and it still stands - accepted by
+    # the user, not overlooked.
+    #
+    # The panel keeps the pivot band as TEXT as well, and keeps 'PIVOT BAND - not a
+    # trade' and 'R:R n/a - no setup'. That is the honest qualifier the original
+    # decision installed, and it must NOT be collapsed away while these lines exist.
+    PIVOT_ROWS = [("r2", "R2", False), ("r1", "R1", False), ("pp", "PP", True),
+                  ("s1", "S1", False), ("s2", "S2", False)]
+    for _key, _tag, _is_mid in PIVOT_ROWS:
+        if not any((plan.get("pivots") or {}).get(_key) is not None
+                   for plan in plans):
+            continue
+
+        def pivot_value(plan, k=_key):
+            value = (plan.get("pivots") or {}).get(k)
+            return "na" if value is None else round(value, plan["decimals"] + 2)
+
+        def pivot_text(plan, k=_key, t=_tag):
+            value = (plan.get("pivots") or {}).get(k)
+            return _pine_str("") if value is None else _pine_str(
+                "pivot %s %s" % (t, _fmt(value, plan["decimals"])))
+
+        level_vars.append("_piv%s = " % _tag + _ternary(plans, pivot_value, "na"))
+        level_vars.append("_piv%sTxt = " % _tag
+                          + _ternary(plans, pivot_text, '""'))
+        draw_block.append(
+            "    if not na(_piv%s)\n"
+            "        line.new(bar_index - %d, _piv%s, bar_index + 20, _piv%s, "
+            "color=%s, style=line.style_dotted, width=%d, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _piv%s, _piv%sTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (_tag, ZONE_BARS_BACK, _tag, _tag,
+               PIVOT_MID_COLOUR if _is_mid else PIVOT_LINE_COLOUR,
+               2 if _is_mid else 1,
+               _tag, _tag, PIVOT_LABEL_COLOUR))
+
+    if any(plan.get("atr_low") is not None and plan.get("atr_high") is not None
+           for plan in plans):
+        for _field, _tag in (("atr_high", "AtrHi"), ("atr_low", "AtrLo")):
+            def atr_value(plan, f=_field):
+                value = plan.get(f)
+                return "na" if value is None else round(value, plan["decimals"] + 2)
+            level_vars.append("_%s = " % _tag + _ternary(plans, atr_value, "na"))
+        level_vars.append("_atrTxt = " + _ternary(
+            plans,
+            lambda p: _pine_str("ATR day range %s-%s" % (
+                _fmt(p.get("atr_low"), p["decimals"]),
+                _fmt(p.get("atr_high"), p["decimals"])))
+            if p.get("atr_low") is not None else '""',
+            '""'))
+        draw_block.append(
+            "    if not na(_AtrHi) and not na(_AtrLo)\n"
+            "        line.new(bar_index - %d, _AtrHi, bar_index + 20, _AtrHi, "
+            "color=%s, style=line.style_dashed, width=1, extend=extend.right)\n"
+            "        line.new(bar_index - %d, _AtrLo, bar_index + 20, _AtrLo, "
+            "color=%s, style=line.style_dashed, width=1, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _AtrLo, _atrTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (ZONE_BARS_BACK, ATR_EDGE_COLOUR, ZONE_BARS_BACK, ATR_EDGE_COLOUR,
+               ATR_EDGE_COLOUR))
 
     cells = [
         # The ternary MUST be parenthesised. Pine binds + tighter than ?: , so
