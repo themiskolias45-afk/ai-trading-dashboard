@@ -16,14 +16,17 @@
 # Runs at Limited level as the current user -- it needs no elevation, and asking for it
 # would be a reason for someone to skip installing it.
 
-param([switch]$Remove, [ValidateSet('fvg','tk')][string]$Model = 'fvg')
+param([switch]$Remove, [ValidateSet('fvg','tk','crt')][string]$Model = 'fvg')
 
 $ErrorActionPreference = 'Stop'
 # One installer, either model. TK evaluates CLOSED 4-HOUR bars so a 15-minute cadence
 # would re-check the same bar 15 times; 30 minutes still catches a bar close promptly
 # without the noise. The dedupe key is the bar time, so a duplicate check records nothing.
-$TaskName = if ($Model -eq 'tk') { 'SmartEntry TK Shadow' } else { 'SmartEntry FVG Shadow' }
-$RunnerFile = if ($Model -eq 'tk') { 'tk_runner.cjs' } else { 'fvg_runner.cjs' }
+# CRT+FVG enters on an m15 retest exactly as FVG continuation does, so it takes the same
+# 15-minute cadence. Its BIAS is h4, but the bias only selects which sweep is in play --
+# the bar that must not be missed is the m15 one price retests on.
+$TaskName = switch ($Model) { 'tk' { 'SmartEntry TK Shadow' } 'crt' { 'SmartEntry CRT Shadow' } default { 'SmartEntry FVG Shadow' } }
+$RunnerFile = switch ($Model) { 'tk' { 'tk_runner.cjs' } 'crt' { 'crt_runner.cjs' } default { 'fvg_runner.cjs' } }
 $IntervalMin = if ($Model -eq 'tk') { 30 } else { 15 }
 $root     = Split-Path -Parent $PSScriptRoot
 $script   = Join-Path $root ('tasks\' + $RunnerFile)

@@ -64,8 +64,22 @@ MODELS = {
             "magic": 20260902, "label": "FVG_CONTINUATION", "max_age": 900},
     "tk":  {"shadow": "tk_shadow.jsonl",  "executed": "tk_executed.jsonl",
             "magic": 20260903, "label": "TK_SWING_PULLBACK", "max_age": 14400},
+    # CRT+FVG enters on an m15 retest, so its setup is dead in 900s like FVG
+    # continuation -- the h4 sweep only chooses which gap is in play.
+    "crt": {"shadow": "crt_shadow.jsonl", "executed": "crt_executed.jsonl",
+            "magic": 20260904, "label": "CRT_FVG", "max_age": 900},
 }
-_model_key = "tk" if "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == "tk" else "fvg"
+# Parsed against the MODELS table, not by comparing to one name. The first version read
+# `"tk" if argv[i+1] == "tk" else "fvg"`, which silently ran the FVG model -- its ledger,
+# its magic number -- for any other value. Adding a third model to that would have armed
+# `--model crt` on the FVG ledger and nothing would have looked wrong.
+if "--model" in sys.argv and sys.argv.index("--model") + 1 < len(sys.argv):
+    _model_key = sys.argv[sys.argv.index("--model") + 1]
+    if _model_key not in MODELS:
+        print("unknown --model %r; known: %s" % (_model_key, ", ".join(sorted(MODELS))))
+        sys.exit(2)
+else:
+    _model_key = "fvg"
 _M = MODELS[_model_key]
 SHADOW     = os.path.join(ROOT, "tasks", _M["shadow"])
 EXECUTED   = os.path.join(ROOT, "tasks", _M["executed"])

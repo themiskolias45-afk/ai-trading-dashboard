@@ -18,7 +18,7 @@
 # from four characters, measured 2026-09-02.
 
 param(
-    [ValidateSet('fvg','tk')][string]$Model = 'fvg',
+    [ValidateSet('fvg','tk','crt')][string]$Model = 'fvg',
     [switch]$Arm,
     [switch]$Remove,
     # Concurrency was never modelled in the backtest -- every measurement assumed one
