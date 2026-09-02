@@ -2,7 +2,7 @@
 RAG Index — embed trades, lessons, vault notes, and strategy research into
 a local ChromaDB vector store for semantic search.
 
-  python tasks/rag_index.py [--rebuild] [--source all|trades|lessons|memory|brain|vault|shadow]
+  python tasks/rag_index.py [--rebuild] [--source all|trades|lessons|memory|brain|decisions|vault|shadow]
 
 Requirements:
   pip install chromadb sentence-transformers
@@ -642,6 +642,8 @@ def main():
         total += index_memory(client, model, rebuild)
     if source in ("all", "brain"):
         total += index_brain(client, model, rebuild)
+    if source in ("all", "decisions"):
+        total += index_decisions(client, model, rebuild)
     if source in ("all", "vault"):
         total += index_vault(client, model, rebuild)
 
