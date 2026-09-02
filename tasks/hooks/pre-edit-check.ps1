@@ -57,4 +57,31 @@ try {
     # A guard must never become the reason an edit fails.
 }
 
+# -- DECISION GUARD -- this file carries a standing decision. NEVER blocks (exit stays 0).
+#
+# Added 2026-09-02, the day it was needed and absent. An agent edited tradingview_bot.py
+# and reversed a LOCKED decision recorded at line 1185 of that same file, after a real
+# 2026-08-24 incident. Nothing was hidden: the file was known, the decision was known, and
+# nothing put them in front of each other. Measured the same day, 38 standing decisions
+# live inside source comments across the tree, and tasks/rag_index.py indexes trades,
+# shadow, memory, brain and vault -- not source. "Has this already been decided?" was an
+# unanswerable question unless you already knew the filename.
+#
+# Same reasoning as the duplicate guard above: CLAUDE.md has said "locked decisions stay
+# locked" the whole time and it does not fire, because a rule enforced by remembering is
+# enforced by nothing. This runs whether or not anyone remembers.
+#
+# The logic is in tasks/decisions.cjs, not here, so it stays testable:
+#   node tasks/decisions.cjs guard <file>     what this hook prints
+#   node tasks/decisions.cjs check "<topic>"  the same question, by topic
+try {
+    $decScript = Join-Path $PSScriptRoot '..\decisions.cjs'
+    if ((Test-Path $decScript) -and $filePath) {
+        $decOut = & node $decScript guard $filePath 2>&1
+        if ($decOut) { Write-Error ($decOut -join "`n") }
+    }
+} catch {
+    # Same rule: a guard that can fail an edit becomes a thing to work around.
+}
+
 exit 0
