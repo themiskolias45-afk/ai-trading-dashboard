@@ -182,6 +182,36 @@ for (const sym of OTHERS) {
 // variant will always flatter that column.
 const totalShipped = shipTest.netR + crossTotals.shipped;
 const totalBest    = best.test.netR + crossTotals.best;
+// THE TWO CHECKS THAT DECIDED THE FVG CALL, and the two that killed its predecessor.
+// A configuration can win every fold and still be (a) a stale-regime artifact or (b) three
+// lucky rows. Neither shows up in R/trade or in a fold count.
+function extras(cfg) {
+  const rows = [];
+  for (const sym of ["XAUUSD", "BTCUSD", "SP500"]) {
+    try { rows.push(...runConfig(cfg, sym)); } catch (e) { /* absent symbol reported below */ }
+  }
+  if (!rows.length) return null;
+  const cut = Math.max(...rows.map(t => t.entryTime)) - 90 * 86400;
+  const recent = rows.filter(t => t.entryTime >= cut);
+  const rs = [...rows].map(t => t.r).sort((a, b) => b - a);
+  const gross = rs.reduce((a, r) => a + r, 0);
+  const top5 = rs.slice(0, 5).reduce((a, r) => a + r, 0);
+  return { recent: stat(recent), n: rows.length,
+    concentration: gross > 0 ? top5 / gross * 100 : null };
+}
+const exShip = extras(SHIPPED), exBest = extras(best.cfg);
+if (exShip && exBest) {
+  console.log("");
+  console.log("  RECENT WINDOW (last 90 days) and CONCENTRATION -- all three instruments:");
+  console.log("  " + pad("config", 12) + pad("recentN", 9) + pad("recent net", 12)
+    + pad("recent R", 11) + "top-5 rows as % of gross");
+  for (const [label, ex] of [["shipped", exShip], ["candidate", exBest]]) {
+    console.log("  " + pad(label, 12) + pad(ex.recent.n, 9) + pad(num(ex.recent.netRpt, 4), 12)
+      + pad(num(ex.recent.netR, 2), 11)
+      + (ex.concentration === null ? "-" : ex.concentration.toFixed(0) + "%"));
+  }
+}
+
 console.log("");
 console.log("  TOTAL NET R across the held-out half and both unseen instruments:");
 console.log("    shipped " + num(totalShipped, 2) + "R      candidate " + num(totalBest, 2) + "R");

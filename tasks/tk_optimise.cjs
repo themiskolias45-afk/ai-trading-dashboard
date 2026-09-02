@@ -62,14 +62,20 @@ function runConfig(cfg, symbol) {
   return JSON.parse(out).trades;
 }
 
+const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36 };
 function stat(rows) {
-  if (!rows.length) return { n: 0, wr: 0, rpt: 0, netR: 0, pf: null };
+  if (!rows.length) return { n: 0, wr: 0, rpt: 0, netR: 0, netRpt: 0, pf: null };
   const wins = rows.filter(t => t.r > 0);
   const gp = wins.reduce((a, t) => a + t.r, 0);
   const gl = Math.abs(rows.filter(t => t.r <= 0).reduce((a, t) => a + t.r, 0));
-  const netR = rows.reduce((a, t) => a + t.r, 0);
-  return { n: rows.length, wr: wins.length / rows.length * 100, rpt: netR / rows.length,
-    netR, pf: gl > 0 ? gp / gl : null };
+  const gross = rows.reduce((a, t) => a + t.r, 0);
+  // Costs are small on H4 (0.008-0.019R) but they are charged anyway, so this tool and
+  // model_optimise rank on the same quantity.
+  const priced = rows.filter(t => SPREAD[t.symbol] && t.riskPrice > 0);
+  const cost = priced.reduce((a, t) => a + SPREAD[t.symbol] / t.riskPrice, 0);
+  return { n: rows.length, wr: wins.length / rows.length * 100, rpt: gross / rows.length,
+    netR: gross - cost, netRpt: priced.length ? (gross - cost) / priced.length : gross / rows.length,
+    pf: gl > 0 ? gp / gl : null };
 }
 function foldsOf(rows, n) {
   const s = [...rows].sort((a, b) => a.entryTime - b.entryTime);
@@ -123,10 +129,11 @@ for (const cfg of combos) {
 }
 if (!scored.length) { console.log("  no configuration produced enough training trades"); process.exit(1); }
 
-// CHOSEN ON THE TRAINING HALF ONLY, by R/trade. Not by PF: PF rewards a configuration
-// that takes very few, very good trades, and the binding constraint on this system is
-// sample size.
-scored.sort((a, b) => b.train.rpt - a.train.rpt);
+// CHOSEN ON TRAIN TOTAL NET R. Not R/trade and not PF: both reward a configuration that
+// takes very few, very good trades, and the binding constraint here is sample size. The
+// sibling tool selected on R/trade and surfaced a variant making 60% less money while the
+// real winner sat third in its own output.
+scored.sort((a, b) => b.train.netR - a.train.netR);
 const best = scored[0];
 const liveTrain = stat(liveAll.filter(t => t.entryTime < splitTime));
 const liveTest  = stat(liveAll.filter(t => t.entryTime >= splitTime));
@@ -161,6 +168,33 @@ console.log(delta > 0
   : "  The search found nothing that beats what is already running. Leave it alone.");
 
 // The strongest available check: does the winner work on symbols the fit never saw?
+// The two checks a fold count cannot make: is the result stale-regime, and is it three
+// lucky rows? Both decided the FVG call.
+function extras(cfg) {
+  const rows = [];
+  for (const sym of ["XAUUSD", "BTCUSD", "SP500"]) {
+    try { rows.push(...runConfig(cfg, sym)); } catch (e) { /* absent symbol shown below */ }
+  }
+  if (!rows.length) return null;
+  const cut = Math.max(...rows.map(t => t.entryTime)) - 90 * 86400;
+  const rs = [...rows].map(t => t.r).sort((a, b) => b - a);
+  const gross = rs.reduce((a, r) => a + r, 0);
+  return { recent: stat(rows.filter(t => t.entryTime >= cut)),
+    concentration: gross > 0 ? rs.slice(0, 5).reduce((a, r) => a + r, 0) / gross * 100 : null };
+}
+const exLive = extras(LIVE), exBest = extras(best.cfg);
+if (exLive && exBest) {
+  console.log("");
+  console.log("  RECENT WINDOW (last 90 days) and CONCENTRATION -- all three instruments:");
+  console.log("  " + pad("config", 12) + pad("recentN", 9) + pad("recent net", 12)
+    + pad("recent R", 11) + "top-5 rows as % of gross");
+  for (const [label, ex] of [["live", exLive], ["candidate", exBest]]) {
+    console.log("  " + pad(label, 12) + pad(ex.recent.n, 9) + pad(num(ex.recent.netRpt, 4), 12)
+      + pad(num(ex.recent.netR, 2), 11)
+      + (ex.concentration === null ? "-" : ex.concentration.toFixed(0) + "%"));
+  }
+}
+
 console.log("");
 console.log("  CROSS-INSTRUMENT CHECK -- the fit never saw these:");
 console.log("  " + pad("symbol", 10) + pad("config", 10) + pad("trades", 8) + pad("WR%", 7)
