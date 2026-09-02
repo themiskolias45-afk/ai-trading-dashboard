@@ -495,6 +495,26 @@ def run_tv_draw():
     output = _run("tradingview_bot.py", ["plan"], timeout=420)
     print(output[-600:] if output else "  [no output]")
 
+    # REPOINT IS NOT OPTIONAL, and leaving it out is why a chart once rendered a plan that
+    # was FOURTEEN DAYS OLD.
+    #
+    # `plan` saves the Pine SOURCE for every symbol, but it verifies and re-adds the study
+    # for plans[0] ONLY. The other two charts keep whatever build they already had, while
+    # the run prints "Plan drawn: BTC, GOLD, SPX" and "All 3 plan studies report clean" —
+    # and clean means COMPILES, not CURRENT and not VISIBLE. Measured 2026-09-02: after a
+    # `plan` run, GOLD was still rendering a study from four hours earlier and BTC and SPX
+    # rendered nothing at all, while the summary reported success on all three.
+    #
+    # So a source change silently reaches one chart out of three. That is worse than not
+    # changing the source, because the three charts then DISAGREE with each other and with
+    # the code, and nothing says so.
+    #
+    # Same skip-never-fail contract as everything else in this function: a failed repoint
+    # must not take down the plan, the notes or the notification.
+    print("[plan] Repointing all three studies (plan updates only the first)…")
+    repoint_out = _run("tradingview_bot.py", ["repoint"], timeout=420)
+    print(repoint_out[-400:] if repoint_out else "  [no output]")
+
 
 def notify(plan: dict, silent: bool = False):
     if silent:
