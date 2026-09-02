@@ -29,4 +29,32 @@ foreach ($pattern in $highRisk) {
     }
 }
 
+# -- DUPLICATE GUARD -- warn when this already exists. NEVER blocks (exit stays 0).
+#
+# "duplicate" appears in 67 commit messages here. 0f943e1: "I built a duplicate
+# stop-variant scorer -- tasks/score_stop_variants.cjs already existed". CLAUDE.md has
+# said "Always check what exists first" the whole time and it does not fire, because a
+# rule enforced by remembering is enforced by nothing -- exactly what fb8b4f9 found
+# about the mojibake check. This runs whether or not anyone remembers.
+#
+# The logic is in tasks/duplicate_check.cjs, not here, because that is testable:
+#   node tasks/duplicate_check.cjs --selftest
+# It regression-tests both real historical mistakes.
+#
+# Input goes through a temp FILE, never an argument. Embedded quotes in an argument
+# get mangled by PowerShell -- the same bug that put 66 HTTP 400s in the session-stop
+# hook until it switched to --data-binary "@file". Fixed path, overwritten each run,
+# never deleted.
+try {
+    $dupScript = Join-Path $PSScriptRoot '..\duplicate_check.cjs'
+    if (Test-Path $dupScript) {
+        $dupInput = Join-Path $env:TEMP 'jarvis_dup_input.json'
+        [System.IO.File]::WriteAllText($dupInput, $raw, (New-Object System.Text.UTF8Encoding($false)))
+        $dupOut = & node $dupScript --input $dupInput 2>&1
+        if ($dupOut) { Write-Error ($dupOut -join "`n") }
+    }
+} catch {
+    # A guard must never become the reason an edit fails.
+}
+
 exit 0

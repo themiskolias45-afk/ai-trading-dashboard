@@ -215,6 +215,22 @@ silently resolved.
    actually printed. If something is unverified, the word "unverified" appears next to it.
 
 
+- **THE CHANGE RATE IS THE ERROR RATE.** Measured 2026-09-02: 1,144 commits in six
+  weeks against **7 closed trades**, and the repair share went **15% in July → 77% in
+  August**. Three quarters of one month's work was fixing the previous month's. The
+  words are Claude's own — 67 commits say "duplicate", 160 say "broke", 43 say
+  "assumed", and `0f943e1` reads *"I built a duplicate stop-variant scorer — it
+  already existed"*. **No engine change ships without a walk-forward that clears it,
+  and nothing on the signal path is written and merged the same day.** 514 commits
+  have touched signal logic against 7 trades of evidence: they were not validated,
+  they were merely not yet caught. Slowing down is not caution here, it is the only
+  thing that has ever reduced the error count.
+- **A rule enforced by remembering is enforced by nothing.** `fb8b4f9`: *"The mojibake
+  check only ran when I remembered it, which is how it got past me."* It stopped
+  recurring the day a check ran automatically. Every rule below that matters has a
+  script behind it — `tasks/duplicate_check.cjs` (`--selftest`) for duplicates,
+  `tasks/claims_check.cjs` for stale claims in THIS file, `encoding_check.cjs` for
+  mojibake. **When you add a rule here, add its check, or accept it is decoration.**
 - **Evidence only, never guess.** Verify state from the actual file or command before claiming anything is done, current, or in place. If unsure, say so and go find out.
 - **Double-confirm before any source-code edit.** State the exact change and wait for confirmation before editing code, config, or pushing/deploying — unless I've already said "do it."
 - **Full reads, no skimming.** Read the whole file front to back. No sampling. If it's too big for one session, say so and let me decide.
@@ -266,7 +282,7 @@ silently resolved.
   4H + 1H"*, which states a safety property the engine does not have and which a user
   reasonably read as "it will not buy into a bearish 4H/1H". Corrected 2026-08-31 after
   being asked why it buys when every lower timeframe is red. What `generateSignal`
-  actually does (`generateSignalMTF`, `server/index.js:2965`; the plain
+  actually does (`generateSignalMTF`, `server/index.js:3062`; the plain
   `generateSignal` is at `:1780`. This said `:2814-2911` until 2026-09-02 — that
   range is neither function):
   - Daily + H4 **agree** → 72 / 88 / 95.
@@ -322,7 +338,7 @@ silently resolved.
     used to answer asset-specific questions. At gate 70 / 320: XAUUSD 5/5 +0.051,
     BTCUSD 5/5 +0.172, SP500 4/5 −0.042.
 - **Gold's squeeze cohort is pinned to a LITERAL 70** (`GOLD_SQUEEZE_MODERATE_CONFIDENCE`,
-  `server/index.js:3553`; said `:3486` until 2026-09-02, which is a blank line) — it
+  `server/index.js:3650`; said `:3486` then `:3553` until 2026-09-02, which is a blank line) — it
   did NOT follow the gate down. At 65 it still clears
   comfortably; it silently stops firing only if the gate is ever raised ABOVE 70. Moving
   the gate DOWN was the safe direction; moving it up is the one that needs this checked.
