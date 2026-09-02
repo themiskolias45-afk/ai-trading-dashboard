@@ -215,6 +215,22 @@ silently resolved.
    actually printed. If something is unverified, the word "unverified" appears next to it.
 
 
+- **THE CHANGE RATE IS THE ERROR RATE.** Measured 2026-09-02: 1,144 commits in six
+  weeks against **7 closed trades**, and the repair share went **15% in July → 77% in
+  August**. Three quarters of one month's work was fixing the previous month's. The
+  words are Claude's own — 67 commits say "duplicate", 160 say "broke", 43 say
+  "assumed", and `0f943e1` reads *"I built a duplicate stop-variant scorer — it
+  already existed"*. **No engine change ships without a walk-forward that clears it,
+  and nothing on the signal path is written and merged the same day.** 514 commits
+  have touched signal logic against 7 trades of evidence: they were not validated,
+  they were merely not yet caught. Slowing down is not caution here, it is the only
+  thing that has ever reduced the error count.
+- **A rule enforced by remembering is enforced by nothing.** `fb8b4f9`: *"The mojibake
+  check only ran when I remembered it, which is how it got past me."* It stopped
+  recurring the day a check ran automatically. Every rule below that matters has a
+  script behind it — `tasks/duplicate_check.cjs` (`--selftest`) for duplicates,
+  `tasks/claims_check.cjs` for stale claims in THIS file, `encoding_check.cjs` for
+  mojibake. **When you add a rule here, add its check, or accept it is decoration.**
 - **Evidence only, never guess.** Verify state from the actual file or command before claiming anything is done, current, or in place. If unsure, say so and go find out.
 - **Double-confirm before any source-code edit.** State the exact change and wait for confirmation before editing code, config, or pushing/deploying — unless I've already said "do it."
 - **Full reads, no skimming.** Read the whole file front to back. No sampling. If it's too big for one session, say so and let me decide.

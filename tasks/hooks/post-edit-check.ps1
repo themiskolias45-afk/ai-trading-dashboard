@@ -127,6 +127,12 @@ foreach ($tf in $tradingFiles) {
         Write-Host ">>> CODE REVIEW REQUIRED: $rel is a trading logic file." -ForegroundColor Cyan
         Write-Host ">>> JARVIS: invoke the code-reviewer agent on the changed function(s) before declaring done." -ForegroundColor Cyan
         Write-Host ">>> Auto-commit SKIPPED. Run: git add $rel && git commit -m '...' after review passes." -ForegroundColor Cyan
+        Write-Host ">>> EVIDENCE GATE: this is the signal path. It does not ship on reasoning." -ForegroundColor Cyan
+        Write-Host ">>>   run_walkforward must CLEAR it first, and the result goes in the commit message." -ForegroundColor Cyan
+        Write-Host ">>>   Precedent 8f69319: 'REVERT every engine change from today -- the walk-forward" -ForegroundColor Cyan
+        Write-Host ">>>   killed all of them.' A whole day's engine work, all of it wrong, none of it" -ForegroundColor Cyan
+        Write-Host ">>>   detectable by reading the code. 514 commits have touched this logic against 7" -ForegroundColor Cyan
+        Write-Host ">>>   closed trades of evidence -- so assume unvalidated until measured." -ForegroundColor Cyan
         Write-Host ""
         break
     }
