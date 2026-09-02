@@ -81,10 +81,38 @@ const SEARCH      = numArg("--search", 40);
 const RETEST      = numArg("--retest", 40);
 const SYMBOLS     = strArg("--symbols", "XAUUSD,BTCUSD,SP500").split(",").map(s => s.trim());
 
-const WEIGHTS = {
-  htfBias: 15, liquidity: 15, crtStructure: 15, displacement: 15,
-  fvgQuality: 10, marketStructure: 10, emaAlignment: 10, session: 5, volatility: 5,
+// --profile proposed : the weights exactly as specified. Kept so the comparison is
+//                      reproducible and so nobody has to take "it did not separate" on
+//                      trust -- run it and see the A+ bucket come out below no-trade.
+// --profile measured : re-weighted onto the components that showed a POSITIVE measured
+//                      lift on this population, in proportion to that lift.
+//
+// The proposed weights failed for a specific and fixable reason, not because the idea is
+// wrong. Measured 2026-09-02 over 790 entries:
+//
+//   emaAlignment    full +0.0087  zero -0.0948   lift +0.1035
+//   htfBias         full +0.0999  zero +0.0017   lift +0.0981
+//   marketStructure full +0.0558  zero +0.0434   lift +0.0124
+//   session         full +0.0789  zero +0.0866   lift -0.0078   <- costs points
+//   liquidity, crtStructure, displacement, fvgQuality, volatility
+//                   NEVER score zero on this population
+//
+// That last line is the whole failure. Those five are conditions of the entry model
+// itself -- every trade here already IS a CRT sweep with an FVG retest -- so they add 55
+// near-constant points and drown the two components that actually discriminate. A score
+// where 55% of the points are the same for every candidate cannot rank candidates.
+const PROFILES = {
+  proposed: {
+    htfBias: 15, liquidity: 15, crtStructure: 15, displacement: 15,
+    fvgQuality: 10, marketStructure: 10, emaAlignment: 10, session: 5, volatility: 5,
+  },
+  measured: {
+    emaAlignment: 45, htfBias: 42, marketStructure: 13,
+    liquidity: 0, crtStructure: 0, displacement: 0, fvgQuality: 0, session: 0, volatility: 0,
+  },
 };
+const PROFILE = PROFILES[strArg("--profile", "proposed")] ? strArg("--profile", "proposed") : "proposed";
+const WEIGHTS = PROFILES[PROFILE];
 
 function loadBars(symbol, tf) {
   const file = path.join(ROOT, "tasks", "history", symbol + "_" + TF_FILE[tf] + ".csv");
