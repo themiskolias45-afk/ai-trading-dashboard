@@ -2260,7 +2260,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   else if (
     (inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20) &&
     rsi !== null && rsi > TREND_FOLLOW_RSI_MIN && rsi < TREND_FOLLOW_RSI_MAX &&
-    macd?.bullish &&
+    (!TREND_FOLLOW_REQUIRE_MACD_BULLISH || macd?.bullish) &&
     ema200 && price > ema200 * 1.005
   ) {
     setup  = "TREND_FOLLOW";
@@ -3761,6 +3761,32 @@ const BUY_DIP_RSI_MAX = 50;
 // walk-forward wins" — and a bar-return screen is weaker evidence than either.
 // Do not re-open this on a bar-return result alone.
 const MOMENTUM_REQUIRE_MACD_BULLISH = true;
+
+// Does TREND_FOLLOW still require macd.bullish? UNTIL 2026-09-02 THIS WAS NOT EVEN A
+// QUESTION ANYONE COULD ASK -- the condition was inline at :2263 with no name, so no
+// harness could flip it and no measurement could reach it.
+//
+// It is the LARGEST SINGLE BLOCKER IN THE CENSUS: 24 of the 92 rows in
+// tasks/near_misses.jsonl are TREND_FOLLOW dying on MACD_NOT_BULLISH and nothing else,
+// ahead of RANGE_TRADE_SHORT's RSI floor (23) and both RSI ceilings (14 each). BUY_DIP
+// and MOMENTUM each got a flag and a measurement on 2026-09-01; this one got neither,
+// and it is the condition actually holding Gold and SP500 at confidence 0 -- SP500's
+// daily MACD sat under its signal line for TEN consecutive bars from 2026-08-20.
+//
+// TRUE REPRODUCES THE LIVE ENGINE EXACTLY. The flag exists so the two worlds can be
+// replayed and compared instead of argued about, which is the whole reason the other
+// two flags exist. tasks/_replay_mtf.cjs flips it via MTF_TREND_FOLLOW_REQUIRE_MACD,
+// measurement-only; the server is never edited to run a measurement.
+//
+// DO NOT flip this on a bar-return screen. That instrument gave the WRONG ANSWER TWICE
+// on 2026-09-01 -- it cleared BUY_DIP and MOMENTUM, both were flipped false, and the
+// per-asset walk-forward on realised R reverted both within the hour because a forward
+// return on a BAR has no stop, no target and no position sequencing. The bar to clear
+// is the same one they failed: per asset, live gate, MAX_HOLD=320, the candidate
+// world's WORST FOLD beating the baseline on XAUUSD and SP500 without degrading
+// BTCUSD. Baseline recorded 2026-09-02 in tasks/analysis/tf-macd-BASELINE.txt:
+// XAUUSD 5/5 +0.051, BTCUSD 5/5 +0.172, SP500 4/5 -0.042.
+const TREND_FOLLOW_REQUIRE_MACD_BULLISH = true;
 
 // SELL_BOUNCE's condition 1 — see the branch for the measurement. TRUE reproduces the
 // engine exactly as it has always run; the flag exists so both worlds can be replayed

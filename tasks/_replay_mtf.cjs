@@ -104,6 +104,11 @@ const SCALAR_CONSTS = [
   // an env-driven ternary and the extractor copies the expression verbatim, so
   // SELL_BOUNCE_REQUIRE_DOWNTREND=false switches the ENGINE and the REPLAY together.
   "SELL_BOUNCE_REQUIRE_DOWNTREND",
+  // Added 2026-09-02. SIXTH occurrence of the bug this list documents if omitted: the
+  // const is read inside the TREND_FOLLOW branch, so its absence throws on every bar
+  // that reaches it and the run reads as "TREND_FOLLOW never fired" -- which is the
+  // very claim being tested, and TREND_FOLLOW is the largest blocker in the census.
+  "TREND_FOLLOW_REQUIRE_MACD_BULLISH",
 ];
 
 let code = "";
@@ -113,6 +118,9 @@ let code = "";
 const CONST_OVERRIDES = {};
 if (process.env.MTF_SELL_BOUNCE_REQUIRE_DOWNTREND === "false") {
   CONST_OVERRIDES.SELL_BOUNCE_REQUIRE_DOWNTREND = "false";
+}
+if (process.env.MTF_TREND_FOLLOW_REQUIRE_MACD === "false") {
+  CONST_OVERRIDES.TREND_FOLLOW_REQUIRE_MACD_BULLISH = "false";
 }
 
 for (const name of SCALAR_CONSTS) {
