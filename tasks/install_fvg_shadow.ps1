@@ -16,13 +16,18 @@
 # Runs at Limited level as the current user -- it needs no elevation, and asking for it
 # would be a reason for someone to skip installing it.
 
-param([switch]$Remove)
+param([switch]$Remove, [ValidateSet('fvg','tk')][string]$Model = 'fvg')
 
 $ErrorActionPreference = 'Stop'
-$TaskName = 'SmartEntry FVG Shadow'
+# One installer, either model. TK evaluates CLOSED 4-HOUR bars so a 15-minute cadence
+# would re-check the same bar 15 times; 30 minutes still catches a bar close promptly
+# without the noise. The dedupe key is the bar time, so a duplicate check records nothing.
+$TaskName = if ($Model -eq 'tk') { 'SmartEntry TK Shadow' } else { 'SmartEntry FVG Shadow' }
+$RunnerFile = if ($Model -eq 'tk') { 'tk_runner.cjs' } else { 'fvg_runner.cjs' }
+$IntervalMin = if ($Model -eq 'tk') { 30 } else { 15 }
 $root     = Split-Path -Parent $PSScriptRoot
-$script   = Join-Path $root 'tasks\fvg_runner.cjs'
-$logFile  = Join-Path $root 'tasks\logs\fvg_shadow.txt'
+$script   = Join-Path $root ('tasks\' + $RunnerFile)
+$logFile  = Join-Path $root ('tasks\logs\' + $Model + '_shadow.txt')
 
 if ($Remove) {
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
@@ -61,7 +66,7 @@ $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
     -WorkingDirectory $root
 
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
-    -RepetitionInterval (New-TimeSpan -Minutes 15)
+    -RepetitionInterval (New-TimeSpan -Minutes $IntervalMin)
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
@@ -83,9 +88,9 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 }
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal `
-    -Description 'FVG continuation shadow runner -- records setups only, places no orders.' | Out-Null
+    -Description ($Model.ToUpper() + ' shadow runner -- records setups only, places no orders.') | Out-Null
 
-"Registered '$TaskName' -- every 15 minutes, as $me."
+"Registered '$TaskName' -- every $IntervalMin minutes, as $me."
 "  runner : $script"
 "  log    : $logFile"
 "  verify : Get-ScheduledTask -TaskName '$TaskName' | Get-ScheduledTaskInfo"

@@ -50,14 +50,31 @@ except ImportError:
     sys.exit(1)
 
 ROOT       = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHADOW     = os.path.join(ROOT, "tasks", "fvg_shadow.jsonl")
-EXECUTED   = os.path.join(ROOT, "tasks", "fvg_executed.jsonl")
+# One executor, either model. --model picks the ledger and the magic number, so the two
+# strategies keep separate order attribution and separate execution records while sharing
+# one guarded code path -- two copies of order-placing code is two places for a guard to
+# go missing.
+MODELS = {
+    # max_age is ONE BAR OF THE MODEL'S OWN EXECUTION TIMEFRAME. FVG enters on a 15-minute
+    # retest, so a setup is dead in 15 minutes. TK enters on a closed 4-hour bar and stays
+    # valid for that bar. A shared 900s window would silently discard every TK setup 15
+    # minutes after it appeared -- a guard that throws away the trades it is meant to
+    # protect is worse than no guard.
+    "fvg": {"shadow": "fvg_shadow.jsonl", "executed": "fvg_executed.jsonl",
+            "magic": 20260902, "label": "FVG_CONTINUATION", "max_age": 900},
+    "tk":  {"shadow": "tk_shadow.jsonl",  "executed": "tk_executed.jsonl",
+            "magic": 20260903, "label": "TK_SWING_PULLBACK", "max_age": 14400},
+}
+_model_key = "tk" if "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == "tk" else "fvg"
+_M = MODELS[_model_key]
+SHADOW     = os.path.join(ROOT, "tasks", _M["shadow"])
+EXECUTED   = os.path.join(ROOT, "tasks", _M["executed"])
 SERVER     = os.environ.get("SMARTENTRY_HOST", "http://localhost:3001")
 
-MAGIC      = 20260902          # this model's own orders, never the engine's 20250101
+MAGIC      = _M["magic"]       # this model's own orders, never the engine's 20250101
 MAX_OPEN   = int(os.environ.get("FVG_MAX_OPEN", "2"))
 RISK_PCT   = float(os.environ.get("FVG_RISK_PCT", "0.15"))   # % of equity per trade
-MAX_AGE_S  = int(os.environ.get("FVG_MAX_AGE_S", "900"))     # one m15 bar
+MAX_AGE_S  = int(os.environ.get("FVG_MAX_AGE_S", str(_M["max_age"])))  # one bar of this model
 MIN_STOP_SPREADS = 3.0
 
 EXECUTE = "--execute" in sys.argv
@@ -67,7 +84,7 @@ ASSET_SYMBOL = {"gold": "XAUUSD", "btc": "BTCUSD", "spx": "SP500"}
 
 
 def log(msg):
-    print("[fvg-exec] " + msg, flush=True)
+    print("[" + _model_key + "-exec] " + msg, flush=True)
 
 
 def read_jsonl(path):
@@ -223,7 +240,7 @@ def main():
                 "tp":           float(target),
                 "deviation":    20,
                 "magic":        MAGIC,
-                "comment":      "FVG_CONT",
+                "comment":      _M["label"][:16],
                 "type_time":    mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
@@ -242,7 +259,7 @@ def main():
                     "placed": ok,
                     "retcode": (result.retcode if result else None),
                     "ticket": (result.order if ok else None),
-                    "model": "FVG_CONTINUATION",
+                    "model": _M["label"],
                 }) + "\n")
             if ok:
                 mine.append(type("P", (), {"symbol": symbol, "magic": MAGIC})())

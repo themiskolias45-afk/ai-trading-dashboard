@@ -146,9 +146,14 @@ function evaluate(assetKey, symbol, h4, trace) {
   const rsi = rsiAt(closes, i, RSI_LEN);
   if ([e21, e50, e21p, atr, rsi].some(v => v === null)) { note("stop", "INDICATOR UNAVAILABLE"); return null; }
 
-  const uptrend = e21 > e50 && e21 > e21p;
-  note("uptrend", uptrend + " (ema21 " + e21.toFixed(2) + " ema50 " + e50.toFixed(2) + ")");
-  if (!uptrend) { note("stop", "NO UPTREND"); return null; }
+  // Both halves reported separately. "uptrend=false" with only the EMA values shown is
+  // ambiguous when ema21 > ema50 but the slope has rolled over -- which is exactly BTC's
+  // state on the first run, and reading it as a stack failure would be wrong.
+  const stackOk = e21 > e50, slopeOk = e21 > e21p;
+  note("emaStack", stackOk + " (21:" + e21.toFixed(2) + " 50:" + e50.toFixed(2) + ")");
+  note("ema21Rising", slopeOk);
+  if (!stackOk) { note("stop", "EMA21 NOT ABOVE EMA50"); return null; }
+  if (!slopeOk) { note("stop", "EMA21 NOT RISING"); return null; }
 
   const push = highestIn(highs.map((h, k) => h - e50), i, PUSH_LB) > PUSH_ATR * atr;
   note("momentumPush", push);
