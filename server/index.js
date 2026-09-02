@@ -143,6 +143,10 @@ process.on("uncaughtException", (error) => {
 const autohealer = require("./autohealer");
 const db         = require("./db");
 const sizing     = require("./sizing");
+// THE TRADEABLE UNIVERSE. Was written out by hand in four places in this file plus a
+// fifth in mt5_bridge.py; see server/assets.js for why that was the binding constraint
+// on sample size rather than a tidiness problem.
+const assetRegistry = require("./assets");
 const hermes     = require("./hermes");
 // Fair Value Gap geometry. Pure functions over the bar arrays the engine already
 // holds — no I/O, no state, and nothing it exports can reach the trading path.
@@ -703,7 +707,9 @@ function maskKey(v) {
 // ── State ─────────────────────────────────────────────────────
 let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, spx: null, spxChange: null, dxy: null, dxyChange: null, vix: null, updated: null };
 let sentimentCache = { fearGreed: 50, classification: "Neutral", btcSentiment: "NEUTRAL", newsHeadlines: [], updated: null };
-let signalCache   = { btc: null, gold: null, spx: null, updatedAt: null };
+// Built FROM THE REGISTRY, not typed out: a new asset that is missing a slot here does
+// not error, it reads as an asset that never produced a signal.
+let signalCache   = { ...Object.fromEntries(assetRegistry.ASSET_KEYS.map(k => [k, null])), updatedAt: null };
 let signalHistory = [];   // last 100 signal cycles — full confidence + reasons per asset
 // DXY daily closes, retained from the fetch refreshSignals already makes for the
 // Gold DIVERGENCE setup. Read ONLY by /api/market-context, which turns a bare
@@ -754,7 +760,7 @@ function queueSignalRefresh() {
 // Yahoo tickers the signal engine is written against → asset keys used everywhere
 // else. Declared once so the ingest endpoint and refreshSignals agree; a mismatch
 // here would silently route XAUUSD bars into the BTC signal.
-const ASSET_KEY_BY_TICKER = { "BTC-USD": "btc", "GC=F": "gold", "^GSPC": "spx" };
+const ASSET_KEY_BY_TICKER = assetRegistry.ASSET_KEY_BY_TICKER;
 
 // A daily series shorter than this leaves ema200 null, which pins `trend` to
 // "MIXED" and makes MOMENTUM, BREAKOUT and TREND_FOLLOW unreachable — the exact
@@ -4048,11 +4054,7 @@ function mt5BarsFor(assetKey) {
 
 async function refreshSignals() {
   console.log("[signals] Refreshing all assets in PARALLEL (Daily + 4H + 1H)…");
-  const assets = [
-    { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
-    { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
-    { key: "spx",  label: "S&P500",     symbol: "^GSPC"   }
-  ];
+  const assets = assetRegistry.ASSET_LIST;
   // Fetch DXY daily candles once — used by Gold DIVERGENCE setup
   let dxyDailyCloses = null;
   try {
@@ -4302,11 +4304,7 @@ function buildWatchlist() {
 // MIRRORS SYMBOL_CANDIDATES in mt5_bridge.py:106, plus each Yahoo ticker. If a symbol is
 // added there, add it here - the bridge is the authority, this is a reader. Getting it
 // wrong makes a MESSAGE wrong, never a trade: the real DUPLICATE gate is in the bridge.
-const ASSET_BROKER_SYMBOLS = {
-  btc:  ["BTCUSD", "BTC/USD", "BITCOIN", "BTCUSDT", "BTC-USD"],
-  gold: ["XAUUSD", "GOLD", "XAUUSDM", "GOLDM", "GC=F"],
-  spx:  ["SP500", "US500", "SPX500", "US.500", "SPY", "^GSPC"],
-};
+const ASSET_BROKER_SYMBOLS = assetRegistry.ASSET_BROKER_SYMBOLS;
 
 // True when an open position matches the asset, on any of its accepted symbols.
 function isAssetHeld(assetKey, signal) {
@@ -7976,23 +7974,19 @@ async function refreshAnalysis() {
   }
   _lastAnalysisFingerprint = fp;
 
-  // Rule-based analysis runs instantly for all 3 in parallel
-  const [btcAuto, goldAuto, spxAuto] = await Promise.all([
-    Promise.resolve(autoAnalyze(signalCache.btc)),
-    Promise.resolve(autoAnalyze(signalCache.gold)),
-    Promise.resolve(autoAnalyze(signalCache.spx))
-  ]);
+  // Rule-based analysis runs instantly for every registered asset, in parallel
+  const autoList = await Promise.all(
+    assetRegistry.ASSET_KEYS.map(k => Promise.resolve(autoAnalyze(signalCache[k]))));
+  const autoByKey = Object.fromEntries(
+    assetRegistry.ASSET_KEYS.map((k, i) => [k, autoList[i]]));
 
   // Start with rule-based results immediately
-  analysisCache = { btc: btcAuto, gold: goldAuto, spx: spxAuto, updatedAt: new Date().toISOString(), aiEnhanced: false };
+  analysisCache = { ...autoByKey, updatedAt: new Date().toISOString(), aiEnhanced: false };
 
   // If Claude is available, run 3 parallel AI brains — one per asset
   if (anthropic) {
-    const assets = [
-      { key: "btc",  sig: signalCache.btc,  base: btcAuto  },
-      { key: "gold", sig: signalCache.gold, base: goldAuto },
-      { key: "spx",  sig: signalCache.spx,  base: spxAuto  }
-    ];
+    const assets = assetRegistry.ASSET_KEYS.map(
+      key => ({ key, sig: signalCache[key], base: autoByKey[key] }));
 
     const results = await Promise.allSettled(assets.map(async ({ key, sig, base }) => {
       if (!sig) return { key, text: base };
@@ -8677,11 +8671,7 @@ app.get("/api/backtest", async (req, res) => {
   }
 
   console.log(`[backtest] Running ${years}-year backtest on BTC, Gold, SPY…`);
-  const assets = [
-    { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
-    { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
-    { key: "spx",  label: "S&P500",     symbol: "^GSPC"   }
-  ];
+  const assets = assetRegistry.ASSET_LIST;
   const out = { years, runAt: new Date().toISOString() };
   for (const a of assets) {
     try {
@@ -9210,14 +9200,10 @@ app.get("/api/regime/:key", (_, res) => {
 // Run 3 parallel Claude AI analyses on demand
 app.post("/api/ai-brain", async (req, res) => {
   if (!anthropic) return res.json({ error: "No Claude API key" });
-  console.log("[ai-brain] Running 3 parallel Claude Opus analyses…");
+  console.log(`[ai-brain] Running ${assetRegistry.ASSET_KEYS.length} parallel Claude Opus analyses…`);
   const start = Date.now();
 
-  const assets = [
-    { key: "btc",  sig: signalCache.btc  },
-    { key: "gold", sig: signalCache.gold },
-    { key: "spx",  sig: signalCache.spx  }
-  ];
+  const assets = assetRegistry.ASSET_KEYS.map(key => ({ key, sig: signalCache[key] }));
 
   const results = await Promise.allSettled(assets.map(async ({ key, sig }) => {
     if (!sig) return { key, analysis: null };
