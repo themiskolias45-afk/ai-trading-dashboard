@@ -17,9 +17,12 @@ THE GUARDS, ALL OF WHICH REFUSE BY DEFAULT
   freshness            a setup older than one execution bar is DEAD. The model enters on
                        the retest bar; by the next bar the price it wanted is gone, and
                        filling late is a different trade from the one measured.
-  halt respected       reads /api/risk-status. If the circuit breaker is open for the
-                       account, nothing is placed -- the breaker exists because three
-                       consecutive losses happened.
+  halt respected       reads BOTH halt systems and fails closed on either: the circuit
+                       breaker (/api/risk-status, three consecutive losses) AND the
+                       dashboard kill switch (/api/mt5/control). They are separate state
+                       in the server -- POST /api/mt5/control writes `tradingControl`,
+                       which never reaches the risk-status payload -- so checking only one
+                       left the kill switch reaching the bridges and not the executors.
   own position cap     at most MAX_OPEN positions under this magic, and never two on the
                        same symbol. Concurrency was never modelled in the backtest, so it
                        is bounded here rather than assumed away.
@@ -198,11 +201,37 @@ def server_json(path):
 
 
 def trading_halted(account_key="A"):
-    """True when the breaker is open, and TRUE ALSO when the server cannot be reached.
+    """True when EITHER halt system says stop, and TRUE ALSO when either cannot be read.
 
-    Refusing on an unknown state is the only safe default: the breaker is what stops a
-    losing streak, and 'I could not check' is not 'it is fine'.
+    THERE ARE TWO HALT SYSTEMS AND THIS READ ONLY ONE OF THEM UNTIL 2026-09-02.
+
+      /api/risk-status   the CIRCUIT BREAKER -- consecutive losses, per account, pushed
+                         up by the bridge. This is what was checked.
+      /api/mt5/control   the DASHBOARD KILL SWITCH -- the human saying stop. Written by
+                         POST /api/mt5/control, which sets `tradingControl` and NOTHING
+                         else; `tradingControl` appears nowhere in recomputeRiskStatus or
+                         in the /api/risk-status payload (verified by grep, server/index.js).
+
+    So flipping Trading Control on the dashboard stopped the two mt5_bridge processes --
+    which read /api/mt5/control at mt5_bridge.py:477 -- and left every executor running.
+    On the day all three executors were armed that made the kill switch reach 2 of 5 order
+    paths. A switch that stops some of them is worse than one that stops none, because you
+    believe you are flat and may trade manually on top of positions that are still opening.
+
+    Both are checked, both fail CLOSED. 'I could not check' is not 'it is fine' -- the
+    control file itself follows the same rule server-side, where an unreadable
+    trading_control.json is loaded as halted.
     """
+    control = server_json("/api/mt5/control")
+    if "_error" in control:
+        log("cannot read mt5/control (" + control["_error"] + ") -- refusing to trade on an "
+            "unknown kill-switch state")
+        return True
+    if control.get("halted"):
+        log("DASHBOARD KILL SWITCH IS ON" + (" -- " + str(control.get("reason"))
+                                             if control.get("reason") else ""))
+        return True
+
     st = server_json("/api/risk-status")
     if "_error" in st:
         log("cannot read risk-status (" + st["_error"] + ") -- refusing to trade on an unknown halt state")
