@@ -35,6 +35,16 @@ function UtcHourToLocal([int]$utcHour, [int]$utcMinute) {
     return $target.ToLocalTime()
 }
 
+function Resolve-NodeExe {
+    # Absolute path to node.exe, or $null. Never the bare name: a scheduled task
+    # cannot rely on the PATH the registering shell happened to have.
+    $found = (Get-Command node.exe -ErrorAction SilentlyContinue)
+    if ($found -and $found.Source) { return $found.Source }
+    $candidate = "$env:ProgramFiles/nodejs/node.exe"
+    if (Test-Path $candidate) { return $candidate }
+    return $null
+}
+
 function Register-MarketTask {
     param([string]$Name, [string]$Script, [int]$UtcHour, [int]$UtcMinute, [string]$Why)
 
@@ -51,7 +61,17 @@ function Register-MarketTask {
         $exe = 'powershell.exe'
         $arg = ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $scriptPath)
     } else {
-        $exe = 'node.exe'
+        # FULL PATH, NEVER THE BARE NAME. Measured 2026-09-02 on the VPS: a task
+        # registered with -Execute 'node.exe' reported LastTaskResult 0 and did
+        # nothing - the log it writes did not gain a single line. A task that
+        # reports success while doing no work is the same shape as eb5d176's
+        # "Graph OK" over an empty store, and LastTaskResult never reveals it.
+        # Every node task that already works on the VPS carries a resolved path.
+        $exe = Resolve-NodeExe
+        if (-not $exe) {
+            Write-Host ("  SKIP  {0} - node.exe not found; refusing to register a task that would silently no-op" -f $Name) -ForegroundColor Yellow
+            return
+        }
         $arg = ('"{0}"' -f $scriptPath)
     }
 
@@ -74,6 +94,41 @@ function Register-MarketTask {
     Write-Host ("        {0:D2}:{1:D2} UTC = {2} local, daily" -f $UtcHour, $UtcMinute, $localText)
 }
 
+function Register-MonitorTask {
+    # A WATCHER, not a market-hour job: it repeats on an interval instead of firing
+    # once a day, so it does not use UtcHourToLocal at all. A cross through zero can
+    # happen at any hour and a daily trigger would find it up to 24 hours late.
+    param([string]$Name, [string]$Script, [int]$EveryMinutes, [string]$Why)
+
+    $scriptPath = Join-Path $proj $Script
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host ("  SKIP  {0} - {1} not found" -f $Name, $Script) -ForegroundColor Yellow
+        return
+    }
+    $exe = Resolve-NodeExe
+    if (-not $exe) {
+        Write-Host ("  SKIP  {0} - node.exe not found; refusing to register a silent no-op" -f $Name) -ForegroundColor Yellow
+        return
+    }
+
+    $action  = New-ScheduledTaskAction -Execute $exe -Argument ('"{0}" --quiet' -f $scriptPath) -WorkingDirectory $proj
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(1) `
+        -RepetitionInterval (New-TimeSpan -Minutes $EveryMinutes) `
+        -RepetitionDuration (New-TimeSpan -Days 3650)
+    # NOT [TimeSpan]::MaxValue - it serialises to P99999999DT23H59M59S and
+    # Register-ScheduledTask rejects the XML as out of range. Measured 2026-09-02.
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+        -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
+        -MultipleInstances IgnoreNew
+
+    Register-ScheduledTask -TaskName $Name -Action $action -Trigger $trigger `
+        -Settings $settings -Description $Why -Force | Out-Null
+
+    Write-Host ("  OK    {0}" -f $Name) -ForegroundColor Green
+    Write-Host ("        every {0} min, continuously" -f $EveryMinutes)
+}
+
 Write-Host "Registering market-hour jobs..." -ForegroundColor Cyan
 
 Register-MarketTask -Name 'SmartEntry Post-Close Analysis' `
@@ -87,9 +142,18 @@ Register-MarketTask -Name 'SmartEntry Pre-Open Plan' `
     -Script 'tasks\deep_plan.cjs' -UtcHour 12 -UtcMinute 0 `
     -Why 'Deep entry plan before the NEW YORK open; trigger is moved nightly out of news blackouts.'
 
+# A WATCHER, registered here so a rebuilt box does not lose it. It watches the MACD
+# histogram for an UP cross through zero - on 2026-09-02 that was the SINGLE condition
+# the engine named as blocking Gold ("BLOCKED: TREND_FOLLOW - MACD not bullish"), with
+# every other TREND_FOLLOW leg already passed, and nothing in the system watched it.
+# Read-only: GETs only, feedsTheGate false. It blocks no signal and deletes nothing.
+Register-MonitorTask -Name 'SmartEntry MACD Cross Monitor' `
+    -Script 'tasks\macd_cross_monitor.cjs' -EveryMinutes 15 `
+    -Why 'Watches the MACD histogram for an UP cross through zero - the condition blocking TREND_FOLLOW. Read-only, blocks nothing, deletes nothing.'
+
 Write-Host ""
 Write-Host "Verifying:" -ForegroundColor Cyan
-Get-ScheduledTask | Where-Object { $_.TaskName -like 'SmartEntry P*' } |
+Get-ScheduledTask | Where-Object { $_.TaskName -match '^SmartEntry (P|MACD)' } |
     ForEach-Object {
         $info = Get-ScheduledTaskInfo -TaskName $_.TaskName
         Write-Host ("  {0,-34} {1,-9} next {2}" -f $_.TaskName, $_.State, $info.NextRunTime)
