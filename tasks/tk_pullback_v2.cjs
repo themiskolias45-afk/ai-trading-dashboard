@@ -223,6 +223,12 @@ function run(symbol) {
   const atr   = atrSeries(highs, lows, closes, ATR_LEN);
   const rsi   = rsiSeries(closes, RSI_LEN);
 
+  // Precomputed once. The first version built `highs.map(...)` INSIDE the bar loop,
+  // which is a fresh 100,000-element array per bar -- O(n^2) and minutes per symbol on
+  // m15. Same numbers, and it actually finishes.
+  const distAbove = highs.map((h, k) => ema50[k] === null ? -Infinity : h - ema50[k]);
+  const distBelow = lows.map((l, k) => ema50[k] === null ? -Infinity : ema50[k] - l);
+
   const trades = [], controls = [];
   let openUntil = -1;
 
@@ -237,7 +243,7 @@ function run(symbol) {
 
     let dir = 0, entry = closes[i], stop = null;
     if (ALLOW_LONGS && up) {
-      const push = highestIn(highs.map((h, k) => h - (ema50[k] ?? h)), i, PUSH_LOOKBACK) > PUSH_ATR * a;
+      const push = highestIn(distAbove, i, PUSH_LOOKBACK) > PUSH_ATR * a;
       const touch = lows[i] <= ema21[i] + tol && closes[i] >= ema21[i] - tol;
       if (push && touch && closes[i] > opens[i] && closes[i] > ema50[i] && rsi[i] > RSI_MIN) {
         dir = 1;
@@ -245,7 +251,7 @@ function run(symbol) {
       }
     }
     if (dir === 0 && ALLOW_SHORTS && down) {
-      const pushDn = highestIn(lows.map((l, k) => (ema50[k] ?? l) - l), i, PUSH_LOOKBACK) > PUSH_ATR * a;
+      const pushDn = highestIn(distBelow, i, PUSH_LOOKBACK) > PUSH_ATR * a;
       const touchUp = highs[i] >= ema21[i] - tol && closes[i] <= ema21[i] + tol;
       if (pushDn && touchUp && closes[i] < opens[i] && closes[i] < ema50[i] && rsi[i] < (100 - RSI_MIN)) {
         dir = -1;
