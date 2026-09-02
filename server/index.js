@@ -1393,6 +1393,16 @@ let strategySettings = {
   // lot-size edit. Nobody chose that. Boolean, not a number, so it is handled
   // beside minStrength rather than through clampStrategyValue.
   partialCloseEnabled:    false,
+  // Declared here so GET /api/strategy-settings always REPORTS the arm state rather than
+  // omitting the key when it is off, and so saveStrategySettings() - which serialises
+  // this whole object - cannot drop the key on the next dashboard save.
+  //
+  // An earlier version of this comment claimed vps_parity.cjs and /api/fleet read this
+  // field. THEY DID NOT: vps_parity reads only `arm`, and /api/fleet compares the
+  // FLEET_COMPARED_SETTINGS whitelist, which did not list this key. The comment asserted
+  // a protection that did not exist. The key has since been ADDED to that whitelist, so
+  // the claim is true now - but it was written before it was.
+  breakdownEnabled:       false,
   updatedAt: null,
   updatedBy: null,
 };
@@ -1441,10 +1451,33 @@ function loadStrategySettings() {
         .filter(v => typeof v === "string" && v.trim())
         .map(v => v.trim().toUpperCase());
     }
+    // BOOLEANS ARE NOT IN STRATEGY_LIMITS AND WERE THEREFORE NEVER LOADED.
+    //
+    // STRATEGY_LIMITS entries are numeric clamps (min/max/def/decimals), so a boolean
+    // cannot live there, and the loop above is the only thing that reads the file. That
+    // left `partialCloseEnabled` in the worst possible state: a default at the top of
+    // this module, a reader in the partial-close path, and a POST handler that sets it
+    // and saves it - so it worked, persisted to disk, and then SILENTLY REVERTED TO
+    // FALSE on the next restart, with nothing logged. A setting that works until you
+    // restart is harder to trust than one that never worked.
+    //
+    // `breakdownEnabled` had the same gap and it is the reason it could not be armed at
+    // all: the engine reads strategySettings.breakdownEnabled === true, and nothing ever
+    // put the key on that object.
+    //
+    // `=== true` and not a truthy test, for the same reason the engine uses it: a stray
+    // "false" string in a hand-edited config must never arm a live short-selling setup.
+    // A missing key leaves the module default rather than forcing false, so a config
+    // that predates either key behaves exactly as it did before.
+    for (const flag of ["partialCloseEnabled", "breakdownEnabled"]) {
+      if (saved[flag] !== undefined) strategySettings[flag] = saved[flag] === true;
+    }
     strategySettings.updatedAt = saved.updatedAt || null;
     strategySettings.updatedBy = saved.updatedBy || null;
     strategySettingsError = null;
-    console.log(`[strategy] Loaded: confidence>=${strategySettings.confidenceThreshold}%, max ${strategySettings.maxConcurrentPositions} positions, max ${strategySettings.maxTradesPerDay} trades/day`);
+    console.log(`[strategy] Loaded: confidence>=${strategySettings.confidenceThreshold}%, max ${strategySettings.maxConcurrentPositions} positions, max ${strategySettings.maxTradesPerDay} trades/day` +
+      `, breakdown=${strategySettings.breakdownEnabled === true ? "ARMED" : "off"}` +
+      `, partialClose=${strategySettings.partialCloseEnabled === true ? "on" : "off"}`);
   } catch (e) {
     // Keep the safe defaults rather than trading on a half-parsed config — but say
     // so loudly. "Safe" defaults are not the operator's settings: fixedLotSize
@@ -1964,10 +1997,32 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   const BREAKDOWN_RSI_MIN = 100 - MOMENTUM_RSI_MAX;
   const BREAKDOWN_RSI_MAX = 100 - MOMENTUM_RSI_MIN;
 
-  // OFF unless strategy_settings.json explicitly carries `"breakdownEnabled": true`.
-  // Neither box carries the key, so this is false on both and the firing set is provably
-  // unchanged — verified by replaying 4 years of bars either side of the edit and
-  // diffing the trade lists, not by reading the condition.
+  // ARMED 2026-09-02 on BOTH boxes by operator decision. strategy_settings.json now
+  // carries `"breakdownEnabled": true`, so this is TRUE and the setup fires live.
+  //
+  // This comment previously read "Neither box carries the key, so this is false on both
+  // and the firing set is provably unchanged". That proof was real but it was a proof
+  // about the DISARMED world - it compared the code edit with the flag off. It says
+  // nothing about the armed world, and left standing next to a now-live gate it would
+  // have read as a safety guarantee that no longer held.
+  //
+  // What the arming rests on instead: re-measured with MTF_MAX_HOLD=320 (the original
+  // run inherited a default of 40 that biases downward) AND
+  // MTF_DIRECTIONAL_OCCUPANCY=1 (the replay modelled one position per symbol; the live
+  // guard in sizing.js is direction-aware). System worst fold 0.149 -> 0.261, R/trade
+  // 0.325 -> 0.349, better at every gate 55/60/65/70. The cohort's own worst fold is
+  // still negative, -0.675, concentrated in 2022-11..2024-03 - a trend short losing
+  // through a year-long rally. Accepted deliberately: the accounts are DEMO and the
+  // binding constraint is short-side sample size, of which the journal holds 2 trades.
+  //
+  // UNMEASURED, stated rather than hidden: the harness models per-symbol occupancy but
+  // NOT the global maxConcurrentPositions cap of 3 that mt5_bridge.py enforces
+  // direction-blind across all three assets. Adding a whole short category raises
+  // demand on those shared slots and can displace longs on OTHER symbols. That path has
+  // not been measured.
+  //
+  // To disarm: POST /api/strategy-settings {"breakdownEnabled": false} - takes effect
+  // immediately, no restart.
   //
   // `=== true` and not a truthy test: a stray "false" string in a hand-edited settings
   // file must not arm a live short-selling setup.
@@ -3272,8 +3327,9 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   if (signalTf.setup === "MOMENTUM"         && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 5);
   // Same +5 as MOMENTUM, because BREAKDOWN is its mirror and a mirror that collects
   // fewer confidence points than its original is not being measured against it — it is
-  // being measured against a handicap. Unreachable while breakdownEnabled is false: no
-  // signal can carry setup "BREAKDOWN" for this line to match.
+  // being measured against a handicap. REACHABLE as of 2026-09-02: breakdownEnabled is
+  // true on both boxes, so signals can now carry setup "BREAKDOWN" and this +5 applies.
+  // It read "unreachable while breakdownEnabled is false" until the setup was armed.
   if (signalTf.setup === "BREAKDOWN"        && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 5);
   if (signalTf.setup === "BUY_DIP"          && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 3);
   if (signalTf.setup === "SELL_BOUNCE"      && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 3);
@@ -6115,6 +6171,25 @@ app.post("/api/strategy-settings", (req, res) => {
       applied.partialCloseEnabled = incoming.partialCloseEnabled;
     } else {
       rejected.push("partialCloseEnabled must be true or false");
+    }
+  }
+
+  // THE OFF-SWITCH. Arming BREAKDOWN without one meant disarming a live short-selling
+  // setup required hand-editing JSON and a full server restart - there is no watcher and
+  // loadStrategySettings has exactly one call site, at startup. A control whose undo is
+  // slower than its do is not a safe control.
+  //
+  // Deliberately asymmetric with the loader: the loader coerces `=== true` because it
+  // parses a hand-edited file, whereas this REJECTS a non-boolean rather than quietly
+  // reading it as false. A caller that sends "false" as a string is confused about what
+  // it is doing, and silently disarming a setup it thinks it is arming is the worse
+  // outcome. Mirrors the partialCloseEnabled branch directly above.
+  if (incoming.breakdownEnabled !== undefined) {
+    if (typeof incoming.breakdownEnabled === "boolean") {
+      strategySettings.breakdownEnabled = incoming.breakdownEnabled;
+      applied.breakdownEnabled = incoming.breakdownEnabled;
+    } else {
+      rejected.push("breakdownEnabled must be true or false");
     }
   }
 
@@ -10619,6 +10694,12 @@ const FLEET_COMPARED_SETTINGS = [
   // Per-machine on purpose: the VPS deliberately runs a fixed 0.01 lot.
   { key: "fixedLotSize",           label: "Fixed lot size",   byDesign: true  },
   { key: "maxLotSize",             label: "Max lot size",     byDesign: true  },
+  // Added when BREAKDOWN was armed 2026-09-02. Without it a HALF-ARMED FLEET - one box
+  // selling short, the other long-only - compared as IDENTICAL, because this list is a
+  // whitelist and vps_parity.cjs reads only `arm` from this route. Two boxes running
+  // different SETUPS is the largest divergence the fleet can have, and it was the one
+  // thing neither comparator could see.
+  { key: "breakdownEnabled",       label: "BREAKDOWN shorts", byDesign: false },
 ];
 
 /** Arming state per account tag, from the bridge's own reported config. */
@@ -11192,11 +11273,11 @@ app.get("/api/strategy-board", (_, res) => {
       // emitting as if it did not exist. All three are timeframe-scoped and appended at
       // the END of the chain, so they cannot displace an existing signal.
       "SWING_PULLBACK_H4", "EMA_REVERSAL_H1", "M15_MOMENTUM",
-      // Added 2026-08-28 with the setup itself. It is gated OFF by
-      // strategySettings.breakdownEnabled, so this row will read "no history" on both
-      // boxes — which is the correct thing for a board to show about a setup that
-      // exists and has never been armed, and is precisely why the list is hardcoded
-      // rather than derived from the data.
+      // Added 2026-08-28 with the setup itself, and ARMED 2026-09-02 on both boxes. It
+      // read "no history on both boxes" while it was gated off; that is now the wrong
+      // expectation and this row should begin accumulating real fills. Keeping the list
+      // hardcoded is still right - it is what let the row exist through the whole
+      // disarmed period instead of appearing out of nowhere on the day it was armed.
       "BREAKDOWN",
     ];
     // Below this many closed fills a win rate is noise, not a verdict. Same floor

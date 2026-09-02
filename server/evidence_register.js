@@ -859,7 +859,10 @@ const CLAIMS = [
     // had to be BUILT before it could be measured at all.
     id: "breakdown",
     title: "BREAKDOWN — a short trend-continuation setup, the mirror of MOMENTUM",
-    status: STATUS.MEASURED_NO_EDGE,
+    // INCONCLUSIVE, not MEASURED_NO_EDGE: the system-level result is positive and holds
+    // at every gate tested, while the cohort's own worst fold is negative. "No edge" was
+    // true of the original measurement and is no longer true of this one.
+    status: STATUS.INCONCLUSIVE,
     measuredOn: "2026-09-02",
     evidence: "The engine had EIGHT long branches and FOUR short ones, and the gap was a "
       + "whole CATEGORY: DIVERGENCE and SQUEEZE_BREAKOUT are symmetric pairs, the long "
@@ -877,8 +880,19 @@ const CLAIMS = [
       + "SIGN FLIPPED from -0.368 to +0.063 - its own losses were a ruler artifact. It "
       + "still fails: worst fold is negative, and it drags the SYSTEM's worst fold from "
       + "+0.055 to +0.031.",
-    caveat: "It ships OFF and stays off: strategySettings.breakdownEnabled defaults false "
-      + "and neither box carries the key. The branch sits LAST in the else-if chain so it "
+    caveat: "ARMED 2026-09-02 ON BOTH BOXES by operator decision, OVERRIDING this "
+      + "harness's DO-NOT-SHIP. The failing check is the cohort's own worst fold "
+      + "(-0.675, concentrated in 2022-11..2024-03, a trend short losing through a "
+      + "year-long rally); the system-level check PASSES. The reasons given: the "
+      + "accounts are DEMO so a bad fold costs data rather than money, and the binding "
+      + "constraint is short-side sample size - the journal holds 2 SELL trades in its "
+      + "entire life against 8 BUY. Disarm with POST /api/strategy-settings "
+      + "{breakdownEnabled:false}, effective immediately, no restart. "
+      + "UNMEASURED AND STATED RATHER THAN HIDDEN: the harness models per-symbol "
+      + "occupancy but NOT the global maxConcurrentPositions cap of 3, which "
+      + "mt5_bridge.py enforces direction-blind across all three assets - a whole new "
+      + "short category raises demand on those shared slots and can displace longs on "
+      + "OTHER symbols. The branch sits LAST in the else-if chain so it "
       + "can only convert a cycle that was already WAIT - proven, not argued, by "
       + "replaying both sides of the edit with the flag off and getting byte-identical "
       + "trade lists on all three assets. THE REASON IT FAILS HAS COMPLETELY INVERTED. "
