@@ -36,9 +36,23 @@ const { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, "..");
 const HOME = process.env.USERPROFILE || os.homedir();
 
-// Where the two archives land. Both are ON THE LAPTOP by design: this is the one bucket.
-const LAPTOP_ARCHIVE = path.join(HOME, "Documents", "Brain-backups");   // this box's own
-const VPS_ARCHIVE = path.join(ROOT, "vps-backups");                     // pulled from the VPS
+// BOX-AWARE, and the first version was not — which produced the single most dangerous
+// output this tool could give.
+//
+// Run on the VPS on 2026-09-02 it looked in the LAPTOP's paths, found nothing, and printed
+// "Everything this bucket should protect is unprotected" — twice. That box was holding 62
+// vault zips at C:\vault-backups and 14 of its own at C:\ai-trading-dashboard-backups, the
+// newest of each from that evening. A false all-clear gets you eventually; a false
+// EVERYTHING-IS-LOST gets you immediately, because the natural response is to start
+// restoring over good data.
+//
+// Each box holds TWO archives: its own, and the peer's pushed or pulled to it.
+const ON_VPS = !/[\\/]Users[\\/]/i.test(ROOT);
+const ARCHIVES = ON_VPS
+  ? { ownLabel: "VPS's own data",       own:  "C:/ai-trading-dashboard-backups",
+      peerLabel: "LAPTOP's data, pushed here", peer: "C:/vault-backups" }
+  : { ownLabel: "LAPTOP's own data",    own:  path.join(HOME, "Documents", "Brain-backups"),
+      peerLabel: "VPS's data, pulled here",    peer: path.join(ROOT, "vps-backups") };
 
 // Every archive should be newer than this or the work since is unprotected. 5h, because
 // both jobs now repeat every 4h — one missed run is tolerated, two is a problem.
