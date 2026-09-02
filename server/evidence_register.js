@@ -901,8 +901,20 @@ const CLAIMS = [
       + "with at least 3 of 5 folds scoring AND a system worst fold no lower than "
       + "baseline. The band is derived from momentumRsiMax, so an RSI-ceiling sweep "
       + "moves this too.",
-    harness: "MTF_MAX_HOLD=320 node tasks/breakdown_walkforward.cjs",
-    sampleAtWriting: { closedAtGate: 55, foldsScored: 4 },
+    followUp: "OCCUPANCY CORRECTED 2026-09-02, and it reverses the system verdict. The "
+      + "replay modelled ONE position per symbol; server/sizing.js's live guard was "
+      + "narrowed to DIRECTION-AWARE on 2026-08-30 by operator decision, so live a short "
+      + "and a long can be held on the same symbol at once. Re-run with "
+      + "MTF_DIRECTIONAL_OCCUPANCY=1 (harness default OFF, verified byte-identical on "
+      + "XAUUSD with it unset): displacement falls from +14.33R to +2.95R, and "
+      + "systemNotMadeWorse FLIPS TO PASS - system worst fold 0.149 -> 0.261 and "
+      + "R/trade 0.325 -> 0.349 at gate 70. Arming BREAKDOWN improves the portfolio at "
+      + "EVERY gate 55/60/65/70. The sole remaining failure is the cohort's own worst "
+      + "fold, -0.675, which falls in fold 3 (2022-11 to 2024-03) - a trend-short losing "
+      + "through a year-long rally, the expected result rather than a defect. STILL OFF: "
+      + "arming it is an operator decision, not something a harness verdict authorises.",
+    harness: "MTF_MAX_HOLD=320 MTF_DIRECTIONAL_OCCUPANCY=1 node tasks/breakdown_walkforward.cjs",
+    sampleAtWriting: { closedAtGate: 54, foldsScored: 5 },
     sampleTolerance: 0.5,
     feedsTheGate: false,
   },
