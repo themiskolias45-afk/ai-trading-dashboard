@@ -102,7 +102,12 @@ function localHashes(dir, glob) {
 function vpsHashes(buckets) {
   const specs = buckets.map(b => "'" + VPS_ROOT + "/" + b.local + "'").join(",");
   const remote = VPS_ROOT + "/tasks/logs/fleet_buckets.txt";
-  ssh('powershell -NoProfile -Command "$o=@(); foreach($d in @(' + specs + ')){ if(Test-Path $d){ Get-ChildItem $d -File | ForEach-Object { $o += ($d + \'|\' + $_.Name + \'|\' + (Get-FileHash $_.FullName -Algorithm SHA256).Hash) } } }; $o | Set-Content \'' + remote + '\' -Encoding ascii"');
+  // THE REMOTE FILTER MUST MATCH THE LOCAL ONE. The first version listed EVERY file on the
+  // VPS while the local side globbed .cjs/.py/.ps1/.md, so 228 .bat/.json/.jsonl files
+  // reported as "VPS-ONLY — a one-way push would DESTROY these". Alarming, and entirely an
+  // artifact of comparing two different questions. A comparison whose two halves ask
+  // different things produces a confident wrong answer.
+  ssh('powershell -NoProfile -Command "$o=@(); foreach($d in @(' + specs + ')){ if(Test-Path $d){ Get-ChildItem $d -File | Where-Object { $_.Name -match \'\\.(cjs|py|ps1|md)$\' } | ForEach-Object { $o += ($d + \'|\' + $_.Name + \'|\' + (Get-FileHash $_.FullName -Algorithm SHA256).Hash) } } }; $o | Set-Content \'' + remote + '\' -Encoding ascii"');
   const raw = ssh('powershell -NoProfile -Command "Get-Content \'' + remote + '\'"');
   const byDir = new Map();
   for (const line of raw.split(/\r?\n/)) {
