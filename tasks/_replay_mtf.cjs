@@ -131,6 +131,14 @@ const CONST_OVERRIDES = {};
 const BOOL_ENV_FLAGS = [
   ["MTF_SELL_BOUNCE_REQUIRE_DOWNTREND", "SELL_BOUNCE_REQUIRE_DOWNTREND"],
   ["MTF_TREND_FOLLOW_REQUIRE_MACD",     "TREND_FOLLOW_REQUIRE_MACD_BULLISH"],
+  // MOMENTUM and BUY_DIP added 2026-09-03. There are THREE MACD-bullish requirements in
+  // the engine and only TREND_FOLLOW's could be tested, so "the MACD block was measured"
+  // was only ever true of one third of it. On 2026-09-02 all three live assets were
+  // blocked with EVERY other condition passing - BTC hist -203.01, Gold -28.44, SPX
+  // -14.00 - which makes these the single most load-bearing booleans in the engine and
+  // two of them had no way to be measured at all.
+  ["MTF_MOMENTUM_REQUIRE_MACD",         "MOMENTUM_REQUIRE_MACD_BULLISH"],
+  ["MTF_BUY_DIP_REQUIRE_MACD",          "BUY_DIP_REQUIRE_MACD_BULLISH"],
 ];
 for (const [envName, constName] of BOOL_ENV_FLAGS) {
   if (process.env[envName] === undefined) continue;
