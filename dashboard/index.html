@@ -1650,6 +1650,20 @@
         </select>
         <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-partial-hint">off = the position runs to the stop and target it opened with</div>
       </div>
+      <!-- BREAKDOWN, the short mirror of MOMENTUM. Armed 2026-09-02 on both boxes.
+           This control exists because arming it without one meant the UNDO was a
+           hand-edit of strategy_settings.json plus a full server restart, while the DO
+           was a config key - and a switch whose off is harder than its on is not a
+           safety control. The engine has three long trend setups and none for shorts,
+           so this is the only path to a trend-following short. -->
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Short Trend Setup</div>
+        <select id="ss-breakdown" style="width:130px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+          <option value="off">OFF</option>
+          <option value="on">ON &mdash; BREAKDOWN</option>
+        </select>
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-breakdown-hint">off = long-only; the engine cannot sell a downtrend at all</div>
+      </div>
       <div style="grid-column:1/-1;display:flex;align-items:center;gap:12px">
         <button onclick="saveStrategySettings()" style="padding:8px 18px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.45);color:var(--blue);border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer">Save Settings</button>
         <span id="ss-msg" style="font-size:.7rem;color:var(--muted)"></span>
@@ -5147,6 +5161,7 @@ async function loadStrategySettings() {
     // reads as OFF, because the failure direction that costs money is showing OFF
     // while the bridge is scaling out, not the reverse.
     document.getElementById('ss-partial').value = s.partialCloseEnabled === true ? 'on' : 'off';
+    document.getElementById('ss-breakdown').value = s.breakdownEnabled === true ? 'on' : 'off';
 
     // Show the real allowed range so a rejected value is never a surprise.
     if (strategyLimits) {
@@ -5295,6 +5310,7 @@ async function saveStrategySettings() {
     maxLotSize:             Number(document.getElementById('ss-maxlot').value),
     minStrength:            document.getElementById('ss-minstrength').value,
     partialCloseEnabled:    document.getElementById('ss-partial').value === 'on',
+    breakdownEnabled:       document.getElementById('ss-breakdown').value === 'on',
   };
   // The RSI ceilings are added ONLY when their box holds a real number.
   //
@@ -5326,6 +5342,7 @@ async function saveStrategySettings() {
     maxLotSize:             "Max lot size",
     minStrength:            "Min strength",
     partialCloseEnabled:    "Scale out at 1R",
+    breakdownEnabled:       "Short trend setup (BREAKDOWN)",
     momentumRsiMax:         "RSI ceiling (momentum)",
     trendFollowRsiMax:      "RSI ceiling (trend follow)",
   };
