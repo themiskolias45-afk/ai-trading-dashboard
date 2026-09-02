@@ -118,12 +118,28 @@ $principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunL
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($trigger, $cim) `
-    -Settings $settings -Principal $principal `
-    -Description ("Union-syncs the laptop and VPS memory corpora. Never deletes; a file " +
-                  "differing on both boxes is reported and left alone. Runs at $AtLocal " +
-                  "local and every $RepeatHours h, plus on unlock, because the laptop is " +
-                  "not on 24/7 and the VPS nightly at 05:30Z needs a fresh brain.") | Out-Null
+# THE UNLOCK TRIGGER IS BEST-EFFORT, NOT REQUIRED.
+#
+# Registering a session-state-change trigger needs elevation - measured here, it failed
+# with HRESULT 0x80070005 "Access is denied" while the identical call WITHOUT it succeeds
+# unelevated. Making it fatal would mean this task installs only from an admin shell, and
+# a sync that is not installed is strictly worse than one that misses the lid-open case.
+#
+# The 4-hourly repetition plus StartWhenAvailable already covers a sleeping laptop: any
+# wake gets a sync within the interval. The unlock trigger only makes that immediate.
+$desc = "Union-syncs the laptop and VPS memory corpora. Never deletes; a file differing " +
+        "on both boxes is reported and left alone. Runs at $AtLocal local and every " +
+        "$RepeatHours h, because the laptop is not on 24/7 and the VPS nightly at 05:30Z " +
+        "needs a fresh brain."
+$withUnlock = $true
+try {
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($trigger, $cim) `
+        -Settings $settings -Principal $principal -Description ($desc + " Also on unlock.") | Out-Null
+} catch {
+    $withUnlock = $false
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+        -Settings $settings -Principal $principal -Description $desc | Out-Null
+}
 
 $info = Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo
 "Registered '$TaskName' as $me."
