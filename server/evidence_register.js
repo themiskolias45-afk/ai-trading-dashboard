@@ -435,6 +435,36 @@ const CLAIMS = [
     feedsTheGate: false,
   },
   {
+    id: "shortside",
+    title: "The short side misses only where it cannot trade",
+    status: STATUS.MEASURED_NO_EDGE,
+    measuredOn: "2026-09-02",
+    evidence: "Three independent samples, same direction. (1) Near-miss census: 18 "
+      + "short rows, 13 on M15 and 5 on H1, ZERO on D1/H4 — and confidence starts from "
+      + "the DAILY (generateSignalMTF, `daily.signal === 'WAIT' ? 0 : 40`), with m15 "
+      + "explicitly outside the confidence maths, so no M15 near miss can become a fill "
+      + "however close. (2) Rejection ledger 2026-08-07..09-02: 633 SELL rejections but "
+      + "only 82 rows on D1/H4, deduping to 17 EPISODES; of the 9 resolved, 0 would have "
+      + "won (CONFIDENCE -5.25R/5, MIN_RR -3.15R/3, DUPLICATE -1.05R/1). The tightest "
+      + "miss in the window — XAUUSD D1 RANGE_TRADE_SHORT rr 1.459 vs the 1.5 floor, "
+      + "short by 0.041 — resolved to STOP, -1.05R. (3) shadow_shorts_scored.jsonl, 243 "
+      + "episodes over ten weeks at H1: -18.15R total, -0.075R/trade, 32.5% win (spx "
+      + "-10.35R, btc -7.80R, gold exactly 0.00).",
+    caveat: "9 resolved episodes is BELOW the 5-per-gate verdict floor for any per-gate "
+      + "claim (MIN_RR has 3). These are forgone PAPER trades: no spread, no slippage, "
+      + "fixed horizon. The direction is unanimous across three samples, not powered by "
+      + "any one of them. Separately, 24 of the 30 CONFIDENCE rejections sit at exactly "
+      + "40 against a gate of 70 — the daily-fires-while-H4-waits collapse, which is "
+      + "structural distance, not a near miss.",
+    changesTheAnswer: "A D1 or H4 short near miss inside 1 RSI point or 0.05 R, repeated "
+      + "across several DISTINCT episodes, whose scored outcomes are net positive. Watch "
+      + "/api/near-miss for the first row whose timeframe is D1 or H4 — there has never "
+      + "been one. Do NOT act on the M15 rows: wiring M15 into confidence would be a new "
+      + "signal path, and the census was built to be read, not obeyed.",
+    harness: "GET /api/near-miss; tasks/rejections_scored.jsonl; tasks/shadow_shorts_scored.jsonl",
+    feedsTheGate: false,
+  },
+  {
     id: "amd",
     title: "AMD (Accumulation / Manipulation / Distribution)",
     status: STATUS.MEASURED_NO_EDGE,
