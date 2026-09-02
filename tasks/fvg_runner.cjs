@@ -56,6 +56,13 @@ const ATR_PERIOD       = 14;
 const MAX_RR           = 5;
 const RETEST_BARS      = 40;   // exec bars allowed for price to come back to the gap
 const EXEC_WINDOW      = 60;   // trailing window the detector sees, as in the backtest
+// COOLDOWN, and it is not cosmetic. The measured model advances `lastEntry = eIdx + 20`
+// after every fill, so it takes ONE trade per displacement episode. Without it the runner
+// re-enters the same episode and fires 29% more often -- 5.17 setups per 1,000 bars
+// against the backtest's 4.0, measured by tasks/fvg_parity.cjs. A live model that trades
+// more often than the one that was walk-forwarded is not the model that was validated,
+// however similar it looks.
+const COOLDOWN_BARS    = 20;
 
 function get(urlPath) {
   return new Promise((resolve, reject) => {
@@ -96,6 +103,25 @@ const sliceBars = (b, from, to) => ({
   closes: b.closes.slice(from, to), times: (b.times || []).slice(from, to),
 });
 
+// The most recent recorded entry bar time for an asset, so the cooldown survives a
+// restart. Held in the FILE rather than in memory for the same reason the dedupe key is:
+// an in-memory cooldown forgets on every restart and the runner double-enters.
+function lastEntryTime(asset) {
+  if (!fs.existsSync(LEDGER)) return null;
+  let latest = null;
+  for (const raw of fs.readFileSync(LEDGER, "utf8").split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    try {
+      const row = JSON.parse(line);
+      if (row.asset === asset && Number.isFinite(row.entryBarTime)) {
+        if (latest === null || row.entryBarTime > latest) latest = row.entryBarTime;
+      }
+    } catch (e) { /* corrupt row skipped, never silently dropped from the count above */ }
+  }
+  return latest;
+}
+
 function alreadyLogged(key) {
   if (!fs.existsSync(LEDGER)) return false;
   // Read rather than hold in memory: the runner is meant to survive a restart without
@@ -110,11 +136,21 @@ function alreadyLogged(key) {
   return false;
 }
 
-/** Returns a setup object when the CURRENT exec bar completes a valid entry, else null. */
-function evaluate(assetKey, symbol, bias, exec) {
+/**
+ * Returns a setup object when the CURRENT exec bar completes a valid entry, else null.
+ * `sinceLastEntry` is the exec-bar time of this asset's previous entry, used to enforce
+ * the same one-trade-per-episode cooldown the measured model applies.
+ */
+function evaluate(assetKey, symbol, bias, exec, sinceLastEntry) {
   const bi = bias.closes.length - 1;
   const ei = exec.closes.length - 1;
   if (bi < 200 || ei < EXEC_WINDOW + 2) return null;
+
+  // COOLDOWN -- parity with the measured model, which takes one trade per episode.
+  if (Number.isFinite(sinceLastEntry) && exec.times && exec.times[ei]) {
+    const barSeconds = exec.times.length > 1 ? (exec.times[ei] - exec.times[ei - 1]) : 900;
+    if (exec.times[ei] - sinceLastEntry < COOLDOWN_BARS * barSeconds) return null;
+  }
 
   const e50 = emaAt(bias.closes, bi, 50), e200 = emaAt(bias.closes, bi, 200);
   if (e50 === null || e200 === null) return null;
@@ -192,7 +228,8 @@ async function tick() {
       if (VERBOSE) console.log("[fvg] " + assetKey + ": no h4/m15 bars");
       continue;
     }
-    const setup = evaluate(assetKey, entry.symbol || assetKey, bars.h4, bars.m15);
+    const setup = evaluate(assetKey, entry.symbol || assetKey, bars.h4, bars.m15,
+      lastEntryTime(assetKey));
     if (!setup) { if (VERBOSE) console.log("[fvg] " + assetKey + ": no setup"); continue; }
     if (alreadyLogged(setup.key)) { if (VERBOSE) console.log("[fvg] " + assetKey + ": already recorded"); continue; }
     fs.appendFileSync(LEDGER, JSON.stringify(setup) + "\n", "utf8");
@@ -204,11 +241,19 @@ async function tick() {
   if (!found) console.log("[fvg] " + new Date().toISOString() + " no new setups");
 }
 
-(async () => {
-  console.log("FVG CONTINUATION runner — SHADOW ONLY, places no orders. host " + HOST);
-  await tick();
-  if (ONCE) return;
-  // 15-minute cadence matches the execution timeframe: checking more often cannot find a
-  // setup that needs a closed m15 bar to exist.
-  setInterval(tick, 15 * 60 * 1000);
-})();
+// Exported so tasks/fvg_parity.cjs can replay the archive through THIS code and check it
+// finds what the backtest counted. A live runner that quietly differs from the model it
+// claims to implement is the whole reason the shadow stage exists, and the only way to
+// catch it is to run one function against both feeds.
+module.exports = { evaluate, DISPLACEMENT_ATR, MAX_RR, RETEST_BARS, EXEC_WINDOW, COOLDOWN_BARS };
+
+if (require.main === module) {
+  (async () => {
+    console.log("FVG CONTINUATION runner — SHADOW ONLY, places no orders. host " + HOST);
+    await tick();
+    if (ONCE) return;
+    // 15-minute cadence matches the execution timeframe: checking more often cannot find
+    // a setup that needs a closed m15 bar to exist.
+    setInterval(tick, 15 * 60 * 1000);
+  })();
+}

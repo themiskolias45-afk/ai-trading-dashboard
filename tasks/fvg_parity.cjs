@@ -28,7 +28,7 @@
 const fs   = require("fs");
 const path = require("path");
 const ROOT = path.join(__dirname, "..");
-const { evaluate, EXEC_WINDOW } = require(path.join(ROOT, "tasks", "fvg_runner.cjs"));
+const { evaluate, EXEC_WINDOW, COOLDOWN_BARS } = require(path.join(ROOT, "tasks", "fvg_runner.cjs"));
 
 function strArg(f, d) { const i = process.argv.indexOf(f); return (i === -1 || i + 1 >= process.argv.length) ? d : process.argv[i + 1]; }
 function numArg(f, d) { const i = process.argv.indexOf(f); if (i === -1) return d; const v = Number(process.argv[i + 1]); return Number.isFinite(v) ? v : d; }
@@ -76,6 +76,7 @@ for (const symbol of SYMBOLS) {
   const from = Math.max(EXEC_WINDOW + 3, exec.closes.length - TAIL);
   let setups = 0;
   let biasCursor = 0;
+  let lastEntry = null;
   const seen = new Set();
   for (let i = from; i < exec.closes.length; i++) {
     // The bias series the runner would have had: every h4 bar CLOSED by this m15 bar's
@@ -84,8 +85,10 @@ for (const symbol of SYMBOLS) {
     const tNow = exec.times[i];
     while (biasCursor + 1 < bias.times.length && bias.times[biasCursor + 1] + 14400 <= tNow) biasCursor++;
     if (biasCursor < 200) continue;
-    const setup = evaluate(symbol, symbol, upTo(bias, biasCursor), upTo(exec, i));
-    if (setup && !seen.has(setup.key)) { seen.add(setup.key); setups++; }
+    // The cooldown is fed the same way the live runner feeds it -- from the previous
+    // recorded entry -- so the replay exercises the real path, not a simplified one.
+    const setup = evaluate(symbol, symbol, upTo(bias, biasCursor), upTo(exec, i), lastEntry);
+    if (setup && !seen.has(setup.key)) { seen.add(setup.key); setups++; lastEntry = exec.times[i]; }
   }
   const walked = exec.closes.length - from;
   const days = (exec.times[exec.closes.length - 1] - exec.times[from]) / 86400;
