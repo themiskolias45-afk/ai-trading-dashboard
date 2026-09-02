@@ -71,3 +71,31 @@ tasks/stop_variants.jsonl
 
 # Regenerable Yahoo bar cache for tasks/instrument_universe_scan.cjs
 tasks/history_yahoo/
+
+# Timestamped pre-edit backups: <file>.bak-<label>-<timestamp>.
+#
+# NOT a cleanup rule. Rule 4 says copy before you rewrite, and these are that rule
+# working -- roughly 90 of them, and every one stays exactly where it is. Nothing here
+# deletes anything; the files simply stop being reported as untracked.
+#
+# The reason is signal, not tidiness. `git status` had grown to ~190 lines with about
+# half of it backups, and the standing rule "never leave server/index.js with
+# uncommitted changes" cannot be checked against output nobody can read. A real
+# modification to a trading file was indistinguishable from backup noise.
+#
+# `*.json.bak` above catches an older convention and matches none of these, which is
+# why they accumulated in the first place.
+*.bak-*
+*.bak-*/
+
+# EXCEPT tasks/snapshots/ — four TRACKED files match the pattern above:
+#   tasks/snapshots/.bak-20260829_105937/{gate-health,performance,signals}.schema.json
+#   tasks/snapshots/signals.schema.json.bak-premacro-20260831_103027
+# They are the API-shape baselines api_snapshot.cjs compares against, and that check
+# runs from post-edit-check on every server/index.js edit. Git does not untrack a file
+# because of a new ignore rule, so they were never actually at risk — this negation
+# exists so they cannot become at risk later, in a fresh clone or after a stray
+# `git rm --cached`. A regression baseline that silently stops being compared is the
+# exact shape of the failure 156 commits in this repo describe as "silently".
+!tasks/snapshots/
+!tasks/snapshots/**
