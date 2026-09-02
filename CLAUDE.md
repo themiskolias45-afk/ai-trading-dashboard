@@ -287,14 +287,16 @@ silently resolved.
   range is neither function):
   - Daily + H4 **agree** → 72 / 88 / 95.
   - Daily + H4 + H1 **all agree** → 88 / 97. This is a **BONUS branch, not a gate.**
-  - Daily fires while **H4 says WAIT** → **72 on Gold**, which clears the gate (65 since
-    2026-09-01, and cleared 70 before it) with H4 not agreeing. Gold-only and evidenced
+  - Daily fires while **H4 says WAIT** → **72 on Gold**, which clears the gate (70; it
+    was 65 for part of 2026-09-01 and cleared either) with H4 not agreeing. Gold-only and evidenced
     (+0.464R over 424 held-out trades), but it is a real path to a fill without H4
     confirmation.
-  - H4-only, daily WAIT → 55 / 63 / 68. **This band moved when the gate did**: at 70 all
-    three sat below it, at 65 the 68 cohort now CLEARS without boosts and the 63 is two
-    points away. Lowering the gate admitted a cohort this file used to describe as
-    unreachable — check this line before quoting "H4-only cannot fire".
+  - H4-only, daily WAIT → 55 / 63 / 68. **This band moves with the gate, so re-read it
+    whenever the gate moves.** At the live gate of 70 all three sit BELOW it and the
+    cohort cannot fire without boosts. During the 65 excursion on 2026-09-01 the 68
+    cohort cleared unaided and the 63 was two points away. The gate is back at 70, so
+    "H4-only cannot fire without boosts" is true again — but it is true by CONFIGURATION,
+    not by construction, and it silently reverses the moment the gate drops below 68.
   **`h1` appears exactly TWICE in the whole engine** — the bonus at :2909 and the
   payload copy at :3221. **No branch anywhere lets H1 reduce confidence or block a
   setup**, and the bridge never reads `h1` or `m15` to refuse a trade. A bearish H1 and
@@ -308,11 +310,20 @@ silently resolved.
   `crossedBearish: true`. The label says where price IS, never where it is going. The
   setup that fires there is named `BUY_OVERSOLD` and buys the fall on purpose — H4 RSI
   27.2, H1 RSI 23.7 that day. Both readings are correct; they measure different things.
-- **The gate is 65.** Moved 70 → 65 by the user on 2026-09-01, deliberately, for trade
-  FREQUENCY. Verified on both boxes the same day: `FLEET AGREES`, local 65 / peer 65,
-  `settingsError` null on each, no BOM, `ENGINES AGREE` at 0 drift. **Never quote 70
-  from this file again** — it said 70 for hours after the change and that is the first
-  line every session reads.
+- **The gate is 70.** Verified on both boxes 2026-09-02: laptop 70, VPS 70,
+  `settingsError` null on each. `server/strategy_settings.json` carries
+  `"confidenceThreshold": 70`, `updatedAt 2026-09-01T17:07:14Z`, `updatedBy dashboard`.
+  - **It was 65 for part of 2026-09-01, and this file went on saying so for a day after
+    it changed back.** The user moved 70 → 65 that morning for trade FREQUENCY, then set
+    it back to 70 from the dashboard at 17:07Z the same day. The bullet that stood here
+    announced 65 in bold and instructed the reader to "never quote 70 from this file
+    again" — so the correction written to stop this file lagging the config became,
+    within hours, the longest-lived wrong claim in it. That is precisely the failure this
+    bullet exists to prevent, committed by the bullet itself.
+  - **So do not trust this line either.** `GET /api/strategy-settings` is the only
+    authority, and `node tasks/config_drift.cjs` flags this file the moment it drifts
+    again — it is what caught this. If `settingsError` is non-null the server is running
+    on built-in defaults rather than the saved config: say so before anything else.
   - The choice, `MTF_MAX_HOLD=320`, 5 folds, 0.05R, from the baseline table of
     `tasks/breakdown_walkforward.cjs`. **Every gate 45–85 is 5/5 positive at this
     horizon**, so this is frequency vs per-trade quality, NOT good vs bad:
@@ -326,7 +337,10 @@ silently resolved.
 
     65 buys ~9% more trades at a worst fold of +0.053 against 70's +0.055 — effectively
     unchanged — for about 5% less total R (159R vs 168R). Total R peaks at 70; COUNT is
-    what 65 buys, and sample size is the binding constraint.
+    what 65 would buy, and sample size is the binding constraint. **This table is the
+    argument FOR 65 while the live gate is 70.** That is a standing disagreement between
+    the evidence and the setting, not an error in either — 65 was tried and reverted the
+    same day. Whoever moves it next should say which of the two they are acting on.
   - **THE OLD NUMBERS IN THIS BULLET WERE PROBABLY AN ARTIFACT.** It used to report the
     2026-08-18 run as 4/5 with "65 DEGRADED to 2/5 UNSTABLE" and "85 negative in 4 of 4".
     That run used the harness default `MTF_MAX_HOLD=40`, which scores an unresolved trade
