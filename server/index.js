@@ -11768,7 +11768,21 @@ app.get("/api/measured-evidence", (_, res) => {
 // trigger nightly to keep the hour before the open clear of high-impact news -- on
 // 2026-08-26 it moved 13:00 -> 12:45 local for Core PCE. A number copied out of a
 // schedule that moves is the same stale-claim class this project keeps finding.
-const PREOPEN_PLAN_STALE_MINUTES = 24 * 60;   // one full cycle: past this, a run was skipped
+// ANCHORED ON THE OPEN, NOT ON THE CLOCK. `overdue` asks "did we reach an open with no
+// plan for it?", because the New York open is FIXED at 13:00Z while the run slot is
+// not -- tasks/reschedule_preopen.ps1 moves it 60-180 minutes before the open to dodge
+// high-impact news. An age-based test measures the moving thing against a fixed
+// threshold, so the day AFTER a shifted run it alarms before the healthy run lands:
+// measured against the real 2026-08-26 shift (11:45Z, then 12:00Z the next day), 14
+// minutes of OVERDUE with nothing wrong, and up to ~2h at the ends of the slot range.
+// A check built to stop crying wolf must not cry wolf. The trade is ~1 hour of later
+// detection for zero false alarms, which is the right way round for an alarm nobody
+// is paged by.
+const PREOPEN_PLAN_MISSED_OPEN_MINUTES = 24 * 60;   // one open to the next
+// Corruption backstop ONLY, for a plan whose nextNewYorkOpen is present but absurd --
+// a far-future date would otherwise read as fresh forever. Deliberately 48h, not 24h,
+// so no slot shift can ever reach it.
+const PREOPEN_PLAN_ABSURD_AGE_MINUTES = 48 * 60;
 app.get("/api/preopen-plan", (_, res) => {
   const file = path.join(__dirname, "..", "tasks", "analysis", "preopen-plan-latest.json");
   try {
@@ -11798,7 +11812,7 @@ app.get("/api/preopen-plan", (_, res) => {
     if (!Number.isFinite(ageMinutes)) {
       state = "overdue";
       stateReason = "this plan carries no usable generatedAt";
-    } else if (ageMinutes > PREOPEN_PLAN_STALE_MINUTES) {
+    } else if (ageMinutes > PREOPEN_PLAN_ABSURD_AGE_MINUTES) {
       // No age repeated here: the panel already prints it beside this sentence.
       state = "overdue";
       stateReason = "a scheduled pre-open run has been skipped — no newer plan exists";
@@ -11808,6 +11822,12 @@ app.get("/api/preopen-plan", (_, res) => {
       state = "overdue";
       stateReason = "this plan carries no nextNewYorkOpen, so it cannot be checked "
                   + "against the session it was built for";
+    } else if (minutesSinceOpen > PREOPEN_PLAN_MISSED_OPEN_MINUTES) {
+      // We have passed a whole open-to-open cycle on this plan, so the run that should
+      // have produced a newer one did not. Slot-independent by construction.
+      state = "overdue";
+      stateReason = "a scheduled pre-open run has been skipped — the NEW YORK open this "
+                  + "was built for was more than a full day ago and no newer plan exists";
     } else if (minutesSinceOpen > 0) {
       // NOT an alarm. Expected for most of the day; the next scheduled run replaces it.
       state = "past-open";
@@ -11827,7 +11847,9 @@ app.get("/api/preopen-plan", (_, res) => {
       stale: state === "overdue",
       staleReason: state === "overdue" ? stateReason : null,
       minutesSinceOpen,
-      staleAfterMinutes: PREOPEN_PLAN_STALE_MINUTES,
+      // Kept under its old name so an OLD CACHED BUNDLE still reads something sane:
+      // dashboard/sw.js caches ./index.html, so a browser can be a version behind.
+      staleAfterMinutes: PREOPEN_PLAN_MISSED_OPEN_MINUTES,
       plan,
       feedsTheGate: false,
     });

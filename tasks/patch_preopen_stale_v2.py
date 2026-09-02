@@ -22,7 +22,14 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHECK = "--check" in sys.argv
-MARKER = "past-open"
+# PER-FILE markers. A single shared marker was wrong: the dashboard half did not change
+# between v2 and v3, so a server-side marker made the patcher try to re-apply anchors the
+# dashboard had already consumed, and it correctly REFUSED rather than guessing. Each file
+# is now asked whether IT is current, not whether the change as a whole shipped.
+MARKERS = {
+    os.path.join("server", "index.js"): "PREOPEN_PLAN_MISSED_OPEN_MINUTES",
+    os.path.join("dashboard", "index.html"): "past-open",
+}
 
 BLOCKS = json.load(io.open(os.path.join(ROOT, "tasks", "_preopen_v2_blocks.json"),
                            encoding="utf-8"))
@@ -93,13 +100,14 @@ def apply(rel_path, hunks):
     if not os.path.exists(path):
         print("MISSING  " + rel_path)
         return 1
-    if MARKER in io.open(path, encoding="utf-8").read():
+    marker = MARKERS[rel_path]
+    if marker in io.open(path, encoding="utf-8").read():
         print("ALREADY  " + rel_path)
         return 0
     if not CHECK and not restore_original(path):
         return 1
     src = io.open(path, encoding="utf-8").read()
-    if CHECK and MARKER not in src:
+    if CHECK and marker not in src:
         # Report against the ORIGINAL, which is what the real run will patch.
         backup = path + ".bak-preopen"
         if os.path.exists(backup):
