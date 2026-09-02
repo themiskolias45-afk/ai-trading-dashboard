@@ -137,7 +137,7 @@ for (const symbol of SYMBOLS) {
   try { trades = replay(symbol, meta.ticker); }
   catch (e) { say("  " + pad(symbol, 9) + "ERROR " + e.message.slice(0, 60)); continue; }
 
-  const gated = trades.filter(t => (t.conf ?? 0) >= GATE && Number.isFinite(t.r));
+  const gated = trades.filter(t => (t.conf ?? 0) >= GATE && realisedOf(t) !== null);
   const withRisk = gated.filter(t => riskOf(t) !== null);
   if (!gated.length) { say("  " + pad(symbol, 9) + "no trades at gate " + GATE); continue; }
   if (!withRisk.length) {
@@ -148,7 +148,7 @@ for (const symbol of SYMBOLS) {
 
   const risks = withRisk.map(riskOf).sort((a, b) => a - b);
   const medRisk = risks[Math.floor(risks.length / 2)];
-  const grossR = withRisk.reduce((a, t) => a + t.r, 0);
+  const grossR = withRisk.reduce((a, t) => a + realisedOf(t), 0);
   const costs  = withRisk.map(t => meta.spread / riskOf(t));
   const totalCost = costs.reduce((a, c) => a + c, 0);
   const netR = grossR - totalCost;

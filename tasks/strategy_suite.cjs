@@ -37,7 +37,7 @@ const fs   = require("fs");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
-const { detectCRT }  = require(path.join(ROOT, "server", "structure.js"));
+const { detectCRT, detectAMD } = require(path.join(ROOT, "server", "structure.js"));
 const { detectFVGs } = require(path.join(ROOT, "server", "fvg.js"));
 
 const TF_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
@@ -242,7 +242,6 @@ function modelCrtFvg(bias, exec, out, opts) {
     const crt = found && found.patterns ? found.patterns.find(p => p.barsAgo === 0) : null;
     if (!crt) continue;
     const direction = crt.direction === "bearish" ? "bearish" : "bullish";
-    if (REQUIRE_HTF && !htfAligned(bias, b, direction)) continue;
 
     const start = at(bias.times[b] + biasSec);
     if (start === -1 || start + EXEC_WINDOW >= exec.times.length) continue;
@@ -268,12 +267,7 @@ function modelCrtFvg(bias, exec, out, opts) {
     // EMA RECLAIM -- the proposal's "high quality reversal" adds this on top of the
     // sweep. It is the ONLY difference between emarev and crtfvg, so the two columns
     // isolate exactly what the reclaim requirement is worth.
-    if (opts.requireReclaim) {
-      const e21 = emaAt(exec.closes, eIdx, 21);
-      if (e21 === null) continue;
-      const reclaimed = direction === "bullish" ? exec.closes[eIdx] > e21 : exec.closes[eIdx] < e21;
-      if (!reclaimed) continue;
-    }
+    if (!passesGates(opts.gates || {}, { bias, exec, b, eIdx, direction, crt })) continue;
     out.candidates++;
     record(out, exec, eIdx, direction, entry, crt.invalidation, crt.objective);
   }
@@ -389,24 +383,57 @@ function modelFvgCont(bias, exec, out) {
   }
 }
 
-const MODEL_FNS = {
-  crtfvg:   (b, e, o) => modelCrtFvg(b, e, o, { requireReclaim: false }),
-  emarev:   (b, e, o) => modelCrtFvg(b, e, o, { requireReclaim: true }),
-  pullback: (b, e, o) => modelPullback(b, e, o),
-  fvgcont:  (b, e, o) => modelFvgCont(b, e, o),
-};
-const MODEL_LABEL = {
-  crtfvg:   "CRT + FVG",
-  emarev:   "EMA reversal (CRT+FVG+reclaim)",
-  pullback: "Swing trend pullback",
-  fvgcont:  "FVG continuation",
-};
+// THE LADDER. Each rung is the base entry plus one more layer, so the difference between
+// two consecutive rows IS that layer's contribution -- in edge AND in trades given up.
+// Standalone models keep their own rungs because the instruction was not to ignore any of
+// them, and a combination is only worth building if it beats its parts.
+const LADDER = [
+  { key: "base",      label: "CRT + FVG (base)",            gates: {} },
+  { key: "htf",       label: "+ HTF bias",                  gates: { htf: 1 } },
+  { key: "struct",    label: "+ HTF + structure",           gates: { htf: 1, struct: 1 } },
+  { key: "disp",      label: "+ HTF + struct + displace",   gates: { htf: 1, struct: 1, disp: 1 } },
+  { key: "amd",       label: "+ ... + AMD",                 gates: { htf: 1, struct: 1, disp: 1, amd: 1 } },
+  { key: "pull",      label: "+ ... + pullback",            gates: { htf: 1, struct: 1, disp: 1, amd: 1, pullback: 1 } },
+  { key: "full",      label: "FULL STACK (+ EMA confirm)",  gates: { htf: 1, struct: 1, disp: 1, amd: 1, pullback: 1, ema: 1 } },
+];
+
+// Each layer added to the BASE on its own, which is the only way to tell a layer that
+// contributes from one that merely rides along with the layers before it.
+// PAIRS ON THE WINNING LAYER. The ladder showed that stacking everything annihilates the
+// sample; the solo table showed which single layer is worth having. This asks the only
+// question left: does a SECOND layer on top of that one add anything, or just cost trades.
+const PAIRS = [
+  { key: "p_ema_htf",  label: "EMA reclaim + HTF",          gates: { ema: 1, htf: 1 } },
+  { key: "p_ema_str",  label: "EMA reclaim + structure",    gates: { ema: 1, struct: 1 } },
+  { key: "p_ema_pul",  label: "EMA reclaim + pullback",     gates: { ema: 1, pullback: 1 } },
+  { key: "p_ema_dsp",  label: "EMA reclaim + displacement", gates: { ema: 1, disp: 1 } },
+];
+
+const SOLO = [
+  { key: "s_htf",  label: "base + HTF only",          gates: { htf: 1 } },
+  { key: "s_str",  label: "base + structure only",    gates: { struct: 1 } },
+  { key: "s_dsp",  label: "base + displacement only", gates: { disp: 1 } },
+  { key: "s_amd",  label: "base + AMD only",          gates: { amd: 1 } },
+  { key: "s_pul",  label: "base + pullback only",     gates: { pullback: 1 } },
+  { key: "s_ema",  label: "base + EMA reclaim only",  gates: { ema: 1 } },
+];
+
+const STANDALONE = [
+  { key: "pullback", label: "Swing trend pullback (standalone)", fn: modelPullback },
+  { key: "fvgcont",  label: "FVG continuation (standalone)",     fn: modelFvgCont },
+];
 
 function stat(rows) {
-  if (!rows.length) return { n: 0, wr: 0, rpt: 0, netR: 0 };
+  if (!rows.length) return { n: 0, wr: 0, rpt: 0, netR: 0, openPct: 0 };
   const wins = rows.filter(t => t.r > 0).length;
   const netR = rows.reduce((a, t) => a + t.r, 0);
-  return { n: rows.length, wr: (wins / rows.length) * 100, rpt: netR / rows.length, netR };
+  // OPEN rows never reached a stop or a target -- they are marked to market at the
+  // horizon. A headline R/trade carried by OPEN rows is a claim about where price
+  // happened to be at an arbitrary cutoff, not about a trade the system would have
+  // closed, so the share is printed rather than buried.
+  const open = rows.filter(t => t.outcome === "OPEN").length;
+  return { n: rows.length, wr: (wins / rows.length) * 100, rpt: netR / rows.length, netR,
+    openPct: (open / rows.length) * 100 };
 }
 function folds(rows, n) {
   const s = [...rows].sort((a, b) => a.entryTime - b.entryTime);
@@ -435,32 +462,77 @@ for (const s of SYMBOLS) {
   bySymbolBars[s] = { bias: loadBars(s, BIAS_TF), exec: loadBars(s, EXEC_TF) };
 }
 
-for (const model of MODELS) {
-  const fn = MODEL_FNS[model];
-  if (!fn) { say("\n  unknown model: " + model); continue; }
-  say("");
-  say("  " + (MODEL_LABEL[model] || model).toUpperCase());
-  say("  " + pad("symbol", 9) + pad("cands", 8) + pad("trades", 8) + pad("WR%", 8)
-    + pad("R/trade", 10) + pad("netR", 10) + pad("control", 10) + pad("EDGE", 10) + "folds+");
+function runCombo(label, gates) {
   const all = { trades: [], controls: [] };
+  let cands = 0;
   for (const symbol of SYMBOLS) {
     const bars = bySymbolBars[symbol];
-    if (!bars.bias || !bars.exec) { say("  " + pad(symbol, 9) + "missing archive"); continue; }
+    if (!bars.bias || !bars.exec) continue;
     const out = { trades: [], controls: [], candidates: 0 };
-    fn(bars.bias, bars.exec, out);
-    const s = stat(out.trades), c = stat(out.controls), f = folds(out.trades, FOLDS);
-    say("  " + pad(symbol, 9) + pad(out.candidates, 8) + pad(s.n, 8)
-      + pad(s.n ? s.wr.toFixed(1) : "-", 8) + pad(s.n ? num(s.rpt, 4) : "-", 10)
-      + pad(s.n ? num(s.netR, 2) : "-", 10) + pad(c.n ? num(c.rpt, 4) : "-", 10)
-      + pad(s.n && c.n ? num(s.rpt - c.rpt, 4) : "-", 10)
-      + (f ? f.filter(x => x > 0).length + "/" + FOLDS + "  [" + f.map(x => num(x, 3)).join(" ") + "]" : "n<5/fold"));
+    modelCrtFvg(bars.bias, bars.exec, out, { gates });
+    cands += out.candidates;
     all.trades.push(...out.trades); all.controls.push(...out.controls);
   }
   const s = stat(all.trades), c = stat(all.controls), f = folds(all.trades, FOLDS);
-  say("  " + pad("POOLED", 9) + pad("", 8) + pad(s.n, 8) + pad(s.n ? s.wr.toFixed(1) : "-", 8)
+  say("  " + pad(label, 34) + pad(s.n, 8) + pad(s.n ? s.wr.toFixed(1) : "-", 8)
+    + pad(s.n ? s.openPct.toFixed(0) + "%" : "-", 8)
     + pad(s.n ? num(s.rpt, 4) : "-", 10) + pad(s.n ? num(s.netR, 2) : "-", 10)
     + pad(c.n ? num(c.rpt, 4) : "-", 10) + pad(s.n && c.n ? num(s.rpt - c.rpt, 4) : "-", 10)
-    + (f ? f.filter(x => x > 0).length + "/" + FOLDS : "-"));
+    + (f ? f.filter(x => x > 0).length + "/" + FOLDS : "n<5/fold"));
+  return { label, n: s.n, rpt: s.rpt, edge: s.n && c.n ? s.rpt - c.rpt : null,
+    folds: f ? f.filter(x => x > 0).length : null };
+}
+
+const header = () => say("  " + pad("layer", 34) + pad("trades", 8) + pad("WR%", 8)
+  + pad("open%", 8) + pad("R/trade", 10) + pad("netR", 10) + pad("control", 10)
+  + pad("EDGE", 10) + "folds+");
+
+say("");
+say("  THE LADDER -- each rung is the one above it plus one more layer, all three assets pooled");
+header();
+const ladderRows = LADDER.map(r => runCombo(r.label, r.gates));
+
+say("");
+say("  EACH LAYER ON THE BASE ALONE -- what the layer contributes without the others");
+header();
+SOLO.forEach(r => runCombo(r.label, r.gates));
+
+say("");
+say("  PAIRS ON THE BEST SINGLE LAYER");
+header();
+PAIRS.forEach(r => runCombo(r.label, r.gates));
+
+say("");
+say("  THE TWO STANDALONE MODELS, for comparison");
+header();
+for (const m of STANDALONE) {
+  const all = { trades: [], controls: [] };
+  for (const symbol of SYMBOLS) {
+    const bars = bySymbolBars[symbol];
+    if (!bars.bias || !bars.exec) continue;
+    const out = { trades: [], controls: [], candidates: 0 };
+    m.fn(bars.bias, bars.exec, out);
+    all.trades.push(...out.trades); all.controls.push(...out.controls);
+  }
+  const s = stat(all.trades), c = stat(all.controls), f = folds(all.trades, FOLDS);
+  say("  " + pad(m.label, 34) + pad(s.n, 8) + pad(s.n ? s.wr.toFixed(1) : "-", 8)
+    + pad(s.n ? s.openPct.toFixed(0) + "%" : "-", 8)
+    + pad(s.n ? num(s.rpt, 4) : "-", 10) + pad(s.n ? num(s.netR, 2) : "-", 10)
+    + pad(c.n ? num(c.rpt, 4) : "-", 10) + pad(s.n && c.n ? num(s.rpt - c.rpt, 4) : "-", 10)
+    + (f ? f.filter(x => x > 0).length + "/" + FOLDS : "n<5/fold"));
+}
+
+// The best rung by edge, with its cost in trades stated beside it -- a stack that wins on
+// edge and gives up 90% of the flow is not automatically the right answer for a system
+// whose binding constraint is sample size.
+const usable = ladderRows.filter(r => r.n >= 30 && r.edge !== null);
+if (usable.length) {
+  const best = usable.reduce((a, b) => (b.edge > a.edge ? b : a));
+  const base = ladderRows[0];
+  say("");
+  say("  BEST RUNG BY EDGE (min 30 trades): " + best.label + "  edge " + num(best.edge, 4)
+    + ", " + best.n + " trades against the base's " + base.n
+    + " (" + ((best.n / base.n) * 100).toFixed(0) + "% of the flow kept)");
 }
 
 say("");
