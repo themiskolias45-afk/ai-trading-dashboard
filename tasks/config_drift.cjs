@@ -101,7 +101,15 @@ const RULES = [
       /confidenceThreshold\s*[:=]\s*(\d{2})\b/g,
     ],
     // Historical statements are legitimate when they SAY they are historical.
-    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|predates|retired|MEASURED at|configAtWriting)\b/i,
+    // `baseline` and `candidate` added 2026-09-02: this rule was the ONLY one of the five
+    // missing them, while this file's own closing summary tells the reader that a phrase
+    // marked "baseline / candidate" is exempt. The tool's documentation contradicted its
+    // behaviour, so prose accurately describing a WALK-FORWARD gate -- "SP500 at candidate
+    // gate 75", "in that baseline table every gate 45-85" -- could not be cleared however
+    // truthfully it was written. Two permanent false positives train you to skim the
+    // report, which is the failure this file exists to prevent and which the comment at
+    // the bottom of scan() warns it has already committed once.
+    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|baseline|candidate|predates|retired|MEASURED at|configAtWriting)\b/i,
   },
   {
     setting: "momentumRsiMax",

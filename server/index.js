@@ -3797,7 +3797,7 @@ const MOMENTUM_REQUIRE_MACD_BULLISH = true;
 //   80     +0.086 -> +0.015    +0.450 -> -0.050    -0.108 -> -0.287
 //
 // XAUUSD and BTCUSD degrade at EVERY gate, and XAUUSD falls out of ROBUST at the live
-// one. The single cell where removing it helps is SP500 at gate 75, and buying that means
+// one. The single cell where removing it helps is SP500 at candidate gate 75, and buying that
 // degrading the two strongest assets to help the weakest, on a gate that is global.
 //
 // THE COUNTS ARE THE PART WORTH REMEMBERING. Removing a filter made Gold and BTC trade
