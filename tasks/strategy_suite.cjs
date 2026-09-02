@@ -69,6 +69,9 @@ const REQUIRE_HTF = process.argv.includes("--htf");
 // market. Nobody had asked this of FVG continuation, whose 1.5 / 5R / 40 were all picked
 // by hand.
 const DISP_ATR = numArg("--disp", 1.5);
+// --sides prints a BUY and a SELL line under every model. Off by default so existing
+// output is unchanged; on, it is usually the most informative thing in the report.
+const SPLIT_SIDES = process.argv.includes("--sides");
 const SYMBOLS = strArg("--symbols", "XAUUSD,BTCUSD,SP500").split(",").map(s => s.trim());
 const MODELS  = strArg("--models", "crtfvg,emarev,pullback,fvgcont").split(",").map(s => s.trim());
 
@@ -167,14 +170,14 @@ function record(out, exec, entryIdx, direction, entry, stop, target) {
   if (!res) return;
   const risk = Math.abs(entry - stop), reward = Math.abs(capped - entry);
   out.trades.push({ r: res.r, outcome: res.outcome, entryTime: exec.times[entryIdx],
-    rr: reward / risk, riskPrice: risk, symbol });
+    rr: reward / risk, riskPrice: risk, symbol, direction });
   const cIdx = entryIdx - CONTROL_OFFSET;
   if (cIdx > 0) {
     const cE = exec.closes[cIdx];
     const cS = direction === "bullish" ? cE - risk : cE + risk;
     const cT = direction === "bullish" ? cE + reward : cE - reward;
     const cR = resolveTrade(exec, cIdx, direction, cE, cS, cT, MAX_HOLD);
-    if (cR) out.controls.push({ r: cR.r, entryTime: exec.times[cIdx], riskPrice: risk, symbol });
+    if (cR) out.controls.push({ r: cR.r, entryTime: exec.times[cIdx], riskPrice: risk, symbol, direction });
   }
 }
 
@@ -531,6 +534,26 @@ function runCombo(label, gates) {
                   + pad(cs.headroom === null ? "-" : cs.headroom.toFixed(1) + "x", 10)
                   : pad("-", 9) + pad("-", 10) + pad("-", 10); })()
     + (f ? f.filter(x => x > 0).length + "/" + FOLDS : "n<5/fold"));
+  // SPLIT BY DIRECTION. A pooled row cannot tell a model that works both ways from one
+  // where the long side carries the short. The engine's own history is the warning: it
+  // trades long almost exclusively, the short side has no trend setup at all, and the
+  // SELL_BOUNCE flip made Gold WORSE. Nothing here should be assumed symmetric.
+  if (SPLIT_SIDES) {
+    for (const dir of ["bullish", "bearish"]) {
+      const ts = all.trades.filter(t => t.direction === dir);
+      const cs = all.controls.filter(t => t.direction === dir);
+      if (!ts.length) { say("      " + pad(dir === "bullish" ? "BUY" : "SELL", 30) + "no trades"); continue; }
+      const ss = stat(ts), sc = stat(cs), sf = folds(ts, FOLDS);
+      const cst = costedStat(ts);
+      say("      " + pad(dir === "bullish" ? "BUY" : "SELL", 30) + pad(ss.n, 8)
+        + pad(ss.wr.toFixed(1), 8) + pad(num(ss.rpt, 4), 10) + pad(num(ss.netR, 2), 10)
+        + pad(sc.n ? num(ss.rpt - sc.rpt, 4) : "-", 10) + pad("", 8) + pad("", 9)
+        + pad(cst ? cst.costRpt.toFixed(4) : "-", 9)
+        + pad(cst ? num(cst.netRpt, 4) : "-", 10)
+        + pad(cst && cst.headroom !== null ? cst.headroom.toFixed(1) + "x" : "-", 10)
+        + (sf ? sf.filter(x => x > 0).length + "/" + FOLDS : "n<5/fold"));
+    }
+  }
   return { label, n: s.n, rpt: s.rpt, edge: s.n && c.n ? s.rpt - c.rpt : null,
     folds: f ? f.filter(x => x > 0).length : null };
 }
@@ -559,6 +582,7 @@ say("  THE TWO STANDALONE MODELS, for comparison");
 header();
 for (const m of STANDALONE) {
   const all = { trades: [], controls: [] };
+  const pendingSides = [];
   for (const symbol of SYMBOLS) {
     const bars = bySymbolBars[symbol];
     if (!bars.bias || !bars.exec) continue;
@@ -567,6 +591,21 @@ for (const m of STANDALONE) {
     all.trades.push(...out.trades); all.controls.push(...out.controls);
   }
   const s = stat(all.trades), c = stat(all.controls), f = folds(all.trades, FOLDS);
+  if (SPLIT_SIDES) {
+    for (const dir of ["bullish", "bearish"]) {
+      const ts = all.trades.filter(t => t.direction === dir);
+      const cs = all.controls.filter(t => t.direction === dir);
+      if (!ts.length) { pendingSides.push("      " + pad((dir === "bullish" ? "BUY" : "SELL"), 30) + "no trades"); continue; }
+      const ss = stat(ts), sc = stat(cs), sf = folds(ts, FOLDS), cst = costedStat(ts);
+      pendingSides.push("      " + pad(dir === "bullish" ? "BUY" : "SELL", 30) + pad(ss.n, 8)
+        + pad(ss.wr.toFixed(1), 8) + pad(num(ss.rpt, 4), 10) + pad(num(ss.netR, 2), 10)
+        + pad(sc.n ? num(ss.rpt - sc.rpt, 4) : "-", 10) + pad("", 8) + pad("", 9)
+        + pad(cst ? cst.costRpt.toFixed(4) : "-", 9)
+        + pad(cst ? num(cst.netRpt, 4) : "-", 10)
+        + pad(cst && cst.headroom !== null ? cst.headroom.toFixed(1) + "x" : "-", 10)
+        + (sf ? sf.filter(x => x > 0).length + "/" + FOLDS : "n<5/fold"));
+    }
+  }
   const yrs = spanYears(all.trades);
   say("  " + pad(m.label, 34) + pad(s.n, 8) + pad(s.n ? s.wr.toFixed(1) : "-", 8)
     + pad(s.n ? num(s.rpt, 4) : "-", 10) + pad(s.n ? num(s.netR, 2) : "-", 10)
@@ -578,6 +617,7 @@ for (const m of STANDALONE) {
                   + pad(cs.headroom === null ? "-" : cs.headroom.toFixed(1) + "x", 10)
                   : pad("-", 9) + pad("-", 10) + pad("-", 10); })()
     + (f ? f.filter(x => x > 0).length + "/" + FOLDS : "n<5/fold"));
+  pendingSides.forEach(l => say(l));
 }
 
 // The best rung by edge, with its cost in trades stated beside it -- a stack that wins on
