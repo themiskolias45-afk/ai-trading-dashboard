@@ -165,6 +165,71 @@ function record(out, exec, entryIdx, direction, entry, stop, target) {
   }
 }
 
+/* ── THE STACK ───────────────────────────────────────────────────────────────────
+ *
+ * The proposal is not five strategies side by side, it is ONE entry with layers:
+ *
+ *   HTF bias -> liquidity (CRT) -> AMD -> displacement -> FVG -> pullback -> EMA confirm
+ *
+ * So the base is CRT sweep + FVG retest, and each layer is a GATE that can be switched on
+ * independently. Measuring the ladder -- base, then base+one, then the full stack -- is
+ * the only way to see which layer earns its place. A stack measured only as a whole tells
+ * you it works or it does not; it never tells you which part to drop.
+ *
+ * Every gate costs trades. A layer that adds edge while cutting the count in half may
+ * still be a bad trade for a system whose binding constraint is sample size, and the
+ * trade count is printed beside every edge for exactly that reason.
+ */
+function passesGates(gates, ctx) {
+  const { bias, exec, b, eIdx, direction, crt } = ctx;
+
+  // HTF BIAS -- EMA50/200 alignment on the bias timeframe. The one filter that survived
+  // an out-of-sample test on 2026-09-02 (+0.0878 vs -0.0056 on held-out data).
+  if (gates.htf && !htfAligned(bias, b, direction)) return false;
+
+  // STRUCTURE -- HH/HL for longs, LH/LL for shorts, on the bias timeframe.
+  if (gates.struct && swingTrend(bias, b) !== direction) return false;
+
+  // DISPLACEMENT -- the reclaim leg is an IMPULSE, not a drift: the bias bar that
+  // completed the CRT has a range above 1.5x its own ATR.
+  if (gates.disp) {
+    const atr = atrAt(bias.highs, bias.lows, bias.closes, b, 14);
+    const range = bias.highs[b] - bias.lows[b];
+    if (!atr || !(range > 1.5 * atr)) return false;
+  }
+
+  // AMD -- accumulation, manipulation, distribution completing at this bias bar. Checked
+  // on the SAME trailing window as the CRT so both are point-in-time.
+  if (gates.amd) {
+    const amd = detectAMD(slice(bias, b - WINDOW + 1, b + 1));
+    const p = amd && amd.patterns ? amd.patterns.find(x => x.barsAgo <= 2) : null;
+    if (!p) return false;
+    const amdDir = p.direction === "bearish" ? "bearish" : "bullish";
+    if (amdDir !== direction) return false;
+  }
+
+  // PULLBACK -- entry is happening into the execution timeframe's value zone rather than
+  // chasing extension. The FVG retest usually is a pullback; this makes it explicit.
+  if (gates.pullback) {
+    const e21 = emaAt(exec.closes, eIdx, 21), e50 = emaAt(exec.closes, eIdx, 50);
+    if (e21 === null || e50 === null) return false;
+    const zTop = Math.max(e21, e50), zBot = Math.min(e21, e50);
+    const px = exec.closes[eIdx];
+    const nearValue = px <= zTop * 1.004 && px >= zBot * 0.996;
+    if (!nearValue) return false;
+  }
+
+  // EMA CONFIRMATION -- the reclaim, which the proposal is explicit should confirm and
+  // never generate.
+  if (gates.ema) {
+    const e21 = emaAt(exec.closes, eIdx, 21);
+    if (e21 === null) return false;
+    const reclaimed = direction === "bullish" ? exec.closes[eIdx] > e21 : exec.closes[eIdx] < e21;
+    if (!reclaimed) return false;
+  }
+  return true;
+}
+
 /* ── MODEL 1 & 2: CRT -> FVG, optionally requiring an EMA21 reclaim ──────────────── */
 function modelCrtFvg(bias, exec, out, opts) {
   const biasSec = TF_SECONDS[BIAS_TF];
