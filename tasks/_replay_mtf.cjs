@@ -246,6 +246,20 @@ if (process.env.MTF_TREND_FOLLOW_RSI_MAX) {
 // BREAKDOWN that opens occupies the symbol through `openUntil`, which can block a LONG
 // that the baseline took. Neither effect is reconstructible from a filtered trade list,
 // and the second one is the whole safety question.
+// Same hard-error contract as MTF_BREAKDOWN below: a typo must never silently select
+// the baseline and get reported under the candidate's label.
+const DIRECTIONAL_OCCUPANCY = (() => {
+  const raw = process.env.MTF_DIRECTIONAL_OCCUPANCY;
+  if (raw === undefined || raw === "") return false;
+  const v = String(raw).trim();
+  if (v !== "0" && v !== "1") {
+    console.error(`MTF_DIRECTIONAL_OCCUPANCY=${raw} must be exactly "0" or "1" - ` +
+      `refusing to guess, because a silently-ignored flag reports the baseline as the candidate.`);
+    process.exit(2);
+  }
+  return v === "1";
+})();
+
 if (process.env.MTF_BREAKDOWN) {
   const raw = String(process.env.MTF_BREAKDOWN).trim();
   if (raw !== "0" && raw !== "1") {
@@ -640,6 +654,21 @@ function pickTf(cohort, dailySig, h4Sig, read) {
 const trades = [];
 let d1Ptr = 0, h1Ptr = 0;
 let openUntil = -1;
+// DIRECTION-AWARE OCCUPANCY, OFF by default.
+//
+// `openUntil` alone models ONE POSITION PER SYMBOL regardless of side, and that is
+// STRICTER THAN THE LIVE SYSTEM. server/sizing.js's duplicate guard was narrowed to
+// direction-aware on 2026-08-30 by explicit operator decision, precisely because the
+// symbol-only form was refusing a valid opposite-side SELL while a BUY was open. Live,
+// a short and a long CAN be held on the same symbol at once.
+//
+// That mismatch is not cosmetic: it charges a short setup for "displacing" longs that
+// the live system would have taken anyway. It is what made BREAKDOWN's re-run look like
+// it cost +14.33R of blocked long edge on 2026-09-02.
+//
+// Default 0 so all 33 existing findings stay reproducible byte-for-byte; this only
+// changes anything when a caller explicitly asks for it.
+let openUntilByDir = { BUY: -1, SELL: -1 };
 
 for (let i = 0; i < h4.length - 1; i++) {
   // The step happens at the CLOSE of this H4 bar - that is the moment the live
@@ -683,7 +712,9 @@ for (let i = 0; i < h4.length - 1; i++) {
   noteStep(cohort, conf, fired);
 
   if (!fired) continue;                                // <- the banding under test
-  if (i <= openUntil) { stepsBlockedByOpenPosition++; continue; }   // position still open
+  const dirKey = sig.signal === "SELL" ? "SELL" : "BUY";
+  const occupied = DIRECTIONAL_OCCUPANCY ? (i <= openUntilByDir[dirKey]) : (i <= openUntil);
+  if (occupied) { stepsBlockedByOpenPosition++; continue; }   // position still open
 
   const entry = sig.entry, stop = sig.stop, target = sig.target;
   const risk = Math.abs(entry - stop);
@@ -743,6 +774,7 @@ for (let i = 0; i < h4.length - 1; i++) {
     realisedR = isBuy ? (last.c - entry) / risk : (entry - last.c) / risk;
   }
   openUntil = exitIdx;
+  openUntilByDir[dirKey] = exitIdx;
 
   trades.push({
     t: h4[i].t, dir: sig.signal, setup: sig.setup, conf: sig.confidence,
@@ -824,6 +856,7 @@ process.stderr.write("MTF_CENSUS " + JSON.stringify({
   // null means "engine default, untouched" — same convention as the fields above, so a
   // stored census can never be mistaken for the baseline it is being compared against.
   breakdownEnabled: settings.breakdownEnabled ?? null,
+  directionalOccupancy: DIRECTIONAL_OCCUPANCY,
   stubbed: ["priceCache.dxy", "priceCache.vix", "sentimentCache.fearGreed",
             "signalCache (cross-asset)", "getLearningBoost -> 0"],
   windowBars: WINDOW,
