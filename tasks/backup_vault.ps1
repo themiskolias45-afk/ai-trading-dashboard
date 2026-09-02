@@ -216,15 +216,39 @@ if ($prevZip) {
     } catch { $graphBefore = -1 }
 }
 
+# AN ABSOLUTE FLOOR, not just a direction. Added 2026-09-02.
+#
+# The comparison below is a REGRESSION detector: it fires when the count goes DOWN.
+# That is the right test and it has a blind spot - a graph that is ALREADY empty never
+# goes down. Measured: from 2026-09-01 to 2026-09-02 this logged
+# `Graph OK - mcp-memory.json holds 1 entities (previous snapshot: 1)` on every run,
+# while mcp__memory__search_nodes returned NOTHING for every term CLAUDE.md startup
+# step 2b queries. 1 against 1 is not a decrease, so the check passed, and the word
+# "OK" read as "the graph is fine" when it meant "it did not shrink today".
+#
+# It could not have caught the original loss either: the graph lived inside the npx
+# cache until 09-01, so no snapshot ever held the pre-loss count to compare against.
+# A relative test is blind on its first run by construction.
+#
+# 5 is deliberately low against the 42 entities held today. The floor exists to catch
+# an EMPTY store, not to police the graph's size, and a threshold that fires on
+# ordinary variation trains you to skim past it - the same failure the action-item
+# rule in CLAUDE.md warns about. Like every other branch here it only ever KEEPS
+# snapshots; it deletes nothing and never blocks a backup.
+$GRAPH_MIN_ENTITIES = 5
+
 $graphRegressed = $false
 if ($graphNow -lt 0) {
     Write-VaultLog 'GRAPH WARNING - mcp-memory.json could not be read; keeping every snapshot'
+    $graphRegressed = $true
+} elseif ($graphNow -lt $GRAPH_MIN_ENTITIES) {
+    Write-VaultLog ('GRAPH TOO SMALL - mcp-memory.json holds ' + $graphNow + ' entities, floor is ' + $GRAPH_MIN_ENTITIES + '. This is NOT a decrease and the regression check below would have passed it. A store this size means startup recall returns nothing - verify with mcp__memory__search_nodes before trusting it. KEEPING every snapshot.')
     $graphRegressed = $true
 } elseif ($graphBefore -ge 0 -and $graphNow -lt $graphBefore) {
     Write-VaultLog ('GRAPH REGRESSION - mcp-memory.json holds ' + $graphNow + ' entities, previous snapshot had ' + $graphBefore + '. KEEPING every snapshot so the good copies cannot age out. Investigate before trusting the newest backup.')
     $graphRegressed = $true
 } else {
-    Write-VaultLog ('Graph OK - mcp-memory.json holds ' + $graphNow + ' entities (previous snapshot: ' + $(if ($graphBefore -lt 0) { 'none' } else { $graphBefore }) + ')')
+    Write-VaultLog ('Graph no-decrease - mcp-memory.json holds ' + $graphNow + ' entities, at or above the floor of ' + $GRAPH_MIN_ENTITIES + ' (previous snapshot: ' + $(if ($graphBefore -lt 0) { 'none' } else { $graphBefore }) + '). This says the count did not fall; it does NOT say recall works.')
 }
 
 if ($graphRegressed) {
