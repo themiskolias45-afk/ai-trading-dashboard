@@ -1182,74 +1182,24 @@ def generate_pine(plans):
             "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
             % (ZONE_BARS_BACK, PRIOR_DAY_BORDER, PRIOR_DAY_FILL, PRIOR_DAY_BORDER))
 
-    # -- The pivot ladder, as LINES --------------------------------------
+    # NO PIVOT OR ATR LINES. THIS IS A LOCKED DECISION, REVERSED ONCE AND RESTORED.
     #
-    # These are the levels price demonstrably reacts to, and until now they
-    # existed on the chart ONLY as one row of table text. Measured 2026-09-02: a
-    # WAIT chart carried 4 box.new, 4 label.new and ZERO lines - and WAIT is the
-    # state the chart is read in on most days.
+    # On 2026-09-02 a pivot ladder and an ATR envelope were added here as 7 line.new
+    # calls, by an agent that had READ the note above and added them anyway because more
+    # drawing had been asked for. That note records a real 2026-08-24 incident on this
+    # exact chart and its conclusion is unchanged: on a chart used to trade MANUALLY, a
+    # labelled level line is a true number dressed as an instruction, and the qualifier
+    # that says otherwise lives rows away in a table the eye reaches second.
     #
-    # PP is drawn brighter and thicker because it is the day's reference level,
-    # not merely another rung on the ladder.
-    PIVOT_ROWS = [("r2", "R2", False), ("r1", "R1", False), ("pp", "PP", True),
-                  ("s1", "S1", False), ("s2", "S2", False)]
-    for _key, _tag, _is_mid in PIVOT_ROWS:
-        if not any((plan.get("pivots") or {}).get(_key) is not None
-                   for plan in plans):
-            continue
-
-        def pivot_value(plan, k=_key):
-            value = (plan.get("pivots") or {}).get(k)
-            return "na" if value is None else round(value, plan["decimals"] + 2)
-
-        def pivot_text(plan, k=_key, t=_tag):
-            value = (plan.get("pivots") or {}).get(k)
-            return _pine_str("") if value is None else _pine_str(
-                "%s %s" % (t, _fmt(value, plan["decimals"])))
-
-        level_vars.append("_piv%s = " % _tag + _ternary(plans, pivot_value, "na"))
-        level_vars.append("_piv%sTxt = " % _tag
-                          + _ternary(plans, pivot_text, '""'))
-        draw_block.append(
-            "    if not na(_piv%s)\n"
-            "        line.new(bar_index - %d, _piv%s, bar_index + 20, _piv%s, "
-            "color=%s, style=line.style_dotted, width=%d, extend=extend.right)\n"
-            "        label.new(bar_index + 20, _piv%s, _piv%sTxt, color=%s, "
-            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
-            % (_tag, ZONE_BARS_BACK, _tag, _tag,
-               PIVOT_MID_COLOUR if _is_mid else PIVOT_LINE_COLOUR,
-               2 if _is_mid else 1,
-               _tag, _tag, PIVOT_LABEL_COLOUR))
-
-    # -- What a normal day still has left in it ---------------------------
+    # Dotted blue instead of red pills weakens the signal; it does not remove it. And the
+    # user traded this chart by hand the same day, which is precisely the condition the
+    # original decision was written for.
     #
-    # The panel already says "105.4% of ATR - RANGE SPENT" in words. Drawn, the
-    # same fact answers a question the words cannot: whether price is sitting AT
-    # the edge of a spent range, or in the middle of one with room to run.
-    if any(plan.get("atr_low") is not None and plan.get("atr_high") is not None
-           for plan in plans):
-        for _field, _tag in (("atr_high", "AtrHi"), ("atr_low", "AtrLo")):
-            def atr_value(plan, f=_field):
-                value = plan.get(f)
-                return "na" if value is None else round(value, plan["decimals"] + 2)
-            level_vars.append("_%s = " % _tag + _ternary(plans, atr_value, "na"))
-        level_vars.append("_atrTxt = " + _ternary(
-            plans,
-            lambda p: _pine_str("ATR day range %s-%s" % (
-                _fmt(p.get("atr_low"), p["decimals"]),
-                _fmt(p.get("atr_high"), p["decimals"])))
-            if p.get("atr_low") is not None else '""',
-            '""'))
-        draw_block.append(
-            "    if not na(_AtrHi) and not na(_AtrLo)\n"
-            "        line.new(bar_index - %d, _AtrHi, bar_index + 20, _AtrHi, "
-            "color=%s, style=line.style_dashed, width=1, extend=extend.right)\n"
-            "        line.new(bar_index - %d, _AtrLo, bar_index + 20, _AtrLo, "
-            "color=%s, style=line.style_dashed, width=1, extend=extend.right)\n"
-            "        label.new(bar_index + 20, _AtrLo, _atrTxt, color=%s, "
-            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
-            % (ZONE_BARS_BACK, ATR_EDGE_COLOUR, ZONE_BARS_BACK, ATR_EDGE_COLOUR,
-               ATR_EDGE_COLOUR))
+    # The pivot band still ships IN FULL as panel TEXT, where "S1" reads as a level
+    # rather than an order. That is the safe half of the trade-off and it stays.
+    #
+    # If lines are ever wanted here, that is a decision to take deliberately and record
+    # ABOVE, not one to re-derive from "the chart looks empty on a WAIT day".
 
     cells = [
         # The ternary MUST be parenthesised. Pine binds + tighter than ?: , so
