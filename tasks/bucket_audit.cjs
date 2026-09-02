@@ -53,6 +53,15 @@ const REQUIRED = {
     ["rejections.jsonl", "the rejection ledger; the only evidence that grows without risking money"],
     ["mcp-memory.json", "the MCP knowledge graph"],
     ["learning.json", "THIS box's per-setup learning; never synced, so this archive is its only copy"],
+    ["smartentry.db", "the SQLite store"],
+    ["learning_shadow.json", "per-setup shadow stats - the evidence that grows without risking money"],
+    ["trading_control.json", "the kill-switch state; persisted so a restart cannot silently resume trading"],
+    // dashboard/ was the LAST uncovered store, found 2026-09-02 by checking the claim that
+    // everything was already bucketed: 11 data files on disk against 2 in the archive. They
+    // were tracked in git but git held STALE copies, because the pipelines rewrite them
+    // constantly and they are almost never committed. Named here so the gap cannot silently
+    // reopen if the backup root is ever dropped.
+    ["durable-state.json", "dashboard durable state - was on ONE disk until 2026-09-02"],
   ],
   vps: [
     ["learning.json", "the VPS's OWN learning. It is never synced by design, so if the VPS dies this archive is the only copy in existence"],
