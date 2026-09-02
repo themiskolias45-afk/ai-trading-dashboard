@@ -69,6 +69,29 @@ tasks/near_misses.jsonl
 # reasoning as the line above: each box shadows its own signals against its own bars.
 tasks/stop_variants.jsonl
 
+# The rest of the rejection-ledger family, and the per-machine session state.
+#
+# The comment above has cited tasks/rejections.jsonl as THE example of this category
+# since it was written, and the rule never covered it — the file it names was the one
+# file it did not ignore. That is the same shape as CLAUDE.md telling every session to
+# call GET /api/performance while another line in the same file said the route does not
+# exist: documentation stating a rule the enforcement never implemented.
+#
+# It matters for the reason the comment already gives. These are appended per box from
+# that box's own broker bars, so committing them makes the laptop and the VPS conflict
+# on every sync, and the standing rule to commit after every edit means one `git add -A`
+# does exactly that. None of these is tracked today, so nothing already in the repo is
+# hidden by adding them.
+tasks/rejections.jsonl
+tasks/rejections_scored.jsonl
+tasks/rr_rejected.jsonl
+tasks/shadow_shorts.jsonl
+tasks/shadow_shorts_scored.jsonl
+tasks/agent_queue.jsonl
+
+# Written by tasks/hooks/session-stop.ps1 with this box's last commits and dirty files.
+tasks/jarvis-state.json
+
 # Regenerable Yahoo bar cache for tasks/instrument_universe_scan.cjs
 tasks/history_yahoo/
 
