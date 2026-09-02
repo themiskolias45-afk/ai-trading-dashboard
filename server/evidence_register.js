@@ -860,37 +860,50 @@ const CLAIMS = [
     id: "breakdown",
     title: "BREAKDOWN — a short trend-continuation setup, the mirror of MOMENTUM",
     status: STATUS.MEASURED_NO_EDGE,
-    measuredOn: "2026-08-28",
+    measuredOn: "2026-09-02",
     evidence: "The engine had EIGHT long branches and FOUR short ones, and the gap was a "
       + "whole CATEGORY: DIVERGENCE and SQUEEZE_BREAKOUT are symmetric pairs, the long "
       + "side additionally had three trend-continuation setups (BREAKOUT, MOMENTUM, "
-      + "TREND_FOLLOW), and the short side had NONE — SELL_BOUNCE and RANGE_TRADE_SHORT "
+      + "TREND_FOLLOW), and the short side had NONE - SELL_BOUNCE and RANGE_TRADE_SHORT "
       + "are both mean-reversion. A clean downtrend below all EMAs with bearish MACD "
-      + "matched no branch and fell out as WAIT. BREAKDOWN was built as the exact mirror "
+      + "matches no branch and falls out as WAIT. BREAKDOWN was built as the exact mirror "
       + "of MOMENTUM (its RSI band is derived as 100 minus MOMENTUM's, so it cannot "
-      + "drift) and replayed against a flag-off baseline over 4.3 years — 818 baseline "
-      + "trades vs 886 candidate. At the live gate 70 it is 22 closed, −0.368R/trade, "
-      + "worst scored fold −0.383, and only 2 of 5 folds reach 5 closed trades. It also "
-      + "drags the SYSTEM's worst fold from +0.186 to +0.076. Fails all three checks.",
+      + "drift). RE-MEASURED 2026-09-02: the 2026-08-28 verdict of -0.368R/trade was "
+      + "produced with a BROKEN RULER - breakdown_walkforward.cjs never sets "
+      + "MTF_MAX_HOLD, so it inherited the default 40, the horizon that scores "
+      + "unresolved trades as EXPIRED and biases downward. Re-run at MTF_MAX_HOLD=320, "
+      + "836 baseline vs 868 candidate: at gate 70 the cohort is 55 closed, "
+      + "+0.063R/trade, worst scored fold -0.224, 4 of 5 folds scoring. THE COHORT'S "
+      + "SIGN FLIPPED from -0.368 to +0.063 - its own losses were a ruler artifact. It "
+      + "still fails: worst fold is negative, and it drags the SYSTEM's worst fold from "
+      + "+0.055 to +0.031.",
     caveat: "It ships OFF and stays off: strategySettings.breakdownEnabled defaults false "
       + "and neither box carries the key. The branch sits LAST in the else-if chain so it "
-      + "can only convert a cycle that was already WAIT — proven, not argued, by "
+      + "can only convert a cycle that was already WAIT - proven, not argued, by "
       + "replaying both sides of the edit with the flag off and getting byte-identical "
-      + "trade lists on all three assets. Displacement was measured rather than assumed: "
-      + "74 baseline trades vanish under the candidate through position occupancy, but "
-      + "the 12 that closed at the gate were worth −2.60R, so displacement was a small "
-      + "SAVING and is not what sinks this. The cohort's own losses are. Macro filters "
-      + "and the learning boost are stubbed in the replay, so a setup that would live or "
-      + "die on those is not what was measured here.",
-    changesTheAnswer: "A cohort worst fold above zero at the live gate with at least 3 of "
-      + "5 folds scoring, AND a system worst fold no lower than the baseline's. The "
-      + "sample is thin BY CONSTRUCTION — this is the short side of a four-year window "
-      + "that was mostly up — so a materially bearish regime is the honest re-test. The "
-      + "band is derived from momentumRsiMax, so an RSI-ceiling sweep moves this too.",
-    harness: "node tasks/breakdown_walkforward.cjs",
-    sampleAtWriting: { closedAtGate: 22, foldsScored: 2 },
+      + "trade lists on all three assets. THE REASON IT FAILS HAS COMPLETELY INVERTED. "
+      + "The 2026-08-28 note said displacement was a small SAVING (-2.60R) and 'the "
+      + "cohort's own losses' were the problem. At the honest horizon the cohort roughly "
+      + "breaks even and DISPLACEMENT IS THE WHOLE STORY: 146 baseline trades no longer "
+      + "taken, 53 of them closed at gate 70, worth +14.33R of blocked edge. A "
+      + "break-even short that occupies the symbol through openUntil and crowds out "
+      + "profitable longs is a losing change even though the cohort is not itself a "
+      + "loser - which is exactly why the systemNotMadeWorse check is not optional. "
+      + "Macro filters and the learning boost are stubbed in the replay, so a setup that "
+      + "would live or die on those is not what was measured here.",
+    changesTheAnswer: "The ruler argument is now SPENT - it was the strongest objection "
+      + "to the original verdict, it was tested, and the answer survived it. Do not "
+      + "re-open on that basis. What is genuinely unmeasured is BREAKDOWN WITHOUT "
+      + "OCCUPANCY: the +14.33R cost is an artifact of one position per symbol, not a "
+      + "statement about short edge. Either restrict BREAKDOWN to cycles where no long "
+      + "is forming, or raise per-symbol concurrency so a short and a long can coexist, "
+      + "then re-measure. Ship only on a cohort worst fold above zero at the live gate "
+      + "with at least 3 of 5 folds scoring AND a system worst fold no lower than "
+      + "baseline. The band is derived from momentumRsiMax, so an RSI-ceiling sweep "
+      + "moves this too.",
+    harness: "MTF_MAX_HOLD=320 node tasks/breakdown_walkforward.cjs",
+    sampleAtWriting: { closedAtGate: 55, foldsScored: 4 },
     sampleTolerance: 0.5,
-    sampleFrom: "MTF replay, both worlds, 2022-04 to 2026-08",
     feedsTheGate: false,
   },
   {

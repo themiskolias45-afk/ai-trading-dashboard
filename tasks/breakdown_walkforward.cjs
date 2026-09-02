@@ -86,7 +86,25 @@ function replay(symbol, ticker, armed) {
     process.execPath,
     [path.join(ROOT, "tasks", "_replay_mtf.cjs"), ROOT, symbol, ticker, String(CONF_FLOOR)],
     {
-      env: { ...process.env, MTF_CONF_FLOOR: String(CONF_FLOOR), MTF_BREAKDOWN: armed ? "1" : "0" },
+      // MTF_MAX_HOLD PINNED. This harness used to pass no horizon at all, so it silently
+      // inherited _replay_mtf.cjs's default of 40 - the ruler identified on 2026-09-02 as
+      // biasing DOWNWARD, because it scores a trade still open at bar 40 as EXPIRED. That
+      // is not a small effect and it is not symmetric: re-running this exact harness at
+      // 320 moved the BREAKDOWN cohort from -0.368R/trade to +0.063, a SIGN FLIP, and
+      // took it from 22 closed trades over 2 scored folds to 55 over 4. The verdict
+      // "BREAKDOWN loses money on its own" was an artifact of the measuring stick, and it
+      // stood in the evidence register as fact for five days.
+      //
+      // An inherited default is the same failure shape as a setting with no reader: the
+      // number was never chosen here, so nobody could see it was wrong. Pinned rather
+      // than left to the caller, because the caller that got this wrong was this file.
+      // Still overridable for a deliberate horizon sweep.
+      env: {
+        ...process.env,
+        MTF_CONF_FLOOR: String(CONF_FLOOR),
+        MTF_BREAKDOWN: armed ? "1" : "0",
+        MTF_MAX_HOLD: process.env.MTF_MAX_HOLD || "320",
+      },
       maxBuffer: 64 * 1024 * 1024, encoding: "utf8", timeout: 900000,
     }
   );
