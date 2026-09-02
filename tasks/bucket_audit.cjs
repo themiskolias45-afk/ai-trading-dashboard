@@ -148,11 +148,11 @@ function auditOne(label, dir, required) {
 
 function main() {
   console.log("");
-  console.log("=== BUCKET AUDIT — is everything on the laptop? ===");
+  console.log("=== BUCKET AUDIT — running on " + (ON_VPS ? "THE VPS" : "THE LAPTOP") + " ===");
   console.log("  Archives only. A live file is not a backup of itself.");
 
-  const a = auditOne("LAPTOP's own data  -> " + LAPTOP_ARCHIVE, LAPTOP_ARCHIVE, REQUIRED.laptop);
-  const b = auditOne("VPS's data, pulled -> " + VPS_ARCHIVE, VPS_ARCHIVE, REQUIRED.vps);
+  const a = auditOne(ARCHIVES.ownLabel + "  -> " + ARCHIVES.own, ARCHIVES.own, OWN_REQUIRED);
+  const b = auditOne(ARCHIVES.peerLabel + " -> " + ARCHIVES.peer, ARCHIVES.peer, PEER_REQUIRED);
 
   console.log("");
   if (a && b) {
