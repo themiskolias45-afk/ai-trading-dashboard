@@ -41,10 +41,6 @@
     "MAX_POSITIONS": {
       "killed": "number",
       "passed": "number"
-    },
-    "SETUP_DISABLED": {
-      "killed": "number",
-      "passed": "number"
     }
   }
 }

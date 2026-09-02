@@ -72,6 +72,28 @@ if ($filePath -match '\.(js|py|ts|json)$') {
     }
 }
 
+# -- 3b. CODE REVIEW + EVIDENCE GATE -- MUST print before anything that can exit ---
+# This ran LAST until 2026-09-02 and therefore never ran at all on server\index.js:
+# section 4b exits 1 on an API shape diff, and the gate-health baseline had been stale
+# since 2026-08-31 (SETUP_DISABLED, e9ae4b2), so every edit died above these lines. The
+# gate built to stop unvalidated signal-path work was itself unreachable. Anything that
+# must reach JARVIS goes ABOVE the first exit, not below the last one.
+$tradingFiles = @('server\index.js','server\autohealer.js','mt5_bridge.py','parallel_analysis.py')
+$isTrading = ($tradingFiles | Where-Object { $rel -ieq $_ }).Count -gt 0
+if ($isTrading) {
+    Write-Host ""
+    Write-Host ">>> CODE REVIEW REQUIRED: $rel is a trading logic file." -ForegroundColor Cyan
+    Write-Host ">>> JARVIS: invoke the code-reviewer agent on the changed function(s) before declaring done." -ForegroundColor Cyan
+    Write-Host ">>> Auto-commit SKIPPED. Run: git add $rel && git commit -m '...' after review passes." -ForegroundColor Cyan
+    Write-Host ">>> EVIDENCE GATE: this is the signal path. It does not ship on reasoning." -ForegroundColor Cyan
+    Write-Host ">>>   run_walkforward must CLEAR it first, and the result goes in the commit message." -ForegroundColor Cyan
+    Write-Host ">>>   Precedent 8f69319: 'REVERT every engine change from today -- the walk-forward" -ForegroundColor Cyan
+    Write-Host ">>>   killed all of them.' A whole day's engine work, all of it wrong, none of it" -ForegroundColor Cyan
+    Write-Host ">>>   detectable by reading the code. 514 commits have touched this logic against 7" -ForegroundColor Cyan
+    Write-Host ">>>   closed trades of evidence -- so assume unvalidated until measured." -ForegroundColor Cyan
+    Write-Host ""
+}
+
 # -- 4. RUN TESTS (if server/index.js changed and tests exist) -----------------
 if ($rel -match '^server\\index\.js$') {
     $pkg = Join-Path $root 'server\package.json'
@@ -95,7 +117,7 @@ if ($rel -match '^server\\index\.js$') {
         Write-Host "JARVIS: Checking API shape..."
         $snapOut = & node $snapshot 2>&1
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "API SHAPE REGRESSION -- $rel changed an endpoint shape:`n$snapOut`nJARVIS: Restore the endpoint contract before committing."
+            Write-Error "API SHAPE REGRESSION -- $rel changed an endpoint shape:`n$snapOut`nJARVIS: Restore the endpoint contract before committing. This BLOCKS NOTHING -- the edit is already on disk, the server is untouched, and no signal, gate or learning path is affected. It is a report."
             exit 1
         }
         Write-Host "JARVIS: API shape OK."
@@ -104,9 +126,7 @@ if ($rel -match '^server\\index\.js$') {
 
 # -- 5. COMMIT -- specific file only, never git add -A -------------------------
 # Trading-logic files are NEVER auto-committed: code review must pass first.
-# Commit them manually after the review gate below.
-$tradingFiles = @('server\index.js','server\autohealer.js','mt5_bridge.py','parallel_analysis.py')
-$isTrading = ($tradingFiles | Where-Object { $rel -ieq $_ }).Count -gt 0
+# $tradingFiles / $isTrading are set in section 3b above.
 if (-not $isTrading) {
     if (git status --porcelain 2>$null) {
         $fileStatus = git status --porcelain $rel 2>$null
@@ -117,24 +137,6 @@ if (-not $isTrading) {
                 Write-Host "JARVIS: $rel committed -- syntax OK, security OK."
             }
         }
-    }
-}
-
-# -- 6. CODE REVIEW SIGNAL -- visible to JARVIS for trading logic changes --------
-foreach ($tf in $tradingFiles) {
-    if ($rel -ieq $tf) {
-        Write-Host ""
-        Write-Host ">>> CODE REVIEW REQUIRED: $rel is a trading logic file." -ForegroundColor Cyan
-        Write-Host ">>> JARVIS: invoke the code-reviewer agent on the changed function(s) before declaring done." -ForegroundColor Cyan
-        Write-Host ">>> Auto-commit SKIPPED. Run: git add $rel && git commit -m '...' after review passes." -ForegroundColor Cyan
-        Write-Host ">>> EVIDENCE GATE: this is the signal path. It does not ship on reasoning." -ForegroundColor Cyan
-        Write-Host ">>>   run_walkforward must CLEAR it first, and the result goes in the commit message." -ForegroundColor Cyan
-        Write-Host ">>>   Precedent 8f69319: 'REVERT every engine change from today -- the walk-forward" -ForegroundColor Cyan
-        Write-Host ">>>   killed all of them.' A whole day's engine work, all of it wrong, none of it" -ForegroundColor Cyan
-        Write-Host ">>>   detectable by reading the code. 514 commits have touched this logic against 7" -ForegroundColor Cyan
-        Write-Host ">>>   closed trades of evidence -- so assume unvalidated until measured." -ForegroundColor Cyan
-        Write-Host ""
-        break
     }
 }
 
