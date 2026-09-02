@@ -161,8 +161,28 @@ def format_results(results: list[dict], question: str) -> str:
     #
     # "What was learned" and "what was settled" are different questions. Ranking cannot
     # tell them apart, so the answer to the second is never left to ranking.
+    # GATED ON INTENT, NOT ON SCORE. Measured 2026-09-02: the correct decision for
+    # "is it ok to add price level lines to the chart" scored 0.3672, and an IRRELEVANT
+    # decision for "what was the gold win rate last month" scored 0.3371. A 0.03 gap is
+    # not a threshold, it is a coin toss — and a banner that fires on every question is
+    # the "action item that cannot clear" failure this repo keeps finding, which trains
+    # you to skim past the one that matters.
+    #
+    # A decision governs whether something MAY BE CHANGED. A question that is not asking
+    # to change anything does not need one, however similar the words are. So the loud
+    # banner fires on change-intent; the decision rows themselves stay in the ranked list
+    # either way, labelled, for a reader who wants them.
+    CHANGE_INTENT = (
+        "add", "remove", "delete", "change", "modify", "draw", "enable", "disable",
+        "flip", "turn on", "turn off", "set ", "adjust", "override", "revert", "raise",
+        "lower", "should i", "can i", "is it ok", "may i", "safe to", "allowed",
+        "rewrite", "replace", "introduce", "reintroduce", "switch",
+    )
+    q_lower = question.lower()
+    asking_to_change = any(t in q_lower for t in CHANGE_INTENT)
+
     decisions = [r for r in results if r.get("source") == "decisions"]
-    if decisions:
+    if decisions and asking_to_change:
         lines.append("STANDING DECISIONS MATCH THIS QUESTION — read before changing anything:")
         for d in decisions[:3]:
             where = (d.get("metadata") or {}).get("name", "?")
