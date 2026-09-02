@@ -37,6 +37,20 @@ const path = require("path");
 const os = require("os");
 
 const APPLY = process.argv.includes("--apply");
+// --align-names removes the CAUSE rather than the symptom.
+//
+// 183 of 333 memories carry a kebab-case `name:` against a snake_case filename. Link
+// resolution accepts either, so both spellings look right, only one is canonical, and the
+// corpus keeps growing new aliases. Collapsing aliases (the default mode) is a repair that
+// has to be re-run forever; making `name:` equal the filename means a link written either
+// way from now on resolves to exactly one thing.
+//
+// THE ORDER IS THE ENTIRE SAFETY ARGUMENT, and doing it backwards is destructive.
+// 83 link targets currently resolve ONLY through the `name:` field. Align names first and
+// all 83 die instantly. So: rewrite those links to the filename FIRST, then align. Both
+// happen in one pass here, links before frontmatter, and the tool refuses to align if any
+// of them could not be mapped to a real file.
+const ALIGN = process.argv.includes("--align-names");
 const INDEXES = new Set(["MEMORY.md", "MEMORY-FULL.md"]);
 
 // Same discovery as memory_lint.cjs and rag_index.py's _find_brain_corpus: the slug is
