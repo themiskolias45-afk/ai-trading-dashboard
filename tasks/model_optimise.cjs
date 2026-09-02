@@ -158,6 +158,7 @@ console.log("  CROSS-INSTRUMENT -- the fit never saw these:");
 console.log("  " + pad("symbol", 10) + pad("config", 10) + pad("trades", 8) + pad("WR%", 7)
   + pad("PF", 8) + pad("net R/t", 10) + "folds");
 let bestWins = 0, shipWins = 0;
+const crossTotals = { shipped: 0, best: 0 };
 for (const sym of OTHERS) {
   const results = {};
   for (const [label, cfg] of [["shipped", SHIPPED], ["best", best.cfg]]) {
@@ -165,14 +166,29 @@ for (const sym of OTHERS) {
     try { t = runConfig(cfg, sym); } catch (e) { /* shown as 0 below */ }
     const st = stat(t), f = foldsOf(t, 5);
     results[label] = st;
+    crossTotals[label] += Number.isFinite(st.netR) ? st.netR : 0;
     console.log("  " + pad(sym, 10) + pad(label, 10) + pad(st.n, 8)
       + pad(st.n ? st.wr.toFixed(1) : "-", 7) + pad(st.pf === null ? "-" : st.pf.toFixed(3), 8)
       + pad(num(st.netRpt, 4), 10) + (f === null ? "-" : f + "/5"));
   }
   if ((results.best.netRpt ?? -9) > (results.shipped.netRpt ?? -9)) bestWins++; else shipWins++;
 }
+// TOTAL R, NOT R PER TRADE. The first version of this verdict ranked on net R/trade and
+// recommended a configuration that made 60% LESS money: it won +0.8275 against +0.3663
+// per trade on the held-out half and took 19 trades against 102. A model whose binding
+// constraint is sample size cannot be judged on per-trade return alone, and a selective
+// variant will always flatter that column.
+const totalShipped = shipTest.netR + crossTotals.shipped;
+const totalBest    = best.test.netR + crossTotals.best;
 console.log("");
-if (delta > 0 && bestWins > shipWins) {
+console.log("  TOTAL NET R across the held-out half and both unseen instruments:");
+console.log("    shipped " + num(totalShipped, 2) + "R      candidate " + num(totalBest, 2) + "R");
+
+console.log("");
+if (totalBest <= totalShipped) {
+  console.log("  VERDICT: REJECT. Higher R per trade, LOWER total R -- it is more selective, not");
+  console.log("  better. Per-trade return is the wrong objective for a system short of sample size.");
+} else if (delta > 0 && bestWins > shipWins) {
   console.log("  VERDICT: the candidate beat the shipped config on held-out data AND on the");
   console.log("  instruments it was never fitted to. That is the only combination worth acting on.");
 } else if (delta > 0) {

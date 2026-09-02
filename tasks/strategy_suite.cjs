@@ -38,6 +38,12 @@ const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
 const { detectCRT, detectAMD } = require(path.join(ROOT, "server", "structure.js"));
+// THE IMPLAUSIBLE-R CAP, which this harness should have used from the start. Measured
+// 2026-09-02: on the CRT+EMA short side, 3 rows of 173 supplied 85% of the total R and
+// two of them were pinned at whatever cap they were given, while the minimum risk
+// distance was 0.40 on XAUUSD -- under 2x the 0.22 spread, a stop inside the noise that
+// no fill could honour. A LOSS IS NEVER CAPPED; this is a ceiling on implausible gain.
+const { cappedRr } = require(path.join(ROOT, "tasks", "_rr_cap.cjs"));
 const { detectFVGs } = require(path.join(ROOT, "server", "fvg.js"));
 
 // Measured from the live MT5 terminal 2026-09-02 (symbol_info().spread * point, after
@@ -46,6 +52,12 @@ const { detectFVGs } = require(path.join(ROOT, "server", "fvg.js"));
 // held position and slippage through a fast stop are all real and none is modelled, so a
 // model that only just survives this is NOT surviving.
 const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36 };
+// A stop must be a real distance, not a rounding error. At 3x the spread the entry, the
+// stop and the spread are still the same order of magnitude, which is the loosest bar
+// that can be defended. Trades below it are DROPPED rather than scored, because a
+// backtest fill at a price no broker would honour is not a pessimistic estimate, it is
+// a different market.
+const MIN_STOP_SPREADS = numArg("--minstop", 3);
 
 const TF_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
 const TF_FILE    = { d1: "D1", h4: "H4", h1: "H1", m15: "M15" };
@@ -72,6 +84,11 @@ const DISP_ATR = numArg("--disp", 1.5);
 // --sides prints a BUY and a SELL line under every model. Off by default so existing
 // output is unchanged; on, it is usually the most informative thing in the report.
 const SPLIT_SIDES = process.argv.includes("--sides");
+// --json emits the trade list for ONE model and nothing else, so an optimiser can do its
+// own train/test split instead of re-implementing the strategy. One implementation, one
+// place to be wrong. --gates picks the layers for the crtfvg base, e.g. --gates ema,struct
+const JSON_OUT  = process.argv.includes("--json");
+const GATE_LIST = strArg("--gates", "").split(",").map(x => x.trim()).filter(Boolean);
 const SYMBOLS = strArg("--symbols", "XAUUSD,BTCUSD,SP500").split(",").map(s => s.trim());
 const MODELS  = strArg("--models", "crtfvg,emarev,pullback,fvgcont").split(",").map(s => s.trim());
 
@@ -163,13 +180,18 @@ function capTarget(direction, entry, stop, target) {
 // on a kinder convention than another.
 function record(out, exec, entryIdx, direction, entry, stop, target) {
   const symbol = out.symbol;
+  const sp = SPREAD[symbol];
+  if (sp && MIN_STOP_SPREADS > 0 && Math.abs(entry - stop) < MIN_STOP_SPREADS * sp) {
+    out.rejectedTightStop = (out.rejectedTightStop || 0) + 1;
+    return;
+  }
   const ok = direction === "bullish" ? (stop < entry && target > entry) : (stop > entry && target < entry);
   if (!ok) return;
   const capped = capTarget(direction, entry, stop, target);
   const res = resolveTrade(exec, entryIdx, direction, entry, stop, capped, MAX_HOLD);
   if (!res) return;
   const risk = Math.abs(entry - stop), reward = Math.abs(capped - entry);
-  out.trades.push({ r: res.r, outcome: res.outcome, entryTime: exec.times[entryIdx],
+  out.trades.push({ r: cappedRr(res.r), outcome: res.outcome, entryTime: exec.times[entryIdx],
     rr: reward / risk, riskPrice: risk, symbol, direction });
   const cIdx = entryIdx - CONTROL_OFFSET;
   if (cIdx > 0) {
@@ -177,7 +199,7 @@ function record(out, exec, entryIdx, direction, entry, stop, target) {
     const cS = direction === "bullish" ? cE - risk : cE + risk;
     const cT = direction === "bullish" ? cE + reward : cE - reward;
     const cR = resolveTrade(exec, cIdx, direction, cE, cS, cT, MAX_HOLD);
-    if (cR) out.controls.push({ r: cR.r, entryTime: exec.times[cIdx], riskPrice: risk, symbol, direction });
+    if (cR) out.controls.push({ r: cappedRr(cR.r), entryTime: exec.times[cIdx], riskPrice: risk, symbol, direction });
   }
 }
 
@@ -496,7 +518,8 @@ function folds(rows, n) {
 const pad = (v, w) => String(v).padEnd(w);
 const num = (v, d) => Number.isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(d) : "-";
 const lines = [];
-const say = (s) => { lines.push(s); console.log(s); };
+// In --json mode stdout must carry ONLY the JSON, or the consumer parses a banner.
+const say = (s) => { lines.push(s); if (!JSON_OUT) console.log(s); };
 
 say("=".repeat(118));
 say("  STRATEGY SUITE  --  every model, same three assets, same measurement");
@@ -510,6 +533,25 @@ const bySymbolBars = {};
 for (const s of SYMBOLS) {
   bySymbolBars[s] = { bias: loadBars(s, BIAS_TF), exec: loadBars(s, EXEC_TF) };
 }
+
+if (JSON_OUT) {
+  const gates = {};
+  for (const g of GATE_LIST) gates[g] = 1;
+  const model = MODELS[0];
+  const out = { trades: [], controls: [] };
+  for (const symbol of SYMBOLS) {
+    const bars = bySymbolBars[symbol];
+    if (!bars.bias || !bars.exec) continue;
+    const o = { trades: [], controls: [], candidates: 0, symbol };
+    if (model === "fvgcont") modelFvgCont(bars.bias, bars.exec, o);
+    else if (model === "pullback") modelPullback(bars.bias, bars.exec, o);
+    else modelCrtFvg(bars.bias, bars.exec, o, { gates });
+    out.trades.push(...o.trades); out.controls.push(...o.controls);
+  }
+  process.stdout.write(JSON.stringify(out));
+  process.exit(0);
+}
+
 
 function runCombo(label, gates) {
   const all = { trades: [], controls: [] };
