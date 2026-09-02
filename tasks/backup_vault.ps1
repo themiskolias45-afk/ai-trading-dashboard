@@ -24,7 +24,16 @@ $vaultDir  = Get-Setting 'VAULT_BACKUP_SOURCE' 'C:\Users\User\Documents\Brain'
 $backupDir = Get-Setting 'VAULT_BACKUP_DEST'   'C:\Users\User\Documents\Brain-backups'
 $logFile   = Get-Setting 'VAULT_BACKUP_LOG'    'C:\Users\User\ai-trading-dashboard\tasks\logs\vault_backup.txt'
 
-$KEEP_SNAPSHOTS = 30
+# RAISED 30 -> 120 on 2026-09-02, because the backup went from DAILY to every 4 hours.
+# At 30 snapshots a 6-a-day cadence covers only FIVE DAYS of history - more frequent
+# backups would have silently bought recency by spending depth, which is a loss
+# dressed as an improvement. 120 keeps ~20 days at the new rate, and the arithmetic is
+# not close: each snapshot is ~14 MB, the whole archive is 72.9 MB today, and the disk
+# has 328 GB free. 120 x 14 MB is 1.7 GB.
+#
+# Rotation is also SKIPPED entirely whenever the graph check reports a regression or a
+# too-small store, so a bad snapshot can never age out the good copies behind it.
+$KEEP_SNAPSHOTS = 120
 
 $logDir = Split-Path $logFile -Parent
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }

@@ -126,6 +126,13 @@ REM
 REM It skips itself on the VPS - that box cannot reach the laptop, and without the
 REM guard it would ssh to its own address and "sync" successfully with nothing.
 node "%PROJ%\tasks\brain_sync.cjs" --apply >> "%LOGFILE%" 2>&1
+
+REM Is EVERYTHING actually on the laptop? Checks the ARCHIVES, not the live files - a
+REM live file is not a backup of itself - and OPENS the zips rather than trusting a
+REM filename. Measured 2026-09-02: the 05:25 archive looked healthy and was missing
+REM decision_register.jsonl entirely, because it predated it. Only reading the entries
+REM catches that. Exits 1 when a bucket is missing or stale.
+node "%PROJ%\tasks\bucket_audit.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
 REM Calibration drift check — compares live setup win rates against shadow stats.
