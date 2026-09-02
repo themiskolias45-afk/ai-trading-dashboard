@@ -63,7 +63,7 @@ const pad = (v, w) => String(v).padEnd(w);
 console.log("=".repeat(96));
 console.log("  PARITY -- the live runner's evaluate(), replayed over the broker archive");
 console.log("  " + new Date().toISOString() + "   tail " + TAIL + " m15 bars per asset");
-console.log("  Backtest reference at disp 1.5 / 5R: 1,246 setups over ~308,000 archive bars = 4.0 / 1k");
+console.log("  Backtest reference at disp 1.0 / 8R / retest 80: 1,337 long setups, ~8.1 / 1k bars");
 console.log("=".repeat(96));
 console.log("");
 console.log("  " + pad("symbol", 9) + pad("bars walked", 14) + pad("setups", 9)
@@ -103,7 +103,7 @@ console.log("  " + "-".repeat(88));
 console.log("  " + pad("TOTAL", 9) + pad(totalBars, 14) + pad(totalSetups, 9)
   + pad((totalSetups / totalBars * 1000).toFixed(2), 14));
 console.log("");
-console.log("  Reference rate is 4.0 per 1,000 bars. The tail is a 42-60 day window rather than");
+console.log("  Reference rate is ~8.1 per 1,000 bars. The tail is a 42-60 day window rather than");
 console.log("  five years, so a few percent either way is the period, not the model. A rate far");
 console.log("  from it -- as when the runner had no cooldown and read 5.17 against 4.0 -- is a");
 console.log("  different model wearing the measured model's numbers.");

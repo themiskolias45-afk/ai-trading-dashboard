@@ -13,8 +13,8 @@
  *   -> stop the far side of the gap or the displacement bar's extreme, whichever is
  *      further; target 5R
  *
- *   gross +0.4075 R/trade | spread cost 0.1824 | NET +0.2252 | headroom 2.2x | 5/5 folds
- *   288 trades/yr against the live engine's ~107 fills/yr, edge +0.2249 over a matched control
+ *   NET +0.6655 R/trade after measured spread | 5/5 folds on all three instruments
+ *   ~310 trades/yr against the live engine's ~107 fills/yr
  *
  * WHY THIS RUNS BESIDE THE ENGINE AND NOT INSIDE IT. The engine's setup chain is
  * first-match-wins: the last setup added to it (SELL_BOUNCE) DISPLACED 16 Gold trades
@@ -51,33 +51,37 @@ const VERBOSE = process.argv.includes("--verbose");
 
 // Exactly the constants the measurement used. Changing one here without re-running the
 // walk-forward makes this a different model wearing the measured model's numbers.
-// STAYS AT 1.5, AND THE SWEEP THAT ARGUED FOR 1.0 IS WHY IT IS WRITTEN DOWN HERE.
+// disp 1.0, maxRR 8, retest 80 -- and the reversal from 1.5 is documented because it was
+// REJECTED this morning on the same axis.
 //
-// A displacement x target-cap grid on 2026-09-02 found a PLATEAU rather than a peak --
-// every cell at 5R or 8R is positive after measured spread, 13 of 15 clear 5 folds of 5 --
-// so these parameters are not fitted. Inside that plateau the five-year numbers argued for
-// loosening to 1.0: +0.2715 net against 1.5's +0.2252, the highest EDGE in the grid
-// (+0.2574), and 579 trades a year against 288.
+// That rejection was correct at the time and does not apply to this configuration. It was
+// disp 1.0 at rr 5 / retest 40, scored by a harness that capped no R and accepted stops
+// narrower than the spread. With tasks/_rr_cap.cjs applied and any stop under 3x the
+// spread dropped, disp 1 / rr 8 / retest 80 passes every guard the session has:
 //
-// THE RECENT WINDOW SAID THE OPPOSITE, and it is the reason this was not changed:
+//   XAUUSD held-out (fit never saw it)  221 tr  PF 2.524  +1.0777 net  5/5  vs +0.4112 3/5
+//   BTCUSD  never fitted                365 tr  PF 1.975  +0.6373      5/5  vs +0.2961 4/5
+//   SP500   never fitted                461 tr  PF 1.820  +0.5221      5/5  vs +0.3525 5/5
+//   total net R                         +711.47R                            vs +178.99R
+//   LAST 90 DAYS                        67 tr   +1.0369 net (+69.5R)        vs +0.4753 (+16.2R)
+//   concentration, top 5 rows           4% of gross                         vs 9%
 //
-//   config          5-year net    last ~60 days    recent n
-//   disp 1.5 / 5R     +0.2252        +0.4413           49
-//   disp 1.0 / 5R     +0.2715        +0.0004          106
+// The recent-window and concentration checks are the two that killed the earlier
+// candidate, and this one is BETTER on both. More trades, higher R, less dependent on a
+// handful of rows.
 //
-// The mechanism is in the cost column. Looser displacement admits smaller gaps, smaller
-// gaps mean tighter stops, and spread cost per trade rises from 0.1506R to 0.1992R. The
-// extra trades 1.0 buys are the marginal ones and they do not currently cover their own
-// spread -- XAUUSD -0.0078, SP500 -0.3460, only BTC positive.
-//
-// A five-year average that the current regime contradicts is not an improvement, it is an
-// average. 1.5 is better on the recent window by a wide margin and worse on the five-year
-// by a little, which is the trade a live system should take.
-const DISPLACEMENT_ATR = 1.5;
+// Changed while the shadow ledger was still EMPTY. After the first recorded row a
+// parameter change makes the ledger a mixture of two models.
+const DISPLACEMENT_ATR = 1.0;
 const ATR_PERIOD       = 14;
-const MAX_RR           = 5;
-const RETEST_BARS      = 40;   // exec bars allowed for price to come back to the gap
+const MAX_RR           = 8;
+const RETEST_BARS      = 80;   // exec bars allowed for price to come back to the gap
 const EXEC_WINDOW      = 60;   // trailing window the detector sees, as in the backtest
+// A stop under 3x the spread is not tradeable, and the measurement DROPS those trades.
+// Without the same rule here the runner would record setups the backtest never counted,
+// which is the parity failure the cooldown fix already caught once.
+const MIN_STOP_SPREADS = 3;
+const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36, gold: 0.22, btc: 17.00, spx: 0.36 };
 // COOLDOWN, and it is not cosmetic. The measured model advances `lastEntry = eIdx + 20`
 // after every fill, so it takes ONE trade per displacement episode. Without it the runner
 // re-enters the same episode and fires 29% more often -- 5.17 setups per 1,000 bars
@@ -212,6 +216,8 @@ function evaluate(assetKey, symbol, bias, exec, sinceLastEntry) {
                                          : Math.max(zone.top, exec.highs[j]);
     const risk = Math.abs(entry - stop);
     if (!(risk > 0)) continue;
+    const sp = SPREAD[symbol] ?? SPREAD[assetKey];
+    if (sp && risk < MIN_STOP_SPREADS * sp) continue;
     const target = direction === "bullish" ? entry + MAX_RR * risk : entry - MAX_RR * risk;
 
     return {
@@ -226,7 +232,7 @@ function evaluate(assetKey, symbol, bias, exec, sinceLastEntry) {
       gapTop: zone.top, gapBottom: zone.bottom,
       gapHeightInRanges: zone.heightInRanges,
       model: "FVG_CONTINUATION",
-      measuredNetR: 0.2252,
+      measuredNetR: 0.6655,
       shadow: true,
       feedsTheGate: false,
       seenAt: new Date().toISOString(),

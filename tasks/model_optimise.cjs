@@ -124,9 +124,11 @@ for (const cfg of combos) {
 }
 if (!scored.length) { console.log("  no configuration produced enough training trades"); process.exit(1); }
 
-// Chosen on the training half by NET R/trade -- net, because these models pay a spread
-// large enough to reorder the ranking.
-scored.sort((a, b) => (b.train.netRpt ?? -9) - (a.train.netRpt ?? -9));
+// CHOSEN ON TRAIN TOTAL NET R, which is what the verdict judges. The first version
+// selected on net R PER TRADE and then rejected its own pick on total R -- two different
+// objectives in one tool, so it surfaced a highly selective config while a far better
+// one sat third in the list. Selection and verdict now optimise the same quantity.
+scored.sort((a, b) => (b.train.netR ?? -9e9) - (a.train.netR ?? -9e9));
 const best = scored[0];
 const shipTrain = stat(shippedAll.filter(t => t.entryTime < splitTime));
 const shipTest  = stat(shippedAll.filter(t => t.entryTime >= splitTime));
@@ -145,7 +147,7 @@ console.log("  " + pad("", 24) + pad("configuration", 26) + pad("trainN", 7) + p
 row("SHIPPED", SHIPPED, shipTrain, shipTest, shipFolds);
 row("BEST ON TRAIN", best.cfg, best.train, best.test, best.folds);
 console.log("");
-console.log("  Top 4 by TRAINING net R/trade, with the test they were never fitted to:");
+console.log("  Top 4 by TRAINING TOTAL net R, with the test they were never fitted to:");
 for (const s of scored.slice(0, 4)) row("", s.cfg, s.train, s.test, s.folds);
 
 const delta = (best.test.netRpt ?? 0) - (shipTest.netRpt ?? 0);
