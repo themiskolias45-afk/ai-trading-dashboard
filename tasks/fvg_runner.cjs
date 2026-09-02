@@ -48,6 +48,10 @@ function strArg(f, d) { const i = process.argv.indexOf(f); return (i === -1 || i
 const HOST    = strArg("--host", "http://localhost:3001");
 const ONCE    = process.argv.includes("--once");
 const VERBOSE = process.argv.includes("--verbose");
+// --why reports HOW FAR each asset got down the condition chain. Without it "no setup" and
+// "this code can never produce a setup" print the same line, and this session has already
+// found four filters that silently matched nothing and read as an absent signal.
+const WHY = process.argv.includes("--why");
 
 // Exactly the constants the measurement used. Changing one here without re-running the
 // walk-forward makes this a different model wearing the measured model's numbers.
@@ -167,15 +171,19 @@ function alreadyLogged(key) {
  * `sinceLastEntry` is the exec-bar time of this asset's previous entry, used to enforce
  * the same one-trade-per-episode cooldown the measured model applies.
  */
-function evaluate(assetKey, symbol, bias, exec, sinceLastEntry) {
+function evaluate(assetKey, symbol, bias, exec, sinceLastEntry, trace) {
+  const note = (k, v) => { if (trace) trace[k] = v; };
   const bi = bias.closes.length - 1;
   const ei = exec.closes.length - 1;
-  if (bi < 200 || ei < EXEC_WINDOW + 2) return null;
+  note("biasBars", bi + 1); note("execBars", ei + 1);
+  if (bi < 200 || ei < EXEC_WINDOW + 2) { note("stop", "NOT ENOUGH BARS"); return null; }
 
   // COOLDOWN -- parity with the measured model, which takes one trade per episode.
   if (Number.isFinite(sinceLastEntry) && exec.times && exec.times[ei]) {
     const barSeconds = exec.times.length > 1 ? (exec.times[ei] - exec.times[ei - 1]) : 900;
-    if (exec.times[ei] - sinceLastEntry < COOLDOWN_BARS * barSeconds) return null;
+    if (exec.times[ei] - sinceLastEntry < COOLDOWN_BARS * barSeconds) {
+      note("stop", "COOLDOWN"); return null;
+    }
   }
 
   const e50 = emaAt(bias.closes, bi, 50), e200 = emaAt(bias.closes, bi, 200);
@@ -183,10 +191,13 @@ function evaluate(assetKey, symbol, bias, exec, sinceLastEntry) {
   const px = bias.closes[bi];
   const direction = (e50 > e200 && px > e50) ? "bullish"
                   : (e50 < e200 && px < e50) ? "bearish" : null;
-  if (!direction) return null;
+  note("h4trend", direction || ("none (px " + px.toFixed(2) + " ema50 " + e50.toFixed(2)
+    + " ema200 " + e200.toFixed(2) + ")"));
+  if (!direction) { note("stop", "NO H4 TREND"); return null; }
 
   // Look back over the retest window for the most recent displacement bar that created a
   // same-direction gap, then ask whether THIS bar is the retest of it.
+  let sawDisplacement = 0, sawGap = 0, sawTouchedEarlier = 0, sawNotTouchedYet = 0;
   for (let j = ei - 1; j >= Math.max(EXEC_WINDOW, ei - RETEST_BARS); j--) {
     const atr = atrAt(exec.highs, exec.lows, exec.closes, j, ATR_PERIOD);
     if (!atr || atr <= 0) continue;
@@ -194,11 +205,13 @@ function evaluate(assetKey, symbol, bias, exec, sinceLastEntry) {
     const withTrend = direction === "bullish" ? exec.closes[j] > exec.closes[j - 1]
                                               : exec.closes[j] < exec.closes[j - 1];
     if (!(range > DISPLACEMENT_ATR * atr && withTrend)) continue;
+    sawDisplacement++;
 
     const fvg = detectFVGs(sliceBars(exec, j - EXEC_WINDOW + 1, j + 1),
       { maxZones: 6, includeFilled: true });
     const zone = fvg && fvg.zones ? fvg.zones.find(z => z.barsAgo === 0 && z.direction === direction) : null;
     if (!zone) continue;
+    sawGap++;
 
     const entry = direction === "bullish" ? zone.top : zone.bottom;
     // The retest must happen on the CURRENT bar, and must not already have happened on an
@@ -208,9 +221,9 @@ function evaluate(assetKey, symbol, bias, exec, sinceLastEntry) {
       const t = direction === "bullish" ? exec.lows[k] <= entry : exec.highs[k] >= entry;
       if (t) { touchedEarlier = true; break; }
     }
-    if (touchedEarlier) continue;
+    if (touchedEarlier) { sawTouchedEarlier++; continue; }
     const touchedNow = direction === "bullish" ? exec.lows[ei] <= entry : exec.highs[ei] >= entry;
-    if (!touchedNow) continue;
+    if (!touchedNow) { sawNotTouchedYet++; continue; }
 
     const stop = direction === "bullish" ? Math.min(zone.bottom, exec.lows[j])
                                          : Math.max(zone.top, exec.highs[j]);
@@ -238,6 +251,14 @@ function evaluate(assetKey, symbol, bias, exec, sinceLastEntry) {
       seenAt: new Date().toISOString(),
     };
   }
+  note("displacementBars", sawDisplacement);
+  note("withFreshGap", sawGap);
+  note("gapAlreadyRetested", sawTouchedEarlier);
+  note("gapAwaitingRetest", sawNotTouchedYet);
+  note("stop", sawDisplacement === 0 ? "NO DISPLACEMENT BAR IN THE WINDOW"
+     : sawGap === 0 ? "DISPLACEMENT BUT NO SAME-DIRECTION FVG"
+     : sawNotTouchedYet > 0 ? "GAP FOUND, PRICE HAS NOT RETESTED IT YET"
+     : "GAP FOUND BUT ALREADY RETESTED EARLIER");
   return null;
 }
 
@@ -256,8 +277,13 @@ async function tick() {
       if (VERBOSE) console.log("[fvg] " + assetKey + ": no h4/m15 bars");
       continue;
     }
+    const trace = WHY ? {} : null;
     const setup = evaluate(assetKey, entry.symbol || assetKey, bars.h4, bars.m15,
-      lastEntryTime(assetKey));
+      lastEntryTime(assetKey), trace);
+    if (WHY) {
+      console.log("[why] " + (entry.symbol || assetKey) + ": "
+        + Object.entries(trace).map(([k, v]) => k + "=" + v).join("  "));
+    }
     if (!setup) { if (VERBOSE) console.log("[fvg] " + assetKey + ": no setup"); continue; }
     if (alreadyLogged(setup.key)) { if (VERBOSE) console.log("[fvg] " + assetKey + ": already recorded"); continue; }
     fs.appendFileSync(LEDGER, JSON.stringify(setup) + "\n", "utf8");
