@@ -80,7 +80,12 @@ def query(question: str, top_k: int = 5, sources: list[str] | None = None) -> li
     model     = _get_model()
     embedding = model.encode([question]).tolist()[0]
 
-    all_sources = sources or ["brain", "trades", "lessons", "memory", "vault"]
+    # "decisions" leads the default list on purpose. When a question is about whether
+    # something may be changed, a STANDING DECISION outranks a memory of measuring it:
+    # the memory says what was learned, the decision says what was settled. On
+    # 2026-09-02 an agent found the measurement and missed the decision, and shipped a
+    # change that had already been reversed once.
+    all_sources = sources or ["decisions", "brain", "trades", "lessons", "memory", "vault"]
     results     = []
 
     for src in all_sources:
@@ -125,6 +130,27 @@ def format_results(results: list[dict], question: str) -> str:
         return f"RAG error: {results[0]['error']}"
 
     lines = [f"RAG SEARCH: '{question}'", "─" * 60]
+
+    # STANDING DECISIONS GO FIRST, ALWAYS, WHENEVER ONE MATCHES AT ALL.
+    #
+    # They are ranked like everything else and they lose, because a memory that narrates
+    # an incident uses more of the question's words than a rule that governs it. Measured
+    # 2026-09-02 on the real query "is it ok to add price level lines to the chart": two
+    # brain memories scored 0.509 and 0.446, the STANDING DECISION that forbids exactly
+    # that scored 0.367 and fell outside --top 3. Both said the same thing that day, which
+    # is luck, not design — the next time they disagree, the one that got cut is the one
+    # that decides whether the change is allowed.
+    #
+    # "What was learned" and "what was settled" are different questions. Ranking cannot
+    # tell them apart, so the answer to the second is never left to ranking.
+    decisions = [r for r in results if r.get("source") == "decisions"]
+    if decisions:
+        lines.append("STANDING DECISIONS MATCH THIS QUESTION — read before changing anything:")
+        for d in decisions[:3]:
+            where = (d.get("metadata") or {}).get("name", "?")
+            lines.append(f"  ! {where}   (score {d.get('score', 0)})")
+        lines.append("  full text: node tasks/decisions.cjs check \"" + question.replace('"', "'") + "\"")
+        lines.append("─" * 60)
     for i, r in enumerate(results, 1):
         src   = r.get("source", "?")
         score = r.get("score", 0)
