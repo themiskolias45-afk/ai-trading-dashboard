@@ -40,6 +40,13 @@ const ROOT = path.join(__dirname, "..");
 const { detectCRT, detectAMD } = require(path.join(ROOT, "server", "structure.js"));
 const { detectFVGs } = require(path.join(ROOT, "server", "fvg.js"));
 
+// Measured from the live MT5 terminal 2026-09-02 (symbol_info().spread * point, after
+// selecting the symbol into Market Watch and waiting for a tick -- an unselected symbol
+// reports spread 0, which reads as a free instrument). Spread ONLY: commission, swap on a
+// held position and slippage through a fast stop are all real and none is modelled, so a
+// model that only just survives this is NOT surviving.
+const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36 };
+
 const TF_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
 const TF_FILE    = { d1: "D1", h4: "H4", h1: "H1", m15: "M15" };
 
@@ -147,6 +154,7 @@ function capTarget(direction, entry, stop, target) {
 // One place builds every trade and its control, so no model can accidentally be scored
 // on a kinder convention than another.
 function record(out, exec, entryIdx, direction, entry, stop, target) {
+  const symbol = out.symbol;
   const ok = direction === "bullish" ? (stop < entry && target > entry) : (stop > entry && target < entry);
   if (!ok) return;
   const capped = capTarget(direction, entry, stop, target);
@@ -154,14 +162,14 @@ function record(out, exec, entryIdx, direction, entry, stop, target) {
   if (!res) return;
   const risk = Math.abs(entry - stop), reward = Math.abs(capped - entry);
   out.trades.push({ r: res.r, outcome: res.outcome, entryTime: exec.times[entryIdx],
-    rr: reward / risk });
+    rr: reward / risk, riskPrice: risk, symbol });
   const cIdx = entryIdx - CONTROL_OFFSET;
   if (cIdx > 0) {
     const cE = exec.closes[cIdx];
     const cS = direction === "bullish" ? cE - risk : cE + risk;
     const cT = direction === "bullish" ? cE + reward : cE - reward;
     const cR = resolveTrade(exec, cIdx, direction, cE, cS, cT, MAX_HOLD);
-    if (cR) out.controls.push({ r: cR.r, entryTime: exec.times[cIdx] });
+    if (cR) out.controls.push({ r: cR.r, entryTime: exec.times[cIdx], riskPrice: risk, symbol });
   }
 }
 
@@ -290,11 +298,17 @@ function modelPullback(bias, exec, out) {
     if (!direction) continue;
     if (REQUIRE_HTF && !htfAligned(bias, b, direction)) continue;
 
+    // The scan must START after enough bars exist for EMA21/50 and then run for a real
+    // window. The first version began at start+60 and ended at start+SEARCH+RETEST, so on
+    // any timeframe where SEARCH+RETEST < 60 the loop could never execute -- it returned
+    // ZERO trades on h1 and h4 and would have read as "swing pullback does not work on 4H"
+    // when the model had never been given a bar to look at.
     const start = at(bias.times[b] + biasSec);
-    if (start === -1 || start + 60 >= exec.times.length) continue;
-    const scanEnd = Math.min(start + SEARCH + RETEST, exec.times.length - 1);
+    const scanFrom = start + EXEC_WINDOW;
+    const scanEnd = Math.min(scanFrom + SEARCH + RETEST, exec.times.length - 1);
+    if (start === -1 || scanFrom >= exec.times.length - 2) continue;
 
-    for (let k = start + 60; k < scanEnd; k++) {
+    for (let k = scanFrom; k < scanEnd; k++) {
       // One position at a time: a model that stacks twenty entries on one pullback is
       // measuring the same idea twenty times.
       if (k <= lastEntry) continue;
@@ -423,6 +437,33 @@ const STANDALONE = [
   { key: "fvgcont",  label: "FVG continuation (standalone)",     fn: modelFvgCont },
 ];
 
+// costR for one trade = spread / |entry - stop|. Both halves differ across instruments,
+// which is why a single flat number cannot be right for all three.
+function costOf(t) {
+  const sp = SPREAD[t.symbol];
+  return (Number.isFinite(sp) && t.riskPrice > 0) ? sp / t.riskPrice : null;
+}
+function costedStat(rows) {
+  const priced = rows.filter(t => costOf(t) !== null);
+  if (!priced.length) return null;
+  const gross = priced.reduce((a, t) => a + t.r, 0);
+  const cost  = priced.reduce((a, t) => a + costOf(t), 0);
+  // Break-even multiple: how many times the quoted spread the edge could absorb before
+  // reaching zero. Under 1.0x it cannot pay its own spread.
+  return { n: priced.length, grossRpt: gross / priced.length, costRpt: cost / priced.length,
+    netRpt: (gross - cost) / priced.length, headroom: cost > 0 ? gross / cost : null };
+}
+function spanYears(rows) {
+  if (rows.length < 2) return null;
+  const ts = rows.map(t => t.entryTime).sort((a, b) => a - b);
+  return (ts[ts.length - 1] - ts[0]) / (365.25 * 24 * 3600);
+}
+function worstStreak(rows) {
+  const s = [...rows].sort((a, b) => a.entryTime - b.entryTime);
+  let run = 0, worst = 0;
+  for (const t of s) { if (t.r <= 0) { run++; worst = Math.max(worst, run); } else run = 0; }
+  return worst;
+}
 function stat(rows) {
   if (!rows.length) return { n: 0, wr: 0, rpt: 0, netR: 0, openPct: 0 };
   const wins = rows.filter(t => t.r > 0).length;
@@ -468,24 +509,30 @@ function runCombo(label, gates) {
   for (const symbol of SYMBOLS) {
     const bars = bySymbolBars[symbol];
     if (!bars.bias || !bars.exec) continue;
-    const out = { trades: [], controls: [], candidates: 0 };
+    const out = { trades: [], controls: [], candidates: 0, symbol };
     modelCrtFvg(bars.bias, bars.exec, out, { gates });
     cands += out.candidates;
     all.trades.push(...out.trades); all.controls.push(...out.controls);
   }
   const s = stat(all.trades), c = stat(all.controls), f = folds(all.trades, FOLDS);
+  const yrs = spanYears(all.trades);
   say("  " + pad(label, 34) + pad(s.n, 8) + pad(s.n ? s.wr.toFixed(1) : "-", 8)
-    + pad(s.n ? s.openPct.toFixed(0) + "%" : "-", 8)
     + pad(s.n ? num(s.rpt, 4) : "-", 10) + pad(s.n ? num(s.netR, 2) : "-", 10)
-    + pad(c.n ? num(c.rpt, 4) : "-", 10) + pad(s.n && c.n ? num(s.rpt - c.rpt, 4) : "-", 10)
+    + pad(s.n && c.n ? num(s.rpt - c.rpt, 4) : "-", 10)
+    + pad(yrs ? (s.n / yrs).toFixed(0) : "-", 8)
+    + pad(yrs ? num(s.netR / yrs, 1) : "-", 9)
+    + (() => { const cs = costedStat(all.trades);
+        return cs ? pad(cs.costRpt.toFixed(4), 9) + pad(num(cs.netRpt, 4), 10)
+                  + pad(cs.headroom === null ? "-" : cs.headroom.toFixed(1) + "x", 10)
+                  : pad("-", 9) + pad("-", 10) + pad("-", 10); })()
     + (f ? f.filter(x => x > 0).length + "/" + FOLDS : "n<5/fold"));
   return { label, n: s.n, rpt: s.rpt, edge: s.n && c.n ? s.rpt - c.rpt : null,
     folds: f ? f.filter(x => x > 0).length : null };
 }
 
 const header = () => say("  " + pad("layer", 34) + pad("trades", 8) + pad("WR%", 8)
-  + pad("open%", 8) + pad("R/trade", 10) + pad("netR", 10) + pad("control", 10)
-  + pad("EDGE", 10) + "folds+");
+  + pad("R/trade", 10) + pad("netR", 10) + pad("EDGE", 10) + pad("tr/yr", 8)
+  + pad("R/yr", 9) + pad("costR", 9) + pad("NET R/t", 10) + pad("headroom", 10) + "folds+");
 
 say("");
 say("  THE LADDER -- each rung is the one above it plus one more layer, all three assets pooled");
@@ -510,15 +557,21 @@ for (const m of STANDALONE) {
   for (const symbol of SYMBOLS) {
     const bars = bySymbolBars[symbol];
     if (!bars.bias || !bars.exec) continue;
-    const out = { trades: [], controls: [], candidates: 0 };
+    const out = { trades: [], controls: [], candidates: 0, symbol };
     m.fn(bars.bias, bars.exec, out);
     all.trades.push(...out.trades); all.controls.push(...out.controls);
   }
   const s = stat(all.trades), c = stat(all.controls), f = folds(all.trades, FOLDS);
+  const yrs = spanYears(all.trades);
   say("  " + pad(m.label, 34) + pad(s.n, 8) + pad(s.n ? s.wr.toFixed(1) : "-", 8)
-    + pad(s.n ? s.openPct.toFixed(0) + "%" : "-", 8)
     + pad(s.n ? num(s.rpt, 4) : "-", 10) + pad(s.n ? num(s.netR, 2) : "-", 10)
-    + pad(c.n ? num(c.rpt, 4) : "-", 10) + pad(s.n && c.n ? num(s.rpt - c.rpt, 4) : "-", 10)
+    + pad(s.n && c.n ? num(s.rpt - c.rpt, 4) : "-", 10)
+    + pad(yrs ? (s.n / yrs).toFixed(0) : "-", 8)
+    + pad(yrs ? num(s.netR / yrs, 1) : "-", 9)
+    + (() => { const cs = costedStat(all.trades);
+        return cs ? pad(cs.costRpt.toFixed(4), 9) + pad(num(cs.netRpt, 4), 10)
+                  + pad(cs.headroom === null ? "-" : cs.headroom.toFixed(1) + "x", 10)
+                  : pad("-", 9) + pad("-", 10) + pad("-", 10); })()
     + (f ? f.filter(x => x > 0).length + "/" + FOLDS : "n<5/fold"));
 }
 
