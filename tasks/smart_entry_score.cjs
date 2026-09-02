@@ -536,6 +536,36 @@ else {
       + pad(s.n, 7) + pad(s.lo.toFixed(0) + "-" + s.hi.toFixed(0), 16)
       + pad(s.wr.toFixed(1), 9) + num(s.rpt, 4)));
   };
+  // THE FILTER, MEASURED DIRECTLY. The quintile table is a ranking; this is the decision
+  // someone would actually take. Reported on the TEST half only, and by the raw component
+  // rather than by the fitted score, so it cannot inherit anything from the fit.
+  {
+    const sorted = [...all].sort((a, b) => a.entryTime - b.entryTime);
+    const test = sorted.slice(Math.floor(sorted.length * 0.6));
+    const w = WEIGHTS.htfBias;
+    const aligned = test.filter(t => t.parts.htfBias >= w * 0.999);
+    const partial = test.filter(t => t.parts.htfBias > 0.001 && t.parts.htfBias < w * 0.999);
+    const none    = test.filter(t => t.parts.htfBias <= 0.001);
+    const kept    = test.filter(t => t.parts.htfBias > 0.001);
+    const a = stat(aligned), p = stat(partial), n = stat(none), k = stat(kept), t = stat(test);
+    say("");
+    say("  THE FILTER ON ITS OWN -- HTF bias (EMA50/200 on the bias timeframe), TEST HALF ONLY");
+    say("  " + pad("htfBias", 22) + pad("n", 8) + pad("WR%", 9) + pad("R/trade", 11) + "netR");
+    const row = (label, s) => say("  " + pad(label, 22) + pad(s.n, 8)
+      + pad(s.n ? s.wr.toFixed(1) : "-", 9) + pad(s.n ? num(s.rpt, 4) : "-", 11)
+      + (s.n ? num(s.netR, 2) : "-"));
+    row("fully aligned", a);
+    row("partly aligned", p);
+    row("not aligned", n);
+    row("-> keep all", t);
+    row("-> drop not-aligned", k);
+    if (t.n && k.n) {
+      say("");
+      say("  Dropping the not-aligned trades moves the test half " + num(t.rpt, 4)
+        + " -> " + num(k.rpt, 4) + "  (" + num(k.rpt - t.rpt, 4) + "), giving up "
+        + n.n + " of " + t.n + " trades.");
+    }
+  }
   show("TRAIN (in-sample -- shown to make the overfit visible, not as evidence)", oos.trainQ);
   show("TEST  (out-of-sample -- this is the only row that counts)", oos.testQ);
   if (oos.testQ) {
