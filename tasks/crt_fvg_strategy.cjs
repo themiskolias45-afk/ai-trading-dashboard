@@ -80,6 +80,8 @@ const EXEC_WINDOW = numArg("--execwindow", 60);
 const SEARCH      = numArg("--search", 40);
 const RETEST      = numArg("--retest", 40);
 const CONTROL_OFFSET = numArg("--controloffset", 137);
+// 0 = the strategy exactly as described (target = far side of the swept range).
+const MAX_RR      = numArg("--maxrr", 0);
 const SYMBOLS     = strArg("--symbols", "XAUUSD,BTCUSD,SP500").split(",").map(s => s.trim());
 
 function loadBars(symbol, tf) {
