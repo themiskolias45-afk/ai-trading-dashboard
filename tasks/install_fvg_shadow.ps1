@@ -51,6 +51,8 @@ if ($LASTEXITCODE -ne 0) { throw "node at $node did not execute" }
 $logDir = Split-Path -Parent $logFile
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 
+# ASCII, not the default: PowerShell 5.1's *>> writes UTF-16LE with a BOM and every
+# grep against the log then matches nothing, which reads as a quiet system.
 # Output is appended, never overwritten: the shadow record is the whole point and a task
 # that truncates its own log loses the evidence it exists to collect.
 #
@@ -60,7 +62,7 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Forc
 # paths broke the command before node ever started. A task that is registered and silently
 # never runs is worse than no task, because the absence of setups reads as a quiet market.
 # Same executor install_autostart.ps1 uses, for the same reason.
-$inner  = "& '$node' '$script' --once *>> '$logFile'"
+$inner  = "& '$node' '$script' --once 2>&1 | Out-File -FilePath '$logFile' -Append -Encoding ascii"
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
     -Argument ('-NoProfile -ExecutionPolicy Bypass -Command "' + $inner + '"') `
     -WorkingDirectory $root

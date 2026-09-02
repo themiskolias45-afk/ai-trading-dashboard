@@ -61,7 +61,7 @@ $envPrefix = "`$env:FVG_MAX_OPEN='$MaxOpen'; "
 # powershell.exe, not cmd.exe: cmd strips the outer quote pair of a /c string and the
 # nested path quotes break before the interpreter starts -- measured, the task returned
 # result 1 with no log at all.
-$inner  = $envPrefix + "& '$py' '$script' " + $modeArgs + " *>> '$logFile'"
+$inner  = $envPrefix + "& '$py' '$script' " + $modeArgs + " 2>&1 | Out-File -FilePath '$logFile' -Append -Encoding ascii"
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
     -Argument ('-NoProfile -ExecutionPolicy Bypass -Command "' + $inner + '"') `
     -WorkingDirectory $root
