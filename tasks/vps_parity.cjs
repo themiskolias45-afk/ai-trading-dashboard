@@ -254,7 +254,76 @@ function probe(root) {
   // Route surface: a route present on one box and not the other is a real split.
   out.routes = [...index.matchAll(/app\.(get|post)\("([^"]+)"/g)]
     .map(m => m[1].toUpperCase() + " " + m[2]).sort();
+
+  // ROUTE BODIES, added 2026-09-03 after the surface check passed while a route was
+  // returning HTTP 500 on the VPS.
+  //
+  // /api/preopen-plan there carried the lines that USE `openAt` but not the two that
+  // DECLARE it - a hand-applied patch that landed the usages and dropped the
+  // declarations. Every call threw "ReferenceError: openAt is not defined", the panel
+  // read "Pre-open plan unavailable" for hours, and this tool reported ENGINES AGREE
+  // with 116/116 identical route surface the whole time. A surface is a list of PATHS,
+  // and a path is still present when its handler is broken.
+  //
+  // Whole-file hashing cannot substitute: the two index.js files legitimately differ in
+  // length - that patch applied with offsets of -6 to -42 lines - so only per-handler
+  // comparison isolates it.
+  out.routeBodies = {};
+  for (const rm of index.matchAll(/app\.(get|post)\("([^"]+)"/g)) {
+    const key = rm[1].toUpperCase() + " " + rm[2];
+    const body = routeBody(index, rm.index);
+    // Whitespace-normalised because indentation legitimately shifts after a patch and
+    // is not a behavioural split. Comments are KEPT: a comment that disagrees across
+    // boxes is precisely how a stale claim survives a deploy.
+    out.routeBodies[key] = body === null
+      ? "UNPARSED"
+      : crypto.createHash("sha1").update(body.replace(/\s+/g, " ").trim()).digest("hex").slice(0, 12);
+  }
   return out;
+}
+
+// Returns the source of one route handler by brace-matching from its opening paren.
+// Skips string literals, template literals and both comment forms, so a brace inside
+// any of them cannot end the body early. Returns null if the braces never balance.
+//
+// Character codes rather than escape literals throughout: this function is inserted by
+// a patch script, and "backslash-n" written through three layers of quoting is exactly
+// how a matcher like this arrives subtly wrong.
+const CH_NL = 10, CH_BACKSLASH = 92;
+function routeBody(src, startIdx) {
+  let i = src.indexOf("(", startIdx);
+  if (i < 0) return null;
+  const begin = i;
+  let depth = 0;
+  for (; i < src.length; i++) {
+    const c = src[i], n = src[i + 1];
+    if (c === "/" && n === "/") {
+      i = src.indexOf(String.fromCharCode(CH_NL), i);
+      if (i < 0) return null;
+      continue;
+    }
+    if (c === "/" && n === "*") {
+      i = src.indexOf("*/", i + 2);
+      if (i < 0) return null;
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      for (i++; i < src.length; i++) {
+        if (src.charCodeAt(i) === CH_BACKSLASH) { i++; continue; }
+        if (src[i] === quote) break;
+      }
+      continue;
+    }
+    if (c === "(" || c === "{" || c === "[") depth++;
+    else if (c === ")" || c === "}" || c === "]") {
+      depth--;
+      if (depth === 0) return src.slice(begin, i + 1);
+      if (depth < 0) return null;
+    }
+  }
+  return null;
 }
 
 if (process.argv.includes("--probe")) {
@@ -376,6 +445,29 @@ console.log("\nROUTES  (local " + local.routes.length + ", vps " + remote.routes
 if (!onlyLocal.length && !onlyRemote.length) console.log("  identical route surface");
 onlyLocal.forEach(r  => console.log("  LOCAL ONLY  " + r));
 onlyRemote.forEach(r => console.log("  VPS ONLY    " + r));
+
+// A shared route whose HANDLER differs. This is the check that was missing on
+// 2026-09-02 when /api/preopen-plan returned 500 on the VPS and the surface compared
+// clean. Reported separately from the verdict rather than folded into it: a handler
+// split is real, but it is not necessarily an ENGINE split.
+const sharedRoutes = local.routes.filter(r => remote.routes.includes(r));
+const lb = local.routeBodies || null, rb = remote.routeBodies || null;
+console.log("\nROUTE BODIES  (" + sharedRoutes.length + " shared route(s))");
+if (!lb || !rb) {
+  console.log("  peer is running an older probe with no body hashes - NOT COMPARED");
+} else {
+  const bodyDrift = sharedRoutes.filter(r => lb[r] !== rb[r]);
+  const unparsed = sharedRoutes.filter(r => lb[r] === "UNPARSED" || rb[r] === "UNPARSED");
+  if (!bodyDrift.length) {
+    console.log("  all " + sharedRoutes.length + " shared handlers identical");
+  } else {
+    bodyDrift.forEach(r => console.log("  HANDLER DIFFERS  " + r +
+      "   local " + lb[r] + "  vps " + rb[r]));
+    console.log("  A route can be PRESENT on both boxes and still be BROKEN on one.");
+  }
+  unparsed.forEach(r => console.log("  UNPARSED, not compared  " + r));
+}
+
 
 const agree = !engineDrift && !scalarDrift;
 
