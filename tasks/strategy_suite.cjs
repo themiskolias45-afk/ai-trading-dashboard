@@ -64,6 +64,11 @@ const SEARCH      = numArg("--search", 40);
 const RETEST      = numArg("--retest", 40);
 const CONTROL_OFFSET = numArg("--controloffset", 137);
 const REQUIRE_HTF = process.argv.includes("--htf");
+// Exposed for the robustness sweep. A result that exists only at one value of a knob the
+// author chose is fitted; a result that holds across a plateau is a property of the
+// market. Nobody had asked this of FVG continuation, whose 1.5 / 5R / 40 were all picked
+// by hand.
+const DISP_ATR = numArg("--disp", 1.5);
 const SYMBOLS = strArg("--symbols", "XAUUSD,BTCUSD,SP500").split(",").map(s => s.trim());
 const MODELS  = strArg("--models", "crtfvg,emarev,pullback,fvgcont").split(",").map(s => s.trim());
 
@@ -368,7 +373,7 @@ function modelFvgCont(bias, exec, out) {
       const range = exec.highs[j] - exec.lows[j];
       const withTrend = direction === "bullish" ? exec.closes[j] > exec.closes[j - 1]
                                                 : exec.closes[j] < exec.closes[j - 1];
-      if (!(range > 1.5 * atr && withTrend)) continue;
+      if (!(range > DISP_ATR * atr && withTrend)) continue;
 
       const f = detectFVGs(slice(exec, j - EXEC_WINDOW + 1, j + 1), { maxZones: 6, includeFilled: true });
       const zone = f && f.zones ? f.zones.find(z => z.barsAgo === 0 && z.direction === direction) : null;

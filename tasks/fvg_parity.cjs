@@ -4,7 +4,8 @@
  * PARITY: does the LIVE runner find what the BACKTEST counted?
  *
  * tasks/strategy_suite.cjs measured FVG continuation over five years of broker CSVs and
- * reported 1,246 trades at +0.4075R gross. tasks/fvg_runner.cjs implements the same model
+ * reported 1,246 trades at +0.4075R gross in the configuration the runner ships (disp 1.5,
+ * 5R cap) -- a rate of about 4.0 setups per 1,000 m15 bars. tasks/fvg_runner.cjs implements the same model
  * against the live bridge cache. Those are two pieces of code reading two feeds, and
  * nothing so far has checked that they agree.
  *
@@ -62,7 +63,7 @@ const pad = (v, w) => String(v).padEnd(w);
 console.log("=".repeat(96));
 console.log("  PARITY -- the live runner's evaluate(), replayed over the broker archive");
 console.log("  " + new Date().toISOString() + "   tail " + TAIL + " m15 bars per asset");
-console.log("  Backtest reference: 1,246 setups over the full archive, all three assets");
+console.log("  Backtest reference at disp 1.5 / 5R: 1,246 setups over ~308,000 archive bars = 4.0 / 1k");
 console.log("=".repeat(96));
 console.log("");
 console.log("  " + pad("symbol", 9) + pad("bars walked", 14) + pad("setups", 9)
@@ -102,6 +103,7 @@ console.log("  " + "-".repeat(88));
 console.log("  " + pad("TOTAL", 9) + pad(totalBars, 14) + pad(totalSetups, 9)
   + pad((totalSetups / totalBars * 1000).toFixed(2), 14));
 console.log("");
-console.log("  The backtest's 1,246 setups came from ~308,000 archive m15 bars across the three");
-console.log("  assets, a rate of about 4.0 per 1,000 bars. A runner rate far from that is not a");
-console.log("  tuning difference, it is a different model.");
+console.log("  Reference rate is 4.0 per 1,000 bars. The tail is a 42-60 day window rather than");
+console.log("  five years, so a few percent either way is the period, not the model. A rate far");
+console.log("  from it -- as when the runner had no cooldown and read 5.17 against 4.0 -- is a");
+console.log("  different model wearing the measured model's numbers.");

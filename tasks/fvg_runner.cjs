@@ -14,7 +14,7 @@
  *      further; target 5R
  *
  *   gross +0.4075 R/trade | spread cost 0.1824 | NET +0.2252 | headroom 2.2x | 5/5 folds
- *   288 trades/yr against the live engine's ~107 fills/yr
+ *   288 trades/yr against the live engine's ~107 fills/yr, edge +0.2249 over a matched control
  *
  * WHY THIS RUNS BESIDE THE ENGINE AND NOT INSIDE IT. The engine's setup chain is
  * first-match-wins: the last setup added to it (SELL_BOUNCE) DISPLACED 16 Gold trades
@@ -51,6 +51,28 @@ const VERBOSE = process.argv.includes("--verbose");
 
 // Exactly the constants the measurement used. Changing one here without re-running the
 // walk-forward makes this a different model wearing the measured model's numbers.
+// STAYS AT 1.5, AND THE SWEEP THAT ARGUED FOR 1.0 IS WHY IT IS WRITTEN DOWN HERE.
+//
+// A displacement x target-cap grid on 2026-09-02 found a PLATEAU rather than a peak --
+// every cell at 5R or 8R is positive after measured spread, 13 of 15 clear 5 folds of 5 --
+// so these parameters are not fitted. Inside that plateau the five-year numbers argued for
+// loosening to 1.0: +0.2715 net against 1.5's +0.2252, the highest EDGE in the grid
+// (+0.2574), and 579 trades a year against 288.
+//
+// THE RECENT WINDOW SAID THE OPPOSITE, and it is the reason this was not changed:
+//
+//   config          5-year net    last ~60 days    recent n
+//   disp 1.5 / 5R     +0.2252        +0.4413           49
+//   disp 1.0 / 5R     +0.2715        +0.0004          106
+//
+// The mechanism is in the cost column. Looser displacement admits smaller gaps, smaller
+// gaps mean tighter stops, and spread cost per trade rises from 0.1506R to 0.1992R. The
+// extra trades 1.0 buys are the marginal ones and they do not currently cover their own
+// spread -- XAUUSD -0.0078, SP500 -0.3460, only BTC positive.
+//
+// A five-year average that the current regime contradicts is not an improvement, it is an
+// average. 1.5 is better on the recent window by a wide margin and worse on the five-year
+// by a little, which is the trade a live system should take.
 const DISPLACEMENT_ATR = 1.5;
 const ATR_PERIOD       = 14;
 const MAX_RR           = 5;
