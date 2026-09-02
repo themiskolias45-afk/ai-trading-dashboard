@@ -1,0 +1,412 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * THE FIVE STRATEGIES, ON THE THREE ASSETS, UNDER ONE MEASUREMENT.
+ *
+ * Three of the five had never been measured at all -- not rejected, never asked. This
+ * builds them and scores every model the same way so the numbers can be read against each
+ * other instead of against five different harnesses' conventions:
+ *
+ *   crtfvg      CRT sweep + reclaim -> same-direction FVG -> entry on the retest
+ *   emarev      the same, but requiring an EMA21 RECLAIM on the entry bar
+ *               (liquidity sweep + structure shift + displacement + EMA reclaim + FVG)
+ *   pullback    swing trend continuation: HH/HL intact, pullback into the EMA21-50 value
+ *               zone, entry on the rejection back in trend direction
+ *   fvgcont     trend + DISPLACEMENT bar + the FVG that bar created + retrace + entry
+ *               (deliberately NOT "price touched an FVG", which is measured as dead)
+ *
+ * WHY THEY SHARE ONE FILE. Every model gets: broker bars only, point-in-time detection,
+ * an as-of join on CLOSE times, a stop and a target in price, ambiguous-bar-is-a-loss,
+ * marked-to-market at the horizon rather than scored flat, five chronological folds, and
+ * a MATCHED CONTROL -- the same direction with the same stop and target distances entered
+ * at an unrelated earlier bar. Without the control a 60% win rate on a wide target reads
+ * as edge when it is geometry.
+ *
+ *   node tasks/strategy_suite.cjs [--models crtfvg,emarev,pullback,fvgcont]
+ *                                 [--bias h4] [--exec m15] [--hold 960] [--maxrr 5]
+ *                                 [--symbols XAUUSD,BTCUSD,SP500] [--htf]
+ *
+ *   --htf   additionally require full HTF alignment (EMA50/200 on the bias timeframe),
+ *           the one filter that survived an out-of-sample test on 2026-09-02.
+ *
+ * READ-ONLY. Reads tasks/history/*.csv, writes a report to tasks/analysis. No gate,
+ * threshold, setting, position or learning file is touched. feedsTheGate: false.
+ */
+
+const fs   = require("fs");
+const path = require("path");
+
+const ROOT = path.join(__dirname, "..");
+const { detectCRT }  = require(path.join(ROOT, "server", "structure.js"));
+const { detectFVGs } = require(path.join(ROOT, "server", "fvg.js"));
+
+const TF_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
+const TF_FILE    = { d1: "D1", h4: "H4", h1: "H1", m15: "M15" };
+
+function strArg(f, d) { const i = process.argv.indexOf(f); return (i === -1 || i + 1 >= process.argv.length) ? d : process.argv[i + 1]; }
+function numArg(f, d) { const i = process.argv.indexOf(f); if (i === -1 || i + 1 >= process.argv.length) return d; const v = Number(process.argv[i + 1]); return Number.isFinite(v) ? v : d; }
+
+const BIAS_TF     = strArg("--bias", "h4").toLowerCase();
+const EXEC_TF     = strArg("--exec", "m15").toLowerCase();
+const MAX_HOLD    = numArg("--hold", 960);
+const MAX_RR      = numArg("--maxrr", 5);
+const FOLDS       = Math.max(2, numArg("--folds", 5));
+const WINDOW      = numArg("--window", 100);
+const EXEC_WINDOW = numArg("--execwindow", 60);
+const SEARCH      = numArg("--search", 40);
+const RETEST      = numArg("--retest", 40);
+const CONTROL_OFFSET = numArg("--controloffset", 137);
+const REQUIRE_HTF = process.argv.includes("--htf");
+const SYMBOLS = strArg("--symbols", "XAUUSD,BTCUSD,SP500").split(",").map(s => s.trim());
+const MODELS  = strArg("--models", "crtfvg,emarev,pullback,fvgcont").split(",").map(s => s.trim());
+
+function loadBars(symbol, tf) {
+  const file = path.join(ROOT, "tasks", "history", symbol + "_" + TF_FILE[tf] + ".csv");
+  if (!fs.existsSync(file)) return null;
+  const lines = fs.readFileSync(file, "utf8").trim().split("\n");
+  lines.shift();
+  const times = [], highs = [], lows = [], closes = [];
+  for (const raw of lines) {
+    const p = raw.trim().split(",");
+    if (p.length < 5) continue;
+    const t = Number(p[0]), h = Number(p[2]), l = Number(p[3]), c = Number(p[4]);
+    if (!(Number.isFinite(t) && Number.isFinite(h) && Number.isFinite(l) && Number.isFinite(c))) continue;
+    times.push(t); highs.push(h); lows.push(l); closes.push(c);
+  }
+  return { times, highs, lows, closes };
+}
+const slice = (b, from, to) => ({
+  highs: b.highs.slice(from, to), lows: b.lows.slice(from, to),
+  closes: b.closes.slice(from, to), times: b.times.slice(from, to),
+});
+
+function emaAt(closes, endIdx, period) {
+  const from = Math.max(0, endIdx - period * 3);
+  if (endIdx - from < period) return null;
+  let ema = 0;
+  for (let i = from; i < from + period; i++) ema += closes[i];
+  ema /= period;
+  const k = 2 / (period + 1);
+  for (let i = from + period; i <= endIdx; i++) ema = closes[i] * k + ema * (1 - k);
+  return ema;
+}
+function atrAt(h, l, c, endIdx, period) {
+  if (endIdx < period) return null;
+  let sum = 0;
+  for (let i = endIdx - period + 1; i <= endIdx; i++) {
+    sum += Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]));
+  }
+  return sum / period;
+}
+
+// TREND on the bias timeframe, at a point in time. Used both as the pullback model's own
+// premise and as the optional --htf filter on every other model.
+function htfAligned(bias, idx, direction) {
+  const e50 = emaAt(bias.closes, idx, 50), e200 = emaAt(bias.closes, idx, 200);
+  if (e50 === null || e200 === null) return false;
+  const px = bias.closes[idx];
+  return direction === "bullish" ? (e50 > e200 && px > e50) : (e50 < e200 && px < e50);
+}
+// HH/HL over the last 20 bias bars against the 20 before them.
+function swingTrend(bias, idx) {
+  if (idx < 40) return null;
+  const rFrom = idx - 19, pFrom = idx - 39;
+  const mx = (a, x, y) => Math.max.apply(null, a.slice(x, y));
+  const mn = (a, x, y) => Math.min.apply(null, a.slice(x, y));
+  const rh = mx(bias.highs, rFrom, idx + 1), rl = mn(bias.lows, rFrom, idx + 1);
+  const ph = mx(bias.highs, pFrom, rFrom),  pl = mn(bias.lows, pFrom, rFrom);
+  if (rh > ph && rl > pl) return "bullish";
+  if (rh < ph && rl < pl) return "bearish";
+  return null;
+}
+
+function resolveTrade(exec, entryIdx, direction, entry, stop, target, holdBars) {
+  const limit = Math.min(entryIdx + holdBars, exec.highs.length - 1);
+  const risk = Math.abs(entry - stop);
+  if (!(risk > 0)) return null;
+  for (let i = entryIdx + 1; i <= limit; i++) {
+    const hitStop   = direction === "bullish" ? exec.lows[i] <= stop    : exec.highs[i] >= stop;
+    const hitTarget = direction === "bullish" ? exec.highs[i] >= target : exec.lows[i] <= target;
+    // Ambiguous bar resolves as a LOSS: there is no way to know which came first, and
+    // assuming the good one is how a backtest flatters itself.
+    if (hitStop) return { outcome: "LOSS", r: -1 };
+    if (hitTarget) return { outcome: "WIN", r: Math.abs(target - entry) / risk };
+  }
+  const move = direction === "bullish" ? exec.closes[limit] - entry : entry - exec.closes[limit];
+  return { outcome: "OPEN", r: move / risk };
+}
+
+function capTarget(direction, entry, stop, target) {
+  if (MAX_RR <= 0) return target;
+  const risk = Math.abs(entry - stop);
+  if (!(risk > 0)) return target;
+  if (Math.abs(target - entry) <= MAX_RR * risk) return target;
+  return direction === "bullish" ? entry + MAX_RR * risk : entry - MAX_RR * risk;
+}
+
+// One place builds every trade and its control, so no model can accidentally be scored
+// on a kinder convention than another.
+function record(out, exec, entryIdx, direction, entry, stop, target) {
+  const ok = direction === "bullish" ? (stop < entry && target > entry) : (stop > entry && target < entry);
+  if (!ok) return;
+  const capped = capTarget(direction, entry, stop, target);
+  const res = resolveTrade(exec, entryIdx, direction, entry, stop, capped, MAX_HOLD);
+  if (!res) return;
+  const risk = Math.abs(entry - stop), reward = Math.abs(capped - entry);
+  out.trades.push({ r: res.r, outcome: res.outcome, entryTime: exec.times[entryIdx],
+    rr: reward / risk });
+  const cIdx = entryIdx - CONTROL_OFFSET;
+  if (cIdx > 0) {
+    const cE = exec.closes[cIdx];
+    const cS = direction === "bullish" ? cE - risk : cE + risk;
+    const cT = direction === "bullish" ? cE + reward : cE - reward;
+    const cR = resolveTrade(exec, cIdx, direction, cE, cS, cT, MAX_HOLD);
+    if (cR) out.controls.push({ r: cR.r, entryTime: exec.times[cIdx] });
+  }
+}
+
+/* ── MODEL 1 & 2: CRT -> FVG, optionally requiring an EMA21 reclaim ──────────────── */
+function modelCrtFvg(bias, exec, out, opts) {
+  const biasSec = TF_SECONDS[BIAS_TF];
+  let cursor = 0;
+  const at = (t) => { while (cursor < exec.times.length && exec.times[cursor] < t) cursor++;
+    return cursor < exec.times.length ? cursor : -1; };
+
+  for (let b = WINDOW; b < bias.times.length; b++) {
+    const found = detectCRT(slice(bias, b - WINDOW + 1, b + 1), { maxPatterns: 5 });
+    const crt = found && found.patterns ? found.patterns.find(p => p.barsAgo === 0) : null;
+    if (!crt) continue;
+    const direction = crt.direction === "bearish" ? "bearish" : "bullish";
+    if (REQUIRE_HTF && !htfAligned(bias, b, direction)) continue;
+
+    const start = at(bias.times[b] + biasSec);
+    if (start === -1 || start + EXEC_WINDOW >= exec.times.length) continue;
+
+    let zone = null, zoneIdx = -1;
+    const end = Math.min(start + EXEC_WINDOW + SEARCH, exec.times.length);
+    for (let j = start + EXEC_WINDOW; j < end; j++) {
+      const f = detectFVGs(slice(exec, j - EXEC_WINDOW + 1, j + 1), { maxZones: 6, includeFilled: true });
+      const fresh = f && f.zones ? f.zones.find(z => z.barsAgo === 0 && z.direction === direction) : null;
+      if (fresh) { zone = fresh; zoneIdx = j; break; }
+    }
+    if (!zone) continue;
+    const entry = direction === "bullish" ? zone.top : zone.bottom;
+
+    let eIdx = -1;
+    const rEnd = Math.min(zoneIdx + 1 + RETEST, exec.times.length);
+    for (let k = zoneIdx + 1; k < rEnd; k++) {
+      const touched = direction === "bullish" ? exec.lows[k] <= entry : exec.highs[k] >= entry;
+      if (touched) { eIdx = k; break; }
+    }
+    if (eIdx === -1) continue;
+
+    // EMA RECLAIM -- the proposal's "high quality reversal" adds this on top of the
+    // sweep. It is the ONLY difference between emarev and crtfvg, so the two columns
+    // isolate exactly what the reclaim requirement is worth.
+    if (opts.requireReclaim) {
+      const e21 = emaAt(exec.closes, eIdx, 21);
+      if (e21 === null) continue;
+      const reclaimed = direction === "bullish" ? exec.closes[eIdx] > e21 : exec.closes[eIdx] < e21;
+      if (!reclaimed) continue;
+    }
+    out.candidates++;
+    record(out, exec, eIdx, direction, entry, crt.invalidation, crt.objective);
+  }
+}
+
+/* ── MODEL 3: SWING TREND PULLBACK ──────────────────────────────────────────────── */
+// HH/HL intact on the bias timeframe, price pulls back into the EMA21-50 value zone on
+// the execution timeframe, and entry is the REJECTION -- a close back in the trend
+// direction after trading into the zone. Stop under the pullback's own extreme, target
+// the prior swing extreme.
+function modelPullback(bias, exec, out) {
+  const biasSec = TF_SECONDS[BIAS_TF];
+  let cursor = 0;
+  const at = (t) => { while (cursor < exec.times.length && exec.times[cursor] < t) cursor++;
+    return cursor < exec.times.length ? cursor : -1; };
+  let lastEntry = -1;
+
+  for (let b = 40; b < bias.times.length; b++) {
+    const direction = swingTrend(bias, b);
+    if (!direction) continue;
+    if (REQUIRE_HTF && !htfAligned(bias, b, direction)) continue;
+
+    const start = at(bias.times[b] + biasSec);
+    if (start === -1 || start + 60 >= exec.times.length) continue;
+    const scanEnd = Math.min(start + SEARCH + RETEST, exec.times.length - 1);
+
+    for (let k = start + 60; k < scanEnd; k++) {
+      // One position at a time: a model that stacks twenty entries on one pullback is
+      // measuring the same idea twenty times.
+      if (k <= lastEntry) continue;
+      const e21 = emaAt(exec.closes, k, 21), e50 = emaAt(exec.closes, k, 50);
+      if (e21 === null || e50 === null) continue;
+      const zTop = Math.max(e21, e50), zBot = Math.min(e21, e50);
+      const inZone = direction === "bullish" ? (exec.lows[k] <= zTop && exec.closes[k] >= zBot)
+                                             : (exec.highs[k] >= zBot && exec.closes[k] <= zTop);
+      if (!inZone) continue;
+      const rejected = direction === "bullish" ? exec.closes[k] > exec.closes[k - 1]
+                                               : exec.closes[k] < exec.closes[k - 1];
+      if (!rejected) continue;
+
+      const lookback = 20;
+      const from = Math.max(0, k - lookback);
+      const swingLow  = Math.min.apply(null, exec.lows.slice(from, k + 1));
+      const swingHigh = Math.max.apply(null, exec.highs.slice(from, k + 1));
+      const entry = exec.closes[k];
+      const stop   = direction === "bullish" ? swingLow : swingHigh;
+      const target = direction === "bullish"
+        ? entry + (entry - swingLow) * MAX_RR : entry - (swingHigh - entry) * MAX_RR;
+      out.candidates++;
+      record(out, exec, k, direction, entry, stop, target);
+      lastEntry = k + 20;
+      break;
+    }
+  }
+}
+
+/* ── MODEL 4: FVG CONTINUATION ──────────────────────────────────────────────────── */
+// Trend, then a DISPLACEMENT bar -- range above 1.5x ATR in the trend direction -- then
+// the FVG that displacement created, then a retrace into it. The displacement requirement
+// is the whole distinction from "price touched an FVG", which is measured as dead against
+// its own control over 22,199 trades.
+function modelFvgCont(bias, exec, out) {
+  const biasSec = TF_SECONDS[BIAS_TF];
+  let cursor = 0;
+  const at = (t) => { while (cursor < exec.times.length && exec.times[cursor] < t) cursor++;
+    return cursor < exec.times.length ? cursor : -1; };
+  let lastEntry = -1;
+
+  for (let b = 40; b < bias.times.length; b++) {
+    const e50 = emaAt(bias.closes, b, 50), e200 = emaAt(bias.closes, b, 200);
+    if (e50 === null || e200 === null) continue;
+    const px = bias.closes[b];
+    const direction = (e50 > e200 && px > e50) ? "bullish" : (e50 < e200 && px < e50) ? "bearish" : null;
+    if (!direction) continue;
+
+    const start = at(bias.times[b] + biasSec);
+    if (start === -1 || start + EXEC_WINDOW >= exec.times.length) continue;
+    const end = Math.min(start + EXEC_WINDOW + SEARCH, exec.times.length);
+
+    for (let j = start + EXEC_WINDOW; j < end; j++) {
+      if (j <= lastEntry) continue;
+      const atr = atrAt(exec.highs, exec.lows, exec.closes, j, 14);
+      if (!atr || atr <= 0) continue;
+      const range = exec.highs[j] - exec.lows[j];
+      const withTrend = direction === "bullish" ? exec.closes[j] > exec.closes[j - 1]
+                                                : exec.closes[j] < exec.closes[j - 1];
+      if (!(range > 1.5 * atr && withTrend)) continue;
+
+      const f = detectFVGs(slice(exec, j - EXEC_WINDOW + 1, j + 1), { maxZones: 6, includeFilled: true });
+      const zone = f && f.zones ? f.zones.find(z => z.barsAgo === 0 && z.direction === direction) : null;
+      if (!zone) continue;
+
+      const entry = direction === "bullish" ? zone.top : zone.bottom;
+      let eIdx = -1;
+      const rEnd = Math.min(j + 1 + RETEST, exec.times.length);
+      for (let k = j + 1; k < rEnd; k++) {
+        const touched = direction === "bullish" ? exec.lows[k] <= entry : exec.highs[k] >= entry;
+        if (touched) { eIdx = k; break; }
+      }
+      if (eIdx === -1) continue;
+
+      // Stop the far side of the gap plus the displacement bar's own extreme -- the level
+      // that says the continuation failed.
+      const stop = direction === "bullish" ? Math.min(zone.bottom, exec.lows[j])
+                                           : Math.max(zone.top, exec.highs[j]);
+      const risk = Math.abs(entry - stop);
+      const target = direction === "bullish" ? entry + MAX_RR * risk : entry - MAX_RR * risk;
+      out.candidates++;
+      record(out, exec, eIdx, direction, entry, stop, target);
+      lastEntry = eIdx + 20;
+      break;
+    }
+  }
+}
+
+const MODEL_FNS = {
+  crtfvg:   (b, e, o) => modelCrtFvg(b, e, o, { requireReclaim: false }),
+  emarev:   (b, e, o) => modelCrtFvg(b, e, o, { requireReclaim: true }),
+  pullback: (b, e, o) => modelPullback(b, e, o),
+  fvgcont:  (b, e, o) => modelFvgCont(b, e, o),
+};
+const MODEL_LABEL = {
+  crtfvg:   "CRT + FVG",
+  emarev:   "EMA reversal (CRT+FVG+reclaim)",
+  pullback: "Swing trend pullback",
+  fvgcont:  "FVG continuation",
+};
+
+function stat(rows) {
+  if (!rows.length) return { n: 0, wr: 0, rpt: 0, netR: 0 };
+  const wins = rows.filter(t => t.r > 0).length;
+  const netR = rows.reduce((a, t) => a + t.r, 0);
+  return { n: rows.length, wr: (wins / rows.length) * 100, rpt: netR / rows.length, netR };
+}
+function folds(rows, n) {
+  const s = [...rows].sort((a, b) => a.entryTime - b.entryTime);
+  const size = Math.floor(s.length / n);
+  if (size < 5) return null;
+  const out = [];
+  for (let k = 0; k < n; k++) out.push(stat(s.slice(k * size, k === n - 1 ? s.length : (k + 1) * size)).rpt);
+  return out;
+}
+
+const pad = (v, w) => String(v).padEnd(w);
+const num = (v, d) => Number.isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(d) : "-";
+const lines = [];
+const say = (s) => { lines.push(s); console.log(s); };
+
+say("=".repeat(118));
+say("  STRATEGY SUITE  --  every model, same three assets, same measurement");
+say("  " + new Date().toISOString());
+say("  bias " + BIAS_TF + " | exec " + EXEC_TF + " | hold " + MAX_HOLD + " | cap " + MAX_RR
+  + "R | folds " + FOLDS + (REQUIRE_HTF ? " | HTF ALIGNMENT REQUIRED" : ""));
+say("  Ambiguous bar = LOSS. Unresolved = marked to market. Control = same shape, unrelated entry.");
+say("=".repeat(118));
+
+const bySymbolBars = {};
+for (const s of SYMBOLS) {
+  bySymbolBars[s] = { bias: loadBars(s, BIAS_TF), exec: loadBars(s, EXEC_TF) };
+}
+
+for (const model of MODELS) {
+  const fn = MODEL_FNS[model];
+  if (!fn) { say("\n  unknown model: " + model); continue; }
+  say("");
+  say("  " + (MODEL_LABEL[model] || model).toUpperCase());
+  say("  " + pad("symbol", 9) + pad("cands", 8) + pad("trades", 8) + pad("WR%", 8)
+    + pad("R/trade", 10) + pad("netR", 10) + pad("control", 10) + pad("EDGE", 10) + "folds+");
+  const all = { trades: [], controls: [] };
+  for (const symbol of SYMBOLS) {
+    const bars = bySymbolBars[symbol];
+    if (!bars.bias || !bars.exec) { say("  " + pad(symbol, 9) + "missing archive"); continue; }
+    const out = { trades: [], controls: [], candidates: 0 };
+    fn(bars.bias, bars.exec, out);
+    const s = stat(out.trades), c = stat(out.controls), f = folds(out.trades, FOLDS);
+    say("  " + pad(symbol, 9) + pad(out.candidates, 8) + pad(s.n, 8)
+      + pad(s.n ? s.wr.toFixed(1) : "-", 8) + pad(s.n ? num(s.rpt, 4) : "-", 10)
+      + pad(s.n ? num(s.netR, 2) : "-", 10) + pad(c.n ? num(c.rpt, 4) : "-", 10)
+      + pad(s.n && c.n ? num(s.rpt - c.rpt, 4) : "-", 10)
+      + (f ? f.filter(x => x > 0).length + "/" + FOLDS + "  [" + f.map(x => num(x, 3)).join(" ") + "]" : "n<5/fold"));
+    all.trades.push(...out.trades); all.controls.push(...out.controls);
+  }
+  const s = stat(all.trades), c = stat(all.controls), f = folds(all.trades, FOLDS);
+  say("  " + pad("POOLED", 9) + pad("", 8) + pad(s.n, 8) + pad(s.n ? s.wr.toFixed(1) : "-", 8)
+    + pad(s.n ? num(s.rpt, 4) : "-", 10) + pad(s.n ? num(s.netR, 2) : "-", 10)
+    + pad(c.n ? num(c.rpt, 4) : "-", 10) + pad(s.n && c.n ? num(s.rpt - c.rpt, 4) : "-", 10)
+    + (f ? f.filter(x => x > 0).length + "/" + FOLDS : "-"));
+}
+
+say("");
+say("  EDGE is the model minus its matched control. Positive R/trade with an edge near zero");
+say("  means the target geometry paid, not the setup.");
+
+try {
+  const outDir = path.join(ROOT, "tasks", "analysis");
+  fs.mkdirSync(outDir, { recursive: true });
+  const suffix = REQUIRE_HTF ? "-htf" : "";
+  fs.writeFileSync(path.join(outDir, "strategy-suite" + suffix + ".txt"), lines.join("\n") + "\n");
+  say("");
+  say("  written to tasks/analysis/strategy-suite" + suffix + ".txt");
+} catch (e) { console.error("  report not written: " + e.message); }
