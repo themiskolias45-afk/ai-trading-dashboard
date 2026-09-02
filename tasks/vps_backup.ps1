@@ -151,7 +151,18 @@ try {
   Add-Content -Path $logFile -Value ("[" + (Get-Date) + "] Backup FAILED - see backup_errors.txt")
 }
 
+# RETENTION 14 -> 48, because this job went from DAILY to every 4h on 2026-09-02.
+#
+# At 6 runs a day, keeping 14 covers TWO AND A HALF DAYS. Raising the frequency without
+# raising the count would have quietly traded away almost all the history - recency bought
+# with depth, which is a loss wearing the costume of an improvement. 48 restores 8 days.
+#
+# The arithmetic is what makes it safe, and it is only affordable because the 29.1 MB
+# tailscale-setup.msi is no longer archived: 48 x 34.6 MB = 1.6 GB against 65.4 GB free.
+# At the old 63.7 MB it would have been 3.1 GB, which is why the exclusion came first and
+# the retention second.
+$KEEP_BACKUPS = 48
 Get-ChildItem "$backupDir\*.zip" -ErrorAction SilentlyContinue |
   Sort-Object LastWriteTime -Descending |
-  Select-Object -Skip 14 |
+  Select-Object -Skip $KEEP_BACKUPS |
   Remove-Item -Force -ErrorAction SilentlyContinue
