@@ -55,11 +55,44 @@ const VALID_TYPES = new Set(["user", "feedback", "project", "reference"]);
 const INDEXES = ["MEMORY.md", "MEMORY-FULL.md"];
 const MEMORY_MD_BYTE_CAP = 24576;   // the loader truncates by BYTES, not lines
 
+// DISCOVERED, NEVER HARDCODED — and the first version of this function hardcoded it.
+//
+// The slug is derived from the repo's own location, so the two boxes disagree on it:
+// the laptop is ~/.claude/projects/C--Users-User-ai-trading-dashboard/memory and the VPS
+// is ~/.claude/projects/C--ai-trading-dashboard/memory. Hardcoding the laptop's slug made
+// this report "memory dir not found on this box — nothing to lint" on a VPS that holds
+// 317 memories. A checker that finds nothing for a plausible-sounding reason is the exact
+// failure this file was written to catch, committed by this file on its first day.
+//
+// tasks/rag_index.py's _find_brain_corpus() already solved this and its comment says so
+// outright. I wrote a second copy of the same lookup and got it wrong instead of reading
+// the one next door, which is the duplicate-check rule failing at my own hands.
 function memoryDir() {
+  const override = process.env.JARVIS_BRAIN_PATH;
+  if (override && fs.existsSync(override)) return override;
+
   const home = process.env.USERPROFILE || process.env.HOME || os.homedir();
-  const d = path.join(home, ".claude", "projects",
-                      "C--Users-User-ai-trading-dashboard", "memory");
-  return fs.existsSync(d) ? d : null;
+  const projects = path.join(home, ".claude", "projects");
+  if (!fs.existsSync(projects)) return null;
+
+  // Prefer the project whose slug matches THIS repo; otherwise take whichever memory dir
+  // holds the most files, so a renamed or relocated repo still finds its own brain rather
+  // than silently linting an empty scratch project.
+  const root = path.join(__dirname, "..");
+  const hint = root.replace(/:/g, "-").replace(/[\\/]/g, "-");
+  let best = null;
+  for (const entry of fs.readdirSync(projects, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const mem = path.join(projects, entry.name, "memory");
+    if (!fs.existsSync(mem)) continue;
+    let count = 0;
+    try { count = fs.readdirSync(mem).filter(f => f.endsWith(".md")).length; } catch (e) { continue; }
+    if (count === 0) continue;
+    const exact = entry.name.toLowerCase() === hint.toLowerCase();
+    if (exact) return mem;
+    if (!best || count > best.count) best = { dir: mem, count };
+  }
+  return best ? best.dir : null;
 }
 
 // Two spellings of one idea are the same idea. Collapsing to letters and digits is what
