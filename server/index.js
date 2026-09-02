@@ -2655,6 +2655,103 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
             condition: "MACD_NOT_BULLISH", threshold: 0, actual: macd.histogram });
         }
 
+        // ── THE SHORT SIDE, which this census could not see until 2026-09-02 ──
+        //
+        // WHY. Every block above instruments MOMENTUM or TREND_FOLLOW, and both are
+        // LONG. The census therefore held two conditions and only two - RSI_ABOVE_CEILING
+        // and MACD_NOT_BULLISH - across 46 rows, and not one of them was a SELL. So when
+        // the question was "why has it not sold all week" while Gold sat in a STRONG
+        // DOWNTREND with H4 and H1 both bearish and M15 printing SELL, the instrument
+        // built to answer exactly that returned nothing, and the answer had to be
+        // reconstructed by hand from 3,296 rejection-ledger rows.
+        //
+        // ONLY STATIONARY THRESHOLDS ARE INSTRUMENTED, and that is the load-bearing
+        // constraint here. The first version of this block also reported the EMA20 and
+        // BB-band legs, with thresholds of `ema20`, `ema20 * 1.022` and `bb.upper * 0.992`
+        // - all recomputed from the live last close on every refresh. near_miss.js was
+        // built on the assumption that a threshold is a CONSTANT: its per-day bucket is
+        // `${day}|${threshold}` (:143) and its file dedupe key is
+        // `...|thr:${row.threshold}|${day}` (:294). A threshold that moves every tick is a
+        // new key every tick, so the dedupe can never fire, and the */10 flush cron would
+        // have appended ~144 rows per active key per day into an evidence file that holds
+        // 46 rows across its entire life - and which rule 6 forbids ever cleaning up.
+        // It would also have leaked one `writtenThisProcess` Map entry per row, forever.
+        //
+        // So those three legs are PRECONDITIONS now, not reported conditions. That is the
+        // same shape `momentumStructureOk` above already uses, and it is better evidence
+        // besides: "price is not at the band" is the market not being there, not a bound
+        // doing anything, and a census row saying so on every refresh would have buried
+        // the rows that mean something. Requiring price to be AT the level is what makes
+        // the surviving RSI row a genuine near miss rather than a statement of location.
+        //
+        // CENSUS ONLY - these rows do NOT join `noted`. The BLOCKED: line below buckets by
+        // `condition !== "MACD_NOT_BULLISH"` and renders the survivor as
+        // `RSI <actual> <where> <threshold>`, so any non-RSI row joining `noted` would
+        // print a fabricated RSI reading on the first line a human reads. `reasons` is
+        // therefore BYTE-IDENTICAL after this change.
+        //
+        // ADDITIVE AND NON-BLOCKING. Nothing here assigns setup, signal, entry, stop,
+        // target, strength or confidence; it calls noteNearMiss, an in-memory counter with
+        // feedsTheGate false. No setup is suppressed and none is admitted.
+        const noteCensusOnly = (row) => {
+          if (typeof noteNearMiss === "function") noteNearMiss(row);
+        };
+
+        // Returns the single failing condition, or null when zero or several fail. A near
+        // miss defeated by TWO conditions is not a near miss - the margin stops being the
+        // distance to firing, which is the only reason this census exists.
+        const onlyFailure = (conditions) => {
+          const failed = conditions.filter(c => !c.ok);
+          return failed.length === 1 ? failed[0] : null;
+        };
+
+        // SELL_BOUNCE: a rejection at EMA20 in a downtrend, or mixed below EMA50. The
+        // trend and EMA20-band legs are quoted from the branch at :2166 so the two cannot
+        // drift; both are preconditions, per the note above.
+        const sellBounceTrendOk = (!SELL_BOUNCE_REQUIRE_DOWNTREND || inDowntrend
+          || (trend === "MIXED" && !aboveEma50));
+        const sellBounceAtResistance = aboveEma20 && Number.isFinite(ema20)
+          && price <= ema20 * 1.022;
+        if (sellBounceTrendOk && sellBounceAtResistance && macd) {
+          const sellBounceMiss = onlyFailure([
+            { ok: rsi > 50, condition: "RSI_BELOW_FLOOR", threshold: 50, actual: rsi },
+            // The blocker is that MACD is STILL BULLISH - the branch requires
+            // !macd.bullish. Named for what is wrong rather than as the negation of a
+            // test that does not exist: `macd.bullish` is macdLine > signalLine (:1681),
+            // so there is no separate "bearish" reading to be not-yet at. threshold 0
+            // because the crossover IS the zero line for the histogram, the same meaning
+            // MACD_NOT_BULLISH carries above.
+            { ok: !macd.bullish, condition: "MACD_STILL_BULLISH",
+              threshold: 0, actual: macd.histogram },
+          ]);
+          // Number.isFinite matches the guard the MOMENTUM and TREND_FOLLOW MACD blocks
+          // already carry at :2634 and :2653. finiteOrNull in near_miss.js would drop the
+          // row anyway; the asymmetry would just read as an oversight.
+          if (sellBounceMiss
+              && (sellBounceMiss.condition !== "MACD_STILL_BULLISH"
+                  || Number.isFinite(macd.histogram))) {
+            noteCensusOnly({ ...nearMissBase, setup: "SELL_BOUNCE",
+              condition: sellBounceMiss.condition,
+              threshold: sellBounceMiss.threshold, actual: sellBounceMiss.actual });
+          }
+        }
+
+        // RANGE_TRADE_SHORT: sell the BB upper band in a ranging or squeezing market.
+        // 595 of the last 628 SELL candidates carried this name, so it is the short side's
+        // whole population and the one worth being able to see. Price must actually BE at
+        // the band; RSI is then the only thing left that can miss.
+        const rangeShortAtBand = bb && Number.isFinite(bb.upper) && price >= bb.upper * 0.992;
+        if (!inUptrend && rangeShortAtBand) {
+          const rangeShortMiss = onlyFailure([
+            { ok: rsi > 58, condition: "RSI_BELOW_FLOOR", threshold: 58, actual: rsi },
+          ]);
+          if (rangeShortMiss) {
+            noteCensusOnly({ ...nearMissBase, setup: "RANGE_TRADE_SHORT",
+              condition: rangeShortMiss.condition,
+              threshold: rangeShortMiss.threshold, actual: rangeShortMiss.actual });
+          }
+        }
+
         // ── The census, said out loud ────────────────────────────
         // The TIGHTEST miss only. A list of four near-misses is a wall of text; the
         // one that came closest is the actionable fact, and the rest stay available

@@ -6032,12 +6032,33 @@ async function loadWhatHappensNext() {
         reason = "Clears the gate and the setup has formed.";
       } else if (misses.length) {
         const closest = misses[0];
+        // THE DIRECTION USED TO BE HARDCODED to "needs ≤ X ... (N over)", which is right
+        // only for a CEILING. A FLOOR needs ≥ and its actual sits UNDER, so a floor row
+        // rendered wrong in both directions at once.
+        //
+        // It survived because the branch had never executed. 0 of the 46 rows ever
+        // persisted were floors: the MOMENTUM and TREND_FOLLOW floors both require
+        // inUptrend && macd.bullish, which almost never coexists with a low RSI.
+        // RANGE_TRADE_SHORT's floor is guarded only by !inUptrend, so it fires routinely,
+        // and on 2026-09-02 this printed "needs ≤ 58, was 44.4 (13.6 over)" for a setup
+        // that in fact needs RSI 58 or MORE and was 13.6 UNDER it. A dormant renderer bug
+        // became the first line on the page the moment the short side was instrumented.
+        //
+        // MACD rows are directional too and neither is a plain floor: MACD_NOT_BULLISH
+        // wants the histogram ABOVE zero, MACD_STILL_BULLISH wants it BELOW. Named
+        // explicitly rather than pattern-matched, so a new condition renders as a
+        // ceiling by default and is caught by looking wrong rather than by being wrong
+        // in a way that reads as plausible.
+        const NEEDS_AT_LEAST = { RSI_BELOW_FLOOR: true, MACD_NOT_BULLISH: true };
+        const isFloor = NEEDS_AT_LEAST[closest.condition] === true;
         reason = "Closest miss: <span class=\"whn-num\">" + escapeHtml(closest.setup) + "</span> on "
           + escapeHtml(closest.timeframe) + " failed <span class=\"whn-num\">"
-          + escapeHtml(closest.condition) + "</span> — needs ≤ "
+          + escapeHtml(closest.condition) + "</span> — needs "
+          + (isFloor ? "≥ " : "≤ ")
           + '<span class="whn-num">' + closest.threshold + "</span>, was "
           + '<span class="whn-num">' + closest.lastActual + "</span> ("
-          + '<span class="whn-num">' + closest.minMargin.toFixed(1) + "</span> over)"
+          + '<span class="whn-num">' + closest.minMargin.toFixed(1) + "</span> "
+          + (isFloor ? "under)" : "over)")
           + (misses.length > 1 ? " · " + misses.length + " conditions blocking" : "");
       } else if (!forms) {
         // reasons[] is ordered by the engine's own narrative, not by relevance, so
