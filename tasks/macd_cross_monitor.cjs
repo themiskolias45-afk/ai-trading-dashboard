@@ -55,7 +55,11 @@ const { execFile } = require("child_process");
 
 const HOST = process.env.SMARTENTRY_HOST || "http://localhost:3001";
 const PROJECT_ROOT = path.join(__dirname, "..");
-const LOG_PATH = path.join(__dirname, "logs", "macd_cross_monitor.txt");
+// Overridable ONLY so the cross branch can be proven against a stub without writing
+// fake signs into the real history. Unset in every scheduled run; the default is
+// the real log. A branch that has never executed is not a verified branch.
+const LOG_PATH = process.env.MACD_MONITOR_LOG
+  || path.join(__dirname, "logs", "macd_cross_monitor.txt");
 const FETCH_TIMEOUT_MS = 8000;
 
 const ASSET_KEYS = ["btc", "gold", "spx"];
