@@ -561,7 +561,7 @@ SETUP_LEVELS = [
 ]
 
 # Context levels: carried in the panel, never drawn as lines.
-CONTEXT_LEVELS = [("resistance", "R1"), ("support", "S1"),
+CONTEXT_LEVELS = [("resistance", "R1"), ("pp", "PP"), ("support", "S1"),
                   ("breakout_up", "Brk+"), ("breakout_down", "Brk-")]
 
 # A trade is a distance, not three prices, and the eye reads a shaded band faster
@@ -2386,6 +2386,33 @@ def load_market_context():
     return usable
 
 
+def _note_row(reasons, limit=112):
+    """The most actionable engine reason, cut on a word boundary - never mid-token.
+
+    IT USED TO BE reasons[0][:64] AND THAT CUT INSIDE A NUMBER. Measured 2026-09-02,
+    Gold rendered:
+        "BLOCKED: TREND_FOLLOW - MACD not bullish (histogram -26.78, 26.7"
+    The sentence stops mid-figure, so the one number that says HOW FAR the setup is
+    from firing arrives on the chart as a half-written digit. That day the MACD cross
+    was the single condition standing between Gold and a live TREND_FOLLOW setup, with
+    every other leg already passed - the most useful fact the engine produced, and the
+    panel truncated it.
+
+    A BLOCKED line is preferred over reasons[0] when one exists. The engine does not
+    guarantee ordering, and "what is stopping this" outranks "BB squeeze forming" every
+    time. Falls back to the first reason, then to a dash.
+    """
+    if not reasons:
+        return "-"
+    text = next((str(r) for r in reasons if str(r).startswith("BLOCKED")), str(reasons[0]))
+    if len(text) <= limit:
+        return text
+    # Cut at the last space inside the budget so a number is never split. If there is
+    # no space to cut at, a hard cut is still better than overflowing the panel.
+    cut = text.rfind(" ", 0, limit)
+    return (text[:cut] if cut > 40 else text[:limit]).rstrip(" ,.") + "..."
+
+
 def _pick_drawn_zones(asset_context):
     """The three zones worth a box: the nearest wall above, the nearest floor below,
     and then the strongest thing left.
@@ -2601,7 +2628,7 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=Non
         # context rather than as an instruction, and prints its own verdict in words.
         "1D read":    _read_row(reads or {}, symbol, "D1"),
         "4H read":    _read_row(reads or {}, symbol, "H4"),
-        "Note":       (reasons[0][:64] if reasons else "-"),
+        "Note":       _note_row(reasons),
     }
 
     plan = {
@@ -2620,6 +2647,11 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=Non
         "target": target,
         "support": support,
         "resistance": resistance,
+        # The day reference level. R2 and S2 already reach the panel disguised
+        # as TP and SL on a WAIT asset, but PP appeared NOWHERE on the chart -
+        # not as a line, not as text - despite being the level intraday price
+        # is measured against. Carried here so the Pivots row can show it.
+        "pp": pivots.get("pp"),
         "generated_at": time.strftime("%Y-%m-%d %H:%M"),
         # The instant itself, so the chart can age its own plan. Deriving this
         # back from generated_at would mean re-parsing a LOCAL time string, and
