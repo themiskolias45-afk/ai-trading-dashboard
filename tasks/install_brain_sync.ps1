@@ -143,7 +143,9 @@ try {
 
 $info = Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo
 "Registered '$TaskName' as $me."
-"  daily at   : $AtLocal local, repeating every $RepeatHours h (StartWhenAvailable, plus on unlock)"
+"  daily at   : $AtLocal local, repeating every $RepeatHours h (StartWhenAvailable)"
+if ($withUnlock) { "  unlock     : yes - also fires when the session is unlocked" }
+else { "  unlock     : NOT registered (needs elevation). The $RepeatHours h repetition still covers a sleeping laptop; re-run this from an admin shell to add it." }
 "  next run   : $($info.NextRunTime)"
 "  script     : $script --apply"
 "  log        : $logFile"
