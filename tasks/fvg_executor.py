@@ -81,13 +81,83 @@ if "--model" in sys.argv and sys.argv.index("--model") + 1 < len(sys.argv):
 else:
     _model_key = "fvg"
 _M = MODELS[_model_key]
-SHADOW     = os.path.join(ROOT, "tasks", _M["shadow"])
-EXECUTED   = os.path.join(ROOT, "tasks", _M["executed"])
+# --shadow-file points the executor at a DIFFERENT ledger to read. It exists for one
+# reason: this code path had never handled a real setup, and finding a bug in position
+# sizing or order construction at the moment the first live setup appears is the worst
+# possible time to find it. A rehearsal file lets the whole plan be printed -- lots, stop,
+# target, every guard decision -- against a synthetic setup, without polluting the real
+# append-only ledger, which nothing is permitted to delete.
+#
+# It changes only WHICH FILE IS READ. Every guard still applies, --execute is still
+# required to place anything, and the default is the model's own ledger.
+def _shadow_path():
+    if "--shadow-file" in sys.argv and sys.argv.index("--shadow-file") + 1 < len(sys.argv):
+        return os.path.abspath(sys.argv[sys.argv.index("--shadow-file") + 1])
+    return os.path.join(ROOT, "tasks", _M["shadow"])
+
+
+SHADOW     = _shadow_path()
+# The executed ledger FOLLOWS the rehearsal file. Without this a rehearsal would write
+# its rows into the real execution record, and the next genuine setup carrying that key
+# would be skipped as "already executed" -- a rehearsal silently suppressing a real trade.
+EXECUTED   = (os.path.splitext(SHADOW)[0] + ".executed.jsonl"
+              if "--shadow-file" in sys.argv
+              else os.path.join(ROOT, "tasks", _M["executed"]))
 SERVER     = os.environ.get("SMARTENTRY_HOST", "http://localhost:3001")
 
 MAGIC      = _M["magic"]       # this model's own orders, never the engine's 20250101
 MAX_OPEN   = int(os.environ.get("FVG_MAX_OPEN", "2"))
-RISK_PCT   = float(os.environ.get("FVG_RISK_PCT", "0.15"))   # % of equity per trade
+# SIZING COMES FROM server/strategy_settings.json, THE SAME FILE THE DASHBOARD WRITES.
+#
+# It did not, until 2026-09-02. This executor hardcoded 0.15% and read neither
+# `fixedLotSize` nor `maxLotSize`, so all three dashboard sizing controls were inert for
+# every model it places -- while working normally for the engine's own bridge. The user
+# changed fixedLotSize twice that day believing it governed sizing. For these models it
+# governed nothing. That is precisely the failure CLAUDE.md names: a decoration shaped
+# like a safety switch is worse than no switch, because you stop watching the thing it
+# pretends to control.
+#
+# fixedLotSize > 0 means "use exactly this size", which is how the user caps risk while a
+# model is unproven, and it MUST win over the risk calculation. maxLotSize is a hard
+# ceiling applied after either path.
+#
+# Env still overrides, for rehearsals and for a deliberate one-off; the file is the
+# default, not the other way round.
+SETTINGS_PATH = os.path.join(ROOT, "server", "strategy_settings.json")
+
+
+def load_sizing():
+    """Returns (risk_pct, fixed_lot, max_lot, source). Never raises.
+
+    On an unreadable or malformed file it falls back to the built-in defaults AND SAYS
+    SO, because silently running on defaults while the saved config says something else
+    is the exact bug that turned fixedLotSize 0.01 into full risk-based sizing on the VPS
+    on 2026-08-02.
+    """
+    defaults = (0.15, 0.0, 10.0)
+    try:
+        with open(SETTINGS_PATH, encoding="utf-8-sig") as fh:
+            cfg = json.load(fh)
+    except (OSError, ValueError) as e:
+        return defaults + ("BUILT-IN DEFAULTS -- could not read strategy_settings.json (%s)" % e,)
+    if not isinstance(cfg, dict):
+        return defaults + ("BUILT-IN DEFAULTS -- strategy_settings.json is not an object",)
+
+    def num(key, fallback):
+        v = cfg.get(key, fallback)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return fallback
+        # A negative or non-finite value is corruption, not a configuration choice.
+        return v if v == v and v not in (float("inf"), float("-inf")) and v >= 0 else fallback
+
+    return (num("riskPercent", 0.15), num("fixedLotSize", 0.0), num("maxLotSize", 10.0),
+            "strategy_settings.json")
+
+
+_RISK_PCT_FILE, FIXED_LOT, MAX_LOT, SIZING_SOURCE = load_sizing()
+RISK_PCT   = float(os.environ.get("FVG_RISK_PCT", str(_RISK_PCT_FILE)))   # % of equity per trade
 MAX_AGE_S  = int(os.environ.get("FVG_MAX_AGE_S", str(_M["max_age"])))  # one bar of this model
 MIN_STOP_SPREADS = 3.0
 
@@ -181,6 +251,8 @@ def main():
         mine = [p for p in positions if p.magic == MAGIC]
         held_symbols = {p.symbol for p in mine}
         log("%d open under magic %d, %d fresh setup(s)" % (len(mine), MAGIC, len(fresh)))
+        log("sizing from %s: riskPercent %.3f%%, fixedLotSize %.2f, maxLotSize %.2f, MAX_OPEN %d"
+            % (SIZING_SOURCE, RISK_PCT, FIXED_LOT, MAX_LOT, MAX_OPEN))
 
         account = mt5.account_info()
         equity = account.equity if account else None
@@ -224,7 +296,12 @@ def main():
                 continue
 
             lots = None
-            if equity and risk_dist > 0:
+            # fixedLotSize wins outright. It is the user's cap on an unproven model and a
+            # risk calculation that quietly overrides it is not a smaller bug for being
+            # arithmetically correct.
+            if FIXED_LOT > 0:
+                lots = FIXED_LOT
+            elif equity and risk_dist > 0:
                 tick_value = info.trade_tick_value or 0
                 tick_size = info.trade_tick_size or 0
                 if tick_value > 0 and tick_size > 0:
@@ -235,13 +312,40 @@ def main():
                 log("SKIP %s -- cannot size the position from this symbol's tick data" % tag)
                 continue
             step = info.volume_step or 0.01
-            lots = max(info.volume_min, min(info.volume_max, round(lots / step) * step))
+            # The configured ceiling is applied ALONGSIDE the broker's, not instead of it.
+            ceiling = min(info.volume_max, MAX_LOT) if MAX_LOT > 0 else info.volume_max
+            requested = lots
+            lots = max(info.volume_min, min(ceiling, round(lots / step) * step))
             lots = round(lots, 2)
+            if requested > ceiling:
+                log("CAPPED %s -- %.2f lots requested, ceiling %.2f (maxLotSize %.2f, "
+                    "broker max %.2f)" % (tag, requested, ceiling, MAX_LOT, info.volume_max))
+            if lots > requested:
+                # volume_min forced the size UP past what was asked for. Reported in BOTH
+                # sizing modes, not just the risk-based one. Measured 2026-09-02: with
+                # fixedLotSize 0.01 the executor plans 0.10 lots on SP500, because that is
+                # the broker's minimum there -- the configured cap becomes 10x on that one
+                # instrument, silently. A cap that a single symbol quietly multiplies is
+                # the kind of thing an operator must be told, not left to find in the P&L.
+                if FIXED_LOT > 0:
+                    log("OVERSIZED %s -- fixedLotSize is %.2f but the broker minimum on "
+                        "this symbol is %.2f, so it is %.1fx the configured size"
+                        % (tag, FIXED_LOT, lots, lots / FIXED_LOT if FIXED_LOT else 0))
+                else:
+                    log("OVERSIZED %s -- risk budget wanted %.4f lots, broker minimum is "
+                        "%.2f, so this trade risks MORE than %.2f%%"
+                        % (tag, requested, lots, RISK_PCT))
 
             plan = ("%s %.2f lots @ %.5f  SL %.5f  TP %.5f  risk %.2f%%"
                     % (tag, lots, price, stop, target, RISK_PCT))
             if not EXECUTE:
                 log("DRY RUN would place: " + plan)
+                # Count it. Without this a dry run prints a plan for EVERY fresh setup
+                # while a live run would stop at MAX_OPEN, so the rehearsal overstates
+                # what actually happens -- a dry run that does not model the guard it is
+                # rehearsing is not a rehearsal.
+                mine.append(type("P", (), {"symbol": symbol, "magic": MAGIC})())
+                held_symbols.add(symbol)
                 continue
 
             request = {
