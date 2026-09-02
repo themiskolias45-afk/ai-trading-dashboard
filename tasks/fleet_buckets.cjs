@@ -63,6 +63,11 @@ const NEVER_SYNC = [
 // means "this is not a drift to fix", so the report can put the unexplained ones in front
 // of the reader instead of burying them in noise.
 const BOX_SPECIFIC = [
+  // GENERATED PER BOX, not drift. ai_brief.md is rewritten nightly by ai_brief.cjs --write
+  // from each box's own decisions, proposals and config, so the two copies SHOULD differ -
+  // and syncing it would hand one box the other's briefing. It sat in the unexplained list
+  // until 2026-09-02 purely because nobody had said so.
+  /^ai_brief\.md$/,
   /vps/i, /^ensure_running\.ps1$/, /^startup_all\.ps1$/, /^install_autostart\.ps1$/,
   /^notify\.ps1$/, /^enable_algo\.ps1$/, /^fix_autotrading\d*\.ps1$/,
   /^count_guardians\.ps1$/, /^rotate_logs\.ps1$/, /^install_spread_probe\.ps1$/,
