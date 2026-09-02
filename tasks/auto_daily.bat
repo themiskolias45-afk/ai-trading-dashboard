@@ -99,6 +99,17 @@ REM syntactically fine and merely lying. Read-only; --strict is deliberately NOT
 REM a drifted comment cannot fail the nightly run.
 echo --- config drift --- >> "%LOGFILE%"
 node "%PROJ%\tasks\config_drift.cjs" --emit >> "%LOGFILE%" 2>&1
+
+REM The BRAIN gets a checker too. Every other layer had one - claims_check for
+REM CLAUDE.md, config_drift for copied settings, encoding_check for mojibake,
+REM decisions.cjs for standing decisions - and the 333 memories, the most important
+REM layer, had none. SYSTEM-MAP said since 2026-08-29 that the schema "degrades
+REM recall over time" and nobody could say by how much.
+REM
+REM First run, 2026-09-02: 1,124 wikilinks, 31 resolving nowhere, and FIVE alias
+REM clusters - one concept written three ways with every spelling dead. Read-only,
+REM exits 0 always; it reports, it never fixes.
+node "%PROJ%\tasks\memory_lint.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
 REM Calibration drift check — compares live setup win rates against shadow stats.
