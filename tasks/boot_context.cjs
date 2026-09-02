@@ -75,12 +75,21 @@ function dirtyFiles() {
     if (!line.trim()) continue;
     const p = line.slice(3).trim().replace(/^"|"$/g, "");
     if (!p || p.endsWith("/")) continue;
-    // Data churn, not work. journal/learning/ledger files change on every tick and would
-    // drown the real signal.
-    if (/^(dashboard|tasks)\/(daily|analysis|logs|history)\//.test(p)) continue;
-    if (/\.(db|db-shm|db-wal)$/.test(p)) continue;
-    if (/^tasks\/\.(daily_ran|morning_ready)/.test(p)) continue;
-    files.push(p.replace(/\\/g, "/"));
+    // SOURCE ONLY. The first version filtered a few known-noisy directories and still
+    // derived its topic from generated data: measured on the live tree, 20 dirty files
+    // produced the terms "agent auth analysis latest content quality" — every one of them
+    // from dashboard/*.json and server/*.json artifacts the pipelines rewrite on every
+    // tick. It surfaced four memories about scheduled-task audits while the actual work
+    // was a decision register. Relevance derived from churn is worse than no relevance,
+    // because it looks like an answer.
+    //
+    // This repo keeps roughly 90 generated .json/.jsonl files permanently dirty, so an
+    // extension allow-list is the honest cut: those are the files a person edits.
+    const norm = p.replace(/\\/g, "/");
+    if (!/\.(js|cjs|mjs|py|ps1|bat|md|html|css|pine)$/i.test(norm)) continue;
+    if (/^(node_modules|tasks\/logs|tasks\/analysis|tasks\/history)\//.test(norm)) continue;
+    if (/\.(bak|junk|preexisting)/.test(norm)) continue;
+    files.push(norm);
   }
   return files;
 }
