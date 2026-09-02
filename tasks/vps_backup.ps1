@@ -51,6 +51,20 @@ $secretNames    = @("keys.env", "keys.env.bak", "apikey.txt")
 # NOTE: "projects" in $candidates is NOT this - that is the agent memory vault under the
 # user profile, deliberately included, and it must stay.
 $excludedDirs   = @("node_modules", "__pycache__", ".git", ".venv-rag", ".venv")
+# INSTALLERS AND ARCHIVES ARE NOT DATA. Added 2026-09-02 after measuring what this zip is
+# actually made of: tasks\logs\tailscale-setup.msi, ONE FILE, was 29.1 MB compressed - 65%
+# of a 44.6 MB archive. It had been stored 15 times here and pulled to the laptop 21 times:
+# roughly 1 GB across the fleet, all of it the same downloaded installer.
+#
+# This is the same argument as node_modules and .venv-rag, and it matters more now that
+# the backup runs every 4h instead of daily: 6 x 29 MB a day to store a file that is
+# re-downloadable in a minute and that a restore does not need. The VPS has 65 GB free,
+# not 328 like the laptop.
+#
+# Extensions, not a filename, because the next installer someone parks in logs\ will have
+# a different name - the mistake the .jsonl note below already records. The file itself is
+# NOT deleted; it is simply not archived.
+$excludedExts   = @(".msi", ".exe", ".zip", ".7z", ".iso", ".dmg", ".pkg")
 # .jsonl and .db added 2026-09-01. Their absence meant the LEDGERS on the box that
 # actually trades were protected by nothing at all: rejections.jsonl (1.24 MB),
 # rejections_scored.jsonl (1.35 MB), near_misses.jsonl, ai_decisions.jsonl and
