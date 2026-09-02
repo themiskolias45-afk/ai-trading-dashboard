@@ -3,12 +3,17 @@
 /**
  * CRT + FVG -- the live runner, shadow by default.
  *
- * The combination the user has asked for repeatedly, and the measurement backs the
- * instinct: it has the LARGEST EDGE OVER A MATCHED CONTROL of anything measured on
- * 2026-09-02. Full period, h4 bias / m15 execution, 0.25xATR stop buffer + EMA21 reclaim:
+ * The combination the user has asked for repeatedly, traded manually by him for +68 GBP
+ * on gold, and the measurement backs the instinct: it has the LARGEST EDGE OVER A MATCHED
+ * CONTROL of anything measured on 2026-09-02. Full period, h4 bias / m15 execution,
+ * 0.25xATR stop buffer + EMA21 reclaim:
  *
  *   377 trades | 61.3% WR | gross +0.1839 | net +0.1414 | 5 folds of 5
  *   control    -0.3585 at 0 of 5 folds     ->  EDGE +0.4999
+ *
+ * HE ENTERS ON THE RETEST, AND SO DOES THIS. That is not a coincidence to note in passing:
+ * the retest is the entry rule the edge is attached to. Touching the gap is what gets
+ * measured; chasing the displacement is a different trade with none of these numbers.
  *
  * WHAT THE MEASUREMENT ALSO SAYS, kept here rather than left out. On a 60/40 date split
  * the held-out half returns +0.0627, not +0.1414; 80-86% of the long-side gross sits in
@@ -20,15 +25,27 @@
  * beside FVG continuation and TK, on the same feed, scored by the same tool, so in a few
  * weeks the three are comparable on data none of them was fitted to.
  *
+ * PARITY WITH THE MEASURED MODEL IS THE WHOLE POINT, and the first draft of this file
+ * broke it three ways. Each is corrected here and named so it is not reintroduced:
+ *   1. TARGET. modelCrtFvg targets `crt.objective` capped at 5R, NOT a flat 5R. A flat
+ *      target is a different exit and carries none of the measured numbers.
+ *   2. COOLDOWN. modelCrtFvg has no cooldown -- that belongs to the pullback and FVG
+ *      models. A 20-bar cooldown here would suppress setups the measurement counted,
+ *      which is a signal blocked by a constant nobody measured.
+ *   3. SWEEP AGE. The gap search starts 60 exec bars after the sweep closes and runs for
+ *      SEARCH+RETEST=80 more, so a sweep is live between 15h and ~35h old. Scanning only
+ *      the last 4 h4 bars, as the draft did, left a one-hour overlap: it would have run
+ *      for weeks and fired almost never, and read as "the market has no setups".
+ *
  * THE MODEL:
  *   sweep      detectCRT on the h4 bias timeframe, point-in-time (barsAgo === 0)
  *   as-of      a bias bar opening at t is not known until t + 14400
- *   gap        first same-direction FVG forming on m15 after the sweep is known
- *   entry      price retraces to the gap's near edge
- *   confirm    EMA21 reclaim on the entry bar -- the layer worth +0.1414 - 0.0003
+ *   gap        the first same-direction FVG on m15, searched from 60 bars after that
+ *   entry      price retraces to the gap's near edge, on THIS bar
+ *   confirm    EMA21 reclaim on the entry bar -- the layer worth +0.1414 vs +0.0003
  *   stop       the sweep extreme, widened by 0.25 x ATR14(m15)
  *              (at the raw extreme the model is NEGATIVE: -0.0362 net, 2/5 folds)
- *   target     capped at 5R
+ *   target     crt.objective, capped at 5R
  *
  * BOTH DIRECTIONS. Unlike TK, this model is positive on both sides -- SELL +0.1830 net at
  * 4/5, BUY +0.1068 at 4/5 -- so neither is hard-coded away.
@@ -53,17 +70,22 @@ const HOST = strArg("--host", "http://localhost:3001");
 const ONCE = process.argv.includes("--once");
 const WHY  = process.argv.includes("--why");
 
-// The measured configuration. Changing one without re-running the walk-forward makes this
-// a different model wearing the measured model's numbers.
-const BIAS_WINDOW  = 100;   // h4 bars handed to detectCRT
-const EXEC_WINDOW  = 60;    // m15 bars handed to detectFVGs
-const SEARCH_BARS  = 40;    // m15 bars allowed to form the gap
-const RETEST_BARS  = 40;    // m15 bars allowed for the retest
-const MAX_RR       = 5;
-const STOP_BUF_ATR = 0.25;
+// The measured configuration, matching tasks/strategy_suite.cjs defaults exactly. Changing
+// one without re-running the walk-forward makes this a different model wearing the
+// measured model's numbers.
+const BIAS_WINDOW  = 100;   // --window     h4 bars handed to detectCRT
+const EXEC_WINDOW  = 60;    // --execwindow m15 bars handed to detectFVGs, and the delay
+const SEARCH_BARS  = 40;    // --search     m15 bars allowed to form the gap
+const RETEST_BARS  = 40;    // --retest     m15 bars allowed for the retest
+const MAX_RR       = 5;     // --maxrr      cap on crt.objective, never a flat target
+const STOP_BUF_ATR = 0.25;  // --stopbuf
 const ATR_LEN      = 14;
-const COOLDOWN_BARS = 20;
 const MIN_STOP_SPREADS = 3;
+// Derived, not chosen: the oldest sweep that can still retest on the current bar is
+// (60 + 40 + 40) exec bars back, which is 35h of m15 -- 8.75 h4 bars. 12 covers it with
+// margin. Widening this only lets older sweeps be considered; it changes no entry rule.
+const SWEEP_LOOKBACK = 12;
+
 const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36, gold: 0.22, btc: 17.00, spx: 0.36 };
 const H4_SECONDS = 14400;
 
@@ -103,15 +125,69 @@ function atrAt(h, l, c, end, len) {
   }
   return sum / len;
 }
-function ledgerRows() {
-  if (!fs.existsSync(LEDGER)) return [];
-  const out = [];
+function ledgerKeys() {
+  if (!fs.existsSync(LEDGER)) return new Set();
+  const out = new Set();
   for (const raw of fs.readFileSync(LEDGER, "utf8").split("\n")) {
     const line = raw.trim();
     if (!line) continue;
-    try { out.push(JSON.parse(line)); } catch (e) { /* corrupt row skipped */ }
+    try { out.add(JSON.parse(line).key); } catch (e) { /* corrupt row skipped */ }
   }
   return out;
+}
+
+// One sweep, followed all the way to an entry on the CURRENT bar or not at all.
+// Returns a reason string on failure so --why can say which link broke.
+function chainFromSweep(bias, exec, b, crt) {
+  const ei = exec.closes.length - 1;
+  const direction = crt.direction === "bearish" ? "bearish" : "bullish";
+  const knownAt = bias.times[b] + H4_SECONDS;
+  let start = 0;
+  while (start < exec.times.length && exec.times[start] < knownAt) start++;
+  if (start + EXEC_WINDOW >= exec.times.length) return { fail: "SWEEP TOO RECENT" };
+
+  let zone = null, zoneIdx = -1;
+  const end = Math.min(start + EXEC_WINDOW + SEARCH_BARS, exec.times.length);
+  for (let j = start + EXEC_WINDOW; j < end; j++) {
+    const f = detectFVGs(slice(exec, j - EXEC_WINDOW + 1, j + 1), { maxZones: 6, includeFilled: true });
+    const fresh = f && f.zones ? f.zones.find(z => z.barsAgo === 0 && z.direction === direction) : null;
+    if (fresh) { zone = fresh; zoneIdx = j; break; }
+  }
+  if (!zone) return { fail: "NO SAME-DIRECTION FVG" };
+
+  const entry = direction === "bullish" ? zone.top : zone.bottom;
+  let eIdx = -1;
+  const rEnd = Math.min(zoneIdx + 1 + RETEST_BARS, exec.times.length);
+  for (let k = zoneIdx + 1; k < rEnd; k++) {
+    const touched = direction === "bullish" ? exec.lows[k] <= entry : exec.highs[k] >= entry;
+    if (touched) { eIdx = k; break; }
+  }
+  if (eIdx === -1) return { fail: "NOT RETESTED YET" };
+  // The entry must be THIS bar. An earlier retest is a trade the runner missed, and
+  // filling it now at a different price is not the trade that was measured.
+  if (eIdx !== ei) return { fail: "RETEST WAS " + (ei - eIdx) + " BARS AGO" };
+
+  const e21 = emaAt(exec.closes, eIdx, 21);
+  if (e21 === null) return { fail: "EMA21 UNAVAILABLE" };
+  const reclaimed = direction === "bullish" ? exec.closes[eIdx] > e21 : exec.closes[eIdx] < e21;
+  if (!reclaimed) return { fail: "NO EMA21 RECLAIM" };
+
+  const atr = atrAt(exec.highs, exec.lows, exec.closes, eIdx, ATR_LEN);
+  if (!atr || atr <= 0) return { fail: "ATR UNAVAILABLE" };
+  const stop = direction === "bullish" ? crt.invalidation - STOP_BUF_ATR * atr
+                                       : crt.invalidation + STOP_BUF_ATR * atr;
+
+  // Target is the sweep's own objective, capped at MAX_RR -- what modelCrtFvg measured.
+  const risk = Math.abs(entry - stop);
+  let target = crt.objective;
+  const sane = direction === "bullish" ? (stop < entry && target > entry)
+                                       : (stop > entry && target < entry);
+  if (!sane || !(risk > 0)) return { fail: "STOP OR OBJECTIVE ON THE WRONG SIDE" };
+  const reward = Math.abs(target - entry);
+  if (reward / risk > MAX_RR) {
+    target = direction === "bullish" ? entry + MAX_RR * risk : entry - MAX_RR * risk;
+  }
+  return { direction, entry, stop, target, risk, eIdx, crt };
 }
 
 function evaluate(assetKey, symbol, bias, exec, trace) {
@@ -120,80 +196,41 @@ function evaluate(assetKey, symbol, bias, exec, trace) {
   note("biasBars", bi + 1); note("execBars", ei + 1);
   if (bi < BIAS_WINDOW + 2 || ei < EXEC_WINDOW + 2) { note("stop", "NOT ENOUGH BARS"); return null; }
 
-  // Cooldown, from the FILE so a restart cannot forget it -- the same fix the FVG runner
-  // needed when it fired 29% more often than the model it claimed to implement.
-  const prior = ledgerRows().filter(r => r.asset === assetKey && Number.isFinite(r.entryBarTime));
-  const lastEntry = prior.length ? Math.max(...prior.map(r => r.entryBarTime)) : null;
-  if (lastEntry !== null && exec.times && exec.times[ei]) {
-    const barSec = exec.times.length > 1 ? (exec.times[ei] - exec.times[ei - 1]) : 900;
-    if (exec.times[ei] - lastEntry < COOLDOWN_BARS * barSec) { note("stop", "COOLDOWN"); return null; }
-  }
-
-  // The sweep must complete on the LAST CLOSED h4 bar, or on one recent enough that its
-  // gap could still be forming.
-  let crt = null, crtBar = -1;
-  for (let b = bi; b >= Math.max(BIAS_WINDOW, bi - 3); b--) {
+  // Walk the recent sweeps newest first and take the first that completes a chain onto
+  // this bar. Newest first because a fresher sweep is the more relevant liquidity event
+  // when two would both qualify; at most one row per bar is emitted either way.
+  let sweeps = 0;
+  const fails = [];
+  for (let b = bi; b >= Math.max(BIAS_WINDOW, bi - SWEEP_LOOKBACK + 1); b--) {
     const found = detectCRT(slice(bias, b - BIAS_WINDOW + 1, b + 1), { maxPatterns: 5 });
-    const p = found && found.patterns ? found.patterns.find(x => x.barsAgo === 0) : null;
-    if (p) { crt = p; crtBar = b; break; }
+    const crt = found && found.patterns ? found.patterns.find(x => x.barsAgo === 0) : null;
+    if (!crt) continue;
+    sweeps++;
+    const chain = chainFromSweep(bias, exec, b, crt);
+    if (chain.fail) { fails.push((bi - b) + "h4ago:" + chain.fail); continue; }
+
+    const sp = SPREAD[symbol] ?? SPREAD[assetKey];
+    if (sp && chain.risk < MIN_STOP_SPREADS * sp) {
+      fails.push((bi - b) + "h4ago:STOP UNDER 3x SPREAD"); continue;
+    }
+    note("sweepsScanned", sweeps); note("stop", "SETUP");
+    return {
+      key: assetKey + "|" + exec.times[chain.eIdx] + "|crt",
+      asset: assetKey, symbol,
+      direction: chain.direction === "bullish" ? "BUY" : "SELL",
+      entry: chain.entry, stop: chain.stop, target: chain.target,
+      risk: chain.risk, rr: Math.abs(chain.target - chain.entry) / chain.risk,
+      riskPct: chain.entry ? (chain.risk / chain.entry) * 100 : null,
+      entryBarTime: exec.times[chain.eIdx], sweepBarsAgo: bi - b,
+      sweepExtreme: chain.crt.invalidation, sweptSide: chain.crt.sweptSide,
+      model: "CRT_FVG", measuredNetR: 0.1414,
+      shadow: true, feedsTheGate: false,
+      seenAt: new Date().toISOString(),
+    };
   }
-  note("crtSweep", crt ? (crt.direction + " sweep of the " + crt.sweptSide) : "none in the last 4 h4 bars");
-  if (!crt) { note("stop", "NO CRT SWEEP"); return null; }
-
-  const direction = crt.direction === "bearish" ? "bearish" : "bullish";
-  const knownAt = bias.times[crtBar] + H4_SECONDS;
-  let start = 0;
-  while (start < exec.times.length && exec.times[start] < knownAt) start++;
-  if (start === -1 || start + EXEC_WINDOW >= exec.times.length) { note("stop", "SWEEP NOT YET CLOSED"); return null; }
-
-  let zone = null, zoneIdx = -1, scanned = 0;
-  for (let j = start + EXEC_WINDOW; j < Math.min(start + EXEC_WINDOW + SEARCH_BARS, exec.times.length); j++) {
-    scanned++;
-    const f = detectFVGs(slice(exec, j - EXEC_WINDOW + 1, j + 1), { maxZones: 6, includeFilled: true });
-    const fresh = f && f.zones ? f.zones.find(z => z.barsAgo === 0 && z.direction === direction) : null;
-    if (fresh) { zone = fresh; zoneIdx = j; break; }
-  }
-  note("gapSearchBars", scanned);
-  if (!zone) { note("stop", "NO SAME-DIRECTION FVG AFTER THE SWEEP"); return null; }
-
-  const entry = direction === "bullish" ? zone.top : zone.bottom;
-  let eIdx = -1;
-  for (let k = zoneIdx + 1; k < Math.min(zoneIdx + 1 + RETEST_BARS, exec.times.length); k++) {
-    const touched = direction === "bullish" ? exec.lows[k] <= entry : exec.highs[k] >= entry;
-    if (touched) { eIdx = k; break; }
-  }
-  if (eIdx === -1) { note("stop", "GAP FOUND, PRICE HAS NOT RETESTED IT YET"); return null; }
-  if (eIdx !== ei) { note("stop", "RETEST ALREADY HAPPENED ON AN EARLIER BAR"); return null; }
-
-  const e21 = emaAt(exec.closes, eIdx, 21);
-  if (e21 === null) { note("stop", "EMA21 UNAVAILABLE"); return null; }
-  const reclaimed = direction === "bullish" ? exec.closes[eIdx] > e21 : exec.closes[eIdx] < e21;
-  note("emaReclaim", reclaimed);
-  if (!reclaimed) { note("stop", "NO EMA21 RECLAIM ON THE ENTRY BAR"); return null; }
-
-  const atr = atrAt(exec.highs, exec.lows, exec.closes, eIdx, ATR_LEN);
-  if (!atr || atr <= 0) { note("stop", "ATR UNAVAILABLE"); return null; }
-  const stop = direction === "bullish" ? crt.invalidation - STOP_BUF_ATR * atr
-                                       : crt.invalidation + STOP_BUF_ATR * atr;
-  const risk = Math.abs(entry - stop);
-  const ok = direction === "bullish" ? (stop < entry) : (stop > entry);
-  if (!ok || !(risk > 0)) { note("stop", "STOP ON THE WRONG SIDE OF ENTRY"); return null; }
-  const sp = SPREAD[symbol] ?? SPREAD[assetKey];
-  if (sp && risk < MIN_STOP_SPREADS * sp) { note("stop", "STOP UNDER 3x SPREAD"); return null; }
-
-  note("stop", "SETUP");
-  return {
-    key: assetKey + "|" + exec.times[eIdx] + "|crt",
-    asset: assetKey, symbol,
-    direction: direction === "bullish" ? "BUY" : "SELL",
-    entry, stop, target: direction === "bullish" ? entry + MAX_RR * risk : entry - MAX_RR * risk,
-    risk, rr: MAX_RR, riskPct: entry ? (risk / entry) * 100 : null,
-    entryBarTime: exec.times[eIdx], sweepExtreme: crt.invalidation,
-    gapTop: zone.top, gapBottom: zone.bottom,
-    model: "CRT_FVG", measuredNetR: 0.1414,
-    shadow: true, feedsTheGate: false,
-    seenAt: new Date().toISOString(),
-  };
+  note("sweepsScanned", sweeps);
+  note("stop", sweeps ? fails.join(" | ") : "NO CRT SWEEP IN THE LAST " + SWEEP_LOOKBACK + " H4 BARS");
+  return null;
 }
 
 async function tick() {
@@ -208,7 +245,7 @@ async function tick() {
     return;
   }
 
-  const known = new Set(ledgerRows().map(r => r.key));
+  const known = ledgerKeys();
   let found = 0;
   for (const key of Object.keys(assets)) {
     const entry = assets[key];
@@ -223,12 +260,13 @@ async function tick() {
     found++;
     console.log("[crt] SHADOW " + setup.symbol + " " + setup.direction
       + " entry " + setup.entry.toFixed(2) + " stop " + setup.stop.toFixed(2)
-      + " target " + setup.target.toFixed(2) + " risk " + setup.riskPct.toFixed(3) + "%");
+      + " target " + setup.target.toFixed(2) + " " + setup.rr.toFixed(2) + "R"
+      + " risk " + setup.riskPct.toFixed(3) + "%");
   }
   if (!found) console.log("[crt] " + new Date().toISOString() + " no new setups");
 }
 
-module.exports = { evaluate };
+module.exports = { evaluate, chainFromSweep };
 
 if (require.main === module) {
   (async () => {
