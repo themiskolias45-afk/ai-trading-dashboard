@@ -356,6 +356,7 @@ const num = (v, d) => Number.isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(d) : 
 say("=".repeat(104));
 say("  SMART ENTRY SCORE  --  does a higher score actually produce a higher R?");
 say("  " + new Date().toISOString());
+say("  weighting profile: " + PROFILE.toUpperCase());
 say("  entry model: CRT sweep -> same-direction FVG -> retest | bias " + BIAS_TF
   + " exec " + EXEC_TF + " hold " + MAX_HOLD + " maxRR " + MAX_RR);
 say("  The score RANKS one population of trades. It admits nothing and blocks nothing here.");
