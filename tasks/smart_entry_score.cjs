@@ -511,6 +511,45 @@ for (const key of Object.keys(WEIGHTS)) {
     + pad(num(z.rpt, 4), 11) + num(f.rpt - z.rpt, 4));
 }
 
+// ── the only test that can promote a score from "interesting" to "usable" ───────────
+say("");
+say("=".repeat(104));
+say("  OUT-OF-SAMPLE: weights fitted on the first 60% of trades, scored on the last 40%");
+say("=".repeat(104));
+const oos = oosTest(all);
+if (oos.error) say("  " + oos.error);
+else {
+  say("  train " + oos.trainN + " trades  ->  test " + oos.testN + " trades  (chronological, no overlap)");
+  say("");
+  say("  weights fitted on the training half only:");
+  for (const key of Object.keys(oos.weights)) {
+    if (oos.weights[key] <= 0.01) continue;
+    say("    " + pad(key, 20) + pad(oos.weights[key].toFixed(1), 8)
+      + "train lift " + num(oos.lifts[key], 4));
+  }
+  const show = (label, q) => {
+    if (!q) { say("  " + label + ": too few trades to quintile"); return; }
+    say("");
+    say("  " + label);
+    say("  " + pad("quintile", 12) + pad("n", 7) + pad("score range", 16) + pad("WR%", 9) + "R/trade");
+    q.forEach((s, i) => say("  " + pad("Q" + (i + 1) + (i === 4 ? " top" : i === 0 ? " bottom" : ""), 12)
+      + pad(s.n, 7) + pad(s.lo.toFixed(0) + "-" + s.hi.toFixed(0), 16)
+      + pad(s.wr.toFixed(1), 9) + num(s.rpt, 4)));
+  };
+  show("TRAIN (in-sample -- shown to make the overfit visible, not as evidence)", oos.trainQ);
+  show("TEST  (out-of-sample -- this is the only row that counts)", oos.testQ);
+  if (oos.testQ) {
+    const spread = oos.testQ[4].rpt - oos.testQ[0].rpt;
+    say("");
+    say("  OUT-OF-SAMPLE SPREAD, top quintile minus bottom: " + num(spread, 4));
+    say(spread > 0.05
+      ? "  VERDICT: the score GENERALISES. Fitted blind to this half, it still ranked it."
+      : (spread > 0
+        ? "  VERDICT: positive but small -- inside what one fold can move. Not a filter yet."
+        : "  VERDICT: it does NOT generalise. The in-sample result was fitting noise."));
+  }
+}
+
 say("");
 say("  A component with a NEGATIVE lift is costing points to setups that do better without it.");
 say("  Nothing here is wired into the engine. feedsTheGate: false.");
