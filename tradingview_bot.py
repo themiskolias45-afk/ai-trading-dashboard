@@ -581,6 +581,18 @@ ZONE_REWARD_COLOUR = "color.new(color.green, 88)"
 ZONE_CONFLUENCE_FILL   = "color.new(color.orange, 85)"
 ZONE_CONFLUENCE_BORDER = "color.new(color.orange, 55)"
 ZONE_LABEL_COLOUR      = "color.new(color.orange, 30)"
+# PIVOTS AND THE ATR ENVELOPE ARE DOTTED AND NEITHER RED NOR GREEN, for the same
+# reason the confluence zones are orange: on this chart red means stop and green
+# means target. A pivot is neither. Dotted-and-blue is a different visual
+# vocabulary from the solid entry line and the dashed stop, so no pivot can be
+# misread as an order.
+PIVOT_LINE_COLOUR      = "color.new(color.blue, 45)"
+PIVOT_MID_COLOUR       = "color.new(color.blue, 10)"
+PIVOT_LABEL_COLOUR     = "color.new(color.blue, 35)"
+# The band a normal day is expected to cover, from the same ATR projection the
+# panel already prints as text. Two dashed edges, not a filled box, so it never
+# competes with a confluence zone for the eye.
+ATR_EDGE_COLOUR        = "color.new(color.teal, 35)"
 PRIOR_DAY_FILL         = "color.new(color.gray, 92)"
 PRIOR_DAY_BORDER       = "color.new(color.gray, 65)"
 
@@ -1161,6 +1173,75 @@ def generate_pine(plans):
             "        label.new(bar_index + 20, _pdLow, _pdTxt, color=%s, "
             "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
             % (ZONE_BARS_BACK, PRIOR_DAY_BORDER, PRIOR_DAY_FILL, PRIOR_DAY_BORDER))
+
+    # -- The pivot ladder, as LINES --------------------------------------
+    #
+    # These are the levels price demonstrably reacts to, and until now they
+    # existed on the chart ONLY as one row of table text. Measured 2026-09-02: a
+    # WAIT chart carried 4 box.new, 4 label.new and ZERO lines - and WAIT is the
+    # state the chart is read in on most days.
+    #
+    # PP is drawn brighter and thicker because it is the day's reference level,
+    # not merely another rung on the ladder.
+    PIVOT_ROWS = [("r2", "R2", False), ("r1", "R1", False), ("pp", "PP", True),
+                  ("s1", "S1", False), ("s2", "S2", False)]
+    for _key, _tag, _is_mid in PIVOT_ROWS:
+        if not any((plan.get("pivots") or {}).get(_key) is not None
+                   for plan in plans):
+            continue
+
+        def pivot_value(plan, k=_key):
+            value = (plan.get("pivots") or {}).get(k)
+            return "na" if value is None else round(value, plan["decimals"] + 2)
+
+        def pivot_text(plan, k=_key, t=_tag):
+            value = (plan.get("pivots") or {}).get(k)
+            return _pine_str("") if value is None else _pine_str(
+                "%s %s" % (t, _fmt(value, plan["decimals"])))
+
+        level_vars.append("_piv%s = " % _tag + _ternary(plans, pivot_value, "na"))
+        level_vars.append("_piv%sTxt = " % _tag
+                          + _ternary(plans, pivot_text, '""'))
+        draw_block.append(
+            "    if not na(_piv%s)\n"
+            "        line.new(bar_index - %d, _piv%s, bar_index + 20, _piv%s, "
+            "color=%s, style=line.style_dotted, width=%d, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _piv%s, _piv%sTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (_tag, ZONE_BARS_BACK, _tag, _tag,
+               PIVOT_MID_COLOUR if _is_mid else PIVOT_LINE_COLOUR,
+               2 if _is_mid else 1,
+               _tag, _tag, PIVOT_LABEL_COLOUR))
+
+    # -- What a normal day still has left in it ---------------------------
+    #
+    # The panel already says "105.4% of ATR - RANGE SPENT" in words. Drawn, the
+    # same fact answers a question the words cannot: whether price is sitting AT
+    # the edge of a spent range, or in the middle of one with room to run.
+    if any(plan.get("atr_low") is not None and plan.get("atr_high") is not None
+           for plan in plans):
+        for _field, _tag in (("atr_high", "AtrHi"), ("atr_low", "AtrLo")):
+            def atr_value(plan, f=_field):
+                value = plan.get(f)
+                return "na" if value is None else round(value, plan["decimals"] + 2)
+            level_vars.append("_%s = " % _tag + _ternary(plans, atr_value, "na"))
+        level_vars.append("_atrTxt = " + _ternary(
+            plans,
+            lambda p: _pine_str("ATR day range %s-%s" % (
+                _fmt(p.get("atr_low"), p["decimals"]),
+                _fmt(p.get("atr_high"), p["decimals"])))
+            if p.get("atr_low") is not None else '""',
+            '""'))
+        draw_block.append(
+            "    if not na(_AtrHi) and not na(_AtrLo)\n"
+            "        line.new(bar_index - %d, _AtrHi, bar_index + 20, _AtrHi, "
+            "color=%s, style=line.style_dashed, width=1, extend=extend.right)\n"
+            "        line.new(bar_index - %d, _AtrLo, bar_index + 20, _AtrLo, "
+            "color=%s, style=line.style_dashed, width=1, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _AtrLo, _atrTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (ZONE_BARS_BACK, ATR_EDGE_COLOUR, ZONE_BARS_BACK, ATR_EDGE_COLOUR,
+               ATR_EDGE_COLOUR))
 
     cells = [
         # The ternary MUST be parenthesised. Pine binds + tighter than ?: , so
@@ -2652,6 +2733,12 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=Non
         # not as a line, not as text - despite being the level intraday price
         # is measured against. Carried here so the Pivots row can show it.
         "pp": pivots.get("pp"),
+        # The full ladder and the ATR envelope, carried so the CANVAS can show
+        # them. Both were computed already and reached the chart only as table
+        # text: a WAIT day drew 4 boxes and not one price level.
+        "pivots": {k: pivots.get(k) for k in ("r2", "r1", "pp", "s1", "s2")},
+        "atr_low": ((context or {}).get("projection") or {}).get("expectedLow"),
+        "atr_high": ((context or {}).get("projection") or {}).get("expectedHigh"),
         "generated_at": time.strftime("%Y-%m-%d %H:%M"),
         # The instant itself, so the chart can age its own plan. Deriving this
         # back from generated_at would mean re-parsing a LOCAL time string, and
