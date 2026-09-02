@@ -77,10 +77,20 @@ const REQUIRED = {
     // reopen if the backup root is ever dropped.
     ["durable-state.json", "dashboard durable state - was on ONE disk until 2026-09-02"],
   ],
+  // The VPS's own archive, written by vps_backup.ps1. A shorter list on purpose: that job
+  // captures journal, learning, the SQLite store, the logs and its .claude memory vault.
   vps: [
     ["learning.json", "the VPS's OWN learning. It is never synced by design, so if the VPS dies this archive is the only copy in existence"],
+    ["journal.json", "the VPS's trade record"],
+    ["smartentry.db", "the VPS's SQLite store"],
   ],
 };
+
+// Which list applies to which archive depends on which box is asking. On the laptop the
+// "own" archive is the vault zip and the peer archive is the VPS's; on the VPS it is the
+// other way round, and the peer archive there IS the laptop's vault zip.
+const OWN_REQUIRED = ON_VPS ? REQUIRED.vps : REQUIRED.laptop;
+const PEER_REQUIRED = ON_VPS ? REQUIRED.laptop : REQUIRED.vps;
 
 function hoursOld(d) { return (Date.now() - d.getTime()) / 3600000; }
 function human(h) {
