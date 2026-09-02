@@ -116,11 +116,32 @@ let code = "";
 // run reproduces the live engine exactly. Only booleans belong here; anything numeric
 // already has an MTF_* settings knob.
 const CONST_OVERRIDES = {};
-if (process.env.MTF_SELL_BOUNCE_REQUIRE_DOWNTREND === "false") {
-  CONST_OVERRIDES.SELL_BOUNCE_REQUIRE_DOWNTREND = "false";
-}
-if (process.env.MTF_TREND_FOLLOW_REQUIRE_MACD === "false") {
-  CONST_OVERRIDES.TREND_FOLLOW_REQUIRE_MACD_BULLISH = "false";
+// BOTH OF THESE FAIL LOUD ON ANYTHING BUT "true"/"false".
+//
+// The first version of each read `=== "false"` and silently kept the baseline for every
+// other spelling -- `0`, `FALSE`, `no`, or a typo in the variable name itself. A measured
+// run that quietly reports THE BASELINE UNDER THE CANDIDATE'S LABEL is worse than no run:
+// it is a wrong answer wearing the authority of a walk-forward, and this project has
+// already reverted two settings that were flipped on the wrong instrument.
+//
+// MTF_BREAKDOWN above hard-errors for exactly this reason; these now match it. Flagged by
+// the code-reviewer on 2026-09-02, after the TREND_FOLLOW measurement had already run --
+// that run was correct (the candidate returned 276 trades against the baseline's 308, so
+// the flip demonstrably took effect), but it was correct by luck of spelling.
+const BOOL_ENV_FLAGS = [
+  ["MTF_SELL_BOUNCE_REQUIRE_DOWNTREND", "SELL_BOUNCE_REQUIRE_DOWNTREND"],
+  ["MTF_TREND_FOLLOW_REQUIRE_MACD",     "TREND_FOLLOW_REQUIRE_MACD_BULLISH"],
+];
+for (const [envName, constName] of BOOL_ENV_FLAGS) {
+  if (process.env[envName] === undefined) continue;
+  const raw = String(process.env[envName]).trim();
+  if (raw !== "true" && raw !== "false") {
+    console.error(`${envName}=${process.env[envName]} must be exactly "true" or "false" — ` +
+                  `refusing to replay, because anything else would silently report the ` +
+                  `baseline under the candidate's label.`);
+    process.exit(1);
+  }
+  if (raw === "false") CONST_OVERRIDES[constName] = "false";
 }
 
 for (const name of SCALAR_CONSTS) {
