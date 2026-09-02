@@ -260,18 +260,89 @@ if (AXIS !== "all" && !Object.prototype.hasOwnProperty.call(AXES, AXIS)) {
   process.exit(2);
 }
 
+// Where a failed cut's full evidence goes. APPEND-ONLY and never rotated here: a second
+// failure must not cost the first one its stderr, which is exactly what was lost before.
+const FAILURE_LOG = path.join(ROOT, "tasks", "logs", "strategy_search_failures.txt");
+
+// `failures[axis]` is truncated to 300 characters by the caller and the report prints one
+// line per failed axis, so the headline has to be short. The full text goes to the log.
+const CUT_FAILURE_HEADLINE_MAX = 160;
+
+/**
+ * Turn a failed cut into a message that NAMES its cause, and keep the full evidence.
+ *
+ * MTF_CENSUS lines are skipped when choosing the headline. The replay harnesses emit one
+ * per symbol per candidate as progress output, so the literal last line of stderr is
+ * almost never the interesting one - picking it blindly would reproduce the original bug
+ * in a new costume, reporting something that is not the error.
+ *
+ * Never throws. A logging fault must not replace the real error with its own, so the
+ * append is wrapped and its failure is reported alongside the cause rather than instead
+ * of it.
+ */
+function describeCutFailure(axis, cut, script, err) {
+  const stderr = err && err.stderr ? String(err.stderr) : "";
+  const how = err && err.signal                       ? "killed by " + err.signal
+            : (err && Number.isInteger(err.status))   ? "exited " + err.status
+            : "failed";
+
+  const meaningful = stderr.split("\n")
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith("MTF_CENSUS"));
+  const headline = meaningful.length
+    ? meaningful[meaningful.length - 1].slice(0, CUT_FAILURE_HEADLINE_MAX)
+    : "no stderr was produced";
+
+  try {
+    fs.mkdirSync(path.dirname(FAILURE_LOG), { recursive: true });
+    fs.appendFileSync(FAILURE_LOG,
+      "\n" + "=".repeat(100) + "\n"
+      + new Date().toISOString() + "  axis=" + axis.label + "  cut=" + cut.name + "  " + how + "\n"
+      + "  " + script + " " + (cut.args || []).join(" ")
+      + "   env " + JSON.stringify(cut.env || {}) + "\n"
+      + "=".repeat(100) + "\n"
+      + (stderr || "(the child produced no stderr)") + "\n");
+  } catch (logErr) {
+    return "cut '" + cut.name + "' " + how + " - " + headline
+      + " (stderr could not be logged: " + logErr.message + ")";
+  }
+
+  return "cut '" + cut.name + "' " + how + " - " + headline
+    + " [full stderr: tasks/logs/strategy_search_failures.txt]";
+}
+
 function runCut(axis, cut) {
   const [script] = axis.harness;
   // cut.args is spread AFTER the script path, so a cut that declares none behaves exactly
   // as before this existed — the two original axes pass no arguments and are untouched.
-  execFileSync(process.execPath, [path.join(ROOT, script), ...(cut.args || [])], {
-    cwd: ROOT,
-    env: { ...process.env, ...cut.env },
-    maxBuffer: 128 * 1024 * 1024,
-    encoding: "utf8",
-    timeout: 3600000,
-    stdio: ["ignore", "ignore", "ignore"],
-  });
+  // STDERR IS CAPTURED, NOT DISCARDED. It used to be "ignore" on all three streams, and
+  // the cost of that was measured on 2026-09-01: three axes reported
+  // `AXIS FAILED: minrr - Command failed: <argv>` and the cause was UNRECOVERABLE, because
+  // the only text that named it - the harness's own error output - had been thrown away by
+  // the very parent that was reporting the failure. Re-running both cuts by hand exited 0,
+  // so the failure did not even reproduce; there was nothing left to reproduce it FROM.
+  //
+  // param_walkforward.cjs sets `process.exitCode = 3` when a replay errors, and it does so
+  // AFTER writing its report. "Report present AND axis failed" is therefore a reachable
+  // state, and the exit code is the only thing that distinguishes it from a kill at the
+  // ExecutionTimeLimit. Both are now recorded.
+  //
+  // DIAGNOSTIC ONLY, and additive. No threshold moves, nothing is proposed, no setting is
+  // read: the success path is byte-for-byte what it was, stderr is only ever inspected
+  // once the child has ALREADY thrown, and nothing is deleted or overwritten. Measured at
+  // ~20 KB of stderr per cut against the 128 MB maxBuffer, so buffering it costs nothing.
+  try {
+    execFileSync(process.execPath, [path.join(ROOT, script), ...(cut.args || [])], {
+      cwd: ROOT,
+      env: { ...process.env, ...cut.env },
+      maxBuffer: 128 * 1024 * 1024,
+      encoding: "utf8",
+      timeout: 3600000,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } catch (err) {
+    throw new Error(describeCutFailure(axis, cut, script, err));
+  }
   const reportPath = path.join(OUT_DIR, cut.report);
   if (!fs.existsSync(reportPath)) {
     throw new Error("cut '" + cut.name + "' produced no report at " + cut.report);
