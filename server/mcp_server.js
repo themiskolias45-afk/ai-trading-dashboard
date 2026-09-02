@@ -362,6 +362,93 @@ const TOOLS = [
   },
 
   {
+    name: 'check_decision',
+    description:
+      'ASK BEFORE YOU CHANGE ANYTHING: has this already been decided? Searches the ' +
+      'standing-decision register — every "DO NOT", "NEVER" and "LOCKED" rule written ' +
+      'into this codebase, harvested out of the source comments where they actually ' +
+      'live and where nothing else can find them. Each one records something that ' +
+      'already went wrong once, and returns the full reasoning, not just the rule. ' +
+      'USE IT BEFORE proposing or making any change: a threshold, a gate, a chart, a ' +
+      'schedule, a deletion. If your change contradicts a decision, SURFACE THE ' +
+      'CONFLICT and get an explicit answer — do not override it and do not re-derive ' +
+      'it from first principles, because the reasoning attached to it is what a ' +
+      'previous attempt already cost. ' +
+      'WHY THIS EXISTS: on 2026-09-02 an agent rewrote the TradingView chart to draw ' +
+      'pivot lines. That exact change had been made before, caused a real incident, ' +
+      'and been reversed with the reasoning written down — as a code comment nothing ' +
+      'indexed. It found the note by accident, AFTER shipping, then a second attempt ' +
+      'shipped it again. An empty result is NOT a green light: it means no RECORDED ' +
+      'decision matches, and the memory corpus should be searched too. ' +
+      'Read-only. Changes nothing, blocks nothing, feeds no gate.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          description: 'What you are about to change, in plain words — ' +
+            'e.g. "draw price lines on the chart", "lower the confidence gate", ' +
+            '"delete the rejection ledger". Also accepts a file path.',
+        },
+      },
+      required: ['topic'],
+    },
+    async handler({ topic }) {
+      // Reads the append-only register directly rather than shelling out to
+      // tasks/decisions.cjs. One less process, no timeout to tune, and — the reason that
+      // matters — this tool must still answer when the trading server is down, which is
+      // exactly when someone is about to change something in a hurry.
+      const file = path.join(ROOT, 'tasks', 'decision_register.jsonl');
+      if (!fs.existsSync(file)) {
+        return {
+          available: false,
+          reason: 'no decision register on this box — build it with: ' +
+                  'node tasks/decisions.cjs harvest',
+          feedsTheGate: false,
+        };
+      }
+      const byKey = new Map();
+      let corrupt = 0;
+      for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+        const l = line.trim();
+        if (!l) continue;
+        try { const r = JSON.parse(l); byKey.set(r.key, r); } catch (e) { corrupt++; }
+      }
+      const rows = [...byKey.values()];
+      const terms = String(topic || '').toLowerCase().split(/\s+/).filter(t => t.length > 2);
+      const scored = rows.map(r => {
+        const hay = ((r.title || '') + ' ' + (r.text || '') + ' ' +
+                     (r.governs || '') + ' ' + (r.file || '')).toLowerCase();
+        return { r, score: terms.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0) };
+      }).filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+
+      return {
+        available: true,
+        topic,
+        standingDecisions: rows.length,
+        corruptRows: corrupt,
+        matches: scored.map(({ r, score }) => ({
+          matchedTerms: score,
+          where: r.file ? r.file + ':' + r.line : 'explicit',
+          governs: r.governs || null,
+          decision: r.text,
+        })),
+        // Said explicitly because "no matches" is the answer most likely to be
+        // misread as permission.
+        guidance: scored.length
+          ? 'These are STANDING DECISIONS. If your change contradicts one, surface the ' +
+            'conflict rather than overriding it.'
+          : 'No recorded decision matches. That is NOT a green light — this register ' +
+            'covers decisions written as code comments or added explicitly. Search the ' +
+            'memory corpus as well before proceeding.',
+        feedsTheGate: false,
+      };
+    },
+  },
+
+  {
     name: 'get_performance',
     description:
       'Get aggregate trading performance: total trades, win rate %, gross and net P&L, ' +
