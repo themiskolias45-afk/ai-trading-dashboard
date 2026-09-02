@@ -112,7 +112,22 @@ function Test-DataFile($file) {
 $extraRoots = @(
     [pscustomobject]@{ Path = 'C:\Users\User\.claude\projects\C--Users-User-ai-trading-dashboard\memory'; Prefix = '_claude-memory'; DataOnly = $false },
     [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\tasks';  Prefix = '_repo-data\tasks';  DataOnly = $true },
-    [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\server'; Prefix = '_repo-data\server'; DataOnly = $true }
+    [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\server'; Prefix = '_repo-data\server'; DataOnly = $true },
+    # ADDED 2026-09-02. dashboard/ was the LAST uncovered store, found by checking the
+    # claim rather than accepting it: 11 data .json files on disk against TWO entries in
+    # the archive.
+    #
+    # They ARE tracked in git, which is why nobody noticed - but git held STALE copies,
+    # because these files are rewritten by every pipeline run and are almost never
+    # committed. So the CURRENT state of durable-state.json, instrument-scan.json,
+    # page-quality.json and the pipeline/weekly artifacts lived on exactly one disk.
+    #
+    # "They are regenerable" is the argument that kept them unprotected, and it is the
+    # wrong argument: regenerable is not the same as present, regenerating needs the
+    # pipelines that produced them, and the requirement is to lose NOTHING.
+    #
+    # DataOnly, so the html and js stay in git where they belong.
+    [pscustomobject]@{ Path = 'C:\Users\User\ai-trading-dashboard\dashboard'; Prefix = '_repo-data\dashboard'; DataOnly = $true }
 )
 
 $items = New-Object System.Collections.ArrayList
