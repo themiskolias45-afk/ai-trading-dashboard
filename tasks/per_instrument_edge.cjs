@@ -19,7 +19,33 @@ const { cappedRr } = require("./_rr_cap.cjs");
 const ROOT   = process.argv[2] || path.join(__dirname, "..");
 const OUTDIR = process.argv[3] || __dirname;
 
-const ASSETS = [["XAUUSD", "GC=F"], ["BTCUSD", "BTC-USD"], ["SP500", "^GSPC"]];
+// The three live instruments, and their Yahoo tickers because the engine has
+// ticker-specific branches for them.
+const LIVE_ASSETS = [["XAUUSD", "GC=F"], ["BTCUSD", "BTC-USD"], ["SP500", "^GSPC"]];
+
+// CANDIDATES ARE PASSED ON THE COMMAND LINE, one per argument, after root and outDir:
+//
+//   node tasks/per_instrument_edge.cjs . tasks/analysis XAGUSD ETHUSD EURUSD
+//
+// They need broker bars on disk first — tasks/history/<SYMBOL>_{D1,H4,H1,M15}.csv,
+// written by `python tasks/export_mt5_history.py <SYMBOL>`. Yahoo bars CANNOT answer
+// this: 948f21e measured the same index at +0.020R/trade on Yahoo and -0.525 on broker
+// bars over an identical window, because MAX_HOLD is 40 H4 BARS and a 24h CFD yields
+// 6 H4 bars a day against ~1.6 from a resampled 6.5h cash session.
+//
+// A CANDIDATE IS ITS OWN TICKER, and that is deliberate. The engine carries
+// ticker-specific branches — the Gold-only daily-neutral-H4 cohort (ticker === "GC=F",
+// index.js:3108) and the DXY filter (GC=F and BTC-USD) — so handing a candidate one of
+// those tickers would score it on another instrument's exceptions. Passing the symbol
+// itself fires none of them, which is the generic engine path and the only honest
+// baseline for something the system has never traded.
+//
+// Explicit pairing is still available as SYMBOL:TICKER when a candidate genuinely is
+// one of the three.
+const ARG_SYMBOLS = process.argv.slice(4).filter(a => !a.startsWith("--"));
+const ASSETS = ARG_SYMBOLS.length
+  ? ARG_SYMBOLS.map(a => { const [sym, tick] = a.split(":"); return [sym, tick || sym]; })
+  : LIVE_ASSETS;
 const GATE       = 70;     // the live gate; the only one with 5/5 folds behind it
 const FOLDS      = 5;
 const COST_R     = 0.05;   // same cost basis as every other harness here
