@@ -295,6 +295,61 @@ else {
 }
 line();
 
+// ── 5b. Standing decisions ──────────────────────────────────────────────────
+//
+// ADDED 2026-09-02, because everything above answers "what was LEARNED" and nothing
+// answered "what was SETTLED". Those are different questions and the second one is the
+// one that stops you. That day an agent rewrote the chart to draw pivot lines - a change
+// made once before, reversed after a real incident, with the reasoning written into a
+// comment at tradingview_bot.py:539 that no index covered. It found the note by accident,
+// after shipping, then a second attempt shipped it again.
+//
+// Only the COUNT and the addresses go here, deliberately. 38 full decision texts would
+// bury every other section, and this brief is read for orientation, not as a rulebook.
+// The point is to leave the reader knowing the store exists and how to ask it.
+{
+  const decFile = path.join(ROOT, "tasks", "decision_register.jsonl");
+  let standing = [];
+  try {
+    if (fs.existsSync(decFile)) {
+      const byKey = new Map();
+      for (const raw of fs.readFileSync(decFile, "utf8").split(/\r?\n/)) {
+        const l = raw.trim();
+        if (!l) continue;
+        try { const r = JSON.parse(l); byKey.set(r.key, r); } catch (e) { /* skip */ }
+      }
+      standing = [...byKey.values()];
+    }
+  } catch (e) { standing = []; }
+
+  line("## 5b. Standing decisions — what is SETTLED, not what was measured");
+  line();
+  if (!standing.length) {
+    line("  - register empty or unreadable. Build it: node tasks/decisions.cjs harvest");
+  } else {
+    const files = new Map();
+    for (const d of standing) {
+      const f = d.file || "(explicit)";
+      files.set(f, (files.get(f) || 0) + 1);
+    }
+    line("  " + standing.length + " standing decision(s) across "
+      + files.size + " file(s). Each one records something that already went wrong once.");
+    line();
+    const top = [...files.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+    for (const [f, n] of top) line("  - " + n + "  " + f);
+    if (files.size > top.length) line("  - ... and " + (files.size - top.length) + " more file(s)");
+    line();
+    line("  BEFORE CHANGING ANYTHING, ask whether it is already decided:");
+    line("    node tasks/decisions.cjs check \"<what you are about to change>\"");
+    line("    node tasks/decisions.cjs guard <file>      what that file already decides");
+    line();
+    line("  If your change contradicts one: SURFACE IT, do not override it. That is the");
+    line("  rule CLAUDE.md states as \"locked decisions stay locked\", and on 2026-09-02 it");
+    line("  was overridden twice in one afternoon by agents that could not find it.");
+  }
+  line();
+}
+
 // ── 6. The configuration actually in force ──────────────────────────────────
 line("## 6. Live configuration — never assume these numbers");
 line();
