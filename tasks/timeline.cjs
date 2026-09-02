@@ -228,7 +228,9 @@ function main() {
     if (m.length) {
       console.log("  LEARNED (" + m.length + " memor" + (m.length === 1 ? "y" : "ies") + "):");
       for (const x of m.slice(0, 10)) {
-        console.log("    - " + x.file);
+        // The date SOURCE is printed when it is the unreliable one, so a row dated by a
+        // file touch is never mistaken for a row dated by the memory itself.
+        console.log("    - " + x.file + (x.src === "mtime" ? "   [dated by file mtime - unreliable]" : ""));
         if (x.desc) console.log("        " + x.desc.slice(0, 104));
       }
       if (m.length > 10) console.log("    ... and " + (m.length - 10) + " more");
