@@ -94,6 +94,18 @@ function replay(symbol, ticker) {
 // The risk field's name is not guaranteed across versions of the emitter, so look for any
 // of the plausible spellings and say plainly when none is present rather than treating a
 // missing field as a zero risk distance, which would divide by zero into infinity.
+// The realised-R field is `realisedR` in the current emitter; `r` is accepted as a
+// fallback rather than assumed, because assuming `r` is what made the first run of this
+// file report "no trades at gate 70" for SIX instruments including the two that trade
+// live -- a filter that silently matches nothing looks exactly like an instrument with
+// no edge.
+function realisedOf(t) {
+  for (const k of ["realisedR", "r"]) {
+    if (Number.isFinite(t[k])) return t[k];
+  }
+  return null;
+}
+
 function riskOf(t) {
   for (const k of ["risk", "riskDistance", "riskPrice", "stopDistance"]) {
     if (Number.isFinite(t[k]) && t[k] > 0) return t[k];
