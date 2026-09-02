@@ -323,10 +323,26 @@ function folds(rows, n) {
   return out;
 }
 
+// --json prints the raw trade list and nothing else, so tasks/tk_optimise.cjs can do the
+// train/test split itself rather than re-implementing the strategy. One implementation,
+// one place to be wrong.
+const JSON_OUT = process.argv.includes("--json");
+
 const pad = (v, w) => String(v).padEnd(w);
 const num = (v, d) => Number.isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(d) : "-";
 const lines = [];
 const say = (s) => { lines.push(s); console.log(s); };
+
+if (JSON_OUT) {
+  const out = { trades: [], controls: [] };
+  for (const symbol of SYMBOLS) {
+    const r = run(symbol);
+    if (r.error) continue;
+    out.trades.push(...r.trades); out.controls.push(...r.controls);
+  }
+  process.stdout.write(JSON.stringify(out));
+  process.exit(0);
+}
 
 say("=".repeat(118));
 say("  TK SWING TREND PULLBACK v2 -- the Pine strategy, implemented from source");
