@@ -384,6 +384,32 @@ say("  " + "-".repeat(96));
 say("  " + pad("ALL", 14) + pad(overall.n, 8) + pad(overall.wr.toFixed(1), 9)
   + pad(num(overall.rpt, 4), 11) + pad(num(overall.netR, 2), 11));
 
+// FOLD STABILITY OF EACH BUCKET. A bucket that is negative in one fold and positive in
+// four is a regime, not a filter. A bucket negative in FIVE of five is a signal with its
+// sign flipped, and that is usable -- it is the difference between "do not trust the
+// score" and "invert it". Folds are chronological and equal-count WITHIN the bucket, so
+// each fold answers the same question at a different time.
+say("");
+say("  FOLD STABILITY  --  R/trade per chronological fifth, within each bucket");
+say("  " + pad("bucket", 14) + pad("n", 7) + Array.from({ length: FOLDS },
+  (_, i) => pad("fold" + (i + 1), 11)).join("") + "neg folds");
+for (const b of BUCKETS) {
+  const rows = all.filter(t => t.score >= b.min && t.score < b.max)
+    .sort((x, y) => x.entryTime - y.entryTime);
+  const size = Math.floor(rows.length / FOLDS);
+  if (size < 3) {
+    say("  " + pad(b.name, 14) + pad(rows.length, 7) + "fewer than 3 per fold - not foldable");
+    continue;
+  }
+  const fr = [];
+  for (let k = 0; k < FOLDS; k++) {
+    fr.push(stat(rows.slice(k * size, k === FOLDS - 1 ? rows.length : (k + 1) * size)).rpt);
+  }
+  say("  " + pad(b.name, 14) + pad(rows.length, 7)
+    + fr.map(v => pad(num(v, 4), 11)).join("")
+    + fr.filter(v => v < 0).length + "/" + FOLDS);
+}
+
 // MONOTONICITY IS THE VERDICT. A score whose top bucket does not beat its bottom bucket
 // is a number that feels right and predicts nothing, and shipping it would be the exact
 // failure this repo has already paid for.
