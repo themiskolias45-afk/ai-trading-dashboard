@@ -118,6 +118,21 @@ function backupLocal(dir) {
 }
 
 function main() {
+  // LAPTOP ONLY, and this guard is not optional. auto_daily.bat runs on BOTH boxes, and
+  // without this the VPS would ssh to VPS_HOST — itself — and "sync" its brain with its
+  // own, which succeeds, reports success, and does nothing. A job that cannot fail and
+  // cannot work is the shape this project keeps finding.
+  //
+  // Discriminated on the repo path, which CLAUDE.md fixes per box: the VPS is
+  // C:\ai-trading-dashboard, the laptop is under C:\Users. Hostname would work too but is
+  // one more thing to keep in step with a rebuild.
+  const onVps = !/[\\/]Users[\\/]/i.test(ROOT);
+  if (onVps) {
+    console.log("[brain-sync] this is the VPS — skipping. The sync runs FROM the laptop, "
+      + "because CLAUDE.md records that the laptop cannot be reached from outside.");
+    return 0;
+  }
+
   const dir = localMemoryDir();
   if (!dir) { console.log("[brain-sync] no local memory dir — nothing to do"); return 0; }
   if (!fs.existsSync(SSH_KEY)) {
