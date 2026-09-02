@@ -41,13 +41,25 @@ const OTHERS = ["XAUUSD", "BTCUSD", "SP500"].filter(s => s !== SYMBOL);
 const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36 };
 
 // What ships today, from tasks/fvg_runner.cjs and the strategy_suite defaults.
-const SHIPPED = { disp: 1.5, maxrr: 5, retest: 40, execwindow: 60, search: 40 };
+// For crtema, SHIPPED is the pre-improvement baseline: no stop buffer, 5R cap. The
+// candidate under test is the 0.25xATR buffer found on 2026-09-02, which took the model
+// from -0.0362 to +0.0003 net before the EMA gate and to +0.1414 with it.
+const SHIPPED = { disp: 1.5, maxrr: 5, retest: 40, execwindow: 60, search: 40, stopbuf: 0 };
 
 // Only axes the earlier plateau sweep showed actually move the result.
-const GRID = {
+const GRID = MODEL === "crtema" ? {
+  // disp does not reach the crtfvg model and retest does not bind on it, so the grid is
+  // the two axes that actually move it. Sweeping inert parameters only multiplies the
+  // chances of fitting noise.
+  stopbuf: [0, 0.25, 0.5, 0.75],
+  maxrr:   [3, 5, 8],
+  disp:    [1.5],
+  retest:  [40],
+} : {
   disp:   [1.0, 1.5, 2.0, 2.5],
   maxrr:  [3, 5, 8],
   retest: [20, 40, 80],
+  stopbuf: [0],
 };
 
 function runConfig(cfg, symbol) {
@@ -57,7 +69,7 @@ function runConfig(cfg, symbol) {
     "--bias", "h4", "--exec", "m15", "--hold", "960",
     "--disp", String(cfg.disp), "--maxrr", String(cfg.maxrr),
     "--retest", String(cfg.retest), "--execwindow", String(cfg.execwindow),
-    "--search", String(cfg.search)];
+    "--search", String(cfg.search), "--stopbuf", String(cfg.stopbuf ?? 0)];
   if (MODEL === "crtema") args.push("--gates", "ema");
   const out = execFileSync(process.execPath, args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
   const parsed = JSON.parse(out);
@@ -110,7 +122,8 @@ const combos = [];
 for (const disp of GRID.disp)
   for (const maxrr of GRID.maxrr)
     for (const retest of GRID.retest)
-      combos.push({ ...SHIPPED, disp, maxrr, retest });
+      for (const stopbuf of (GRID.stopbuf || [0]))
+        combos.push({ ...SHIPPED, disp, maxrr, retest, stopbuf });
 console.log("  searching " + combos.length + " configurations...");
 
 const scored = [];
@@ -135,7 +148,9 @@ const shipTest  = stat(shippedAll.filter(t => t.entryTime >= splitTime));
 const shipFolds = foldsOf(shippedAll.filter(t => t.entryTime >= splitTime), 5);
 
 const row = (label, cfg, tr, te, f) => console.log("  " + pad(label, 24)
-  + pad("disp" + cfg.disp + " rr" + cfg.maxrr + " retest" + cfg.retest, 26)
+  + pad(MODEL === "crtema"
+      ? ("stopbuf" + (cfg.stopbuf ?? 0) + " rr" + cfg.maxrr)
+      : ("disp" + cfg.disp + " rr" + cfg.maxrr + " retest" + cfg.retest), 26)
   + pad(tr.n, 7) + pad(num(tr.netRpt, 4), 10)
   + pad(te.n, 7) + pad(te.n ? te.wr.toFixed(1) : "-", 7)
   + pad(te.pf === null ? "-" : te.pf.toFixed(3), 8)
