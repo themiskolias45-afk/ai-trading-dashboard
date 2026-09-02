@@ -11742,7 +11742,20 @@ app.get("/api/measured-evidence", (_, res) => {
 //
 // AGE IS PART OF THE ANSWER. A plan from three days ago is not a plan, and the whole
 // point of surfacing this is that a stale read must never look like a fresh one.
-const PREOPEN_PLAN_STALE_MINUTES = 24 * 60;   // one trading day; the job runs daily
+// AN AGE-ONLY STALENESS TEST ON THIS ARTIFACT COULD NEVER FIRE. It was 24*60 while the
+// job that writes the artifact runs every 24 hours, so the age tops out around 1439
+// minutes and never crosses 1440. The STALE banner was dead code in normal operation, and
+// a day the job FAILED looked exactly like a fresh plan -- the reader has no way to tell
+// "built this morning" from "built yesterday morning and today's run never happened".
+// Verified 2026-09-02: tasks/analysis holds a dated plan for every day since 2026-08-12
+// EXCEPT 2026-08-20, which produced none at all, and nothing ever reported it.
+// Same shape as eb5d176, where a graph check with no floor reported "Graph OK" over an
+// empty store indefinitely.
+//
+// A pre-open plan is valid until the open it precedes. After that it is history, however
+// recently the file was written, so the real test is the SESSION it was built for, with
+// age kept only as a backstop for a plan whose own timestamp is unusable.
+const PREOPEN_PLAN_STALE_MINUTES = 24 * 60;   // backstop only; the session test does the work
 app.get("/api/preopen-plan", (_, res) => {
   const file = path.join(__dirname, "..", "tasks", "analysis", "preopen-plan-latest.json");
   try {
@@ -11757,10 +11770,34 @@ app.get("/api/preopen-plan", (_, res) => {
     }
     const plan = JSON.parse(fs.readFileSync(file, "utf8"));
     const ageMinutes = Math.round((Date.now() - Date.parse(plan.generatedAt)) / 60000);
+
+    // The session test, and the REASON, because "STALE" with no cause tells the reader
+    // nothing they can act on. Ordered most specific first.
+    const openAt = Date.parse(plan.nextNewYorkOpen);
+    const minutesSinceOpen = Number.isFinite(openAt)
+      ? Math.round((Date.now() - openAt) / 60000) : null;
+    let staleReason = null;
+    if (!Number.isFinite(ageMinutes)) {
+      staleReason = "the plan carries no usable generatedAt";
+    } else if (ageMinutes > PREOPEN_PLAN_STALE_MINUTES) {
+      staleReason = "today's 12:00 UTC run did not produce a plan — this one is "
+                  + Math.round(ageMinutes / 60) + "h old";
+    } else if (!Number.isFinite(openAt)) {
+      // Reported, not swallowed: without this field the session test cannot run at all,
+      // and silently falling back to the age test is how the dead check survived.
+      staleReason = "the plan carries no nextNewYorkOpen, so it cannot be checked "
+                  + "against the session it was built for";
+    } else if (minutesSinceOpen > 0) {
+      staleReason = "the NEW YORK open it was built for was " + minutesSinceOpen
+                  + " minutes ago — this describes a session already under way";
+    }
+
     res.json({
       available: true,
       ageMinutes,
-      stale: !Number.isFinite(ageMinutes) || ageMinutes > PREOPEN_PLAN_STALE_MINUTES,
+      stale: staleReason !== null,
+      staleReason,
+      minutesSinceOpen,
       staleAfterMinutes: PREOPEN_PLAN_STALE_MINUTES,
       plan,
       feedsTheGate: false,

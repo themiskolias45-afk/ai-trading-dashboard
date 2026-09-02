@@ -6336,8 +6336,12 @@ async function loadPreopenPlan() {
     const out = [];
 
     if (d.stale) {
+      // The REASON, not just the word. The endpoint now distinguishes "today's run never
+      // happened" from "the open it was built for has passed" -- two different problems
+      // with two different responses, and the old text asserted the second one for both.
       out.push('<div class="pop-unavail">This plan is ' + escapeHtml(popAgeText(d.ageMinutes))
-        + ' — it describes a session that has already happened. Re-run: node tasks/preopen_plan.cjs</div>');
+        + (d.staleReason ? ' — ' + escapeHtml(d.staleReason) : '')
+        + '. Re-run: node tasks/preopen_plan.cjs</div>');
     }
     if (p.settingsError) {
       out.push('<div class="pop-alarm">Server was running on DEFAULT settings when this was built — '
