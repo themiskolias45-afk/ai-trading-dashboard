@@ -210,8 +210,25 @@ function run(symbol) {
     if (entryIdx === -1) continue;
 
     // 5 and 6. Stop beyond the sweep extreme, target the opposite side of the range.
-    const stop   = crt.invalidation;
-    const target = crt.objective;
+    //
+    // MAX_RR EXISTS BECAUSE THE UNCAPPED TARGET IS NOT REACHABLE. Measured on the first
+    // run of this harness: Gold's average R:R came out at 12.16 with a 53.8% win rate and
+    // an R/trade of +0.001. A target twelve times the stop away is not a target, it is a
+    // lottery ticket attached to a real stop -- the trade gets closed at the horizon
+    // marked-to-market far more often than it completes. Capping the objective is the
+    // only change made to the strategy as described, and it is reported separately rather
+    // than folded in, because it IS a change to the strategy.
+    const stop = crt.invalidation;
+    let target = crt.objective;
+    if (MAX_RR > 0) {
+      const riskDist = Math.abs(entryPrice - stop);
+      const rewardDist = Math.abs(target - entryPrice);
+      if (riskDist > 0 && rewardDist > MAX_RR * riskDist) {
+        target = wantDirection === "bullish"
+          ? entryPrice + MAX_RR * riskDist
+          : entryPrice - MAX_RR * riskDist;
+      }
+    }
     const validGeometry = wantDirection === "bullish"
       ? (stop < entryPrice && target > entryPrice)
       : (stop > entryPrice && target < entryPrice);
