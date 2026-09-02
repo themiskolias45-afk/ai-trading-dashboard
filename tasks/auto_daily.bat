@@ -232,6 +232,26 @@ REM credit - on 2026-08-03 that ran out and every agent died in seconds with
 REM "Credit balance is too low". Cleared inside setlocal, so only this process.
 set "ANTHROPIC_API_KEY="
 pushd "%AGENTCWD%"
+REM Harvest standing decisions BEFORE the brief is built, or the brief reports a
+REM register that stopped growing the day it was created. Added 2026-09-02: the
+REM register only exists because 38 standing decisions were living inside source
+REM comments where nothing could find them, and a harvest that runs only when
+REM someone remembers is the same failure one level up - "a rule enforced by
+REM remembering is enforced by nothing", which is what fb8b4f9 found about the
+REM mojibake check and eb5d176 about the graph check.
+REM
+REM Both are append-only and idempotent: harvest adds nothing it already has,
+REM export regenerates a DERIVED corpus. Neither can lose a decision, and a
+REM failure here must not stop the daily run, so output goes to the log and the
+REM run continues either way.
+node "%PROJ%\tasks\decisions.cjs" harvest >> "%LOGFILE%" 2>&1
+node "%PROJ%\tasks\decisions.cjs" export  >> "%LOGFILE%" 2>&1
+
+REM Re-embed the decision corpus so semantic recall matches the register. Slower
+REM than the two above (it loads a sentence-transformers model), which is why it
+REM sits in the nightly batch and not in a hook.
+"%PY%" "%PROJ%\tasks\rag_index.py" --source decisions >> "%LOGFILE%" 2>&1
+
 REM Regenerate the briefing first so the agent reads TODAY's decisions, not a
 REM stale copy. Cheap, read-only, and it is the difference between an agent that
 REM re-proposes settled work and one that knows what has already been tried.
