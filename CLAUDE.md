@@ -266,7 +266,9 @@ silently resolved.
   4H + 1H"*, which states a safety property the engine does not have and which a user
   reasonably read as "it will not buy into a bearish 4H/1H". Corrected 2026-08-31 after
   being asked why it buys when every lower timeframe is red. What `generateSignal`
-  actually does (`server/index.js:2814-2911`):
+  actually does (`generateSignalMTF`, `server/index.js:2965`; the plain
+  `generateSignal` is at `:1780`. This said `:2814-2911` until 2026-09-02 — that
+  range is neither function):
   - Daily + H4 **agree** → 72 / 88 / 95.
   - Daily + H4 + H1 **all agree** → 88 / 97. This is a **BONUS branch, not a gate.**
   - Daily fires while **H4 says WAIT** → **72 on Gold**, which clears the gate (65 since
@@ -283,7 +285,8 @@ silently resolved.
   a bearish M15 are DISPLAY ONLY. Whether H1 disagreement predicts anything is
   UNMEASURED — see `tasks/logs/h1_agreement.txt`. Do not add an H1 veto on intuition:
   that is subtraction, it spends the scarce resource, and rule 3 governs it.
-- **"STRONG UPTREND" is EMA STACKING, NOT CANDLE DIRECTION** (`index.js:1711`):
+- **"STRONG UPTREND" is EMA STACKING, NOT CANDLE DIRECTION** (`index.js:1798`;
+  said `:1711` until 2026-09-02, which is an ADX comment):
   `price > ema20 && > ema50 && > ema200`. On 2026-08-31 Gold printed STRONG UPTREND
   while sitting **$1.55 above its 20 EMA** with MACD histogram −5.35 and
   `crossedBearish: true`. The label says where price IS, never where it is going. The
@@ -319,7 +322,8 @@ silently resolved.
     used to answer asset-specific questions. At gate 70 / 320: XAUUSD 5/5 +0.051,
     BTCUSD 5/5 +0.172, SP500 4/5 −0.042.
 - **Gold's squeeze cohort is pinned to a LITERAL 70** (`GOLD_SQUEEZE_MODERATE_CONFIDENCE`,
-  `server/index.js:3486`) — it did NOT follow the gate down. At 65 it still clears
+  `server/index.js:3553`; said `:3486` until 2026-09-02, which is a blank line) — it
+  did NOT follow the gate down. At 65 it still clears
   comfortably; it silently stops firing only if the gate is ever raised ABOVE 70. Moving
   the gate DOWN was the safe direction; moving it up is the one that needs this checked.
 - `strategy_settings.json` is per-machine and untracked, so a shared commit does NOT
@@ -361,7 +365,13 @@ silently resolved.
   same engine in replay does 914 trades over 4.2 years, ~218/year, so live is running
   at roughly half the replay rate — the right order of magnitude, not a fault.
   **Never quote a fill count from this file.** `node tasks/ai_brief.cjs` section 4
-  counts the journal live, and `GET /api/performance` is the other source of truth.
+  counts the journal live. **This line used to name `GET /api/performance` as the
+  other source of truth. THERE IS NO SUCH ROUTE** — corrected 2026-09-02 by
+  `tasks/claims_check.cjs`. Only `/api/fleet-performance` (`index.js:10741`) and
+  `/api/checksystem` (`:7010`) are registered, and line 334 of this same file already
+  said the endpoint does not exist. The file contradicted itself and the wrong half
+  was the half sending you to call it — a 404 that reads as a broken server rather
+  than a wrong instruction.
   The sample is small because the system is WEEKS OLD, which is arithmetic, not a bug.
   Time fixes it and nothing else does — so the highest-value action is usually to
   change nothing and let it run.

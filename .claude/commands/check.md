@@ -14,6 +14,23 @@ Find and check all Python files:
 
 Collect every file that fails — report the exact error message.
 
+═══ CLAIMS CHECK ═══
+  node tasks/claims_check.cjs
+
+Verifies what CLAUDE.md ASSERTS against what the code and live system DO —
+line-number citations, every /api path against registered routes, named code
+files, forbidden strings, and the live gate against /api/strategy-settings.
+
+exit 0 = claims hold | exit 1 = STALE claims | exit 2 = the checker broke
+
+Report every STALE finding with its suggested fix. Do NOT treat UNVERIFIABLE as
+a failure — an offline server and runtime-generated data files are expected to
+be unverifiable and are not drift.
+
+This matters more than it looks: CLAUDE.md is loaded at the start of every
+session, so a wrong fact there is not one bad answer, it is a bad premise under
+every answer that follows.
+
 ═══ SECURITY CHECK ═══
 1. git ls-files server/apikey.txt
    → If non-empty: ESCALATE — "SECRET TRACKED IN GIT: git rm --cached server/apikey.txt"

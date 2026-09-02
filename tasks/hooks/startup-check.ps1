@@ -45,6 +45,21 @@ if ($secrets) {
     $warn += "SECURITY: SECRET FILE TRACKED BY GIT: $secrets -- remove immediately"
 }
 
+# 8. CLAUDE.md claims still true?
+# This file is the first thing every session reads, and a wrong fact in it does not
+# cost a minute -- it sets the agenda for the whole session. Four stale claims were
+# found here on 2026-09-02, one of which sent sessions to an endpoint that does not
+# exist. Exit 1 means drift; exit 2 means the checker itself broke and is reported
+# separately, because a crashed checker must never read as a clean run.
+$claimsOut = & node (Join-Path $proj 'tasks\claims_check.cjs') 2>&1
+switch ($LASTEXITCODE) {
+    1 {
+        $staleCount = ([regex]::Match(($claimsOut -join "`n"), 'STALE \((\d+)\)')).Groups[1].Value
+        $warn += "CLAUDE.md: $staleCount stale claim(s) -- run: node tasks\claims_check.cjs"
+    }
+    2 { $warn += "CLAUDE.md: claims_check FAILED to run -- not a clean result" }
+}
+
 # Output -- only if there are warnings
 if ($warn.Count -gt 0) {
     Write-Host ""
