@@ -29,7 +29,7 @@ if ($Remove) {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
         "Removed scheduled task '$TaskName'."
     } else {
-        "No task named '$TaskName' — nothing to remove."
+        "No task named '$TaskName' -- nothing to remove."
     }
     return
 }
@@ -39,7 +39,7 @@ if (-not (Test-Path $script)) { throw "Runner not found at $script" }
 # Resolve node by RUNNING it, never by trusting PATH: a task that resolves to a different
 # node than the shell does is the kind of difference nobody sees until it fails silently.
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source
-if (-not $node) { throw "node not on PATH — the task would be registered and never run." }
+if (-not $node) { throw "node not on PATH -- the task would be registered and never run." }
 & $node --version | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "node at $node did not execute" }
 
@@ -48,9 +48,17 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Forc
 
 # Output is appended, never overwritten: the shadow record is the whole point and a task
 # that truncates its own log loses the evidence it exists to collect.
-$cmd = "`"$node`" `"$script`" --once >> `"$logFile`" 2>&1"
-$action = New-ScheduledTaskAction -Execute 'cmd.exe' `
-    -Argument "/c $cmd" -WorkingDirectory $root
+#
+# EXECUTED THROUGH powershell.exe, NOT cmd.exe. The first version used
+# `cmd.exe /c "node" "script" --once >> "log"` and the task returned result 1 with no log
+# at all: cmd strips the outer quote pair of a /c string, so the nested quotes around the
+# paths broke the command before node ever started. A task that is registered and silently
+# never runs is worse than no task, because the absence of setups reads as a quiet market.
+# Same executor install_autostart.ps1 uses, for the same reason.
+$inner  = "& '$node' '$script' --once *>> '$logFile'"
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+    -Argument ('-NoProfile -ExecutionPolicy Bypass -Command "' + $inner + '"') `
+    -WorkingDirectory $root
 
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
     -RepetitionInterval (New-TimeSpan -Minutes 15)
@@ -61,7 +69,13 @@ $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
     -MultipleInstances IgnoreNew
 
-$me = "$env:USERDOMAIN\$env:USERNAME"
+# IDENTITY COMES FROM whoami, NOT $env:USERDOMAIN\$env:USERNAME. On the VPS those
+# variables read WORKGROUPdministrator while the account is actually
+# vmi3465345dministrator, so Register-ScheduledTask failed with HRESULT 0x80070534,
+# "no mapping between account names and security IDs". whoami reports the name the SID
+# actually resolves from, and is right on a domain-joined box, a workgroup box and here.
+$me = (& whoami).Trim()
+if (-not $me) { throw "whoami returned nothing - cannot determine the principal" }
 $principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
 
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
@@ -69,9 +83,9 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 }
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal `
-    -Description 'FVG continuation shadow runner — records setups only, places no orders.' | Out-Null
+    -Description 'FVG continuation shadow runner -- records setups only, places no orders.' | Out-Null
 
-"Registered '$TaskName' — every 15 minutes, as $me."
+"Registered '$TaskName' -- every 15 minutes, as $me."
 "  runner : $script"
 "  log    : $logFile"
 "  verify : Get-ScheduledTask -TaskName '$TaskName' | Get-ScheduledTaskInfo"

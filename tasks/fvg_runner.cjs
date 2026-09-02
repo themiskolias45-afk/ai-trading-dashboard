@@ -271,7 +271,7 @@ module.exports = { evaluate, DISPLACEMENT_ATR, MAX_RR, RETEST_BARS, EXEC_WINDOW,
 
 if (require.main === module) {
   (async () => {
-    console.log("FVG CONTINUATION runner — SHADOW ONLY, places no orders. host " + HOST);
+    console.log("FVG CONTINUATION runner -- SHADOW ONLY, places no orders. host " + HOST);
     await tick();
     if (ONCE) return;
     // 15-minute cadence matches the execution timeframe: checking more often cannot find
