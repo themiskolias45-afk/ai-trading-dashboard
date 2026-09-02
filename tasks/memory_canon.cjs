@@ -151,20 +151,41 @@ function main() {
 
   if (!APPLY) { console.log("\ndry run: no file was written."); return 0; }
 
-  let changed = 0, rewrites = 0;
+  let changed = 0, rewrites = 0, aligned = 0;
   for (const f of all) {
     const p = path.join(dir, f);
     const orig = fs.readFileSync(p, "utf8");
     let txt = orig;
+
+    // LINKS FIRST, ALWAYS. Aligning the frontmatter before the links would sever the 83
+    // targets that resolve only through `name:` for the instant between the two writes,
+    // and if the run were interrupted there they would stay severed.
     for (const [b, g] of mapping) {
       const before = txt;
       txt = txt.split("[[" + b + "]]").join("[[" + g + "]]");
       if (txt !== before) rewrites++;
     }
+
+    if (ALIGN && !INDEXES.has(f)) {
+      const stem = f.slice(0, -3);
+      // Frontmatter only — bounded to the first --- block so a `name:` line inside the
+      // body of a memory ABOUT frontmatter is never rewritten.
+      const m = txt.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
+      if (m && /^name:\s*(.+)$/m.test(m[2])) {
+        const current = (m[2].match(/^name:\s*(.+)$/m) || [])[1].trim();
+        if (current !== stem) {
+          const fixed = m[2].replace(/^name:\s*.+$/m, "name: " + stem);
+          txt = txt.replace(m[0], m[1] + fixed + m[3]);
+          aligned++;
+        }
+      }
+    }
+
     if (txt !== orig) { fs.writeFileSync(p, txt, "utf8"); changed++; }
   }
-  console.log("\n" + changed + " file(s) updated, " + rewrites + " link(s) rewritten.");
-  console.log("Link text only — no memory was created, renamed or deleted.");
+  console.log("\n" + changed + " file(s) updated, " + rewrites + " link(s) rewritten"
+    + (ALIGN ? ", " + aligned + " name: field(s) aligned to filename" : "") + ".");
+  console.log("Link text and frontmatter name only — no memory was created, renamed or deleted.");
   console.log("Verify with: node tasks/memory_lint.cjs");
   return 0;
 }
