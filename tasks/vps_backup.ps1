@@ -34,7 +34,23 @@ $existing = $candidates | Where-Object { Test-Path $_ }
 # off this box.
 $projectRoot    = "C:\ai-trading-dashboard"
 $secretNames    = @("keys.env", "keys.env.bak", "apikey.txt")
-$excludedDirs   = @("node_modules", "__pycache__", ".git")
+# .venv-rag and .venv added 2026-09-02. A Python virtualenv was created on this box on
+# 09-01 for the RAG index, and the sweep below matches on EXTENSION, so its .py/.json/.md
+# files were all eligible. The nightly archive went 40 MB / 1,455 files on 09-01 to
+# 119 MB / 18,634 files on 09-02 - 15,016 of those files and 263 MB uncompressed were
+# .venv-rag alone. That is the same argument node_modules is excluded under: pip
+# rebuilds it from requirements, so it costs 3x the archive and 13x the file count every
+# night to store nothing a restore needs.
+#
+# Plain `.venv` is listed beside it although no such directory exists here yet. The
+# next venv on this box will almost certainly use the conventional name, and an
+# exclusion list that only knows the one directory that already hurt is the same shape
+# as the extension allowlist two comments below, which dropped every ledger because
+# .jsonl had not been thought of yet.
+#
+# NOTE: "projects" in $candidates is NOT this - that is the agent memory vault under the
+# user profile, deliberately included, and it must stay.
+$excludedDirs   = @("node_modules", "__pycache__", ".git", ".venv-rag", ".venv")
 # .jsonl and .db added 2026-09-01. Their absence meant the LEDGERS on the box that
 # actually trades were protected by nothing at all: rejections.jsonl (1.24 MB),
 # rejections_scored.jsonl (1.35 MB), near_misses.jsonl, ai_decisions.jsonl and
