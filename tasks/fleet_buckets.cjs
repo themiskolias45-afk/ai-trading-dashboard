@@ -69,10 +69,20 @@ const BOX_SPECIFIC = [
   /^spread_probe\.py$/, /^export_mt5_history\.py$/, /^list_broker_symbols\.py$/,
 ];
 
+// A backup is not content. Comparing them made the report 228 lines of noise and buried
+// the 20 differences that matter. Excluded on BOTH sides.
+const IS_BACKUP = /\.(bak|vpsbak)[-.]|\.pre-|\.bak$/i;
+
 const BUCKETS = [
   { name: "SKILLS (commands)", local: ".claude/commands", glob: /\.md$/ },
   { name: "SKILLS (agents)",   local: ".claude/agents",   glob: /\.md$/ },
-  { name: "TOOLS (tasks)",     local: "tasks",            glob: /\.(cjs|py|ps1)$/ },
+  // .md INCLUDED HERE ON PURPOSE, and its absence was the second half of the same bug.
+  // tasks/ holds real documentation — AGENT-BOUNDARY.md, pre-flight.md,
+  // REJECTION-LEDGER-SPEC.md, SLEEP-RUNBOOK.md — which is content, not clutter. With the
+  // remote filtering .md and the local not, eleven files the laptop demonstrably HAS
+  // (AGENT-BOUNDARY.md was written here today) reported as "VPS-ONLY, a push would
+  // DESTROY these". Both halves of a comparison must ask the same question.
+  { name: "TOOLS (tasks)",     local: "tasks",            glob: /\.(cjs|py|ps1|md)$/ },
 ];
 
 function ssh(cmd, timeout = 90000) {
@@ -88,6 +98,7 @@ function localHashes(dir, glob) {
   if (!fs.existsSync(full)) return out;
   for (const f of fs.readdirSync(full)) {
     if (!glob.test(f)) continue;
+    if (IS_BACKUP.test(f)) continue;
     try {
       out.set(f, crypto.createHash("sha256")
         .update(fs.readFileSync(path.join(full, f))).digest("hex").toUpperCase());
@@ -161,7 +172,10 @@ function main() {
       const isExpected = BOX_SPECIFIC.some(rx => rx.test(f));
       if (isExpected) expected++; else { diffs.push(f); unexplained.push(b.name + "  " + f); }
     }
-    for (const f of vps.keys()) if (!lap.has(f)) { vpsOnly.push(f); vpsOnlyAll.push(b.name + "  " + f); }
+    for (const f of vps.keys()) {
+      if (IS_BACKUP.test(f)) continue;
+      if (!lap.has(f)) { vpsOnly.push(f); vpsOnlyAll.push(b.name + "  " + f); }
+    }
 
     console.log("  " + b.name.padEnd(20) + String(same).padStart(6)
       + String(lapOnly.length).padStart(10) + String(vpsOnly.length).padStart(10)
