@@ -1156,8 +1156,9 @@
 
   <!-- The pre-open plan. Sits ABOVE the calendar because it says what the calendar
        MEANS for today: which hour is blacked out, how far each asset is from firing,
-       and what the record says about the session ahead. Produced at 12:00 UTC by
-       tasks\preopen_plan.cjs, one hour before the NEW YORK open. -->
+       and what the record says about the session ahead. Produced by
+       tasks\preopen_plan.cjs about an hour before the NEW YORK open; the exact slot moves
+       nightly (tasks/reschedule_preopen.ps1) to keep that hour clear of high-impact news. -->
   <div class="panel" style="margin-bottom:16px">
     <div class="panel-header">
       <div class="panel-title">Pre-Open Plan</div>
@@ -6257,7 +6258,9 @@ loadDistanceToFire();
 setInterval(loadDistanceToFire, 60_000);
 
 // ── PRE-OPEN PLAN ──────────────────────────────────────────────
-// Renders the artifact written at 12:00 UTC, one hour before the NEW YORK open.
+// Renders the artifact written about an hour before the NEW YORK open. NOT "12:00 UTC":
+// tasks/reschedule_preopen.ps1 moves the trigger nightly to keep that hour clear of
+// high-impact news, so any fixed hour written here is wrong on the days it matters most.
 //
 // Two rules this panel exists to obey, both learned the hard way today:
 //  1. A read that FAILED never renders as good news. The plan script printed "0 of 15
@@ -6330,18 +6333,27 @@ async function loadPreopenPlan() {
     }
 
     const p = d.plan;
-    ageEl.innerHTML = 'built ' + escapeHtml(popAgeText(d.ageMinutes)) + ' · gate ' + p.gate
-      + (d.stale ? ' · <span style="color:var(--yellow);font-weight:700">STALE</span>' : '');
+    // Three states, three weights. OVERDUE is the only alarm; PAST OPEN is expected for
+    // most of the day and is printed in muted text, because a warning that is on 95.8% of
+    // the time is one you learn to skim past.
+    const badge = d.state === 'overdue'
+      ? ' · <span style="color:var(--yellow);font-weight:700">OVERDUE</span>'
+      : d.state === 'past-open'
+        ? ' · <span style="color:var(--muted)">past open</span>'
+        : '';
+    ageEl.innerHTML = 'built ' + escapeHtml(popAgeText(d.ageMinutes)) + ' · gate ' + p.gate + badge;
 
     const out = [];
 
-    if (d.stale) {
-      // The REASON, not just the word. The endpoint now distinguishes "today's run never
-      // happened" from "the open it was built for has passed" -- two different problems
-      // with two different responses, and the old text asserted the second one for both.
-      out.push('<div class="pop-unavail">This plan is ' + escapeHtml(popAgeText(d.ageMinutes))
-        + (d.staleReason ? ' — ' + escapeHtml(d.staleReason) : '')
+    // OVERDUE is actionable and gets the alarm treatment plus the remedy. PAST OPEN gets
+    // one muted line and NO re-run advice: re-running after the open builds a plan for
+    // TOMORROW's open on today's signals, which is a worse artifact, not a fresher one.
+    if (d.state === 'overdue') {
+      out.push('<div class="pop-unavail">' + escapeHtml(d.stateReason || 'this plan is out of date')
         + '. Re-run: node tasks/preopen_plan.cjs</div>');
+    } else if (d.state === 'past-open' && d.stateReason) {
+      out.push('<div class="pop-line" style="color:var(--muted)">'
+        + escapeHtml(d.stateReason) + '.</div>');
     }
     if (p.settingsError) {
       out.push('<div class="pop-alarm">Server was running on DEFAULT settings when this was built — '
@@ -6409,7 +6421,8 @@ async function loadPreopenPlan() {
     }
 
     out.push('<div class="cal-foot">Built ' + escapeHtml(String(p.generatedAt).replace('T', ' ').slice(0, 16))
-      + ' UTC by the 12:00 UTC job, one hour before the NEW YORK open. Every figure is read live or from '
+      + ' UTC by the daily pre-open job, about an hour before the NEW YORK open — the exact '
+      + 'slot moves nightly to keep that hour clear of high-impact news. Every figure is read live or from '
       + 'a walk-forward artifact and carries the sample it rests on. This plan cannot open a trade, move '
       + 'a threshold or admit a setup — it states what the gate would need and what the record says.</div>');
 

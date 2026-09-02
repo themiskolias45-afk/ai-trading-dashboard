@@ -11729,7 +11729,7 @@ app.get("/api/measured-evidence", (_, res) => {
   });
 });
 
-// ── /api/preopen-plan — the plan the 12:00 UTC job produced ─────────────────
+// ── /api/preopen-plan — the plan the daily pre-open job produced ────────────
 //
 // Serves the ARTIFACT, and deliberately does not build the plan on demand.
 // tasks/preopen_plan.cjs makes seven HTTP calls back to this same server plus a
@@ -11742,20 +11742,33 @@ app.get("/api/measured-evidence", (_, res) => {
 //
 // AGE IS PART OF THE ANSWER. A plan from three days ago is not a plan, and the whole
 // point of surfacing this is that a stale read must never look like a fresh one.
-// AN AGE-ONLY STALENESS TEST ON THIS ARTIFACT COULD NEVER FIRE. It was 24*60 while the
-// job that writes the artifact runs every 24 hours, so the age tops out around 1439
-// minutes and never crosses 1440. The STALE banner was dead code in normal operation, and
-// a day the job FAILED looked exactly like a fresh plan -- the reader has no way to tell
-// "built this morning" from "built yesterday morning and today's run never happened".
-// Verified 2026-09-02: tasks/analysis holds a dated plan for every day since 2026-08-12
-// EXCEPT 2026-08-20, which produced none at all, and nothing ever reported it.
-// Same shape as eb5d176, where a graph check with no floor reported "Graph OK" over an
-// empty store indefinitely.
+// THREE STATES, because this artifact has three conditions and the old code had one.
 //
-// A pre-open plan is valid until the open it precedes. After that it is history, however
-// recently the file was written, so the real test is the SESSION it was built for, with
-// age kept only as a backstop for a plan whose own timestamp is unusable.
-const PREOPEN_PLAN_STALE_MINUTES = 24 * 60;   // backstop only; the session test does the work
+//   fresh      the open it names is still ahead. Normal, and the only state that needs
+//              no comment.
+//   past-open  that open has begun. NORMAL for the hours between the open and the next
+//              scheduled run, so it is INFORMATIONAL, never an alarm.
+//   overdue    the age has passed a full cycle, so a scheduled run was skipped -- or the
+//              artifact is malformed. This is the actionable one.
+//
+// THE FIRST VERSION OF THIS FIX FOLDED past-open INTO stale AND WAS A REGRESSION: a
+// pre-open plan is past its open for about 1379 of every 1440 minutes, so the yellow
+// banner would have been on 95.8% of the time, including for a plan built at the correct
+// slot that is the best one in existence. That is the repo's own "an action item that
+// cannot clear" failure -- it trains you to skim past the one that matters. Caught in
+// review before it reached a running server.
+//
+// The claim it replaced was ALSO overstated. `age > 24h` was not dead code: with a daily
+// job it crosses the threshold the moment a run is skipped, which is precisely the
+// failure worth alarming on. What it never expressed was past-open, and the banner TEXT
+// asserted past-open ("describes a session that has already happened") while the TEST
+// measured a skipped run. The test was right and the words were wrong.
+//
+// NOT "12:00 UTC" ANYWHERE IN THE MESSAGES. tasks/reschedule_preopen.ps1 moves this
+// trigger nightly to keep the hour before the open clear of high-impact news -- on
+// 2026-08-26 it moved 13:00 -> 12:45 local for Core PCE. A number copied out of a
+// schedule that moves is the same stale-claim class this project keeps finding.
+const PREOPEN_PLAN_STALE_MINUTES = 24 * 60;   // one full cycle: past this, a run was skipped
 app.get("/api/preopen-plan", (_, res) => {
   const file = path.join(__dirname, "..", "tasks", "analysis", "preopen-plan-latest.json");
   try {
@@ -11764,7 +11777,11 @@ app.get("/api/preopen-plan", (_, res) => {
       // reader has no way to act on it.
       return res.json({
         available: false,
-        reason: "no plan artifact yet — runs daily at 12:00 UTC, or: node tasks/preopen_plan.cjs",
+        // NOT "12:00 UTC": tasks/reschedule_preopen.ps1 moves the trigger nightly to keep
+        // the hour before the open clear of high-impact news, so the hour it names would
+        // be wrong on exactly the days it matters most.
+        reason: "no plan artifact yet — the daily pre-open run has not produced one on "
+              + "this box, or: node tasks/preopen_plan.cjs",
         feedsTheGate: false,
       });
     }
@@ -11776,27 +11793,39 @@ app.get("/api/preopen-plan", (_, res) => {
     const openAt = Date.parse(plan.nextNewYorkOpen);
     const minutesSinceOpen = Number.isFinite(openAt)
       ? Math.round((Date.now() - openAt) / 60000) : null;
-    let staleReason = null;
+    let state = "fresh";
+    let stateReason = null;
     if (!Number.isFinite(ageMinutes)) {
-      staleReason = "the plan carries no usable generatedAt";
+      state = "overdue";
+      stateReason = "this plan carries no usable generatedAt";
     } else if (ageMinutes > PREOPEN_PLAN_STALE_MINUTES) {
-      staleReason = "today's 12:00 UTC run did not produce a plan — this one is "
-                  + Math.round(ageMinutes / 60) + "h old";
+      // No age repeated here: the panel already prints it beside this sentence.
+      state = "overdue";
+      stateReason = "a scheduled pre-open run has been skipped — no newer plan exists";
     } else if (!Number.isFinite(openAt)) {
-      // Reported, not swallowed: without this field the session test cannot run at all,
-      // and silently falling back to the age test is how the dead check survived.
-      staleReason = "the plan carries no nextNewYorkOpen, so it cannot be checked "
+      // Reported, not swallowed. Silently falling back to the age test would hide the
+      // fact that the session check could not run at all.
+      state = "overdue";
+      stateReason = "this plan carries no nextNewYorkOpen, so it cannot be checked "
                   + "against the session it was built for";
     } else if (minutesSinceOpen > 0) {
-      staleReason = "the NEW YORK open it was built for was " + minutesSinceOpen
-                  + " minutes ago — this describes a session already under way";
+      // NOT an alarm. Expected for most of the day; the next scheduled run replaces it.
+      state = "past-open";
+      stateReason = "the NEW YORK open this was built for began "
+                  + (minutesSinceOpen < 120 ? minutesSinceOpen + " minutes"
+                                            : Math.round(minutesSinceOpen / 60) + " hours")
+                  + " ago — the next plan is due before the following open";
     }
 
     res.json({
       available: true,
       ageMinutes,
-      stale: staleReason !== null,
-      staleReason,
+      state,
+      stateReason,
+      // Kept, and now meaning ONLY "a run was skipped or the artifact is broken", which
+      // is what an alarm should mean. past-open is deliberately NOT stale.
+      stale: state === "overdue",
+      staleReason: state === "overdue" ? stateReason : null,
       minutesSinceOpen,
       staleAfterMinutes: PREOPEN_PLAN_STALE_MINUTES,
       plan,
