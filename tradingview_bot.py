@@ -586,6 +586,14 @@ ZONE_LABEL_COLOUR      = "color.new(color.orange, 30)"
 # means target. A pivot is neither. Dotted-and-blue is a different visual
 # vocabulary from the solid entry line and the dashed stop, so no pivot can be
 # misread as an order.
+# WHERE THE PANEL SITS. Moved off top_right 2026-09-02: the user's own studies
+# (Clean Structure PRO, APEX SMC, TK Swing, EMA Ribbon) print about eight legend
+# rows across the top of the pane, and the panel is 18 rows tall, so its upper half
+# rendered underneath them. bottom_right grows upward from the pane floor and clears
+# the legend entirely, while staying inside the pane so it never collides with the
+# time axis. One constant, because the right answer depends on which studies are
+# loaded and that changes.
+PANEL_POSITION         = "position.bottom_right"
 PIVOT_LINE_COLOUR      = "color.new(color.blue, 45)"
 PIVOT_MID_COLOUR       = "color.new(color.blue, 10)"
 PIVOT_LABEL_COLOUR     = "color.new(color.blue, 35)"
@@ -1289,7 +1297,7 @@ _known = %s
 
 %s
 
-var table planTable = table.new(position.top_right, 2, %d,
+var table planTable = table.new(%s, 2, %d,
      border_width=1, frame_width=1, frame_color=color.new(color.gray, 40),
      bgcolor=color.new(color.black, 15))
 
@@ -1304,6 +1312,7 @@ if barstate.islast and _known
         newline.join(flags),
         " or ".join("_is" + p["symbol"] for p in plans),
         newline.join(level_vars),
+        PANEL_POSITION,
         len(PLAN_ROWS) + 1,
         newline.join(cells),
         newline.join(draw_block),
