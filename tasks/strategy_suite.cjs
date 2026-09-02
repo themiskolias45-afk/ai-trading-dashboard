@@ -58,6 +58,30 @@ const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36 };
 // backtest fill at a price no broker would honour is not a pessimistic estimate, it is
 // a different market.
 const MIN_STOP_SPREADS = numArg("--minstop", 3);
+// STOP BUFFER, in execution-timeframe ATRs beyond the sweep extreme.
+//
+// THE DEFECT IT ATTACKS. CRT+FVG's edge over its matched control is large (+0.29) and its
+// NET result is near zero, because the stop sits at the sweep extreme and on m15 that can
+// be a handful of ticks from the FVG edge. Spread costs it 0.12-0.20R per trade while TK
+// Swing Pullback, whose stop is 1.5xATR on H4, pays 0.011R. A wider stop lowers cost in R
+// and raises the chance of surviving the noise, at the price of a worse R multiple on the
+// wins -- which is exactly the trade-off worth measuring rather than assuming.
+const STOP_BUFFER_ATR = numArg("--stopbuf", 0);
+// TK'S FACTORY EXIT ENGINE, ported so it can be applied to a model it has never touched.
+// The control test on TK Swing Pullback showed the exit doing more work than the entry --
+// a matched control with the SAME engine beat the pullback entry -- so the engine is the
+// part of that strategy carrying the result. CRT+FVG has only ever been scored with a
+// flat stop and a single target, which is the crudest possible exit.
+//   partial   PARTIAL_PCT of the position closes at PARTIAL_AT_R
+//   break-even  once peak >= BE_TRIGGER_R, the stop moves to entry + BE_OFFSET_R
+//   ratchet     once peak >= TRAIL_START_R, stop = entry + (peakR - TRAIL_DIST_R)
+const USE_EXIT_ENGINE = process.argv.includes("--exitengine");
+const PARTIAL_AT_R  = numArg("--partialr", 1.5);
+const PARTIAL_PCT   = numArg("--partialpct", 33) / 100;
+const BE_TRIGGER_R  = numArg("--ber", 1.0);
+const BE_OFFSET_R   = numArg("--beoffset", 0.1);
+const TRAIL_START_R = numArg("--trailstart", 1.5);
+const TRAIL_DIST_R  = numArg("--traildist", 0.75);
 
 const TF_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
 const TF_FILE    = { d1: "D1", h4: "H4", h1: "H1", m15: "M15" };
@@ -153,6 +177,7 @@ function swingTrend(bias, idx) {
 }
 
 function resolveTrade(exec, entryIdx, direction, entry, stop, target, holdBars) {
+  if (USE_EXIT_ENGINE) return resolveWithEngine(exec, entryIdx, direction, entry, stop, target, holdBars);
   const limit = Math.min(entryIdx + holdBars, exec.highs.length - 1);
   const risk = Math.abs(entry - stop);
   if (!(risk > 0)) return null;
@@ -166,6 +191,47 @@ function resolveTrade(exec, entryIdx, direction, entry, stop, target, holdBars) 
   }
   const move = direction === "bullish" ? exec.closes[limit] - entry : entry - exec.closes[limit];
   return { outcome: "OPEN", r: move / risk };
+}
+
+// The stop is checked against its value at the START of the bar, before this bar's
+// extreme is allowed to advance the trail. Letting one bar both raise the trail and dodge
+// the stop is how a backtest invents money.
+function resolveWithEngine(exec, entryIdx, direction, entry, initialStop, target, holdBars) {
+  const risk = Math.abs(entry - initialStop);
+  if (!(risk > 0)) return null;
+  const long = direction === "bullish";
+  let stop = initialStop, peakR = 0, realised = 0, remaining = 1, partialDone = false;
+  const limit = Math.min(entryIdx + holdBars, exec.highs.length - 1);
+  for (let i = entryIdx + 1; i <= limit; i++) {
+    const hi = exec.highs[i], lo = exec.lows[i];
+    const hitStop = long ? lo <= stop : hi >= stop;
+    if (hitStop) {
+      const r = long ? (stop - entry) / risk : (entry - stop) / risk;
+      return { outcome: r >= 0 ? "STOP_PROFIT" : "LOSS", r: realised + remaining * r };
+    }
+    if (!partialDone) {
+      const pt = long ? entry + PARTIAL_AT_R * risk : entry - PARTIAL_AT_R * risk;
+      if (long ? hi >= pt : lo <= pt) {
+        realised += PARTIAL_PCT * PARTIAL_AT_R; remaining -= PARTIAL_PCT; partialDone = true;
+      }
+    }
+    if (long ? hi >= target : lo <= target) {
+      const r = long ? (target - entry) / risk : (entry - target) / risk;
+      return { outcome: "WIN", r: realised + remaining * r };
+    }
+    const exc = long ? (hi - entry) / risk : (entry - lo) / risk;
+    if (exc > peakR) peakR = exc;
+    if (peakR >= BE_TRIGGER_R) {
+      const be = long ? entry + BE_OFFSET_R * risk : entry - BE_OFFSET_R * risk;
+      stop = long ? Math.max(stop, be) : Math.min(stop, be);
+    }
+    if (peakR >= TRAIL_START_R) {
+      const tr = long ? entry + (peakR - TRAIL_DIST_R) * risk : entry - (peakR - TRAIL_DIST_R) * risk;
+      stop = long ? Math.max(stop, tr) : Math.min(stop, tr);
+    }
+  }
+  const move = long ? exec.closes[limit] - entry : entry - exec.closes[limit];
+  return { outcome: "OPEN", r: realised + remaining * (move / risk) };
 }
 
 function capTarget(direction, entry, stop, target) {
@@ -257,6 +323,17 @@ function passesGates(gates, ctx) {
     if (!nearValue) return false;
   }
 
+  // KILL ZONES -- London 07-16 UTC and New York 12-21 UTC, from the FVG diagram. As a
+  // SCORE component session measured a NEGATIVE lift (-0.0078); as a hard filter on this
+  // model it has never been asked, and the two are different questions.
+  if (gates.session || gates.overlap) {
+    const hour = new Date(exec.times[eIdx] * 1000).getUTCHours();
+    const london = hour >= 7 && hour < 16;
+    const ny = hour >= 12 && hour < 21;
+    if (gates.overlap && !(london && ny)) return false;
+    if (gates.session && !(london || ny)) return false;
+  }
+
   // EMA CONFIRMATION -- the reclaim, which the proposal is explicit should confirm and
   // never generate.
   if (gates.ema) {
@@ -307,7 +384,15 @@ function modelCrtFvg(bias, exec, out, opts) {
     // isolate exactly what the reclaim requirement is worth.
     if (!passesGates(opts.gates || {}, { bias, exec, b, eIdx, direction, crt })) continue;
     out.candidates++;
-    record(out, exec, eIdx, direction, entry, crt.invalidation, crt.objective);
+    let stopPrice = crt.invalidation;
+    if (STOP_BUFFER_ATR > 0) {
+      const eAtr = atrAt(exec.highs, exec.lows, exec.closes, eIdx, 14);
+      if (eAtr && eAtr > 0) {
+        stopPrice = direction === "bullish" ? stopPrice - STOP_BUFFER_ATR * eAtr
+                                            : stopPrice + STOP_BUFFER_ATR * eAtr;
+      }
+    }
+    record(out, exec, eIdx, direction, entry, stopPrice, crt.objective);
   }
 }
 
