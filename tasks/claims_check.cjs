@@ -69,32 +69,38 @@ function record(status, claim, expected, actual, fix) {
 }
 
 // ── Symbol anchors ────────────────────────────────────────────────────────────
-// CLAUDE.md pins several facts to "file:line". Line numbers drift on every edit
-// above them, so these rot silently and constantly. Each entry names the SYMBOL to
-// search for, so the checker reports where it actually moved to rather than only
-// that it moved. Add a row whenever CLAUDE.md gains a new file:line citation.
+// CLAUDE.md pins several facts to "file:line". Line numbers drift on every edit above
+// them, so these rot silently and constantly.
+//
+// THE LINE NUMBER IS PARSED OUT OF CLAUDE.md, NOT STORED HERE. The first version of
+// this file hardcoded the claimed line, which meant correcting CLAUDE.md ALSO required
+// correcting this table — two copies of one fact, drifting apart. That is the exact
+// bug this script exists to catch, reproduced inside the catcher. CLAUDE.md is the
+// single source of what is claimed; this table only says which symbol should be found
+// there, which is the one thing no parser can infer.
+//
+// Each `docPattern` must capture the CURRENT line number in group 1. Where a line
+// carries its own correction history ("said :3486 until..."), the pattern is anchored
+// so it captures the live number and not the superseded one.
 const ANCHORS = [
   {
-    claim: "GOLD_SQUEEZE_MODERATE_CONFIDENCE is at server/index.js:3486",
-    file: ENGINE,
-    line: 3486,
+    label: "GOLD_SQUEEZE_MODERATE_CONFIDENCE",
     symbol: "GOLD_SQUEEZE_MODERATE_CONFIDENCE",
+    docPattern: /GOLD_SQUEEZE_MODERATE_CONFIDENCE`,\s*\n?\s*`server\/index\.js:(\d+)`/,
   },
   {
-    claim: '"STRONG UPTREND" is EMA stacking at server/index.js:1711',
-    file: ENGINE,
-    line: 1711,
+    label: '"STRONG UPTREND" is EMA stacking',
     symbol: "STRONG UPTREND",
+    docPattern: /"STRONG UPTREND" is EMA STACKING[^(]*\(`index\.js:(\d+)`/,
   },
   {
-    claim: "generateSignal spans server/index.js:2814-2911",
-    file: ENGINE,
-    line: 2814,
-    symbol: "function generateSignal",
+    label: "generateSignalMTF (the function the MTF prose describes)",
+    symbol: "function generateSignalMTF",
+    docPattern: /`generateSignalMTF`,\s*`server\/index\.js:(\d+)`/,
   },
 ];
 
-function checkAnchors() {
+function checkAnchors(docText) {
   let engineLines;
   try {
     engineLines = fs.readFileSync(ENGINE, "utf8").split(/\r?\n/);
@@ -104,7 +110,21 @@ function checkAnchors() {
     return;
   }
 
-  for (const anchor of ANCHORS) {
+  for (const spec of ANCHORS) {
+    const m = docText.match(spec.docPattern);
+    if (!m) {
+      // The citation was reworded or removed. Not drift — just no longer checkable.
+      record(UNVERIFIABLE, `${spec.label} line citation`, "a file:line in CLAUDE.md",
+        "citation not found — wording changed or removed",
+        "update docPattern in claims_check.cjs if the claim still exists");
+      continue;
+    }
+
+    const anchor = {
+      claim: `CLAUDE.md cites ${spec.label} at server/index.js:${m[1]}`,
+      line: Number(m[1]),
+      symbol: spec.symbol,
+    };
     const claimedText = engineLines[anchor.line - 1];
     if (claimedText === undefined) {
       record(STALE, anchor.claim, `line ${anchor.line} exists`,
@@ -147,7 +167,13 @@ function checkAnchors() {
 // Paths that appear in CLAUDE.md as prose ABOUT a non-existent route rather than as
 // an instruction to call one. Without this the checker flags the very sentence that
 // documents the absence, which would train you to ignore it.
-const ROUTE_CLAIM_EXCEPTIONS = new Set();
+const ROUTE_CLAIM_EXCEPTIONS = new Set([
+  // Mentioned twice in CLAUDE.md and BOTH mentions now state it does not exist —
+  // once at the performance-dashboard line, once in the correction recording that it
+  // was wrongly named a source of truth until 2026-09-02. Flagging the sentence that
+  // documents an absence would train you to skim past this check.
+  "/api/performance",
+]);
 
 function extractRoutesFromDoc(docText) {
   const found = new Set();
@@ -405,7 +431,7 @@ async function main() {
     process.exit(2);
   }
 
-  checkAnchors();
+  checkAnchors(docText);
   checkRoutes(docText);
   checkFiles(docText);
   checkForbidden();
