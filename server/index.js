@@ -7835,6 +7835,11 @@ app.get("/api/calendar", (_, res) => {
     res.json({
       total: rows.length,
       events: rows,
+      // HOW FAR AHEAD THIS ACTUALLY SEES. The feed is one week and shrinks as the week
+      // runs, so an empty blackout list on a Friday means "cannot see", not "clear".
+      // Stated as a number rather than left for a reader to infer from absence.
+      horizonDays: calendarHorizonDays(newsCache),
+      storedEvents: newsCache.length,
       next: rows.find(r => r.minutesFromNow >= 0 && r.high && r.watched) || null,
       highImpactWatched: highWatched.length,
       watchedCountries: WATCHED,
@@ -8744,13 +8749,93 @@ async function askClaude(question, history = []) {
 //  V12 FEATURES
 // ══════════════════════════════════════════════════════════════
 
+// THE CALENDAR IS THE ONLY THING THIS SYSTEM KNOWS ABOUT THE FUTURE, AND IT WAS BEING
+// THROWN AWAY ON EVERY RESTART.
+//
+// The feed is ff_calendar_thisweek.json and there is no other: nextweek, lastweek and
+// thismonth all return 404 from the same host, checked 2026-09-03. So the horizon is one
+// week and it SHRINKS as the week runs - on a Thursday the system sees one day ahead, and
+// from Friday evening through the weekend it sees nothing at all.
+//
+// That is survivable. What was not: newsCache was memory-only. Every server restart blanked
+// the forward view until the next 6-hourly fetch, and on 2026-09-03 the servers restarted
+// five times. In those windows "what will be blocked" rendered EMPTY, which reads as "the
+// week is clear" when it means "I cannot see" - the same false reassurance as a snapshot
+// reporting zero when it means unknown.
+//
+// So every fetch now MERGES into a store on disk, and the store is loaded when a fetch
+// fails. Three things follow:
+//   - the forward view survives a restart instead of going blank
+//   - weeks ACCUMULATE, so a week once seen is never lost and the system gradually gains a
+//     real calendar history to attribute quiet days against, rather than guessing
+//   - the horizon becomes measurable, so a plan can state how far it can actually see
+//
+// NOTHING IS EVER DELETED. Merge only, keyed by country|title|time; the newest copy of an
+// event wins so a revised forecast updates in place. A year of events is a few thousand rows.
+const CALENDAR_STORE_PATH = path.join(__dirname, "..", "tasks", "calendar_store.json");
+
+function loadCalendarStore() {
+  try {
+    const j = JSON.parse(fs.readFileSync(CALENDAR_STORE_PATH, "utf8"));
+    return Array.isArray(j.events) ? j.events : [];
+  } catch (e) { return []; }          // absent or unreadable = start empty, never throw
+}
+
+function calendarKey(ev) {
+  return [String(ev.country || ""), String(ev.title || ""), String(ev.date || "")].join("|");
+}
+
+function saveCalendarStore(events) {
+  const tmp = CALENDAR_STORE_PATH + ".tmp";
+  try {
+    fs.mkdirSync(path.dirname(CALENDAR_STORE_PATH), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify({ updatedAt: new Date().toISOString(), count: events.length, events }));
+    fs.renameSync(tmp, CALENDAR_STORE_PATH);   // atomic: a reader never sees a half file
+  } catch (e) {
+    console.error("[news] could not persist calendar store:", e.message);
+  }
+}
+
+// How far ahead the data ACTUALLY reaches, in days. Reported rather than implied, so an
+// empty blackout list can be told apart from an empty horizon.
+function calendarHorizonDays(events) {
+  const now = Date.now();
+  let furthest = null;
+  for (const ev of events) {
+    const t = Date.parse(ev.date);
+    if (Number.isFinite(t) && t > now && (furthest === null || t > furthest)) furthest = t;
+  }
+  return furthest === null ? 0 : Math.round((furthest - now) / 86400000 * 10) / 10;
+}
+
 async function fetchEconomicCalendar() {
   try {
     const res = await axios.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", { timeout: 10000 });
-    newsCache = Array.isArray(res.data) ? res.data : [];
-    console.log(`[news] Calendar loaded — ${newsCache.length} events this week`);
+    const fetched = Array.isArray(res.data) ? res.data : [];
+    // MERGE, never replace. The feed carries only the current week; replacing would discard
+    // every earlier week the moment a new one is published.
+    const byKey = new Map();
+    for (const ev of loadCalendarStore()) byKey.set(calendarKey(ev), ev);
+    let added = 0;
+    for (const ev of fetched) {
+      const k = calendarKey(ev);
+      if (!byKey.has(k)) added++;
+      byKey.set(k, ev);
+    }
+    const merged = [...byKey.values()].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+    saveCalendarStore(merged);
+    newsCache = merged;
+    console.log("[news] Calendar loaded - " + fetched.length + " this week, " + added +
+                " new, " + merged.length + " in store, horizon " + calendarHorizonDays(merged) + "d");
   } catch (e) {
+    // The fetch failed, but the store is still the best knowledge available, and keeping it
+    // is strictly better than an empty cache.
     console.error("[news] Calendar fetch failed:", e.message);
+    if (newsCache.length === 0) {
+      newsCache = loadCalendarStore();
+      console.log("[news] using stored calendar - " + newsCache.length + " events, horizon " +
+                  calendarHorizonDays(newsCache) + "d");
+    }
   }
 }
 

@@ -122,3 +122,5 @@ tasks/history_yahoo/
 # exact shape of the failure 156 commits in this repo describe as "silently".
 !tasks/snapshots/
 !tasks/snapshots/**
+tasks/calendar_store.json
+tasks/calendar_store.json.tmp
