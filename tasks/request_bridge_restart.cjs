@@ -30,7 +30,26 @@ const { execFileSync } = require("child_process");
 const HOST = "127.0.0.1";
 const PORT = 3001;
 const DRY = process.argv.includes("--dry-run");
-const ENSURE_TASK = "SmartEntry Ensure Running";
+// THE TASK IS NAMED DIFFERENTLY ON EACH BOX. The laptop registered it as
+// "SmartEntry Ensure Running" and the VPS as "SmartEntryEnsureRunning" - so a hardcoded
+// name works on one machine and throws ObjectNotFound on the other, which is what happened
+// the first time this ran there. Resolved at runtime instead of assumed.
+//
+// Not fatal either way: the task runs on its own schedule, so a bridge that stood down
+// returns within ~10 minutes regardless. Triggering it just turns that into seconds.
+const ENSURE_TASK_CANDIDATES = ["SmartEntry Ensure Running", "SmartEntryEnsureRunning"];
+
+function resolveEnsureTask() {
+  for (const name of ENSURE_TASK_CANDIDATES) {
+    try {
+      execFileSync("powershell", ["-NoProfile", "-Command",
+        "if (Get-ScheduledTask -TaskName '" + name + "' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"],
+        { stdio: "pipe" });
+      return name;
+    } catch (e) { /* not this one */ }
+  }
+  return null;
+}
 
 function req(method, path, timeoutMs = 8000) {
   return new Promise((resolve) => {
