@@ -2334,9 +2334,29 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
     stop   = sl;
     target = parseFloat((entry + Math.abs(entry - sl) * 2.0).toFixed(2));
-    strength = (macd.crossed || (volRatio !== null && volRatio >= 1.8)) ? "STRONG" : rsi > 60 ? "MODERATE" : "NONE";
+    // macd?.crossed, NOT macd.crossed. calcMACD RETURNS NULL below 35 closes (:1699), and
+    // until the exemption above existed this line could not be reached with a null macd —
+    // entry required `macd?.bullish` to be truthy, which guaranteed the object. An exempt
+    // ticker short-circuits before that term, so the guarantee is gone and the old
+    // unguarded deref would throw a TypeError that generateSignal's callers CATCH AND
+    // SWALLOW, reporting as "MOMENTUM never fired" — the exact silent-null failure the
+    // replay harness's SCALAR_CONSTS list documents six times over.
+    //
+    // Behaviour is unchanged wherever macd is non-null, so no existing signal moves: the
+    // only case that differs is the one that previously crashed.
+    strength = (macd?.crossed || (volRatio !== null && volRatio >= 1.8)) ? "STRONG" : rsi > 60 ? "MODERATE" : "NONE";
     reasons.push(`All EMAs aligned — trend structure intact`);
-    reasons.push(`MACD bullish${macd.crossed ? " — fresh crossover" : ""} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
+    // THE REASON MUST NOT CLAIM A CONDITION THAT DID NOT HOLD. An exempt ticker reaches
+    // here with MACD bearish, and the old text said "MACD bullish (histogram -13.70)" —
+    // a label asserting the opposite of the number printed beside it. Display-only
+    // (grepped: nothing parses this string), but a surface that lies about why a trade
+    // fired is how a setting with no reader gets trusted for weeks.
+    if (macd?.bullish) {
+      reasons.push(`MACD bullish${macd.crossed ? " — fresh crossover" : ""} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
+    } else {
+      reasons.push(`MACD NOT bullish (histogram ${macd ? (macd.histogram > 0 ? "+" : "") + macd.histogram : "unavailable"}) — ` +
+                   `${ticker} is exempt from MOMENTUM's MACD requirement by measurement, see MOMENTUM_MACD_EXEMPT_TICKERS`);
+    }
     if (volConfirmed) reasons.push(`Volume ${volRatio}x avg — institutional participation`);
     else reasons.push(`Volume ${volRatio ?? "?"}x avg (monitoring for breakout confirmation)`);
   }
