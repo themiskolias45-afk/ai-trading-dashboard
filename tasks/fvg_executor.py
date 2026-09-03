@@ -354,6 +354,42 @@ def manage_trailing(open_positions):
             log("SL update REJECTED for #%d retcode=%s" % (p.ticket, res.retcode))
 
 
+def trail_only():
+    """Open MT5, trail this model's stops, close. Used on cycles with no fresh setup.
+
+    Deliberately does NOT check trading_halted(): a halt stops new ENTRIES. Refusing to
+    protect an open position because new trades are paused would leave a running trade
+    with a stop further away than the ladder says it should be, which is the opposite of
+    what a halt is for. The ladder can only ever move a stop in the protecting direction,
+    so there is no version of this that opens risk.
+    """
+    terminal_path = os.environ.get("MT5_TERMINAL_PATH", "").strip()
+    if not (mt5.initialize(path=terminal_path) if terminal_path else mt5.initialize()):
+        log("trail-only: MT5 initialize failed: %s" % (mt5.last_error(),))
+        return
+    try:
+        # Same account assertion as the entry path - never manage a stop on another box's
+        # account just because a terminal answered.
+        expected = os.environ.get("MT5_EXPECTED_LOGIN", "").strip()
+        if not expected:
+            risk = server_json("/api/risk-status") or {}
+            for _a in (risk.get("accounts") or {}).values():
+                pinned = ((_a or {}).get("config") or {}).get("expectedLogin")
+                if pinned:
+                    expected = str(pinned).strip()
+                    break
+        acct = mt5.account_info()
+        if expected and str(acct.login if acct else "") != expected:
+            log("trail-only REFUSING: attached to %s but pin is %s"
+                % (acct.login if acct else "unknown", expected))
+            return
+        manage_trailing(mt5.positions_get() or [])
+    except Exception as exc:
+        log("trail-only failed (%s)" % exc)
+    finally:
+        mt5.shutdown()
+
+
 def main():
     setups = read_jsonl(SHADOW)
     done_keys = {r.get("key") for r in read_jsonl(EXECUTED)}
