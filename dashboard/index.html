@@ -4201,14 +4201,13 @@ function renderWholeAccount(managed, unmanaged, exposure, executorTrades) {
   const GROUPS=[
     {key:"executor",     title:"Your strategy executors — yours, but not managed by the main engine",
      note:"Placed by tasks/fvg_executor.py on their own magic numbers so each strategy keeps separate attribution. The main engine does not size, manage or close these; their own executor does."},
-    // THIRD-PARTY EAs ARE NOT RENDERED. Operator instruction, 2026-09-03: do not mix a
-    // different EA in with this system. Magic 888888 (TKM3) and the other 15 strangers on
-    // account 11581419 are somebody else's book and they are not shown here, not counted
-    // in the exposure cards, and not touched by anything SmartEntry runs - all five magic
-    // guards in mt5_bridge.py are intact and no write path was added.
-    //
-    // They are still returned by the API under `foreign` for anyone who needs them; this
-    // page just does not blend them into yours.
+    // THIRD-PARTY EAs ARE SHOWN AGAIN, IN THEIR OWN GROUP. I removed them earlier having
+    // misread "stop touch different magic number different EA" as "do not display" when it
+    // meant "do not interfere with". They are your account's exposure and you asked to see
+    // every open trade, so they are rendered - in a separate group, read-only, never blended
+    // into your numbers and never touched by anything this system runs.
+    {key:"foreign",      title:"Third-party EAs on this account — not yours, not touched",
+     note:"Opened by software that is not part of this system. Shown so every open position on the account is visible. Nothing here is sized, managed, moved or closed by SmartEntry — all five magic guards in mt5_bridge.py skip them."},
     {key:"unclassified", title:"Unclassified — this bridge is too old to tag them",
      note:"The bridge did not send an owner for these rows, so they are NOT being guessed into either group. Restart the bridge to classify them."},
   ];

@@ -5948,9 +5948,80 @@ function readExecutorTrades() {
   return out.sort((a, b) => String(b.placedAt).localeCompare(String(a.placedAt)));
 }
 
+// EVERY position on the account, including the ones the bridge filters out.
+//
+// The bridge skips `p.magic != MAGIC_NUMBER` in every position path, so third-party EA
+// trades reach no surface at all - on account 11581419 that was FOUR open positions the
+// page reported as "0 not managed", which is not "none", it is "not reported". Teaching
+// the bridge to send them needs a bridge restart, which has been unavailable all day.
+//
+// tasks/mt5_positions_snapshot.py reads MT5 directly, read-only, and writes every open
+// position to a JSON file. This spawns it at most once a MIN_SNAPSHOT_INTERVAL_MS and
+// NEVER waits for it: the request always serves whatever the last run wrote, so a slow or
+// hung python can delay the data but can never delay the page. A snapshot that cannot be
+// read is reported as unknown rather than as zero - the whole reason this exists.
+const SNAPSHOT_PATH = path.join(__dirname, "..", "tasks", "mt5_positions_snapshot.json");
+const MIN_SNAPSHOT_INTERVAL_MS = 60 * 1000;
+// Older than this and the file describes a book that may have changed. Surfaced as an age
+// on the payload rather than silently served as current.
+const SNAPSHOT_STALE_MS = 5 * 60 * 1000;
+let snapshotRunAt = 0;
+let snapshotInFlight = false;
+
+function refreshPositionSnapshot() {
+  if (snapshotInFlight || Date.now() - snapshotRunAt < MIN_SNAPSHOT_INTERVAL_MS) return;
+  snapshotInFlight = true;
+  snapshotRunAt = Date.now();
+  try {
+    const child = require("child_process").spawn(
+      require("./python_path").pythonBinOrDefault(),
+      [path.join(__dirname, "..", "tasks", "mt5_positions_snapshot.py")],
+      { cwd: path.join(__dirname, ".."), env: require("./python_path").pythonEnv(), windowsHide: true });
+    // A hung MT5 handle must not leave a python process behind for ever.
+    const kill = setTimeout(() => { try { child.kill(); } catch (e) {} }, 30000);
+    child.on("exit", () => { clearTimeout(kill); snapshotInFlight = false; });
+    child.on("error", (e) => { clearTimeout(kill); snapshotInFlight = false;
+      console.error("[snapshot] could not spawn: " + e.message); });
+  } catch (e) {
+    snapshotInFlight = false;
+    console.error("[snapshot] spawn threw: " + e.message);
+  }
+}
+
+function readPositionSnapshot() {
+  try {
+    const raw = fs.readFileSync(SNAPSHOT_PATH, "utf8");
+    const j = JSON.parse(raw);
+    if (!j || j.ok !== true || !Array.isArray(j.positions)) return null;
+    const ageMs = Date.now() - new Date(j.at).getTime();
+    return { at: j.at, ageMs, stale: ageMs > SNAPSHOT_STALE_MS, login: j.login ?? null,
+             equity: j.equity ?? null, balance: j.balance ?? null, positions: j.positions };
+  } catch (e) { return null; }        // missing or unreadable = unknown, never zero
+}
+
 app.get("/api/mt5/positions", (_, res) => {
   const unmanaged = Object.entries(mt5UnmanagedByAccount).flatMap(([account, rows]) =>
     (rows || []).map(p => ({ ...p, account })));
+  // Kick a refresh for NEXT time; this call is served from the last file either way.
+  refreshPositionSnapshot();
+  const snapshot = readPositionSnapshot();
+  // The bridge is the better source when it has them - it is live and per-account. The
+  // snapshot only fills the gap while the bridge is running code that filters them out.
+  // THIS SYSTEM'S MAGIC NUMBERS ONLY. owner === "executor" means the position came from
+  // one of OUR executors (FVG_CONTINUATION 20260902, TK_SWING_PULLBACK 20260903, CRT_FVG
+  // 20260904). The previous filter was `!== "smartentry"`, which swept in every
+  // third-party EA on the account - magic 888888, 202503 and the rest - and put somebody
+  // else's book on this system's page. Operator instruction, and it is right: those trades
+  // are not ours, we do not manage them, and mixing them in makes every number on the page
+  // describe two unrelated systems at once.
+  //
+  // They are still open on the account and still consume the same margin. That is a real
+  // fact, but it belongs somewhere that is clearly not this system's book - not here.
+  const unmanagedFromSnapshot = (unmanaged.length === 0 && snapshot)
+    ? snapshot.positions.filter(p => p.owner === "executor")
+              .map(p => ({ ...p, account: "A", fromSnapshot: true }))
+    : [];
+  const allUnmanaged = unmanaged.length ? unmanaged : unmanagedFromSnapshot;
   const exposure = {};
   const tally = (p, owner) => {
     const e = exposure[p.symbol] || (exposure[p.symbol] = {
@@ -5969,9 +6040,8 @@ app.get("/api/mt5/positions", (_, res) => {
   // The foreign rows are still COLLECTED (they exist, and pretending otherwise is how the
   // page lied in the first place) and still returned under `foreign` for anyone who asks.
   // They are simply not blended into ours.
-  const ourExecutors = unmanaged.filter(p => p.owner === "executor");
   for (const p of mt5Positions) tally(p, "smartentry");
-  for (const p of ourExecutors)  tally(p, "executor");
+  for (const p of allUnmanaged.filter(p => p.owner === "executor")) tally(p, "executor");
   const round2 = n => Math.round(n * 100) / 100;
   for (const e of Object.values(exposure)) {
     e.longLots = round2(e.longLots); e.shortLots = round2(e.shortLots);
@@ -5987,12 +6057,13 @@ app.get("/api/mt5/positions", (_, res) => {
   // A row with NO owner came from a bridge older than that change. It is reported as
   // "unclassified" rather than guessed into either bucket — calling someone else's trade
   // yours, or yours a stranger's, are both worse than saying the bridge is out of date.
-  const executors   = unmanaged.filter(p => p.owner === "executor");
-  const foreign     = unmanaged.filter(p => p.owner === "foreign");
-  const unclassified= unmanaged.filter(p => p.owner !== "executor" && p.owner !== "foreign");
+  const executors   = allUnmanaged.filter(p => p.owner === "executor");
+  const foreign     = allUnmanaged.filter(p => p.owner === "foreign");
+  const unclassified= allUnmanaged.filter(p => p.owner !== "executor" && p.owner !== "foreign");
   res.json({
     positions: mt5Positions, byAccount: mt5PositionsByAccount,
-    unmanaged, unmanagedByAccount: mt5UnmanagedByAccount,
+    unmanaged: allUnmanaged, unmanagedByAccount: mt5UnmanagedByAccount,
+    snapshot: snapshot ? { at: snapshot.at, ageMs: snapshot.ageMs, stale: snapshot.stale, login: snapshot.login, count: snapshot.positions.length } : null,
     executors, foreign, unclassified,
     // Placed by our own executors, read from their ledgers. Independent of the bridge.
     executorTrades: readExecutorTrades(),
