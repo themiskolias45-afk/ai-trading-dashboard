@@ -2334,16 +2334,19 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
     stop   = sl;
     target = parseFloat((entry + Math.abs(entry - sl) * 2.0).toFixed(2));
-    // macd?.crossed, NOT macd.crossed. calcMACD RETURNS NULL below 35 closes (:1699), and
-    // until the exemption above existed this line could not be reached with a null macd —
-    // entry required `macd?.bullish` to be truthy, which guaranteed the object. An exempt
-    // ticker short-circuits before that term, so the guarantee is gone and the old
-    // unguarded deref would throw a TypeError that generateSignal's callers CATCH AND
-    // SWALLOW, reporting as "MOMENTUM never fired" — the exact silent-null failure the
-    // replay harness's SCALAR_CONSTS list documents six times over.
+    // macd?.crossed rather than macd.crossed — DEFENCE, NOT A BUG FIX. An earlier version
+    // of this comment claimed the unguarded deref "would throw a TypeError" once the
+    // exemption above removed the `macd?.bullish` entry guarantee. THAT WAS WRONG, and the
+    // code-reviewer caught it: generateSignal returns null at :1820 for fewer than 50
+    // closes, which strictly dominates calcMACD's own null at fewer than 35 (:1700), so
+    // macd is non-null on every path that can reach this line. Measured, not reasoned:
+    // closes=34 -> macd NULL but generateSignal already returned; closes=35 -> macd OBJ.
     //
-    // Behaviour is unchanged wherever macd is non-null, so no existing signal moves: the
-    // only case that differs is the one that previously crashed.
+    // The `?.` stays because it costs nothing and the invariant it leans on lives 500
+    // lines away in a different function, where a future edit to either bar floor would
+    // silently re-arm the hazard. But it is belt-and-braces, and the "unavailable" branch
+    // in the reason text below is unreachable today. Recording the correction here rather
+    // than deleting the comment, so the next session does not re-derive the wrong story.
     strength = (macd?.crossed || (volRatio !== null && volRatio >= 1.8)) ? "STRONG" : rsi > 60 ? "MODERATE" : "NONE";
     reasons.push(`All EMAs aligned — trend structure intact`);
     // THE REASON MUST NOT CLAIM A CONDITION THAT DID NOT HOLD. An exempt ticker reaches

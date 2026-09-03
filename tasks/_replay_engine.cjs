@@ -74,6 +74,24 @@ const SCALAR_CONSTS = [
   // server/index.js gains a top-level const that generateSignal or any function in
   // NEEDED reads, it has to be added here too.
   "EMA_SMA_SEED_MIN_MULTIPLE",
+  // ADDED 2026-09-03. These SIX were all missing at once and the harness was returning
+  // essentially nothing to every caller: measured before the fix, 1084 of 1085 bars threw on AUDUSD_D1. Every one of them
+  // is read on a branch of generateSignal, so a single absence throws on every bar the
+  // branch can reach and the caller's catch turns it into "that setup never fired" — a
+  // silent wrong answer, not an error. SELL_BOUNCE_REQUIRE_DOWNTREND broke it first on
+  // 2026-09-01 and nobody noticed for two days.
+  //
+  // THE LIST IS THE BUG. This file already carried a comment saying "whenever
+  // server/index.js gains a top-level const that generateSignal reads, it has to be added
+  // here too" — and then it happened five more times. A rule enforced by remembering is
+  // enforced by nothing; tasks/harness_consts_check.cjs now derives the required set from
+  // the source and fails when a harness is short.
+  "BUY_DIP_REQUIRE_MACD_BULLISH",
+  "BUY_DIP_RSI_MAX",
+  "MOMENTUM_REQUIRE_MACD_BULLISH",
+  "MOMENTUM_MACD_EXEMPT_TICKERS",
+  "SELL_BOUNCE_REQUIRE_DOWNTREND",
+  "TREND_FOLLOW_REQUIRE_MACD_BULLISH",
 ];
 
 let code = "";

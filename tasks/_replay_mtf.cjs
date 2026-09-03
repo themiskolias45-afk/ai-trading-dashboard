@@ -162,7 +162,10 @@ for (const [envName, constName] of BOOL_ENV_FLAGS) {
 // replays THE BASELINE UNDER THE CANDIDATE'S LABEL is a wrong answer wearing the
 // authority of a walk-forward. Only the two spellings below are accepted.
 //
-//   none  -> []           the live engine as it ships today (baseline)
+//   none  -> []           the PRE-2026-09-03 engine. NOT "as it ships today" any more:
+//                         the engine literal is ["^GSPC"] since c4b264e, so this world is
+//                         the historical baseline, not the current one. Said "as it ships
+//                         today" for exactly as long as the list was empty.
 //   spx   -> ["^GSPC"]    the candidate: SP500 exempt, Gold and BTC untouched
 //
 // The engine ticker for SP500 is "^GSPC" (tasks/mtf_walkforward.cjs:29). Getting that

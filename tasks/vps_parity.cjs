@@ -157,6 +157,18 @@ const SCALARS = [
   "SIZING_BOOST_MIN_CONFIDENCE", "STRUCTURAL_STOP_MIN_ATR",
   "GOLD_SQUEEZE_MODERATE_CONFIDENCE", "EMA_SMA_SEED_MIN_MULTIPLE",
   "DAILY_RANGE_DEFAULT", "MT5_MIN_BARS", "JSON_BODY_LIMIT",
+  // ADDED 2026-09-03. The four booleans and the list that decide WHICH SETUPS EXIST.
+  // ENGINE_FNS already diffs the BODY of generateSignal, so it catches the condition at
+  // :2330 — but these live at module scope OUTSIDE that body and were invisible here.
+  //
+  // The hazard is specific and this repo has already been bitten by its twin. The VPS is
+  // HAND-PATCHED, not copied. Patch the condition across without the const and
+  // generateSignal throws ReferenceError on every MOMENTUM-eligible bar, the caller
+  // swallows it, SP500 reads WAIT forever — and this script prints ENGINES AGREE, exactly
+  // the shape of 8a2a652 where parity compared route PATHS while a handler was 500ing.
+  "MOMENTUM_MACD_EXEMPT_TICKERS", "MOMENTUM_REQUIRE_MACD_BULLISH",
+  "TREND_FOLLOW_REQUIRE_MACD_BULLISH", "BUY_DIP_REQUIRE_MACD_BULLISH",
+  "SELL_BOUNCE_REQUIRE_DOWNTREND",
 ];
 
 // Normalise line endings AND trailing whitespace before hashing. Otherwise every
