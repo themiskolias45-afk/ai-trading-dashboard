@@ -797,6 +797,19 @@ let knownChatIds  = new Set();
 if (TELEGRAM_CHAT_ID) knownChatIds.add(TELEGRAM_CHAT_ID);
 let mt5PositionsByAccount = {};  // account tag -> positions[], one entry per connected MT5 bridge
 let mt5Positions  = [];   // flattened across all accounts (each position tagged with .account) — kept for existing consumers
+// Positions on the SAME accounts that SmartEntry does NOT own — foreign magics. Kept in a
+// SEPARATE map from mt5PositionsByAccount on purpose, and no trading path reads it:
+// recomputeMt5Positions() builds mt5Positions from mt5PositionsByAccount alone, so
+// MAX_POSITIONS, the stop manager and the breaker cannot see these rows even by accident.
+// That separation is the safety property. If these ever merged, SmartEntry would count
+// another EA's trades against its own limit and could move a stop on a position it does
+// not own.
+//
+// It exists because the magic filter in the bridge was making every screen lie by omission.
+// Account 11581419, measured 2026-09-03: SEVEN open positions, ONE of them SmartEntry's.
+// The account was long AND short BTCUSD at the same time and held 0.2 lots of SP500 while
+// every screen showed 0.1, with nothing anywhere saying six rows had been withheld.
+let mt5UnmanagedByAccount = {};  // account tag -> foreign-magic positions[], DISPLAY ONLY
 let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
 let tradeJournal  = [];   // trade journal entries (max 200)
 
@@ -5885,13 +5898,51 @@ app.get("/api/mt5/health", (req, res) => {
   res.status(connected ? 200 : 503).json({ connected, ageMs, lastSeen });
 });
 
-app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions, byAccount: mt5PositionsByAccount }));
+// `positions` and `byAccount` are UNCHANGED, so every existing reader is untouched.
+// `unmanaged` is additive and read-only: foreign-magic trades on the same accounts, which
+// SmartEntry neither opened nor manages. `exposure` nets the two together per symbol,
+// computed here rather than in each surface, because "you are long here and short there"
+// is the condition that is expensive to miss and nobody re-derives it three times reliably.
+app.get("/api/mt5/positions", (_, res) => {
+  const unmanaged = Object.entries(mt5UnmanagedByAccount).flatMap(([account, rows]) =>
+    (rows || []).map(p => ({ ...p, account })));
+  const exposure = {};
+  const tally = (p, owner) => {
+    const e = exposure[p.symbol] || (exposure[p.symbol] = {
+      symbol: p.symbol, longLots: 0, shortLots: 0, netLots: 0, smartentryLots: 0, foreignLots: 0 });
+    const lots = Number(p.volume) || 0;
+    if (p.type === "BUY") { e.longLots += lots; e.netLots += lots; }
+    else                  { e.shortLots += lots; e.netLots -= lots; }
+    if (owner === "smartentry") e.smartentryLots += lots; else e.foreignLots += lots;
+  };
+  for (const p of mt5Positions) tally(p, "smartentry");
+  for (const p of unmanaged)    tally(p, "foreign");
+  const round2 = n => Math.round(n * 100) / 100;
+  for (const e of Object.values(exposure)) {
+    e.longLots = round2(e.longLots); e.shortLots = round2(e.shortLots);
+    e.netLots  = round2(e.netLots);
+    e.smartentryLots = round2(e.smartentryLots); e.foreignLots = round2(e.foreignLots);
+    e.hedged = e.longLots > 0 && e.shortLots > 0;
+  }
+  res.json({
+    positions: mt5Positions, byAccount: mt5PositionsByAccount,
+    unmanaged, unmanagedByAccount: mt5UnmanagedByAccount,
+    exposure: Object.values(exposure).sort((a, b) => a.symbol.localeCompare(b.symbol)),
+    note: "positions = SmartEntry only (magic 20250101). unmanaged = other magics on the same accounts, shown so no screen can imply the account holds only what SmartEntry opened. Nothing sizes, manages or closes an unmanaged row.",
+  });
+});
 app.post("/api/mt5/positions", (req, res) => {
   const account = req.body?.account || "default";
   mt5PositionsByAccount[account] = req.body?.positions ?? [];
+  // Defaults to [] rather than being left untouched: an OLDER bridge that does not send
+  // this key must CLEAR the account rather than pin a stale foreign book on screen for
+  // ever. A stale unmanaged row is worse than none — it is exposure that no longer exists,
+  // displayed as though it did, and this is exactly the window during a rolling deploy
+  // where one box runs the new bridge and the other does not.
+  mt5UnmanagedByAccount[account] = req.body?.unmanaged ?? [];
   mt5LastSeenByAccount[account] = new Date().toISOString();
   recomputeMt5Positions();
-  res.json({ ok: true, count: mt5Positions.length });
+  res.json({ ok: true, count: mt5Positions.length, unmanaged: mt5UnmanagedByAccount[account].length });
 });
 
 // MT5 terminal login — dashboard "Auto Trade" tab, one form per account.

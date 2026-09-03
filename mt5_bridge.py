@@ -2039,11 +2039,28 @@ def report_positions():
             log(f"positions_get() failed ({mt5.last_error()}) — heartbeat skipped, "
                 f"MT5 handle looks dead.", YELLOW)
             return
+        # TWO LISTS, AND THE SPLIT IS THE WHOLE POINT.
+        #
+        # `data` is SmartEntry's own book, magic 20250101, and is UNCHANGED - same fields,
+        # same order, same filter. Every consumer of it (MAX_POSITIONS, the stop manager,
+        # the breaker, /api/checksystem) keeps seeing exactly what it saw before.
+        #
+        # `unmanaged` is everything else on the account, and it exists because this filter
+        # was making the dashboard lie by omission. Measured on account 11581419 on
+        # 2026-09-03: SEVEN open positions, of which ONE was SmartEntry. The other six -
+        # five from a third-party EA on magic 888888 and one from our own TK_SWING_PULLBACK
+        # executor on magic 20260903 - were dropped here with nothing anywhere saying so.
+        # The account was long AND short BTCUSD simultaneously and held 0.2 lots of SP500
+        # while every screen showed 0.1.
+        #
+        # THIS IS DISPLAY ONLY AND MUST STAY THAT WAY. If these rows ever reached
+        # mt5Positions, MAX_POSITIONS would count another EA's trades and the stop manager
+        # would try to move a stop on a position we do not own. They travel under a separate
+        # key, the server stores them in a separate map, and no trading path reads either.
         data = []
+        unmanaged = []
         for p in positions:
-            if p.magic != MAGIC_NUMBER:
-                continue  # only SmartEntry trades
-            data.append({
+            row = {
                 "ticket":  p.ticket,
                 "symbol":  p.symbol,
                 "type":    "BUY" if p.type == 0 else "SELL",
@@ -2053,8 +2070,18 @@ def report_positions():
                 "tp":      p.tp,
                 "profit":  round(p.profit, 2),
                 "openTime": datetime.fromtimestamp(p.time).strftime("%H:%M:%S"),
-            })
-        requests.post(f"{SERVER_URL}/api/mt5/positions", json={"positions": data, "account": ACCOUNT_TAG or "default"}, timeout=5)
+            }
+            if p.magic != MAGIC_NUMBER:
+                # magic and comment are the only way to tell whose trade this is, so they
+                # ride along here and nowhere else - `data` keeps its exact original shape.
+                row["magic"]   = p.magic
+                row["comment"] = p.comment
+                unmanaged.append(row)
+                continue  # still NOT a SmartEntry trade: never managed, never counted
+            data.append(row)
+        requests.post(f"{SERVER_URL}/api/mt5/positions",
+                      json={"positions": data, "unmanaged": unmanaged,
+                            "account": ACCOUNT_TAG or "default"}, timeout=5)
     except Exception as exc:
         # This POST is the ONLY thing that writes mt5LastSeenByAccount on the server,
         # so swallowing its failure silently meant the single signal the healer watches
