@@ -451,6 +451,16 @@ def main():
 
         positions = mt5.positions_get() or []
         mine = [p for p in positions if p.magic == MAGIC]
+
+        # Trail BEFORE considering new entries. Protecting an open position is the more
+        # urgent job, and it must still happen on a cycle where MAX_OPEN stops any new
+        # trade being placed - which is most cycles once this model holds something.
+        # Wrapped so a fault in the ladder can never stop the executor placing trades:
+        # this is an addition, and an addition must not take down what already worked.
+        try:
+            manage_trailing(positions)
+        except Exception as exc:
+            log("trailing failed (%s) -- entries unaffected" % exc)
         held_symbols = {p.symbol for p in mine}
         log("%d open under magic %d, %d fresh setup(s)" % (len(mine), MAGIC, len(fresh)))
         log("sizing from %s: riskPercent %.3f%%, fixedLotSize %.2f, maxLotSize %.2f, MAX_OPEN %d"
