@@ -243,6 +243,117 @@ def trading_halted(account_key="A"):
     return bool(acct.get("halted"))
 
 
+# ── TRAILING LADDER FOR THIS MODEL'S OWN POSITIONS ──────────────────────────────────
+#
+# mt5_bridge.py trails the ENGINE's positions and skips everything else - `if p.magic !=
+# MAGIC_NUMBER: continue` - so a TK_SWING_PULLBACK or FVG_CONTINUATION position was never
+# trailed by anything. The operator asked for it on both, so the same ladder runs here for
+# this model's own magic, and only for that.
+#
+# THE MATHS IS COPIED FROM mt5_bridge.ladder_stop_price DELIBERATELY, epsilon included.
+# Two implementations of a stop calculation is two places for one to drift, so if the
+# bridge's numbers ever change these must be changed with them.
+#
+# THE RISK DENOMINATOR COMES FROM THE LEDGER, NOT THE LIVE STOP. Initial R is
+# |entry - ORIGINAL sl|, and the live sl is the value this function mutates - reading it
+# would shrink R on every ratchet and walk the stop up far faster than the ladder intends.
+# tasks/*_executed.jsonl records the entry and stop as placed, which is exactly that.
+# A position with no ledger row is SKIPPED and said out loud: a guessed R is worse than
+# no trail.
+#
+# EVERY GUARD THE BRIDGE HAS, KEPT:
+#   - only this model's magic, never another caller's position
+#   - only when armed (>= TRAIL_ARM_R), steps FLOORED so it locks only realised profit
+#   - locked_r floored at 0.0, so an armed stop is never worse than breakeven
+#   - clamped into the broker's legal stop zone before sending
+#   - `improves` check - it can only ever move a stop in the protecting direction
+#   - --execute required, so a dry run prints and touches nothing
+TRAIL_ENABLED    = os.environ.get("TRAIL_LADDER_ENABLED", "0") == "1"
+TRAIL_ARM_R      = float(os.environ.get("TRAIL_ARM_R", "1.0"))
+TRAIL_STEP_R     = float(os.environ.get("TRAIL_STEP_R", "0.5"))
+TRAIL_GIVEBACK_R = float(os.environ.get("TRAIL_GIVEBACK_R", "0.5"))
+
+
+def ladder_stop_price(entry, risk, price, is_buy):
+    """Where the ratchet says the stop belongs now. None below the arm level."""
+    step_epsilon = 1e-9
+    profit_r = (price - entry) / risk if is_buy else (entry - price) / risk
+    if profit_r < TRAIL_ARM_R - step_epsilon:
+        return None
+    steps_taken = math.floor((profit_r - TRAIL_ARM_R) / TRAIL_STEP_R + step_epsilon)
+    locked_r = steps_taken * TRAIL_STEP_R + TRAIL_ARM_R - TRAIL_GIVEBACK_R
+    locked_r = max(locked_r, 0.0)      # never worse than breakeven once armed
+    return entry + locked_r * risk if is_buy else entry - locked_r * risk
+
+
+def manage_trailing(open_positions):
+    """Ratchet stops on this model's own positions. Never widens one, never touches another
+    caller's ticket, and does nothing at all without --execute."""
+    if not TRAIL_ENABLED:
+        return
+    # Initial risk per ticket, taken from what was actually placed.
+    placed = {}
+    for row in read_jsonl(EXECUTED):
+        t = row.get("ticket")
+        if t and row.get("price") is not None and row.get("sl") is not None:
+            placed[t] = (float(row["price"]), float(row["sl"]))
+
+    for p in open_positions:
+        if p.magic != MAGIC:
+            continue
+        rec = placed.get(p.ticket)
+        if not rec:
+            log("trail SKIP #%d -- no ledger row, initial R unknown" % p.ticket)
+            continue
+        entry, original_sl = rec
+        risk = abs(entry - original_sl)
+        if risk <= 0:
+            log("trail SKIP #%d -- zero initial risk" % p.ticket)
+            continue
+
+        is_buy = (p.type == 0)
+        target = ladder_stop_price(entry, risk, p.price_current, is_buy)
+        if target is None:
+            continue                                   # not armed yet
+
+        info = mt5.symbol_info(p.symbol)
+        if info is None:
+            log("trail SKIP #%d -- symbol_info(%s) unavailable" % (p.ticket, p.symbol))
+            continue
+        point = info.point or 0.0
+        # Clamp into the broker legal zone rather than sending a stop it will reject.
+        stops_level = (getattr(info, "trade_stops_level", 0) or 0) * point
+        if stops_level:
+            limit = p.price_current - stops_level if is_buy else p.price_current + stops_level
+            target = min(target, limit) if is_buy else max(target, limit)
+        target = round(target, info.digits)
+
+        cur = p.sl
+        if cur == 0:
+            improves = True                            # no protection at all - anything beats it
+        elif is_buy:
+            improves = target > cur + point
+        else:
+            improves = target < cur - point
+        if not improves:
+            continue
+
+        locked_r = (target - entry) / risk if is_buy else (entry - target) / risk
+        if not EXECUTE:
+            log("DRY RUN would move SL #%d %s %s -> %s (locks %.2fR)"
+                % (p.ticket, p.symbol, cur, target, locked_r))
+            continue
+        res = mt5.order_send({"action": mt5.TRADE_ACTION_SLTP, "position": p.ticket,
+                              "symbol": p.symbol, "sl": target, "tp": p.tp, "magic": MAGIC})
+        if res is None:
+            log("SL update returned nothing for #%d (%s)" % (p.ticket, mt5.last_error()))
+        elif res.retcode == mt5.TRADE_RETCODE_DONE:
+            log("TRAILED #%d %s SL %s -> %s (locks %.2fR)"
+                % (p.ticket, p.symbol, cur, target, locked_r))
+        else:
+            log("SL update REJECTED for #%d retcode=%s" % (p.ticket, res.retcode))
+
+
 def main():
     setups = read_jsonl(SHADOW)
     done_keys = {r.get("key") for r in read_jsonl(EXECUTED)}
