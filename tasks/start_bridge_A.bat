@@ -39,6 +39,23 @@ REM trades continuously buys no safety and spends the only currency that is scar
 REM The guard still exists and still fires; it just stops costing two days of evidence.
 set HALT_COOLDOWN_HOURS=1
 
+REM TRAILING LADDER ON, by operator decision 2026-09-03.
+REM
+REM Arms at 1.0R, then ratchets the stop in 0.5R steps staying 0.5R behind:
+REM   profit 1.0R -> SL at entry +0.5R,  1.5R -> +1.0R,  2.0R -> +1.5R.
+REM Applies to EVERY position this bridge manages - it is per-position, not per-symbol.
+REM
+REM THE MEASUREMENT SAYS OFF, AND IT IS RECORDED HERE RATHER THAN LOST. mt5_bridge.py
+REM carries the table: give-back 0.5 looked 5/5 ROBUST at five folds and went NEGATIVE in
+REM four folds when re-cut at four and seven; off is the only setting never negative under
+REM any scheme. Total R favours 0.5 (+61.9 vs +28.2) from more trades and one lucky window.
+REM Capping the runners cost more than the give-back saved.
+REM
+REM Turned on anyway, deliberately: the operator wants stops that protect open profit, and
+REM a ladder that exists but is permanently off is decoration. Revert by setting this to 0
+REM - one line, nothing else to undo, and the ladder never moves a stop AGAINST a position.
+set TRAIL_LADDER_ENABLED=1
+
 REM Full-auto unless the caller explicitly asks for SEMI. This is the single place
 REM account A's identity is defined, so semi-auto callers set BRIDGE_MODE=SEMI and
 REM come through here rather than invoking mt5_bridge.py themselves — an untagged
