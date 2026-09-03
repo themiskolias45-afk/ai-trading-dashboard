@@ -378,6 +378,16 @@ def main():
 
     if not fresh:
         log("no fresh setups (%d in ledger, %d already executed)" % (len(setups), len(done_keys)))
+        # BUT AN OPEN POSITION STILL NEEDS ITS STOP MANAGED. Returning here meant trailing
+        # only ever ran on a cycle that also had a fresh setup - and once this model holds
+        # something, MAX_OPEN means most cycles have none. The ladder would have been
+        # switched on and still never moved a stop: decoration with a switch on it, which
+        # is precisely what it was turned on to stop being.
+        #
+        # Caught by dry-running it rather than by reading the flow: the first run printed
+        # "no fresh setups" and exited before MT5 was even opened.
+        if TRAIL_ENABLED:
+            trail_only()
         return 0
 
     if trading_halted():
