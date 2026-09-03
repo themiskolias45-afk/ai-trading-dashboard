@@ -160,6 +160,29 @@ async function buildPlan() {
   const nyStart = nextSessionStart("NEW YORK", now);
   const minutesToNy = Math.round((nyStart - now) / 60000);
 
+  // WHAT THIS BOX ALREADY HOLDS. Without it the plan says READY while a position on that
+  // symbol is already open, and the reader hears "a trade is coming" when the honest answer
+  // is "the gate would admit this, but the engine will refuse it as a duplicate".
+  //
+  // This is not a guess. server/sizing.js:341 refuses when the ENGINE already holds the same
+  // symbol in the SAME direction, returning "Already holding <symbol> <dir>", and
+  // mt5_bridge.py matches that prefix to write the DUPLICATE row. Executor positions do NOT
+  // trigger it - they are placed by a different caller with its own book - so they are shown
+  // as context and never claimed to block.
+  //
+  // Measured on the laptop the day this was written: the plan said WOULD FIRE 16 times and
+  // 2 traded. BTC was sitting at confidence 100 with #1888020616 already open, so no new
+  // entry could follow. The plan was right about the gate and wrong about the outcome, and
+  // scoring it is what made that visible.
+  //
+  // DISPLAY ONLY. The plan cannot open a trade, refuse one, or move a threshold - adding a
+  // note to it cannot block a signal or stop anything being learned.
+  const enginePositions = (positions.data && positions.data.positions) || [];
+  const executorPositions = (positions.data && positions.data.unmanaged) || [];
+  const SYMBOLS_FOR = { btc: ["BTCUSD"], gold: ["XAUUSD"], spx: ["SP500", "^GSPC"] };
+  const sameSymbol = (p, key) => (SYMBOLS_FOR[key] || []).includes(String(p.symbol || "").toUpperCase());
+  const dirOf = v => { const d = String(v || "").toUpperCase(); return d === "BUY" || d === "SELL" ? d : null; };
+
   // ── per asset: how far from firing, and which leg is short ──
   const assets = ["btc", "gold", "spx"].map(key => {
     const a = signals.data && signals.data[key];
@@ -171,6 +194,15 @@ async function buildPlan() {
       ready: conf >= gate && a.signal && a.signal !== "WAIT",
       signal: a.signal, setup: a.setup, dataSource: a.dataSource,
       legs: { d1: a.signal, h4: a.h4 && a.h4.signal, h1: a.h1 && a.h1.signal },
+      // Same symbol AND same direction is what sizing.js actually refuses on. A held
+      // position in the OPPOSITE direction does not duplicate, so it is not claimed to.
+      heldByEngine: enginePositions.filter(p => sameSymbol(p, key))
+        .map(p => ({ ticket: p.ticket, type: p.type, volume: p.volume })),
+      heldByExecutor: executorPositions.filter(p => sameSymbol(p, key))
+        .map(p => ({ ticket: p.ticket, type: p.type, volume: p.volume, model: p.model || null })),
+      wouldBeDuplicate: (conf >= gate && a.signal && a.signal !== "WAIT")
+        && enginePositions.some(p => sameSymbol(p, key)
+             && (dirOf(p.type) === null || dirOf(a.signal) === null || dirOf(p.type) === dirOf(a.signal))),
     };
   });
 

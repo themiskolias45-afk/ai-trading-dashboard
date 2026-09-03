@@ -91,10 +91,19 @@ function score() {
       if (!a || a.unavailable || !SYMBOL_OF[a.key]) continue;
       const syms = SYMBOL_OF[a.key];
       const traded = trades.some(t => syms.includes(t.symbol) && t.at >= planAt && t.at <= windowEnd);
+      // A "ready" call while the engine already holds that symbol in that direction was
+      // never going to become a trade - sizing.js refuses it as a duplicate, correctly.
+      // Counting those as misses made the plan look wrong for being right: on the laptop
+      // it was most of the gap between "said WOULD FIRE 16" and "traded 2".
+      //
+      // undefined on plans written before the field existed, and those stay UNKNOWN rather
+      // than being assumed clear - an assumption there would quietly restore the same bias.
+      const dup = a.wouldBeDuplicate;
       rows.push({
         file, at: doc.generatedAt, asset: a.key,
         gate: doc.gate, confidence: a.confidence, gap: a.gap,
         predictedReady: !!a.ready, traded,
+        wouldBeDuplicate: dup === undefined ? null : !!dup,
         correct: !!a.ready === traded,
       });
     }
@@ -110,6 +119,10 @@ function score() {
 
   const ready = rows.filter(r => r.predictedReady);
   const notReady = rows.filter(r => !r.predictedReady);
+  // The honest denominator: ready calls where nothing was already blocking the entry.
+  const readyClear = ready.filter(r => r.wouldBeDuplicate === false);
+  const readyDup   = ready.filter(r => r.wouldBeDuplicate === true);
+  const readyUnknown = ready.filter(r => r.wouldBeDuplicate === null);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -119,6 +132,11 @@ function score() {
     journalTrades: trades.length,
     readySaid: ready.length,
     readyAndTraded: ready.filter(r => r.traded).length,
+    readyClearSaid: readyClear.length,
+    readyClearTraded: readyClear.filter(r => r.traded).length,
+    readyBlockedByDuplicate: readyDup.length,
+    readyDuplicateTraded: readyDup.filter(r => r.traded).length,
+    readyUnknownDuplicate: readyUnknown.length,
     notReadySaid: notReady.length,
     notReadyButTraded: notReady.filter(r => r.traded).length,
     bands: Object.values(byBand).sort((a, b) => a.band.localeCompare(b.band)),
@@ -146,6 +164,11 @@ function main() {
   console.log("  journal trades      : " + s.journalTrades);
   console.log("");
   console.log("  said WOULD FIRE     : " + s.readySaid + "   of which traded: " + s.readyAndTraded);
+  console.log("     of those, entry was already blocked as a DUPLICATE : " + s.readyBlockedByDuplicate +
+              "  (traded " + s.readyDuplicateTraded + ")");
+  console.log("     nothing blocking, the honest denominator           : " + s.readyClearSaid +
+              "  (traded " + s.readyClearTraded + ")");
+  if (s.readyUnknownDuplicate) console.log("     written before the field existed, UNKNOWN          : " + s.readyUnknownDuplicate);
   console.log("  said NOT ready      : " + s.notReadySaid + "   of which traded anyway: " + s.notReadyButTraded);
   console.log("");
   console.log("  how often a trade followed, by distance to the gate:");
