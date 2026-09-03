@@ -4098,8 +4098,16 @@ function renderWholeAccount(managed, unmanaged, exposure) {
   const exEl=document.getElementById("at-exposure");
   const bodyEl=document.getElementById("at-unmanaged-body");
   if(!bodyEl) return;
+  // unmanaged is null against a server too old to send the key, and this line used to
+  // interpolate `unmanaged.length` unguarded. That threw a TypeError, loadMT5's catch
+  // swallowed it, and the catch wipes BOTH mt5-body and mt5-body-at to "MT5 bridge not
+  // connected" — so a null check I missed in a NEW panel blanked the EXISTING positions
+  // list on every page, and it read as the bridge being down. It was not down: it was
+  // reporting every 60s the whole time.
   const total=managed.length+(unmanaged?unmanaged.length:0);
-  if(countEl) countEl.textContent=`${total} open on the account — ${managed.length} managed by SmartEntry, ${unmanaged.length} not`;
+  if(countEl) countEl.textContent = unmanaged
+    ? `${total} open on the account — ${managed.length} managed by SmartEntry, ${unmanaged.length} not`
+    : `${managed.length} managed by SmartEntry — the rest of the account is unknown until this server is restarted`;
 
   if(exEl){
     const hedged=exposure.filter(e=>e.hedged);
