@@ -294,7 +294,20 @@ def main():
         # and pinning is what lets both trade independently instead of colliding. Unset
         # means "not pinned" and behaves exactly as before, so no existing deployment
         # changes behaviour by upgrading.
+        # The pin comes from the env if set, and otherwise FROM THE SERVER. The bridge on
+        # this box already reports MT5_EXPECTED_LOGIN up on /api/risk-status, so the box
+        # itself knows which account it owns - asking it means both machines are pinned
+        # correctly with no scheduled task to edit on either, and a box that later changes
+        # account cannot leave a stale literal behind in a task definition.
         expected_login = os.environ.get("MT5_EXPECTED_LOGIN", "").strip()
+        if not expected_login:
+            risk = server_json("/api/risk-status") or {}
+            for _acct in (risk.get("accounts") or {}).values():
+                pinned = ((_acct or {}).get("config") or {}).get("expectedLogin")
+                if pinned:
+                    expected_login = str(pinned).strip()
+                    log("pin read from this box's bridge via /api/risk-status: %s" % expected_login)
+                    break
         acct = mt5.account_info()
         if expected_login:
             actual = str(acct.login) if acct else "unknown"
@@ -302,13 +315,13 @@ def main():
                 log("REFUSING TO TRADE: attached to account %s but MT5_EXPECTED_LOGIN is %s. "
                     "A bare initialize() takes whichever terminal answers first, and placing "
                     "orders on another box's account would double-fill every setup. "
-                    "Nothing was placed." % (actual, expected_login), RED)
+                    "Nothing was placed." % (actual, expected_login))
                 return 2
             log("account %s matches MT5_EXPECTED_LOGIN" % actual)
         else:
             log("MT5_EXPECTED_LOGIN not set -- trading whichever terminal answered (%s). "
                 "Pin it in this box's executor task to guarantee the right account."
-                % (acct.login if acct else "unknown"), YELLOW)
+                % (acct.login if acct else "unknown"))
 
         positions = mt5.positions_get() or []
         mine = [p for p in positions if p.magic == MAGIC]
