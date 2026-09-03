@@ -40,6 +40,7 @@ Writes: tasks/fvg_executed.jsonl (append-only) -- never modifies the shadow ledg
 """
 
 import json
+import math
 import os
 import sys
 import time
