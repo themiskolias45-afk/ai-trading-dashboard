@@ -543,6 +543,34 @@ function bridgeLauncherFor(tag) {
     process.exit(5);
   }
 
+  // AND THAT IT IS ACTUALLY A NEW PROCESS. "Reporting" is satisfied by the old one.
+  // A surviving PID means the restart no-opped and the code on disk is NOT what is
+  // running — so this exits non-zero rather than printing "Done", because the whole
+  // point of the tool is to make that state impossible to mistake for success.
+  if (pidsBefore) {
+    const pidsAfter = bridgePids();
+    if (pidsAfter === null) {
+      console.log("  WARNING: could not read bridge PIDs after the restart — cannot confirm the " +
+                  "process was replaced. Treat this restart as UNVERIFIED.");
+    } else {
+      const survivors = pidsBefore.filter(p => pidsAfter.includes(p));
+      console.log("  bridge python PID(s) after: " + (pidsAfter.join(", ") || "(none)"));
+      if (survivors.length) {
+        console.log("\n  RESTART DID NOT HAPPEN. PID(s) " + survivors.join(", ") + " survived, so the " +
+                    "bridge is STILL RUNNING THE OLD CODE and any change you just deployed is not live.");
+        console.log("  Stop-ScheduledTask only kills what the task owns; a bridge started by hand or by " +
+                    "ensure_running.ps1's detached Start-Process is not its child.");
+        console.log("  Stop the process itself, then start the launcher:");
+        console.log("    Stop-Process -Id " + survivors.join(",") + " -Force");
+        console.log("    Start-Process cmd -ArgumentList '/c','tasks\\\\" + bridgeLauncherFor(ACCOUNT) + "' " +
+                    "-WorkingDirectory '" + PROJECT_ROOT + "' -WindowStyle Minimized");
+        process.exitCode = 6;
+      } else {
+        console.log("  process replaced — the code on disk is what is running now.");
+      }
+    }
+  }
+
   console.log("\nWaiting for the first candle push to confirm the new bar count …");
   const pushStart = Date.now();
   while (Date.now() - pushStart < RECONNECT_TIMEOUT_MS) {
