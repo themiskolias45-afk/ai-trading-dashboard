@@ -4098,7 +4098,7 @@ function renderWholeAccount(managed, unmanaged, exposure) {
   const exEl=document.getElementById("at-exposure");
   const bodyEl=document.getElementById("at-unmanaged-body");
   if(!bodyEl) return;
-  const total=managed.length+unmanaged.length;
+  const total=managed.length+(unmanaged?unmanaged.length:0);
   if(countEl) countEl.textContent=`${total} open on the account — ${managed.length} managed by SmartEntry, ${unmanaged.length} not`;
 
   if(exEl){
