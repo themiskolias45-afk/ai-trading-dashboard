@@ -97,6 +97,11 @@ const SCALAR_CONSTS = [
   "BUY_DIP_REQUIRE_MACD_BULLISH",
   "BUY_DIP_RSI_MAX",
   "MOMENTUM_REQUIRE_MACD_BULLISH",
+  // Added 2026-09-03 with MOMENTUM's per-asset exemption list. Omitting it would be the
+  // SEVENTH occurrence of the bug this list documents: the const is read on the MOMENTUM
+  // branch, so its absence throws on every bar reaching it and the run reads as "MOMENTUM
+  // never fired" — which is the very claim being tested.
+  "MOMENTUM_MACD_EXEMPT_TICKERS",
   // Added 2026-09-01 with SELL_BOUNCE's condition-1 flag. Omitting it would be the
   // FIFTH occurrence of the bug this list documents: the const is read inside the
   // SELL_BOUNCE branch, so its absence throws on every step and the run reads as
@@ -150,6 +155,31 @@ for (const [envName, constName] of BOOL_ENV_FLAGS) {
     process.exit(1);
   }
   if (raw === "false") CONST_OVERRIDES[constName] = "false";
+}
+
+// MOMENTUM's per-asset MACD exemption. Not a boolean, so it cannot ride BOOL_ENV_FLAGS,
+// but it fails loud on the same contract and for the same reason: a run that silently
+// replays THE BASELINE UNDER THE CANDIDATE'S LABEL is a wrong answer wearing the
+// authority of a walk-forward. Only the two spellings below are accepted.
+//
+//   none  -> []           the live engine as it ships today (baseline)
+//   spx   -> ["^GSPC"]    the candidate: SP500 exempt, Gold and BTC untouched
+//
+// The engine ticker for SP500 is "^GSPC" (tasks/mtf_walkforward.cjs:29). Getting that
+// string wrong would exempt NOBODY and report the baseline as the candidate, which is
+// exactly the failure mode this block exists to refuse — so it is spelled here once and
+// never typed by the caller.
+const MOMENTUM_MACD_EXEMPT_WORLDS = { none: "[]", spx: '["^GSPC"]' };
+if (process.env.MTF_MOMENTUM_MACD_EXEMPT !== undefined) {
+  const key = String(process.env.MTF_MOMENTUM_MACD_EXEMPT).trim();
+  if (!Object.prototype.hasOwnProperty.call(MOMENTUM_MACD_EXEMPT_WORLDS, key)) {
+    console.error(`MTF_MOMENTUM_MACD_EXEMPT=${process.env.MTF_MOMENTUM_MACD_EXEMPT} must be ` +
+                  `one of: ${Object.keys(MOMENTUM_MACD_EXEMPT_WORLDS).join(", ")} — refusing to ` +
+                  `replay, because anything else would silently report the baseline under ` +
+                  `the candidate's label.`);
+    process.exit(1);
+  }
+  CONST_OVERRIDES.MOMENTUM_MACD_EXEMPT_TICKERS = MOMENTUM_MACD_EXEMPT_WORLDS[key];
 }
 
 for (const name of SCALAR_CONSTS) {
