@@ -4130,13 +4130,30 @@ function renderWholeAccount(managed, unmanaged, exposure) {
     return;
   }
   const esc=(v)=>String(v==null?"":v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  bodyEl.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.72rem">
+
+  // GROUPED BY OWNER, NOT ONE FLAT LIST. TK_SWING_PULLBACK and FVG_CONTINUATION are THIS
+  // system's own strategies on their own magic numbers; TKM3 and the other 15 magics on
+  // this account belong to somebody else. Filing them under one heading answered the
+  // wrong question — the question is "which of these are mine", and a single list makes
+  // that unanswerable without knowing magic numbers by heart.
+  //
+  // Owner comes from the bridge (EXECUTOR_MAGICS), never re-derived here: a second copy
+  // of that table in the page is a second place for it to go stale.
+  const GROUPS=[
+    {key:"executor",     title:"Your strategy executors — yours, but not managed by the main engine",
+     note:"Placed by tasks/fvg_executor.py on their own magic numbers so each strategy keeps separate attribution. The main engine does not size, manage or close these; their own executor does."},
+    {key:"foreign",      title:"Third-party EAs on this account — not yours",
+     note:"Opened by software that is not part of this system. Shown only because they consume the same margin and can hedge your positions. Nothing here is touched by anything SmartEntry runs."},
+    {key:"unclassified", title:"Unclassified — this bridge is too old to tag them",
+     note:"The bridge did not send an owner for these rows, so they are NOT being guessed into either group. Restart the bridge to classify them."},
+  ];
+  const rows=(list)=>`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.72rem">
     <thead><tr style="color:var(--muted);text-align:left">
       <th style="padding:4px 8px">Symbol</th><th style="padding:4px 8px">Dir</th><th style="padding:4px 8px">Lots</th>
       <th style="padding:4px 8px">Open</th><th style="padding:4px 8px">SL</th><th style="padding:4px 8px">TP</th>
-      <th style="padding:4px 8px">P/L</th><th style="padding:4px 8px">Magic</th><th style="padding:4px 8px">Comment</th>
+      <th style="padding:4px 8px">P/L</th><th style="padding:4px 8px">Strategy</th><th style="padding:4px 8px">Magic</th>
       <th style="padding:4px 8px">Ticket</th><th style="padding:4px 8px">Acct</th></tr></thead><tbody>`
-    + unmanaged.map(p=>{
+    + list.map(p=>{
         const pc=p.profit>=0?"var(--green)":"var(--red)", dc=p.type==="BUY"?"var(--green)":"var(--red)";
         return `<tr style="border-top:1px solid var(--border2)">
           <td style="padding:5px 8px;font-weight:700">${esc(p.symbol)}</td>
@@ -4146,13 +4163,27 @@ function renderWholeAccount(managed, unmanaged, exposure) {
           <td style="padding:5px 8px">${esc(p.sl)}</td>
           <td style="padding:5px 8px">${esc(p.tp)}</td>
           <td style="padding:5px 8px;color:${pc};font-weight:700">${p.profit>=0?"+":""}${esc(p.profit)}</td>
+          <td style="padding:5px 8px;font-weight:700">${esc(p.model||p.comment||"—")}</td>
           <td style="padding:5px 8px;color:var(--muted)">${esc(p.magic)}</td>
-          <td style="padding:5px 8px;color:var(--muted)">${esc(p.comment)}</td>
           <td style="padding:5px 8px;color:var(--muted)">#${esc(p.ticket)}</td>
           <td style="padding:5px 8px;color:var(--muted)">${esc(p.account)}</td></tr>`;
-      }).join("")
-    + `</tbody></table></div>
-    <div style="font-size:.62rem;color:var(--muted);margin-top:8px">Opened by something other than SmartEntry (different magic number). Shown for exposure only — this system does not size, manage, move stops on, or close any row above.</div>`;
+      }).join("") + `</tbody></table></div>`;
+
+  bodyEl.innerHTML = GROUPS.map(g=>{
+    const list=unmanaged.filter(p=> g.key==="unclassified"
+      ? (p.owner!=="executor" && p.owner!=="foreign")
+      : p.owner===g.key);
+    if(!list.length) return "";
+    const pnl=list.reduce((a,p)=>a+(Number(p.profit)||0),0);
+    const pc=pnl>=0?"var(--green)":"var(--red)";
+    return `<div style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+        <div style="font-weight:700;font-size:.76rem">${esc(g.title)}</div>
+        <div style="font-size:.76rem;font-weight:700;color:${pc}">${list.length} open · ${pnl>=0?"+":""}${pnl.toFixed(2)}</div>
+      </div>
+      <div style="font-size:.62rem;color:var(--muted);margin-bottom:6px">${esc(g.note)}</div>
+      ${rows(list)}</div>`;
+  }).join("");
 }
 
 // ── Features ─────────────────────────────────────────────────
