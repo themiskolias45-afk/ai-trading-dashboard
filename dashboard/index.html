@@ -4111,7 +4111,7 @@ function renderWholeAccount(managed, unmanaged, exposure) {
             <div style="font-weight:700;font-size:.78rem;margin-bottom:3px">${e.symbol}</div>
             <div style="font-size:.68rem;color:var(--muted)">long ${e.longLots} / short ${e.shortLots}</div>
             <div style="font-size:.78rem;font-weight:700;color:${nc}">net ${e.netLots>0?"+":""}${e.netLots} lots</div>
-            <div style="font-size:.62rem;color:var(--muted);margin-top:2px">SmartEntry ${e.smartentryLots} · other ${e.foreignLots}</div>
+            <div style="font-size:.62rem;color:var(--muted);margin-top:2px">SmartEntry ${e.smartentryLots} · executors ${e.executorLots}</div>
           </div>`;
         }).join("") + `</div>`;
   }
@@ -4142,8 +4142,14 @@ function renderWholeAccount(managed, unmanaged, exposure) {
   const GROUPS=[
     {key:"executor",     title:"Your strategy executors — yours, but not managed by the main engine",
      note:"Placed by tasks/fvg_executor.py on their own magic numbers so each strategy keeps separate attribution. The main engine does not size, manage or close these; their own executor does."},
-    {key:"foreign",      title:"Third-party EAs on this account — not yours",
-     note:"Opened by software that is not part of this system. Shown only because they consume the same margin and can hedge your positions. Nothing here is touched by anything SmartEntry runs."},
+    // THIRD-PARTY EAs ARE NOT RENDERED. Operator instruction, 2026-09-03: do not mix a
+    // different EA in with this system. Magic 888888 (TKM3) and the other 15 strangers on
+    // account 11581419 are somebody else's book and they are not shown here, not counted
+    // in the exposure cards, and not touched by anything SmartEntry runs - all five magic
+    // guards in mt5_bridge.py are intact and no write path was added.
+    //
+    // They are still returned by the API under `foreign` for anyone who needs them; this
+    // page just does not blend them into yours.
     {key:"unclassified", title:"Unclassified — this bridge is too old to tag them",
      note:"The bridge did not send an owner for these rows, so they are NOT being guessed into either group. Restart the bridge to classify them."},
   ];

@@ -5909,19 +5909,29 @@ app.get("/api/mt5/positions", (_, res) => {
   const exposure = {};
   const tally = (p, owner) => {
     const e = exposure[p.symbol] || (exposure[p.symbol] = {
-      symbol: p.symbol, longLots: 0, shortLots: 0, netLots: 0, smartentryLots: 0, foreignLots: 0 });
+      symbol: p.symbol, longLots: 0, shortLots: 0, netLots: 0, smartentryLots: 0, executorLots: 0 });
     const lots = Number(p.volume) || 0;
     if (p.type === "BUY") { e.longLots += lots; e.netLots += lots; }
     else                  { e.shortLots += lots; e.netLots -= lots; }
-    if (owner === "smartentry") e.smartentryLots += lots; else e.foreignLots += lots;
+    if (owner === "smartentry") e.smartentryLots += lots; else e.executorLots += lots;
   };
+  // OURS ONLY. Exposure used to net third-party EA lots in with ours, which mixed two
+  // unrelated books into one number: magic 888888 and the other 15 strangers on this
+  // account are not this system's and must not appear in a figure labelled as its
+  // exposure. Operator instruction, 2026-09-03, and it is the right call - a "net BTCUSD"
+  // that silently includes somebody else's hedge is a number you cannot act on.
+  //
+  // The foreign rows are still COLLECTED (they exist, and pretending otherwise is how the
+  // page lied in the first place) and still returned under `foreign` for anyone who asks.
+  // They are simply not blended into ours.
+  const ourExecutors = unmanaged.filter(p => p.owner === "executor");
   for (const p of mt5Positions) tally(p, "smartentry");
-  for (const p of unmanaged)    tally(p, "foreign");
+  for (const p of ourExecutors)  tally(p, "executor");
   const round2 = n => Math.round(n * 100) / 100;
   for (const e of Object.values(exposure)) {
     e.longLots = round2(e.longLots); e.shortLots = round2(e.shortLots);
     e.netLots  = round2(e.netLots);
-    e.smartentryLots = round2(e.smartentryLots); e.foreignLots = round2(e.foreignLots);
+    e.smartentryLots = round2(e.smartentryLots); e.executorLots = round2(e.executorLots);
     e.hedged = e.longLots > 0 && e.shortLots > 0;
   }
   // OUR EXECUTORS ARE NOT STRANGERS. One flat "unmanaged" list filed
