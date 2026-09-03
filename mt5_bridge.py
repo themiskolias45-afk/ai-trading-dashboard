@@ -100,6 +100,21 @@ def max_spread_for(symbol):
     return value
 POLL_INTERVAL  = int(os.environ.get("POLL_INTERVAL", "60"))      # seconds between signal checks
 MAGIC_NUMBER   = 20250101                                         # unique ID for SmartEntry orders
+
+# THIS SYSTEM'S OTHER ORDER SOURCES. tasks/fvg_executor.py places trades under its own
+# magic per model so each strategy keeps separate attribution, which means a position can
+# be OURS without carrying MAGIC_NUMBER. Reported so a surface can say "your TK swing
+# pullback" instead of filing it beside a stranger's EA.
+#
+# MIRRORS tasks/fvg_executor.py MODELS (fvg 20260902, tk 20260903, crt 20260904).
+# Duplicated rather than imported because importing that module runs its argv parsing and
+# can sys.exit; tasks/executor_magic_check.cjs fails if the two tables ever disagree, so
+# this is a checked copy rather than a remembered one.
+EXECUTOR_MAGICS = {
+    20260902: "FVG_CONTINUATION",
+    20260903: "TK_SWING_PULLBACK",
+    20260904: "CRT_FVG",
+}
 AUTO_MODE      = "--auto" in sys.argv
 TERMINAL_PATH  = os.environ.get("MT5_TERMINAL_PATH", "")          # pin to one MT5 install when running multiple terminals
 ACCOUNT_TAG    = os.environ.get("ACCOUNT_TAG", "")                # identifies this instance in logs + server posts (dual-account setups)
@@ -2074,8 +2089,16 @@ def report_positions():
             if p.magic != MAGIC_NUMBER:
                 # magic and comment are the only way to tell whose trade this is, so they
                 # ride along here and nowhere else - `data` keeps its exact original shape.
+                # OUR EXECUTORS ARE NOT STRANGERS. Lumping TK_SWING_PULLBACK and
+                # FVG_CONTINUATION in with a third-party EA under one "unmanaged" heading
+                # was wrong: those are this system's own trades, placed by
+                # tasks/fvg_executor.py, on strategies that were measured and shipped
+                # deliberately. Only the main ENGINE does not manage them. A page that
+                # files them next to TKM3 tells you nothing about which is yours.
                 row["magic"]   = p.magic
                 row["comment"] = p.comment
+                row["model"]   = EXECUTOR_MAGICS.get(p.magic)          # None when genuinely foreign
+                row["owner"]   = "executor" if p.magic in EXECUTOR_MAGICS else "foreign"
                 unmanaged.append(row)
                 continue  # still NOT a SmartEntry trade: never managed, never counted
             data.append(row)

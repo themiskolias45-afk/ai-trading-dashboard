@@ -5924,11 +5924,23 @@ app.get("/api/mt5/positions", (_, res) => {
     e.smartentryLots = round2(e.smartentryLots); e.foreignLots = round2(e.foreignLots);
     e.hedged = e.longLots > 0 && e.shortLots > 0;
   }
+  // OUR EXECUTORS ARE NOT STRANGERS. One flat "unmanaged" list filed
+  // TK_SWING_PULLBACK and FVG_CONTINUATION next to a third-party EA, which tells you
+  // nothing about which trades are yours. The bridge now tags each row owner/model from
+  // EXECUTOR_MAGICS; split on that here so a surface never has to know magic numbers.
+  //
+  // A row with NO owner came from a bridge older than that change. It is reported as
+  // "unclassified" rather than guessed into either bucket — calling someone else's trade
+  // yours, or yours a stranger's, are both worse than saying the bridge is out of date.
+  const executors   = unmanaged.filter(p => p.owner === "executor");
+  const foreign     = unmanaged.filter(p => p.owner === "foreign");
+  const unclassified= unmanaged.filter(p => p.owner !== "executor" && p.owner !== "foreign");
   res.json({
     positions: mt5Positions, byAccount: mt5PositionsByAccount,
     unmanaged, unmanagedByAccount: mt5UnmanagedByAccount,
+    executors, foreign, unclassified,
     exposure: Object.values(exposure).sort((a, b) => a.symbol.localeCompare(b.symbol)),
-    note: "positions = SmartEntry only (magic 20250101). unmanaged = other magics on the same accounts, shown so no screen can imply the account holds only what SmartEntry opened. Nothing sizes, manages or closes an unmanaged row.",
+    note: "positions = SmartEntry engine only (magic 20250101). executors = this system's OWN strategy executors on their own magics (TK_SWING_PULLBACK, FVG_CONTINUATION, CRT_FVG) - yours, but not managed by the main engine. foreign = third-party EAs on the same account. unclassified = a bridge too old to tag them. Nothing outside 'positions' is sized, managed or closed by SmartEntry.",
   });
 });
 app.post("/api/mt5/positions", (req, res) => {
