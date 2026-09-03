@@ -272,8 +272,22 @@ def main():
         log("TRADING HALTED -- %d fresh setup(s) not placed" % len(fresh))
         return 0
 
-    if not mt5.initialize():
-        log("MT5 initialize failed: %s" % (mt5.last_error(),))
+    # PIN THE TERMINAL, DO NOT JUST DETECT THE WRONG ONE.
+    #
+    # A bare initialize() attaches to whichever terminal answers first. On a box running
+    # two - this laptop has the bridge's install on 25446287 and a second in AppData on
+    # 11581419, the VPS's account - that is a coin flip, and it landed on the wrong one
+    # every time it was tested. Refusing at that point is safe but leaves the box unable
+    # to trade at all, which is not the goal: each box is meant to trade its OWN account.
+    #
+    # mt5_bridge.py:1065 has solved this since 2026-08-01 with MT5_TERMINAL_PATH. Same
+    # mechanism here, same env var, so a box already configured for its bridge needs no
+    # new setting. Unset means the previous behaviour exactly.
+    terminal_path = os.environ.get("MT5_TERMINAL_PATH", "").strip()
+    init_ok = mt5.initialize(path=terminal_path) if terminal_path else mt5.initialize()
+    if not init_ok:
+        log("MT5 initialize failed%s: %s"
+            % ((" for terminal %s" % terminal_path) if terminal_path else "", mt5.last_error()))
         return 1
     try:
         # WHICH ACCOUNT DID WE ACTUALLY ATTACH TO?
