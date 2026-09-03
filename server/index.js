@@ -7840,6 +7840,17 @@ app.get("/api/calendar", (_, res) => {
       // Stated as a number rather than left for a reader to infer from absence.
       horizonDays: calendarHorizonDays(newsCache),
       storedEvents: newsCache.length,
+      // PROJECTED releases, so a plan can see past the end of the weekly feed - 90-odd days
+      // instead of the 0.8 the feed reaches today. Separate array on purpose: these are
+      // NEVER merged into newsCache, which is what isNewsBlackout() reads, so nothing here
+      // can gate an entry, move a threshold or suppress a setup. A guess that blocks
+      // trading costs money silently; a guess that only informs a plan costs nothing when
+      // it is wrong. Each row carries projected:true and its own confirmed/contradicted
+      // status against what has actually been observed.
+      projection: (() => {
+        try { return require("./calendar_projection").projectReleases(newsCache, 3); }
+        catch (e) { return { projected: [], error: e.message }; }
+      })(),
       next: rows.find(r => r.minutesFromNow >= 0 && r.high && r.watched) || null,
       highImpactWatched: highWatched.length,
       watchedCountries: WATCHED,
