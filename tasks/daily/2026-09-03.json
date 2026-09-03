@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-03",
+  "entries": [
+    {
+      "ts": "2026-09-03T00:00:00.789754+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-09-03 (levels: confluence-zones): |   BTC WAIT | R1 78823.23 S1 77017.57 |   GOLD WAIT | R1 4406.54 S1 4327.38 |   SPX WAIT | R1 7689.62 S1 7650 |   MACRO VIX 15.2 — NORMAL |   MACRO DXY 99.6 RISING (+0.43% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind"
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-09-03T00:00:00.789754+00:00",
+  "updated_at": "2026-09-03T00:00:00.789754+00:00",
+  "notes": [
+    {
+      "at": "2026-09-03T20:49:44.430Z",
+      "text": "HANDOVER 2026-09-03: ONE item outstanding and it needs an ADMIN shell - `node tasks/safe_bridge_restart.cjs --allow-open-positions` on the LAPTOP. Bridge pid 5188 (08:21:56) runs ELEVATED; Stop-Process, taskkill /F /T on the whole tree, and registering a RunLevel Highest task were ALL refused - Windows boundary, not a bug, do not re-derive it. Until it runs the laptop ENGINE stops do not trail (#1888020616 SL 73683.72, #1798862395 SL 7601.25) and the bridge cannot see the new cooperative stand-down flag. After one elevated restart, every future restart is `node tasks/request_bridge_restart.cjs` with no elevation, on either box. VPS is COMPLETE. Trailing is ON by operator decision against the measurement and already saved a real trade: FVG gold closed +$94.74 on a ratcheted stop (4449.14 -> 4472.24) where the original stop was a ~-$126 loss. Full detail: memory/next_session_open_threads.md"
+    }
+  ]
+}
