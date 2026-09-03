@@ -282,7 +282,7 @@ silently resolved.
   4H + 1H"*, which states a safety property the engine does not have and which a user
   reasonably read as "it will not buy into a bearish 4H/1H". Corrected 2026-08-31 after
   being asked why it buys when every lower timeframe is red. What `generateSignal`
-  actually does (`generateSignalMTF`, `server/index.js:3068`; the plain
+  actually does (`generateSignalMTF`, `server/index.js:3166`; the plain
   `generateSignal` is at `:1780`. This said `:2814-2911` until 2026-09-02 — that
   range is neither function):
   - Daily + H4 **agree** → 72 / 88 / 95.
@@ -303,7 +303,7 @@ silently resolved.
   a bearish M15 are DISPLAY ONLY. Whether H1 disagreement predicts anything is
   UNMEASURED — see `tasks/logs/h1_agreement.txt`. Do not add an H1 veto on intuition:
   that is subtraction, it spends the scarce resource, and rule 3 governs it.
-- **"STRONG UPTREND" is EMA STACKING, NOT CANDLE DIRECTION** (`index.js:1804`;
+- **"STRONG UPTREND" is EMA STACKING, NOT CANDLE DIRECTION** (`index.js:1880`;
   said `:1711`, then `:1798` — both rotted by insertions above them):
   `price > ema20 && > ema50 && > ema200`. On 2026-08-31 Gold printed STRONG UPTREND
   while sitting **$1.55 above its 20 EMA** with MACD histogram −5.35 and
@@ -352,7 +352,7 @@ silently resolved.
     used to answer asset-specific questions. At gate 70 / 320: XAUUSD 5/5 +0.051,
     BTCUSD 5/5 +0.172, SP500 4/5 −0.042.
 - **Gold's squeeze cohort is pinned to a LITERAL 70** (`GOLD_SQUEEZE_MODERATE_CONFIDENCE`,
-  `server/index.js:3161`; said `:3486`, then `:3553`, then `:3650` — rotted three times, twice by
+  `server/index.js:3259`; said `:3486`, then `:3553`, then `:3650` — rotted three times, twice by
   edits made the same day) — it
   did NOT follow the gate down. At 65 it still clears
   comfortably; it silently stops firing only if the gate is ever raised ABOVE 70. Moving
