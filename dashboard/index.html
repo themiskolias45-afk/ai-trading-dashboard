@@ -3215,7 +3215,12 @@ function renderPlan(plan) {
   const {regime,date,watchlist,rules,levels}=plan;
   const rc=regime==="RISK-ON"?"var(--green)":regime==="RISK-OFF"?"var(--red)":"var(--yellow)";
   const rb=regime==="RISK-ON"?"#0d2010":regime==="RISK-OFF"?"#200d0d":"#201a0d";
-  let h=`<div class="plan-regime" style="background:${rb};color:${rc};border:1px solid ${rc}">${regime}</div>`;
+  // `${regime}` unguarded printed the literal word "undefined" in the badge whenever the
+  // payload carried no regime - which is what an error object looks like. A panel that
+  // says "undefined" invites you to wonder what it means; one that says "not reported"
+  // tells you the reading is missing, which is the actual fact.
+  const regimeLabel = regime ?? "regime not reported";
+  let h=`<div class="plan-regime" style="background:${rb};color:${rc};border:1px solid ${rc}">${escapeHtml(regimeLabel)}</div>`;
   h+=`<div style="font-size:.65rem;color:var(--muted);margin-bottom:12px">${date??""}</div>`;
   h+=`<div class="plan-section"><div class="plan-section-title">Watchlist</div>`;
   (watchlist??[]).forEach(w=>{h+=`<div class="watchlist-item"><div class="w-ticker">${w.ticker}</div><div class="w-action">${w.action}</div><div class="w-priority p-${w.priority}">${w.priority}</div></div>`;});
