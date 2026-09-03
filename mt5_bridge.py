@@ -492,6 +492,31 @@ def check_remote_control():
         res = requests.get(f"{SERVER_URL}/api/mt5/control", timeout=5)
         res.raise_for_status()
         control = res.json()
+
+        # STAND DOWN ON REQUEST, so a restart never needs an elevated shell.
+        #
+        # This bridge runs elevated on the laptop, so a normal shell cannot stop it -
+        # Stop-Process is denied and so is registering a RunLevel Highest task. Every
+        # bridge code change therefore waited on a human opening an Administrator prompt,
+        # and on 2026-09-03 that held up a stop-loss change for hours.
+        #
+        # The server sets this flag only for a request from its own loopback address, and
+        # clears it on read, so exactly one bridge acts on one request.
+        #
+        # Exiting HERE is safe: this runs at the top of the poll, before any order is
+        # placed or modified, and mt5.shutdown() closes nothing - broker-side SL and TP
+        # stay live through the gap exactly as they do on any restart. The launcher (or
+        # ensure_running) brings the bridge straight back.
+        if control.get("restartRequested"):
+            log("RESTART REQUESTED from the dashboard - standing down cleanly. "
+                "Open positions keep their broker-side stops; the launcher will bring "
+                "this bridge back.", YELLOW)
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            sys.exit(0)
+
         halted = bool(control.get("halted"))
         reason = control.get("reason") or "halted from dashboard"
         if halted and not remote_halted:

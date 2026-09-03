@@ -486,6 +486,12 @@ const API_NO_LOGIN_REQUIRED = new Set([
   "/api/login", "/api/logout",
   "/api/signals", "/api/newsfilter", "/api/features",
   "/api/mt5/positions", "/api/risk-status",
+  // The LOOPBACK check inside the handler is the real gate here, not a session. This stops
+  // a trading bridge, so it must never be a remote action - and the caller is a script on
+  // this machine with no browser session, exactly like the bridge polling /api/mt5/control.
+  // Listing it here only skips the session check; the handler still refuses anything that
+  // is not 127.0.0.1.
+  "/api/mt5/restart-bridge",
   "/api/trade-opened", "/api/trade-closed",
   "/api/tv-alert", "/api/claude-approve-trade",
   "/api/agent/notify", "/api/mt5/health", "/api/status",
@@ -6240,7 +6246,45 @@ loadTradingControl();
 
 // The bridge polls this every cycle. Kept in the no-login allowlist below because
 // the bridge has no browser session.
-app.get("/api/mt5/control", (_, res) => res.json(tradingControl));
+// COOPERATIVE BRIDGE RESTART, so a restart never needs an elevated shell again.
+//
+// The bridge on this box runs ELEVATED. A non-elevated process cannot signal it:
+// Stop-Process returns "Access is denied", and registering a RunLevel Highest task to do
+// it is refused for the same reason. That is Windows working correctly, not a bug - but it
+// means every code change to the bridge waited on a human opening an Administrator shell,
+// and today that blocked a stop-loss change for hours.
+//
+// The bridge already polls /api/mt5/control every cycle for the kill switch. Adding one
+// field there lets it stand down on request and be restarted by the launcher, with no
+// privilege needed by whoever asks.
+//
+// CLEAR-ON-READ, deliberately. The flag is consumed by the first poll that sees it, so
+// exactly one bridge acts on one request. Leaving it set until an acknowledgement would
+// restart-loop the bridge if it died before acknowledging - a request that cannot be
+// consumed is worse than one that is missed.
+//
+// LOCAL ONLY. This stops a trading bridge, so it is gated the same way the MT5 login form
+// is: the request must come from this machine's own loopback address. The GET stays public
+// because the bridge itself has no browser session.
+let bridgeRestartRequested = false;
+
+app.get("/api/mt5/control", (_, res) => {
+  const wanted = bridgeRestartRequested;
+  bridgeRestartRequested = false;                 // consumed by the first reader
+  if (wanted) console.log("[control] bridge restart requested — handing it to the next poll");
+  res.json({ ...tradingControl, restartRequested: wanted });
+});
+
+app.post("/api/mt5/restart-bridge", (req, res) => {
+  const remote = req.socket.remoteAddress || "";
+  const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  if (!isLocal) {
+    return res.status(403).json({ ok: false, error: "local only — stopping a trading bridge is not a remote action" });
+  }
+  bridgeRestartRequested = true;
+  console.log("[control] bridge restart flag set by localhost");
+  res.json({ ok: true, note: "the next bridge poll will stand down and be restarted by its launcher" });
+});
 
 // ── Strategy settings API ─────────────────────────────────────
 // GET is public because the bridge polls it and has no browser session; POST
@@ -8103,6 +8147,25 @@ cron.schedule("*/30 * * * *", async () => {
 
 // Every 60s — price refresh
 cron.schedule("* * * * *", fetchPrices);
+
+// SIGNALS EVERY 5 MINUTES, matching how often the bridge actually pushes bars.
+//
+// They were recomputed only on the */30 block, so the signal cache ran up to half an hour
+// behind bars that update every five minutes - measured 2026-09-03 at 26.2 minutes old on
+// both boxes while priceFreshness read 0.1min. Everything downstream inherits that age:
+// the confidence on the dashboard, the distance-to-gate, the regime badge, and the
+// pre-open plan rebuild that keys off signal updatedAt. The healer called it OK because
+// its threshold is generous, which is how a stale reading passes for a current one.
+//
+// Deliberately a SEPARATE schedule rather than changing */30 to */5: that block also
+// fetches prices, regenerates the daily plan, writes the artifact and sends tradeable
+// alerts. Running the alerting six times as often would spam it. Nothing in the existing
+// block changes.
+//
+// Cost is small and was checked, not assumed: with MT5 bars present refreshSignals does
+// ONE network call (DXY) and computes the rest locally from cached bars. queueSignalRefresh
+// serialises through a promise chain, so a slow run cannot stack another on top of it.
+cron.schedule("*/5 * * * *", queueSignalRefresh);
 
 // Every 15 min — UW data
 cron.schedule("*/15 * * * *", async () => { await fetchCongress(); await fetchFlow(); });
