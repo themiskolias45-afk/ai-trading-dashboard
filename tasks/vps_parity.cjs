@@ -166,7 +166,11 @@ const SCALARS = [
   // generateSignal throws ReferenceError on every MOMENTUM-eligible bar, the caller
   // swallows it, SP500 reads WAIT forever — and this script prints ENGINES AGREE, exactly
   // the shape of 8a2a652 where parity compared route PATHS while a handler was 500ing.
-  "MOMENTUM_MACD_EXEMPT_TICKERS", "MOMENTUM_REQUIRE_MACD_BULLISH",
+  // MOMENTUM_MACD_EXEMPT_TICKERS was listed here this morning and is now deleted from
+  // BOTH boxes, so leaving it in makes parity report a permanent difference between two
+  // things that do not exist. A check that cries wolf forever is a check people stop
+  // reading - the same failure as an action item that can never clear.
+  "MOMENTUM_REQUIRE_MACD_BULLISH",
   "TREND_FOLLOW_REQUIRE_MACD_BULLISH", "BUY_DIP_REQUIRE_MACD_BULLISH",
   "SELL_BOUNCE_REQUIRE_DOWNTREND",
 ];
