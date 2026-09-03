@@ -5930,7 +5930,36 @@ app.get("/api/mt5/positions", (_, res) => {
     (rows || []).map(p => ({ ...p, account })));
   // Kick a refresh for NEXT time; this call is served from the last file either way.
   refreshPositionSnapshot();
-  const snapshot = readPositionSnapshot();
+  let snapshot = readPositionSnapshot();
+  // THE SNAPSHOT MUST BELONG TO THIS BOX'S ACCOUNT. mt5_positions_snapshot.py calls a bare
+  // mt5.initialize(), which attaches to whichever terminal answers first - and this laptop
+  // runs TWO: the bridge's own (25446287) and a second in AppData logged into 11581419,
+  // the VPS's account. So the reader can land on the wrong book entirely, and the laptop
+  // page would show the VPS's positions as if they were its own.
+  //
+  // The two boxes trade DIFFERENT demo accounts on purpose. Mixing them would corrupt every
+  // per-box number - P&L, exposure, what is open - and the journals would stop being
+  // attributable, which is the same failure the fleet parity check exists to catch.
+  //
+  // The bridge already reports the login it is pinned to (MT5_EXPECTED_LOGIN, sent on
+  // /api/risk-status), so that is the authority. A snapshot from any other login is
+  // DISCARDED, not shown and not merged. Discarding costs a display row; showing another
+  // account's trades as this one's is a wrong number nobody would catch.
+  //
+  // This blocks nothing that trades. It is read-side only - no order, no gate, no sizing.
+  if (snapshot) {
+    const ownLogins = Object.values(riskStatusByAccount)
+      .map(a => a && a.config && a.config.expectedLogin)
+      .filter(Boolean).map(String);
+    const snapLogin = snapshot.login == null ? null : String(snapshot.login);
+    // No pinned login reported yet (bridge still starting) means we cannot verify, and an
+    // unverified snapshot is not evidence about this account. Kept only when it matches.
+    if (!snapLogin || ownLogins.length === 0 || !ownLogins.includes(snapLogin)) {
+      console.warn("[snapshot] discarding: read login " + snapLogin + ", this box expects " +
+                   (ownLogins.join("/") || "(none reported yet)"));
+      snapshot = null;
+    }
+  }
   // The bridge is the better source when it has them - it is live and per-account. The
   // snapshot only fills the gap while the bridge is running code that filters them out.
   // THIS SYSTEM'S MAGIC NUMBERS ONLY. owner === "executor" means the position came from
