@@ -4107,11 +4107,47 @@ async function loadMT5() {
 //
 // STRICTLY READ-ONLY. There is deliberately no close or modify control: SmartEntry does not
 // own these tickets, and a button here would be a button that closes another EA's trade.
-function renderWholeAccount(managed, unmanaged, exposure) {
+function renderWholeAccount(managed, unmanaged, exposure, executorTrades) {
   const countEl=document.getElementById("at-unmanaged-count");
   const exEl=document.getElementById("at-exposure");
   const bodyEl=document.getElementById("at-unmanaged-body");
   if(!bodyEl) return;
+
+  // EXECUTOR TRADES, READ OFF THEIR OWN LEDGERS. These are this system's trades placed by
+  // tasks/fvg_executor.py under its own magic numbers, so the bridge's magic-20250101
+  // filter means they never appear in the positions panel above. They were recorded all
+  // along - in tasks/tk_executed.jsonl and fvg_executed.jsonl - just never displayed.
+  //
+  // Rendered FIRST because these are the rows that were missing, and stated as PLACED
+  // rather than open: the ledger records placement, not lifecycle, so this cannot know
+  // whether a trade is still running or what it is worth now. Claiming "open" about a
+  // closed trade would be worse than the omission it replaces.
+  const execEl=document.getElementById("at-executor-trades");
+  if(execEl){
+    const rows=Array.isArray(executorTrades)?executorTrades:[];
+    const escx=(v)=>String(v==null?"":v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    execEl.innerHTML = rows.length===0
+      ? `<div style="color:var(--muted);font-size:.72rem">No executor trades recorded yet.</div>`
+      : `<div style="font-weight:700;font-size:.76rem;margin-bottom:2px">Placed by your strategy executors — ${rows.length} recorded</div>
+         <div style="font-size:.62rem;color:var(--muted);margin-bottom:6px">From tasks/*_executed.jsonl. These carry their own magic numbers, so the bridge's SmartEntry-only filter keeps them out of the panel above. Entry, stop and target are as placed; live P/L is not in the ledger.</div>
+         <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.72rem">
+         <thead><tr style="color:var(--muted);text-align:left">
+           <th style="padding:4px 8px">Strategy</th><th style="padding:4px 8px">Symbol</th><th style="padding:4px 8px">Dir</th>
+           <th style="padding:4px 8px">Lots</th><th style="padding:4px 8px">Entry</th><th style="padding:4px 8px">SL</th>
+           <th style="padding:4px 8px">TP</th><th style="padding:4px 8px">Ticket</th><th style="padding:4px 8px">Placed</th></tr></thead><tbody>`
+         + rows.map(t=>{const dc=t.type==="BUY"?"var(--green)":"var(--red)";
+             return `<tr style="border-top:1px solid var(--border2)">
+               <td style="padding:5px 8px;font-weight:700">${escx(t.model)}</td>
+               <td style="padding:5px 8px;font-weight:700">${escx(t.symbol)}</td>
+               <td style="padding:5px 8px;color:${dc};font-weight:700">${escx(t.type)}</td>
+               <td style="padding:5px 8px">${escx(t.volume)}</td>
+               <td style="padding:5px 8px">${escx(t.price)}</td>
+               <td style="padding:5px 8px">${escx(t.sl)}</td>
+               <td style="padding:5px 8px">${escx(t.tp)}</td>
+               <td style="padding:5px 8px;color:var(--muted)">#${escx(t.ticket)}</td>
+               <td style="padding:5px 8px;color:var(--muted)">${escx(String(t.placedAt||"").slice(0,19).replace("T"," "))}</td></tr>`;
+           }).join("") + `</tbody></table></div>`;
+  }
   // unmanaged is null against a server too old to send the key, and this line used to
   // interpolate `unmanaged.length` unguarded. That threw a TypeError, loadMT5's catch
   // swallowed it, and the catch wipes BOTH mt5-body and mt5-body-at to "MT5 bridge not
