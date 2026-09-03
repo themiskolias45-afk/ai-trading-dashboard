@@ -2340,39 +2340,16 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     inUptrend &&
     aboveEma50 && aboveEma20 &&
     rsi !== null && rsi > MOMENTUM_RSI_MIN && rsi < MOMENTUM_RSI_MAX &&
-    (!MOMENTUM_REQUIRE_MACD_BULLISH || MOMENTUM_MACD_EXEMPT_TICKERS.includes(ticker) || macd?.bullish)
+    (!MOMENTUM_REQUIRE_MACD_BULLISH || macd?.bullish)
   ) {
     setup  = "MOMENTUM";
     signal = "BUY";
     const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
     stop   = sl;
     target = parseFloat((entry + Math.abs(entry - sl) * 2.0).toFixed(2));
-    // macd?.crossed rather than macd.crossed — DEFENCE, NOT A BUG FIX. An earlier version
-    // of this comment claimed the unguarded deref "would throw a TypeError" once the
-    // exemption above removed the `macd?.bullish` entry guarantee. THAT WAS WRONG, and the
-    // code-reviewer caught it: generateSignal returns null at :1820 for fewer than 50
-    // closes, which strictly dominates calcMACD's own null at fewer than 35 (:1700), so
-    // macd is non-null on every path that can reach this line. Measured, not reasoned:
-    // closes=34 -> macd NULL but generateSignal already returned; closes=35 -> macd OBJ.
-    //
-    // The `?.` stays because it costs nothing and the invariant it leans on lives 500
-    // lines away in a different function, where a future edit to either bar floor would
-    // silently re-arm the hazard. But it is belt-and-braces, and the "unavailable" branch
-    // in the reason text below is unreachable today. Recording the correction here rather
-    // than deleting the comment, so the next session does not re-derive the wrong story.
-    strength = (macd?.crossed || (volRatio !== null && volRatio >= 1.8)) ? "STRONG" : rsi > 60 ? "MODERATE" : "NONE";
+    strength = (macd.crossed || (volRatio !== null && volRatio >= 1.8)) ? "STRONG" : rsi > 60 ? "MODERATE" : "NONE";
     reasons.push(`All EMAs aligned — trend structure intact`);
-    // THE REASON MUST NOT CLAIM A CONDITION THAT DID NOT HOLD. An exempt ticker reaches
-    // here with MACD bearish, and the old text said "MACD bullish (histogram -13.70)" —
-    // a label asserting the opposite of the number printed beside it. Display-only
-    // (grepped: nothing parses this string), but a surface that lies about why a trade
-    // fired is how a setting with no reader gets trusted for weeks.
-    if (macd?.bullish) {
-      reasons.push(`MACD bullish${macd.crossed ? " — fresh crossover" : ""} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
-    } else {
-      reasons.push(`MACD NOT bullish (histogram ${macd ? (macd.histogram > 0 ? "+" : "") + macd.histogram : "unavailable"}) — ` +
-                   `${ticker} is exempt from MOMENTUM's MACD requirement by measurement, see MOMENTUM_MACD_EXEMPT_TICKERS`);
-    }
+    reasons.push(`MACD bullish${macd.crossed ? " — fresh crossover" : ""} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
     if (volConfirmed) reasons.push(`Volume ${volRatio}x avg — institutional participation`);
     else reasons.push(`Volume ${volRatio ?? "?"}x avg (monitoring for breakout confirmation)`);
   }
@@ -3884,58 +3861,7 @@ const BUY_DIP_RSI_MAX = 50;
 // Do not re-open this on a bar-return result alone.
 const MOMENTUM_REQUIRE_MACD_BULLISH = true;
 
-// Tickers exempt from MOMENTUM's macd.bullish requirement. THE GLOBAL BOOLEAN ABOVE IS
-// UNCHANGED — this is the per-asset escape hatch it never had.
-//
-// WHY THIS EXISTS. Measured 2026-09-02 per asset, gate 70, MTF_MAX_HOLD=320, 5 folds,
-// worst fold / trade count, flipping MOMENTUM_REQUIRE_MACD_BULLISH globally false:
-//
-//            XAUUSD              BTCUSD              SP500
-//   base     -0.112 / 310        +0.188 / 426        +0.057 / 132  ROBUST
-//   mom_off  -0.265 / 271        +0.211 / 414        +0.079 / 160  ROBUST
-//
-// SP500 gets a BETTER worst fold, keeps 5/5 ROBUST, and gains 28 trades (+21%) — while
-// the same flip costs Gold 0.153 of worst fold. The constant was GLOBAL, so shipping it
-// meant buying SP500's trades with Gold's edge and it was correctly left unshipped. This
-// list is the missing mechanism, nothing more.
-//
-// SHIPPED EMPTY ON PURPOSE. An empty array makes `.includes(ticker)` false for every
-// ticker, so this expression is byte-for-byte the old one and NO signal can move. The
-// mechanism lands inert and provably no-op; only a walk-forward that clears may put a
-// ticker in it. Verified by diffing /api/signals across the change, not by reasoning.
-//
-// THE RISK IS DISPLACEMENT, NOT ADMISSION. MOMENTUM sits in a first-match-wins else-if
-// chain, so an exempt ticker whose MOMENTUM now matches DISPLACES whatever sat later in
-// that chain and may have scored better. "It is purely additive" has already been wrong
-// twice here — it killed the SELL_BOUNCE flip (2026-09-01) and it is why removing
-// TREND_FOLLOW's MACD made Gold and BTC trade LESS, not more (308->276, 413->388).
-// A rising trade count is not the same as a rising count of the trades you wanted, and
-// only realised R net of displacement settles it.
-//
-// TO MEASURE: MTF_MOMENTUM_MACD_EXEMPT=spx (candidate) against =none (baseline) through
-// tasks/_replay_mtf.cjs, which hard-errors on any other spelling. The server is never
-// edited to run a measurement. Ticker strings are the ENGINE's, not the broker's —
-// XAUUSD is "GC=F", BTCUSD is "BTC-USD", SP500 is "^GSPC" (tasks/mtf_walkforward.cjs:27).
-// MEASURED AND SHIPPED 2026-09-03. Three worlds through tasks/mtf_walkforward.cjs at
-// MTF_MAX_HOLD=320, gate 70, 5 folds, cost 0.05R (tasks/logs/momentum_macd/three_worlds.txt):
-//
-//   world                          XAUUSD            BTCUSD            SP500
-//   baseline (no env)              -0.112 / 310      +0.188 / 426      +0.057 / 132  ROBUST
-//   MTF_MOMENTUM_MACD_EXEMPT=none  -0.112 / 310      +0.188 / 426      +0.057 / 132  ROBUST
-//   MTF_MOMENTUM_MACD_EXEMPT=spx   -0.112 / 310      +0.188 / 426      +0.079 / 160  ROBUST
-//
-// The first two rows differ only in the report timestamp, which is the proof the empty
-// list was inert. The third moves SP500 ALONE: worst fold +0.057 -> +0.079, still 5/5
-// ROBUST, and 132 -> 160 trades (+21%). Gold and BTC are byte-identical, which is what a
-// per-asset constant is FOR and what the global boolean could never deliver.
-//
-// The displacement worry was real and it was measured, not argued: SP500 DAILY+H4_AGREE
-// steps go 2072 -> 5198 and H4_ONLY 2077 -> 891, so MOMENTUM genuinely does displace the
-// later chain here. It survives anyway. That is the whole difference between this and the
-// SELL_BOUNCE flip, which displaced and did NOT survive.
-//
-// TO REVERT: put this back to [] — one line, no other edit, nothing else reads it.
-const MOMENTUM_MACD_EXEMPT_TICKERS = ["^GSPC"];
+
 
 // Does TREND_FOLLOW still require macd.bullish? UNTIL 2026-09-02 THIS WAS NOT EVEN A
 // QUESTION ANYONE COULD ASK -- the condition was inline at :2263 with no name, so no
