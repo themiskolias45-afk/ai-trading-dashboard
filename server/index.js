@@ -4516,7 +4516,30 @@ function generateDailyPlan() {
  */
 function planNeedsRebuild() {
   if (!dailyPlan) return true;
-  return dailyPlan.positionsKnown === false && Object.keys(mt5LastSeenByAccount).length > 0;
+  if (dailyPlan.positionsKnown === false && Object.keys(mt5LastSeenByAccount).length > 0) return true;
+
+  // REBUILD WHEN THE SIGNALS THAT DEFINE THE REGIME HAVE MOVED ON.
+  //
+  // regime is `buyCount >= 2 ? RISK-ON : sellCount >= 2 ? RISK-OFF : MIXED`, counted from
+  // signalCache — so it is a SNAPSHOT of the moment the plan was built. The only rebuild
+  // triggers were "no plan yet" and "positions became knowable", and neither fires when a
+  // signal flips, so the badge froze at whatever the market looked like when the server
+  // last started.
+  //
+  // Measured 2026-09-03: the laptop booted 18:30 with two assets on BUY and showed
+  // RISK-ON; the VPS booted 18:43 with one and showed MIXED. Same market, same minute, two
+  // different regimes on the two dashboards. By 18:33 the laptop signals themselves said
+  // buyCount=1, so the badge was contradicting the page it sits on. Restart time is not a
+  // market condition, and a regime that reports one is worse than no regime.
+  //
+  // Cheap and safe to redo: generateDailyPlan is a pure in-memory build — no file write, no
+  // order, no telegram, no I/O — and dailyPlan is read only by /api/plan and the Telegram
+  // /plan command. Nothing gates on it, so this can neither block a signal nor lose data.
+  const newestSignal = [signalCache.btc, signalCache.gold, signalCache.spx]
+    .map(s => (s && Date.parse(s.updatedAt)) || 0)
+    .reduce((a, b) => Math.max(a, b), 0);
+  const builtAt = Date.parse(dailyPlan.generated) || 0;
+  return newestSignal > builtAt;
 }
 
 /**
