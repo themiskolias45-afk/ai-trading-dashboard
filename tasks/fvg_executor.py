@@ -276,6 +276,40 @@ def main():
         log("MT5 initialize failed: %s" % (mt5.last_error(),))
         return 1
     try:
+        # WHICH ACCOUNT DID WE ACTUALLY ATTACH TO?
+        #
+        # mt5.initialize() with no arguments attaches to whichever terminal answers first.
+        # That is fine on a box with one terminal and wrong on a box with two: this laptop
+        # runs the bridge's terminal on 25446287 AND a second in AppData logged into
+        # 11581419, which is the VPS's account. Demonstrated 2026-09-03 - a bare
+        # initialize() from the laptop returned the VPS's eight positions.
+        #
+        # So without this check, the laptop's executors would place real orders on the
+        # VPS's account: two boxes trading one account, MAX_OPEN counted separately on
+        # each, and the same setup filled twice at double the intended risk. mt5_bridge.py
+        # has had MT5_EXPECTED_LOGIN since 2026-08-01 for exactly this; the executors
+        # never got it.
+        #
+        # This is not a brake on trading. Each box is meant to trade its OWN demo account,
+        # and pinning is what lets both trade independently instead of colliding. Unset
+        # means "not pinned" and behaves exactly as before, so no existing deployment
+        # changes behaviour by upgrading.
+        expected_login = os.environ.get("MT5_EXPECTED_LOGIN", "").strip()
+        acct = mt5.account_info()
+        if expected_login:
+            actual = str(acct.login) if acct else "unknown"
+            if actual != expected_login:
+                log("REFUSING TO TRADE: attached to account %s but MT5_EXPECTED_LOGIN is %s. "
+                    "A bare initialize() takes whichever terminal answers first, and placing "
+                    "orders on another box's account would double-fill every setup. "
+                    "Nothing was placed." % (actual, expected_login), RED)
+                return 2
+            log("account %s matches MT5_EXPECTED_LOGIN" % actual)
+        else:
+            log("MT5_EXPECTED_LOGIN not set -- trading whichever terminal answered (%s). "
+                "Pin it in this box's executor task to guarantee the right account."
+                % (acct.login if acct else "unknown"), YELLOW)
+
         positions = mt5.positions_get() or []
         mine = [p for p in positions if p.magic == MAGIC]
         held_symbols = {p.symbol for p in mine}
