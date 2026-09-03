@@ -4074,7 +4074,7 @@ async function loadMT5() {
     //
     // The lesson is the structure, not the null check: an added display must fail alone.
     try {
-      renderWholeAccount(positions||[], unmanaged===undefined?null:unmanaged, exposure||[]);
+      renderWholeAccount(positions||[], unmanaged===undefined?null:unmanaged, exposure||[], executorTrades||[]);
     } catch (e) {
       console.error("[whole-account] render failed, positions list unaffected:", e);
       const b=document.getElementById("at-unmanaged-body");
