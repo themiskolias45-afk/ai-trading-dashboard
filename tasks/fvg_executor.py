@@ -298,6 +298,14 @@ def manage_trailing(open_positions):
         if t and row.get("price") is not None and row.get("sl") is not None:
             placed[t] = (float(row["price"]), float(row["sl"]))
 
+    # SAY THAT IT RAN. Without this the trail is completely silent whenever nothing is
+    # armed, which is most cycles - and a guard you cannot see working is indistinguishable
+    # from one that is switched off. That is the whole complaint this feature was turned on
+    # to answer, so it does not get to repeat itself one level down.
+    ours = [p for p in open_positions if p.magic == MAGIC]
+    log("trail: checking %d position(s) under magic %d (arm %.1fR, step %.1fR, giveback %.1fR)"
+        % (len(ours), MAGIC, TRAIL_ARM_R, TRAIL_STEP_R, TRAIL_GIVEBACK_R))
+
     for p in open_positions:
         if p.magic != MAGIC:
             continue
