@@ -3189,11 +3189,24 @@ async function loadPlan(force=false) {
   const url=force?API+"/plan/refresh":API+"/plan"; const method=force?"POST":"GET";
   try {
     const raw=await fetch(url,{method,cache:"no-store"}).then(r=>r.json());
+    // AN ERROR PAYLOAD IS NOT A PLAN. /api/plan answers {"error":"Not logged in."} on an
+    // expired session, and this used to hand that object straight to renderPlan, which
+    // printed its missing regime as the literal string "undefined" in the badge. The
+    // reader gets a plan-shaped panel describing nothing. Say which it is instead.
+    if(raw && raw.error){
+      document.getElementById("plan-body").innerHTML=
+        `<div style="color:var(--amber,#f59e0b);font-size:.78rem">Plan unavailable — ${escapeHtml(String(raw.error))}</div>`;
+      return;
+    }
     const plan=raw.plan??raw;
     renderPlan(plan);
     const badge=document.getElementById("regime-badge");
-    badge.textContent=plan.regime??"MIXED";
-    badge.className="regime-badge regime-"+(plan.regime??"MIXED").replace(" ","-");
+    // Fall back to a word that says "not known" rather than to MIXED, which is a REGIME.
+    // Defaulting to a real value makes an absent reading indistinguishable from a
+    // measured one - the same failure as a snapshot reporting zero when it means unknown.
+    const regime=plan.regime;
+    badge.textContent=regime??"REGIME UNKNOWN";
+    badge.className="regime-badge regime-"+String(regime??"MIXED").replace(" ","-");
   } catch { document.getElementById("plan-body").innerHTML=`<div style="color:var(--red);font-size:.78rem">Plan unavailable.</div>`; }
 }
 
