@@ -5903,6 +5903,51 @@ app.get("/api/mt5/health", (req, res) => {
 // SmartEntry neither opened nor manages. `exposure` nets the two together per symbol,
 // computed here rather than in each surface, because "you are long here and short there"
 // is the condition that is expensive to miss and nobody re-derives it three times reliably.
+// Trades placed by this system's OWN strategy executors, read straight off their
+// ledgers on disk. tasks/fvg_executor.py appends one line per placed order to
+// tk_executed.jsonl / fvg_executed.jsonl / crt_executed.jsonl, with ticket, symbol,
+// direction, lots, price, sl, tp, magic and model.
+//
+// WHY FROM DISK RATHER THAN THE BRIDGE. The bridge filters every position path to magic
+// 20250101, so an executor trade never reaches the server through it -- and teaching the
+// bridge to send them needs a bridge restart, which is exactly what was blocking this all
+// day. The ledgers were already on disk the whole time. Reading them needs nothing but a
+// server that is running.
+//
+// WHAT THIS CANNOT TELL YOU: whether the trade is still open, and its live P/L. The ledger
+// records PLACEMENT, not lifecycle. So these are reported as placed-with-entry/SL/TP and
+// explicitly NOT as live positions - saying "open" about a trade that may have closed
+// would be a worse lie than the omission this replaces.
+const EXECUTOR_LEDGERS = [
+  ["tk_executed.jsonl",  "TK_SWING_PULLBACK"],
+  ["fvg_executed.jsonl", "FVG_CONTINUATION"],
+  ["crt_executed.jsonl", "CRT_FVG"],
+];
+function readExecutorTrades() {
+  const out = [];
+  for (const [file, fallbackModel] of EXECUTOR_LEDGERS) {
+    const p = path.join(__dirname, "..", "tasks", file);
+    let raw;
+    // A missing ledger means that model has never placed a trade - normal, not an error.
+    try { raw = fs.readFileSync(p, "utf8"); } catch (e) { continue; }
+    for (const line of raw.split(String.fromCharCode(10))) {
+      if (!line.trim()) continue;
+      let row;
+      // One malformed line must not hide every good one on either side of it.
+      try { row = JSON.parse(line); } catch (e) { continue; }
+      if (!row || row.placed === false) continue;
+      out.push({
+        ticket: row.ticket ?? null, symbol: row.symbol ?? null,
+        type: row.direction ?? null, volume: row.lots ?? null,
+        price: row.price ?? null, sl: row.sl ?? null, tp: row.tp ?? null,
+        magic: row.magic ?? null, model: row.model || fallbackModel,
+        placedAt: row.at ?? null, source: file,
+      });
+    }
+  }
+  return out.sort((a, b) => String(b.placedAt).localeCompare(String(a.placedAt)));
+}
+
 app.get("/api/mt5/positions", (_, res) => {
   const unmanaged = Object.entries(mt5UnmanagedByAccount).flatMap(([account, rows]) =>
     (rows || []).map(p => ({ ...p, account })));
@@ -5949,6 +5994,8 @@ app.get("/api/mt5/positions", (_, res) => {
     positions: mt5Positions, byAccount: mt5PositionsByAccount,
     unmanaged, unmanagedByAccount: mt5UnmanagedByAccount,
     executors, foreign, unclassified,
+    // Placed by our own executors, read from their ledgers. Independent of the bridge.
+    executorTrades: readExecutorTrades(),
     exposure: Object.values(exposure).sort((a, b) => a.symbol.localeCompare(b.symbol)),
     note: "positions = SmartEntry engine only (magic 20250101). executors = this system's OWN strategy executors on their own magics (TK_SWING_PULLBACK, FVG_CONTINUATION, CRT_FVG) - yours, but not managed by the main engine. foreign = third-party EAs on the same account. unclassified = a bridge too old to tag them. Nothing outside 'positions' is sized, managed or closed by SmartEntry.",
   });
