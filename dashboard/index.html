@@ -4062,7 +4062,10 @@ async function loadMT5() {
   try {
     const {positions,unmanaged,exposure}=await getJson("/mt5/positions");
     _lastMT5=positions||[];
-    renderWholeAccount(positions||[], unmanaged||[], exposure||[]);
+    // unmanaged===undefined means an OLDER server build that does not report it, which is
+    // NOT the same as an account with nothing else open. Passed as null so the renderer can
+    // say "unknown" rather than "nothing".
+    renderWholeAccount(positions||[], unmanaged===undefined?null:unmanaged, exposure||[]);
     const render=(id)=>{
       const el=document.getElementById(id); if(!el)return;
       if(!positions||positions.length===0){el.innerHTML=`<div style="color:var(--muted);font-size:.78rem">No open positions — run mt5_bridge.py to connect.</div>`;return;}
