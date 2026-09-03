@@ -5976,7 +5976,30 @@ app.get("/api/mt5/positions", (_, res) => {
     ? snapshot.positions.filter(p => p.owner === "executor")
               .map(p => ({ ...p, account: "A", fromSnapshot: true }))
     : [];
-  const allUnmanaged = unmanaged.length ? unmanaged : unmanagedFromSnapshot;
+  // CLASSIFY BY MAGIC HERE, DO NOT TRUST THE ROW TO CARRY IT.
+  //
+  // The bridge tags each row owner/model, but only since today - and the process actually
+  // running predates that, so its rows arrive with owner undefined. Untagged rows were
+  // falling straight through this filter and a third-party EA (magic 996142) appeared on
+  // the laptop page. Restarting the bridge would fix the tagging; deriving it here fixes
+  // it without one, and keeps working if a future bridge ever stops sending the field.
+  //
+  // The allow-list is THIS SYSTEM'S magic numbers and nothing else. Anything not on it is
+  // dropped, whatever appears on the account and whoever put it there.
+  const OWN_MAGICS = {
+    20250101: "SmartEntry",
+    20260902: "FVG_CONTINUATION",
+    20260903: "TK_SWING_PULLBACK",
+    20260904: "CRT_FVG",
+  };
+  const classify = (p) => {
+    const model = OWN_MAGICS[Number(p.magic)];
+    if (!model) return null;                       // not ours - never displayed
+    return { ...p, model: p.model || (model === "SmartEntry" ? null : model),
+             owner: Number(p.magic) === 20250101 ? "smartentry" : "executor" };
+  };
+  const allUnmanaged = (unmanaged.length ? unmanaged : unmanagedFromSnapshot)
+    .map(classify).filter(Boolean);
   const exposure = {};
   const tally = (p, owner) => {
     const e = exposure[p.symbol] || (exposure[p.symbol] = {
