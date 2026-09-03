@@ -106,12 +106,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   console.log(stoodDown ? "  bridge has stood down" : "  bridge still reporting — it may not carry the stand-down code yet");
 
-  try {
-    execFileSync("powershell", ["-NoProfile", "-Command", "Start-ScheduledTask -TaskName '" + ENSURE_TASK + "'"], { stdio: "pipe" });
-    console.log("triggered '" + ENSURE_TASK + "' to bring it back");
-  } catch (e) {
-    console.error("could not trigger " + ENSURE_TASK + ": " + e.message);
-    console.error("it runs on its own schedule anyway; the bridge returns within ~10 minutes");
+  const ensureTask = resolveEnsureTask();
+  if (!ensureTask) {
+    console.log("no ensure-running task found under either known name — the bridge will be");
+    console.log("refilled by whatever schedule this box uses; expect it back within ~10 minutes");
+  } else {
+    try {
+      execFileSync("powershell", ["-NoProfile", "-Command", "Start-ScheduledTask -TaskName '" + ensureTask + "'"], { stdio: "pipe" });
+      console.log("triggered '" + ensureTask + "' to bring it back");
+    } catch (e) {
+      console.error("could not trigger " + ensureTask + ": " + e.message);
+      console.error("it runs on its own schedule anyway; the bridge returns within ~10 minutes");
+    }
   }
 
   for (let i = 0; i < 24; i++) {
