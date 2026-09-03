@@ -6633,6 +6633,27 @@ async function loadPreopenPlan() {
       out.push((p.deadCohortNames || []).map(n => '<div class="pop-dead">· ' + escapeHtml(n) + '</div>').join(''));
     }
 
+    // WAS THIS PLAN EVER RIGHT? Rendered here because a forecast shown without its
+    // track record invites you to trust it, and 52 plans had been written before anything
+    // checked one. Read-only: the scorecard changes no threshold and feeds no gate.
+    try {
+      const sc = await getJson('/preopen-score');
+      if (sc && !sc.unavailable && sc.predictions > 0) {
+        const pct = (n, d) => d ? Math.round(n / d * 1000) / 10 : 0;
+        out.push('<div class="pop-h">How often this plan was right</div>');
+        out.push('<div class="pop-sub">' + sc.plansScored + ' plans resolved · ' + sc.predictions
+          + ' per-asset calls scored against the journal. A plan is only scored once its session has closed.</div>');
+        out.push('<div class="pop-sub">Said <b>WOULD FIRE</b> ' + sc.readySaid + ' times — traded '
+          + sc.readyAndTraded + ' (' + pct(sc.readyAndTraded, sc.readySaid) + '%). '
+          + 'Said not ready ' + sc.notReadySaid + ' times — traded anyway ' + sc.notReadyButTraded + '.</div>');
+        for (const b of (sc.bands || [])) {
+          out.push('<div class="pop-dead">· ' + escapeHtml(b.band) + ' from the gate — n=' + b.n
+            + ', a trade followed ' + b.tradedPct + '% of the time</div>');
+        }
+        out.push('<div class="cal-foot">' + escapeHtml(sc.caveat || '') + '</div>');
+      }
+    } catch (e) { /* the scorecard is additive - never let it blank the plan above it */ }
+
     out.push('<div class="cal-foot">Built ' + escapeHtml(String(p.generatedAt).replace('T', ' ').slice(0, 16))
       + ' UTC by the daily pre-open job, about an hour before the NEW YORK open — the exact '
       + 'slot moves nightly to keep that hour clear of high-impact news. Every figure is read live or from '

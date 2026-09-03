@@ -12254,6 +12254,27 @@ const PREOPEN_PLAN_MISSED_OPEN_MINUTES = 24 * 60;   // one open to the next
 // a far-future date would otherwise read as fresh forever. Deliberately 48h, not 24h,
 // so no slot shift can ever reach it.
 const PREOPEN_PLAN_ABSURD_AGE_MINUTES = 48 * 60;
+// HOW OFTEN THE PRE-OPEN PLAN WAS RIGHT.
+//
+// The plan makes a falsifiable call every run - per asset, "would fire" and a gap to the
+// gate - and 52 of them had been written without one ever being checked. A forecast nobody
+// scores teaches nothing: it cannot be wrong, so it cannot improve, and a reader has no way
+// to tell whether "30pt short" means "nearly traded" or "never trades".
+//
+// Reads the artifact written by tasks/preopen_score.cjs. Reporting only: it changes no
+// threshold, feeds no gate and opens nothing. A miss is a prompt to look, not a verdict -
+// "ready but no trade" can be correct behaviour when a downstream gate refused for a good
+// reason.
+app.get("/api/preopen-score", (_, res) => {
+  const p = path.join(__dirname, "..", "tasks", "analysis", "preopen-score-latest.json");
+  try {
+    res.json(JSON.parse(fs.readFileSync(p, "utf8")));
+  } catch (e) {
+    // Absent is not zero. Say which it is.
+    res.json({ unavailable: true, reason: "no scorecard yet — run node tasks/preopen_score.cjs" });
+  }
+});
+
 app.get("/api/preopen-plan", (_, res) => {
   const file = path.join(__dirname, "..", "tasks", "analysis", "preopen-plan-latest.json");
   try {
