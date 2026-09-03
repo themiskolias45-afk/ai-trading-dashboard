@@ -168,7 +168,35 @@ function buildDayClock(built) {
   const preOpenBlocked = blackouts.filter(b =>
     Date.parse(b.blocksUntil) > preOpenFrom.getTime() && Date.parse(b.blocksFrom) < nyOpen.getTime());
 
+  // THE OPEN AFTER THIS ONE, and the blackouts around it. Built from the RAW event
+  // list rather than `inWindow`, which deliberately stops at the end of the session being
+  // planned - correct for the document, useless for scheduling the next run.
+  //
+  // NEW YORK opens on weekdays only, so a following open landing on a Saturday or Sunday
+  // is advanced to Monday. Without that the slot would be computed for a day the market
+  // never opens and Monday's plan would keep whatever trigger Friday left behind.
+  const followingOpen = new Date(nyOpen);
+  followingOpen.setUTCDate(followingOpen.getUTCDate() + 1);
+  while (followingOpen.getUTCDay() === 0 || followingOpen.getUTCDay() === 6) {
+    followingOpen.setUTCDate(followingOpen.getUTCDate() + 1);
+  }
+  const followingFrom = followingOpen.getTime() - PREOPEN_EARLIEST_MINUTES_BEFORE * 60000;
+  const followingBlackouts = events
+    .filter(e => {
+      const t = Date.parse(e.at);
+      return Number.isFinite(t) && !!(e.high && e.watched)
+        && t >= followingFrom - windowMins * 60000
+        && t <= followingOpen.getTime() + windowMins * 60000;
+    })
+    .map(e => ({
+      at: e.at, title: e.title, impact: e.impact,
+      blocksFrom: new Date(Date.parse(e.at) - windowMins * 60000).toISOString(),
+      blocksUntil: new Date(Date.parse(e.at) + windowMins * 60000).toISOString(),
+    }))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+
   return { windowMins, events: inWindow, blackouts, blocks, nyOpen, preOpenBlocked,
+           followingOpen, followingBlackouts,
            unavailable: built.calendarUnavailable, error: raw.calendar.error || null };
 }
 
@@ -178,8 +206,33 @@ function buildDayClock(built) {
 // inside any blackout, floored so the plan never becomes a stale morning artifact. If
 // every candidate is blocked it returns the floor and says so — it does not silently
 // pick a blocked slot and it does not silently skip a day.
+// The slot for the open this plan DESCRIBES. Kept exactly as it was.
 function computePreOpenSlot(clock) {
-  const nyOpen = clock.nyOpen;
+  return computeSlotForOpen(clock.nyOpen, clock.blackouts, clock.unavailable);
+}
+
+// THE SLOT FOR THE *NEXT* OPEN - which is the one the rescheduler actually needs.
+//
+// computePreOpenSlot answers "when should the plan I am building now have run?", and the
+// answer is always the run that just happened. tasks/reschedule_preopen.ps1 was reading
+// that to place TOMORROW's trigger, so it was a day out of phase: on 2026-09-03 it read
+// "the hour before the open is clear" - true of 09-03, which had no high-impact event -
+// and left tomorrow's trigger at 12:00 UTC, the first minute of the 12:00-13:00 blackout
+// created by three HIGH releases at 12:30 on 09-04 (Non-Farm Employment Change, Average
+// Hourly Earnings, Unemployment Rate).
+//
+// The plan would have opened by announcing that the hour it covers is shut, which is the
+// exact failure the rescheduler's own header says it was written to prevent.
+//
+// The calendar already carries those events - 114 of them across six days, 11 on 09-04.
+// buildDayClock filters them to the session being planned, which is right for the document
+// and wrong for this question, so this reads the unfiltered list.
+function computeNextPreOpenSlot(clock) {
+  return computeSlotForOpen(clock.followingOpen, clock.followingBlackouts, clock.unavailable);
+}
+
+function computeSlotForOpen(nyOpen, blackoutList, unavailable) {
+  const clock = { nyOpen, blackouts: blackoutList || [], unavailable };
   const target = new Date(nyOpen.getTime() - PREOPEN_TARGET_MINUTES_BEFORE * 60000);
   const earliest = new Date(nyOpen.getTime() - PREOPEN_EARLIEST_MINUTES_BEFORE * 60000);
 
@@ -552,6 +605,11 @@ async function buildDeep() {
     newYorkOpen: built.plan.nextNewYorkOpen,
     minutesToNewYork: built.plan.minutesToNewYork,
     preOpenSlot: slot,
+    // What tasks/reschedule_preopen.ps1 must read. preOpenSlot describes the run that just
+    // happened; this one describes the run being scheduled.
+    nextPreOpenSlot: computeNextPreOpenSlot(clock),
+    nextNewYorkOpen: clock.followingOpen ? clock.followingOpen.toISOString() : null,
+    nextPreOpenBlockedBy: (clock.followingBlackouts || []).map(b => ({ at: b.at, title: b.title })),
     since: reviewSincePrevious(previous, assets,
       (journal.data && (journal.data.trades || journal.data.entries || journal.data)) || []),
     clock: { windowMinutes: clock.windowMins, unavailable: clock.unavailable, error: clock.error,

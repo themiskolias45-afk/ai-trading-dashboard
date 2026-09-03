@@ -47,9 +47,28 @@ try {
     exit 1
 }
 
-$slot = $plan.preOpenSlot
+# PICK THE FIRST SLOT STILL IN THE FUTURE.
+#
+# preOpenSlot describes the open the plan was BUILT FOR, and whether that is today or
+# tomorrow depends entirely on what time deep_plan ran. Run before the open it is today -
+# the run that has already happened - and run after it, it is tomorrow. Reading it blindly
+# made this script a day out of phase whenever the pre-open job was its most recent
+# writer, which is exactly when it matters: on 2026-09-03 it read "the hour before the
+# open is clear" (true of 09-03) and left tomorrow trigger at 12:00 UTC, the first minute
+# of the 12:00-13:00 blackout from three HIGH releases at 12:30 on 09-04.
+#
+# nextPreOpenSlot is the open after that one. Taking whichever is still ahead of now makes
+# the answer independent of the hour this runs, which is the only property that survives
+# someone moving the schedule later.
+$slot = $null
+foreach ($cand in @($plan.preOpenSlot, $plan.nextPreOpenSlot)) {
+    if (-not $cand -or -not $cand.at) { continue }
+    $candUtc = [DateTime]::Parse($cand.at, [Globalization.CultureInfo]::InvariantCulture,
+                                 [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
+    if ($candUtc -gt [DateTime]::UtcNow) { $slot = $cand; break }
+}
 if (-not $slot -or -not $slot.at) {
-    Say "NO CHANGE: the plan carries no preOpenSlot."
+    Say "NO CHANGE: the plan carries no pre-open slot that is still in the future."
     exit 1
 }
 
