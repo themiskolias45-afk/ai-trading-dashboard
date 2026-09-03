@@ -369,6 +369,35 @@ function bridgeLauncherFor(tag) {
   console.log("\nAll pre-flight checks passed.");
   if (DRY_RUN) { console.log("DRY RUN — stopping here. Nothing was touched."); return; }
 
+  // PIDs BEFORE. The reconnect check below asks "is a bridge reporting", and a bridge that
+  // WAS NEVER STOPPED answers yes — so this tool could report a clean restart having
+  // replaced nothing.
+  //
+  // That is not hypothetical. On the VPS on 2026-09-03 it printed "reconnected after 10s",
+  // "600-bar change is live" and "Done", while python PID 828 from 2026-09-01 01:59 was
+  // still running the pre-patch code. The bridge log has no restart banner anywhere in the
+  // window — one continuous run straight through. The deploy read as complete and the new
+  // field simply never appeared, which is the most expensive shape of failure this repo
+  // has: a green check over an unchanged system.
+  //
+  // ROOT CAUSE, and it is not the one the comments above cover. Stop-ScheduledTask kills
+  // only what the TASK owns. A bridge started any other way — by hand, or by
+  // ensure_running.ps1's detached Start-Process — is not the task's child, so stopping the
+  // task is a no-op against it and no error is raised. Ownership is the thing that has to
+  // be checked, and it cannot be assumed from the task existing.
+  const bridgePids = () => {
+    if (!(HOST === "localhost" || HOST === "127.0.0.1")) return null;  // remote: unknowable from here
+    try {
+      const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command",
+        "(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | " +
+        "Where-Object { $_.CommandLine -like '*mt5_bridge.py*' }).ProcessId -join ','"],
+        { encoding: "utf8" }).trim();
+      return out ? out.split(",").map(s => s.trim()).filter(Boolean) : [];
+    } catch (e) { return null; }
+  };
+  const pidsBefore = bridgePids();
+  if (pidsBefore) console.log("  bridge python PID(s) before: " + (pidsBefore.join(", ") || "(none)"));
+
   // ── restart ────────────────────────────────────────────────────────────────
   //
   // TWO MECHANISMS, because the boxes are not built the same. The VPS owns a per-bridge
