@@ -85,7 +85,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log(open.length + " engine position(s) open" + (open.length ? ", all with broker-side stops" : ""));
   if (naked.length) { console.error(naked.length + " position(s) have NO broker stop — refusing, they would be unprotected through the gap"); process.exit(4); }
 
-  if (DRY) { console.log("DRY RUN — would request the restart and then trigger '" + ENSURE_TASK + "'. Nothing done."); return; }
+  if (DRY) {
+    const t = resolveEnsureTask();
+    console.log("DRY RUN — would request the restart, then trigger " +
+                (t ? "'" + t + "'" : "no ensure task found under either known name") + ". Nothing done.");
+    return;
+  }
 
   const ask = await req("POST", "/api/mt5/restart-bridge");
   if (ask.error || !ask.json || ask.json.ok !== true) {
