@@ -4065,7 +4065,21 @@ async function loadMT5() {
     // unmanaged===undefined means an OLDER server build that does not report it, which is
     // NOT the same as an account with nothing else open. Passed as null so the renderer can
     // say "unknown" rather than "nothing".
-    renderWholeAccount(positions||[], unmanaged===undefined?null:unmanaged, exposure||[]);
+    // ISOLATED ON PURPOSE. A fault in this NEW panel must never be able to blank the
+    // positions list that has always worked. Without this try/catch it did exactly that:
+    // one unguarded `unmanaged.length` threw, loadMT5's catch swallowed it, and the catch
+    // wipes mt5-body AND mt5-body-at to "MT5 bridge not connected" — so the Auto Trade
+    // page showed no trades and looked like a dead bridge, on both boxes, while both
+    // bridges were reporting every 60 seconds.
+    //
+    // The lesson is the structure, not the null check: an added display must fail alone.
+    try {
+      renderWholeAccount(positions||[], unmanaged===undefined?null:unmanaged, exposure||[]);
+    } catch (e) {
+      console.error("[whole-account] render failed, positions list unaffected:", e);
+      const b=document.getElementById("at-unmanaged-body");
+      if(b) b.innerHTML=`<div style="color:var(--amber,#f59e0b);font-size:.78rem">Whole-account view failed to render (${String(e && e.message || e)}). The positions list above is unaffected.</div>`;
+    }
     const render=(id)=>{
       const el=document.getElementById(id); if(!el)return;
       if(!positions||positions.length===0){el.innerHTML=`<div style="color:var(--muted);font-size:.78rem">No open positions — run mt5_bridge.py to connect.</div>`;return;}
