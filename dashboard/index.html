@@ -6528,6 +6528,27 @@ function popAssetCard(a, gate) {
     + '<div class="pop-legs">conf ' + a.confidence + '%  ·  ' + legHtml + '</div>'
     + '<div class="pop-setup">' + escapeHtml(a.setup || 'no setup') + ' ('
     + escapeHtml(a.dataSource || '?') + ')</div>'
+    // READY is not the same as "a trade will follow". If the engine already holds this
+    // symbol in this direction, server/sizing.js:341 refuses the entry as a duplicate —
+    // so the plan was right about the gate and wrong about the outcome, and a reader
+    // hears "a trade is coming". Saying it turns a misleading READY into an honest one.
+    //
+    // Display only. This refuses nothing; it reports what the engine will refuse.
+    + (a.wouldBeDuplicate
+        ? '<div class="pop-dead">already holding '
+          + (a.heldByEngine || []).map(h => '#' + h.ticket).join(', ')
+          + ' — a new entry would be refused as DUPLICATE</div>'
+        : ((a.heldByEngine || []).length
+            ? '<div class="pop-sub">engine holds '
+              + a.heldByEngine.map(h => '#' + h.ticket + ' ' + h.type).join(', ') + '</div>'
+            : ''))
+    // Executor positions carry their own magic and are placed by a different caller, so
+    // they do NOT trigger the engine's duplicate guard. Shown as context, never as a block.
+    + ((a.heldByExecutor || []).length
+        ? '<div class="pop-sub">executor holds '
+          + a.heldByExecutor.map(h => escapeHtml(h.model || '?')).join(', ')
+          + ' — does not block the engine</div>'
+        : '')
     + '</div>';
 }
 
