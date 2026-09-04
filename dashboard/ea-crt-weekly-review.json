@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-04T11:30:33.909978+00:00",
+ "generatedAt": "2026-09-04T11:31:13.605868+00:00",
  "scope": "EA_CRT_AMD_Dashboard only - NOT SmartEntry, never pooled with it",
  "feedsTheGate": false,
  "lookbackDays": 7,
@@ -18,18 +18,15 @@
   "largestLoss": -436.85
  },
  "thisWeekBySymbol": {},
- "liveConfigSentry": "RD\t0\t11:16:56.220\tEA_CRT_AMD_Dashboard_v355 (XAUUSD,M15)\tv3.51 CONFIG DRIFT: TrailRR 1.5<>1.2  TRAIL OFF",
- "mt5AssistantPermissionsTrade": {
-  "5B9C24F1": 0,
-  "D0E8209F": 0
- },
- "liveConfigSentryLogDay": "20260904",
+ "liveConfigSentry": null,
+ "mt5AssistantPermissionsTrade": {},
+ "liveConfigSentryLogDay": null,
  "findings": [
   {
-   "severity": "OK",
-   "check": "NO_ISSUES",
-   "detail": "No sizing anomaly, no exit asymmetry, no config drift, one instance, gold only.",
-   "action": "Nothing to change. Let the sample grow."
+   "severity": "INFO",
+   "check": "NO_SENTRY_LINE",
+   "detail": "No CONFIG SENTRY line in the last 14 days of MT5 logs.",
+   "action": "The EA may not be attached. Confirm it is on XAUUSD M15."
   }
  ]
 }
