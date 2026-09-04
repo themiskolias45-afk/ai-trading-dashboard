@@ -1,0 +1,31 @@
+{
+ "generatedAt": "2026-09-04T11:20:20.131903+00:00",
+ "scope": "EA_CRT_AMD_Dashboard only - NOT SmartEntry, never pooled with it",
+ "feedsTheGate": false,
+ "lookbackDays": 7,
+ "thisWeek": null,
+ "allTime": {
+  "trades": 36,
+  "wins": 15,
+  "losses": 21,
+  "winRatePct": 41.67,
+  "netProfit": -457.52,
+  "profitFactor": 0.279,
+  "expectancyPerTrade": -12.71,
+  "avgWin": 11.8,
+  "avgLoss": -30.21,
+  "largestWin": 32.85,
+  "largestLoss": -436.85
+ },
+ "thisWeekBySymbol": {},
+ "liveConfigSentry": "RD\t0\t11:16:56.220\tEA_CRT_AMD_Dashboard_v355 (XAUUSD,M15)\tv3.51 CONFIG DRIFT: TrailRR 1.5<>1.2  TRAIL OFF",
+ "liveConfigSentryLogDay": "20260904",
+ "findings": [
+  {
+   "severity": "OK",
+   "check": "NO_ISSUES",
+   "detail": "No sizing anomaly, no exit asymmetry, no config drift, one instance, gold only.",
+   "action": "Nothing to change. Let the sample grow."
+  }
+ ]
+}

@@ -44,13 +44,23 @@ MAGIC_MODEL = {
 }
 
 
+# The chart EA is NOT part of SmartEntry and must never be pooled with it. It is a
+# standalone MT5 expert with its own magic, its own config and its own record; SmartEntry
+# is the bridge plus its strategy executors. Averaging the two produces a "system" number
+# that describes neither, and an EA problem would hide inside SmartEntry's totals (or the
+# reverse). They are reported side by side and never summed.
+CHART_EA_MAGICS = {26070401, 26070402, 26070455}
+
+
 def resolve(row):
     """Model and owner from the magic, falling back to whatever the row stored."""
     magic = row.get("magic")
     model = MAGIC_MODEL.get(magic)
     if model:
-        row = dict(row, model=model,
-                   owner="smartentry" if magic == 20250101 else "executor")
+        owner = ("smartentry" if magic == 20250101
+                 else "chart_ea" if magic in CHART_EA_MAGICS
+                 else "executor")
+        row = dict(row, model=model, owner=owner)
     return row
 
 
@@ -120,7 +130,9 @@ def group(rows, key):
 
 def main():
     rows = load()
+    # SmartEntry = the bridge + its executors. The chart EA is kept out deliberately.
     ours = [r for r in rows if r.get("owner") in ("smartentry", "executor")]
+    chart_ea = [r for r in rows if r.get("owner") == "chart_ea"]
     payload = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "ledger": os.path.basename(LEDGER),
@@ -128,7 +140,12 @@ def main():
         "totalRowsInLedger": len(rows),
         # Everything this system placed, separated from the third-party EAs sharing the
         # accounts. Pooling them would credit our models with other people's trades.
-        "systemPlaced": stats(ours),
+        "smartEntry": stats(ours),
+        # Reported separately, never merged into smartEntry. See CHART_EA_MAGICS.
+        "crtDashboardEA": stats(chart_ea),
+        "crtDashboardEAByModel": group(chart_ea, "model"),
+        "separationNote": ("EA_CRT_AMD_Dashboard is a standalone MT5 expert, not part of "
+                           "SmartEntry. The two are never summed."),
         "byOwner": group(rows, "owner"),
         "byModel": group(ours, "model"),
         "byAccount": group(ours, "account"),
@@ -152,9 +169,12 @@ def main():
     except OSError as exc:
         print("could not publish to dashboard/: %s" % exc)
 
-    sp = payload["systemPlaced"] or {}
-    print("system-placed: %s trades, net %s, PF %s, win rate %s%%"
+    sp = payload["smartEntry"] or {}
+    ea = payload["crtDashboardEA"] or {}
+    print("SmartEntry (bridge + executors): %s trades, net %s, PF %s, win %s%%"
           % (sp.get("trades"), sp.get("netProfit"), sp.get("profitFactor"), sp.get("winRatePct")))
+    print("CRT Dashboard EA (separate):     %s trades, net %s, PF %s, win %s%%"
+          % (ea.get("trades"), ea.get("netProfit"), ea.get("profitFactor"), ea.get("winRatePct")))
     for model, s in payload["byModel"].items():
         print("   %-28s %4d trades  net %9.2f  PF %-7s  win %5.1f%%"
               % (model, s["trades"], s["netProfit"],
