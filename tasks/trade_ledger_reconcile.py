@@ -36,7 +36,7 @@
 # the login it was actually read from - a ledger that does not say which account it
 # describes is worse than none.
 import json, os, sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import MetaTrader5 as mt5
 
@@ -56,11 +56,19 @@ KNOWN = {
 
 DEAL_ENTRY_IN, DEAL_ENTRY_OUT, DEAL_ENTRY_INOUT, DEAL_ENTRY_OUT_BY = 0, 1, 2, 3
 EPOCH_START = datetime(2015, 1, 1, tzinfo=timezone.utc)
+# MT5 stamps deals in the BROKER's server time (UTC+2/+3 here), not UTC. Bounding the
+# query with now(UTC) put every deal of the last few hours in the "future" and silently
+# dropped it: the FVG XAUUSD trade of 2026-09-04 (+204.93) read 12:31 server against a
+# 11:47 UTC now and was excluded. Query well past the end instead - history cannot contain
+# anything after the real now, so over-reaching costs nothing and under-reaching loses data.
+SERVER_TIME_SLACK = timedelta(days=2)
 
 
-def seen_position_ids():
-    """Position ids already in the ledger. A malformed line must not hide the good ones,
-    and must never cause a re-append that would duplicate a trade."""
+def seen_keys():
+    """Keys already in the ledger, as account:positionId. Position ids are only unique
+    WITHIN an account, so keying on the id alone would make a trade on the second account
+    look like one already recorded and silently drop it - a data loss in the one file whose
+    whole purpose is not losing any. A malformed line must not hide the good ones."""
     seen = set()
     if not os.path.exists(OUT):
         return seen
@@ -75,7 +83,7 @@ def seen_position_ids():
                 continue
             pid = row.get("positionId")
             if pid is not None:
-                seen.add(pid)
+                seen.add("%s:%s" % (row.get("account"), pid))
     return seen
 
 
@@ -135,7 +143,11 @@ def build_closed_trades(deals):
 
 
 def main():
-    if not mt5.initialize():
+    # A bare initialize() attaches to whichever terminal answers first. Pass a terminal
+    # path to record the other account. It never launches anything that is not already
+    # running: if attaching fails we report and stop rather than starting a terminal.
+    term = sys.argv[1] if len(sys.argv) > 1 else None
+    if not (mt5.initialize(term) if term else mt5.initialize()):
         sys.stderr.write("initialize failed: %s\n" % (mt5.last_error(),))
         return 1
     try:
@@ -143,14 +155,14 @@ def main():
         login = info.login if info else None
         server = info.server if info else None
         now = datetime.now(timezone.utc)
-        deals = mt5.history_deals_get(EPOCH_START, now)
+        deals = mt5.history_deals_get(EPOCH_START, now + SERVER_TIME_SLACK)
         if deals is None:
             sys.stderr.write("history_deals_get returned None: %s\n" % (mt5.last_error(),))
             return 1
 
         trades = build_closed_trades(deals)
-        seen = seen_position_ids()
-        fresh = [t for t in trades if t["positionId"] not in seen]
+        seen = seen_keys()
+        fresh = [t for t in trades if "%s:%s" % (login, t["positionId"]) not in seen]
         fresh.sort(key=lambda t: t["closeTime"])
 
         recorded_at = now.isoformat()
