@@ -1,11 +1,11 @@
-﻿{
-    "checkedAt":  "2026-09-04T12:41:15.7748211Z",
+{
+    "checkedAt":  "2026-09-04T13:00:06.2434737Z",
     "host":  "VMI3465345",
     "action":  "already running",
     "mt5Running":  true,
     "pid":  5408,
     "mt5StartedAt":  "2026-09-04T14:04:25.5942391+02:00",
-    "mt5UptimeHours":  0.6,
+    "mt5UptimeHours":  0.9,
     "terminalBuild":  "5.0.0.6140",
     "account":  "11581419 @ VantageMarkets-Demo through AS03",
     "algoTradingAllowed":  1,
