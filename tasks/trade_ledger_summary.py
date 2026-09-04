@@ -24,6 +24,31 @@ LEDGER = os.path.join(HERE, "all_trades_ledger.jsonl")
 OUT = os.path.join(HERE, "trade_ledger_summary.json")
 
 
+# Magic -> model, resolved at READ time. The ledger is append-only and rows written
+# before a magic was recognised carry "unknown_magic_N" for ever; rewriting them to
+# relabel would violate the one guarantee that file makes. So the mapping lives here,
+# where it can be corrected without touching a byte of the record.
+MAGIC_MODEL = {
+    20250101: "SmartEntry_bridge",
+    20260902: "FVG_CONTINUATION",
+    20260903: "TK_SWING_PULLBACK",
+    20260904: "CRT_FVG",
+    26070401: "EA_CRT_AMD_Dashboard",
+    26070402: "EA_CRT_AMD_Dashboard",   # second instance of the same EA, July trial
+    26070455: "EA_CRT_AMD_Dashboard_v355",
+}
+
+
+def resolve(row):
+    """Model and owner from the magic, falling back to whatever the row stored."""
+    magic = row.get("magic")
+    model = MAGIC_MODEL.get(magic)
+    if model:
+        row = dict(row, model=model,
+                   owner="smartentry" if magic == 20250101 else "executor")
+    return row
+
+
 def load():
     rows = []
     if not os.path.exists(LEDGER):
@@ -35,7 +60,7 @@ def load():
                 continue
             # One malformed row must not hide the 12,000 good ones on either side of it.
             try:
-                rows.append(json.loads(line))
+                rows.append(resolve(json.loads(line)))
             except ValueError:
                 continue
     return rows
