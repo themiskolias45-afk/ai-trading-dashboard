@@ -1,0 +1,127 @@
+# Aggregates tasks/all_trades_ledger.jsonl into tasks/trade_ledger_summary.json.
+#
+# WHY. The ledger is the only record that pools BOTH accounts and BOTH boxes from broker
+# truth, and it is the only place the executor models appear at all - the FVG trades of
+# 2026-09-03/04 (+94.74 and +204.93) reached neither box's journal. But 12,453 raw rows
+# are not something a person or the learning engine can read. This turns them into the
+# per-model record that did not exist: how each strategy is ACTUALLY doing, live, net.
+#
+# READ-ONLY AND UNABLE TO BLOCK. It reads one file and writes one file that nothing
+# trades from. It touches no gate, no threshold, no setting, no signal path, no journal
+# and no other ledger. If it fails, nothing changes anywhere.
+#
+# feedsTheGate is false and stays false, for the same reason it is false on the shadow
+# ledgers: a live P&L table that silently reweights the engine is how a bad month starts
+# suppressing the setups that would end it. This is a MEASUREMENT surface. Deciding that
+# a model should trade more or less is a human call made on these numbers, not an
+# automatic consequence of them.
+import json, os
+from collections import defaultdict
+from datetime import datetime, timezone
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+LEDGER = os.path.join(HERE, "all_trades_ledger.jsonl")
+OUT = os.path.join(HERE, "trade_ledger_summary.json")
+
+
+def load():
+    rows = []
+    if not os.path.exists(LEDGER):
+        return rows
+    with open(LEDGER, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            # One malformed row must not hide the 12,000 good ones on either side of it.
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows
+
+
+def stats(rows):
+    """Plain arithmetic on realised broker P&L. No modelling, no assumed costs: swap and
+    commission are already inside netProfit, so this is what the account actually did."""
+    n = len(rows)
+    if not n:
+        return None
+    nets = [r.get("netProfit") or 0.0 for r in rows]
+    wins = [x for x in nets if x > 0]
+    losses = [x for x in nets if x < 0]
+    gross_win = sum(wins)
+    gross_loss = -sum(losses)
+    rows_sorted = sorted(rows, key=lambda r: r.get("closeTime") or "")
+    return {
+        "trades": n,
+        "wins": len(wins),
+        "losses": len(losses),
+        # Scratches (exactly 0.00) are neither, so this is reported rather than inferred
+        # from trades-minus-wins, which would quietly count them as losses.
+        "scratches": n - len(wins) - len(losses),
+        "winRatePct": round(len(wins) * 100.0 / n, 2),
+        "netProfit": round(sum(nets), 2),
+        "grossProfit": round(gross_win, 2),
+        "grossLoss": round(-gross_loss, 2),
+        # None, never 0 or 99: a model with no losing trade yet has an UNDEFINED profit
+        # factor, and printing a number there would read as a finished verdict.
+        "profitFactor": round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
+        "expectancyPerTrade": round(sum(nets) / n, 2),
+        "largestWin": round(max(nets), 2),
+        "largestLoss": round(min(nets), 2),
+        "firstClose": rows_sorted[0].get("closeTime"),
+        "lastClose": rows_sorted[-1].get("closeTime"),
+    }
+
+
+def group(rows, key):
+    out = {}
+    buckets = defaultdict(list)
+    for r in rows:
+        buckets[str(r.get(key))].append(r)
+    for name, group_rows in buckets.items():
+        s = stats(group_rows)
+        if s:
+            out[name] = s
+    # Best net first: the question asked of this file is almost always "which is working".
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]["netProfit"]))
+
+
+def main():
+    rows = load()
+    ours = [r for r in rows if r.get("owner") in ("smartentry", "executor")]
+    payload = {
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "ledger": os.path.basename(LEDGER),
+        "feedsTheGate": False,
+        "totalRowsInLedger": len(rows),
+        # Everything this system placed, separated from the third-party EAs sharing the
+        # accounts. Pooling them would credit our models with other people's trades.
+        "systemPlaced": stats(ours),
+        "byOwner": group(rows, "owner"),
+        "byModel": group(ours, "model"),
+        "byAccount": group(ours, "account"),
+        "bySymbol": group(ours, "symbol"),
+        "foreignNote": ("owner=foreign are third-party EAs on the same accounts. Counted "
+                        "separately and never merged into model performance."),
+    }
+    tmp = OUT + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=1)
+    os.replace(tmp, OUT)   # atomic: a reader never sees a half-written file
+
+    sp = payload["systemPlaced"] or {}
+    print("system-placed: %s trades, net %s, PF %s, win rate %s%%"
+          % (sp.get("trades"), sp.get("netProfit"), sp.get("profitFactor"), sp.get("winRatePct")))
+    for model, s in payload["byModel"].items():
+        print("   %-28s %4d trades  net %9.2f  PF %-7s  win %5.1f%%"
+              % (model, s["trades"], s["netProfit"],
+                 s["profitFactor"] if s["profitFactor"] is not None else "n/a",
+                 s["winRatePct"]))
+    print("summary: %s" % OUT)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
