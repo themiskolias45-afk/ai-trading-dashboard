@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-04T11:23:46.902556+00:00",
+ "generatedAt": "2026-09-04T11:30:33.909978+00:00",
  "scope": "EA_CRT_AMD_Dashboard only - NOT SmartEntry, never pooled with it",
  "feedsTheGate": false,
  "lookbackDays": 7,
@@ -20,8 +20,8 @@
  "thisWeekBySymbol": {},
  "liveConfigSentry": "RD\t0\t11:16:56.220\tEA_CRT_AMD_Dashboard_v355 (XAUUSD,M15)\tv3.51 CONFIG DRIFT: TrailRR 1.5<>1.2  TRAIL OFF",
  "mt5AssistantPermissionsTrade": {
-  "11581419": 0,
-  "25446287": 0
+  "5B9C24F1": 0,
+  "D0E8209F": 0
  },
  "liveConfigSentryLogDay": "20260904",
  "findings": [

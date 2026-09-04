@@ -33,8 +33,27 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LEDGER = os.path.join(HERE, "all_trades_ledger.jsonl")
 OUT = os.path.join(HERE, "ea_crt_weekly_review.json")
 DASH_OUT = os.path.join(HERE, "..", "dashboard", "ea-crt-weekly-review.json")
-MT5_LOGS = os.path.join(os.environ.get("APPDATA", ""), "MetaQuotes", "Terminal",
-                        "5B9C24F117C34D03F25BA926243C77EB", "MQL5", "Logs")
+# Terminal data folders are DISCOVERED, never hardcoded. The hash differs per install and
+# per machine: the laptop's is 5B9C24F1..., the VPS's is D0E8209F.... A hardcoded hash makes
+# this file silently find nothing the moment it runs on the other box - it would report "no
+# sentry line" and "permission unknown" forever while looking like it was working.
+MT5_ROOT = os.path.join(os.environ.get("APPDATA", ""), "MetaQuotes", "Terminal")
+
+
+def terminal_dirs():
+    """Every MT5 data folder on THIS machine. Common/Community are not terminals."""
+    try:
+        names = os.listdir(MT5_ROOT)
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        if n in ("Common", "Community", "Help"):
+            continue
+        d = os.path.join(MT5_ROOT, n)
+        if os.path.isdir(os.path.join(d, "config")) or os.path.isdir(os.path.join(d, "MQL5")):
+            out.append(d)
+    return out
 
 EA_MAGICS = {26070401, 26070402, 26070455}
 
@@ -42,10 +61,7 @@ EA_MAGICS = {26070401, 26070402, 26070455}
 # bundled AI assistant is allowed to place orders. This is NOT an EA performance metric -
 # it is the environment the EA runs inside, reported in its own section and never mixed
 # into the EA's trading record.
-TERMINAL_DIRS = {
-    "11581419": "5B9C24F117C34D03F25BA926243C77EB",
-    "25446287": "D0E8209F77C8CF37AD8BF550E51FF075",
-}
+
 LOOKBACK_DAYS = 7
 # A fill this many times the median size is an anomaly worth naming, not noise. The July
 # loss was 13x the median and would have tripped this on the day it happened.
@@ -109,13 +125,27 @@ def assistant_trade_permission():
     must not look the same.
     """
     out = {}
-    for login, folder in TERMINAL_DIRS.items():
-        path = os.path.join(os.environ.get("APPDATA", ""), "MetaQuotes", "Terminal",
-                            folder, "config", "assistant.ini")
+    for d in terminal_dirs():
+        # Keyed by folder hash, since the login is not in this file. Short prefix: enough
+        # to tell two terminals apart, short enough to read.
+        login = os.path.basename(d)[:8]
+        path = os.path.join(d, "config", "assistant.ini")
+        # NO assistant.ini means this terminal has no bundled assistant at all - the MT4
+        # installs on this box, and any MT5 older than the build that added it. Not
+        # applicable, so skipped silently. Only a file that EXISTS and cannot be read or
+        # parsed is reported as unknown; three standing MEDIUMs about MT4 folders would
+        # train the reader to skim past the one that matters.
+        if not os.path.exists(path):
+            continue
         try:
             text = open(path, "rb").read().decode("utf-16-le", errors="ignore")
         except OSError:
             out[login] = None          # unreadable - reported as unknown
+            continue
+        # No [Assistant] section means the assistant is not configured on this terminal
+        # at all - true of a portable/throwaway install, which carries only the MCP block.
+        # Not applicable, so skipped rather than reported as an unknown.
+        if "[Assistant]" not in text:
             continue
         match = re.search(r"PermissionsTrade=(\d)", text)
         out[login] = int(match.group(1)) if match else None
@@ -125,11 +155,12 @@ def assistant_trade_permission():
 def latest_sentry_line():
     """The EA's own CONFIG SENTRY output - the only authoritative view of the LIVE inputs.
     Returns (line, logdate) or (None, None) when the EA has not attached recently."""
-    try:
-        logs = sorted(glob.glob(os.path.join(MT5_LOGS, "2*.log")), reverse=True)
-    except OSError:
-        return None, None
-    for path in logs[:14]:
+    logs = []
+    for d in terminal_dirs():
+        logs.extend(glob.glob(os.path.join(d, "MQL5", "Logs", "2*.log")))
+    # Newest first across EVERY terminal, so the EA is found wherever it is attached.
+    logs.sort(key=lambda p: os.path.basename(p), reverse=True)
+    for path in logs[:28]:
         try:
             raw = open(path, "rb").read().decode("utf-16-le", errors="ignore")
         except OSError:
