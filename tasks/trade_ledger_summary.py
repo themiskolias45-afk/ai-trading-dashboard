@@ -22,6 +22,11 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 LEDGER = os.path.join(HERE, "all_trades_ledger.jsonl")
 OUT = os.path.join(HERE, "trade_ledger_summary.json")
+# Second copy under dashboard/, which server/index.js serves statically behind the same
+# login gate as every other surface (index.js:9922). Publishing here rather than adding an
+# /api route means NO server edit and NO restart of a live trading server for a read-only
+# feature - and it inherits the auth gate instead of opening a new unguarded one.
+DASH_OUT = os.path.join(HERE, "..", "dashboard", "trade-ledger-summary.json")
 
 
 # Magic -> model, resolved at READ time. The ledger is append-only and rows written
@@ -135,6 +140,17 @@ def main():
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=1)
     os.replace(tmp, OUT)   # atomic: a reader never sees a half-written file
+
+    # Same payload, published for the dashboard. Failure to publish must never lose the
+    # canonical copy already written above, so this is reported and swallowed.
+    try:
+        dash = os.path.abspath(DASH_OUT)
+        dtmp = dash + ".tmp"
+        with open(dtmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=1)
+        os.replace(dtmp, dash)
+    except OSError as exc:
+        print("could not publish to dashboard/: %s" % exc)
 
     sp = payload["systemPlaced"] or {}
     print("system-placed: %s trades, net %s, PF %s, win rate %s%%"
