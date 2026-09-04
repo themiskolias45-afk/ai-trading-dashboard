@@ -1436,6 +1436,27 @@
     <div style="margin-left:auto;font-size:.78rem;color:var(--muted);font-weight:400" id="at-pnl-display"></div>
   </div>
 
+  <!-- CRT DASHBOARD EA - a SEPARATE system from SmartEntry, shown here because this is
+       the tab you open to ask "is it live and what is it doing". Its numbers are never
+       pooled with SmartEntry's: the EA is a standalone MT5 expert on its own magic, and
+       averaging the two produces a figure that describes neither.
+
+       There is deliberately NO on/off switch here. The EA reads its run state only at
+       OnInit, so a button on this page could not stop it - and a control that promises a
+       safety action it cannot perform is exactly what the mode cards below used to be.
+       Status only, until the EA can actually be told to stop. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">CRT Dashboard EA <span style="font-weight:400;color:var(--muted);font-size:.68rem">(separate from SmartEntry)</span></div>
+      <span id="ea-crt-sync" style="font-size:.68rem;color:var(--muted)">loading...</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="ea-crt-panel" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px"></div>
+      <div id="ea-crt-trades" style="font-size:.75rem"></div>
+      <div id="ea-crt-findings" style="font-size:.72rem;margin-top:8px"></div>
+    </div>
+  </div>
+
   <!-- WHAT HAPPENS NEXT — the forecast, and the first thing on this tab.
        Everything below it reports what already happened: what is armed, what was
        killed, what was configured. None of it answers the question anyone actually
@@ -7061,6 +7082,102 @@ if ("serviceWorker" in navigator) {
     });
   });
 }
+</script>
+
+<script>
+/* CRT Dashboard EA panel. Reads only things that already exist:
+     dashboard/mt5-runtime-status.json    written every 10 min by tasks\mt5_ensure_running.ps1
+     dashboard/ea-crt-weekly-review.json  written by tasks\ea_crt_weekly_review.py
+     /api/mt5/positions                   unmanaged[] carries magic/model/owner
+   No server change and no new route. Each box reports ITSELF: on the laptop the EA reads
+   as not attached, which is true, because it runs on the VPS. */
+var EA_CRT_MAGICS = [26070401, 26070402, 26070455];
+
+function eaChip(label, value, state) {
+  var col = state === 'ok' ? 'var(--green)' : state === 'bad' ? 'var(--red)' : 'var(--muted)';
+  return '<div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);'
+       + 'border-radius:8px;padding:6px 10px;min-width:110px">'
+       + '<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">' + label + '</div>'
+       + '<div style="font-size:.8rem;margin-top:2px;color:' + col + '">' + value + '</div></div>';
+}
+
+function eaAgo(iso) {
+  if (!iso) return 'never';
+  var m = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 90) return m + ' min ago';
+  var h = Math.round(m / 60);
+  return h < 48 ? h + ' h ago' : Math.round(h / 24) + ' d ago';
+}
+
+async function refreshEaCrtPanel() {
+  async function grab(u) {
+    try { var r = await fetch(u + '?t=' + Date.now()); return r.ok ? await r.json() : null; }
+    catch (e) { return null; }
+  }
+  var st  = await grab('/dashboard/mt5-runtime-status.json');
+  var rev = await grab('/dashboard/ea-crt-weekly-review.json');
+  var pos = await grab('/api/mt5/positions');
+
+  /* A status file older than 30 minutes is UNKNOWN, never "fine": the writer runs every
+     10 minutes, so stale means the checker itself stopped. A monitor that still shows
+     green after it dies is worse than no monitor. */
+  var ageMin = (st && st.checkedAt) ? (Date.now() - new Date(st.checkedAt)) / 60000 : Infinity;
+  var stale  = ageMin > 30;
+  var live   = !!(st && st.mt5Running && st.eaAttached && !stale);
+
+  document.getElementById('ea-crt-sync').textContent = st
+    ? ('last sync ' + eaAgo(st.checkedAt) + (stale ? ' - STALE' : '') + ' \u00b7 ' + (st.host || ''))
+    : 'no runtime status on this box';
+
+  var chips = [];
+  chips.push(eaChip('Status', stale ? 'UNKNOWN' : live ? 'LIVE' : 'NOT RUNNING', live ? 'ok' : 'bad'));
+  if (st) {
+    chips.push(eaChip('MT5', st.mt5Running ? ('up ' + (st.mt5UptimeHours != null ? st.mt5UptimeHours + 'h' : '')) : 'DOWN', st.mt5Running ? 'ok' : 'bad'));
+    chips.push(eaChip('EA attached', st.eaAttached ? 'yes' : 'no', st.eaAttached ? 'ok' : 'bad'));
+    chips.push(eaChip('Trailing stop', st.eaTrailOff === true ? 'OFF' : st.eaTrailOff === false ? 'ON - losing' : '-', st.eaTrailOff === true ? 'ok' : st.eaTrailOff === false ? 'bad' : ''));
+    chips.push(eaChip('Fixed lot', st.eaFixedLot === true ? 'ON - risk uncapped' : st.eaFixedLot === false ? 'off' : '-', st.eaFixedLot === true ? 'bad' : st.eaFixedLot === false ? 'ok' : ''));
+    chips.push(eaChip('Auto trading', st.algoTradingAllowed === 1 ? 'enabled' : 'DISABLED', st.algoTradingAllowed === 1 ? 'ok' : 'bad'));
+    chips.push(eaChip('Account', st.account ? String(st.account).split(' ')[0] : '-'));
+  }
+  if (rev) {
+    var wk = rev.thisWeek, at = rev.allTime;
+    chips.push(eaChip('This week', wk ? (wk.trades + ' tr / ' + wk.netProfit) : 'no trades', wk ? (wk.netProfit > 0 ? 'ok' : 'bad') : ''));
+    chips.push(eaChip('All time', at ? (at.trades + ' tr / ' + at.netProfit) : '-', at ? (at.netProfit > 0 ? 'ok' : 'bad') : ''));
+  }
+  document.getElementById('ea-crt-panel').innerHTML = chips.join('');
+
+  /* Open EA trades. unmanaged[] is everything that is not the main engine, tagged with
+     magic, so the EA's positions are filtered out of it client-side - no server change. */
+  var rows = [];
+  if (pos && pos.unmanaged && pos.unmanaged.length) {
+    rows = pos.unmanaged.filter(function (t) { return EA_CRT_MAGICS.indexOf(t.magic) >= 0; });
+  }
+  document.getElementById('ea-crt-trades').innerHTML = rows.length
+    ? '<div style="color:var(--muted);font-size:.65rem;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Open EA trades</div>'
+      + rows.map(function (t) {
+          return '<div style="display:flex;gap:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">'
+            + '<span style="width:70px">' + t.symbol + '</span>'
+            + '<span style="width:44px;color:' + (t.type === 'BUY' ? 'var(--green)' : 'var(--red)') + '">' + t.type + '</span>'
+            + '<span style="width:56px">' + t.volume + '</span>'
+            + '<span style="width:92px">@ ' + t.price + '</span>'
+            + '<span style="width:92px;color:var(--muted)">SL ' + (t.sl || '-') + '</span>'
+            + '<span style="color:' + (t.profit >= 0 ? 'var(--green)' : 'var(--red)') + '">' + t.profit + '</span></div>';
+        }).join('')
+    : '<div style="color:var(--muted)">No open EA trades.</div>';
+
+  /* The weekly review's findings, so a problem shows on the tab you already look at
+     instead of only in a file nobody opens. */
+  var f = (rev && rev.findings) ? rev.findings.filter(function (x) { return x.severity !== 'OK'; }) : [];
+  document.getElementById('ea-crt-findings').innerHTML = f.length
+    ? f.map(function (x) {
+        return '<div style="color:' + (x.severity === 'HIGH' ? 'var(--red)' : '#f59e0b') + '">'
+             + '! ' + x.check + ': ' + x.detail + '</div>';
+      }).join('')
+    : '<div style="color:var(--green)">No issues from the weekly check.</div>';
+}
+refreshEaCrtPanel();
+setInterval(refreshEaCrtPanel, 60000);
 </script>
 </body>
 </html>
