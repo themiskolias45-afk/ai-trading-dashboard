@@ -37,6 +37,15 @@ MT5_LOGS = os.path.join(os.environ.get("APPDATA", ""), "MetaQuotes", "Terminal",
                         "5B9C24F117C34D03F25BA926243C77EB", "MQL5", "Logs")
 
 EA_MAGICS = {26070401, 26070402, 26070455}
+
+# The two MT5 data folders on this box. Checked for one thing only: whether MetaQuotes'
+# bundled AI assistant is allowed to place orders. This is NOT an EA performance metric -
+# it is the environment the EA runs inside, reported in its own section and never mixed
+# into the EA's trading record.
+TERMINAL_DIRS = {
+    "11581419": "5B9C24F117C34D03F25BA926243C77EB",
+    "25446287": "D0E8209F77C8CF37AD8BF550E51FF075",
+}
 LOOKBACK_DAYS = 7
 # A fill this many times the median size is an anomaly worth naming, not noise. The July
 # loss was 13x the median and would have tripped this on the day it happened.
@@ -85,6 +94,34 @@ def summarise(rows):
     }
 
 
+def assistant_trade_permission():
+    """PermissionsTrade per terminal, from config/assistant.ini.
+
+    Why it is re-checked every week rather than trusted once: MT5 build 6140 ships its own
+    MCP server and a bundled agent (goose.exe, talking to a third-party inference endpoint)
+    which held PermissionsTrade=1 on BOTH terminals until 2026-09-04. That is an order path
+    outside both halt systems - the bridges read /api/mt5/control, the executors read
+    /api/risk-status, and neither covers it. It was set to 0, but MT5 caches these settings
+    in memory and rewrites the file on shutdown, so a restart can silently put it back.
+    A safety setting nothing re-reads is a safety setting that quietly expires.
+
+    Unknown, never assumed-safe, when a file cannot be read: "cannot tell" and "it is off"
+    must not look the same.
+    """
+    out = {}
+    for login, folder in TERMINAL_DIRS.items():
+        path = os.path.join(os.environ.get("APPDATA", ""), "MetaQuotes", "Terminal",
+                            folder, "config", "assistant.ini")
+        try:
+            text = open(path, "rb").read().decode("utf-16-le", errors="ignore")
+        except OSError:
+            out[login] = None          # unreadable - reported as unknown
+            continue
+        match = re.search(r"PermissionsTrade=(\d)", text)
+        out[login] = int(match.group(1)) if match else None
+    return out
+
+
 def latest_sentry_line():
     """The EA's own CONFIG SENTRY output - the only authoritative view of the LIVE inputs.
     Returns (line, logdate) or (None, None) when the EA has not attached recently."""
@@ -103,7 +140,7 @@ def latest_sentry_line():
     return None, None
 
 
-def build_findings(recent, all_rows, sentry):
+def build_findings(recent, all_rows, sentry, perms):
     """Every finding names what it saw and what to do. A check that cannot fire is
     decoration, so each one is derived from a failure this EA has actually had."""
     findings = []
@@ -180,6 +217,24 @@ def build_findings(recent, all_rows, sentry):
                       "EURUSD -513. Detach from other symbols unless testing deliberately.",
         })
 
+    # 6. ENVIRONMENT - the bundled MT5 assistant must not hold trade permission.
+    for login, value in (perms or {}).items():
+        if value == 1:
+            findings.append({
+                "severity": "HIGH", "check": "MT5_ASSISTANT_CAN_TRADE",
+                "detail": "Terminal %s has PermissionsTrade=1 - MetaQuotes' bundled AI "
+                          "assistant can place orders on that account." % login,
+                "action": "Set it to 0 in the assistant's GUI permissions. It is an order "
+                          "path outside BOTH halt systems. It was set to 0 on 2026-09-04; "
+                          "MT5 rewrites this file on shutdown, so it can come back.",
+            })
+        elif value is None:
+            findings.append({
+                "severity": "MEDIUM", "check": "MT5_ASSISTANT_PERMISSION_UNKNOWN",
+                "detail": "Could not read PermissionsTrade for terminal %s." % login,
+                "action": "Check config/assistant.ini by hand. Unknown is not the same as off.",
+            })
+
     if not findings:
         findings.append({
             "severity": "OK", "check": "NO_ISSUES",
@@ -195,6 +250,7 @@ def main():
     cutoff = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)).isoformat()
     recent = [r for r in all_rows if (r.get("closeTime") or "") >= cutoff]
     sentry, sentry_day = latest_sentry_line()
+    perms = assistant_trade_permission()
 
     by_symbol = defaultdict(list)
     for r in recent:
@@ -209,8 +265,10 @@ def main():
         "allTime": summarise(all_rows),
         "thisWeekBySymbol": {k: summarise(v) for k, v in by_symbol.items()},
         "liveConfigSentry": sentry,
+        # Environment, not EA performance. Kept in its own key for exactly that reason.
+        "mt5AssistantPermissionsTrade": perms,
         "liveConfigSentryLogDay": sentry_day,
-        "findings": build_findings(recent, all_rows, sentry),
+        "findings": build_findings(recent, all_rows, sentry, perms),
     }
 
     for target in (OUT, os.path.abspath(DASH_OUT)):
@@ -233,6 +291,8 @@ def main():
           % (at["trades"], at["netProfit"],
              at["profitFactor"] if at["profitFactor"] is not None else "n/a", at["winRatePct"])))
     print("  live config: %s" % (sentry[-110:] if sentry else "no sentry line found"))
+    print("  mt5 assistant PermissionsTrade: %s"
+          % ", ".join("%s=%s" % (k, "unknown" if v is None else v) for k, v in perms.items()))
     for f in payload["findings"]:
         print("  [%-6s] %-24s %s" % (f["severity"], f["check"], f["detail"]))
         if f["severity"] != "OK":
