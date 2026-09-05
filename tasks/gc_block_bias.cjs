@@ -65,7 +65,18 @@ const CTRL_OFFSET = numArg('--controloffset', 137);
 const MAX_HOLD_H1 = numArg('--maxhold', 240);
 
 const SESSIONS = { any: null, asia: [0, 8], london: [7, 16], ny: [12, 21] };
-const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36, NAS100: 1.20 };
+// This project's MEASURED spreads, copied from tasks/cost_breakeven.cjs so both
+// harnesses charge the same cost. A symbol absent here REFUSES rather than defaulting
+// to zero: a zero-spread run flatters a strategy exactly where it is cheapest to be
+// wrong, and an unpriced symbol quietly outscoring a priced one is the worst possible
+// way to pick a winner.
+const SPREAD = {
+  XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36, ETHUSD: 2.47, XRPUSD: 0.0083,
+  LTCUSD: 1.00, XAGUSD: 0.021, USOUSD: 0.037, GBPUSD: 0.00015, USDJPY: 0.019,
+  EURUSD: 0.00014, AUDUSD: 0.00014,
+  // NAS100 is NOT in cost_breakeven.cjs. Rather than invent a number, it is left out
+  // and the run refuses -- see the check in main().
+};
 
 function inSession(tsSec) {
   const w = SESSIONS[SESSION];
