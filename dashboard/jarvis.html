@@ -3135,6 +3135,11 @@ async function loadMindDigest() {
     const t = wk.data.totals || {};
     rows.push(["Proposals awaiting you", String(t.proposals ?? 0), t.proposals ? "var(--yellow)" : null]);
     if (t.failing) rows.push(["Failing jobs", String(t.failing), "var(--red)"]);
+    // The APPRAISED jobs are 5 of ~39 scheduled tasks, and on 2026-09-05 every real
+    // failure was in the other 34: two VPS tasks dying at 0xC0000142 while t.failing
+    // read 0. A digest that reports only the appraised set says "all clear" over a box
+    // with four broken tasks -- the same shape as a check that reports OK while blind.
+    if (t.unappraisedFailing) rows.push(["Failing scheduled tasks", String(t.unappraisedFailing), "var(--red)"]);
   }
 
   const anyAuth = [ev, gr, wk].some(r => r.authError);
