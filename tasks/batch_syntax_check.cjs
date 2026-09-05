@@ -68,11 +68,22 @@ function scan(file) {
     // parens by cmd inside a block, but an echo payload absolutely is.
     const echo = /^echo[ .]/i.test(trimmed) ? trimmed.replace(/^echo[ .]/i, "") : null;
 
+    // ONLY the closing paren matters, and this was established by running it rather
+    // than by reading about cmd. Inside a block, `echo ... (runs after login^).`
+    // prints correctly and the block completes -- an unescaped `(` is harmless, so
+    // flagging it is a false positive that trains you to ignore the real one.
+    // An unescaped `)` is the block terminator and always loses data:
+    //   depth 1  -> the `)` and nothing else is eaten; the echoed text is silently
+    //               TRUNCATED at that point and the batch carries on looking fine.
+    //   depth 2+ -> the inner block closes early, cmd hits "was unexpected at this
+    //               time" and ABORTS the batch with exit 255. This is what happened
+    //               to both VPS park blocks, which are `( echo... ) | python`.
     if (depth > 0 && echo !== null) {
       const risky = unescapedParens(stripQuoted(echo));
-      if (/[()]/.test(risky)) {
+      if (/\)/.test(risky)) {
         findings.push({
           line: i + 1,
+          depth,
           text: trimmed.length > 150 ? trimmed.slice(0, 150) + " ..." : trimmed,
         });
       }
