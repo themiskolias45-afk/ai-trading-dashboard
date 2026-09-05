@@ -5707,6 +5707,90 @@ app.get("/api/research", (_, res) => {
   }
 });
 
+// ── /api/recall — semantic search over JARVIS's own memory ───────────────────
+//
+// WHY THIS EXISTS. The RAG index holds 323 memories / 1699 chunks and was reachable
+// ONLY from the command line (tasks/rag_query.py). So dashboard/jarvis.html — the one
+// surface named after him — could not search the thing that makes him him, and neither
+// could any browser. Measured cost on the day this was added: the position-sizing bug
+// fixed that morning was ALREADY in memory as "assuming 1.0 made Gold 74x oversize",
+// and it was re-derived from source over several hours because nothing could look it up.
+// A memory you cannot query is a memory you do not have.
+//
+// READ-ONLY. It runs a search and returns rows. It writes nothing, indexes nothing and
+// deletes nothing, and it feeds no gate: the answer cannot admit or suppress a trade.
+//
+// NO SHELL, EVER. execFile with an argument ARRAY, never a concatenated string, so a
+// question containing quotes, semicolons or backticks is data and can never become a
+// command. The query is length-capped and topK is clamped for the same reason.
+app.get("/api/recall", (req, res) => {
+  const question = String(req.query.q || "").trim();
+  if (!question) return res.status(400).json({ error: "q is required" });
+  if (question.length > 500) {
+    return res.status(400).json({ error: "q too long (max 500 chars)" });
+  }
+  // rag_query.py treats a leading "--" as a flag (its own parser checks
+  // argv[0].startswith("--")), so such a question prints its usage text instead of JSON
+  // and the caller gets "unparseable output" — an error that does not name its cause.
+  // Rejected here with the real reason rather than left to surface as a mystery 500.
+  if (question.startsWith("--")) {
+    return res.status(400).json({
+      error: 'q cannot start with "--"',
+      hint: "the search tool reads a leading -- as a command flag; rephrase without it",
+    });
+  }
+  // Allowlisted, never passed through from the caller verbatim.
+  const SOURCES = new Set(["brain", "memory", "vault", "trades", "all"]);
+  const wanted = String(req.query.source || "brain").toLowerCase();
+  const source = SOURCES.has(wanted) ? wanted : "brain";
+  const topK = Math.min(Math.max(parseInt(req.query.top, 10) || 6, 1), 20);
+
+  const args = [path.join(__dirname, "..", "tasks", "rag_query.py"), question,
+                "--top", String(topK), "--json"];
+  if (source !== "all") args.push("--source", source);
+
+  // execFile is destructured INSIDE a handler further down this file (index.js:8109),
+  // so it is not in scope here. Requiring it locally rather than hoisting a global keeps
+  // this route self-contained; a route that is present but throws ReferenceError on its
+  // first call is the shape of bug that had /api/preopen-plan 500ing on the VPS for hours
+  // while the parity check reported ENGINES AGREE.
+  const { execFile } = require("child_process");
+  const PYTHON = require("./python_path").pythonBinOrDefault();
+  execFile(PYTHON, args, {
+    cwd: path.join(__dirname, ".."),
+    // The sentence-transformer model loads on first call and is slow; 60s is generous
+    // for a cold start and still bounded so a hung search cannot pin a request open.
+    timeout: 60000,
+    maxBuffer: 8 * 1024 * 1024,
+    env: require("./python_path").pythonEnv(),
+  }, (err, stdout, stderr) => {
+    // A search that fails must say so rather than return an empty list, which a caller
+    // would read as "nothing is recorded" — the exact wrong conclusion, and the reason
+    // five measured findings sat unread on the other box for a month.
+    if (err && !stdout) {
+      return res.status(500).json({
+        error: "recall failed",
+        detail: String((stderr || err.message) || "").slice(0, 300),
+        hint: "the index may not be built — run: python tasks/rag_index.py --source brain",
+        results: null,
+      });
+    }
+    try {
+      // rag_query prints a HF warning to stdout on some boxes, so take the JSON object
+      // rather than assuming the whole stream is JSON.
+      const start = stdout.indexOf("{");
+      const parsed = JSON.parse(start >= 0 ? stdout.slice(start) : stdout);
+      res.json({ ...parsed, feedsTheGate: false });
+    } catch (e) {
+      res.status(500).json({
+        error: "recall returned unparseable output",
+        detail: String(stdout).slice(0, 300),
+        results: null,
+      });
+    }
+  });
+});
+
 app.get("/api/evidence-board", (_, res) => {
   try {
     const register = evidenceRegister.getRegister();
