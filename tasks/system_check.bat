@@ -37,7 +37,7 @@ REM ── 6. Journal file ─────────────────�
 if exist server\journal.json (
   for %%A in (server\journal.json) do echo  [OK] Journal : EXISTS (%%~zA bytes)
 ) else (
-  echo  [--] Journal : No trades yet (file created on first trade)
+  echo  [--] Journal : No trades yet ^(file created on first trade^)
 )
 
 REM ── 7. API key ───────────────────────────────────────────────

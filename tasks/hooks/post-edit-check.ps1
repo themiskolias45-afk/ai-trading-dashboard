@@ -54,6 +54,23 @@ elseif ($filePath -match '\.py$') {
         exit 1
     }
 }
+elseif ($filePath -match '\.bat$') {
+    # cmd.exe has no `node --check`, so for its whole life NOTHING syntax-checked a
+    # batch file here -- and on 2026-08-29 commit 1a7154a put an unescaped `)` inside
+    # the park block of both VPS agents. The inner block closed early, cmd aborted with
+    # exit 255, and both agents reported FAILING to the Task Scheduler for seven days
+    # while their actual work succeeded. What was silently lost was the park safety net:
+    # a subscription limit would have thrown the day's brief away instead of queueing it.
+    # This is the missing equivalent, narrowed to the one defect that really happens.
+    $checker = Join-Path $PSScriptRoot '..\batch_syntax_check.cjs'
+    if (Test-Path $checker) {
+        $out = & node $checker $filePath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "BATCH SYNTAX -- $rel`:`n$out`nJARVIS: Fix before continuing."
+            exit 1
+        }
+    }
+}
 
 # -- 3. SECURITY SCAN ----------------------------------------------------------
 if ($filePath -match '\.(js|py|ts|json)$') {
