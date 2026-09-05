@@ -377,8 +377,8 @@ body.focus-mode .focus-exit{display:block}
 .brief-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px}
 .brief-t{font-size:.62rem;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
 .brief-when{font-size:.6rem;color:var(--muted-dim);font-variant-numeric:tabular-nums}
-.brief-row{display:grid;grid-template-columns:52px 1fr auto;gap:11px;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05)}
-.brief-row:last-of-type{border-bottom:none}
+.brief-row{display:grid;grid-template-columns:52px minmax(0,420px) auto;gap:14px;align-items:center;padding:6px 0;justify-content:start}
+.brief-row:first-of-type{padding-top:0}
 .brief-sym{font-size:.72rem;font-weight:700;letter-spacing:.04em}
 /* The track is a 0-100 CONFIDENCE scale and nothing on screen said so. A bar with an
    unlabelled tick two-thirds along is not a reading. Height 5 -> 7 because a 5px bar
@@ -390,20 +390,20 @@ body.focus-mode .focus-exit{display:block}
    Hatching reads "not measured" where a flat bar reads "measured, low". */
 .brief-track.no-setup{
   background-image:repeating-linear-gradient(135deg,
-    rgba(255,255,255,.055) 0 4px, transparent 4px 8px);
+    rgba(255,255,255,.045) 0 3px, transparent 3px 7px);
 }
 /* The gate tick is the point of the whole row: a confidence number means nothing
    without the line it has to clear. It now carries its own VALUE - previously the
    only way to learn the threshold was to read a sentence under the panel. */
-.brief-gate{position:absolute;top:-4px;width:2px;height:15px;background:var(--text);opacity:.85;border-radius:1px}
+.brief-gate{position:absolute;top:-5px;width:2px;height:18px;background:var(--accent);border-radius:1px;box-shadow:0 0 0 1px rgba(3,6,13,.85), 0 0 7px rgba(139,92,246,.75)}
 /* The value sits on the AXIS, not on every row. Labelling all three ticks printed
    "80" three times for one threshold that applies to all of them - repetition the
    reader has to filter out before reading the bars. */
 /* Axis, drawn ONCE beneath the rows rather than repeated on each. */
 .brief-scale{
-  display:grid;grid-template-columns:52px 1fr auto;gap:11px;
-  padding-top:3px;font-size:.55rem;color:var(--muted-dim);
-  font-variant-numeric:tabular-nums;letter-spacing:.04em;
+  display:grid;grid-template-columns:52px minmax(0,420px) auto;gap:14px;
+  padding-top:2px;font-size:.55rem;color:var(--muted-dim);
+  font-variant-numeric:tabular-nums;letter-spacing:.04em;justify-content:start;
 }
 .brief-scale-track{position:relative;height:10px}
 .brief-scale-track span{position:absolute;top:0}
@@ -1978,7 +1978,7 @@ async function renderBriefing() {
   const rows = BRIEF_ASSETS.map(([key, label]) => briefRow(label, signals[key], gate)).join("")
              + briefScale(gate);
 
-  let state = "Gate " + gate + "% across Daily, 4H and 1H together.";
+  let state = "Gate " + gate + "% on the Daily+4H setup. 1H agreement only adds a bonus — it never blocks a setup, so a bearish 1H does not stop a buy.";
   if (risk) {
     state += risk.halted
       ? " ⚠ TRADING HALTED — " + esc(risk.haltReason || "circuit breaker open") + "."
@@ -2039,7 +2039,7 @@ function fmt(raw) {
 
   // 1. Lift code out before anything else touches it.
   const code = [];
-  const stash = html => " C" + (code.push(html) - 1) + " ";
+  const stash = html => "\u0000C" + (code.push(html) - 1) + "\u0000";
   let s = text
     .replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, lang, body) =>
       stash('<pre class="md-pre"><code>' + body.replace(/\n$/, "") + "</code></pre>"))
@@ -2080,7 +2080,7 @@ function fmt(raw) {
     if (!t) { flushPara(); flushList(); continue; }
 
     // A stashed fenced block occupies its own line and is already final HTML.
-    if (/^ C\d+ $/.test(t)) { flushPara(); flushList(); out.push(t); continue; }
+    if (/^\u0000C\d+\u0000$/.test(t)) { flushPara(); flushList(); out.push(t); continue; }
 
     const heading = t.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
@@ -2108,7 +2108,7 @@ function fmt(raw) {
   flushList();
 
   // 4. Put the code back.
-  return out.join("").replace(/ C(\d+) /g, (_, i) => code[Number(i)]);
+  return out.join("").replace(/\u0000C(\d+)\u0000/g, (_, i) => code[Number(i)]);
 }
 
 // ══════════════════════════════════════════
