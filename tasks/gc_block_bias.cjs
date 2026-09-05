@@ -247,7 +247,115 @@ function metrics(trades, controls, folds) {
   };
 }
 
+function cliParams() {
+  return {
+    block: BLOCK, zone: ZONE_PCT, ema: EMA_LEN, atrlen: ATR_LEN, atrsl: ATR_SL,
+    rr: RR, expiry: EXPIRY_DAYS, session: SESSION, shorts: ALLOW_SHORT,
+    longs: ALLOW_LONG, ctrl: CTRL_OFFSET, maxhold: MAX_HOLD_H1,
+  };
+}
+
+/* ── GRID MODE ────────────────────────────────────────────────────────────────
+   Loads each symbol's CSVs ONCE and reuses them across every configuration, and
+   caches each indicator series by length, because running the script per config
+   spent all its time re-parsing 47,000-bar files.
+
+   THE TRIAL COUNT IS PRINTED, AND IT IS THE POINT. A grid this size will always
+   produce something that looks good; the lab's own bar exists because of that.
+   So the ranking is NOT by raw R/trade: a configuration must clear the matched
+   control AND be positive in at least 4 of 5 chronological folds before it is
+   allowed near the top of the table. Fold consistency is the cheap defence
+   against a number that is really one lucky window.
+*/
+function gridMode() {
+  const symbols = strArg('--symbols', 'XAUUSD,BTCUSD,SP500').split(',').map(s => s.trim().toUpperCase());
+  const G = {
+    block:  strArg('--g-block',  '5,6,7').split(',').map(Number),
+    zone:   strArg('--g-zone',   '0.8,0.9').split(',').map(Number),
+    ema:    strArg('--g-ema',    '12,34,50').split(',').map(Number),
+    atrsl:  strArg('--g-atrsl',  '1.5,2.0').split(',').map(Number),
+    rr:     strArg('--g-rr',     '2,3').split(',').map(Number),
+    session: strArg('--g-session', 'london,any').split(','),
+    side:   strArg('--g-side',   'short,long').split(','),
+  };
+  const minTrades = numArg('--min-trades', 60);
+  const top = numArg('--top', 10);
+
+  const rows = [];
+  let trials = 0;
+  for (const sym of symbols) {
+    if (SPREAD[sym] == null) { console.error('skipping ' + sym + ': no measured spread'); continue; }
+    const D1 = loadBars(sym, 'D1'), H1 = loadBars(sym, 'H1');
+    if (!D1 || !H1) { console.error('skipping ' + sym + ': missing D1 or H1 history'); continue; }
+    const spread = SPREAD[sym];
+    for (const block of G.block)
+      for (const zone of G.zone)
+        for (const ema of G.ema)
+          for (const atrsl of G.atrsl)
+            for (const rr of G.rr)
+              for (const session of G.session)
+                for (const side of G.side) {
+                  const P = {
+                    block, zone, ema, atrlen: ATR_LEN, atrsl, rr, expiry: EXPIRY_DAYS,
+                    session, shorts: side === 'short', longs: side === 'long',
+                    ctrl: CTRL_OFFSET, maxhold: MAX_HOLD_H1,
+                  };
+                  trials++;
+                  const { trades, controls } = backtest(D1, H1, spread, P, sym);
+                  const m = metrics(trades, controls, FOLDS);
+                  if (!m || m.n < minTrades) continue;
+                  rows.push({ sym, side, block, zone, ema, atrsl, rr, session, ...m });
+                }
+  }
+
+  const bar = '='.repeat(118);
+  console.log(bar);
+  console.log('  GC BLOCK BIAS -- GRID.  ' + trials + ' configurations tested across ' + symbols.length + ' symbol(s).');
+  console.log(bar);
+  console.log('  Ranked by R/trade, but ONLY among configurations that BEAT THEIR MATCHED CONTROL');
+  console.log('  and are positive in >= 4 of ' + FOLDS + ' chronological folds. With ' + trials + ' trials, anything');
+  console.log('  selected on raw return alone is a lottery ticket -- these two filters are the price');
+  console.log('  of looking at this many combinations at once.');
+  console.log('');
+
+  const qualified = rows.filter(r => r.edge > 0 && r.foldsPos >= 4 && r.rpt > 0);
+  qualified.sort((a, b) => b.rpt - a.rpt);
+
+  const hdr = '  #  symbol   side   blk zone ema  atr  rr  session   n     WR%     PF    R/trade   control    EDGE   folds';
+  if (!qualified.length) {
+    console.log('  NOTHING QUALIFIED. No configuration is simultaneously profitable, better than');
+    console.log('  its control, and positive in 4 of 5 folds. That is a result, not a failure.');
+  } else {
+    console.log(hdr);
+    console.log('  ' + '-'.repeat(114));
+    qualified.slice(0, top).forEach((r, i) => {
+      console.log('  ' + String(i + 1).padStart(2) + '  ' + r.sym.padEnd(8) + r.side.padEnd(7) +
+        String(r.block).padEnd(4) + String(r.zone).padEnd(5) + String(r.ema).padEnd(5) +
+        String(r.atrsl).padEnd(5) + String(r.rr).padEnd(4) + r.session.padEnd(9) +
+        String(r.n).padStart(4) + '  ' + r.wr.toFixed(1).padStart(6) + '  ' +
+        (isFinite(r.pf) ? r.pf.toFixed(3) : 'inf').padStart(6) + '  ' +
+        (r.rpt >= 0 ? '+' : '') + r.rpt.toFixed(4).padStart(8) + '  ' +
+        (r.control >= 0 ? '+' : '') + r.control.toFixed(4).padStart(8) + '  ' +
+        (r.edge >= 0 ? '+' : '') + r.edge.toFixed(4).padStart(8) + '  ' +
+        r.foldsPos + '/' + r.folds);
+    });
+  }
+
+  console.log('');
+  console.log('  For contrast, the best by RAW R/trade ignoring both filters:');
+  const raw = rows.slice().sort((a, b) => b.rpt - a.rpt).slice(0, 3);
+  raw.forEach(r => console.log('    ' + r.sym + ' ' + r.side + ' blk' + r.block + ' zone' + r.zone +
+    ' ema' + r.ema + ' atr' + r.atrsl + ' rr' + r.rr + ' ' + r.session +
+    '  R/t ' + (r.rpt >= 0 ? '+' : '') + r.rpt.toFixed(4) + '  edge ' + (r.edge >= 0 ? '+' : '') + r.edge.toFixed(4) +
+    '  folds ' + r.foldsPos + '/' + r.folds + '  n=' + r.n));
+  console.log('  If those differ from the table above, the difference IS the selection effect.');
+  console.log('');
+  console.log('  ' + rows.length + ' of ' + trials + ' configurations produced >= ' + minTrades + ' trades. feedsTheGate: false.');
+  console.log(bar);
+}
+
 function main() {
+  if (process.argv.includes('--grid')) return gridMode();
   const D1 = loadBars(SYMBOL, 'D1');
   const H1 = loadBars(SYMBOL, 'H1');
   if (!D1 || !H1) { console.error('missing history for ' + SYMBOL + ' (need D1 and H1)'); process.exit(1); }
@@ -260,73 +368,8 @@ function main() {
   }
   const spread = SPREAD[SYMBOL];
 
-  const ema = emaSeries(H1.c, EMA_LEN);
-  const atr = atrSeries(H1.h, H1.l, H1.c, ATR_LEN);
-
-  const trades = [];
-  const controls = [];
-
-  // Walk consecutive, non-overlapping block pairs on the daily.
-  for (let b = 0; b + 2 * BLOCK <= D1.t.length; b += 1) {
-    const a0 = b, a1 = b + BLOCK - 1;             // block 1
-    const c0 = b + BLOCK, c1 = b + 2 * BLOCK - 1; // block 2
-    const dir1 = D1.c[a1] - D1.c[a0];
-    const dir2 = D1.c[c1] - D1.c[c0];
-
-    let side = null;
-    if (dir1 < 0 && dir2 > 0 && ALLOW_SHORT) side = 'SELL';
-    else if (dir1 > 0 && dir2 < 0 && ALLOW_LONG) side = 'BUY';
-    if (!side) continue;
-
-    // 80% of block 2's range. For a SELL we want the upper zone; for the mirror, lower.
-    let hi = -Infinity, lo = Infinity;
-    for (let i = c0; i <= c1; i++) { if (D1.h[i] > hi) hi = D1.h[i]; if (D1.l[i] < lo) lo = D1.l[i]; }
-    const range = hi - lo;
-    if (!(range > 0)) continue;
-    const zone = side === 'SELL' ? lo + ZONE_PCT * range : hi - ZONE_PCT * range;
-
-    // Arm from the H1 bar after block 2 closes; expire after EXPIRY_DAYS.
-    const startTs = D1.t[c1] + 86400;
-    const endTs   = startTs + EXPIRY_DAYS * 86400;
-    let armed = false;
-
-    for (let i = 0; i < H1.t.length; i++) {
-      if (H1.t[i] < startTs) continue;
-      if (H1.t[i] > endTs) break;
-      if (ema[i] == null || atr[i] == null) continue;
-
-      // Price must trade INTO the 80% zone before the trigger counts.
-      if (!armed) {
-        if (side === 'SELL' ? H1.h[i] >= zone : H1.l[i] <= zone) armed = true;
-        continue;
-      }
-      if (!inSession(H1.t[i])) continue;
-
-      const trigger = side === 'SELL' ? (H1.c[i] < ema[i]) : (H1.c[i] > ema[i]);
-      if (!trigger) continue;
-
-      const entry = H1.c[i];
-      const dist  = ATR_SL * atr[i];
-      const stop   = side === 'SELL' ? entry + dist : entry - dist;
-      const target = side === 'SELL' ? entry - RR * dist : entry + RR * dist;
-
-      const res = runTrade(H1, i, side, entry, stop, target, spread);
-      if (res) trades.push({ ts: H1.t[i], side, ...res });
-
-      // MATCHED CONTROL: identical direction and identical stop/target DISTANCES,
-      // entered at an unrelated bar. If the control earns what the strategy earns,
-      // the strategy is geometry rather than edge.
-      const ci = i + CTRL_OFFSET;
-      if (ci + 1 < H1.t.length && atr[ci] != null) {
-        const ce = H1.c[ci];
-        const cs = side === 'SELL' ? ce + dist : ce - dist;
-        const ct = side === 'SELL' ? ce - RR * dist : ce + RR * dist;
-        const cr = runTrade(H1, ci, side, ce, cs, ct, spread);
-        if (cr) controls.push({ ts: H1.t[ci], side, ...cr });
-      }
-      break; // one trade per setup
-    }
-  }
+  const P = cliParams();
+  const { trades, controls } = backtest(D1, H1, spread, P, SYMBOL);
 
   const say = console.log;
   const bar = '='.repeat(104);
