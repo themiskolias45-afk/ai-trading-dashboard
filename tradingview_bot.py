@@ -3437,6 +3437,43 @@ class BrowserLock:
         self.held = False
 
 
+def ensure_window_size(ctx, page, min_width=1200):
+    """Widen the browser window if it is too narrow for the plan panel to render.
+
+    THE PANEL DOES NOT FAIL LOUDLY WHEN THE WINDOW IS SMALL - IT JUST IS NOT THERE.
+    Measured on the VPS 2026-09-05: the Edge window was 734x726 on a 1536x864 desktop
+    despite --start-maximized, and with TradingView's right-hand widget panel open the
+    chart canvas was roughly 400px. The study was applied, listed in the object tree and
+    compiled clean, and the table rendered nowhere a human could see it. Every check the
+    bot performs said the plan was on the chart, and it was - just clipped out of
+    existence.
+
+    So the window is checked and corrected on every run rather than trusted to a launch
+    flag that demonstrably did not hold. Failure here is non-fatal: a chart that is too
+    narrow is worse than one that is not, but it is not worth losing the run over.
+    """
+    try:
+        size = page.evaluate("() => ({w: window.innerWidth, s: screen.availWidth, "
+                             "h: screen.availHeight})")
+        if size["w"] >= min_width:
+            return True
+        cdp = ctx.new_cdp_session(page)
+        target = cdp.send("Browser.getWindowForTarget")
+        cdp.send("Browser.setWindowBounds", {
+            "windowId": target["windowId"],
+            "bounds": {"left": 0, "top": 0,
+                       "width": int(size["s"]), "height": int(size["h"]),
+                       "windowState": "normal"}})
+        page.wait_for_timeout(1200)
+        after = page.evaluate("() => window.innerWidth")
+        print(f"[TV] window widened {size['w']} -> {after}px "
+              f"(the plan panel needs room or it renders off-canvas)")
+        return after >= min_width
+    except Exception as exc:
+        print(f"[TV] could not resize the window ({str(exc)[:70]}) - continuing")
+        return False
+
+
 def _run(fn):
     """Attach to running Edge on port 9222 and run fn(page, ctx). Never opens a new window."""
     lock = BrowserLock()
@@ -3620,6 +3657,7 @@ def cmd_plan(which="all", shoot=True):
         with sync_playwright() as pw:
             browser, ctx = make_context(pw)
             SHOT_DIR.mkdir(parents=True, exist_ok=True)
+            ensure_window_size(ctx, _get_tv_page(ctx))
 
             # ONE tab, ONE apply. Every chart shares a single saved layout, so a
             # study applied anywhere shows up everywhere — which is exactly why a

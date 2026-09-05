@@ -46,7 +46,14 @@ if not errorlevel 1 goto :already_up
 if /I "%~1"=="/check" goto :check_only
 
 echo   launching...
-start "" "%EDGE%" --remote-debugging-port=9222 --user-data-dir="%TV_PROFILE%" --no-first-run --no-default-browser-check --start-maximized "https://www.tradingview.com/chart/"
+REM --start-maximized DID NOT HOLD. Measured on the VPS 2026-09-05: the window came up
+REM 734x726 on a 1536x864 desktop, and with TradingView's widget panel open the chart
+REM canvas was ~400px - too narrow for the plan table, which then rendered off-canvas
+REM while every check still reported the study as applied. An explicit size and
+REM position is deterministic where the flag was not. The bot also re-checks and
+REM corrects the width on every run, because a launch flag cannot fix a window that
+REM something resized later.
+start "" "%EDGE%" --remote-debugging-port=9222 --user-data-dir="%TV_PROFILE%" --no-first-run --no-default-browser-check --window-position=0,0 --window-size=1536,824 "https://www.tradingview.com/chart/"
 
 REM Poll rather than sleep a fixed 4 seconds: a cold profile on a loaded box takes longer,
 REM and a fixed wait reports failure for a browser that was merely slow.
