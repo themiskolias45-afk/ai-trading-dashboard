@@ -3006,8 +3006,83 @@ def _get_tv_page(ctx):
             return p
     return ctx.new_page()
 
+class BrowserLock:
+    """
+    One writer at a time on the shared browser.
+
+    MultipleInstances=IgnoreNew stops two copies of the SAME scheduled task and stops
+    nothing else. Measured 2026-09-05: a manual `plan` run and the scheduled job
+    overlapped and BOTH drove the same Pine editor - the file write lost the race with
+    "[Errno 13] Permission denied: pine_daily_plan_current.pine", the clicks landed in an
+    editor the other run was already retyping, and the job died on a locator timeout that
+    looked like a browser fault and was not.
+
+    The lock is a file holding a pid. STALE LOCKS SELF-CLEAR: if the recorded pid is not
+    alive, or the file is older than the cap, it is taken over rather than blocking
+    forever - a lock that survives a crash is worse than no lock, because the job then
+    never runs again and nothing says why.
+
+    It REFUSES rather than waits. This runs on a schedule; the next run is minutes away
+    and two runs fighting now is the failure being prevented.
+    """
+    STALE_SECONDS = 30 * 60
+
+    def __init__(self, path=None):
+        self.path = Path(path or (Path(__file__).parent / "tasks" / ".tv_browser.lock"))
+        self.held = False
+
+    def _owner_alive(self):
+        try:
+            pid = int(self.path.read_text(encoding="utf-8").split()[0])
+        except Exception:
+            return False
+        if pid == os.getpid():
+            return False
+        try:
+            import subprocess
+            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
+                                 capture_output=True, text=True, timeout=15).stdout
+            return str(pid) in out
+        except Exception:
+            return False
+
+    def acquire(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            if self.path.exists():
+                age = time.time() - self.path.stat().st_mtime
+                if self._owner_alive() and age < self.STALE_SECONDS:
+                    owner = self.path.read_text(encoding="utf-8").strip()[:60]
+                    print("[TV] another run already holds the browser (%s) - refusing to start" % owner)
+                    return False
+                if age >= self.STALE_SECONDS:
+                    print("[TV] clearing a stale browser lock (%d min old)" % int(age / 60))
+            self.path.write_text("%d %s" % (os.getpid(), time.strftime("%Y-%m-%dT%H:%M:%S")),
+                                 encoding="utf-8")
+            self.held = True
+            return True
+        except Exception as exc:
+            # A lock that cannot be taken must not stop the job. It exists to prevent a
+            # collision, not to become a new single point of failure.
+            print("[TV] could not take the browser lock (%s) - continuing unlocked" % exc)
+            return True
+
+    def release(self):
+        if not self.held:
+            return
+        try:
+            if self.path.exists():
+                self.path.unlink()
+        except Exception:
+            pass
+        self.held = False
+
+
 def _run(fn):
     """Attach to running Edge on port 9222 and run fn(page, ctx). Never opens a new window."""
+    lock = BrowserLock()
+    if not lock.acquire():
+        return
     try:
         with sync_playwright() as pw:
             browser, ctx = make_context(pw)
@@ -3018,7 +3093,9 @@ def _run(fn):
                 pass  # do NOT close — keep Edge alive
     except Exception as e:
         print(f"[TV] Cannot connect to Edge: {e}")
-        print("[TV] Open TradingView in Edge, then run: tasks\\launch_chrome_tv.bat")
+        print("[TV] Open TradingView in Edge, then run: tasks\\launch_chrome_tv.bat")
+    finally:
+        lock.release()
 
 def cmd_login():
     """
@@ -3158,6 +3235,14 @@ def cmd_plan(which="all", shoot=True):
         print(f"[TV] WARNING - could not write the plan source to disk ({exc}); "
               f"paste_pine's manual-recovery instruction has no file to point at.")
 
+    # THE LOCK BELONGS HERE MOST OF ALL. cmd_plan is what the scheduler runs, and the
+    # measured collision was a scheduled cmd_plan against a manual one: both drove the
+    # same Pine editor, the source write lost the race with Errno 13, and the job died
+    # on a locator timeout that read as a browser fault. cmd_plan opens its own
+    # playwright context rather than going through _run, so it needs its own acquire.
+    plan_lock = BrowserLock()
+    if not plan_lock.acquire():
+        return 1
     try:
         with sync_playwright() as pw:
             browser, ctx = make_context(pw)
@@ -3353,7 +3438,10 @@ def cmd_plan(which="all", shoot=True):
         print(f"[TV] Plan run failed: {detail}")
         if "connect" in detail.lower() or "browser" in detail.lower():
             print("[TV] Is Edge up on CDP 9222? Run: tasks" + chr(92) + "launch_chrome_tv.bat")
+        plan_lock.release()
         return 1
+
+    plan_lock.release()
 
     ok = [n for n, good in results.items() if good]
     bad = [n for n, good in results.items() if not good]
