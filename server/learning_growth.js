@@ -66,9 +66,37 @@ function build(options) {
     return { available: false, reason: "scored ledger is empty", days: [], setups: [] };
   }
 
+  // ── EPISODES, NOT ROWS ─────────────────────────────────────────────────────
+  // Every label this module produces is episode language - ai_brief.cjs prints its
+  // output as "resolved paper episodes" and "setups with enough paper episodes to
+  // read" - while the arithmetic below counted ROWS, and nothing in between converted
+  // the unit. Gates re-fire on every 30-minute refresh, so one setup drifting across a
+  // few hours writes many near-identical rows: measured on the live ledger today, 3799
+  // rows collapse to 305 episodes, so the brief was overstating the evidence roughly
+  // twelvefold. score_rr_rejections.py:548 states the doctrine plainly - "seven rows of
+  // one Gold short are one piece of evidence, not seven" - and stamps an `episode` id on
+  // every row it writes. This module was the one reader that ignored it.
+  //
+  // Same rule and same tie-break as score_rr_rejections.py's episodes_from_scored:696:
+  // the EARLIEST RESOLVED row in an episode is its verdict, and if nothing in it
+  // resolved the first row stands, so a pending episode still appears as pending rather
+  // than vanishing. The synthetic fallback key mirrors learning_from_rejections.py so a
+  // row written before the id existed stays distinct instead of collapsing on null -
+  // verified unnecessary today (0 of 3799 rows lack the field), and kept because "true
+  // today" is not the same as "true when this next runs".
+  const byEpisode = new Map();
+  for (const row of [...rows].sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")))) {
+    const key = row.episode != null
+      ? row.episode
+      : ["row", row.ts, row.setup, row.entry].join("|");
+    const held = byEpisode.get(key);
+    if (!held || (!isResolved(held) && isResolved(row))) byEpisode.set(key, row);
+  }
+  const episodes = [...byEpisode.values()];
+
   // ── daily buckets ──────────────────────────────────────────────────────────
   const buckets = {};
-  for (const row of rows) {
+  for (const row of episodes) {
     const day = dayOf(row);
     if (!day) continue;
     buckets[day] = buckets[day] || { logged: 0, resolved: 0, wins: 0, losses: 0 };
