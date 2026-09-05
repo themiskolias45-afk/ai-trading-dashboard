@@ -159,6 +159,21 @@ function replay(symbol, ticker, candidate) {
     {
       env: {
         ...process.env,
+        // THE HORIZON IS SET EXPLICITLY HERE, and this axis is why it has to be.
+        //
+        // _replay_mtf.cjs defaults MAX_HOLD to 40, which scores an unresolved trade as
+        // EXPIRED even though the live system has no max hold at all. Measured on this
+        // exact sweep 2026-09-05, the default reverses the answer outright:
+        //   72/68 at hold  40 -> worst fold -0.135, 1/5, -5.1R   (the WORST option)
+        //   72/68 at hold 320 -> worst fold +0.189, 5/5, +115.4R (the BEST worst fold)
+        // Same data, same code, opposite verdict. Every ceiling conclusion previously on
+        // record was produced at 40 without saying so, which is how evidence_register.js
+        // came to assert that 56/52 is "clearly worse: -0.326 worst, 2/5" when re-running
+        // it at that same horizon measures +0.068 worst, 5/5, +30.2R.
+        //
+        // This axis FEEDS THE GATE, so it does not get to inherit a ruler by accident.
+        // Overridable for a deliberate comparison; never silently 40 again.
+        MTF_MAX_HOLD: String(MAX_HOLD),
         MTF_CONF_FLOOR: String(CONF_FLOOR),
         // Only asked for in perasset mode, so a flat run's replay output stays
         // byte-identical to what the two-box parity check compares.
