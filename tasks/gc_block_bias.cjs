@@ -124,21 +124,127 @@ function atrSeries(h, l, c, len) {
 }
 
 /** Simulate one trade forward from H1 index `from`. Ambiguous bar is a LOSS. */
-function runTrade(H1, from, dir, entry, stop, target, spread) {
+function runTrade(H1, from, dir, entry, stop, target, spread, P) {
   const risk = Math.abs(entry - stop);
   if (!(risk > 0)) return null;
   const costR = spread / risk;
-  for (let i = from + 1; i < Math.min(H1.t.length, from + 1 + MAX_HOLD_H1); i++) {
+  const hold = P.maxhold;
+  for (let i = from + 1; i < Math.min(H1.t.length, from + 1 + hold); i++) {
     const hi = H1.h[i], lo = H1.l[i];
     const hitStop   = dir === 'SELL' ? hi >= stop   : lo <= stop;
     const hitTarget = dir === 'SELL' ? lo <= target : hi >= target;
     if (hitStop && hitTarget) return { r: -1 - costR, bars: i - from, outcome: 'AMBIGUOUS' };
     if (hitStop)   return { r: -1 - costR, bars: i - from, outcome: 'STOP' };
-    if (hitTarget) return { r: RR - costR, bars: i - from, outcome: 'TARGET' };
+    if (hitTarget) return { r: P.rr - costR, bars: i - from, outcome: 'TARGET' };
   }
-  const last = H1.c[Math.min(H1.t.length - 1, from + MAX_HOLD_H1)];
+  const last = H1.c[Math.min(H1.t.length - 1, from + hold)];
   const move = dir === 'SELL' ? (entry - last) : (last - entry);
-  return { r: move / risk - costR, bars: MAX_HOLD_H1, outcome: 'EXPIRED' };
+  return { r: move / risk - costR, bars: hold, outcome: 'EXPIRED' };
+}
+
+// ── the backtest, parameterised so a grid can reuse one load of the CSVs ──────
+// Indicator series are cached by length: a grid over EMA lengths recomputes each
+// series once, not once per configuration.
+const _emaCache = new Map(), _atrCache = new Map();
+function cachedEma(H1, len, key) {
+  const k = key + '|e' + len;
+  if (!_emaCache.has(k)) _emaCache.set(k, emaSeries(H1.c, len));
+  return _emaCache.get(k);
+}
+function cachedAtr(H1, len, key) {
+  const k = key + '|a' + len;
+  if (!_atrCache.has(k)) _atrCache.set(k, atrSeries(H1.h, H1.l, H1.c, len));
+  return _atrCache.get(k);
+}
+
+function backtest(D1, H1, spread, P, key) {
+  const ema = cachedEma(H1, P.ema, key);
+  const atr = cachedAtr(H1, P.atrlen, key);
+  const trades = [], controls = [];
+  const sessWin = SESSIONS[P.session];
+  const inSess = ts => {
+    if (!sessWin) return true;
+    const h = new Date(ts * 1000).getUTCHours();
+    return h >= sessWin[0] && h < sessWin[1];
+  };
+
+  for (let b = 0; b + 2 * P.block <= D1.t.length; b += 1) {
+    const a0 = b, a1 = b + P.block - 1;
+    const c0 = b + P.block, c1 = b + 2 * P.block - 1;
+    const dir1 = D1.c[a1] - D1.c[a0];
+    const dir2 = D1.c[c1] - D1.c[c0];
+
+    let side = null;
+    if (dir1 < 0 && dir2 > 0 && P.shorts) side = 'SELL';
+    else if (dir1 > 0 && dir2 < 0 && P.longs) side = 'BUY';
+    if (!side) continue;
+
+    let hi = -Infinity, lo = Infinity;
+    for (let i = c0; i <= c1; i++) { if (D1.h[i] > hi) hi = D1.h[i]; if (D1.l[i] < lo) lo = D1.l[i]; }
+    const range = hi - lo;
+    if (!(range > 0)) continue;
+    const zone = side === 'SELL' ? lo + P.zone * range : hi - P.zone * range;
+
+    const startTs = D1.t[c1] + 86400;
+    const endTs = startTs + P.expiry * 86400;
+    let armed = false;
+
+    for (let i = 0; i < H1.t.length; i++) {
+      if (H1.t[i] < startTs) continue;
+      if (H1.t[i] > endTs) break;
+      if (ema[i] == null || atr[i] == null) continue;
+      if (!armed) {
+        if (side === 'SELL' ? H1.h[i] >= zone : H1.l[i] <= zone) armed = true;
+        continue;
+      }
+      if (!inSess(H1.t[i])) continue;
+      const trigger = side === 'SELL' ? (H1.c[i] < ema[i]) : (H1.c[i] > ema[i]);
+      if (!trigger) continue;
+
+      const entry = H1.c[i];
+      const dist = P.atrsl * atr[i];
+      const stop = side === 'SELL' ? entry + dist : entry - dist;
+      const target = side === 'SELL' ? entry - P.rr * dist : entry + P.rr * dist;
+      const res = runTrade(H1, i, side, entry, stop, target, spread, P);
+      if (res) trades.push({ ts: H1.t[i], side, ...res });
+
+      const ci = i + P.ctrl;
+      if (ci + 1 < H1.t.length && atr[ci] != null) {
+        const ce = H1.c[ci];
+        const cs = side === 'SELL' ? ce + dist : ce - dist;
+        const ct = side === 'SELL' ? ce - P.rr * dist : ce + P.rr * dist;
+        const cr = runTrade(H1, ci, side, ce, cs, ct, spread, P);
+        if (cr) controls.push({ ts: H1.t[ci], side, ...cr });
+      }
+      break;
+    }
+  }
+  return { trades, controls };
+}
+
+function metrics(trades, controls, folds) {
+  const sum = (a, f) => a.reduce((x, y) => x + f(y), 0);
+  const n = trades.length;
+  if (!n) return null;
+  const net = sum(trades, t => t.r);
+  const gp = sum(trades.filter(t => t.r > 0), t => t.r);
+  const gl = Math.abs(sum(trades.filter(t => t.r <= 0), t => t.r));
+  const rpt = net / n;
+  const ctrlRpt = controls.length ? sum(controls, t => t.r) / controls.length : 0;
+  const per = Math.floor(n / folds);
+  let pos = 0; const foldR = [];
+  if (per >= 1) {
+    for (let f = 0; f < folds; f++) {
+      const s = trades.slice(f * per, f === folds - 1 ? n : (f + 1) * per);
+      const r = sum(s, t => t.r) / (s.length || 1);
+      foldR.push(r); if (r > 0) pos++;
+    }
+  }
+  return {
+    n, wr: trades.filter(t => t.r > 0).length / n * 100,
+    pf: gl > 0 ? gp / gl : Infinity, rpt, netR: net,
+    control: ctrlRpt, edge: rpt - ctrlRpt, foldsPos: pos, folds, foldR,
+  };
 }
 
 function main() {
