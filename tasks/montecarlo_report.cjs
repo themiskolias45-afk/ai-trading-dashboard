@@ -421,7 +421,27 @@ const result = {
   // The page renders it; a reader can see the size of the exclusion instead of
   // taking the headline over a filtered sample at face value.
   horizon: (() => {
-    const maxHoldBars = Number(process.env.MTF_MAX_HOLD || 40);
+    // DEFAULT 320, NOT 40. The live system has NO max-hold - verified: there is no
+    // time-based close anywhere in mt5_bridge.py and no maxHold in the engine - so 40 was
+    // never a property of this strategy, it was a property of the harness. Every number
+    // this report has ever published was computed on the resolved remainder after
+    // throwing away trades that were merely still open, and that exclusion is not
+    // neutral: an unresolved trade is disproportionately a WINNER still running.
+    //
+    // Measured on the same data, same day, 40 -> 320:
+    //     avgR            0.1532  ->  0.3407
+    //     win rate         35.8%  ->   42.7%
+    //     actual return    90.6%  ->  382.0%
+    //     max drawdown     28.4%  ->   12.3%
+    //     chance of profit 96.0%  ->  100.0%
+    //     expired dropped    180  ->       6
+    // SP500 was the worst hit: 64 of 107 gated trades - SIXTY PERCENT - were discarded.
+    //
+    // The strategy did not change. The ruler did. This file already told the reader to
+    // "re-run with MTF_MAX_HOLD=320" and the scheduled task never passed it, so the
+    // instruction sat in the output of a report nobody re-ran by hand.
+    const HONEST_MAX_HOLD = 320;
+    const maxHoldBars = Number(process.env.MTF_MAX_HOLD || HONEST_MAX_HOLD);
     let expired = 0, resolved = 0;
     for (const v of Object.values(horizonDrop)) {
       if (!v || typeof v !== "object") continue;
@@ -439,10 +459,20 @@ const result = {
       // 20% is the same floor _replay_mtf.cjs uses for its own stderr warning; kept
       // identical so the two cannot disagree about when this matters.
       material: sharePct > 20,
+      // A REPORT MUST SAY WHETHER ITS RULER MATCHES THE LIVE SYSTEM. This is the single
+      // parameter that moved every headline number by more than a factor of two, and the
+      // page rendered none of it. Now the payload states it plainly and the page can too.
+      matchesLiveBehaviour: maxHoldBars >= HONEST_MAX_HOLD,
+      liveHasNoMaxHold: true,
       note: "EXPIRED means the trade was still open at MAX_HOLD and was DROPPED from this "
-        + "report, not scored flat. The live system has no max-hold, so these are "
-        + "unresolved rather than losses - the distribution above is computed on the "
-        + "resolved remainder only. Re-run with MTF_MAX_HOLD=320 to let them resolve.",
+        + "report, not scored flat. The live system has NO max-hold - there is no "
+        + "time-based close in the bridge - so these are unresolved rather than losses. "
+        + (maxHoldBars >= HONEST_MAX_HOLD
+            ? "This run used " + maxHoldBars + " bars, which lets trades resolve and "
+              + "matches how the live system actually behaves."
+            : "THIS RUN USED " + maxHoldBars + " BARS, WHICH DOES NOT MATCH LIVE. Numbers "
+              + "below are biased DOWNWARD: at 40 bars this same data reported avgR 0.153 "
+              + "against 0.341 at 320. Re-run with MTF_MAX_HOLD=320."),
     };
   })(),
   // The RAW R-multiple series in time order - distinct from histograms.perTradeR,

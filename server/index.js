@@ -12286,6 +12286,41 @@ app.get("/api/strategy-board", (_, res) => {
 // Reads the file tasks/montecarlo_report.cjs writes. Does NOT run it: that harness
 // replays three assets and bootstraps 4,000 paths, which is minutes of CPU on the box
 // that trades. A page request must never start it.
+// ── CPCV: the out-of-sample DISTRIBUTION, not a single path ───
+//
+// tasks/pbo.cjs runs CSCV and is good work, but the words purge, embargo and leak
+// appear nowhere in it - and that is exactly the gap between CSCV and CPCV. A trade
+// here is not a point: it opens on one bar and closes many later, so a trade that
+// STARTS in a training block and ENDS inside a test block was partly decided by the
+// data the test block is meant to judge blind. Purging removes those; the embargo
+// removes the ones starting just after a test block, where serial correlation still
+// carries its information.
+//
+// The other half is why it beats a 5-fold walk-forward for this system specifically:
+// a walk-forward gives ONE out-of-sample path, and this repo's own records show
+// verdict after verdict turning on a single fold - "delete its best fold and it goes
+// negative" recurs. CPCV gives C(N,k) paths and therefore a distribution, so the
+// question becomes "in what fraction of ALL splits does it survive".
+//
+// Read-only over a report already on disk. feedsTheGate false.
+app.get("/api/cpcv-report", (_, res) => {
+  const p = path.join(__dirname, "..", "tasks", "analysis", "cpcv-latest.json");
+  try {
+    if (!fs.existsSync(p)) {
+      return res.json({ status: "NOT RUN",
+        detail: "No CPCV report yet. Run: node tasks/cpcv.cjs", feedsTheGate: false });
+    }
+    const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+    const ms = Date.parse(raw.generatedAt || "");
+    const ageHours = Number.isFinite(ms)
+      ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+    res.json({ status: "OK", ageHours, stale: ageHours !== null && ageHours > 192, ...raw });
+  } catch (cpcvError) {
+    console.error("[cpcv] " + cpcvError.message);
+    res.json({ status: "ERROR", detail: cpcvError.message, feedsTheGate: false });
+  }
+});
+
 app.get("/api/robustness-report", (_, res) => {
   const p = path.join(__dirname, "..", "tasks", "analysis", "montecarlo-latest.json");
   try {

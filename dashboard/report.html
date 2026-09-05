@@ -216,18 +216,44 @@ function render(d, meta) {
     // every EXPIRED trade - still open at MAX_HOLD - is DROPPED, not scored flat. That
     // was invisible on the page and absent from the artifact, so a chance-of-profit
     // over a filtered sample read as one over the whole population.
+    // THE HORIZON IS ALWAYS SHOWN NOW, NOT ONLY WHEN IT IS BADLY WRONG.
+    //
+    // This used to render only when more than 20% of trades were dropped, so a report at
+    // the correct horizon and a report at the wrong one looked IDENTICAL on the page -
+    // and the wrong one was the default for the entire life of this report. MAX_HOLD is
+    // the single parameter that moved every headline here by more than a factor of two:
+    //
+    //     40 bars   avgR 0.153   win 35.8%   return  90.6%   maxDD 28.4%   180 dropped
+    //    320 bars   avgR 0.341   win 42.7%   return 382.0%   maxDD 12.3%     6 dropped
+    //
+    // Same trades, same engine, same day. A page that shows the result without the ruler
+    // is asking to be misread, so the ruler now sits above the numbers either way -
+    // green when it matches live behaviour, red when it does not.
     + (function(h){
-        if (!h || !h.material) return '';
+        if (!h) return '';
         var per = Object.keys(h.perAsset || {}).map(function(k){
           var v = h.perAsset[k];
-          return esc(k) + ' ' + v.expired + ' dropped / ' + v.resolved + ' kept';
+          return esc(k) + ' ' + v.expired + '/' + (v.expired + v.resolved);
         }).join(' · ');
-        return '<div class="banner" style="border-color:var(--red);color:var(--red);background:#1a0a0a">'
-          + '<strong>' + h.expiredDropped + ' TRADES (' + h.sharePct + '%) WERE EXCLUDED FROM THIS REPORT.</strong> '
-          + 'They were still open at MAX_HOLD=' + h.maxHoldBars + ' H4 bars and are DROPPED, not scored flat. '
-          + 'The live system has no max-hold, so they are <em>unresolved</em> rather than losses — every number '
-          + 'above is computed on the ' + h.resolvedKept + ' that resolved. ' + per + '. '
-          + 'Re-run with <code>MTF_MAX_HOLD=320</code> to let them resolve and compare.</div>';
+        var matches = h.matchesLiveBehaviour === true
+                      || (h.matchesLiveBehaviour == null && h.maxHoldBars >= 320);
+        if (!matches) {
+          return '<div class="banner" style="border-color:var(--red);color:var(--red);background:#1a0a0a">'
+            + '<strong>MEASURED AT MAX_HOLD=' + h.maxHoldBars + ' H4 BARS, WHICH IS NOT HOW THIS SYSTEM TRADES.</strong> '
+            + 'The live system has no max-hold — there is no time-based close in the bridge — so a trade still '
+            + 'open at the cap is <em>unresolved</em>, not a loss, and it is DROPPED rather than scored flat. '
+            + h.expiredDropped + ' of ' + h.ofGated + ' (' + h.sharePct + '%) were excluded here: ' + per + '. '
+            + 'The exclusion is not neutral: an unresolved trade is disproportionately a winner still running, so '
+            + 'every number below is biased <strong>downward</strong>. On this same data 40 bars reported avgR 0.153 '
+            + 'against 0.341 at 320. Re-run with <code>MTF_MAX_HOLD=320</code>.</div>';
+        }
+        return '<div class="banner" style="border-color:#2e7d32;color:#7ee2a8;background:#0a1a0d">'
+          + '<strong>Measured at MAX_HOLD=' + h.maxHoldBars + ' H4 bars — this matches live behaviour.</strong> '
+          + 'The live system has no max-hold, so a long cap is what lets trades resolve the way they actually do. '
+          + 'Only ' + h.expiredDropped + ' of ' + h.ofGated + ' (' + h.sharePct + '%) were still open at the cap '
+          + 'and excluded: ' + per + '. '
+          + 'For scale, this report defaulted to 40 bars until 2026-09-05, which dropped 180 trades and reported '
+          + 'avgR 0.153 where 320 reports 0.341 on the same data.</div>';
       })(meta.horizon)
     + (function(c){
         if (!c || !c.available) return '';
@@ -369,6 +395,60 @@ function histCard(title, h, colour, actual, unit) {
        + '<div class="card-body">' + histSvg(h, colour, actual, unit) + '</div></div>';
 }
 
+// ── CPCV: the out-of-sample DISTRIBUTION ─────────────────────────────────────
+//
+// Everything else on this page resamples the SAME trades - a bootstrap shows the range
+// of luck around an edge, and says nothing about whether the edge survives out of
+// sample. The walk-forwards answer that, but each gives ONE path, and this system's own
+// record shows verdict after verdict turning on a single fold.
+//
+// CPCV gives a distribution of out-of-sample paths, with training trades PURGED when
+// their life overlaps a test block and EMBARGOED when they start just after one. The
+// existing pbo.cjs runs CSCV, which does neither.
+function renderCPCV(c) {
+  if (!c || c.status === "NOT RUN") {
+    return '<div class="card"><div class="card-head"><span>Out-of-sample distribution (CPCV)</span></div>'
+      + '<div class="card-body"><div class="loading">Not run yet — <code>node tasks/cpcv.cjs</code></div></div></div>';
+  }
+  if (c.status && c.status !== "OK") {
+    return '<div class="card"><div class="card-head"><span>Out-of-sample distribution (CPCV)</span></div>'
+      + '<div class="card-body"><div class="loading" style="color:var(--red)">' + esc(c.detail || c.status) + '</div></div></div>';
+  }
+  var f = function (n) { return (n === null || n === undefined) ? '—' : (n >= 0 ? '+' : '') + Number(n).toFixed(4); };
+  var pct = c.pathsPositivePct;
+  var tone = pct >= 80 ? '#7ee2a8' : pct >= 60 ? '#e8ce6a' : '#f5a3a3';
+  // DEGRADATION IS THE HEADLINE, not the positive share. A strategy that only works
+  // where it was fitted shows a large positive in-sample-minus-out-of-sample gap; a
+  // real edge shows a gap near zero. That single number is what overfitting looks like.
+  var deg = c.degradationR;
+  var degTone = deg === null || deg === undefined ? 'var(--muted)'
+              : deg > 0.15 ? '#f5a3a3' : deg > 0.05 ? '#e8ce6a' : '#7ee2a8';
+  return '<div class="card"><div class="card-head"><span>Out-of-sample distribution (CPCV)</span>'
+    + '<span style="color:var(--muted);font-weight:400">' + c.paths + ' paths · purged &amp; embargoed</span></div>'
+    + '<div class="card-body">'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px">'
+    + '<div><div style="font-size:1.5rem;font-weight:800;color:' + tone + '">' + pct + '%</div>'
+    + '<div style="font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">paths profitable (' + c.pathsPositive + '/' + c.paths + ')</div></div>'
+    + '<div><div style="font-size:1.5rem;font-weight:800;color:' + degTone + '">' + f(deg) + '</div>'
+    + '<div style="font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">in-sample minus out-of-sample R</div></div>'
+    + '<div><div style="font-size:1.5rem;font-weight:800">' + f(c.testMeanR && c.testMeanR.p50) + '</div>'
+    + '<div style="font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">median OOS R/trade</div></div>'
+    + '<div><div style="font-size:1.5rem;font-weight:800">' + f(c.worstPath && c.worstPath.testMeanR) + '</div>'
+    + '<div style="font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">worst path R/trade</div></div>'
+    + '</div>'
+    + '<div style="font-size:.72rem;color:var(--muted);line-height:1.6">'
+    + 'OOS R/trade across all splits: p5 <strong>' + f(c.testMeanR && c.testMeanR.p5) + '</strong>'
+    + ' · p50 <strong>' + f(c.testMeanR && c.testMeanR.p50) + '</strong>'
+    + ' · p95 <strong>' + f(c.testMeanR && c.testMeanR.p95) + '</strong>. '
+    + c.avgPurgedPerSplit + ' training trades purged per split (embargo ' + Math.round((c.embargoPct || 0) * 100) + '%), '
+    + 'because a trade that opens in training and closes inside the test window was partly decided by data '
+    + 'the test is supposed to judge blind. '
+    + '<strong>The degradation number is the one to read:</strong> near zero means the edge is not an artifact '
+    + 'of where it was fitted. A 5-fold walk-forward reports one of these ' + c.paths + ' paths and calls it the answer.'
+    + (c.horizonMatchesLive === false ? ' <span style="color:var(--red)">Computed at MAX_HOLD=' + c.maxHoldBars + ', which does not match live.</span>' : '')
+    + '</div></div></div>';
+}
+
 fetch("/api/robustness-report")
   .then(function(r){
     if (r.status === 401) throw new Error("Not logged in — open /login first.");
@@ -386,6 +466,18 @@ fetch("/api/robustness-report")
     // The envelope carries the age, the stale verdict and the live trade count;
     // the report itself carries none of them. Pass both.
     render(d.report, d);
+    // CPCV is fetched SEPARATELY and appended, so a missing or broken CPCV report can
+    // never blank the Monte-Carlo page. Two independent reports, two independent
+    // failures - the whole page going dark because a secondary artifact is absent is
+    // the failure mode this split avoids.
+    fetch("/api/cpcv-report")
+      .then(function (r) { return r.ok ? r.json() : { status: "ERROR", detail: "HTTP " + r.status }; })
+      .catch(function (e) { return { status: "ERROR", detail: e.message }; })
+      .then(function (c) {
+        var host = document.createElement("div");
+        host.innerHTML = renderCPCV(c);
+        document.getElementById("root").appendChild(host.firstChild);
+      });
   })
   .catch(function(e){
     console.error("robustness-report:", e);

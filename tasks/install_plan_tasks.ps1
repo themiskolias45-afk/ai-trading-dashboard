@@ -168,6 +168,11 @@ Install-PlanTask -Name 'SmartEntry Doctor' `
 # day of slack, so a healthy schedule never trips it and a MISSED run does.
 $robustnessTriggers = @(New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '09:00')
 
+# THE HORIZON IS THE WHOLE REPORT. montecarlo_report.cjs now defaults to
+# MTF_MAX_HOLD=320 because the live system has no max-hold, and this report's numbers
+# moved by more than a factor of two on that one parameter: avgR 0.153 -> 0.341,
+# return 90.6% -> 382%, drawdown 28.4% -> 12.3%, 180 trades dropped -> 6. Stated here
+# as well as in the harness so a future edit to either one is visibly a change.
 Install-PlanTask -Name 'SmartEntry Robustness Report' `
     -Arguments 'tasks\montecarlo_report.cjs' `
     -Triggers $robustnessTriggers `
@@ -188,6 +193,28 @@ Install-PlanTask -Name 'SmartEntry Sharpe Robustness' `
     -Arguments 'tasks\sharpe_robustness.cjs --out tasks\analysis\sharpe-robustness.json' `
     -Triggers $sharpeTriggers `
     -Description 'Weekly PSR / Deflated Sharpe / MinTRL over the Monte-Carlo population. Read-only: no signal, no setting, no order.'
+
+# ---- CPCV: the out-of-sample DISTRIBUTION -------------------------------------
+#
+# Runs 40 minutes after the Monte-Carlo so it reads that run's fresh perTradeRSeries,
+# and after the Sharpe job so all three artifacts on the page share one population.
+#
+# tasks\pbo.cjs already runs CSCV. What it does NOT do - verified, the words purge,
+# embargo and leak appear nowhere in it - is purge overlapping trades or embargo the
+# bars just after a test block. That is the whole difference between CSCV and CPCV,
+# and it matters here because a trade is not a point: at MAX_HOLD=320 one can span a
+# long window, so a trade opening in training and closing inside the test window was
+# partly decided by the data the test is meant to judge blind.
+#
+# The other half is why it beats the 5-fold walk-forwards: those give ONE
+# out-of-sample path, and this system's own record shows verdict after verdict
+# turning on a single fold. CPCV gives 15 paths and a distribution.
+$cpcvTriggers = @(New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '09:40')
+
+Install-PlanTask -Name 'SmartEntry CPCV' `
+    -Arguments 'tasks\cpcv.cjs' `
+    -Triggers $cpcvTriggers `
+    -Description 'Weekly Combinatorial Purged Cross-Validation over the Monte-Carlo trade series. Read-only: no signal, no setting, no order.'
 
 # ---- The data pipeline that makes the search worth running --------------------
 #
