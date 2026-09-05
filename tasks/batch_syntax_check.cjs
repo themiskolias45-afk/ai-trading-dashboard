@@ -109,6 +109,11 @@ function selftest() {
       "closed ^(Gold and SPX do not trade at the weekend, BTC does^), which is NOT a frozen feed", expect: 0 },
     { name: "prose with no parens", payload: "a plain brief line with no parentheses", expect: 0 },
     { name: "parens inside quotes are data", payload: '"a (quoted) path"', expect: 0 },
+    // Verified by running it: this prints correctly and the block completes. Flagging
+    // it was a false positive found while writing this check, and a checker that cries
+    // wolf on the safe case is how the real one gets skimmed past.
+    { name: "open unescaped, close escaped -- HARMLESS", payload:
+      "Task Scheduler entry created (runs 2 min after login^).", expect: 0 },
   ];
 
   let failed = 0;
