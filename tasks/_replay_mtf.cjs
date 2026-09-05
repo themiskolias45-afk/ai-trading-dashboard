@@ -97,11 +97,18 @@ const SCALAR_CONSTS = [
   "BUY_DIP_REQUIRE_MACD_BULLISH",
   "BUY_DIP_RSI_MAX",
   "MOMENTUM_REQUIRE_MACD_BULLISH",
-  // Added 2026-09-03 with MOMENTUM's per-asset exemption list. Omitting it would be the
-  // SEVENTH occurrence of the bug this list documents: the const is read on the MOMENTUM
-  // branch, so its absence throws on every bar reaching it and the run reads as "MOMENTUM
-  // never fired" — which is the very claim being tested.
-  "MOMENTUM_MACD_EXEMPT_TICKERS",
+  // MOMENTUM_MACD_EXEMPT_TICKERS was listed here from 2026-09-03 (c4b264e) until
+  // 2026-09-05. b0bfb9e removed it from the ENGINE the same day it was added — it was
+  // the only new fleet divergence — and did not touch this file, so the harness went on
+  // demanding a const server/index.js no longer defines. It then did exactly what it
+  // promises to do on a missing const: refused. Every SmartEntry Post-Close Analysis run
+  // from 2026-09-03 to 2026-09-05 exited 1 with "no trades from any asset — nothing to
+  // measure". The fail-closed design worked; nothing read the failure for two days.
+  //
+  // RESTORE THIS ENTRY THE MOMENT THE ENGINE READS THAT CONST AGAIN. Absent from the
+  // list while present on the MOMENTUM branch is the SEVENTH occurrence of the bug this
+  // list documents: it throws on every bar reaching the branch and the run reads as
+  // "MOMENTUM never fired", which is the very claim being tested.
   // Added 2026-09-01 with SELL_BOUNCE's condition-1 flag. Omitting it would be the
   // FIFTH occurrence of the bug this list documents: the const is read inside the
   // SELL_BOUNCE branch, so its absence throws on every step and the run reads as
@@ -172,17 +179,20 @@ for (const [envName, constName] of BOOL_ENV_FLAGS) {
 // string wrong would exempt NOBODY and report the baseline as the candidate, which is
 // exactly the failure mode this block exists to refuse — so it is spelled here once and
 // never typed by the caller.
-const MOMENTUM_MACD_EXEMPT_WORLDS = { none: "[]", spx: '["^GSPC"]' };
+// The two worlds this switch used to select no longer exist to select between: b0bfb9e
+// removed MOMENTUM_MACD_EXEMPT_TICKERS from the engine on 2026-09-03, so there is no
+// const left to override and BOTH worlds now replay as the same baseline. Overriding a
+// const that SCALAR_CONSTS does not extract is a silent no-op, and a silent no-op here
+// reports the baseline under the candidate's label — the one failure this block was
+// written to refuse. So it refuses, rather than quietly measuring the wrong thing.
 if (process.env.MTF_MOMENTUM_MACD_EXEMPT !== undefined) {
-  const key = String(process.env.MTF_MOMENTUM_MACD_EXEMPT).trim();
-  if (!Object.prototype.hasOwnProperty.call(MOMENTUM_MACD_EXEMPT_WORLDS, key)) {
-    console.error(`MTF_MOMENTUM_MACD_EXEMPT=${process.env.MTF_MOMENTUM_MACD_EXEMPT} must be ` +
-                  `one of: ${Object.keys(MOMENTUM_MACD_EXEMPT_WORLDS).join(", ")} — refusing to ` +
-                  `replay, because anything else would silently report the baseline under ` +
-                  `the candidate's label.`);
-    process.exit(1);
-  }
-  CONST_OVERRIDES.MOMENTUM_MACD_EXEMPT_TICKERS = MOMENTUM_MACD_EXEMPT_WORLDS[key];
+  console.error(`MTF_MOMENTUM_MACD_EXEMPT is set, but the engine no longer defines ` +
+                `MOMENTUM_MACD_EXEMPT_TICKERS — b0bfb9e removed it on 2026-09-03 as the ` +
+                `only new fleet divergence. There is nothing to switch: both worlds would ` +
+                `replay identically and be reported under different labels. Re-add the ` +
+                `const to server/index.js and restore it to SCALAR_CONSTS above before ` +
+                `using this switch again.`);
+  process.exit(1);
 }
 
 for (const name of SCALAR_CONSTS) {
