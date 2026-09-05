@@ -145,7 +145,14 @@ function main() {
   const D1 = loadBars(SYMBOL, 'D1');
   const H1 = loadBars(SYMBOL, 'H1');
   if (!D1 || !H1) { console.error('missing history for ' + SYMBOL + ' (need D1 and H1)'); process.exit(1); }
-  const spread = SPREAD[SYMBOL] != null ? SPREAD[SYMBOL] : 0;
+  if (SPREAD[SYMBOL] == null) {
+    console.error('REFUSING: no measured spread for ' + SYMBOL + '.');
+    console.error('Running it at zero cost would flatter it against every priced symbol');
+    console.error('here, which is the worst possible way to pick a winner. Add its measured');
+    console.error('spread to tasks/cost_breakeven.cjs and to the table above first.');
+    process.exit(2);
+  }
+  const spread = SPREAD[SYMBOL];
 
   const ema = emaSeries(H1.c, EMA_LEN);
   const atr = atrSeries(H1.h, H1.l, H1.c, ATR_LEN);
