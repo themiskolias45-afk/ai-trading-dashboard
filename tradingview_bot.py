@@ -660,6 +660,15 @@ CRT_LABEL     = "color.new(color.teal, 30)"
 FVG_FILL      = "color.new(color.purple, 90)"
 FVG_BORDER    = "color.new(color.purple, 62)"
 FVG_LABEL     = "color.new(color.purple, 35)"
+# The risk band of a LIVE position. Red, and the least transparent thing the plan
+# draws, because unlike every other band on this chart it is not context: it is money
+# currently at risk. In profit the border turns green; the fill stays red because the
+# band always spans entry -> stop, which is the loss if it goes wrong.
+POS_FILL       = "color.new(color.red, 86)"
+POS_BORDER     = "color.new(color.red, 15)"
+POS_BORDER_WIN = "color.new(color.green, 15)"
+POS_LABEL      = "color.new(color.red, 25)"
+POS_BARS_BACK  = 50
 CRT_BARS_BACK = 40
 FVG_BARS_BACK = 30
 
@@ -1074,6 +1083,31 @@ JS_ROW_REMOVE_BOX = """(band) => {
 }"""
 
 
+def _position_label(position, decimals):
+    """One line for a LIVE position: side, size, entry, stop and the running P&L.
+
+    This is the one number on the chart that is not a projection. Everything else the
+    plan draws is what the engine THINKS; this is what is actually open, and it is stated
+    plainly because a trader looking at the chart needs to see the risk they are already
+    carrying, not infer it.
+    """
+    if not isinstance(position, dict):
+        return ""
+    side = str(position.get("type") or "?").upper()
+    volume = position.get("volume")
+    entry = _fmt(position.get("price"), decimals)
+    stop = _fmt(position.get("sl"), decimals)
+    profit = position.get("profit")
+    pl = ("%+.2f" % profit) if isinstance(profit, (int, float)) else "?"
+    stop_note = ("SL " + stop) if position.get("sl") else "NO STOP"
+    return "OPEN %s %s @ %s  %s  P/L %s" % (side, volume, entry, stop_note, pl)
+
+
+def _position_field(position, field):
+    value = (position or {}).get(field)
+    return value if isinstance(value, (int, float)) and value else "na"
+
+
 def _crt_label(crt, decimals):
     """One line describing the CRT: direction, which side was swept, and the objective.
 
@@ -1376,6 +1410,39 @@ def generate_pine(plans):
             "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
             % (FVG_BARS_BACK, FVG_BORDER, FVG_FILL, FVG_LABEL))
 
+    # ── The live position: entry to stop, as a risk band ───────────────────
+    #
+    # Drawn LAST so it renders above the context bands. Everything else on this chart is
+    # what the engine thinks; this is the trade that is actually open and the money
+    # actually at risk, so it is the one band allowed to be loud.
+    #
+    # Entry to STOP, not entry to target. The band shows what is lost if this goes wrong,
+    # which is the number that should be impossible to miss. The target is already in the
+    # panel rows.
+    #
+    # A position with NO broker-side stop draws nothing and the label says "NO STOP" - an
+    # unbounded band would be a lie about where the risk ends, and a missing band with a
+    # loud label is the honest rendering of an unprotected trade.
+    if any(plan.get("position") for plan in plans):
+        level_vars.append("_posEntry = " + _ternary(
+            plans, lambda p: _position_field(p.get("position"), "price"), "na"))
+        level_vars.append("_posStop = " + _ternary(
+            plans, lambda p: _position_field(p.get("position"), "sl"), "na"))
+        level_vars.append("_posTxt = " + _ternary(
+            plans, lambda p: _pine_str(_position_label(p.get("position"), p["decimals"]))
+            if p.get("position") else '""', '""'))
+        level_vars.append("_posWin = " + _ternary(
+            plans,
+            lambda p: "true" if ((p.get("position") or {}).get("profit") or 0) > 0 else "false",
+            "false"))
+        draw_block.append(
+            "    if not na(_posEntry) and not na(_posStop)\n"
+            "        box.new(bar_index - %d, math.max(_posEntry, _posStop), bar_index + 20, "
+            "math.min(_posEntry, _posStop), border_color=(_posWin ? %s : %s), bgcolor=%s, "
+            "extend=extend.right)\n"
+            "        label.new(bar_index + 20, _posEntry, _posTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.small)"
+            % (POS_BARS_BACK, POS_BORDER_WIN, POS_BORDER, POS_FILL, POS_LABEL))
     # NO PIVOT OR ATR LINES. THIS IS A LOCKED DECISION, REVERSED ONCE AND RESTORED.
     #
     # On 2026-09-02 a pivot ladder and an ATR envelope were added here as 7 line.new
@@ -2677,6 +2744,37 @@ def load_market_context():
     return usable
 
 
+def load_positions():
+    """Open positions keyed by MT5 symbol. {} when none or unavailable.
+
+    /api/mt5/positions returns an EMPTY LIST while the bridge has not reported, which is
+    indistinguishable from a flat book - the documented empty-positions-is-not-flat trap
+    that this fleet has been bitten by more than once. It matters less here than it does
+    for a restart decision, because the failure mode is a missing overlay rather than a
+    wrong one, but the caller is told which case it is instead of being left to assume.
+    """
+    payload = _get_json("/api/mt5/positions")
+    if not isinstance(payload, dict):
+        print("[TV] Positions: NOT available - no overlay")
+        return {}
+    rows = list(payload.get("positions") or []) + list(payload.get("unmanaged") or [])
+    out = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        # One band per symbol. Two positions on the same instrument would overlap into an
+        # unreadable smear, so the LARGEST by volume wins - it is the one carrying the risk.
+        current = out.get(symbol)
+        if current is None or (row.get("volume") or 0) > (current.get("volume") or 0):
+            out[symbol] = row
+    print(f"[TV] Positions: {len(out)} symbol(s) with an open trade"
+          if out else "[TV] Positions: none open (or the bridge is not reporting)")
+    return out
+
+
 def load_chart_geometry():
     """CRT / previous-day sweep state, from /api/chart-geometry. {} when unavailable.
 
@@ -2875,6 +2973,35 @@ def _day_range_row(asset_context, decimals):
             f"-{_fmt(projection['expectedHigh'], decimals)}")
 
 
+def _plan_fingerprint(pine):
+    """A hash of the plan source with the volatile parts removed.
+
+    WHY THE JOB CAN RUN EVERY 20 MINUTES AT ALL. Each run rewrites and SAVES the Pine
+    script, and TradingView keeps a version per save. That is not free: a read-only
+    HISTORICAL VERSION of this very script is what silently swallowed every keystroke on
+    the VPS for hours, and 72 saves a day is a much larger haystack for that to hide in.
+    Skipping the save when nothing changed keeps a frequent refresh honest.
+
+    The generated-at timestamp and the age suffix are stripped before hashing, because
+    they change on every run BY CONSTRUCTION and would make every fingerprint unique -
+    which would defeat the whole check while looking like it worked.
+    """
+    import hashlib
+    import re
+    # _planTs is a MILLISECOND epoch and was the one field that made every fingerprint
+    # unique. Found by diffing two generations 1.5s apart: 2 differing lines, both this.
+    # A stability test is the only reason this was caught before it shipped as a check
+    # that always reported "changed" while looking like it worked.
+    stripped = re.sub(r"_planTs\s*=\s*\d+", "_planTs = 0", pine)
+    stripped = re.sub(r'"JARVIS [A-Z]+  [0-9:\- ]+"', '"JARVIS"', stripped)
+    stripped = re.sub(r"_planAge\w*\s*=.*", "", stripped)
+    return hashlib.sha256(stripped.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def _fingerprint_path():
+    return Path(__file__).parent / "tasks" / ".tv_plan_fingerprint"
+
+
 def _latest_crt(geometry, timeframe):
     """The most recent CONFIRMED CRT on this timeframe, or None.
 
@@ -2894,7 +3021,7 @@ def _latest_crt(geometry, timeframe):
 
 
 def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=None,
-               geometry=None, fvg_zones=None):
+               geometry=None, fvg_zones=None, position=None):
     """
     Turn one asset block from /api/signals into everything the chart should show.
 
@@ -3035,6 +3162,7 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=Non
         # same clock as the setup rather than on a faster one that will disagree.
         "crt_h4": _latest_crt(geometry, "h4"),
         "fvg_entry": fvg_zones or None,
+        "position": position or None,
         "rows": rows,
     }
 
@@ -3419,6 +3547,7 @@ def cmd_plan(which="all", shoot=True):
     # call, so all three charts describe the SAME instant.
     chart_geometry = load_chart_geometry()
     fvg_entries    = load_fvg("m15")
+    open_positions = load_positions()
 
     wanted = list(API_ASSETS) if which.lower() == "all" else [which.upper()]
     results = {}
@@ -3433,7 +3562,13 @@ def cmd_plan(which="all", shoot=True):
         plans.append(build_plan(name, asset, gate, reads=candle_reads,
                                 context=market_context.get(key),
                                 geometry=chart_geometry.get(key),
-                                fvg_zones=fvg_entries.get(key)))
+                                fvg_zones=fvg_entries.get(key),
+                                # Matched on the MT5 symbol the SIGNAL reports, not on a
+                                # hardcoded table: the broker's name for an instrument is
+                                # a property of the feed, and a second copy of that
+                                # mapping is a second thing to get wrong.
+                                position=open_positions.get(
+                                    str(asset.get("sourceSymbol") or "").upper())))
 
     if not plans:
         print("[TV] Nothing to draw")
@@ -3494,7 +3629,38 @@ def cmd_plan(which="all", shoot=True):
             open_chart(page, plans[0]["symbol"])
 
             before = list_plan_studies(page)
-            applied = save_pine(page, pine)
+
+            # SKIP THE SAVE WHEN THE PLAN HAS NOT CHANGED, but never skip the CHECK that
+            # the study is on the chart. Those are different operations and conflating
+            # them is the documented failure this file already carries: the Gold chart
+            # rendered an Aug-7 plan for fourteen days while the save was reported as
+            # proof it had updated. So an unchanged plan still verifies its study is
+            # present, and re-saves if it is not.
+            fingerprint = _plan_fingerprint(pine)
+            previous = None
+            try:
+                fp_file = _fingerprint_path()
+                if fp_file.exists():
+                    previous = fp_file.read_text(encoding="utf-8").strip()
+            except Exception:
+                previous = None   # unreadable -> treat as changed, never as unchanged
+
+            unchanged = (previous == fingerprint) and bool(before)
+            if unchanged:
+                print(f"[TV] plan unchanged ({fingerprint}) and {len(before)} study(ies) "
+                      f"on the chart - skipping the save")
+                applied = True
+            else:
+                if previous == fingerprint and not before:
+                    print("[TV] plan unchanged but NO study on the chart - saving anyway")
+                applied = save_pine(page, pine)
+                try:
+                    _fingerprint_path().write_text(fingerprint, encoding="utf-8")
+                except Exception as fp_error:
+                    # A fingerprint that cannot be written costs a redundant save next
+                    # run. That is the safe direction and must not fail the job.
+                    print(f"[TV] could not record the plan fingerprint ({fp_error})")
+
             after = list_plan_studies(page)
 
             # ---- What can actually be verified from here ----------------------

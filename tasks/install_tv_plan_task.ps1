@@ -53,10 +53,26 @@ $action    = New-ScheduledTaskAction -Execute 'powershell.exe' `
                -WorkingDirectory $proj
 $principal = New-ScheduledTaskPrincipal -UserId 'Administrator' -LogonType Interactive -RunLevel Limited
 
-# Two runs: before the London open and before the New York open, matching the laptop's
-# existing pair. StartWhenAvailable so a missed run is caught up rather than skipped.
+# LIVE REFRESH, not two snapshots a day. The two anchor runs stay - before the London
+# open and before the New York open - and a 20-minute repetition rides on top so the
+# levels track the engine through the session instead of being a morning photograph.
+#
+# 20 minutes is affordable for one reason: the job now SKIPS THE SAVE when the plan
+# source is unchanged. That matters more than it sounds. Every save creates a
+# TradingView version, and a read-only HISTORICAL VERSION of this exact script is what
+# silently swallowed every keystroke on this box for hours. 72 saves a day would be a
+# much larger haystack for that to hide in; with the skip, an idle market costs a page
+# load and nothing else.
+#
+# It still VERIFIES the study is on the chart on every run, unchanged or not. Saving
+# the source and having the study on the chart are different operations, and treating
+# the first as proof of the second is how the Gold chart rendered an Aug-7 plan for
+# fourteen days.
 $t1 = New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.AddHours(6).AddMinutes(45))
 $t2 = New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.AddHours(13).AddMinutes(15))
+$t1.Repetition = (New-ScheduledTaskTrigger -Once -At ([datetime]::Today.AddHours(6).AddMinutes(45)) `
+                   -RepetitionInterval (New-TimeSpan -Minutes 20) `
+                   -RepetitionDuration (New-TimeSpan -Hours 23)).Repetition
 
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
               -StartWhenAvailable -MultipleInstances IgnoreNew `
@@ -67,7 +83,7 @@ if ($WhatIf) {
     Write-Output "  -WhatIf: would register '$taskName'"
     Write-Output "    run  : powershell -File `"$script`""
     Write-Output "    as   : Administrator (Interactive) - it drives a real browser"
-    Write-Output "    when : 06:45 and 13:15 local, 2 retries 10 min apart"
+    Write-Output "    when : 06:45 and 13:15 local, then every 20 min for 23h, 2 retries"
     exit 0
 }
 
