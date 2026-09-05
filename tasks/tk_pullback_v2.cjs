@@ -118,6 +118,54 @@ function emaSeries(src, len) {
   for (let i = len; i < src.length; i++) { prev = src[i] * k + prev * (1 - k); out[i] = prev; }
   return out;
 }
+// ── Ehlers multi-pole Gaussian filter, OPT-IN via --trend gauss ──────────────
+// Added 2026-09-05 to test one claim found in outside research: that a Gaussian IIR
+// filter detects trend with less lag than an EMA at equal smoothing, and is therefore
+// a better trend gate for a pullback strategy. It is the ONLY idea from that search
+// worth compute - everything else was unmeasured, under 20 trades, or reported a
+// Sharpe of 10 on gold.
+//
+// DEFAULT IS "ema" AND MUST STAY THAT WAY. Every number in tasks/profitable.cjs was
+// measured on the EMA path; silently changing it would not improve the strategy, it
+// would invalidate the ledger and make today's numbers incomparable to every prior
+// run. This is additive: with no --trend flag, not one value moves.
+//
+//   beta  = (1 - cos(2*pi/period)) / (2^(1/poles) - 1)
+//   alpha = -beta + sqrt(beta^2 + 2*beta)
+// then a single-pole recursion applied `poles` times in cascade, which is the
+// standard realisation of the N-pole form.
+//
+// Seeded with the SAME SMA seed as emaSeries above, and returning nulls over the same
+// warm-up window, so the two filters are compared on identical bars. A filter that
+// silently started earlier would look better purely by trading a different sample.
+function gaussSeries(src, len, poles) {
+  const out = new Array(src.length).fill(null);
+  if (src.length < len) return out;
+  const beta  = (1 - Math.cos(2 * Math.PI / len)) / (Math.pow(2, 1 / poles) - 1);
+  const alpha = -beta + Math.sqrt(beta * beta + 2 * beta);
+
+  let sum = 0;
+  for (let i = 0; i < len; i++) sum += src[i];
+  const seed = sum / len;
+
+  const stage = new Array(poles).fill(seed);
+  out[len - 1] = seed;
+  for (let i = len; i < src.length; i++) {
+    let v = src[i];
+    for (let p = 0; p < poles; p++) {
+      stage[p] = alpha * v + (1 - alpha) * stage[p];
+      v = stage[p];
+    }
+    out[i] = v;
+  }
+  return out;
+}
+
+// Which trend filter this run uses. "ema" is the shipped path and the default.
+function trendSeries(src, len) {
+  return TREND_FILTER === "gauss" ? gaussSeries(src, len, GAUSS_POLES) : emaSeries(src, len);
+}
+
 function atrSeries(h, l, c, len) {
   const tr = new Array(h.length).fill(null);
   for (let i = 1; i < h.length; i++) {
