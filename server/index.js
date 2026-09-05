@@ -7719,6 +7719,25 @@ app.get("/api/checksystem", (_, res) => {
 
   res.json({
     server:      { port: PORT, uptime: Math.round(process.uptime()), healthy: true },
+    // The gate every confidence on this payload is measured against, and whether it is
+    // the SAVED one. This is the surface that answers "is anything wrong", and until now
+    // it could not say the server was running on BUILT-IN DEFAULTS: `healthy` above is a
+    // literal `true`, not a computed verdict, so a defaults box answered fully green here
+    // AND on /api/healer, which checks that learning.json and journal.json are readable
+    // and does not read strategy_settings.json at all.
+    //
+    // Publishing the gate ALONE would not be enough, which is why settingsError travels
+    // with it: on this box today the saved and default gate are both 70 — identical —
+    // while riskPercent is 0.15 against a default of 1 and fixedLotSize 0.01 against a
+    // default of 0. An operator reading "gate 70" on a defaults box sees the correct
+    // number and the wrong engine. That is not hypothetical: on 2026-08-02 a UTF-8 BOM
+    // made JSON.parse throw here and fixedLotSize 0.01 became full risk-based sizing on
+    // a live VPS account, announced by nothing louder than one log line.
+    //
+    // Additive only. `healthy` is untouched — this publishes the fact a verdict needs,
+    // it does not change any verdict. Same contract and wording as /api/daily-plan below.
+    gate:          strategySettings.confidenceThreshold,
+    settingsError: strategySettingsError,
     signals:     { btc: signalCache.btc?.signal, gold: signalCache.gold?.signal, spx: signalCache.spx?.signal, updatedAt: signalCache.updatedAt },
     risk:        riskStatus,
     mode:        { modeOverride: null },
