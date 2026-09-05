@@ -612,6 +612,57 @@ body.focus-mode .focus-exit{display:block}
 @keyframes slideIn{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:translateX(0)}}
 
 /* ── RESPONSIVE ── */
+/* ── MIND — the cognition surfaces ────────────────────────────────────────────
+   Seven endpoints already existed and NOTHING rendered them, which is the same
+   failure shape as a setting with no reader: the server computes an evidence
+   board, a rejection ledger, a learning-growth curve and two AI ledgers on every
+   call, and the only consumer was curl. READ-ONLY, every one of them. Nothing in
+   this block posts, changes a gate, admits or suppresses a signal — each endpoint
+   reports feedsTheGate:false and this renderer keeps it that way.
+   Four of the seven are session-gated; a 401 renders as a sign-in note, never as
+   an error and never as an empty panel that reads like "no evidence exists". */
+.mind-tabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px;
+  border-bottom:1px solid var(--border);padding-bottom:10px}
+.mind-tab{padding:6px 11px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;font-size:.68rem;font-weight:700;letter-spacing:.04em;color:var(--muted);
+  cursor:pointer;transition:all .15s;white-space:nowrap}
+.mind-tab:hover{background:var(--surface3);color:var(--text);border-color:var(--border2)}
+.mind-tab.on{background:var(--accent-dim);border-color:var(--accent);color:var(--text)}
+.mind-pane{display:none}
+.mind-pane.on{display:block}
+.mind-note{font-size:.68rem;color:var(--muted-dim);line-height:1.55;margin-bottom:12px;
+  padding:9px 11px;background:var(--surface2);border-left:2px solid var(--border2);border-radius:0 6px 6px 0}
+.mind-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;margin-bottom:14px}
+.mind-kpi{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:10px 11px;box-shadow:var(--shadow-1)}
+.mind-kpi-v{font-size:1.18rem;font-weight:800;color:var(--text);line-height:1.1}
+.mind-kpi-l{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-top:4px}
+.mind-row{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:10px 12px;margin-bottom:7px;box-shadow:var(--shadow-1)}
+.mind-row-hd{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:4px}
+.mind-row-t{font-size:.78rem;font-weight:700;color:var(--text)}
+.mind-row-b{font-size:.72rem;color:var(--muted);line-height:1.55}
+.mind-row-b strong{color:var(--text);font-weight:700}
+.mind-meta{font-size:.63rem;color:var(--muted-dim);margin-top:5px;line-height:1.5}
+.mind-pill{font-size:.58rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+  padding:2px 7px;border-radius:20px;white-space:nowrap;border:1px solid transparent}
+.p-good{background:rgba(34,197,94,.13);color:#7ee2a8;border-color:rgba(34,197,94,.35)}
+.p-bad{background:rgba(239,68,68,.13);color:#f5a3a3;border-color:rgba(239,68,68,.35)}
+.p-warn{background:rgba(234,179,8,.13);color:#e8ce6a;border-color:rgba(234,179,8,.35)}
+.p-info{background:rgba(59,130,246,.13);color:#93c0f7;border-color:rgba(59,130,246,.35)}
+.p-mute{background:var(--surface3);color:var(--muted);border-color:var(--border)}
+.mind-empty{font-size:.72rem;color:var(--muted-dim);padding:14px;text-align:center;
+  background:var(--surface2);border:1px dashed var(--border);border-radius:8px}
+.mind-spark{display:flex;align-items:flex-end;gap:2px;height:44px;margin:10px 0 4px}
+.mind-spark i{flex:1;background:var(--accent);border-radius:1px 1px 0 0;min-height:1px;opacity:.75}
+.mind-spark i.res{background:var(--green)}
+/* Sidebar digest — the headline numbers without opening the overlay. */
+.mind-mini{display:flex;justify-content:space-between;align-items:center;gap:8px;
+  padding:6px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);
+  margin-bottom:5px;font-size:.7rem}
+.mind-mini-l{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mind-mini-v{font-weight:800;color:var(--text);white-space:nowrap}
+
 @media(max-width:820px){.sidebar{display:none}.mc{max-width:88%}.modal-box.wide{width:92vw}.chart-slot-body{height:220px}}
 
     /* ── MOBILE ──────────────────────────────────────────────────────────────
@@ -851,6 +902,40 @@ body.focus-mode .focus-exit{display:block}
   </div>
 </div>
 
+<!-- ═══════════ MIND — nine read-only cognition surfaces ═══════════
+     Every endpoint below already existed on the server and had no reader on this
+     page. Opening the overlay fetches them; closing it stops. Nothing here writes. -->
+<div class="modal-overlay" id="mind-overlay">
+  <div class="modal-box wide">
+    <div class="modal-hdr">
+      <div class="modal-title">🧠 Mind — what JARVIS knows, and how he knows it</div>
+      <button class="modal-close" onclick="closeMind()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="mind-tabs">
+        <div class="mind-tab on" id="mtab-evidence"  onclick="setMindTab('evidence')">EVIDENCE</div>
+        <div class="mind-tab"    id="mtab-measured"  onclick="setMindTab('measured')">MEASURED</div>
+        <div class="mind-tab"    id="mtab-gates"     onclick="setMindTab('gates')">GATES</div>
+        <div class="mind-tab"    id="mtab-growth"    onclick="setMindTab('growth')">GROWTH</div>
+        <div class="mind-tab"    id="mtab-setups"    onclick="setMindTab('setups')">SETUPS</div>
+        <div class="mind-tab"    id="mtab-work"      onclick="setMindTab('work')">WORK</div>
+        <div class="mind-tab"    id="mtab-employees" onclick="setMindTab('employees')">EMPLOYEES</div>
+        <div class="mind-tab"    id="mtab-plan"      onclick="setMindTab('plan')">FLEET PLAN</div>
+        <div class="mind-tab"    id="mtab-research"  onclick="setMindTab('research')">RESEARCH</div>
+      </div>
+      <div class="mind-pane on" id="mpane-evidence"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-measured"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-gates"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-growth"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-setups"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-work"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-employees"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-plan"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-research"><div class="mind-empty">Loading…</div></div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════ MAIN ═══════════ -->
 <div class="layout">
 
@@ -877,6 +962,17 @@ body.focus-mode .focus-exit{display:block}
         <div class="cap-tab"    id="rtab-trades" onclick="setRecallSource('trades')">TRADES</div>
       </div>
       <div class="cap-list" id="recall-list"><div class="cap-empty">Ask a question — searches 323 memories semantically, not by keyword.</div></div>
+    </div>
+
+    <!-- MIND DIGEST — the four numbers that answer "is the system still learning?"
+         without opening anything. They come from endpoints that already existed and
+         had no reader on this page. Read-only; every source reports feedsTheGate:false. -->
+    <div class="sb-section">
+      <div class="sb-title"><span>Mind</span><span id="mind-age" style="font-weight:400;letter-spacing:0">—</span></div>
+      <div id="mind-digest"><div class="cap-empty">Loading…</div></div>
+      <div class="sysbtn" onclick="openMind()" style="margin-top:7px">
+        <span>🧠 Open the Mind</span><span class="arrow">9 surfaces</span>
+      </div>
     </div>
 
     <div class="sb-section">
@@ -923,6 +1019,7 @@ body.focus-mode .focus-exit{display:block}
       <div class="sysbtn engineer-btn" onclick="loadPrompt('/engineer ')">
         <span>🧩 Engineer — parallel build</span><span class="arrow">compose</span>
       </div>
+      <div class="sysbtn" onclick="openMind()"><span>🧠 Mind — evidence &amp; ledgers</span><span class="arrow">open</span></div>
       <div class="sysbtn" onclick="forceHeal()"><span>🩺 Force Heal</span><span class="arrow">run</span></div>
       <div class="sysbtn" onclick="sq('Give me setup health — which setups should I take or avoid right now?')"><span>📊 Setup Health</span><span class="arrow">ask</span></div>
       <a class="sysbtn" href="/daily-plan"><span>📅 Daily Plan</span><span class="arrow">open</span></a>
@@ -1134,6 +1231,11 @@ window.addEventListener("DOMContentLoaded", () => {
   setInterval(fetchData, 20000);
   loadLearning();
   setInterval(loadLearning, 60000);
+  // The Mind digest reads three ledgers that move on the order of hours, so a 5-minute
+  // refresh is already faster than the data. It is fetched at boot rather than on first
+  // open because the point of the digest is to be seen without being asked for.
+  loadMindDigest().catch(e => console.error("[jarvis] mind digest:", e));
+  setInterval(() => { loadMindDigest().catch(e => console.error("[jarvis] mind digest:", e)); }, 300000);
   addMsg("jarvis", "JARVIS online. I'm watching BTC, Gold, and SPX live — and I know the full system state: risk, positions, and what I've learned from past trades. Ask me anything or tap 🎤 to speak.");
   renderBriefing().catch(e => console.error("[jarvis] briefing:", e));
   // The gate is editable at runtime from the settings panel on this very page, so a
@@ -2402,6 +2504,532 @@ function renderCharts() {
     });
   });
 }
+
+/* ═══════════════════ MIND — nine read-only cognition surfaces ═══════════════════
+   Nine endpoints the server has always computed and NOTHING on this page rendered.
+   That is the "setting with no reader" shape from the boot rules, inverted: a reader
+   with no surface. The evidence board, both AI ledgers, the rejection ledger, the
+   learning-growth curve and the fleet plan were reachable only by curl, so the one
+   page named after JARVIS could not show what JARVIS knows.
+
+   STRICTLY READ-ONLY. Every source reports feedsTheGate:false and nothing below
+   POSTs, PUTs, changes a threshold, or admits or suppresses a signal. Adding a
+   surface must not change what trades — rule 3.
+
+   Four of the nine are session-gated. A 401 renders as a sign-in note, never as an
+   error and never as an empty panel: "no data" and "not logged in" look identical
+   on screen and mean opposite things, and the wrong one of those two reads as
+   "the system has measured nothing". */
+const MIND_SOURCES = {
+  evidence:  "/api/evidence-board",
+  measured:  "/api/measured-evidence",
+  gates:     "/api/rejection-evidence",
+  growth:    "/api/learning-growth",
+  setups:    "/api/setup-health",
+  work:      "/api/ai-work",
+  employees: "/api/ai-employees",
+  plan:      "/api/system-plan",
+  research:  "/api/research",
+};
+const mindCache = {};
+let mindTab = "evidence";
+
+function openMind()  { document.getElementById("mind-overlay").classList.add("show"); loadMindTab(mindTab); }
+function closeMind() { document.getElementById("mind-overlay").classList.remove("show"); }
+
+/* Fetched on first open of a tab and cached for the session. Re-opening the overlay
+   does not re-fetch: several of these endpoints walk files on every call, and this
+   page already polls signals every 20s. */
+async function loadMindTab(tab) {
+  const pane = document.getElementById("mpane-" + tab);
+  if (!pane) return;
+  if (mindCache[tab]) { pane.innerHTML = mindCache[tab]; return; }
+  pane.innerHTML = '<div class="mind-empty">Loading…</div>';
+
+  const res = await getJson(MIND_SOURCES[tab]);
+  let html;
+  if (res.authError)    html = mindSignIn(MIND_SOURCES[tab]);
+  else if (res.offline) html = '<div class="mind-empty">' + esc(MIND_SOURCES[tab]) + ' did not answer. The server may be restarting — this panel reads only, so nothing is affected.</div>';
+  else {
+    try { html = MIND_RENDER[tab](res.data); }
+    catch (e) {
+      console.error("[mind] render " + tab + ":", e);
+      html = '<div class="mind-empty">This panel could not render (' + esc(e.message) + '). The endpoint answered; the fault is in the renderer, not the data.</div>';
+    }
+  }
+  mindCache[tab] = html;
+  pane.innerHTML = html;
+}
+
+function setMindTab(tab) {
+  mindTab = tab;
+  Object.keys(MIND_SOURCES).forEach(t => {
+    const btn  = document.getElementById("mtab-" + t);
+    const pane = document.getElementById("mpane-" + t);
+    if (btn)  btn.classList.toggle("on", t === tab);
+    if (pane) pane.classList.toggle("on", t === tab);
+  });
+  loadMindTab(tab);
+}
+
+function mindSignIn(url) {
+  return '<div class="mind-empty">Session required. <strong>' + esc(url) + '</strong> is login-gated by design — '
+       + 'this is not an error and no data is missing. Sign in on the dashboard, then reopen.</div>';
+}
+
+/* ── shared bits ───────────────────────────────────────────────────────────── */
+function mPill(text, kind) { return '<span class="mind-pill p-' + kind + '">' + esc(String(text)) + '</span>'; }
+function mKpi(value, label) {
+  return '<div class="mind-kpi"><div class="mind-kpi-v">' + esc(String(value)) + '</div><div class="mind-kpi-l">' + esc(label) + '</div></div>';
+}
+function mAge(iso) {
+  if (!iso) return "—";
+  const mins = (Date.now() - Date.parse(iso)) / 60000;
+  if (!isFinite(mins))  return "—";
+  if (mins < 1)         return "just now";
+  if (mins < 60)        return Math.round(mins) + "m ago";
+  if (mins < 1440)      return (mins / 60).toFixed(1) + "h ago";
+  return (mins / 1440).toFixed(1) + "d ago";
+}
+function mR(n) { const v = Number(n); return (isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(2) : "—") + "R"; }
+/* JSON.stringify(undefined) returns undefined -- NOT the string "undefined" -- so
+   esc() then throws on .replace and takes the whole panel down. Found by the renderer
+   test on the real /api/system-plan payload: its `engine` divergence row carries no
+   local/peer pair, only drift counts. */
+function mVal(v) { const j = JSON.stringify(v); return j === undefined ? "—" : j; }
+function mNote(text)  { return '<div class="mind-note">' + esc(text) + '</div>'; }
+function mEmpty(text) { return '<div class="mind-empty">' + esc(text) + '</div>'; }
+
+/* A status string to a colour, without inventing categories. Anything unrecognised
+   stays neutral rather than being coloured by a guess. */
+function mStatusKind(s) {
+  const t = String(s || "").toUpperCase();
+  if (t.includes("ROBUST") || t.includes("EARNING") || t.includes("EMPLOYED") || t === "OK" || t.includes("HEALTHY")) return "good";
+  if (t.includes("NO EDGE") || t.includes("COSTING") || t.includes("FAIL") || t.includes("NEGATIVE")) return "bad";
+  if (t.includes("CANDIDATE") || t.includes("INCONCLUSIVE") || t.includes("STALE") || t.includes("NEEDS")) return "warn";
+  if (t.includes("UNMEASURED") || t.includes("TOO FEW") || t.includes("NOT RUN") || t.includes("PROPOSED")) return "mute";
+  return "info";
+}
+
+/* Renders any nested object honestly: it prints the keys that are actually there
+   rather than the keys a renderer hoped for. Used for the report-shaped endpoints
+   whose payloads are deep and grow as harnesses are added — a bespoke renderer for
+   those would silently drop a field the day one is added. */
+function mTree(obj, depth) {
+  depth = depth || 0;
+  if (obj === null || obj === undefined) return '<span style="color:var(--muted-dim)">—</span>';
+  if (typeof obj !== "object") {
+    if (obj === true)  return mPill("yes", "good");
+    if (obj === false) return mPill("no", "mute");
+    const s = String(obj);
+    return esc(s.length > 400 ? s.slice(0, 400) + "…" : s);
+  }
+  if (Array.isArray(obj)) {
+    if (!obj.length) return '<span style="color:var(--muted-dim)">none</span>';
+    if (typeof obj[0] !== "object") return esc(obj.slice(0, 40).map(String).join(", "));
+    if (depth > 2) return esc(obj.length + " item(s)");
+    return obj.slice(0, 25).map(o => '<div class="mind-row">' + mTree(o, depth + 1) + '</div>').join("");
+  }
+  return Object.keys(obj).map(k => {
+    const v = obj[k];
+    const deep = v && typeof v === "object" && !Array.isArray(v) && depth < 3;
+    return '<div style="display:flex;gap:9px;align-items:baseline;padding:2px 0;'
+         + (deep ? "flex-direction:column;align-items:stretch" : "") + '">'
+         + '<span style="color:var(--muted);font-size:.66rem;min-width:150px">' + esc(k) + '</span>'
+         + '<span style="color:var(--text);font-size:.72rem;flex:1">' + mTree(v, depth + 1) + '</span>'
+         + '</div>';
+  }).join("");
+}
+
+/* ── 1. EVIDENCE BOARD — what is KNOWN vs merely assumed ───────────────────── */
+function renderMindEvidence(d) {
+  const claims = d.claims || [];
+  const counts = d.claimCounts || {};
+  let h = mNote(d.curatedNote || "Human-reviewed conclusions from harness runs.");
+  h += '<div class="mind-kpis">' + Object.keys(counts).map(k => mKpi(counts[k], k)).join("") + '</div>';
+
+  if ((d.needsRecuration || []).length) {
+    h += '<div class="mind-row" style="border-color:var(--yellow)"><div class="mind-row-hd">'
+       + '<span class="mind-row-t">⚠ ' + d.needsRecuration.length + ' claim(s) need re-curation</span></div>'
+       + '<div class="mind-row-b">A claim goes stale the moment the thing it describes is re-measured. '
+       + 'These are flagged, not hidden — an unflagged stale claim is how the board starts lying.</div></div>';
+  }
+  h += '<div class="hermes-section-title">CLAIMS <span class="hermes-sub">each with its evidence, its caveat, and what would change the answer</span></div>';
+  h += claims.length ? claims.map(c =>
+      '<div class="mind-row">'
+    + '<div class="mind-row-hd"><span class="mind-row-t">' + esc(c.title || c.id || "—") + '</span>'
+    + mPill(c.status || "—", mStatusKind(c.status))
+    + (c.measuredOn ? '<span class="mind-meta">measured ' + esc(c.measuredOn) + '</span>' : "")
+    + '</div>'
+    + (c.evidence         ? '<div class="mind-row-b"><strong>Evidence:</strong> ' + esc(c.evidence) + '</div>' : "")
+    + (c.caveat           ? '<div class="mind-meta"><strong>Caveat:</strong> ' + esc(c.caveat) + '</div>' : "")
+    + (c.changesTheAnswer ? '<div class="mind-meta"><strong>Would change the answer:</strong> ' + esc(c.changesTheAnswer) + '</div>' : "")
+    + (c.harness          ? '<div class="mind-meta">harness: <code>' + esc(c.harness) + '</code></div>' : "")
+    + '</div>').join("") : mEmpty("No curated claims on the board.");
+
+  if (d.liveSample) {
+    h += '<div class="hermes-section-title">LIVE SAMPLE <span class="hermes-sub">the real counts behind every verdict above</span></div>';
+    h += '<div class="mind-row">' + mTree(d.liveSample) + '</div>';
+  }
+  h += '<div class="mind-meta" style="margin-top:12px">Updated ' + mAge(d.updatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 2. MEASURED EVIDENCE — harness reports read off disk ──────────────────── */
+function renderMindMeasured(d) {
+  let h = mNote(d.note || "Reports are read off disk. Nothing here runs a harness or changes a setting.");
+  const reports = d.reports || {};
+  const keys = Object.keys(reports);
+  h += '<div class="hermes-section-title">HARNESS REPORTS <span class="hermes-sub">' + keys.length + ' tracked</span></div>';
+  h += keys.length ? keys.map(k => {
+    const r = reports[k];
+    const isObj = r && typeof r === "object";
+    return '<div class="mind-row"><div class="mind-row-hd">'
+      + '<span class="mind-row-t">' + esc((isObj && r.title) || k) + '</span>'
+      + (isObj && r.status ? mPill(r.status, mStatusKind(r.status)) : "")
+      + '</div>'
+      + (isObj && r.detail  ? '<div class="mind-row-b">' + esc(r.detail) + '</div>' : "")
+      + (isObj && r.command ? '<div class="mind-meta">run it: <code>' + esc(r.command) + '</code></div>' : "")
+      + (isObj && !r.title && !r.detail ? '<div class="mind-row-b">' + mTree(r, 1) + '</div>' : "")
+      + '</div>';
+  }).join("") : mEmpty("No harness reports on disk yet.");
+
+  if (d.ceiling) {
+    h += '<div class="hermes-section-title">RSI CEILING SWEEP <span class="hermes-sub">survivors across every cut</span></div>';
+    h += '<div class="mind-row">' + mTree(d.ceiling) + '</div>';
+  }
+  h += '<div class="mind-meta" style="margin-top:12px">feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 3. GATES — the rejection ledger: is each gate earning its keep? ───────── */
+function renderMindGates(d) {
+  if (d.available === false) return mEmpty("The rejection ledger has not produced evidence yet.");
+  const t = d.totals || {};
+  let h = mNote(d.caveat || "Forgone PAPER trades on entries never filled: no spread, no slippage.");
+  h += '<div class="mind-kpis">'
+     + mKpi(t.episodes ?? "—", "episodes")
+     + mKpi(t.resolved ?? "—", "resolved")
+     + mKpi(t.pending  ?? "—", "pending")
+     + mKpi(mR(t.netR), "net R forgone")
+     + '</div>';
+
+  const gates  = d.gates || {};
+  const gnames = Object.keys(gates);
+  h += '<div class="hermes-section-title">PER GATE <span class="hermes-sub">a verdict needs ' + (d.minResolvedForVerdict ?? 5) + ' resolved episodes</span></div>';
+  h += gnames.length ? gnames.map(name => {
+    const g = gates[name] || {};
+    return '<div class="mind-row"><div class="mind-row-hd">'
+      + '<span class="mind-row-t">' + esc(name) + '</span>'
+      + mPill(g.verdict || "no verdict", mStatusKind(g.verdict))
+      + (g.gateClass ? mPill(g.gateClass, "info") : "")
+      + '</div>'
+      + (g.detail ? '<div class="mind-row-b">' + esc(g.detail) + '</div>' : "")
+      + '<div class="mind-meta">resolved <strong>' + (g.resolved ?? 0) + '</strong>'
+      + ' · would have won <strong>' + (g.wouldHaveWonPct ?? "—") + '%</strong>'
+      + ' · net <strong>' + mR(g.netR) + '</strong>'
+      + ' · per episode <strong>' + mR(g.rPerEpisode) + '</strong>'
+      + ' · unscorable ' + (g.unscorable ?? 0) + ' of ' + (g.total ?? 0) + '</div>'
+      + '</div>';
+  }).join("") : mEmpty("No gate has recorded a rejection yet.");
+
+  const setups = d.setups || {};
+  const snames = Object.keys(setups);
+  if (snames.length) {
+    h += '<div class="hermes-section-title">BY SETUP <span class="hermes-sub">which setup the gates are turning away</span></div>';
+    h += snames.map(n => {
+      const s = setups[n] || {};
+      const via = Object.keys(s.gates || {}).map(g => g + " " + s.gates[g]).join(", ");
+      return '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(n) + '</span>'
+        + mPill(mR(s.netR), Number(s.netR) > 0 ? "bad" : "good") + '</div>'
+        + '<div class="mind-meta">' + (s.won ?? 0) + ' would have won · ' + (s.lost ?? 0) + ' lost'
+        + (via ? ' · rejected by ' + esc(via) : "") + '</div></div>';
+    }).join("");
+  }
+  h += '<div class="mind-meta" style="margin-top:12px">A positive net R here means the gate turned away setups that PAID. '
+     + 'Where this contradicts a walk-forward, the walk-forward wins. Updated ' + mAge(d.updatedAt)
+     + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 4. GROWTH — is the evidence base actually accumulating? ───────────────── */
+function renderMindGrowth(d) {
+  if (d.available === false) return mEmpty("Learning-growth data is not available yet.");
+  const t = d.totals || {}, v = d.velocity || {};
+  let h = mNote(d.note || "Evidence growth, not P&L.");
+  h += '<div class="mind-kpis">'
+     + mKpi(t.logged ?? "—", "logged")
+     + mKpi(t.resolved ?? "—", "resolved")
+     + mKpi(t.usableSetups ?? "—", "usable setups")
+     + mKpi((v.resolvedPerDayRecent ?? "—") + "/d", "recent velocity")
+     + mKpi(v.trend || "—", "trend")
+     + '</div>';
+
+  const days = d.days || [];
+  if (days.length) {
+    const peak = Math.max(1, ...days.map(x => x.logged || 0));
+    h += '<div class="hermes-section-title">DAILY ACCUMULATION <span class="hermes-sub">' + days.length + ' days · purple = logged, green = resolved</span></div>';
+    h += '<div class="mind-spark">' + days.map(x => {
+        const lg = Math.round(((x.logged   || 0) / peak) * 100);
+        const rs = Math.round(((x.resolved || 0) / peak) * 100);
+        return '<i style="height:' + Math.max(lg, 1) + '%" title="' + esc(x.date) + ': ' + (x.logged || 0) + ' logged"></i>'
+             + '<i class="res" style="height:' + Math.max(rs, 1) + '%" title="' + esc(x.date) + ': ' + (x.resolved || 0) + ' resolved"></i>';
+      }).join("") + '</div>';
+    h += '<div class="mind-meta">' + esc(days[0].date) + ' → ' + esc(days[days.length - 1].date) + '</div>';
+  }
+
+  const setups = d.setups || [];
+  h += '<div class="hermes-section-title">PER SETUP <span class="hermes-sub">usable at ' + (d.learningThreshold ?? 5) + ' resolved</span></div>';
+  h += setups.length ? setups.map(s =>
+      '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(s.setup) + '</span>'
+    + mPill(s.usable ? "usable" : "needs " + (s.stillNeeded ?? "?") + " more", s.usable ? "good" : "mute")
+    + '</div><div class="mind-meta">' + (s.resolved ?? 0) + ' resolved · ' + (s.wins ?? 0) + 'W/' + (s.losses ?? 0) + 'L · '
+    + (s.winRate ?? "—") + '% · ' + mR(s.netR) + '</div></div>').join("") : mEmpty("No setup has resolved evidence yet.");
+
+  const proj = d.projections || [];
+  if (proj.length) {
+    h += '<div class="hermes-section-title">TIME TO USABLE <span class="hermes-sub">at the current resolution rate</span></div>';
+    h += proj.map(p => '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(p.setup) + '</span>'
+      + mPill((p.daysAtCurrentRate ?? "—") + " days", "info") + '</div>'
+      + '<div class="mind-meta">' + (p.stillNeeded ?? "—") + ' more resolved episodes needed</div></div>').join("");
+  }
+  h += '<div class="mind-meta" style="margin-top:12px">Updated ' + mAge(d.updatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 5. SETUPS — which setups to take or avoid today ───────────────────────── */
+function renderMindSetups(d) {
+  const alerts = d.alerts || [];
+  let h = mNote("Setup health from realised journal outcomes. Advisory only — it changes nothing on the signal path.");
+  h += alerts.length ? alerts.map(a =>
+      '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(a.setup || "—") + '</span>'
+    + mPill(a.status || "—", mStatusKind(a.status)) + '</div>'
+    + '<div class="mind-meta">' + (a.trades ?? 0) + ' trades · ' + (a.wr ?? "—") + '% WR · '
+    + 'expectancy ' + (a.expectancy ?? "—") + ' · P&amp;L ' + (a.totalPnl ?? "—") + '</div></div>').join("")
+    : mEmpty("No setup alerts — nothing is flagged for or against today.");
+  h += '<div class="mind-meta" style="margin-top:12px">Updated ' + mAge(d.updatedAt) + '</div>';
+  return h;
+}
+
+/* ── 6. WORK — the AI employee's jobs and its unreviewed proposals ─────────── */
+function renderMindWork(d) {
+  if (d.available === false) return mEmpty("The AI work ledger is not available on this box.");
+  const t = d.totals || {};
+  let h = mNote(d.note || "Read-only over files these jobs already write. Runs nothing, spawns nothing.");
+  h += '<div class="mind-kpis">'
+     + mKpi(t.jobs      ?? "—", "jobs")
+     + mKpi(t.healthy   ?? "—", "healthy")
+     + mKpi(t.failing   ?? "—", "failing")
+     + mKpi(t.stale     ?? "—", "stale")
+     + mKpi(t.proposals ?? "—", "unreviewed")
+     + '</div>';
+
+  const props = d.proposals || [];
+  h += '<div class="hermes-section-title">UNREVIEWED PROPOSALS <span class="hermes-sub">'
+     + props.length + ' waiting on a decision — nothing acts on these until you decide</span></div>';
+  h += props.length ? props.slice(0, 40).map(p =>
+      '<div class="mind-row"><div class="mind-row-hd">'
+    + '<span class="mind-row-t">' + esc(p.jobLabel || p.job || "—") + '</span>'
+    + '<span class="mind-meta">' + mAge(p.when) + '</span></div>'
+    + '<div class="mind-row-b">' + esc(String(p.text || "").slice(0, 400)) + '</div>'
+    + (p.file ? '<div class="mind-meta"><code>' + esc(p.file) + (p.line ? ":" + p.line : "") + '</code></div>' : "")
+    + '</div>').join("") : mEmpty("No unreviewed proposals.");
+  if (props.length > 40) h += '<div class="mind-meta">' + (props.length - 40) + ' more not shown.</div>';
+
+  const jobs = d.jobs || [];
+  h += '<div class="hermes-section-title">JOBS <span class="hermes-sub">what runs, and when it last did</span></div>';
+  h += jobs.length ? jobs.map(j =>
+      '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(j.label || j.id) + '</span>'
+    + mPill(j.ageHours == null ? "never run" : Number(j.ageHours).toFixed(1) + "h ago",
+            j.ageHours == null ? "mute" : (Number(j.ageHours) > 48 ? "warn" : "good"))
+    + '</div><div class="mind-meta">' + esc(j.task || "no scheduled task") + ' · ' + (j.runs ?? 0) + ' runs'
+    + (j.script ? ' · <code>' + esc(j.script) + '</code>' : "") + '</div></div>').join("") : mEmpty("No jobs registered.");
+
+  const un = d.unappraisedTasks || [];
+  if (un.length) {
+    const failing = un.filter(x => x.failing);
+    h += '<div class="hermes-section-title">SCHEDULED TASKS NOT APPRAISED <span class="hermes-sub">'
+       + un.length + ' tasks · ' + failing.length + ' failing</span></div>';
+    h += (failing.length ? failing : un.slice(0, 15)).map(x =>
+        '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(x.name) + '</span>'
+      + mPill(x.failing ? "failing" : (x.disabled ? "disabled" : (x.state || "—")),
+              x.failing ? "bad" : (x.disabled ? "mute" : "good"))
+      + '</div><div class="mind-meta">' + esc(x.resultMeaning || String(x.lastResult ?? "—")) + ' · last ' + mAge(x.lastRun) + '</div></div>').join("");
+  }
+  if (d.howToDecide) h += '<div class="mind-meta" style="margin-top:12px">Decide a proposal: <code>' + esc(d.howToDecide) + '</code></div>';
+  h += '<div class="mind-meta">Updated ' + mAge(d.updatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 7. EMPLOYEES — who is employed, on which box, reading what ────────────── */
+function renderMindEmployees(d) {
+  const c = d.counts || {};
+  let h = mNote(d.whatThisIs || "Who is employed, to do what, on which box.");
+  h += '<div class="mind-kpis">'
+     + mKpi(c.total         ?? "—", "total")
+     + mKpi(c.employed      ?? "—", "employed")
+     + mKpi(c.proposed      ?? "—", "proposed")
+     + mKpi(c.withModel     ?? "—", "with a model")
+     + mKpi(c.deterministic ?? "—", "deterministic")
+     + mKpi(c.incomplete    ?? "—", "incomplete")
+     + '</div>';
+
+  if (d.health) {
+    h += '<div class="hermes-section-title">THIS BOX <span class="hermes-sub">' + esc(d.thisBox || "—") + '</span></div>';
+    h += '<div class="mind-row">' + mTree(d.health) + '</div>';
+  }
+  if (d.peer) {
+    const p = d.peer;
+    h += '<div class="hermes-section-title">PEER BOX <span class="hermes-sub">'
+       + (p.configured ? (p.reachable ? "reachable" : "CONFIGURED BUT NOT ANSWERING") : "not configured") + '</span></div>';
+    h += '<div class="mind-row">'
+       + (p.error ? '<div class="mind-row-b" style="color:var(--red)">' + esc(p.error) + '</div>' : "")
+       + mTree({ url: p.url, reachable: p.reachable, counts: p.counts, health: p.health }) + '</div>';
+    if (!p.reachable) h += mNote("A number that pools both boxes is unattributable while the peer is unreachable.");
+  }
+
+  const emp = d.employees || [];
+  h += '<div class="hermes-section-title">THE ROSTER <span class="hermes-sub">brain · context · tools · skills</span></div>';
+  h += emp.length ? emp.map(e =>
+      '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(e.title || e.id) + '</span>'
+    + mPill(e.status || "—", mStatusKind(e.status)) + '</div>'
+    + (e.mission ? '<div class="mind-row-b">' + esc(e.mission) + '</div>' : "")
+    + '<div class="mind-meta">'
+    + (e.brain   ? 'brain: <strong>' + esc(String(e.brain)) + '</strong> · '  : "")
+    + (e.context ? 'context: ' + esc(String(e.context).slice(0, 120)) + ' · ' : "")
+    + (e.tools   ? 'tools: '   + esc(String(e.tools).slice(0, 120))           : "")
+    + '</div></div>').join("") : mEmpty("No employees registered.");
+  h += '<div class="mind-meta" style="margin-top:12px">Updated ' + mAge(d.updatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 8. FLEET PLAN — this box beside the peer ──────────────────────────────── */
+function renderMindPlan(d) {
+  const box = d.thisBox || {}, peer = d.peer || {}, div = d.divergence || {};
+  const diverging = Object.keys(div).filter(k => div[k] && div[k].differs);
+  let h = diverging.length
+    ? '<div class="mind-note" style="border-left-color:var(--red)">FLEET SPLIT on: <strong>' + esc(diverging.join(", "))
+      + '</strong>. Numbers that pool both boxes are unattributable until this is reconciled.</div>'
+    : mNote("Both boxes agree on every compared field. Pooling their journals is arithmetically valid — but identical configs on identical bars produce the same trades, so pooling adds rows, not information.");
+
+  h += '<div class="mind-kpis">'
+     + mKpi(d.healthy ? "healthy" : "UNHEALTHY", "this box")
+     + mKpi(box.gate ?? "—", "gate here")
+     + mKpi(peer.gate ?? "—", "gate there")
+     + mKpi(box.halted ? "HALTED" : "live", "breaker")
+     + mKpi(Math.round((d.uptimeSeconds || 0) / 60) + "m", "uptime")
+     + '</div>';
+
+  if (box.settingsError) {
+    h += '<div class="mind-note" style="border-left-color:var(--red)">settingsError is set — this box is running on '
+       + 'BUILT-IN DEFAULTS, not the saved config: ' + esc(String(box.settingsError)) + '</div>';
+  }
+
+  const checks = d.checks || {};
+  const bad = Object.keys(checks).filter(k => checks[k] && checks[k].ok === false);
+  h += '<div class="hermes-section-title">HEALTH CHECKS <span class="hermes-sub">'
+     + (bad.length ? bad.length + ' failing' : 'all passing') + '</span></div>';
+  h += Object.keys(checks).map(k => {
+    const c = checks[k] || {};
+    return '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(k) + '</span>'
+      + mPill(c.ok === false ? "FAIL" : "ok", c.ok === false ? "bad" : "good") + '</div>'
+      + '<div class="mind-meta">' + esc(c.detail || "—") + ' · ' + mAge(c.lastChecked) + '</div></div>';
+  }).join("");
+
+  h += '<div class="hermes-section-title">DIVERGENCE <span class="hermes-sub">field by field against the peer</span></div>';
+  h += Object.keys(div).map(k => {
+    const v = div[k] || {};
+    return '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(k) + '</span>'
+      + mPill(v.differs ? "DIFFERS" : "same", v.differs ? (v.byDesign ? "warn" : "bad") : "good")
+      + (v.byDesign ? mPill("by design", "info") : "") + '</div>'
+      + '<div class="mind-meta">here <strong>' + esc(mVal(v.local)) + '</strong> · there <strong>'
+      + esc(mVal(v.peer)) + '</strong></div></div>';
+  }).join("");
+
+  if (d.parity) {
+    h += '<div class="hermes-section-title">ENGINE PARITY <span class="hermes-sub">do both boxes run the same engine?</span></div>';
+    h += '<div class="mind-row">' + mTree(d.parity) + '</div>';
+    h += '<div class="mind-meta">A green parity run taken immediately after copying a file between the boxes is a '
+       + 'tautology, not evidence — they match because one was overwritten with the other.</div>';
+  }
+  if (d.heartbeats)   { h += '<div class="hermes-section-title">HEARTBEATS <span class="hermes-sub">who has checked in</span></div><div class="mind-row">' + mTree(d.heartbeats) + '</div>'; }
+  if (d.bridges)      { h += '<div class="hermes-section-title">BRIDGES</div><div class="mind-row">' + mTree(d.bridges) + '</div>'; }
+  if (d.latestBackup) { h += '<div class="hermes-section-title">LATEST BACKUP</div><div class="mind-row">' + mTree(d.latestBackup) + '</div>'; }
+  h += '<div class="mind-meta" style="margin-top:12px">Generated ' + mAge(d.generatedAt) + '</div>';
+  return h;
+}
+
+/* ── 9. RESEARCH — the harness reports, and how stale each one is ──────────── */
+function renderMindResearch(d) {
+  let h = mNote(d.readsOnly ? ("Reads only: " + d.readsOnly) : "Reads reports already written by the harnesses.");
+  const skip = { generatedAt: 1, feedsTheGate: 1, readsOnly: 1 };
+  h += Object.keys(d).filter(k => !skip[k]).map(k => {
+    const r = d[k] || {};
+    const age = r.reportAgeHours;
+    return '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(k) + '</span>'
+      + mPill(r.available === false ? "not available" : "available", r.available === false ? "mute" : "good")
+      + (age != null ? mPill(Number(age).toFixed(1) + "h old", Number(age) > 48 ? "warn" : "info") : "")
+      + '</div><div class="mind-row-b">' + mTree(r, 1) + '</div></div>';
+  }).join("");
+  h += '<div class="mind-meta" style="margin-top:12px">Generated ' + mAge(d.generatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+const MIND_RENDER = {
+  evidence:  renderMindEvidence,
+  measured:  renderMindMeasured,
+  gates:     renderMindGates,
+  growth:    renderMindGrowth,
+  setups:    renderMindSetups,
+  work:      renderMindWork,
+  employees: renderMindEmployees,
+  plan:      renderMindPlan,
+  research:  renderMindResearch,
+};
+
+/* ── SIDEBAR DIGEST ────────────────────────────────────────────────────────────
+   The few numbers that answer "is the system still learning, and is anything
+   waiting on me?" without opening anything. Three ungated endpoints, fetched once
+   at boot and refreshed every 5 minutes — none of these move faster than that. */
+async function loadMindDigest() {
+  const box = document.getElementById("mind-digest");
+  const age = document.getElementById("mind-age");
+  if (!box) return;
+
+  const [ev, gr, wk] = await Promise.all([
+    getJson("/api/evidence-board"),
+    getJson("/api/learning-growth"),
+    getJson("/api/ai-work"),
+  ]);
+
+  const rows = [];
+  if (ev.data) {
+    const counts = ev.data.claimCounts || {};
+    const names  = Object.keys(counts);
+    const robust = names.filter(k => k.includes("ROBUST")).reduce((n, k) => n + counts[k], 0);
+    const total  = names.reduce((n, k) => n + counts[k], 0);
+    rows.push(["Claims measured robust", robust + " / " + total, null]);
+  }
+  if (gr.data && gr.data.available !== false) {
+    const t = gr.data.totals || {}, v = gr.data.velocity || {};
+    rows.push(["Evidence resolved", String(t.resolved ?? "—"), null]);
+    rows.push(["Usable setups", (t.usableSetups ?? "—") + " / " + (t.setupsTracked ?? "—"), null]);
+    rows.push(["Learning rate", (v.resolvedPerDayRecent ?? "—") + "/day " + (v.trend || ""), null]);
+  }
+  if (wk.data && wk.data.available !== false) {
+    const t = wk.data.totals || {};
+    rows.push(["Proposals awaiting you", String(t.proposals ?? 0), t.proposals ? "var(--yellow)" : null]);
+    if (t.failing) rows.push(["Failing jobs", String(t.failing), "var(--red)"]);
+  }
+
+  const anyAuth = [ev, gr, wk].some(r => r.authError);
+  box.innerHTML = rows.length
+    ? rows.map(r => '<div class="mind-mini"><span class="mind-mini-l">' + esc(r[0]) + '</span>'
+        + '<span class="mind-mini-v"' + (r[2] ? ' style="color:' + r[2] + '"' : "") + '>' + esc(r[1]) + '</span></div>').join("")
+    : '<div class="cap-empty">' + (anyAuth ? "Sign in to read the ledgers." : "Ledgers not reachable right now.") + '</div>';
+  if (age) age.textContent = ev.data ? mAge(ev.data.updatedAt) : "—";
+}
+
 </script>
 </body>
 </html>
