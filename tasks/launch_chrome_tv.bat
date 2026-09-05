@@ -40,7 +40,7 @@ echo   edge    : %EDGE%
 REM ALREADY UP IS A SUCCESS, NOT A REASON TO LAUNCH AGAIN. tv_daily_plan.ps1 says it in
 REM one line: two browsers on one CDP port is its own failure mode. If the port answers,
 REM this script has nothing to do.
-netstat -an ^| findstr /C:":9222" ^| findstr /C:"LISTENING" >nul 2>&1
+netstat -an | findstr /C:":9222" | findstr /C:"LISTENING" >nul 2>&1
 if not errorlevel 1 goto :already_up
 
 if /I "%~1"=="/check" goto :check_only
@@ -53,8 +53,8 @@ REM and a fixed wait reports failure for a browser that was merely slow.
 set /a TRIES=0
 :wait_loop
 set /a TRIES+=1
-timeout /t 2 /nobreak >nul
-netstat -an ^| findstr /C:":9222" ^| findstr /C:"LISTENING" >nul 2>&1
+ping -n 3 127.0.0.1 >nul
+netstat -an | findstr /C:":9222" | findstr /C:"LISTENING" >nul 2>&1
 if not errorlevel 1 goto :port_open
 if %TRIES% LSS 10 goto :wait_loop
 

@@ -7,7 +7,8 @@ Usage:
   python tradingview_bot.py plan GOLD                     # AUTO: one symbol
   python tradingview_bot.py repoint                       # chart shows an OLD panel? rebuild the study
   python tradingview_bot.py repoint GOLD                  # one symbol
-  python tradingview_bot.py test                          # test login
+  python tradingview_bot.py test                          # attach only, does NOT sign in
+  python tradingview_bot.py login                         # sign in if the session is not authenticated
   python tradingview_bot.py draw BTC 105000 103500 107000 104000 106500
   python tradingview_bot.py alert BTC 107000 "Resistance — watch for rejection"
   python tradingview_bot.py pine BTC 105000 103500 107000 104000 106500
@@ -248,6 +249,32 @@ def is_logged_in(page):
     try:
         if "tradingview.com" not in page.url:
             return False
+
+        # ASK TRADINGVIEW, DO NOT INFER FROM A BUTTON.
+        #
+        # The sign-in-control test gives a FALSE POSITIVE, measured on the Contabo VPS
+        # 2026-09-05: a freshly created profile that had never signed in reported
+        # count == 0, so this function returned True, login() printed "Already logged in"
+        # and skipped, and the bot went on to draw as a guest. The page's own markup said
+        # the opposite at the same moment:
+        #
+        #     <html class="is-not-authenticated is-not-pro theme-dark">
+        #
+        # and the cookie jar held only analytics and consent cookies. That class is set by
+        # TradingView itself, so it cannot drift the way a data-name attribute does - which
+        # is the exact reason the old comment gave for abandoning the user-menu selector.
+        #
+        # Both markers are consulted: the class is authoritative when present, and the
+        # button check still catches a page that renders a sign-in prompt without it.
+        try:
+            root_class = page.evaluate("() => document.documentElement.className || ''")
+        except Exception:
+            root_class = ""
+        if "is-not-authenticated" in root_class:
+            return False
+        if "is-authenticated" in root_class:
+            return True
+
         return page.locator(SEL_SIGN_IN).count() == 0
     except Exception:
         return False
@@ -305,7 +332,11 @@ def login(page, ctx):
 
     # Fill email — try multiple selectors
     email_filled = False
-    for selector in ['input[name="username"]', 'input[type="email"]', 'input[autocomplete="username"]', 'input[placeholder*="mail"]']:
+    # MEASURED, NOT GUESSED. On 2026-09-05 the live form's fields are id_username and
+    # id_password; name="username" matches nothing, which is why this fell through to the
+    # manual path every time. The older names are kept behind the new ones so a revert on
+    # TradingView's side still works.
+    for selector in ['input[name="id_username"]', '#id_username', 'input[name="username"]', 'input[type="email"]', 'input[autocomplete="username"]', 'input[placeholder*="mail"]']:
         try:
             page.fill(selector, username, timeout=5000)
             email_filled = True
@@ -321,11 +352,17 @@ def login(page, ctx):
                 break
             time.sleep(3)
         save_session(ctx)
-        print("[TV] Logged in manually — session saved.")
+        # VERIFY, DO NOT ANNOUNCE. This printed success unconditionally, and on the VPS it
+        # said "Logged in manually - session saved" at a moment when the page still carried
+        # class="is-not-authenticated". A save of an anonymous session is not a login.
+        if is_logged_in(page):
+            print("[TV] Logged in manually — session saved.")
+        else:
+            print("[TV] STILL NOT SIGNED IN after the manual wait — nothing was saved that helps.")
         return
 
     # Fill password
-    for selector in ['input[name="password"]', 'input[type="password"]', 'input[autocomplete="current-password"]']:
+    for selector in ['input[name="id_password"]', '#id_password', 'input[name="password"]', 'input[type="password"]', 'input[autocomplete="current-password"]']:
         try:
             page.fill(selector, password, timeout=5000)
             break
@@ -363,7 +400,12 @@ def login(page, ctx):
 
     time.sleep(2)
     save_session(ctx)
-    print(f"[TV] Logged in: {username}")
+    # Same rule as the manual path: report what is true, not what was attempted.
+    if is_logged_in(page):
+        print(f"[TV] Logged in: {username}")
+    else:
+        print("[TV] LOGIN DID NOT TAKE — still not authenticated. "
+              "Check for a captcha or 2FA in the browser window.")
 
 # ── Chart navigation ──────────────────────────────────────────────────────────
 def open_chart(page, symbol):
@@ -2921,6 +2963,28 @@ def _run(fn):
         print(f"[TV] Cannot connect to Edge: {e}")
         print("[TV] Open TradingView in Edge, then run: tasks\\launch_chrome_tv.bat")
 
+def cmd_login():
+    """
+    Sign in, if the session is not already authenticated.
+
+    WHY THIS EXISTS: login() was defined and NEVER CALLED. Nothing in this file invoked
+    it, so the bot has never signed itself in on any box — the laptop works only because
+    a human signed in by hand once in that Edge profile, and the credentials in keys.env
+    had simply never been used. A function with no caller is the same shape as a setting
+    with no reader. Found 2026-09-05 while asking why TradingView had never connected
+    from the VPS.
+    """
+    print("[TV] Signing in if needed...")
+    def _login(page, ctx):
+        before = is_logged_in(page)
+        print(f"[TV] authenticated before: {before}")
+        if not before:
+            login(page, ctx)
+        after = is_logged_in(page)
+        print(f"[TV] authenticated after : {after}")
+        print("[TV] SUCCESS" if after else "[TV] STILL NOT SIGNED IN - a captcha or 2FA may need a human")
+    _run(_login)
+
 def cmd_test():
     print("[TV] Testing connection to TradingView...")
     def _test(page, ctx):
@@ -3251,6 +3315,9 @@ if __name__ == "__main__":
 
     if cmd == "test":
         cmd_test()
+
+    elif cmd == "login":
+        cmd_login()
 
     elif cmd == "draw":
         if len(args) < 5:
