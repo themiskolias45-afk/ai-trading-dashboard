@@ -818,8 +818,9 @@ const CLAIMS = [
     id: "minrr",
     title: "MIN_RR = 1.5",
     status: STATUS.ROBUST,
-    measuredOn: "2026-08-24",
-    evidence: "RE-RUN 2026-08-24 on bars 29 days fresher than any previous sweep, and it "
+    measuredOn: "2026-09-05",
+    evidence: "RE-RUN 2026-09-05 AT THE HONEST HORIZON, and it replicated a THIRD time. Every previous MIN_RR sweep inherited MTF_MAX_HOLD=40 because neither minrr_direction_walkforward.cjs nor param_walkforward.cjs sets it — the horizon whose own author records that it biases DOWNWARD and that reversed SP500 from CONSISTENTLY NEGATIVE to MOSTLY POSITIVE when corrected. Re-run at 320: the baseline is +0.344R over 488 trades, positive in 5 of 5 folds (+0.308, +0.096, +0.398, +0.499, +0.415). The honest ruler makes the baseline look BETTER (+0.205 -> +0.344) and leaves the conclusion unchanged — NO CANDIDATE CLEARS. 1.35/1.50 is better in 2 of 5 folds for -0.015R; 1.25/1.50 is 2/5 for -0.005R; 1.35/1.75 is 1/5; 1.50/1.75 is 1/5; 1.50/2.00 is 2/5 and removes 6 trades. THE DECISIVE NEW NUMBER IS THE TRADE COUNT: loosening the long bar to 1.35 buys ONE extra trade in 488, and to 1.25 buys THREE. The ledger counts 447 resolved REJECTION EPISODES on the laptop and 901 on the VPS, which reads like a population of forgone winners; in the replay that same loosening changes the trade set by 1-3. EPISODES ARE NOT TRADES — a rejected setup is re-evaluated on the next bar and usually fires anyway, or its slot is already occupied. That single fact reconciles the ledger with the sweep permanently for this gate, and it is why the aggregate looked like an instruction to move the bar for a year of readings. Report: tasks/analysis/minrr-direction-walkforward-hold320.txt. "
+      + "PRIOR RUN, PRESERVED: RE-RUN 2026-08-24 on bars 29 days fresher than any previous sweep, and it "
       + "REPLICATED. tasks/minrr_direction_walkforward.cjs, 3 assets, 5 sequential "
       + "out-of-sample folds, gate 70, 0.05R/trade. The BASELINE 1.50/1.50 is positive "
       + "in 5 of 5 folds at +0.205R/trade over 264 trades (+0.226, +0.071, +0.482, "
@@ -833,7 +834,8 @@ const CLAIMS = [
       + "trades. The earlier run of this same harness reported +0.158R with 109% of it "
       + "in one fold; today reads +0.158R with 105% in one fold. Two runs, different "
       + "data, same answer.",
-    caveat: "THE CONTRADICTION HAS RESOLVED, and it resolved toward the walk-forward. This "
+    caveat: "2026-09-05: THE LEDGER NOW OBJECTS AGAIN, LOUDLY, AND IT IS STILL WRONG. Both boxes agree this time — laptop +135.87R over 447 resolved at 78% would-have-won, VPS +249.33R over 901 at 75% — and neither is an outlier artifact: the largest single row is 1% of net on both, so the MAX_PLAUSIBLE_RR=10 cap is holding. The per-episode edge is GROWING, not decaying (+0.084 -> +0.155 -> +0.283 -> +0.304 as the sample grew 4x), which is the opposite of the 2026-08-14 reading that correctly called it noise. The per-setup signs still disagree but no longer cancel: RANGE_TRADE_LONG +111.34R and BUY_OVERSOLD +39.44R against RANGE_TRADE_SHORT -14.91R on the laptop. Read alone that says lower the long bar. THE WALK-FORWARD SAYS IT BUYS 1-3 TRADES IN 488 AND COSTS R. Fourth time the ledger has been overruled by a walk-forward; the standing rule holds. Screen it with node tasks/minrr_ledger_composition.cjs before quoting any gate verdict. "
+      + "PRIOR: THE CONTRADICTION HAS RESOLVED, and it resolved toward the walk-forward. This "
       + "claim was filed CONTRADICTED because the VPS ledger read +20.61R at 67% "
       + "would-have-won over 59 episodes while the sweep said do not move it. Re-read "
       + "2026-08-24 at 83 episodes, that same ledger now reads netR MINUS 2.73 at 60% "
@@ -865,12 +867,16 @@ const CLAIMS = [
     // RE-BASED 2026-08-24: 59 -> 83 episodes on the VPS. At 59 the gate read +20.61R
     // and COSTING MONEY; at 83 it reads -2.73R and NO MEASURABLE COST, so the sample
     // that grew is the same sample that removed the contradiction.
-    sampleAtWriting: { minRrResolved: 83 },
+    // RE-BASED 2026-09-05: 83 -> 901 episodes on the VPS, a 985% move. At 83 the gate read
+    // -2.73R / NO MEASURABLE COST; at 901 it reads +249.33R / COSTING MONEY. The verdict
+    // swung back exactly as the previous note said to watch for — and the walk-forward at
+    // the honest horizon still refuses every candidate, so the swing changed nothing.
+    sampleAtWriting: { minRrResolved: 901 },
     sampleTolerance: 0.5,
     sampleFrom: "VPS ledger (the peer box) — its rejection ledger is the richer one; 83 "
       + "resolved episodes there against 54 on the laptop, and the two now give "
       + "OPPOSITE verdicts",
-    harness: "node tasks/minrr_direction_walkforward.cjs [--folds 5] [--gate 70]",
+    harness: "MTF_MAX_HOLD=320 node tasks/minrr_direction_walkforward.cjs [--folds 5] [--gate 70]   — the env var is NOT optional: the harness does not set it and the default 40 biases the answer downward. Screen the ledger first with node tasks/minrr_ledger_composition.cjs",
     feedsTheGate: true,
   },
   {
