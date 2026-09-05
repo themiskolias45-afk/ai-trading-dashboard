@@ -699,6 +699,55 @@ function readKeysEnv() {
   } catch (e) { console.error("[settings] keys.env read error:", e.message); }
   return map;
 }
+// NAMES THAT MUST NEVER BE SETTABLE OVER HTTP.
+//
+// The keys.env boot loader (top of this file) assigns a variable only when it is
+// UNDEFINED. PATH, COMSPEC, PROGRAMFILES and LOCALAPPDATA are always defined, so a
+// poisoned keys.env was INERT at startup — that guard was the containment, and it is
+// invisible unless you go looking for it. /api/settings applies saved keys to
+// process.env so they work without a restart, which means it must re-impose the
+// containment the loader provided for free.
+//
+// The sanitiser CREATES these names rather than blocking them: safeKey uppercases and
+// strips to [A-Z0-9_], so "path" becomes PATH and "comspec" becomes COMSPEC. And
+// process.env on Windows is CASE-INSENSITIVE, so assigning PATH overwrites the real Path.
+//
+// Why each group is here — every one is reached WITHOUT a restart:
+//   COMSPEC          spawn(process.env.COMSPEC || "cmd.exe", ...) for the Claude CLI,
+//                    read at call time, no memoisation.
+//   PATH / PATHEXT   `schtasks` is spawned as a bare command name and resolved through PATH.
+//   SMARTENTRY_PYTHON, PROGRAMFILES, LOCALAPPDATA
+//                    server/python_path.js re-reads these on recheck(), which autohealer
+//                    calls every 10 minutes, and the probe EXECUTES each candidate.
+//   NODE_OPTIONS, PYTHONPATH, PYTHONHOME, PYTHONSTARTUP
+//                    inherited by every child; pythonEnv() spreads { ...process.env }.
+//   MT5_EXPECTED_ACCOUNTS
+//                    the duplicate-bridge control. ensure_running.ps1 starts one bridge
+//                    per expected tag on a 10-minute schedule, so this decides whether a
+//                    second bridge is launched on an account this box does not own —
+//                    the one outcome that would double every trade.
+//   PEER_SERVER_URL, PEER_HEARTBEAT_EXPECT
+//                    the fleet-divergence verdict. Repointing these silently makes every
+//                    parity answer describe a different machine.
+//
+// Refused at safeKey time, so a blocked name never reaches the FILE either — otherwise
+// it would lie dormant and apply at the next restart, which is the same bug delayed.
+const PROTECTED_ENV_KEYS = new Set([
+  "PATH", "PATHEXT", "COMSPEC", "NODE_OPTIONS", "NODE_PATH",
+  "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "SMARTENTRY_PYTHON",
+  "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "PROGRAMDATA",
+  "PROGRAMFILES", "PROGRAMFILES_X86_", "APPDATA", "LOCALAPPDATA",
+  "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "PSMODULEPATH",
+  "MT5_EXPECTED_ACCOUNTS", "PEER_SERVER_URL", "PEER_HEARTBEAT_EXPECT",
+]);
+
+// NOTE, NOT FIXED HERE: this rebuilds keys.env from parsed key=value pairs, so any
+// COMMENT or blank line in the file is dropped the first time anyone saves a setting.
+// Checked 2026-09-05: both boxes have zero comment lines, so nothing is being lost
+// today — it is a latent trap, not an active one. Anyone who documents a key inside
+// keys.env will lose that documentation silently. Fixing it means updating lines in
+// place instead of regenerating, which is a bigger change than the bug currently
+// justifies; recorded so the next person does not rediscover it the hard way.
 function writeKeysEnv(updates) {
   const map = readKeysEnv();
   for (const [k, v] of Object.entries(updates)) map[k] = sanitizeEnvValue(v);
@@ -6645,6 +6694,14 @@ app.get("/api/settings", (_, res) => {
 app.post("/api/settings", requireLocalOnly, (req, res) => {
   const { anthropicKey, telegramToken, telegramChatId, openaiKey, uwKey, custom } = req.body || {};
   const updates = {};
+  const refusedKeys = [];
+  // KNOWN, PRE-EXISTING, NOT FIXED HERE: the four named keys below mutate their module
+  // variable (and ensureTelegramPolling) BEFORE writeKeysEnv runs. If that write throws,
+  // the response is a 500 while the process is already using a token that was never
+  // persisted — a file/process split in the opposite direction from the one `note`
+  // describes. Fixing it means collecting first and committing after the write, which
+  // changes the order ensureTelegramPolling() is called in; left alone deliberately
+  // rather than restructured in a security patch.
 
   if (typeof telegramToken === "string" && telegramToken.trim())   { TELEGRAM_TOKEN   = sanitizeEnvValue(telegramToken);   updates.TELEGRAM_TOKEN   = TELEGRAM_TOKEN; ensureTelegramPolling(); }
   if (typeof telegramChatId === "string" && telegramChatId.trim()) { TELEGRAM_CHAT_ID = sanitizeEnvValue(telegramChatId); updates.TELEGRAM_CHAT_ID = TELEGRAM_CHAT_ID; knownChatIds.add(TELEGRAM_CHAT_ID); }
@@ -6656,11 +6713,47 @@ app.post("/api/settings", requireLocalOnly, (req, res) => {
       const key = entry?.key, value = entry?.value;
       if (!key || typeof value !== "string" || !value.trim()) continue;
       const safeKey = String(key).trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-      if (safeKey) updates[safeKey] = sanitizeEnvValue(value);
+      if (!safeKey) continue;
+      // See PROTECTED_ENV_KEYS: refused before the file write, not only before the
+      // process.env assignment, or the name would sit in keys.env and apply at the
+      // next restart — the same bug on a delay.
+      if (PROTECTED_ENV_KEYS.has(safeKey)) { refusedKeys.push(safeKey); continue; }
+      updates[safeKey] = sanitizeEnvValue(value);
     }
   }
 
-  if (Object.keys(updates).length) writeKeysEnv(updates);
+  if (Object.keys(updates).length) {
+    writeKeysEnv(updates);
+    // AND APPLY TO THE RUNNING PROCESS. Until 2026-09-05 this line wrote the file and
+    // nothing else, so a key saved here did nothing until the next restart while the UI
+    // said "Saved". The named keys above escape that because each also assigns its own
+    // module-level variable; a `custom` key had no such assignment and was therefore
+    // inert. Found when BRAVE_API_KEY was missing on the VPS: the supported way to set it
+    // would not have worked either.
+    //
+    // THIS IS A PARTIAL APPLICATION AND THE RESPONSE SAYS SO. Anything reading
+    // process.env at CALL time picks the new value up immediately — braveWebSearch does
+    // exactly that. Anything that captured the value at MODULE LOAD keeps the old one:
+    // autohealer.js:33 captures it that way (as the const EXPECTED_MT5_ACCOUNTS, whose
+    // keys.env NAME is MT5_EXPECTED_ACCOUNTS — the two differ, so grepping the file for
+    // the const name finds nothing), which is the documented
+    // reason the keys.env loader has to run above the local requires. A half-applied
+    // setting that reports itself as fully applied is worse than one that never applied,
+    // so the note below is part of the fix, not decoration.
+    for (const [envKey, envValue] of Object.entries(updates)) {
+      // Belt and braces. `updates` cannot contain a protected name by the time it gets
+      // here, but this loop is the thing with teeth and it should not depend on a check
+      // fifteen lines away staying correct.
+      if (PROTECTED_ENV_KEYS.has(envKey)) continue;
+      process.env[envKey] = envValue;
+    }
+    // NAMES ONLY, NEVER VALUES. /api/control logs every halt and this logged nothing,
+    // so a POST that changed the environment left no trace in server_log.txt at all.
+    console.log("[settings] keys written and applied: " + Object.keys(updates).join(", ")
+      + (refusedKeys.length ? "  REFUSED: " + refusedKeys.join(", ") : ""));
+  } else if (refusedKeys.length) {
+    console.log("[settings] all requested keys REFUSED: " + refusedKeys.join(", "));
+  }
 
   if (typeof anthropicKey === "string" && anthropicKey.trim()) {
     try {
@@ -6671,7 +6764,21 @@ app.post("/api/settings", requireLocalOnly, (req, res) => {
     }
   }
 
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    saved: Object.keys(updates),
+    refused: refusedKeys,
+    note: Object.keys(updates).length
+      ? "Written to keys.env and applied to process.env. Readers that check process.env "
+        + "per call (web search) use the new value now; anything that captured it at module "
+        + "load keeps the old value until the server restarts."
+      : "No environment keys changed.",
+    refusedNote: refusedKeys.length
+      ? "Refused as protected: these name the interpreter, the shell or the PATH used to "
+        + "launch child processes, or decide which bridges and which peer this box talks "
+        + "to. They are settable by editing keys.env on the machine itself."
+      : null,
+  });
 });
 
 // Shared by /api/performance and /api/checksystem, which compute the same confidence

@@ -2466,7 +2466,15 @@ async function saveSettings() {
     return;
   }
 
-  showMsg("Saved ✓", true);
+  // The server now reports WHICH keys it applied and whether a restart is still
+  // needed. A bare "Saved" was true of the FILE and false of the RUNNING PROCESS:
+  // a custom key went into keys.env and stayed inert until the next restart, and
+  // this line said it had worked. Report what the server actually did.
+  const savedInfo  = await res.json().catch(() => ({}));
+  const savedCount = Array.isArray(savedInfo.saved) ? savedInfo.saved.length : 0;
+  showMsg(savedCount ? ("Saved ✓ — " + savedCount + " key(s) live now")
+                     : "Saved ✓", true);
+  if (savedInfo.note) console.info("[settings] " + savedInfo.note);
   document.getElementById("in-anthropic").value = "";
   document.getElementById("in-openai").value = "";
   document.getElementById("in-tgtoken").value = "";

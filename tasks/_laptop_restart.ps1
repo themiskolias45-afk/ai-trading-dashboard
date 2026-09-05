@@ -33,35 +33,35 @@ $ErrorActionPreference = 'Continue'
 $base = 'http://localhost:3001'
 
 function Show-State([string]$label) {
-    Write-Output "=== $label ==="
+    Write-Host "=== $label ==="
     $conn = Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($conn) { Write-Output ('  port 3001 held by PID ' + $conn.OwningProcess) } else { Write-Output '  nothing on 3001' }
+    if ($conn) { Write-Host ('  port 3001 held by PID ' + $conn.OwningProcess) } else { Write-Host '  nothing on 3001' }
     try {
         $s = Invoke-RestMethod -Uri ($base + '/api/status') -TimeoutSec 8
-        Write-Output ('  startedAt ' + $s.startedAt)
-    } catch { Write-Output '  /api/status did not answer' }
+        Write-Host ('  startedAt ' + $s.startedAt)
+    } catch { Write-Host '  /api/status did not answer' }
     try {
         $p = Invoke-RestMethod -Uri ($base + '/api/mt5/positions') -TimeoutSec 8
         $n = @($p.positions).Count + @($p.unmanaged).Count
-        Write-Output ('  positions ' + $n)
-    } catch { Write-Output '  /api/mt5/positions did not answer (session-gated or down)' }
+        Write-Host ('  positions ' + $n)
+    } catch { Write-Host '  /api/mt5/positions did not answer (session-gated or down)' }
     return $conn
 }
 
 $before = Show-State 'before'
 
 if ($WhatIf) {
-    Write-Output ''
-    Write-Output '-WhatIf: would stop the single PID above, then run tasks\ensure_running.ps1.'
+    Write-Host ''
+    Write-Host '-WhatIf: would stop the single PID above, then run tasks\ensure_running.ps1.'
     exit 0
 }
 
 if (-not $before) {
-    Write-Output ''
-    Write-Output '  nothing listening on 3001 - skipping the stop, going straight to ensure_running'
+    Write-Host ''
+    Write-Host '  nothing listening on 3001 - skipping the stop, going straight to ensure_running'
 } else {
     Stop-Process -Id $before.OwningProcess -Force -ErrorAction SilentlyContinue
-    Write-Output ('  stopped PID ' + $before.OwningProcess + ' (single PID by port, no tree kill)')
+    Write-Host ('  stopped PID ' + $before.OwningProcess + ' (single PID by port, no tree kill)')
     Start-Sleep -Seconds 3
 }
 
@@ -75,13 +75,13 @@ $after = Show-State 'after'
 foreach ($ep in @('/api/signals', '/api/healer', '/api/strategy-settings')) {
     try {
         $r = Invoke-WebRequest -Uri ($base + $ep) -UseBasicParsing -TimeoutSec 12
-        Write-Output ('  ' + $ep + ' -> http ' + $r.StatusCode)
+        Write-Host ('  ' + $ep + ' -> http ' + $r.StatusCode)
     } catch {
-        Write-Output ('  ' + $ep + ' -> FAIL ' + $_.Exception.Message)
+        Write-Host ('  ' + $ep + ' -> FAIL ' + $_.Exception.Message)
     }
 }
 
 if (-not $after) {
-    Write-Output ''
-    Write-Output '  WARNING: nothing is listening on 3001. Start it with option S in tasks\menu.bat.'
+    Write-Host ''
+    Write-Host '  WARNING: nothing is listening on 3001. Start it with option S in tasks\menu.bat.'
 }
