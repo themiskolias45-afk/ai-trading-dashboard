@@ -741,7 +741,11 @@ const PROTECTED_ENV_KEYS = new Set([
   "MT5_EXPECTED_ACCOUNTS", "PEER_SERVER_URL", "PEER_HEARTBEAT_EXPECT",
 ]);
 
-// NOTE, NOT FIXED HERE: this rebuilds keys.env from parsed key=value pairs, so any
+// FIXED 2026-09-05: this used to be a bare truncating writeFileSync over the only copy
+// of every secret on the box. It now takes a VERIFIED backup and replaces atomically —
+// see inside the function.
+//
+// STILL NOT FIXED: this rebuilds keys.env from parsed key=value pairs, so any
 // COMMENT or blank line in the file is dropped the first time anyone saves a setting.
 // Checked 2026-09-05: both boxes have zero comment lines, so nothing is being lost
 // today — it is a latent trap, not an active one. Anyone who documents a key inside
@@ -752,7 +756,97 @@ function writeKeysEnv(updates) {
   const map = readKeysEnv();
   for (const [k, v] of Object.entries(updates)) map[k] = sanitizeEnvValue(v);
   const body = Object.entries(map).map(([k, v]) => `${k}=${v}`).join("\r\n") + "\r\n";
-  fs.writeFileSync(KEYS_ENV_PATH, body, "utf8");
+
+  // COPY BEFORE YOU REWRITE, AND VERIFY THE COPY EXISTS BEFORE THE WRITE RUNS.
+  // keys.env is gitignored and holds the ONLY copy of DASHBOARD_PASSWORD,
+  // SLACK_BOT_TOKEN, NOTION_TOKEN and TV_PASSWORD. This function used to be a bare
+  // truncating writeFileSync over that file: a crash, a full disk or an EPERM between
+  // truncate and write left an empty or half-written keys.env and every secret on the
+  // box was gone with no recovery path — nothing else holds them and git never sees
+  // the file. The backup is not optional and its absence ABORTS the write rather than
+  // proceeding unprotected.
+  //
+  // Safe to keep forever: .gitignore globs `keys.env*` AND `*.bak-*`, so a backup can
+  // never be committed. Checked before this was written, because a secrets backup that
+  // is not ignored is a worse bug than the one being fixed.
+  if (fs.existsSync(KEYS_ENV_PATH)) {
+    // MILLISECONDS AND A Z. The first version stamped to the second in UTC without
+    // marking it, which broke sorting: `20260905163624` sorts BEFORE a local-time
+    // sibling `20260905T171146` because '1' < 'T', while actually being 25 minutes
+    // NEWER. Anything picking "the latest backup by name" got the older file, and the
+    // two boxes are in different timezones so it was a standing hazard, not a one-off.
+    // Milliseconds also make a same-second collision unreachable, which is what lets
+    // the size check below mean something: the backup is always a copy of the state
+    // that is about to be destroyed, never of an earlier one.
+    const stamp  = new Date().toISOString().replace(/[-:]/g, "").replace(".", "");
+    const backup = `${KEYS_ENV_PATH}.bak-${stamp}`;
+    if (fs.existsSync(backup)) {
+      // Rule 6: never overwrite a backup. Abort rather than continue with one we did
+      // not just take — a backup of the wrong state is worse than a refused save.
+      console.error(`[settings] ABORT: backup ${backup} already exists; keys.env not rewritten`);
+      throw new Error("keys.env backup already exists — refusing to overwrite it");
+    }
+    fs.copyFileSync(KEYS_ENV_PATH, backup);
+    // EXISTENCE IS NOT VALIDITY: existsSync passes for a zero-byte file, and the whole
+    // point of this backup is that it can be trusted. Compare the bytes.
+    const backedUp = fs.existsSync(backup) ? fs.statSync(backup).size : -1;
+    const original = fs.statSync(KEYS_ENV_PATH).size;
+    if (backedUp !== original) {
+      console.error(`[settings] ABORT: keys.env backup is ${backedUp} bytes, original is `
+        + `${original} — keys.env NOT rewritten`);
+      throw new Error("keys.env backup is missing or truncated — refusing to rewrite it");
+    }
+  }
+
+  // ATOMIC REPLACE. writeFileSync truncates the destination first, so a reader during
+  // the write — or a crash mid-write — sees a partial file. A rename within the same
+  // directory is atomic, so keys.env is either entirely the old content or entirely
+  // the new one, never a prefix of the new one.
+  const tempPath = `${KEYS_ENV_PATH}.tmp`;
+  fs.writeFileSync(tempPath, body, "utf8");
+  try {
+    // RENAME NEEDS DELETE ACCESS ON THE DESTINATION, WHICH A PLAIN READER DOES NOT
+    // SHARE. Measured: a Python `open()` of keys.env — exactly what notifications.py
+    // does, reached from ensure_running.ps1 and medic_loop.ps1 — makes renameSync fail
+    // EPERM where the old truncating write succeeded. The window is milliseconds and
+    // the reader is gone by the next attempt, so a short retry closes it. The file
+    // itself is never at risk either way: a failed rename leaves keys.env untouched.
+    let lastError = null;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      try { fs.renameSync(tempPath, KEYS_ENV_PATH); lastError = null; break; }
+      catch (renameError) {
+        lastError = renameError;
+        // A real sleep, not a spin: this blocks one human-triggered save for at most
+        // ~500ms and must not burn the event loop the bridges report into.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);
+      }
+    }
+    if (lastError) {
+      // FALL BACK TO THE DIRECT WRITE, AND SAY SO. Measured: a reader holding the file
+      // for seconds defeats any retry worth blocking a request for, and the save then
+      // failed with an opaque HTML 500 — a settings save that silently refuses is its
+      // own bug.
+      //
+      // This is safe for exactly one reason: a truncating write is only UNRECOVERABLE
+      // when no verified copy of the old contents exists. One was taken and size-checked
+      // moments ago, a few lines above. So the worst case here is a partial keys.env
+      // beside a known-good backup — recoverable — where the ORIGINAL code's worst case
+      // was a partial keys.env and nothing else anywhere. Atomic when it can be,
+      // available always, never unrecoverable.
+      console.error(`[settings] keys.env atomic replace failed after 12 attempts `
+        + `(${lastError.code || lastError.message}) — falling back to a direct write. `
+        + `The verified backup taken this call covers it.`);
+      fs.writeFileSync(KEYS_ENV_PATH, body, "utf8");
+    }
+  } finally {
+    // THE TEMP FILE HOLDS THE COMPLETE PLAINTEXT SECRET SET. On a failed rename the
+    // first version left it on disk indefinitely — gitignored, so never committed, but
+    // sitting there until a later save happened to overwrite it. Nothing else in the
+    // tree cleans it up, so it is cleaned here on every path including the throw.
+    try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (cleanupError) {
+      console.error(`[settings] keys.env.tmp could not be removed: ${cleanupError.message}`);
+    }
+  }
 }
 function maskKey(v) {
   if (!v) return null;

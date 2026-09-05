@@ -40,10 +40,26 @@ function Show-State([string]$label) {
         $s = Invoke-RestMethod -Uri ($base + '/api/status') -TimeoutSec 8
         Write-Host ('  startedAt ' + $s.startedAt)
     } catch { Write-Host '  /api/status did not answer' }
+    # WAIT FOR THE BRIDGE BEFORE READING POSITIONS. /api/mt5/positions returns an EMPTY
+    # list while the bridge has not reported yet, which is indistinguishable on screen from
+    # a flat book - measured here: this printed 'positions 0' on a box holding two trades,
+    # seconds before the same call returned both. Reporting the count without the bridge
+    # state is how a restart gets read as having closed something.
+    for ($i = 0; $i -lt 10; $i++) {
+        $up = $false
+        try { $up = (Invoke-RestMethod -Uri ($base + '/api/mt5/health?account=A') -TimeoutSec 6).connected -eq $true } catch { $up = $false }
+        if ($up) { break }
+        Start-Sleep -Seconds 6
+    }
     try {
+        $h = Invoke-RestMethod -Uri ($base + '/api/mt5/health?account=A') -TimeoutSec 8
         $p = Invoke-RestMethod -Uri ($base + '/api/mt5/positions') -TimeoutSec 8
         $n = @($p.positions).Count + @($p.unmanaged).Count
-        Write-Host ('  positions ' + $n)
+        if ($h.connected -eq $true) {
+            Write-Host ('  positions ' + $n + '   (bridge reporting - this count is real)')
+        } else {
+            Write-Host ('  positions ' + $n + '   *** BRIDGE NOT REPORTING - this count is NOT a flat book, it is unknown ***')
+        }
     } catch { Write-Host '  /api/mt5/positions did not answer (session-gated or down)' }
     return $conn
 }

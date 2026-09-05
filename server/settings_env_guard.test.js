@@ -43,6 +43,10 @@ const safeKey = key => String(key).trim().toUpperCase().replace(/[^A-Z0-9_]/g, "
 
 const PROTECTED = readProtectedSet();
 
+// A literal newline written into this file by an editing script keeps breaking the
+// source, so the character is built rather than typed.
+const BSLASH_N = String.fromCharCode(10);
+
 test("the guard is still wired into the handler", () => {
   // Both call sites matter. The first keeps a refused name out of keys.env, so it cannot
   // lie dormant in the file and apply at the next restart; the second is the loop with
@@ -113,4 +117,57 @@ test("the boot loader still fills only UNSET keys", () => {
     SRC.includes("process.env[key] === undefined) process.env[key] = value"),
     "the keys.env boot loader no longer skips already-defined variables"
   );
+});
+
+// ── keys.env must never be lost ─────────────────────────────────────────────────
+// writeKeysEnv used to be a bare truncating writeFileSync over the ONLY copy of every
+// secret on the box: DASHBOARD_PASSWORD, SLACK_BOT_TOKEN, NOTION_TOKEN, TV_PASSWORD.
+// keys.env is gitignored, so a crash between truncate and write lost all of them with
+// no recovery path anywhere. These assert the two properties that fix it, read out of
+// the real source so they fail if either is removed.
+
+test("writeKeysEnv takes a backup and ABORTS if the backup is missing", () => {
+  const fn = SRC.slice(SRC.indexOf("function writeKeysEnv(updates)"));
+  const body = fn.slice(0, fn.indexOf("\nfunction "));
+  assert.ok(body.includes("fs.copyFileSync(KEYS_ENV_PATH, backup)"),
+    "writeKeysEnv no longer copies keys.env before rewriting it");
+  assert.ok(/refusing to rewrite it/.test(body),
+    "writeKeysEnv no longer ABORTS when the backup could not be created — " +
+    "a backup that is attempted but not verified is not a backup");
+});
+
+test("writeKeysEnv replaces atomically, and never writes the live file unbacked", () => {
+  const fn = SRC.slice(SRC.indexOf("function writeKeysEnv(updates)"));
+  const body = fn.slice(0, fn.indexOf(BSLASH_N + "function "));
+
+  assert.ok(body.includes("fs.renameSync(tempPath, KEYS_ENV_PATH)"),
+    "writeKeysEnv no longer renames a temp file into place — the atomic path is gone");
+
+  // THE PROPERTY THAT ACTUALLY MATTERS is not "never truncate". A truncating write is
+  // only UNRECOVERABLE when no verified copy of the old contents exists. There is a
+  // direct write here on purpose: it is the fallback for a destination locked by a
+  // reader, measured as a real HTTP 500 otherwise. What must hold is that EVERY write to
+  // the live file happens AFTER the backup has been taken and size-verified.
+  const verifyAt = body.indexOf("backup is missing or truncated");
+  assert.notStrictEqual(verifyAt, -1, "the backup size verification is gone");
+
+  const writes = [...body.matchAll(/fs\.(writeFileSync|renameSync)\([^)]*KEYS_ENV_PATH/g)];
+  assert.ok(writes.length > 0, "nothing writes keys.env at all any more");
+  for (const w of writes) {
+    assert.ok(w.index > verifyAt,
+      `a write to keys.env at offset ${w.index} happens BEFORE the backup is verified ` +
+      `(verification is at ${verifyAt}) — that write could destroy the only copy`);
+  }
+
+  // And the fallback must announce itself: a silent downgrade from atomic to truncating
+  // is exactly the kind of thing that gets rediscovered during an incident.
+  assert.ok(/falling back to a direct write/.test(body),
+    "the direct-write fallback no longer logs that it fired");
+});
+
+test("a keys.env backup can never be committed", () => {
+  // A secrets backup that git can see is a worse bug than the one the backup fixes.
+  const ignore = fs.readFileSync(path.join(__dirname, "..", ".gitignore"), "utf8");
+  assert.ok(/^keys\.env\*/m.test(ignore), ".gitignore no longer globs keys.env*");
+  assert.ok(/^\*\.bak-\*/m.test(ignore), ".gitignore no longer globs *.bak-*");
 });
