@@ -58,6 +58,19 @@ const SLOPE_LOOKBACK= numArg("--slope", 3);
 const PUSH_LOOKBACK = numArg("--pushlb", 15);
 const PUSH_ATR      = numArg("--pushatr", 0.6);
 const PULLBACK_TOL  = numArg("--tol", 0.60);
+// Trend filter: "ema" (shipped, default) or "gauss" (Ehlers N-pole, opt-in).
+// Anything else is REFUSED rather than silently falling back to ema - a typo that
+// quietly ran the baseline under the candidate label is the one failure this test
+// cannot afford.
+const TREND_FILTER  = String(strArg("--trend", "ema")).toLowerCase();
+const GAUSS_POLES   = numArg("--poles", 4);
+if (TREND_FILTER !== "ema" && TREND_FILTER !== "gauss") {
+  console.error(`--trend ${TREND_FILTER} is not a filter. Use "ema" (default) or "gauss".`);
+  console.error("Refusing rather than defaulting: a typo that silently ran the baseline");
+  console.error("under the candidate's label is the one error this comparison cannot survive.");
+  process.exit(2);
+}
+
 const RSI_LEN       = numArg("--rsilen", 14);
 const RSI_MIN       = numArg("--rsimin", 40);
 const ATR_LEN       = numArg("--atrlen", 14);
@@ -279,8 +292,8 @@ function run(symbol) {
   const b = loadBars(symbol, TF);
   if (!b) return { symbol, error: "missing " + symbol + "_" + TF + ".csv" };
   const { times, opens, highs, lows, closes } = b;
-  const ema21 = emaSeries(closes, EMA_FAST);
-  const ema50 = emaSeries(closes, EMA_SLOW);
+  const ema21 = trendSeries(closes, EMA_FAST);
+  const ema50 = trendSeries(closes, EMA_SLOW);
   const atr   = atrSeries(highs, lows, closes, ATR_LEN);
   const rsi   = rsiSeries(closes, RSI_LEN);
 
