@@ -650,6 +650,19 @@ PRIOR_DAY_BORDER       = "color.new(color.gray, 65)"
 # use, so the trade — which is the thing being decided — still dominates the canvas.
 ZONE_BARS_BACK = 60
 
+# CRT and FVG are DISPLAY ONLY and their colours say so: cool and low-contrast,
+# deliberately quieter than the entry/stop/target pills. This repo measured CRT as an
+# engine input SIX times and got six negatives, and FVG at 6.9pp WORSE than random.
+# Drawing them is observability; a shape that shouts is a shape that gets traded.
+CRT_FILL      = "color.new(color.teal, 88)"
+CRT_BORDER    = "color.new(color.teal, 55)"
+CRT_LABEL     = "color.new(color.teal, 30)"
+FVG_FILL      = "color.new(color.purple, 90)"
+FVG_BORDER    = "color.new(color.purple, 62)"
+FVG_LABEL     = "color.new(color.purple, 35)"
+CRT_BARS_BACK = 40
+FVG_BARS_BACK = 30
+
 BIAS_COLOURS = {"LONG": "color.new(color.green, 0)",
                 "SHORT": "color.new(color.red, 0)"}
 
@@ -1061,6 +1074,87 @@ JS_ROW_REMOVE_BOX = """(band) => {
 }"""
 
 
+def _crt_label(crt, decimals):
+    """One line describing the CRT: direction, which side was swept, and the objective.
+
+    The objective is the level the model says price should now travel toward - the far
+    side of the swept range. It is stated as a NUMBER in a label, not drawn as a line,
+    for the reason the locked note gives: a line is read as an order.
+    """
+    if not isinstance(crt, dict):
+        return ""
+    direction = str(crt.get("direction") or "?").upper()
+    side = "high" if crt.get("sweptSide") == "high" else "low"
+    bars = crt.get("barsAgo")
+    objective = _fmt(crt.get("objective"), decimals)
+    age = ("%dh4 ago" % bars) if isinstance(bars, int) else "?"
+    return "CRT %s - swept the %s, %s - objective %s (context)" % (direction, side, age, objective)
+
+
+def _fvg_field(entry, field):
+    """The freshest zone's top/bottom, or "na". Freshest = the one with the smallest
+    barsAgo, because an old gap that price has already traded through is history."""
+    if not isinstance(entry, dict):
+        return "na"
+    zones = [z for z in (entry.get("zones") or []) if isinstance(z, dict)]
+    if not zones:
+        return "na"
+    fresh = sorted(zones, key=lambda z: z.get("barsAgo", 10 ** 6))[0]
+    value = fresh.get(field)
+    return value if isinstance(value, (int, float)) else "na"
+
+
+def _fvg_label(entry, decimals):
+    """One line for the entry-timeframe gap, including how much of it has been filled.
+
+    fillPercent is the retest read and it is the only part of an FVG worth watching: a
+    zone at 0% is untested, one deep into fill is being consumed. Says "context" out loud
+    because FVG measured 6.9pp WORSE than random on this system - the box marks a place to
+    watch price behave, it does not mark an entry.
+    """
+    if not isinstance(entry, dict):
+        return ""
+    zones = [z for z in (entry.get("zones") or []) if isinstance(z, dict)]
+    if not zones:
+        return ""
+    fresh = sorted(zones, key=lambda z: z.get("barsAgo", 10 ** 6))[0]
+    fill = fresh.get("fillPercent")
+    filled = ("%d%% filled" % round(fill)) if isinstance(fill, (int, float)) else "fill ?"
+    status = str(fresh.get("status") or "").upper() or "?"
+    return "%s FVG %s %s-%s  %s, %s (context)" % (
+        str(entry.get("timeframe", "")).upper(),
+        str(fresh.get("direction") or "?"),
+        _fmt(fresh.get("bottom"), decimals),
+        _fmt(fresh.get("top"), decimals),
+        status, filled)
+
+
+def _sweep_suffix(sweep):
+    """"  HIGH SWEPT" / "  LOW SWEPT" / "  both swept" / "" for the prior-day label.
+
+    The levels alone were never the read. An UNSWEPT prior-day extreme is a magnet -
+    somewhere price is still reaching for. A SWEPT one is the opposite: somewhere price
+    has already been and turned away from, which is where a reversal is looked for. The
+    box has drawn both numbers since it was written and said nothing about which case
+    the chart is in.
+
+    Empty string when the state is unknown, never a guess: a label that says "unswept"
+    because the data was missing is worse than a label that says nothing.
+    """
+    if not isinstance(sweep, dict):
+        return ""
+    high, low = sweep.get("highSwept"), sweep.get("lowSwept")
+    if high is True and low is True:
+        return "  both swept"
+    if high is True:
+        return "  HIGH SWEPT"
+    if low is True:
+        return "  LOW SWEPT"
+    if high is False and low is False:
+        return "  unswept"
+    return ""
+
+
 def generate_pine(plans):
     """
     Build ONE daily-plan indicator covering every symbol.
@@ -1211,9 +1305,10 @@ def generate_pine(plans):
             plans, lambda p: (p.get("prior_day") or {}).get("low", "na") or "na", "na"))
         level_vars.append("_pdTxt = " + _ternary(
             plans,
-            lambda p: _pine_str("Prior day %s-%s" % (
+            lambda p: _pine_str("Prior day %s-%s%s" % (
                 _fmt((p.get("prior_day") or {}).get("low"), p["decimals"]),
-                _fmt((p.get("prior_day") or {}).get("high"), p["decimals"])))
+                _fmt((p.get("prior_day") or {}).get("high"), p["decimals"]),
+                _sweep_suffix(p.get("prior_day_sweep"))))
             if p.get("prior_day") else '""',
             '""'))
         draw_block.append(
@@ -1223,6 +1318,63 @@ def generate_pine(plans):
             "        label.new(bar_index + 20, _pdLow, _pdTxt, color=%s, "
             "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
             % (ZONE_BARS_BACK, PRIOR_DAY_BORDER, PRIOR_DAY_FILL, PRIOR_DAY_BORDER))
+
+    # ── The latest H4 CRT, as a box ────────────────────────────────────────
+    #
+    # ADDED DELIBERATELY 2026-09-05, at the user's explicit request, and recorded HERE
+    # because the locked note below requires exactly that rather than a silent re-derive.
+    #
+    # It is a BOX, not a labelled price line. The decision below is about lines: on a
+    # chart traded by hand, a labelled level line is a true number dressed as an
+    # instruction. A shaded band is the shape this chart already uses for context - the
+    # prior-day range and the confluence zones are both boxes - so this rides the
+    # established convention instead of reopening a settled question.
+    #
+    # DISPLAY ONLY, and the colour says so: teal at 88% transparency, deliberately
+    # quieter than the entry/stop/target pills. CRT was measured as an engine input SIX
+    # times on this system and returned six negatives - as a setup (0/5 folds, and it
+    # DISPLACED 16 Gold trades) and as a confidence contributor (SPX worse at every
+    # window). Nothing about drawing it changes that, and nothing here feeds a gate.
+    if any(plan.get("crt_h4") for plan in plans):
+        level_vars.append("_crtHigh = " + _ternary(
+            plans, lambda p: (p.get("crt_h4") or {}).get("rangeHigh", "na") or "na", "na"))
+        level_vars.append("_crtLow = " + _ternary(
+            plans, lambda p: (p.get("crt_h4") or {}).get("rangeLow", "na") or "na", "na"))
+        level_vars.append("_crtTxt = " + _ternary(
+            plans, lambda p: _pine_str(_crt_label(p.get("crt_h4"), p["decimals"]))
+            if p.get("crt_h4") else '""', '""'))
+        draw_block.append(
+            "    if not na(_crtHigh) and not na(_crtLow)\n"
+            "        box.new(bar_index - %d, _crtHigh, bar_index + 20, _crtLow, "
+            "border_color=%s, bgcolor=%s, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _crtHigh, _crtTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (CRT_BARS_BACK, CRT_BORDER, CRT_FILL, CRT_LABEL))
+
+    # ── The freshest entry-timeframe FVG, as a box ─────────────────────────
+    #
+    # ONE zone, the freshest unfilled one, on the timeframe an entry is actually refined
+    # on. Not a stack of them: the detector returns four and a chart carrying four purple
+    # bands per symbol is decoration.
+    #
+    # FVG MEASURED 6.9pp WORSE THAN RANDOM here over ~6,800 samples. So this marks a place
+    # to watch price behave, and the panel row says "context" in as many words. It is not
+    # an entry trigger and must never become one.
+    if any(plan.get("fvg_entry") for plan in plans):
+        level_vars.append("_fvgTop = " + _ternary(
+            plans, lambda p: _fvg_field(p.get("fvg_entry"), "top"), "na"))
+        level_vars.append("_fvgBot = " + _ternary(
+            plans, lambda p: _fvg_field(p.get("fvg_entry"), "bottom"), "na"))
+        level_vars.append("_fvgTxt = " + _ternary(
+            plans, lambda p: _pine_str(_fvg_label(p.get("fvg_entry"), p["decimals"]))
+            if p.get("fvg_entry") else '""', '""'))
+        draw_block.append(
+            "    if not na(_fvgTop) and not na(_fvgBot)\n"
+            "        box.new(bar_index - %d, _fvgTop, bar_index + 20, _fvgBot, "
+            "border_color=%s, bgcolor=%s, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _fvgBot, _fvgTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (FVG_BARS_BACK, FVG_BORDER, FVG_FILL, FVG_LABEL))
 
     # NO PIVOT OR ATR LINES. THIS IS A LOCKED DECISION, REVERSED ONCE AND RESTORED.
     #
@@ -2525,6 +2677,48 @@ def load_market_context():
     return usable
 
 
+def load_chart_geometry():
+    """CRT / previous-day sweep state, from /api/chart-geometry. {} when unavailable.
+
+    Fetched ONCE for all three symbols, like the market context: three fetches would be
+    three different instants of the same read, and a chart whose rows disagree with each
+    other by a few seconds is worse than one that admits it has no data.
+    """
+    payload = _get_json("/api/chart-geometry")
+    if not isinstance(payload, dict):
+        print("[TV] Chart geometry: NOT available - CRT and sweep rows will say so")
+        return {}
+    assets = payload.get("assets") or {}
+    usable = {k: v for k, v in assets.items() if isinstance(v, dict) and v.get("available")}
+    print(f"[TV] Chart geometry: {len(usable)} asset(s) with CRT and prior-day reads")
+    return usable
+
+
+def load_fvg(timeframe="m15"):
+    """Fresh FVG zones for the entry timeframe, from /api/fvg. {} when unavailable.
+
+    m15 is requested because that is the timeframe an entry is actually refined on. Note
+    what this is NOT: FVG measured 6.9pp WORSE than random over ~6,800 samples here, so a
+    zone on the chart is a place to watch, never a reason. The panel text says so.
+    """
+    payload = _get_json("/api/fvg")
+    if not isinstance(payload, dict):
+        print("[TV] FVG: NOT available - entry-zone rows will say so")
+        return {}
+    assets = payload.get("assets") or {}
+    out = {}
+    for key, block in assets.items():
+        if not isinstance(block, dict) or not block.get("available"):
+            continue
+        frames = block.get("timeframes") or {}
+        chosen = frames.get(timeframe) or frames.get("h1") or {}
+        zones = [z for z in (chosen.get("zones") or []) if isinstance(z, dict)]
+        if zones:
+            out[key] = {"timeframe": timeframe if frames.get(timeframe) else "h1", "zones": zones}
+    print(f"[TV] FVG: {len(out)} asset(s) with entry zones")
+    return out
+
+
 def _note_row(reasons, limit=112):
     """The most actionable engine reason, cut on a word boundary - never mid-token.
 
@@ -2681,7 +2875,26 @@ def _day_range_row(asset_context, decimals):
             f"-{_fmt(projection['expectedHigh'], decimals)}")
 
 
-def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=None):
+def _latest_crt(geometry, timeframe):
+    """The most recent CONFIRMED CRT on this timeframe, or None.
+
+    ONE pattern, not the list. The detector finds 62 of them on 400 H4 bars - about one
+    bar in six - so a chart that drew them all would be a wall of teal boxes saying
+    nothing. Only the newest is a live read; the rest are history the candles already show.
+
+    Confirmed only: an unconfirmed CRT is a sweep whose follow-through has not happened,
+    which is a hypothesis rather than a pattern.
+    """
+    frames = ((geometry or {}).get("timeframes") or {})
+    block = (frames.get(timeframe) or {}).get("crt") or {}
+    for pattern in (block.get("patterns") or []):
+        if pattern.get("confirmed"):
+            return pattern
+    return None
+
+
+def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=None,
+               geometry=None, fvg_zones=None):
     """
     Turn one asset block from /api/signals into everything the chart should show.
 
@@ -2811,6 +3024,17 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=Non
         "zones": drawn_zones,
         "prior_day": ((context or {}).get("periods") or {}).get("prevDay")
                      if ((context or {}).get("periods") or {}).get("available") else None,
+        # THE SWEEP STATE IS THE READ, NOT THE LEVELS. The prior-day box has always drawn
+        # the high and the low; what it never said is whether TODAY has already taken
+        # either side. That is the whole difference between a magnet and a reversal level:
+        # an unswept extreme is somewhere price is still reaching for, a swept one is
+        # somewhere it has already been and rejected.
+        "prior_day_sweep": (geometry or {}).get("previousDay") or None,
+        # The most recent CONFIRMED H4 CRT, or None. H4 because that is the bias
+        # timeframe the engine itself agrees on (Daily + H4), so a CRT there sits on the
+        # same clock as the setup rather than on a faster one that will disagree.
+        "crt_h4": _latest_crt(geometry, "h4"),
+        "fvg_entry": fvg_zones or None,
         "rows": rows,
     }
 
@@ -3191,6 +3415,11 @@ def cmd_plan(which="all", shoot=True):
     # call, so three fetches would be three different instants of the same read.
     market_context = load_market_context()
 
+    # Same one-fetch rule as the market context: composed for every asset in a single
+    # call, so all three charts describe the SAME instant.
+    chart_geometry = load_chart_geometry()
+    fvg_entries    = load_fvg("m15")
+
     wanted = list(API_ASSETS) if which.lower() == "all" else [which.upper()]
     results = {}
 
@@ -3202,7 +3431,9 @@ def cmd_plan(which="all", shoot=True):
             print(f"[TV] {name}: not in /api/signals — skipped")
             continue
         plans.append(build_plan(name, asset, gate, reads=candle_reads,
-                                context=market_context.get(key)))
+                                context=market_context.get(key),
+                                geometry=chart_geometry.get(key),
+                                fvg_zones=fvg_entries.get(key)))
 
     if not plans:
         print("[TV] Nothing to draw")

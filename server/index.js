@@ -151,6 +151,7 @@ const hermes     = require("./hermes");
 // Fair Value Gap geometry. Pure functions over the bar arrays the engine already
 // holds — no I/O, no state, and nothing it exports can reach the trading path.
 const fvg        = require("./fvg");
+const structure  = require("./structure");   // detectCRT / detectAMD — display only
 // Prior-period levels, confirmed swings, round-number magnets, ATR day projection
 // and CONFLUENCE CLUSTERING over all of them, plus the DXY/VIX/correlation read.
 // Pure functions like fvg.js, and like fvg.js nothing it exports can reach the
@@ -4995,7 +4996,109 @@ app.get("/api/signals",        (_, res) => res.json(signalCache));
 // (COMEX future vs spot), and a gap drawn from futures bars would be at prices
 // the traded symbol never visited. Reports the gap honestly instead of quietly
 // substituting a feed — see the ~5-minute Yahoo window after any restart.
-const FVG_TIMEFRAMES = ["daily", "h4", "h1"];
+// m15 ADDED 2026-09-05. The entry is refined on 15m, so the gap that matters for an
+// entry was the one timeframe this never computed - callers asking for m15 silently
+// got h1 back and a chart labelled "H1 FVG" when a 15m gap was what was wanted.
+// mt5BarsFor already carries m15 (it rides along from the same bridge push as the
+// other three), so this costs one more detector pass and no new data path. It is
+// last in the list because order is display order and the slowest frame reads first.
+const FVG_TIMEFRAMES = ["daily", "h4", "h1", "m15"];
+
+// ── Chart geometry: CRT, previous-day levels, AMD ─────────────
+//
+// DISPLAY ONLY, AND THAT IS NOT A DISCLAIMER, IT IS THE DESIGN. This repo's own record
+// is unambiguous: CRT is CLOSED as an engine input after SIX measurements and six
+// negatives — it failed as a setup (0/5 folds, and it DISPLACED 16 Gold trades) and as a
+// confidence contributor (SPX worse at every window). FVG is 6.9pp worse than random over
+// ~6,800 samples. AMD is near-absent: 0 patterns on Gold at d1/h4/h1.
+//
+// So this route exists to put those shapes on a chart where a human can see them, and for
+// no other purpose. feedsTheGate is false and must stay false. Nothing here is read by
+// generateSignal, sizing, or any bridge. If a future change wants one of these in the
+// engine, it needs a walk-forward that clears it, not this endpoint.
+//
+// Read-only over bars the bridge already pushed. It computes nothing that is stored.
+app.get("/api/chart-geometry", (req, res) => {
+  const wanted = String(req.query.asset || "").toLowerCase();
+  const assetKeys = wanted && wanted !== "all" ? [wanted] : ["btc", "gold", "spx"];
+  const maxPatterns = Math.min(8, Math.max(1, Number(req.query.max) || 4));
+
+  const assets = {};
+  for (const assetKey of assetKeys) {
+    const barSet = mt5BarsFor(assetKey);
+    if (!barSet) {
+      assets[assetKey] = { available: false, reason: "no fresh MT5 bars" };
+      continue;
+    }
+
+    const out = { available: true, source: "mt5", sourceSymbol: barSet.symbol, timeframes: {} };
+
+    // CRT per timeframe. H4 is the one the user reads, but daily and h1 cost nothing
+    // extra and a pattern is only meaningful beside its neighbours.
+    for (const timeframe of ["daily", "h4", "h1"]) {
+      const bars = barSet[timeframe];
+      if (!bars) { out.timeframes[timeframe] = { error: "no bars" }; continue; }
+      try {
+        const crt = structure.detectCRT(bars, { maxPatterns });
+        const amd = structure.detectAMD(bars, {});
+        out.timeframes[timeframe] = {
+          crt: { patterns: crt.patterns || [], totalFound: crt.totalFound || 0,
+                 averageRange: crt.averageRange ?? null, error: crt.error || null },
+          amd: { patterns: (amd && amd.patterns) || [], totalFound: (amd && amd.totalFound) || 0,
+                 sessionAligned: amd ? amd.sessionAligned : null, error: (amd && amd.error) || null },
+        };
+      } catch (geometryError) {
+        // One bad series must never take the endpoint down.
+        console.error(`[geometry] ${assetKey}/${timeframe}: ${geometryError.message}`);
+        out.timeframes[timeframe] = { error: geometryError.message };
+      }
+    }
+
+    // PREVIOUS DAY'S HIGH, LOW AND CLOSE — from the daily series, index -2.
+    //
+    // -2 not -1: the last daily bar is TODAY and is still forming, so its high and low
+    // are whatever has printed so far and both move for the rest of the session. A level
+    // that moves is not a level. The bar before it is closed and final.
+    try {
+      const d = barSet.daily;
+      const n = d && d.highs ? d.highs.length : 0;
+      if (n >= 2) {
+        const prevHigh = d.highs[n - 2], prevLow = d.lows[n - 2], prevClose = d.closes[n - 2];
+        const todayHigh = d.highs[n - 1], todayLow = d.lows[n - 1];
+        const live = signalCache[assetKey] || null;
+        const price = live && Number.isFinite(live.price) ? live.price : d.closes[n - 1];
+        out.previousDay = {
+          high: prevHigh, low: prevLow, close: prevClose,
+          range: prevHigh - prevLow,
+          mid: (prevHigh + prevLow) / 2,
+          // Whether today has already taken either side. This is the read that matters:
+          // an unswept previous-day extreme is a magnet, a swept one is a reversal level.
+          highSwept: Number.isFinite(todayHigh) ? todayHigh > prevHigh : null,
+          lowSwept: Number.isFinite(todayLow) ? todayLow < prevLow : null,
+          priceVsPrevHigh: Number.isFinite(price) ? price - prevHigh : null,
+          priceVsPrevLow: Number.isFinite(price) ? price - prevLow : null,
+          basis: "daily bar at index -2 (the last CLOSED day); index -1 is today and still forming",
+        };
+      } else {
+        out.previousDay = { error: "fewer than 2 daily bars" };
+      }
+    } catch (previousDayError) {
+      out.previousDay = { error: previousDayError.message };
+    }
+
+    assets[assetKey] = out;
+  }
+
+  res.json({
+    assets,
+    feedsTheGate: false,
+    whatThisIs: "Chart geometry for DISPLAY. CRT is closed as an engine input (six "
+      + "measurements, six negatives), FVG is 6.9pp worse than random, and AMD is "
+      + "near-absent on these instruments. None of this moves a threshold or sizes a trade.",
+    updatedAt: new Date().toISOString(),
+  });
+});
+
 app.get("/api/fvg", (req, res) => {
   const requested = Number(req.query.maxZones);
   const maxZones = Number.isFinite(requested) && requested > 0 && requested <= 20
