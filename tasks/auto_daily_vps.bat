@@ -215,7 +215,7 @@ if not "%CLAUDE_RC%"=="0" (
     echo the server is then on built-in defaults, not the saved config.
     echo Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence, setup,
     echo dataSource, updatedAt. Call out any asset whose indicators are unchanged while
-    echo another moved - that is a frozen feed. BUT FIRST read barFreshness.spansWeekend for that asset: when it is true the market is simply closed (Gold and SPX do not trade at the weekend, BTC does), which is NOT a frozen feed and must not be reported as one. Only call it frozen when spansWeekend is false and the indicators are genuinely stuck. Mark any signal at or above the gate
+    echo another moved - that is a frozen feed. BUT FIRST read barFreshness.spansWeekend for that asset: when it is true the market is simply closed ^(Gold and SPX do not trade at the weekend, BTC does^), which is NOT a frozen feed and must not be reported as one. Only call it frozen when spansWeekend is false and the indicators are genuinely stuck. Mark any signal at or above the gate
     echo SIGNAL READY.
     echo Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses, halted.
     echo Fetch http://localhost:3001/api/learning - setupStats progress toward the

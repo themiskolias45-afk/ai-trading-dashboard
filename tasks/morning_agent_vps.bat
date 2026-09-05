@@ -66,7 +66,7 @@ if not "%CLAUDE_RC%"=="0" (
     echo first, because the server is then running on defaults rather than saved config.
     echo Fetch http://localhost:3001/api/signals and list any asset at or above that gate
     echo with its dataSource and updatedAt. If two assets show indicators identical to the
-    echo previous run while a third moved, say so - that is a frozen feed, not a flat market. BUT FIRST read barFreshness.spansWeekend for that asset: when it is true the market is simply closed (Gold and SPX do not trade at the weekend, BTC does), which is NOT a frozen feed and must not be reported as one. Only call it frozen when spansWeekend is false and the indicators are genuinely stuck.
+    echo previous run while a third moved, say so - that is a frozen feed, not a flat market. BUT FIRST read barFreshness.spansWeekend for that asset: when it is true the market is simply closed ^(Gold and SPX do not trade at the weekend, BTC does^), which is NOT a frozen feed and must not be reported as one. Only call it frozen when spansWeekend is false and the indicators are genuinely stuck.
     echo Fetch http://localhost:3001/api/learning and report setupStats progress toward the
     echo 5-closed-trades-per-setup threshold; draw no conclusion from a setup under 5.
     echo Do NOT edit any source file and do NOT commit.
