@@ -435,7 +435,32 @@ body.focus-mode .focus-exit{display:block}
 .msg.user .av{background:var(--surface2);border:1px solid var(--border2);color:var(--muted)}
 .mc{max-width:72%;display:flex;flex-direction:column;gap:3px}
 .msg.user .mc{align-items:flex-end}
-.bubble{padding:11px 15px;border-radius:12px;font-size:.82rem;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+.bubble{padding:11px 15px;border-radius:12px;font-size:.82rem;line-height:1.65;word-break:break-word}
+/* ── Markdown inside a chat bubble ────────────────────────────────────────────
+   fmt() used to handle **bold** and nothing else, so every list came through with
+   its leading dash, every fenced block printed three backticks, and every link
+   printed its raw URL. The answers were always markdown; only the renderer was not.
+   .bubble lost white-space:pre-wrap in the same change: real block elements carry
+   their own spacing and pre-wrap would double it. */
+.bubble p{margin:0 0 8px}
+.bubble p:last-child{margin-bottom:0}
+.bubble .md-h{margin:12px 0 6px;font-size:.8rem;font-weight:800;letter-spacing:.02em;color:#c4b5fd}
+.bubble .md-h:first-child{margin-top:0}
+.msg.user .bubble .md-h{color:#fff}
+.bubble .md-list{margin:0 0 8px;padding-left:19px}
+.bubble .md-list:last-child{margin-bottom:0}
+.bubble .md-list li{margin:3px 0}
+.bubble .md-code{background:rgba(139,92,246,.16);border:1px solid rgba(139,92,246,.28);
+  border-radius:4px;padding:1px 5px;font-family:ui-monospace,Consolas,monospace;font-size:.75rem;color:#ddd6fe}
+.msg.user .bubble .md-code{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.3);color:#fff}
+.bubble .md-pre{background:var(--bg);border:1px solid var(--border);border-radius:7px;
+  padding:10px 12px;margin:8px 0;overflow-x:auto}
+.bubble .md-pre code{font-family:ui-monospace,Consolas,monospace;font-size:.74rem;
+  color:#cbd5e1;background:none;border:none;padding:0;white-space:pre}
+.bubble .md-q{margin:8px 0;padding:4px 0 4px 11px;border-left:2px solid var(--accent);color:var(--muted)}
+.bubble .md-hr{border:0;border-top:1px solid var(--border);margin:11px 0}
+.bubble a{color:#a78bfa;text-decoration:underline;text-underline-offset:2px}
+.msg.user .bubble a{color:#fff}
 .msg.jarvis .bubble{background:var(--surface2);border:1px solid var(--border);border-top-left-radius:2px;color:var(--text)}
 .msg.user   .bubble{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border-top-right-radius:2px}
 .bubble strong{color:#c4b5fd}
@@ -1994,7 +2019,97 @@ async function renderBriefing() {
   box.appendChild(card);
   box.scrollTop = box.scrollHeight;
 }
-function fmt(s)   { return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); }
+/* Markdown in JARVIS's replies. Until now fmt() handled exactly one construct --
+   **bold** -- and every other thing the model writes came through as literal syntax:
+   bullet lines kept their leading dash, numbered steps ran together in one grey
+   block, code fences printed as three backticks, and links printed as [text](url)
+   with the URL spelled out. The answers ARE markdown; the renderer was not.
+
+   Order matters and is the whole design. esc() runs FIRST so nothing the model
+   writes can inject markup, then code spans are lifted out into placeholders so
+   their contents are never treated as markdown -- a stop-loss written as `**` inside
+   a code block must survive verbatim. Everything else is line-oriented block
+   grouping, then inline formatting, then the code spans go back in.
+
+   Links are restricted to http/https. A markdown link is a string from a model and
+   javascript: in an href is script execution; the scheme is checked rather than the
+   text being trusted. */
+function fmt(raw) {
+  const text = esc(String(raw == null ? "" : raw));
+
+  // 1. Lift code out before anything else touches it.
+  const code = [];
+  const stash = html => " C" + (code.push(html) - 1) + " ";
+  let s = text
+    .replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, lang, body) =>
+      stash('<pre class="md-pre"><code>' + body.replace(/\n$/, "") + "</code></pre>"))
+    .replace(/`([^`\n]+)`/g, (_, body) => stash('<code class="md-code">' + body + "</code>"));
+
+  // 2. Inline formatting, applied to everything that is not code.
+  //    Bold before italic: **x** would otherwise be eaten as two italics.
+  const inline = t => t
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+             '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g,
+             '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+
+  // 3. Line-oriented block grouping. A paragraph accumulates until something ends it.
+  const lines = s.split("\n");
+  const out = [];
+  let list = null;      // "ul" | "ol" | null
+  let para = [];
+
+  const flushPara = () => {
+    if (!para.length) return;
+    out.push("<p>" + inline(para.join("<br>")) + "</p>");
+    para = [];
+  };
+  const flushList = () => { if (list) { out.push("</" + list + ">"); list = null; } };
+  const openList = kind => {
+    if (list === kind) return;
+    flushList();
+    out.push("<" + kind + ' class="md-list">');
+    list = kind;
+  };
+
+  for (const line of lines) {
+    const t = line.trim();
+
+    if (!t) { flushPara(); flushList(); continue; }
+
+    // A stashed fenced block occupies its own line and is already final HTML.
+    if (/^ C\d+ $/.test(t)) { flushPara(); flushList(); out.push(t); continue; }
+
+    const heading = t.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      flushPara(); flushList();
+      const level = Math.min(6, Math.max(4, heading[1].length + 3));  // never outrank the page's own h1-h3
+      out.push("<h" + level + ' class="md-h">' + inline(heading[2]) + "</h" + level + ">");
+      continue;
+    }
+
+    if (/^(---+|\*\*\*+|___+)$/.test(t)) { flushPara(); flushList(); out.push('<hr class="md-hr">'); continue; }
+
+    const bullet = t.match(/^[-*+]\s+(.*)$/);
+    if (bullet) { flushPara(); openList("ul"); out.push("<li>" + inline(bullet[1]) + "</li>"); continue; }
+
+    const numbered = t.match(/^(\d{1,3})[.)]\s+(.*)$/);
+    if (numbered) { flushPara(); openList("ol"); out.push("<li>" + inline(numbered[2]) + "</li>"); continue; }
+
+    const quote = t.match(/^&gt;\s?(.*)$/);   // ">" is already escaped by esc()
+    if (quote) { flushPara(); flushList(); out.push('<blockquote class="md-q">' + inline(quote[1]) + "</blockquote>"); continue; }
+
+    flushList();
+    para.push(t);
+  }
+  flushPara();
+  flushList();
+
+  // 4. Put the code back.
+  return out.join("").replace(/ C(\d+) /g, (_, i) => code[Number(i)]);
+}
 
 // ══════════════════════════════════════════
 //  VIDEO — search YouTube and pop the result up in a modal
