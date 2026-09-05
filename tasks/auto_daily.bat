@@ -312,25 +312,38 @@ REM job on the box at once, so this one would have gone the same way. park refus
 REM anything that is not a genuine limit notice, so a real failure still surfaces as a
 REM failure. The brief goes in on STDIN because cmd.exe truncates an argument at the
 REM first newline.
+REM The brief is written to a FILE and redirected in, never piped from a nested
+REM ( ) block. Measured on the VPS 2026-09-05: `( echo... ) | prog` delivers ZERO
+REM bytes of stdin when it sits inside an enclosing `if ( ... )` block, while the
+REM identical pipe outside one delivers correctly -- 0 bytes against 317. So park
+REM had NEVER received a brief on either box, in any job: it printed "park: nothing
+REM on stdin -- a brief with no prompt cannot be resumed" and exited 1 every time.
+REM The safety net that exists to save a day's work at the subscription ceiling was
+REM discarding the very thing it was meant to save.
+REM
+REM BRIEF is declared HERE, outside the block, deliberately: cmd expands a whole
+REM parenthesised block at parse time, so setting it and using it inside one block
+REM would read the value from before the set. %RANDOM% is expanded once for the
+REM same reason, which is what makes every line below agree on one filename.
+set "BRIEF=%PROJ%\tasks\logs\park_brief_%RANDOM%%RANDOM%.tmp"
 if not "%CLAUDE_RC%"=="0" (
-  (
-    echo Daily SmartEntry Pro automated check, resumed after a subscription limit.
-    echo FIRST read %PROJ%\tasks\ai_brief.md - prior decisions, open proposals, what is
-    echo already measured, and the live config. Never re-raise a decided item.
-    echo Read %PROJ%\server\journal.json - last 5 trades with outcome and P&L.
-    echo Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold
-    echo as THE gate, never an assumed number. If settingsError is not null say so first:
-    echo the server is then on built-in defaults, not the saved config.
-    echo Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence,
-    echo setup, dataSource. Mark any signal at or above the live gate SIGNAL READY.
-    echo Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses,
-    echo halted.
-    echo Read %PROJ%\server\learning_shadow.json if it exists - per-setup evidence from
-    echo REJECTED setups walked forward on real bars. These are paper results with no
-    echo slippage and they do NOT feed the live gate. Name any setup whose
-    echo enoughForReading is true and say what its rPerEpisode implies.
-    echo End with a one-line verdict: TRADE TODAY or WAIT. Keep under 30 lines.
-  ) | "%PY%" "%PROJ%\claude_agent.py" park "Daily Check" --output-file "%RUNOUT%" >> "%LOGFILE%" 2>&1
+  > "%BRIEF%" echo Daily SmartEntry Pro automated check, resumed after a subscription limit.
+  >> "%BRIEF%" echo FIRST read %PROJ%\tasks\ai_brief.md - prior decisions, open proposals, what is
+  >> "%BRIEF%" echo already measured, and the live config. Never re-raise a decided item.
+  >> "%BRIEF%" echo Read %PROJ%\server\journal.json - last 5 trades with outcome and P&L.
+  >> "%BRIEF%" echo Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold
+  >> "%BRIEF%" echo as THE gate, never an assumed number. If settingsError is not null say so first:
+  >> "%BRIEF%" echo the server is then on built-in defaults, not the saved config.
+  >> "%BRIEF%" echo Fetch http://localhost:3001/api/signals - all 3 assets: signal, confidence,
+  >> "%BRIEF%" echo setup, dataSource. Mark any signal at or above the live gate SIGNAL READY.
+  >> "%BRIEF%" echo Fetch http://localhost:3001/api/risk-status - daily P&L, consecutive losses,
+  >> "%BRIEF%" echo halted.
+  >> "%BRIEF%" echo Read %PROJ%\server\learning_shadow.json if it exists - per-setup evidence from
+  >> "%BRIEF%" echo REJECTED setups walked forward on real bars. These are paper results with no
+  >> "%BRIEF%" echo slippage and they do NOT feed the live gate. Name any setup whose
+  >> "%BRIEF%" echo enoughForReading is true and say what its rPerEpisode implies.
+  >> "%BRIEF%" echo End with a one-line verdict: TRADE TODAY or WAIT. Keep under 30 lines.
+  "%PY%" "%PROJ%\claude_agent.py" park "Daily Check" --output-file "%RUNOUT%" < "%BRIEF%" >> "%LOGFILE%" 2>&1
   REM A PARKED JOB IS NOT A FAILED JOB. park exits 0 when it queued the brief and 2
   REM when the run was not a limit at all. Without this the .bat propagated claude's
   REM failure code even after parking correctly, so the Task Scheduler showed FAILING
@@ -346,6 +359,7 @@ if not "%CLAUDE_RC%"=="0" (
   REM ERRORLEVEL to 0, so the 0-case must be tested BEFORE the 3-case.
   if errorlevel 3 set CLAUDE_RC=3
 )
+del "%BRIEF%" 2>nul
 del "%RUNOUT%" 2>nul
 
 echo [exit %CLAUDE_RC%] >> "%LOGFILE%"

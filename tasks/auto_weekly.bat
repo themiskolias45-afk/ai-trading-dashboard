@@ -103,18 +103,31 @@ REM exited 1, and the work was simply gone until someone noticed — which nothi
 REM claude_agent.py park refuses anything that is not a genuine limit notice, so a
 REM real failure still surfaces as a failure instead of retrying forever. The brief
 REM goes in on STDIN because cmd.exe truncates an argument at the first newline.
+REM The brief is written to a FILE and redirected in, never piped from a nested
+REM ( ) block. Measured on the VPS 2026-09-05: `( echo... ) | prog` delivers ZERO
+REM bytes of stdin when it sits inside an enclosing `if ( ... )` block, while the
+REM identical pipe outside one delivers correctly -- 0 bytes against 317. So park
+REM had NEVER received a brief on either box, in any job: it printed "park: nothing
+REM on stdin -- a brief with no prompt cannot be resumed" and exited 1 every time.
+REM The safety net that exists to save a day's work at the subscription ceiling was
+REM discarding the very thing it was meant to save.
+REM
+REM BRIEF is declared HERE, outside the block, deliberately: cmd expands a whole
+REM parenthesised block at parse time, so setting it and using it inside one block
+REM would read the value from before the set. %RANDOM% is expanded once for the
+REM same reason, which is what makes every line below agree on one filename.
+set "BRIEF=%PROJ%\tasks\logs\park_brief_%RANDOM%%RANDOM%.tmp"
 if not "%CLAUDE_RC%"=="0" (
-  (
-    echo Weekly SmartEntry Pro review, resumed after a session limit.
-    echo FIRST read %PROJ%\tasks\ai_brief.md in full - do NOT re-raise anything it marks as decided.
-    echo Read %PROJ%\server\journal.json and consult http://localhost:3001/api/stats/by-setup.
-    echo Print to standard output only. Cover: week trade summary; best and worst asset;
-    echo avgRealizedR next to avgRR - a setup with high avgRR and negative avgRealizedR is
-    echo losing money on geometry that only looked good on paper; one algorithm weakness
-    echo supported by trades actually in the journal, or say plainly there are too few;
-    echo and one specific proposed fix marked PROPOSED FIX: naming file, function and evidence.
-    echo Do NOT edit source and do NOT commit. Max 40 lines.
-  ) | "%PY%" "%PROJ%\claude_agent.py" park "Weekly Algo Review" --output-file "%REPORT%" >> "%REPORT%" 2>&1
+  > "%BRIEF%" echo Weekly SmartEntry Pro review, resumed after a session limit.
+  >> "%BRIEF%" echo FIRST read %PROJ%\tasks\ai_brief.md in full - do NOT re-raise anything it marks as decided.
+  >> "%BRIEF%" echo Read %PROJ%\server\journal.json and consult http://localhost:3001/api/stats/by-setup.
+  >> "%BRIEF%" echo Print to standard output only. Cover: week trade summary; best and worst asset;
+  >> "%BRIEF%" echo avgRealizedR next to avgRR - a setup with high avgRR and negative avgRealizedR is
+  >> "%BRIEF%" echo losing money on geometry that only looked good on paper; one algorithm weakness
+  >> "%BRIEF%" echo supported by trades actually in the journal, or say plainly there are too few;
+  >> "%BRIEF%" echo and one specific proposed fix marked PROPOSED FIX: naming file, function and evidence.
+  >> "%BRIEF%" echo Do NOT edit source and do NOT commit. Max 40 lines.
+  "%PY%" "%PROJ%\claude_agent.py" park "Weekly Algo Review" --output-file "%REPORT%" < "%BRIEF%" >> "%REPORT%" 2>&1
   REM A PARKED JOB IS NOT A FAILED JOB. park exits 0 when it queued the brief and 2
   REM when the run was not a limit at all. Without this the .bat propagated claude's
   REM failure code even after parking correctly, so the Task Scheduler showed FAILING
@@ -130,6 +143,7 @@ if not "%CLAUDE_RC%"=="0" (
   REM ERRORLEVEL to 0, so the 0-case must be tested BEFORE the 3-case.
   if errorlevel 3 set CLAUDE_RC=3
 )
+del "%BRIEF%" 2>nul
 
 echo [exit %CLAUDE_RC%] >> "%REPORT%"
 

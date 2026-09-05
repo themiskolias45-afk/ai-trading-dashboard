@@ -83,26 +83,39 @@ REM one never did. claude_agent.py park refuses anything that is not a genuine l
 REM notice, so a real failure still surfaces as a failure rather than retrying forever.
 REM The brief goes in on STDIN because cmd.exe truncates an argument at the first
 REM newline - the single cause of every dead AI job on these machines.
+REM The brief is written to a FILE and redirected in, never piped from a nested
+REM ( ) block. Measured on the VPS 2026-09-05: `( echo... ) | prog` delivers ZERO
+REM bytes of stdin when it sits inside an enclosing `if ( ... )` block, while the
+REM identical pipe outside one delivers correctly -- 0 bytes against 317. So park
+REM had NEVER received a brief on either box, in any job: it printed "park: nothing
+REM on stdin -- a brief with no prompt cannot be resumed" and exited 1 every time.
+REM The safety net that exists to save a day's work at the subscription ceiling was
+REM discarding the very thing it was meant to save.
+REM
+REM BRIEF is declared HERE, outside the block, deliberately: cmd expands a whole
+REM parenthesised block at parse time, so setting it and using it inside one block
+REM would read the value from before the set. %RANDOM% is expanded once for the
+REM same reason, which is what makes every line below agree on one filename.
+set "BRIEF=%PROJ%\tasks\logs\park_brief_%RANDOM%%RANDOM%.tmp"
 if not "%CLAUDE_RC%"=="0" (
-  (
-    echo Run the SmartEntry Pro morning cycle, resumed after a subscription limit.
-    echo Fetch http://localhost:3001/api/checksystem and note any problems.
-    echo Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold
-    echo as THE gate, never an assumed number; if settingsError is not null report that
-    echo first, because the server is then running on defaults rather than saved config.
-    echo Fetch http://localhost:3001/api/signals and list any asset at or above that gate
-    echo with its dataSource and updatedAt. If two assets show indicators identical to the
-    echo previous run while a third moved, say so - that is a frozen feed, not a flat market. BUT FIRST read barFreshness.spansWeekend for that asset: when it is true the market is simply closed ^(Gold and SPX do not trade at the weekend, BTC does^), which is NOT a frozen feed and must not be reported as one. Only call it frozen when spansWeekend is false and the indicators are genuinely stuck.
-    echo Fetch http://localhost:3001/api/learning and report setupStats progress toward the
-    echo 5-closed-trades-per-setup threshold; draw no conclusion from a setup under 5.
-    echo Do NOT edit any source file and do NOT commit.
-    echo Append any clear low-risk improvement to %PROJ%\tasks\logs\morning_proposals.txt
-    echo as a block whose FIRST line is the exact literal text PROPOSED FIX: followed by a
-    echo one-line summary, then the file, the function, the exact change and the evidence
-    echo below it. server/ai_work_ledger.js harvests proposals by that exact string, so one
-    echo written without the marker can never be decided on and gets re-derived tomorrow.
-    echo Write a one-paragraph summary to %PROJ%\tasks\logs\morning_summary.txt.
-  ) | "%PY%" "%PROJ%\claude_agent.py" park "Morning Agent" --output-file "%RUNOUT%" >> "%PROJ%\tasks\logs\agent_log.txt" 2>&1
+  > "%BRIEF%" echo Run the SmartEntry Pro morning cycle, resumed after a subscription limit.
+  >> "%BRIEF%" echo Fetch http://localhost:3001/api/checksystem and note any problems.
+  >> "%BRIEF%" echo Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold
+  >> "%BRIEF%" echo as THE gate, never an assumed number; if settingsError is not null report that
+  >> "%BRIEF%" echo first, because the server is then running on defaults rather than saved config.
+  >> "%BRIEF%" echo Fetch http://localhost:3001/api/signals and list any asset at or above that gate
+  >> "%BRIEF%" echo with its dataSource and updatedAt. If two assets show indicators identical to the
+  >> "%BRIEF%" echo previous run while a third moved, say so - that is a frozen feed, not a flat market. BUT FIRST read barFreshness.spansWeekend for that asset: when it is true the market is simply closed ^(Gold and SPX do not trade at the weekend, BTC does^), which is NOT a frozen feed and must not be reported as one. Only call it frozen when spansWeekend is false and the indicators are genuinely stuck.
+  >> "%BRIEF%" echo Fetch http://localhost:3001/api/learning and report setupStats progress toward the
+  >> "%BRIEF%" echo 5-closed-trades-per-setup threshold; draw no conclusion from a setup under 5.
+  >> "%BRIEF%" echo Do NOT edit any source file and do NOT commit.
+  >> "%BRIEF%" echo Append any clear low-risk improvement to %PROJ%\tasks\logs\morning_proposals.txt
+  >> "%BRIEF%" echo as a block whose FIRST line is the exact literal text PROPOSED FIX: followed by a
+  >> "%BRIEF%" echo one-line summary, then the file, the function, the exact change and the evidence
+  >> "%BRIEF%" echo below it. server/ai_work_ledger.js harvests proposals by that exact string, so one
+  >> "%BRIEF%" echo written without the marker can never be decided on and gets re-derived tomorrow.
+  >> "%BRIEF%" echo Write a one-paragraph summary to %PROJ%\tasks\logs\morning_summary.txt.
+  "%PY%" "%PROJ%\claude_agent.py" park "Morning Agent" --output-file "%RUNOUT%" < "%BRIEF%" >> "%PROJ%\tasks\logs\agent_log.txt" 2>&1
   REM A PARKED JOB IS NOT A FAILED JOB. park exits 0 when it queued the brief and 2
   REM when the run was not a limit at all. Without this the .bat propagated claude's
   REM failure code even after parking correctly, so the Task Scheduler showed FAILING
@@ -118,6 +131,7 @@ if not "%CLAUDE_RC%"=="0" (
   REM ERRORLEVEL to 0, so the 0-case must be tested BEFORE the 3-case.
   if errorlevel 3 set CLAUDE_RC=3
 )
+del "%BRIEF%" 2>nul
 del "%RUNOUT%" 2>nul
 
 echo [%date% %time%] JARVIS morning agent complete (exit %CLAUDE_RC%). >> "%PROJ%\tasks\logs\agent_log.txt"
