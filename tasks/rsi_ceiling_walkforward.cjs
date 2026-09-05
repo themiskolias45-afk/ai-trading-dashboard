@@ -146,6 +146,12 @@ if (COST_MODE !== "flat" && COST_MODE !== "perasset") {
 const FOLDS      = 5;
 const COST_R     = 0.05;   // the house cost basis, same as every other MTF harness here
 const CONF_FLOOR = 40;     // expose sub-gate cohorts so the replay emits them
+
+// The holding horizon this sweep scores at. 320 H4 bars, matching the live system's
+// absence of a max hold far better than _replay_mtf.cjs's default of 40 — see the note
+// at the env block below for the measurement that made this explicit. Overridable so a
+// deliberate 40-bar comparison is still one flag away.
+const MAX_HOLD = Number(process.env.MTF_MAX_HOLD) > 0 ? Math.round(Number(process.env.MTF_MAX_HOLD)) : 320;
 const LIVE_GATE  = 70;     // score only what would actually have traded
 const MIN_FOLD_CLOSES = 5; // a fold under this is not scored, never scored as zero
 
