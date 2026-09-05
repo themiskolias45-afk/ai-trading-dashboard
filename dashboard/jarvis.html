@@ -1605,6 +1605,77 @@ function loadPrompt(text) {
   if (typeof resize === "function") resize(input);
 }
 
+// ── Memory recall ────────────────────────────────────────────────────────────
+// Semantic search over the RAG index via GET /api/recall. Read-only: it searches and
+// renders, it never writes a memory, never indexes, and feeds no gate.
+let recallSource = "brain";
+
+function setRecallSource(src) {
+  recallSource = src;
+  ["brain", "vault", "trades"].forEach(t => {
+    const el = document.getElementById("rtab-" + t);
+    if (el) el.classList.toggle("on", t === src);
+  });
+  const q = document.getElementById("recall-q");
+  if (q && q.value.trim()) runRecall();   // re-run in the newly chosen source
+}
+
+async function runRecall() {
+  const input = document.getElementById("recall-q");
+  const list  = document.getElementById("recall-list");
+  const count = document.getElementById("recall-count");
+  if (!input || !list) return;
+  const q = input.value.trim();
+  if (!q) { list.innerHTML = '<div class="cap-empty">Type a question first.</div>'; return; }
+
+  // The first call loads a sentence-transformer model and is genuinely slow. Saying so
+  // is the difference between "thinking" and "broken" — a spinner with no explanation is
+  // how a working feature gets reported as a hang.
+  list.innerHTML = '<div class="cap-empty">Searching memory… first search loads the model and can take ~20s.</div>';
+  if (count) count.textContent = "…";
+
+  try {
+    const r = await fetch(`/api/recall?q=${encodeURIComponent(q)}&source=${encodeURIComponent(recallSource)}&top=6`);
+    const j = await r.json();
+
+    // A failed search must NEVER render as "no results". Reading an error as an empty
+    // memory is the exact wrong conclusion, and is how five measured findings sat unread
+    // on the other box for a month.
+    if (!r.ok || j.error) {
+      if (count) count.textContent = "error";
+      list.innerHTML = `<div class="cap-empty" style="color:var(--red)">Recall failed — this is NOT "nothing recorded".<br>${esc(String(j.error || r.status))}` +
+                       (j.hint ? `<br><span style="color:var(--muted)">${esc(j.hint)}</span>` : "") + `</div>`;
+      return;
+    }
+
+    const rows = j.results || [];
+    if (count) count.textContent = rows.length ? `${rows.length} hit${rows.length === 1 ? "" : "s"}` : "0";
+    if (!rows.length) {
+      list.innerHTML = '<div class="cap-empty">Nothing recorded on that. Try different words — the search is semantic, so a rephrase genuinely changes the result.</div>';
+      return;
+    }
+
+    list.innerHTML = rows.map(row => {
+      const score = Number(row.score || 0);
+      // Score colour is a reading aid, not a verdict: a low score means "loosely related",
+      // never "wrong". Labelled rather than left to be guessed at.
+      const col = score >= 0.45 ? "var(--green)" : score >= 0.35 ? "var(--yellow)" : "var(--muted)";
+      const src = esc(String(row.source || "—"));
+      const text = esc(String(row.text || "").replace(/\s+/g, " ").slice(0, 320));
+      return `<div class="cap-item" style="cursor:default">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+          <span style="font-size:.62rem;color:var(--accent);font-weight:700;letter-spacing:.4px">${src.toUpperCase()}</span>
+          <span style="font-size:.6rem;color:${col};font-weight:700" title="semantic similarity, not confidence">${score.toFixed(3)}</span>
+        </div>
+        <div style="font-size:.7rem;color:var(--text);margin-top:3px;line-height:1.45">${text}</div>
+      </div>`;
+    }).join("");
+  } catch (e) {
+    if (count) count.textContent = "error";
+    list.innerHTML = `<div class="cap-empty" style="color:var(--red)">Recall failed — NOT an empty memory.<br>${esc(String(e.message || e))}</div>`;
+  }
+}
+
 function setCapTab(tab) {
   capTab = tab;
   ["skills", "agents", "tools"].forEach(t => {
