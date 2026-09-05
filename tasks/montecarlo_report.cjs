@@ -35,6 +35,26 @@ const fs   = require("fs");
 const { execFileSync } = require("child_process");
 
 const ROOT = path.join(__dirname, "..");
+
+// THE HORIZON IS DECIDED ONCE, HERE, AND EXPORTED BEFORE ANY REPLAY RUNS.
+//
+// The live system has NO max-hold: there is no time-based close in mt5_bridge.py and no
+// maxHold in the engine. So a cap is a property of the harness, never of the strategy,
+// and a short one does not make the result conservative - it DELETES trades. An EXPIRED
+// trade is one still open at an artificial deadline; it is dropped rather than scored,
+// and a trade still running is disproportionately a WINNER. Measured on the same data,
+// same day, 40 -> 320: avgR 0.153 -> 0.341, return 90.6% -> 382%, drawdown 28.4% ->
+// 12.3%, and 180 dropped trades -> 6. SP500 was losing 60% of its gated trades.
+//
+// IT IS SET IN process.env, NOT JUST RECORDED. An earlier version of this change wrote
+// the number into the horizon block, which is built AFTER the replays have finished - so
+// it relabelled the output without touching the measurement, and a plain run would have
+// reported 320 over a run taken at 40. Overstating while claiming honesty is worse than
+// the understatement it replaced. execFileSync spreads process.env into the child, so
+// exporting it here is what actually reaches tasks/_replay_mtf.cjs.
+const HONEST_MAX_HOLD = 320;
+if (!process.env.MTF_MAX_HOLD) process.env.MTF_MAX_HOLD = String(HONEST_MAX_HOLD);
+const MAX_HOLD_USED = Number(process.env.MTF_MAX_HOLD);
 const { cappedRr } = require(path.join(ROOT, "tasks", "_rr_cap.cjs"));
 
 function opt(name, def) {
@@ -440,8 +460,9 @@ const result = {
     // The strategy did not change. The ruler did. This file already told the reader to
     // "re-run with MTF_MAX_HOLD=320" and the scheduled task never passed it, so the
     // instruction sat in the output of a report nobody re-ran by hand.
-    const HONEST_MAX_HOLD = 320;
-    const maxHoldBars = Number(process.env.MTF_MAX_HOLD || HONEST_MAX_HOLD);
+    // Reads the SAME value the replays were given, so the label cannot drift from the
+    // measurement. This is the whole point of deciding it once at the top.
+    const maxHoldBars = MAX_HOLD_USED;
     let expired = 0, resolved = 0;
     for (const v of Object.values(horizonDrop)) {
       if (!v || typeof v !== "object") continue;
