@@ -44,6 +44,32 @@ REM file would refuse every limit forever. The per-run capture is what makes par
 REM possible here at all; agent_log.txt still receives exactly what it always did.
 set "RUNOUT=%PROJ%\tasks\logs\morning_run_%RANDOM%%RANDOM%.tmp"
 
+REM Regenerate the briefing first so the agent reads TODAY's decisions, not a stale
+REM copy. Cheap, read-only, and it is the difference between an agent that re-proposes
+REM settled work and one that knows what has already been tried.
+REM
+REM The prompt below opens with "FIRST read %PROJ%\tasks\ai_brief.md" - and until now
+REM NOTHING on this box regenerated that file except auto_weekly_vps.bat:47, on Sundays.
+REM The laptop twins both carry this line (auto_daily.bat:292, auto_weekly.bat:78); the
+REM _vps twins never got it, so this is an unfinished port, not a new idea. Measured cost
+REM on 2026-09-04: the brief was 4d19h stale, printed fixedLotSize 0.02 against a live 0
+REM and "9 closed fills" against a live 13, listed already-shipped proposals as pending,
+REM and omitted the `rsiceiling` recuration flag the live evidence board raises - the one
+REM of the four that FEEDS THE GATE. An agent told to trust that file was being misled by it.
+REM
+REM QUOTED ABSOLUTE %PROJ% FORM, deliberately - not the relative `node tasks\ai_brief.cjs`
+REM used at auto_weekly_vps.bat:47. That form is correct THERE only because that file cd's
+REM to the project root; this one never does and runs `pushd "%AGENTCWD%"` into
+REM %LOCALAPPDATA% on the very next line. auto_weekly_vps.bat:39-45 records the cost of
+REM getting this wrong once already: the path lost its backslash, read `node
+REM tasksai_brief.cjs`, and the fix meant to end unbriefed runs never ran itself for months.
+REM
+REM Exit code deliberately NOT captured: a stale brief is worse than no brief, but a
+REM failed regeneration must never turn a good morning run red. ai_brief.cjs is READ-ONLY
+REM except for --write, which is a single fs.writeFileSync at ai_brief.cjs:424 to the one
+REM file it owns. No gate, no threshold, no signal, no learning bucket, no order path.
+node "%PROJ%\tasks\ai_brief.cjs" --write >> "%PROJ%\tasks\logs\agent_log.txt" 2>&1
+
 pushd "%AGENTCWD%"
 call claude -p "FIRST read %PROJ%\tasks\ai_brief.md - prior decisions, open proposals, what is already measured, and the live config. Never re-raise a decided item: section 1 lists proposals already actioned, and four of YOUR OWN are in it (morning_proposals.txt lines 88, 105, 125, 138, all implemented) while that file still says 'still not applied' about them. Reading your own morning_proposals.txt is not enough - it records what you PROPOSED, never what was DECIDED, which is why you re-derived the same fix on 2026-08-07 and again on 2026-08-15. Run the SmartEntry Pro morning cycle. 1) Fetch http://localhost:3001/api/checksystem and note any problems. 2) Fetch http://localhost:3001/api/strategy-settings and use its confidenceThreshold as THE gate - never assume a number; if settingsError is not null report that first, because the server is then running on defaults rather than the saved config. 3) Fetch http://localhost:3001/api/signals and list any asset at or above that live gate, with its dataSource and updatedAt. If two assets show indicators identical to the previous run while a third moved, say so explicitly - that is a frozen feed, not a flat market. BUT FIRST read barFreshness.spansWeekend for that asset: when it is true the market is simply closed (Gold and SPX do not trade at the weekend, BTC does), which is NOT a frozen feed and must not be reported as one. Only call it frozen when spansWeekend is false and the indicators are genuinely stuck. 4) Fetch http://localhost:3001/api/learning and report setupStats progress toward the 5-closed-trades-per-setup threshold; if a setup has fewer than 5 draw no conclusion from it. 5) Do NOT edit any source file and do NOT commit. If you find a clear low-risk improvement, append it to %PROJ%\tasks\logs\morning_proposals.txt as a block whose FIRST line is the exact literal text PROPOSED FIX: followed by a one-line summary, then the file, the function, the exact change and the evidence on the lines below. That marker is load-bearing, not decoration: server/ai_work_ledger.js harvests proposals by searching for that exact string, so a proposal written without it can never be decided on and you will waste tomorrow re-deriving it. 6) Write a one-paragraph summary to %PROJ%\tasks\logs\morning_summary.txt: date, signals found, learning state, proposals made, system status. No fluff." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
