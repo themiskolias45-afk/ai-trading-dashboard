@@ -2149,6 +2149,60 @@ def ensure_editor_open(page):
         return False
 
 
+def exit_historical_version(page):
+    """
+    Leave the read-only HISTORICAL VERSION view, if the editor is showing one.
+
+    TradingView keeps a version history per script, and when the editor is bound to an
+    older version it renders a banner and makes the buffer READ-ONLY:
+
+        "This is a historical version of the script. To edit its code, restore this version."
+
+    Nothing about the DOM says read-only: the textarea reports readOnly=false, the editor
+    carries the "focused" class, and document.activeElement is the input textarea. So every
+    keystroke and every CDP Input.insertText is accepted by the page and silently discarded
+    by Monaco. Measured on the VPS 2026-09-05: 106 lines / 4078 chars before and after a
+    full Ctrl+Home / Ctrl+Shift+End / Delete, and identical after CDP insertText. Three
+    plausible causes were tested and eliminated first (RDP rendering, viewport size, the
+    detached second Monaco instance) - the answer was legible in a screenshot the whole
+    time, which is the lesson: LOOK at the page before theorising about it.
+
+    Clicking "restore this version" makes that version the current, editable one. Nothing
+    is lost - TradingView keeps the full version history either way - and paste_pine
+    replaces the whole buffer immediately afterwards.
+
+    Returns True when the editor is editable (either it never was historical, or the
+    restore worked), False when the banner is still there.
+    """
+    try:
+        banner = page.get_by_text("historical version of the script", exact=False)
+        if banner.count() == 0:
+            return True
+    except Exception:
+        return True
+
+    print("[TV] editor is on a HISTORICAL version (read-only) - restoring it to edit")
+    for sel in ['a:has-text("restore this version")',
+                'button:has-text("restore this version")',
+                'text="restore this version"']:
+        try:
+            page.click(sel, timeout=4000)
+            page.wait_for_timeout(2500)
+            break
+        except Exception:
+            continue
+
+    try:
+        still = page.get_by_text("historical version of the script", exact=False).count() > 0
+    except Exception:
+        still = False
+    if still:
+        print("[TV] could NOT leave the historical view - refusing to type into a read-only buffer")
+        return False
+    print("[TV] restored - the editor is editable again")
+    return True
+
+
 def open_saved_script(page, name=SAVED_SCRIPT_NAME):
     """
     Bind the editor to the SAVED script of this name. Returns True when bound.
@@ -2163,6 +2217,9 @@ def open_saved_script(page, name=SAVED_SCRIPT_NAME):
     if not ensure_editor_open(page):
         return False
     close_any_open_dialog(page)
+    # A read-only historical buffer accepts every keystroke and applies none of them,
+    # so this has to run BEFORE anything tries to type.
+    exit_historical_version(page)
     if editor_script_name(page) == name:
         return True
     try:
