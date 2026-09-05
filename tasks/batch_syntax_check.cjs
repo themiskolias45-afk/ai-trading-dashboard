@@ -146,12 +146,18 @@ function main() {
     total += findings.length;
     console.log(`\n${path.relative(process.cwd(), f)}`);
     for (const x of findings) {
-      console.log(`  line ${x.line}: unescaped parenthesis inside a ( ) block`);
-      console.log(`    ${x.text}`);
-      if (!x.unreadable) {
-        console.log(`    cmd will treat the ) as the end of the block and abort the batch.`);
-        console.log(`    Fix: write ^( and ^) so they reach the payload as literals.`);
+      if (x.unreadable) {
+        console.log(`  ${x.text}`);
+        continue;
       }
+      console.log(`  line ${x.line}: unescaped ) inside a block (nesting depth ${x.depth})`);
+      console.log(`    ${x.text}`);
+      console.log(x.depth >= 2
+        ? `    ABORTS: the inner block closes here, cmd reports "was unexpected at this` +
+          ` time" and the batch dies with exit 255 -- every line after this never runs.`
+        : `    TRUNCATES: cmd eats the ) and the echoed text is silently cut short.` +
+          ` The batch completes and looks healthy.`);
+      console.log(`    Fix: write ^) so it reaches the payload as a literal.`);
     }
   }
 
