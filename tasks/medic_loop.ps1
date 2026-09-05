@@ -83,10 +83,33 @@ if ($Install) {
         -DontStopIfGoingOnBatteries -StartWhenAvailable `
         -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
 
-    Register-ScheduledTask -TaskName $TaskName -Action $action `
-        -Trigger @($trigger, $atLogon, $atStartup) -Settings $settings -Force | Out-Null
+    # Register-ScheduledTask raises a NON-TERMINATING CimException on "Access is denied"
+    # in some hosts, so $ErrorActionPreference alone does not stop the script -- the first
+    # version of this block printed the denial and then exited 0, reporting a successful
+    # install of a task that does not exist. That is the "green check over a dead
+    # component" this project keeps being bitten by, committed by the installer itself.
+    # So: force it terminating, catch it, and VERIFY BY READING THE TASK BACK.
+    try {
+        Register-ScheduledTask -TaskName $TaskName -Action $action `
+            -Trigger @($trigger, $atLogon, $atStartup) -Settings $settings -Force `
+            -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Output ("FAILED to register '{0}': {1}" -f $TaskName, $_.Exception.Message)
+        if ($_.Exception.Message -match "Access is denied") {
+            Write-Output "Registering a scheduled task needs an ADMINISTRATOR shell."
+            Write-Output "Re-run this from an elevated PowerShell:"
+            Write-Output ('  powershell -ExecutionPolicy Bypass -File "{0}" -Install -Hours {1}' -f $selfPath, $Hours)
+        }
+        exit 1
+    }
 
-    $info = Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo
+    # Registration "succeeding" is not the same as a task that will fire. Read it back.
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if (-not $task) {
+        Write-Output ("FAILED: '{0}' is not present after registration reported success." -f $TaskName)
+        exit 1
+    }
+    $info = $task | Get-ScheduledTaskInfo
     Write-Output ("registered '{0}' every {1}h (+ logon, + startup). Next run: {2}" -f `
         $TaskName, $Hours, $info.NextRunTime)
     if (-not $info.NextRunTime) {
