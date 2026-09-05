@@ -49,9 +49,15 @@ if (-not $python) { throw "python not found on PATH" }
 $action    = New-ScheduledTaskAction -Execute $python -Argument "`"$script`"" -WorkingDirectory $proj
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 
-$trigger = New-ScheduledTaskTrigger -Once -At ([datetime]::Today.AddMinutes(9)) `
-             -RepetitionInterval (New-TimeSpan -Minutes 5) `
-             -RepetitionDuration ([TimeSpan]::MaxValue)
+# [TimeSpan]::MaxValue is REJECTED by PowerShell 5.1 with 0x80041318 ("the task XML
+# contains a value which is incorrectly formatted or out of range") - measured on both
+# boxes. A Daily trigger carrying a 23h59m repetition is the shape that works here and
+# is what the plan task already uses, so both jobs fail the same way if it ever stops
+# working rather than one of them failing in a novel way.
+$trigger = New-ScheduledTaskTrigger -Daily -At ([datetime]::Today.AddMinutes(9))
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At ([datetime]::Today.AddMinutes(9)) `
+                        -RepetitionInterval (New-TimeSpan -Minutes 5) `
+                        -RepetitionDuration (New-TimeSpan -Hours 23 -Minutes 59)).Repetition
 
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
               -StartWhenAvailable -MultipleInstances IgnoreNew `

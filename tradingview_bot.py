@@ -3095,8 +3095,15 @@ def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=Non
         # footing as the 1D/4H reads further down.
         "Zones":      _zones_row(drawn_zones, decimals),
         "Day range":  _day_range_row(context, decimals),
-        "Confidence": f'{confidence} vs gate {gate}'
-                      + (f'  gap {gap}pt' if gap else '  MEETS GATE'),
+        # "gap 70pt" ON A ZERO IS A TRUE NUMBER THAT MEANS THE WRONG THING. Confidence
+        # on this engine is not a gradient climbing toward the gate: it is 0 when no setup
+        # scored at all, and 55+ when one did. A gap of 70 therefore does not mean "70
+        # points away", it means "nothing to score" - and printed as a distance it reads
+        # like a near miss on a chart used to trade by hand. The three cases are named
+        # instead, and the Note row already carries WHY when it is zero.
+        "Confidence": (f'{confidence} vs gate {gate}  MEETS GATE' if not gap
+                       else f'0 vs gate {gate}  no setup scored - see Note' if not confidence
+                       else f'{confidence} vs gate {gate}  {gap}pt short'),
         "Setup":      f'{asset.get("setup", "-")} ({asset.get("setupTimeframe", "-")})',
         "Regime":     f'{asset.get("regime") or "-"}  '
                       f'RSI {indicators.get("rsi", "-")} ADX {indicators.get("adx", "-")}',
@@ -3645,7 +3652,21 @@ def cmd_plan(which="all", shoot=True):
             except Exception:
                 previous = None   # unreadable -> treat as changed, never as unchanged
 
-            unchanged = (previous == fingerprint) and bool(before)
+            # OFF BY DEFAULT, DELIBERATELY. On 2026-09-05 the plan panel went missing from
+            # the BTC chart shortly after this skip was added. I could NOT prove the skip
+            # caused it - the study was back after the next full save, and no log line
+            # implicates it - but it is the only thing that changed and it is the only
+            # thing that can end a run without calling save_pine.
+            #
+            # An optimisation that MIGHT drop the panel is not worth having. Saving every
+            # 20 minutes was never actually harmful: TradingView keeps versions happily,
+            # and exit_historical_version now handles the one failure that made version
+            # churn dangerous. So the skip stays in the code, switched off, until there is
+            # evidence rather than suspicion.
+            #
+            #   set TV_PLAN_SKIP_UNCHANGED=1 to enable it.
+            skip_enabled = os.environ.get("TV_PLAN_SKIP_UNCHANGED") == "1"
+            unchanged = skip_enabled and (previous == fingerprint) and bool(before)
             if unchanged:
                 print(f"[TV] plan unchanged ({fingerprint}) and {len(before)} study(ies) "
                       f"on the chart - skipping the save")
