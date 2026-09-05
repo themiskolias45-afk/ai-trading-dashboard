@@ -355,11 +355,42 @@ line("## 6. Live configuration — never assume these numbers");
 line();
 if (!settings) line("_strategy_settings.json not readable on this box — read GET /api/strategy-settings and check settingsError._");
 else {
+  // EVERY tunable, walked generically - never a hand-written key list.
+  //
+  // The list this replaced printed SEVEN keys. strategy_settings.json carries 17, so a
+  // section headed "never assume these numbers" was silently omitting EIGHT of them:
+  // maxConcurrentPositions, executionDisabledSetups, dailyOnlyMinConfidence,
+  // momentumRsiMax, trendFollowRsiMax, partialCloseEnabled, breakdownEnabled and
+  // riskPercent - the last of which sets position size, and two of which affect the gate.
+  //
+  // A hand-written key list is the defect, not the symptom. momentumRsiMax and
+  // trendFollowRsiMax did not exist in the file when the old lines were written; the
+  // dashboard added them on 2026-09-02 and this section went on printing the same seven.
+  // Re-listing the keys by hand would re-arm the identical failure for the next tunable
+  // the dashboard learns to write, and that failure is SILENT BY CONSTRUCTION - a key
+  // that is never printed cannot look wrong. Object.entries has no expiry.
+  //
+  // This is the reasoning this same file already applies to itself further down, where
+  // the comment on the journal count says a hardcoded count "is a claim with an expiry
+  // date and no alarm on it - the same decoration problem as a setting with no reader".
+  // Section 6 was that comment's own unfixed case.
+  const SETTINGS_PROVENANCE = new Set(["updatedAt", "updatedBy"]); // printed separately below
   line("- confidence gate: **" + settings.confidenceThreshold + "**");
-  line("- minStrength: " + settings.minStrength + "   ·   maxTradesPerDay: " + settings.maxTradesPerDay);
-  line("- fixedLotSize: " + settings.fixedLotSize + "   ·   maxLotSize: " + settings.maxLotSize);
-  line("- adxTrendingMin: " + settings.adxTrendingMin + "   ·   minEntryRsi: " + settings.minEntryRsi
-    + (Number(settings.minEntryRsi) === 0 ? " _(disarmed)_" : ""));
+  for (const [key, value] of Object.entries(settings)) {
+    if (key === "confidenceThreshold" || SETTINGS_PROVENANCE.has(key)) continue;
+    let shown = Array.isArray(value)
+      ? (value.length ? value.join(", ") : "(none)")
+      : String(value);
+    // Kept from the old hand-written block: a zero here means the check is off, and
+    // "minEntryRsi: 0" alone reads as a threshold rather than as a disarmed gate.
+    if (key === "minEntryRsi" && Number(value) === 0) shown += " _(disarmed)_";
+    line("- " + key + ": " + shown);
+  }
+  if (settings.updatedAt) {
+    line();
+    line("Last changed " + settings.updatedAt
+      + (settings.updatedBy ? " by " + settings.updatedBy : "") + ".");
+  }
   line();
   line("This file is PER-MACHINE and untracked. The other box may differ.");
 }
