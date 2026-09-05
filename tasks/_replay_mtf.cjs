@@ -896,6 +896,22 @@ process.stderr.write("MTF_CENSUS " + JSON.stringify({
   symbol: SYMBOL,
   ticker: TICKER,
   tradeThreshold: TRADE_THRESHOLD,
+  // THE RULER THIS RESULT WAS MEASURED WITH. Stated for the same reason as every field
+  // below it, and it is the one that has actually reversed a conclusion.
+  //
+  // MAX_HOLD defaults to 40 and 25 of the 28 harnesses that call this script never set
+  // MTF_MAX_HOLD, so almost every number on record was produced at 40 without saying so.
+  // Measured 2026-09-05 on the RSI ceiling axis: at hold 40 the 72/68 candidate scores a
+  // worst fold of -0.135 at 1/5 and is the single worst option; at hold 320 the same
+  // candidate scores +0.189 at 5/5 and is the BEST worst-fold performer. Same data, same
+  // code, opposite verdict. A result quoted without its horizon is not a result, and
+  // evidence_register.js:108 is a live example of one that is wrong because of it.
+  //
+  // ADDITIVE ONLY: this records the horizon, it does not change it. The default stays 40
+  // so no existing caller's numbers move and no stored census becomes incomparable -
+  // silently shifting 25 baselines to fix a labelling problem would be the worse bug.
+  maxHold: MAX_HOLD,
+  maxHoldExplicit: process.env.MTF_MAX_HOLD !== undefined,
   confidenceThreshold: settings.confidenceThreshold,
   minStrength: settings.minStrength,
   // Stated on every run so a stored census can never be mistaken for the baseline.
