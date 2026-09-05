@@ -1338,11 +1338,43 @@ def request_trade_approval(symbol, direction, entry, stop, target, confidence):
     if not verdict.get("approved"):
         return False, verdict.get("reason") or "rejected by risk engine", None
 
-    # suggestedSize is riskAmount / stopDistance, so multiplying back gives the
-    # dollar budget the engine approved - portfolio-aware, unlike a flat percentage.
+    # suggestedSize is LOTS, not a raw unit count. server/sizing.js:392 computes it as
+    #     suggestedRiskAmount / (stopDistance * pointValue)
+    # so recovering the dollar budget needs BOTH factors back. This multiplied by
+    # stop_distance alone, which yields riskAmount / pointValue.
+    #
+    # THE ERROR COMPOUNDED, because get_lot_size then divides by value_per_lot, which is
+    # itself stop_distance * pointValue. The size was therefore divided by pointValue
+    # TWICE:  bridge_lots = correct_lots / pointValue.
+    #
+    # On XAUUSD pointValue is ~75 (GBP per 1.0 of price for one 100oz lot - the figure
+    # _symbol_spec's own docstring cites as 74.33). A correct 0.043 lots became 0.0006,
+    # which the broker floor at the end of get_lot_size raised to volume_min 0.01. So
+    # EVERY gold order was pinned to the minimum lot and the configured riskPercent
+    # never reached a single trade: measured over the 9 closed trades in the journal,
+    # 1R in money ranged from $1.46 to $449.72 while the setting asked for a constant
+    # ~$134. The book is +1.93R and -$589.87 - the edge was real and the conversion
+    # to cash was arbitrary.
+    #
+    # THIS CANNOT BLOCK A TRADE. It only changes size. The zero-budget refusal below is
+    # unchanged, and a larger risk_amount moves it further from zero, never closer -
+    # MIN_RISK_PCT in sizing.js exists precisely so that path cannot become an outage.
+    # If the spec is unavailable we fall back to the OLD behaviour rather than refusing,
+    # because failing to size must not fail the trade.
     stop_distance = abs(float(entry) - float(stop))
     suggested     = float(verdict.get("suggestedSize") or 0)
-    risk_amount   = suggested * stop_distance
+
+    spec        = _symbol_spec(symbol)
+    point_value = spec.get("valuePerPoint") if spec else None
+    if point_value and point_value > 0:
+        risk_amount = suggested * stop_distance * point_value
+    else:
+        # No spec: keep the previous arithmetic rather than guess. Logged because a
+        # silently mis-sized order is the defect this block exists to end.
+        log(f"No valuePerPoint for {symbol} - sizing on the legacy formula, "
+            f"which under-sizes by the point value. Order will likely be minimum lot.",
+            YELLOW)
+        risk_amount = suggested * stop_distance
 
     if risk_amount <= 0:
         return False, "risk engine approved a zero budget", None
