@@ -886,6 +886,29 @@ body.focus-mode .focus-exit{display:block}
       <div class="cap-list" id="cap-list"><div class="cap-empty">Loading…</div></div>
     </div>
 
+    <!-- MEMORY — the 323 memories that make JARVIS himself.
+         Until 2026-09-05 this index was reachable only from the command line, so the one
+         page named after him could not search the thing he is. The cost was measured the
+         day it was fixed: that morning's position-sizing bug was ALREADY recorded as
+         "assuming 1.0 made Gold 74x oversize" and was re-derived from source over hours
+         because nothing here could look it up. A memory you cannot query is not a memory. -->
+    <div class="sb-section">
+      <div class="sb-title"><span>Memory</span><span id="recall-count" style="font-weight:400;letter-spacing:0">—</span></div>
+      <div style="display:flex;gap:6px;margin-bottom:7px">
+        <input id="recall-q" type="text" placeholder="ask what JARVIS remembers…"
+               onkeydown="if(event.key==='Enter')runRecall()"
+               style="flex:1;min-width:0;padding:7px 9px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:.74rem;font-family:var(--font)">
+        <button onclick="runRecall()" title="Search memory"
+                style="padding:7px 11px;background:var(--accent-dim);border:1px solid var(--accent);border-radius:6px;color:var(--text);font-size:.72rem;font-weight:700;cursor:pointer">↳</button>
+      </div>
+      <div class="cap-tabs" style="margin-bottom:7px">
+        <div class="cap-tab on" id="rtab-brain"  onclick="setRecallSource('brain')">BRAIN</div>
+        <div class="cap-tab"    id="rtab-vault"  onclick="setRecallSource('vault')">VAULT</div>
+        <div class="cap-tab"    id="rtab-trades" onclick="setRecallSource('trades')">TRADES</div>
+      </div>
+      <div class="cap-list" id="recall-list"><div class="cap-empty">Ask a question — searches 323 memories semantically, not by keyword.</div></div>
+    </div>
+
     <div class="sb-section">
       <div class="sb-title"><span>Self-Learning</span></div>
       <div id="learn-box"><div class="learn-empty">Loading…</div></div>
