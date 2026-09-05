@@ -63,7 +63,16 @@ function opt(name, def) {
 }
 const flag = n => process.argv.includes(n);
 
-const SIMS      = Number(opt("--sims", "4000"));
+// 10,000 PATHS, NOT 4,000. The published guidance is consistent: 5,000 is the floor
+// for a stable central estimate and 10,000+ is needed before the TAIL quantiles mean
+// anything - and the tails are the whole point here. p5 return and p95 drawdown are
+// the numbers this page is read for, and they are exactly the ones a small path count
+// leaves noisy. At 4,000 the p5 was being reported to four significant figures from a
+// sample that does not support them.
+//
+// The cost is arithmetic, not risk: this is a read-only replay over cached bars, so
+// 2.5x the paths is 2.5x the seconds and nothing else.
+const SIMS      = Number(opt("--sims", "10000"));
 const RISK_PCT  = Number(opt("--risk", "1")) / 100;
 const START     = Number(opt("--start", "10000"));
 const GATE      = Number(opt("--gate", "70"));

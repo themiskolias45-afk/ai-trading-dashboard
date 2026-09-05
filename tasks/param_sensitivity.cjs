@@ -156,6 +156,28 @@ function verdict(cells, liveValue) {
   // above the mean of everything around it.
   const lift = liveCell.rpt - neighbourMean;
 
+  // IDENTICAL CELLS MEAN THE PARAMETER DID NOTHING - a different fact from "robust",
+  // and the more important one. A ceiling of 100 on a 0-100 indicator cannot bind; a
+  // threshold outside the range the data reaches cannot either. Reporting that as
+  // PLATEAU tells a reader the value is well-chosen when the run in fact measured
+  // nothing about it, and it invites someone later to "restore" a setting whose
+  // disabling was a measured decision.
+  const spread = Math.max(...usable.map(c => c.rpt)) - Math.min(...usable.map(c => c.rpt));
+  if (spread < 1e-6) {
+    return {
+      verdict: 'INERT',
+      detail: `every value from ${usable[0].value} to ${usable[usable.length - 1].value} `
+        + `gives an identical ${liveCell.rpt.toFixed(4)}R over ${liveCell.n} trades — this `
+        + `parameter had NO EFFECT, so nothing here says whether it is well-chosen. `
+        + `Check whether it is disabled ON PURPOSE before changing it.`,
+      positiveCells: positive, totalCells: usable.length,
+      positivePct: parseFloat(positivePct.toFixed(1)),
+      liveRpt: liveCell.rpt, neighbourMeanRpt: neighbourMean, lift: 0,
+      bestValue: liveValue, bestRpt: liveCell.rpt, liveIsBest: true,
+      inert: true,
+    };
+  }
+
   let v, detail;
   if (positivePct >= 80 && Math.abs(lift) <= 0.10) {
     v = 'PLATEAU';
@@ -212,6 +234,11 @@ function selftest() {
   const r = verdict(bestElsewhere, 70);
   check('a plateau can hold even when the live value is not the best cell',
         r.verdict === 'PLATEAU' && r.liveIsBest === false);
+
+  const inert = [{ value: 92, rpt: 0.2837 }, { value: 96, rpt: 0.2837 }, { value: 100, rpt: 0.2837 },
+                 { value: 104, rpt: 0.2837 }, { value: 108, rpt: 0.2837 }];
+  const ir = verdict(inert, 100);
+  check('identical cells read INERT, not PLATEAU', ir.verdict === 'INERT' && ir.inert === true);
 
   console.log(fails ? `\n  ${fails} FAILURE(S)` : '\n  all checks passed');
   return fails ? 1 : 0;
@@ -273,8 +300,30 @@ function main() {
     feedsTheGate: false,
   };
 
+  // MERGE, NEVER OVERWRITE. Running one axis used to erase every other axis already on
+  // disk, so `--axis momentumRsi` silently destroyed the gate, minrr and adx results
+  // measured minutes earlier. That is data loss in a tool whose whole job is preserving
+  // evidence. Axes from this run replace their own entries; everything else is kept,
+  // carrying the timestamp it was measured at so a stale axis is visible as stale.
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
-  fs.writeFileSync(OUT, JSON.stringify(payload, null, 2));
+  let merged = payload;
+  try {
+    if (fs.existsSync(OUT)) {
+      const previous = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+      const keptAxes = { ...(previous.axes || {}) };
+      for (const [k, v] of Object.entries(payload.axes)) keptAxes[k] = { ...v, measuredAt: payload.generatedAt };
+      for (const [k, v] of Object.entries(keptAxes)) {
+        if (!v.measuredAt) keptAxes[k] = { ...v, measuredAt: previous.generatedAt || null };
+      }
+      merged = { ...payload, axes: keptAxes };
+    } else {
+      for (const k of Object.keys(merged.axes)) merged.axes[k].measuredAt = payload.generatedAt;
+    }
+  } catch (mergeError) {
+    // An unreadable previous artifact must not lose THIS run. Write what we have.
+    console.error(`  could not merge the previous report (${mergeError.message}) — writing this run only`);
+  }
+  fs.writeFileSync(OUT, JSON.stringify(merged, null, 2));
   if (has('--json')) console.log(JSON.stringify(payload, null, 2));
   else console.log(`\n  written: ${path.relative(ROOT, OUT)}\n`);
   return 0;

@@ -216,6 +216,26 @@ Install-PlanTask -Name 'SmartEntry CPCV' `
     -Triggers $cpcvTriggers `
     -Description 'Weekly Combinatorial Purged Cross-Validation over the Monte-Carlo trade series. Read-only: no signal, no setting, no order.'
 
+# ---- Parameter sensitivity: plateau or spike ----------------------------------
+#
+# The question none of the other robustness artifacts asks. The bootstrap shows the
+# range of LUCK around an edge, CPCV whether it survives different SPLITS, PBO whether
+# the SELECTION PROCEDURE is sound, the deflated Sharpe corrects for how many candidates
+# were tried. None asks whether the value IN FORCE sits on a plateau or a spike - which
+# is precisely what a curve-fit strategy fails.
+#
+# lab_promote.cjs already gates LAB candidates on plateau evidence. The live settings
+# never had it: inherited, hand-tuned, or settled by a single walk-forward.
+#
+# 10:10 rather than 09:xx: this one re-runs the replay per parameter value across three
+# assets, so it is far heavier than the others and must not overlap them.
+$sensitivityTriggers = @(New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At '10:10')
+
+Install-PlanTask -Name 'SmartEntry Param Sensitivity' `
+    -Arguments 'tasks\param_sensitivity.cjs' `
+    -Triggers $sensitivityTriggers `
+    -Description 'Weekly plateau-or-spike over the settings actually in force. Read-only: it measures the settings and never tunes them.'
+
 # ---- The data pipeline that makes the search worth running --------------------
 #
 # THE CHAIN THAT WAS BROKEN, and why "run the search 24/7" would have done nothing.

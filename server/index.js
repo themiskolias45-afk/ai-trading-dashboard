@@ -12303,6 +12303,37 @@ app.get("/api/strategy-board", (_, res) => {
 // question becomes "in what fraction of ALL splits does it survive".
 //
 // Read-only over a report already on disk. feedsTheGate false.
+// ── Parameter sensitivity: plateau or spike ───────────────────
+//
+// The question none of the other artifacts on this page asks. The bootstrap shows the
+// range of LUCK around an edge, CPCV asks whether it survives different SPLITS, PBO asks
+// whether the SELECTION PROCEDURE is sound, and the deflated Sharpe corrects for how many
+// candidates were tried. None of them asks whether the parameter VALUE IN FORCE sits on a
+// plateau or on a spike - which is the thing a curve-fit strategy fails.
+//
+// lab_promote.cjs already gates LAB candidates on plateau evidence. The live settings
+// never had it: they were inherited, hand-tuned, or settled by a single walk-forward.
+//
+// Read-only over an artifact on disk. It reports; it never tunes.
+app.get("/api/param-sensitivity", (_, res) => {
+  const p = path.join(__dirname, "..", "tasks", "analysis", "param-sensitivity.json");
+  try {
+    if (!fs.existsSync(p)) {
+      return res.json({ status: "NOT RUN",
+        detail: "No sensitivity report yet. Run: node tasks/param_sensitivity.cjs",
+        feedsTheGate: false });
+    }
+    const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+    const ms = Date.parse(raw.generatedAt || "");
+    const ageHours = Number.isFinite(ms)
+      ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+    res.json({ status: "OK", ageHours, stale: ageHours !== null && ageHours > 192, ...raw });
+  } catch (sensitivityError) {
+    console.error("[sensitivity] " + sensitivityError.message);
+    res.json({ status: "ERROR", detail: sensitivityError.message, feedsTheGate: false });
+  }
+});
+
 app.get("/api/cpcv-report", (_, res) => {
   const p = path.join(__dirname, "..", "tasks", "analysis", "cpcv-latest.json");
   try {

@@ -449,6 +449,64 @@ function renderCPCV(c) {
     + '</div></div></div>';
 }
 
+// ── Plateau or spike, on the settings ACTUALLY IN FORCE ──────────────────────
+//
+// A robust parameter degrades gracefully when nudged. A curve-fit one collapses, because
+// it was chosen for a peak that history happened to contain. Every other card on this
+// page holds the settings fixed and resamples around them; this one moves the settings.
+function renderSensitivity(d) {
+  if (!d || d.status === "NOT RUN") {
+    return '<div class="card"><div class="card-head"><span>Parameter sensitivity (plateau or spike)</span></div>'
+      + '<div class="card-body"><div class="loading">Not run yet — <code>node tasks/param_sensitivity.cjs</code></div></div></div>';
+  }
+  if (d.status && d.status !== "OK") {
+    return '<div class="card"><div class="card-head"><span>Parameter sensitivity (plateau or spike)</span></div>'
+      + '<div class="card-body"><div class="loading" style="color:var(--red)">' + esc(d.detail || d.status) + '</div></div></div>';
+  }
+  var axes = d.axes || {};
+  var names = Object.keys(axes);
+  if (!names.length) return '';
+  var tone = function (v) {
+    return v === 'PLATEAU' ? '#7ee2a8'
+         : v === 'SPIKE' ? '#f5a3a3'
+         : v === 'FRAGILE' ? '#f5a3a3'
+         : '#e8ce6a';
+  };
+  var rows = names.map(function (k) {
+    var a = axes[k];
+    var cells = (a.cells || []).map(function (c) {
+      var isLive = c.value === a.live;
+      var txt = c.rpt === null || c.rpt === undefined ? '—'
+              : (c.rpt >= 0 ? '+' : '') + Number(c.rpt).toFixed(3);
+      return '<span style="display:inline-block;min-width:104px;padding:3px 7px;margin:2px;'
+        + 'border-radius:5px;font-size:.68rem;'
+        + (isLive ? 'background:rgba(139,92,246,.18);border:1px solid var(--accent);font-weight:700'
+                  : 'background:var(--surface2);border:1px solid var(--border)') + '">'
+        + esc(String(c.value)) + ' → ' + txt + (isLive ? ' ★' : '') + '</span>';
+    }).join('');
+    return '<div style="margin-bottom:14px">'
+      + '<div style="display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;margin-bottom:5px">'
+      + '<strong style="font-size:.8rem">' + esc(a.label || k) + '</strong>'
+      + '<span style="color:var(--muted);font-size:.68rem">live ' + esc(String(a.live)) + '</span>'
+      + '<span style="font-size:.6rem;font-weight:800;letter-spacing:.07em;padding:2px 8px;'
+      + 'border-radius:20px;color:' + tone(a.verdict) + ';border:1px solid ' + tone(a.verdict) + '">'
+      + esc(a.verdict || '?') + '</span></div>'
+      + '<div>' + cells + '</div>'
+      + '<div style="font-size:.68rem;color:var(--muted);margin-top:4px;line-height:1.5">' + esc(a.detail || '') + '</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="card"><div class="card-head"><span>Parameter sensitivity (plateau or spike)</span>'
+    + '<span style="color:var(--muted);font-weight:400">R/trade per value · ★ = live</span></div>'
+    + '<div class="card-body">' + rows
+    + '<div style="font-size:.68rem;color:var(--muted);line-height:1.6;border-top:1px solid var(--border);padding-top:9px">'
+    + '<strong>PLATEAU</strong> means nudging the setting does not break it — the robust signature. '
+    + '<strong>SPIKE</strong> means the live value beats everything around it, which is what a curve-fit '
+    + 'parameter looks like. <strong>FRAGILE</strong> means most of the neighbourhood loses money. '
+    + 'A better cell here is <em>one in-sample number, not a promotion</em>: this measures the settings, '
+    + 'it never tunes them, because a tool that does both is how a system walks itself onto a spike.'
+    + '</div></div></div>';
+}
+
 fetch("/api/robustness-report")
   .then(function(r){
     if (r.status === 401) throw new Error("Not logged in — open /login first.");
@@ -476,6 +534,18 @@ fetch("/api/robustness-report")
       .then(function (c) {
         var host = document.createElement("div");
         host.innerHTML = renderCPCV(c);
+        document.getElementById("root").appendChild(host.firstChild);
+      });
+    // Fetched separately for the same reason as CPCV: three independent artifacts, three
+    // independent failures. A missing sensitivity report must not blank the page.
+    fetch("/api/param-sensitivity")
+      .then(function (r) { return r.ok ? r.json() : { status: "ERROR", detail: "HTTP " + r.status }; })
+      .catch(function (e) { return { status: "ERROR", detail: e.message }; })
+      .then(function (p) {
+        var html = renderSensitivity(p);
+        if (!html) return;
+        var host = document.createElement("div");
+        host.innerHTML = html;
         document.getElementById("root").appendChild(host.firstChild);
       });
   })
