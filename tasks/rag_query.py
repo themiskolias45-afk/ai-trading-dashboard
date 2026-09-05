@@ -245,6 +245,26 @@ def main():
             src_filter = [s.strip() for s in argv[i + 1].split(",")]
 
     results = query(question, top_k=top_k, sources=src_filter)
+
+    # --json: machine-readable output, added 2026-09-05 so JARVIS's own page can reach
+    # his memory. The 323 memories in this index were CLI-only, which meant the one
+    # surface named after him could not search the thing that makes him him. Measured
+    # cost of that on the day it was added: the sizing bug fixed that morning was
+    # ALREADY in memory as "assuming 1.0 made Gold 74x oversize", and was re-derived
+    # from source instead because nothing could look it up.
+    #
+    # ADDITIVE. Without the flag the human formatting below is byte-identical to before,
+    # so every existing caller and the boot sequence are untouched.
+    if "--json" in argv:
+        print(json.dumps({
+            "question": question,
+            "topK": top_k,
+            "sources": src_filter,
+            "count": len(results),
+            "results": results,
+        }, default=str))
+        return 0
+
     print(format_results(results, question))
     return 0
 
