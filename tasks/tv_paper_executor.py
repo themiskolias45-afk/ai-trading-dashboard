@@ -58,8 +58,10 @@ CDP = "http://localhost:9222"
 # Gold and BTC only, as asked. The key is what TradingView calls the symbol on the chart;
 # an alert naming anything else is refused, not translated.
 ALLOWED = {
-    "XAUUSD": {"units": 1, "aliases": ("XAUUSD", "OANDA:XAUUSD", "GOLD")},
-    "BTCUSD": {"units": 1, "aliases": ("BTCUSD", "BTCUSDT", "BINANCE:BTCUSDT", "BTC")},
+    "XAUUSD": {"units": 1, "tv_symbol": "OANDA:XAUUSD",
+               "aliases": ("XAUUSD", "OANDA:XAUUSD", "GOLD")},
+    "BTCUSD": {"units": 1, "tv_symbol": "BINANCE:BTCUSDT",
+               "aliases": ("BTCUSD", "BTCUSDT", "BINANCE:BTCUSDT", "BTC")},
 }
 STRATEGY_TAG = "TK Swing Trend Pullback"   # substring; the Long-Only script is NOT this one
 BROKER_MUST_BE = "Paper Trading"
