@@ -312,6 +312,9 @@ def poll_once():
     state = load_state()
     state["seenAlerts"] = sorted(seen)[-400:]
     save_state(state)
+    matched = sum(1 for r in rows if STRATEGY_TAG.lower() in (r.get("name") or "").lower())
+    outcomes.append("scanned %d log row(s), %d matched %r"
+                    % (len(rows), matched, STRATEGY_TAG))
     return outcomes
 
 
