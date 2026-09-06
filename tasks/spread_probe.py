@@ -39,7 +39,20 @@ LOG_PATH = os.path.join(HERE, "logs", "spread_probe.jsonl")
 
 # The candidate, its future, and the incumbent it would replace. SP500 is the whole
 # point of the comparison: a NAS100 spread only means something beside it.
-PROBE_SYMBOLS = ["NAS100", "NAS100ft", "SP500", "XAUUSD", "BTCUSD", "SMH", "BAC"]
+PROBE_SYMBOLS = ["NAS100", "NAS100ft", "SP500", "XAUUSD", "BTCUSD", "SMH", "BAC",
+                 # XRPUSD added 2026-09-06. SCREENING ONLY - it is a candidate, not a
+                 # traded symbol, and nothing downstream reads it as one. On Sunday
+                 # 2026-09-06 it showed 58.4 bp of price against BTCUSD 2.12 bp, which
+                 # at a 1.5x ATR stop is ~0.104R per trade versus BTC ~0.006R. That
+                 # would exceed the entire measured Gold edge (+0.051R) on its own.
+                 # But that reading was taken on a WEEKEND, and this file already warns
+                 # a closed market returns the LAST spread, not a live one. Crypto does
+                 # trade weekends, yet weekend books are thin, so the number needs a
+                 # WEEKDAY session before it can decide anything.
+                 #
+                 # NOT bridge-owned on purpose: it gets selected then DESELECTED again,
+                 # which is the correct handling for a symbol the bridge does not trade.
+                 "XRPUSD"]
 
 # Never deselected by this script, whatever else happens. The bridge selected these
 # at startup and trades them.
