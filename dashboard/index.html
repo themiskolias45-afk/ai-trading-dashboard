@@ -1664,6 +1664,19 @@
         <input id="ss-maxlot" type="number" step="0.01" style="width:90px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
         <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-maxlot-hint">hard ceiling on any single trade</div>
       </div>
+      <!-- MAX NOTIONAL %. The ceiling above is ONE lot number for instruments whose
+           contract value differs by 57x: measured 2026-09-06, one lot is GBP 443,131 of
+           gold against GBP 7,714 of SP500. Set it low enough for gold and every SP500
+           trade dies (they legitimately size to 1.90 lots); set it high enough for SP500
+           and gold can still take 10x leverage. So the second ceiling is in MONEY, as a
+           share of balance, and the bridge applies it per symbol.
+           It SIZES DOWN and never refuses - the broker minimum is still the floor - so it
+           cannot block a signal, suppress a confidence value or cost a learning row. -->
+      <div>
+        <div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Max Notional %</div>
+        <input id="ss-notional" type="number" step="0.1" style="width:90px;padding:6px 8px;margin-top:5px;background:var(--bg);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:.85rem;font-weight:700">
+        <div style="font-size:.62rem;color:var(--muted);margin-top:4px" id="ss-notional-hint">max exposure per trade, % of balance</div>
+      </div>
       <!-- The two RSI CEILINGS. These are the single biggest reason this system sits at
            confidence 0: measured 2026-08-25 on both boxes, 8 of 8 near-misses failed on
            RSI_ABOVE_CEILING, Gold's MOMENTUM missing by 0.5 of a point. They were
