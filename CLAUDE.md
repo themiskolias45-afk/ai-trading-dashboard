@@ -66,7 +66,14 @@ At the start of every interactive session:
 2e. Call `mcp__smartentry__read_memory query="last-session-state"` — the /learn command writes a
    session-end summary here. Surface if found: "Last session: [what was being built / decided]".
 3. Read `tasks/daily/YYYY-MM-DD.json` for today and yesterday — load any trade signals, outcomes, or notes. Skip silently if missing.
-4. Scan `Active Priorities.md` for what's currently open. Skip silently if file doesn't exist.
+4. Scan `C:\Users\User\Documents\Brain\Active Priorities.md` for what's currently open.
+   **The path is absolute for a reason.** This step said just `Active Priorities.md`
+   until 2026-09-06, which resolves against the WORKING DIRECTORY — where no such file
+   has ever existed. Paired with "skip silently if file doesn't exist", that meant this
+   step has quietly done nothing in every session for the life of the vault, and a
+   reader could not tell "no open work" from "never looked". The file is real, 74KB, and
+   actively maintained at the vault root; VAULT-INDEX.md has always declared it there.
+   Skip silently only if it is genuinely absent.
 4c. Read `SYSTEM-MAP.md` — the five-stage architecture map (Foundations/Automation/Real World/RAG/Multi Agents).
    Surface current stage completion and any items listed as Missing. Skip silently if file doesn't exist.
 4b. Call `TaskList` — surface any pending or in-progress tasks from prior sessions. If tasks exist,
