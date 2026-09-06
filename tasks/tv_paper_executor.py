@@ -482,6 +482,26 @@ if __name__ == "__main__":
     _utf8_stdout()
     if "--selftest" in sys.argv:
         sys.exit(selftest())
+
+    if "--poll" in sys.argv or "--poll-once" in sys.argv:
+        once = "--poll-once" in sys.argv
+        log("alert-log polling  mode=%s  allowed=%s  strategy=%r"
+            % ("LIVE" if LIVE else "DRY RUN", ",".join(sorted(ALLOWED)), STRATEGY_TAG))
+        import time
+        while True:
+            try:
+                results = poll_once()
+                if results:
+                    for r in results:
+                        log(r)
+                else:
+                    log("no new alerts")
+            except Exception as exc:                   # noqa: BLE001 - a poller must not die
+                log("POLL ERROR: %s" % exc)
+            if once:
+                break
+            time.sleep(60)
+        sys.exit(0)
     if not SECRET:
         log("TV_EXEC_SECRET is not set - the listener will refuse every alert. Set it first.")
     log("listening on :%d  mode=%s  allowed=%s  strategy=%r"
