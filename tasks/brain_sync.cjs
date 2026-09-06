@@ -227,7 +227,47 @@ function main() {
   console.log("\n  pushed to VPS: " + pushed + "/" + onlyLocal.length);
   console.log("  pulled to laptop: " + pulled + "/" + onlyVps.length);
   console.log("  Nothing deleted. Differing files untouched.");
-  console.log("  Re-index after a sync:  python tasks/rag_index.py --source brain");
+
+  // RE-INDEX, RATHER THAN PRINT A REMINDER TO RE-INDEX.
+  //
+  // This line used to read "Re-index after a sync: python tasks/rag_index.py --source
+  // brain" and nothing ever ran it. Measured 2026-09-06: the VPS held all 351 memory
+  // files and its index was 4 days old, so it was 109 CHUNKS behind -- it had the
+  // knowledge on disk and could not retrieve it. Copying a memory to a box that cannot
+  // search it is only half a sync.
+  //
+  // A rule enforced by remembering is enforced by nothing; that is this project's own
+  // lesson and this file was an example of it.
+  //
+  // Failure here is REPORTED AND NON-FATAL. The files are already copied by this point,
+  // so a failed re-index means "searchable later", not "lost" -- exiting non-zero would
+  // make a nightly look broken over a recoverable step.
+  if (pushed > 0 || pulled > 0) {
+    if (pushed > 0) {
+      try {
+        console.log("\n  re-indexing on the VPS (" + pushed + " file(s) pushed)...");
+        const out = ssh("cd /d C:\\ai-trading-dashboard & python tasks\\rag_index.py --source brain", 600000);
+        const line = String(out).split(/\r?\n/).find((l) => /new document|total in index/.test(l));
+        console.log("    " + (line ? line.trim() : "re-index ran"));
+      } catch (e) {
+        console.log("    RE-INDEX FAILED on the VPS: " + (e.message || e).toString().slice(0, 160));
+        console.log("    The files ARE copied. Run there: python tasks/rag_index.py --source brain");
+      }
+    }
+    if (pulled > 0) {
+      try {
+        console.log("  re-indexing locally (" + pulled + " file(s) pulled)...");
+        const out = execFileSync("python", ["tasks/rag_index.py", "--source", "brain"],
+          { cwd: ROOT, encoding: "utf8", timeout: 600000, maxBuffer: 32 * 1024 * 1024 });
+        const line = String(out).split(/\r?\n/).find((l) => /new document|total in index/.test(l));
+        console.log("    " + (line ? line.trim() : "re-index ran"));
+      } catch (e) {
+        console.log("    LOCAL RE-INDEX FAILED: " + (e.message || e).toString().slice(0, 160));
+      }
+    }
+  } else {
+    console.log("  nothing moved, so no re-index was needed.");
+  }
   console.log("==================\n");
   return 0;
 }
