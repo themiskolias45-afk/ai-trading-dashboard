@@ -26,6 +26,14 @@ $LogFile   = "$Root\tasks\logs\mt5_ensure_running.txt"
 if (-not (Test-Path "$Root\tasks\logs")) { New-Item -ItemType Directory -Force "$Root\tasks\logs" | Out-Null }
 function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $m" | Add-Content -Encoding utf8 $LogFile }
 
+# LOG AT START, NOT ONLY AT THE END. This script logged only after it had done its work, so a
+# run that STARTED and died half way looked exactly like a run that never started - and on
+# 2026-09-06 the scheduled task reported LastTaskResult=0 with NumberOfMissedRuns=0 for an
+# hour while writing nothing at all. With no start line there was no way to tell whether Task
+# Scheduler was launching it. This line costs nothing and settles that question forever.
+Log ("START  pid=$PID  user=$env:USERNAME  session=" +
+     (Get-Process -Id $PID).SessionId + "  interactive=$([Environment]::UserInteractive)")
+
 $action = 'already running'
 $proc = Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Select-Object -First 1
 
