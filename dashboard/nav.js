@@ -72,8 +72,10 @@
     // heartbeats, executors), HEALTH (healer, watchdog, restarts) or INTELLIGENCE (agent
     // queue, auth session, RAG) -- so none of the failures found on 2026-09-06 would have
     // shown on it. Both stay linked until one is chosen.
-    { href: "/dashboard/fleet-map.html", label: "Fleet Map v2",
-      match: ["/dashboard/fleet-map.html"] },
+    { href: "/dashboard/system-map.html", label: "System Map",
+      match: ["/dashboard/system-map.html"] },
+    { href: "/dashboard/system-architecture.html", label: "Architecture v2",
+      match: ["/dashboard/system-architecture.html"] },
     { href: "/architecture", label: "Architecture",
       match: ["/architecture", "/dashboard/architecture.html"] },
     { href: "/plan", label: "Systems Plan",
