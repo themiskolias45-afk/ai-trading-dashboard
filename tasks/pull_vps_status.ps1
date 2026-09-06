@@ -19,7 +19,11 @@ $Log  = "$Root\tasks\logs\pull_vps_status.txt"
 if (-not (Test-Path "$Root\tasks\logs")) { New-Item -ItemType Directory -Force "$Root\tasks\logs" | Out-Null }
 function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $m" | Add-Content -Encoding utf8 $Log }
 
-$files = @('mt5-runtime-status.json', 'ea-crt-weekly-review.json')
+# tv-paper-positions.json added 2026-09-06: TradingView paper trades are invisible to
+# /api/mt5/positions (built from bridge reports) and to the trade ledger (built from MT5 deal
+# history). The browser that can see them runs on the VPS, so the laptop can only ever show
+# them by pulling this file.
+$files = @('mt5-runtime-status.json', 'ea-crt-weekly-review.json', 'tv-paper-positions.json')
 $ok = 0
 foreach ($f in $files) {
     # Straight to the destination name: nothing on the laptop generates the runtime status,
