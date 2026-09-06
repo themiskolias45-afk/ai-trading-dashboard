@@ -34,19 +34,22 @@ const HOME = process.env.USERPROFILE || os.homedir();
 const VAULT = path.join(HOME, "Documents", "Brain");
 const GRAPH = path.join(VAULT, "mcp-memory.json");
 
-const VPS_HOST = process.env.VPS_HOST || "169.58.74.133";
-const VPS_USER = process.env.VPS_USER || "administrator";
+// USE THE SSH CONFIG ALIAS, not user@host. deploy_vps.ps1 already carries the reason:
+// building "user@host" by hand BYPASSES the alias and therefore the identity file it
+// names, so it fails with "Permission denied (publickey)" on a box that is perfectly
+// reachable. VPS_SSH_ALIAS in keys.env overrides it; the default is what works here.
+const VPS_TARGET = process.env.VPS_SSH_ALIAS || "vps";
 const VPS_VAULT = "C:/Users/Administrator/Documents/Brain";
 
-const SSH = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10"];
+const SSH = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=15"];
 const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
 
 function ssh(cmd, timeout = 60000) {
-  return execFileSync("ssh", [...SSH, VPS_USER + "@" + VPS_HOST, cmd],
+  return execFileSync("ssh", [...SSH, VPS_TARGET, cmd],
     { encoding: "utf8", timeout, maxBuffer: 32 * 1024 * 1024 });
 }
 function scpUp(local, remote) {
-  execFileSync("scp", ["-q", ...SSH, local, VPS_USER + "@" + VPS_HOST + ":" + remote],
+  execFileSync("scp", ["-q", ...SSH, local, VPS_TARGET + ":" + remote],
     { encoding: "utf8", timeout: 120000 });
 }
 
@@ -161,9 +164,31 @@ if (mergedRows.length && localOnlyGraph.length) {
       ssh('powershell -NoProfile -Command "$p=Join-Path $env:USERPROFILE \'Documents\\Brain\\mcp-memory.json\'; ' +
           'if (Test-Path $p) { Copy-Item $p ($p + \'.bak-union-' + stamp + '\') -Force }"');
       scpUp(tmp, VPS_VAULT + "/mcp-memory.json");
-      const after = parseGraph(ssh('powershell -NoProfile -Command "Get-Content (Join-Path $env:USERPROFILE \'Documents\\Brain\\mcp-memory.json\') -Raw"'));
-      console.log("  graph pushed: vps now has " + after.length + " rows (was " + remoteRows.length + ")");
-      if (after.length < mergedRows.length) console.log("  WARNING: fewer rows than expected — check the backup beside it.");
+
+      // VERIFY BY HASH, NOT BY PARSING THE READ-BACK.
+      //
+      // The first version re-read the file over SSH and counted the rows it could parse.
+      // It reported "48 rows, expected 55" on a transfer that was in fact byte-perfect:
+      // pulling the text back through PowerShell over SSH mangles lines containing
+      // non-ASCII characters, so SEVEN observations with em-dashes failed to parse on
+      // the way home. The write was right and the check was wrong.
+      //
+      // That false alarm is as corrosive as a missed one -- it sends someone to a backup
+      // to recover a file that was never damaged. A hash computed on each side and
+      // compared as a string cannot be broken by the transport.
+      const localHash = require("crypto").createHash("sha256")
+        .update(fs.readFileSync(tmp)).digest("hex").toUpperCase();
+      const remoteHash = ssh('powershell -NoProfile -Command "(Get-FileHash (Join-Path ' +
+        "$env:USERPROFILE 'Documents\\Brain\\mcp-memory.json') -Algorithm SHA256).Hash\"")
+        .trim().toUpperCase();
+      if (localHash === remoteHash) {
+        console.log("  graph pushed: " + mergedRows.length + " rows (was " + remoteRows.length +
+                    ") — SHA256 matches on both sides");
+      } else {
+        console.log("  GRAPH HASH MISMATCH — local " + localHash.slice(0, 16) +
+                    " vs vps " + remoteHash.slice(0, 16));
+        console.log("  The previous file is beside it as mcp-memory.json.bak-union-" + stamp);
+      }
     } catch (e) {
       console.log("  GRAPH PUSH FAILED — " + (e.message || e).toString().slice(0, 140));
     }
