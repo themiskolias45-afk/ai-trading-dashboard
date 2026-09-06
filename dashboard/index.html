@@ -1457,6 +1457,25 @@
     </div>
   </div>
 
+  <!-- TRADINGVIEW PAPER TRADING.
+       A trade opened here is invisible to everything else on this page. /api/mt5/positions
+       is assembled from BRIDGE reports and cannot see it; the trade ledger is built from MT5
+       deal history and cannot either. Without this panel a position could be open on
+       TradingView while every surface showed nothing - the same shape as the EA panel that
+       printed "No open EA trades" over two live positions.
+       Written by tasks/tv_paper_positions.py, which reads TradingView's own Paper Trading
+       table. Status only: there is no control here, because this page cannot close a
+       TradingView position and must not pretend it can. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">TradingView Paper Trading <span style="font-weight:400;color:var(--muted);font-size:.68rem">(separate account, separate from MT5)</span></div>
+      <span id="tv-paper-sync" style="font-size:.68rem;color:var(--muted)">loading...</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="tv-paper-trades" style="font-size:.75rem"></div>
+    </div>
+  </div>
+
   <!-- WHAT HAPPENS NEXT — the forecast, and the first thing on this tab.
        Everything below it reports what already happened: what is armed, what was
        killed, what was configured. None of it answers the question anyone actually
