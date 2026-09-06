@@ -226,8 +226,20 @@ def build_findings(recent, all_rows, sentry, perms):
             "detail": "No CONFIG SENTRY line in the last 14 days of MT5 logs.",
             "action": "The EA may not be attached. Confirm it is on XAUUSD M15.",
         })
+    elif "TRAIL:ON" in sentry:
+        # v3.56+ states the trail outright on EVERY sentry line, drift or not, so this is
+        # read rather than inferred. Checked BEFORE the v3.55 wordings below because it is
+        # the only unambiguous form.
+        findings.append({
+            "severity": "HIGH", "check": "TRAIL_IS_ON",
+            "detail": "Sentry reports TRAIL:ON. Sentry: %s" % sentry[-160:],
+            "action": "Set InpUseTrailingStop=false or load the GOLD_TRAILOFF preset. The "
+                      "trail is worth -551 GBP over 13 months.",
+        })
+    elif "TRAIL:OFF" in sentry:
+        pass  # v3.56+, stated explicitly. Nothing to infer.
     elif "TRAIL OFF" in sentry:
-        pass  # trail is genuinely off -- see the wording note below.
+        pass  # v3.55 wording: it lists trail-off as a "drift", so its presence means off.
     elif "CONFIG: VALIDATED" in sentry:
         # READ THIS BEFORE "FIXING" EITHER SIDE. The EA's ValidateConfigSentry() still
         # scores against the profile validated BEFORE 2026-09-04, in which the trailing
@@ -240,7 +252,8 @@ def build_findings(recent, all_rows, sentry, perms):
         # The words mean the opposite of what they look like.
         findings.append({
             "severity": "HIGH", "check": "TRAIL_IS_ON",
-            "detail": "Sentry reports CONFIG: VALIDATED, which this EA can only print when "
+            "detail": "Sentry reports CONFIG: VALIDATED with no TRAIL: token, i.e. a v3.55 "
+                      "or earlier build, which can only print VALIDATED when "
                       "the trailing stop is ON -- its baseline profile predates the "
                       "2026-09-04 measurement. Sentry: %s" % sentry[-160:],
             "action": "Load the v3.55 build or the GOLD_TRAILOFF preset. The trail is worth "
