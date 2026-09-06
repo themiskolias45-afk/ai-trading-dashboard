@@ -712,11 +712,11 @@
     },
     {
       "key": "last-session-commits",
-      "value": "fa2de04 The EA looked dead because the detector was reading yesterday's echo | 59e9b2f Fleet repair: the VPS boot file had never been checked | 0fafa9d Startup step 4 has been looking in the wrong directory since the vault was built",
+      "value": "4911d17 Record the spread-gate finding | cd3ed46 Probe XRPUSD for cost, and the spread gate would block BTC at 34x its cap | fa2de04 The EA looked dead because the detector was reading yesterday's echo",
       "category": "GENERAL",
       "source": "manual",
       "created_at": "2026-08-28T06:16:57.452243+00:00",
-      "updated_at": "2026-09-06T09:38:29.934Z"
+      "updated_at": "2026-09-06T09:46:54.075Z"
     },
     {
       "key": "EOD_20260828",
@@ -807,5 +807,5 @@
       "updated_at": "2026-09-01T03:35:18.577363+00:00"
     }
   ],
-  "last_updated": "2026-09-06T09:38:29.934Z"
+  "last_updated": "2026-09-06T09:46:54.075Z"
 }
