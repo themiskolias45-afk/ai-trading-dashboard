@@ -499,6 +499,46 @@ if (-not (Test-Path $startsFile)) {
     }
 }
 
+# ── HALT COVERAGE: when you halt, does everything actually stop? ──────────────
+#
+# server/index.js already warns that "a switch that stops some of them is worse than one
+# that stops none, because you believe you are flat and may trade manually on top of
+# positions that are still opening." Nothing checked whether that was currently true.
+#
+# Traced 2026-09-06: mt5_bridge.py and tasks\fvg_executor.py both check BOTH halt systems
+# and fail closed, so every PYTHON order path is covered. The chart EAs are not and cannot
+# be -- they run inside MetaTrader and never call the server. EA_CRT_AMD has placed 36
+# real trades.
+#
+# SEVERITY IS DELIBERATE AND NOT SYMMETRIC:
+#   RED   only when trading IS halted and something can still trade. That is the moment
+#         the belief "I am flat" becomes false and expensive.
+#   INFO  when nothing is halted. An EA trading while the system is running is the
+#         CONFIGURED INTENT, not a fault, and reporting it as AMBER every single day
+#         would be exactly the alarm that can never clear this file warns about.
+$haltJson = Join-Path $Proj 'tasks\halt_coverage.cjs'
+if (-not (Test-Path $haltJson)) {
+    Add-Check 'safety' 'halt coverage' 'UNKNOWN' 'tasks\halt_coverage.cjs is missing'
+} else {
+    $haltOut = & node $haltJson --json 2>&1
+    $haltRc  = $LASTEXITCODE
+    $halt    = $null
+    try { $halt = ($haltOut -join "`n") | ConvertFrom-Json } catch { }
+    if ($null -eq $halt) {
+        Add-Check 'safety' 'halt coverage' 'UNKNOWN' 'halt_coverage.cjs did not return usable JSON'
+    } elseif ($haltRc -eq 2 -or $halt.verdict -eq 'CANNOT TELL') {
+        Add-Check 'safety' 'halt coverage' 'UNKNOWN' 'could not read both halt systems - unknown is never reported as safe'
+    } elseif ($halt.verdict -eq 'HALT IS PARTIAL') {
+        $names = ($halt.stillArmed | ForEach-Object { $_.what }) -join ', '
+        Add-Check 'safety' 'halt coverage' 'RED' "TRADING IS HALTED BUT $names CAN STILL TRADE - you are not flat. Press Ctrl+E in the terminal; the Python API cannot disable AutoTrading"
+    } elseif ($halt.stillArmed -and @($halt.stillArmed).Count -gt 0) {
+        $names = ($halt.stillArmed | ForEach-Object { $_.what }) -join ', '
+        Add-Check 'safety' 'halt coverage' 'INFO' "not halted. If you halt, $names would keep trading - a chart EA reads neither halt route (by design, not a fault)"
+    } else {
+        Add-Check 'safety' 'halt coverage' 'GREEN' 'every order path is reachable by a halt'
+    }
+}
+
 # The scorer is tasks\score_stop_variants.cjs, which auto_daily.bat already runs
 # nightly with --emit, and its artifact is the report it appends. Checking for the
 # REPORT rather than for the ledger is the point: the ledger growing proves only that
@@ -573,7 +613,12 @@ $out += "=======================================================================
 $out += " SmartEntry COVERAGE AUDIT - $stamp"
 $out += " box: $env:COMPUTERNAME   project: $Proj"
 $out += "=========================================================================="
-foreach ($area in @('tasks','server','bridge','agents','learning','peers','alerting')) {
+# 'safety' added 2026-09-06. A check whose AREA is not in this list is still COUNTED in
+# the totals and still sets the exit code, but is never PRINTED -- so it can be red and
+# invisible at the same time. That is the worst possible shape for a safety check, and it
+# is exactly what happened when the halt-coverage check first landed: 62 checks, and no
+# way to see the new one. Anything added to Add-Check must be added here too.
+foreach ($area in @('tasks','server','bridge','safety','agents','learning','peers','alerting')) {
     $rows = @($results | Where-Object { $_.Area -eq $area })
     if ($rows.Count -eq 0) { continue }
     $out += ''
