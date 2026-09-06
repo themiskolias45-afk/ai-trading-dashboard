@@ -74,10 +74,26 @@ function Finish($code, $verdict) {
 }
 
 function Probe($url) {
-    try {
-        Invoke-WebRequest -Uri $url -TimeoutSec $probeTimeoutSec -UseBasicParsing | Out-Null
-        return $true
-    } catch { return $false }
+    # RETRY, added 2026-09-06. One attempt with a 5s timeout and no retry turned a
+    # momentary blip into a whole skipped day of chart drawing: on 2026-09-06 at 13:25
+    # this refused with "server is not answering on :3001" while the server had in fact
+    # been up continuously since 09-05 21:18 and answers /api/status in 28-169 ms. A
+    # single sample cannot distinguish "down" from "busy for one second", and the cost of
+    # being wrong is asymmetric -- a false negative silently skips the day's plan.
+    #
+    # Three attempts, 2s apart. Still REFUSES if the server is genuinely down, so the
+    # protection this check exists for -- never draw yesterday's levels on a live chart --
+    # is unchanged. It only stops one unlucky sample deciding the whole run.
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            Invoke-WebRequest -Uri $url -TimeoutSec $probeTimeoutSec -UseBasicParsing | Out-Null
+            if ($attempt -gt 1) { Say "server answered on attempt $attempt" }
+            return $true
+        } catch {
+            if ($attempt -lt 3) { Start-Sleep -Seconds 2 }
+        }
+    }
+    return $false
 }
 
 # The interpreter is a PRECONDITION and was the only one this script did not check.
