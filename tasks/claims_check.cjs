@@ -3,6 +3,7 @@
 //
 //   node tasks/claims_check.cjs            report drift, change nothing
 //   node tasks/claims_check.cjs --json     machine-readable
+//   node tasks/claims_check.cjs --fix      repair stale LINE ANCHORS, nothing else
 //
 // exit 0 = every checkable claim holds
 // exit 1 = at least one claim is STALE
@@ -53,6 +54,7 @@ const ROOT = path.join(__dirname, "..");
 const CLAUDE_MD = path.join(ROOT, "CLAUDE.md");
 const ENGINE = path.join(ROOT, "server", "index.js");
 const AS_JSON = process.argv.includes("--json");
+const AS_FIX = process.argv.includes("--fix");
 
 // A health check that hangs is its own outage.
 const HTTP_TIMEOUT_MS = 3000;
@@ -63,9 +65,11 @@ const STALE = "STALE";
 const UNVERIFIABLE = "UNVERIFIABLE";
 
 const findings = [];
+// What --fix did, so the JSON consumer sees it too. null means --fix was not asked for.
+let fixResult = null;
 
-function record(status, claim, expected, actual, fix) {
-  findings.push({ status, claim, expected, actual, fix });
+function record(status, claim, expected, actual, fix, extra) {
+  findings.push({ status, claim, expected, actual, fix, ...(extra || {}) });
 }
 
 // ── Symbol anchors ────────────────────────────────────────────────────────────
@@ -98,6 +102,28 @@ const ANCHORS = [
     symbol: "function generateSignalMTF",
     docPattern: /`generateSignalMTF`,\s*`server\/index\.js:(\d+)`/,
   },
+  // Added 2026-09-06. These three sat in the SAME paragraph as the anchors above
+  // and had rotted just as far: :1780 pointed at an unrelated `new Array(period)`,
+  // :2909 at a MACD condition, :3221 at a bare `}`. They were invisible only
+  // because nothing tracked them, which is the whole argument for this table — an
+  // anchor that is not in here is not checked, and an unchecked anchor rots
+  // silently and constantly.
+  {
+    // "function generateSignal(" cannot match generateSignalMTF: the paren decides.
+    label: "generateSignal (the plain, single-timeframe function)",
+    symbol: "function generateSignal(",
+    docPattern: /`generateSignal` is at `:(\d+)`/,
+  },
+  {
+    label: "the H1 triple-alignment confidence bonus",
+    symbol: "confidence = allStrong ? 97 : 88",
+    docPattern: /triple-alignment bonus at `server\/index\.js:(\d+)`/,
+  },
+  {
+    label: "the h1 display copy in the signal payload",
+    symbol: "h1: h1 ? { signal: h1.signal",
+    docPattern: /payload at `server\/index\.js:(\d+)`/,
+  },
 ];
 
 function checkAnchors(docText) {
@@ -111,7 +137,12 @@ function checkAnchors(docText) {
   }
 
   for (const spec of ANCHORS) {
-    const m = docText.match(spec.docPattern);
+    // The `d` flag gives the captured group's absolute offsets, which is what lets
+    // --fix rewrite the digits in place rather than re-matching and guessing which
+    // occurrence to touch.
+    const m = docText.match(
+      new RegExp(spec.docPattern.source, spec.docPattern.flags + "d")
+    );
     if (!m) {
       // The citation was reworded or removed. Not drift — just no longer checkable.
       record(UNVERIFIABLE, `${spec.label} line citation`, "a file:line in CLAUDE.md",
@@ -154,7 +185,21 @@ function checkAnchors(docText) {
         : `symbol not found anywhere in the file`,
       realLines.length
         ? `update CLAUDE.md to :${realLines[0]}`
-        : `the symbol is gone — the claim may describe removed code`
+        : `the symbol is gone — the claim may describe removed code`,
+      // Only a MOVED symbol is auto-fixable. A symbol that is gone entirely means the
+      // claim may describe deleted code, and silently repointing it would invent a
+      // fact rather than correct a coordinate.
+      realLines.length && m.indices && m.indices[1]
+        ? {
+            autoFix: {
+              start: m.indices[1][0],
+              end: m.indices[1][1],
+              from: String(anchor.line),
+              to: String(realLines[0]),
+              label: spec.label,
+            },
+          }
+        : undefined
     );
   }
 }
@@ -376,6 +421,61 @@ async function checkLiveGate(docText) {
   }
 }
 
+// ── --fix: repair the line anchors, and ONLY the line anchors ─────────────────
+// A line number is a COORDINATE. The fact it points at has not changed, so
+// recomputing it loses nothing, and a machine does it more reliably than a person who
+// has to remember. That is the whole argument for auto-fixing these and nothing else.
+//
+// Everything else this script checks is a FACT: a route that does not exist, a file
+// that is gone, a gate that moved. Rewriting prose to agree with the code would ERASE
+// the disagreement instead of surfacing it — the precise opposite of the job. So
+// --fix touches anchors only, by construction, and cannot be pointed at anything else.
+//
+// The anchors have rotted repeatedly: GOLD_SQUEEZE three times, STRONG UPTREND twice,
+// generateSignalMTF twice, each time on an insertion above them. Every one of those
+// was found by a human running this by hand and then editing by hand. This closes
+// that loop — CLAUDE.md's own rule is that a rule enforced by remembering is enforced
+// by nothing.
+function applyAnchorFixes(docText) {
+  const fixable = findings.filter((f) => f.status === STALE && f.autoFix);
+  if (!fixable.length) return { changed: 0 };
+
+  // DESCENDING order. An edit shifts every offset after it, so the later edits must
+  // land first — otherwise the moment one number changes width (999 -> 1002) every
+  // remaining offset is wrong by one and the writes land inside neighbouring prose.
+  const edits = fixable.map((f) => f.autoFix).sort((a, b) => b.start - a.start);
+
+  let next = docText;
+  for (const e of edits) {
+    const present = next.slice(e.start, e.end);
+    if (present !== e.from) {
+      // Refuse rather than write into an offset we cannot confirm. A checker that
+      // corrupts the boot file is worse than one that reports and stops.
+      return {
+        changed: 0,
+        error: `offset ${e.start} holds "${present}", expected "${e.from}" — refusing to write`,
+      };
+    }
+    next = next.slice(0, e.start) + e.to + next.slice(e.end);
+  }
+
+  // Rule 4: copy before you rewrite, and VERIFY the copy before touching the original.
+  // A backup that was never written is not a backup.
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  const backup = `${CLAUDE_MD}.bak-claims-${stamp}`;
+  try {
+    fs.writeFileSync(backup, docText, "utf8");
+    if (fs.readFileSync(backup, "utf8") !== docText) {
+      return { changed: 0, error: "backup did not read back identical — nothing written" };
+    }
+  } catch (err) {
+    return { changed: 0, error: `backup failed (${err.message}) — nothing written` };
+  }
+
+  fs.writeFileSync(CLAUDE_MD, next, "utf8");
+  return { changed: edits.length, edits, backup };
+}
+
 // ── Report ────────────────────────────────────────────────────────────────────
 function report() {
   const stale = findings.filter((f) => f.status === STALE);
@@ -386,6 +486,7 @@ function report() {
     console.log(JSON.stringify({
       verdict: stale.length ? "CLAIMS STALE" : "CLAIMS HOLD",
       counts: { stale: stale.length, unverifiable: unver.length, pass: pass.length },
+      fix: fixResult,
       findings,
     }, null, 2));
     return stale.length ? 1 : 0;
@@ -432,6 +533,33 @@ async function main() {
   }
 
   checkAnchors(docText);
+
+  if (AS_FIX) {
+    fixResult = applyAnchorFixes(docText);
+    if (fixResult.error) {
+      console.error(`claims_check --fix: ${fixResult.error}`);
+      process.exit(2);
+    }
+    if (fixResult.changed) {
+      if (!AS_JSON) {
+        console.log("");
+        console.log("=== FIXED (line anchors only) ===");
+        console.log("");
+        for (const e of [...fixResult.edits].sort((a, b) => a.start - b.start)) {
+          console.log(`  ${e.label}: :${e.from} -> :${e.to}`);
+        }
+        console.log("");
+        console.log(`  backup: ${path.relative(ROOT, fixResult.backup)}`);
+      }
+      // Re-verify against the REWRITTEN file so the exit code and the report describe
+      // CLAUDE.md as it now stands, not as it was when the run started. A --fix that
+      // reported the pre-fix state would be its own stale claim.
+      findings.length = 0;
+      docText = fs.readFileSync(CLAUDE_MD, "utf8");
+      checkAnchors(docText);
+    }
+  }
+
   checkRoutes(docText);
   checkFiles(docText);
   checkForbidden();

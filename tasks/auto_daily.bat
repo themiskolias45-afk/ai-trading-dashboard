@@ -100,6 +100,26 @@ REM a drifted comment cannot fail the nightly run.
 echo --- config drift --- >> "%LOGFILE%"
 node "%PROJ%\tasks\config_drift.cjs" --emit >> "%LOGFILE%" 2>&1
 
+REM CLAUDE.md line anchors, added 2026-09-06. claims_check has existed since 09-02 but
+REM ran ONLY from the session startup hook, where it prints "N stale claim(s) -- run:
+REM node tasks\claims_check.cjs" and then waits for a human to notice and act on it.
+REM It was therefore enforced by remembering, which this project's own rule says is
+REM enforced by nothing -- and the evidence is that the same anchors rotted three, two
+REM and two times respectively, every one of them caught and repaired by hand.
+REM
+REM --fix repairs LINE ANCHORS ONLY. A line number is a COORDINATE: the fact it points
+REM at has not changed, so recomputing it loses nothing and a machine does it more
+REM reliably than a person who has to remember. Every other class this script checks --
+REM a route that 404s, a named file that is gone, a gate that moved -- is a FACT, and
+REM those are reported and never rewritten, because auto-editing prose to agree with
+REM the code would ERASE the disagreement instead of surfacing it.
+REM
+REM It backs CLAUDE.md up and reads the backup back before it writes a byte, refuses if
+REM an offset does not hold what it expects, and re-checks the rewritten file so the
+REM exit code describes CLAUDE.md as it now stands rather than as it was.
+echo --- CLAUDE.md claims (anchors self-heal) --- >> "%LOGFILE%"
+node "%PROJ%\tasks\claims_check.cjs" --fix >> "%LOGFILE%" 2>&1
+
 REM The BRAIN gets a checker too. Every other layer had one - claims_check for
 REM CLAUDE.md, config_drift for copied settings, encoding_check for mojibake,
 REM decisions.cjs for standing decisions - and the 333 memories, the most important

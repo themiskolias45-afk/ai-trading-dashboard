@@ -298,7 +298,7 @@ silently resolved.
     "H4-only cannot fire without boosts" is true again — but it is true by CONFIGURATION,
     not by construction, and it silently reverses the moment the gate drops below 68.
   **Only ONE branch anywhere lets `h1` touch the confidence maths** — the
-  triple-alignment bonus at `server/index.js:3457` — plus a display copy in the
+  triple-alignment bonus at `server/index.js:3459` — plus a display copy in the
   payload at `server/index.js:3793`. This line claimed "`h1` appears exactly TWICE in
   the whole engine" until 2026-09-06, when it appeared **31 times** and both cited
   lines had rotted onto unrelated code. **Do not restore a raw count here**: the count
