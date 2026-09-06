@@ -101,22 +101,62 @@ $algo = $null
 $common = Get-Content "$DataDir\config\common.ini" -Encoding Unicode
 if ($common) { $m = $common | Select-String '^Trade=(\d)'; if ($m) { $algo = [int]$m.Matches[0].Groups[1].Value } }
 
-# Is the chart EA actually attached and what config did it report at attach? The EA's own
-# CONFIG SENTRY line is the only authoritative view of its LIVE inputs.
+# Is the chart EA actually attached? REWRITTEN 2026-09-06.
+#
+# The old test read ONLY the newest log and matched any line containing CRT_AMD, so a
+# single line from 00:05 reported the EA attached until 23:59 -- and then flipped to
+# false at midnight when the log rolled, which reads exactly like the EA stopping
+# overnight. On 2026-09-06 that is precisely what it showed, and nothing had changed.
+#
+# THE EA LOGS ONCE, AT ATTACH, AND IS THEN SILENT. Measured: 09-04 14:10:31 and
+# 14:11:49, 09-05 08:45:44, and nothing else -- no heartbeat, nothing in MQL5\Files. So
+# "no line today" carries NO information either way, and a bare true or false here is a
+# guess wearing the costume of a measurement. This file's own header says "cannot tell"
+# and "it is fine" must never look the same; eaAttached = [bool]$eaName broke that rule.
+#
+# WHAT CAN HONESTLY BE INFERRED: whether the last attach happened in THIS terminal
+# session. crt_start.ini attaches the EA at startup, so an attach at or after
+# mt5StartedAt means this session came up with it on the chart. It could still have been
+# removed by hand afterwards -- that leaves no log line -- so the residual uncertainty is
+# NAMED in eaAttachBasis rather than hidden behind a boolean.
+#
+# ROOT CAUSE, REPORTED NOT ASSUMED: this terminal has no profiles directory, so MT5 has
+# nothing to restore charts from and cannot hold TWO EAs across a restart. That is why
+# EA_CRT_AMD and TK_SMART_ENTRY keep displacing each other.
 $eaName = $null; $sentry = $null; $sentryAt = $null
-$expLog = Get-ChildItem "$DataDir\MQL5\Logs\2*.log" | Sort-Object Name -Descending | Select-Object -First 1
-if ($expLog) {
-    $hits = Get-Content $expLog.FullName -Encoding Unicode | Select-String 'CRT_AMD'
-    if ($hits) {
-        $last = $hits[-1].Line
-        $sentry = $last.Trim()
-        $sentryAt = $expLog.Name.Substring(0,8)
-        if ($last -match '(EA_CRT_AMD_Dashboard[_A-Za-z0-9]*)\s*\(([A-Z]+),([A-Z0-9]+)\)') {
-            $eaName = "$($Matches[1]) ($($Matches[2]),$($Matches[3]))"
-        }
+$eaAttachAt = $null; $eaAttachAgeH = $null
+$eaBasis = 'no CRT_AMD attach line in the retained logs'
+$expLogs = Get-ChildItem "$DataDir\MQL5\Logs\2*.log" -EA SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 21
+foreach ($lf in $expLogs) {
+    $hits = Get-Content $lf.FullName -Encoding Unicode -EA SilentlyContinue | Select-String 'CRT_AMD'
+    if (-not $hits) { continue }
+    $last = $hits[-1].Line
+    $sentry = $last.Trim()
+    $sentryAt = $lf.Name.Substring(0,8)
+    if ($last -match '\s(\d{2}):(\d{2}):(\d{2})\.\d+\s') {
+        try {
+            $day = [datetime]::ParseExact($sentryAt,'yyyyMMdd',$null)
+            $eaAttachAt = $day.AddHours([int]$Matches[1]).AddMinutes([int]$Matches[2]).AddSeconds([int]$Matches[3])
+            $eaAttachAgeH = [math]::Round(((Get-Date) - $eaAttachAt).TotalHours, 1)
+        } catch { }
     }
+    if ($last -match '(EA_CRT_AMD_Dashboard[_A-Za-z0-9]*)\s*\(([A-Z]+),([A-Z0-9]+)\)') {
+        $eaName = "$($Matches[1]) ($($Matches[2]),$($Matches[3]))"
+    }
+    break
 }
 
+# Attached in THIS session, or merely attached at some point in the past?
+$eaAttachedNow = $false
+if ($eaName -and $eaAttachAt -and $proc) {
+    if ($eaAttachAt -ge $proc.StartTime.AddMinutes(-2)) {
+        $eaAttachedNow = $true
+        $eaBasis = 'attached during THIS terminal session (attach ' + $eaAttachAt.ToString('yyyy-MM-dd HH:mm:ss') + ', terminal started ' + $proc.StartTime.ToString('yyyy-MM-dd HH:mm:ss') + '). It logs only at attach, so a later manual removal would leave no trace.'
+    } else {
+        $eaBasis = 'last attach ' + $eaAttachAt.ToString('yyyy-MM-dd HH:mm:ss') + ' PREDATES this terminal session (started ' + $proc.StartTime.ToString('yyyy-MM-dd HH:mm:ss') + ') - this session never attached it'
+    }
+}
+$profilesDir = Test-Path (Join-Path $DataDir 'profiles')
 $status = [ordered]@{
     checkedAt         = (Get-Date).ToUniversalTime().ToString('o')
     host              = $env:COMPUTERNAME
@@ -128,7 +168,14 @@ $status = [ordered]@{
     terminalBuild     = $build
     account           = $account
     algoTradingAllowed = $algo
-    eaAttached        = [bool]$eaName
+    eaAttached        = $eaAttachedNow
+    # WHY it says that, including the part that cannot be known.
+    eaAttachBasis     = $eaBasis
+    eaLastAttachAt    = if ($eaAttachAt) { $eaAttachAt.ToUniversalTime().ToString('o') } else { $null }
+    eaLastAttachAgeH  = $eaAttachAgeH
+    # ROOT CAUSE of the EA/TK displacement loop: no profile means no chart survives a
+    # restart, so the terminal only ever returns with whatever the ini attaches.
+    profilesDirPresent = $profilesDir
     eaName            = $eaName
     # TRAIL OFF in the sentry line is the proof the winning config is live. Absent means
     # the trailing stop is on, which measured -551 GBP over 13 months of real ticks.
