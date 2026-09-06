@@ -50,7 +50,7 @@ const RUNTIME = path.join(ROOT, "dashboard", "mt5-runtime-status.json");
 const AS_JSON = process.argv.includes("--json");
 const TIMEOUT_MS = 4000;
 
-function get(pathname) {
+function getOnce(pathname) {
   return new Promise((resolve) => {
     const req = http.get({ host: "127.0.0.1", port: 3001, path: pathname, timeout: TIMEOUT_MS }, (res) => {
       let body = "";
@@ -63,6 +63,21 @@ function get(pathname) {
     req.on("timeout", () => { req.destroy(); resolve({ __err: "timeout" }); });
     req.on("error", (e) => resolve({ __err: e.code || e.message }));
   });
+}
+
+// RETRY. One 4s sample produced a spurious "CANNOT TELL" on the VPS while both routes
+// answered 200 in milliseconds on the very next try -- the same false negative that made
+// tv_daily_plan refuse a whole day's drawing. For a SAFETY check the cost is worse than
+// noise: "cannot tell" is the answer that should make someone stop and look, so spending
+// it on a busy millisecond trains the reader to ignore it.
+async function get(pathname) {
+  let last = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    last = await getOnce(pathname);
+    if (!last || !last.__err) return last;
+    if (attempt < 3) await new Promise((r) => setTimeout(r, 1500));
+  }
+  return last;
 }
 const bad = (o) => !o || o.__err;
 
