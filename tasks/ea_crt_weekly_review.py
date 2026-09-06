@@ -282,8 +282,19 @@ def latest_sentry_line():
     pulled_is_fresh = pulled_age is not None and pulled_age <= 6.0
 
     if pulled_line and pulled_is_remote and pulled_is_fresh:
+        latest_sentry_line.source = ("pulled from %s, %.1fh old" % (pulled_host, pulled_age))
         return pulled_line, (pulled_day or "pulled")
+    if pulled_line and pulled_is_remote and not pulled_is_fresh:
+        latest_sentry_line.source = (
+            "LOCAL MT5 logs on %s - the pulled status from %s is %.1fh old and was not trusted"
+            % (this_host or "this box", pulled_host,
+               pulled_age if pulled_age is not None else -1))
+    else:
+        latest_sentry_line.source = "local MT5 logs on %s" % (this_host or "this box")
     return local_line, local_day
+
+
+latest_sentry_line.source = "not determined"
 
 
 def build_findings(recent, all_rows, sentry, perms):
