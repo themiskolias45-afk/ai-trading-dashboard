@@ -179,7 +179,20 @@ $status = [ordered]@{
     eaName            = $eaName
     # TRAIL OFF in the sentry line is the proof the winning config is live. Absent means
     # the trailing stop is on, which measured -551 GBP over 13 months of real ticks.
-    eaTrailOff        = if ($sentry) { $sentry -match 'TRAIL OFF' } else { $null }
+    # READS THE TRAIL FROM BOTH WORDINGS, AND THIS IS NOT OPTIONAL.
+    # v3.55 listed trail-off as a DRIFT, so the literal "TRAIL OFF" meant off. v3.56 states
+    # it outright as "TRAIL:OFF" / "TRAIL:ON" - and the moment that shipped, this line stopped
+    # matching and published eaTrailOff=$false for a correctly configured EA, which the panel
+    # renders as "Trailing stop: ON - losing". A false alarm produced BY the fix.
+    # The v3.55 inversion is handled too: on that build "CONFIG: VALIDATED" can only print
+    # when the trail is ON, so it is $false, not $true.
+    eaTrailOff        = if ($sentry) {
+                            if     ($sentry -match 'TRAIL:OFF')        { $true }
+                            elseif ($sentry -match 'TRAIL:ON')         { $false }
+                            elseif ($sentry -match 'TRAIL OFF')        { $true }
+                            elseif ($sentry -match 'CONFIG: VALIDATED'){ $false }
+                            else { $null }
+                        } else { $null }
     eaFixedLot        = if ($sentry) { $sentry -match 'FIXEDLOT' } else { $null }
     lastSentryLine    = $sentry
     lastSentryLogDay  = $sentryAt

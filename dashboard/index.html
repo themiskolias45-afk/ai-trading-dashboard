@@ -7143,7 +7143,22 @@ async function refreshEaCrtPanel() {
   if (rev) {
     var wk = rev.thisWeek, at = rev.allTime;
     chips.push(eaChip('This week', wk ? (wk.trades + ' tr / ' + wk.netProfit) : 'no trades', wk ? (wk.netProfit > 0 ? 'ok' : 'bad') : ''));
-    chips.push(eaChip('All time', at ? (at.trades + ' tr / ' + at.netProfit) : '-', at ? (at.netProfit > 0 ? 'ok' : 'bad') : ''));
+    /* THE TWO ERAS ARE NEVER POOLED. Every one of those 36 trades was placed 2026-07-05..07-15
+       by v3.51 and its twin, BEFORE the 2026-09-04 measurement that found the trailing stop was
+       clipping winners. v3.55/56 ship that fix under their OWN magic (26070455) precisely so the
+       new build can be judged on its own record. A single "All time" chip averaged the fixed
+       build into a loss it did not cause and could not undo - and got MORE misleading with every
+       trade it took, not less. */
+    var pre = rev.preFix, cur = rev.current;
+    if (pre || cur) {
+      chips.push(eaChip('Before the fix', pre ? (pre.trades + ' tr / ' + pre.netProfit) : 'none',
+                        'bad'));
+      chips.push(eaChip('v3.55+ (trail off)',
+                        cur ? (cur.trades + ' tr / ' + cur.netProfit) : 'no closed trades yet',
+                        cur ? (cur.netProfit > 0 ? 'ok' : 'bad') : ''));
+    } else {
+      chips.push(eaChip('All time', at ? (at.trades + ' tr / ' + at.netProfit) : '-', at ? (at.netProfit > 0 ? 'ok' : 'bad') : ''));
+    }
   }
   document.getElementById('ea-crt-panel').innerHTML = chips.join('');
 

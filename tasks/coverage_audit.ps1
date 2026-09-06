@@ -539,6 +539,42 @@ if (-not (Test-Path $haltJson)) {
     }
 }
 
+# -- MT5 RUNTIME STATUS FRESHNESS: is the thing that watches MT5 still watching? -------
+#
+# The AI Brain panel calls a status file older than 30 minutes UNKNOWN rather than "fine",
+# which is right. Nothing checked the same file here, so on 2026-09-06 it sat 380 MINUTES
+# stale while this audit reported 0 RED on both boxes - the panel knew and the audit did not.
+#
+# WHY IT GOES STALE, measured the same day: MT5 Ensure Running has LogonType=Interactive,
+# so it runs ONLY while a user is logged on. Its own log shows EIGHT runs in three days on
+# a ten-minute schedule, and the gaps line up with the absence of a session. It fired again
+# within minutes of an RDP login. A DISCONNECTED session still counts as logged on, so
+# closing the RDP window is safe - SIGNING OUT is what stops it.
+#
+# THE CONSEQUENCE WORTH SEEING: that same task is the thing that restarts MT5 if it dies.
+# With no session there is no watcher AND no restarter, and nothing anywhere says so.
+$runtimeStatus = Join-Path $Proj 'dashboard\mt5-runtime-status.json'
+if (-not (Test-Path $runtimeStatus)) {
+    Add-Check 'safety' 'MT5 status freshness' 'UNKNOWN' 'dashboard\mt5-runtime-status.json does not exist'
+} else {
+    $rsAgeMin = $null
+    try {
+        $rs = Get-Content $runtimeStatus -Raw | ConvertFrom-Json
+        if ($rs.checkedAt) {
+            $rsAgeMin = [math]::Round(((Get-Date).ToUniversalTime() - [datetime]::Parse($rs.checkedAt).ToUniversalTime()).TotalMinutes, 1)
+        }
+    } catch { }
+    if ($null -eq $rsAgeMin) {
+        Add-Check 'safety' 'MT5 status freshness' 'UNKNOWN' 'could not read checkedAt - staleness cannot be judged, so it is not called fresh'
+    } elseif ($rsAgeMin -gt 180) {
+        Add-Check 'safety' 'MT5 status freshness' 'RED' "status file is $rsAgeMin min old (writer runs every 10 min). MT5 Ensure Running is LogonType=Interactive - if no session is logged on it neither publishes status NOR restarts MT5. Check: qwinsta"
+    } elseif ($rsAgeMin -gt 30) {
+        Add-Check 'safety' 'MT5 status freshness' 'AMBER' "status file is $rsAgeMin min old - the Brain panel already shows UNKNOWN. The writer needs a logged-on session (disconnected is fine, signed out is not)"
+    } else {
+        Add-Check 'safety' 'MT5 status freshness' 'GREEN' "published $rsAgeMin min ago by $($rs.host)"
+    }
+}
+
 # -- EA BUILD WATCH: did the live EA build change without anyone doing it? -------------
 #
 # MT5 persists a chart profile only on a CLEAN EXIT. On 2026-09-06 v3.56 was attached at
