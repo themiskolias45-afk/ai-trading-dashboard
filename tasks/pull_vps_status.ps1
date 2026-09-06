@@ -57,6 +57,20 @@ foreach ($f in $files) {
     if ($LASTEXITCODE -eq 0) { $ok++ } else { Log "FAILED to pull $f (exit $LASTEXITCODE)" }
 }
 
+# THE PEER'S BOOKS, UNDER A PEER NAME. This one is NOT pulled over the local copy.
+#
+# Measured 2026-09-06: the two boxes' journals are DISJOINT - laptop 9 closed trades, VPS 13,
+# ZERO tickets in common. 22 exist across the fleet and each box's Performance page was
+# showing under half while presenting it as the record. The journal is per-server state and
+# is not in FLEET_COMPARED_SETTINGS, so nothing flagged it.
+#
+# Overwriting the local file with the peer's would just swap which half is hidden. Both are
+# kept, and the page unions them for display WITHOUT either journal being merged, rewritten
+# or reconciled - the same rule that saved 633 lines when two copies of a memory turned out
+# to share no content at all. Nothing here writes to a journal.
+& scp -o BatchMode=yes -o ConnectTimeout=15 "vps:C:/ai-trading-dashboard/dashboard/performance-books.json" "$Root\dashboard\performance-books.peer.json" 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0) { $ok++ } else { Log "FAILED to pull performance-books.json as peer (exit $LASTEXITCODE)" }
+
 # Report what was actually pulled, so a silent failure cannot look like success.
 $st = Get-Content "$Root\dashboard\mt5-runtime-status.json" -Raw | ConvertFrom-Json
 if ($st) {
