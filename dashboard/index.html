@@ -7384,6 +7384,17 @@ async function refreshExecutionPanel() {
     if (r.ok) d = await r.json();
   } catch (e) { /* handled below */ }
 
+  /* Fetched here so a failure on either cannot stop the main panel rendering. */
+  window.__execExtras = { build: null, halt: null };
+  try {
+    var br = await fetch('/dashboard/ea-build-watch.json?t=' + Date.now());
+    if (br.ok) window.__execExtras.build = await br.json();
+  } catch (e) { /* stays null, rendered as "not published yet" */ }
+  try {
+    var hr = await fetch('/dashboard/halt-coverage.json?t=' + Date.now());
+    if (hr.ok) window.__execExtras.halt = await hr.json();
+  } catch (e) { /* stays null */ }
+
   var sync = document.getElementById('exec-sync');
   var body = document.getElementById('exec-state');
   if (!sync || !body) return;
@@ -7512,6 +7523,42 @@ async function refreshExecutionPanel() {
         + '<span style="width:72px;text-align:right;color:' + (p.profit >= 0 ? 'var(--green)' : 'var(--red)') + '">' + esc(p.profit) + '</span>'
         + '<span style="color:var(--muted)">' + esc(p.owner) + flag + '</span></div>';
     }).join('');
+  }
+
+  /* 4b. TWO SAFETY READERS THAT HAD NO SURFACE.
+     ea-build-watch.json and halt-coverage.json were published every cycle and rendered by
+     NO page - they spoke only inside the coverage audit, which someone has to run. That is
+     the "setting with no reader" failure inverted: real readers with nowhere to speak.
+     Both belong here, beside the positions they describe. */
+  html += '<div style="color:var(--muted);font-size:.65rem;text-transform:uppercase;'
+    + 'letter-spacing:.5px;margin:12px 0 4px">Build &amp; halt coverage</div>';
+  var tone = function (sev) {
+    return sev === 'RED' ? 'var(--red)' : sev === 'AMBER' ? 'var(--amber,#e0a030)'
+      : sev === 'UNKNOWN' ? 'var(--amber,#e0a030)' : 'var(--green)';
+  };
+  if (window.__execExtras && window.__execExtras.build) {
+    var bw = window.__execExtras.build;
+    html += '<div style="font-size:.74rem;margin-bottom:3px"><span style="color:'
+      + tone(bw.severity) + ';font-weight:600">' + esc(bw.verdict) + '</span> '
+      + '<span style="color:var(--muted)">' + esc(bw.detail) + '</span></div>';
+  } else {
+    html += '<div style="color:var(--muted);font-size:.72rem">Build watch: not published yet.</div>';
+  }
+  if (window.__execExtras && window.__execExtras.halt) {
+    var hc = window.__execExtras.halt;
+    var armed = (hc.stillArmed || []).length;
+    var hsev = hc.verdict === 'HALT IS PARTIAL' ? 'RED'
+      : hc.verdict === 'CANNOT TELL' ? 'UNKNOWN' : (armed ? 'AMBER' : 'GREEN');
+    html += '<div style="font-size:.74rem"><span style="color:' + tone(hsev)
+      + ';font-weight:600">' + esc(hc.verdict) + '</span>';
+    if (armed) {
+      html += '<div style="color:var(--muted);font-size:.7rem;margin-top:2px">'
+        + (hc.stillArmed || []).map(function (x) { return esc(x.what); }).join('; ')
+        + ' &mdash; a halt does not reach ' + (armed === 1 ? 'it' : 'them') + '.</div>';
+    }
+    html += '</div>';
+  } else {
+    html += '<div style="color:var(--muted);font-size:.72rem">Halt coverage: not published yet.</div>';
   }
 
   /* 5. WHAT ACTUALLY FIRED TODAY */
