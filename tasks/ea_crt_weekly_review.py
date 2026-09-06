@@ -123,6 +123,57 @@ def summarise(rows):
     }
 
 
+
+def open_ea_positions():
+    """The EA's OPEN positions, read from MT5 directly.
+
+    WHY NOT /api/mt5/positions. That endpoint is assembled from BRIDGE reports, and the
+    bridge only reports positions on its own magic - byAccount.A carried exactly one SP500
+    trade while MT5 held eight. The EA's positions are invisible to it BY CONSTRUCTION, so
+    the dashboard panel reading its `unmanaged` array printed "No open EA trades" while two
+    XAUUSD 0.12 positions on magic 26070455 were open and in profit. A panel that cannot
+    ever be right is worse than no panel.
+
+    Returns a LIST when MT5 answered (possibly empty - genuinely no open EA trades), and
+    None when it could not be asked. The caller must not collapse those two into each
+    other: "none open" and "could not look" are different facts.
+    """
+    try:
+        import MetaTrader5 as mt5
+    except Exception:
+        return None
+    try:
+        if not mt5.initialize():
+            return None
+    except Exception:
+        return None
+    try:
+        raw = mt5.positions_get()
+        if raw is None:
+            return None
+        out = []
+        for pos in raw:
+            if pos.magic not in EA_MAGICS:
+                continue
+            out.append({
+                "ticket": pos.ticket,
+                "symbol": pos.symbol,
+                "type": "BUY" if pos.type == 0 else "SELL",
+                "volume": pos.volume,
+                "price": pos.price_open,
+                "sl": pos.sl or None,
+                "tp": pos.tp or None,
+                "profit": round(pos.profit, 2),
+                "magic": pos.magic,
+            })
+        return out
+    except Exception:
+        return None
+    finally:
+        try: mt5.shutdown()
+        except Exception: pass
+
+
 def assistant_trade_permission():
     """PermissionsTrade per terminal, from config/assistant.ini.
 
@@ -357,6 +408,8 @@ def main():
         "liveConfigSentry": sentry,
         # Environment, not EA performance. Kept in its own key for exactly that reason.
         "mt5AssistantPermissionsTrade": perms,
+        # LIST = MT5 answered (empty means genuinely none). None = could not ask.
+        "openPositions": open_ea_positions(),
         "liveConfigSentryLogDay": sentry_day,
         "findings": build_findings(recent, all_rows, sentry, perms),
     }

@@ -7147,13 +7147,29 @@ async function refreshEaCrtPanel() {
   }
   document.getElementById('ea-crt-panel').innerHTML = chips.join('');
 
-  /* Open EA trades. unmanaged[] is everything that is not the main engine, tagged with
-     magic, so the EA's positions are filtered out of it client-side - no server change. */
-  var rows = [];
-  if (pos && pos.unmanaged && pos.unmanaged.length) {
+  /* Open EA trades.
+     THIS USED TO READ pos.unmanaged AND COULD NEVER BE RIGHT. /api/mt5/positions is
+     assembled from BRIDGE reports, and the bridge only reports positions on its OWN
+     magic - measured 2026-09-06, byAccount.A held one SP500 trade while MT5 held eight.
+     The EA's positions are invisible to that endpoint BY CONSTRUCTION, so this panel
+     printed "No open EA trades" while two XAUUSD 0.12 lots on magic 26070455 were open
+     and +306 GBP in profit.
+     The weekly review reads MT5 directly and is the EA's own report, so it is the source
+     now. It returns a LIST when MT5 answered (empty = genuinely none) and null when it
+     could not ask - and those two are rendered DIFFERENTLY, because "none open" and
+     "could not look" are not the same fact. pos.unmanaged is kept only as a fallback for
+     an older review payload that has no openPositions key. */
+  var rows = null;
+  if (rev && Object.prototype.hasOwnProperty.call(rev, 'openPositions')) {
+    rows = rev.openPositions;   /* array or null - both meaningful */
+  } else if (pos && pos.unmanaged) {
     rows = pos.unmanaged.filter(function (t) { return EA_CRT_MAGICS.indexOf(t.magic) >= 0; });
   }
-  document.getElementById('ea-crt-trades').innerHTML = rows.length
+  if (rows === null || rows === undefined) {
+    document.getElementById('ea-crt-trades').innerHTML =
+      '<div style="color:var(--amber,#e0a030)">Open EA trades: COULD NOT READ MT5 &mdash; '
+      + 'this is not the same as none open.</div>';
+  } else document.getElementById('ea-crt-trades').innerHTML = rows.length
     ? '<div style="color:var(--muted);font-size:.65rem;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Open EA trades</div>'
       + rows.map(function (t) {
           return '<div style="display:flex;gap:10px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">'
