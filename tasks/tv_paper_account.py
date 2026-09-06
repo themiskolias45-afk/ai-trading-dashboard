@@ -74,22 +74,50 @@ JS_SUMMARY = """(labels) => {
   }
   return out; }"""
 
+# TWO TABLE IMPLEMENTATIONS, and they are not interchangeable. Positions is an ARIA grid
+# (role=columnheader / role=row); Balance history is a real <table> with <th>/<tr>. Reading
+# only the ARIA form returned 0 headers and 0 rows on Balance history while the table was
+# plainly on screen - and that read as "no P&L" rather than "wrong reader". So: try ARIA,
+# then fall back to real tables, and report which one answered.
 JS_TABLE = """() => {
-  const headers = [];
+  const clean = e => (e.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 40);
+
+  const ariaHeaders = [];
   document.querySelectorAll('[role="columnheader"]').forEach(e => {
-    const t = (e.textContent || '').trim();
-    if (t && t.length < 30) headers.push(t);
+    const t = clean(e); if (t && t.length < 30) ariaHeaders.push(t);
   });
-  const rows = [];
+  const ariaRows = [];
   document.querySelectorAll('[role="row"]').forEach(r => {
     const cells = [];
-    r.querySelectorAll('[role="gridcell"],[role="cell"]').forEach(c => {
-      cells.push((c.textContent || '').trim().replace(/\\s+/g,' ').slice(0, 40));
-    });
-    if (cells.length >= 3) rows.push(cells);
+    r.querySelectorAll('[role="gridcell"],[role="cell"]').forEach(c => cells.push(clean(c)));
+    if (cells.length >= 3) ariaRows.push(cells);
   });
+  if (ariaHeaders.length || ariaRows.length) {
+    return {headers: Array.from(new Set(ariaHeaders)).slice(0,20),
+            rows: ariaRows.slice(0,400), empty: false, via: 'aria'};
+  }
+
+  // Real <table>: pick the one with the most body rows, so a small unrelated table cannot win.
+  let best = null;
+  document.querySelectorAll('table').forEach(tb => {
+    if (tb.getBoundingClientRect().height < 10) return;
+    const n = tb.querySelectorAll('tbody tr').length;
+    if (!best || n > best.n) best = {tb: tb, n: n};
+  });
+  const headers = [], rows = [];
+  if (best) {
+    best.tb.querySelectorAll('th').forEach(e => {
+      const t = clean(e); if (t && t.length < 30) headers.push(t);
+    });
+    best.tb.querySelectorAll('tbody tr').forEach(tr => {
+      const cells = [];
+      tr.querySelectorAll('td,th').forEach(c => cells.push(clean(c)));
+      if (cells.length >= 3) rows.push(cells);
+    });
+  }
   const empty = /no open positions|no trading data|nothing to show/i.test(document.body.innerText || '');
-  return {headers: Array.from(new Set(headers)).slice(0,20), rows: rows.slice(0,400), empty: empty}; }"""
+  return {headers: Array.from(new Set(headers)).slice(0,20),
+          rows: rows.slice(0,400), empty: empty, via: best ? 'table' : 'none'}; }"""
 
 
 def to_number(text):
