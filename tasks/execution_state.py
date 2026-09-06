@@ -157,6 +157,8 @@ def sizing_table(settings, mt5d):
         caps = [c for c in (max_lot or None, notional_lots) if c]
         effective = min(caps) if caps else None
         rows[sym] = {
+            "notionalPctSource": "server" if pct_from_server else "bridge default (server not restarted)",
+            "notionalPct": pct,
             "notionalPerLot": per_lot,
             "maxLotCap": max_lot or None,
             "notionalCap": round(notional_lots, 3) if notional_lots else None,
@@ -219,8 +221,15 @@ def main():
     halt_unknown = breaker_open is None or kill_engaged is None
 
     positions = None if not mt5d else mt5d.get("positions")
+    # THREE STATES, NOT TWO. haltReaches is True (a halt stops it), False (it is a chart EA
+    # and a halt provably does not), or None - an UNKNOWN magic, where we cannot say either
+    # way. The first version counted only False while the printout marked None the same as
+    # False, so the summary said "2" beside five flagged lines. An unknown order path is not
+    # a covered one and it is not a proven gap either: it is the thing to go and identify.
     unreachable = ([p for p in positions if p.get("haltReaches") is False]
                    if positions is not None else None)
+    halt_unknown_pos = ([p for p in positions if p.get("haltReaches") is None]
+                        if positions is not None else None)
     no_stop = ([p for p in positions if not p.get("hasStop")]
                if positions is not None else None)
 
@@ -250,6 +259,10 @@ def main():
         "positions": positions,
         "positionCount": None if positions is None else len(positions),
         "positionsHaltCannotReach": None if unreachable is None else len(unreachable),
+        "positionsHaltUnknown": None if halt_unknown_pos is None else len(halt_unknown_pos),
+        "unknownMagics": (None if positions is None else
+                          sorted({p["magic"] for p in positions
+                                  if p["magic"] not in OWNERS})),
         "positionsWithoutStop": None if no_stop is None else len(no_stop),
         "todaysFills": todays_fills(),
         "note": ("Read-only. Places no order, changes no setting. Every section is null when "
@@ -283,9 +296,11 @@ def main():
         print("  account           %s @ %s   balance %.2f %s"
               % (a["login"], a["server"], a["balance"], a["currency"]))
     s = payload["settings"] or {}
-    print("  gate %s   risk %s%%   fixedLot %s   maxLot %s   maxNotional %s%%"
+    npct = s.get("maxNotionalPct")
+    npct_txt = ("%s%%" % npct) if isinstance(npct, (int, float)) else "25% (bridge default - server has not restarted)"
+    print("  gate %s   risk %s%%   fixedLot %s   maxLot %s   maxNotional %s"
           % (s.get("confidenceThreshold"), s.get("riskPercent"), s.get("fixedLotSize"),
-             s.get("maxLotSize"), s.get("maxNotionalPct")))
+             s.get("maxLotSize"), npct_txt))
     print("")
     if payload["sizing"] is None:
         print("  sizing            CANNOT READ")
@@ -294,19 +309,26 @@ def main():
               % ("symbol", "notional/lot", "maxLot cap", "notional cap", "EFFECTIVE", "binding"))
         for sym, r in payload["sizing"].items():
             print("  %-8s %-14s %-11s %-11s %-11s %s"
-                  % (sym, "%,.0f".replace(",", ",") % r["notionalPerLot"],
+                  % (sym, "{:,.0f}".format(r["notionalPerLot"]),
                      r["maxLotCap"], r["notionalCap"], r["effectiveMaxLots"], r["bindingCap"]))
     print("")
     if positions is None:
         print("  positions         CANNOT READ - not the same as none open")
     else:
-        print("  positions         %d open, %d a halt cannot reach, %d without a stop"
+        print("  positions         %d open, %d a halt CANNOT reach, %d halt status UNKNOWN, "
+              "%d without a stop"
               % (len(positions), payload["positionsHaltCannotReach"],
-                 payload["positionsWithoutStop"]))
+                 payload["positionsHaltUnknown"], payload["positionsWithoutStop"]))
+        if payload["unknownMagics"]:
+            print("    UNIDENTIFIED magic(s) trading this account: %s"
+                  % ", ".join(str(m) for m in payload["unknownMagics"]))
         for p in positions:
             print("    %-8s %-4s %-6s %-10s SL %-10s %+9.2f  %s%s"
                   % (p["symbol"], p["side"], p["volume"], p["price"], p["sl"] or "NONE",
-                     p["profit"], p["owner"], "" if p["haltReaches"] else "  [HALT CANNOT REACH]"))
+                     p["profit"], p["owner"],
+                     "" if p["haltReaches"] is True else
+                     ("  [HALT CANNOT REACH]" if p["haltReaches"] is False
+                      else "  [HALT STATUS UNKNOWN]")))
     print("")
     print("  written: %s" % OUT)
     print("")
