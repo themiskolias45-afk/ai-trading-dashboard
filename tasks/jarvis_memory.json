@@ -712,11 +712,11 @@
     },
     {
       "key": "last-session-commits",
-      "value": "f5b147b Correct the spread-gate memory: BTC was never blocked | eaa35fa Spread caps per symbol, so a good signal on any of the three cannot be blocked | 4911d17 Record the spread-gate finding",
+      "value": "4be69a0 Architecture rebuilt to the layered reference, and a regex that ate six layers | 62e28c9 update dashboard\\system-architecture.html | e037fb4 The name is SMART ENTRY, and the Map now shows the workers by name",
       "category": "GENERAL",
       "source": "manual",
       "created_at": "2026-08-28T06:16:57.452243+00:00",
-      "updated_at": "2026-09-06T09:54:45.181Z"
+      "updated_at": "2026-09-06T13:08:37.793Z"
     },
     {
       "key": "EOD_20260828",
@@ -807,5 +807,5 @@
       "updated_at": "2026-09-01T03:35:18.577363+00:00"
     }
   ],
-  "last_updated": "2026-09-06T09:54:45.181Z"
+  "last_updated": "2026-09-06T13:08:37.793Z"
 }

@@ -1,0 +1,3808 @@
+{
+  "scan_date": "2026-08-07T06:56:06.760357+00:00",
+  "files_scanned": 27,
+  "total_findings": 543,
+  "findings": [
+    {
+      "file": "server\\db.js",
+      "line": 98,
+      "code": "db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);",
+      "message": "exec() call \u2014 potential injection risk",
+      "severity": "HIGH"
+    },
+    {
+      "file": "server\\db.js",
+      "line": 179,
+      "code": "db.exec(SCHEMA);",
+      "message": "exec() call \u2014 potential injection risk",
+      "severity": "HIGH"
+    },
+    {
+      "file": "server\\mcp_server.js",
+      "line": 489,
+      "code": "const verdict = /VERDICT:\\s*(TAKE|SKIP)/i.exec(output)?.[1]?.toUpperCase() || 'UNKNOWN';",
+      "message": "exec() call \u2014 potential injection risk",
+      "severity": "HIGH"
+    },
+    {
+      "file": "server\\mcp_server.js",
+      "line": 664,
+      "code": "const match = /\u2605\\s+(\\w+)\\s+(LONG|SHORT)\\s+(\\d+)%.*Entry\\s+([\\d.]+)\\s+Stop\\s+([\\d.]+)\\s+Target\\s+([\\d.]+)/i.exec(scan);",
+      "message": "exec() call \u2014 potential injection risk",
+      "severity": "HIGH"
+    },
+    {
+      "file": "server\\mcp_server.js",
+      "line": 694,
+      "code": "const verdict = /VERDICT:\\s*(TAKE|SKIP)/i.exec(debateOut)?.[1]?.toUpperCase() || 'SKIP';",
+      "message": "exec() call \u2014 potential injection risk",
+      "severity": "HIGH"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 24,
+      "code": "(r\"eval\\s*\\(\",          \"eval() call \u2014 potential injection risk\"),",
+      "message": "eval() call \u2014 potential injection risk",
+      "severity": "HIGH"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 25,
+      "code": "(r\"exec\\s*\\(\",          \"exec() call \u2014 potential injection risk\"),",
+      "message": "exec() call \u2014 potential injection risk",
+      "severity": "HIGH"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 37,
+      "code": "(r\"eval\\s*\\(\",          \"eval() call \u2014 potential injection risk\"),",
+      "message": "eval() call \u2014 potential injection risk",
+      "severity": "HIGH"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 38,
+      "code": "(r\"exec\\s*\\(\",          \"exec() call \u2014 potential injection risk\"),",
+      "message": "exec() call \u2014 potential injection risk",
+      "severity": "HIGH"
+    },
+    {
+      "file": "server\\autohealer.js",
+      "line": 81,
+      "code": "console.log('[HEALER] Healed:', what, '| Total heals:', state.healCount);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\autohealer.js",
+      "line": 102,
+      "code": "console.log('[HEALER] Backup written:', bakPath);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\autohealer.js",
+      "line": 123,
+      "code": "console.log('[HEALER] Restored', path.basename(filePath), 'from backup');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\autohealer.js",
+      "line": 303,
+      "code": "console.log('[HEALER] MT5 bridge heartbeat recovered \u2014 all expected accounts reporting');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\autohealer.js",
+      "line": 603,
+      "code": "console.log('[HEALER] Started \u2014 monitoring every', HEAL_INTERVAL_MS / 1000, 'seconds');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\autohealer.js",
+      "line": 628,
+      "code": "console.log('[HEALER] Force-heal triggered');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\db.js",
+      "line": 99,
+      "code": "console.log(`[DB] Migrated: ${table}.${column} added`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\db.js",
+      "line": 184,
+      "code": "console.log(`[DB] Opened: ${dbPath}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\db.js",
+      "line": 503,
+      "code": "console.log('[DB] Connection closed');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\hermes.test.js",
+      "line": 45,
+      "code": "else { console.log(\"PASS: \" + msg); passes++; }",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\hermes.test.js",
+      "line": 136,
+      "code": "console.log(\"\\n-- case 1: high win rate + sufficient sample -> boosted to champion --\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\hermes.test.js",
+      "line": 171,
+      "code": "console.log(\"\\n-- case 2: low win rate + sufficient sample -> benched --\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\hermes.test.js",
+      "line": 217,
+      "code": "console.log(\"\\n-- case 3: below MIN_SAMPLE -> neutral / still learning --\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\hermes.test.js",
+      "line": 249,
+      "code": "console.log(`\\n-- boundary: MIN_SAMPLE = ${MIN_SAMPLE} --`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\hermes.test.js",
+      "line": 275,
+      "code": "console.log(\"\\n-- champion selection: highest validated expectancy wins --\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\hermes.test.js",
+      "line": 301,
+      "code": "console.log(`\\n-- entry gates: PAPER_ENTRY_CONF = ${PAPER_ENTRY_CONF}, watch-only setup --`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\hermes.test.js",
+      "line": 332,
+      "code": "console.log(\"hermes calibration tests \u2014 boost / penalty / still-learning\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\hermes.test.js",
+      "line": 349,
+      "code": "console.log(`\\n${failures ? \"FAILED\" : \"OK\"} \u2014 total ${total}, passed ${passes}, failed ${failures}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 251,
+      "code": "} catch (e) {}",
+      "message": "empty catch block \u2014 errors silently ignored",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 259,
+      "code": "console.log(ANTHROPIC_API_KEY ? \"[settings] Anthropic key reloaded\" : \"[settings] Anthropic key cleared\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 393,
+      "code": "if (Array.isArray(data)) { tradeJournal = data; console.log(`[journal] Loaded ${tradeJournal.length} entries from disk`)",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 411,
+      "code": "console.log(`[learning] Loaded \u2014 ${Object.keys(learning.setupStats).length} setups tracked`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 430,
+      "code": "console.log(`[learning] ${setup} updated \u2014 W:${s.wins} L:${s.losses} (boost: ${getLearningBoost(setup)})`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 457,
+      "code": "console.log(`[learning] ${emoji} Setup ${a.status}: ${a.setup} ${a.wr}% WR (${a.trades} trades)`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 609,
+      "code": "console.log(`[strategy] Loaded: confidence>=${strategySettings.confidenceThreshold}%, max ${strategySettings.maxConcurre",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 1368,
+      "code": "} catch (e) {}",
+      "message": "empty catch block \u2014 errors silently ignored",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 1374,
+      "code": "} catch (e) {}",
+      "message": "empty catch block \u2014 errors silently ignored",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 1910,
+      "code": "console.log(`[prices] BTC $${priceCache.btc} | Gold $${priceCache.gold} | SP500 $${priceCache.spx} | DXY ${priceCache.dx",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 1949,
+      "code": "console.log(\"[signals] Refreshing all assets in PARALLEL (Daily + 4H + 1H)\u2026\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2008,
+      "code": "console.log(`[signals] ${a.label}: ${s?.signal} (${s?.strength}) conf:${s?.confidence}% regime:${s?.regime} vol:${s?.vol",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2102,
+      "code": "console.log(`[plan] ${regime} \u2014 ${now.toISOString()}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2276,
+      "code": "console.log(",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2286,
+      "code": "console.log(\"[telegram] Polling started\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2313,
+      "code": "console.log(\"[server] Shutdown requested from dashboard\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2421,
+      "code": "console.log(`[manual] Trade queued: ${trade.symbol} ${trade.direction}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2506,
+      "code": "console.log(`[mt5-candles] accepted from ${account}:`,",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2517,
+      "code": "console.log(`[mt5-candles] ${flippedToMt5.join(\", \")} switched yahoo -> mt5, recomputing signals now`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2690,
+      "code": "const child = require(\"child_process\").spawn(PYTHON_BIN, [path.join(__dirname, \"..\", \"mt5_login_helper.py\")], {",
+      "message": "child_process usage \u2014 review carefully",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2744,
+      "code": "console.log(`[risk] CIRCUIT BREAKER ACTIVE: ${riskStatus.haltReason}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2782,
+      "code": "console.log(`[control] Restored HALT from disk: ${tradingControl.reason || \"no reason given\"}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2859,
+      "code": "console.log(`[strategy] Updated from dashboard: ${JSON.stringify(applied)}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 2875,
+      "code": "console.log(`[control] Trading ${halted ? \"HALTED\" : \"RESUMED\"} from dashboard${tradingControl.reason ? ` \u2014 ${tradingCon",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3092,
+      "code": "console.log(`[trade] Opened: ${trade.type} ${trade.symbol} @ $${trade.price} #${trade.ticket}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3214,
+      "code": "console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3474,
+      "code": "console.log(`[feature] ${name} \u2192 ${features[name] ? \"ON\" : \"OFF\"}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3495,
+      "code": "console.log(\"[cron] 6:45 AM \u2014 plan ready\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3497,
+      "code": "const { execFile } = require(\"child_process\");",
+      "message": "child_process usage \u2014 review carefully",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3501,
+      "code": "(err, out) => { if (err) console.error(\"[cron] daily plan error:\", err.message); else console.log(\"[cron] daily plan don",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3509,
+      "code": "console.log(\"[cron] 7:00 AM \u2014 plan sent\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3537,
+      "code": "console.log(\"[cron] 4H position review\u2026\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3544,
+      "code": "console.log(\"[cron] Sunday 8AM \u2014 generating weekly report\u2026\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3556,
+      "code": "console.log(\"[cron] EOD review starting\u2026\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3557,
+      "code": "const { execFile } = require(\"child_process\");",
+      "message": "child_process usage \u2014 review carefully",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3561,
+      "code": "else console.log(\"[EOD] Done:\", out.trim().slice(0, 200));",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3567,
+      "code": "console.log(\"[agent] Sunday auto-improvement run starting\u2026\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3569,
+      "code": "if (closed.length < 5) { console.log(\"[agent] Not enough trades for improvement analysis\"); return; }",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3598,
+      "code": "console.log(`[agent] Proposal written: ${worstSetup} at ${(worstWR * 100).toFixed(1)}% WR`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3670,
+      "code": "console.log('[analysis] Signals unchanged \u2014 skipping AI calls');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 3724,
+      "code": "console.log(\"[analysis] 3 parallel Claude AI brains completed\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4007,
+      "code": "console.log(\"[chat] Claude reply length:\", text?.length ?? 0, video ? \"| video: \" + video.query : \"\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4027,
+      "code": "console.log(`[news] Calendar loaded \u2014 ${newsCache.length} events this week`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4043,
+      "code": "console.log(`[sentiment] Fear & Greed: ${fg} (${sentimentCache.classification})`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4118,
+      "code": "console.log(\"[review] Position review posted to alerts\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4155,
+      "code": "console.log(\"[weekly] Weekly report posted to alerts\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4305,
+      "code": "console.log(`[backtest] Running ${years}-year backtest on BTC, Gold, SPY\u2026`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4315,
+      "code": "console.log(`[backtest] ${a.label}: ${out[a.key].totalTrades} trades | WR ${out[a.key].winRate}% | Return ${out[a.key].r",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4451,
+      "code": "console.log(`[AI-filter] ${symbol} ${signal.signal}: ${approved ? \"APPROVED\" : \"REJECTED\"} \u2014 ${reason}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4481,
+      "code": "console.log(\"[ai-brain] Running 3 parallel Claude Opus analyses\u2026\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4527,
+      "code": "console.log(`[ai-brain] 3 parallel analyses done in ${out.elapsed}ms`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4580,
+      "code": "const child = require(\"child_process\").spawn(\"schtasks\", [\"/query\", \"/fo\", \"csv\", \"/nh\"], { windowsHide: true });",
+      "message": "child_process usage \u2014 review carefully",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4819,
+      "code": "const { spawn: spawnEngineerAgent } = require(\"child_process\");",
+      "message": "child_process usage \u2014 review carefully",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4973,
+      "code": "console.log(`\u2705 SmartEntry Pro v12 on port ${PORT}`);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4987,
+      "code": "if (ANTHROPIC_API_KEY) console.log(\"[ai] Claude AI enabled \u2705\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 4988,
+      "code": "else console.log(\"[ai] No ANTHROPIC_API_KEY \u2014 using rule-based analysis\");",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\index.js",
+      "line": 5005,
+      "code": "console.log('[BOOT] Auto-healer + SQLite DB active');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\mcp_server.js",
+      "line": 37,
+      "code": "const { execFile } = require('child_process');",
+      "message": "child_process usage \u2014 review carefully",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 42,
+      "code": "console.log('PASS: ' + msg);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 63,
+      "code": "console.log('\\n--- ' + title + ' ---');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 591,
+      "code": "console.log('\\n=====================================');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 592,
+      "code": "console.log('sizing.js test summary');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 593,
+      "code": "console.log('  total:  ' + total);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 594,
+      "code": "console.log('  passed: ' + passed);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 595,
+      "code": "console.log('  failed: ' + failures);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 596,
+      "code": "console.log('  known issues (not counted): ' + knownIssues);",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 597,
+      "code": "console.log('  result: ' + (failures ? 'FAILED' : 'ALL PASSED'));",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "server\\sizing.test.js",
+      "line": 598,
+      "code": "console.log('=====================================');",
+      "message": "console.log left in production code",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 97,
+      "code": "def phase_health(...) \u2014 6 calls, no try/except",
+      "message": "Function 'phase_health' makes 6 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 114,
+      "code": "def phase_performance(...) \u2014 20 calls, no try/except",
+      "message": "Function 'phase_performance' makes 20 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 176,
+      "code": "def phase_ai_proposal(...) \u2014 10 calls, no try/except",
+      "message": "Function 'phase_ai_proposal' makes 10 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 206,
+      "code": "def phase_save(...) \u2014 6 calls, no try/except",
+      "message": "Function 'phase_save' makes 6 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 216,
+      "code": "def phase_notify(...) \u2014 7 calls, no try/except",
+      "message": "Function 'phase_notify' makes 7 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 231,
+      "code": "def phase_memory(...) \u2014 12 calls, no try/except",
+      "message": "Function 'phase_memory' makes 12 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 248,
+      "code": "def main(...) \u2014 40 calls, no try/except",
+      "message": "Function 'main' makes 40 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 311,
+      "code": "def _save_and_print(...) \u2014 5 calls, no try/except",
+      "message": "Function '_save_and_print' makes 5 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 263,
+      "code": "def run(...) \u2014 16 calls, no try/except",
+      "message": "Function 'run' makes 16 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "check_errors.py",
+      "line": 55,
+      "code": "def check_server_health(...) \u2014 12 calls, no try/except",
+      "message": "Function 'check_server_health' makes 12 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "check_errors.py",
+      "line": 95,
+      "code": "def check_critical_files(...) \u2014 11 calls, no try/except",
+      "message": "Function 'check_critical_files' makes 11 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "check_errors.py",
+      "line": 202,
+      "code": "def check_python_imports(...) \u2014 9 calls, no try/except",
+      "message": "Function 'check_python_imports' makes 9 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "check_errors.py",
+      "line": 248,
+      "code": "def check_git_state(...) \u2014 15 calls, no try/except",
+      "message": "Function 'check_git_state' makes 15 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "check_errors.py",
+      "line": 301,
+      "code": "def _run_checks(...) \u2014 16 calls, no try/except",
+      "message": "Function '_run_checks' makes 16 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "check_errors.py",
+      "line": 331,
+      "code": "def format_results(...) \u2014 7 calls, no try/except",
+      "message": "Function 'format_results' makes 7 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "check_errors.py",
+      "line": 358,
+      "code": "def main(...) \u2014 7 calls, no try/except",
+      "message": "Function 'main' makes 7 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "claude_agent.py",
+      "line": 99,
+      "code": "def neutral_cwd(...) \u2014 4 calls, no try/except",
+      "message": "Function 'neutral_cwd' makes 4 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 54,
+      "code": "def _save_note(...) \u2014 7 calls, no try/except",
+      "message": "Function '_save_note' makes 7 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 65,
+      "code": "def log_entry(...) \u2014 7 calls, no try/except",
+      "message": "Function 'log_entry' makes 7 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 92,
+      "code": "def auto_log(...) \u2014 25 calls, no try/except",
+      "message": "Function 'auto_log' makes 25 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 144,
+      "code": "def format_note(...) \u2014 28 calls, no try/except",
+      "message": "Function 'format_note' makes 28 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 181,
+      "code": "def main(...) \u2014 44 calls, no try/except",
+      "message": "Function 'main' makes 44 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 32,
+      "code": "def _run_agent(...) \u2014 5 calls, no try/except",
+      "message": "Function '_run_agent' makes 5 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 101,
+      "code": "def _normalize_symbol_key(...) \u2014 4 calls, no try/except",
+      "message": "Function '_normalize_symbol_key' makes 4 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 146,
+      "code": "def _build_context_str(...) \u2014 49 calls, no try/except",
+      "message": "Function '_build_context_str' makes 49 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 206,
+      "code": "def debate_signal(...) \u2014 24 calls, no try/except",
+      "message": "Function 'debate_signal' makes 24 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 345,
+      "code": "def format_debate(...) \u2014 6 calls, no try/except",
+      "message": "Function 'format_debate' makes 6 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 65,
+      "code": "def review(...) \u2014 75 calls, no try/except",
+      "message": "Function 'review' makes 75 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 32,
+      "code": "def _scan_asset(...) \u2014 32 calls, no try/except",
+      "message": "Function '_scan_asset' makes 32 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 148,
+      "code": "def format_scan(...) \u2014 22 calls, no try/except",
+      "message": "Function 'format_scan' makes 22 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 195,
+      "code": "def main(...) \u2014 16 calls, no try/except",
+      "message": "Function 'main' makes 16 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "memory.py",
+      "line": 39,
+      "code": "def _save(...) \u2014 4 calls, no try/except",
+      "message": "Function '_save' makes 4 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "memory.py",
+      "line": 44,
+      "code": "def add_memory(...) \u2014 10 calls, no try/except",
+      "message": "Function 'add_memory' makes 10 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "memory.py",
+      "line": 72,
+      "code": "def recall(...) \u2014 6 calls, no try/except",
+      "message": "Function 'recall' makes 6 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "memory.py",
+      "line": 83,
+      "code": "def get_today(...) \u2014 6 calls, no try/except",
+      "message": "Function 'get_today' makes 6 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "memory.py",
+      "line": 94,
+      "code": "def forget(...) \u2014 6 calls, no try/except",
+      "message": "Function 'forget' makes 6 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "memory.py",
+      "line": 105,
+      "code": "def summary(...) \u2014 5 calls, no try/except",
+      "message": "Function 'summary' makes 5 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "memory.py",
+      "line": 125,
+      "code": "def format_entries(...) \u2014 6 calls, no try/except",
+      "message": "Function 'format_entries' makes 6 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "memory.py",
+      "line": 136,
+      "code": "def main(...) \u2014 46 calls, no try/except",
+      "message": "Function 'main' makes 46 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 292,
+      "code": "def check_circuit_breaker(...) \u2014 5 calls, no try/except",
+      "message": "Function 'check_circuit_breaker' makes 5 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 512,
+      "code": "def auto_detect_symbols(...) \u2014 11 calls, no try/except",
+      "message": "Function 'auto_detect_symbols' makes 11 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 698,
+      "code": "def connect_mt5(...) \u2014 18 calls, no try/except",
+      "message": "Function 'connect_mt5' makes 18 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 802,
+      "code": "def get_lot_size(...) \u2014 17 calls, no try/except",
+      "message": "Function 'get_lot_size' makes 17 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 995,
+      "code": "def check_strategy_limits(...) \u2014 5 calls, no try/except",
+      "message": "Function 'check_strategy_limits' makes 5 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1150,
+      "code": "def prompt_confirm(...) \u2014 30 calls, no try/except",
+      "message": "Function 'prompt_confirm' makes 30 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1191,
+      "code": "def process_signal(...) \u2014 52 calls, no try/except",
+      "message": "Function 'process_signal' makes 52 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1433,
+      "code": "def print_status(...) \u2014 9 calls, no try/except",
+      "message": "Function 'print_status' makes 9 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1556,
+      "code": "def take_partial_profit(...) \u2014 13 calls, no try/except",
+      "message": "Function 'take_partial_profit' makes 13 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1666,
+      "code": "def summarize_closed_position(...) \u2014 9 calls, no try/except",
+      "message": "Function 'summarize_closed_position' makes 9 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "notifications.py",
+      "line": 136,
+      "code": "def notify_signal(...) \u2014 5 calls, no try/except",
+      "message": "Function 'notify_signal' makes 5 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "notifications.py",
+      "line": 187,
+      "code": "def notify_trade_closed(...) \u2014 6 calls, no try/except",
+      "message": "Function 'notify_trade_closed' makes 6 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "notifications.py",
+      "line": 227,
+      "code": "def run_test(...) \u2014 12 calls, no try/except",
+      "message": "Function 'run_test' makes 12 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 159,
+      "code": "def run_parallel(...) \u2014 13 calls, no try/except",
+      "message": "Function 'run_parallel' makes 13 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 178,
+      "code": "def print_results(...) \u2014 8 calls, no try/except",
+      "message": "Function 'print_results' makes 8 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 223,
+      "code": "def group_stats(...) \u2014 15 calls, no try/except",
+      "message": "Function 'group_stats' makes 15 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 266,
+      "code": "def build_fact_pack(...) \u2014 59 calls, no try/except",
+      "message": "Function 'build_fact_pack' makes 59 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 455,
+      "code": "def _fenced_blocks(...) \u2014 5 calls, no try/except",
+      "message": "Function '_fenced_blocks' makes 5 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 494,
+      "code": "def _object_fragments(...) \u2014 7 calls, no try/except",
+      "message": "Function '_object_fragments' makes 7 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 590,
+      "code": "def collect_agent_output(...) \u2014 7 calls, no try/except",
+      "message": "Function 'collect_agent_output' makes 7 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 623,
+      "code": "def run_analysts(...) \u2014 9 calls, no try/except",
+      "message": "Function 'run_analysts' makes 9 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 684,
+      "code": "def run_synthesiser(...) \u2014 8 calls, no try/except",
+      "message": "Function 'run_synthesiser' makes 8 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 747,
+      "code": "def write_json(...) \u2014 4 calls, no try/except",
+      "message": "Function 'write_json' makes 4 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 754,
+      "code": "def write_report(...) \u2014 4 calls, no try/except",
+      "message": "Function 'write_report' makes 4 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 759,
+      "code": "def print_summary(...) \u2014 39 calls, no try/except",
+      "message": "Function 'print_summary' makes 39 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 799,
+      "code": "def main(...) \u2014 28 calls, no try/except",
+      "message": "Function 'main' makes 28 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 121,
+      "code": "def _check_api_contracts(...) \u2014 13 calls, no try/except",
+      "message": "Function '_check_api_contracts' makes 13 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 161,
+      "code": "def full_scan(...) \u2014 17 calls, no try/except",
+      "message": "Function 'full_scan' makes 17 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 195,
+      "code": "def _save_report(...) \u2014 5 calls, no try/except",
+      "message": "Function '_save_report' makes 5 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 215,
+      "code": "def format_report(...) \u2014 14 calls, no try/except",
+      "message": "Function 'format_report' makes 14 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 290,
+      "code": "def main(...) \u2014 17 calls, no try/except",
+      "message": "Function 'main' makes 17 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 90,
+      "code": "def get_cred(...) \u2014 9 calls, no try/except",
+      "message": "Function 'get_cred' makes 9 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 257,
+      "code": "def open_chart(...) \u2014 6 calls, no try/except",
+      "message": "Function 'open_chart' makes 6 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 363,
+      "code": "def _pine_str(...) \u2014 4 calls, no try/except",
+      "message": "Function '_pine_str' makes 4 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 422,
+      "code": "def generate_pine(...) \u2014 38 calls, no try/except",
+      "message": "Function 'generate_pine' makes 38 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 741,
+      "code": "def draw_via_pine_editor(...) \u2014 8 calls, no try/except",
+      "message": "Function 'draw_via_pine_editor' makes 8 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 769,
+      "code": "def fetch_live_gate(...) \u2014 4 calls, no try/except",
+      "message": "Function 'fetch_live_gate' makes 4 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 786,
+      "code": "def build_plan(...) \u2014 56 calls, no try/except",
+      "message": "Function 'build_plan' makes 56 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 912,
+      "code": "def cmd_test(...) \u2014 4 calls, no try/except",
+      "message": "Function 'cmd_test' makes 4 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 919,
+      "code": "def cmd_draw(...) \u2014 11 calls, no try/except",
+      "message": "Function 'cmd_draw' makes 11 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 941,
+      "code": "def cmd_alert(...) \u2014 4 calls, no try/except",
+      "message": "Function 'cmd_alert' makes 4 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 948,
+      "code": "def cmd_pine(...) \u2014 8 calls, no try/except",
+      "message": "Function 'cmd_pine' makes 8 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 928,
+      "code": "def _draw(...) \u2014 8 calls, no try/except",
+      "message": "Function '_draw' makes 8 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 52,
+      "code": "def _key_levels(...) \u2014 12 calls, no try/except",
+      "message": "Function '_key_levels' makes 12 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 71,
+      "code": "def build_plan(...) \u2014 76 calls, no try/except",
+      "message": "Function 'build_plan' makes 76 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 239,
+      "code": "def notify(...) \u2014 8 calls, no try/except",
+      "message": "Function 'notify' makes 8 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 254,
+      "code": "def log_to_notes(...) \u2014 14 calls, no try/except",
+      "message": "Function 'log_to_notes' makes 14 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 271,
+      "code": "def main(...) \u2014 19 calls, no try/except",
+      "message": "Function 'main' makes 19 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "voice.py",
+      "line": 207,
+      "code": "def listen_and_respond(...) \u2014 16 calls, no try/except",
+      "message": "Function 'listen_and_respond' makes 16 calls with no error handling",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 98,
+      "code": "print(\"\\n[AUTO] Phase 1: System health check...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 115,
+      "code": "print(\"[AUTO] Phase 2: Performance analysis...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 155,
+      "code": "print(\"[AUTO] Phase 3: Web research...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 168,
+      "code": "print(\"[AUTO] Phase 4: Code scan...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 177,
+      "code": "print(\"[AUTO] Phase 5: AI improvement proposal (Opus)...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 254,
+      "code": "print(f\"\\n{'='*60}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 255,
+      "code": "print(f\"  JARVIS AUTO-RUNNER \u2014 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 256,
+      "code": "print(f\"{'='*60}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 264,
+      "code": "print(f\"  \u26a0 {len(health['failures'])} failure(s) found\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 266,
+      "code": "print(f\"  \u2713 System healthy\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 269,
+      "code": "_save_and_print(report, start, silent)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 275,
+      "code": "print(f\"  \u2713 Performance: WR={perf['win_rate']}% | P&L=${perf['net_pnl']} | Worst={perf.get('worst_setup','none')}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 280,
+      "code": "print(f\"  \u2713 Web research: {len(research)} chars\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 285,
+      "code": "print(f\"  \u2713 Code scan: {len(scan['high_issues'])} HIGH issues\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 290,
+      "code": "print(f\"  \u2713 AI proposal generated ({len(proposal)} chars)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 298,
+      "code": "print(f\"\\n{'='*60}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 299,
+      "code": "print(f\"  AUTO-RUNNER COMPLETE in {elapsed}s\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 300,
+      "code": "print(f\"  Report: {path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 301,
+      "code": "print(f\"{'='*60}\\n\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 305,
+      "code": "print(\"\\nTODAY'S IMPROVEMENT PROPOSAL:\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 306,
+      "code": "print(\"-\" * 60)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 307,
+      "code": "print(proposal)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 308,
+      "code": "print(\"-\" * 60)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 311,
+      "code": "def _save_and_print(report, start, silent):",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "auto_runner.py",
+      "line": 315,
+      "code": "print(f\"\\nDone in {elapsed}s \u2014 {path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 144,
+      "code": "print(f\"Screenshot saved (CDP): {path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 147,
+      "code": "print(f\"[WARN] CDP unavailable \u2014 {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 149,
+      "code": "print(f\"[WARN] CDP connection failed \u2014 {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 151,
+      "code": "print(f\"[WARN] CDP screenshot failed \u2014 {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 156,
+      "code": "print(f\"Screenshot saved (pyautogui): {path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 267,
+      "code": "print(f\"[chart_vision] Capturing {symbol} chart...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 270,
+      "code": "print(f\"[chart_vision] Sending to Claude Vision ({CLAUDE_MODEL})...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 274,
+      "code": "print(f\"\\n{separator}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 275,
+      "code": "print(f\"  CHART ANALYSIS \u2014 {symbol}  |  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 276,
+      "code": "print(separator)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 277,
+      "code": "print(analysis)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 278,
+      "code": "print(separator)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 289,
+      "code": "print(f\"[chart_vision] Analysis saved: {analysis_path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 299,
+      "code": "print(f\"[chart_vision] Watch mode \u2014 analyzing {symbol} every {WATCH_INTERVAL_SECONDS // 60} min. Ctrl-C to stop.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 304,
+      "code": "print(f\"[ERROR] Analysis failed: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 305,
+      "code": "print(f\"\\nNext analysis in {WATCH_INTERVAL_SECONDS // 60} minutes...\\n\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 309,
+      "code": "print(\"\\n[chart_vision] Watch mode stopped.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 329,
+      "code": "print(\"Usage: python chart_vision.py analyze <path/to/screenshot.png>\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 336,
+      "code": "print(f\"[ERROR] {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 339,
+      "code": "print(f\"\\n{separator}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 340,
+      "code": "print(f\"  CHART ANALYSIS \u2014 {symbol}  |  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 341,
+      "code": "print(separator)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 342,
+      "code": "print(analysis)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 343,
+      "code": "print(separator)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 351,
+      "code": "print(\"\\n[chart_vision] Stopped.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "chart_vision.py",
+      "line": 359,
+      "code": "print(f\"[ERROR] {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "check_errors.py",
+      "line": 375,
+      "code": "print(json.dumps(data, indent=2))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "check_errors.py",
+      "line": 377,
+      "code": "print(format_results(data))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 184,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 191,
+      "code": "print(\"Usage: daily_notes.py log TEXT [TAG]\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 196,
+      "code": "print(f\"[DAILY] Logged [{entry['tag']}]: {entry['text']}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 200,
+      "code": "print(format_note(note))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 205,
+      "code": "print(format_note(note))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 209,
+      "code": "print(\"Usage: daily_notes.py date YYYY-MM-DD\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 212,
+      "code": "print(format_note(note))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 217,
+      "code": "print(\"[DAILY] No notes found.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 219,
+      "code": "print(f\"\\n[DAILY] Notes for last {len(dates)} days:\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 225,
+      "code": "print(f\"  {d}  signals={n_signals}  trades={n_trades}  log={n_entries}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 229,
+      "code": "print(f\"[DAILY] Auto-logged to {note['date']}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 230,
+      "code": "print(format_note(note))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 233,
+      "code": "print(f\"[DAILY] Unknown command: {cmd}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "daily_notes.py",
+      "line": 234,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 47,
+      "code": "print(f\"  [{role}] starting...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 52,
+      "code": "print(f\"  [{role}] returned no VERDICT line \u2014 prompt may not have arrived\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 54,
+      "code": "print(f\"  [{role}] {status} in {result['elapsed']:.0f}s\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 282,
+      "code": "print(f\"\\n[DEBATE] {symbol} {direction.upper()} @ {entry} \u2014 launching 3 agents...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 409,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 420,
+      "code": "print(f\"[ERROR] Could not reach {url}: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 426,
+      "code": "print(\"[INFO] No signals returned from server.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 440,
+      "code": "print(f\"[ERROR] Unexpected signal format from API: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 441,
+      "code": "print(f\"  Raw response: {json.dumps(signal, indent=2)}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 447,
+      "code": "print(\"Usage: python debate_agents.py SYMBOL DIRECTION CONFIDENCE ENTRY STOP TARGET\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 448,
+      "code": "print(\"       python debate_agents.py --from-api\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 459,
+      "code": "print(f\"[ERROR] Numeric argument parse failed: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 477,
+      "code": "print(format_debate(result))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "debate_agents.py",
+      "line": 478,
+      "code": "print(f\"[SAVED] {output_path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 67,
+      "code": "print(f\"\\n{'='*55}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 68,
+      "code": "print(f\"  JARVIS EOD REVIEW \u2014 {today}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 69,
+      "code": "print(f\"{'='*55}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 81,
+      "code": "print(f\"\\n  Trades closed today: {len(today_trades)}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 84,
+      "code": "print(\"  No trades to review.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 113,
+      "code": "print(f\"  W:{len(wins)} L:{len(losses)} BE:{len(be)} | WR:{win_rate}% | P&L:${gross:+.2f}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 114,
+      "code": "print(f\"  Best:  {best.get('symbol')} ${best.get('pnl',0):+.2f}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 115,
+      "code": "print(f\"  Worst: {worst.get('symbol')} ${worst.get('pnl',0):+.2f}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 124,
+      "code": "print(\"\\n  Generating EOD insight\u2026\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 148,
+      "code": "print(f\"\\n  INSIGHT:\\n  {insight}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 183,
+      "code": "print(f\"\\n  Report saved: {out}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "eod_review.py",
+      "line": 184,
+      "code": "print(f\"{'='*55}\\n\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 95,
+      "code": "print(f\"\\n[SCAN] Fetching server data...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 103,
+      "code": "print(f\"[SCAN] Scanning {len(assets)} assets in parallel...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 124,
+      "code": "print(f\"[SCAN] Done in {elapsed}s\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 135,
+      "code": "print(f\"\\n[SCAN] Debating {r['symbol']} {r['signal']}...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 140,
+      "code": "print(format_debate(debate))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 210,
+      "code": "print(format_scan(results))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "market_scanner.py",
+      "line": 218,
+      "code": "print(f\"[SCAN] Saved: {out_path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 139,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 146,
+      "code": "print(\"Usage: memory.py add KEY VALUE [CATEGORY]\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 152,
+      "code": "print(f\"[MEMORY] Stored: [{entry['category']}] {entry['key']}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 157,
+      "code": "print(\"Usage: memory.py recall KEYWORD\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 160,
+      "code": "print(f\"\\n[MEMORY] Results for '{query}' ({len(hits)} found):\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 161,
+      "code": "print(format_entries(hits))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 165,
+      "code": "print(f\"\\n[MEMORY] Today's entries ({len(hits)}):\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 166,
+      "code": "print(format_entries(hits))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 170,
+      "code": "print(f\"\\n[MEMORY] Total entries: {s['total']}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 171,
+      "code": "print(\"  By category:\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 173,
+      "code": "print(f\"    {cat:12s}: {count}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 174,
+      "code": "print(f\"  Last updated: {s['last_updated'] or 'never'}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 175,
+      "code": "print(\"\\n  Recent:\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 176,
+      "code": "print(format_entries(s[\"recent\"]))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 180,
+      "code": "print(\"Usage: memory.py forget KEY\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 184,
+      "code": "print(f\"[MEMORY] Removed entries matching '{argv[1]}'\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 186,
+      "code": "print(f\"[MEMORY] No entries matched '{argv[1]}'\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 190,
+      "code": "print(f\"\\n[MEMORY] All entries ({len(entries)}):\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 191,
+      "code": "print(format_entries(entries))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 194,
+      "code": "print(f\"[MEMORY] Unknown command: {cmd}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "memory.py",
+      "line": 195,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 33,
+      "code": "print(\"ERROR: MetaTrader5 not installed. Run: pip install MetaTrader5\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 323,
+      "code": "print(f\"{color}[{ts}] {prefix}{msg}{RESET}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1163,
+      "code": "print()",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1164,
+      "code": "print(f\"{color}{BOLD}{'='*60}{RESET}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1165,
+      "code": "print(f\"{color}{BOLD}  {sig['label']} \u2014 {strength} {direction} ({setup}){RESET}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1166,
+      "code": "print(f\"{color}{'='*60}{RESET}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1167,
+      "code": "print(f\"  Trend:    {trend}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1168,
+      "code": "print(f\"  Price:    ${sig['price']:,.2f}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1169,
+      "code": "print(f\"  Entry:    ${entry:,.2f}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1170,
+      "code": "print(f\"  Stop:     ${stop:,.2f}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1171,
+      "code": "print(f\"  Target:   ${target:,.2f}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1173,
+      "code": "print(f\"  R/R:      1:{rr}  {'\u2713 Good' if rr >= 2 else '\u26a0 Tight'}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1174,
+      "code": "print(f\"  RSI:      {rsi}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1175,
+      "code": "print(f\"  MT5 sym:  {symbol}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1180,
+      "code": "print(f\"  Lots:     {lots}  (${risk_usd:.2f} risk at {RISK_PERCENT}% of ${acc.balance:.2f})\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1181,
+      "code": "print(f\"{color}{'='*60}{RESET}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1443,
+      "code": "print(f\"[{now}] {' | '.join(parts)}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1923,
+      "code": "print(f\"\\n{CYAN}{BOLD}SmartEntry MT5 Bridge v1{RESET}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1924,
+      "code": "print(f\"Mode: {'AUTO (min strength: ' + strategy_settings['minStrength'] + ')' if AUTO_MODE else 'SEMI-AUTO (confirm eac",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1925,
+      "code": "print(f\"Risk per trade: {RISK_PERCENT}%  |  Max spread: {MAX_SPREAD_PTS} pts\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1926,
+      "code": "print(f\"Server: {SERVER_URL}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1927,
+      "code": "print(f\"Poll interval: {POLL_INTERVAL}s\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1929,
+      "code": "print(f\"Account tag: {ACCOUNT_TAG}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_bridge.py",
+      "line": 1930,
+      "code": "print(f\"Terminal: {TERMINAL_PATH or '(auto-detect \u2014 unsafe with more than one MT5 terminal running)'}\\n\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_login_helper.py",
+      "line": 15,
+      "code": "print(json.dumps({\"ok\": False, \"error\": \"MetaTrader5 package not installed\"}))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_login_helper.py",
+      "line": 23,
+      "code": "print(json.dumps({\"ok\": False, \"error\": f\"invalid input: {e}\"}))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_login_helper.py",
+      "line": 33,
+      "code": "print(json.dumps({\"ok\": False, \"error\": \"login, password, server, and terminalPath are required\"}))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_login_helper.py",
+      "line": 39,
+      "code": "print(json.dumps({\"ok\": False, \"error\": \"login must be numeric\"}))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_login_helper.py",
+      "line": 47,
+      "code": "print(json.dumps({\"ok\": False, \"error\": f\"initialize failed: {mt5.last_error()}\"}))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_login_helper.py",
+      "line": 53,
+      "code": "print(json.dumps({\"ok\": False, \"error\": f\"login failed: {err}\"}))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "mt5_login_helper.py",
+      "line": 69,
+      "code": "print(json.dumps(result))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 229,
+      "code": "print(\"Running notification test...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 232,
+      "code": "print(\"  Toast: sent (or silently skipped on non-Windows)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 239,
+      "code": "print(f\"  Email: {'sent' if email_configured else 'skipped (not configured)'}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 243,
+      "code": "print(f\"  Webhook: {'sent' if webhook_configured else 'skipped (not configured)'}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 245,
+      "code": "print(\"Test complete.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 252,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 260,
+      "code": "print(\"Usage: notifications.py signal SYMBOL DIRECTION CONFIDENCE \\\"summary\\\"\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 272,
+      "code": "print(\"Usage: notifications.py alert \\\"message\\\" [--title TITLE] [--channel all|toast|email|webhook]\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 289,
+      "code": "print(\"Usage: notifications.py alert \\\"message\\\"\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 299,
+      "code": "print(f\"[NOTIFY] Alert sent via {channel}: {_title} \u2014 {_body[:80]}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 304,
+      "code": "print(\"Usage: notifications.py trade-closed SYMBOL OUTCOME PNL\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 309,
+      "code": "print(f\"Invalid PNL value: {args[3]}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 317,
+      "code": "print(f\"Unknown command: {command}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "notifications.py",
+      "line": 318,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 108,
+      "code": "print(f\"  [{label}] starting...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 154,
+      "code": "print(f\"  [{label}] {status} in {elapsed:.0f}s\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 161,
+      "code": "print(f\"\\n[PARALLEL] Launching {n} agents simultaneously...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 173,
+      "code": "print(f\"\\n[PARALLEL] All {n} agents done.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 174,
+      "code": "print(f\"  Wall time: {wall:.0f}s  |  Sequential would have been: {seq:.0f}s  |  Saved: {saved:.0f}s\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 179,
+      "code": "print(\"\\n\" + \"=\"*60)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 180,
+      "code": "print(\"PARALLEL AGENT RESULTS\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 181,
+      "code": "print(\"=\"*60)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 184,
+      "code": "print(f\"\\n{marker} {r['label']} ({r['elapsed']:.0f}s)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 185,
+      "code": "print(\"-\" * 40)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 186,
+      "code": "print(r[\"output\"])",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 187,
+      "code": "print(\"\\n\" + \"=\"*60)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 194,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 199,
+      "code": "print(\"Usage: python parallel_agents.py --file tasks.json\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 206,
+      "code": "print(f\"[PLAN] Breaking task into parallel workstreams: {plan_prompt}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 235,
+      "code": "print(\"[PLAN] Could not parse workstreams \u2014 raw output:\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 236,
+      "code": "print(raw)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 240,
+      "code": "print(f\"[PLAN] {len(tasks)} workstreams planned:\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_agents.py",
+      "line": 242,
+      "code": "print(f\"  {i}. {t['label']}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 267,
+      "code": "print(f\"[facts] replaying {len(SYMBOLS)} assets on the LIVE MTF path \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 279,
+      "code": "print(f\"  [{label}] {err}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 284,
+      "code": "print(f\"  [{label}] {len(trades)} trades\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 566,
+      "code": "print(f\"  [{label}] WARNING: prompt is {len(prompt)} chars, over the \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 610,
+      "code": "print(f\"  [{label}] output file unusable ({file_error}) \u2014 \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 640,
+      "code": "print(f\"\\n[agents] launching {len(tasks)} analysts in parallel \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 696,
+      "code": "print(f\"[agents] synthesising (attempt {attempt} of {SYNTH_MAX_ATTEMPTS})...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 708,
+      "code": "print(f\"  [synthesiser] attempt {attempt} unusable: {retry_reason}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 762,
+      "code": "print(\"\\n\" + \"=\" * 70)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 763,
+      "code": "print(\"  PARALLEL ANALYSIS\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 764,
+      "code": "print(\"=\" * 70)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 766,
+      "code": "print(f\"  Sample: {overall['trades']} replayed trades  \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 770,
+      "code": "print(f\"  Replay errors: {len(facts['replayErrors'])}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 772,
+      "code": "print(f\"    - {err}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 775,
+      "code": "print(f\"\\n  SYNTHESIS FAILED after {synth.get('_attempts', 1)} attempt(s): \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 777,
+      "code": "print(\"  The analyst reports below were still produced and are saved:\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 780,
+      "code": "print(f\"    [{label}] unexpected report type {type(report).__name__}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 782,
+      "code": "print(f\"    [{label}] FAILED: {report['_error']}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 784,
+      "code": "print(f\"    [{label}] {report.get('headline', '(no headline)')}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 786,
+      "code": "print(f\"\\n  VERDICT: {synth.get('verdict', '(none)')}\\n\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 789,
+      "code": "print(f\"  #{action.get('rank', '?')} {action.get('action', '')}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 790,
+      "code": "print(f\"      why      : {action.get('rationale', '')}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 791,
+      "code": "print(f\"      backed by: {action.get('agreement', '')}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 792,
+      "code": "print(f\"      gate     : {gate.get('status', 'not run')} \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 795,
+      "code": "print(f\"  blind spot: {blind}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 796,
+      "code": "print(\"=\" * 70)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 813,
+      "code": "print(\"\\nNo trades replayed \u2014 nothing to analyse.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 815,
+      "code": "print(f\"  {err}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 816,
+      "code": "print(\"Run tasks/export_mt5_history.py to refresh tasks/history/*.csv.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 820,
+      "code": "print(json.dumps(facts, indent=2)[:20000])",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 839,
+      "code": "print(f\"\\nWritten: {path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 845,
+      "code": "print(f\"Analyst reports preserved at: {reports_path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "parallel_analysis.py",
+      "line": 846,
+      "code": "print(f\"Exiting {EXIT_SYNTHESIS_FAILED}: synthesis failed after \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 35,
+      "code": "(r\"except\\s*:\\s*pass\",  \"bare except:pass \u2014 all exceptions silently ignored\"),",
+      "message": "bare except:pass \u2014 all exceptions silently ignored",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 36,
+      "code": "(r\"except\\s+Exception\\s*:\\s*pass\", \"except Exception:pass \u2014 errors silently ignored\"),",
+      "message": "except Exception:pass \u2014 errors silently ignored",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 40,
+      "code": "(r\"print\\s*\\(\",         \"bare print() \u2014 may be debug output\"),",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 254,
+      "code": "print(\"[IMPROVE] claude CLI not found \u2014 skipping AI proposals\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 259,
+      "code": "print(\"[IMPROVE] No HIGH severity issues \u2014 no proposals needed\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 276,
+      "code": "print(\"[IMPROVE] Asking claude for upgrade proposals...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 283,
+      "code": "print(\"\\n\" + run_claude(prompt, timeout=120, label=\"self-improve\")[\"output\"])",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 285,
+      "code": "print(\"[IMPROVE] AI proposal timed out\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 287,
+      "code": "print(\"[IMPROVE] claude CLI not found\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 293,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 299,
+      "code": "print(\"[IMPROVE] Scanning codebase...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 305,
+      "code": "print(format_report(report))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 307,
+      "code": "print(f\"[IMPROVE] Report saved: {saved_path}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 312,
+      "code": "print(\"[IMPROVE] No reports found. Run: python self_improve.py scan --save\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 314,
+      "code": "print(format_report(report))",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 319,
+      "code": "print(\"[IMPROVE] No scan report found. Run scan first: python self_improve.py scan --save\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "self_improve.py",
+      "line": 324,
+      "code": "print(f\"[IMPROVE] Unknown command: {cmd}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 26,
+      "code": "print(\"ERROR: playwright not installed.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 27,
+      "code": "print(\"Run:  pip install playwright\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 28,
+      "code": "print(\"Then: playwright install chromium\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 108,
+      "code": "print(\"[TV] Session saved \u2014 no login needed next time\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 110,
+      "code": "print(f\"[TV] Session save failed: {e}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 123,
+      "code": "print(f\"[TV] Clipboard permission not granted ({exc}) \u2014 paste may fail\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 124,
+      "code": "print(\"[TV] Attached to running Edge\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 148,
+      "code": "print(\"[TV] Already logged in\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 160,
+      "code": "print(\"[TV] Already logged in (session active)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 165,
+      "code": "print(\"[TV] No credentials \u2014 please log into TradingView in the browser window.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 166,
+      "code": "print(\"[TV] Waiting up to 3 minutes...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 170,
+      "code": "print(\"[TV] Logged in \u2014 session saved.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 204,
+      "code": "print(\"[TV] Could not find email field \u2014 browser is open, please log in manually.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 205,
+      "code": "print(\"[TV] Waiting up to 3 minutes...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 212,
+      "code": "print(\"[TV] Logged in manually \u2014 session saved.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 241,
+      "code": "print(\"\\n[TV] 2FA required \u2014 check your email/authenticator app.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 242,
+      "code": "print(\"[TV] Enter the code in the browser window that just opened.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 243,
+      "code": "print(\"[TV] Waiting up to 3 minutes for you to complete login...\\n\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 254,
+      "code": "print(f\"[TV] Logged in: {username}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 270,
+      "code": "print(f\"[TV] Chart open: {tv_sym}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 302,
+      "code": "print(f\"[TV] Cannot find chart canvas \u2014 skipping {label}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 307,
+      "code": "print(f\"[TV] Cannot read price range \u2014 skipping {label}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 325,
+      "code": "print(f\"[TV] {label}: ${price:,.0f}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 328,
+      "code": "print(f\"[TV] Draw error ({label}): {e}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 356,
+      "code": "print(f\"[TV] Alert set: ${price:,.0f} \u2014 {message}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 359,
+      "code": "print(f\"[TV] Alert error: {e}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 578,
+      "code": "print(\"[TV] Legend is collapsed \u2014 studies cannot be removed programmatically. \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 599,
+      "code": "print(f\"[TV] could not remove {title!r}: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 602,
+      "code": "print(f\"[TV] Removed {len(removed)} stale plan study(ies): {removed}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 649,
+      "code": "print(f\"[TV] {label}: script did not land cleanly; editor starts {landed[:60]!r}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 670,
+      "code": "print(f\"[TV] Save control not found: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 688,
+      "code": "print(f\"[TV] Saved new script as {name!r}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 690,
+      "code": "print(f\"[TV] Saved {name!r} (existing script updated)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 692,
+      "code": "print(f\"[TV] Saved {name!r} (no name dialog)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 699,
+      "code": "print(f\"[TV] Pine reported {errors[:2]}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 720,
+      "code": "print(f\"[TV] {symbol}: Pine reported {errors[:2]}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 729,
+      "code": "print(f\"[TV] {symbol}: could not collapse the editor ({exc})\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 737,
+      "code": "print(f\"[TV] {symbol}: daily plan applied (see {SHOT_DIR / f'plan_{symbol.lower()}.png'})\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 761,
+      "code": "print(f\"[TV] {path} returned HTTP {response.status}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 765,
+      "code": "print(f\"[TV] {path} unreachable: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 909,
+      "code": "print(f\"[TV] Cannot connect to Edge: {e}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 910,
+      "code": "print(\"[TV] Open TradingView in Edge, then run: tasks\\\\launch_chrome_tv.bat\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 913,
+      "code": "print(\"[TV] Testing connection to TradingView...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 915,
+      "code": "print(f\"[TV] Connected \u2014 current page: {page.url}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 916,
+      "code": "print(\"[TV] SUCCESS\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 934,
+      "code": "print(\"[TV] Direct drawing failed \u2014 using Pine Editor\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 937,
+      "code": "print(f\"[TV] Done: {drawn}/{len(levels)} levels drawn on {symbol}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 956,
+      "code": "print(script)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 957,
+      "code": "print(f\"\\n[TV] Pine Script saved to: {out_file}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 958,
+      "code": "print(\"[TV] Paste it into TradingView > Pine Script Editor, then press Ctrl+Enter\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 970,
+      "code": "print(\"[TV] No signals \u2014 is the SmartEntry server up on :3001?\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 974,
+      "code": "print(f\"[TV] Live gate: {gate} ({gate_note})\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 984,
+      "code": "print(f\"[TV] {name}: not in /api/signals \u2014 skipped\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 989,
+      "code": "print(\"[TV] Nothing to draw\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1019,
+      "code": "print(f\"[TV] Plan studies: {len(before)} before, {len(after)} after\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1021,
+      "code": "print(\"[TV] WARNING: a duplicate study was added \u2014 do not schedule this\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1023,
+      "code": "print(f\"[TV] No plan study on the chart yet. Add {SAVED_SCRIPT_NAME!r} \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1036,
+      "code": "print(f\"[TV] {plan['symbol']} screenshot: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1042,
+      "code": "print(f\"[TV] Cannot connect to Edge: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1043,
+      "code": "print(\"[TV] Run: tasks\\\\launch_chrome_tv.bat\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1048,
+      "code": "print(f\"\\n[TV] Plan drawn: {', '.join(ok) if ok else 'none'}\"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1056,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1066,
+      "code": "print(\"Usage: python tradingview_bot.py draw [symbol] [entry] [stop] [target] [support?] [resistance?]\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1082,
+      "code": "print(\"Usage: python tradingview_bot.py alert [symbol] [price] [message]\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1088,
+      "code": "print(\"Usage: python tradingview_bot.py pine [symbol] [entry] [stop] [target] [support?] [resistance?] [bias?]\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1101,
+      "code": "print(f\"Unknown command: {cmd}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tradingview_bot.py",
+      "line": 1102,
+      "code": "print(__doc__)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 75,
+      "code": "print(f\"\\n{'='*55}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 76,
+      "code": "print(f\"  JARVIS DAILY PLAN \u2014 {today}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 77,
+      "code": "print(f\"{'='*55}\\n\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 80,
+      "code": "print(\"[plan] Fetching server data\u2026\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 112,
+      "code": "print(f\"  [{sym.upper()}] {sig['signal']} conf:{sig.get('confidence',0)}% \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 115,
+      "code": "print(f\"  [{sym.upper()}] WAIT \u2014 {sig.get('regime','no regime')}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 166,
+      "code": "print(f\"\\n[plan] Saved: {out}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 175,
+      "code": "print(\"[plan] tv_screenshot.js not found \u2014 skipping screenshots\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 184,
+      "code": "print(\"[plan] Taking TradingView screenshots\u2026\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 188,
+      "code": "print(output[:400] if output else \"  [no output]\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 190,
+      "code": "print(\"[plan] Screenshot timeout \u2014 charts may be slow to load\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 192,
+      "code": "print(f\"[plan] Screenshot error: {e}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 211,
+      "code": "print(\"[plan] tradingview_bot.py not found \u2014 skipping chart drawing\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 217,
+      "code": "print(\"[plan] Edge is not on CDP 9222 and launch_chrome_tv.bat is missing \u2014 skipping\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 219,
+      "code": "print(\"[plan] Edge not on 9222 \u2014 launching it\u2026\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 224,
+      "code": "print(f\"[plan] Could not launch Edge: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 231,
+      "code": "print(\"[plan] Edge never opened port 9222 \u2014 skipping chart drawing\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 234,
+      "code": "print(\"[plan] Drawing the daily plan on TradingView\u2026\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 236,
+      "code": "print(output[-600:] if output else \"  [no output]\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 290,
+      "code": "print(\"\\nMORNING BRIEFING:\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 291,
+      "code": "print(\"-\" * 55)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 295,
+      "code": "print(f\"  {sym.upper()}: {tp['direction']} | conf:{tp['confidence']}% | \"",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 299,
+      "code": "print(f\"  {sym.upper()}: WAIT | price:{p}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 301,
+      "code": "print(f\"  {w}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 302,
+      "code": "print(\"-\" * 55)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "tv_daily_plan.py",
+      "line": 303,
+      "code": "print(f\"\\n  Dashboard: http://localhost:3001/daily-plan\\n\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 42,
+      "code": "print(\"sounddevice not installed. Run: pip install sounddevice\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 45,
+      "code": "print(\"\\nAvailable audio devices:\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 46,
+      "code": "print(\"-\" * 60)",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 50,
+      "code": "print(f\"  [{i}] {d['name']}{marker}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 51,
+      "code": "print(\"\\nUse:  python voice.py --device N  to select a specific mic\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 52,
+      "code": "print(\"      python voice.py --device N --loop  for continuous mode\\n\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 61,
+      "code": "print(\"sounddevice not installed. Run: pip install sounddevice\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 67,
+      "code": "print(\"scipy not installed. Run: pip install scipy\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 73,
+      "code": "print(\"numpy not installed. Run: pip install numpy\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 78,
+      "code": "print(f\"Listening ({seconds}s) via [{dev_info['name']}] ...\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 90,
+      "code": "print(f\"Recording failed: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 91,
+      "code": "print(\"  Try:  python voice.py --list-devices   then  --device N\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 95,
+      "code": "print(f\"  Peak level: {peak}  (min to transcribe: {MIN_AMPLITUDE})\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 98,
+      "code": "print(\"  \u26a0 Audio too quiet \u2014 mic may be muted, wrong device, or volume too low.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 99,
+      "code": "print(\"  \u2192 Run: python voice.py --list-devices   then pick a device with --device N\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 100,
+      "code": "print(\"  \u2192 Or use --boost to amplify weak input.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 106,
+      "code": "print(f\"  Boost applied ({scale:.1f}x)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 115,
+      "code": "print(f\"Failed to write WAV: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 129,
+      "code": "print(\"whisper not installed. Run: pip install openai-whisper\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 138,
+      "code": "print(f\"Transcription failed: {exc}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 149,
+      "code": "print(f\"JARVIS: {text}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 154,
+      "code": "print(\"(TTS unavailable \u2014 install pyttsx3: pip install pyttsx3)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 169,
+      "code": "print(f\"(TTS error: {exc})\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 217,
+      "code": "print(\"(No speech detected after transcription \u2014 try speaking louder or --boost)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 220,
+      "code": "print(f\"Heard: {transcript}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 224,
+      "code": "print(\"(Hotword 'JARVIS' not detected \u2014 ignoring)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 235,
+      "code": "print(f\"Command: {command}\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 262,
+      "code": "print(\"--device requires a number. Use --list-devices to see options.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 280,
+      "code": "print(\"Usage: python voice.py --tts \\\"text to speak\\\"\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 284,
+      "code": "print(\"JARVIS voice loop active. Say 'JARVIS <command>'. Ctrl+C to stop.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 285,
+      "code": "print(\"Tips: --boost (amplify quiet mic) | --device N (select mic) | --model small (more accurate)\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    },
+    {
+      "file": "voice.py",
+      "line": 291,
+      "code": "print(\"\\nVoice loop stopped.\")",
+      "message": "bare print() \u2014 may be debug output",
+      "severity": "LOW"
+    }
+  ]
+}

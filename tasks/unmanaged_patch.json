@@ -1,0 +1,13 @@
+[
+ {
+  "file": "server/index.js",
+  "marker": "LOOPBACK check inside the handler is the real gate",
+  "edits": [
+   {
+    "tag": "authexempt",
+    "from": "  \"/api/mt5/positions\", \"/api/risk-status\",",
+    "to": "  \"/api/mt5/positions\", \"/api/risk-status\",\n  // The LOOPBACK check inside the handler is the real gate here, not a session. This stops\n  // a trading bridge, so it must never be a remote action - and the caller is a script on\n  // this machine with no browser session, exactly like the bridge polling /api/mt5/control.\n  // Listing it here only skips the session check; the handler still refuses anything that\n  // is not 127.0.0.1.\n  \"/api/mt5/restart-bridge\","
+   }
+  ]
+ }
+]

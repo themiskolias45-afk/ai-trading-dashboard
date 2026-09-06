@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-27",
+  "entries": [
+    {
+      "ts": "2026-08-27T07:30:26.185085+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-27: No trades today — rest day."
+    },
+    {
+      "ts": "2026-08-27T07:33:27.374801+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-27: healer 9/9 green, engines AGREE, gate 70, breaker closed, 0 errors in logs. GOLD BUY 74% is above gate but DUPLICATE-blocked (XAUUSD BUY already open since 08-25) — correct. BTC dead 16d: RSI 82.3 vs freshly-raised momentumRsiMax 80 — ceiling still binds after the 72->80 sweep. Top finding: RANGE_TRADE_SHORT is the only setup negative on BOTH ledgers (shadow -11.40R, 3W/13L, 18.8%) while its mirror RANGE_TRADE_LONG is +6.20R, 31W/13L, 70.5% — same gates, same symbols, opposite sign. Needs a walk-forward before anything moves. CONFIDENCE gate re-confirmed EARNING ITS KEEP (-5.12R over 23 rejections) — do not lower 70. Exa search key still 401 since 08-22."
+    },
+    {
+      "ts": "2026-08-27T09:49:36.479030+00:00",
+      "tag": "SYSTEM",
+      "text": "SESSION 2026-08-27 close. Shipped both boxes: near-miss census PERSISTS (598e7da) then its margin was WRONG and fixed (54ca19b); stop-variant shadow ledger (c85a600); /daily now names the CAUSE of a dead asset and stops re-proposing settled changes (106286a); CLAUDE.md AMD timestamp blocker removed - it was GONE, and the CRT cost walk-forward it still asked for had run 2026-08-09 (702acc1); CRT/AMD bias x execution harness (f1329ef) then pointed at the 4.3-year archive (c20f1be) which ANSWERED it; spread now recorded on every fill as spreadAtDecision (b38ed64); safe_bridge_restart no longer calls an empty position list \"flat\" (5fcbfc0) and no longer claims the bridge is DOWN after a failed kill (714cd79); bridge warns when the spread gate passes unmeasured (e2924e8). ANSWER on timeframes: 15m execution is NEVER best; the only cell passing 5/5 folds is GOLD CRT h4->h4 n=584 worst fold +0.0215, and it is SPREAD-SENSITIVE (dies at $0.50). AMD dead on five years, best cell n=16. Parity ENGINES AGREE, differing non-engine files 17->15, evidence board 13 claims identical both boxes. VPS bridge restarted twice cleanly, positions 2->2, no SL/TP touched. OUTSTANDING: laptop bridge needs ONE elevated restart (node tasks/safe_bridge_restart.cjs --allow-open-positions from an Administrator shell) - the failed kill is a proven no-op, never start a second bridge. NEXT BUILD: scorers for near_misses.jsonl and stop_variants.jsonl."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-27T07:30:26.185085+00:00",
+  "updated_at": "2026-08-27T09:49:36.479030+00:00"
+}

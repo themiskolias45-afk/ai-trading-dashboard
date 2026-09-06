@@ -1,0 +1,39 @@
+{
+  "date": "2026-08-28",
+  "entries": [
+    {
+      "ts": "2026-08-28T03:33:50.187330+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-28: health 9/9, fleet AGREES, 0 RED / 5 AMBER. GOLD BUY conf 74 vs gate 70 — firing, correctly held (DUPLICATE, XAUUSD BUY open since 08-25). BTC dead 17d on RSI_ABOVE_CEILING thr 80 actual 82.3 margin 2.3 (SETTLED — no candidate ceiling has a positive worst fold). SPX blocked on macd.bullish in a 2.4% BB squeeze. Top finding: BREAKDOWN (short mirror of MOMENTUM) is written, OFF, UNCOMMITTED on server/index.js and its walk-forward has NEVER been run — journal is 6 BUY / 2 SELL and the short side has no trend-continuation setup at all. Second: laptop slept 9h50m (27/08 18:16 -> 28/08 04:06 local, Kernel-Power 42). Exa key still 401, six days."
+    },
+    {
+      "ts": "2026-08-28T04:35:04.960009+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-28: 9/9 healer green, fleet AGREES (both boxes gate 70, engines 11/11). GOLD BUY conf 74 above gate but correctly DUPLICATE-held (XAUUSD BUY open since 08-25). BTC dead 17d on RSI_ABOVE_CEILING thr 80 actual 82.2 margin 2.2; SPX dead 9d on macd.bullish inside a 2.4% BB squeeze — two different causes. Top issue: read_memory with a query has been throwing toLowerCase-on-undefined since at least 08-25 — root cause is ONE note-shaped row (ts/tag/text) among 69 memory-shaped rows in tasks/jarvis_memory.json, and mcp_server.js:440 does not guard e.key/e.value. Recommendation: guard the reader (never delete the row). BREAKDOWN walk-forward ran 03:35 today — DO NOT SHIP, 3/3 checks fail, already recorded in evidence_register."
+    },
+    {
+      "ts": "2026-08-28T05:45:35.838173+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-28: |   BTC WAIT |   GOLD BUY 74% entry:4573.51 stop:4562.71 target:4640.67 |   SPX WAIT |   ⚠ 4 high-impact events today — check calendar"
+    },
+    {
+      "ts": "2026-08-28T06:17:20.482305+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY 2026-08-28 COMPLETE. 4 commits pushed (601b88b f7e0870 fdaffbd f9284d2). RSI ceiling 80/76 -> 88/84 on BOTH boxes; near-miss census now EMPTY after weeks of being 100% RSI_ABOVE_CEILING. BTC WAIT/conf 0 -> MOMENTUM/conf 40 with real levels. BTC H4-only MODERATE base 50->55 (cohort_walkforward: 132 closed, +0.103R, 4/5 folds); dead cohorts 4->3. BTC's remaining block is the daily-fires-H4-neutral cohort at -0.152R/40 trades — correctly blocked, evidence-backed for the first time. Fixed a restart stranding the system on Yahoo signals (bridge refused all setups as STALE SOURCE until the next 30-min cron), read_memory AND /api/memory both dying on one note-shaped row, account-B false RED, utcnow deprecation, and a charts grid that never collapsed on mobile because specificity beats a media query. Fleet fully resynced: VPS was 317 lines behind, parity ENGINES AGREE 11/11 7/7 108/108, action items 1->0, both boxes 88/84. check_errors 84 PASS / 0 FAIL. WATCH: ceiling and cohort raise are both decisions under SPLIT evidence — review the next few BTC fills."
+    },
+    {
+      "ts": "2026-08-28T21:00:10.935143+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-28: 1 trades | 0.0% WR | $-226.91 | TODAY: One MOMENTUM trade, one loss — $-226.91 on the day and a 0% strike rate, which drags the setup's lifetime record "
+    },
+    {
+      "ts": "2026-08-28T21:36:39.310819+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-28: 1 trades | 0.0% WR | $-226.91 | TODAY: One MOMENTUM trade, one loss — $-226.91 on a setup that was your only proven edge (now 66.7% WR across 3 trades, "
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-28T03:33:50.187330+00:00",
+  "updated_at": "2026-08-28T21:36:39.310819+00:00"
+}

@@ -1,0 +1,54 @@
+{
+  "date": "2026-08-17",
+  "entries": [
+    {
+      "ts": "2026-08-17T06:06:22.969576+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-17: health 8/8 green, no halt, syntax clean, no secrets tracked. Top issue: index.js:2421 writes the Yahoo ticker into sourceSymbol on the fallback path, so 177/661 rejection-ledger rows (27%) can never be scored — 112 of them mislabelled PENDING with barsChecked:0 because score_rr_rejections.py:456 checks the horizon before checking whether any bars exist. All 45 STALE_SOURCE rows are in that set, so that gate's \"45 still inside their horizon\" is false. With the 182 rows already lost to a missing sourceSymbol, 54% of the ledger will never produce evidence. Recommendation: null the sourceSymbol on the yahoo branch (never map ^GSPC->SP500) and reorder the scorer's NO_DATA check. Ledger-side only, feedsTheGate=false."
+    },
+    {
+      "ts": "2026-08-17T06:09:44.615226+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-17: No trades today — rest day."
+    },
+    {
+      "ts": "2026-08-17T06:40:59.093605+00:00",
+      "tag": "SYSTEM",
+      "text": "Deployed 4 fixes to BOTH boxes (2026-08-17). Laptop commits b56f3a0 (yahoo rows recorded UNSCORABLE not PENDING-forever), 629b0c4 (cb-losses coloured at the breaker limit), 9825fe3 (citation checker sees dashboard/, CSS false-matches suppressed), 9d629a9 (broker clock bounds-checked; a weekend run had silently re-scored settled history). All three tracked files scp'd to the VPS, verified byte-identical, node --check and py_compile both exit 0 there, frozen rr_rejected.jsonl unchanged on both boxes. VPS scorer re-run: 936 rows, 125 caught by the new guard, 5 remaining zero-bar PENDING rows all logged today and genuinely inside horizon. Parity now shows only evidence_register.js differing (pre-existing). NOTE: tasks/score_rr_rejections.py is NOT in parity's tracked list, so scorer drift between boxes is invisible. Also found: 4 third-party EAs running on account 25446287 (Bridge A's account), two on BTCUSD/XAUUSD — position book verified clean, latent risk only. The \"login expires in 3 days\" message is AurumFlow-V7-trial, a trial EA on the MT4 terminal, unrelated to SmartEntry."
+    },
+    {
+      "ts": "2026-08-17T06:53:09.197216+00:00",
+      "tag": "SYSTEM",
+      "text": "Evidence register updated and deployed both boxes (45c7f61). NEW CLAIM ledgeroutlier, first on the board: of 498 resolved VPS rejection episodes exactly one has |R|>10 and it is +298.56R — SELL_BOUNCE BTCUSD D1 with a $4.21 stop on Bitcoin. Ledger netR is +279.05R so the other 497 sum to −19.5R, and that one row flips CONFIDENCE to \"COSTING MONEY\" (+232.71R at 4% would-have-won) when the laptop without it reads −1.01R / EARNING ITS KEEP. Root cause: score_rr_rejections.py guards risk==0 only, so R scales as 1/risk unbounded. NOT FIXED — needs a minimum-risk floor in ATR or % of price. Until then read win rate and per-setup W/L, never netR. Re-curated minrr (86 resolved +22.47R/78% → 394 resolved +20.61R/67%: sample up 4.6x, win rate down 11pp) and regimeveto (RANGE_TRADE_SHORT was \"0W/12L, the only setup with zero wins\" — now 53W/60L −36.39R; still the worst, but the never-won phrasing had aged into a lie). liveconfig now declares which box its sample is from, so its VPS needsRecuration flag is self-explaining rather than unclearable. VPS also gained the edgeisgold claim it never had. Parity now reports ZERO of 29 tracked files differing."
+    },
+    {
+      "ts": "2026-08-17T07:00:37.453476+00:00",
+      "tag": "SYSTEM",
+      "text": "Fixed the R-outlier defect (9e55275), deployed both boxes. MAX_PLAUSIBLE_RR = 10 in score_rr_rejections.py reclassifies any row whose implied R:R exceeds the cap as UNSCORABLE. The ledger's sign turned over on both boxes: VPS netR +260.80R to -40.91R over 476 resolved, laptop +10.26R to -12.17R over 162. Seven VPS rows and two laptop rows caught, worst was SELL_BOUNCE BTCUSD at implied R:R 298.6 from a $4.21 stop on Bitcoin. CONFIDENCE corrected from +232.71R / 4% won / COSTING MONEY to -65.85R / 3% / EARNING ITS KEEP, which is the gate the funnel dies at and was the one most likely to be loosened on a bad number. Capped on R:R not percent-of-price because two caught rows had stops at 0.168% and 0.194%, above the tightest legitimate row, so a price floor would have missed them. NOTHING DELETED: rows reclassified to an existing bucket, rejections.jsonl and the frozen rr_rejected.jsonl verified byte-identical on both boxes, feedsTheGate still false so no signal suppressed and no learning lost. Evidence register updated to match. Open lead: 5 of the 7 VPS rows are MOMENTUM XAUUSD, pointing at stop refinement for that setup. Parity: zero of 29 tracked files differ."
+    },
+    {
+      "ts": "2026-08-17T07:07:25.008728+00:00",
+      "tag": "SYSTEM",
+      "text": "Pivot-stop investigation closed 2026-08-17, NO CODE CHANGED. The proposed experiment (gate MIN_RR on the designed ratio instead of the pivot-refined one) is a no-op: MIN_RR is applied at index.js:1477 inside generateSignal on the branch's designed stop, while the pivot refinement is at index.js:1929-1944 in generateSignalMTF, a different function running afterwards. Proven empirically on 851 MIN_RR rows across both boxes: MIN_RR max recorded rr is exactly 1.50 with ZERO rows above 10, while CONFIDENCE reaches 298.6 and DUPLICATE 68.7. The gate never sees an inflated ratio. This disproves the causal claim in the vault note's Why section, which said the gate was admitting setups on an overstated number; that claim is now corrected. Also corrected: the five inflated XAUUSD MOMENTUM rows are DUPLICATE rejections (position already open), not CONFIDENCE. The inflation's entire reach is reported numbers - signal payload, journal rr, post-refinement ledger rows - already covered by \"derive R from prices, never the field\" and now bounded by MAX_PLAUSIBLE_RR. New mechanism detail worth keeping: all five rows share one stop, pivot S1 4312.85, while entry drifts toward it, so risk collapses 7.24 to 1.52 and rr inflates to 68.7 - the distortion is UNBOUNDED as entry approaches the pivot, not the fixed 0.23xATR the earlier writeup implied. The ATR floor itself stays rejected: it cuts closed trades from 202 to 188 and takes less total R, so it blocks signals and pays nothing."
+    },
+    {
+      "ts": "2026-08-17T08:52:15.709927+00:00",
+      "tag": "SYSTEM",
+      "text": "Built the evidence-staleness guard (3bd1686), both boxes. ai_brief.cjs section 4 is headed \"Already MEASURED - do not re-litigate without new evidence\" and printed each claim's evidence verbatim while DROPPING the staleness flag getRegister() had already computed. So for five days every agent was told MIN_RR's ledger evidence was \"86 resolved, +22.47R, 78%\" while the ledger held 394, and that RANGE_TRADE_SHORT was \"0W/12L, the only setup with zero wins\" while it was 53W/60L - stale numbers presented as settled, under an instruction not to check them. Three changes: liveSample() now reads the rejection ledger (total resolved, MIN_RR resolved, RANGE_TRADE_SHORT W/L) which is what the fast-moving claims actually quote, and each source is guarded separately so an unreadable journal no longer switches the whole guard off; minrr, regimeveto and ledgeroutlier declare sampleAtWriting, taking guarded claims from 1 of 9 to 4 of 9; and the brief now prints the warning, names the box, and marks a flagged claim as the EXCEPTION to its own do-not-re-litigate rule. Two rules keep it from nagging: sampleTolerance is a fraction (exact for closedFills at n=4, 0.5 for ledger counts) and the check fires on GROWTH ONLY, because both journal and ledger are per-machine so a claim written against the VPS legitimately reads smaller on the laptop. Growth-only also silenced liveconfig's previously permanent VPS flag. Verified by 14 assertions including that both historical lies fire; needsRecuration empty on both boxes. Also tracks ai_brief.cjs in parity (32 files) - a briefing that drifts means the two boxes' agents are told different things from the same register."
+    },
+    {
+      "ts": "2026-08-17T21:00:11.025214+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-17: No trades today — rest day."
+    },
+    {
+      "ts": "2026-08-17T21:35:12.344356+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-17: No trades today — rest day."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-17T06:06:22.969576+00:00",
+  "updated_at": "2026-08-17T21:35:12.345354+00:00"
+}

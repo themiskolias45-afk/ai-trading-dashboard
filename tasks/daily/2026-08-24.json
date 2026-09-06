@@ -1,0 +1,39 @@
+{
+  "date": "2026-08-24",
+  "entries": [
+    {
+      "ts": "2026-08-24T03:13:04.118767+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-24: health 9/9 green, fleet AGREES (gate 70 both boxes), 0 log errors, syntax clean, no secrets tracked. Top issue: bar cache DEADLOCK — tasks/history/*.csv frozen at 2026-07-26 (newest D1 bar 29-31d old); refresh_bars.cjs has refused 8/8 runs because 2 positions are open, and XAUUSD #1742893638 has been open 13 days so the guard can never clear on its own. Strategy search has therefore re-tested identical data for 28 days (21 candidates, 0 promotable, only 2 of 8 axes). Top rec: persist the D1/H4/H1 bars the bridge ALREADY pushes to POST /api/mt5/candles every 60s into tasks/history by APPEND-merge — zero new MT5 clients, breaks the deadlock permanently. Also: Exa search key still 401."
+    },
+    {
+      "ts": "2026-08-24T03:13:38.514405+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-24: |   BTC WAIT |   GOLD WAIT |   SPX WAIT"
+    },
+    {
+      "ts": "2026-08-24T03:17:02.226974+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-24: health 9/9 green, fleet AGREES (both boxes gate 70), no trades in 24h, 2 positions open. Top issue: tv_daily_plan.py sends no auth to the session-gated /api/daily-plan, so every daily_plan_*.json since 2026-08-03 has prices:{} and levels:{} — the script swallows the 'Not logged in' payload and exits 0. Top rec: fix _fetch auth + make it fail loudly. Second: MIN_RR rejection ledger now 54 episodes / 78% would-have-won / +15.33R (was 22 / +7.14R on 08-09) — re-run the walk-forward, do not move the gate. Also: Exa key 401 reproduced; 11h overnight gap was a laptop sleep (Kernel-Power 42 @ 23/08 16:55:39), not a server fault."
+    },
+    {
+      "ts": "2026-08-24T03:20:04.304927+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-24: No trades today — rest day."
+    },
+    {
+      "ts": "2026-08-24T04:08:10.836915+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-24: health 9/9, fleet AGREES (gate 70 both), 0 signals near gate. Top issue: research bars frozen at 2026-07-25 (28.5d) — refresh_bars refuses on every run (exit 3) because XAUUSD has been open 13d and SP500 5d, so the strategy search re-tests identical data. Fix without touching the guard: /api/mt5/candles/raw already serves live OHLCV (time,open,high,low,close,volume) for D1/H4/H1 from the bridge push. Second issue: daily plan has written price:null for 22 days because /api/daily-plan and /api/prices return 401 and tv_daily_plan._fetch only catches exceptions."
+    },
+    {
+      "ts": "2026-08-24T14:02:11.887788+00:00",
+      "tag": "SYSTEM",
+      "text": "SESSION-END 2026-08-24. Seven commits, no trades. The whole day was one bug class found five times over: a value written correctly and read by nothing. Research bars had been frozen 29 days behind a guard that could never open — refresh_bars waits for a flat book and a 13-day XAUUSD position guaranteed there was never one — so I built topup_bars_from_bridge.cjs, which takes the bars from the bridge's own HTTP push instead of opening a second MT5 client, verified against 571 overlapping D1 bars matching to the digit. Then _replay_engine returning [] for every caller over one missing const; the daily plan writing price:null for 22 days because _error had a writer and no reader; market_scanner reporting \"no signal\" for assets it had never evaluated, plus two more always-zero score terms; and the \"No deleting\" guardrail sitting at PROCEDURAL because its hook was async and ended in exit 0, missing git stash and rm entirely. That last one is now a real deny gate with a 31-case test table on both boxes, and the registry honestly reads 5 ENFORCED IN CODE. Measurement: MIN_RR settled (walk-forward replicated on fresh bars, the ledger stopped objecting, claim moved CONTRADICTED -> ROBUST) and the RSI ceiling re-swept — tightening is now rejected under both fold geometries, loosening sits inside one fold's noise, so it was not moved. Both boxes restarted with every position, ticket, stop and learning file verified by hash rather than by looking. Performance unchanged at 5 closed, 40% WR, -$416.61 gross — which is +1.51R, and the divergence is entirely lot size."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-24T03:13:04.118767+00:00",
+  "updated_at": "2026-08-24T14:02:11.887788+00:00"
+}

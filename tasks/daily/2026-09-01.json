@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-01",
+  "entries": [
+    {
+      "ts": "2026-09-01T03:07:38.118536+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-09-01 (levels: confluence-zones): |   BTC BUY 75% entry:78418.43 stop:76909.35 target:87391.45 | R1 79008.45 S1 78032.3 |   GOLD WAIT | R1 4492.3 S1 4461.7 |   SPX WAIT | R1 7700 S1 7669.39 |   MACRO VIX 14.92 — CALM |   MACRO DXY 99.47 RISING (+0.48% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind |   ⚠ 1 high-impact events today — check calendar"
+    },
+    {
+      "ts": "2026-09-01T03:27:32.874296+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-09-01: No trades today — rest day."
+    },
+    {
+      "ts": "2026-09-01T03:35:13.451999+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-09-01: health 9/9 green, fleet AGREES, gate 70, not halted. No trading fault. TWO memory rails found DEAD: (1) MCP knowledge graph returns 0 entities/0 relations — no MEMORY_FILE_PATH is set so server-memory stores memory.json inside the npx cache, and npx re-extracted every MCP package today 04:27 local; no memory.json survives anywhere on disk. (2) session-stop.ps1 POST to /api/memory fails twice: PowerShell strips the quotes from curl.exe -d (reproduced HTTP 400) and /api/memory is not in API_NO_LOGIN_REQUIRED (HTTP 401 with a valid body) — 66 JSON parse errors in server_log, all on 2026-08-31, and last-session-commits still holds a manual write from 2026-08-28. Signals: BTC 75 BUY firing, correctly held by MAX_POSITIONS (3/3 open); GOLD 0 (needs RSI<50, now 53.6 + MACD cross); SPX 0 (2% BB squeeze, needs MACD bullish). Near-miss census EMPTY — not the RSI band on either. Gate changes checked and DROPPED as settled: cap (18/18 blocked hit stop), CONFIDENCE (EARNING ITS KEEP -13.95R/29)."
+    },
+    {
+      "ts": "2026-09-01T10:29:12.156159+00:00",
+      "tag": "NOTE",
+      "text": "GOLD 4H swing plan drawn on TradingView (JARVIS Daily Plan 09-01 11:24). MANUAL plan, NOT an engine setup - engine is WAIT conf 0, MACD hist -17.18 blocks TREND_FOLLOW. LONG: entry 4322 (buy-limit into the 4304.07-4313.41 H4 shelf, x3 touches, + D1 EMA200 4314.70), SL 4272, TP1 4405.88 (D1 S1) / TP2 4435.60 (H4 S/R x2) / TP3 4461.43 (bearish-CRT invalidation). R:R 1.68/2.27/2.79. Contingency SHORT on H4 close below 4304.07: entry 4296, SL 4342, TP 4223.39 / 4196.94 / 4118.39. Live bearish H4 CRT (2026-09-01 04:00, swept 4461.43, objective 4426.22) has ALREADY paid out - price 4380."
+    },
+    {
+      "ts": "2026-09-01T20:03:44.530621+00:00",
+      "tag": "NOTE",
+      "text": "SESSION CLOSE 2026-09-01. VPS circuit breaker HALTED - 3 consecutive losses (XAUUSD -237.91, BTCUSD -27.02, both exactly -1.00R), dailyPnl -301.21, 1 position left (SP500). Fleet +2.44R over 21 closed but negative in cash: equal lots are not equal risk. Gate 70 / fixedLotSize 0.01 is a LOCKED user decision - do not restore riskPercent. Shipped both boxes: Slack #smartentry-alerts + Notion wiring (live, tested), backtest now charges 0.05R and uses the LIVE strength filter (Gold 54 -> 403 trades), System page false 'all timeframes must agree' claim corrected, rag_index vault path fixed. STILL OPEN: VPS Daily Check exit 255 not root-caused - PT72H now rules out the timeout, tomorrow 07:30 is the test."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-09-01T03:07:38.118536+00:00",
+  "updated_at": "2026-09-01T20:03:44.530621+00:00"
+}

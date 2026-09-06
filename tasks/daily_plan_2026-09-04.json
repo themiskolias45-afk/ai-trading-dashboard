@@ -1,0 +1,613 @@
+{
+  "date": "2026-09-04",
+  "generatedAt": "2026-09-04T06:08:07.686014+00:00",
+  "assets": {
+    "btc": {
+      "price": 80925,
+      "levels": {
+        "pivot": 80925,
+        "source": "confluence-zones",
+        "R1": 82000,
+        "R1_detail": {
+          "price": 82000,
+          "zoneLow": 82000,
+          "zoneHigh": 82000,
+          "confluence": 1,
+          "methods": [
+            "round-number"
+          ],
+          "distanceAtr": 0.37
+        },
+        "R2": 86797.16,
+        "R2_detail": {
+          "price": 86797.16,
+          "zoneLow": 86797.16,
+          "zoneHigh": 86797.16,
+          "confluence": 1,
+          "methods": [
+            "bollinger"
+          ],
+          "distanceAtr": 2.07
+        },
+        "S1": 80000,
+        "S1_detail": {
+          "price": 80000,
+          "zoneLow": 80000,
+          "zoneHigh": 80000,
+          "confluence": 1,
+          "methods": [
+            "round-number"
+          ],
+          "distanceAtr": 0.34
+        },
+        "S2": 78584.68,
+        "S2_detail": {
+          "price": 78584.68,
+          "zoneLow": 78584.68,
+          "zoneHigh": 78584.68,
+          "confluence": 1,
+          "methods": [
+            "pivot"
+          ],
+          "distanceAtr": 0.84
+        }
+      },
+      "trade_plan": {
+        "direction": "BUY",
+        "confidence": 76,
+        "setup": "MOMENTUM",
+        "regime": "TRENDING",
+        "entry": 80948.91,
+        "stop": 79418.75,
+        "target": 84009.22,
+        "rr": 2,
+        "risk_pts": 1530.16,
+        "reward_pts": 3060.31
+      },
+      "context": {
+        "available": true,
+        "atr": 2824.9,
+        "projection": {
+          "available": false,
+          "why": "no ATR or no prior period"
+        },
+        "priorDay": null,
+        "priorWeek": null,
+        "swingCounts": {
+          "daily": 0,
+          "h4": 0
+        },
+        "roundStep": 2000,
+        "fvgZoneCount": 0,
+        "zones": [
+          {
+            "low": 74763.12,
+            "high": 75606.2,
+            "mid": 75226.0106,
+            "side": "below",
+            "confluence": 3,
+            "methods": [
+              "bollinger",
+              "moving-average",
+              "pivot"
+            ],
+            "distanceAtr": 1.89,
+            "members": [
+              "BB middle",
+              "EMA20",
+              "Pivot S2"
+            ]
+          },
+          {
+            "low": 77095.44,
+            "high": 77095.44,
+            "mid": 77095.44,
+            "side": "below",
+            "confluence": 1,
+            "methods": [
+              "pivot"
+            ],
+            "distanceAtr": 1.36,
+            "members": [
+              "Pivot PP"
+            ]
+          },
+          {
+            "low": 77942.58,
+            "high": 77942.58,
+            "mid": 77942.58,
+            "side": "below",
+            "confluence": 1,
+            "methods": [
+              "pivot"
+            ],
+            "distanceAtr": 1.06,
+            "members": [
+              "Pivot R1"
+            ]
+          },
+          {
+            "low": 76453.34,
+            "high": 76453.34,
+            "mid": 76453.34,
+            "side": "below",
+            "confluence": 1,
+            "methods": [
+              "pivot"
+            ],
+            "distanceAtr": 1.59,
+            "members": [
+              "Pivot S1"
+            ]
+          },
+          {
+            "low": 78584.68,
+            "high": 78584.68,
+            "mid": 78584.68,
+            "side": "below",
+            "confluence": 1,
+            "methods": [
+              "pivot"
+            ],
+            "distanceAtr": 0.84,
+            "members": [
+              "Pivot R2"
+            ]
+          },
+          {
+            "low": 86797.16,
+            "high": 86797.16,
+            "mid": 86797.16,
+            "side": "above",
+            "confluence": 1,
+            "methods": [
+              "bollinger"
+            ],
+            "distanceAtr": 2.07,
+            "members": [
+              "BB upper"
+            ]
+          }
+        ],
+        "zonesRelevant": 8,
+        "zonesTotal": 11,
+        "warnings": [
+          "prior periods: daily series unusable or under 3 bars",
+          "ATR projection: no ATR or no prior period",
+          "daily swings: series too short for a confirmed swing",
+          "H4 swings: series too short for a confirmed swing",
+          "no unfilled FVG zones — none available as context"
+        ],
+        "feedsTheGate": false
+      }
+    },
+    "gold": {
+      "price": 4515.6,
+      "levels": {
+        "pivot": 4515.6,
+        "source": "confluence-zones",
+        "R1": 4525.8,
+        "R1_detail": {
+          "price": 4525.8,
+          "zoneLow": 4525.8,
+          "zoneHigh": 4525.8,
+          "confluence": 1,
+          "methods": [
+            "pivot"
+          ],
+          "distanceAtr": 0.12
+        },
+        "R2": 4550,
+        "R2_detail": {
+          "price": 4550,
+          "zoneLow": 4550,
+          "zoneHigh": 4559.9,
+          "confluence": 2,
+          "methods": [
+            "round-number",
+            "pivot"
+          ],
+          "distanceAtr": 0.4
+        },
+        "S1": 4500,
+        "S1_detail": {
+          "price": 4500,
+          "zoneLow": 4500,
+          "zoneHigh": 4500,
+          "confluence": 1,
+          "methods": [
+            "round-number"
+          ],
+          "distanceAtr": 0.18
+        },
+        "S2": 4475.9,
+        "S2_detail": {
+          "price": 4475.9,
+          "zoneLow": 4471.44,
+          "zoneHigh": 4475.9,
+          "confluence": 2,
+          "methods": [
+            "bollinger",
+            "pivot"
+          ],
+          "distanceAtr": 0.47
+        }
+      },
+      "trade_plan": null,
+      "context": {
+        "available": true,
+        "atr": 85.07,
+        "projection": {
+          "available": false,
+          "why": "no ATR or no prior period"
+        },
+        "priorDay": null,
+        "priorWeek": null,
+        "swingCounts": {
+          "daily": 0,
+          "h4": 0
+        },
+        "roundStep": 50,
+        "fvgZoneCount": 0,
+        "zones": [
+          {
+            "low": 4434.18,
+            "high": 4441.8,
+            "mid": 4437.99,
+            "side": "below",
+            "confluence": 2,
+            "methods": [
+              "moving-average",
+              "pivot"
+            ],
+            "distanceAtr": 0.87,
+            "members": [
+              "EMA20",
+              "Pivot S1"
+            ]
+          },
+          {
+            "low": 4471.44,
+            "high": 4475.9,
+            "mid": 4474.1846,
+            "side": "below",
+            "confluence": 2,
+            "methods": [
+              "bollinger",
+              "pivot"
+            ],
+            "distanceAtr": 0.47,
+            "members": [
+              "BB middle",
+              "Pivot PP"
+            ]
+          },
+          {
+            "low": 4550,
+            "high": 4559.9,
+            "mid": 4555.4,
+            "side": "above",
+            "confluence": 2,
+            "methods": [
+              "round-number",
+              "pivot"
+            ],
+            "distanceAtr": 0.4,
+            "members": [
+              "Round number",
+              "Pivot R2"
+            ]
+          },
+          {
+            "low": 4313,
+            "high": 4313,
+            "mid": 4313,
+            "side": "below",
+            "confluence": 1,
+            "methods": [
+              "moving-average"
+            ],
+            "distanceAtr": 2.38,
+            "members": [
+              "EMA200"
+            ]
+          },
+          {
+            "low": 4353.89,
+            "high": 4353.89,
+            "mid": 4353.89,
+            "side": "below",
+            "confluence": 1,
+            "methods": [
+              "moving-average"
+            ],
+            "distanceAtr": 1.9,
+            "members": [
+              "EMA50"
+            ]
+          },
+          {
+            "low": 4525.8,
+            "high": 4525.8,
+            "mid": 4525.8,
+            "side": "above",
+            "confluence": 1,
+            "methods": [
+              "pivot"
+            ],
+            "distanceAtr": 0.12,
+            "members": [
+              "Pivot R1"
+            ]
+          }
+        ],
+        "zonesRelevant": 9,
+        "zonesTotal": 10,
+        "warnings": [
+          "prior periods: daily series unusable or under 3 bars",
+          "ATR projection: no ATR or no prior period",
+          "daily swings: series too short for a confirmed swing",
+          "H4 swings: series too short for a confirmed swing",
+          "no unfilled FVG zones — none available as context"
+        ],
+        "feedsTheGate": false
+      }
+    },
+    "spx": {
+      "price": 7747.71,
+      "levels": {
+        "pivot": 7747.71,
+        "source": "confluence-zones",
+        "R1": 7750,
+        "R1_detail": {
+          "price": 7750,
+          "zoneLow": 7750,
+          "zoneHigh": 7750,
+          "confluence": 1,
+          "methods": [
+            "round-number"
+          ],
+          "distanceAtr": 0.04
+        },
+        "R2": 7803.56,
+        "R2_detail": {
+          "price": 7803.56,
+          "zoneLow": 7803.56,
+          "zoneHigh": 7803.56,
+          "confluence": 1,
+          "methods": [
+            "bollinger"
+          ],
+          "distanceAtr": 1
+        },
+        "S1": 7710.65,
+        "S1_detail": {
+          "price": 7710.65,
+          "zoneLow": 7700,
+          "zoneHigh": 7710.65,
+          "confluence": 3,
+          "methods": [
+            "round-number",
+            "pivot",
+            "bollinger"
+          ],
+          "distanceAtr": 0.66
+        },
+        "S2": 7687.32,
+        "S2_detail": {
+          "price": 7687.32,
+          "zoneLow": 7676.47,
+          "zoneHigh": 7687.32,
+          "confluence": 2,
+          "methods": [
+            "moving-average",
+            "pivot"
+          ],
+          "distanceAtr": 1.08
+        }
+      },
+      "trade_plan": null,
+      "context": {
+        "available": true,
+        "atr": 55.83,
+        "projection": {
+          "available": false,
+          "why": "no ATR or no prior period"
+        },
+        "priorDay": null,
+        "priorWeek": null,
+        "swingCounts": {
+          "daily": 0,
+          "h4": 0
+        },
+        "roundStep": 50,
+        "fvgZoneCount": 0,
+        "zones": [
+          {
+            "low": 7700,
+            "high": 7710.65,
+            "mid": 7706.3431,
+            "side": "below",
+            "confluence": 3,
+            "methods": [
+              "round-number",
+              "pivot",
+              "bollinger"
+            ],
+            "distanceAtr": 0.66,
+            "members": [
+              "Round number",
+              "Pivot R2",
+              "BB middle"
+            ]
+          },
+          {
+            "low": 7676.47,
+            "high": 7687.32,
+            "mid": 7681.895,
+            "side": "below",
+            "confluence": 2,
+            "methods": [
+              "moving-average",
+              "pivot"
+            ],
+            "distanceAtr": 1.08,
+            "members": [
+              "EMA20",
+              "Pivot R1"
+            ]
+          },
+          {
+            "low": 7612.9,
+            "high": 7617.74,
+            "mid": 7615.32,
+            "side": "below",
+            "confluence": 2,
+            "methods": [
+              "pivot",
+              "bollinger"
+            ],
+            "distanceAtr": 2.33,
+            "members": [
+              "Pivot S2",
+              "BB lower"
+            ]
+          },
+          {
+            "low": 7660.47,
+            "high": 7660.47,
+            "mid": 7660.47,
+            "side": "below",
+            "confluence": 1,
+            "methods": [
+              "pivot"
+            ],
+            "distanceAtr": 1.56,
+            "members": [
+              "Pivot PP"
+            ]
+          },
+          {
+            "low": 7639.75,
+            "high": 7639.75,
+            "mid": 7639.75,
+            "side": "below",
+            "confluence": 1,
+            "methods": [
+              "pivot"
+            ],
+            "distanceAtr": 1.93,
+            "members": [
+              "Pivot S1"
+            ]
+          },
+          {
+            "low": 7803.56,
+            "high": 7803.56,
+            "mid": 7803.56,
+            "side": "above",
+            "confluence": 1,
+            "methods": [
+              "bollinger"
+            ],
+            "distanceAtr": 1,
+            "members": [
+              "BB upper"
+            ]
+          }
+        ],
+        "zonesRelevant": 7,
+        "zonesTotal": 9,
+        "warnings": [
+          "prior periods: daily series unusable or under 3 bars",
+          "ATR projection: no ATR or no prior period",
+          "daily swings: series too short for a confirmed swing",
+          "H4 swings: series too short for a confirmed swing",
+          "no unfilled FVG zones — none available as context"
+        ],
+        "feedsTheGate": false
+      }
+    }
+  },
+  "prices": {
+    "btc": 80925,
+    "gold": 4515.6,
+    "spx": 7747.71,
+    "dxy": 99.02,
+    "vix": 14.32
+  },
+  "risk": {
+    "dailyPnl": 0,
+    "consecutiveLosses": 0,
+    "halted": false,
+    "haltReason": ""
+  },
+  "setup_health": {
+    "BB_SQUEEZE_WATCH": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "RANGE_TRADE_SHORT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "SQUEEZE_BREAKOUT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "MOMENTUM": {
+      "winRate": 50,
+      "total": 4
+    }
+  },
+  "calendar": [
+    {
+      "time": "2026-09-04T04:50:00-04:00",
+      "name": "BOE Gov Bailey Speaks",
+      "currency": ""
+    },
+    {
+      "time": "2026-09-04T08:30:00-04:00",
+      "name": "Employment Change",
+      "currency": ""
+    },
+    {
+      "time": "2026-09-04T08:30:00-04:00",
+      "name": "Unemployment Rate",
+      "currency": ""
+    },
+    {
+      "time": "2026-09-04T08:30:00-04:00",
+      "name": "Average Hourly Earnings m/m",
+      "currency": ""
+    },
+    {
+      "time": "2026-09-04T08:30:00-04:00",
+      "name": "Non-Farm Employment Change",
+      "currency": ""
+    },
+    {
+      "time": "2026-09-04T08:30:00-04:00",
+      "name": "Unemployment Rate",
+      "currency": ""
+    }
+  ],
+  "warnings": [
+    "⚠ 6 high-impact events today — check calendar"
+  ],
+  "macro": {
+    "vix": 14.32,
+    "vixRegime": "CALM",
+    "dxy": 99.02,
+    "dxyTrend": {
+      "changePct5d": -0.68,
+      "direction": "FALLING"
+    },
+    "correlations": [],
+    "notes": [
+      "VIX 14.32 — CALM",
+      "DXY 99.02 FALLING (-0.68% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind"
+    ]
+  },
+  "levelsSource": "confluence-zones"
+}

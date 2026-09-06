@@ -1,0 +1,54 @@
+{
+  "date": "2026-08-30",
+  "entries": [
+    {
+      "ts": "2026-08-30T04:20:46.979593+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-30: |   BTC WAIT |   GOLD BUY 75% entry:4454.31 stop:4311.01 target:4767.79 |   SPX WAIT"
+    },
+    {
+      "ts": "2026-08-30T04:24:41.581702+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-30: health 9/9 green, coverage audit 34/34, not halted, gate 70, ceilings 88/84. GOLD BUY 75% is ABOVE the gate and correctly held by DUPLICATE (already long XAUUSD #1884328887) — firing, not dead. BTC blocked by the daily-fires/H4-neutral cohort (ceiling 55 vs gate 70), SPX by daily MACD bearish in a 2.4% BB squeeze leaving only the H4-only cohort. Top issue: generateDailyPlan (index.js:6570) passes --no-tv but NOT --no-draw, so tv_daily_plan.py drives TradingView inside a 60s execFile budget and is killed before log_to_notes/notify run — 10 logged failures, plan history 64% over 14 days. Fix = add --no-draw; the SmartEntry TV Daily Plan task already draws. MIN_RR reads COSTING MONEY (+27.13R/73) — CHECKED AND DROPPED, settled by walk-forward 2026-08-24/25."
+    },
+    {
+      "ts": "2026-08-30T04:28:54.932767+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-30 04:30Z — health 9/9 green, gate 70, not halted, FLEET AGREES (parity 12h old, 0 drift). GOLD BUY conf 75 above gate and CORRECTLY HELD (XAUUSD open since 08-28, DUPLICATE killed 2). BTC 19d no fill @ conf 40 — cohort daily-fires/H4-neutral (base 40, ceiling 55 vs gate 70), measured -0.152R/40 at 2-of-5, correctly blocked. SPX 11d @ conf 57 — H4-only BREAKOUT capped at 45+5+7=57, plus SP500 already open 10.7d. Zero near-miss rows: NOT the RSI ceiling. TOP ISSUE: tv_daily_plan draw FAILED today 04:17:49 (synthetic paste left 1 of 78 lines, CDP insertText mangled indent at line 29, guard correctly refused to save) — no plan drawn on BTC/GOLD/SPX; worked 08-29. EXA key still 401 (8 days). MIN_RR ledger COSTING MONEY +27.13R/73 — CHECKED AGAINST MEMORY AND DROPPED, settled by walk-forward 2026-08-24."
+    },
+    {
+      "ts": "2026-08-30T04:59:42.155453+00:00",
+      "tag": "SYSTEM",
+      "text": "Post-daily fixes 2026-08-30. (1) bb2fa01 tradingview_bot.py — _via_paste_event returned false when the Monaco textarea was absent and paste_pine discarded it, so a paste that never dispatched read identically to one that landed nothing, and the corrupting CDP fallback ran after ONE miss. Now checked + 3 attempts before fallback. Verified: plan drawn on BTC/GOLD/SPX, all 3 studies compile clean, exit 0. (2) cfbd2fe server/index.js — /api/ai-brain sent thinking:{type:enabled,budget_tokens:500} on claude-opus-5, a REMOVED form that 400s; wrapAnthropicWithCliFallback caught it and silently re-served every brief via the Claude CLI for 15 days (83 log lines). Now adaptive + effort low + max_tokens 4096. Verified across a real restart (startedAt 04:13:49->04:53:57Z, python 1->1, both positions intact): 23.4s via CLI -> 13.2s with ZERO new rail failures; briefs 1847/1949/1981 chars, none truncated. Signals fell to yahoo 105s then recovered to mt5 on their own. (3) EXA: NOT an expired key — .mcp.json holds the literal ${EXA_API_KEY} (14 chars) and the env var is unset; nothing to rotate, needs a real key from the user, and NOT in .mcp.json which is git-tracked. OPEN: VPS has the ai-brain fix ON DISK but was NOT restarted (autoMode=True, 2 open positions, SmartEntryServer cannot start headless) — parity compares files so it will read AGREE while the VPS process runs old code."
+    },
+    {
+      "ts": "2026-08-30T05:07:26.904940+00:00",
+      "tag": "SYSTEM",
+      "text": "VPS restarted and ai-brain fix verified LIVE 2026-08-30 05:04:58Z. startedAt 2026-08-29T17:35:31 -> 2026-08-30T05:04:58; python 1->1 (bridge survived, no tree kill); OPEN positions 2 (XAUUSD, SP500) unchanged; consecutiveLosses read 1->0->1 within 10s — the documented transient, the bridge owns and re-pushes it, NOT a lost breaker; signals back to mt5,mt5,mt5 in 10s. Proof the fix is live and not merely on disk: authenticated POST /api/ai-brain on the box returned 17.0s, btc 1779 / gold 2573 / spx 1495 chars all complete, and 'API rail failed' stayed at 106 — delta 0. HTTP 200 alone proves nothing there because the CLI fallback also returns 200; the flat failure count is the proof. vps_parity --emit after: ENGINES AGREE, 11/11 functions, 7/7 constants, 110/110 routes, both boxes arm=champion. STILL OPEN and pre-existing: tradingview_bot.py is 513 lines on the VPS vs 2529 on the laptop (~2016 behind) — browser automation on a headless box, deliberately not synced."
+    },
+    {
+      "ts": "2026-08-30T11:26:10.862888+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-30: |   BTC BUY 75% entry:78136.5 stop:73773.03 target:86863.44 |   GOLD BUY 75% entry:4454.31 stop:4311.01 target:4767.79 |   SPX WAIT"
+    },
+    {
+      "ts": "2026-08-30T16:28:34.429214+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-30 (levels: confluence-zones): |   BTC BUY 91% entry:79082.71 stop:77465.87 target:88007.03 | R1 81089.26 |   GOLD BUY 75% entry:4454.31 stop:4311.01 target:4767.79 | R1 4562.71 S1 4331.09 |   SPX WAIT | R1 7721.2 S1 7708.55 |   MACRO VIX 14.43 — CALM |   MACRO DXY 99.68 RISING (+0.91% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind |   GOLD: 177.9% of a normal day's ATR range already travelled — RANGE SPENT — a normal day is already done |   SPX: 123% of a normal day's ATR range already travelled — RANGE SPENT — a normal day is already done"
+    },
+    {
+      "ts": "2026-08-30T21:35:14.360089+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-30: No trades today — rest day."
+    },
+    {
+      "ts": "2026-08-30T22:05:10.736216+00:00",
+      "tag": "SYSTEM",
+      "text": "Session end 2026-08-30. Shipped: market_context.js (confluence zones replace arithmetic-on-spot plan levels), sharpe_robustness.cjs (PSR/DSR/MinTRL), page_parity.cjs (4940d40 + scheduled 9621e0c, daily 07:40), mulberry32 PRNG fix (old one had a period of 10,466 while drawing 1.2M values), UTC breaker_day in mt5_bridge.py, autonomy_audit.ps1, b7c7ebe rescuing 8 files never in git. KEY RESULT: 5->8 years of history made the edge WEAKER - Sharpe 0.139->0.0858, DSR 59.79%->35.99%, MinTRL 113->317, vs 7 closed live trades. NEXT SESSION STARTS HERE: laptop bridge still runs OLD code, needs an ELEVATED shell for `node tasks/safe_bridge_restart.cjs --allow-open-positions`. Nothing deleted, nothing blocked; both boxes in sync."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-30T04:20:46.979593+00:00",
+  "updated_at": "2026-08-30T22:05:10.736216+00:00"
+}

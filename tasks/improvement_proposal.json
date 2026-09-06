@@ -1,0 +1,19 @@
+{
+  "superseded": true,
+  "supersededAt": "2026-09-01T06:47:30.854427Z",
+  "reason": "retired manually 2026-09-01 \u2014 written before aae7883's WORST_SETUP_MAX_WR guard existed; recommended disabling MOMENTUM, which the walk-forward says carries the book",
+  "previous": {
+    "generatedAt": "2026-08-30T20:00:00.631Z",
+    "worstSetup": "MOMENTUM",
+    "winRate": 66.7,
+    "trades": {
+      "wins": 2,
+      "losses": 1
+    },
+    "learningBoost": 0,
+    "closedConsidered": 6,
+    "closedTotal": 7,
+    "unattributedClosed": 1,
+    "recommendation": "MOMENTUM has 66.7% WR \u2014 review and tighten entry criteria or disable. Learning engine has already applied 0 confidence adjustment. (1 closed trade(s) carry no real setup name and were not considered.)"
+  }
+}

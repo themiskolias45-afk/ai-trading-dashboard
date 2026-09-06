@@ -1,0 +1,34 @@
+{
+  "date": "2026-08-29",
+  "entries": [
+    {
+      "ts": "2026-08-29T07:27:49.462967+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-29: |   BTC WAIT |   GOLD WAIT |   SPX WAIT"
+    },
+    {
+      "ts": "2026-08-29T07:31:16.924592+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-29: healer 9/9 green, FLEET AGREES (0 drift), not halted. All 3 below gate 70 — BTC 40 / GOLD 65 / SPX 57. BTC 18d without a fill and the cause is NOT the RSI ceiling (census empty, RSI 70.7 vs ceiling 88 = 17.3 headroom) — it is the daily-fires/H4-neutral cohort, measured -0.152R/40 trades, correctly blocked. SPX cause is macd.bullish false in a 2.4% squeeze — a different cause, do not merge. Top issue: [cron] daily plan error has failed 10x on UnicodeEncodeError '⚠' (tv_daily_plan.py:353 under cp1252 child stdout from index.js:6235) and fires ONLY on days the plan HAS warnings. Also RED: SmartEntry TV Daily Plan exit 5 (Playwright ProtocolError, charts only). Performance is -$450.82 but +2.51R over 7 closes — the dollar loss is a lot-size artefact, never quote it. MIN_RR \"COSTING MONEY\" (+27.13R/73) DROPPED: settled 2026-08-06 and 2026-08-24. Equalised sizing DROPPED: retracted 2026-08-28."
+    },
+    {
+      "ts": "2026-08-29T07:35:27.401425+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-29: |   BTC WAIT |   GOLD WAIT |   SPX WAIT"
+    },
+    {
+      "ts": "2026-08-29T07:37:49.361390+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-29: health 9/9, FLEET AGREES (engine drift 0), gate 70, not halted, 2 positions open. BTC 18d no fill — cause is NOT the RSI ceiling (RSI 70.8 vs 88, near-miss census EMPTY); it is the daily-fires/H4-neutral cohort capped at conf 40, measured -0.152R over 40 at 2/5 folds, so correctly blocked. Top finding: bridge risk budget disagreed with itself 73.8x inside order #1884328887 ($950.30 -> $12.87, bridge_log_A:22450 vs :22454) — masked entirely by fixedLotSize 0.02. MIN_RR ledger COSTING MONEY +27.13R re-checked and DROPPED: walk-forward settled it 2026-08-24."
+    },
+    {
+      "ts": "2026-08-29T14:53:18.625776+00:00",
+      "tag": "SYSTEM",
+      "text": "PROFIT-LOOP Round 1/5 — STOPPED, nothing implementable. Step 1 raised 4 candidates and all 4 fail the evidence bar. Three setups at 0% WR (SQUEEZE_BREAKOUT, RANGE_TRADE_SHORT, BB_SQUEEZE_WATCH) are each n=1; the engine's own floor is LEARNING_MIN_TRADES=5 and all four setups carry boost:0 status:learning because it declines to act on them. MIN_RR reads COSTING MONEY (+27.13R over 73 episodes) but was SETTLED 2026-08-24: baseline 1.50/1.50 positive 5 of 5 folds at +0.205R over 264 trades, and every loosened challenger goes negative once its best fold is removed — that fold is ONE trade, not a population. Third time a walk-forward has overruled this ledger. Also note the two boxes disagree: laptop +27.13R COSTING MONEY, VPS NO MEASURABLE COST. CONFIDENCE is EARNING ITS KEEP (-7.23R/25) and is correctly killing sub-gate MOMENTUM, whose shadow record is 21.4% WR / -6.17R over 14 episodes. THE REAL FINDING: in R the system is +0.02R across 6 attributed fills (MOMENTUM +3.02R, three losers -3.00R). The -$450.82 headline is ONE oversized trade — BB_SQUEEZE_WATCH -$449.72 at 0.14 lots vs 0.01-0.02 elsewhere, 99.8% of the total loss. Dollars measure lot size, not edge. No change made; no gate, threshold or setting touched."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-29T07:27:49.462967+00:00",
+  "updated_at": "2026-08-29T14:53:18.625776+00:00"
+}

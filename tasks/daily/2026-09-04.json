@@ -1,0 +1,14 @@
+{
+  "date": "2026-09-04",
+  "entries": [
+    {
+      "ts": "2026-09-04T06:08:09.143885+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-09-04 (levels: confluence-zones): |   BTC BUY 76% entry:80948.91 stop:79418.75 target:84009.22 | R1 82000 S1 80000 |   GOLD WAIT | R1 4525.8 S1 4500 |   SPX WAIT | R1 7750 S1 7710.65 |   MACRO VIX 14.32 — CALM |   MACRO DXY 99.02 FALLING (-0.68% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind |   ⚠ 6 high-impact events today — check calendar"
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-09-04T06:08:09.143885+00:00",
+  "updated_at": "2026-09-04T06:08:09.143885+00:00"
+}

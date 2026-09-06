@@ -1,0 +1,128 @@
+{
+  "date": "2026-08-28",
+  "generatedAt": "2026-08-28T05:45:00.715682+00:00",
+  "assets": {
+    "btc": {
+      "price": 79794,
+      "levels": {
+        "R2": 84000,
+        "R1": 82000,
+        "pivot": 79794,
+        "S1": 78000,
+        "S2": 76000
+      },
+      "trade_plan": null
+    },
+    "gold": {
+      "price": 4630.4,
+      "levels": {
+        "R2": 4770,
+        "R1": 4680,
+        "pivot": 4630.4,
+        "S1": 4500,
+        "S2": 4410
+      },
+      "trade_plan": {
+        "direction": "BUY",
+        "confidence": 74,
+        "setup": "MOMENTUM",
+        "regime": "TRENDING",
+        "entry": 4573.51,
+        "stop": 4562.71,
+        "target": 4640.67,
+        "rr": 6.2,
+        "risk_pts": 10.8,
+        "reward_pts": 67.16
+      }
+    },
+    "spx": {
+      "price": 7730.99,
+      "levels": {
+        "R2": 8200,
+        "R1": 8000,
+        "pivot": 7730.99,
+        "S1": 7600,
+        "S2": 7400
+      },
+      "trade_plan": null
+    }
+  },
+  "prices": {
+    "btc": 79794,
+    "gold": 4630.4,
+    "spx": 7730.99,
+    "dxy": 99.19,
+    "vix": 14.51
+  },
+  "risk": {
+    "dailyPnl": 0,
+    "consecutiveLosses": 0,
+    "halted": false,
+    "haltReason": "",
+    "accounts": {
+      "A": {
+        "dailyPnl": 0,
+        "consecutiveLosses": 0,
+        "halted": false,
+        "haltReason": "",
+        "account": "A",
+        "haltedAt": null,
+        "haltCause": null,
+        "haltReleasesInSeconds": null,
+        "config": {
+          "riskPercent": 1,
+          "dailyLossPct": 3,
+          "maxConsecLosses": 3,
+          "maxSpreadPts": 50,
+          "autoMode": true,
+          "expectedLogin": "25446287",
+          "remoteHalted": false,
+          "haltCooldownHours": 1
+        }
+      }
+    }
+  },
+  "setup_health": {
+    "BB_SQUEEZE_WATCH": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "RANGE_TRADE_SHORT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "SQUEEZE_BREAKOUT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "MOMENTUM": {
+      "winRate": 100,
+      "total": 2
+    }
+  },
+  "calendar": [
+    {
+      "time": "2026-08-28T08:30:00-04:00",
+      "name": "GDP m/m",
+      "currency": ""
+    },
+    {
+      "time": "2026-08-28T10:00:00-04:00",
+      "name": "Fed Chairman Warsh Speaks",
+      "currency": ""
+    },
+    {
+      "time": "2026-08-28T10:00:00-04:00",
+      "name": "Prelim Benchmark Payrolls Revision",
+      "currency": ""
+    },
+    {
+      "time": "2026-08-28T12:15:00-04:00",
+      "name": "Jackson Hole Symposium",
+      "currency": ""
+    }
+  ],
+  "warnings": [
+    "⚠ 4 high-impact events today — check calendar"
+  ]
+}

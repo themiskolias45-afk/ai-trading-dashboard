@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-06",
+  "entries": [
+    {
+      "ts": "2026-09-06T07:13:55.695946+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-09-06 (levels: confluence-zones): |   BTC WAIT | R1 79915.58 S1 78398.01 |   GOLD WAIT | R1 4500 S1 4475.9 |   SPX WAIT | R1 7730.39 S1 7708.7 |   MACRO VIX 14.53 — CALM |   MACRO DXY 99.16 FALLING (-0.54% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind"
+    },
+    {
+      "ts": "2026-09-06T07:52:51.876194+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-09-06 (levels: confluence-zones): |   BTC WAIT | R1 80135.53 S1 78511.18 |   GOLD WAIT | R1 4434.69 S1 4424.4 |   SPX WAIT | R1 7746.35 S1 7703.51 |   MACRO VIX 14.53 — CALM |   MACRO DXY 99.16 FALLING (-0.54% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind |   GOLD: 107.1% of a normal day's ATR range already travelled — RANGE SPENT — a normal day is already done"
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-09-06T07:13:55.695946+00:00",
+  "updated_at": "2026-09-06T07:52:51.876737+00:00"
+}
