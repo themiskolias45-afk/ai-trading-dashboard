@@ -240,9 +240,9 @@ def _pulled_sentry_line():
     On the laptop that file is PULLED FROM THE VPS by pull_vps_status.ps1, and the VPS is
     where the EA actually trades. Returns (line, logday, host, ageHours) or Nones.
     """
-    path = os.path.join(ROOT, "dashboard", "mt5-runtime-status.json")
+    path = os.path.join(HERE, "..", "dashboard", "mt5-runtime-status.json")
     try:
-        with io.open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             d = json.load(fh)
     except (OSError, ValueError):
         return None, None, None, None
