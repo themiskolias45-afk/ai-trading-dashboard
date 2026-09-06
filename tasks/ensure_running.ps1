@@ -452,6 +452,45 @@ if (-not (Test-Path $TunnelKey)) {
 # different project. A false positive costs a missing JARVIS window that the user
 # can open by hand; a false negative spawns duplicate sessions against the same
 # subscription every ten minutes. Those are not symmetric.
+# ── MT5 RUNTIME STATUS: refreshed HERE, because its own task never executes the script ──
+#
+# THIS MUST SIT ABOVE THE EARLY RETURN BELOW. The VPS is headless, so `-not $IsInteractive`
+# is true there and this file returns at that point - anything appended to the end of the
+# script would never run on the one box that needs it. Placed here on purpose.
+#
+# Measured 2026-09-06 on the VPS: the scheduled task "MT5 Ensure Running" launches
+# powershell.exe - the Task Scheduler Operational log records id=200 "launched action" and
+# id=102 "successfully finished" one second later - and the script NEVER EXECUTES. No START
+# line, no log entry, no file written, LastTaskResult 0, NumberOfMissedRuns 0. The status
+# file aged past 30 minutes and the AI Brain panel read "Status UNKNOWN" while MT5, the EA
+# and the trades were all perfectly healthy.
+#
+# Ruled out by measurement, not reasoning: the script (its exact command line runs and
+# writes over ssh, and from C:\Windows\System32 as CWD, exit 0), the arguments (dumped char
+# by char, pure ASCII, path resolves True), the encoding (no BOM, zero non-ASCII bytes), and
+# RunLevel=Limited (the CRT/TK/FVG shadow tasks are equally Limited and write every few
+# minutes - that check killed my own theory before it became a claim).
+#
+# WHAT ACTUALLY DIFFERS is the action itself. This task - the one that works - uses
+# `-NonInteractive` and `-WindowStyle Hidden`; the broken one omits both, so under an
+# Interactive logon PowerShell tries to create a console window in session 1 and dies
+# instantly when the session cannot host one.
+#
+# Doing it from the laptop instead would go stale every time the lid closed, on the one box
+# that is meant to run 24/7. mt5_ensure_running.ps1 only ever STARTS MT5 when absent and
+# never kills, so calling it more often is safe; any failure here must not take this down.
+$mt5Status = Join-Path $Proj 'tasks\mt5_ensure_running.ps1'
+if (Test-Path $mt5Status) {
+    try {
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "$mt5Status" | Out-Null
+        Write-Log 'MT5 status: refreshed here (its own task launches but never runs the script)'
+    } catch {
+        Write-Log "MT5 status: refresh FAILED - $($_.Exception.Message)"
+    }
+} else {
+    Write-Log 'MT5 status: tasks\mt5_ensure_running.ps1 missing - not refreshed'
+}
+
 if (-not $IsInteractive) {
     # The VPS is headless. Opening a console session nobody can see would burn
     # subscription on a window that never gets read.
