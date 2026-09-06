@@ -245,10 +245,12 @@ def read_account():
                 t = page.evaluate(JS_TABLE)
                 data["balanceHeaders"] = t["headers"] or None
                 data["balanceRows"] = len(t["rows"])
+                data["balanceVia"] = t.get("via")
                 data["pnl"] = bucket_pnl(t["rows"], t["headers"])
             else:
                 data["balanceHeaders"] = None
                 data["balanceRows"] = None
+                data["balanceVia"] = None
                 data["pnl"] = None
 
             return data, "read the Paper Trading panel"
