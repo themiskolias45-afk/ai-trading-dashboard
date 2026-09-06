@@ -456,8 +456,42 @@ if (-not (Test-Path $startsFile)) {
         }
     } | Where-Object { $_ -and $_ -gt $cutoff })
     $lastStart = if ($recent.Count) { ($recent | Sort-Object)[-1].ToString('HH:mm') } else { 'none in 24h' }
-    if ($recent.Count -gt 6) {
-        Add-Check 'server' 'restarts' 'RED' "$($recent.Count) starts in 24h (last $lastStart) - that is thrashing, not deploys"
+
+    # REWRITTEN 2026-09-06. The rule above was "more than 6 starts in 24h = RED", and
+    # the comment above it already said what it was supposed to mean: RED "only at a
+    # rate that means thrashing", because "alarming on one would be an item that fires
+    # on every ordinary deploy". A raw 24h COUNT does not measure thrashing. It
+    # measures A WORKING DAY. On 2026-09-05 nine deploys plus one lid-open restart the
+    # next morning put this at RED with the server healthy and up, and an item that
+    # goes red every time you do your job is one you learn to skim past -- the exact
+    # failure this file warns about twenty lines earlier.
+    #
+    # Thrashing is not "restarted often today", it is "restarting RIGHT NOW". So the
+    # test is a recent cluster AND a server that has not managed to stay up:
+    #
+    #   RED   >= 4 starts in the last 3h AND the current process is under 15 min old.
+    #   AMBER the same cluster, but this one has now held for 15 min -- it settled.
+    #   INFO  any other restarts in 24h, with the count and the last time.
+    #
+    # A gap-based rule was considered and rejected: it would have to call a 3-minute
+    # gap thrash, and the loop that actually happens here is driven by
+    # SmartEntryEnsureRunning, which relaunches on a TEN MINUTE trigger. A 3-minute
+    # rule is blind to the one crash-loop this box can actually produce.
+    #
+    # This one CAN clear, which the count-based rule could not until midnight.
+    $RAPID_WINDOW_H     = 3
+    $RAPID_STARTS       = 4
+    $SETTLED_UPTIME_S   = 900
+    $rapidCutoff = $now.AddHours(-$RAPID_WINDOW_H)
+    $rapid = @($recent | Where-Object { $_ -gt $rapidCutoff })
+    $uptimeKnown = $serverAgeS -ne [int]::MaxValue
+    $settled     = $uptimeKnown -and ($serverAgeS -ge $SETTLED_UPTIME_S)
+    $agePhrase   = if ($uptimeKnown) { "$($serverAgeS)s old" } else { 'not answering at all' }
+
+    if ($rapid.Count -ge $RAPID_STARTS -and -not $settled) {
+        Add-Check 'server' 'restarts' 'RED' "$($rapid.Count) starts in the last $($RAPID_WINDOW_H)h and this one is $agePhrase (last $lastStart) - it is not staying up. Clears once a start holds for $($SETTLED_UPTIME_S / 60) min"
+    } elseif ($rapid.Count -ge $RAPID_STARTS) {
+        Add-Check 'server' 'restarts' 'AMBER' "$($rapid.Count) starts in the last $($RAPID_WINDOW_H)h (last $lastStart) but this one has held $($serverAgeS)s - churn has settled"
     } elseif ($recent.Count -gt 0) {
         Add-Check 'server' 'restarts' 'INFO' "$($recent.Count) start(s) in the last 24h, last at $lastStart"
     } else {
