@@ -7239,8 +7239,15 @@ setInterval(refreshEaCrtPanel, 60000);
 async function refreshTvPaperPanel() {
   var data = null;
   try {
-    var r = await fetch('/dashboard/tv-paper-positions.json?t=' + Date.now());
+    /* tv-paper-account.json carries the summary, day/week/month P&L and positions.
+       tv-paper-positions.json is the older, positions-only file and stays as a fallback so
+       an older box that has not been updated still renders something truthful. */
+    var r = await fetch('/dashboard/tv-paper-account.json?t=' + Date.now());
     if (r.ok) data = await r.json();
+    if (!data) {
+      var r2 = await fetch('/dashboard/tv-paper-positions.json?t=' + Date.now());
+      if (r2.ok) data = await r2.json();
+    }
   } catch (e) { /* leave data null - handled below */ }
 
   var sync = document.getElementById('tv-paper-sync');
