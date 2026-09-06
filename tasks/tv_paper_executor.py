@@ -205,23 +205,47 @@ def place_order(symbol, side, units):
         if broker != BROKER_MUST_BE:
             raise RuntimeError("connected broker is %r, not %r - refusing"
                                % (broker, BROKER_MUST_BE))
+
+        # SYMBOL ASSERTION -- the single most important guard here. The ticket trades the
+        # CHART's instrument, and between an alert arriving and this click the daily-plan job
+        # can have moved the chart from gold to BTC to SPX. Checked against the live DOM.
+        chart = page.evaluate(JS_SYMBOL) or ""
+        if normalise_symbol(chart) != symbol:
+            raise RuntimeError("chart shows %r but the order is for %s - refusing rather than "
+                               "trading the wrong instrument" % (chart[:20], symbol))
+
         t = page.evaluate(JS_TICKET)
-        key = "buy-order-button" if side == "buy" else "sell-order-button"
-        btn = t.get(key)
-        if not btn or not btn["vis"]:
-            raise RuntimeError("%s is not visible - the Trading Panel must be open" % key)
+        side_key = "side-control-buy" if side == "buy" else "side-control-sell"
+        for needed in (side_key, "place-and-modify-button"):
+            if not t.get(needed) or not t[needed]["vis"]:
+                raise RuntimeError("%s is not visible - the Trading Panel must be open" % needed)
+
         if not LIVE:
-            return ("DRY RUN - would click %s at (%d,%d) for %s x%s"
-                    % (key, btn["x"] + btn["w"] / 2, btn["y"] + btn["h"] / 2, symbol, units))
-        market = t.get("marketTab")
+            return ("DRY RUN - chart=%s, would select %s, choose Market, then press %r"
+                    % (chart[:14], side_key, (t.get("submitText") or "?")[:46]))
+
+        page.mouse.click(t[side_key]["x"] + t[side_key]["w"] / 2,
+                         t[side_key]["y"] + t[side_key]["h"] / 2)
+        page.wait_for_timeout(500)
+        market = page.evaluate(JS_TICKET).get("marketTab")
         if market and market["vis"]:
             page.mouse.click(market["x"] + market["w"] / 2, market["y"] + market["h"] / 2)
-            page.wait_for_timeout(600)
-            t = page.evaluate(JS_TICKET)
-            btn = t.get(key)
+            page.wait_for_timeout(700)
+
+        # Re-measure and re-assert before the irreversible press. The ticket has relaid out
+        # twice by now, and the submit button's own text is the last chance to catch a wrong
+        # side or a wrong instrument while it still costs nothing.
+        t2 = page.evaluate(JS_TICKET)
+        btn = t2.get("place-and-modify-button")
+        txt = (t2.get("submitText") or "")
+        if not btn or not btn["vis"]:
+            raise RuntimeError("submit button vanished after selecting the side - nothing sent")
+        if not txt.lower().startswith(side):
+            raise RuntimeError("submit button reads %r but this order is %s - nothing sent"
+                               % (txt[:46], side))
         page.mouse.click(btn["x"] + btn["w"] / 2, btn["y"] + btn["h"] / 2)
         page.wait_for_timeout(1500)
-        return "CLICKED %s for %s x%s" % (key, symbol, units)
+        return "SENT: %s" % txt[:60]
     return with_page(run)
 
 
