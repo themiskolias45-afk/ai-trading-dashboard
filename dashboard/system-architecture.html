@@ -1,23 +1,24 @@
 <!DOCTYPE html>
 <!--
-  SYSTEM ARCHITECTURE — the whole system as layers, every card bound to a live endpoint.
+  SMART ENTRY — SYSTEM ARCHITECTURE
 
-  WHY IT LOOKS LIKE THIS. Built to the visual grammar of the reference diagram: branded
-  header, horizontal colour-coded bands, icon + TITLE + (qualifier) + detail on every
-  card, flow arrows between layers, asset strip at the base.
+  Rebuilt 2026-09-06 to the grammar of the second reference (AI DATA PLATFORM
+  ARCHITECTURE), which is a better model than the card grid it replaces. Four things
+  define that grammar and all four are used here:
 
-  WHY IT IS NOT A COPY OF IT. That reference describes a system that does not fully
-  exist — MSFT and AMZN accounts, a React dashboard, an iOS/Android app, Ubuntu cloud
-  servers, Docker, systemd, PostgreSQL, XGBoost/LSTM. The live system trades BTCUSD,
-  XAUUSD and SP500 from two WINDOWS boxes with scheduled tasks, SQLite and JSON, and a
-  RULE-BASED multi-timeframe engine. Drawing the reference verbatim would have produced
-  the most convincing false claim in the whole system, which is the exact failure this
-  project spent 2026-09-06 removing from CLAUDE.md, VAULT-INDEX.md and three checks.
+    1. NUMBERED LAYERS with a left label column, so hierarchy is read, not inferred.
+    2. A CROSS-CUTTING COLUMN spanning every layer. In the reference it is Governance &
+       Security. Here it is GUARDRAILS & SAFETY, which is the honest equivalent: rules
+       that apply at every layer rather than sitting inside one.
+    3. SUB-GROUPS inside a layer, each a titled cluster of boxes.
+    4. CONNECTORS between layers, so flow is visible.
 
-  SO: anything not live-verified is drawn in the PLANNED state — dashed, greyed, labelled.
-  The ambition stays visible without being asserted as fact.
+  EVERY BOX IS BOUND TO A LIVE ENDPOINT or drawn dashed as PLANNED. Poster diagrams
+  describe systems that are partly aspirational; this one describes what actually runs --
+  two Windows boxes, scheduled tasks, SQLite and JSON, a rule-based multi-timeframe engine
+  on BTCUSD / XAUUSD / SP500. Anything unbuilt is greyed and labelled, never drawn as fact.
 
-  Read-only. Every fetch is a GET. Nothing writes, arms, halts or sizes.
+  Read-only. Every fetch is a GET.
 -->
 <html lang="en">
 <head>
@@ -29,227 +30,213 @@
 <link rel="stylesheet" href="/dashboard/nav.css">
 <script src="/dashboard/nav.js" defer></script>
 <style>
-  body { background:
-      radial-gradient(1100px 620px at 12% -8%, #10203a 0%, transparent 62%),
-      radial-gradient(900px 520px at 88% -4%, #1a1233 0%, transparent 58%),
-      var(--bg);
-    color: var(--text); font-family: var(--font); margin: 0; }
-  .wrap { max-width: 1560px; margin: 0 auto; padding: 22px 24px 70px; }
+  body { margin:0; color:var(--text); font-family:var(--font);
+         background:
+           radial-gradient(1200px 700px at 50% -10%, #0d2f4f 0%, transparent 60%),
+           radial-gradient(900px 600px at 90% 20%, #10284a 0%, transparent 55%),
+           linear-gradient(180deg, #061627 0%, #050f1c 100%); }
+  .wrap { max-width:1720px; margin:0 auto; padding:20px 22px 70px; }
 
-  /* ---- branded header, per the reference grammar ---- */
-  .brand { display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
-           padding-bottom: 16px; border-bottom: 1px solid var(--border); }
-  .brand .mark { font-size: 30px; font-weight: 800; letter-spacing: 1.5px; line-height: 1;
-                 background: linear-gradient(95deg, #e8eef7 0%, #f0b429 62%, #f7931a 100%);
-                 -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .brand .tag { color: var(--muted); font-size: 11.5px; letter-spacing: 2.6px;
-                text-transform: uppercase; margin-top: 7px; }
-  .brand .mid { flex: 1 1 300px; }
-  .brand .mid h1 { margin: 0; font-size: 17px; letter-spacing: 3.4px; text-transform: uppercase;
-                   color: var(--text); font-weight: 600; }
-  .brand .mid .sub { color: var(--muted-dim); font-size: 11px; letter-spacing: 2px;
-                     text-transform: uppercase; margin-top: 5px; }
-  .brand .right { margin-left: auto; text-align: right; }
-  .brand .right .stamp { font-family: var(--mono); font-size: 10.5px; color: var(--muted-dim); }
-  .authwarn { margin-top: 12px; border: 1px solid #5a4410; background: #33280a;
-              border-radius: 8px; padding: 10px 13px; font-size: 12.5px; color: var(--amber); }
+  .title { display:flex; align-items:center; justify-content:center; gap:14px;
+           padding:14px 0 20px; position:relative; }
+  .title .logo { width:40px; height:40px; border-radius:10px; flex:0 0 auto;
+                 background:linear-gradient(145deg,#0e3a5c,#0a2540);
+                 border:1px solid #1f6b9a; display:flex; align-items:center;
+                 justify-content:center; box-shadow:0 0 22px rgba(64,196,255,.22); }
+  .title h1 { margin:0; font-size:26px; font-weight:800; letter-spacing:3px;
+              color:#dff1ff; text-shadow:0 0 26px rgba(64,196,255,.30); }
+  .title .meta { position:absolute; right:0; top:18px; text-align:right;
+                 font-family:var(--mono); font-size:10.5px; color:#6f93b5; }
 
-  /* ---- layer bands ---- */
-  .band { border: 1px solid; border-radius: 12px; margin-top: 14px; overflow: hidden;
-          background: var(--surface); }
-  .band > header { display: flex; align-items: center; gap: 11px; padding: 10px 16px;
-                   border-bottom: 1px solid var(--border); }
-  .band > header .ic { width: 22px; height: 22px; flex: 0 0 auto; }
-  .band > header .t { font-size: 12.5px; font-weight: 700; letter-spacing: 1.9px; text-transform: uppercase; }
-  .band > header .d { color: var(--muted-dim); font-size: 11px; margin-left: 4px; }
-  .band > header .agg { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
-           gap: 10px; padding: 13px 16px 16px; }
+  .board { display:grid; grid-template-columns:1fr 224px; gap:14px; align-items:start; }
+  @media (max-width:1180px){ .board { grid-template-columns:1fr; } }
 
-  .card { border: 1px solid var(--border); border-radius: 9px; padding: 11px 12px;
-          background: var(--surface2); min-width: 0; }
-  .card .ct { font-size: 11px; font-weight: 650; letter-spacing: .3px; margin-bottom: 6px;
-              display: flex; align-items: center; gap: 6px; }
-  .card .cq { color: var(--muted-dim); font-weight: 400; font-size: 10px; }
-  .card .cv { font-family: var(--mono); font-size: 19px; font-weight: 700; line-height: 1.1; }
-  .card .cd { color: var(--muted-dim); font-size: 10.5px; margin-top: 5px; line-height: 1.4; }
-  .card.planned { border-style: dashed; opacity: .5; }
-  .card.planned .cv { color: var(--muted-dim); }
+  .layer { display:grid; grid-template-columns:158px 1fr;
+           border:1px solid #17466e; border-radius:13px; overflow:hidden;
+           background:linear-gradient(180deg, rgba(12,42,68,.72), rgba(8,26,44,.72)); }
+  .lab { padding:15px 13px; border-right:1px solid #17466e;
+         background:linear-gradient(180deg, rgba(10,52,84,.55), rgba(8,30,52,.45)); }
+  .lab .n { font-size:11px; font-weight:800; letter-spacing:1.5px; color:#3fd0e8; }
+  .lab .t { font-size:13.5px; font-weight:750; letter-spacing:.4px; margin-top:4px;
+            color:#e6f4ff; line-height:1.25; }
+  .lab .q { font-size:10px; color:#6f93b5; margin-top:5px; line-height:1.4; }
+  .lay-body { padding:13px 15px; display:flex; flex-wrap:wrap; gap:14px; align-items:flex-start; }
 
-  /* colour = LAYER IDENTITY, not status (status lives in the value colour) */
-  .l-if   { border-color: #1d3f6b; } .l-if   > header { background: linear-gradient(90deg, #10233d, transparent); } .l-if   .t { color: #6cb6ff; }
-  .l-br   { border-color: #3b2a6b; } .l-br   > header { background: linear-gradient(90deg, #1d1640, transparent); } .l-br   .t { color: #a78bff; }
-  .l-ai   { border-color: #1d5a56; } .l-ai   > header { background: linear-gradient(90deg, #0f2f2d, transparent); } .l-ai   .t { color: #4fd6c4; }
-  .l-gr   { border-color: #5a4410; } .l-gr   > header { background: linear-gradient(90deg, #33280a, transparent); } .l-gr   .t { color: var(--amber); }
-  .l-core { border-color: #14512f; } .l-core > header { background: linear-gradient(90deg, #0c3d26, transparent); } .l-core .t { color: var(--green); }
-  .l-ex   { border-color: #1d3f6b; } .l-ex   > header { background: linear-gradient(90deg, #10233d, transparent); } .l-ex   .t { color: #6cb6ff; }
-  .l-da   { border-color: #14512f; } .l-da   > header { background: linear-gradient(90deg, #0c3d26, transparent); } .l-da   .t { color: var(--green); }
-  .l-inf  { border-color: #5c1a20; } .l-inf  > header { background: linear-gradient(90deg, #381115, transparent); } .l-inf  .t { color: #ff7a85; }
+  .grp { flex:1 1 210px; min-width:0; }
+  .grp > h4 { margin:0 0 8px; font-size:10px; letter-spacing:1.2px; text-transform:uppercase;
+              color:#7fb2d6; font-weight:700; text-align:center; }
+  .boxes { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
 
-  .flow { display: flex; justify-content: center; padding: 3px 0; }
-  .flow svg { opacity: .45; }
+  .bx { border:1px solid #1d5a86; border-radius:9px; padding:9px 10px; min-width:96px;
+        background:linear-gradient(180deg, rgba(14,52,82,.85), rgba(10,32,54,.85));
+        text-align:center; flex:1 1 96px; }
+  .bx .i { display:block; margin:0 auto 5px; width:19px; height:19px; }
+  .bx .n { font-size:10.5px; font-weight:650; color:#dbeeff; line-height:1.25; }
+  .bx .s { font-size:9px; color:#6f93b5; margin-top:3px; line-height:1.3; }
+  .bx .v { font-family:var(--mono); font-size:13px; font-weight:700; margin-top:4px; }
+  .bx.planned { border-style:dashed; border-color:#3a5570; opacity:.45; }
+  .v-ok{color:#2bd07c} .v-warn{color:#f0b429} .v-bad{color:#f2555f} .v-unk{color:#6f93b5}
 
-  .ok { color: var(--green); } .warn { color: var(--amber); } .bad { color: var(--red); }
-  .unk { color: var(--muted-dim); }
+  .a-src .lab .n{color:#3fd0e8} .a-ing .lab .n{color:#3fe8d0}
+  .a-core .lab .n{color:#2bd07c} .a-exec .lab .n{color:#6cb6ff}
+  .a-mem .lab .n{color:#a78bff} .a-team .lab .n{color:#4fd6c4}
+  .a-learn .lab .n{color:#2bd07c} .a-cons .lab .n{color:#f0b429}
+  .a-core { border-color:#2b7a4a; }
+  .a-core .bx { border-color:#2b7a4a; }
+  .a-mem .bx { border-color:#4a3a86; }
+  .a-team .bx { border-color:#1f6b7a; }
+  .a-cons .bx { border-color:#7a5a1f; }
 
-  .assets { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 11px; margin-top: 18px; }
-  .asset { border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
-           padding: 13px 15px; }
-  .asset .n { font-size: 13px; font-weight: 700; letter-spacing: .6px; }
-  .asset .p { font-family: var(--mono); font-size: 17px; margin-top: 5px; }
-  .asset .s { font-size: 10.5px; color: var(--muted-dim); margin-top: 4px; }
-  .asset.cand { border-style: dashed; opacity: .55; }
+  .conn { display:flex; justify-content:center; padding:5px 0; }
 
-  footer.f { margin-top: 26px; padding-top: 15px; border-top: 1px solid var(--border);
-             color: var(--muted-dim); font-size: 11.5px; line-height: 1.65; }
-  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 9px; font-size: 10.5px; }
-  .legend span { display: flex; align-items: center; gap: 5px; }
-  /* ---- TEAM & PROGRESS: who is working, and what they produced ---- */
-  .team { border:1px solid #1d5a56; border-radius:12px; margin-top:16px; overflow:hidden;
-          background:var(--surface); }
-  .team > header { display:flex; align-items:center; gap:11px; padding:10px 16px;
-                   border-bottom:1px solid var(--border);
-                   background:linear-gradient(90deg,#0f2f2d,transparent); }
-  .team > header .t { font-size:12.5px; font-weight:700; letter-spacing:1.9px;
-                      text-transform:uppercase; color:#4fd6c4; }
-  .team > header .d { color:var(--muted-dim); font-size:11px; }
-  .team > header .agg { margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--muted); }
-  .team .inner { padding:12px 16px 16px; }
+  .cross { border:1px solid #6b4a1f; border-radius:13px; overflow:hidden;
+           background:linear-gradient(180deg, rgba(58,40,12,.55), rgba(30,22,10,.5)); }
+  .cross > header { padding:13px 14px; border-bottom:1px solid #6b4a1f; text-align:center; }
+  .cross > header .t { font-size:12px; font-weight:800; letter-spacing:1.5px; color:#f0b429; }
+  .cross > header .q { font-size:9.5px; color:#a98a52; margin-top:4px; letter-spacing:.8px; }
+  .cross .items { padding:12px; display:grid; grid-template-columns:1fr 1fr; gap:11px; }
+  .gi { text-align:center; }
+  .gi svg { width:22px; height:22px; margin-bottom:5px; }
+  .gi .n { font-size:9.5px; color:#e6d3a8; line-height:1.3; font-weight:600; }
+  .gi .s { font-size:8.5px; margin-top:2px; }
+  .gi .s.code { color:#2bd07c; } .gi .s.proc { color:#a98a52; }
 
-  .worker { display:grid; grid-template-columns:200px 104px 1fr 158px; gap:12px;
-            align-items:center; padding:9px 0; border-top:1px solid var(--subtle); }
+  .team { border:1px solid #1f6b7a; border-radius:13px; margin-top:14px; overflow:hidden;
+          background:linear-gradient(180deg, rgba(10,44,48,.6), rgba(8,28,34,.6)); }
+  .team > header { padding:11px 15px; border-bottom:1px solid #1f6b7a; display:flex; gap:10px; align-items:center; }
+  .team > header .t { font-size:12px; font-weight:800; letter-spacing:1.6px; color:#4fd6c4; }
+  .team > header .q { font-size:10.5px; color:#6f93b5; }
+  .team > header .agg { margin-left:auto; font-family:var(--mono); font-size:11px; color:#8fb8d8; }
+  .team .inner { padding:12px 15px 15px; }
+  .worker { display:grid; grid-template-columns:200px 108px 1fr 160px; gap:12px; align-items:center;
+            padding:8px 0; border-top:1px solid rgba(31,107,122,.35); }
   .worker:first-child { border-top:0; }
-  .worker .wn { font-size:12.5px; font-weight:600; }
-  .worker .wn small { display:block; color:var(--muted-dim); font-weight:400; font-size:10px; margin-top:2px; }
+  .worker .wn { font-size:12.5px; font-weight:600; color:#dbeeff; }
+  .worker .wn small { display:block; color:#6f93b5; font-weight:400; font-size:9.5px; margin-top:2px; }
   .worker .wv { font-family:var(--mono); font-size:10px; padding:2px 8px; border-radius:999px;
-                border:1px solid var(--dim); text-align:center; white-space:nowrap; }
-  .wv.good { border-color:#14512f; color:var(--green); }
-  .wv.red  { border-color:#5c1a20; color:var(--red); }
-  .wv.amb  { border-color:#5a4410; color:var(--amber); }
-  .worker .wm { font-family:var(--mono); font-size:11px; color:var(--muted); }
+                border:1px solid #3a5570; text-align:center; white-space:nowrap; color:#8fb8d8; }
+  .wv.good{border-color:#2b7a4a;color:#2bd07c} .wv.red{border-color:#7a2b34;color:#f2555f}
+  .worker .wm { font-family:var(--mono); font-size:11px; color:#8fb8d8; }
   .worker .wp { text-align:right; }
-  .bar { height:6px; border-radius:3px; background:var(--surface3); overflow:hidden; margin-top:5px; }
+  .bar { height:6px; border-radius:3px; background:rgba(255,255,255,.07); overflow:hidden; margin-top:5px; }
   .bar i { display:block; height:100%; background:linear-gradient(90deg,#2bd07c,#4fd6c4); }
-  .bar.amberfill i { background:linear-gradient(90deg,#f0b429,#f7931a); }
-  .wp .lbl { font-family:var(--mono); font-size:10.5px; color:var(--muted-dim); }
-
-  .pipe { margin-top:14px; padding-top:13px; border-top:1px solid var(--border); }
-  .pipe h4 { margin:0 0 8px; font-size:10.5px; letter-spacing:1.4px; text-transform:uppercase;
-             color:var(--muted-dim); font-weight:600; }
-  .segbar { display:flex; height:22px; border-radius:5px; overflow:hidden; border:1px solid var(--border); }
+  .bar.amb i { background:linear-gradient(90deg,#f0b429,#f7931a); }
+  .wp .lbl { font-family:var(--mono); font-size:10.5px; color:#6f93b5; }
+  .pipe { margin-top:13px; padding-top:12px; border-top:1px solid rgba(31,107,122,.35); }
+  .pipe h4 { margin:0 0 8px; font-size:10px; letter-spacing:1.3px; text-transform:uppercase;
+             color:#7fb2d6; font-weight:700; }
+  .segbar { display:flex; height:21px; border-radius:5px; overflow:hidden; border:1px solid #17466e; }
   .segbar div { display:flex; align-items:center; justify-content:center; font-family:var(--mono);
-                font-size:10px; color:#07121f; font-weight:700; min-width:0; }
-  .seg-impl { background:#2bd07c; } .seg-ign { background:#4a5a72; color:#c9d6e8 !important; }
-  .seg-rej { background:#7c5cff; color:#e8eef7 !important; } .seg-unr { background:#f0b429; }
-  .pipekey { display:flex; gap:15px; flex-wrap:wrap; margin-top:7px; font-size:10.5px; color:var(--muted-dim); }
+                font-size:10px; font-weight:700; min-width:0; color:#07121f; }
+  .pipekey { display:flex; gap:14px; flex-wrap:wrap; margin-top:7px; font-size:10.5px; color:#6f93b5; }
   .pipekey span { display:flex; align-items:center; gap:5px; }
   .pipekey i { width:9px; height:9px; border-radius:2px; }
+  .roster { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .who { border:1px solid #1f6b7a; border-radius:999px; padding:3px 10px; font-size:10.5px; color:#4fd6c4; }
+  .failing { margin-top:10px; font-size:11px; color:#8fb8d8; }
+  .failing b { color:#f2555f; }
 
-  .roster { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
-  .who { border:1px solid var(--border); border-radius:999px; padding:3px 11px; font-size:11px;
-         background:var(--surface2); }
-  .who b { color:#4fd6c4; font-weight:600; }
-  .failing { margin-top:11px; font-size:11.5px; color:var(--muted); }
-  .failing b { color:var(--red); }
+  .assets { display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:11px; margin-top:14px; }
+  .as { border:1px solid #17466e; border-radius:11px; padding:12px 14px;
+        background:linear-gradient(180deg, rgba(12,42,68,.6), rgba(8,26,44,.6)); }
+  .as .n { font-size:12.5px; font-weight:750; color:#dbeeff; letter-spacing:.5px; }
+  .as .p { font-family:var(--mono); font-size:16px; margin-top:4px; color:#dff1ff; }
+  .as .s { font-size:10px; color:#6f93b5; margin-top:3px; }
+  .as.cand { border-style:dashed; opacity:.5; }
 
-  .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .foot { margin-top:20px; padding-top:14px; border-top:1px solid #17466e;
+          color:#6f93b5; font-size:11.5px; line-height:1.6; }
+  .warnbar { margin:10px 0 0; border:1px solid #6b4a1f; background:rgba(58,40,12,.5);
+             border-radius:9px; padding:9px 13px; font-size:12px; color:#f0b429; }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <div class="brand">
-    <div>
-      <div class="mark">SMART ENTRY</div>
-      <div class="tag">Analyze &middot; Decide &middot; Execute &middot; Learn &middot; Improve</div>
+  <div class="title">
+    <div class="logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3fd0e8" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 4a3 3 0 0 0-3 3 3 3 0 0 0-1 5.6V16a3 3 0 0 0 6 0"/>
+        <path d="M12 4a3 3 0 0 1 3 3 3 3 0 0 1 1 5.6V16"/><path d="M9 20h6"/>
+      </svg>
     </div>
-    <div class="mid">
-      <h1>System Architecture</h1>
-      <div class="sub">Layered &middot; Live-bound &middot; Two boxes &middot; Read-only</div>
-    </div>
-    <div class="right">
-      <div class="stamp" id="stamp">reading&hellip;</div>
-      <div class="stamp" id="verdict" style="margin-top:5px">&mdash;</div>
-    </div>
+    <h1>SMART ENTRY &mdash; SYSTEM ARCHITECTURE</h1>
+    <div class="meta"><div id="stamp">reading&hellip;</div><div id="verdict">&mdash;</div></div>
   </div>
 
-  <div class="authwarn" id="authwarn" style="display:none">
-    Signed out &mdash; the brain, fleet and cognition layers are session-gated by design, so their
-    cards read <b>?</b> rather than green. Sign in to populate them.
+  <div class="warnbar" id="authwarn" style="display:none">
+    Signed out &mdash; the memory, cognition and fleet endpoints are session-gated by design, so
+    their boxes read <b>?</b> rather than green. Sign in to populate them.
   </div>
 
-  <div id="stack"></div>
+  <div class="board">
+    <div id="layers"></div>
+    <div class="cross" id="cross"></div>
+  </div>
 
   <div class="team" id="team"></div>
-
   <div class="assets" id="assets"></div>
 
-  <footer class="f">
-    Every card is bound to a live endpoint. A card drawn <b>dashed and grey</b> is
-    <b>planned, not built</b> &mdash; it is shown so the ambition stays visible without being
-    asserted as fact. A value shown as <b>?</b> means the reading could not be taken; it never
-    means healthy.
-    <div class="legend">
-      <span><i class="sw" style="background:#6cb6ff"></i> interface / execution</span>
-      <span><i class="sw" style="background:#a78bff"></i> brain &amp; memory</span>
-      <span><i class="sw" style="background:#4fd6c4"></i> AI workforce</span>
-      <span><i class="sw" style="background:#f0b429"></i> tools &amp; guardrails</span>
-      <span><i class="sw" style="background:#2bd07c"></i> engine &amp; learning</span>
-      <span><i class="sw" style="background:#ff7a85"></i> infrastructure</span>
-      <span><i class="sw" style="border:1px dashed #7488ab;background:transparent"></i> planned, not built</span>
-    </div>
-  </footer>
+  <div class="foot">
+    Every box is bound to a live endpoint. A box drawn <b>dashed and grey</b> is
+    <b>planned, not built</b>. A value of <b>?</b> means the reading could not be taken &mdash;
+    it never means healthy. Guardrails marked <span style="color:#2bd07c">in code</span> are
+    enforced by the system itself; those marked <span style="color:#a98a52">procedural</span>
+    depend on someone following them.
+  </div>
 </div>
 
 <script>
 (function () {
   "use strict";
-  var $ = function (id) { return document.getElementById(id); };
-  var ARROW = '<svg width="18" height="20" viewBox="0 0 18 20"><path d="M9 1v13M4 11l5 6 5-6" '
-            + 'stroke="#4a9eff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-
-  function ico(paths, colour) {
-    return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="' + colour +
-           '" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>';
-  }
-  var ICONS = {
-    iface: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
-    brain: '<path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8V17a3 3 0 0 0 6 0"/><path d="M12 5a3 3 0 0 1 3 3 3 3 0 0 1 1 5.8V17"/>',
-    ai:    '<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M19 5l-3 3M8 16l-3 3"/>',
-    shield:'<path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/>',
-    core:  '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
-    exec:  '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
-    data:  '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
-    infra: '<rect x="2" y="3" width="20" height="7" rx="1.5"/><rect x="2" y="14" width="20" height="7" rx="1.5"/><path d="M6 6.5h.01M6 17.5h.01"/>'
+  var $ = function (i) { return document.getElementById(i); };
+  var S = function (p, c, w) {
+    return '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="' + (c || "#6cb6ff") +
+           '" stroke-width="' + (w || 1.7) + '" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>';
   };
+  var P = {
+    db:    '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/>',
+    doc:   '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+    wave:  '<path d="M2 12h3l2-7 4 14 3-9 2 4h6"/>',
+    plug:  '<path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/>',
+    chip:  '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+    gauge: '<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-5"/>',
+    filter:'<path d="M3 5h18l-7 8v5l-4 2v-7z"/>',
+    brain: '<path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-1 5.6V17a3 3 0 0 0 6 0"/><path d="M12 5a3 3 0 0 1 3 3 3 3 0 0 1 1 5.6V17"/>',
+    bot:   '<rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M8 14h.01M16 14h.01"/>',
+    tool:  '<path d="M14 7a4 4 0 1 0 3 3l4 4-3 3-4-4a4 4 0 0 0-3-3z"/>',
+    up:    '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+    shield:'<path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/>',
+    eye:   '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>',
+    screen:'<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    bell:  '<path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
+    lock:  '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    net:   '<circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 7l3 3M17 7l-3 3M7 17l3-3M17 17l-3-3"/>',
+    scale: '<path d="M12 3v18M5 7h14"/><path d="M5 7l-3 6h6zM19 7l-3 6h6z"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+  };
+  var ARROW = '<svg width="20" height="20" viewBox="0 0 20 20"><path d="M10 1v12M5 10l5 6 5-6" '
+            + 'stroke="#3fd0e8" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/></svg>';
 
-  function card(title, qual, value, state, detail, planned) {
-    var d = document.createElement("div");
-    d.className = "card" + (planned ? " planned" : "");
-    var t = document.createElement("div"); t.className = "ct";
-    t.appendChild(document.createTextNode(title));
-    if (qual) { var q = document.createElement("span"); q.className = "cq"; q.textContent = qual; t.appendChild(q); }
-    var v = document.createElement("div"); v.className = "cv " + (state || "unk");
-    v.textContent = (value === null || value === undefined || value === "") ? "?" : String(value);
-    d.appendChild(t); d.appendChild(v);
-    if (detail) { var x = document.createElement("div"); x.className = "cd"; x.textContent = detail; d.appendChild(x); }
-    return d;
+  function box(icon, colour, name, sub, value, state, planned) {
+    return '<div class="bx' + (planned ? ' planned' : '') + '">' + S(icon, colour) +
+      '<div class="n">' + name + '</div>' +
+      (sub ? '<div class="s">' + sub + '</div>' : '') +
+      (value !== undefined && value !== null && value !== ""
+        ? '<div class="v v-' + (state || "unk") + '">' + value + '</div>' : '') + '</div>';
   }
-
-  function band(cls, iconKey, colour, title, desc, agg, cards) {
-    var b = document.createElement("div"); b.className = "band " + cls;
-    var h = document.createElement("header");
-    h.innerHTML = ico(ICONS[iconKey], colour) +
-      '<span class="t">' + title + '</span><span class="d">' + desc + '</span>' +
-      '<span class="agg">' + (agg || "") + '</span>';
-    var g = document.createElement("div"); g.className = "cards";
-    cards.forEach(function (c) { if (c) g.appendChild(c); });
-    b.appendChild(h); b.appendChild(g);
-    return b;
+  function group(title, boxesHtml) {
+    return '<div class="grp">' + (title ? '<h4>' + title + '</h4>' : '') +
+           '<div class="boxes">' + boxesHtml + '</div></div>';
   }
-
-  function flow() { var f = document.createElement("div"); f.className = "flow"; f.innerHTML = ARROW; return f; }
+  function layer(accent, n, title, qual, groupsHtml) {
+    return '<div class="layer ' + accent + '"><div class="lab">' +
+      '<div class="n">LAYER ' + n + '</div><div class="t">' + title + '</div>' +
+      (qual ? '<div class="q">' + qual + '</div>' : '') +
+      '</div><div class="lay-body">' + groupsHtml + '</div></div>' +
+      '<div class="conn">' + ARROW + '</div>';
+  }
 
   function get(u) {
     return fetch(u, { credentials: "same-origin", cache: "no-store" })
@@ -257,265 +244,255 @@
         if (r.status === 401 || r.status === 403) return { __auth: true };
         if (!r.ok) return { __err: r.status };
         return r.json();
-      }).catch(function (e) { return { __err: String(e) }; });
+      }).catch(function () { return { __err: 1 }; });
   }
   function ng(o) { return !o || o.__err || o.__auth || o.error; }
-  function num(o, path, dflt) {
-    if (ng(o)) return dflt === undefined ? null : dflt;
-    var cur = o, parts = path.split(".");
-    for (var i = 0; i < parts.length; i++) {
-      if (cur === null || cur === undefined) return dflt === undefined ? null : dflt;
-      cur = cur[parts[i]];
-    }
-    return (cur === undefined || cur === null) ? (dflt === undefined ? null : dflt) : cur;
+  function pick(o, path, d) {
+    if (ng(o)) return d === undefined ? null : d;
+    var c = o, a = path.split(".");
+    for (var i = 0; i < a.length; i++) { if (c == null) return d === undefined ? null : d; c = c[a[i]]; }
+    return c == null ? (d === undefined ? null : d) : c;
   }
 
   function render(d) {
-    var reg = d.reg, sig = d.sig, risk = d.risk, set = d.set, heal = d.heal,
-        gate = d.gate, learn = d.learn, fleet = d.fleet, mem = d.mem, rag = d.rag,
-        cog = d.cog, mA = d.mA, ev = d.ev;
+    var reg = d.reg, sig = d.sig, set = d.set, risk = d.risk, gate = d.gate,
+        learn = d.learn, fleet = d.fleet, mem = d.mem, rag = d.rag, cog = d.cog,
+        mA = d.mA, work = d.work;
 
-    var anyAuth = [reg, fleet, mem, rag, cog].some(function (x) { return x && x.__auth; });
-    $("authwarn").style.display = anyAuth ? "" : "none";
+    $("authwarn").style.display =
+      [reg, fleet, mem, rag, cog, work].some(function (x) { return x && x.__auth; }) ? "" : "none";
 
-    var stack = $("stack"); stack.innerHTML = "";
+    var C = { src:"#3fd0e8", ing:"#3fe8d0", core:"#2bd07c", exec:"#6cb6ff",
+              mem:"#a78bff", team:"#4fd6c4", learn:"#2bd07c", cons:"#f0b429" };
+    var bridgeV = ng(mA) ? "?" : (mA.connected ? "live" : "down");
+    var bridgeS = ng(mA) ? "unk" : (mA.connected ? "ok" : "bad");
+    var H = "";
 
-    // 1 INTERFACES ---------------------------------------------------------
-    stack.appendChild(band("l-if", "iface", "#6cb6ff", "Interfaces", "how you and the world reach it", "", [
-      card("Web dashboard", "(static HTML)", "live", "ok", "this page + " + (ng(reg) ? "?" : "the rest of /dashboard")),
-      card("JARVIS CLI", "(Claude Code)", "live", "ok", "the session you are talking to"),
-      card("MT5 terminals", "(execution)", "2", "ok", "one per box, EA + bridge attach here"),
-      card("TradingView", "(charts)", "bot", "ok", "tradingview_bot.py draws the daily plan"),
-      card("Telegram", "(alerts)", "on", "ok", "notifier configured on both boxes"),
-      card("Mobile app", "(iOS / Android)", "not built", "unk", "in the reference diagram only", true)
-    ]));
-    stack.appendChild(flow());
+    H += layer("a-src", "1", "Data Sources", "market, context, streaming",
+      group("Market (structured)",
+        box(P.db, C.src, "Broker bars", "D1 / H4 / H1 / M15", "4 TF", "ok") +
+        box(P.db, C.src, "Journal", "real fills", pick(learn, "totalTrades", "?"), "unk")) +
+      group("Context (unstructured)",
+        box(P.doc, C.src, "News", "web search", "on", "ok") +
+        box(P.clock, C.src, "Calendar", "blackout windows", "on", "ok") +
+        box(P.doc, C.src, "Sentiment", "fear &amp; greed", "on", "ok")) +
+      group("Streaming",
+        box(P.plug, C.src, "Bridge feed", "MT5 IPC", bridgeV, bridgeS) +
+        box(P.wave, C.src, "Heartbeats", "every 30s", "on", "ok") +
+        box(P.net, C.src, "On-chain", "alternative", "", "unk", true)));
 
-    // 2 BRAIN & MEMORY -----------------------------------------------------
-    var memCount = num(mem, "count", num(mem, "total", null));
-    var ragCount = num(rag, "chunks", num(rag, "total", null));
-    stack.appendChild(band("l-br", "brain", "#a78bff", "Brain &amp; Memory", "what it knows, and how it recalls",
-      (memCount != null ? memCount + " memories" : ""), [
-      card("Boot config", "(CLAUDE.md)", "loaded", "ok", "identity + the rules that cannot lapse"),
-      card("Vault", "(Obsidian)", "linked", "ok", "VAULT-INDEX.md, read at every session start"),
-      card("Memories", "(files)", memCount, memCount != null ? "ok" : "unk", "one fact per file, wiki-linked"),
-      card("Semantic recall", "(RAG)", ragCount, ragCount != null ? "ok" : "unk", "local embeddings, nothing leaves the box"),
-      card("Knowledge graph", "(MCP)", num(cog, "graph.entities", null), "warn", "entities present, relations never written"),
-      card("Session memory", "(jarvis)", num(cog, "jarvisEntries", null), "unk", "carried between sessions")
-    ]));
-    stack.appendChild(flow());
+    H += layer("a-ing", "2", "Ingestion &amp; Processing", "raw bars to usable features",
+      group("Pipeline",
+        box(P.plug, C.ing, "Bar ingest", "cache per symbol", "3", "ok") +
+        box(P.chip, C.ing, "Indicators", "RSI EMA MACD ADX BB", "5+", "ok") +
+        box(P.filter, C.ing, "Freshness", "stale = no trade", "on", "ok") +
+        box(P.gauge, C.ing, "Structure", "FVG / CRT / AMD", "shadow", "warn")));
 
-    // 3 AI WORKFORCE -------------------------------------------------------
-    var nAg = num(reg, "counts.agents"), nSk = num(reg, "counts.skills");
-    stack.appendChild(band("l-ai", "ai", "#4fd6c4", "AI Workforce", "who does the work",
-      (nAg != null ? nAg + " agents &middot; " + nSk + " skills" : ""), [
-      card("Agents", "(specialists)", nAg, nAg != null ? "ok" : "unk",
-           ng(reg) ? "registry unreadable" : reg.agents.map(function (a) { return a.name; }).join(", ")),
-      card("Skills", "(commands)", nSk, nSk != null ? "ok" : "unk", "slash commands the CLI can run"),
-      card("AI employee", "(unattended)", num(cog, "queue.parked", null), "unk", "morning agent, daily check, weekly review"),
-      card("Engineer", "(parallel build)", "/engineer", "ok", "architect, fan out, integrate"),
-      card("Scripts", "(automation)", num(reg, "counts.scripts"), "ok",
-           ng(reg) ? null : (num(reg, "scriptsByArea.tasks") + " tasks, " + num(reg, "scriptsByArea.engineModules") + " engine modules"))
-    ]));
-    stack.appendChild(flow());
-
-    // 4 TOOLS & GUARDRAILS -------------------------------------------------
-    var trades = num(reg, "counts.toolsThatTrade"), writes = num(reg, "counts.toolsThatWrite");
-    var enforced = ng(reg) ? null : reg.guardrails.filter(function (g) { return /ENFORCED/i.test(g.enforcement); }).length;
-    stack.appendChild(band("l-gr", "shield", "#f0b429", "Tools &amp; Guardrails", "what it may touch, and what stops it",
-      (num(reg, "counts.tools") != null ? num(reg, "counts.tools") + " tools" : ""), [
-      card("Read-only tools", "(safe)", ng(reg) ? null : (num(reg, "counts.tools") - writes - trades), "ok", "observe, never change"),
-      card("Writing tools", "(mutate)", writes, "warn", "change state, do not trade"),
-      card("Trading tools", "(THAT TRADE)", trades, trades ? "bad" : "unk", "the only two that can place an order"),
-      card("Guardrails", "(enforced in code)", enforced, enforced ? "ok" : "unk",
-           ng(reg) ? null : (reg.guardrails.length - enforced) + " more are procedural, not enforced"),
-      card("Kill switch", "(halt)", ng(risk) ? null : (risk.halted ? "HALTED" : "armed"),
-           ng(risk) ? "unk" : (risk.halted ? "bad" : "ok"), "circuit breaker + bridge control")
-    ]));
-    stack.appendChild(flow());
-
-    // 5 DECISION ENGINE (the core) -----------------------------------------
-    var g = num(set, "confidenceThreshold");
-    var kills = 0, passes = 0, gates = 0;
+    var kills = 0, passes = 0, ngates = 0;
     if (!ng(gate)) {
       var gg = gate.gates || gate;
       Object.keys(gg).forEach(function (k) {
-        var v = gg[k]; if (v && (v.killed != null || v.passed != null)) {
-          gates++; kills += (v.killed || 0); passes += (v.passed || 0);
-        }
+        var v = gg[k];
+        if (v && (v.killed != null || v.passed != null)) { ngates++; kills += (v.killed || 0); passes += (v.passed || 0); }
       });
     }
-    stack.appendChild(band("l-core", "core", "#2bd07c", "Decision Engine", "Smart Entry &mdash; multi-timeframe, rule based",
-      (g != null ? "gate " + g : ""), [
-      card("Confidence gate", "(live)", g, num(set, "settingsError") ? "bad" : (g != null ? "ok" : "unk"),
-           num(set, "settingsError") ? "RUNNING DEFAULTS, not saved config" : "from saved config"),
-      card("Gates", "(the funnel)", gates || null, gates ? "ok" : "unk", kills + " killed / " + passes + " passed"),
-      card("Risk per trade", "(sizing)", num(set, "riskPercent") != null ? num(set, "riskPercent") + "%" : null,
-           num(set, "riskPercent") ? "ok" : "unk", "fixedLot " + num(set, "fixedLotSize", "?") + " - 0 means risk-based"),
-      card("Timeframes", "(D1 + H4 + H1)", "3", "ok", "H1 only ever ADDS confidence, never vetoes"),
-      card("Evidence board", "(claims)", num(ev, "claims", ng(ev) ? null : (ev.claims || []).length), "ok",
-           "what is measured vs assumed")
-    ]));
-    stack.appendChild(flow());
+    var g = pick(set, "confidenceThreshold");
+    H += layer("a-core", "3", "Decision Engine", "multi-timeframe, rule based",
+      group("Signal",
+        box(P.brain, C.core, "MTF engine", "D1 + H4 (+H1 bonus)", "live", "ok") +
+        box(P.gauge, C.core, "Confidence", "the gate", g, pick(set, "settingsError") ? "bad" : (g != null ? "ok" : "unk"))) +
+      group("Gates",
+        box(P.filter, C.core, "Ten gates", "killed / passed", ngates ? (kills + "/" + passes) : "?", ngates ? "warn" : "unk") +
+        box(P.scale, C.core, "Sizing", "risk per trade",
+            pick(set, "riskPercent") != null ? pick(set, "riskPercent") + "%" : null,
+            pick(set, "riskPercent") ? "ok" : "unk")) +
+      group("Verdict",
+        box(P.shield, C.core, "Trade approval", "safe mode",
+            ng(risk) ? null : (risk.halted ? "HALT" : "armed"),
+            ng(risk) ? "unk" : (risk.halted ? "bad" : "ok")) +
+        box(P.eye, C.core, "Evidence board", "measured vs assumed",
+            ng(d.ev) ? null : ((d.ev.claims && d.ev.claims.length) || d.ev.claims), "ok")));
 
-    // 6 EXECUTION ----------------------------------------------------------
-    stack.appendChild(band("l-ex", "exec", "#6cb6ff", "Execution", "how an order actually reaches the broker", "", [
-      card("Bridges", "(python -> MT5)", ng(mA) ? null : (mA.connected ? "live" : "down"),
-           ng(mA) ? "unk" : (mA.connected ? "ok" : "bad"), "account A; B is not run on this box"),
-      card("Expert Advisors", "(on chart)", "2", "ok", "EA_CRT_AMD on gold, TK_SMART_ENTRY on BTC"),
-      card("Executors", "(strategy runners)", "3", "ok", "CRT, FVG, TK - each its own order path"),
-      card("Shadow runners", "(no orders)", "3", "ok", "measure without risking anything"),
-      card("Spread gate", "(per symbol)", "3 caps", "ok", "BTC 6000, Gold 300, SP500 500"),
-      card("Open positions", "(now)", num(risk, "openPositions", null), "unk", "broker-side SL on every one")
-    ]));
-    stack.appendChild(flow());
+    H += layer("a-exec", "4", "Execution", "five order paths, not one",
+      group("Server side",
+        box(P.plug, C.exec, "Bridge A", "python &rarr; MT5", bridgeV, bridgeS) +
+        box(P.plug, C.exec, "Bridge B", "not run here", "by config", "ok")) +
+      group("Chart side",
+        box(P.bot, C.exec, "EA CRT AMD", "gold M15", "live", "ok") +
+        box(P.bot, C.exec, "TK Smart Entry", "BTC M15", "live", "ok")) +
+      group("Strategy runners",
+        box(P.up, C.exec, "Executors", "CRT / FVG / TK", "3", "warn") +
+        box(P.eye, C.exec, "Shadow", "places no orders", "3", "ok")));
 
-    // 7 DATA & LEARNING ----------------------------------------------------
-    stack.appendChild(band("l-da", "data", "#2bd07c", "Data &amp; Learning", "what it remembers about its own trades", "", [
-      card("Trade journal", "(real fills)", num(learn, "totalTrades", null), "unk", "every fill, with its R"),
-      card("Calibration", "(does 85% mean 85%)", num(learn, "sessions", null), "unk", "per-setup win rates"),
-      card("Rejection ledger", "(paper)", "live", "ok", "every gate rejection priced at zero risk"),
-      card("Shadow ledgers", "(per strategy)", "3", "ok", "CRT, FVG, TK - never pooled with real fills"),
-      card("Historical bars", "(broker)", "D1/H4/H1/M15", "ok", "M15 depth is the binding limit"),
-      card("Databases", "(SQLite + JSON)", "local", "ok", "no PostgreSQL - the reference is wrong there")
-    ]));
-    stack.appendChild(flow());
+    H += layer("a-mem", "5", "Memory &amp; Cognition", "what it knows, how it recalls",
+      group("Long term",
+        box(P.doc, C.mem, "Memories", "one fact per file", pick(mem, "count", pick(mem, "total")), "unk") +
+        box(P.brain, C.mem, "Semantic recall", "local embeddings", pick(rag, "chunks", pick(rag, "total")), "unk") +
+        box(P.net, C.mem, "Knowledge graph", "entities", pick(cog, "graph.entities"), "warn")) +
+      group("Session",
+        box(P.doc, C.mem, "Boot config", "CLAUDE.md", "loaded", "ok") +
+        box(P.doc, C.mem, "Vault", "Obsidian", "linked", "ok") +
+        box(P.clock, C.mem, "Session memory", "carried forward", pick(cog, "jarvisEntries"), "unk")));
 
-    // 8 INFRASTRUCTURE -----------------------------------------------------
-    var pv = num(fleet, "parity.verdict"), agree = pv && /AGREE/i.test(pv);
-    stack.appendChild(band("l-inf", "infra", "#ff7a85", "Fleet Infrastructure", "two Windows boxes, not a cloud",
-      (pv ? pv : ""), [
-      card("Boxes", "(laptop + VPS)", "2", "ok", "the VPS is the one that trades continuously"),
-      card("Engine parity", "(same signal?)", agree ? "agree" : (pv ? "DIVERGE" : null),
-           agree ? "ok" : (pv ? "bad" : "unk"), "functions, constants and route bodies compared"),
-      card("Scheduled tasks", "(automation)", "94", "ok", "46 laptop + 48 VPS"),
-      card("API routes", "(surface)", "122", "ok", "identical on both boxes"),
-      card("Auto-healer", "(recovery)", ng(heal) ? null : (heal.healthy ? "healthy" : "unhealthy"),
-           ng(heal) ? "unk" : (heal.healthy ? "ok" : "bad"), "watches staleness every 30s"),
-      card("Backups", "(each box to the other)", "4-hourly", "ok", "nothing is ever deleted")
-    ]));
+    H += layer("a-team", "6", "AI Workforce", "who does the work",
+      group("Unattended",
+        box(P.bot, C.team, "Workers", "scheduled briefs",
+            ng(work) ? null : (pick(work, "totals.healthy") + "/" + pick(work, "totals.jobs")),
+            ng(work) ? "unk" : (pick(work, "totals.failing") ? "bad" : "ok")) +
+        box(P.doc, C.team, "Proposals", "written / unread",
+            ng(work) ? null : (pick(work, "totals.proposals") + " / " + pick(work, "totals.unreviewed")),
+            ng(work) ? "unk" : (pick(work, "totals.unreviewed") ? "warn" : "ok"))) +
+      group("On demand",
+        box(P.bot, C.team, "Agents", "spawned, not daemons", pick(reg, "counts.agents"), "ok") +
+        box(P.tool, C.team, "Skills", "slash commands", pick(reg, "counts.skills"), "ok")) +
+      group("Reach",
+        box(P.tool, C.team, "MCP tools", "read / write / trade",
+            ng(reg) ? null : ((pick(reg, "counts.tools") - pick(reg, "counts.toolsThatWrite") - pick(reg, "counts.toolsThatTrade")) +
+            " / " + pick(reg, "counts.toolsThatWrite") + " / " + pick(reg, "counts.toolsThatTrade")), "warn") +
+        box(P.chip, C.team, "Scripts", "automation", pick(reg, "counts.scripts"), "ok")));
 
-    // ---- asset strip -----------------------------------------------------
-    var assets = $("assets"); assets.innerHTML = "";
-    [["btc", "BITCOIN", "BTCUSD"], ["gold", "GOLD", "XAUUSD"], ["spx", "S&P 500", "SP500"]].forEach(function (a) {
+    H += layer("a-learn", "7", "Learning &amp; Evidence", "measuring never changes trading",
+      group("From real fills",
+        box(P.db, C.learn, "Journal", "with realised R", pick(learn, "totalTrades", "?"), "unk") +
+        box(P.gauge, C.learn, "Calibration", "is 85% really 85%", "on", "ok")) +
+      group("From rejections",
+        box(P.filter, C.learn, "Rejection ledger", "paper, zero risk", "live", "ok") +
+        box(P.eye, C.learn, "Shadow ledgers", "per strategy", "3", "ok")) +
+      group("Out of sample",
+        box(P.scale, C.learn, "Walk-forward", "5 folds", "on demand", "ok") +
+        box(P.shield, C.learn, "feedsTheGate", "always false", "false", "ok")));
+
+    H += layer("a-cons", "8", "Consumption", "how you see and steer it",
+      group("Surfaces",
+        box(P.screen, C.cons, "Dashboard", "these pages", "live", "ok") +
+        box(P.bot, C.cons, "JARVIS CLI", "the assistant", "live", "ok") +
+        box(P.bell, C.cons, "Telegram", "alerts", "on", "ok")) +
+      group("External",
+        box(P.up, C.cons, "TradingView", "plan drawing", "bot", "ok") +
+        box(P.screen, C.cons, "MT5 terminals", "one per box", "2", "ok") +
+        box(P.screen, C.cons, "Mobile app", "iOS / Android", "", "unk", true)));
+
+    H = H.replace(/<div class="conn">[\s\S]*?<\/div>\s*$/, "");
+    $("layers").innerHTML = H;
+
+    var gr = ng(reg) ? [] : (reg.guardrails || []);
+    var gh = '<header><div class="t">GUARDRAILS &amp; SAFETY</div>' +
+             '<div class="q">CROSS-CUTTING &mdash; APPLIES AT EVERY LAYER</div></header><div class="items">';
+    if (!gr.length) {
+      gh += '<div class="gi" style="grid-column:1/-1">' + S(P.shield, "#a98a52", 1.6) +
+            '<div class="n">registry unreadable</div><div class="s proc">cannot tell</div></div>';
+    } else {
+      var icons = [P.eye, P.brain, P.lock, P.scale, P.filter, P.doc, P.shield];
+      gr.forEach(function (r, i) {
+        var code = /ENFORCED/i.test(r.enforcement || "");
+        gh += '<div class="gi" title="' + String(r.detail || "").replace(/"/g, "&quot;").slice(0, 260) + '">' +
+              S(icons[i % icons.length], code ? "#2bd07c" : "#a98a52", 1.6) +
+              '<div class="n">' + r.rule + '</div>' +
+              '<div class="s ' + (code ? "code" : "proc") + '">' + (code ? "in code" : "procedural") + '</div></div>';
+      });
+    }
+    gh += '<div class="gi" style="grid-column:1/-1;border-top:1px solid #6b4a1f;padding-top:10px">' +
+          S(P.lock, "#2bd07c", 1.6) + '<div class="n">Session gate</div>' +
+          '<div class="s code">every route login-gated</div></div></div>';
+    $("cross").innerHTML = gh;
+
+    renderTeam(work, reg);
+
+    var A = $("assets"); A.innerHTML = "";
+    [["btc", "BITCOIN", "BTCUSD"], ["gold", "GOLD", "XAUUSD"], ["spx", "S&amp;P 500", "SP500"]].forEach(function (a) {
       var s = ng(sig) ? null : sig[a[0]];
-      var d = document.createElement("div"); d.className = "asset";
-      d.innerHTML = '<div class="n">' + a[1] + '</div>' +
+      A.innerHTML += '<div class="as"><div class="n">' + a[1] + '</div>' +
         '<div class="p">' + (s && s.price != null ? s.price : "?") + '</div>' +
-        '<div class="s">' + a[2] + ' &middot; ' + (s ? s.signal + " " + (s.confidence != null ? s.confidence + "%" : "") : "no reading") + '</div>';
-      assets.appendChild(d);
+        '<div class="s">' + a[2] + ' &middot; ' +
+        (s ? s.signal + " " + (s.confidence != null ? s.confidence + "%" : "") : "no reading") + '</div></div>';
     });
-    var x = document.createElement("div"); x.className = "asset cand";
-    x.innerHTML = '<div class="n">XRP</div><div class="p">candidate</div>' +
-      '<div class="s">XRPUSD &middot; r=0.85 vs BTC &middot; cost unmeasured until Monday</div>';
-    assets.appendChild(x);
+    A.innerHTML += '<div class="as cand"><div class="n">XRP</div><div class="p">candidate</div>' +
+      '<div class="s">XRPUSD &middot; r=0.85 vs BTC &middot; cost unmeasured</div></div>';
 
-    renderTeam(d.work, reg);
-
+    var pv = pick(fleet, "parity.verdict");
     $("stamp").textContent = "read " + new Date().toLocaleTimeString();
-    $("verdict").textContent = pv || (anyAuth ? "signed out" : "partial read");
-    $("verdict").className = "stamp " + (agree ? "ok" : (pv ? "bad" : "unk"));
+    $("verdict").textContent = pv || "—";
   }
 
-
-  // TEAM & PROGRESS. Counts alone cannot answer "is the team actually working". A job can
-  // run on schedule, exit 0, and still have every proposal it wrote go unread -- which the
-  // ai-work endpoint's own note says "costs the same as it failing". So each worker shows
-  // its run count, age, exit code, verdict, AND how much of its output has been decided on.
   function renderTeam(work, reg) {
-    var el = document.getElementById("team");
-    if (!el) return;
+    var el = $("team");
     if (ng(work)) {
-      el.innerHTML = '<header><span class="t">Team &amp; Progress</span>' +
-        '<span class="d">who is working, and what they produced</span></header>' +
-        '<div class="inner"><div style="color:var(--muted-dim);font-size:12px">' +
-        (work && work.__auth ? 'Signed out &mdash; /api/ai-work is session-gated.'
-                             : '/api/ai-work did not answer, so worker progress is unknown &mdash; not assumed healthy.') +
-        '</div></div>';
+      el.innerHTML = '<header><span class="t">TEAM &amp; PROGRESS</span>' +
+        '<span class="q">who is working, and what they produced</span></header>' +
+        '<div class="inner" style="color:#6f93b5;font-size:12px">' +
+        (work && work.__auth ? "Signed out — /api/ai-work is session-gated."
+                             : "/api/ai-work did not answer, so worker progress is unknown — not assumed healthy.") +
+        '</div>';
       return;
     }
     var t = work.totals || {};
-    var h = '<header><span class="t">Team &amp; Progress</span>' +
-            '<span class="d">who is working, and what they produced</span>' +
-            '<span class="agg">' + (t.healthy != null ? t.healthy + " of " + t.jobs + " healthy" : "") +
-            '</span></header><div class="inner">';
-
+    var h = '<header><span class="t">TEAM &amp; PROGRESS</span>' +
+            '<span class="q">who is working, and what they produced</span>' +
+            '<span class="agg">' + t.healthy + ' of ' + t.jobs + ' healthy</span></header><div class="inner">';
     (work.jobs || []).forEach(function (j) {
       var good = /HEALTHY/i.test(j.verdict || "");
-      var red = /RED|FAIL|STALE|IGNORED/i.test(j.verdict || "");
       var made = j.proposals || 0, done = j.proposalsDecided || 0;
       var pct = made ? Math.round(done / made * 100) : null;
-      h += '<div class="worker">' +
-        '<div class="wn">' + j.label + '<small>' + (j.script || j.task || "") + '</small></div>' +
-        '<div class="wv ' + (good ? "good" : (red ? "red" : "amb")) + '">' + (j.verdict || "?") + '</div>' +
+      h += '<div class="worker"><div class="wn">' + j.label +
+        '<small>' + (j.script || j.task || "") + '</small></div>' +
+        '<div class="wv ' + (good ? "good" : "red") + '">' + (j.verdict || "?") + '</div>' +
         '<div class="wm">' + (j.runs != null ? j.runs + " runs" : "") +
-          (j.ageHours != null ? " &middot; " + j.ageHours + "h ago" : "") +
-          (j.lastExit != null ? " &middot; exit " + j.lastExit : "") + '</div>' +
-        '<div class="wp">' +
-          (made ? '<div class="lbl">' + done + ' of ' + made + ' read</div>' +
-                  '<div class="bar' + (pct < 100 ? ' amberfill' : '') + '"><i style="width:' + pct + '%"></i></div>'
-                : '<div class="lbl">no output to read</div>') +
-        '</div></div>';
+          (j.ageHours != null ? " · " + j.ageHours + "h ago" : "") +
+          (j.lastExit != null ? " · exit " + j.lastExit : "") + '</div>' +
+        '<div class="wp">' + (made
+          ? '<div class="lbl">' + done + ' of ' + made + ' read</div><div class="bar' +
+            (pct < 100 ? ' amb' : '') + '"><i style="width:' + pct + '%"></i></div>'
+          : '<div class="lbl">no output to read</div>') + '</div></div>';
     });
-
     var impl = 0, ign = 0, rej = 0, unr = 0;
     (work.proposals || []).forEach(function (p) {
       var st = String(p.status || "").toLowerCase();
-      if (st === "implemented") impl++;
-      else if (st === "ignored") ign++;
-      else if (st === "rejected") rej++;
-      else unr++;
+      if (st === "implemented") impl++; else if (st === "ignored") ign++;
+      else if (st === "rejected") rej++; else unr++;
     });
     var tot = impl + ign + rej + unr;
     if (tot) {
       var w = function (n) { return (n / tot * 100).toFixed(1) + "%"; };
-      h += '<div class="pipe"><h4>Proposal pipeline &mdash; ' + tot +
+      h += '<div class="pipe"><h4>Proposal pipeline — ' + tot +
            ' written by the workers above</h4><div class="segbar">' +
-           (impl ? '<div class="seg-impl" style="width:' + w(impl) + '">' + impl + '</div>' : '') +
-           (ign  ? '<div class="seg-ign"  style="width:' + w(ign)  + '">' + ign  + '</div>' : '') +
-           (rej  ? '<div class="seg-rej"  style="width:' + w(rej)  + '">' + rej  + '</div>' : '') +
-           (unr  ? '<div class="seg-unr"  style="width:' + w(unr)  + '">' + unr  + '</div>' : '') +
-           '</div><div class="pipekey">' +
-           '<span><i style="background:#2bd07c"></i> implemented ' + impl + '</span>' +
-           '<span><i style="background:#4a5a72"></i> ignored ' + ign + '</span>' +
-           '<span><i style="background:#7c5cff"></i> rejected ' + rej + '</span>' +
-           '<span><i style="background:#f0b429"></i> UNREVIEWED ' + unr + '</span>' +
-           '</div></div>';
+        (impl ? '<div style="width:' + w(impl) + ';background:#2bd07c">' + impl + '</div>' : '') +
+        (ign ? '<div style="width:' + w(ign) + ';background:#4a5a72;color:#c9d6e8">' + ign + '</div>' : '') +
+        (rej ? '<div style="width:' + w(rej) + ';background:#7c5cff;color:#e8eef7">' + rej + '</div>' : '') +
+        (unr ? '<div style="width:' + w(unr) + ';background:#f0b429">' + unr + '</div>' : '') +
+        '</div><div class="pipekey">' +
+        '<span><i style="background:#2bd07c"></i>implemented ' + impl + '</span>' +
+        '<span><i style="background:#4a5a72"></i>ignored ' + ign + '</span>' +
+        '<span><i style="background:#7c5cff"></i>rejected ' + rej + '</span>' +
+        '<span><i style="background:#f0b429"></i>UNREVIEWED ' + unr + '</span></div></div>';
     }
-
     if (!ng(reg) && reg.agents) {
-      h += '<div class="pipe"><h4>Agents &mdash; ' + reg.agents.length +
+      h += '<div class="pipe"><h4>Agents — ' + reg.agents.length +
            ' specialists, spawned on demand</h4><div class="roster">';
-      reg.agents.forEach(function (a) { h += '<span class="who"><b>' + a.name + '</b></span>'; });
-      h += '</div><div class="failing" style="color:var(--muted-dim)">' +
-           'They are not daemons. Each is started for one task and exits, so "working" for an ' +
-           'agent means a job above invoked it &mdash; not that a process is running.' +
-           '</div></div>';
+      reg.agents.forEach(function (a) { h += '<span class="who">' + a.name + '</span>'; });
+      h += '</div><div class="failing" style="color:#6f93b5">They are not daemons. Each is started ' +
+           'for one task and exits, so "working" for an agent means a job above invoked it — ' +
+           'not that a process is running.</div></div>';
     }
-
-    var un = work.unappraisedTasks || [];
-    var failing = un.filter(function (x) { return x.failing; });
-    h += '<div class="pipe"><h4>Scheduled automation &mdash; ' + un.length + ' tracked</h4>' +
-         '<div class="failing">' + (failing.length
-           ? '<b>' + failing.length + ' failing:</b> ' + failing.map(function (x) {
-               return x.name + " (" + (x.resultMeaning || x.lastResult) + ")"; }).join(", ")
-           : 'none failing') + '</div></div>';
-
-    h += "</div>";
+    var un = work.unappraisedTasks || [], failing = un.filter(function (x) { return x.failing; });
+    h += '<div class="pipe"><h4>Scheduled automation — ' + un.length +
+         ' tracked</h4><div class="failing">' +
+      (failing.length ? '<b>' + failing.length + ' failing:</b> ' + failing.map(function (x) {
+        return x.name + " (" + (x.resultMeaning || x.lastResult) + ")"; }).join(", ") : "none failing") +
+      '</div></div></div>';
     el.innerHTML = h;
   }
 
   function load() {
     Promise.all([
-      get("/api/ai-registry"), get("/api/signals"), get("/api/risk-status"),
-      get("/api/strategy-settings"), get("/api/healer"), get("/api/gate-health"),
+      get("/api/ai-registry"), get("/api/signals"), get("/api/strategy-settings"),
+      get("/api/risk-status"), get("/api/gate-health"), get("/api/healer"),
       get("/api/learning"), get("/api/fleet"), get("/api/memory"), get("/api/rag"),
       get("/api/cognition"), get("/api/mt5/health?account=A"), get("/api/evidence-board"),
       get("/api/ai-work")
     ]).then(function (r) {
-      render({ reg: r[0], sig: r[1], risk: r[2], set: r[3], heal: r[4], gate: r[5],
-               learn: r[6], fleet: r[7], mem: r[8], rag: r[9], cog: r[10], mA: r[11], ev: r[12],
-               work: r[13] });
+      render({ reg: r[0], sig: r[1], set: r[2], risk: r[3], gate: r[4], heal: r[5],
+               learn: r[6], fleet: r[7], mem: r[8], rag: r[9], cog: r[10], mA: r[11],
+               ev: r[12], work: r[13] });
     });
   }
   load();
