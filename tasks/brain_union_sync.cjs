@@ -123,6 +123,26 @@ const merged = new Map();
 for (const r of remoteRows) merged.set(keyOf(r), r);   // remote first
 for (const r of localRows) merged.set(keyOf(r), r);    // local wins on identical key
 const mergedRows = [...merged.values()];
+
+// HASH WHAT WOULD BE WRITTEN, not the local file.
+//
+// Two bugs in one line, both found by running it twice. First, pulling the graph back
+// through PowerShell over SSH mangles lines with non-ASCII characters, so seven em-dashed
+// observations fail to parse on the way home and the remote reads 7 rows short of what it
+// actually holds -- the row counts cannot decide this. Second, comparing the LOCAL FILE's
+// hash was still wrong even so: what gets written is the UNION, which ends with a trailing
+// newline the local file does not have, so the two could never match and the tool
+// re-pushed an identical file on every run, burning a fresh backup each time.
+//
+// Hashing the exact bytes destined for the far side settles both.
+const unionText = mergedRows.map((r) => JSON.stringify(r)).join("\n") + "\n";
+let graphIdentical = false;
+try {
+  const lh = require("crypto").createHash("sha256").update(Buffer.from(unionText, "utf8")).digest("hex").toUpperCase();
+  const rh = ssh('powershell -NoProfile -Command "(Get-FileHash (Join-Path ' +
+    "$env:USERPROFILE 'Documents\\Brain\\mcp-memory.json') -Algorithm SHA256).Hash\"").trim().toUpperCase();
+  graphIdentical = !!lh && lh === rh;
+} catch { /* unreadable hash falls through to the row comparison */ }
 const localOnlyGraph = localRows.filter((r) => !remoteRows.some((x) => keyOf(x) === keyOf(r)));
 const remoteOnlyGraph = remoteRows.filter((r) => !localRows.some((x) => keyOf(x) === keyOf(r)));
 
