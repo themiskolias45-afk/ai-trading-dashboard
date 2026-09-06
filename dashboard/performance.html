@@ -689,6 +689,29 @@
         </div>
       </div>
 
+      <!-- THE THREE BOOKS, and R BESIDE MONEY.
+           This page reads /api/journal, which is SmartEntry only - so it presented one book
+           as though it were the whole picture while two others existed and were invisible
+           here: the CRT chart EA on its own magics, and a separate TradingView paper
+           account. They are never pooled; a single total across three systems on two
+           platforms describes none of them and buries which one is losing.
+           And R sits beside money per asset, because realizedR is already on every journal
+           row next to pnl and the two were never shown together. Money is what the account
+           feels; R is what the strategy earned. When they disagree the difference is
+           POSITION SIZING, not edge - and that disagreement was not visible anywhere.
+           Written by tasks/performance_books.cjs. Read-only, feedsTheGate false. -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">The three books &mdash; R beside money</div>
+          <span id="books-sync" style="font-size:.68rem;opacity:.6">loading…</span>
+        </div>
+        <div class="card-body" style="padding:14px 18px;">
+          <div id="books-body">
+            <div class="loading-row"><div class="spinner"></div></div>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header"><div class="card-title">Session Stats</div></div>
         <div class="card-body" style="padding:14px 18px;">
