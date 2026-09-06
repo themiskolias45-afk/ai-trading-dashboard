@@ -20,7 +20,33 @@ REM Per-symbol spread cap. Vantage quotes BTCUSD with a ~$17 spread that the bri
 REM measures as ~1700 ticks, against a global cap of 50 - so every BTC trade was
 REM skipped before an order was built, and it read as 'no signal' in the log. 55 such
 REM skips were recorded on this laptop. Gold (22) and SP500 (36) stay on the global cap.
-set MAX_SPREAD_BTCUSD=2500
+REM SPREAD CAPS, RE-SET 2026-09-06 ON MEASURED SPREADS.
+REM
+REM max_spread_for() compares (ask-bid)/trade_tick_size against ONE GLOBAL cap of 50
+REM unless a per-symbol override exists. Its own docstring already records why that
+REM breaks: a cap tuned for metals silently made BTC untradeable, and a skip at the
+REM gate looks identical to "no signal fired". BTCUSD had an override. XAUUSD and
+REM SP500 did NOT, so both were still on the global 50.
+REM
+REM Measured 2026-09-06 (quiet book - Gold and SP500 were Friday-close values, and a
+REM LIVE weekday spread is wider than a close, so these were the best case):
+REM   XAUUSD    26 of 50   52%% of cap
+REM   SP500     45 of 50   90%% of cap   <- would cross 50 in a normal session
+REM   BTCUSD  1698 of 2500 68%% of cap
+REM
+REM Each cap is now ~10x the quiet spread in RELATIVE terms, which is the honest unit:
+REM Gold and SP500 sit at 0.58 bp of price and BTC at 2.13 bp, so BTC is only ~3.7x
+REM the cost of Gold even though it is 65x in raw points. Loose enough that a normal or
+REM news-stressed spread can never block a good signal on the three traded assets;
+REM finite, so a genuinely broken quote still fails the gate.
+REM
+REM PROVISIONAL. tasksspread_probe.py is armed for Monday 08:00, 5-min samples for
+REM 12h, and these should be re-set from that weekday distribution rather than from a
+REM weekend reading. Nothing about confidence, sizing or stops is touched here.
+REM Takes effect at the NEXT bridge start - no restart is forced while positions are open.
+set MAX_SPREAD_BTCUSD=6000
+set MAX_SPREAD_XAUUSD=300
+set MAX_SPREAD_SP500=500
 
 REM How long a loss-streak halt stands before the bridge releases itself, decaying the
 REM streak by one. 1 hour, NOT the 48 the code defaults to.
