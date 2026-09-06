@@ -217,7 +217,20 @@ def todays_fills():
 def main():
     settings = get_json("/api/strategy-settings")
     risk = get_json("/api/risk-status")
-    control = get_json("/api/mt5/control")
+    # /api/mt5/control IS DESTRUCTIVE TO READ, which nothing about its name suggests.
+    #
+    # It carries `restartRequested`, and the handler CLEARS THE FLAG ON READ so that exactly
+    # one bridge acts on one request. That is correct when the bridge is the only reader.
+    # It is not: nine files in this repo poll this endpoint, and on 2026-09-06 a restart
+    # request posted for the bridge was consumed by an observability read instead - proved
+    # by POSTing the flag and then seeing `restartRequested: true` in a plain curl.
+    #
+    # This panel is observability. It must never be able to swallow a restart request meant
+    # for the bridge, so it reads the halt state from /api/risk-status only and reports the
+    # kill switch as UNKNOWN rather than stealing the flag to find out. Unknown is the honest
+    # answer here and it is rendered as such; a correct kill-switch reading is not worth
+    # silently eating an operator's restart.
+    control = None
     mt5d = read_mt5()
 
     # BOTH halt systems, and unreadable is never treated as "not halted".
