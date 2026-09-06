@@ -7267,9 +7267,51 @@ async function refreshTvPaperPanel() {
   sync.textContent = (ageMin === null ? 'age unknown' : 'read ' + ageMin + 'm ago')
     + (stale ? ' - STALE' : '') + ' · ' + (data.account || '');
 
+  /* Account summary + realised P&L, above the positions. A number that cannot be read is
+     printed as "-", never as 0 - the whole point of this panel is that the account was
+     invisible, and a fabricated zero would be worse than the silence it replaced. */
+  var html = '';
+  var s = data.summary || {};
+  var chip = function (label, value, tone) {
+    return '<span style="display:inline-block;padding:3px 8px;margin:0 6px 6px 0;border-radius:4px;'
+      + 'background:rgba(255,255,255,.05);font-size:.7rem">'
+      + '<span style="color:var(--muted)">' + label + '</span> '
+      + '<span style="color:' + (tone || 'inherit') + '">' + (value === undefined || value === null ? '-' : value) + '</span></span>';
+  };
+  if (data.summary) {
+    html += '<div style="margin-bottom:8px">'
+      + chip('Balance', s['Account balance'])
+      + chip('Equity', s['Equity'])
+      + chip('Realized', s['Realized PnL'], /−|-/.test(String(s['Realized PnL'] || '')) ? 'var(--red)' : 'var(--green)')
+      + chip('Unrealized', s['Unrealized PnL'])
+      + chip('Free funds', s['Available funds'])
+      + '</div>';
+  }
+  var pnl = data.pnl;
+  if (pnl === null || pnl === undefined) {
+    html += '<div style="color:var(--amber,#e0a030);font-size:.72rem;margin-bottom:8px">'
+      + 'Realised P&amp;L: COULD NOT READ the balance history &mdash; not the same as zero.</div>';
+  } else {
+    var money = function (v) {
+      var c = v > 0 ? 'var(--green)' : (v < 0 ? 'var(--red)' : 'var(--muted)');
+      return '<span style="color:' + c + '">' + (v > 0 ? '+' : '') + v.toFixed(2) + '</span>';
+    };
+    html += '<div style="margin-bottom:8px">'
+      + chip('Today', money(pnl.today)) + chip('This week', money(pnl.week))
+      + chip('This month', money(pnl.month)) + chip('All time', money(pnl.allTime))
+      + '</div>';
+    var cc = data.crossCheck;
+    if (cc && cc.agree === false) {
+      html += '<div style="color:var(--red);font-size:.7rem;margin-bottom:6px">'
+        + 'CROSS-CHECK FAILED: ' + cc.detail + ' &mdash; treat the day/week/month figures as '
+        + 'unreliable until this agrees.</div>';
+    }
+  }
+  body.innerHTML = html;
+
   if (data.positions === null || data.positions === undefined) {
-    body.innerHTML = '<div style="color:var(--amber,#e0a030)">COULD NOT READ the TradingView '
-      + 'paper account &mdash; this is not the same as no trades open.<br>'
+    body.innerHTML = html + '<div style="color:var(--amber,#e0a030)">COULD NOT READ open '
+      + 'positions &mdash; this is not the same as none open.<br>'
       + '<span style="color:var(--muted);font-size:.7rem">' + (data.note || '') + '</span></div>';
     return;
   }
