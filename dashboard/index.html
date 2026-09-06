@@ -7355,6 +7355,164 @@ async function refreshTvPaperPanel() {
 }
 refreshTvPaperPanel();
 setInterval(refreshTvPaperPanel, 60000);
+
+/* EXECUTION panel — can it trade, what can place an order, how big can one get.
+   Every section renders null as "COULD NOT READ", never as zero or empty. That is not
+   defensive padding: this whole panel exists because things that could not be seen were
+   being reported as fine, and a fabricated zero here would recreate exactly that. */
+async function refreshExecutionPanel() {
+  var d = null;
+  try {
+    var r = await fetch('/dashboard/execution-state.json?t=' + Date.now());
+    if (r.ok) d = await r.json();
+  } catch (e) { /* handled below */ }
+
+  var sync = document.getElementById('exec-sync');
+  var body = document.getElementById('exec-state');
+  if (!sync || !body) return;
+  if (!d) {
+    sync.textContent = 'no execution-state file on this box';
+    body.innerHTML = '<div style="color:var(--muted)">tasks/execution_state.py has not '
+      + 'written yet. This is not evidence that nothing can trade.</div>';
+    return;
+  }
+
+  var ageMin = d.generatedAt
+    ? Math.round((Date.now() - new Date(d.generatedAt).getTime()) / 60000) : null;
+  sync.textContent = (ageMin === null ? 'age unknown' : ageMin + 'm ago')
+    + (ageMin !== null && ageMin > 30 ? ' - STALE' : '') + ' · ' + (d.host || '');
+
+  var esc = function (t) { return String(t === null || t === undefined ? '-' : t); };
+  var chip = function (label, value, tone) {
+    return '<span style="display:inline-block;padding:3px 8px;margin:0 6px 6px 0;'
+      + 'border-radius:4px;background:rgba(255,255,255,.05);font-size:.7rem">'
+      + '<span style="color:var(--muted)">' + label + '</span> '
+      + '<span style="color:' + (tone || 'inherit') + '">' + esc(value) + '</span></span>';
+  };
+  var html = '';
+
+  /* 1. CAN IT TRADE RIGHT NOW — both halt systems, and unreadable is never "fine". */
+  var c = d.canTradeNow || {};
+  var tone = c.unknown ? 'var(--amber,#e0a030)' : (c.halted ? 'var(--red)' : 'var(--green)');
+  html += '<div style="margin-bottom:8px"><span style="color:' + tone + ';font-weight:600">'
+    + (c.unknown ? 'HALT STATE UNKNOWN' : (c.halted ? 'TRADING HALTED' : 'TRADING PERMITTED'))
+    + '</span> <span style="color:var(--muted);font-size:.7rem">' + esc(c.detail) + '</span></div>';
+  html += '<div style="margin-bottom:10px">'
+    + chip('Circuit breaker', c.circuitBreakerOpen === null ? 'unreadable'
+        : (c.circuitBreakerOpen ? 'OPEN' : 'closed'),
+        c.circuitBreakerOpen === null ? 'var(--amber,#e0a030)' : (c.circuitBreakerOpen ? 'var(--red)' : 'var(--green)'))
+    + chip('Kill switch', c.killSwitchEngaged === null ? 'unreadable'
+        : (c.killSwitchEngaged ? 'ENGAGED' : 'off'),
+        c.killSwitchEngaged === null ? 'var(--amber,#e0a030)' : 'inherit')
+    + '</div>';
+
+  /* 2. SETTINGS + ACCOUNT */
+  var s = d.settings || {}, a = d.account || {};
+  html += '<div style="margin-bottom:10px">'
+    + chip('Gate', s.confidenceThreshold) + chip('Risk %', s.riskPercent)
+    + chip('Fixed lot', s.fixedLotSize) + chip('Max lot', s.maxLotSize)
+    + chip('Max notional %', s.maxNotionalPct)
+    + chip('Slots', s.maxConcurrentPositions) + chip('Trades/day', s.maxTradesPerDay)
+    + (a.balance !== undefined ? chip('Balance', a.balance + ' ' + (a.currency || '')) : '')
+    + (d.settingsError ? chip('settingsError', d.settingsError, 'var(--red)') : '')
+    + '</div>';
+
+  /* 3. HOW BIG CAN ONE GET — the ceilings resolved into real lots, per symbol.
+     A percentage is not an answer to that question, and which of the two caps binds
+     differs per symbol because contract values differ by 57x. */
+  if (!d.sizing) {
+    html += '<div style="color:var(--amber,#e0a030);margin-bottom:10px">Sizing: COULD NOT READ</div>';
+  } else {
+    html += '<div style="color:var(--muted);font-size:.65rem;text-transform:uppercase;'
+      + 'letter-spacing:.5px;margin:8px 0 4px">Maximum size per trade</div>'
+      + '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:.72rem;width:100%">'
+      + '<tr style="color:var(--muted)"><th style="text-align:left;padding:2px 8px 2px 0">symbol</th>'
+      + '<th style="text-align:right;padding:2px 8px">notional / lot</th>'
+      + '<th style="text-align:right;padding:2px 8px">max lot cap</th>'
+      + '<th style="text-align:right;padding:2px 8px">notional cap</th>'
+      + '<th style="text-align:right;padding:2px 8px">EFFECTIVE</th>'
+      + '<th style="text-align:right;padding:2px 8px">exposure</th>'
+      + '<th style="text-align:left;padding:2px 8px">binding</th></tr>';
+    Object.keys(d.sizing).forEach(function (sym) {
+      var r2 = d.sizing[sym];
+      html += '<tr style="border-top:1px solid rgba(255,255,255,.05)">'
+        + '<td style="padding:3px 8px 3px 0">' + sym + '</td>'
+        + '<td style="text-align:right;padding:3px 8px">' + Math.round(r2.notionalPerLot).toLocaleString() + '</td>'
+        + '<td style="text-align:right;padding:3px 8px">' + esc(r2.maxLotCap) + '</td>'
+        + '<td style="text-align:right;padding:3px 8px">' + esc(r2.notionalCap) + '</td>'
+        + '<td style="text-align:right;padding:3px 8px;font-weight:600">' + esc(r2.effectiveMaxLots) + '</td>'
+        + '<td style="text-align:right;padding:3px 8px">' + (r2.maxExposure ? Math.round(r2.maxExposure).toLocaleString() : '-') + '</td>'
+        + '<td style="padding:3px 8px;color:var(--muted)">' + esc(r2.bindingCap) + '</td></tr>';
+    });
+    html += '</table></div>';
+    var src = d.sizing[Object.keys(d.sizing)[0]];
+    if (src && src.notionalPctSource && src.notionalPctSource !== 'server') {
+      html += '<div style="color:var(--amber,#e0a030);font-size:.68rem;margin-top:4px">'
+        + 'Notional cap is the bridge default (' + esc(src.notionalPct) + '%) &mdash; the '
+        + 'server does not serve this key yet, so the dashboard cannot change it until it restarts.</div>';
+    }
+  }
+
+  /* 4. OPEN POSITIONS BY OWNER, and whether a halt reaches each one. Three states:
+     reached, provably not reached (chart EAs), and UNKNOWN — an unidentified magic is
+     not covered, and it is not a proven gap either. It is the thing to go and identify. */
+  html += '<div style="color:var(--muted);font-size:.65rem;text-transform:uppercase;'
+    + 'letter-spacing:.5px;margin:12px 0 4px">Open positions &mdash; every order path</div>';
+  if (d.positions === null || d.positions === undefined) {
+    html += '<div style="color:var(--amber,#e0a030)">COULD NOT READ open positions &mdash; '
+      + 'not the same as none open.</div>';
+  } else if (!d.positions.length) {
+    html += '<div style="color:var(--muted)">No open positions.</div>';
+  } else {
+    html += '<div style="color:var(--muted);font-size:.68rem;margin-bottom:4px">'
+      + d.positions.length + ' open · ' + esc(d.positionsHaltCannotReach) + ' a halt CANNOT reach · '
+      + esc(d.positionsHaltUnknown) + ' halt status UNKNOWN · '
+      + esc(d.positionsWithoutStop) + ' without a stop</div>';
+    if (d.unknownMagics && d.unknownMagics.length) {
+      html += '<div style="color:var(--red);font-size:.7rem;margin-bottom:4px">'
+        + 'UNIDENTIFIED magic(s) trading this account: ' + d.unknownMagics.join(', ')
+        + ' &mdash; something is placing orders that this system cannot name.</div>';
+    }
+    html += d.positions.map(function (p) {
+      var flag = p.haltReaches === true ? ''
+        : (p.haltReaches === false
+            ? '<span style="color:var(--red)"> [HALT CANNOT REACH]</span>'
+            : '<span style="color:var(--amber,#e0a030)"> [HALT UNKNOWN]</span>');
+      return '<div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05);flex-wrap:wrap">'
+        + '<span style="width:74px">' + esc(p.symbol) + '</span>'
+        + '<span style="width:42px;color:' + (p.side === 'BUY' ? 'var(--green)' : 'var(--red)') + '">' + esc(p.side) + '</span>'
+        + '<span style="width:48px">' + esc(p.volume) + '</span>'
+        + '<span style="width:88px">@ ' + esc(p.price) + '</span>'
+        + '<span style="width:96px;color:' + (p.sl ? 'var(--muted)' : 'var(--red)') + '">SL ' + (p.sl || 'NONE') + '</span>'
+        + '<span style="width:72px;text-align:right;color:' + (p.profit >= 0 ? 'var(--green)' : 'var(--red)') + '">' + esc(p.profit) + '</span>'
+        + '<span style="color:var(--muted)">' + esc(p.owner) + flag + '</span></div>';
+    }).join('');
+  }
+
+  /* 5. WHAT ACTUALLY FIRED TODAY */
+  var f = d.todaysFills;
+  html += '<div style="color:var(--muted);font-size:.65rem;text-transform:uppercase;'
+    + 'letter-spacing:.5px;margin:12px 0 4px">Closed today</div>';
+  if (f === null || f === undefined) {
+    html += '<div style="color:var(--amber,#e0a030)">COULD NOT READ the ledger.</div>';
+  } else if (!f.length) {
+    html += '<div style="color:var(--muted)">Nothing closed today.</div>';
+  } else {
+    html += f.map(function (x) {
+      return '<div style="display:flex;gap:8px;padding:2px 0">'
+        + '<span style="width:104px;color:var(--muted)">' + esc(x.closeTime) + '</span>'
+        + '<span style="width:74px">' + esc(x.symbol) + '</span>'
+        + '<span style="width:44px">' + esc(x.direction) + '</span>'
+        + '<span style="width:48px">' + esc(x.volume) + '</span>'
+        + '<span style="width:72px;text-align:right;color:' + (x.netProfit >= 0 ? 'var(--green)' : 'var(--red)') + '">' + esc(x.netProfit) + '</span>'
+        + '<span style="color:var(--muted)">' + esc(x.owner) + '</span></div>';
+    }).join('');
+  }
+
+  body.innerHTML = html;
+}
+refreshExecutionPanel();
+setInterval(refreshExecutionPanel, 60000);
 </script>
 </body>
 </html>
