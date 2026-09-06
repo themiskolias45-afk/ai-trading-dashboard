@@ -142,7 +142,13 @@ def sizing_table(settings, mt5d):
     if not settings or not mt5d or not mt5d.get("symbols"):
         return None
     max_lot = float(settings.get("maxLotSize") or 0)
-    pct = float(settings.get("maxNotionalPct") or 0)
+    # THE SERVER MAY NOT SERVE THIS KEY YET while the bridge already defaults to 25, so the
+    # two disagree until the server restarts. Showing 0 would claim "no notional cap" when
+    # the bridge is in fact applying one; showing 25 silently would hide that the server is
+    # behind. The source is reported alongside the number.
+    raw_pct = settings.get("maxNotionalPct")
+    pct_from_server = isinstance(raw_pct, (int, float))
+    pct = float(raw_pct) if pct_from_server else 25.0
     balance = mt5d.get("balance") or 0
     rows = {}
     for sym, s in mt5d["symbols"].items():
