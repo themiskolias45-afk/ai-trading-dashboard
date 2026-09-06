@@ -24,7 +24,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>System Map — SmartEntry Pro</title>
+<title>SMART ENTRY — System Map</title>
 <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
 <link rel="stylesheet" href="/dashboard/theme.css">
 <link rel="stylesheet" href="/dashboard/nav.css">
@@ -125,7 +125,7 @@
 
   <div class="brand">
     <div>
-      <div class="mark">JARVIS AI</div>
+      <div class="mark">SMART ENTRY</div>
       <div class="tag">Analyze &middot; Decide &middot; Execute &middot; Learn &middot; Improve</div>
     </div>
     <div class="mid">
@@ -235,7 +235,7 @@
 
   function render(d) {
     var reg = d.reg, sig = d.sig, set = d.set, risk = d.risk, gate = d.gate,
-        mA = d.mA, learn = d.learn, mem = d.mem, cog = d.cog;
+        mA = d.mA, learn = d.learn, mem = d.mem, cog = d.cog, work = d.work;
     var grid = $("grid"); grid.innerHTML = "";
 
     // ---- column 1 --------------------------------------------------------
@@ -252,13 +252,35 @@
       { n: "Structure", q: "(FVG / CRT / AMD)", v: "shadow", s: "warn" },
       { n: "Freshness guard", q: "(stale = no trade)", v: "on", s: "ok" }
     ]));
-    grid.appendChild(panel("b-teal", IC.team, "#4fd6c4", "AI Workforce", pick(reg, "counts.agents", "") + " agents", [
-      { n: "Agents", q: "(analyst, builder, medic&hellip;)", v: pick(reg, "counts.agents"), s: "ok" },
-      { n: "Skills", q: "(slash commands)", v: pick(reg, "counts.skills"), s: "ok" },
-      { n: "AI employee", q: "(unattended briefs)", v: pick(cog, "queue.parked", "?"), s: "unk" },
-      { n: "Memory", q: "(recall)", v: pick(mem, "count", pick(mem, "total")), s: "unk" },
-      { n: "Guardrails", q: "(enforced in code)", v: ng(reg) ? null : reg.guardrails.filter(function (g) { return /ENFORCED/i.test(g.enforcement); }).length, s: "ok" }
-    ]));
+    // Each unattended worker by NAME with its live verdict. A count cannot say whether
+    // the team is working; a verdict and a run age can.
+    var teamItems = [];
+    if (ng(work)) {
+      teamItems.push({ n: "Workers", q: "(/api/ai-work unreadable)", v: "?", s: "unk" });
+    } else {
+      (work.jobs || []).forEach(function (j) {
+        var good = /HEALTHY/i.test(j.verdict || "");
+        teamItems.push({
+          n: j.label,
+          q: "(" + (j.ageHours != null ? j.ageHours + "h ago" : "no run") +
+             (j.proposals ? ", " + j.proposalsDecided + "/" + j.proposals + " read" : "") + ")",
+          v: good ? "ok" : (j.verdict || "?"),
+          s: good ? "ok" : "bad"
+        });
+      });
+      var tt = work.totals || {};
+      if (tt.unreviewed) {
+        teamItems.push({ n: "Unread output", q: "(proposals nobody decided)", v: tt.unreviewed, s: "warn" });
+      }
+    }
+    teamItems.push({ n: "Agents", q: "(spawned on demand, not daemons)", v: pick(reg, "counts.agents"), s: "ok" });
+    teamItems.push({ n: "Skills", q: "(slash commands)", v: pick(reg, "counts.skills"), s: "ok" });
+    teamItems.push({ n: "Memory", q: "(recall)", v: pick(mem, "count", pick(mem, "total")), s: "unk" });
+    teamItems.push({ n: "Guardrails", q: "(enforced in code)", v: ng(reg) ? null : reg.guardrails.filter(function (g) { return /ENFORCED/i.test(g.enforcement); }).length, s: "ok" });
+
+    grid.appendChild(panel("b-teal", IC.team, "#4fd6c4", "AI Workforce",
+      ng(work) ? "" : ((work.totals || {}).healthy + " of " + (work.totals || {}).jobs + " healthy"),
+      teamItems));
 
     // ---- column 2: the hub ----------------------------------------------
     var hub = document.createElement("div"); hub.className = "hub";
@@ -315,7 +337,8 @@
       { n: "Doctor + coverage audit", q: "(both boxes)", v: "daily", s: "ok" },
       { n: "Claims check", q: "(the boot file)", v: "self-heals", s: "ok" },
       { n: "Parity", q: "(engines agree?)", v: pick(d.fleet, "parity.verdict", "?"), s: "unk" },
-      { n: "Telegram alerts", q: "(notifier)", v: "on", s: "ok" }
+      { n: "Telegram alerts", q: "(notifier)", v: "on", s: "ok" },
+      { n: "Failing tasks", q: "(of those tracked)", v: ng(work) ? null : (work.unappraisedTasks || []).filter(function (x) { return x.failing; }).length, s: ng(work) ? "unk" : "warn" }
     ]));
     grid.appendChild(panel("b-gold", IC.ai, "#f0b429", "Learning", "", [
       { n: "Trade journal", q: "(real fills, with R)", v: pick(learn, "totalTrades", "?"), s: "unk" },
@@ -343,10 +366,11 @@
       get("/api/ai-registry"), get("/api/signals"), get("/api/strategy-settings"),
       get("/api/risk-status"), get("/api/gate-health"), get("/api/mt5/health?account=A"),
       get("/api/learning"), get("/api/memory"), get("/api/cognition"),
-      get("/api/healer"), get("/api/fleet")
+      get("/api/healer"), get("/api/fleet"), get("/api/ai-work")
     ]).then(function (r) {
       render({ reg: r[0], sig: r[1], set: r[2], risk: r[3], gate: r[4], mA: r[5],
-               learn: r[6], mem: r[7], cog: r[8], heal: r[9], fleet: r[10] });
+               learn: r[6], mem: r[7], cog: r[8], heal: r[9], fleet: r[10],
+               work: r[11] });
     });
   }
   load();
