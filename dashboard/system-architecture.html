@@ -27,6 +27,7 @@
 <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
 <link rel="stylesheet" href="/dashboard/theme.css">
 <link rel="stylesheet" href="/dashboard/nav.css">
+<script src="/dashboard/nav.js" defer></script>
 <style>
   body { background:
       radial-gradient(1100px 620px at 12% -8%, #10203a 0%, transparent 62%),
@@ -104,11 +105,58 @@
              color: var(--muted-dim); font-size: 11.5px; line-height: 1.65; }
   .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 9px; font-size: 10.5px; }
   .legend span { display: flex; align-items: center; gap: 5px; }
+  /* ---- TEAM & PROGRESS: who is working, and what they produced ---- */
+  .team { border:1px solid #1d5a56; border-radius:12px; margin-top:16px; overflow:hidden;
+          background:var(--surface); }
+  .team > header { display:flex; align-items:center; gap:11px; padding:10px 16px;
+                   border-bottom:1px solid var(--border);
+                   background:linear-gradient(90deg,#0f2f2d,transparent); }
+  .team > header .t { font-size:12.5px; font-weight:700; letter-spacing:1.9px;
+                      text-transform:uppercase; color:#4fd6c4; }
+  .team > header .d { color:var(--muted-dim); font-size:11px; }
+  .team > header .agg { margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .team .inner { padding:12px 16px 16px; }
+
+  .worker { display:grid; grid-template-columns:200px 104px 1fr 158px; gap:12px;
+            align-items:center; padding:9px 0; border-top:1px solid var(--subtle); }
+  .worker:first-child { border-top:0; }
+  .worker .wn { font-size:12.5px; font-weight:600; }
+  .worker .wn small { display:block; color:var(--muted-dim); font-weight:400; font-size:10px; margin-top:2px; }
+  .worker .wv { font-family:var(--mono); font-size:10px; padding:2px 8px; border-radius:999px;
+                border:1px solid var(--dim); text-align:center; white-space:nowrap; }
+  .wv.good { border-color:#14512f; color:var(--green); }
+  .wv.red  { border-color:#5c1a20; color:var(--red); }
+  .wv.amb  { border-color:#5a4410; color:var(--amber); }
+  .worker .wm { font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .worker .wp { text-align:right; }
+  .bar { height:6px; border-radius:3px; background:var(--surface3); overflow:hidden; margin-top:5px; }
+  .bar i { display:block; height:100%; background:linear-gradient(90deg,#2bd07c,#4fd6c4); }
+  .bar.amberfill i { background:linear-gradient(90deg,#f0b429,#f7931a); }
+  .wp .lbl { font-family:var(--mono); font-size:10.5px; color:var(--muted-dim); }
+
+  .pipe { margin-top:14px; padding-top:13px; border-top:1px solid var(--border); }
+  .pipe h4 { margin:0 0 8px; font-size:10.5px; letter-spacing:1.4px; text-transform:uppercase;
+             color:var(--muted-dim); font-weight:600; }
+  .segbar { display:flex; height:22px; border-radius:5px; overflow:hidden; border:1px solid var(--border); }
+  .segbar div { display:flex; align-items:center; justify-content:center; font-family:var(--mono);
+                font-size:10px; color:#07121f; font-weight:700; min-width:0; }
+  .seg-impl { background:#2bd07c; } .seg-ign { background:#4a5a72; color:#c9d6e8 !important; }
+  .seg-rej { background:#7c5cff; color:#e8eef7 !important; } .seg-unr { background:#f0b429; }
+  .pipekey { display:flex; gap:15px; flex-wrap:wrap; margin-top:7px; font-size:10.5px; color:var(--muted-dim); }
+  .pipekey span { display:flex; align-items:center; gap:5px; }
+  .pipekey i { width:9px; height:9px; border-radius:2px; }
+
+  .roster { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
+  .who { border:1px solid var(--border); border-radius:999px; padding:3px 11px; font-size:11px;
+         background:var(--surface2); }
+  .who b { color:#4fd6c4; font-weight:600; }
+  .failing { margin-top:11px; font-size:11.5px; color:var(--muted); }
+  .failing b { color:var(--red); }
+
   .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 </style>
 </head>
 <body>
-<div id="se-rail"></div>
 <div class="wrap">
 
   <div class="brand">
@@ -133,6 +181,8 @@
 
   <div id="stack"></div>
 
+  <div class="team" id="team"></div>
+
   <div class="assets" id="assets"></div>
 
   <footer class="f">
@@ -152,7 +202,6 @@
   </footer>
 </div>
 
-<script src="/dashboard/nav.js"></script>
 <script>
 (function () {
   "use strict";
@@ -361,9 +410,99 @@
       '<div class="s">XRPUSD &middot; r=0.85 vs BTC &middot; cost unmeasured until Monday</div>';
     assets.appendChild(x);
 
+    renderTeam(d.work, reg);
+
     $("stamp").textContent = "read " + new Date().toLocaleTimeString();
     $("verdict").textContent = pv || (anyAuth ? "signed out" : "partial read");
     $("verdict").className = "stamp " + (agree ? "ok" : (pv ? "bad" : "unk"));
+  }
+
+
+  // TEAM & PROGRESS. Counts alone cannot answer "is the team actually working". A job can
+  // run on schedule, exit 0, and still have every proposal it wrote go unread -- which the
+  // ai-work endpoint's own note says "costs the same as it failing". So each worker shows
+  // its run count, age, exit code, verdict, AND how much of its output has been decided on.
+  function renderTeam(work, reg) {
+    var el = document.getElementById("team");
+    if (!el) return;
+    if (ng(work)) {
+      el.innerHTML = '<header><span class="t">Team &amp; Progress</span>' +
+        '<span class="d">who is working, and what they produced</span></header>' +
+        '<div class="inner"><div style="color:var(--muted-dim);font-size:12px">' +
+        (work && work.__auth ? 'Signed out &mdash; /api/ai-work is session-gated.'
+                             : '/api/ai-work did not answer, so worker progress is unknown &mdash; not assumed healthy.') +
+        '</div></div>';
+      return;
+    }
+    var t = work.totals || {};
+    var h = '<header><span class="t">Team &amp; Progress</span>' +
+            '<span class="d">who is working, and what they produced</span>' +
+            '<span class="agg">' + (t.healthy != null ? t.healthy + " of " + t.jobs + " healthy" : "") +
+            '</span></header><div class="inner">';
+
+    (work.jobs || []).forEach(function (j) {
+      var good = /HEALTHY/i.test(j.verdict || "");
+      var red = /RED|FAIL|STALE|IGNORED/i.test(j.verdict || "");
+      var made = j.proposals || 0, done = j.proposalsDecided || 0;
+      var pct = made ? Math.round(done / made * 100) : null;
+      h += '<div class="worker">' +
+        '<div class="wn">' + j.label + '<small>' + (j.script || j.task || "") + '</small></div>' +
+        '<div class="wv ' + (good ? "good" : (red ? "red" : "amb")) + '">' + (j.verdict || "?") + '</div>' +
+        '<div class="wm">' + (j.runs != null ? j.runs + " runs" : "") +
+          (j.ageHours != null ? " &middot; " + j.ageHours + "h ago" : "") +
+          (j.lastExit != null ? " &middot; exit " + j.lastExit : "") + '</div>' +
+        '<div class="wp">' +
+          (made ? '<div class="lbl">' + done + ' of ' + made + ' read</div>' +
+                  '<div class="bar' + (pct < 100 ? ' amberfill' : '') + '"><i style="width:' + pct + '%"></i></div>'
+                : '<div class="lbl">no output to read</div>') +
+        '</div></div>';
+    });
+
+    var impl = 0, ign = 0, rej = 0, unr = 0;
+    (work.proposals || []).forEach(function (p) {
+      var st = String(p.status || "").toLowerCase();
+      if (st === "implemented") impl++;
+      else if (st === "ignored") ign++;
+      else if (st === "rejected") rej++;
+      else unr++;
+    });
+    var tot = impl + ign + rej + unr;
+    if (tot) {
+      var w = function (n) { return (n / tot * 100).toFixed(1) + "%"; };
+      h += '<div class="pipe"><h4>Proposal pipeline &mdash; ' + tot +
+           ' written by the workers above</h4><div class="segbar">' +
+           (impl ? '<div class="seg-impl" style="width:' + w(impl) + '">' + impl + '</div>' : '') +
+           (ign  ? '<div class="seg-ign"  style="width:' + w(ign)  + '">' + ign  + '</div>' : '') +
+           (rej  ? '<div class="seg-rej"  style="width:' + w(rej)  + '">' + rej  + '</div>' : '') +
+           (unr  ? '<div class="seg-unr"  style="width:' + w(unr)  + '">' + unr  + '</div>' : '') +
+           '</div><div class="pipekey">' +
+           '<span><i style="background:#2bd07c"></i> implemented ' + impl + '</span>' +
+           '<span><i style="background:#4a5a72"></i> ignored ' + ign + '</span>' +
+           '<span><i style="background:#7c5cff"></i> rejected ' + rej + '</span>' +
+           '<span><i style="background:#f0b429"></i> UNREVIEWED ' + unr + '</span>' +
+           '</div></div>';
+    }
+
+    if (!ng(reg) && reg.agents) {
+      h += '<div class="pipe"><h4>Agents &mdash; ' + reg.agents.length +
+           ' specialists, spawned on demand</h4><div class="roster">';
+      reg.agents.forEach(function (a) { h += '<span class="who"><b>' + a.name + '</b></span>'; });
+      h += '</div><div class="failing" style="color:var(--muted-dim)">' +
+           'They are not daemons. Each is started for one task and exits, so "working" for an ' +
+           'agent means a job above invoked it &mdash; not that a process is running.' +
+           '</div></div>';
+    }
+
+    var un = work.unappraisedTasks || [];
+    var failing = un.filter(function (x) { return x.failing; });
+    h += '<div class="pipe"><h4>Scheduled automation &mdash; ' + un.length + ' tracked</h4>' +
+         '<div class="failing">' + (failing.length
+           ? '<b>' + failing.length + ' failing:</b> ' + failing.map(function (x) {
+               return x.name + " (" + (x.resultMeaning || x.lastResult) + ")"; }).join(", ")
+           : 'none failing') + '</div></div>';
+
+    h += "</div>";
+    el.innerHTML = h;
   }
 
   function load() {
@@ -371,10 +510,12 @@
       get("/api/ai-registry"), get("/api/signals"), get("/api/risk-status"),
       get("/api/strategy-settings"), get("/api/healer"), get("/api/gate-health"),
       get("/api/learning"), get("/api/fleet"), get("/api/memory"), get("/api/rag"),
-      get("/api/cognition"), get("/api/mt5/health?account=A"), get("/api/evidence-board")
+      get("/api/cognition"), get("/api/mt5/health?account=A"), get("/api/evidence-board"),
+      get("/api/ai-work")
     ]).then(function (r) {
       render({ reg: r[0], sig: r[1], risk: r[2], set: r[3], heal: r[4], gate: r[5],
-               learn: r[6], fleet: r[7], mem: r[8], rag: r[9], cog: r[10], mA: r[11], ev: r[12] });
+               learn: r[6], fleet: r[7], mem: r[8], rag: r[9], cog: r[10], mA: r[11], ev: r[12],
+               work: r[13] });
     });
   }
   load();
