@@ -73,12 +73,23 @@ def read_positions():
             if page is None:
                 return None, "no TradingView page is open on CDP 9222"
 
-            tab = page.evaluate(JS_TAB, "Paper Trading")
-            if tab:
-                page.mouse.click(tab["x"] + tab["w"] / 2, tab["y"] + tab["h"] / 2)
-                page.wait_for_timeout(2500)
-
+            # THE TAB IS A TOGGLE. A blind click on an already-open panel CLOSES it - which
+            # is exactly what happened on the first run here: the probe had left Paper
+            # Trading open, this clicked it shut, and the reader then reported CANNOT READ.
+            # tradingview_bot.py learned the same thing about the Object tree and says so in
+            # open_object_tree's docstring. So: look before clicking, and prove it after.
             table = page.evaluate(JS_TABLE)
+            if not (table.get("headers") or table.get("emptyMessage")):
+                tab = page.evaluate(JS_TAB, "Paper Trading")
+                if tab:
+                    page.mouse.click(tab["x"] + tab["w"] / 2, tab["y"] + tab["h"] / 2)
+                    page.wait_for_timeout(3000)
+                    table = page.evaluate(JS_TABLE)
+                    if not (table.get("headers") or table.get("emptyMessage")):
+                        # One click may have closed it. Click once more, then give up.
+                        page.mouse.click(tab["x"] + tab["w"] / 2, tab["y"] + tab["h"] / 2)
+                        page.wait_for_timeout(3000)
+                        table = page.evaluate(JS_TABLE)
             headers = table.get("headers") or []
             rows = table.get("rows") or []
 
