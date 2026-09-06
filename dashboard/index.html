@@ -1445,6 +1445,24 @@
        OnInit, so a button on this page could not stop it - and a control that promises a
        safety action it cannot perform is exactly what the mode cards below used to be.
        Status only, until the EA can actually be told to stop. -->
+  <!-- EXECUTION — everything that decides WHETHER a trade happens and HOW BIG it gets.
+       This existed nowhere before. /api/mt5/positions shows only the bridge's own magic
+       (it held ONE trade while MT5 held eight), the ledger cannot see TradingView, the
+       weekly review is the EA alone, and the settings give percentages rather than the
+       lots those percentages actually produce. So the three questions that matter before
+       a fill — can it trade, what can place an order, how big can one get — had no single
+       answer anywhere. Written by tasks/execution_state.py. Status only: no control here,
+       because this page cannot halt anything and must not pretend it can. -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">Execution <span style="font-weight:400;color:var(--muted);font-size:.68rem">(every order path, every ceiling)</span></div>
+      <span id="exec-sync" style="font-size:.68rem;color:var(--muted)">loading...</span>
+    </div>
+    <div class="panel-body" style="max-height:none">
+      <div id="exec-state" style="font-size:.75rem"></div>
+    </div>
+  </div>
+
   <div class="panel" style="margin-bottom:16px">
     <div class="panel-header">
       <div class="panel-title">CRT Dashboard EA <span style="font-weight:400;color:var(--muted);font-size:.68rem">(separate from SmartEntry)</span></div>
