@@ -1830,6 +1830,17 @@ async function refreshBooks() {
   var age = d.generatedAt ? Math.round((Date.now() - new Date(d.generatedAt).getTime())/60000) : null;
   sync.textContent = (age === null ? 'age unknown' : age + 'm ago') + ' · never pooled';
 
+  /* THE PEER'S BOOKS, unioned for DISPLAY only. The two boxes' journals are disjoint - 9
+     and 13 closed trades with zero tickets in common - so neither alone is the record.
+     Nothing is merged, rewritten or reconciled on disk: both files stay exactly as their
+     own box wrote them, and this only adds them up on screen. If the peer file is missing
+     the fleet line says so rather than silently showing one box as the total. */
+  var peer = null;
+  try {
+    var pr = await fetch('/dashboard/performance-books.peer.json?t=' + Date.now());
+    if (pr.ok) peer = await pr.json();
+  } catch (e) { /* peer stays null */ }
+
   var money = function (v) {
     if (v === null || v === undefined) return '<span style="opacity:.5">&mdash;</span>';
     var c = v > 0 ? '#3fb950' : (v < 0 ? '#f85149' : 'inherit');
@@ -1842,6 +1853,26 @@ async function refreshBooks() {
   };
   var html = '';
   var se = d.books && d.books.smartEntry;
+  var pse = peer && peer.books && peer.books.smartEntry;
+
+  /* FLEET LINE FIRST, because it is the only complete number on this page. */
+  if (se && pse) {
+    var fT = se.trades + pse.trades;
+    var fM = se.netMoney + pse.netMoney;
+    var fR = (se.netR === null || pse.netR === null) ? null : se.netR + pse.netR;
+    html += '<div style="padding:8px 10px;margin-bottom:10px;border:1px solid rgba(255,255,255,.12);border-radius:6px">'
+      + '<div style="font-size:.7rem;opacity:.6;text-transform:uppercase;letter-spacing:.5px">SmartEntry &mdash; WHOLE FLEET</div>'
+      + '<div style="font-size:.86rem;margin-top:3px">' + fT + ' closed &nbsp;&middot;&nbsp; money '
+      + (function(v){var c=v>0?'#3fb950':(v<0?'#f85149':'inherit');return '<span style="color:'+c+'">'+(v>0?'+':'')+v.toFixed(2)+'</span>';})(fM)
+      + ' &nbsp;&middot;&nbsp; ' + (fR === null ? '&mdash;'
+        : (function(v){var c=v>0?'#3fb950':(v<0?'#f85149':'inherit');return '<span style="color:'+c+'">'+(v>0?'+':'')+v.toFixed(2)+'R</span>';})(fR))
+      + '</div>'
+      + '<div style="font-size:.66rem;opacity:.55;margin-top:3px">this box ' + se.trades
+      + ' + peer ' + pse.trades + ', journals are disjoint. Added for display only &mdash; neither journal is modified.</div></div>';
+  } else if (se && !pse) {
+    html += '<div style="color:#e0a030;font-size:.72rem;margin-bottom:8px">'
+      + 'Peer books not available &mdash; the figures below are THIS BOX ONLY and the fleet total cannot be shown.</div>';
+  }
   if (!se) {
     html += '<div style="color:#e0a030">SmartEntry: COULD NOT READ the journal.</div>';
   } else {
