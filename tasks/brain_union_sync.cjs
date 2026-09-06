@@ -193,7 +193,9 @@ if (graphIdentical) {
     console.log("  GRAPH REFUSED: the union is not a superset of both sides — nothing written.");
   } else {
     const tmp = path.join(os.tmpdir(), "mcp-memory-union.json");
-    fs.writeFileSync(tmp, mergedRows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+    // The EXACT bytes graphIdentical hashed. Building the string twice would let the
+    // guard and the write drift apart, which is how the trailing-newline mismatch got in.
+    fs.writeFileSync(tmp, unionText, "utf8");
     try {
       ssh('powershell -NoProfile -Command "$p=Join-Path $env:USERPROFILE \'Documents\\Brain\\mcp-memory.json\'; ' +
           'if (Test-Path $p) { Copy-Item $p ($p + \'.bak-union-' + stamp + '\') -Force }"');
