@@ -297,8 +297,15 @@ silently resolved.
     cohort cleared unaided and the 63 was two points away. The gate is back at 70, so
     "H4-only cannot fire without boosts" is true again — but it is true by CONFIGURATION,
     not by construction, and it silently reverses the moment the gate drops below 68.
-  **`h1` appears exactly TWICE in the whole engine** — the bonus at :2909 and the
-  payload copy at :3221. **No branch anywhere lets H1 reduce confidence or block a
+  **Only ONE branch anywhere lets `h1` touch the confidence maths** — the
+  triple-alignment bonus at `server/index.js:3457` — plus a display copy in the
+  payload at `server/index.js:3793`. This line claimed "`h1` appears exactly TWICE in
+  the whole engine" until 2026-09-06, when it appeared **31 times** and both cited
+  lines had rotted onto unrelated code. **Do not restore a raw count here**: the count
+  is the part that went stale, the PROPERTY is the part that matters, and the property
+  was re-verified on 2026-09-06 — the bonus is guarded on `daily.signal !== "WAIT"`
+  and only ever ASSIGNS 88 or 97 over a value that was at most 95, so it can only
+  RAISE. **No branch anywhere lets H1 reduce confidence or block a
   setup**, and the bridge never reads `h1` or `m15` to refuse a trade. A bearish H1 and
   a bearish M15 are DISPLAY ONLY. Whether H1 disagreement predicts anything is
   UNMEASURED — see `tasks/logs/h1_agreement.txt`. Do not add an H1 veto on intuition:
