@@ -473,6 +473,10 @@ def main():
         # LIST = MT5 answered (empty means genuinely none). None = could not ask.
         "openPositions": open_ea_positions(),
         "liveConfigSentryLogDay": sentry_day,
+        # WHICH BOX this sentry line describes. The laptop also runs MT5 with an older
+        # EA attached, so a review that read only local logs reported the laptop's EA
+        # while the VPS - the machine that trades - ran a different build.
+        "liveConfigSentrySource": latest_sentry_line.source,
         "findings": build_findings(recent, all_rows, sentry, perms),
     }
 
@@ -507,6 +511,7 @@ def main():
                                 if not cur else fmt(cur))
           + "   (trail OFF; backtest +536.27, PF 1.18)")
     print("  live config: %s" % (sentry[-110:] if sentry else "no sentry line found"))
+    print("  sentry from: %s" % latest_sentry_line.source)
     print("  mt5 assistant PermissionsTrade: %s"
           % ", ".join("%s=%s" % (k, "unknown" if v is None else v) for k, v in perms.items()))
     for f in payload["findings"]:
