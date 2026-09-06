@@ -59,25 +59,26 @@
     { href: "/system", label: "System",
       match: ["/system", "/dashboard/system.html"] },
     { sep: true },
-    // Served from its static path rather than a clean /fleet route, like Performance
-    // above: express.static picks up a new file immediately, whereas a clean route
-    // needs an app.get in server/index.js and therefore a server restart. The match
-    // list carries /fleet anyway, so the tab lights correctly the day that route lands.
-    { href: "/dashboard/fleet.html", label: "Fleet Map",
-      match: ["/dashboard/fleet.html", "/fleet"] },
-    // fleet-map.html is the LAYERED view, added 2026-09-06 ALONGSIDE fleet.html rather
-    // than replacing it: if it turns out worse, nothing was lost and nothing needs undoing.
-    // It exists because the original covers fleet agreement, the plan, the clock and the
-    // ledgers, but has no representation of EXECUTION (MT5 terminals, EA attach, bridge
-    // heartbeats, executors), HEALTH (healer, watchdog, restarts) or INTELLIGENCE (agent
-    // queue, auth session, RAG) -- so none of the failures found on 2026-09-06 would have
-    // shown on it. Both stay linked until one is chosen.
+    // ONE System Map and ONE Architecture, 2026-09-06.
+    //
+    // The nav had carried TWO of each -- "Fleet Map" (fleet.html) beside "System Map",
+    // and "Architecture" (architecture.html) beside "Architecture v2" -- which is the
+    // clutter this was meant to remove, not add to. The two SMART ENTRY pages are the
+    // ones kept: they are built to the reference grammar and every box on them is bound
+    // to a live endpoint.
+    //
+    // NOTHING IS DELETED. dashboard/fleet.html and dashboard/architecture.html remain on
+    // disk and are still served by express.static, so both stay reachable by direct URL.
+    // Only their nav entries are gone, which makes the undo two lines.
+    //
+    // Served from static paths rather than clean routes: express.static picks up a new
+    // file immediately, whereas a clean route needs an app.get in server/index.js and a
+    // server restart. The match lists carry the clean paths anyway, so the tab lights
+    // correctly the day those routes land.
     { href: "/dashboard/system-map.html", label: "System Map",
-      match: ["/dashboard/system-map.html"] },
-    { href: "/dashboard/system-architecture.html", label: "Architecture v2",
-      match: ["/dashboard/system-architecture.html"] },
-    { href: "/architecture", label: "Architecture",
-      match: ["/architecture", "/dashboard/architecture.html"] },
+      match: ["/dashboard/system-map.html", "/dashboard/fleet.html", "/fleet"] },
+    { href: "/dashboard/system-architecture.html", label: "Architecture",
+      match: ["/dashboard/system-architecture.html", "/architecture", "/dashboard/architecture.html"] },
     { href: "/plan", label: "Systems Plan",
       match: ["/plan", "/dashboard/plan.html"] },
     { sep: true },
