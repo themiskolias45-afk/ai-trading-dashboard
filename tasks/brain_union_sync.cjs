@@ -119,14 +119,6 @@ try {
 // re-push an identical file on every run, take a fresh backup each time, and report a
 // difference that does not exist. The hash is computed on each side and compared as a
 // string, so the transport cannot corrupt the answer.
-let graphIdentical = false;
-try {
-  const lh = require("crypto").createHash("sha256").update(fs.readFileSync(GRAPH)).digest("hex").toUpperCase();
-  const rh = ssh('powershell -NoProfile -Command "(Get-FileHash (Join-Path ' +
-    "$env:USERPROFILE 'Documents\\Brain\\mcp-memory.json') -Algorithm SHA256).Hash\"").trim().toUpperCase();
-  graphIdentical = !!lh && lh === rh;
-} catch { /* fall through to the row comparison */ }
-
 const merged = new Map();
 for (const r of remoteRows) merged.set(keyOf(r), r);   // remote first
 for (const r of localRows) merged.set(keyOf(r), r);    // local wins on identical key
