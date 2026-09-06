@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<!--
+  SYSTEM ARCHITECTURE — the whole system as layers, every card bound to a live endpoint.
+
+  WHY IT LOOKS LIKE THIS. Built to the visual grammar of the reference diagram: branded
+  header, horizontal colour-coded bands, icon + TITLE + (qualifier) + detail on every
+  card, flow arrows between layers, asset strip at the base.
+
+  WHY IT IS NOT A COPY OF IT. That reference describes a system that does not fully
+  exist — MSFT and AMZN accounts, a React dashboard, an iOS/Android app, Ubuntu cloud
+  servers, Docker, systemd, PostgreSQL, XGBoost/LSTM. The live system trades BTCUSD,
+  XAUUSD and SP500 from two WINDOWS boxes with scheduled tasks, SQLite and JSON, and a
+  RULE-BASED multi-timeframe engine. Drawing the reference verbatim would have produced
+  the most convincing false claim in the whole system, which is the exact failure this
+  project spent 2026-09-06 removing from CLAUDE.md, VAULT-INDEX.md and three checks.
+
+  SO: anything not live-verified is drawn in the PLANNED state — dashed, greyed, labelled.
+  The ambition stays visible without being asserted as fact.
+
+  Read-only. Every fetch is a GET. Nothing writes, arms, halts or sizes.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System Architecture — SmartEntry Pro</title>
+<link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+<link rel="stylesheet" href="/dashboard/theme.css">
+<link rel="stylesheet" href="/dashboard/nav.css">
+<style>
+  body { background:
+      radial-gradient(1100px 620px at 12% -8%, #10203a 0%, transparent 62%),
+      radial-gradient(900px 520px at 88% -4%, #1a1233 0%, transparent 58%),
+      var(--bg);
+    color: var(--text); font-family: var(--font); margin: 0; }
+  .wrap { max-width: 1560px; margin: 0 auto; padding: 22px 24px 70px; }
+
+  /* ---- branded header, per the reference grammar ---- */
+  .brand { display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+           padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .brand .mark { font-size: 30px; font-weight: 800; letter-spacing: 1.5px; line-height: 1;
+                 background: linear-gradient(95deg, #e8eef7 0%, #f0b429 62%, #f7931a 100%);
+                 -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .brand .tag { color: var(--muted); font-size: 11.5px; letter-spacing: 2.6px;
+                text-transform: uppercase; margin-top: 7px; }
+  .brand .mid { flex: 1 1 300px; }
+  .brand .mid h1 { margin: 0; font-size: 17px; letter-spacing: 3.4px; text-transform: uppercase;
+                   color: var(--text); font-weight: 600; }
+  .brand .mid .sub { color: var(--muted-dim); font-size: 11px; letter-spacing: 2px;
+                     text-transform: uppercase; margin-top: 5px; }
+  .brand .right { margin-left: auto; text-align: right; }
+  .brand .right .stamp { font-family: var(--mono); font-size: 10.5px; color: var(--muted-dim); }
+  .authwarn { margin-top: 12px; border: 1px solid #5a4410; background: #33280a;
+              border-radius: 8px; padding: 10px 13px; font-size: 12.5px; color: var(--amber); }
+
+  /* ---- layer bands ---- */
+  .band { border: 1px solid; border-radius: 12px; margin-top: 14px; overflow: hidden;
+          background: var(--surface); }
+  .band > header { display: flex; align-items: center; gap: 11px; padding: 10px 16px;
+                   border-bottom: 1px solid var(--border); }
+  .band > header .ic { width: 22px; height: 22px; flex: 0 0 auto; }
+  .band > header .t { font-size: 12.5px; font-weight: 700; letter-spacing: 1.9px; text-transform: uppercase; }
+  .band > header .d { color: var(--muted-dim); font-size: 11px; margin-left: 4px; }
+  .band > header .agg { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+           gap: 10px; padding: 13px 16px 16px; }
+
+  .card { border: 1px solid var(--border); border-radius: 9px; padding: 11px 12px;
+          background: var(--surface2); min-width: 0; }
+  .card .ct { font-size: 11px; font-weight: 650; letter-spacing: .3px; margin-bottom: 6px;
+              display: flex; align-items: center; gap: 6px; }
+  .card .cq { color: var(--muted-dim); font-weight: 400; font-size: 10px; }
+  .card .cv { font-family: var(--mono); font-size: 19px; font-weight: 700; line-height: 1.1; }
+  .card .cd { color: var(--muted-dim); font-size: 10.5px; margin-top: 5px; line-height: 1.4; }
+  .card.planned { border-style: dashed; opacity: .5; }
+  .card.planned .cv { color: var(--muted-dim); }
+
+  /* colour = LAYER IDENTITY, not status (status lives in the value colour) */
+  .l-if   { border-color: #1d3f6b; } .l-if   > header { background: linear-gradient(90deg, #10233d, transparent); } .l-if   .t { color: #6cb6ff; }
+  .l-br   { border-color: #3b2a6b; } .l-br   > header { background: linear-gradient(90deg, #1d1640, transparent); } .l-br   .t { color: #a78bff; }
+  .l-ai   { border-color: #1d5a56; } .l-ai   > header { background: linear-gradient(90deg, #0f2f2d, transparent); } .l-ai   .t { color: #4fd6c4; }
+  .l-gr   { border-color: #5a4410; } .l-gr   > header { background: linear-gradient(90deg, #33280a, transparent); } .l-gr   .t { color: var(--amber); }
+  .l-core { border-color: #14512f; } .l-core > header { background: linear-gradient(90deg, #0c3d26, transparent); } .l-core .t { color: var(--green); }
+  .l-ex   { border-color: #1d3f6b; } .l-ex   > header { background: linear-gradient(90deg, #10233d, transparent); } .l-ex   .t { color: #6cb6ff; }
+  .l-da   { border-color: #14512f; } .l-da   > header { background: linear-gradient(90deg, #0c3d26, transparent); } .l-da   .t { color: var(--green); }
+  .l-inf  { border-color: #5c1a20; } .l-inf  > header { background: linear-gradient(90deg, #381115, transparent); } .l-inf  .t { color: #ff7a85; }
+
+  .flow { display: flex; justify-content: center; padding: 3px 0; }
+  .flow svg { opacity: .45; }
+
+  .ok { color: var(--green); } .warn { color: var(--amber); } .bad { color: var(--red); }
+  .unk { color: var(--muted-dim); }
+
+  .assets { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 11px; margin-top: 18px; }
+  .asset { border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+           padding: 13px 15px; }
+  .asset .n { font-size: 13px; font-weight: 700; letter-spacing: .6px; }
+  .asset .p { font-family: var(--mono); font-size: 17px; margin-top: 5px; }
+  .asset .s { font-size: 10.5px; color: var(--muted-dim); margin-top: 4px; }
+  .asset.cand { border-style: dashed; opacity: .55; }
+
+  footer.f { margin-top: 26px; padding-top: 15px; border-top: 1px solid var(--border);
+             color: var(--muted-dim); font-size: 11.5px; line-height: 1.65; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 9px; font-size: 10.5px; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+</style>
+</head>
+<body>
+<div id="se-rail"></div>
+<div class="wrap">
+
+  <div class="brand">
+    <div>
+      <div class="mark">JARVIS AI</div>
+      <div class="tag">Analyze &middot; Decide &middot; Execute &middot; Learn &middot; Improve</div>
+    </div>
+    <div class="mid">
+      <h1>System Architecture</h1>
+      <div class="sub">Layered &middot; Live-bound &middot; Two boxes &middot; Read-only</div>
+    </div>
+    <div class="right">
+      <div class="stamp" id="stamp">reading&hellip;</div>
+      <div class="stamp" id="verdict" style="margin-top:5px">&mdash;</div>
+    </div>
+  </div>
+
+  <div class="authwarn" id="authwarn" style="display:none">
+    Signed out &mdash; the brain, fleet and cognition layers are session-gated by design, so their
+    cards read <b>?</b> rather than green. Sign in to populate them.
+  </div>
+
+  <div id="stack"></div>
+
+  <div class="assets" id="assets"></div>
+
+  <footer class="f">
+    Every card is bound to a live endpoint. A card drawn <b>dashed and grey</b> is
+    <b>planned, not built</b> &mdash; it is shown so the ambition stays visible without being
+    asserted as fact. A value shown as <b>?</b> means the reading could not be taken; it never
+    means healthy.
+    <div class="legend">
+      <span><i class="sw" style="background:#6cb6ff"></i> interface / execution</span>
+      <span><i class="sw" style="background:#a78bff"></i> brain &amp; memory</span>
+      <span><i class="sw" style="background:#4fd6c4"></i> AI workforce</span>
+      <span><i class="sw" style="background:#f0b429"></i> tools &amp; guardrails</span>
+      <span><i class="sw" style="background:#2bd07c"></i> engine &amp; learning</span>
+      <span><i class="sw" style="background:#ff7a85"></i> infrastructure</span>
+      <span><i class="sw" style="border:1px dashed #7488ab;background:transparent"></i> planned, not built</span>
+    </div>
+  </footer>
+</div>
+
+<script src="/dashboard/nav.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var ARROW = '<svg width="18" height="20" viewBox="0 0 18 20"><path d="M9 1v13M4 11l5 6 5-6" '
+            + 'stroke="#4a9eff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function ico(paths, colour) {
+    return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="' + colour +
+           '" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>';
+  }
+  var ICONS = {
+    iface: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    brain: '<path d="M12 5a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8V17a3 3 0 0 0 6 0"/><path d="M12 5a3 3 0 0 1 3 3 3 3 0 0 1 1 5.8V17"/>',
+    ai:    '<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M19 5l-3 3M8 16l-3 3"/>',
+    shield:'<path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/>',
+    core:  '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+    exec:  '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+    data:  '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+    infra: '<rect x="2" y="3" width="20" height="7" rx="1.5"/><rect x="2" y="14" width="20" height="7" rx="1.5"/><path d="M6 6.5h.01M6 17.5h.01"/>'
+  };
+
+  function card(title, qual, value, state, detail, planned) {
+    var d = document.createElement("div");
+    d.className = "card" + (planned ? " planned" : "");
+    var t = document.createElement("div"); t.className = "ct";
+    t.appendChild(document.createTextNode(title));
+    if (qual) { var q = document.createElement("span"); q.className = "cq"; q.textContent = qual; t.appendChild(q); }
+    var v = document.createElement("div"); v.className = "cv " + (state || "unk");
+    v.textContent = (value === null || value === undefined || value === "") ? "?" : String(value);
+    d.appendChild(t); d.appendChild(v);
+    if (detail) { var x = document.createElement("div"); x.className = "cd"; x.textContent = detail; d.appendChild(x); }
+    return d;
+  }
+
+  function band(cls, iconKey, colour, title, desc, agg, cards) {
+    var b = document.createElement("div"); b.className = "band " + cls;
+    var h = document.createElement("header");
+    h.innerHTML = ico(ICONS[iconKey], colour) +
+      '<span class="t">' + title + '</span><span class="d">' + desc + '</span>' +
+      '<span class="agg">' + (agg || "") + '</span>';
+    var g = document.createElement("div"); g.className = "cards";
+    cards.forEach(function (c) { if (c) g.appendChild(c); });
+    b.appendChild(h); b.appendChild(g);
+    return b;
+  }
+
+  function flow() { var f = document.createElement("div"); f.className = "flow"; f.innerHTML = ARROW; return f; }
+
+  function get(u) {
+    return fetch(u, { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) return { __auth: true };
+        if (!r.ok) return { __err: r.status };
+        return r.json();
+      }).catch(function (e) { return { __err: String(e) }; });
+  }
+  function ng(o) { return !o || o.__err || o.__auth || o.error; }
+  function num(o, path, dflt) {
+    if (ng(o)) return dflt === undefined ? null : dflt;
+    var cur = o, parts = path.split(".");
+    for (var i = 0; i < parts.length; i++) {
+      if (cur === null || cur === undefined) return dflt === undefined ? null : dflt;
+      cur = cur[parts[i]];
+    }
+    return (cur === undefined || cur === null) ? (dflt === undefined ? null : dflt) : cur;
+  }
+
+  function render(d) {
+    var reg = d.reg, sig = d.sig, risk = d.risk, set = d.set, heal = d.heal,
+        gate = d.gate, learn = d.learn, fleet = d.fleet, mem = d.mem, rag = d.rag,
+        cog = d.cog, mA = d.mA, ev = d.ev;
+
+    var anyAuth = [reg, fleet, mem, rag, cog].some(function (x) { return x && x.__auth; });
+    $("authwarn").style.display = anyAuth ? "" : "none";
+
+    var stack = $("stack"); stack.innerHTML = "";
+
+    // 1 INTERFACES ---------------------------------------------------------
+    stack.appendChild(band("l-if", "iface", "#6cb6ff", "Interfaces", "how you and the world reach it", "", [
+      card("Web dashboard", "(static HTML)", "live", "ok", "this page + " + (ng(reg) ? "?" : "the rest of /dashboard")),
+      card("JARVIS CLI", "(Claude Code)", "live", "ok", "the session you are talking to"),
+      card("MT5 terminals", "(execution)", "2", "ok", "one per box, EA + bridge attach here"),
+      card("TradingView", "(charts)", "bot", "ok", "tradingview_bot.py draws the daily plan"),
+      card("Telegram", "(alerts)", "on", "ok", "notifier configured on both boxes"),
+      card("Mobile app", "(iOS / Android)", "not built", "unk", "in the reference diagram only", true)
+    ]));
+    stack.appendChild(flow());
+
+    // 2 BRAIN & MEMORY -----------------------------------------------------
+    var memCount = num(mem, "count", num(mem, "total", null));
+    var ragCount = num(rag, "chunks", num(rag, "total", null));
+    stack.appendChild(band("l-br", "brain", "#a78bff", "Brain &amp; Memory", "what it knows, and how it recalls",
+      (memCount != null ? memCount + " memories" : ""), [
+      card("Boot config", "(CLAUDE.md)", "loaded", "ok", "identity + the rules that cannot lapse"),
+      card("Vault", "(Obsidian)", "linked", "ok", "VAULT-INDEX.md, read at every session start"),
+      card("Memories", "(files)", memCount, memCount != null ? "ok" : "unk", "one fact per file, wiki-linked"),
+      card("Semantic recall", "(RAG)", ragCount, ragCount != null ? "ok" : "unk", "local embeddings, nothing leaves the box"),
+      card("Knowledge graph", "(MCP)", num(cog, "graph.entities", null), "warn", "entities present, relations never written"),
+      card("Session memory", "(jarvis)", num(cog, "jarvisEntries", null), "unk", "carried between sessions")
+    ]));
+    stack.appendChild(flow());
+
+    // 3 AI WORKFORCE -------------------------------------------------------
+    var nAg = num(reg, "counts.agents"), nSk = num(reg, "counts.skills");
+    stack.appendChild(band("l-ai", "ai", "#4fd6c4", "AI Workforce", "who does the work",
+      (nAg != null ? nAg + " agents &middot; " + nSk + " skills" : ""), [
+      card("Agents", "(specialists)", nAg, nAg != null ? "ok" : "unk",
+           ng(reg) ? "registry unreadable" : reg.agents.map(function (a) { return a.name; }).join(", ")),
+      card("Skills", "(commands)", nSk, nSk != null ? "ok" : "unk", "slash commands the CLI can run"),
+      card("AI employee", "(unattended)", num(cog, "queue.parked", null), "unk", "morning agent, daily check, weekly review"),
+      card("Engineer", "(parallel build)", "/engineer", "ok", "architect, fan out, integrate"),
+      card("Scripts", "(automation)", num(reg, "counts.scripts"), "ok",
+           ng(reg) ? null : (num(reg, "scriptsByArea.tasks") + " tasks, " + num(reg, "scriptsByArea.engineModules") + " engine modules"))
+    ]));
+    stack.appendChild(flow());
+
+    // 4 TOOLS & GUARDRAILS -------------------------------------------------
+    var trades = num(reg, "counts.toolsThatTrade"), writes = num(reg, "counts.toolsThatWrite");
+    var enforced = ng(reg) ? null : reg.guardrails.filter(function (g) { return /ENFORCED/i.test(g.enforcement); }).length;
+    stack.appendChild(band("l-gr", "shield", "#f0b429", "Tools &amp; Guardrails", "what it may touch, and what stops it",
+      (num(reg, "counts.tools") != null ? num(reg, "counts.tools") + " tools" : ""), [
+      card("Read-only tools", "(safe)", ng(reg) ? null : (num(reg, "counts.tools") - writes - trades), "ok", "observe, never change"),
+      card("Writing tools", "(mutate)", writes, "warn", "change state, do not trade"),
+      card("Trading tools", "(THAT TRADE)", trades, trades ? "bad" : "unk", "the only two that can place an order"),
+      card("Guardrails", "(enforced in code)", enforced, enforced ? "ok" : "unk",
+           ng(reg) ? null : (reg.guardrails.length - enforced) + " more are procedural, not enforced"),
+      card("Kill switch", "(halt)", ng(risk) ? null : (risk.halted ? "HALTED" : "armed"),
+           ng(risk) ? "unk" : (risk.halted ? "bad" : "ok"), "circuit breaker + bridge control")
+    ]));
+    stack.appendChild(flow());
+
+    // 5 DECISION ENGINE (the core) -----------------------------------------
+    var g = num(set, "confidenceThreshold");
+    var kills = 0, passes = 0, gates = 0;
+    if (!ng(gate)) {
+      var gg = gate.gates || gate;
+      Object.keys(gg).forEach(function (k) {
+        var v = gg[k]; if (v && (v.killed != null || v.passed != null)) {
+          gates++; kills += (v.killed || 0); passes += (v.passed || 0);
+        }
+      });
+    }
+    stack.appendChild(band("l-core", "core", "#2bd07c", "Decision Engine", "Smart Entry &mdash; multi-timeframe, rule based",
+      (g != null ? "gate " + g : ""), [
+      card("Confidence gate", "(live)", g, num(set, "settingsError") ? "bad" : (g != null ? "ok" : "unk"),
+           num(set, "settingsError") ? "RUNNING DEFAULTS, not saved config" : "from saved config"),
+      card("Gates", "(the funnel)", gates || null, gates ? "ok" : "unk", kills + " killed / " + passes + " passed"),
+      card("Risk per trade", "(sizing)", num(set, "riskPercent") != null ? num(set, "riskPercent") + "%" : null,
+           num(set, "riskPercent") ? "ok" : "unk", "fixedLot " + num(set, "fixedLotSize", "?") + " - 0 means risk-based"),
+      card("Timeframes", "(D1 + H4 + H1)", "3", "ok", "H1 only ever ADDS confidence, never vetoes"),
+      card("Evidence board", "(claims)", num(ev, "claims", ng(ev) ? null : (ev.claims || []).length), "ok",
+           "what is measured vs assumed")
+    ]));
+    stack.appendChild(flow());
+
+    // 6 EXECUTION ----------------------------------------------------------
+    stack.appendChild(band("l-ex", "exec", "#6cb6ff", "Execution", "how an order actually reaches the broker", "", [
+      card("Bridges", "(python -> MT5)", ng(mA) ? null : (mA.connected ? "live" : "down"),
+           ng(mA) ? "unk" : (mA.connected ? "ok" : "bad"), "account A; B is not run on this box"),
+      card("Expert Advisors", "(on chart)", "2", "ok", "EA_CRT_AMD on gold, TK_SMART_ENTRY on BTC"),
+      card("Executors", "(strategy runners)", "3", "ok", "CRT, FVG, TK - each its own order path"),
+      card("Shadow runners", "(no orders)", "3", "ok", "measure without risking anything"),
+      card("Spread gate", "(per symbol)", "3 caps", "ok", "BTC 6000, Gold 300, SP500 500"),
+      card("Open positions", "(now)", num(risk, "openPositions", null), "unk", "broker-side SL on every one")
+    ]));
+    stack.appendChild(flow());
+
+    // 7 DATA & LEARNING ----------------------------------------------------
+    stack.appendChild(band("l-da", "data", "#2bd07c", "Data &amp; Learning", "what it remembers about its own trades", "", [
+      card("Trade journal", "(real fills)", num(learn, "totalTrades", null), "unk", "every fill, with its R"),
+      card("Calibration", "(does 85% mean 85%)", num(learn, "sessions", null), "unk", "per-setup win rates"),
+      card("Rejection ledger", "(paper)", "live", "ok", "every gate rejection priced at zero risk"),
+      card("Shadow ledgers", "(per strategy)", "3", "ok", "CRT, FVG, TK - never pooled with real fills"),
+      card("Historical bars", "(broker)", "D1/H4/H1/M15", "ok", "M15 depth is the binding limit"),
+      card("Databases", "(SQLite + JSON)", "local", "ok", "no PostgreSQL - the reference is wrong there")
+    ]));
+    stack.appendChild(flow());
+
+    // 8 INFRASTRUCTURE -----------------------------------------------------
+    var pv = num(fleet, "parity.verdict"), agree = pv && /AGREE/i.test(pv);
+    stack.appendChild(band("l-inf", "infra", "#ff7a85", "Fleet Infrastructure", "two Windows boxes, not a cloud",
+      (pv ? pv : ""), [
+      card("Boxes", "(laptop + VPS)", "2", "ok", "the VPS is the one that trades continuously"),
+      card("Engine parity", "(same signal?)", agree ? "agree" : (pv ? "DIVERGE" : null),
+           agree ? "ok" : (pv ? "bad" : "unk"), "functions, constants and route bodies compared"),
+      card("Scheduled tasks", "(automation)", "94", "ok", "46 laptop + 48 VPS"),
+      card("API routes", "(surface)", "122", "ok", "identical on both boxes"),
+      card("Auto-healer", "(recovery)", ng(heal) ? null : (heal.healthy ? "healthy" : "unhealthy"),
+           ng(heal) ? "unk" : (heal.healthy ? "ok" : "bad"), "watches staleness every 30s"),
+      card("Backups", "(each box to the other)", "4-hourly", "ok", "nothing is ever deleted")
+    ]));
+
+    // ---- asset strip -----------------------------------------------------
+    var assets = $("assets"); assets.innerHTML = "";
+    [["btc", "BITCOIN", "BTCUSD"], ["gold", "GOLD", "XAUUSD"], ["spx", "S&P 500", "SP500"]].forEach(function (a) {
+      var s = ng(sig) ? null : sig[a[0]];
+      var d = document.createElement("div"); d.className = "asset";
+      d.innerHTML = '<div class="n">' + a[1] + '</div>' +
+        '<div class="p">' + (s && s.price != null ? s.price : "?") + '</div>' +
+        '<div class="s">' + a[2] + ' &middot; ' + (s ? s.signal + " " + (s.confidence != null ? s.confidence + "%" : "") : "no reading") + '</div>';
+      assets.appendChild(d);
+    });
+    var x = document.createElement("div"); x.className = "asset cand";
+    x.innerHTML = '<div class="n">XRP</div><div class="p">candidate</div>' +
+      '<div class="s">XRPUSD &middot; r=0.85 vs BTC &middot; cost unmeasured until Monday</div>';
+    assets.appendChild(x);
+
+    $("stamp").textContent = "read " + new Date().toLocaleTimeString();
+    $("verdict").textContent = pv || (anyAuth ? "signed out" : "partial read");
+    $("verdict").className = "stamp " + (agree ? "ok" : (pv ? "bad" : "unk"));
+  }
+
+  function load() {
+    Promise.all([
+      get("/api/ai-registry"), get("/api/signals"), get("/api/risk-status"),
+      get("/api/strategy-settings"), get("/api/healer"), get("/api/gate-health"),
+      get("/api/learning"), get("/api/fleet"), get("/api/memory"), get("/api/rag"),
+      get("/api/cognition"), get("/api/mt5/health?account=A"), get("/api/evidence-board")
+    ]).then(function (r) {
+      render({ reg: r[0], sig: r[1], risk: r[2], set: r[3], heal: r[4], gate: r[5],
+               learn: r[6], fleet: r[7], mem: r[8], rag: r[9], cog: r[10], mA: r[11], ev: r[12] });
+    });
+  }
+  load();
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>
