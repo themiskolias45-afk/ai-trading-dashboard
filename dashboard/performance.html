@@ -1809,6 +1809,98 @@ setInterval(loadReadiness, 300_000);
 // Same reasoning: the replay side of this comparison is a file that regenerates
 // nightly, and the live side moves once every few DAYS.
 setInterval(loadLiveVsReplay, 300_000);
+
+/* THE THREE BOOKS. Never pooled, and every book that could not be read says so rather than
+   showing a zero that would quietly flatter the total. */
+async function refreshBooks() {
+  var d = null;
+  try {
+    var r = await fetch('/dashboard/performance-books.json?t=' + Date.now());
+    if (r.ok) d = await r.json();
+  } catch (e) { /* handled below */ }
+  var sync = document.getElementById('books-sync');
+  var body = document.getElementById('books-body');
+  if (!sync || !body) return;
+  if (!d) {
+    sync.textContent = 'not published yet';
+    body.innerHTML = '<div style="opacity:.7">tasks/performance_books.cjs has not run yet. '
+      + 'This is not evidence that there is nothing to show.</div>';
+    return;
+  }
+  var age = d.generatedAt ? Math.round((Date.now() - new Date(d.generatedAt).getTime())/60000) : null;
+  sync.textContent = (age === null ? 'age unknown' : age + 'm ago') + ' · never pooled';
+
+  var money = function (v) {
+    if (v === null || v === undefined) return '<span style="opacity:.5">&mdash;</span>';
+    var c = v > 0 ? '#3fb950' : (v < 0 ? '#f85149' : 'inherit');
+    return '<span style="color:' + c + '">' + (v > 0 ? '+' : '') + v.toFixed(2) + '</span>';
+  };
+  var rfmt = function (v) {
+    if (v === null || v === undefined) return '<span style="opacity:.5">&mdash;</span>';
+    var c = v > 0 ? '#3fb950' : (v < 0 ? '#f85149' : 'inherit');
+    return '<span style="color:' + c + '">' + (v > 0 ? '+' : '') + v.toFixed(2) + 'R</span>';
+  };
+  var html = '';
+  var se = d.books && d.books.smartEntry;
+  if (!se) {
+    html += '<div style="color:#e0a030">SmartEntry: COULD NOT READ the journal.</div>';
+  } else {
+    html += '<div style="font-size:.7rem;opacity:.6;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'
+      + 'SmartEntry &mdash; ' + se.trades + ' closed &middot; money ' + money(se.netMoney)
+      + ' &middot; ' + rfmt(se.netR) + '</div>'
+      + (se.perBoxWarning ? '<div style="color:#e0a030;font-size:.7rem;margin-bottom:6px">'
+          + se.perBoxWarning + '</div>' : '')
+      + '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:.78rem;width:100%">'
+      + '<tr style="opacity:.6"><th style="text-align:left;padding:3px 10px 3px 0">symbol</th>'
+      + '<th style="text-align:right;padding:3px 10px">trades</th>'
+      + '<th style="text-align:right;padding:3px 10px">win%</th>'
+      + '<th style="text-align:right;padding:3px 10px">money</th>'
+      + '<th style="text-align:right;padding:3px 10px">R</th>'
+      + '<th style="text-align:left;padding:3px 10px">what that means</th></tr>';
+    se.perAsset.forEach(function (a) {
+      var warn = /SIZING/.test(a.verdict);
+      html += '<tr style="border-top:1px solid rgba(255,255,255,.06)">'
+        + '<td style="padding:4px 10px 4px 0">' + a.symbol + '</td>'
+        + '<td style="text-align:right;padding:4px 10px">' + a.trades + '</td>'
+        + '<td style="text-align:right;padding:4px 10px">' + a.winRatePct + '%</td>'
+        + '<td style="text-align:right;padding:4px 10px">' + money(a.netMoney) + '</td>'
+        + '<td style="text-align:right;padding:4px 10px">' + rfmt(a.netR) + '</td>'
+        + '<td style="padding:4px 10px;' + (warn ? 'color:#e0a030;font-weight:600' : 'opacity:.65') + '">'
+        + a.verdict + '</td></tr>';
+    });
+    html += '</table></div>';
+  }
+  var ea = d.books && d.books.eaCrt;
+  html += '<div style="font-size:.7rem;opacity:.6;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px">CRT chart EA &mdash; separate book</div>';
+  if (!ea) {
+    html += '<div style="color:#e0a030">COULD NOT READ the EA review.</div>';
+  } else {
+    html += '<div style="font-size:.78rem">before the fix: ' + money(ea.preFix && ea.preFix.netProfit)
+      + ' over ' + ((ea.preFix && ea.preFix.trades) || 0) + ' trades &nbsp;&middot;&nbsp; '
+      + 'v3.55+ (trail off): ' + (ea.current ? money(ea.current.netProfit)
+        : '<span style="opacity:.7">no closed trades yet</span>') + '</div>'
+      + '<div style="font-size:.68rem;opacity:.55;margin-top:3px">Never summed &mdash; the fixed build must not be averaged into a loss it did not cause.</div>';
+  }
+  var tv = d.books && d.books.tradingViewPaper;
+  html += '<div style="font-size:.7rem;opacity:.6;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px">TradingView paper &mdash; separate account</div>';
+  if (!tv) {
+    html += '<div style="color:#e0a030">COULD NOT READ the TradingView account.</div>';
+  } else if (!tv.readable || !tv.pnl) {
+    html += '<div style="color:#e0a030">COULD NOT READ &mdash; not the same as no activity.</div>';
+  } else {
+    html += '<div style="font-size:.78rem">today ' + money(tv.pnl.today) + ' &nbsp;&middot;&nbsp; week '
+      + money(tv.pnl.week) + ' &nbsp;&middot;&nbsp; month ' + money(tv.pnl.month)
+      + ' &nbsp;&middot;&nbsp; all time ' + money(tv.pnl.allTime) + '</div>';
+    if (tv.crossCheck && tv.crossCheck.agree === false) {
+      html += '<div style="color:#f85149;font-size:.7rem;margin-top:3px">CROSS-CHECK FAILED: '
+        + tv.crossCheck.detail + '</div>';
+    }
+  }
+  html += '<div style="font-size:.66rem;opacity:.5;margin-top:12px">' + (d.neverPool || '') + '</div>';
+  body.innerHTML = html;
+}
+refreshBooks();
+setInterval(refreshBooks, 60000);
 </script>
 </body>
 </html>

@@ -96,6 +96,13 @@ function smartEntryBook(journal) {
   const totalR = rRows.reduce((a, x) => a + x.netR, 0);
   return {
     scope: "SmartEntry engine and its own executors. Not the chart EA, not TradingView.",
+    // THIS BOX'S JOURNAL ONLY, and that is a bigger caveat than it sounds. Measured
+    // 2026-09-06: the laptop held 9 closed trades and the VPS 13, with ZERO tickets in
+    // common - 22 across the fleet, and each box's Performance page was showing under half
+    // of them while presenting it as the record. The journal is per-server state and is not
+    // in the fleet-compared settings, so nothing anywhere flagged the divergence.
+    perBoxWarning: "This is THIS BOX'S journal. The other box keeps its own and they do not "
+      + "overlap - neither machine holds the fleet's complete record.",
     trades: closed.length,
     netMoney: Math.round(totalMoney * 100) / 100,
     netR: rRows.length ? Math.round(totalR * 1000) / 1000 : null,
@@ -158,8 +165,8 @@ function smartEntryBook(journal) {
   } else {
     console.log("  SmartEntry        " + smartEntry.trades + " closed   money "
       + money(smartEntry.netMoney) + "   R " + (smartEntry.netR === null ? "-" : smartEntry.netR));
-    console.log("    %-8s %-7s %-8s %-10s %-9s %s".replace(/%-(\d+)s/g, (m, n) => "%s"),
-      "symbol", "trades", "win%", "money", "R", "verdict");
+    console.log("    " + "symbol".padEnd(8) + "trades".padEnd(7) + "win%".padEnd(8)
+      + "money".padEnd(11) + "R".padEnd(9) + "verdict");
     for (const a of smartEntry.perAsset) {
       console.log("    " + a.symbol.padEnd(8) + String(a.trades).padEnd(7)
         + (a.winRatePct + "%").padEnd(8) + money(a.netMoney).padEnd(11)
