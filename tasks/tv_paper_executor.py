@@ -186,6 +186,127 @@ JS_SYMBOL = """() => {
   return el ? (el.textContent || '').trim().toUpperCase() : null; }"""
 
 
+# ------------------------------------------------------- alert-log polling (no open port)
+#
+# WHY POLL INSTEAD OF LISTEN. The webhook design needed inbound TCP 3010 opened on the VPS,
+# and 3001 is the only inbound port allowed there. Rather than hand back a firewall change as
+# a blocker, the executor reads TradingView's own ALERT LOG in the browser it is already
+# attached to. No inbound port, no webhook URL, no shared secret, nothing to expose.
+#
+# The log's shape, measured 2026-09-06: a date header ("August 28"), then per fired alert a
+# row carrying the alert NAME, and a sibling carrying SYMBOL + HH:MM:SS.
+
+JS_OPEN_LOG = """() => {
+  const find = (name) => {
+    for (const e of document.querySelectorAll('*')) {
+      if (e.children.length) continue;
+      if ((e.textContent || '').trim() !== name) continue;
+      const r = e.getBoundingClientRect();
+      if (r.width > 8 && e.offsetParent !== null) return {x: r.x, y: r.y, w: r.width, h: r.height};
+    }
+    return null; };
+  const tab = find('Log');
+  if (tab) return {tab: tab, needsPanel: false};
+  const btn = document.querySelector('[data-name="alerts"]');
+  if (!btn) return null;
+  const r = btn.getBoundingClientRect();
+  return {button: {x: r.x, y: r.y, w: r.width, h: r.height}, needsPanel: true}; }"""
+
+JS_LOG_ROWS = """() => {
+  const out = [];
+  const W = window.innerWidth;
+  for (const e of document.querySelectorAll('div,li,tr')) {
+    if (e.children.length !== 2) continue;              // the "SYMBOL + HH:MM:SS" sibling
+    const t = (e.textContent || '').trim().replace(/\\s+/g, ' ');
+    const m = t.match(/^([A-Z0-9:._]{3,20})(\\d{2}:\\d{2}:\\d{2})$/);
+    if (!m) continue;
+    const r = e.getBoundingClientRect();
+    if (r.x < W * 0.72 || e.offsetParent === null) continue;
+    // The alert's own text is the nearest preceding leaf above this row.
+    let name = '';
+    for (const c of document.querySelectorAll('div,span')) {
+      if (c.children.length) continue;
+      const cr = c.getBoundingClientRect();
+      if (cr.x < W * 0.72) continue;
+      if (cr.y >= r.y || cr.y < r.y - 60) continue;
+      const ct = (c.textContent || '').trim();
+      if (ct && ct.length > 4 && ct.length < 200) name = ct;
+    }
+    out.push({symbol: m[1], time: m[2], name: name.slice(0, 180), y: Math.round(r.y)});
+  }
+  out.sort((a, b) => a.y - b.y);
+  return out.slice(0, 40); }"""
+
+# Alert NAME -> action. Deliberately strict: an alert whose name does not clearly say what to
+# do is REFUSED, never guessed into a trade. A name matching both lists is also refused.
+BUY_WORDS = ("entry", "buy", "long")
+SELL_WORDS = ("sell", "short")
+CLOSE_WORDS = ("exit", "close", "sl hit", "stop", "target", "t1", "tp")
+
+
+def action_from_name(name):
+    low = (name or "").lower()
+    hits = set()
+    if any(w in low for w in CLOSE_WORDS):
+        hits.add("close")
+    if any(w in low for w in SELL_WORDS):
+        hits.add("sell")
+    if any(w in low for w in BUY_WORDS):
+        hits.add("buy")
+    if len(hits) != 1:
+        return None, ("alert name %r maps to %s - refusing rather than guessing"
+                      % (name[:60], sorted(hits) or "nothing"))
+    return hits.pop(), None
+
+
+def read_alert_log(page):
+    nav = page.evaluate(JS_OPEN_LOG)
+    if not nav:
+        raise RuntimeError("alerts panel button not found")
+    if nav.get("needsPanel"):
+        b = nav["button"]
+        page.mouse.click(b["x"] + b["w"] / 2, b["y"] + b["h"] / 2)
+        page.wait_for_timeout(2500)
+        nav = page.evaluate(JS_OPEN_LOG)
+        if not nav or nav.get("needsPanel"):
+            raise RuntimeError("could not reach the Log tab")
+    t = nav["tab"]
+    page.mouse.click(t["x"] + t["w"] / 2, t["y"] + t["h"] / 2)
+    page.wait_for_timeout(2500)
+    return page.evaluate(JS_LOG_ROWS)
+
+
+def poll_once():
+    """Read the log, act on entries not seen before. Returns a list of outcome strings."""
+    rows = with_page(read_alert_log)
+    state = load_state()
+    seen = set(state.get("seenAlerts", []))
+    outcomes = []
+    for row in rows:
+        key = "%s|%s|%s" % (row["symbol"], row["time"], row["name"][:40])
+        if key in seen:
+            continue
+        seen.add(key)
+        if STRATEGY_TAG.lower() not in (row["name"] or "").lower():
+            continue                                  # not our strategy: ignore silently
+        symbol = normalise_symbol(row["symbol"])
+        if symbol is None:
+            outcomes.append("IGNORED: %s is not XAUUSD or BTCUSD" % row["symbol"])
+            continue
+        side, refusal = action_from_name(row["name"])
+        if refusal:
+            outcomes.append("REFUSED: " + refusal)
+            continue
+        try:
+            outcomes.append(handle_alert(symbol, side, load_state()))
+        except Exception as exc:                       # noqa: BLE001
+            outcomes.append("ERROR on %s %s: %s" % (symbol, side, exc))
+    state = load_state()
+    state["seenAlerts"] = sorted(seen)[-400:]
+    save_state(state)
+    return outcomes
+
+
 def with_page(fn):
     """Attach to the running browser and hand fn the TradingView page. Never opens a window."""
     from playwright.sync_api import sync_playwright
