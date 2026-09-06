@@ -6632,9 +6632,28 @@ loadTradingControl();
 // because the bridge itself has no browser session.
 let bridgeRestartRequested = false;
 
-app.get("/api/mt5/control", (_, res) => {
-  const wanted = bridgeRestartRequested;
-  bridgeRestartRequested = false;                 // consumed by the first reader
+// ONLY THE BRIDGE CONSUMES THE FLAG, and it must say so.
+//
+// "Consumed by the first reader" was correct when the bridge was the only reader. It is
+// not: NINE files in this repo poll this endpoint - the bridge, fvg_executor.py,
+// halt_coverage.cjs, ea_crt_weekly_review.py, execution_state.py, content_quality_audit,
+// public_pages_test, state.ps1 and unhalt.ps1. Measured 2026-09-06 by POSTing a restart and
+// then reading with plain curl: the flag came back `true` to the CURL, meaning an
+// observability job wins the race and the bridge never sees the request. That silently
+// disabled the only mechanism able to restart an ELEVATED bridge - the very reason this
+// flag exists, per the note above.
+//
+// IT FAILS TO THE SAFE SIDE. A caller that does not identify itself gets restartRequested
+// FALSE and clears nothing, so an old bridge simply never restarts. That is a MISSED
+// restart, which is recoverable by asking again; the alternative - returning true without
+// clearing - would restart-loop the bridge, which the note above calls the worse failure.
+//
+// The halt state is unaffected for every caller: `tradingControl` is spread out as before,
+// so the kill switch keeps working for the executors and the audits.
+app.get("/api/mt5/control", (req, res) => {
+  const isBridge = String(req.query.consumer || "") === "bridge";
+  const wanted = isBridge && bridgeRestartRequested;
+  if (isBridge) bridgeRestartRequested = false;   // consumed only by a self-identified bridge
   if (wanted) console.log("[control] bridge restart requested — handing it to the next poll");
   res.json({ ...tradingControl, restartRequested: wanted });
 });

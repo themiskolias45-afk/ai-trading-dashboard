@@ -489,7 +489,12 @@ def check_remote_control():
     """
     global remote_halted, remote_halt_reason
     try:
-        res = requests.get(f"{SERVER_URL}/api/mt5/control", timeout=5)
+        # consumer=bridge IDENTIFIES US AS THE ONE READER ALLOWED TO CONSUME the restart
+        # flag. Without it the server returns restartRequested false and clears nothing, so
+        # this bridge would never stand down on request - and with the old clear-on-read
+        # behaviour any of the nine other pollers could swallow the request instead.
+        res = requests.get(f"{SERVER_URL}/api/mt5/control",
+                           params={"consumer": "bridge"}, timeout=5)
         res.raise_for_status()
         control = res.json()
 
