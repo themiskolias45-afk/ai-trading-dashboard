@@ -135,6 +135,10 @@ const localOnlyGraph = localRows.filter((r) => !remoteRows.some((x) => keyOf(x) 
 const remoteOnlyGraph = remoteRows.filter((r) => !localRows.some((x) => keyOf(x) === keyOf(r)));
 
 console.log("\nGRAPH   local " + localRows.length + " rows, vps " + remoteRows.length + ", union " + mergedRows.length);
+if (graphIdentical) {
+  console.log("  the two files are BYTE-IDENTICAL (SHA256) — the row gap above is a");
+  console.log("  read-back artefact, not a real difference. Nothing to push.");
+}
 console.log("  only local : " + localOnlyGraph.length);
 console.log("  only vps   : " + remoteOnlyGraph.length +
   (remoteOnlyGraph.length ? " -> " + remoteOnlyGraph.map((r) => r.name || keyOf(r)).join(", ") : ""));
