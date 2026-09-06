@@ -539,6 +539,36 @@ if (-not (Test-Path $haltJson)) {
     }
 }
 
+# -- EA BUILD WATCH: did the live EA build change without anyone doing it? -------------
+#
+# MT5 persists a chart profile only on a CLEAN EXIT. On 2026-09-06 v3.56 was attached at
+# 17:26 while the profile on disk, written at 17:21, still named v355 -- so the running
+# build existed in memory only and ANY restart would have silently reloaded the older one.
+# The revert is cosmetic (identical inputs, same magic 26070455, trading unaffected); the
+# problem is that it would have been silent, which is the shape of every other failure here.
+#
+# AMBER not RED for a changed build, because trading does not change. RED is reserved for
+# the EA vanishing from the logs entirely.
+$eaWatch = Join-Path $Proj 'tasks\ea_build_watch.cjs'
+if (-not (Test-Path $eaWatch)) {
+    Add-Check 'safety' 'EA build watch' 'UNKNOWN' 'tasks\ea_build_watch.cjs is missing'
+} else {
+    $eaOut = & node $eaWatch --json 2>&1
+    $ea    = $null
+    try { $ea = ($eaOut -join "`n") | ConvertFrom-Json } catch { }
+    if ($null -eq $ea) {
+        Add-Check 'safety' 'EA build watch' 'UNKNOWN' 'ea_build_watch.cjs did not return usable JSON'
+    } elseif ($ea.severity -eq 'RED') {
+        Add-Check 'safety' 'EA build watch' 'RED' $ea.detail
+    } elseif ($ea.severity -eq 'AMBER') {
+        Add-Check 'safety' 'EA build watch' 'AMBER' $ea.detail
+    } elseif ($ea.severity -eq 'UNKNOWN') {
+        Add-Check 'safety' 'EA build watch' 'UNKNOWN' $ea.detail
+    } else {
+        Add-Check 'safety' 'EA build watch' 'GREEN' $ea.detail
+    }
+}
+
 # The scorer is tasks\score_stop_variants.cjs, which auto_daily.bat already runs
 # nightly with --emit, and its artifact is the report it appends. Checking for the
 # REPORT rather than for the ledger is the point: the ledger growing proves only that

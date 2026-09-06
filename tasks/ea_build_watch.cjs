@@ -110,7 +110,11 @@ if (!live) {
              "compare against. This is not evidence the EA is absent.";
   }
 } else {
-  const ageH = (now - new Date(live.stamp.replace(" ", "T") + "Z")) / 3600000;
+  // LOCAL, not UTC. MT5 writes its logs in the machine's LOCAL time and the two boxes sit in
+  // different zones (laptop +1, VPS +2), so appending "Z" here made the VPS report an attach
+  // "-1.8h ago" -- a time in the future. Dropping the suffix parses it in the local zone,
+  // which is the zone MT5 actually wrote it in.
+  const ageH = (now - new Date(live.stamp.replace(" ", "T"))) / 3600000;
   if (!prev || !prev.build) {
     verdict = "BASELINE RECORDED";
     severity = "GREEN";
