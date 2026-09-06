@@ -216,9 +216,8 @@ def assistant_trade_permission():
     return out
 
 
-def latest_sentry_line():
-    """The EA's own CONFIG SENTRY output - the only authoritative view of the LIVE inputs.
-    Returns (line, logdate) or (None, None) when the EA has not attached recently."""
+def _local_sentry_line():
+    """The newest CONFIG SENTRY line in THIS box's MT5 logs, or (None, None)."""
     logs = []
     for d in terminal_dirs():
         logs.extend(glob.glob(os.path.join(d, "MQL5", "Logs", "2*.log")))
@@ -233,6 +232,58 @@ def latest_sentry_line():
         if hits:
             return hits[-1], os.path.basename(path)[:8]
     return None, None
+
+
+def _pulled_sentry_line():
+    """The sentry line from dashboard/mt5-runtime-status.json, with its host and age.
+
+    On the laptop that file is PULLED FROM THE VPS by pull_vps_status.ps1, and the VPS is
+    where the EA actually trades. Returns (line, logday, host, ageHours) or Nones.
+    """
+    path = os.path.join(ROOT, "dashboard", "mt5-runtime-status.json")
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return None, None, None, None
+    line = d.get("lastSentryLine")
+    if not line:
+        return None, None, None, None
+    age_h = None
+    checked = d.get("checkedAt")
+    if checked:
+        try:
+            ts = datetime.fromisoformat(str(checked).replace("Z", "+00:00"))
+            age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600.0
+        except ValueError:
+            age_h = None
+    return line, d.get("lastSentryLogDay"), d.get("host"), age_h
+
+
+def latest_sentry_line():
+    """The EA's own CONFIG SENTRY output - the authoritative view of the LIVE inputs.
+
+    READS THE BOX WHERE THE EA ACTUALLY RUNS, not merely the box this happens to execute on.
+    The laptop also has MT5 with an older EA attached, so reading only local logs made this
+    review report v3.55 CONFIG DRIFT on the laptop while the VPS - the machine that trades -
+    had been running v3.56 with a clean sentry for hours. Both readings were true of their
+    own box; only one of them was about the EA that matters.
+
+    Prefers the pulled runtime status when it names a DIFFERENT host and is fresh, because
+    that file is the VPS's own reading. Falls back to local logs when there is no pulled
+    status, when it is stale, or when it describes this same machine.
+    Returns (line, logday).
+    """
+    local_line, local_day = _local_sentry_line()
+    pulled_line, pulled_day, pulled_host, pulled_age = _pulled_sentry_line()
+
+    this_host = (os.environ.get("COMPUTERNAME") or "").strip().upper()
+    pulled_is_remote = bool(pulled_host) and pulled_host.strip().upper() != this_host
+    pulled_is_fresh = pulled_age is not None and pulled_age <= 6.0
+
+    if pulled_line and pulled_is_remote and pulled_is_fresh:
+        return pulled_line, (pulled_day or "pulled")
+    return local_line, local_day
 
 
 def build_findings(recent, all_rows, sentry, perms):
