@@ -55,7 +55,12 @@ $claimsOut = & node (Join-Path $proj 'tasks\claims_check.cjs') 2>&1
 switch ($LASTEXITCODE) {
     1 {
         $staleCount = ([regex]::Match(($claimsOut -join "`n"), 'STALE \((\d+)\)')).Groups[1].Value
-        $warn += "CLAUDE.md: $staleCount stale claim(s) -- run: node tasks\claims_check.cjs"
+        # Point at --fix, not at the read-only run. The read-only run is what this
+        # message asked for until 2026-09-06, and it only ever re-prints what the line
+        # above already said -- leaving the actual repair to be done by hand, which is
+        # how the same anchors rotted three, two and two times. --fix repairs line
+        # anchors only (a coordinate, not a fact) and reports anything else untouched.
+        $warn += "CLAUDE.md: $staleCount stale claim(s) -- run: node tasks\claims_check.cjs --fix"
     }
     2 { $warn += "CLAUDE.md: claims_check FAILED to run -- not a clean result" }
 }
