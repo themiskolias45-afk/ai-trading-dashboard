@@ -488,10 +488,31 @@ if (-not (Test-Path $startsFile)) {
     $settled     = $uptimeKnown -and ($serverAgeS -ge $SETTLED_UPTIME_S)
     $agePhrase   = if ($uptimeKnown) { "$($serverAgeS)s old" } else { 'not answering at all' }
 
+    # HOW MANY OF THOSE WERE ASKED FOR?
+    #
+    # The rule above cannot tell a deliberate restart from crash-looping, so four
+    # operator-requested restarts read exactly like a server that will not stay up. On
+    # 2026-09-06 that produced an AMBER for an hour over restarts that were intentional -
+    # a true signal about the wrong thing, and the kind that teaches you to skim past it.
+    #
+    # The bridge logs "RESTART REQUESTED from the dashboard" when it stands down on request,
+    # so those are countable. This does NOT suppress or downgrade anything: the severity
+    # rules are untouched and a genuine crash-loop still goes RED. It only ATTRIBUTES the
+    # count, so the reader can tell which kind they are looking at.
+    $requested = 0
+    $bridgeLog = Join-Path $Proj (Join-Path 'tasks' (Join-Path 'logs' 'bridge_log_A.txt'))
+    if (Test-Path $bridgeLog) {
+        try {
+            $requested = @(Get-Content $bridgeLog -Tail 400 -ErrorAction Stop |
+                Where-Object { $_ -match 'RESTART REQUESTED' }).Count
+        } catch { $requested = 0 }
+    }
+    $attrib = if ($requested -gt 0) { " ($requested operator-requested in the recent log)" } else { '' }
+
     if ($rapid.Count -ge $RAPID_STARTS -and -not $settled) {
-        Add-Check 'server' 'restarts' 'RED' "$($rapid.Count) starts in the last $($RAPID_WINDOW_H)h and this one is $agePhrase (last $lastStart) - it is not staying up. Clears once a start holds for $($SETTLED_UPTIME_S / 60) min"
+        Add-Check 'server' 'restarts' 'RED' "$($rapid.Count) starts in the last $($RAPID_WINDOW_H)h and this one is $agePhrase (last $lastStart) - it is not staying up$attrib. Clears once a start holds for $($SETTLED_UPTIME_S / 60) min"
     } elseif ($rapid.Count -ge $RAPID_STARTS) {
-        Add-Check 'server' 'restarts' 'AMBER' "$($rapid.Count) starts in the last $($RAPID_WINDOW_H)h (last $lastStart) but this one has held $($serverAgeS)s - churn has settled"
+        Add-Check 'server' 'restarts' 'AMBER' "$($rapid.Count) starts in the last $($RAPID_WINDOW_H)h (last $lastStart) but this one has held $($serverAgeS)s - churn has settled$attrib"
     } elseif ($recent.Count -gt 0) {
         Add-Check 'server' 'restarts' 'INFO' "$($recent.Count) start(s) in the last 24h, last at $lastStart"
     } else {
