@@ -1408,6 +1408,36 @@ const STRATEGY_LIMITS = {
   // risk calculation entirely and trades exactly that size.
   fixedLotSize: { min: 0,    max: 100, def: 0,  decimals: 2 },
   maxLotSize:   { min: 0.01, max: 100, def: 10, decimals: 2 },
+  // NOTIONAL exposure ceiling, in PERCENT of balance, applied per symbol by the bridge.
+  //
+  // maxLotSize above is ONE number for instruments whose contract value differs by 57x.
+  // Measured 2026-09-06 on a GBP 89,677 account: one lot is GBP 443,131 of gold, 79,746 of
+  // BTC, 7,714 of SP500. At the table default of 10 that permitted 4.43 MILLION of gold,
+  // 49x leverage. DO NOT READ 10 AS THE LIVE CEILING - `def` is a default, and the live
+  // value is whatever /api/strategy-settings serves (2 on both boxes as of 2026-09-06,
+  // i.e. ~886k of gold, ~10x). Quoting a config number in a comment is how CLAUDE.md came
+  // to insist the gate was 65 for a week after it moved.
+  // Set it low enough for gold and every SP500 trade dies (they size to 1.90 lots); set it
+  // high enough for SP500 and gold still takes 10x. No single lot number is correct, which
+  // is why this second ceiling is denominated in MONEY.
+  //
+  // MINIMUM IS 1, NOT 0, AND THAT IS THE WHOLE POINT. The bridge treats 0 as "cap off"
+  // (`if notional_pct > 0`). With min 0 and decimals 1, clampStrategyValue rounds anything
+  // under 0.05 to exactly 0 - so a request for the TIGHTEST possible cap would have
+  // silently produced NO CAP AT ALL, and `{"maxNotionalPct": null}` would have done the
+  // same, since Number(null) is 0. A risk limit that fails OPEN on a small or malformed
+  // value is worse than no limit, because it reads as armed. With min 1 that is
+  // unreachable: to effectively disable it, set 100, which still bounds a runaway
+  // (100% of balance is ~90k; an uncapped near-zero-stop order asked for 22 MILLION).
+  //
+  // It SIZES DOWN and never refuses - the broker minimum stays the floor - so it cannot
+  // block a signal, suppress a confidence value or cost a learning row.
+  //
+  // Listed HERE because loadStrategySettings iterates Object.keys(STRATEGY_LIMITS): a key
+  // absent from this table cannot be set by anything. And it must ALSO be in the bridge's
+  // refresh_strategy_settings allowlist, or it is settable, persisted, served and compared
+  // while the thing that sizes the order never reads it.
+  maxNotionalPct: { min: 1, max: 100, def: 25, decimals: 1 },
   // Per-trade risk budget in PERCENT of balance, used only when fixedLotSize is 0.
   // 1 means 1%, 0.1 means one tenth of one percent — the same units the account
   // config has always used. Default 1 reproduces the hardcoded BASE_RISK_PCT that
@@ -1539,6 +1569,10 @@ let strategySettings = {
   maxTradesPerDay:        STRATEGY_LIMITS.maxTradesPerDay.def,
   fixedLotSize:           STRATEGY_LIMITS.fixedLotSize.def,
   maxLotSize:             STRATEGY_LIMITS.maxLotSize.def,
+  // Seeded so GET /api/strategy-settings REPORTS the notional ceiling rather than omitting
+  // it. The bridge defaults to 25 when the key is missing, so serving nothing and serving
+  // 25 behave identically - but only one of them lets you see what is in force.
+  maxNotionalPct:         STRATEGY_LIMITS.maxNotionalPct.def,
   adxTrendingMin:         STRATEGY_LIMITS.adxTrendingMin.def,
   minEntryRsi:            STRATEGY_LIMITS.minEntryRsi.def,
   dailyOnlyMinConfidence: STRATEGY_LIMITS.dailyOnlyMinConfidence.def,
@@ -11528,6 +11562,12 @@ const FLEET_COMPARED_SETTINGS = [
   // Per-machine on purpose: the VPS deliberately runs a fixed 0.01 lot.
   { key: "fixedLotSize",           label: "Fixed lot size",   byDesign: true  },
   { key: "maxLotSize",             label: "Max lot size",     byDesign: true  },
+  // NOT byDesign. maxLotSize above is per-machine because the VPS runs its own lot policy,
+  // but the notional ceiling is a RISK LIMIT expressed as a share of each box's own balance
+  // - so the same number is correct on both, and a difference is drift, not intent. This
+  // list is a whitelist: a key missing from it compares as IDENTICAL however far the two
+  // boxes have diverged, which is exactly how a half-armed fleet went unnoticed.
+  { key: "maxNotionalPct",         label: "Max notional %",   byDesign: false },
   // Added when BREAKDOWN was armed 2026-09-02. Without it a HALF-ARMED FLEET - one box
   // selling short, the other long-only - compared as IDENTICAL, because this list is a
   // whitelist and vps_parity.cjs reads only `arm` from this route. Two boxes running

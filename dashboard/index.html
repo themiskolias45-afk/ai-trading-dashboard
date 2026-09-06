@@ -5436,6 +5436,7 @@ async function loadStrategySettings() {
     document.getElementById('ss-maxtrades').value  = s.maxTradesPerDay;
     document.getElementById('ss-fixedlot').value   = s.fixedLotSize;
     document.getElementById('ss-maxlot').value     = s.maxLotSize;
+    document.getElementById('ss-notional').value   = s.maxNotionalPct;
     // Only populated when the server actually sends them. A server without these keys
     // leaves both boxes BLANK, and blank is handled explicitly at save time rather than
     // being coerced to a number.
@@ -5456,6 +5457,7 @@ async function loadStrategySettings() {
       document.getElementById('ss-maxtrades-hint').textContent  = `resets at midnight (${range('maxTradesPerDay')})`;
       document.getElementById('ss-fixedlot-hint').textContent   = `0 = size from risk, else always this size (${range('fixedLotSize')})`;
       document.getElementById('ss-maxlot-hint').textContent     = `hard ceiling on any single trade (${range('maxLotSize')})`;
+      document.getElementById('ss-notional-hint').textContent   = `max exposure per trade, % of balance (${range('maxNotionalPct')})`;
       // Guarded on the key existing: this page is served by BOTH boxes and one of them
       // may not carry the ceiling keys yet. Reading .min off undefined would throw here
       // and take the whole settings panel down with it.
@@ -5465,8 +5467,8 @@ async function loadStrategySettings() {
       if (strategyLimits.trendFollowRsiMax) {
         document.getElementById('ss-tfceil-hint').textContent  = `TREND_FOLLOW will not fire at or above this RSI (${range('trendFollowRsiMax')})`;
       }
-      ['ss-confidence','ss-slots','ss-maxtrades','ss-fixedlot','ss-maxlot','ss-momceil','ss-tfceil'].forEach((id, i) => {
-        const key = ['confidenceThreshold','maxConcurrentPositions','maxTradesPerDay','fixedLotSize','maxLotSize','momentumRsiMax','trendFollowRsiMax'][i];
+      ['ss-confidence','ss-slots','ss-maxtrades','ss-fixedlot','ss-maxlot','ss-notional','ss-momceil','ss-tfceil'].forEach((id, i) => {
+        const key = ['confidenceThreshold','maxConcurrentPositions','maxTradesPerDay','fixedLotSize','maxLotSize','maxNotionalPct','momentumRsiMax','trendFollowRsiMax'][i];
         const el = document.getElementById(id);
         if (!el || !strategyLimits[key]) return;
         el.min = strategyLimits[key].min;
@@ -5593,6 +5595,7 @@ async function saveStrategySettings() {
     maxTradesPerDay:        Number(document.getElementById('ss-maxtrades').value),
     fixedLotSize:           Number(document.getElementById('ss-fixedlot').value),
     maxLotSize:             Number(document.getElementById('ss-maxlot').value),
+    maxNotionalPct:         Number(document.getElementById('ss-notional').value),
     minStrength:            document.getElementById('ss-minstrength').value,
     partialCloseEnabled:    document.getElementById('ss-partial').value === 'on',
     breakdownEnabled:       document.getElementById('ss-breakdown').value === 'on',
@@ -5625,6 +5628,7 @@ async function saveStrategySettings() {
     maxTradesPerDay:        "Max trades/day",
     fixedLotSize:           "Fixed lot size",
     maxLotSize:             "Max lot size",
+    maxNotionalPct:         "Max notional % of balance",
     minStrength:            "Min strength",
     partialCloseEnabled:    "Scale out at 1R",
     breakdownEnabled:       "Short trend setup (BREAKDOWN)",

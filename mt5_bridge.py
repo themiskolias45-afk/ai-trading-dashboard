@@ -1430,6 +1430,11 @@ strategy_settings = {
     "maxTradesPerDay": 5,
     "fixedLotSize": 0.0,   # 0 = size from risk; above 0 = always trade exactly this
     "maxLotSize": 10.0,    # hard ceiling regardless of what the risk maths asks for
+    # Notional ceiling as a PERCENT of balance, applied per symbol in get_lot_size.
+    # It must be in this dict AND in the copy loop in refresh_strategy_settings, or the
+    # `.get(..., 25)` below it silently returns 25 forever and the dashboard control is
+    # inert - a writer with no reader, the mirror of the RSI-ceiling bug.
+    "maxNotionalPct": 25.0,
     "minStrength": "MODERATE",  # lowest signal strength AUTO mode will take
     # Scaling 50% out at 1R and moving the stop to breakeven. DEFAULT FALSE, which is
     # the behaviour this system has actually had for its entire life - not a new
@@ -1465,7 +1470,13 @@ def refresh_strategy_settings():
             if isinstance(data.get(name), (int, float)):
                 strategy_settings[name] = int(data[name])
         # Lot sizes stay floats — int() here would make 0.01 become 0.
-        for name in ("fixedLotSize", "maxLotSize"):
+        # maxNotionalPct MUST be here. This loop is an explicit allowlist, so a key that is
+        # merely present in the server's STRATEGY_LIMITS, persisted, served by GET and shown
+        # on the fleet panel is STILL never read by the thing that sizes the order. Adding
+        # the setting without adding it here would have shipped an adjustable risk control
+        # that permanently ran its hardcoded default and whose "off" position did not turn
+        # it off.
+        for name in ("fixedLotSize", "maxLotSize", "maxNotionalPct"):
             if isinstance(data.get(name), (int, float)):
                 strategy_settings[name] = float(data[name])
         if data.get("minStrength") in ("MODERATE", "STRONG"):
