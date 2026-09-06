@@ -1255,6 +1255,46 @@ def get_lot_size(symbol, entry, stop, risk_amount=None):
         log(f"Lot size capped: {raw_lots:.2f} → {max_lots:.2f} (maxLotSize)", YELLOW)
         raw_lots = max_lots
 
+    # NOTIONAL EXPOSURE CAP -- the one maxLotSize cannot be.
+    #
+    # A single lot number cannot protect instruments whose contract value differs by 57x.
+    # Measured 2026-09-06 on a GBP 89,677 account: ONE lot is GBP 443,131 of gold, GBP 79,746
+    # of BTC, GBP 7,714 of SP500. maxLotSize was 10, i.e. 4.43 MILLION of gold - 49x leverage,
+    # the account gone in one trade. Cap it low enough for gold and every SP500 trade dies
+    # (they legitimately size to 1.90 lots); cap it high enough for SP500 and gold can still
+    # take 10x. There is no correct single number, which is why this cap is in MONEY.
+    #
+    # IT SIZES DOWN, IT NEVER REFUSES. The broker minimum below is still the floor, so a
+    # capped trade is a smaller trade, never a missing one - no signal, no confidence value
+    # and no learning row is lost. That is the whole point: the runaway case is impossible
+    # while the ordinary case is untouched.
+    #
+    # LATENT, NOT ACTIVE. raw_lots = risk_amount / value_per_lot is already correct and is
+    # why gold gets 0.02 and SP500 gets 1.90 - all three sit far under this cap and are
+    # unaffected. It only bites when something upstream breaks, and server/index.js:3707
+    # names that case: a small stop distance "would size the position into the maxLotSize
+    # ceiling". This is the backstop for exactly that.
+    #
+    # UNKNOWN PRICE MEANS SKIP, NOT GUESS. Without a contract size or an entry price the
+    # exposure cannot be computed, so the cap steps aside and maxLotSize above still applies.
+    # Inventing a number here would be worse than the gap it fills.
+    notional_pct = float(strategy_settings.get("maxNotionalPct", 25) or 0)
+    if notional_pct > 0:
+        try:
+            contract_size = float(getattr(sym_info, "trade_contract_size", 0) or 0)
+            price = abs(float(entry or 0))
+            value_of_one_lot = contract_size * price
+            if value_of_one_lot > 0 and balance > 0:
+                max_exposure = balance * notional_pct / 100.0
+                notional_lots = max_exposure / value_of_one_lot
+                if raw_lots > notional_lots:
+                    log(f"Lot size capped: {raw_lots:.3f} → {notional_lots:.3f} lots "
+                        f"({symbol} exposure {raw_lots * value_of_one_lot:,.0f} > "
+                        f"{max_exposure:,.0f} = {notional_pct:g}% of balance)", YELLOW)
+                    raw_lots = notional_lots
+        except (TypeError, ValueError) as exc:
+            log(f"notional cap skipped for {symbol}: {exc} - maxLotSize still applies", YELLOW)
+
     step     = sym_info.volume_step
     lots     = round(raw_lots / step) * step
     # The broker's own floor and ceiling always win - asking for 0.005 where the
