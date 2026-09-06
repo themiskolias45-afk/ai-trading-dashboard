@@ -936,9 +936,21 @@ def remove_plan_studies_via_tree(page, limit=8):
         name = current[0]
         # Scroll it into view BEFORE measuring. The list scrolls, and an off-screen
         # row still passes every visibility test while being unhoverable.
-        row = page.evaluate(JS_SCROLL_TEXT_INTO_VIEW, name)
+        # RETRY THE FIRST LOOKUP. Measured 2026-09-06 on the VPS: this said "is not in the
+        # Object tree - stopping" and failed the whole run, while a read-only DOM dump
+        # moments later found the row VISIBLE with the exact same text. The panel had only
+        # just been opened and the chart had only just navigated, so the row had not
+        # mounted yet. The hover loop below already retries four times with escalating
+        # waits for exactly this reason; the lookup that GATES it had a single shot, so a
+        # panel that was merely slow read as a panel that did not contain the study.
+        row = None
+        for lookup_attempt in range(5):
+            row = page.evaluate(JS_SCROLL_TEXT_INTO_VIEW, name)
+            if row:
+                break
+            page.wait_for_timeout(1200 + lookup_attempt * 600)
         if not row:
-            print(f"[TV] {name!r} is not in the Object tree - stopping")
+            print(f"[TV] {name!r} is not in the Object tree after 5 lookups - stopping")
             break
         page.wait_for_timeout(800)
         row = page.evaluate(JS_SCROLL_TEXT_INTO_VIEW, name) or row
@@ -3489,8 +3501,10 @@ def _run(fn):
                 pass  # do NOT close — keep Edge alive
     except Exception as e:
         print(f"[TV] Cannot connect to Edge: {e}")
-        print("[TV] Open TradingView in Edge, then run: tasks\\launch_chrome_tv.bat")
-    finally:
+        print("[TV] Open TradingView in Edge, then run: tasks\\launch_chrome_tv.bat")
+
+    finally:
+
         lock.release()
 
 def cmd_login():
