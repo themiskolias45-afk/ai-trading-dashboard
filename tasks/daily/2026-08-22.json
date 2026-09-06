@@ -25,10 +25,30 @@
       "ts": "2026-08-22T03:24:23.078844+00:00",
       "tag": "SYSTEM",
       "text": "DAILY-TASK [HIGH] 2026-08-22 #2 — Make the RSI ceiling falsifiable. WHAT: 22 of 22 near-misses across 08-21 and 08-22 are RSI_ABOVE_CEILING, and no harness can sweep it, so the single binding constraint on trade count is unfalsifiable. WHY (verified today, not recalled): MOMENTUM_RSI_MAX=72 at server/index.js:1147 and TREND_FOLLOW_RSI_MAX=68 at :1149 are function-local consts, not config; tasks/_replay_mtf.cjs plumbs only MTF_MIN_ENTRY_RSI (line 137); tasks/rsi_walkforward.cjs sweeps only the floor (line 54, replay(symbol, ticker, minEntryRsi)). Today's smallest margin is Gold D1 MOMENTUM at RSI 80.8 vs ceiling 72. HOW: lift both consts to env overrides (MTF_MOMENTUM_RSI_MAX / MTF_TREND_FOLLOW_RSI_MAX) alongside the existing floor plumbing, then add a ceiling variant of rsi_walkforward.cjs and score on WORST FOLD, not mean. IMPACT: unknown by construction — that is the point; it converts the top blocker from opinion to measurement. Do NOT move the ceiling before the sweep exists. EFFORT: Medium (30-90min). NOTE: touches signal generation, so per CLAUDE.md the scaffold + explicit approval is required before the first line of code."
+    },
+    {
+      "ts": "2026-08-22T03:30:54.733022+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-22: No trades today — rest day."
+    },
+    {
+      "ts": "2026-08-22T04:46:53.523290+00:00",
+      "tag": "NOTE",
+      "text": "DEPLOY 2026-08-22: go-live readiness shipped to both boxes. Laptop 7012453 (route /api/go-live-readiness session-gated + 60s cache + single-flight, readiness strip above the KPI row on performance.html; FAIL chip was 4.49:1 WCAG AA, pinned to #3b0d12 = 4.98). VPS: sizing_trigger.cjs + go_live_readiness.cjs scp'd, index.js SPLICED not copied via new tasks/patch_golive_route.cjs (ac83ce6 - anchors on the target's own whole rejection-evidence handler, refuses unless exactly 1 hit, backs up + verifies, restores on node --check failure; reproduces the committed file byte-for-byte in LF and CRLF), performance.html deployed hash-identical. Verdicts: LAPTOP NOT YET 0/5, VPS NOT YET 2/5 (UPTIME + RECORD pass there) - never pooled, by design. BLOCKED: VPS server restart refused by the permission classifier; dry run clean (1 node match PID 4024, 1 python must survive, bridge A connected, halted=false). User must run safe_server_restart.ps1 -Execute over ssh. Also verified: rejection_evidence.js is on BOTH boxes (memory said LAPTOP ONLY - stale, corrected); VPS server had already restarted 04:14:21Z, closing that long-standing thread."
+    },
+    {
+      "ts": "2026-08-22T05:32:10.462517+00:00",
+      "tag": "NOTE",
+      "text": "PERF PAGE REBUILD 2026-08-22 (865ded8, 4bc0109): R replaces dollars as the page's unit. /api/journal now serves realizedR per row from the server's own realizedRFromPrices (no 5th copy in JS). Page: Net R + expectancy lead with n on every card and TOO FEW TO JUDGE under 20 closes; new calibration card (grey until a tier hits 10 trades) fed from the readiness response already fetched; new live-vs-replay card rendering the endpoint's own verdicts (CONSISTENT WITH REPLAY on rate 7 vs 3.9 expected, TOO FEW TO JUDGE on expectancy 5/20); trades table became an audit trail (what the engine saw / what it sent / what came back / why it closed). TWO BUGS FIXED: ACCOUNT_BASE=90000 was invented (nothing reads a broker balance) so the equity curve is now cumulative R; loadSetups read raw.setups but the server key is setupStats, so it silently recomputed win rates in-browser from dollars every time. Verified headless (Edge via puppeteer-core): 0 console errors, 0 page errors, 0 failed requests, no overflow at 1440 or 390, chart geometry read from Chart.js (6 points 33-859px, ends +1.51R = live-vs-replay totalR). VPS: index.js patched via the new PATCHES registry in tasks/patch_golive_route.cjs (golive-route skipped as present, journal-r applied, backup taken, node --check OK), page deployed hash-identical, parity ENGINES AGREE 99/99 routes. VPS page is DEGRADED until its server restarts - shows 'could not measure' and n/s rather than anything wrong."
+    },
+    {
+      "ts": "2026-08-22T06:34:00.838865+00:00",
+      "tag": "NOTE",
+      "text": "SESSION END 2026-08-22. RSI CEILING: made measurable WITHOUT moving it (reads strategySettings via the same typeof guard ADX_TRENDING_MIN uses; NEVER hoist to module scope - the vm sandbox erases cohorts). Proof: A no-override 265 trades == B explicit 72/68 265 BYTE-IDENTICAL, A != C 80/76 282, engineThrows 0 on all three. SWEEP VERDICT = INCONCLUSIVE: baseline 72/68 worst-fold -0.108 (202 closed, +24.0R, 4/5); FOUR candidates beat it in BOTH directions - 64/60 +0.033, 80/76 -0.009, 88/84 +0.014, no-ceiling +0.029; only 56/52 clearly worse (-0.326, 2/5). Everything from 64 up inside a 0.14R/trade spread and 72/68's weak fold is ONE window. DO NOT MOVE THE CEILING. First run was WRONG (+63.5R for 64/60) - one row with rr 49.71 gave +39.7R of it; harness now caps at MAX_PLAUSIBLE_RR=10, capped value +23.8R is BELOW baseline. Recorded as claim 'rsiceiling' on the evidence board, new status MEASURED-INCONCLUSIVE (amber), first of 12 on the AI Brain tab. Also shipped: go-live readiness (5 AND-ed gates, laptop 0/5 VPS 2/5), performance page rebuilt around R (found ACCOUNT_BASE=90000 invented + loadSetups reading the wrong server key), Auto Trade forecast panel (near-miss was rendered on ZERO pages), design canvas at claude.ai/code/artifact/cf1269ba. 8 commits through f9b585a, all pushed, tree clean. OPEN: (1) VPS restart still blocked by the classifier - user must run safe_server_restart.ps1 -Execute over ssh; go-live route, journal realizedR and the rsiceiling claim are dormant there until then. (2) TWO STRAY FILES on the VPS repo root from a bad scp - index.html and evidence_register.js, both inert (express.static never serves the root), correct copies deployed and hash-verified; awaiting the user's call on remove/move/leave. (3) Sleep fix still unapplied."
     }
   ],
   "signals": [],
   "trades": [],
   "created_at": "2026-08-22T03:20:19.531336+00:00",
-  "updated_at": "2026-08-22T03:24:23.078844+00:00"
+  "updated_at": "2026-08-22T06:34:00.838865+00:00"
 }

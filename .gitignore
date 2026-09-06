@@ -124,3 +124,42 @@ tasks/history_yahoo/
 !tasks/snapshots/**
 tasks/calendar_store.json
 tasks/calendar_store.json.tmp
+
+# ── Run markers, 2026-09-06 ──────────────────────────────────────────────────
+# Same argument as the *.bak-* block above: signal, not tidiness. These are ZERO-BYTE
+# "did this already run today" flags written by auto_daily.bat and morning_ready.ps1,
+# one per calendar day, forever. 21 of them were sitting in `git status` untracked,
+# and the startup hook reports the raw count as "147 uncommitted file(s) -- commit
+# before editing", so a real edit to a trading file was buried in day markers.
+#
+# NOTHING IS DELETED and nothing is untracked. tasks/.daily_ran_20260728 and _20260730
+# were committed before this rule existed; git does not untrack a file because of a
+# new ignore line, so those two stay tracked and stay in history. (Both had in fact
+# been DELETED from the working tree and were restored on 2026-09-06 rather than
+# having the deletion committed -- rule 6 has no exceptions, including for a
+# zero-byte file whose only content is its own name.)
+tasks/.daily_ran_*
+tasks/.morning_ready_*
+tasks/.auto_runner_*
+
+# Scratch files left by interrupted sessions. Kept on disk under rule 6, never tracked.
+*.junk-*
+
+# ── Generated stores, 2026-09-06 ─────────────────────────────────────────────
+# A `git add -A` on 2026-09-06 swept these into a commit: 851 files, 1.47M
+# insertions, including a 32MB chroma.sqlite3. The commit was reset the same
+# minute -- nothing was pushed and no file was touched on disk -- but it is
+# exactly the bloat the *.bak-* block above exists to prevent, so the rule is
+# written down rather than left to the next `git add -A` to rediscover.
+#
+# tasks/rag_db/ is a chromadb vector store, 41MB and rewritten on every
+# `python tasks/rag_index.py`. It is DERIVED: the source of truth is the 348
+# memory files it indexes, and a rebuild takes seconds. Tracking a binary blob
+# that is regenerated from tracked-elsewhere text buys nothing and makes every
+# future diff unreadable.
+#
+# .tmp_daily/ holds scratch copies of server/index.js written during VPS parity
+# proofs. Seven near-identical 10k-line copies of the engine is the single worst
+# thing that could be in a diff you are trying to read for a real change.
+tasks/rag_db/
+.tmp_daily/

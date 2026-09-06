@@ -1,8 +1,8 @@
 ---
 decision_key: c3f337ced2b7f4fd
-source: tradingview_bot.py:2138
+source: tradingview_bot.py:2456
 status: standing
-recorded: 2026-09-02T17:54:29.703Z
+recorded: 2026-09-06T07:20:46.724Z
 ---
 
 # STANDING DECISION

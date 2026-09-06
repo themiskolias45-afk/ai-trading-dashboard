@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T16:08:00.336Z",
+  "generatedAt": "2026-09-06T07:20:17.153Z",
   "box": "Themis",
   "pipelines": [
     {
@@ -22,7 +22,7 @@
           "name": "Bridge heartbeat",
           "what": "the only process that can place an order",
           "state": "OK",
-          "detail": "account A connected, last seen 2026-08-29T16:07:45.534Z",
+          "detail": "account A connected, last seen 2026-09-06T07:20:00.310Z",
           "by": "mt5_bridge.py --auto",
           "consumedBy": "place_order",
           "present": true,
@@ -32,7 +32,7 @@
           "name": "Engine scoring",
           "what": "generateSignalMTF over D1 + H4 + H1",
           "state": "OK",
-          "detail": "3 of 3 assets scored; all from MT5, updated 2026-08-29T16:00:01.197Z",
+          "detail": "3 of 3 assets scored; all from MT5, updated 2026-09-06T07:20:00.805Z",
           "by": "server generateSignalMTF",
           "consumedBy": "the gate chain",
           "present": true,
@@ -42,7 +42,7 @@
           "name": "The ten gates",
           "what": "any one ends the trade",
           "state": "OK",
-          "detail": "10 gates, 2 exercised since the server started: 56 killed, 63 passed. A zero is NOT EXERCISED this uptime, not broken.",
+          "detail": "11 gates, 2 exercised since the server started: 6 killed, 6 passed. A zero is NOT EXERCISED this uptime, not broken.",
           "by": "the gate chain",
           "consumedBy": "place_order",
           "present": true,
@@ -52,7 +52,7 @@
           "name": "Execution",
           "what": "place_order → broker, SL/TP set server-side",
           "state": "OK",
-          "detail": "2 position(s) open, all with a broker-side stop",
+          "detail": "1 position(s) open, all with a broker-side stop",
           "by": "mt5_bridge.py place_order",
           "consumedBy": "server/journal.json",
           "present": true,
@@ -62,7 +62,7 @@
           "name": "Circuit breaker",
           "what": "halts the chain after consecutive losses",
           "state": "OK",
-          "detail": "closed, 1 consecutive loss(es)",
+          "detail": "closed, 0 consecutive loss(es)",
           "by": "server risk state",
           "consumedBy": "every gate downstream",
           "present": true,
@@ -85,9 +85,9 @@
           "cadenceHours": 6,
           "eventDriven": false,
           "present": true,
-          "bytes": 871935,
-          "rows": 2329,
-          "modified": "2026-08-29T16:00:01.199Z",
+          "bytes": 1482580,
+          "rows": 3958,
+          "modified": "2026-09-06T07:14:14.783Z",
           "ageHours": 0.1
         },
         {
@@ -98,11 +98,11 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 1075379,
-          "rows": 2290,
-          "modified": "2026-08-29T07:19:45.213Z",
-          "ageHours": 8.8,
-          "behindInputHours": 8.7,
+          "bytes": 1807652,
+          "rows": 3850,
+          "modified": "2026-09-05T06:30:05.198Z",
+          "ageHours": 24.8,
+          "behindInputHours": 24.7,
           "behindInput": true
         },
         {
@@ -113,16 +113,22 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 4003,
+          "bytes": 5391,
           "rows": null,
-          "modified": "2026-08-29T07:19:45.894Z",
-          "ageHours": 8.8,
-          "behindInputHours": 0,
+          "modified": "2026-09-06T07:19:34.037Z",
+          "ageHours": 0,
+          "behindInputHours": -24.8,
           "behindInput": false
         }
       ],
-      "findings": [],
-      "level": "OK"
+      "findings": [
+        {
+          "level": "AMBER",
+          "stage": "forward-scored",
+          "detail": "Written 24.8h ago from input last changed 0.1h ago, and past its own 24h cadence — it has not consumed the newest \"rejections written\" and is overdue, so tasks/score_rr_rejections.py has missed a run."
+        }
+      ],
+      "level": "AMBER"
     },
     {
       "id": "nearmiss",
@@ -137,10 +143,10 @@
           "cadenceHours": null,
           "eventDriven": true,
           "present": true,
-          "bytes": 14268,
-          "rows": 28,
-          "modified": "2026-08-28T05:00:00.809Z",
-          "ageHours": 35.1
+          "bytes": 227182,
+          "rows": 422,
+          "modified": "2026-09-06T07:20:00.700Z",
+          "ageHours": 0
         },
         {
           "name": "forward-scored",
@@ -150,11 +156,11 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 4129,
+          "bytes": 17186,
           "rows": null,
-          "modified": "2026-08-29T07:19:46.229Z",
-          "ageHours": 8.8,
-          "behindInputHours": -26.3,
+          "modified": "2026-09-06T07:19:45.781Z",
+          "ageHours": 0,
+          "behindInputHours": 0,
           "behindInput": false
         }
       ],
@@ -174,10 +180,10 @@
           "cadenceHours": null,
           "eventDriven": true,
           "present": true,
-          "bytes": 2540,
-          "rows": 4,
-          "modified": "2026-08-28T03:35:00.130Z",
-          "ageHours": 36.6
+          "bytes": 10273,
+          "rows": 16,
+          "modified": "2026-09-04T06:35:00.398Z",
+          "ageHours": 48.8
         },
         {
           "name": "forward-scored",
@@ -187,11 +193,11 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 4040,
+          "bytes": 25223,
           "rows": null,
-          "modified": "2026-08-29T09:11:33.993Z",
-          "ageHours": 6.9,
-          "behindInputHours": -29.7,
+          "modified": "2026-09-06T07:19:53.000Z",
+          "ageHours": 0,
+          "behindInputHours": -48.8,
           "behindInput": false
         }
       ],
@@ -211,10 +217,10 @@
           "cadenceHours": null,
           "eventDriven": true,
           "present": true,
-          "bytes": 11841,
+          "bytes": 14015,
           "rows": null,
-          "modified": "2026-08-28T16:19:08.481Z",
-          "ageHours": 23.8
+          "modified": "2026-09-04T12:40:32.651Z",
+          "ageHours": 42.7
         },
         {
           "name": "learning table",
@@ -224,11 +230,11 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 458,
+          "bytes": 1242,
           "rows": null,
-          "modified": "2026-08-29T09:22:16.714Z",
-          "ageHours": 6.8,
-          "behindInputHours": -17,
+          "modified": "2026-09-06T07:16:38.156Z",
+          "ageHours": 0.1,
+          "behindInputHours": -42.6,
           "behindInput": false
         }
       ],
@@ -248,10 +254,10 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 3348,
+          "bytes": 3347,
           "rows": null,
-          "modified": "2026-08-29T07:19:50.984Z",
-          "ageHours": 8.8
+          "modified": "2026-09-05T06:30:26.839Z",
+          "ageHours": 24.8
         },
         {
           "name": "deep plan",
@@ -261,11 +267,11 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 47477,
+          "bytes": 50238,
           "rows": null,
-          "modified": "2026-08-29T15:39:49.287Z",
-          "ageHours": 0.5,
-          "behindInputHours": -8.3,
+          "modified": "2026-09-05T21:40:37.296Z",
+          "ageHours": 9.7,
+          "behindInputHours": -15.1,
           "behindInput": false
         }
       ],
@@ -285,10 +291,10 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 635810,
+          "bytes": 1093354,
           "rows": null,
-          "modified": "2026-08-29T15:53:45.310Z",
-          "ageHours": 0.2
+          "modified": "2026-09-05T19:00:43.019Z",
+          "ageHours": 12.3
         },
         {
           "name": "page index",
@@ -298,11 +304,11 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 73292,
+          "bytes": 77013,
           "rows": null,
-          "modified": "2026-08-29T15:53:45.377Z",
-          "ageHours": 0.2,
-          "behindInputHours": 0,
+          "modified": "2026-09-06T07:20:16.401Z",
+          "ageHours": 0,
+          "behindInputHours": -12.3,
           "behindInput": false
         }
       ],
@@ -316,16 +322,16 @@
       "stages": [
         {
           "name": "review written",
-          "file": "tasks/logs/weekly_20260823.txt",
+          "file": "tasks/logs/weekly_20260830.txt",
           "by": "auto_weekly{,_vps}.bat (Sunday)",
           "consumedBy": "weekly_report_index.cjs",
           "cadenceHours": 192,
           "eventDriven": false,
           "present": true,
-          "bytes": 6842,
+          "bytes": 16334,
           "rows": null,
-          "modified": "2026-08-23T09:03:03.112Z",
-          "ageHours": 151.1
+          "modified": "2026-08-30T09:08:25.926Z",
+          "ageHours": 166.2
         },
         {
           "name": "page index",
@@ -335,11 +341,11 @@
           "cadenceHours": 192,
           "eventDriven": false,
           "present": true,
-          "bytes": 63770,
+          "bytes": 108359,
           "rows": null,
-          "modified": "2026-08-29T13:09:11.271Z",
-          "ageHours": 3,
-          "behindInputHours": -148.1,
+          "modified": "2026-08-30T09:08:26.048Z",
+          "ageHours": 166.2,
+          "behindInputHours": 0,
           "behindInput": false
         }
       ],
@@ -361,8 +367,8 @@
           "present": true,
           "bytes": 841,
           "rows": null,
-          "modified": "2026-08-29T14:25:05.332Z",
-          "ageHours": 1.7
+          "modified": "2026-09-06T07:20:15.881Z",
+          "ageHours": 0
         }
       ],
       "findings": [],
@@ -381,10 +387,10 @@
           "cadenceHours": 24,
           "eventDriven": false,
           "present": true,
-          "bytes": 1051,
+          "bytes": 1746,
           "rows": null,
-          "modified": "2026-08-29T07:19:49.753Z",
-          "ageHours": 8.8
+          "modified": "2026-09-06T07:20:03.266Z",
+          "ageHours": 0
         }
       ],
       "findings": [],
@@ -392,8 +398,8 @@
     }
   ],
   "totals": {
-    "OK": 10,
-    "AMBER": 0,
+    "OK": 9,
+    "AMBER": 1,
     "RED": 0,
     "stages": 23,
     "missing": 0

@@ -1,8 +1,8 @@
 ---
 decision_key: c11d358b5dbcd43a
-source: tasks/breakdown_walkforward.cjs:304
+source: tasks/breakdown_walkforward.cjs:322
 status: standing
-recorded: 2026-09-02T17:52:40.137Z
+recorded: 2026-09-03T06:00:38.175Z
 ---
 
 # STANDING DECISION

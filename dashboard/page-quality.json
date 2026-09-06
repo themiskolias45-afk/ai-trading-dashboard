@@ -1,10 +1,13 @@
 {
-  "generatedAt": "2026-08-29T16:33:26.996Z",
+  "generatedAt": "2026-09-06T07:20:17.886Z",
   "box": "Themis",
   "available": true,
-  "pagesChecked": 15,
-  "totalFindings": 0,
-  "byCheck": {},
+  "pagesChecked": 17,
+  "totalFindings": 2,
+  "byCheck": {
+    "raw-interpolation": 1,
+    "shell-includes": 1
+  },
   "checks": [
     {
       "id": "absent-as-zero",
@@ -37,15 +40,44 @@
       "fix": "Add the standard <head> block: theme.css, nav.css, nav.js defer, freshness.*"
     }
   ],
-  "pages": [],
+  "pages": [
+    {
+      "page": "index.html",
+      "bytes": 429590,
+      "findings": [
+        {
+          "check": "raw-interpolation",
+          "title": "External text may reach innerHTML unescaped",
+          "why": "Calendar titles, analyst text and log lines come from feeds and files this system does not control. Interpolated into innerHTML without escaping, they are an injection surface — and one was found live in the daily-plan calendar.",
+          "fix": "Escape at the boundary: esc(value) / escapeHtml(value) before concatenating.",
+          "line": 4121,
+          "excerpt": "${String(e && e.message || e)}"
+        }
+      ]
+    },
+    {
+      "page": "instruments.html",
+      "bytes": 12724,
+      "findings": [
+        {
+          "check": "shell-includes",
+          "title": "Page is missing a shared shell include",
+          "why": "theme.css carries the one palette and nav.css/nav.js the one rail. A page without them renders its own colours and cannot be navigated to from anywhere — which is how /architecture ended up with exactly one inbound link in the whole product.",
+          "fix": "Add the standard <head> block: theme.css, nav.css, nav.js defer, freshness.*",
+          "line": null,
+          "excerpt": "missing theme.css"
+        }
+      ]
+    }
+  ],
   "clean": [
     "analysis.html",
     "architecture.html",
     "command.html",
     "daily-plan.html",
     "fleet.html",
-    "index.html",
     "jarvis.html",
+    "lab.html",
     "login.html",
     "performance.html",
     "pipelines.html",

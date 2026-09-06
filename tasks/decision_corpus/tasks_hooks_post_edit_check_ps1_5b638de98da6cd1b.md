@@ -1,8 +1,8 @@
 ---
 decision_key: 5b638de98da6cd1b
-source: tasks/hooks/post-edit-check.ps1:127
+source: tasks/hooks/post-edit-check.ps1:144
 status: standing
-recorded: 2026-09-02T17:54:29.703Z
+recorded: 2026-09-05T06:30:27.886Z
 ---
 
 # STANDING DECISION

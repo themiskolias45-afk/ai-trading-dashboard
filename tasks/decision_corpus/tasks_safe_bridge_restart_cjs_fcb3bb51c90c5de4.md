@@ -1,8 +1,8 @@
 ---
 decision_key: fcb3bb51c90c5de4
-source: tasks/safe_bridge_restart.cjs:400
+source: tasks/safe_bridge_restart.cjs:429
 status: standing
-recorded: 2026-09-02T17:54:29.703Z
+recorded: 2026-09-04T06:15:50.682Z
 ---
 
 # STANDING DECISION

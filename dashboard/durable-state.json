@@ -1,112 +1,175 @@
 {
-  "generatedAt": "2026-08-29T17:25:55.908Z",
+  "generatedAt": "2026-09-06T07:20:39.557Z",
   "box": "Themis",
   "available": true,
   "source": "server\\index.js",
-  "stateFound": 51,
+  "stateFound": 58,
   "byClass": {
     "accepted": 20,
+    "UNCLASSIFIED": 7,
     "regenerable": 25,
     "persisted": 6
   },
   "red": 0,
-  "amber": 0,
-  "totalFindings": 0,
-  "findings": [],
+  "amber": 7,
+  "totalFindings": 7,
+  "findings": [
+    {
+      "level": "AMBER",
+      "name": "anthropicBg",
+      "line": 671,
+      "check": "unclassified",
+      "detail": "new module-level state with no entry in the inventory — decide whether a restart may lose it, then persist it or record why it need not be"
+    },
+    {
+      "level": "AMBER",
+      "name": "dxyDailyCache",
+      "line": 868,
+      "check": "unclassified",
+      "detail": "new module-level state with no entry in the inventory — decide whether a restart may lose it, then persist it or record why it need not be"
+    },
+    {
+      "level": "AMBER",
+      "name": "mt5UnmanagedByAccount",
+      "line": 962,
+      "check": "unclassified",
+      "detail": "new module-level state with no entry in the inventory — decide whether a restart may lose it, then persist it or record why it need not be"
+    },
+    {
+      "level": "AMBER",
+      "name": "snapshotRunAt",
+      "line": 6253,
+      "check": "unclassified",
+      "detail": "new module-level state with no entry in the inventory — decide whether a restart may lose it, then persist it or record why it need not be"
+    },
+    {
+      "level": "AMBER",
+      "name": "snapshotInFlight",
+      "line": 6254,
+      "check": "unclassified",
+      "detail": "new module-level state with no entry in the inventory — decide whether a restart may lose it, then persist it or record why it need not be"
+    },
+    {
+      "level": "AMBER",
+      "name": "bridgeRestartRequested",
+      "line": 6599,
+      "check": "unclassified",
+      "detail": "new module-level state with no entry in the inventory — decide whether a restart may lose it, then persist it or record why it need not be"
+    },
+    {
+      "level": "AMBER",
+      "name": "_resolvedClaudeCliPath",
+      "line": 9826,
+      "check": "unclassified",
+      "detail": "new module-level state with no entry in the inventory — decide whether a restart may lose it, then persist it or record why it need not be"
+    }
+  ],
   "state": [
     {
       "name": "TELEGRAM_TOKEN",
-      "line": 625,
+      "line": 642,
       "klass": "accepted",
       "why": "read from keys.env at boot"
     },
     {
       "name": "TELEGRAM_CHAT_ID",
-      "line": 626,
+      "line": 643,
       "klass": "accepted",
       "why": "read from keys.env at boot"
     },
     {
       "name": "UW_API_KEY",
-      "line": 627,
+      "line": 644,
       "klass": "accepted",
       "why": "read from keys.env at boot"
     },
     {
       "name": "OPENAI_API_KEY",
-      "line": 628,
+      "line": 645,
       "klass": "accepted",
       "why": "read from keys.env at boot"
     },
     {
       "name": "ANTHROPIC_API_KEY",
-      "line": 637,
+      "line": 654,
       "klass": "accepted",
       "why": "read from apikey.txt / env at boot"
     },
     {
       "name": "anthropic",
-      "line": 641,
+      "line": 670,
       "klass": "accepted",
       "why": "SDK client, rebuilt at boot"
     },
     {
+      "name": "anthropicBg",
+      "line": 671,
+      "klass": "UNCLASSIFIED",
+      "why": null
+    },
+    {
       "name": "priceCache",
-      "line": 680,
+      "line": 858,
       "klass": "regenerable",
       "why": "refilled by the price poll within a minute"
     },
     {
       "name": "sentimentCache",
-      "line": 681,
+      "line": 859,
       "klass": "regenerable",
       "why": "refilled by the sentiment poll"
     },
     {
       "name": "signalCache",
-      "line": 682,
+      "line": 862,
       "klass": "regenerable",
       "why": "rebuilt by the next refreshSignals cycle"
     },
     {
       "name": "signalHistory",
-      "line": 683,
+      "line": 863,
       "klass": "regenerable",
       "why": "DISPLAY buffer only, 100 cycles. The durable record is the SQLite signals table via persistSignalChanges(), and its own comment says a restart writing one row per asset is wanted"
     },
     {
+      "name": "dxyDailyCache",
+      "line": 868,
+      "klass": "UNCLASSIFIED",
+      "why": null
+    },
+    {
       "name": "mt5CandleCache",
-      "line": 690,
+      "line": 875,
       "klass": "regenerable",
       "why": "refilled by the next bridge bar push"
     },
     {
       "name": "mt5SymbolSpecs",
-      "line": 695,
+      "line": 880,
       "klass": "regenerable",
       "why": "re-fetched from the bridge on demand"
     },
     {
       "name": "signalRefreshInFlight",
-      "line": 700,
+      "line": 885,
       "klass": "accepted",
       "why": "in-process guard"
     },
     {
       "name": "signalRefreshChain",
-      "line": 717,
+      "line": 902,
       "klass": "accepted",
       "why": "in-process promise chain"
     },
     {
       "name": "dailyPlan",
-      "line": 757,
+      "line": 942,
       "klass": "regenerable",
       "why": "regenerated by generateDailyPlan()"
     },
     {
       "name": "tvAlerts",
-      "line": 758,
+      "line": 943,
       "klass": "persisted",
       "why": "display buffer in tv_alerts.json, plus an append-only archive in tasks/logs/tv_alerts.jsonl",
       "loader": "loadAlerts",
@@ -115,37 +178,43 @@
     },
     {
       "name": "congressCache",
-      "line": 759,
+      "line": 944,
       "klass": "regenerable",
       "why": "re-fetched from Unusual Whales on first request"
     },
     {
       "name": "flowCache",
-      "line": 760,
+      "line": 945,
       "klass": "regenerable",
       "why": "re-fetched from Unusual Whales on first request"
     },
     {
       "name": "knownChatIds",
-      "line": 761,
+      "line": 946,
       "klass": "accepted",
       "why": "Telegram chat ids. TELEGRAM_CHAT_ID is re-seeded from keys.env at boot and any other chat re-registers on its next message"
     },
     {
       "name": "mt5PositionsByAccount",
-      "line": 763,
+      "line": 948,
       "klass": "regenerable",
       "why": "the bridge re-pushes positions within ~60s; the broker is the source of truth, not this"
     },
     {
       "name": "mt5Positions",
-      "line": 764,
+      "line": 949,
       "klass": "regenerable",
       "why": "flattened from mt5PositionsByAccount"
     },
     {
+      "name": "mt5UnmanagedByAccount",
+      "line": 962,
+      "klass": "UNCLASSIFIED",
+      "why": null
+    },
+    {
       "name": "features",
-      "line": 765,
+      "line": 963,
       "klass": "persisted",
       "why": "newsFilter can block a setup and trailingStop is read by the bridge — a toggle that reverts itself is worse than no toggle",
       "loader": "loadFeatures",
@@ -154,7 +223,7 @@
     },
     {
       "name": "tradeJournal",
-      "line": 766,
+      "line": 964,
       "klass": "persisted",
       "why": "the trade record — journal.json",
       "loader": "loadJournal",
@@ -163,58 +232,58 @@
     },
     {
       "name": "learning",
-      "line": 936,
+      "line": 1134,
       "klass": "persisted",
       "why": "weeks of accumulated edge — learning.json",
       "loader": "loadLearning",
       "saver": "saveLearning",
-      "saveSites": 3
+      "saveSites": 4
     },
     {
       "name": "newsCache",
-      "line": 1081,
+      "line": 1376,
       "klass": "regenerable",
       "why": "re-fetched from the calendar feed"
     },
     {
       "name": "riskStatus",
-      "line": 1082,
+      "line": 1377,
       "klass": "regenerable",
       "why": "the BRIDGE owns the breaker and persists it to breaker_state_<TAG>.json, then re-pushes; this copy is derived"
     },
     {
       "name": "strategySettings",
-      "line": 1234,
+      "line": 1529,
       "klass": "regenerable",
       "why": "read from strategy_settings.json at boot; the FILE is the state, this is the copy"
     },
     {
       "name": "strategySettingsError",
-      "line": 1278,
+      "line": 1590,
       "klass": "regenerable",
       "why": "recomputed by the same load"
     },
     {
       "name": "lastUpdateId",
-      "line": 3799,
+      "line": 4909,
       "klass": "accepted",
       "why": "Telegram long-poll cursor; restarting re-syncs it"
     },
     {
       "name": "telegramPollingStarted",
-      "line": 3800,
+      "line": 4910,
       "klass": "accepted",
       "why": "in-process guard"
     },
     {
       "name": "telegramPollingChecking",
-      "line": 3801,
+      "line": 4911,
       "klass": "accepted",
       "why": "in-process guard"
     },
     {
       "name": "manualTradeQueue",
-      "line": 4068,
+      "line": 5361,
       "klass": "persisted",
       "why": "trades awaiting human approval — losing a pending DECISION is worse than losing a log line",
       "loader": "loadManualQueue",
@@ -223,31 +292,43 @@
     },
     {
       "name": "goLiveCache",
-      "line": 4470,
+      "line": 5763,
       "klass": "regenerable",
       "why": "short-lived response cache"
     },
     {
       "name": "goLiveInFlight",
-      "line": 4471,
+      "line": 5764,
       "klass": "accepted",
       "why": "in-process guard"
     },
     {
       "name": "mt5LastSeenByAccount",
-      "line": 4755,
+      "line": 6132,
       "klass": "regenerable",
       "why": "rebuilt by the next bridge check-in"
     },
     {
+      "name": "snapshotRunAt",
+      "line": 6253,
+      "klass": "UNCLASSIFIED",
+      "why": null
+    },
+    {
+      "name": "snapshotInFlight",
+      "line": 6254,
+      "klass": "UNCLASSIFIED",
+      "why": null
+    },
+    {
       "name": "riskStatusByAccount",
-      "line": 4879,
+      "line": 6486,
       "klass": "regenerable",
       "why": "same — bridge-owned and re-pushed per account"
     },
     {
       "name": "tradingControl",
-      "line": 4923,
+      "line": 6543,
       "klass": "persisted",
       "why": "a halt is a safety decision and must outlive the process",
       "loader": "loadTradingControl",
@@ -255,86 +336,98 @@
       "saveSites": 1
     },
     {
+      "name": "bridgeRestartRequested",
+      "line": 6599,
+      "klass": "UNCLASSIFIED",
+      "why": null
+    },
+    {
       "name": "dailyPlanArtifactInFlight",
-      "line": 6537,
+      "line": 8406,
       "klass": "accepted",
       "why": "in-process guard"
     },
     {
       "name": "lastNearMissMalformed",
-      "line": 6693,
+      "line": 8587,
       "klass": "accepted",
       "why": "diagnostic counter for this process; the ledger file holds the data"
     },
     {
       "name": "lastNearMissError",
-      "line": 6694,
+      "line": 8588,
       "klass": "accepted",
       "why": "last error string, diagnostic only"
     },
     {
       "name": "lastStopVariantMalformed",
-      "line": 6712,
+      "line": 8606,
       "klass": "accepted",
       "why": "diagnostic counter for this process"
     },
     {
       "name": "lastStopVariantError",
-      "line": 6713,
+      "line": 8607,
       "klass": "accepted",
       "why": "last error string, diagnostic only"
     },
     {
       "name": "analysisCache",
-      "line": 6919,
+      "line": 8882,
       "klass": "regenerable",
       "why": "recomputed by refreshAnalysis()"
     },
     {
       "name": "_lastAnalysisFingerprint",
-      "line": 6922,
+      "line": 8885,
       "klass": "accepted",
       "why": "dedupe key for the current process"
     },
     {
       "name": "backtestCache",
-      "line": 7451,
+      "line": 9490,
       "klass": "regenerable",
       "why": "recomputed on request; a 12h cache, not a record"
     },
     {
       "name": "aiFilterHealth",
-      "line": 7642,
+      "line": 9749,
       "klass": "regenerable",
       "why": "counters for the current process; the durable record is the rejection ledger"
     },
     {
+      "name": "_resolvedClaudeCliPath",
+      "line": 9826,
+      "klass": "UNCLASSIFIED",
+      "why": null
+    },
+    {
       "name": "verboseTaskCache",
-      "line": 8120,
+      "line": 10446,
       "klass": "regenerable",
       "why": "short-lived response cache"
     },
     {
       "name": "peerProbeCache",
-      "line": 8494,
+      "line": 10820,
       "klass": "regenerable",
       "why": "short-lived response cache"
     },
     {
       "name": "doctorCache",
-      "line": 9241,
+      "line": 11631,
       "klass": "regenerable",
       "why": "short-lived response cache"
     },
     {
       "name": "doctorInFlight",
-      "line": 9242,
+      "line": 11632,
       "klass": "accepted",
       "why": "in-process guard"
     },
     {
       "name": "engineSetupNamesCache",
-      "line": 9653,
+      "line": 12060,
       "klass": "regenerable",
       "why": "derived from the engine source at first use"
     }

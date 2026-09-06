@@ -16,19 +16,19 @@
       "totalPnl": -6.64
     },
     "MOMENTUM": {
-      "wins": 2,
-      "losses": 1,
-      "totalPnl": -31.27
+      "wins": 3,
+      "losses": 2,
+      "totalPnl": -170.32
     }
   },
-  "sessionCount": 369,
-  "updatedAt": "2026-08-31T19:38:32.513Z",
+  "sessionCount": 420,
+  "updatedAt": "2026-09-06T07:16:38.156Z",
   "bySymbol": {
     "XAUUSD": {
       "MOMENTUM": {
         "wins": 1,
-        "losses": 1,
-        "totalPnl": -34.21
+        "losses": 2,
+        "totalPnl": -197.58
       },
       "RANGE_TRADE_SHORT": {
         "wins": 0,
@@ -58,6 +58,11 @@
         "wins": 0,
         "losses": 1,
         "totalPnl": -6.64
+      },
+      "MOMENTUM": {
+        "wins": 1,
+        "losses": 0,
+        "totalPnl": 24.32
       }
     }
   }

@@ -2,18 +2,6 @@
   "inceptionAt": "2026-07-25T09:55:01.910Z",
   "open": [
     {
-      "id": "gold-MOMENTUM-1786021528901",
-      "asset": "gold",
-      "geometry": "MOMENTUM",
-      "dir": "BUY",
-      "entry": 4320.7,
-      "stop": 4216.64,
-      "target": 4528.82,
-      "rr": 2,
-      "confidence": 74,
-      "openedAt": "2026-08-06T13:05:28.901Z"
-    },
-    {
       "id": "gold-SQUEEZE_BREAKOUT-1786104008880",
       "asset": "gold",
       "geometry": "SQUEEZE_BREAKOUT",
@@ -26,6 +14,110 @@
       "openedAt": "2026-08-07T12:00:08.880Z"
     },
     {
+      "id": "btc-MOMENTUM-1788082891135",
+      "asset": "btc",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 78035.5,
+      "stop": 73960.02,
+      "target": 86186.46,
+      "rr": 2,
+      "confidence": 75,
+      "openedAt": "2026-08-30T09:41:31.135Z"
+    }
+  ],
+  "closed": [
+    {
+      "id": "gold-MOMENTUM-1788459321599",
+      "asset": "gold",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 4535.6,
+      "stop": 4478.91,
+      "target": 4648.98,
+      "rr": 2,
+      "confidence": 86,
+      "openedAt": "2026-09-03T18:15:21.599Z",
+      "closedAt": "2026-09-04T12:45:00.864Z",
+      "r": -1.05,
+      "result": "LOSS"
+    },
+    {
+      "id": "gold-MOMENTUM-1788171005575",
+      "asset": "gold",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 4496,
+      "stop": 4379.18,
+      "target": 4729.64,
+      "rr": 2,
+      "confidence": 100,
+      "openedAt": "2026-08-31T10:10:05.575Z",
+      "closedAt": "2026-09-01T19:00:00.230Z",
+      "r": -1.05,
+      "result": "LOSS"
+    },
+    {
+      "id": "gold-MOMENTUM-1787659916956",
+      "asset": "gold",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 4640.64,
+      "stop": 4490.64,
+      "target": 4940.64,
+      "rr": 2,
+      "confidence": 74,
+      "openedAt": "2026-08-25T12:11:56.956Z",
+      "closedAt": "2026-08-31T03:04:51.780Z",
+      "r": -1.05,
+      "result": "LOSS"
+    },
+    {
+      "id": "gold-MOMENTUM-1787155201768",
+      "asset": "gold",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 4492.91,
+      "stop": 4434.03,
+      "target": 4610.67,
+      "rr": 2,
+      "confidence": 83,
+      "openedAt": "2026-08-19T16:00:01.768Z",
+      "closedAt": "2026-08-21T16:59:56.505Z",
+      "r": 1.95,
+      "result": "WIN"
+    },
+    {
+      "id": "spx-MOMENTUM-1787092200994",
+      "asset": "spx",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 7702.85,
+      "stop": 7681.43,
+      "target": 7741.23,
+      "rr": 1.8,
+      "confidence": 88,
+      "openedAt": "2026-08-18T22:30:00.994Z",
+      "closedAt": "2026-08-19T15:00:01.375Z",
+      "r": 1.75,
+      "result": "WIN"
+    },
+    {
+      "id": "gold-MOMENTUM-1786021528901",
+      "asset": "gold",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 4320.7,
+      "stop": 4216.64,
+      "target": 4528.82,
+      "rr": 2,
+      "confidence": 74,
+      "openedAt": "2026-08-06T13:05:28.901Z",
+      "closedAt": "2026-08-19T14:30:00.641Z",
+      "r": 1.95,
+      "result": "WIN"
+    },
+    {
       "id": "btc-SQUEEZE_BREAKOUT-1786466182523",
       "asset": "btc",
       "geometry": "SQUEEZE_BREAKOUT",
@@ -35,10 +127,11 @@
       "target": 61195.08,
       "rr": 2.5,
       "confidence": 78,
-      "openedAt": "2026-08-11T16:36:22.523Z"
-    }
-  ],
-  "closed": [
+      "openedAt": "2026-08-11T16:36:22.523Z",
+      "closedAt": "2026-08-17T18:30:00.639Z",
+      "r": -1.05,
+      "result": "LOSS"
+    },
     {
       "id": "gold-RANGE_TRADE_SHORT-1786086000268",
       "asset": "gold",

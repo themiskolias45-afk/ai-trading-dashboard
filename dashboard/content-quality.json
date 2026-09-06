@@ -1,30 +1,108 @@
 {
-  "generatedAt": "2026-08-29T16:43:43.107Z",
+  "generatedAt": "2026-09-06T07:20:18.400Z",
   "box": "Themis",
   "available": true,
   "session": {
     "authenticated": true,
     "reason": null
   },
-  "endpointsDiscovered": 56,
-  "probed": 46,
+  "endpointsDiscovered": 63,
+  "probed": 53,
   "skipped": 10,
-  "red": 0,
+  "red": 6,
   "amber": 0,
-  "ok": 46,
-  "totalFindings": 0,
-  "findings": [],
+  "ok": 47,
+  "totalFindings": 6,
+  "findings": [
+    {
+      "endpoint": "/api/ai-employees",
+      "pages": [
+        "jarvis.html",
+        "system.html"
+      ],
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "no answer in 8s",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/features",
+      "pages": [
+        "index.html"
+      ],
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "network ECONNRESET",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/recall",
+      "pages": [
+        "jarvis.html"
+      ],
+      "level": "RED",
+      "check": "http-error",
+      "detail": "HTTP 400",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/strategy-board",
+      "pages": [
+        "strategy.html"
+      ],
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "no answer in 8s",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/strategy-settings",
+      "pages": [
+        "command.html",
+        "daily-plan.html",
+        "fleet.html",
+        "index.html",
+        "jarvis.html",
+        "system.html"
+      ],
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "no answer in 8s",
+      "bytes": null,
+      "hash": null
+    },
+    {
+      "endpoint": "/api/system-plan",
+      "pages": [
+        "architecture.html",
+        "fleet.html",
+        "index.html",
+        "jarvis.html",
+        "plan.html"
+      ],
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "no answer in 8s",
+      "bytes": null,
+      "hash": null
+    }
+  ],
   "panels": [
     {
       "endpoint": "/api/ai-employees",
       "pages": [
+        "jarvis.html",
         "system.html"
       ],
-      "level": "OK",
-      "check": null,
-      "detail": "294 value(s)",
-      "bytes": 14319,
-      "hash": "8101c8a562963f8f"
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "no answer in 8s",
+      "bytes": null,
+      "hash": null
     },
     {
       "endpoint": "/api/ai-registry",
@@ -35,21 +113,22 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "392 value(s), 3 empty field(s)",
-      "bytes": 20143,
-      "hash": "b7dd56d673ff3be5"
+      "detail": "408 value(s), 3 empty field(s)",
+      "bytes": 21186,
+      "hash": "63350274ca0756af"
     },
     {
       "endpoint": "/api/ai-work",
       "pages": [
         "index.html",
+        "jarvis.html",
         "system.html"
       ],
       "level": "OK",
       "check": null,
-      "detail": "809 value(s)",
-      "bytes": 35253,
-      "hash": "4b48b82c0299d179"
+      "detail": "1351 value(s)",
+      "bytes": 59638,
+      "hash": "a6416b5820f6965e"
     },
     {
       "endpoint": "/api/alerts",
@@ -58,9 +137,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "5 value(s)",
-      "bytes": 1682,
-      "hash": "ad11cf61efb85806"
+      "detail": "151 value(s)",
+      "bytes": 71610,
+      "hash": "0dbca4eb70134bc4"
     },
     {
       "endpoint": "/api/analysis",
@@ -69,9 +148,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "114 value(s)",
-      "bytes": 26799,
-      "hash": "d0f23849eab23970"
+      "detail": "121 value(s), 4 empty field(s)",
+      "bytes": 28902,
+      "hash": "8f3a33d6de59adcd"
     },
     {
       "endpoint": "/api/backtest?years=5",
@@ -91,9 +170,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "48 value(s)",
-      "bytes": 1379,
-      "hash": "5e6c45f2cdc404bb"
+      "detail": "36 value(s), 1 empty field(s)",
+      "bytes": 1318,
+      "hash": "e085330e0fc8b1eb"
     },
     {
       "endpoint": "/api/calendar",
@@ -102,9 +181,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "617 value(s), 2 empty field(s)",
-      "bytes": 13580,
-      "hash": "75eb4f14c55fe6b7"
+      "detail": "1777 value(s), 1 empty field(s)",
+      "bytes": 39158,
+      "hash": "9f53e8b948d7e491"
     },
     {
       "endpoint": "/api/chat",
@@ -125,9 +204,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "49 value(s), 1 empty field(s)",
-      "bytes": 1150,
-      "hash": "c6202c077f55597f"
+      "detail": "54 value(s), 2 empty field(s)",
+      "bytes": 1268,
+      "hash": "40b60e84ed1163c6"
     },
     {
       "endpoint": "/api/congress",
@@ -141,15 +220,26 @@
       "hash": null
     },
     {
+      "endpoint": "/api/cpcv-report",
+      "pages": [
+        "report.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "36 value(s)",
+      "bytes": 1243,
+      "hash": "89c9b5289d1e319d"
+    },
+    {
       "endpoint": "/api/daily-plan",
       "pages": [
         "daily-plan.html"
       ],
       "level": "OK",
       "check": null,
-      "detail": "152 value(s), 3 empty field(s)",
-      "bytes": 3666,
-      "hash": "e4a9107bc937b552"
+      "detail": "1179 value(s), 2 empty field(s)",
+      "bytes": 64439,
+      "hash": "fd822ece5dfd39b5"
     },
     {
       "endpoint": "/api/deep-plan",
@@ -158,9 +248,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "868 value(s)",
-      "bytes": 33655,
-      "hash": "b8116102e7a07139"
+      "detail": "930 value(s)",
+      "bytes": 35338,
+      "hash": "8c0bd988bece3b6d"
     },
     {
       "endpoint": "/api/doctor",
@@ -188,24 +278,25 @@
       "endpoint": "/api/evidence-board",
       "pages": [
         "index.html",
+        "jarvis.html",
         "system.html"
       ],
       "level": "OK",
       "check": null,
-      "detail": "277 value(s)",
-      "bytes": 44018,
-      "hash": "05bf63c8f7a7b524"
+      "detail": "395 value(s)",
+      "bytes": 74119,
+      "hash": "0dc09c13f871ddea"
     },
     {
       "endpoint": "/api/features",
       "pages": [
         "index.html"
       ],
-      "level": "OK",
-      "check": null,
-      "detail": "6 value(s)",
-      "bytes": 136,
-      "hash": "c1545f6010a9e6ab"
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "network ECONNRESET",
+      "bytes": null,
+      "hash": null
     },
     {
       "endpoint": "/api/fleet",
@@ -215,9 +306,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "1271 value(s)",
-      "bytes": 73974,
-      "hash": "4ed3478b3c774bd7"
+      "detail": "630 value(s)",
+      "bytes": 47559,
+      "hash": "4777a095971ad8a8"
     },
     {
       "endpoint": "/api/fleet-performance",
@@ -226,9 +317,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "148 value(s), 1 empty field(s)",
-      "bytes": 3834,
-      "hash": "d0722743f832d37e"
+      "detail": "154 value(s), 1 empty field(s)",
+      "bytes": 3990,
+      "hash": "ab5c941caf746171"
     },
     {
       "endpoint": "/api/gate-health",
@@ -238,9 +329,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "22 value(s)",
-      "bytes": 431,
-      "hash": "2d0663e5cd752a4d"
+      "detail": "24 value(s)",
+      "bytes": 466,
+      "hash": "4924b070384cb646"
     },
     {
       "endpoint": "/api/go-live-readiness",
@@ -250,8 +341,8 @@
       "level": "OK",
       "check": null,
       "detail": "58 value(s)",
-      "bytes": 2066,
-      "hash": "a1a8647e26f58ebc"
+      "bytes": 2056,
+      "hash": "d4bf96ec3ef85f30"
     },
     {
       "endpoint": "/api/growth",
@@ -260,9 +351,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "119 value(s)",
-      "bytes": 1879,
-      "hash": "9c075212fe0e206e"
+      "detail": "151 value(s)",
+      "bytes": 2387,
+      "hash": "16e98cc447dc0477"
     },
     {
       "endpoint": "/api/healer",
@@ -273,7 +364,7 @@
       "check": null,
       "detail": "29 value(s), 2 empty field(s)",
       "bytes": 1070,
-      "hash": "9eb474a0dbadb0b2"
+      "hash": "229c86906028a092"
     },
     {
       "endpoint": "/api/healer/heal",
@@ -294,8 +385,8 @@
       "level": "OK",
       "check": null,
       "detail": "94 value(s), 2 empty field(s)",
-      "bytes": 1710,
-      "hash": "46ed824e6b3f641b"
+      "bytes": 1700,
+      "hash": "c09faecc4a6ffc6b"
     },
     {
       "endpoint": "/api/journal?limit=200",
@@ -304,9 +395,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "230 value(s)",
-      "bytes": 10512,
-      "hash": "dbf6646bbbcf1bc4"
+      "detail": "282 value(s)",
+      "bytes": 12367,
+      "hash": "7f53a0036e079a68"
     },
     {
       "endpoint": "/api/journal?limit=50",
@@ -315,9 +406,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "230 value(s)",
-      "bytes": 10512,
-      "hash": "dbf6646bbbcf1bc4"
+      "detail": "282 value(s)",
+      "bytes": 12367,
+      "hash": "7f53a0036e079a68"
     },
     {
       "endpoint": "/api/journal?limit=500",
@@ -326,9 +417,42 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "230 value(s)",
-      "bytes": 10512,
-      "hash": "dbf6646bbbcf1bc4"
+      "detail": "282 value(s)",
+      "bytes": 12367,
+      "hash": "7f53a0036e079a68"
+    },
+    {
+      "endpoint": "/api/lab-catalog",
+      "pages": [
+        "lab.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "129 value(s)",
+      "bytes": 3247,
+      "hash": "0a766bb902cdcd6a"
+    },
+    {
+      "endpoint": "/api/lab-queue",
+      "pages": [
+        "lab.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "941 value(s)",
+      "bytes": 21097,
+      "hash": "a7b3ed2efb6c0a2b"
+    },
+    {
+      "endpoint": "/api/lab-report",
+      "pages": [
+        "lab.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "141501 value(s), 1 empty field(s)",
+      "bytes": 3731178,
+      "hash": "4d759b34ad4ff4f3"
     },
     {
       "endpoint": "/api/learning",
@@ -341,20 +465,21 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "147 value(s), 1 empty field(s)",
-      "bytes": 3307,
-      "hash": "a09a73bbd71586c8"
+      "detail": "230 value(s), 1 empty field(s)",
+      "bytes": 4774,
+      "hash": "cb0cf56fe5c4ab23"
     },
     {
       "endpoint": "/api/learning-growth",
       "pages": [
-        "index.html"
+        "index.html",
+        "jarvis.html"
       ],
       "level": "OK",
       "check": null,
-      "detail": "242 value(s)",
-      "bytes": 4397,
-      "hash": "2d30dae72efc2b93"
+      "detail": "327 value(s)",
+      "bytes": 5673,
+      "hash": "ccd392f1302f2229"
     },
     {
       "endpoint": "/api/live-vs-replay",
@@ -365,7 +490,7 @@
       "check": null,
       "detail": "49 value(s), 1 empty field(s)",
       "bytes": 1996,
-      "hash": "53cbb6a2fa0ca344"
+      "hash": "c3a9c308ae9c6b9a"
     },
     {
       "endpoint": "/api/login",
@@ -381,13 +506,14 @@
     {
       "endpoint": "/api/measured-evidence",
       "pages": [
+        "jarvis.html",
         "strategy.html"
       ],
       "level": "OK",
       "check": null,
       "detail": "479 value(s)",
-      "bytes": 21131,
-      "hash": "0a4efbcb7b5ebddc"
+      "bytes": 21156,
+      "hash": "cd3049ab7d36a0f7"
     },
     {
       "endpoint": "/api/measurements",
@@ -396,9 +522,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "146 value(s)",
-      "bytes": 11496,
-      "hash": "2ee9f532b2cacdd3"
+      "detail": "784 value(s)",
+      "bytes": 28338,
+      "hash": "b4289e1c8353c56c"
     },
     {
       "endpoint": "/api/mt5/control",
@@ -420,7 +546,7 @@
       "check": null,
       "detail": "3 value(s)",
       "bytes": 70,
-      "hash": "64bd6e0c453e3a5c"
+      "hash": "2907ebd512d55c3a"
     },
     {
       "endpoint": "/api/mt5/positions",
@@ -429,9 +555,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "38 value(s)",
-      "bytes": 643,
-      "hash": "66e5d9e38e1baf3c"
+      "detail": "109 value(s), 3 empty field(s)",
+      "bytes": 2549,
+      "hash": "debc856820887f0c"
     },
     {
       "endpoint": "/api/near-miss",
@@ -440,9 +566,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "7 value(s), 1 empty field(s)",
-      "bytes": 565,
-      "hash": "0b7e8a1b78cfb999"
+      "detail": "398 value(s)",
+      "bytes": 9517,
+      "hash": "3e759ff378562dc1"
     },
     {
       "endpoint": "/api/newsfilter",
@@ -453,8 +579,19 @@
       "level": "OK",
       "check": null,
       "detail": "6 value(s), 1 empty field(s)",
-      "bytes": 106,
-      "hash": "107508b62cea808b"
+      "bytes": 108,
+      "hash": "136c59a070ae7015"
+    },
+    {
+      "endpoint": "/api/param-sensitivity",
+      "pages": [
+        "report.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "156 value(s)",
+      "bytes": 3753,
+      "hash": "20feafea035f2d25"
     },
     {
       "endpoint": "/api/preopen-plan",
@@ -463,9 +600,20 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "68 value(s)",
-      "bytes": 1529,
-      "hash": "7d01f0f65053c848"
+      "detail": "80 value(s), 2 empty field(s)",
+      "bytes": 1933,
+      "hash": "53b68f9671e2682b"
+    },
+    {
+      "endpoint": "/api/preopen-score",
+      "pages": [
+        "index.html"
+      ],
+      "level": "OK",
+      "check": null,
+      "detail": "401 value(s)",
+      "bytes": 8890,
+      "hash": "0cb161a97cd7f4ea"
     },
     {
       "endpoint": "/api/prices",
@@ -477,30 +625,43 @@
       "level": "OK",
       "check": null,
       "detail": "10 value(s)",
-      "bytes": 172,
-      "hash": "97c7db609d7f8735"
+      "bytes": 167,
+      "hash": "f819f9ea7693a021"
+    },
+    {
+      "endpoint": "/api/recall",
+      "pages": [
+        "jarvis.html"
+      ],
+      "level": "RED",
+      "check": "http-error",
+      "detail": "HTTP 400",
+      "bytes": null,
+      "hash": null
     },
     {
       "endpoint": "/api/rejection-evidence",
       "pages": [
-        "fleet.html"
+        "fleet.html",
+        "jarvis.html"
       ],
       "level": "OK",
       "check": null,
-      "detail": "136 value(s)",
-      "bytes": 3679,
-      "hash": "4cdc8a62cf6b82bd"
+      "detail": "178 value(s)",
+      "bytes": 4565,
+      "hash": "6b08b3389b53b7ac"
     },
     {
       "endpoint": "/api/research",
       "pages": [
-        "index.html"
+        "index.html",
+        "jarvis.html"
       ],
       "level": "OK",
       "check": null,
-      "detail": "1192 value(s)",
-      "bytes": 27383,
-      "hash": "0e61fb3fc810e5e3"
+      "detail": "1424 value(s)",
+      "bytes": 35828,
+      "hash": "43ebb16afc599464"
     },
     {
       "endpoint": "/api/risk-status",
@@ -513,7 +674,7 @@
       "check": null,
       "detail": "15 value(s), 1 empty field(s)",
       "bytes": 396,
-      "hash": "df3d6048ab7eb729"
+      "hash": "6878d7cb104e4dd6"
     },
     {
       "endpoint": "/api/robustness-report",
@@ -522,9 +683,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "1816 value(s)",
-      "bytes": 38723,
-      "hash": "7ce465b825a7511c"
+      "detail": "4458 value(s)",
+      "bytes": 92007,
+      "hash": "ce94c5060eb89a4b"
     },
     {
       "endpoint": "/api/settings",
@@ -533,20 +694,22 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "17 value(s)",
-      "bytes": 494,
-      "hash": "e70c2187c4bdda64"
+      "detail": "31 value(s)",
+      "bytes": 809,
+      "hash": "3beb2d2466c2661e"
     },
     {
       "endpoint": "/api/setup-health",
       "pages": [
-        "index.html"
+        "index.html",
+        "jarvis.html",
+        "pipelines.html"
       ],
       "level": "OK",
       "check": null,
-      "detail": "1 value(s), 1 empty field(s)",
-      "bytes": 52,
-      "hash": "9e5e84ac53e47acb"
+      "detail": "7 value(s)",
+      "bytes": 148,
+      "hash": "3b42da241516656d"
     },
     {
       "endpoint": "/api/signal-history",
@@ -556,9 +719,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "642 value(s)",
-      "bytes": 20151,
-      "hash": "02fd2983473bab24"
+      "detail": "130 value(s)",
+      "bytes": 6151,
+      "hash": "ec5f65816e2ba823"
     },
     {
       "endpoint": "/api/signals",
@@ -572,9 +735,9 @@
       ],
       "level": "OK",
       "check": null,
-      "detail": "213 value(s)",
-      "bytes": 4566,
-      "hash": "39dbc49a7ff18dc2"
+      "detail": "234 value(s)",
+      "bytes": 5558,
+      "hash": "ae07c2f399623068"
     },
     {
       "endpoint": "/api/stats/by-setup",
@@ -585,8 +748,8 @@
       "level": "OK",
       "check": null,
       "detail": "81 value(s)",
-      "bytes": 1697,
-      "hash": "1b5cd7f2dcff03eb"
+      "bytes": 1690,
+      "hash": "5cdcf14dffbca107"
     },
     {
       "endpoint": "/api/status",
@@ -597,19 +760,19 @@
       "level": "OK",
       "check": null,
       "detail": "15 value(s)",
-      "bytes": 290,
-      "hash": "5c12573342eef0d8"
+      "bytes": 287,
+      "hash": "10b7645d5cf39227"
     },
     {
       "endpoint": "/api/strategy-board",
       "pages": [
         "strategy.html"
       ],
-      "level": "OK",
-      "check": null,
-      "detail": "230 value(s), 3 empty field(s)",
-      "bytes": 14899,
-      "hash": "0171504f3277be50"
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "no answer in 8s",
+      "bytes": null,
+      "hash": null
     },
     {
       "endpoint": "/api/strategy-settings",
@@ -621,11 +784,11 @@
         "jarvis.html",
         "system.html"
       ],
-      "level": "OK",
-      "check": null,
-      "detail": "51 value(s), 1 empty field(s)",
-      "bytes": 951,
-      "hash": "d187dbfea6d3bef2"
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "no answer in 8s",
+      "bytes": null,
+      "hash": null
     },
     {
       "endpoint": "/api/system-plan",
@@ -633,13 +796,14 @@
         "architecture.html",
         "fleet.html",
         "index.html",
+        "jarvis.html",
         "plan.html"
       ],
-      "level": "OK",
-      "check": null,
-      "detail": "951 value(s), 1 empty field(s)",
-      "bytes": 48387,
-      "hash": "cf9b3130d82f547a"
+      "level": "RED",
+      "check": "unreachable",
+      "detail": "no answer in 8s",
+      "bytes": null,
+      "hash": null
     },
     {
       "endpoint": "/api/tts",
@@ -718,7 +882,7 @@
       "why": "spends tokens"
     }
   ],
-  "historyRows": 92,
+  "historyRows": 1091,
   "historyCorrupt": null,
   "historyError": null,
   "note": "PROPOSES ONLY — GET requests to the running server and two JSON artifacts. No page, setting, gate or record is written. Endpoints are DERIVED from dashboard/*.html on every run, so a new panel is audited the next day.",
@@ -737,6 +901,6 @@
       "deny-list holds for 15 shapes"
     ],
     "dead": [],
-    "endpointsDiscovered": 56
+    "endpointsDiscovered": 63
   }
 }

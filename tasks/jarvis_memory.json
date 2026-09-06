@@ -2,6 +2,70 @@
   "version": 1,
   "entries": [
     {
+      "key": "PLAN_20260906",
+      "value": "Daily Plan 2026-09-06 (levels: confluence-zones): |   BTC WAIT | R1 80135.53 S1 78511.18 |   GOLD WAIT | R1 4434.69 S1 4424.4 |   SPX WAIT | R1 7746.35 S1 7703.51 |   MACRO VIX 14.53 — CALM |   MACRO ",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-09-06T07:13:56.119918+00:00",
+      "updated_at": "2026-09-06T07:52:51.987235+00:00"
+    },
+    {
+      "key": "PLAN_20260905",
+      "value": "Daily Plan 2026-09-05 (levels: confluence-zones): |   BTC WAIT | R1 80000 S1 78054.35 |   GOLD WAIT | R1 4500 S1 4475.9 |   SPX WAIT | R1 7730.39 S1 7708.7 |   MACRO VIX 14.53 — CALM |   MACRO DXY 99.",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-09-05T01:58:32.474362+00:00",
+      "updated_at": "2026-09-05T01:58:32.474362+00:00"
+    },
+    {
+      "key": "PLAN_20260904",
+      "value": "Daily Plan 2026-09-04 (levels: confluence-zones): |   BTC BUY 76% entry:80948.91 stop:79418.75 target:84009.22 | R1 82000 S1 80000 |   GOLD WAIT | R1 4525.8 S1 4500 |   SPX WAIT | R1 7750 S1 7710.65 |",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-09-04T06:08:09.379016+00:00",
+      "updated_at": "2026-09-04T06:08:09.379016+00:00"
+    },
+    {
+      "key": "PLAN_20260903",
+      "value": "Daily Plan 2026-09-03 (levels: confluence-zones): |   BTC WAIT | R1 78823.23 S1 77017.57 |   GOLD WAIT | R1 4406.54 S1 4327.38 |   SPX WAIT | R1 7689.62 S1 7650 |   MACRO VIX 15.2 — NORMAL |   MACRO D",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-09-03T00:00:00.899826+00:00",
+      "updated_at": "2026-09-03T00:00:00.899826+00:00"
+    },
+    {
+      "key": "session-2026-09-02-strategies",
+      "value": "Measured the user's five strategies from his own Pine source and built the execution path. SHIPS: TK Swing Pullback long-only, his exact settings, enableShorts OFF (+0.2145 net R/trade, 5/5 folds on all three assets, +117R) — a 192-config out-of-sample search found nothing better. FVG continuation reconfigured to disp1.0/8R/retest80 (+0.6655 net, 5/5 x3, recent 90d +1.0369, 4% concentration) with a live 15-min runner on BOTH boxes, a parity check (8.08 vs 8.1 per 1k bars) and an executor (magic 20260902, never the engine's 20250101, refuses by default). RETIRED: CRT+EMA short — top 5 rows are 97% of gross R, SP500 negative, +8.70R total. FOUR of my own harness defects found: the 40-bar horizon that biased 25 of 26 harnesses down; uncapped R plus sub-spread stops (3 rows = 85% of CRT's R); optimisers selecting on R/trade while judging on total R; and filters matching nothing reading as absent signal. Standing rule: a result that cannot fire is indistinguishable from one that did not fire — every filter needs a way to say which. BLOCKED ON USER: enableShorts off, the sizing fix, the server restart, and the executor's first dry run.",
+      "category": "LEARNING",
+      "source": "manual",
+      "created_at": "2026-09-02T12:24:26.676902+00:00",
+      "updated_at": "2026-09-02T12:24:26.676902+00:00"
+    },
+    {
+      "key": "tomorrow-2026-09-03",
+      "value": "[1] Make the evidence gate reachable — approve node tasks/api_snapshot.cjs --update for the stale gate-health baseline, then move post-edit-check.ps1 section 6 above the 4b exit so a shape regression stays loud without silencing the gate. [2] Carry today's laptop work to the VPS and re-run node tasks/vps_parity.cjs plus claims_check there — the SELL_BOUNCE answer proved findings sit on one box unread, and this is the second instance in two days. [3] Close the carried-over fleet items: VPS bridge restart (still holds the 48h cooldown), rsiceiling re-curation, EXA_API_KEY. No engine changes without a walk-forward — 514 commits on the signal path against 7 closed trades.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-09-02T04:34:00.765253+00:00",
+      "updated_at": "2026-09-02T04:34:00.765253+00:00"
+    },
+    {
+      "key": "session-2026-09-02",
+      "value": "Rules got scripts: claims_check.cjs now verifies CLAUDE.md against the code (4 stale claims fixed incl. GET /api/performance, a route that does not exist), wired into /check + startup hook; duplicate guard + evidence gate shipped as hooks (e220471) and the duplicate guard VERIFIED firing on the laptop. Gate confirmed 70 on both boxes — the CLAUDE.md bullet announcing 65 was itself the stale claim (a59c2ac). Silent failures closed: graph check had no floor so an EMPTY store read \"Graph OK\" (eb5d176), strategy_search discarded the stderr naming its own axis failures (fa965fd), VPS backup was archiving a 15,016-file virtualenv (4982f7d). Recovered the SELL_BOUNCE per-asset walk-forward answer that existed only on the VPS: NO — Gold 5/5 +0.086 -> 4/5 -0.087 and trade count FALLS (da5612e). OPEN: post-edit-check.ps1 exits 1 at a gate-health baseline stale since 2026-08-31 (SETUP_DISABLED), so the evidence gate shipped this morning has never printed.",
+      "category": "SYSTEM",
+      "source": "manual",
+      "created_at": "2026-09-02T04:33:41.734849+00:00",
+      "updated_at": "2026-09-02T04:33:41.734849+00:00"
+    },
+    {
+      "key": "PLAN_20260902",
+      "value": "Daily Plan 2026-09-02 (levels: confluence-zones): |   BTC WAIT | R1 77535.6 S1 76522.57 |   GOLD WAIT | R1 4339.93 S1 4308.46 |   SPX WAIT | R1 7650 S1 7622.17 |   MACRO VIX 16.34 — NORMAL |   MACRO D",
+      "category": "TRADE",
+      "source": "manual",
+      "created_at": "2026-09-02T02:21:11.103753+00:00",
+      "updated_at": "2026-09-02T02:21:11.103753+00:00"
+    },
+    {
       "ts": "2026-08-24T20:33:02",
       "tag": "SESSION-END",
       "text": "2026-08-24 eve. ALL THREE TV CHARTS REPOINTED to the current script (GOLD/BTC/SPX = 'JARVIS Daily Plan 08-24 20:12', 10 studies each, layouts saved). Root cause: TradingView PINS a study to the script version it was added at; the save was always fine (proved by reload + reading the editor from the server). New command: `python tradingview_bot.py repoint [SYMBOL|all]`. Chart no longer draws price lines on a WAIT - pivots moved to a Pivots panel row; 1D/4H measured reads now render. SmartEntry TV Daily Plan task verified exit 0. 529 transient parking deployed to BOTH boxes (morning agent + daily check had silently dropped a day's work). Telegram outbound VERIFIED delivering; inbound permanently 409 while the Supabase webhook exists - user decision. Coverage audit 2 RED -> 1 RED (Daily Check, historical 529, clears on next run). SELF-INFLICTED: stray Delete keys corrupted the Pine source and Ctrl+S saved it; fixed, and make_focus_safe() now gates every Delete/Ctrl+S."
@@ -640,19 +704,19 @@
     },
     {
       "key": "last-session-state",
-      "value": "2026-09-01 session. GATE IS 65 now (user changed 70->65 for frequency, BOTH boxes, FLEET AGREES, CLAUDE.md updated). ALL FOUR engine changes made today were REVERTED (8f69319) — they were backed by ceiling_measure.cjs bar-return evidence and every one degraded realised R (Gold 5/5 ROBUST +0.051 -> 4/5 -0.307). A bar return has no stop/target/sequencing: it is a SCREEN, never a verdict; the walk-forward wins. THE REAL FIND: the near-miss census had macd.bullish in its GUARD not among its reported conditions, so 64 rows across both boxes were all RSI and Gold had ZERO rows ever — the mandatory diagnostic was blind to the asset it was most needed for. Fixed both boxes (f11abc0 + VPS in place), reporting only, Rule 3 verified identical. Gold now reads \"BLOCKED: MOMENTUM — MACD not bullish (histogram -13.05)\". Also fixed: MCP memory now stored in Documents\\Brain (was in the npx cache and got wiped), session-stop hook write (dead its whole life, 400 then 401), vault backup now covers .claude memory + all ledgers BY KIND not an allowlist, VPS backup was missing .jsonl entirely, both boxes were publishing \"disable your best setup\" on /api/checksystem. VPS parity: ENGINES AGREE. VPS NOT restarted — picks up the census fix naturally.",
+      "value": "Building: enforcement layer for the written rules (tasks/claims_check.cjs, tasks/duplicate_check.cjs, hooks/pre-edit-check.ps1, hooks/post-edit-check.ps1) | open-issues: post-edit-check.ps1 exits 1 at section 4b on a gate-health baseline stale since 2026-08-31 (SETUP_DISABLED added by e9ae4b2), so the code-review signal and the evidence gate never print on a server/index.js edit; carried over from 08-31 — VPS bridge still holds HALT_COOLDOWN_HOURS=48 until restarted, rsiceiling claim needs human re-curation, EXA_API_KEY unset, tasks/.daily_ran_20260728 and _20260730 tracked but missing from disk | pending-approvals: node tasks/api_snapshot.cjs --update (rewrites the API baseline); reordering post-edit-check section 6 above the 4b exit | tasks: TaskList tool not available this session | commits: eb5d176, 4982f7d, da5612e",
       "category": "SYSTEM",
       "source": "manual",
       "created_at": "2026-08-28T06:16:55.822276+00:00",
-      "updated_at": "2026-09-01T07:15:59.877769+00:00"
+      "updated_at": "2026-09-02T04:33:57.367687+00:00"
     },
     {
       "key": "last-session-commits",
-      "value": "f11abc0 The near-miss census could not see MACD, so it could not see Gold | 0eec617 The third no-proposal path ÔÇö the agent said three, I fixed two | 047ae16 checksystem was standing advice to disable MOMENTUM, two days after the fix",
+      "value": "201f54d INERT is a verdict, the sensitivity report stops erasing itself, and 10,000 sims | ef7a2d5 Rationale for the plateau test (88776ec) | 88776ec update tasks\\param_sensitivity.cjs",
       "category": "GENERAL",
       "source": "manual",
       "created_at": "2026-08-28T06:16:57.452243+00:00",
-      "updated_at": "2026-09-01T10:40:35.837Z"
+      "updated_at": "2026-09-06T07:38:12.213Z"
     },
     {
       "key": "EOD_20260828",
@@ -743,5 +807,5 @@
       "updated_at": "2026-09-01T03:35:18.577363+00:00"
     }
   ],
-  "last_updated": "2026-09-01T10:40:35.837Z"
+  "last_updated": "2026-09-06T07:52:51.987235+00:00"
 }
