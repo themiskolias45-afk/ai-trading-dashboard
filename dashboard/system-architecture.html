@@ -257,7 +257,7 @@
   function render(d) {
     var reg = d.reg, sig = d.sig, set = d.set, risk = d.risk, gate = d.gate,
         learn = d.learn, fleet = d.fleet, brain = d.brain,
-        mA = d.mA, work = d.work;
+        mA = d.mA, work = d.work, runtime = d.runtime;
 
     // Closed fills, counted from the journal itself. There is no totalTrades field
     // anywhere -- I had invented one, so both Journal boxes rendered "?".
@@ -330,8 +330,16 @@
         box(P.plug, C.exec, "Bridge A", "python &rarr; MT5", bridgeV, bridgeS) +
         box(P.plug, C.exec, "Bridge B", "not run here", "by config", "ok")) +
       group("Chart side",
-        box(P.bot, C.exec, "EA CRT AMD", "gold M15", "live", "ok") +
-        box(P.bot, C.exec, "TK Smart Entry", "BTC M15", "live", "ok")) +
+        box(P.bot, C.exec, "EA CRT AMD",
+            ng(runtime) ? "status not pulled" : (runtime.eaName || "gold M15"),
+            ng(runtime) ? null : (runtime.eaAttached === true ? "attached"
+                                : runtime.eaAttached === false ? "not seen" : null),
+            ng(runtime) ? "unk" : (runtime.eaAttached === true ? "ok"
+                                 : runtime.eaAttached === false ? "warn" : "unk")) +
+        // TK runs on the same terminal but nothing publishes ITS attach state, so this
+        // says so rather than asserting a status it cannot read.
+        box(P.bot, C.exec, "TK Smart Entry", "BTC M15 - attach state not published",
+            null, "unk")) +
       group("Strategy runners",
         box(P.up, C.exec, "Executors", "CRT / FVG / TK", "3", "warn") +
         box(P.eye, C.exec, "Shadow", "places no orders", "3", "ok"))));
@@ -391,7 +399,10 @@
         box(P.bell, C.cons, "Telegram", "alerts", "on", "ok")) +
       group("External",
         box(P.up, C.cons, "TradingView", "plan drawing", "bot", "ok") +
-        box(P.screen, C.cons, "MT5 terminals", "one per box", "2", "ok") +
+        box(P.screen, C.cons, "MT5 terminal", "peer build / uptime",
+            ng(runtime) ? null : ((runtime.terminalBuild || "?") +
+              (runtime.mt5UptimeHours != null ? "  " + runtime.mt5UptimeHours + "h" : "")),
+            ng(runtime) ? "unk" : (runtime.mt5Running ? "ok" : "bad")) +
         box(P.screen, C.cons, "Mobile app", "iOS / Android", "", "unk", true))));
 
     $("layers").innerHTML = L.join(CONN);
@@ -524,11 +535,11 @@
       get("/api/risk-status"), get("/api/gate-health"), get("/api/healer"),
       get("/api/learning"), get("/api/fleet"), get("/dashboard/brain-stats.json"),
       get("/api/mt5/health?account=A"), get("/api/evidence-board"), get("/api/ai-work"),
-      get("/api/journal?limit=200")
+      get("/api/journal?limit=200"), get("/dashboard/mt5-runtime-status.json")
     ]).then(function (r) {
       render({ reg: r[0], sig: r[1], set: r[2], risk: r[3], gate: r[4], heal: r[5],
                learn: r[6], fleet: r[7], brain: r[8], mA: r[9],
-               ev: r[10], work: r[11], journal: r[12] });
+               ev: r[10], work: r[11], journal: r[12], runtime: r[13] });
     });
   }
   load();
