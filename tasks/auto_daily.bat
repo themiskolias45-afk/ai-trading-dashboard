@@ -132,6 +132,16 @@ REM Read-only, writes one file, feedsTheGate:false.
 echo --- brain stats --- >> "%LOGFILE%"
 node "%PROJ%\tasks\brain_stats.cjs" >> "%LOGFILE%" 2>&1
 
+REM HALT COVERAGE, added 2026-09-06. server/index.js already warns that a switch
+REM stopping SOME order paths is worse than one stopping none, because you believe
+REM you are flat. Nothing checked whether that was currently true. Both PYTHON
+REM paths are covered; the chart EAs are not and cannot be -- they run inside
+REM MetaTrader and never call the server. Reports, never acts: the MT5 Python API
+REM has no setter for trade_allowed, and sending keystrokes to the process holding
+REM open positions is a worse failure than the one it would prevent.
+echo --- halt coverage --- >> "%LOGFILE%"
+node "%PROJ%\tasks\halt_coverage.cjs" >> "%LOGFILE%" 2>&1
+
 REM BRAIN STATS, added 2026-09-06. The System Map and Architecture pages were bound
 REM to /api/rag, /api/cognition, /api/brain-status and /api/jarvis. NONE of those
 REM routes exist. They answered 401 only because this server's auth middleware 401s
@@ -141,9 +151,6 @@ REM
 REM Written as a static artifact rather than a new route: express.static already
 REM serves dashboard/*.json, so this needs no server restart with positions open.
 REM Read-only, writes one file, feedsTheGate:false.
-echo --- brain stats --- >> "%LOGFILE%"
-node "%PROJ%\tasks\brain_stats.cjs" >> "%LOGFILE%" 2>&1
-
 REM The BRAIN gets a checker too. Every other layer had one - claims_check for
 REM CLAUDE.md, config_drift for copied settings, encoding_check for mojibake,
 REM decisions.cjs for standing decisions - and the 333 memories, the most important

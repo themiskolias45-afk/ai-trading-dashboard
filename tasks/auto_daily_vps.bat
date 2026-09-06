@@ -123,6 +123,17 @@ REM serves dashboard/*.json, so this needs no server restart with positions open
 REM Read-only, writes one file, feedsTheGate:false.
 echo --- brain stats --- >> "%LOGFILE%"
 node "%PROJ%\tasks\brain_stats.cjs" >> "%LOGFILE%" 2>&1
+
+REM HALT COVERAGE, added 2026-09-06. server/index.js already warns that a switch
+REM stopping SOME order paths is worse than one stopping none, because you believe
+REM you are flat. Nothing checked whether that was currently true. Both PYTHON
+REM paths are covered; the chart EAs are not and cannot be -- they run inside
+REM MetaTrader and never call the server. Reports, never acts: the MT5 Python API
+REM has no setter for trade_allowed, and sending keystrokes to the process holding
+REM open positions is a worse failure than the one it would prevent.
+echo --- halt coverage --- >> "%LOGFILE%"
+node "%PROJ%\tasks\halt_coverage.cjs" >> "%LOGFILE%" 2>&1
+
 echo. >> "%LOGFILE%"
 
 echo --- calibration drift --- >> "%LOGFILE%"
