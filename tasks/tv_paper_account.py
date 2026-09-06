@@ -274,9 +274,32 @@ def main():
         "pnl": (data or {}).get("pnl"),
         "balanceHeaders": (data or {}).get("balanceHeaders"),
         "balanceRows": (data or {}).get("balanceRows"),
+        "balanceVia": (data or {}).get("balanceVia"),
         "warning": ("Invisible to /api/mt5/positions and to the trade ledger - both are fed "
                     "from MT5. This file is the only place this account appears."),
     }
+
+    # CROSS-CHECK: the P&L summed out of Balance history must equal the Realized PnL that
+    # TradingView reports for the account. Two independent readings of the same fact - if
+    # they disagree, the bucketing is wrong and every daily/weekly figure built on it is too.
+    # Noticing this agreement by eye is not a check; asserting it is.
+    summed = (payload["pnl"] or {}).get("allTime")
+    reported = to_number((payload["summary"] or {}).get("Realized PnL"))
+    if summed is None or reported is None:
+        payload["crossCheck"] = {"agree": None,
+                                 "detail": "one side unreadable - cannot compare"}
+    else:
+        delta = round(summed - reported, 2)
+        payload["crossCheck"] = {
+            "agree": abs(delta) <= 0.05,
+            "summedFromHistory": summed,
+            "reportedByTradingView": reported,
+            "delta": delta,
+            "detail": ("balance history sums to the account's own Realized PnL"
+                       if abs(delta) <= 0.05 else
+                       "MISMATCH of %.2f - the day/week/month figures cannot be trusted"
+                       % delta),
+        }
     if AS_JSON:
         print(json.dumps(payload, indent=2))
         return 0
