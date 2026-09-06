@@ -63,7 +63,10 @@ ALLOWED = {
     "BTCUSD": {"units": 1, "tv_symbol": "BINANCE:BTCUSDT",
                "aliases": ("BTCUSD", "BTCUSDT", "BINANCE:BTCUSDT", "BTC")},
 }
-STRATEGY_TAG = "TK Swing Trend Pullback"   # substring; the Long-Only script is NOT this one
+# Matched against the fired ALERT's name, not the script's. The user's existing alert is
+# named "GOLD - Swing Trend Pullback Entry Alert" -- no "TK" -- so a tag of
+# "TK Swing Trend Pullback" matched nothing and would have polled forever reporting quiet.
+STRATEGY_TAG = "Swing Trend Pullback"
 BROKER_MUST_BE = "Paper Trading"
 LIVE = "--live" in sys.argv
 
