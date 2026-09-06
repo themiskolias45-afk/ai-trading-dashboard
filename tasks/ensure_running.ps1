@@ -505,6 +505,19 @@ if (Test-Path $execState) {
     }
 }
 
+# THE THREE BOOKS for the Performance page. Same reasoning as the two blocks above: it rides
+# this task because this one runs. Read-only - reads the journal API and two JSON files this
+# system already publishes, writes one file, and a failure must never take ensure_running down.
+$books = Join-Path $Proj 'tasks\performance_books.cjs'
+if (Test-Path $books) {
+    try {
+        & node $books 2>&1 | Out-Null
+        Write-Log 'Performance books: refreshed'
+    } catch {
+        Write-Log "Performance books: refresh FAILED - $($_.Exception.Message)"
+    }
+}
+
 if (-not $IsInteractive) {
     # The VPS is headless. Opening a console session nobody can see would burn
     # subscription on a window that never gets read.
