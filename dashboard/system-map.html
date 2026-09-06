@@ -235,7 +235,7 @@
 
   function render(d) {
     var reg = d.reg, sig = d.sig, set = d.set, risk = d.risk, gate = d.gate,
-        mA = d.mA, learn = d.learn, mem = d.mem, cog = d.cog, work = d.work;
+        mA = d.mA, learn = d.learn, brain = d.brain, work = d.work;
     var grid = $("grid"); grid.innerHTML = "";
 
     // ---- column 1 --------------------------------------------------------
@@ -275,7 +275,11 @@
     }
     teamItems.push({ n: "Agents", q: "(spawned on demand, not daemons)", v: pick(reg, "counts.agents"), s: "ok" });
     teamItems.push({ n: "Skills", q: "(slash commands)", v: pick(reg, "counts.skills"), s: "ok" });
-    teamItems.push({ n: "Memory", q: "(recall)", v: pick(mem, "count", pick(mem, "total")), s: "unk" });
+    teamItems.push({ n: "Memories", q: "(one fact per file)", v: pick(brain, "memories.count"),
+                     s: pick(brain, "memories.ok") ? "ok" : "unk" });
+    teamItems.push({ n: "Knowledge graph", q: "(entities / relations)",
+                     v: pick(brain, "graph.ok") ? (pick(brain, "graph.entities") + "/" + pick(brain, "graph.relations")) : null,
+                     s: pick(brain, "graph.relations") === 0 ? "warn" : "ok" });
     teamItems.push({ n: "Guardrails", q: "(enforced in code)", v: ng(reg) ? null : reg.guardrails.filter(function (g) { return /ENFORCED/i.test(g.enforcement); }).length, s: "ok" });
 
     grid.appendChild(panel("b-teal", IC.team, "#4fd6c4", "AI Workforce",
@@ -365,12 +369,12 @@
     Promise.all([
       get("/api/ai-registry"), get("/api/signals"), get("/api/strategy-settings"),
       get("/api/risk-status"), get("/api/gate-health"), get("/api/mt5/health?account=A"),
-      get("/api/learning"), get("/api/memory"), get("/api/cognition"),
+      get("/api/learning"), get("/dashboard/brain-stats.json"),
       get("/api/healer"), get("/api/fleet"), get("/api/ai-work")
     ]).then(function (r) {
       render({ reg: r[0], sig: r[1], set: r[2], risk: r[3], gate: r[4], mA: r[5],
-               learn: r[6], mem: r[7], cog: r[8], heal: r[9], fleet: r[10],
-               work: r[11] });
+               learn: r[6], brain: r[7], heal: r[8], fleet: r[9],
+               work: r[10] });
     });
   }
   load();

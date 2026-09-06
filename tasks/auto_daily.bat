@@ -120,6 +120,30 @@ REM exit code describes CLAUDE.md as it now stands rather than as it was.
 echo --- CLAUDE.md claims (anchors self-heal) --- >> "%LOGFILE%"
 node "%PROJ%\tasks\claims_check.cjs" --fix >> "%LOGFILE%" 2>&1
 
+REM BRAIN STATS, added 2026-09-06. The System Map and Architecture pages were bound
+REM to /api/rag, /api/cognition, /api/brain-status and /api/jarvis. NONE of those
+REM routes exist. They answered 401 only because this server's auth middleware 401s
+REM EVERY /api/* path -- a deliberately fake endpoint returns 401 too -- so a 401
+REM never proved a route was registered, and those cards could only render '?'.
+REM
+REM Written as a static artifact rather than a new route: express.static already
+REM serves dashboard/*.json, so this needs no server restart with positions open.
+REM Read-only, writes one file, feedsTheGate:false.
+echo --- brain stats --- >> "%LOGFILE%"
+node "%PROJ%\tasks\brain_stats.cjs" >> "%LOGFILE%" 2>&1
+
+REM BRAIN STATS, added 2026-09-06. The System Map and Architecture pages were bound
+REM to /api/rag, /api/cognition, /api/brain-status and /api/jarvis. NONE of those
+REM routes exist. They answered 401 only because this server's auth middleware 401s
+REM EVERY /api/* path -- a deliberately fake endpoint returns 401 too -- so a 401
+REM never proved a route was registered, and those cards could only render '?'.
+REM
+REM Written as a static artifact rather than a new route: express.static already
+REM serves dashboard/*.json, so this needs no server restart with positions open.
+REM Read-only, writes one file, feedsTheGate:false.
+echo --- brain stats --- >> "%LOGFILE%"
+node "%PROJ%\tasks\brain_stats.cjs" >> "%LOGFILE%" 2>&1
+
 REM The BRAIN gets a checker too. Every other layer had one - claims_check for
 REM CLAUDE.md, config_drift for copied settings, encoding_check for mojibake,
 REM decisions.cjs for standing decisions - and the 333 memories, the most important

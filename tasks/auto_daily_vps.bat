@@ -97,6 +97,32 @@ echo. >> "%LOGFILE%"
 
 echo --- config drift --- >> "%LOGFILE%"
 node "%PROJ%\tasks\config_drift.cjs" --emit >> "%LOGFILE%" 2>&1
+
+REM CLAUDE.md line anchors, added 2026-09-06. Same block as the laptop nightly, and
+REM this box needed it MORE: claims_check.cjs did not exist here at all, so the VPS
+REM boot file had NEVER been checked. Its first run found three stale claims -- two
+REM rotted anchors and, worse, "The gate is 65" with the live gate at 70, in the file
+REM every session on this box reads first. It also still carried an instruction to
+REM call GET /api/performance, a route that does not exist.
+REM
+REM --fix repairs LINE ANCHORS ONLY -- a coordinate, where recomputing loses nothing.
+REM Facts (a moved gate, a missing file, a dead route) are reported and never
+REM rewritten, because auto-editing prose to agree with the code would erase the
+REM disagreement instead of surfacing it. The gate line above was fixed by hand.
+echo --- CLAUDE.md claims (anchors self-heal) --- >> "%LOGFILE%"
+node "%PROJ%\tasks\claims_check.cjs" --fix >> "%LOGFILE%" 2>&1
+
+REM BRAIN STATS, added 2026-09-06. The System Map and Architecture pages were bound
+REM to /api/rag, /api/cognition, /api/brain-status and /api/jarvis. NONE of those
+REM routes exist. They answered 401 only because this server's auth middleware 401s
+REM EVERY /api/* path -- a deliberately fake endpoint returns 401 too -- so a 401
+REM never proved a route was registered, and those cards could only render '?'.
+REM
+REM Written as a static artifact rather than a new route: express.static already
+REM serves dashboard/*.json, so this needs no server restart with positions open.
+REM Read-only, writes one file, feedsTheGate:false.
+echo --- brain stats --- >> "%LOGFILE%"
+node "%PROJ%\tasks\brain_stats.cjs" >> "%LOGFILE%" 2>&1
 echo. >> "%LOGFILE%"
 
 echo --- calibration drift --- >> "%LOGFILE%"

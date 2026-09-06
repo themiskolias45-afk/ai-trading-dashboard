@@ -256,11 +256,11 @@
 
   function render(d) {
     var reg = d.reg, sig = d.sig, set = d.set, risk = d.risk, gate = d.gate,
-        learn = d.learn, fleet = d.fleet, mem = d.mem, rag = d.rag, cog = d.cog,
+        learn = d.learn, fleet = d.fleet, brain = d.brain,
         mA = d.mA, work = d.work;
 
     $("authwarn").style.display =
-      [reg, fleet, mem, rag, cog, work].some(function (x) { return x && x.__auth; }) ? "" : "none";
+      [reg, fleet, brain, work].some(function (x) { return x && x.__auth; }) ? "" : "none";
 
     var C = { src:"#3fd0e8", ing:"#3fe8d0", core:"#2bd07c", exec:"#6cb6ff",
               mem:"#a78bff", team:"#4fd6c4", learn:"#2bd07c", cons:"#f0b429" };
@@ -326,13 +326,21 @@
 
     L.push(layer("a-mem", "5", "Memory &amp; Cognition", "what it knows, how it recalls",
       group("Long term",
-        box(P.doc, C.mem, "Memories", "one fact per file", pick(mem, "count", pick(mem, "total")), "unk") +
-        box(P.brain, C.mem, "Semantic recall", "local embeddings", pick(rag, "chunks", pick(rag, "total")), "unk") +
-        box(P.net, C.mem, "Knowledge graph", "entities", pick(cog, "graph.entities"), "warn")) +
+        box(P.doc, C.mem, "Memories", "one fact per file", pick(brain, "memories.count"),
+            pick(brain, "memories.ok") ? "ok" : "unk") +
+        box(P.brain, C.mem, "Semantic recall", "local embeddings",
+            pick(brain, "rag.ok") ? (Math.round(pick(brain, "rag.storeBytes", 0) / 1048576) + " MB") : null,
+            pick(brain, "rag.ok") ? "ok" : "unk") +
+        box(P.net, C.mem, "Knowledge graph", "entities / relations",
+            pick(brain, "graph.ok") ? (pick(brain, "graph.entities") + " / " + pick(brain, "graph.relations")) : null,
+            pick(brain, "graph.relations") === 0 ? "warn" : (pick(brain, "graph.ok") ? "ok" : "unk"))) +
       group("Session",
-        box(P.doc, C.mem, "Boot config", "CLAUDE.md", "loaded", "ok") +
-        box(P.doc, C.mem, "Vault", "Obsidian", "linked", "ok") +
-        box(P.clock, C.mem, "Session memory", "carried forward", pick(cog, "jarvisEntries"), "unk"))));
+        box(P.doc, C.mem, "Boot config", "CLAUDE.md",
+            pick(brain, "bootConfig.ok") ? "loaded" : null, pick(brain, "bootConfig.ok") ? "ok" : "unk") +
+        box(P.doc, C.mem, "Vault", "Obsidian",
+            pick(brain, "vaultIndex.ok") ? "linked" : null, pick(brain, "vaultIndex.ok") ? "ok" : "unk") +
+        box(P.clock, C.mem, "Session memory", "carried forward",
+            pick(brain, "jarvisMemory.entries"), pick(brain, "jarvisMemory.ok") ? "ok" : "unk"))));
 
     L.push(layer("a-team", "6", "AI Workforce", "who does the work",
       group("Unattended",
@@ -485,13 +493,12 @@
     Promise.all([
       get("/api/ai-registry"), get("/api/signals"), get("/api/strategy-settings"),
       get("/api/risk-status"), get("/api/gate-health"), get("/api/healer"),
-      get("/api/learning"), get("/api/fleet"), get("/api/memory"), get("/api/rag"),
-      get("/api/cognition"), get("/api/mt5/health?account=A"), get("/api/evidence-board"),
-      get("/api/ai-work")
+      get("/api/learning"), get("/api/fleet"), get("/dashboard/brain-stats.json"),
+      get("/api/mt5/health?account=A"), get("/api/evidence-board"), get("/api/ai-work")
     ]).then(function (r) {
       render({ reg: r[0], sig: r[1], set: r[2], risk: r[3], gate: r[4], heal: r[5],
-               learn: r[6], fleet: r[7], mem: r[8], rag: r[9], cog: r[10], mA: r[11],
-               ev: r[12], work: r[13] });
+               learn: r[6], fleet: r[7], brain: r[8], mA: r[9],
+               ev: r[10], work: r[11] });
     });
   }
   load();
