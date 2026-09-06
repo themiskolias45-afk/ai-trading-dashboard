@@ -25,6 +25,30 @@ function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $m" | Add-Content
 # them by pulling this file.
 $files = @('mt5-runtime-status.json', 'ea-crt-weekly-review.json', 'tv-paper-positions.json', 'tv-paper-account.json')
 $ok = 0
+
+# REFRESH THE SOURCE BEFORE PULLING IT.
+#
+# Measured 2026-09-06: the VPS task "MT5 Ensure Running" launches powershell.exe - Task
+# Scheduler's own Operational log records the launch and a successful completion one second
+# later - but the script NEVER EXECUTES. No START line, no log entry, no file written, and
+# LastTaskResult stays 0 with NumberOfMissedRuns 0. Verified it is not the script (the task's
+# exact command line runs correctly over SSH and writes), not the arguments (byte-checked,
+# pure ASCII, path resolves), not the file encoding (no BOM, zero non-ASCII), and not the
+# RunLevel (the CRT/TK/FVG shadow tasks are equally 'Limited' and write every few minutes).
+#
+# The consequence was silent and user-visible: the status file aged past 30 minutes and the
+# AI Brain panel showed "Status UNKNOWN" while MT5, the EA and the trades were all perfectly
+# healthy. A stale file read as a sick system.
+#
+# So this pull refreshes the source first rather than faithfully copying a frozen file. It is
+# a workaround, not a fix - the VPS task is still not running - but it is in a script that
+# demonstrably runs every 10 minutes, and it fails soft: if ssh is unavailable the pull still
+# copies whatever is there, exactly as before.
+$refresh = @'
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\ai-trading-dashboard\tasks\mt5_ensure_running.ps1
+'@
+& ssh -o BatchMode=yes -o ConnectTimeout=20 vps $refresh 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) { Log "refresh over ssh failed (exit $LASTEXITCODE) - pulling whatever is on the VPS" }
 foreach ($f in $files) {
     # Straight to the destination name: nothing on the laptop generates the runtime status,
     # and the weekly review from the box where the EA actually runs is the authoritative
