@@ -28,10 +28,25 @@ const ROOT = path.join(__dirname, "..");
 const OUT = path.join(ROOT, "dashboard", "brain-stats.json");
 const PRINT_ONLY = process.argv.includes("--print");
 
-const MEMORY_DIR = path.join(
-  process.env.USERPROFILE || process.env.HOME || "C:\\Users\\User",
-  ".claude", "projects", "C--Users-User-ai-trading-dashboard", "memory"
-);
+// DERIVE the memory directory, never hardcode it. Claude names the project folder after
+// the project PATH with separators and colons replaced by "-", so it differs per box:
+//   C:\Users\User\ai-trading-dashboard  ->  C--Users-User-ai-trading-dashboard
+//   C:\ai-trading-dashboard             ->  C--ai-trading-dashboard
+// The first version hardcoded the laptop's name, so the VPS reported "memory directory
+// not found" -- which on a page reads as a brain with no memories rather than as a wrong
+// path on my side. When it still cannot be found, the path TRIED is reported, so the next
+// reader is not guessing.
+const HOME = process.env.USERPROFILE || process.env.HOME || "C:\\Users\\User";
+// EACH separator becomes one dash, not each RUN of them. "C:\" is two characters and
+// must become two dashes -- C--Users-User-... -- so the greedy + was wrong and produced
+// C-Users-User-..., which matches no directory on either box.
+function projectSlug(dir) { return dir.replace(/[\\/:]/g, "-"); }
+const MEMORY_CANDIDATES = [
+  path.join(HOME, ".claude", "projects", projectSlug(path.resolve(ROOT)), "memory"),
+  path.join(HOME, ".claude", "projects", projectSlug(ROOT), "memory")
+];
+const MEMORY_DIR = MEMORY_CANDIDATES.find(function (d) { return fs.existsSync(d); })
+                || MEMORY_CANDIDATES[0];
 const VAULT_DIR = path.join(
   process.env.USERPROFILE || process.env.HOME || "C:\\Users\\User", "Documents", "Brain"
 );
@@ -49,7 +64,7 @@ function safe(fn, fallback) {
 }
 
 function countMemoryFiles() {
-  if (!fs.existsSync(MEMORY_DIR)) return { ok: false, why: "memory directory not found" };
+  if (!fs.existsSync(MEMORY_DIR)) return { ok: false, why: "no memory dir at " + MEMORY_DIR, tried: MEMORY_CANDIDATES };
   const all = fs.readdirSync(MEMORY_DIR).filter((f) => f.endsWith(".md"));
   // MEMORY.md and MEMORY-FULL.md are INDEXES over the memories, not memories themselves.
   const indexes = all.filter((f) => /^MEMORY(-FULL)?\.md$/.test(f));
