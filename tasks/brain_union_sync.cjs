@@ -172,7 +172,9 @@ for (const rel2 of onlyLocal) {
 
 // The graph is written ONLY if the union is a genuine superset of both sides. A merge
 // that would drop a row is refused outright rather than "mostly" applied.
-if (mergedRows.length && localOnlyGraph.length) {
+if (graphIdentical) {
+  console.log("  graph already identical on both sides — not rewritten, no backup burned.");
+} else if (mergedRows.length && localOnlyGraph.length) {
   const okLocal = localRows.every((r) => merged.has(keyOf(r)));
   const okRemote = remoteRows.every((r) => merged.has(keyOf(r)));
   if (!okLocal || !okRemote) {
