@@ -259,6 +259,17 @@
         learn = d.learn, fleet = d.fleet, brain = d.brain,
         mA = d.mA, work = d.work;
 
+    // Closed fills, counted from the journal itself. There is no totalTrades field
+    // anywhere -- I had invented one, so both Journal boxes rendered "?".
+    var closed = null, openNow = null;
+    if (!ng(d.journal)) {
+      var rows = d.journal.journal || d.journal.trades || d.journal;
+      if (Object.prototype.toString.call(rows) === "[object Array]") {
+        closed = rows.filter(function (t) { return t.status === "CLOSED"; }).length;
+        openNow = rows.filter(function (t) { return t.status === "OPEN"; }).length;
+      }
+    }
+
     $("authwarn").style.display =
       [reg, fleet, brain, work].some(function (x) { return x && x.__auth; }) ? "" : "none";
 
@@ -271,7 +282,8 @@
     L.push(layer("a-src", "1", "Data Sources", "market, context, streaming",
       group("Market (structured)",
         box(P.db, C.src, "Broker bars", "D1 / H4 / H1 / M15", "4 TF", "ok") +
-        box(P.db, C.src, "Journal", "real fills", pick(learn, "totalTrades", "?"), "unk")) +
+        box(P.db, C.src, "Journal", "closed fills", closed,
+            closed === null ? "unk" : "ok")) +
       group("Context (unstructured)",
         box(P.doc, C.src, "News", "web search", "on", "ok") +
         box(P.clock, C.src, "Calendar", "blackout windows", "on", "ok") +
@@ -361,8 +373,10 @@
 
     L.push(layer("a-learn", "7", "Learning &amp; Evidence", "measuring never changes trading",
       group("From real fills",
-        box(P.db, C.learn, "Journal", "with realised R", pick(learn, "totalTrades", "?"), "unk") +
-        box(P.gauge, C.learn, "Calibration", "is 85% really 85%", "on", "ok")) +
+        box(P.db, C.learn, "Journal", "closed / open",
+            closed === null ? null : (closed + " / " + openNow), closed === null ? "unk" : "ok") +
+        box(P.gauge, C.learn, "Calibration", "sessions tracked",
+            pick(learn, "sessionCount"), pick(learn, "sessionCount") ? "ok" : "unk")) +
       group("From rejections",
         box(P.filter, C.learn, "Rejection ledger", "paper, zero risk", "live", "ok") +
         box(P.eye, C.learn, "Shadow ledgers", "per strategy", "3", "ok")) +
@@ -416,9 +430,24 @@
     A.innerHTML += '<div class="as cand"><div class="n">XRP</div><div class="p">candidate</div>' +
       '<div class="s">XRPUSD &middot; r=0.85 vs BTC &middot; cost unmeasured</div></div>';
 
-    var pv = pick(fleet, "parity.verdict");
+    var pv, pvState;
+    if (ng(fleet)) {
+      pv = "fleet unreadable"; pvState = "unk";
+    } else if (!pick(fleet, "peer.reachable")) {
+      pv = "PEER UNREACHABLE"; pvState = "bad";
+    } else {
+      // byDesign fields differ on purpose (strategy_settings.json is per-machine),
+      // so counting them as drift would report a split that is not one.
+      var cmp = fleet.settingsComparison || [];
+      var real = cmp.filter(function (c) { return c.differs && !c.byDesign; });
+      pv = real.length ? ("FLEET DIFFERS: " + real.map(function (c) { return c.label || c.key; }).join(", "))
+                       : "FLEET AGREES";
+      pvState = real.length ? "bad" : "ok";
+    }
     $("stamp").textContent = "read " + new Date().toLocaleTimeString();
-    $("verdict").textContent = pv || "—";
+    $("verdict").textContent = pv;
+    $("verdict").style.color = pvState === "ok" ? "#2bd07c"
+                             : pvState === "bad" ? "#f2555f" : "#6f93b5";
   }
 
   function renderTeam(work, reg) {
@@ -494,11 +523,12 @@
       get("/api/ai-registry"), get("/api/signals"), get("/api/strategy-settings"),
       get("/api/risk-status"), get("/api/gate-health"), get("/api/healer"),
       get("/api/learning"), get("/api/fleet"), get("/dashboard/brain-stats.json"),
-      get("/api/mt5/health?account=A"), get("/api/evidence-board"), get("/api/ai-work")
+      get("/api/mt5/health?account=A"), get("/api/evidence-board"), get("/api/ai-work"),
+      get("/api/journal?limit=200")
     ]).then(function (r) {
       render({ reg: r[0], sig: r[1], set: r[2], risk: r[3], gate: r[4], heal: r[5],
                learn: r[6], fleet: r[7], brain: r[8], mA: r[9],
-               ev: r[10], work: r[11] });
+               ev: r[10], work: r[11], journal: r[12] });
     });
   }
   load();
