@@ -38,7 +38,14 @@ import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+# Only when RUN, never on import. Rebinding a caller's stdout from module scope steals
+# the buffer out from under any wrapper they already installed - which is exactly how
+# the first dry-run harness died with "I/O operation on closed file".
+def _utf8_stdout():
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG = os.path.join(ROOT, "tasks", "logs", "tv_paper_executor.txt")
@@ -150,17 +157,31 @@ JS_TICKET = """() => {
   const out = {};
   const box = e => { const r = e.getBoundingClientRect();
                      return {x: r.x, y: r.y, w: r.width, h: r.height,
-                             vis: e.offsetParent !== null && r.width > 0}; };
-  for (const dn of ['buy-order-button','sell-order-button']) {
+                             vis: e.offsetParent !== null && r.width > 20 && r.height > 12}; };
+  // THE REAL CONTROLS, measured 2026-09-06. 'buy-order-button' and 'sell-order-button' also
+  // exist in the DOM but are stale 0x0 leftovers - targeting those refused every order while
+  // a perfectly working ticket sat on screen.
+  for (const dn of ['side-control-buy','side-control-sell','place-and-modify-button']) {
     const e = document.querySelector('[data-name="' + dn + '"]');
     if (e) out[dn] = box(e);
   }
   for (const e of document.querySelectorAll('button,div,span')) {
     if (e.children.length) continue;
     const t = (e.textContent || '').trim();
-    if (t === 'Market') { out.marketTab = box(e); break; }
+    if (t === 'Market' && !out.marketTab) out.marketTab = box(e);
   }
+  // What the submit button SAYS it will do - the order in the platform's own words. The
+  // executor asserts against this rather than trusting that its clicks landed.
+  const sub = document.querySelector('[data-name="place-and-modify-button"]');
+  out.submitText = sub ? (sub.textContent || '').trim().replace(/\\s+/g, ' ') : null;
   return out; }"""
+
+# The ticket trades whatever the CHART shows, and the chart moves on its own -
+# tv_daily_plan.ps1 rotates it through BTC, GOLD and SPX on every run. So the symbol is
+# re-read from the live DOM immediately before every order, never inferred from the alert.
+JS_SYMBOL = """() => {
+  const el = document.querySelector('#header-toolbar-symbol-search, [data-name="legend-series-item"] [class*="title"]');
+  return el ? (el.textContent || '').trim().toUpperCase() : null; }"""
 
 
 def with_page(fn):
@@ -301,6 +322,7 @@ def selftest():
 
 
 if __name__ == "__main__":
+    _utf8_stdout()
     if "--selftest" in sys.argv:
         sys.exit(selftest())
     if not SECRET:
