@@ -277,11 +277,19 @@ def read_alert_log(page):
 
 
 def poll_once():
-    """Read the log, act on entries not seen before. Returns a list of outcome strings."""
+    """Read the log, act on entries not seen before. Returns a list of outcome strings.
+
+    Reports HOW MANY rows it parsed, always. "no new alerts" on its own cannot distinguish
+    "read the log and nothing matched" from "parsed nothing at all because the DOM moved" -
+    and a poller that reports quiet while blind is the exact failure this system keeps hitting.
+    """
     rows = with_page(read_alert_log)
     state = load_state()
     seen = set(state.get("seenAlerts", []))
     outcomes = []
+    if not rows:
+        outcomes.append("CANNOT TELL: parsed 0 rows from the alert log - either the log is "
+                        "empty or the panel markup moved. Not the same as 'no alerts'.")
     for row in rows:
         key = "%s|%s|%s" % (row["symbol"], row["time"], row["name"][:40])
         if key in seen:
