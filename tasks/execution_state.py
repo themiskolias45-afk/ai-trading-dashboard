@@ -41,9 +41,16 @@ LEDGER = os.path.join(ROOT, "tasks", "all_trades_ledger.jsonl")
 SERVER = "http://localhost:3001"
 AS_JSON = "--json" in sys.argv
 
-# magic -> who placed it. An unknown magic is still reported, labelled by number, because
-# "something is trading that we cannot name" is the single most important thing this file
-# could ever have to say.
+# SCOPE, SET BY THE OWNER AND DELIBERATELY NARROW: SmartEntry (the bridge and its own
+# executors) and the CRT chart EA. Nothing else.
+#
+# Other magics on this account belong to the user's own separate EAs, which he runs
+# knowingly and which this system does not manage, measure or reason about. Reporting them
+# as "UNIDENTIFIED" was wrong twice over - they are identified, just not ours, and an alarm
+# that fires on something deliberate is the alarm you learn to skip past.
+#
+# The panel STATES this scope rather than implying coverage it does not have. That matters
+# more than the filtering: a reader must never mistake "not shown" for "not there".
 OWNERS = {
     20250101: "SmartEntry bridge",
     20260902: "FVG_CONTINUATION executor",
@@ -99,13 +106,16 @@ def read_mt5():
             "symbols": {},
         }
         for pos in (mt5.positions_get() or []):
+            if pos.magic not in OWNERS:
+                out["outOfScope"] = out.get("outOfScope", 0) + 1
+                continue          # another of the owner's EAs - not this system's business
             out["positions"].append({
                 "ticket": pos.ticket, "symbol": pos.symbol,
                 "side": "BUY" if pos.type == 0 else "SELL",
                 "volume": pos.volume, "price": pos.price_open,
                 "sl": pos.sl or None, "tp": pos.tp or None,
                 "profit": round(pos.profit, 2), "magic": pos.magic,
-                "owner": OWNERS.get(pos.magic, "UNKNOWN magic %s" % pos.magic),
+                "owner": OWNERS[pos.magic],
                 "haltReaches": HALT_REACHES.get(pos.magic, None),
                 "hasStop": bool(pos.sl),
             })
@@ -260,9 +270,10 @@ def main():
         "positionCount": None if positions is None else len(positions),
         "positionsHaltCannotReach": None if unreachable is None else len(unreachable),
         "positionsHaltUnknown": None if halt_unknown_pos is None else len(halt_unknown_pos),
-        "unknownMagics": (None if positions is None else
-                          sorted({p["magic"] for p in positions
-                                  if p["magic"] not in OWNERS})),
+        "scope": "SmartEntry (bridge + its executors) and the CRT chart EA only. Other "
+                 "magics on this account are the owner's separate EAs and are deliberately "
+                 "not monitored here - not shown does not mean not there.",
+        "outOfScopePositions": None if not mt5d else mt5d.get("outOfScope", 0),
         "positionsWithoutStop": None if no_stop is None else len(no_stop),
         "todaysFills": todays_fills(),
         "note": ("Read-only. Places no order, changes no setting. Every section is null when "
@@ -319,9 +330,9 @@ def main():
               "%d without a stop"
               % (len(positions), payload["positionsHaltCannotReach"],
                  payload["positionsHaltUnknown"], payload["positionsWithoutStop"]))
-        if payload["unknownMagics"]:
-            print("    UNIDENTIFIED magic(s) trading this account: %s"
-                  % ", ".join(str(m) for m in payload["unknownMagics"]))
+        if payload.get("outOfScopePositions"):
+            print("    (%d further position(s) belong to other EAs - out of scope by design)"
+                  % payload["outOfScopePositions"])
         for p in positions:
             print("    %-8s %-4s %-6s %-10s SL %-10s %+9.2f  %s%s"
                   % (p["symbol"], p["side"], p["volume"], p["price"], p["sl"] or "NONE",

@@ -7397,9 +7397,13 @@ async function refreshExecutionPanel() {
   var ageMin = d.generatedAt
     ? Math.round((Date.now() - new Date(d.generatedAt).getTime()) / 60000) : null;
   sync.textContent = (ageMin === null ? 'age unknown' : ageMin + 'm ago')
-    + (ageMin !== null && ageMin > 30 ? ' - STALE' : '') + ' · ' + (d.host || '');
+    + (ageMin !== null && ageMin > 30 ? ' - STALE' : '')
+    + ' · SmartEntry + CRT EA only · ' + (d.host || '');
 
   var esc = function (t) { return String(t === null || t === undefined ? '-' : t); };
+  /* SAY WHAT THIS PANEL COVERS. It watches SmartEntry and the CRT EA and nothing else, so
+     it must never read as an account-wide view - a reader who believes it is complete would
+     draw exactly the wrong conclusion from a short list. */
   var chip = function (label, value, tone) {
     return '<span style="display:inline-block;padding:3px 8px;margin:0 6px 6px 0;'
       + 'border-radius:4px;background:rgba(255,255,255,.05);font-size:.7rem">'
@@ -7474,7 +7478,7 @@ async function refreshExecutionPanel() {
      reached, provably not reached (chart EAs), and UNKNOWN — an unidentified magic is
      not covered, and it is not a proven gap either. It is the thing to go and identify. */
   html += '<div style="color:var(--muted);font-size:.65rem;text-transform:uppercase;'
-    + 'letter-spacing:.5px;margin:12px 0 4px">Open positions &mdash; every order path</div>';
+    + 'letter-spacing:.5px;margin:12px 0 4px">Open positions &mdash; SmartEntry + CRT EA</div>';
   if (d.positions === null || d.positions === undefined) {
     html += '<div style="color:var(--amber,#e0a030)">COULD NOT READ open positions &mdash; '
       + 'not the same as none open.</div>';
@@ -7485,10 +7489,14 @@ async function refreshExecutionPanel() {
       + d.positions.length + ' open · ' + esc(d.positionsHaltCannotReach) + ' a halt CANNOT reach · '
       + esc(d.positionsHaltUnknown) + ' halt status UNKNOWN · '
       + esc(d.positionsWithoutStop) + ' without a stop</div>';
-    if (d.unknownMagics && d.unknownMagics.length) {
-      html += '<div style="color:var(--red);font-size:.7rem;margin-bottom:4px">'
-        + 'UNIDENTIFIED magic(s) trading this account: ' + d.unknownMagics.join(', ')
-        + ' &mdash; something is placing orders that this system cannot name.</div>';
+    /* Out-of-scope positions are the owner's OTHER EAs, which he runs knowingly. They are
+       counted and named as out of scope, never flagged as unidentified - an alarm that
+       fires on something deliberate is the alarm you learn to skip past. The count is
+       still shown, because "not shown" must never be read as "not there". */
+    if (d.outOfScopePositions) {
+      html += '<div style="color:var(--muted);font-size:.68rem;margin-bottom:4px">'
+        + d.outOfScopePositions + ' further position(s) on this account belong to other EAs '
+        + '&mdash; out of scope for this panel by design.</div>';
     }
     html += d.positions.map(function (p) {
       var flag = p.haltReaches === true ? ''
