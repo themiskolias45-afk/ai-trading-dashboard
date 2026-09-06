@@ -226,12 +226,38 @@ def build_findings(recent, all_rows, sentry, perms):
             "detail": "No CONFIG SENTRY line in the last 14 days of MT5 logs.",
             "action": "The EA may not be attached. Confirm it is on XAUUSD M15.",
         })
-    elif "TRAIL OFF" not in sentry:
+    elif "TRAIL OFF" in sentry:
+        pass  # trail is genuinely off -- see the wording note below.
+    elif "CONFIG: VALIDATED" in sentry:
+        # READ THIS BEFORE "FIXING" EITHER SIDE. The EA's ValidateConfigSentry() still
+        # scores against the profile validated BEFORE 2026-09-04, in which the trailing
+        # stop was ON. Its line 3958 is literally:
+        #
+        #     if(!InpUseTrailingStop) issues += "TRAIL OFF  ";
+        #
+        # so it files the FIX as drift, and "CONFIG: VALIDATED" (issues empty) can only be
+        # printed when InpUseTrailingStop is TRUE -- i.e. VALIDATED means the LOSING config.
+        # The words mean the opposite of what they look like.
         findings.append({
             "severity": "HIGH", "check": "TRAIL_IS_ON",
-            "detail": "Latest sentry line does not report TRAIL OFF: %s" % sentry[-160:],
+            "detail": "Sentry reports CONFIG: VALIDATED, which this EA can only print when "
+                      "the trailing stop is ON -- its baseline profile predates the "
+                      "2026-09-04 measurement. Sentry: %s" % sentry[-160:],
             "action": "Load the v3.55 build or the GOLD_TRAILOFF preset. The trail is worth "
                       "-551 GBP over 13 months.",
+        })
+    else:
+        # Neither wording. If the EA sentry is ever corrected to stop calling trail-off a
+        # drift, the substring "TRAIL OFF" disappears and the old check here would have
+        # shouted TRAIL_IS_ON at a correctly configured EA -- a false HIGH caused by fixing
+        # the bug, which is the fastest way to train someone to ignore a real one. Unknown
+        # is reported as unknown.
+        findings.append({
+            "severity": "UNKNOWN", "check": "SENTRY_WORDING_UNRECOGNISED",
+            "detail": "Sentry line matches neither 'TRAIL OFF' nor 'CONFIG: VALIDATED', so "
+                      "the trail state cannot be read from it: %s" % sentry[-160:],
+            "action": "The EA's sentry wording changed. Re-read ValidateConfigSentry() and "
+                      "update this check -- do not assume the trail is off.",
         })
     if sentry and "FIXEDLOT" in sentry:
         findings.append({
