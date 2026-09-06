@@ -329,6 +329,13 @@ def main():
         print("  realised month    %+.2f" % pnl["month"])
         print("  realised all time %+.2f   (%d row(s), %d with an unparsed time)"
               % (pnl["allTime"], pnl["rowsParsed"], pnl["rowsUnparsedTime"]))
+    cc = payload.get("crossCheck") or {}
+    if cc.get("agree") is True:
+        print("  cross-check       OK - %s" % cc["detail"])
+    elif cc.get("agree") is False:
+        print("  cross-check       FAILED - %s" % cc["detail"])
+    else:
+        print("  cross-check       %s" % cc.get("detail", "not run"))
     print("")
     pos = payload["positions"]
     if pos is None:
