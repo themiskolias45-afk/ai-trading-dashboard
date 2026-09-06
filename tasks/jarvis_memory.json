@@ -712,11 +712,11 @@
     },
     {
       "key": "last-session-commits",
-      "value": "0fafa9d Startup step 4 has been looking in the wrong directory since the vault was built | 2881c8b Commit the runtime state; stop markers and generated stores burying real edits | 0e961d7 The restart check went RED every time you did your job",
+      "value": "fa2de04 The EA looked dead because the detector was reading yesterday's echo | 59e9b2f Fleet repair: the VPS boot file had never been checked | 0fafa9d Startup step 4 has been looking in the wrong directory since the vault was built",
       "category": "GENERAL",
       "source": "manual",
       "created_at": "2026-08-28T06:16:57.452243+00:00",
-      "updated_at": "2026-09-06T08:15:10.423Z"
+      "updated_at": "2026-09-06T09:38:29.934Z"
     },
     {
       "key": "EOD_20260828",
@@ -807,5 +807,5 @@
       "updated_at": "2026-09-01T03:35:18.577363+00:00"
     }
   ],
-  "last_updated": "2026-09-06T08:15:10.423Z"
+  "last_updated": "2026-09-06T09:38:29.934Z"
 }
