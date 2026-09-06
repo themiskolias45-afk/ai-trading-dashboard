@@ -67,11 +67,22 @@ function localMemoryDir() {
   return best ? best.dir : null;
 }
 
+// stdio CAPTURES STDERR RATHER THAN INHERITING IT, and that is not cosmetic.
+//
+// execFileSync's default sends the child's stderr to THIS process's stderr. The scheduled
+// task runs us as `node ... 2>&1 | Out-File`, and PowerShell 5.1 wraps every stderr line
+// from a native exe in an ErrorRecord (NativeCommandError) and reports a FAILURE even when
+// the exe exited 0. Measured 2026-09-06: a successful sync - 4/4 memories pushed, both
+// boxes at 358, re-index clean - was reported RED because huggingface_hub printed one
+// WARNING about unauthenticated requests. A green run that reports red is as corrosive as
+// a red run that reports green; both teach you to stop reading the result.
+const CAPTURE = ["ignore", "pipe", "pipe"];
+
 function ssh(command, timeout = 60000) {
   return execFileSync("ssh", ["-i", SSH_KEY, "-o", "BatchMode=yes",
     "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
     VPS_USER + "@" + VPS_HOST, command],
-    { encoding: "utf8", timeout, maxBuffer: 32 * 1024 * 1024 });
+    { encoding: "utf8", timeout, maxBuffer: 32 * 1024 * 1024, stdio: CAPTURE });
 }
 
 function sha256(file) {
@@ -258,7 +269,8 @@ function main() {
       try {
         console.log("  re-indexing locally (" + pulled + " file(s) pulled)...");
         const out = execFileSync("python", ["tasks/rag_index.py", "--source", "brain"],
-          { cwd: ROOT, encoding: "utf8", timeout: 600000, maxBuffer: 32 * 1024 * 1024 });
+          { cwd: ROOT, encoding: "utf8", timeout: 600000, maxBuffer: 32 * 1024 * 1024,
+            stdio: CAPTURE });
         const line = String(out).split(/\r?\n/).find((l) => /new document|total in index/.test(l));
         console.log("    " + (line ? line.trim() : "re-index ran"));
       } catch (e) {
