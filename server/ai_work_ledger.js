@@ -209,6 +209,33 @@ const EXPECTED_TASK_RESULTS = new Map([
     4: "skipped because the cached bars had not changed since the last run — nothing was "
      + "run and nothing was written; bar staleness is checked separately",
   }],
+  // These three were reported as "3 failing" on the Architecture page on 2026-09-06
+  // while coverage_audit.ps1 called the same runs GREEN. Both cannot be right, and the
+  // audit was: it already carries the exact wording "exit 1 = a RED finding in its own
+  // report, not a crash" for the first two. A tool that exits non-zero to say IT FOUND
+  // SOMETHING is not a tool that failed, and counting it as failing is how a real red
+  // row stops meaning anything.
+  //
+  // Page Parity is deliberately NOT here. It also exits 1, but its 1 means the two boxes
+  // are rendering different data, which is a finding that must be reconciled rather than
+  // an expected outcome. Excusing it would hide the one row that should be red.
+  ["smartentrydoctor", {
+    1: "the doctor found a RED in its own report and said so — the run succeeded, the "
+     + "finding is the output; read the report rather than the exit code",
+  }],
+  ["smartentrycoverageaudit", {
+    1: "the audit found a RED in its own report and said so — the run succeeded, the "
+     + "finding is the output; read the report rather than the exit code",
+  }],
+  // 0x800710E0 = ERROR_TASK_ALREADY_RUNNING. Stay Awake is MEANT to run continuously,
+  // so every later trigger lands on an instance that is already going and returns this.
+  // It is the signature of the task working, not of it failing.
+  ["smartentrystayawake", {
+    "-2147020576": "an instance was already running (0x800710E0) — this task is designed "
+     + "to run continuously, so a trigger arriving while it is up is the expected result",
+    2147946720: "an instance was already running (0x800710E0) — this task is designed to "
+     + "run continuously, so a trigger arriving while it is up is the expected result",
+  }],
 ]);
 
 // One wording, five task entries. The brief is queued, so the cost of the outage is
