@@ -234,9 +234,9 @@
     return '<div class="layer ' + accent + '"><div class="lab">' +
       '<div class="n">LAYER ' + n + '</div><div class="t">' + title + '</div>' +
       (qual ? '<div class="q">' + qual + '</div>' : '') +
-      '</div><div class="lay-body">' + groupsHtml + '</div></div>' +
-      '<div class="conn">' + ARROW + '</div>';
+      '</div><div class="lay-body">' + groupsHtml + '</div></div>';
   }
+  var CONN = '<div class="conn">' + ARROW + '</div>';
 
   function get(u) {
     return fetch(u, { credentials: "same-origin", cache: "no-store" })
@@ -266,9 +266,9 @@
               mem:"#a78bff", team:"#4fd6c4", learn:"#2bd07c", cons:"#f0b429" };
     var bridgeV = ng(mA) ? "?" : (mA.connected ? "live" : "down");
     var bridgeS = ng(mA) ? "unk" : (mA.connected ? "ok" : "bad");
-    var H = "";
+    var L = [];
 
-    H += layer("a-src", "1", "Data Sources", "market, context, streaming",
+    L.push(layer("a-src", "1", "Data Sources", "market, context, streaming",
       group("Market (structured)",
         box(P.db, C.src, "Broker bars", "D1 / H4 / H1 / M15", "4 TF", "ok") +
         box(P.db, C.src, "Journal", "real fills", pick(learn, "totalTrades", "?"), "unk")) +
@@ -279,14 +279,14 @@
       group("Streaming",
         box(P.plug, C.src, "Bridge feed", "MT5 IPC", bridgeV, bridgeS) +
         box(P.wave, C.src, "Heartbeats", "every 30s", "on", "ok") +
-        box(P.net, C.src, "On-chain", "alternative", "", "unk", true)));
+        box(P.net, C.src, "On-chain", "alternative", "", "unk", true))));
 
-    H += layer("a-ing", "2", "Ingestion &amp; Processing", "raw bars to usable features",
+    L.push(layer("a-ing", "2", "Ingestion &amp; Processing", "raw bars to usable features",
       group("Pipeline",
         box(P.plug, C.ing, "Bar ingest", "cache per symbol", "3", "ok") +
         box(P.chip, C.ing, "Indicators", "RSI EMA MACD ADX BB", "5+", "ok") +
         box(P.filter, C.ing, "Freshness", "stale = no trade", "on", "ok") +
-        box(P.gauge, C.ing, "Structure", "FVG / CRT / AMD", "shadow", "warn")));
+        box(P.gauge, C.ing, "Structure", "FVG / CRT / AMD", "shadow", "warn"))));
 
     var kills = 0, passes = 0, ngates = 0;
     if (!ng(gate)) {
@@ -297,7 +297,7 @@
       });
     }
     var g = pick(set, "confidenceThreshold");
-    H += layer("a-core", "3", "Decision Engine", "multi-timeframe, rule based",
+    L.push(layer("a-core", "3", "Decision Engine", "multi-timeframe, rule based",
       group("Signal",
         box(P.brain, C.core, "MTF engine", "D1 + H4 (+H1 bonus)", "live", "ok") +
         box(P.gauge, C.core, "Confidence", "the gate", g, pick(set, "settingsError") ? "bad" : (g != null ? "ok" : "unk"))) +
@@ -311,9 +311,9 @@
             ng(risk) ? null : (risk.halted ? "HALT" : "armed"),
             ng(risk) ? "unk" : (risk.halted ? "bad" : "ok")) +
         box(P.eye, C.core, "Evidence board", "measured vs assumed",
-            ng(d.ev) ? null : ((d.ev.claims && d.ev.claims.length) || d.ev.claims), "ok")));
+            ng(d.ev) ? null : ((d.ev.claims && d.ev.claims.length) || d.ev.claims), "ok"))));
 
-    H += layer("a-exec", "4", "Execution", "five order paths, not one",
+    L.push(layer("a-exec", "4", "Execution", "five order paths, not one",
       group("Server side",
         box(P.plug, C.exec, "Bridge A", "python &rarr; MT5", bridgeV, bridgeS) +
         box(P.plug, C.exec, "Bridge B", "not run here", "by config", "ok")) +
@@ -322,9 +322,9 @@
         box(P.bot, C.exec, "TK Smart Entry", "BTC M15", "live", "ok")) +
       group("Strategy runners",
         box(P.up, C.exec, "Executors", "CRT / FVG / TK", "3", "warn") +
-        box(P.eye, C.exec, "Shadow", "places no orders", "3", "ok")));
+        box(P.eye, C.exec, "Shadow", "places no orders", "3", "ok"))));
 
-    H += layer("a-mem", "5", "Memory &amp; Cognition", "what it knows, how it recalls",
+    L.push(layer("a-mem", "5", "Memory &amp; Cognition", "what it knows, how it recalls",
       group("Long term",
         box(P.doc, C.mem, "Memories", "one fact per file", pick(mem, "count", pick(mem, "total")), "unk") +
         box(P.brain, C.mem, "Semantic recall", "local embeddings", pick(rag, "chunks", pick(rag, "total")), "unk") +
@@ -332,9 +332,9 @@
       group("Session",
         box(P.doc, C.mem, "Boot config", "CLAUDE.md", "loaded", "ok") +
         box(P.doc, C.mem, "Vault", "Obsidian", "linked", "ok") +
-        box(P.clock, C.mem, "Session memory", "carried forward", pick(cog, "jarvisEntries"), "unk")));
+        box(P.clock, C.mem, "Session memory", "carried forward", pick(cog, "jarvisEntries"), "unk"))));
 
-    H += layer("a-team", "6", "AI Workforce", "who does the work",
+    L.push(layer("a-team", "6", "AI Workforce", "who does the work",
       group("Unattended",
         box(P.bot, C.team, "Workers", "scheduled briefs",
             ng(work) ? null : (pick(work, "totals.healthy") + "/" + pick(work, "totals.jobs")),
@@ -349,9 +349,9 @@
         box(P.tool, C.team, "MCP tools", "read / write / trade",
             ng(reg) ? null : ((pick(reg, "counts.tools") - pick(reg, "counts.toolsThatWrite") - pick(reg, "counts.toolsThatTrade")) +
             " / " + pick(reg, "counts.toolsThatWrite") + " / " + pick(reg, "counts.toolsThatTrade")), "warn") +
-        box(P.chip, C.team, "Scripts", "automation", pick(reg, "counts.scripts"), "ok")));
+        box(P.chip, C.team, "Scripts", "automation", pick(reg, "counts.scripts"), "ok"))));
 
-    H += layer("a-learn", "7", "Learning &amp; Evidence", "measuring never changes trading",
+    L.push(layer("a-learn", "7", "Learning &amp; Evidence", "measuring never changes trading",
       group("From real fills",
         box(P.db, C.learn, "Journal", "with realised R", pick(learn, "totalTrades", "?"), "unk") +
         box(P.gauge, C.learn, "Calibration", "is 85% really 85%", "on", "ok")) +
@@ -360,9 +360,9 @@
         box(P.eye, C.learn, "Shadow ledgers", "per strategy", "3", "ok")) +
       group("Out of sample",
         box(P.scale, C.learn, "Walk-forward", "5 folds", "on demand", "ok") +
-        box(P.shield, C.learn, "feedsTheGate", "always false", "false", "ok")));
+        box(P.shield, C.learn, "feedsTheGate", "always false", "false", "ok"))));
 
-    H += layer("a-cons", "8", "Consumption", "how you see and steer it",
+    L.push(layer("a-cons", "8", "Consumption", "how you see and steer it",
       group("Surfaces",
         box(P.screen, C.cons, "Dashboard", "these pages", "live", "ok") +
         box(P.bot, C.cons, "JARVIS CLI", "the assistant", "live", "ok") +
@@ -370,10 +370,9 @@
       group("External",
         box(P.up, C.cons, "TradingView", "plan drawing", "bot", "ok") +
         box(P.screen, C.cons, "MT5 terminals", "one per box", "2", "ok") +
-        box(P.screen, C.cons, "Mobile app", "iOS / Android", "", "unk", true)));
+        box(P.screen, C.cons, "Mobile app", "iOS / Android", "", "unk", true))));
 
-    H = H.replace(/<div class="conn">[\s\S]*?<\/div>\s*$/, "");
-    $("layers").innerHTML = H;
+    $("layers").innerHTML = L.join(CONN);
 
     var gr = ng(reg) ? [] : (reg.guardrails || []);
     var gh = '<header><div class="t">GUARDRAILS &amp; SAFETY</div>' +
