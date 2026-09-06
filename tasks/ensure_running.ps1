@@ -491,6 +491,20 @@ if (Test-Path $mt5Status) {
     Write-Log 'MT5 status: tasks\mt5_ensure_running.ps1 missing - not refreshed'
 }
 
+# EXECUTION STATE for the Auto Trade page: can it trade, what can place an order, how big
+# can one get. Same reasoning as the block above - it rides this task because this one runs.
+# Read-only: it reads MT5, the settings API and the ledger, and writes one JSON file. A
+# failure here must never take ensure_running down with it.
+$execState = Join-Path $Proj 'tasks\execution_state.py'
+if (Test-Path $execState) {
+    try {
+        & python $execState 2>&1 | Out-Null
+        Write-Log 'Execution state: refreshed'
+    } catch {
+        Write-Log "Execution state: refresh FAILED - $($_.Exception.Message)"
+    }
+}
+
 if (-not $IsInteractive) {
     # The VPS is headless. Opening a console session nobody can see would burn
     # subscription on a window that never gets read.
