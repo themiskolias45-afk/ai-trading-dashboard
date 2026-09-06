@@ -65,6 +65,15 @@
     // list carries /fleet anyway, so the tab lights correctly the day that route lands.
     { href: "/dashboard/fleet.html", label: "Fleet Map",
       match: ["/dashboard/fleet.html", "/fleet"] },
+    // fleet-map.html is the LAYERED view, added 2026-09-06 ALONGSIDE fleet.html rather
+    // than replacing it: if it turns out worse, nothing was lost and nothing needs undoing.
+    // It exists because the original covers fleet agreement, the plan, the clock and the
+    // ledgers, but has no representation of EXECUTION (MT5 terminals, EA attach, bridge
+    // heartbeats, executors), HEALTH (healer, watchdog, restarts) or INTELLIGENCE (agent
+    // queue, auth session, RAG) -- so none of the failures found on 2026-09-06 would have
+    // shown on it. Both stay linked until one is chosen.
+    { href: "/dashboard/fleet-map.html", label: "Fleet Map v2",
+      match: ["/dashboard/fleet-map.html"] },
     { href: "/architecture", label: "Architecture",
       match: ["/architecture", "/dashboard/architecture.html"] },
     { href: "/plan", label: "Systems Plan",
