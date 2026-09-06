@@ -206,13 +206,23 @@ def place_order(symbol, side, units):
             raise RuntimeError("connected broker is %r, not %r - refusing"
                                % (broker, BROKER_MUST_BE))
 
-        # SYMBOL ASSERTION -- the single most important guard here. The ticket trades the
-        # CHART's instrument, and between an alert arriving and this click the daily-plan job
-        # can have moved the chart from gold to BTC to SPX. Checked against the live DOM.
+        # SYMBOL: SET IT, THEN ASSERT IT. The ticket trades the CHART's instrument, and the
+        # chart moves without asking - tv_daily_plan.ps1 rotates it through BTC, GOLD and SPX,
+        # and it moved twice during this file's own dry runs. So the executor navigates to the
+        # symbol it intends to trade and then re-reads the DOM to confirm it arrived. Checking
+        # alone was not enough (it refused almost every order); switching alone would be worse
+        # (it would trade whatever the chart happened to become). Both, in that order.
         chart = page.evaluate(JS_SYMBOL) or ""
         if normalise_symbol(chart) != symbol:
-            raise RuntimeError("chart shows %r but the order is for %s - refusing rather than "
-                               "trading the wrong instrument" % (chart[:20], symbol))
+            want = ALLOWED[symbol]["tv_symbol"]
+            log("chart shows %r, switching to %s before ordering" % (chart[:20], want))
+            page.goto(page.url.split("?")[0] + "?symbol=" + want.replace(":", "%3A"),
+                      wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(6000)
+            chart = page.evaluate(JS_SYMBOL) or ""
+        if normalise_symbol(chart) != symbol:
+            raise RuntimeError("chart shows %r after switching, expected %s - refusing rather "
+                               "than trading the wrong instrument" % (chart[:20], symbol))
 
         t = page.evaluate(JS_TICKET)
         side_key = "side-control-buy" if side == "buy" else "side-control-sell"
