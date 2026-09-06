@@ -517,7 +517,7 @@ if __name__ == "__main__":
                 try:
                     import subprocess
                     subprocess.run([sys.executable,
-                                    os.path.join(ROOT, "tasks", "tv_paper_positions.py")],
+                                    os.path.join(ROOT, "tasks", "tv_paper_account.py")],
                                    cwd=ROOT, timeout=120,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except Exception as pub_exc:            # noqa: BLE001

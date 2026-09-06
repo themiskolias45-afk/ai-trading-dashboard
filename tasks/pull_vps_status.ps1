@@ -23,7 +23,7 @@ function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $m" | Add-Content
 # /api/mt5/positions (built from bridge reports) and to the trade ledger (built from MT5 deal
 # history). The browser that can see them runs on the VPS, so the laptop can only ever show
 # them by pulling this file.
-$files = @('mt5-runtime-status.json', 'ea-crt-weekly-review.json', 'tv-paper-positions.json')
+$files = @('mt5-runtime-status.json', 'ea-crt-weekly-review.json', 'tv-paper-positions.json', 'tv-paper-account.json')
 $ok = 0
 foreach ($f in $files) {
     # Straight to the destination name: nothing on the laptop generates the runtime status,

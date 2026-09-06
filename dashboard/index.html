@@ -7316,13 +7316,13 @@ async function refreshTvPaperPanel() {
     return;
   }
   if (!data.positions.length) {
-    body.innerHTML = '<div style="color:var(--muted)">No open positions '
+    body.innerHTML = html + '<div style="color:var(--muted)">No open positions '
       + '<span style="font-size:.7rem">(TradingView reports this explicitly)</span></div>';
     return;
   }
   var head = '<div style="color:var(--muted);font-size:.65rem;text-transform:uppercase;'
     + 'letter-spacing:.5px;margin-bottom:4px">Open TradingView paper positions</div>';
-  body.innerHTML = head + data.positions.map(function (p) {
+  body.innerHTML = html + head + data.positions.map(function (p) {
     var side = (p['Side'] || '').toUpperCase();
     var pnl = p['Unrealized PnL'] || '';
     var neg = /^-|−/.test(pnl.trim());
