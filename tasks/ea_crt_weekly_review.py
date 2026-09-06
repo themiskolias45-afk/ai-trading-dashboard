@@ -57,6 +57,19 @@ def terminal_dirs():
 
 EA_MAGICS = {26070401, 26070402, 26070455}
 
+# THE ERAS MUST NOT BE POOLED. Every trade this EA has ever closed (36, net -457.52) was
+# placed 2026-07-05..07-15 by v3.51 and its unlabelled twin, BEFORE the 2026-09-04
+# measurement that found the trailing stop was clipping winners. v3.55 ships that fix
+# (trail OFF: -15.28 -> +536.27, PF 1.00 -> 1.18, maxDD 9.71% -> 6.77%) under its OWN
+# magic, precisely so its record can be read on its own.
+#
+# A single blended "all time" would average the new build into a loss it did not cause and
+# cannot undo -- and the blend gets MORE misleading as v3.55 trades, never less. The whole
+# point of giving v3.55 a distinct magic is defeated by pooling it back together in the
+# report. So the eras are reported side by side and never summed.
+PREFIX_MAGICS  = {26070401, 26070402}   # pre-fix: trail ON, 1-point ratchet
+CURRENT_MAGICS = {26070455}             # v3.55: trail OFF by default
+
 # The two MT5 data folders on this box. Checked for one thing only: whether MetaQuotes'
 # bundled AI assistant is allowed to place orders. This is NOT an EA performance metric -
 # it is the environment the EA runs inside, reported in its own section and never mixed
@@ -294,6 +307,13 @@ def main():
         "lookbackDays": LOOKBACK_DAYS,
         "thisWeek": summarise(recent),
         "allTime": summarise(all_rows),
+        # Split so the fix can be judged on its own evidence. Never sum these.
+        "preFix": summarise([r for r in all_rows if r.get("magic") in PREFIX_MAGICS]),
+        "current": summarise([r for r in all_rows if r.get("magic") in CURRENT_MAGICS]),
+        "eraNote": ("preFix = v3.51 + twin, 2026-07-05..07-15, trailing stop ON. "
+                    "current = v3.55, trail OFF, distinct magic 26070455. "
+                    "Backtest for the current config: +536.27 GBP, PF 1.18, "
+                    "maxDD 6.77%, XAUUSD M15, 13 months real ticks."),
         "thisWeekBySymbol": {k: summarise(v) for k, v in by_symbol.items()},
         "liveConfigSentry": sentry,
         # Environment, not EA performance. Kept in its own key for exactly that reason.
@@ -321,6 +341,17 @@ def main():
           "%d trades, net %.2f, PF %s, win %.1f%%"
           % (at["trades"], at["netProfit"],
              at["profitFactor"] if at["profitFactor"] is not None else "n/a", at["winRatePct"])))
+    pre, cur = payload["preFix"], payload["current"]
+    fmt = lambda d: ("%d trades, net %.2f, PF %s, win %.1f%%"
+                     % (d["trades"], d["netProfit"],
+                        d["profitFactor"] if d["profitFactor"] is not None else "n/a",
+                        d["winRatePct"]))
+    print("  --- the two eras, never pooled ---")
+    print("  pre-fix   : %s" % ("no closed trades" if not pre else fmt(pre))
+          + "   (v3.51 + twin, trail ON)")
+    print("  v3.55 live: %s" % ("NO CLOSED TRADES YET - the fix has no live record"
+                                if not cur else fmt(cur))
+          + "   (trail OFF; backtest +536.27, PF 1.18)")
     print("  live config: %s" % (sentry[-110:] if sentry else "no sentry line found"))
     print("  mt5 assistant PermissionsTrade: %s"
           % ", ".join("%s=%s" % (k, "unknown" if v is None else v) for k, v in perms.items()))

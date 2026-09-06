@@ -51,6 +51,11 @@ KNOWN = {
     20260903: "TK_SWING_PULLBACK",
     20260904: "CRT_FVG",
     26070401: "EA_CRT_AMD_Dashboard_v351",
+    # The unlabelled twin: a second copy of the SAME pre-fix build on another chart,
+    # 20 trades 2026-07-06..07-15, net -5.77. It read as "unknown_magic_26070402" for
+    # two months, which is why a hand count of the EA's history came to 16 trades when
+    # the real figure was 36 -- the twin was invisible to anyone grepping by model name.
+    26070402: "EA_CRT_AMD_Dashboard_v351_copy2",
     26070455: "EA_CRT_AMD_Dashboard_v355",
 }
 
