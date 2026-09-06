@@ -518,6 +518,29 @@ if (Test-Path $books) {
     }
 }
 
+# BUILD WATCH and HALT COVERAGE - refreshed HERE because nothing else writes their files.
+#
+# coverage_audit.ps1 calls both with --json, and BOTH treat --json as "print and write
+# nothing" (`if (AS_JSON) { console.log(...); process.exit(...) }`). So the audit reads them
+# every run while dashboard/ea-build-watch.json and dashboard/halt-coverage.json were last
+# written by a HUMAN running them by hand - 119 and 302 minutes stale when checked on
+# 2026-09-06. That was harmless while no page rendered them. The moment they appear on the
+# Auto Trade panel it stops being harmless: a stale file would show a confident GREEN about
+# a build or a halt state that had since changed.
+#
+# Called WITHOUT --json here, which is the mode that writes. Read-only either way, and a
+# failure must never take ensure_running down.
+foreach ($chk in @('tasks\ea_build_watch.cjs', 'tasks\halt_coverage.cjs')) {
+    $p = Join-Path $Proj $chk
+    if (-not (Test-Path $p)) { Write-Log "$chk missing - not refreshed"; continue }
+    try {
+        & node $p 2>&1 | Out-Null
+        Write-Log "$chk : refreshed"
+    } catch {
+        Write-Log "$chk : refresh FAILED - $($_.Exception.Message)"
+    }
+}
+
 if (-not $IsInteractive) {
     # The VPS is headless. Opening a console session nobody can see would burn
     # subscription on a window that never gets read.
