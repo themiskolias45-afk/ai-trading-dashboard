@@ -510,6 +510,18 @@ if __name__ == "__main__":
                         log(r)
                 else:
                     log("no new alerts")
+                # Publish the paper account's open positions on the same beat, so the Auto
+                # Trade page shows TradingView trades. Nothing else can see them:
+                # /api/mt5/positions is built from bridge reports and the ledger from MT5
+                # deal history. Failure here must never stop the poller.
+                try:
+                    import subprocess
+                    subprocess.run([sys.executable,
+                                    os.path.join(ROOT, "tasks", "tv_paper_positions.py")],
+                                   cwd=ROOT, timeout=120,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception as pub_exc:            # noqa: BLE001
+                    log("position publish failed (poller continues): %s" % pub_exc)
             except Exception as exc:                   # noqa: BLE001 - a poller must not die
                 log("POLL ERROR: %s" % exc)
             if once:
