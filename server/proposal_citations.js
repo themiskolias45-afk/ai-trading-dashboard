@@ -71,7 +71,16 @@ const MAX_FILE_BYTES        = 4 * 1024 * 1024;
 // and came back "no definition found", stamping a correct proposal SOME REFERENCES
 // BROKEN. That is precisely the cry-wolf this module exists to prevent, and it aimed it
 // at the control surface - where most fixable findings actually live.
-const SYMBOL_DIRS = [["server"], ["tasks"], ["dashboard"]];
+// THE PROJECT ROOT BELONGS HERE TOO, and its absence was the same bug one level up.
+// SEARCH_DIRS below has always carried "" (the root); this list did not, so a proposal
+// citing mt5_bridge.py resolved the FILE and then failed on every function inside it.
+// mt5_bridge.py is the one major source file AT the root, and it is the file that owns
+// the circuit breaker - measured 2026-09-07: load_breaker_state (:343),
+// record_closed_outcome (:430) and check_circuit_breaker (:594) all exist and all came
+// back "no definition found", stamping three correct proposals SOME REFERENCES BROKEN.
+// Three of the four flagged proposals were falsely accused. Same cry-wolf the comment
+// above describes, aimed this time at the halt path.
+const SYMBOL_DIRS = [[], ["server"], ["tasks"], ["dashboard"]];
 // Where a bare basename is looked for, in order. "" is the project root.
 const SEARCH_DIRS = ["", "server", "tasks", "dashboard"];
 // .html is here for the dashboard's inline <script>: the definition patterns below
