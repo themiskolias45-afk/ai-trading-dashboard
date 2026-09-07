@@ -469,7 +469,14 @@ const CLAIMS = [
     // cash signal reads negative. Nine fills settles nothing and the report says so;
     // what it establishes is that the three disagree and in which direction.
     harness: "node tasks/learning_boost_walkforward.cjs  (--selftest for its 16 checks). "
-      + "A worst-fold walk-forward arm in tasks/mtf_walkforward.cjs still does not exist.",
+      + "A worst-fold walk-forward arm in tasks/mtf_walkforward.cjs still does not exist. "
+      + "THE ONE ADDITIVE STEP THAT WOULD UNBLOCK THIS: record sumWinR/sumLossR per setup "
+      + "in learning.setupStats. updateLearning writes {wins, losses, totalPnl} and "
+      + "DISCARDS the risk denominator it already has in hand — entry, sl and volume are "
+      + "all on the journal row, so R is reconstructible for the whole history and simply "
+      + "is not aggregated. Two fields and no reader: no gate, no threshold, no boost, no "
+      + "firing set. It is what makes sigma_b measurable, and sigma_b is what decides "
+      + "whether win rate or R-expectancy is the better estimator here.",
     feedsTheGate: false,
   },
   {
