@@ -152,6 +152,25 @@ function collect(nowIso) {
     const staged  = Date.parse(cand.ts);
     const forward = trades.filter(function (t) { return Date.parse(t.openTime) > staged; });
 
+    // HOW MANY TRADES SHOULD IT HAVE FIRED BY NOW? Without this, a forward record cannot
+    // be read at all. bb_squeeze_break showed 0 trades in 7 days against a 224-trade
+    // backtest, which reads as broken - and is not, if its historical rate is ~1 trade a
+    // week. donchian showed +0.6167R over 3 trades, which reads as excellent, and is
+    // three trades.
+    //
+    // Both numbers come from THIS run, over the same bars and the same code path, so the
+    // rate and the forward count cannot be measured against different things.
+    const spanDays = bars.n > 1 ? (bars.t[bars.n - 1] - bars.t[0]) / 86400 : 0;
+    const ratePerDay = spanDays > 0 ? trades.length / spanDays : null;
+    const daysStaged = (Date.now() - staged) / 86400000;
+    const expected = ratePerDay === null ? null : ratePerDay * daysStaged;
+    // Trades still needed to reach the lab's own MIN_TRADES floor of 100 - the count it
+    // already demands before a BACKTEST is judgeable, so it is the honest forward floor
+    // too - and how long that takes at the historical rate.
+    const FORWARD_FLOOR = 100;
+    const remaining = Math.max(0, FORWARD_FLOOR - forward.length);
+    const daysToFloor = (ratePerDay && ratePerDay > 0) ? remaining / ratePerDay : null;
+
     let newRows = 0;
     for (const t of forward) {
       const key = cand.specHash + '|' + t.openTime;
@@ -199,6 +218,14 @@ function collect(nowIso) {
       forwardExpectancyR:     mine.length ? Number((sumR / mine.length).toFixed(4)) : null,
       forwardWinRate:         mine.length ? Number((100 * wins / mine.length).toFixed(1)) : null,
       lastBarSeen:            new Date(bars.t[bars.n - 1] * 1000).toISOString(),
+      backtestTradesPerDay:   ratePerDay === null ? null : Number(ratePerDay.toFixed(4)),
+      daysSinceStaged:        Number(daysStaged.toFixed(2)),
+      expectedForwardTrades:  expected === null ? null : Number(expected.toFixed(2)),
+      // Signed, so a reader sees firing FASTER than history as clearly as slower. A
+      // candidate firing far above its historical rate is as suspect as one that is silent.
+      forwardVsExpected:      expected === null ? null : Number((forward.length - expected).toFixed(2)),
+      forwardFloor:           FORWARD_FLOOR,
+      daysToForwardFloor:     daysToFloor === null ? null : Math.round(daysToFloor),
     }));
   }
 
@@ -242,6 +269,12 @@ function main(argv) {
     console.log('    FORWARD      ' + c.forwardTrades + ' trades  sumR ' + fmtR(c.forwardSumR)
       + '  exp ' + fmtR(c.forwardExpectancyR)
       + '  win ' + (c.forwardWinRate === null ? '-' : c.forwardWinRate + '%'));
+    console.log('    RATE         ' + (c.backtestTradesPerDay === null ? '-' : c.backtestTradesPerDay + '/day')
+      + '  -> expected ' + (c.expectedForwardTrades === null ? '-' : c.expectedForwardTrades)
+      + ' in ' + c.daysSinceStaged + ' days, got ' + c.forwardTrades
+      + (c.forwardVsExpected === null ? '' : '  (' + (c.forwardVsExpected >= 0 ? '+' : '') + c.forwardVsExpected + ')')
+      + '   ' + c.forwardTrades + '/' + c.forwardFloor + ' toward a judgeable sample'
+      + (c.daysToForwardFloor === null ? '' : ', ~' + c.daysToForwardFloor + ' days at this rate'));
     console.log('    bars to ' + c.lastBarSeen + '   staged ' + c.stagedAt);
   }
   const fresh = dataFreshness();

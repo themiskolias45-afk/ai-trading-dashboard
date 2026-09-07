@@ -674,6 +674,26 @@ document.getElementById("picker").addEventListener("change", function (ev) {
    search's own data sits in the same card rather than somewhere nobody looks. Stale
    markets are named, because "the lab searched 4 markets" and "the lab searched 3
    markets and re-tested a frozen one" are different claims. */
+/* WITHOUT THIS COLUMN THE FORWARD NUMBERS CANNOT BE READ. 0 trades in 7 days looks
+   broken; at a historical rate of 0.08/day it is exactly what should happen. 3 trades
+   at +0.62R looks excellent; it is three trades. The honest reading is observed against
+   expected, plus how far the sample still is from being judgeable at all. */
+function rateCell(c) {
+  if (c.expectedForwardTrades === null || c.expectedForwardTrades === undefined) return '-';
+  var delta = c.forwardVsExpected;
+  var sign = delta > 0 ? '+' : '';
+  var line = 'exp ' + c.expectedForwardTrades + ', got ' + c.forwardTrades
+           + ' <span style="opacity:.75">(' + sign + delta + ')</span>';
+  var floor = '';
+  if (c.daysToForwardFloor !== null && c.daysToForwardFloor !== undefined) {
+    var warn = c.daysToForwardFloor > 180;
+    floor = '<div class="sub"' + (warn ? ' style="color:var(--amber,#e0a030)"' : '') + '>'
+          + c.forwardTrades + '/' + c.forwardFloor + ' — ~' + c.daysToForwardFloor + ' days at '
+          + c.backtestTradesPerDay + '/day</div>';
+  }
+  return line + floor;
+}
+
 function freshnessLine(f) {
   if (!f) return '';
   if (!f.stale || !f.stale.length) {
@@ -727,6 +747,7 @@ function freshnessLine(f) {
         + '<td>' + (c.backtestOosExpectancyR === null ? '-' : Number(c.backtestOosExpectancyR).toFixed(4)) + '</td>'
         + '<td>' + fwd + '</td>'
         + '<td>' + (c.forwardWinRate === null ? '-' : c.forwardWinRate + '%') + '</td>'
+        + '<td>' + rateCell(c) + '</td>'
         + '<td>' + esc(String(c.stagedAt || '').slice(0, 10)) + '</td>'
         + '</tr>';
     }).join('');
@@ -737,7 +758,7 @@ function freshnessLine(f) {
       + (total.forwardTrades || 0) + ' forward trades · ' + age + '</span></div>'
       + '<div class="card-body scroll-x"><table><thead><tr>'
       + '<th>Candidate</th><th>Market</th><th>Backtest exp R</th><th>Backtest OOS R</th>'
-      + '<th>Forward (out of sample)</th><th>Forward win</th><th>Staged</th>'
+      + '<th>Forward (out of sample)</th><th>Forward win</th><th>Expected vs actual</th><th>Staged</th>'
       + '</tr></thead><tbody>' + rows + '</tbody></table>'
       + '<div class="sub" style="margin-top:8px">Shadow only — these never reach an order, '
       + 'a gate or a setting. Forward counts start the moment a candidate was staged; a handful '
