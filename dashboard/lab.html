@@ -691,7 +691,22 @@ function rateCell(c) {
           + c.forwardTrades + '/' + c.forwardFloor + ' — ~' + c.daysToForwardFloor + ' days at '
           + c.backtestTradesPerDay + '/day</div>';
   }
-  return line + floor;
+  /* The cost of proof, derived from THIS candidate rather than borrowed: n ~ (1.96*sd/effect)^2.
+     It reorders the table - the candidate with the most backtest trades can be the one that
+     can never be settled forward, because its edge is small against its own trade noise. */
+  var prove = '';
+  if (c.requiredForwardTrades !== null && c.requiredForwardTrades !== undefined) {
+    var years = c.daysToRequired !== null && c.daysToRequired !== undefined
+      ? (c.daysToRequired > 730 ? ' (~' + (c.daysToRequired / 365).toFixed(1) + ' yrs)' : '')
+      : '';
+    var hard = c.daysToRequired !== null && c.daysToRequired > 730;
+    prove = '<div class="sub"' + (hard ? ' style="color:var(--amber,#e0a030)"' : '') + '>'
+          + 'to prove: ~' + c.requiredForwardTrades + ' trades'
+          + (c.daysToRequired === null || c.daysToRequired === undefined
+              ? '' : ' — ~' + c.daysToRequired + ' days' + years)
+          + '</div>';
+  }
+  return line + floor + prove;
 }
 
 function freshnessLine(f) {
@@ -762,7 +777,10 @@ function freshnessLine(f) {
       + '</tr></thead><tbody>' + rows + '</tbody></table>'
       + '<div class="sub" style="margin-top:8px">Shadow only — these never reach an order, '
       + 'a gate or a setting. Forward counts start the moment a candidate was staged; a handful '
-      + 'of trades decides nothing.</div>'
+      + 'of trades decides nothing. <b>"To prove" is (1.96&times;sd/edge)&sup2;</b> — the forward '
+      + 'sample needed to separate its own out-of-sample edge from zero. Where that '
+      + 'runs to years, this panel is a DRIFT DETECTOR, not a validator: it will show an edge '
+      + 'decaying long before it could ever confirm one.</div>'
       + freshnessLine(d.dataFreshness)
       + '</div></div>';
   }).catch(function (e) {

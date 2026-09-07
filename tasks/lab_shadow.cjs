@@ -171,6 +171,30 @@ function collect(nowIso) {
     const remaining = Math.max(0, FORWARD_FLOOR - forward.length);
     const daysToFloor = (ratePerDay && ratePerDay > 0) ? remaining / ratePerDay : null;
 
+    // 100 IS BORROWED, NOT DERIVED. It is lab_promote's floor for judging a BACKTEST.
+    // The forward question is different and answerable: how many trades are needed to
+    // tell THIS candidate's edge apart from zero, given how noisy its own trades are?
+    //
+    //   n ~= (z * sd / effect)^2   at z = 1.96, effect = the backtest OOS expectancy
+    //
+    // A candidate with a big edge and tight spread needs few; a thin edge in noisy
+    // trades needs thousands. That number is the honest cost of proving it forward, and
+    // it is usually the one nobody computes before starting to wait.
+    const rs = trades.map(function (t) { return Number(t.r) || 0; });
+    let sd = null;
+    if (rs.length > 1) {
+      const mean = rs.reduce(function (a, b) { return a + b; }, 0) / rs.length;
+      const varc = rs.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (rs.length - 1);
+      sd = Math.sqrt(varc);
+    }
+    const effect = cand.summary ? Number(cand.summary.oosExpectancyR) : null;
+    let requiredN = null;
+    if (sd !== null && Number.isFinite(effect) && Math.abs(effect) > 1e-9) {
+      requiredN = Math.ceil(Math.pow(1.96 * sd / Math.abs(effect), 2));
+    }
+    const daysToRequired = (requiredN !== null && ratePerDay && ratePerDay > 0)
+      ? Math.round(Math.max(0, requiredN - forward.length) / ratePerDay) : null;
+
     let newRows = 0;
     for (const t of forward) {
       const key = cand.specHash + '|' + t.openTime;
@@ -226,6 +250,9 @@ function collect(nowIso) {
       forwardVsExpected:      expected === null ? null : Number((forward.length - expected).toFixed(2)),
       forwardFloor:           FORWARD_FLOOR,
       daysToForwardFloor:     daysToFloor === null ? null : Math.round(daysToFloor),
+      tradeRStdDev:           sd === null ? null : Number(sd.toFixed(4)),
+      requiredForwardTrades:  requiredN,
+      daysToRequired:         daysToRequired,
     }));
   }
 
@@ -273,8 +300,12 @@ function main(argv) {
       + '  -> expected ' + (c.expectedForwardTrades === null ? '-' : c.expectedForwardTrades)
       + ' in ' + c.daysSinceStaged + ' days, got ' + c.forwardTrades
       + (c.forwardVsExpected === null ? '' : '  (' + (c.forwardVsExpected >= 0 ? '+' : '') + c.forwardVsExpected + ')')
-      + '   ' + c.forwardTrades + '/' + c.forwardFloor + ' toward a judgeable sample'
+      + '   ' + c.forwardTrades + '/' + c.forwardFloor + ' toward the borrowed floor'
       + (c.daysToForwardFloor === null ? '' : ', ~' + c.daysToForwardFloor + ' days at this rate'));
+    console.log('    TO PROVE IT  needs ~' + (c.requiredForwardTrades === null ? '?' : c.requiredForwardTrades)
+      + ' forward trades to separate ' + fmtR(c.backtestOosExpectancyR) + ' from zero'
+      + ' (sd ' + (c.tradeRStdDev === null ? '?' : c.tradeRStdDev) + 'R)'
+      + (c.daysToRequired === null ? '' : '  ~' + c.daysToRequired + ' days at this rate'));
     console.log('    bars to ' + c.lastBarSeen + '   staged ' + c.stagedAt);
   }
   const fresh = dataFreshness();
