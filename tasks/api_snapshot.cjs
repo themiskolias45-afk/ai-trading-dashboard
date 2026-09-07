@@ -147,6 +147,21 @@ async function main() {
       continue;
     }
 
+    // AN AUTH WALL IS NOT A CONTRACT. Refused BEFORE the schema is extracted, so an
+    // error body can never be compared against, and — critically — can never be WRITTEN
+    // as a baseline, not even under --update. That write is how performance.schema.json
+    // became {"error":"string"} and stayed that way.
+    //
+    // UNVERIFIABLE, never OK and never FAIL: the endpoint may be perfectly healthy and
+    // this script simply cannot see it. It does not set anyFailed, exactly as
+    // claims_check treats its own UNVERIFIABLE bucket.
+    if (currentStatus === 401 || currentStatus === 403) {
+      console.log(`[UNVERIFIABLE] ${endpoint.name}: HTTP ${currentStatus} — session-gated, and this `
+                + `script sends no session. NOT checked, and NOT saved as a baseline.`);
+      unverifiable.push(endpoint.name);
+      continue;
+    }
+
     const currentSchema = extractSchema(currentData);
 
     if (!fs.existsSync(snapshotFile) || UPDATE_MODE) {
