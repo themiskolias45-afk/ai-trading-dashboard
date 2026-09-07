@@ -16,9 +16,30 @@
 # terminal started without a session cannot render charts or run a chart EA properly.
 $ErrorActionPreference = 'SilentlyContinue'
 
-$Root      = 'C:\ai-trading-dashboard'
+# THE REPO ROOT IS DERIVED, NOT NAMED. Both of these were the literal
+# 'C:\ai-trading-dashboard' - which is the VPS layout. The laptop repo is at
+# C:\Users\User\ai-trading-dashboard, so on that box BOTH pointed at a tree that does not
+# exist, and $ErrorActionPreference = 'SilentlyContinue' two lines above meant neither
+# said so. Measured 2026-09-07:
+#
+#   $StatusOut  Move-Item into a missing directory failed silently, the script still
+#               exited 0, and ensure_running.ps1:485 logged "MT5 status: refreshed here"
+#               on every 10-minute tick while dashboard/mt5-runtime-status.json sat
+#               202 minutes stale. Four "refreshed" lines against a file that never moved.
+#
+#   $CrtIni     WORSE, and never triggered. tasks/crt_start.ini exists in the laptop repo,
+#               but Test-Path on the VPS path is false there, so the branch at :100 would
+#               have fallen through to :104 and started MT5 BARE - no EA - on the box
+#               whose own log line says "NO EA will attach". Latent because MT5 has not
+#               been down while this ran on the laptop, which is not the same as safe.
+#
+# Split-Path -Parent $PSScriptRoot yields exactly 'C:\ai-trading-dashboard' on the VPS, so
+# that box's behaviour is unchanged by construction rather than by testing. The fallback
+# keeps the old literal for any invocation where $PSScriptRoot is empty, so this can never
+# behave worse than it does today.
+$Root      = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { 'C:\ai-trading-dashboard' }
 $TermExe   = 'C:\Program Files\MetaTrader 5\terminal64.exe'
-$CrtIni    = 'C:\ai-trading-dashboard\tasks\crt_start.ini'
+$CrtIni    = Join-Path $Root 'tasks\crt_start.ini'
 # $env:APPDATA IS PER-USER, AND THIS SCRIPT RUNS UNDER TWO IDENTITIES. Measured
 # 2026-09-07: SmartEntryEnsureRunning (SYSTEM, every 10 min) calls this through
 # ensure_running.ps1, and the SYSTEM profile has its OWN MetaQuotes\Terminal\<hash>
