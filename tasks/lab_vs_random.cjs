@@ -243,8 +243,14 @@ function selftest() {
   }
 
   // This file must not write anything or reach an order path.
+  // Scan CODE ONLY, with every comment stripped first. Two earlier versions failed on
+  // the word "registry" appearing in a sentence that explains this file must never
+  // touch the registry - a guard tripping over its own documentation gets deleted
+  // rather than fixed, and then nothing guards anything.
   const whole = fs.readFileSync(__filename, 'utf8');
-  const operational = whole.slice(0, whole.indexOf('function selftest')).split('\n');
+  const body = whole.slice(0, whole.indexOf('function selftest'));
+  const code = body.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+  const operational = code.split('\n');
   const banned = ['writeFileSync', 'appendFileSync', 'mt5', 'order_send', 'strategy_settings', 'registry'];
   const hit = banned.filter(function (bn) {
     return operational.some(function (l) {
