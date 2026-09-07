@@ -61,6 +61,21 @@ const { probabilisticSharpe, expectedMaxSharpe } =
   require(path.join(__dirname, 'sharpe_robustness.cjs'));
 
 // ── the bar ─────────────────────────────────────────────────────────────────
+/* INSTRUMENTS THE SYSTEM HAS ALREADY REJECTED CANNOT BE PROMOTED, however good the
+   numbers look. NAS100 was rejected 2026-09-05 at 0.951 correlation with SP500: it is
+   the SAME TRADE, so a NAS100 position alongside an SP500 one is one exposure at double
+   size, and server/assets.js treats them as independent. The lab does not know that -
+   it optimises whatever has bars - and it had already produced a SURVIVES on
+   bb_squeeze_break-NAS100-H1. A statistical bar cannot catch this, because the result
+   is not a statistical error: the strategy really did work on those bars. It is the
+   wrong instrument to trade, which is a different kind of wrong and needs its own rule.
+
+   Not a deletion: existing NAS100 results stay in the registry and stay readable. This
+   only stops one being STAGED for a human to put live. */
+const REJECTED_INSTRUMENTS = {
+  NAS100: 'rejected 2026-09-05 - 0.951 correlation with SP500, i.e. the same trade at double risk',
+};
+
 const BAR = {
   REQUIRE_VERDICT:        'SURVIVES',
   MIN_TRADES:             100,
@@ -189,6 +204,12 @@ function judge(report) {
   const push = (ok, text) => { reasons.push((ok ? 'PASS  ' : 'FAIL  ') + text); return ok; };
 
   let pass = true;
+  // Checked FIRST so the reason a candidate was refused reads as the instrument, not as
+  // some statistic it happened to also miss.
+  const symbol = (report.spec || {}).symbol;
+  const rejected = symbol ? REJECTED_INSTRUMENTS[symbol] : null;
+  pass = push(!rejected, 'instrument is not on the rejected list'
+    + (rejected ? ' (' + symbol + ': ' + rejected + ')' : '')) && pass;
   pass = push(a.verdict === BAR.REQUIRE_VERDICT,
     'verdict is ' + BAR.REQUIRE_VERDICT + ' (got ' + a.verdict + ')') && pass;
   pass = push((a.checksUnknown || 0) === 0,
@@ -393,6 +414,20 @@ function selftest() {
   for (const [name, v] of variants) ok('rejects on ' + name, judge(v).pass === false);
 
   ok('the bar is pre-registered as constants', typeof BAR.MIN_DSR === 'number' && BAR.MIN_TRADES === 100);
+
+  // A rejected instrument must fail even with a perfect report, or the rule is decoration.
+  const perfect = {
+    spec: { symbol: 'NAS100', strategy: 'bb_squeeze_break', timeframe: 'H1' },
+    assessment: { verdict: 'SURVIVES', checksUnknown: 0 },
+    all: { n: 9999 }, deflated: { current: 0.99, trials: 1 },
+    costStress: { x2: { profitFactor: 9 } },
+  };
+  const nas = judge(perfect);
+  ok('a rejected instrument cannot pass, however good the numbers',
+     nas && nas.pass === false,
+     nas ? JSON.stringify(nas.reasons && nas.reasons[0]) : 'judge returned nothing');
+  ok('and the refusal names the instrument, not a statistic',
+     !!(nas && (nas.reasons || []).some(function (r) { return r.indexOf('NAS100') >= 0; })));
   ok('nothing here can apply to live', !/strategy_settings/.test(fs.readFileSync(__filename, 'utf8')
     .replace(/strategy_settings\.json/g, '')) || true);
 
