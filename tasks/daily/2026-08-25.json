@@ -1,0 +1,39 @@
+{
+  "date": "2026-08-25",
+  "entries": [
+    {
+      "ts": "2026-08-25T01:26:01.613578+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-25: |   BTC WAIT |   GOLD WAIT |   SPX WAIT"
+    },
+    {
+      "ts": "2026-08-25T01:26:43.349548+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-25: |   BTC WAIT |   GOLD WAIT |   SPX WAIT"
+    },
+    {
+      "ts": "2026-08-25T01:28:50.118774+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-25: health 9/9, fleet AGREES, gate 70. GOLD MOMENTUM closed at TARGET +$192.70 (+2.00R) 01:00Z — 2-win streak. TOP ISSUE: the 6:45 daily-plan cron has a 60s execFile timeout but calls run_tv_draw(), which alone allows 40s Edge launch + 420s tradingview_bot.py; it has been killed 8 times, and because log_to_notes()/notify() run AFTER the draw, those days silently lost their PLAN note, memory entry and alert (0 PLAN entries on 08-19, 08-21, 08-23). Same run with --no-draw completes in 0.56s. FIX: add --no-draw to the cron argv at server/index.js:5152 — drawing is already owned by the SmartEntry Morning Ready task. SECOND: fixedLotSize went 0.01 -> 0.02 on 08-24; SP500 is floored at its 0.1 min lot, so per-trade risk is now ~$193 on GOLD vs ~$1.45 on SP500 (133x) — fixed lot is not fixed risk. Ledger update: MIN_RR +0.066R/ep over 56 resolved and CONFIDENCE -0.099R/ep over 20 both now read NO MEASURABLE COST — the ledger has stopped objecting to either gate."
+    },
+    {
+      "ts": "2026-08-25T01:29:19.078282+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-25: Gold MOMENTUM closed at TARGET +GBP192.70 (+2.00R). Book now +3.51R over 6 fills despite -GBP223.91 gross — the negative dollar figure is the single 0.14-lot July loss. TOP ISSUE: fixedLotSize went 0.01 -> 0.02 on both boxes 2026-08-24 14:26, which un-dormants take_partial_profit() (50% out at 1R + SL to BE) on BTC/GOLD for the first time ever; its docstring still claims it cannot fire. On the 3 realised wins that path would have cost -1.755R. Decide before the next BTC/GOLD fill. Also: SP500 BUY open on BOTH boxes = 0.2 lots fleet exposure, half-visible on either dashboard."
+    },
+    {
+      "ts": "2026-08-25T01:33:17.113833+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-25: 1 trades | 100.0% WR | $+192.70 | TODAY: One momentum trade, one winner — $+192.70 booked, clean 100% day with no drawdown taken.\n\nPATTERN: Momentum is th"
+    },
+    {
+      "ts": "2026-08-25T01:56:42.208446+00:00",
+      "tag": "SYSTEM",
+      "text": "Shipped 2026-08-25 early hours, both boxes: (1) memory.py add/recall had been dead since 2026-08-24 20:33 with KeyError 'key' - server/index.js writes {ts,tag,text} SESSION-END rows into the same tasks/jarvis_memory.json that memory.py owns as {key,value}; every write_memory failed for a day. Fixed 4b8dcb7. (2) Auto Trade save dialog confirmed 3 fields while sending 6 - fixedLotSize was one it never named, which is how 0.01 -> 0.02 shipped on 24/08 at 14:26. Now diffs and names only what changed. (3) New GET /api/broker-specs exposes minLot/lotStep, which had ZERO readers. It settles the open question: BTCUSD and XAUUSD are min 0.01 / step 0.01, so at 0.02 the 50%-at-1R partial close IS armed on both boxes - a path that had never executed once in the system's life. SP500 floors to 0.1 and stays dormant. Parity after deploy: ENGINES AGREE, 102/102 routes both boxes. Firing set [] before and after on both."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-25T01:26:01.613578+00:00",
+  "updated_at": "2026-08-25T01:56:42.210350+00:00"
+}

@@ -1,0 +1,151 @@
+{
+  "generatedAt": "2026-08-22T20:27:02.243Z",
+  "gate": 70,
+  "costR": 0.05,
+  "folds": 5,
+  "instruments": {
+    "XAUUSD": {
+      "replayed": 265,
+      "atGate": 164,
+      "overall": {
+        "closed": 130,
+        "wr": 37.7,
+        "R": 28.53,
+        "rpt": 0.219
+      },
+      "perFold": [
+        {
+          "fold": 1,
+          "closed": 24,
+          "wr": 33.3,
+          "rpt": 0.03
+        },
+        {
+          "fold": 2,
+          "closed": 28,
+          "wr": 28.6,
+          "rpt": -0.157
+        },
+        {
+          "fold": 3,
+          "closed": 23,
+          "wr": 52.2,
+          "rpt": 0.958
+        },
+        {
+          "fold": 4,
+          "closed": 27,
+          "wr": 37,
+          "rpt": 0.116
+        },
+        {
+          "fold": 5,
+          "closed": 28,
+          "wr": 39.3,
+          "rpt": 0.251
+        }
+      ],
+      "foldsScored": 5,
+      "foldsPositive": 4,
+      "verdict": "MOSTLY POSITIVE"
+    },
+    "BTCUSD": {
+      "replayed": 387,
+      "atGate": 69,
+      "overall": {
+        "closed": 59,
+        "wr": 35.6,
+        "R": 6.16,
+        "rpt": 0.104
+      },
+      "perFold": [
+        {
+          "fold": 1,
+          "closed": 12,
+          "wr": 50,
+          "rpt": 0.542
+        },
+        {
+          "fold": 2,
+          "closed": 12,
+          "wr": 41.7,
+          "rpt": 0.242
+        },
+        {
+          "fold": 3,
+          "closed": 10,
+          "wr": 20,
+          "rpt": -0.4
+        },
+        {
+          "fold": 4,
+          "closed": 13,
+          "wr": 23.1,
+          "rpt": -0.281
+        },
+        {
+          "fold": 5,
+          "closed": 12,
+          "wr": 41.7,
+          "rpt": 0.367
+        }
+      ],
+      "foldsScored": 5,
+      "foldsPositive": 3,
+      "verdict": "MOSTLY POSITIVE"
+    },
+    "SP500": {
+      "replayed": 117,
+      "atGate": 28,
+      "overall": {
+        "closed": 13,
+        "wr": 7.7,
+        "R": -10.65,
+        "rpt": -0.819
+      },
+      "perFold": [
+        {
+          "fold": 1,
+          "closed": 2,
+          "wr": 0,
+          "rpt": -1.05
+        },
+        {
+          "fold": 2,
+          "closed": 2,
+          "wr": 50,
+          "rpt": 0.45
+        },
+        {
+          "fold": 3,
+          "closed": 1,
+          "wr": 0,
+          "rpt": -1.05
+        },
+        {
+          "fold": 4,
+          "closed": 2,
+          "wr": 0,
+          "rpt": -1.05
+        },
+        {
+          "fold": 5,
+          "closed": 6,
+          "wr": 0,
+          "rpt": -1.05
+        }
+      ],
+      "foldsScored": 1,
+      "foldsPositive": 0,
+      "verdict": "TOO FEW TO JUDGE"
+    }
+  },
+  "pooled": {
+    "closed": 202,
+    "wr": 35.1,
+    "R": 24.04,
+    "rpt": 0.119,
+    "foldsPositive": 4,
+    "foldsScored": 5
+  }
+}

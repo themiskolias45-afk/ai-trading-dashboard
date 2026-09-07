@@ -55,6 +55,10 @@ const state = {
     errorRate:       { ok: true, lastChecked: null, detail: null },
     mt5Bridge:       { ok: true, lastChecked: null, detail: null },
     aiFilter:        { ok: true, lastChecked: null, detail: null },
+    // Added 2026-08-23. The healer read 8/8 green for 8h32m while every python
+    // process on the box was dead - see checkPythonInterpreter for why that was
+    // possible and what it costs.
+    pythonInterpreter: { ok: true, lastChecked: null, detail: null },
   },
 };
 
@@ -91,17 +95,36 @@ function updateCheck(name, ok, detail) {
 // ── Backup helpers ─────────────────────────────────────────────────────────
 
 /**
- * Write a .bak copy of a JSON file before it is modified.
- * Silently skips if the source does not exist yet.
+ * Keep a .bak copy of a JSON file the healer has just confirmed is VALID.
+ *
+ * This function existed, was exported, and was called from NOWHERE. So no .bak has
+ * ever been written, and restoreFromBackup() below could only ever return null — at
+ * which point both of its callers fall through to writing a clean EMPTY default over
+ * the file. That turns the healer's corruption RECOVERY path into a corruption
+ * AMPLIFIER: one bad parse of learning.json and weeks of trade outcomes become
+ * `{setupStats:{}, sessionCount:0}`. An empty default is a delete on the next save.
+ *
+ * Called ONLY from branches that have just parsed the file successfully, so a .bak
+ * can never hold corruption: the moment a file goes bad the check takes the corrupt
+ * branch and never reaches here, leaving the last good copy intact.
+ *
+ * Safe on every 30s cycle — it skips when the .bak is already at least as new as the
+ * source, so it writes exactly when the data has actually changed.
  */
 function writeBackup(filePath) {
   const bakPath = filePath + '.bak';
   try {
-    if (fs.existsSync(filePath)) {
-      fs.copyFileSync(filePath, bakPath);
-      console.log('[HEALER] Backup written:', bakPath);
+    if (!fs.existsSync(filePath)) return;
+    if (fs.existsSync(bakPath)) {
+      const src = fs.statSync(filePath);
+      const bak = fs.statSync(bakPath);
+      if (bak.mtimeMs >= src.mtimeMs) return;   // already current — nothing changed
     }
+    fs.copyFileSync(filePath, bakPath);
+    console.log('[HEALER] Backup written:', path.basename(bakPath));
   } catch (err) {
+    // Never fails a health check. A missing backup is a smaller problem than a healer
+    // that stops running because it could not write one.
     logError(`Backup write failed for ${path.basename(filePath)}: ${err.message}`);
   }
 }
@@ -311,9 +334,28 @@ function checkMt5Bridge() {
         : `${entry.account} silent for ${Math.round(entry.ageMs / 1000)}s`)
       .join(', ');
 
-    // Don't cry wolf while the bridges are still legitimately starting up.
-    if (process.uptime() * 1000 < MT5_STARTUP_GRACE_MS) {
-      updateCheck(name, true, `${summary} — ${detail} (within startup grace)` + undeclaredNote);
+    // Don't cry wolf while the bridges are still legitimately starting up — but the
+    // grace covers exactly ONE situation: an account that has not posted YET. An account
+    // that HAS posted and then went silent has already proved it can reach us, so there is
+    // nothing left to wait for, and it fails at any uptime.
+    //
+    // Both were lumped together before, under a window that re-opens on every SERVER
+    // restart — process.uptime() is the server's clock, not the bridge's. A bridge most
+    // often dies immediately AFTER a restart, which is exactly when this reported green:
+    // post once at 30s, die, and the check reads healthy until the 5-minute mark. The
+    // caveat lived only in the detail string and nothing reads that — auto_runner.py,
+    // daily_notes.py, check_errors.py and both dashboards all read `ok` — so "within
+    // startup grace" was recorded as HEALTHY by every consumer.
+    //
+    // Deliberately NOT a process check. Windows reports an empty command line for these
+    // python processes, so they look absent while trading normally; the heartbeat is the
+    // only authoritative liveness signal and this stays built on it.
+    const staleAccounts = absent.filter(entry => entry.status === 'stale');
+    const graceLeftMs   = MT5_STARTUP_GRACE_MS - process.uptime() * 1000;
+    if (!staleAccounts.length && graceLeftMs > 0) {
+      updateCheck(name, true,
+        `${summary} — ${detail} (no heartbeat yet; startup grace expires in ${Math.ceil(graceLeftMs / 1000)}s)`
+        + undeclaredNote);
       return;
     }
 
@@ -333,6 +375,10 @@ function checkLearningFile() {
   try {
     const { data, corrupt } = safeReadJson(LEARNING_FILE);
     if (!corrupt) {
+      // The file is good RIGHT NOW, which is the only safe moment to copy it. This is
+      // the call that was missing: without it the restore below has nothing to restore
+      // from and silently resets weeks of trade outcomes to an empty object instead.
+      if (data) writeBackup(LEARNING_FILE);
       updateCheck(name, true, data ? `${Object.keys(data.setupStats || {}).length} setups on disk` : 'file absent (normal on first run)');
       return;
     }
@@ -365,6 +411,9 @@ function checkJournalFile() {
     const { data, corrupt } = safeReadJson(JOURNAL_FILE);
     if (!corrupt) {
       const count = Array.isArray(data) ? data.length : 0;
+      // Same as learning.json: back up only what has just been read successfully.
+      // The journal is the record of every real fill and is not reconstructable.
+      if (data) writeBackup(JOURNAL_FILE);
       updateCheck(name, true, data ? `${count} journal entries on disk` : 'file absent (normal on first run)');
       return;
     }
@@ -434,6 +483,46 @@ function checkAiFilter() {
   updateCheck(name, true, `AI filter OK — last success ${read.lastOkAt}`);
 }
 
+
+// The interpreter itself.
+//
+// WHY THIS CHECK EXISTS. On 2026-08-23 Windows Smart App Control began blocking the
+// unsigned uv-installed python that the user PATH resolved bare `python` to. The MT5
+// bridge, the nightly rejection-ledger pipeline, the daily plan and both persist tools
+// died together and stayed dead for 8h32m - and this healer reported 8/8 GREEN
+// throughout, because not one of its checks ever started a python process. mt5Bridge
+// only watches for a heartbeat, and a bridge that cannot launch never had one to miss
+// in the way that check was written to notice.
+//
+// It probes by RUNNING a candidate, never by looking for a file on PATH: the blocked
+// interpreter exists, is the right size, has a valid signature, and fails at exec.
+//
+// THROTTLED, because a probe spawns a process per candidate and the heal cycle runs
+// every 30 seconds. Ten minutes is ample: the failure it watches for is a policy
+// verdict changing, which happens on the scale of days.
+//
+// REPORTING ONLY. Nothing in the bridge or in any gate reads state.healthy, so this
+// cannot suppress a signal or block a trade - it can only make a dead box look dead.
+const PYTHON_RECHECK_MS = 10 * 60 * 1000;
+let lastPythonCheckAt = 0;
+
+function checkPythonInterpreter() {
+  const due = Date.now() - lastPythonCheckAt >= PYTHON_RECHECK_MS;
+  if (!due && state.checks.pythonInterpreter.lastChecked) return;
+  lastPythonCheckAt = Date.now();
+
+  const pythonPath = require('./python_path');
+  const bin = pythonPath.recheck();
+  if (bin) {
+    updateCheck('pythonInterpreter', true, bin);
+    return;
+  }
+  // Name what was tried. "python is broken" sends someone hunting; a list of the exact
+  // paths that were probed and failed is the difference between a guess and a fix.
+  updateCheck('pythonInterpreter', false,
+    'NO PYTHON ON THIS BOX WILL RUN - the MT5 bridge, the nightly learning pipeline and '
+    + 'every persist tool depend on it. Tried: ' + pythonPath.tried().join(', '));
+}
 
 function checkMemory() {
   const name = 'memory';
@@ -532,6 +621,7 @@ async function runHealCycle() {
   let anyFail = false;
 
   // Run sync checks first
+  try { checkPythonInterpreter(); } catch (e) { logError(`checkPythonInterpreter threw: ${e.message}`); anyFail = true; }
   try { checkMemory();    } catch (e) { logError(`checkMemory threw: ${e.message}`);    anyFail = true; }
   try { checkErrorRate(); } catch (e) { logError(`checkErrorRate threw: ${e.message}`); anyFail = true; }
   try { checkAiFilter();  } catch (e) { logError(`checkAiFilter threw: ${e.message}`);  anyFail = true; }
@@ -640,4 +730,13 @@ module.exports = {
   // Expose backup helpers so server/index.js can call them before writing files
   writeBackup,
   restoreFromBackup,
+  // Test seam. checkMt5Bridge decides whether the box that trades looks alive and has
+  // been wrong twice — once counting only the accounts that had already reported, once
+  // handing a five-minute green window to a bridge that had died. Neither was reachable
+  // from a test, because start() is the only way to set the context and start() runs a
+  // full heal cycle immediately, writing backups into the live server directory. These
+  // two are additive: server/index.js calls start() and nothing else, so no runtime path
+  // goes through them.
+  checkMt5Bridge,
+  _setContextForTests: (context) => { ctx = context; },
 };

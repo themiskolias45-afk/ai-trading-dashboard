@@ -14,7 +14,8 @@
     --border:   #1e3040;
     --border2:  #253650;
     --text:     #e2e8f0;
-    --muted:    #4a6080;
+    --muted:    #6b83a8;   /* 4.73:1 on --surface; #4a6080 measured 2.85:1, under the 4.5 AA floor */
+    --muted-dim:#4a6080;   /* the old value, kept for decoration where contrast does not apply */
     --muted2:   #6b88a8;
     --green:    #00ff88;
     --red:      #ff4444;
@@ -62,7 +63,7 @@
   .hero-title { font-size: 1.6rem; font-weight: 800; margin-bottom: 6px; }
   .hero-title span { background: linear-gradient(135deg, #00ff88, #4488ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .hero-sub { font-size: .85rem; color: var(--muted2); max-width: 640px; }
-  .hero-stats { display: flex; gap: 22px; }
+  .hero-stats { display: flex; gap: 22px; flex-wrap: wrap; }
   .hero-stat { text-align: center; }
   .hero-stat-val { font-size: 1.4rem; font-weight: 800; color: var(--green); font-variant-numeric: tabular-nums; }
   .hero-stat-label { font-size: .62rem; color: var(--muted2); text-transform: uppercase; letter-spacing: .1em; margin-top: 2px; }
@@ -158,6 +159,30 @@
 
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin .75s linear infinite; }
 
+  /* ── Registry tags: what a tool can do to the account ── */
+  .cap-tag {
+    display: inline-block; font-size: .58rem; font-weight: 800; letter-spacing: .06em;
+    padding: 2px 7px; border-radius: 20px; margin-left: 6px; vertical-align: middle; text-transform: uppercase;
+  }
+  .cap-read  { background: rgba(74,136,255,.12);  color: var(--blue); }
+  .cap-write { background: rgba(255,184,48,.14);  color: var(--yellow); }
+  .cap-trade { background: rgba(255,68,68,.16);   color: var(--red); }
+  .cap-enforced   { background: rgba(0,255,136,.12); color: var(--green); }
+  .cap-procedural { background: rgba(255,184,48,.14); color: var(--yellow); }
+
+  .tool-row { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .tool-name { font-size: .76rem; font-weight: 700; font-family: var(--mono); }
+  .tool-desc { font-size: .68rem; color: var(--muted2); margin-top: 5px; line-height: 1.5; }
+
+  .rail { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 13px 16px; margin-bottom: 9px; }
+  .rail-rule { font-size: .78rem; font-weight: 600; }
+  .rail-detail { font-size: .68rem; color: var(--muted2); margin-top: 5px; line-height: 1.55; }
+
+  .page-banner { border-radius: 10px; padding: 12px 16px; margin-bottom: 20px; font-size: .76rem; line-height: 1.6; border: 1px solid; }
+  .page-banner strong { display: block; margin-bottom: 3px; }
+  .banner-warn { background: rgba(255,184,48,.07); border-color: rgba(255,184,48,.35); color: #fde047; }
+  .banner-bad  { background: rgba(255,68,68,.07);  border-color: rgba(255,68,68,.4);   color: #fca5a5; }
+
   footer { text-align: center; padding: 16px; font-size: .63rem; color: var(--muted); border-top: 1px solid var(--border); }
 
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
@@ -172,7 +197,41 @@
     main { padding: 14px 14px 40px; }
     header { padding: 0 14px; }
   }
-</style>
+
+    /* ── MOBILE ──────────────────────────────────────────────────────────────
+       Found by measuring, and the first measurement lied. Listing every element whose
+       right edge sits past a 390px viewport surfaces dozens of table cells — but those
+       live inside wrappers that already scroll, so they never widen the page. Filtering
+       to elements NO ancestor clips or scrolls leaves the actual cause, and on this
+       page it is the header's right-hand strip: a nowrap flex row of clock, pills and
+       nav links that cannot shrink, so it sets the width of the document and every
+       panel below inherits the sprawl.
+
+       Fix is the one a dense terminal UI wants: a strip too wide for the screen scrolls
+       inside its own box, and the page itself never scrolls sideways. flex-shrink:0 on
+       the children is load-bearing — without it they squash into slivers instead of
+       scrolling. Nothing is hidden and no control is dropped.
+
+       Scoped to max-width:640px; the desktop layout is untouched. */
+    @media (max-width:640px) {
+      header { flex-wrap:wrap; padding:10px 14px; gap:8px; }
+      .header-right { width:100%; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+      .header-right::-webkit-scrollbar { display:none; }
+      .header-right > * { flex-shrink:0; }
+      .grid-2, .grid-3, .grid-4 { grid-template-columns:1fr; }
+      .grid-2 > *, .grid-3 > *, .grid-4 > *, .card, .panel { min-width:0; }
+      /* .profit-table was the one table on this page with no scrolling wrapper. */
+      .profit-table { display:block; overflow-x:auto; white-space:nowrap; }
+      .pipe-stage { flex-shrink:0; }
+    }
+  </style>
+  <link rel="stylesheet" href="/dashboard/theme.css">
+  <link rel="stylesheet" href="/dashboard/nav.css">
+  <script src="/dashboard/nav.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/freshness.css">
+  <script src="/dashboard/freshness.js" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+  <meta name="theme-color" content="#070b12">
 </head>
 <body>
 
@@ -202,12 +261,21 @@
       <div class="hero-title">A <span>professional investment system</span>, built to compound</div>
       <div class="hero-sub">Multi-timeframe signal engine, autonomous risk management, self-learning calibration, and parallel AI engineering — one system, continuously improving itself.</div>
     </div>
+    <!-- Every number here starts as an em dash and is filled from the running
+         system. The old hero shipped a hardcoded "65%" gate that was five points
+         wrong for a week: a page that states a number it never read is not a
+         status page, it is a rumour. -->
     <div class="hero-stats">
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-conf">65%</div><div class="hero-stat-label">Min Confidence Gate</div></div>
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-tools">13</div><div class="hero-stat-label">Automation Tools</div></div>
-      <div class="hero-stat"><div class="hero-stat-val" id="hero-agents">33</div><div class="hero-stat-label">Agent Commands</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-conf">—</div><div class="hero-stat-label">Min Confidence Gate</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-skills">—</div><div class="hero-stat-label">Skills</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-agents">—</div><div class="hero-stat-label">Agents</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-mcp">—</div><div class="hero-stat-label">MCP Tools</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-tools">—</div><div class="hero-stat-label">Scripts</div></div>
+      <div class="hero-stat"><div class="hero-stat-val" id="hero-employees">—</div><div class="hero-stat-label">AI Employees</div></div>
     </div>
   </div>
+
+  <div id="config-banner"></div>
 
   <!-- ═══ SKILLS ═══ -->
   <div class="section-label">Core Skills</div>
@@ -216,7 +284,21 @@
     <div class="card">
       <div class="card-icon">🎯</div>
       <div class="card-title">Multi-Timeframe Confluence</div>
-      <div class="card-body-text">A signal only fires when confidence is ≥65% across Daily, 4H, and 1H simultaneously — filters out noise from any single timeframe.</div>
+      <!-- CORRECTED 2026-09-01. This read "A signal only fires when confidence is >= the
+           live gate across Daily, 4H and 1H SIMULTANEOUSLY - filters out noise from any
+           single timeframe." That states a SAFETY PROPERTY THE ENGINE DOES NOT HAVE, and
+           a reader reasonably took it to mean the system will not buy into a bearish 4H.
+           CLAUDE.md carried the same false claim and was corrected in e14b968 after the
+           user asked why it buys when every lower timeframe is red.
+           What generateSignal actually does (server/index.js:2814-2911):
+             Daily + H4 AGREE            -> 72 / 88 / 95
+             Daily + H4 + H1 all agree   -> 88 / 97   (a BONUS branch, not a gate)
+             Daily fires, H4 says WAIT   -> 72 on Gold, which CLEARS the gate with H4
+                                            not agreeing
+             H4-only, daily WAIT         -> 55 / 63 / 68
+           `h1` appears exactly TWICE in the whole engine and no branch lets it reduce
+           confidence or block a setup. A bearish H1 and M15 are DISPLAY ONLY. -->
+      <div class="card-body-text">Daily, 4H and 1H are scored together and agreement RAISES confidence — Daily+4H aligned reaches 72–95, all three aligned reaches 88–97. They are not all required to agree: a Daily setup with 4H neutral can still clear the gate. A bearish 1H never blocks or reduces a signal — it is shown, not enforced.</div>
       <div class="card-tag">/api/signals</div>
     </div>
     <div class="card">
@@ -228,7 +310,14 @@
     <div class="card">
       <div class="card-icon">🧠</div>
       <div class="card-title">Self-Learning Calibration</div>
-      <div class="card-body-text">Every closed trade updates per-setup win rate. Setups above 55% win rate get boosted confidence; under 45% get penalised automatically.</div>
+      <!-- QUALIFIED 2026-09-01. The mechanism described here is real and the code runs,
+           but it has never once changed a confidence score. getLearningBoost returns 0
+           unless a setup has LEARNING_MIN_TRADES = 5 closed trades, and on 2026-09-01
+           the whole book was MOMENTUM 4/5, BB_SQUEEZE_WATCH 1/5, RANGE_TRADE_SHORT 1/5,
+           SQUEEZE_BREAKOUT 1/5 - seven outcomes total, every one below the floor.
+           Describing a dormant mechanism in the present tense reads as "this is
+           adjusting your trades", which it is not yet. -->
+      <div class="card-body-text">Every closed trade updates per-setup win rate. Once a setup reaches 5 closed trades, above 55% earns boosted confidence and under 45% is penalised. <strong>Not yet active:</strong> with 7 closed trades across 4 setups, none has reached the 5-trade floor, so the boost is currently 0 everywhere. It starts adjusting signals when the sample arrives.</div>
       <div class="card-tag">server/learning.json</div>
     </div>
     <div class="card">
@@ -258,11 +347,111 @@
     <!-- filled by JS -->
   </div>
 
-  <!-- ═══ AGENTS ═══ -->
-  <div class="section-label">Agents</div>
-  <div class="section-desc">Slash-command agents grouped by job — each is a Claude Code command in .claude/commands.</div>
+  <!-- ═══ FLEET DOCTOR ═══ -->
+  <div class="section-label">Fleet Doctor</div>
+  <div class="section-desc" id="doctor-desc">Both boxes in one view, worst first, and every finding carries the exact command that
+    fixes it. Read-only: healing stays on the CLI (<code>node tasks/doctor.cjs --heal</code>) because a
+    button that restarts things is a different risk from a page that lists them.</div>
+  <div id="doctor-banner"></div>
+  <div id="doctor-list">
+    <div class="empty-state">Running the fleet check…</div>
+  </div>
+
+  <!-- ═══ FLEET RECORD ═══ -->
+  <div class="section-label">The whole record — both boxes</div>
+  <div class="section-desc">Each box journals its own fills, so every other surface shows half the evidence. This
+    pools them — but only while engine parity says the two boxes run the same code, because two engines admit
+    different trades from identical bars and their fills are then not samples of one thing. When parity is
+    stale or divergent this refuses to pool and says so.</div>
+  <div id="fleetperf-banner"></div>
+  <div id="fleetperf-body"></div>
+
+  <!-- ═══ LEARNING ═══ -->
+  <div class="section-label">What the learning engine has to work with</div>
+  <div class="section-desc">Real fills on the left, forgone paper episodes on the right. The engine needs 5 CLOSED
+    trades in ONE bucket before it adjusts anything, and it has 2 in total — the rejection ledger has 26
+    episodes it is not allowed to use. They are kept apart on purpose: shadow episodes are entries that were
+    never filled, with no spread and no slippage, so they are evidence about geometry and not about execution.
+    Nothing on this panel feeds the gate.</div>
+  <div id="learn-banner"></div>
+  <div id="learn-body"></div>
+
+  <!-- ═══ EVIDENCE BOARD ═══ -->
+  <div class="section-label">What this system knows, and what it only assumes</div>
+  <div class="section-desc">Every claim carries its verdict, the evidence behind it, its caveat, and — the part that
+    matters most — what would change the answer. A measurement with no stated falsifier is an opinion with a
+    number attached. Curated in server/evidence_register.js and updated whenever something is measured; the
+    per-gate verdicts underneath come from the rejection ledger and update themselves.</div>
+  <div id="evidence-banner"></div>
+  <div id="evidence-claims"></div>
+  <div id="evidence-gates"></div>
+
+  <!-- ═══ MEASUREMENTS ═══ -->
+  <div class="section-label">Measurements — when this system wins</div>
+  <div class="section-desc">Out-of-sample, at the LIVE gate, from the replay the engine actually trades. Sessions
+    are six 4-hour blocks because entries are taken on H4 bars — no trade can open at any other hour. Read the
+    fold count, not the pooled number: with this many cells you should expect one or two to look strong by
+    chance, and this project's bar for changing a gate is 5 of 5 folds.</div>
+  <div id="measure-banner"></div>
+  <div id="measure-heatmap"></div>
+  <div id="measure-sessions"></div>
+  <div id="measure-folds"></div>
+  <div id="measure-instruments"></div>
+
+  <!-- ═══ AI EMPLOYEE ═══ -->
+  <div class="section-label">AI Employee</div>
+  <div class="section-desc">Did the scheduled agents run, did they succeed, and has anyone read what they wrote.
+    Each proposal is checked against the repo: a citation badge means the files, lines and functions it
+    names were actually resolved, so a recommendation that cannot be followed as written says so before
+    you act on it.</div>
+  <div id="aiwork-banner"></div>
+  <div id="aiwork-jobs" class="grid grid-2"></div>
+  <div id="aiwork-proposals"></div>
+
+  <!-- ═══ THE WORKFORCE ═══
+       One map. /api/ai-registry answers "what CAN be run" — 53 skills, 6 agents, 29
+       tools — and cannot answer who is EMPLOYED, to do what, on which box, reading what,
+       writing where, on whose clock. That lived across two machines' Task Scheduler
+       entries, four .bat files and nobody's head, which is how a weekly agent's correct
+       finding sat unread for five days and how the VPS agents ran for weeks on an older
+       CLAUDE.md with a /signal skill still quoting a gate that had moved.
+
+       PROPOSED rows are specified and NOT employed — shown so the gap is legible, and
+       costing nothing until a human creates the schedule. -->
+  <div class="section-label">The Workforce</div>
+  <div class="section-desc" id="workforce-desc">Read live from /api/ai-employees. Every employee declares seven things — brain, context, tools, skills, loop, memory, playbook, clock — and a missing one is shown as a finding, not left blank. This is a description, not a scheduler: nothing here can hire.</div>
+  <div id="workforce-banner"></div>
+  <div id="workforce-grid" class="grid grid-2">
+    <div class="empty-state">Reading the roster…</div>
+  </div>
+
+  <!-- ═══ SKILLS & AGENTS ═══ -->
+  <div class="section-label">Skills &amp; Agents</div>
+  <div class="section-desc" id="registry-desc">Read live from /api/ai-registry — the same endpoint the AI Brain tab uses — and grouped by job. A skill added to .claude/commands appears here without anyone editing this page.</div>
+  <div id="registry-banner"></div>
   <div class="grid grid-2" id="agents-grid">
-    <!-- filled by JS -->
+    <div class="empty-state">Reading the live registry…</div>
+  </div>
+
+  <!-- ═══ SUB-AGENTS ═══ -->
+  <div class="section-label">Sub-Agents</div>
+  <div class="section-desc">Specialist agents /engineer and the commands can spawn, each with its own brief.</div>
+  <div class="grid grid-3" id="subagents-grid">
+    <div class="empty-state">Reading the live registry…</div>
+  </div>
+
+  <!-- ═══ MCP TOOLS ═══ -->
+  <div class="section-label">MCP Tools</div>
+  <div class="section-desc">Every tool the AI can call, tagged by what it can do to the account. The distinction that matters is not how many there are — it is which of them can place a trade.</div>
+  <div class="grid grid-3" id="mcp-grid">
+    <div class="empty-state">Reading the live registry…</div>
+  </div>
+
+  <!-- ═══ GUARDRAILS ═══ -->
+  <div class="section-label">Guardrails</div>
+  <div class="section-desc">ENFORCED IN CODE means a code path prevents it. PROCEDURAL means only a rule does — and a rule is not a control.</div>
+  <div id="guardrails-wrap">
+    <div class="empty-state">Reading the live registry…</div>
   </div>
 
   <!-- ═══ AI PARALLEL ═══ -->
@@ -276,7 +465,7 @@
         <div class="pipe-mini">Agent 1 — owns files A</div>
         <div class="pipe-mini">Agent 2 — owns files B</div>
         <div class="pipe-mini">Agent 3 — owns files C</div>
-        <div class="pipe-mini">… up to 6, zero overlap</div>
+        <div class="pipe-mini">… up to <strong>5</strong>, zero overlap</div>
       </div>
       <div class="pipe-arrow">→</div>
       <div class="pipe-stage"><div class="pipe-stage-label">Step 3</div><div class="pipe-stage-val">Verify</div></div>
@@ -343,6 +532,25 @@ function el(id) { return document.getElementById(id); }
 function text(id, t) { const e = el(id); if (e) e.textContent = t; }
 function html(id, h) { const e = el(id); if (e) e.innerHTML = h; }
 
+// Everything below interpolates server-supplied strings — skill names, tool
+// descriptions, setup names — straight into innerHTML. plan.html has always
+// escaped; this page never did.
+function esc(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, c => (
+    { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+  ));
+}
+
+// r.ok, not just a successful parse. A 401 returns perfectly valid JSON and the
+// old code read that as a healthy response and painted the page "Live".
+async function getJson(route) {
+  const response = await fetch(API + route, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(route + ' → HTTP ' + response.status + (response.status === 401 ? ' (not logged in)' : ''));
+  }
+  return response.json();
+}
+
 (function tickClock() {
   text('clock', new Date().toLocaleTimeString('en-US', { hour12: false }));
   setTimeout(tickClock, 1000);
@@ -377,13 +585,22 @@ const TOOLS = [
 html('tools-grid', TOOLS.map(t => `
   <div class="card">
     <div class="card-icon">${t.icon}</div>
-    <div class="card-title">${t.name}</div>
-    <div class="card-body-text" style="font-family:var(--mono);font-size:.68rem;word-break:break-word">${t.cmd}</div>
+    <div class="card-title">${esc(t.name)}</div>
+    <div class="card-body-text" style="font-family:var(--mono);font-size:.68rem;word-break:break-word">${esc(t.cmd)}</div>
   </div>
 `).join(''));
-text('hero-tools', TOOLS.length.toString());
+// TOOLS below is a CURATED list of featured commands and stays that way — it is the
+// cards, not the count. The Scripts number now comes from the live registry; this line
+// used to read TOOLS.length and showed 13 while tasks/ alone held 161. A hand-maintained
+// count is the same failure as TRACKED in vps_parity and SEARCH in config_drift.
+// Left as a pre-registry fallback so the tile is never blank if the fetch fails.
+text('hero-tools', TOOLS.length.toString() + '*');
 
-// ── AGENTS ─────────────────────────────────────────────────────
+// ── SKILL GROUPING ─────────────────────────────────────────────
+// The curation stays; the LIST does not. These groups say which job each command
+// belongs to, which no endpoint knows — but the membership is now applied to the
+// live registry, so a new skill lands in "Other" instead of being invisible. The
+// page previously hardcoded 33 commands while 44 existed.
 const AGENT_GROUPS = [
   { title: 'Research & Market Read', cmds: ['analyze', 'research', 'news', 'scan', 'tv', 'draw'] },
   { title: 'Execution & Risk',       cmds: ['execute', 'trade', 'risk', 'portfolio'] },
@@ -393,22 +610,139 @@ const AGENT_GROUPS = [
   { title: 'Improvement',            cmds: ['improve', 'backtest', 'web', 'agent'] },
 ];
 
-html('agents-grid', AGENT_GROUPS.map(g => `
-  <div class="agent-group">
-    <div class="agent-group-title">${g.title}</div>
-    <div class="agent-chips">${g.cmds.map(c => `<span class="agent-chip">/${c}</span>`).join('')}</div>
-  </div>
-`).join(''));
+function renderSkillGroups(skillNames) {
+  const grouped = AGENT_GROUPS.map(group => ({
+    title: group.title,
+    cmds: group.cmds.filter(cmd => skillNames.includes(cmd)),
+  }));
+  const claimed = new Set(AGENT_GROUPS.flatMap(group => group.cmds));
+  const ungrouped = skillNames.filter(name => !claimed.has(name)).sort();
+  if (ungrouped.length) grouped.push({ title: 'Other', cmds: ungrouped });
 
-const totalAgents = AGENT_GROUPS.reduce((s, g) => s + g.cmds.length, 0);
-text('hero-agents', totalAgents.toString());
+  html('agents-grid', grouped.filter(g => g.cmds.length).map(g => `
+    <div class="agent-group">
+      <div class="agent-group-title">${esc(g.title)} <span style="color:var(--muted);font-weight:600">${g.cmds.length}</span></div>
+      <div class="agent-chips">${g.cmds.map(c => `<span class="agent-chip">/${esc(c)}</span>`).join('')}</div>
+    </div>
+  `).join(''));
+}
+
+// Shown only when the registry cannot be read. Keeping the hand-written list as a
+// FALLBACK rather than as a second source of truth is the whole point: two lists
+// rendered side by side would diverge, and the stale one would look just as
+// confident as the live one.
+function renderStaticFallback(reason) {
+  renderSkillGroups(AGENT_GROUPS.flatMap(group => group.cmds));
+  html('registry-banner', `<div class="page-banner banner-warn"><strong>Live registry unreachable — showing the hand-written fallback</strong>
+    ${esc(reason)}. These groups are a snapshot, not the running system: the counts below are what someone last typed into this page, and the real number is whatever is in .claude/ right now.</div>`);
+  html('subagents-grid', '<div class="empty-state">Sub-agent list needs the live registry.</div>');
+  html('mcp-grid', '<div class="empty-state">MCP tool list needs the live registry.</div>');
+  html('guardrails-wrap', '<div class="empty-state">Guardrail list needs the live registry.</div>');
+  const fallbackCount = AGENT_GROUPS.reduce((sum, group) => sum + group.cmds.length, 0);
+  text('hero-skills', fallbackCount + '*');
+}
+
+// ── LIVE REGISTRY ──────────────────────────────────────────────
+const CAPABILITY_CLASS = { 'read-only': 'cap-read', 'writes': 'cap-write', 'TRADES': 'cap-trade' };
+
+async function loadRegistry() {
+  let registry;
+  try {
+    registry = await getJson('/ai-registry');
+  } catch (e) {
+    renderStaticFallback(e.message);
+    return;
+  }
+
+  html('registry-banner', '');
+  const skills = Array.isArray(registry.skills) ? registry.skills : [];
+  const agents = Array.isArray(registry.agents) ? registry.agents : [];
+  const tools  = Array.isArray(registry.tools)  ? registry.tools  : [];
+  const rails  = Array.isArray(registry.guardrails) ? registry.guardrails : [];
+  const counts = registry.counts || {};
+
+  text('hero-skills', String(counts.skills ?? skills.length));
+  text('hero-agents', String(counts.agents ?? agents.length));
+  text('hero-mcp',    String(counts.tools  ?? tools.length));
+  // Live script count. server/ is deliberately NOT in it — those are library modules,
+  // and counting them would overstate by the same kind of error the hardcoded 13
+  // understated by.
+  if (counts.scripts) text('hero-tools', String(counts.scripts));
+
+  renderSkillGroups(skills.map(skill => skill.name));
+
+  html('subagents-grid', agents.length
+    ? agents.map(agent => `
+        <div class="card">
+          <div class="card-title">${esc(agent.name)}</div>
+          <div class="card-body-text">${esc(agent.description)}</div>
+          <div class="card-tag">${esc(agent.file || '')}</div>
+        </div>`).join('')
+    : '<div class="empty-state">No sub-agents reported.</div>');
+
+  // Trading tools first. Reading order should match the order in which these
+  // things can hurt you.
+  const rank = { 'TRADES': 0, 'writes': 1, 'read-only': 2 };
+  const orderedTools = [...tools].sort((a, b) =>
+    (rank[a.mutates] ?? 3) - (rank[b.mutates] ?? 3) || String(a.name).localeCompare(String(b.name)));
+
+  html('mcp-grid', orderedTools.length
+    ? orderedTools.map(tool => `
+        <div class="tool-row">
+          <div class="tool-name">${esc(tool.name)}<span class="cap-tag ${CAPABILITY_CLASS[tool.mutates] || 'cap-read'}">${esc(tool.mutates || 'unknown')}</span></div>
+          <div class="tool-desc">${esc(tool.description)}</div>
+        </div>`).join('')
+    : '<div class="empty-state">No MCP tools reported.</div>');
+
+  html('guardrails-wrap', rails.length
+    ? rails.map(rail => {
+        const enforced = String(rail.enforcement || '').toUpperCase().includes('ENFORCED');
+        return `<div class="rail">
+          <div class="rail-rule">${esc(rail.rule)}<span class="cap-tag ${enforced ? 'cap-enforced' : 'cap-procedural'}">${esc(rail.enforcement)}</span></div>
+          <div class="rail-detail">${esc(rail.detail)}</div>
+        </div>`;
+      }).join('')
+    : '<div class="empty-state">No guardrails reported.</div>');
+
+  const registryErrors = [registry.skillsError, registry.agentsError, registry.toolsError].filter(Boolean);
+  if (registryErrors.length) {
+    html('registry-banner', `<div class="page-banner banner-warn"><strong>The registry could not read part of itself</strong>
+      ${registryErrors.map(esc).join('<br>')} — the counts above are therefore a floor, not a total.</div>`);
+  }
+}
+
+// ── LIVE GATE ──────────────────────────────────────────────────
+// The one number this page most needs to be right, read from the config actually
+// in force rather than written into the HTML.
+async function loadGate() {
+  try {
+    const settings = await getJson('/strategy-settings');
+    const gate = typeof settings.confidenceThreshold === 'number' ? settings.confidenceThreshold : null;
+    text('hero-conf',   gate === null ? '—' : gate + '%');
+    text('gate-inline', gate === null ? 'the live gate' : gate + '%');
+
+    // settingsError non-null means these are built-in defaults, NOT the saved
+    // file — the difference is invisible in the numbers and it changes live sizing.
+    if (settings.settingsError) {
+      html('config-banner', `<div class="page-banner banner-bad"><strong>This box is running built-in defaults, not its saved config</strong>
+        strategy_settings.json did not load: ${esc(settings.settingsError)}. Every number on this page describes the defaults, and live position sizing is not what the file says.</div>`);
+    } else {
+      html('config-banner', '');
+    }
+  } catch (e) {
+    text('hero-conf', '—');
+    text('gate-inline', 'the live gate');
+    html('config-banner', `<div class="page-banner banner-warn"><strong>Could not read the live confidence gate</strong>
+      ${esc(e.message)}. No gate is shown rather than a remembered one — this page used to claim 65% while the engine ran 70.</div>`);
+  }
+}
 
 // ── LIVE SETUP PERFORMANCE ────────────────────────────────────
 async function loadLiveProfit() {
   try {
     const [statsRes, learnRes] = await Promise.all([
-      fetch(API + '/stats/by-setup', { cache: 'no-store' }).then(r => r.json()),
-      fetch(API + '/learning',       { cache: 'no-store' }).then(r => r.json())
+      getJson('/stats/by-setup'),
+      getJson('/learning')
     ]);
     markOnline(true);
 
@@ -429,7 +763,7 @@ async function loadLiveProfit() {
       const pnlColor = s.totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
       return `<tr class="${i === 0 ? 'top-rank' : ''}">
         <td>${rankCls ? `<span class="rank-badge ${rankCls}">${i + 1}</span>` : (i + 1)}</td>
-        <td style="font-weight:600">${s.setup.replace(/_/g, ' ')}</td>
+        <td style="font-weight:600">${esc(String(s.setup).replace(/_/g, ' '))}</td>
         <td>${s.trades}</td>
         <td>${s.winRate}%</td>
         <td style="color:${pnlColor};font-weight:700">${s.totalPnl >= 0 ? '+' : ''}$${s.totalPnl.toFixed(2)}</td>
@@ -440,7 +774,19 @@ async function loadLiveProfit() {
       <thead><tr><th>#</th><th>Setup</th><th>Trades</th><th>Win Rate</th><th>Net P&amp;L</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`);
-    text('live-meta', `${statsRes.totalClosed} closed trades`);
+    // Say BOTH numbers when they differ. The table above counts only trades with a real
+    // setup name; totalClosed counts every closed trade. Printing just the larger figure
+    // over a shorter table invites the reader to assume rows are missing, and printing
+    // just the smaller one hides real P&L. The unattributed trades are excluded from the
+    // table because "WAIT" is the absence of a setup — one such fill used to sit at the
+    // top of it with a 100% win rate.
+    const attributed = Number.isFinite(statsRes.attributedClosed)
+      ? statsRes.attributedClosed : statsRes.totalClosed;
+    const unattributed = (statsRes.unattributed && statsRes.unattributed.count) || 0;
+    text('live-meta', unattributed > 0
+      ? `${attributed} attributed of ${statsRes.totalClosed} closed — `
+        + `${unattributed} carry no setup name (P&L ${statsRes.unattributed.totalPnl})`
+      : `${statsRes.totalClosed} closed trades`);
   } catch {
     markOnline(false);
     html('live-profit-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Server offline — cannot load live performance.</div>`);
@@ -455,7 +801,7 @@ async function runBacktest() {
   html('backtest-wrap', `<div class="empty-state"><span class="spinner"></span> Testing 5 years of BTC, Gold, and S&amp;P 500 data — up to 30s…</div>`);
 
   try {
-    const d = await fetch(API + '/backtest?years=5', { cache: 'no-store' }).then(r => r.json());
+    const d = await getJson('/backtest?years=5');
     const assets = [
       { key: 'btc',  icon: '₿',  color: '#f7931a' },
       { key: 'gold', icon: '🥇', color: '#eab308' },
@@ -478,10 +824,13 @@ async function runBacktest() {
       const wc = a.r.winRate >= 55 ? 'var(--green)' : a.r.winRate >= 45 ? 'var(--yellow)' : 'var(--red)';
       return `<tr class="${i === 0 ? 'top-rank' : ''}">
         <td><span class="rank-badge ${rankCls}">${i + 1}</span></td>
-        <td style="font-weight:600">${a.icon} ${a.r.label}</td>
-        <td>${a.r.totalTrades}</td>
+        <td style="font-weight:600">${a.icon} ${esc(a.r.label)}</td>
+        <td>${a.r.totalTrades}${a.r.tradesPerYear != null ? `<span style="color:var(--muted);font-size:.85em"> · ${a.r.tradesPerYear}/yr</span>` : ''}</td>
         <td style="color:${wc}">${a.r.winRate}%</td>
-        <td>${a.r.profitFactor ?? 'N/A'}</td>
+        <td>${a.r.profitFactor ?? 'N/A'}${
+          a.r.profitFactorGross != null && a.r.profitFactorGross !== a.r.profitFactor
+            ? `<span style="color:var(--muted);font-size:.85em"> (gross ${a.r.profitFactorGross})</span>` : ''
+        }</td>
         <td>${a.r.maxDrawdown}%</td>
         <td style="color:${rc};font-weight:700">${a.r.returnPct >= 0 ? '+' : ''}${a.r.returnPct}%</td>
       </tr>`;
@@ -493,12 +842,30 @@ async function runBacktest() {
     </table>`;
 
     if (d.claudeVerdict) {
-      out += `<div class="verdict-box"><strong>Claude verdict:</strong><br>${d.claudeVerdict.replace(/\n/g, '<br>')}</div>`;
+      out += `<div class="verdict-box"><strong>Claude verdict:</strong><br>${esc(d.claudeVerdict).replace(/\n/g, '<br>')}</div>`;
+    } else if (d.claudeVerdictError) {
+      // A missing commentary and a REFUSED one look identical when both render as
+      // nothing, and only one of them needs a person. This box previously showed the
+      // CLI's own "Not logged in - Please run /login" under the heading "Claude
+      // verdict", so an auth error was presented as quant analysis.
+      out += `<div class="verdict-box" style="background:rgba(239,68,68,.06);border-color:rgba(239,68,68,.35)">`
+           + `<strong style="color:var(--red)">Claude verdict unavailable:</strong><br>`
+           + `${esc(d.claudeVerdictError)}</div>`;
     }
+
+    // Say what this actually replayed. The table ranks by return %, which reads as
+    // the system's edge — but this harness replays the single-timeframe path, not
+    // the multi-timeframe gate that decides live trades. The measurement that set
+    // the live gate was a walk-forward, and it is not this.
+    out += `<div class="verdict-box" style="background:rgba(255,184,48,.06);border-color:rgba(255,184,48,.3)">
+      <strong style="color:var(--yellow)">What this replayed:</strong><br>
+      All figures are NET of ${esc(String(d.gold?.costRPerTrade ?? 0.05))}R per trade (spread and slippage) — the basis every other harness here uses. This table charged NOTHING until 2026-09-01, so any screenshot of it before that date is gross. <strong style="color:var(--yellow)">Sample: ${esc(d.gold?.sampleVerdict || "unknown")}</strong> — a profit factor over ~11 trades a year cannot separate an edge from a lucky run.<br><br>Single-timeframe signal generation over ${esc(d.years)} years of history. The live system requires
+      confluence across Daily, 4H and 1H, so these returns describe a related path, not the traded one.
+      The live gate was set by walk-forward validation (5 of 5 out-of-sample folds positive), not by this table.</div>`;
 
     html('backtest-wrap', out);
   } catch (e) {
-    html('backtest-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Backtest failed: ${e.message}</div>`);
+    html('backtest-wrap', `<div class="empty-state"><span class="icon">⚠️</span>Backtest failed: ${esc(e.message)}</div>`);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Run Backtest';
@@ -531,9 +898,9 @@ async function architectTask() {
     html('eng-plan-wrap', `<div style="font-size:.72rem;color:var(--muted2);margin-bottom:8px">
       ${d.plan.length} workstream${d.plan.length === 1 ? '' : 's'} — review, then launch:</div>` +
       d.plan.map(w => `<div class="worker-card">
-        <div class="worker-head"><span class="worker-name">${w.name}</span></div>
-        <div class="worker-files">Files: ${w.files}</div>
-        <div style="font-size:.72rem;color:var(--text)">${w.task}</div>
+        <div class="worker-head"><span class="worker-name">${esc(w.name)}</span></div>
+        <div class="worker-files">Files: ${esc(w.files)}</div>
+        <div style="font-size:.72rem;color:var(--text)">${esc(w.task)}</div>
       </div>`).join(''));
 
     text('eng-run-meta', 'Plan ready — awaiting launch');
@@ -573,17 +940,17 @@ async function launchTask() {
 async function pollEngineerStatus() {
   if (!engCurrentRunId) return;
   try {
-    const d = await fetch(API + '/engineer/status/' + engCurrentRunId, { cache: 'no-store' }).then(r => r.json());
+    const d = await getJson('/engineer/status/' + engCurrentRunId);
 
     html('eng-status-wrap', d.workers.map(w => {
-      const cls = 'w-' + w.status;
+      const cls = 'w-' + String(w.status).replace(/[^a-z]/gi, '');
       return `<div class="worker-card">
         <div class="worker-head">
-          <span class="worker-name">${w.name}</span>
-          <span class="w-status ${cls}">${w.status}</span>
+          <span class="worker-name">${esc(w.name)}</span>
+          <span class="w-status ${cls}">${esc(w.status)}</span>
         </div>
-        <div class="worker-files">Files: ${w.files}</div>
-        ${w.outputTail ? `<div class="worker-log">${w.outputTail.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>` : ''}
+        <div class="worker-files">Files: ${esc(w.files)}</div>
+        ${w.outputTail ? `<div class="worker-log">${esc(w.outputTail)}</div>` : ''}
       </div>`;
     }).join(''));
 
@@ -601,16 +968,957 @@ async function pollEngineerStatus() {
 // ── STATUS ─────────────────────────────────────────────────────
 async function loadStatus() {
   try {
-    await fetch(API + '/status', { cache: 'no-store' }).then(r => r.json());
+    await getJson('/status');
     markOnline(true);
   } catch { markOnline(false); }
 }
 
 // ── BOOT ───────────────────────────────────────────────────────
+// ── FLEET DOCTOR ───────────────────────────────────────────────
+// The whole point of this panel is that a finding arrives WITH its remedy. A status
+// board that says "bridge silent" and leaves you to work out what to run is the thing
+// the doctor was written to replace, so the fix line is never truncated or hidden.
+const DOCTOR_COLOUR = {
+  RED:   { border: 'rgba(255,68,68,.35)',  bg: 'rgba(255,68,68,.06)',  text: 'var(--red)' },
+  AMBER: { border: 'rgba(255,184,0,.35)',  bg: 'rgba(255,184,0,.06)',  text: '#ffb800' },
+  INFO:  { border: 'rgba(255,255,255,.12)', bg: 'rgba(255,255,255,.03)', text: 'var(--muted-dim)' },
+};
+
+async function loadDoctor() {
+  const list = el('doctor-list'), banner = el('doctor-banner');
+  try {
+    const data = await getJson('/doctor');
+    const findings = data.findings || [];
+    const counts = data.counts || {};
+
+    // A cached answer is still an answer, but its age has to be visible: this panel
+    // exists to be trusted in the moment something is wrong.
+    const age = data.ageMs > 1000 ? Math.round(data.ageMs / 1000) + 's old' : 'just now';
+    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--muted-dim)">'
+      + '<span style="color:var(--red);font-weight:600">' + (counts.RED || 0) + ' RED</span> · '
+      + '<span style="color:#ffb800;font-weight:600">' + (counts.AMBER || 0) + ' AMBER</span> · '
+      + (counts.INFO || 0) + ' INFO &nbsp;—&nbsp; ' + esc(age)
+      + (data.stale ? ' <span style="color:var(--red)">(stale: the last pass failed)</span>' : '')
+      + '</div>';
+
+    if (!findings.length) {
+      list.innerHTML = '<div class="empty-state">Nothing to report. Both boxes healthy.</div>';
+      return;
+    }
+
+    list.innerHTML = findings.map(f => {
+      const c = DOCTOR_COLOUR[f.severity] || DOCTOR_COLOUR.INFO;
+      return '<div style="border:1px solid ' + c.border + ';background:' + c.bg
+        + ';border-radius:10px;padding:14px 16px;margin-bottom:10px">'
+        + '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">'
+        + '<span style="color:' + c.text + ';font-weight:700;font-size:11px;letter-spacing:.08em">'
+        + esc(f.severity) + '</span>'
+        + '<span style="color:var(--muted-dim);font-size:11px;letter-spacing:.06em">' + esc(f.box) + '</span>'
+        + (f.healable ? '<span style="font-size:10px;color:var(--green);border:1px solid rgba(0,255,136,.3);'
+            + 'border-radius:4px;padding:1px 6px">HEALABLE</span>' : '')
+        + '</div>'
+        + '<div style="margin-top:6px;font-size:14px;font-weight:600">' + esc(f.what) + '</div>'
+        + '<div style="margin-top:4px;font-size:12px;color:var(--muted-dim);line-height:1.5">' + esc(f.why) + '</div>'
+        + '<div style="margin-top:8px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'
+        + 'background:rgba(0,0,0,.25);border-radius:6px;padding:7px 9px;overflow-x:auto;white-space:pre">'
+        + esc(f.remedy) + '</div>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    // Say which check failed and why. "Unavailable" on a health panel is the same
+    // failure as a green light that means nothing.
+    banner.innerHTML = '';
+    list.innerHTML = '<div class="empty-state" style="color:var(--red)">Fleet check unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
+// ── AI EMPLOYEE ────────────────────────────────────────────────
+// OUTPUT IGNORED is the verdict this whole surface exists for: an agent that works and
+// is never read costs exactly what a failing one costs, so an unreviewed proposal is
+// styled as loudly as a failing job rather than tucked into a count.
+const JOB_COLOUR = {
+  'HEALTHY':              'var(--green)',
+  'REPORTS RED':          '#ffb800',
+  'STALE':                '#ffb800',
+  'INCOMPLETE':           '#ffb800',
+  'NO COMPLETION MARKER': '#ffb800',
+  'OUTPUT IGNORED':       '#ffb800',
+  'FAILING':              'var(--red)',
+  'NO SCHEDULED TASK':    'var(--red)',
+  'NEVER PRODUCED OUTPUT':'var(--red)',
+};
+
+function citationBadge(c) {
+  if (!c || !c.checked) {
+    return '<span style="font-size:10px;color:var(--muted-dim);border:1px solid rgba(255,255,255,.15);'
+      + 'border-radius:4px;padding:1px 6px">NO REFERENCES</span>';
+  }
+  const broken = (c.broken || []).length;
+  const good = broken === 0;
+  return '<span style="font-size:10px;color:' + (good ? 'var(--green)' : 'var(--red)')
+    + ';border:1px solid ' + (good ? 'rgba(0,255,136,.3)' : 'rgba(255,68,68,.35)')
+    + ';border-radius:4px;padding:1px 6px">'
+    + (good ? 'REFS OK ' + c.resolved + '/' + c.checked
+            : broken + ' BROKEN REF' + (broken === 1 ? '' : 'S'))
+    + '</span>';
+}
+
+async function loadAiWork() {
+  const banner = el('aiwork-banner'), jobsEl = el('aiwork-jobs'), propEl = el('aiwork-proposals');
+  try {
+    const d = await getJson('/ai-work');
+    const t = d.totals || {};
+
+    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--muted-dim)">'
+      + t.jobs + ' jobs · '
+      + '<span style="color:' + (t.failing ? 'var(--red)' : 'var(--green)') + ';font-weight:600">'
+      + t.failing + ' failing</span> · '
+      + '<span style="color:' + (t.unreviewed ? '#ffb800' : 'var(--muted-dim)') + ';font-weight:600">'
+      + t.unreviewed + ' unreviewed</span> of ' + t.proposals + ' proposals'
+      + (t.proposalsWithBrokenRefs
+          ? ' · <span style="color:var(--red);font-weight:600">' + t.proposalsWithBrokenRefs
+            + ' with broken refs</span>' : '')
+      // Was the agent RIGHT — the appraisal, kept separate from what was done with its
+      // fix. A rejected proposal whose diagnosis held up is the agent earning its keep.
+      + (t.callsRight || t.callsWrong || t.callsUnproven
+          ? ' · diagnosis <span style="color:var(--green)">' + (t.callsRight || 0) + ' right</span>'
+            + ' / <span style="color:var(--red)">' + (t.callsWrong || 0) + ' wrong</span>'
+            + (t.callsUnproven ? ' / ' + t.callsUnproven + ' unproven' : '')
+            + (t.callsUnscored ? ' · <span style="color:var(--muted-dim)">' + t.callsUnscored + ' unscored</span>' : '')
+          : ' · <span style="color:var(--muted-dim)">no diagnosis scored yet</span>')
+      + '</div>';
+
+    jobsEl.innerHTML = (d.jobs || []).map(j => {
+      const colour = JOB_COLOUR[j.verdict] || 'var(--muted-dim)';
+      return '<div class="card"><div class="card-title" style="display:flex;justify-content:space-between;gap:8px">'
+        + '<span>' + esc(j.label) + '</span>'
+        + '<span style="color:' + colour + ';font-size:11px;font-weight:700">' + esc(j.verdict) + '</span>'
+        + '</div>'
+        + '<div class="card-body-text">' + esc(j.detail || '') + '</div>'
+        + '<div class="card-tag">' + esc(j.lastFile || j.script) + '</div></div>';
+    }).join('');
+
+    const proposals = d.proposals || [];
+    propEl.innerHTML = !proposals.length
+      ? '<div class="empty-state">No proposals harvested yet.</div>'
+      : '<div style="margin-top:6px">' + proposals.map(p => {
+          // DEFERRED is decided but NOT closed: the diagnosis was right, the fix accepted,
+          // and the work still owed. Styling it like a closed item would make the status
+          // pointless — it exists precisely so accepted-but-unapplied work stays visible
+          // instead of being falsely closed as `ignored`, which is what happened to
+          // weekly-cerxff before the status existed.
+          const deferred = String(p.status || '').trim().toLowerCase() === 'deferred';
+          const reviewed = p.status && p.status !== 'UNREVIEWED' && !deferred;
+          return '<div style="border:1px solid ' + (reviewed ? 'rgba(255,255,255,.12)' : 'rgba(255,184,0,.35)')
+            + ';background:' + (reviewed ? 'rgba(255,255,255,.03)' : 'rgba(255,184,0,.06)')
+            + ';border-radius:10px;padding:12px 14px;margin-bottom:8px">'
+            + '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">'
+            + '<span style="font-size:10px;font-weight:700;letter-spacing:.06em;color:'
+            + (reviewed ? 'var(--green)' : '#ffb800') + '">' + esc(p.status || 'UNREVIEWED') + '</span>'
+            + (p.call
+                ? '<span style="font-size:10px;border-radius:4px;padding:1px 6px;border:1px solid '
+                  + (p.call === 'right' ? 'rgba(0,255,136,.35);color:var(--green)'
+                     : p.call === 'wrong' ? 'rgba(255,68,68,.35);color:var(--red)'
+                     : 'rgba(255,255,255,.15);color:var(--muted-dim)')
+                  + '">CALL ' + esc(p.call.toUpperCase()) + '</span>'
+                : '')
+            + citationBadge(p.citations)
+            + '<span style="font-size:11px;color:var(--muted-dim)">' + esc(p.jobLabel) + ' · '
+            + p.ageDays + 'd old</span></div>'
+            + '<div style="margin-top:6px;font-size:13px;line-height:1.5">' + esc(p.text) + '</div>'
+            + ((p.citations && p.citations.broken || []).length
+                ? '<div style="margin-top:6px;font-size:11px;color:var(--red)">'
+                  + p.citations.broken.map(b => esc(b.ref) + ' — ' + esc(b.why)).join('<br>') + '</div>'
+                : '')
+            + (p.note ? '<div style="margin-top:6px;font-size:11px;color:var(--muted-dim)">' + esc(p.note) + '</div>' : '')
+            + '<div style="margin-top:6px;font-size:11px;color:var(--muted-dim);font-family:ui-monospace,monospace">'
+            + esc(p.file) + ':' + p.line + '</div>'
+            + '</div>';
+        }).join('') + '</div>';
+  } catch (e) {
+    banner.innerHTML = '';
+    jobsEl.innerHTML = '';
+    propEl.innerHTML = '<div class="empty-state" style="color:var(--red)">AI work ledger unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
+// ── MEASUREMENTS ───────────────────────────────────────────────
+// Every number here carries its age and its fold count. A pooled R/trade with no fold
+// count is how PRE-LONDON's +1.399 nearly became a proposal: it improves in 1 of 5
+// folds, which the pooled figure cannot show and this table must.
+const VERDICT_COLOUR = {
+  'ROBUST':                'var(--green)',
+  'CONSISTENTLY NEGATIVE': 'var(--green)',   // consistently bad to REMOVE = the slice earns its place
+  'MOSTLY POSITIVE':       '#ffb800',
+  'UNSTABLE':              'var(--muted-dim)',
+  'TOO FEW FOLDS':         'var(--muted-dim)',
+};
+
+function rptCell(v) {
+  if (v === null || v === undefined) return '<span style="color:var(--muted-dim)">—</span>';
+  const c = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--muted-dim)';
+  return '<span style="color:' + c + '">' + (v >= 0 ? '+' : '') + v.toFixed(3) + '</span>';
+}
+
+function foldTable(m, title) {
+  if (!m || !m.available) {
+    return '<div class="empty-state">' + esc(title) + ' — not run on this box.<br>'
+      + '<span style="font-family:ui-monospace,monospace;font-size:11px">'
+      + esc((m && m.command) || '') + '</span></div>';
+  }
+  const rows = (m.slices || []).map(s =>
+    '<tr>'
+    + '<td style="padding:6px 10px">' + esc(s.slice) + '</td>'
+    + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + s.closed + '</td>'
+    + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.rpt) + '</td>'
+    + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.pooledDelta) + '</td>'
+    + '<td style="padding:6px 10px;text-align:right;font-weight:600">'
+      + s.foldsImproved + '/' + s.foldsScored + '</td>'
+    + '<td style="padding:6px 10px;color:' + (VERDICT_COLOUR[s.verdict] || 'var(--muted-dim)') + '">'
+      + esc(s.verdict) + '</td></tr>').join('');
+  return '<div style="margin:10px 0 22px">'
+    + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:6px">' + esc(title)
+    + ' — ' + m.trades + ' trades at gate ' + m.gate + ', ' + m.foldCount + ' folds, baseline '
+    + (m.baseline >= 0 ? '+' : '') + (m.baseline || 0).toFixed(3) + 'R/trade · '
+    + m.ageHours + 'h old</div>'
+    + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left">'
+    + '<th style="padding:6px 10px">slice</th><th style="padding:6px 10px;text-align:right">n</th>'
+    + '<th style="padding:6px 10px;text-align:right">own R/t</th>'
+    + '<th style="padding:6px 10px;text-align:right">delta if removed</th>'
+    + '<th style="padding:6px 10px;text-align:right">folds</th>'
+    + '<th style="padding:6px 10px">verdict</th></tr>'
+    + rows + '</table></div></div>';
+}
+
+// Six rows, not twenty-four. Entries are taken on H4 bars, so a trade can only open at
+// 00/04/08/12/16/20 UTC — an hourly grid would be eighteen structurally empty columns
+// presented as data, which invents a question the engine cannot answer.
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const HEAT_BLOCK_SESSION = { 0: 'ASIAN', 4: 'ASIAN', 8: 'PRE-LONDON', 12: 'OVERLAP', 16: 'NEW YORK', 20: 'AFTER HOURS' };
+let heatPopulation = 'atGate';   // toggled by the buttons below
+
+// Fixed thresholds, not relative to the current data: a relative scale would repaint
+// the same numbers differently as the sample grows, so two visits would disagree.
+function heatCell(cell, minClosed) {
+  if (!cell || !cell.closed) {
+    return { bg: 'rgba(255,255,255,.02)', fg: 'var(--muted-dim)', label: '·', title: 'no trades' };
+  }
+  const thin = cell.closed < minClosed;
+  const r = cell.rpt;
+  const title = cell.closed + ' trades · ' + cell.wr.toFixed(1) + '% win · '
+    + (r >= 0 ? '+' : '') + r.toFixed(3) + 'R/trade' + (thin ? ' · too thin to score' : '');
+  if (thin) return { bg: 'rgba(255,255,255,.04)', fg: 'var(--muted-dim)', label: '~', title };
+  const a = Math.min(Math.abs(r) / 0.5, 1) * 0.5 + 0.12;
+  const rgb = r >= 0 ? [0, 255, 136] : [255, 68, 68];
+  return {
+    bg: 'rgba(' + rgb.join(',') + ',' + a.toFixed(2) + ')',
+    fg: heatLabelColour(rgb, a),
+    label: (r >= 0 ? '+' : '') + r.toFixed(2),
+    title,
+  };
+}
+
+// The cell fill carries magnitude as ALPHA, from 0.12 up to 0.62, so a strong positive
+// block ends up a light mint green — and every label was painted #fff regardless. White
+// on the strongest green measured 3.17:1, under the 4.5 an 11px label needs, and the
+// best-performing cells on the map were the least readable ones on it.
+//
+// Rather than pick a threshold by eye, composite the fill over the surface it sits on
+// and return whichever of white or near-black actually wins. That is self-correcting:
+// change the alpha ramp or the palette later and the labels stay legible without anyone
+// remembering this existed.
+const HEAT_BASE_RGB = [13, 20, 32];   // --surface (#0d1420) from theme.css, which the cells sit on
+
+function srgbLuminance([r, g, b]) {
+  const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+function contrastRatio(lumA, lumB) {
+  return (Math.max(lumA, lumB) + 0.05) / (Math.min(lumA, lumB) + 0.05);
+}
+
+function heatLabelColour(fillRgb, alpha) {
+  const composite = fillRgb.map((channel, i) => HEAT_BASE_RGB[i] * (1 - alpha) + channel * alpha);
+  const lum = srgbLuminance(composite);
+  const white = contrastRatio(srgbLuminance([255, 255, 255]), lum);
+  const ink   = contrastRatio(srgbLuminance([7, 16, 24]), lum);
+  return white >= ink ? '#fff' : '#071018';
+}
+
+function renderHeatmap(hm) {
+  const host = el('measure-heatmap');
+  if (!hm || !hm.available || !hm.grid) {
+    host.innerHTML = '<div class="empty-state">Heat map not run on this box.<br>'
+      + '<span style="font-family:ui-monospace,monospace;font-size:11px">'
+      + esc((hm && hm.command) || 'node tasks/time_heatmap.cjs') + '</span></div>';
+    return;
+  }
+  const pop = hm.grid[heatPopulation] || hm.grid.atGate;
+  const minClosed = hm.minClosedPerCell || 8;
+  const hours = (hm.entryHoursUtc || [0, 4, 8, 12, 16, 20]);
+  const days = [1, 2, 3, 4, 5, 0, 6].filter(d => pop.day && pop.day[d]);
+
+  const head = '<tr><th style="padding:6px 8px;font-size:11px;color:var(--muted-dim);text-align:left">UTC</th>'
+    + days.map(d => '<th style="padding:6px 8px;font-size:11px;color:var(--muted-dim)">' + DAY_NAMES[d] + '</th>').join('')
+    + '<th style="padding:6px 8px;font-size:11px;color:var(--muted-dim);text-align:right">block</th></tr>';
+
+  const rows = hours.map(h => {
+    const cells = days.map(d => {
+      const c = heatCell(pop.blockByDay[h + '|' + d], minClosed);
+      return '<td title="' + esc(c.title) + '" style="padding:0 3px 3px 0">'
+        + '<div style="background:' + c.bg + ';color:' + c.fg + ';border-radius:5px;padding:9px 4px;'
+        + 'text-align:center;font-size:11px;font-weight:600;min-width:52px">' + c.label + '</div></td>';
+    }).join('');
+    const tot = pop.block[h];
+    return '<tr><td style="padding:6px 8px;font-size:11px;color:var(--muted-dim);white-space:nowrap">'
+      + String(h).padStart(2, '0') + 'h <span style="opacity:.6">' + (HEAT_BLOCK_SESSION[h] || '') + '</span></td>'
+      + cells
+      + '<td style="padding:6px 8px;text-align:right;font-size:11px;white-space:nowrap">'
+      + (tot ? 'n=' + tot.closed + '  ' + ((tot.rpt >= 0 ? '+' : '') + tot.rpt.toFixed(3)) : '—')
+      + '</td></tr>';
+  }).join('');
+
+  const btn = (key, label) => '<button data-heatpop="' + key + '" style="cursor:pointer;font-size:11px;'
+    + 'padding:4px 10px;border-radius:6px;border:1px solid ' + (heatPopulation === key ? 'rgba(0,255,136,.4)' : 'rgba(255,255,255,.15)')
+    + ';background:' + (heatPopulation === key ? 'rgba(0,255,136,.1)' : 'transparent')
+    + ';color:' + (heatPopulation === key ? 'var(--green)' : 'var(--muted-dim)') + '">' + label + '</button>';
+
+  host.innerHTML = '<div style="margin:10px 0 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + btn('atGate', 'At the live gate (' + hm.atGateTrades + ')')
+    + btn('atFloor', 'All setups, conf ≥ ' + hm.grid.confFloor + ' (' + hm.totalTrades + ')')
+    + '<span style="font-size:11px;color:var(--muted-dim)">R/trade per cell · hover for detail · '
+    + hm.ageHours + 'h old</span></div>'
+    + '<div style="overflow-x:auto"><table style="border-collapse:collapse">' + head + rows + '</table></div>'
+    + '<div style="font-size:11px;color:var(--muted-dim);margin-top:6px">'
+    + 'green = positive, red = negative, intensity by size · <strong>~</strong> = under '
+    + minClosed + ' trades, no verdict · <strong>·</strong> = no trades. '
+    + 'Six rows because entries are H4 bar opens — no trade can start at any other hour.</div>';
+
+  host.querySelectorAll('[data-heatpop]').forEach(b => b.addEventListener('click', () => {
+    heatPopulation = b.getAttribute('data-heatpop');
+    renderHeatmap(hm);
+  }));
+}
+
+async function loadMeasurements() {
+  const banner = el('measure-banner'), sess = el('measure-sessions'), folds = el('measure-folds');
+  try {
+    const d = await getJson('/measurements');
+    const m = d.measurements || {};
+    const hm = m.timeHeatmap;
+
+    // An incomplete replay invalidates every cell below it, so it goes at the top.
+    const incomplete = Object.values(m).filter(x => x && (x.failedAssets || []).length);
+    banner.innerHTML = incomplete.length
+      ? '<div style="border:1px solid rgba(255,68,68,.35);background:rgba(255,68,68,.06);border-radius:8px;'
+        + 'padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--red)">INCOMPLETE — '
+        + esc(incomplete[0].failedAssets.join(', ')) + ' produced no trades. Every number below '
+        + 'describes the remaining assets only.</div>'
+      : '';
+
+    renderHeatmap(hm);
+
+    if (hm && hm.available) {
+      const order = ['ASIAN', 'PRE-LONDON', 'LONDON', 'OVERLAP', 'NEW YORK', 'AFTER HOURS'];
+      const rows = order.map(name => {
+        const s = hm.sessions[name];
+        if (!s) return '<tr><td style="padding:6px 10px">' + esc(name)
+          + '</td><td colspan="3" style="padding:6px 10px;color:var(--muted-dim)">no trades</td></tr>';
+        return '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + s.closed + '</td>'
+          + '<td style="padding:6px 10px;text-align:right">' + s.wr.toFixed(1) + '%</td>'
+          + '<td style="padding:6px 10px;text-align:right">' + rptCell(s.rpt) + '</td></tr>';
+      }).join('');
+      sess.innerHTML = '<div style="margin:10px 0 22px">'
+        + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:6px">Per session at the live gate — '
+        + hm.atGateTrades + ' of ' + hm.totalTrades + ' trades cleared gate ' + hm.gate
+        + ' · entry hours ' + (hm.entryHoursUtc || []).map(h => String(h).padStart(2, '0')).join(', ')
+        + ' UTC · ' + hm.ageHours + 'h old</div>'
+        + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+        + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left"><th style="padding:6px 10px">session</th>'
+        + '<th style="padding:6px 10px;text-align:right">n</th><th style="padding:6px 10px;text-align:right">win rate</th>'
+        + '<th style="padding:6px 10px;text-align:right">R/trade</th></tr>' + rows + '</table></div></div>';
+    } else {
+      sess.innerHTML = '<div class="empty-state">Heat map not run on this box.<br>'
+        + '<span style="font-family:ui-monospace,monospace;font-size:11px">'
+        + esc((hm && hm.command) || 'node tasks/time_heatmap.cjs') + '</span></div>';
+    }
+
+    folds.innerHTML = foldTable(m.sessionFolds, 'Would excluding a SESSION have helped?')
+                    + foldTable(m.setupFolds,   'Would excluding a SETUP have helped?');
+
+    renderInstruments(m.instrumentScan);
+  } catch (e) {
+    banner.innerHTML = '';
+    sess.innerHTML = '';
+    folds.innerHTML = '<div class="empty-state" style="color:var(--red)">Measurements unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
+// ── INSTRUMENT SCAN ────────────────────────────────────────────
+// Which instruments this engine is actually good at, replayed through the live
+// generateSignal.
+//
+// THE BASE RATE IS RENDERED BESIDE THE HIT RATE AND IS NOT OPTIONAL. "8 of the top 10
+// held up out-of-sample" is a meaningless boast when 31 of all 51 names also held up —
+// every holdout window fell in the 2023-26 bull run and the engine is ~92% long, so the
+// ranking was largely measuring beta. Showing the hit rate alone would make market
+// direction look like skill, which is the same failure as a pooled R with no fold count.
+//
+// Owned instruments are ALWAYS shown even when they rank badly. SP500 sits near the
+// bottom, and a panel that quietly truncated before reaching it would hide the single
+// most actionable thing on it.
+function renderInstruments(scan) {
+  const box = el('measure-instruments');
+  if (!box) return;
+
+  if (!scan || !scan.available) {
+    box.innerHTML = '<div style="margin-top:22px"><div style="font-size:13px;font-weight:600;margin-bottom:6px">'
+      + 'Which instruments does this engine suit?</div>'
+      + '<div class="empty-state">Instrument scan not run on this box.<br>'
+      + '<span style="font-family:ui-monospace,monospace;font-size:11px">'
+      + esc((scan && scan.command) || 'node tasks/instrument_universe_scan.cjs --json')
+      + '</span></div></div>';
+    return;
+  }
+
+  const rows = scan.rows || [];
+  const TOP_SHOWN = 12;
+  const shown = rows.slice(0, TOP_SHOWN);
+  // Append any owned instrument that fell outside the top slice, keeping rank order.
+  rows.forEach((r, i) => { if (r.owned && i >= TOP_SHOWN) shown.push(r); });
+
+  const pct = n => (n * 100).toFixed(1) + '%';
+  const sgn = n => (n >= 0 ? '+' : '') + n.toFixed(3);
+  const col = n => n > 0 ? 'var(--green)' : n < 0 ? 'var(--red)' : 'var(--muted-dim)';
+
+  const beats = scan.rankingBeatsBaseRate;
+  const header = '<div style="border-left:3px solid ' + (beats ? 'var(--green)' : '#ffb800') + ';'
+    + 'background:rgba(255,255,255,.03);border-radius:0 8px 8px 0;padding:10px 14px;'
+    + 'margin-bottom:12px;font-size:12px;line-height:1.7">'
+    + '<strong>' + scan.topNheldUp + ' of the top ' + scan.topN + '</strong> held up out-of-sample — '
+    + 'but <strong>' + pct(scan.baseRate) + ' of all ' + scan.candidates + '</strong> names did too. '
+    + (beats
+        ? 'The ranking beats the base rate, so it carries some signal.'
+        : 'The ranking does NOT beat the base rate — these ranks are noise.')
+    + '<br><span style="color:var(--muted-dim)">The engine is ~92% long and every holdout window '
+    + 'fell in a bull run, so most of this column is beta, not skill. '
+    + esc(scan.harness || '') + '</span></div>';
+
+  const body = shown.map((r, i) => {
+    const rank = rows.indexOf(r) + 1;
+    return '<tr' + (r.owned ? ' style="background:rgba(255,184,0,.05)"' : '') + '>'
+      + '<td style="padding:6px 10px;color:var(--muted-dim)">' + rank + '</td>'
+      + '<td style="padding:6px 10px;font-weight:600">' + esc(r.symbol)
+      + (r.owned ? '<span style="font-size:10px;color:#ffb800;margin-left:6px">TRADED</span>' : '')
+      + (r.degraded ? '<span style="font-size:10px;color:var(--red);margin-left:6px">DEGRADED</span>' : '')
+      + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + r.trainTrades + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:' + col(r.trainExpectancy) + '">'
+      + sgn(r.trainExpectancy) + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + r.holdoutTrades + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:' + col(r.holdoutExpectancy) + '">'
+      + sgn(r.holdoutExpectancy) + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;font-size:11px;color:'
+      + (r.heldUp ? 'var(--green)' : 'var(--red)') + '">'
+      + (r.heldUp ? 'held up' : 'collapsed') + '</td></tr>';
+  }).join('');
+
+  box.innerHTML = '<div style="margin-top:22px">'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:6px">Which instruments does this engine suit?</div>'
+    + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:8px">'
+    + scan.candidates + ' instruments replayed · cost ' + scan.costR + 'R/trade · '
+    + scan.ageHours + 'h old · ranked on TRAIN, holdout never used to rank</div>'
+    + header
+    + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left">'
+    + '<th style="padding:6px 10px">#</th><th style="padding:6px 10px">symbol</th>'
+    + '<th style="padding:6px 10px;text-align:right">train n</th>'
+    + '<th style="padding:6px 10px;text-align:right">train R/trade</th>'
+    + '<th style="padding:6px 10px;text-align:right">holdout n</th>'
+    + '<th style="padding:6px 10px;text-align:right">holdout R/trade</th>'
+    + '<th style="padding:6px 10px;text-align:right">verdict</th></tr>'
+    + body + '</table></div></div>';
+}
+
+// ── EVIDENCE BOARD ─────────────────────────────────────────────
+// The status word is the headline, but `changesTheAnswer` is the field worth reading:
+// it is what stops a claim from being permanent. FVG shipped to the Overview looking
+// tradeable and sat there for hours before anyone measured it; it turned out to be
+// worse than random. This board exists so that cannot happen silently again.
+const CLAIM_COLOUR = {
+  'MEASURED — ROBUST':                 'var(--green)',
+  'MEASURED — NO EDGE':                'var(--muted-dim)',
+  'CANDIDATE — NEEDS WALK-FORWARD':    '#ffb800',
+  'CONTRADICTED — TWO SOURCES DISAGREE':'var(--red)',
+  'BLOCKED — CANNOT MEASURE YET':      '#ffb800',
+  'UNMEASURED':                        'var(--red)',
+};
+const GATE_COLOUR = {
+  'EARNING ITS KEEP':   'var(--green)',
+  'COSTING MONEY':      'var(--red)',
+  'NO MEASURABLE COST': 'var(--muted-dim)',
+  'TOO FEW TO JUDGE':   'var(--muted-dim)',
+};
+
+async function loadEvidence() {
+  const banner = el('evidence-banner'), claimsEl = el('evidence-claims'), gatesEl = el('evidence-gates');
+  try {
+    const d = await getJson('/evidence-board');
+    const claims = d.claims || [];
+
+    // needsRecuration was COMPUTED and shown to nobody. The register has flagged a claim
+    // whose declared sample has outgrown its prose since 3bd1686, and tasks/ai_brief.cjs
+    // warns every agent about it — while this page, the one a human reads, rendered the
+    // stale number as settled fact. Surfaced first, because a claim you cannot trust
+    // changes how you read every claim under it.
+    const stale = d.needsRecuration || [];
+    banner.innerHTML = '<div style="margin:0 0 14px;font-size:13px;color:var(--muted-dim)">'
+      + claims.length + ' curated claims · '
+      + Object.entries(d.claimCounts || {}).map(([k, v]) =>
+          '<span style="color:' + (CLAIM_COLOUR[k] || 'var(--muted-dim)') + '">' + v + ' ' + esc(k.replace(/^.*— /, '')) + '</span>'
+        ).join(' · ')
+      + (stale.length
+          ? ' · <span style="color:#ffb800;font-weight:600">' + stale.length
+            + (stale.length === 1 ? ' needs' : ' need') + ' re-curation</span>'
+          : ' · <span style="color:var(--green)">all samples and configs current</span>')
+      + '</div>'
+      + (stale.length
+          ? '<div style="border-left:3px solid #ffb800;background:rgba(255,184,0,.06);border-radius:0 8px 8px 0;'
+            + 'padding:10px 14px;margin:0 0 14px;font-size:12px;line-height:1.6">'
+            + '<strong style="color:#ffb800">' + stale.length + ' claim'
+            + (stale.length === 1 ? ' quotes' : 's quote') + ' a sample that has since grown, or a config that has since MOVED.</strong> '
+            + 'The text below is shown UNCHANGED on purpose — re-curate it by hand in '
+            + '<code>server/evidence_register.js</code> rather than trusting the numbers in it. '
+            + 'Detection never edits: a curated claim that rewrote itself would be worse than no claim.'
+            + '</div>'
+          : '');
+
+    claimsEl.innerHTML = claims.map(c => {
+      const colour = CLAIM_COLOUR[c.status] || 'var(--muted-dim)';
+      const st = c.staleness;
+      return '<div style="border:1px solid ' + (st ? 'rgba(255,184,0,.35)' : 'rgba(255,255,255,.1)') + ';'
+        + 'background:' + (st ? 'rgba(255,184,0,.04)' : 'rgba(255,255,255,.02)') + ';'
+        + 'border-radius:10px;padding:14px 16px;margin-bottom:10px">'
+        + '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">'
+        + '<span style="font-size:14px;font-weight:600">' + esc(c.title) + '</span>'
+        + '<span style="color:' + colour + ';font-size:11px;font-weight:700;letter-spacing:.05em">'
+        + esc(c.status) + '</span>'
+        + '<span style="font-size:11px;color:var(--muted-dim)">measured ' + esc(c.measuredOn) + '</span>'
+        + (c.feedsTheGate
+            ? '<span style="font-size:10px;color:#ffb800;border:1px solid rgba(255,184,0,.3);border-radius:4px;padding:1px 6px">FEEDS THE GATE</span>'
+            : '')
+        + (st
+            ? '<span style="font-size:10px;color:#ffb800;background:rgba(255,184,0,.14);border:1px solid rgba(255,184,0,.4);border-radius:4px;padding:1px 6px;font-weight:700">NEEDS RE-CURATION</span>'
+            : '') + '</div>'
+        // Which figure moved, and on WHICH BOX. journal.json and the rejection ledger are
+        // both per-machine, so a claim written against one box legitimately reads smaller on
+        // the other — naming the box is what stops this reading as an item nobody can clear.
+        + (st
+            ? '<div style="margin-top:8px;font-size:12px;line-height:1.6;color:#ffb800">'
+              + '<strong>Sample has grown since this was written:</strong> '
+              + esc((st.drifted || []).join('; '))
+              + (st.sampleFrom ? '<div style="color:var(--muted-dim);margin-top:3px">written against: '
+                  + esc(st.sampleFrom) + '</div>' : '')
+              + '<div style="color:var(--muted-dim);margin-top:3px">Treat the numbers below as UNVERIFIED. '
+              + 'Re-measuring this needs no further argument — its own evidence has expired.</div>'
+              + '</div>'
+            : '')
+        + '<div style="margin-top:8px;font-size:12px;line-height:1.6' + (st ? ';opacity:.72' : '') + '">'
+        + esc(c.evidence) + '</div>'
+        + (c.caveat ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--muted-dim)">'
+            + '<strong style="color:#ffb800">Caveat:</strong> ' + esc(c.caveat) + '</div>' : '')
+        + (c.changesTheAnswer ? '<div style="margin-top:6px;font-size:12px;line-height:1.6;color:var(--muted-dim)">'
+            + '<strong style="color:var(--green)">What would change it:</strong> ' + esc(c.changesTheAnswer) + '</div>' : '')
+        + (c.harness ? '<div style="margin-top:8px;font-size:11px;font-family:ui-monospace,monospace;'
+            + 'background:rgba(0,0,0,.25);border-radius:6px;padding:6px 9px;overflow-x:auto;white-space:pre">'
+            + esc(c.harness) + '</div>' : '')
+        + '</div>';
+    }).join('');
+
+    // The live half. These update themselves from the rejection ledger, so they are
+    // labelled as forgone PAPER trades — never realised P&L, and never merged with
+    // performance.
+    const gates = d.gates || {};
+    const rows = Object.entries(gates).map(([name, g]) =>
+      '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
+      + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + (g.resolved ?? '—') + '</td>'
+      + '<td style="padding:6px 10px;text-align:right">' + (g.wouldHaveWonPct == null ? '—' : g.wouldHaveWonPct + '%') + '</td>'
+      + '<td style="padding:6px 10px;text-align:right">' + rptCell(g.netR) + '</td>'
+      + '<td style="padding:6px 10px;color:' + (GATE_COLOUR[g.verdict] || 'var(--muted-dim)') + '">'
+      + esc(g.verdict || '') + '</td></tr>').join('');
+    gatesEl.innerHTML = !rows ? '' : '<div style="margin:14px 0 22px">'
+      + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:6px">Per-gate verdicts from the rejection '
+      + 'ledger — forgone PAPER trades with no spread or slippage on entries that were never filled. A '
+      + 'screening signal for which gate to investigate, not realised P&amp;L, and where this contradicts a '
+      + 'walk-forward the walk-forward wins.</div>'
+      + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left"><th style="padding:6px 10px">gate</th>'
+      + '<th style="padding:6px 10px;text-align:right">resolved</th>'
+      + '<th style="padding:6px 10px;text-align:right">would have won</th>'
+      + '<th style="padding:6px 10px;text-align:right">net R</th>'
+      + '<th style="padding:6px 10px">verdict</th></tr>' + rows + '</table></div></div>';
+  } catch (e) {
+    banner.innerHTML = '';
+    claimsEl.innerHTML = '<div class="empty-state" style="color:var(--red)">Evidence board unavailable — '
+      + esc(e.message) + '</div>';
+    gatesEl.innerHTML = '';
+  }
+}
+
+// ── FLEET RECORD ───────────────────────────────────────────────
+// Six closed trades is a record, not a measurement. The sample warning is rendered
+// FIRST and in the same weight as the numbers, because a win rate printed alone
+// invites exactly the claim the sample cannot support.
+async function loadFleetPerf() {
+  const banner = el('fleetperf-banner'), body = el('fleetperf-body');
+  try {
+    const d = await getJson('/fleet-performance');
+    const f = d.fleet || {};
+
+    banner.innerHTML =
+      (d.sampleWarning
+        ? '<div style="border:1px solid rgba(255,184,0,.35);background:rgba(255,184,0,.06);border-radius:8px;'
+          + 'padding:10px 12px;margin-bottom:12px;font-size:12px;color:#ffb800">' + esc(d.sampleWarning) + '</div>'
+        : '')
+      + '<div style="margin:0 0 12px;font-size:13px;color:var(--muted-dim)">'
+      + (d.pooled
+          ? '<span style="color:var(--green);font-weight:600">POOLED</span> — engine parity '
+            + esc(d.parity.verdict) + ', ' + d.parity.ageHours + 'h old'
+          : '<span style="color:var(--red);font-weight:600">NOT POOLED</span> — ' + esc(d.whyNotPooled || ''))
+      + '</div>';
+
+    const row = (label, s, strong) => {
+      if (!s) return '<tr><td style="padding:6px 10px">' + esc(label)
+        + '</td><td colspan="4" style="padding:6px 10px;color:var(--muted-dim)">unavailable</td></tr>';
+      const c = s.netPnl > 0 ? 'var(--green)' : s.netPnl < 0 ? 'var(--red)' : 'var(--muted-dim)';
+      return '<tr' + (strong ? ' style="font-weight:600"' : '') + '>'
+        + '<td style="padding:6px 10px">' + esc(label) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + s.closed + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + s.wins + 'W / ' + s.losses + 'L</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + (s.winRatePct === null ? '—' : s.winRatePct + '%') + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:' + c + '">'
+        + (s.netPnl >= 0 ? '+' : '') + s.netPnl + '</td></tr>';
+    };
+
+    const setups = Object.entries(d.bySetup || {})
+      .sort((a, b) => a[1].netPnl - b[1].netPnl)
+      .map(([name, s]) => {
+        const c = s.netPnl > 0 ? 'var(--green)' : 'var(--red)';
+        const ind = s.independent || {};
+        const collapsed = ind.duplicatesCollapsed || 0;
+        // The two counts side by side. Where they differ, the difference IS the finding:
+        // it is the amount a naive pool would have overstated the evidence by.
+        const floor = '<span style="font-weight:600">' + esc(s.towardLearningFloor) + '</span>'
+          + (collapsed
+              ? ' <span style="color:var(--red);font-size:11px">(' + esc(s.towardLearningFloorRawFills)
+                + ' raw, −' + collapsed + ' dup)</span>'
+              : '');
+        const split = ind.split
+          ? ' <span style="color:var(--red);font-size:11px">' + ind.split + ' SPLIT</span>' : '';
+        return '<tr><td style="padding:6px 10px">' + esc(name) + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + floor + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">'
+            + (ind.wins || 0) + 'W / ' + (ind.losses || 0) + 'L' + split + '</td>'
+          + '<td style="padding:6px 10px;text-align:right;color:' + c + '">'
+          + (s.netPnl >= 0 ? '+' : '') + s.netPnl + '</td>'
+          + '<td style="padding:6px 10px;color:var(--muted-dim);font-size:11px">' + esc(s.boxes.join(' + ')) + '</td></tr>';
+      }).join('');
+
+    body.innerHTML =
+      '<div style="overflow-x:auto;margin-bottom:16px"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left"><th style="padding:6px 10px">scope</th>'
+      + '<th style="padding:6px 10px;text-align:right">closed</th><th style="padding:6px 10px;text-align:right">record</th>'
+      + '<th style="padding:6px 10px;text-align:right">win rate</th><th style="padding:6px 10px;text-align:right">net</th></tr>'
+      + row('FLEET', f, true)
+      + row('this box', d.byBox && d.byBox['this box'])
+      + row('peer', d.byBox && d.byBox.peer)
+      + '</table></div>'
+      + '<div style="font-size:12px;color:var(--muted-dim);margin-bottom:6px">Per setup, counted in INDEPENDENT '
+      + 'market events. Both boxes run the same engine on the same bars, so they take the same trade — fills '
+      + 'with overlapping exposure on one symbol, direction and setup are one observation, not two. Where a '
+      + 'row shows a raw count in red, that gap is what a naive pool would have overstated the evidence by. '
+      + '<strong>Nothing here feeds live confidence</strong>: getLearningBoost still reads this box\'s '
+      + 'learning.json alone.</div>'
+      + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left"><th style="padding:6px 10px">setup</th>'
+      + '<th style="padding:6px 10px;text-align:right">toward floor</th><th style="padding:6px 10px;text-align:right">record</th>'
+      + '<th style="padding:6px 10px;text-align:right">net</th><th style="padding:6px 10px">seen on</th></tr>'
+      + setups + '</table></div>';
+  } catch (e) {
+    banner.innerHTML = '';
+    body.innerHTML = '<div class="empty-state" style="color:var(--red)">Fleet record unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
+// ── LEARNING ───────────────────────────────────────────────────
+// The two halves are never summed. setupStats counts REAL FILLS and is what moves
+// live confidence; shadow counts rejected setups walked forward on real broker bars,
+// which is a claim about geometry on entries that were never filled. Merging them
+// would make a paper result indistinguishable from a real loss — and today the two
+// disagree outright: BUY_OVERSOLD is 5W/1L on paper and -0.332R/trade in the fills the
+// gate actually took. Where they conflict, the walk-forward wins.
+async function loadLearning() {
+  const banner = el('learn-banner'), body = el('learn-body');
+  try {
+    const d = await getJson('/learning');
+    const real = d.setupStats || {};
+    const shadow = (d.shadow && d.shadow.stats) || {};
+    const realTotal = Object.values(real).reduce((a, s) => a + (s.wins || 0) + (s.losses || 0), 0);
+    const shadowTotal = Object.values(shadow).reduce((a, s) => a + (s.episodes || 0), 0);
+
+    const rec = d.reconciliation, un = d.unattributed;
+    banner.innerHTML = '<div style="margin:0 0 12px;font-size:13px;color:var(--muted-dim)">'
+      + '<span style="color:' + (realTotal >= 5 ? 'var(--green)' : '#ffb800') + ';font-weight:600">'
+      + realTotal + ' real closed fills</span> across ' + Object.keys(real).length + ' setup(s)'
+      + ' · <span style="color:var(--muted-dim)">' + shadowTotal + ' shadow episodes across '
+      + Object.keys(shadow).length + '</span>'
+      + (d.shadow ? ' · shadow generated ' + esc(String(d.shadow.generatedAt).slice(0, 16)) : '')
+      + ' · session ' + d.sessionCount + '</div>'
+      // The gap between the journal and what the engine can learn from. Without this
+      // the engine reads 0 wins while the system's only WIN sits in the journal, and
+      // anything calibrating off setupStats alone is skewed pessimistic with no sign.
+      + (un && un.count ? '<div style="border:1px solid rgba(255,184,0,.35);background:rgba(255,184,0,.06);'
+        + 'border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px">'
+        + '<div style="color:#ffb800;font-weight:600;margin-bottom:4px">'
+        + rec.closedFills + ' closed fills — the engine can learn from ' + rec.attributedToSetups
+        + ', and is refusing ' + un.count
+        + ' (' + un.wins + 'W / ' + un.losses + 'L, net ' + (un.netPnl >= 0 ? '+' : '') + un.netPnl + ')</div>'
+        + '<div style="color:var(--muted-dim);line-height:1.6">'
+        + un.fills.map(f => esc(f.symbol) + ' ' + esc(f.direction) + ' '
+            + (f.pnl >= 0 ? '+' : '') + f.pnl + ' — conf ' + f.confidence + ' ' + esc(f.strength || '')
+            + ' ' + esc(f.regime || '') + ', recorded as "' + esc(f.recordedSetup) + '"').join('<br>')
+        + '<br><br>' + esc(un.why) + '</div></div>' : '')
+      + (rec && !rec.complete ? '<div style="color:var(--red);font-size:12px;margin-bottom:10px">'
+        + 'RECONCILIATION FAILED — ' + rec.closedFills + ' closed fills but '
+        + (rec.attributedToSetups + rec.unattributed) + ' accounted for. Some fill is neither '
+        + 'learned from nor listed as refused.</div>' : '');
+
+    const names = [...new Set([...Object.keys(real), ...Object.keys(shadow)])].sort();
+    if (!names.length) {
+      body.innerHTML = '<div class="empty-state">No setups tracked yet.</div>';
+      return;
+    }
+
+    const rows = names.map(n => {
+      const r = real[n], s = shadow[n];
+      const realCell = r
+        ? (r.wins + 'W / ' + r.losses + 'L')
+        : '<span style="color:var(--muted-dim)">—</span>';
+      const boostCell = r
+        ? (r.total >= 5
+            ? '<span style="color:' + (r.boost > 0 ? 'var(--green)' : r.boost < 0 ? 'var(--red)' : 'var(--muted-dim)') + '">'
+              + (r.boost > 0 ? '+' : '') + r.boost + '</span>'
+            : '<span style="color:var(--muted-dim)">0 — under floor</span>')
+        : '<span style="color:var(--muted-dim)">—</span>';
+      const shadowCell = s
+        ? s.wins + 'W / ' + s.losses + 'L'
+          + '<span style="color:var(--muted-dim)"> (' + s.episodes + ' ep)</span>'
+        : '<span style="color:var(--muted-dim)">—</span>';
+      const rpe = s
+        ? '<span style="color:' + (s.rPerEpisode > 0 ? 'var(--green)' : 'var(--red)') + '">'
+          + (s.rPerEpisode >= 0 ? '+' : '') + Number(s.rPerEpisode).toFixed(3) + '</span>'
+          + (s.enoughForReading ? '' : ' <span style="color:var(--muted-dim);font-size:11px">too few</span>')
+        : '<span style="color:var(--muted-dim)">—</span>';
+      return '<tr>'
+        + '<td style="padding:6px 10px">' + esc(n) + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + (r ? r.total + '/5' : '—') + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + realCell + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + boostCell + '</td>'
+        + '<td style="padding:6px 10px;text-align:right;color:var(--muted-dim)">' + shadowCell + '</td>'
+        + '<td style="padding:6px 10px;text-align:right">' + rpe + '</td>'
+        + '<td style="padding:6px 10px;color:var(--muted-dim);font-size:11px">'
+        + esc(s && s.gates ? s.gates.join(', ') : '') + '</td></tr>';
+    }).join('');
+
+    body.innerHTML =
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<tr style="color:var(--muted-dim);font-size:11px;text-align:left">'
+      + '<th style="padding:6px 10px">setup</th>'
+      + '<th style="padding:6px 10px;text-align:right">toward floor</th>'
+      + '<th style="padding:6px 10px;text-align:right">REAL fills</th>'
+      + '<th style="padding:6px 10px;text-align:right">live boost</th>'
+      + '<th style="padding:6px 10px;text-align:right">SHADOW episodes</th>'
+      + '<th style="padding:6px 10px;text-align:right">R/episode</th>'
+      + '<th style="padding:6px 10px">rejected by</th></tr>'
+      + rows + '</table></div>'
+      + '<div style="font-size:12px;color:var(--muted-dim);margin-top:8px;line-height:1.6">'
+      + '<strong>The two columns are never summed.</strong> REAL fills are what move live confidence — a '
+      + 'boost only applies once a bucket reaches 5. SHADOW episodes are setups a gate rejected, walked '
+      + 'forward on real broker bars: no spread, no slippage, entries never filled, so they are evidence '
+      + 'about geometry and not about execution. They feed nothing. Where the two disagree the walk-forward '
+      + 'wins — BUY_OVERSOLD reads 5W/1L on paper and −0.332R/trade in the fills the gate actually took.</div>'
+      + (d.shadow ? '' : '<div style="font-size:12px;color:#ffb800;margin-top:6px">No shadow block on this '
+        + 'box — the rejection ledger has not produced stats here yet.</div>');
+  } catch (e) {
+    banner.innerHTML = '';
+    body.innerHTML = '<div class="empty-state" style="color:var(--red)">Learning state unavailable — '
+      + esc(e.message) + '</div>';
+  }
+}
+
 loadStatus();
+loadGate();
+// ── THE WORKFORCE ──────────────────────────────────────────────
+// Who is employed, not what could be run. See the markup comment above for why the
+// registry could not answer this.
+// Uses the page's own esc() at line 515 — a second one would shadow it and drift.
+function workforceCard(employee) {
+  const proposed = employee.status === 'PROPOSED';
+  const clock = employee.clock || {};
+  const boxes = Array.isArray(clock.boxes) ? clock.boxes.join(' + ') : '—';
+  const row = (label, value) => value
+    ? `<div style="display:flex;gap:8px;margin-bottom:3px"><span style="color:var(--muted-dim);min-width:64px;flex:none">${label}</span><span>${value}</span></div>`
+    : '';
+  const list = arr => (Array.isArray(arr) && arr.length)
+    ? arr.map(x => `<code style="font-size:.66rem">${esc(x)}</code>`).join(' ')
+    : '<span style="color:var(--muted-dim)">none</span>';
+  const steps = (employee.loop || [])
+    .map((s, i) => `<div style="color:var(--muted);margin-bottom:2px">${i + 1}. ${esc(s)}</div>`).join('');
+  const rules = (employee.playbook || [])
+    .map(r => `<div style="color:var(--muted)">· ${esc(r)}</div>`).join('');
+  // A declared-but-empty field is a real answer ("none"); a MISSING one is a finding and
+  // is shown in red rather than silently rendering as blank.
+  const gaps = (employee.missingFields || []).length
+    ? `<div style="margin-top:6px;color:var(--red)"><strong>UNDECLARED:</strong> ${esc(employee.missingFields.join(', '))}</div>`
+    : '';
+  return `<div class="panel" style="margin-bottom:12px;${proposed ? 'opacity:.72' : ''}">
+    <div class="panel-header">
+      <div class="panel-title">${esc(employee.title)}</div>
+      <span style="font-size:.62rem;font-weight:700;color:${proposed ? 'var(--muted)' : 'var(--green)'}">${esc(employee.status)}</span>
+    </div>
+    <div class="panel-body" style="max-height:none;font-size:.7rem;line-height:1.55">
+      <div style="color:var(--text);margin-bottom:8px">${esc(employee.mission)}</div>
+      ${row('brain', esc(employee.brain))}
+      ${row('clock', `${esc(clock.schedule || '—')} · <strong>${esc(boxes)}</strong>${clock.task ? ' · ' + esc(clock.task) : ''}`)}
+      ${row('context', list(employee.context))}
+      ${row('tools', list(employee.tools))}
+      ${row('skills', list(employee.skills))}
+      ${row('memory', esc(employee.memory))}
+      ${steps ? `<div style="margin-top:8px;color:var(--muted-dim);text-transform:uppercase;font-size:.58rem;letter-spacing:.09em">loop</div>${steps}` : ''}
+      ${rules ? `<div style="margin-top:8px;color:var(--muted-dim);text-transform:uppercase;font-size:.58rem;letter-spacing:.09em">playbook</div>${rules}` : ''}
+      ${employee.whyNotYet ? `<div style="margin-top:8px;color:var(--yellow)"><strong>Not employed yet:</strong> ${esc(employee.whyNotYet)}</div>` : ''}
+      ${gaps}
+    </div>
+  </div>`;
+}
+
+async function loadWorkforce() {
+  let data, localReg = {};
+  try {
+    // Both in one place. loadWorkforce runs BEFORE loadRegistry, so reading the hero
+    // tiles or a shared variable would race and leave the local column blank. The
+    // registry is cached server-side for 60s, so the second call is nearly free.
+    const [employees, registry] = await Promise.all([
+      getJson('/ai-employees'),
+      getJson('/ai-registry').catch(() => ({})),
+    ]);
+    data = employees;
+    localReg = (registry && registry.counts) || {};
+  } catch (e) {
+    html('workforce-banner', `<div class="page-banner banner-warn"><strong>Roster unreachable</strong> — ${esc(e.message)}. Nothing else on this page depends on it.</div>`);
+    html('workforce-grid', '');
+    return;
+  }
+  if (data.available === false) {
+    html('workforce-banner', `<div class="page-banner banner-warn"><strong>Roster unavailable</strong> — ${esc(data.reason || 'unknown')}.</div>`);
+    html('workforce-grid', '');
+    return;
+  }
+  const employees = Array.isArray(data.employees) ? data.employees : [];
+  const c = data.counts || {};
+  // The hero tile, so the workforce is in the summary row and not only further down.
+  // EMPLOYED only: a PROPOSED employee is specified and not working, and counting one in
+  // a headline number would be exactly the "quote a proposal as something the system
+  // does" this roster was built to prevent.
+  text('hero-employees', String(c.employed ?? 0));
+  // BOTH BOXES, SIDE BY SIDE. Every capability surface here used to report THIS machine
+  // while presenting itself as the system, and every expensive failure has been a
+  // divergence while both boxes looked healthy. A dead peer degrades this one strip.
+  const peer = data.peer || {};
+  const pc = peer.counts || {};
+  const BAD = /UNHEALTHY|HALTED|DOWN|unreadable/;
+  const paint = v => BAD.test(String(v)) ? 'var(--red)' : 'inherit';
+  const cell = (label, a, b, compareOn) => {
+    // Two boxes can be equally broken. "They match" must never render as "they are fine",
+    // so a bad value is red on its own merits before any agreement check runs.
+    //
+    // compareOn lets a row DISPLAY more than it COMPARES. bridge A shows "connected 25s"
+    // and "connected 53s" — the heartbeat ages always differ, so comparing the whole
+    // string painted a permanent yellow on two healthy bridges. A disagreement that can
+    // never clear is exactly the false alarm that trains you to skim past a real one.
+    const key = compareOn || (v => v);
+    const differs = peer.reachable && a != null && b != null
+      && String(key(a)) !== String(key(b));
+    return `<td style="padding:3px 10px 3px 0">${label}</td>`
+      + `<td style="padding:3px 14px 3px 0;text-align:right;font-variant-numeric:tabular-nums;color:${paint(a)}">${a ?? '—'}</td>`
+      + `<td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;color:${BAD.test(String(b)) ? 'var(--red)' : differs ? 'var(--yellow)' : 'inherit'}">${peer.reachable ? (b ?? '—') : '—'}</td>`;
+  };
+  // A COUNT IS NOT HEALTH. Matching tallies on two boxes say nothing about whether
+  // either is working — the VPS ran for weeks with matching counts and no AI at all.
+  const lh = data.health || {}, ph = peer.health || {};
+  const yesNo = v => v === null || v === undefined ? null : (v ? 'HALTED' : 'running');
+  const bridgeCell = h => h.bridgeA ? (h.bridgeA + (h.bridgeAgeSec != null ? ' ' + h.bridgeAgeSec + 's' : '')) : null;
+  const fleetRows = [
+    ['healer',      lh.healer,          ph.healer],
+    ['breaker',     yesNo(lh.halted),   yesNo(ph.halted)],
+    ['consec loss', lh.consecutiveLosses, ph.consecutiveLosses],
+    ['bridge A',    bridgeCell(lh),     bridgeCell(ph), v => String(v).split(' ')[0]],
+    ['employed',    c.employed,         pc.employed],
+    ['skills',      localReg.skills,    pc.skills],
+    ['agents',      localReg.agents,    pc.agents],
+    ['MCP tools',   localReg.tools,     pc.tools],
+    ['scripts',     localReg.scripts,   pc.scripts],
+  ].filter(r => r[1] != null || r[2] != null);
+  const peerNote = !peer.configured
+    ? '<span style="color:var(--muted-dim)">no peer configured (PEER_SERVER_URL unset)</span>'
+    : peer.reachable
+      ? `<span style="color:var(--green)">peer reachable</span> · ${esc(peer.url || '')}`
+      : `<span style="color:var(--red)">peer unreachable</span> — ${esc(peer.error || 'no reason given')}`;
+  html('workforce-banner', employees.length
+    ? `<div class="section-desc"><strong>${c.employed ?? 0} employed</strong> · ${c.proposed ?? 0} proposed · ${c.withModel ?? 0} reason with a model, ${c.deterministic ?? 0} deterministic${c.incomplete ? ` · <span style="color:var(--red)">${c.incomplete} with undeclared fields</span>` : ''}</div>
+       <div class="section-desc" style="margin-top:6px">
+         <table style="font-size:.7rem;border-collapse:collapse">
+           <tr style="color:var(--muted-dim)"><td style="padding-right:10px"></td><td style="padding-right:14px;text-align:right">${esc(data.thisBox || 'this box')}</td><td style="text-align:right">peer</td></tr>
+           ${fleetRows.map(r => '<tr>' + cell(r[0], r[1], r[2], r[3]) + '</tr>').join('')}
+         </table>
+         <div style="margin-top:4px">${peerNote}. A yellow figure means the two boxes disagree; red means that box is unhealthy regardless of whether they match.</div>
+       </div>`
+    : '');
+  html('workforce-grid', employees.length
+    ? employees.map(workforceCard).join('')
+    : '<div class="empty-state">No employees on the roster.</div>');
+}
+loadWorkforce();
+
+loadRegistry();
+loadDoctor();
+loadLearning();
+setInterval(loadLearning, 300_000);
+loadFleetPerf();
+setInterval(loadFleetPerf, 300_000);
+loadEvidence();
+setInterval(loadEvidence, 600_000);
+loadMeasurements();
+setInterval(loadMeasurements, 600_000);
+loadAiWork();
+setInterval(loadAiWork, 300_000);
 loadLiveProfit();
+// Every 2 minutes: the server caches a pass for 60s, so this cannot stampede it, and
+// the fleet's state is the one thing on this page worth re-reading often.
+setInterval(loadDoctor, 120_000);
 setInterval(loadLiveProfit, 60_000);
 setInterval(loadStatus, 30_000);
+// The gate and the registry both change under this page — a threshold edit or a
+// new skill file — so neither is read once at boot and trusted for the session.
+setInterval(loadGate, 60_000);
+setInterval(loadRegistry, 300_000);
 text('footer-ts', 'Loaded ' + new Date().toLocaleTimeString('en-US', { hour12: false }));
 </script>
 </body>

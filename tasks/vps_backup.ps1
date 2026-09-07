@@ -12,7 +12,12 @@ $candidates = @(
   "C:\ai-trading-dashboard\server\journal.json",
   "C:\ai-trading-dashboard\server\learning.json",
   "C:\ai-trading-dashboard\server\smartentry.db",
-  "C:\ai-trading-dashboard\tasks\logs"
+  "C:\ai-trading-dashboard\tasks\logs",
+  # The agent memory vault. It lives under the user profile, OUTSIDE $projectRoot, so
+  # the recursive sweep below has never once seen it - 455 files on this box with no
+  # copy anywhere. The same blind spot the laptop had for its own .claude memory, found
+  # the same day.
+  "C:\Users\Administrator\.claude\projects"
 )
 $existing = $candidates | Where-Object { Test-Path $_ }
 
@@ -29,8 +34,45 @@ $existing = $candidates | Where-Object { Test-Path $_ }
 # off this box.
 $projectRoot    = "C:\ai-trading-dashboard"
 $secretNames    = @("keys.env", "keys.env.bak", "apikey.txt")
-$excludedDirs   = @("node_modules", "__pycache__", ".git")
-$codeExtensions = @(".js", ".py", ".bat", ".ps1", ".json", ".md", ".html", ".css", ".pine")
+# .venv-rag and .venv added 2026-09-02. A Python virtualenv was created on this box on
+# 09-01 for the RAG index, and the sweep below matches on EXTENSION, so its .py/.json/.md
+# files were all eligible. The nightly archive went 40 MB / 1,455 files on 09-01 to
+# 119 MB / 18,634 files on 09-02 - 15,016 of those files and 263 MB uncompressed were
+# .venv-rag alone. That is the same argument node_modules is excluded under: pip
+# rebuilds it from requirements, so it costs 3x the archive and 13x the file count every
+# night to store nothing a restore needs.
+#
+# Plain `.venv` is listed beside it although no such directory exists here yet. The
+# next venv on this box will almost certainly use the conventional name, and an
+# exclusion list that only knows the one directory that already hurt is the same shape
+# as the extension allowlist two comments below, which dropped every ledger because
+# .jsonl had not been thought of yet.
+#
+# NOTE: "projects" in $candidates is NOT this - that is the agent memory vault under the
+# user profile, deliberately included, and it must stay.
+$excludedDirs   = @("node_modules", "__pycache__", ".git", ".venv-rag", ".venv")
+# INSTALLERS AND ARCHIVES ARE NOT DATA. Added 2026-09-02 after measuring what this zip is
+# actually made of: tasks\logs\tailscale-setup.msi, ONE FILE, was 29.1 MB compressed - 65%
+# of a 44.6 MB archive. It had been stored 15 times here and pulled to the laptop 21 times:
+# roughly 1 GB across the fleet, all of it the same downloaded installer.
+#
+# This is the same argument as node_modules and .venv-rag, and it matters more now that
+# the backup runs every 4h instead of daily: 6 x 29 MB a day to store a file that is
+# re-downloadable in a minute and that a restore does not need. The VPS has 65 GB free,
+# not 328 like the laptop.
+#
+# Extensions, not a filename, because the next installer someone parks in logs\ will have
+# a different name - the mistake the .jsonl note below already records. The file itself is
+# NOT deleted; it is simply not archived.
+$excludedExts   = @(".msi", ".exe", ".zip", ".7z", ".iso", ".dmg", ".pkg")
+# .jsonl and .db added 2026-09-01. Their absence meant the LEDGERS on the box that
+# actually trades were protected by nothing at all: rejections.jsonl (1.24 MB),
+# rejections_scored.jsonl (1.35 MB), near_misses.jsonl, ai_decisions.jsonl and
+# strategy_search_ledger.jsonl. Every one of them sat outside this list and outside
+# $candidates, so no backup on either box held them. An extension allowlist drops
+# whatever format arrives next, exactly as the laptop's file allowlist did the same
+# morning.
+$codeExtensions = @(".js", ".py", ".bat", ".ps1", ".json", ".jsonl", ".db", ".md", ".html", ".css", ".pine")
 
 $codeFiles = Get-ChildItem -Path $projectRoot -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
   $relativePath = $_.FullName.Substring($projectRoot.Length + 1)
@@ -70,7 +112,13 @@ try {
   foreach ($item in $existing) {
     if (Test-Path $item -PathType Container) {
       $base = Split-Path $item -Leaf
-      Get-ChildItem -Path $item -Recurse -File | ForEach-Object {
+      # THIS is the sweep that pulled in the installer, not the code sweep below - that one
+      # uses an extension ALLOWLIST and would never have matched .msi. This one takes a
+      # named directory WHOLESALE, and tasks\logs happened to contain a 29.1 MB
+      # tailscale-setup.msi. Filtered here, where the bloat actually enters.
+      Get-ChildItem -Path $item -Recurse -File | Where-Object {
+        $excludedExts -notcontains $_.Extension.ToLower()
+      } | ForEach-Object {
         $rel = $base + "\" + $_.FullName.Substring($item.Length + 1)
         if (Add-FileToZip $zip $_.FullName $rel) { $added++ } else { $skipped++ }
       }
@@ -103,7 +151,18 @@ try {
   Add-Content -Path $logFile -Value ("[" + (Get-Date) + "] Backup FAILED - see backup_errors.txt")
 }
 
+# RETENTION 14 -> 48, because this job went from DAILY to every 4h on 2026-09-02.
+#
+# At 6 runs a day, keeping 14 covers TWO AND A HALF DAYS. Raising the frequency without
+# raising the count would have quietly traded away almost all the history - recency bought
+# with depth, which is a loss wearing the costume of an improvement. 48 restores 8 days.
+#
+# The arithmetic is what makes it safe, and it is only affordable because the 29.1 MB
+# tailscale-setup.msi is no longer archived: 48 x 34.6 MB = 1.6 GB against 65.4 GB free.
+# At the old 63.7 MB it would have been 3.1 GB, which is why the exclusion came first and
+# the retention second.
+$KEEP_BACKUPS = 48
 Get-ChildItem "$backupDir\*.zip" -ErrorAction SilentlyContinue |
   Sort-Object LastWriteTime -Descending |
-  Select-Object -Skip 14 |
+  Select-Object -Skip $KEEP_BACKUPS |
   Remove-Item -Force -ErrorAction SilentlyContinue

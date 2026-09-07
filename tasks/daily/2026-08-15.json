@@ -1,0 +1,34 @@
+{
+  "date": "2026-08-15",
+  "entries": [
+    {
+      "ts": "2026-08-15T06:32:13.208226+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-15: |   BTC WAIT |   GOLD BUY 74% entry:4375.61 stop:4230.05 target:4666.73 |   SPX WAIT |   ⚠ 2 consecutive losses — reduce size"
+    },
+    {
+      "ts": "2026-08-15T06:33:58.915251+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-15: health 8/8, fleet AGREES (both gates 70, engines 0 drift). Top issue: /api/ai-brain is 100% dead and reports success — index.js:5506 still uses thinking:{type:\"enabled\",budget_tokens:500} on claude-opus-5, the exact removed form fixed at 5428 but not here; budget 500 is also below the 1024 min. Promise.allSettled drops all 3 rejections and logs \"done in 343ms\" (impossible for 3 Opus calls). Top rec: apply the 5428 fix to 5506 + log rejected settles. Also: consecutiveLosses=2 of 3 with an open Gold BUY 72% of the way from entry to its stop — one more loss opens the breaker."
+    },
+    {
+      "ts": "2026-08-15T06:36:18.501081+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-15: health 8/8 green, fleet AGREES (both boxes gate 70, engines agree, 19.8h old parity). Gold MOMENTUM fired 74% (gate 70) and was correctly blocked by RISK ENGINE \"Already holding XAUUSD BUY\" — the 11-Aug Gold BUY #1742893638 is still open. Top finding: 182 of 655 rejection-ledger rows (28%) are permanently UNSCORABLE for \"no sourceSymbol\", all from the single 08-09 backfill; the gap is in rejections.jsonl itself so re-scoring cannot fix it, only re-running that replay can. Also: Exa MCP is 401 (research has been Brave-only and silent about it); watchdog attempted 3 Bridge B restarts in 4s on 14/08 on a tag-A-only box. SPX has never traded in 189 sessions. Consecutive losses 2/3 — one more halts trading."
+    },
+    {
+      "ts": "2026-08-15T06:38:03.639598+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-15: No trades today — rest day."
+    },
+    {
+      "ts": "2026-08-15T07:08:34.507664+00:00",
+      "tag": "SYSTEM",
+      "text": "Watchdog fix shipped (f57002a). The single-instance guard was in watchdog_guardian.bat only, so tasks\\start_all.bat:23 and tasks\\startup.bat:27 — which start watchdog.bat directly — could stack a second instance. That is what produced three BRIDGE B DOWN lines 2.1s and 1.85s apart on 2026-08-14 (a 60s loop cannot). Guard now lives in watchdog.bat before :loop; proven by launching a duplicate the way start_all.bat does — it self-exited and the incumbent survived. Same commit makes the bridge-B branch fail CLOSED instead of defaulting to A,B on an unreadable keys.env. Post-fix: 60.97s/cycle, zero B fires, server 200, bridge A reporting. tasks/watchdog_vps.bat needs no change — its B branch is gated on the SmartEntryBridgeB Scheduled Task state and Task Scheduler single-instances the watchdog itself."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-15T06:32:13.208226+00:00",
+  "updated_at": "2026-08-15T07:08:34.507664+00:00"
+}

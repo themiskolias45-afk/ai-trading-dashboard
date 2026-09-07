@@ -38,6 +38,12 @@ Run all of these in sequence. Stop and report if anything fails.
    python -m py_compile mt5_bridge.py
    python -m py_compile parallel_analysis.py
 
+1b. API SHAPE CHECK (regression detection):
+   node tasks/api_snapshot.cjs
+   → EXIT 0 = shapes unchanged (good)
+   → EXIT 1 = shape changed (CRITICAL — an API contract broke)
+   If snapshots don't exist yet: run once with --update to create them, then re-run.
+
 2. SECRETS SCAN:
    git ls-files -- 'server/apikey.txt' 'keys.env'  → must return EMPTY
    Grep for sk-ant-, AKIA, password= in all tracked JS/Python files

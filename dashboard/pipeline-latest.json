@@ -1,0 +1,409 @@
+{
+  "generatedAt": "2026-09-06T07:20:17.153Z",
+  "box": "Themis",
+  "pipelines": [
+    {
+      "id": "signal",
+      "label": "Signal → order",
+      "what": "The chain that costs a TRADE rather than a measurement: bars arrive, the engine scores them, ten gates decide, an order is placed, the fill lands in the journal. Checked against the RUNNING server, not against file timestamps.",
+      "live": true,
+      "stages": [
+        {
+          "name": "MT5 bars",
+          "what": "the broker series the engine reads",
+          "state": "OK",
+          "detail": "3 asset series current; GOLD, SPX span a closed market, which is not staleness",
+          "by": "mt5_bridge.py push",
+          "consumedBy": "generateSignalMTF",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "Bridge heartbeat",
+          "what": "the only process that can place an order",
+          "state": "OK",
+          "detail": "account A connected, last seen 2026-09-06T07:20:00.310Z",
+          "by": "mt5_bridge.py --auto",
+          "consumedBy": "place_order",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "Engine scoring",
+          "what": "generateSignalMTF over D1 + H4 + H1",
+          "state": "OK",
+          "detail": "3 of 3 assets scored; all from MT5, updated 2026-09-06T07:20:00.805Z",
+          "by": "server generateSignalMTF",
+          "consumedBy": "the gate chain",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "The ten gates",
+          "what": "any one ends the trade",
+          "state": "OK",
+          "detail": "11 gates, 2 exercised since the server started: 6 killed, 6 passed. A zero is NOT EXERCISED this uptime, not broken.",
+          "by": "the gate chain",
+          "consumedBy": "place_order",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "Execution",
+          "what": "place_order → broker, SL/TP set server-side",
+          "state": "OK",
+          "detail": "1 position(s) open, all with a broker-side stop",
+          "by": "mt5_bridge.py place_order",
+          "consumedBy": "server/journal.json",
+          "present": true,
+          "live": true
+        },
+        {
+          "name": "Circuit breaker",
+          "what": "halts the chain after consecutive losses",
+          "state": "OK",
+          "detail": "closed, 0 consecutive loss(es)",
+          "by": "server risk state",
+          "consumedBy": "every gate downstream",
+          "present": true,
+          "live": true
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    },
+    {
+      "id": "rejection",
+      "label": "Rejection ledger",
+      "what": "Every gate kill, walked forward on real broker bars to ask whether the gate SHOULD have fired.",
+      "stages": [
+        {
+          "name": "rejections written",
+          "file": "tasks/rejections.jsonl",
+          "by": "server/rejection_log.js",
+          "consumedBy": "score_rr_rejections.py",
+          "cadenceHours": 6,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 1482580,
+          "rows": 3958,
+          "modified": "2026-09-06T07:14:14.783Z",
+          "ageHours": 0.1
+        },
+        {
+          "name": "forward-scored",
+          "file": "tasks/rejections_scored.jsonl",
+          "by": "tasks/score_rr_rejections.py",
+          "consumedBy": "learning_from_rejections.py",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 1807652,
+          "rows": 3850,
+          "modified": "2026-09-05T06:30:05.198Z",
+          "ageHours": 24.8,
+          "behindInputHours": 24.7,
+          "behindInput": true
+        },
+        {
+          "name": "shadow book",
+          "file": "server/learning_shadow.json",
+          "by": "tasks/learning_from_rejections.py",
+          "consumedBy": "/api/learning, the deep plan",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 5391,
+          "rows": null,
+          "modified": "2026-09-06T07:19:34.037Z",
+          "ageHours": 0,
+          "behindInputHours": -24.8,
+          "behindInput": false
+        }
+      ],
+      "findings": [
+        {
+          "level": "AMBER",
+          "stage": "forward-scored",
+          "detail": "Written 24.8h ago from input last changed 0.1h ago, and past its own 24h cadence — it has not consumed the newest \"rejections written\" and is overdue, so tasks/score_rr_rejections.py has missed a run."
+        }
+      ],
+      "level": "AMBER"
+    },
+    {
+      "id": "nearmiss",
+      "label": "Near-miss census",
+      "what": "Setups that died on exactly ONE condition, with the margin. Prices the RSI ceiling, the only blocker with no rejection-ledger row.",
+      "stages": [
+        {
+          "name": "near-misses written",
+          "file": "tasks/near_misses.jsonl",
+          "by": "server/near_miss.js",
+          "consumedBy": "score_near_misses.cjs",
+          "cadenceHours": null,
+          "eventDriven": true,
+          "present": true,
+          "bytes": 227182,
+          "rows": 422,
+          "modified": "2026-09-06T07:20:00.700Z",
+          "ageHours": 0
+        },
+        {
+          "name": "forward-scored",
+          "file": "tasks/logs/near_miss_scores.txt",
+          "by": "tasks/score_near_misses.cjs",
+          "consumedBy": "read by a human",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 17186,
+          "rows": null,
+          "modified": "2026-09-06T07:19:45.781Z",
+          "ageHours": 0,
+          "behindInputHours": 0,
+          "behindInput": false
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    },
+    {
+      "id": "stopvar",
+      "label": "Stop variants",
+      "what": "Prices the stop TIMEFRAME against the baseline the engine actually traded. The BB_SQUEEZE_WATCH loss came from a 0.63 ATR stop; this is how that question gets settled.",
+      "stages": [
+        {
+          "name": "variants written",
+          "file": "tasks/stop_variants.jsonl",
+          "by": "the engine, on a fill",
+          "consumedBy": "score_stop_variants.cjs",
+          "cadenceHours": null,
+          "eventDriven": true,
+          "present": true,
+          "bytes": 10273,
+          "rows": 16,
+          "modified": "2026-09-04T06:35:00.398Z",
+          "ageHours": 48.8
+        },
+        {
+          "name": "forward-scored",
+          "file": "tasks/logs/stop_variant_scores.txt",
+          "by": "tasks/score_stop_variants.cjs",
+          "consumedBy": "read by a human",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 25223,
+          "rows": null,
+          "modified": "2026-09-06T07:19:53.000Z",
+          "ageHours": 0,
+          "behindInputHours": -48.8,
+          "behindInput": false
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    },
+    {
+      "id": "learning",
+      "label": "Learning table",
+      "what": "Closed fills attributed to their setup. The calibration record — and the only one built from real money.",
+      "stages": [
+        {
+          "name": "journal",
+          "file": "server/journal.json",
+          "by": "the bridge, on a fill",
+          "consumedBy": "updateLearning()",
+          "cadenceHours": null,
+          "eventDriven": true,
+          "present": true,
+          "bytes": 14015,
+          "rows": null,
+          "modified": "2026-09-04T12:40:32.651Z",
+          "ageHours": 42.7
+        },
+        {
+          "name": "learning table",
+          "file": "server/learning.json",
+          "by": "server updateLearning()",
+          "consumedBy": "/api/learning, the gate boost",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 1242,
+          "rows": null,
+          "modified": "2026-09-06T07:16:38.156Z",
+          "ageHours": 0.1,
+          "behindInputHours": -42.6,
+          "behindInput": false
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    },
+    {
+      "id": "deepplan",
+      "label": "Pre-open & deep plan",
+      "what": "The trading document for the day ahead: the clock with blackouts, the level ladder, the cohort each setup lands in.",
+      "stages": [
+        {
+          "name": "next-candle read",
+          "file": "tasks/analysis/candle-today.json",
+          "by": "tasks/candle_probability.cjs",
+          "consumedBy": "the deep plan",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 3347,
+          "rows": null,
+          "modified": "2026-09-05T06:30:26.839Z",
+          "ageHours": 24.8
+        },
+        {
+          "name": "deep plan",
+          "file": "tasks/analysis/deep-plan-latest.json",
+          "by": "tasks/deep_plan.cjs",
+          "consumedBy": "/api/deep-plan, the overview panel",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 50238,
+          "rows": null,
+          "modified": "2026-09-05T21:40:37.296Z",
+          "ageHours": 9.7,
+          "behindInputHours": -15.1,
+          "behindInput": false
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    },
+    {
+      "id": "analysis",
+      "label": "Deep analysis",
+      "what": "Six replays feed one fact pack, five analysts read it in parallel, a synthesiser merges them.",
+      "stages": [
+        {
+          "name": "fact pack + analysts",
+          "file": "tasks/analysis/latest.json",
+          "by": "parallel_analysis.py (VPS, 01:00)",
+          "consumedBy": "analysis_index.cjs",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 1093354,
+          "rows": null,
+          "modified": "2026-09-05T19:00:43.019Z",
+          "ageHours": 12.3
+        },
+        {
+          "name": "page index",
+          "file": "dashboard/analysis-latest.json",
+          "by": "tasks/analysis_index.cjs",
+          "consumedBy": "/dashboard/analysis.html",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 77013,
+          "rows": null,
+          "modified": "2026-09-06T07:20:16.401Z",
+          "ageHours": 0,
+          "behindInputHours": -12.3,
+          "behindInput": false
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    },
+    {
+      "id": "weekly",
+      "label": "Weekly review",
+      "what": "The deepest analysis this system produces: it scores its own past calls and ranks assets in R rather than lot-weighted dollars.",
+      "stages": [
+        {
+          "name": "review written",
+          "file": "tasks/logs/weekly_20260830.txt",
+          "by": "auto_weekly{,_vps}.bat (Sunday)",
+          "consumedBy": "weekly_report_index.cjs",
+          "cadenceHours": 192,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 16334,
+          "rows": null,
+          "modified": "2026-08-30T09:08:25.926Z",
+          "ageHours": 166.2
+        },
+        {
+          "name": "page index",
+          "file": "dashboard/weekly-latest.json",
+          "by": "tasks/weekly_report_index.cjs",
+          "consumedBy": "/dashboard/weekly.html",
+          "cadenceHours": 192,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 108359,
+          "rows": null,
+          "modified": "2026-08-30T09:08:26.048Z",
+          "ageHours": 166.2,
+          "behindInputHours": 0,
+          "behindInput": false
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    },
+    {
+      "id": "auth",
+      "label": "Agent auth",
+      "what": "Whether the CLI agents can still sign in. The subscription OAuth expired once and nothing watched for it.",
+      "stages": [
+        {
+          "name": "auth state",
+          "file": "dashboard/agent-auth.json",
+          "by": "tasks/agent_auth_check.cjs",
+          "consumedBy": "/dashboard/fleet.html, the work ledger",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 841,
+          "rows": null,
+          "modified": "2026-09-06T07:20:15.881Z",
+          "ageHours": 0
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    },
+    {
+      "id": "drift",
+      "label": "Config drift",
+      "what": "Places that state a live setting as a number and are now wrong.",
+      "stages": [
+        {
+          "name": "drift report",
+          "file": "tasks/analysis/config-drift-latest.txt",
+          "by": "tasks/config_drift.cjs",
+          "consumedBy": "read by a human",
+          "cadenceHours": 24,
+          "eventDriven": false,
+          "present": true,
+          "bytes": 1746,
+          "rows": null,
+          "modified": "2026-09-06T07:20:03.266Z",
+          "ageHours": 0
+        }
+      ],
+      "findings": [],
+      "level": "OK"
+    }
+  ],
+  "totals": {
+    "OK": 9,
+    "AMBER": 1,
+    "RED": 0,
+    "stages": 23,
+    "missing": 0
+  },
+  "note": "A stage marked EVENT-DRIVEN is written only when a real trading event occurs. This system fills about once every four days, so a still artifact there is the ordinary case and is NOT aged against a cadence. Only continuous stages are.",
+  "feedsTheGate": false
+}

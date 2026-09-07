@@ -1,0 +1,44 @@
+{
+  "date": "2026-08-06",
+  "entries": [
+    {
+      "ts": "2026-08-06T05:45:01.111509+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-06: |   BTC BUY 50% entry:64880.68 stop:64067.72 target:66506.6 |   GOLD WAIT |   SPX WAIT"
+    },
+    {
+      "ts": "2026-08-06T06:25:14.399139+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-06: health 8/8 green, 0 log errors. TOP ISSUE — live confidenceThreshold is 50 while CLAUDE.md still documents 70; the 50 only became effective when d320785 removed sizing.js's 65 clamp 2 min before the setting was written. sizing.js records 65-69 as PF 0.91 (negative) and 50-64 is unmeasured. BTC is at exactly conf 50 now on BB_SQUEEZE_WATCH (0W/1L, -$449.72). Also: open Gold trade journaled as setup \"WAIT\" (impossible with strength MODERATE) will create a bogus learning bucket on close; /api/stats/by-setup 401s to MCP so calibration has never been measurable."
+    },
+    {
+      "ts": "2026-08-06T06:56:00.780124+00:00",
+      "tag": "SYSTEM",
+      "text": "VPS FIXED 2026-08-06 08:51 — MT5 AutoTrading was OFF on the Contabo box since 2026-07-26. Every order died locally with retcode 10027 \"AutoTrading disabled by client\"; 27 failures logged, incl. 27 consecutive attempts on the Gold 70%/RR2.5 signal at 18:30-18:57 VPS time on 08-05 that the laptop filled in the same minute. Cause of empty VPS journal, 0-setup learning, 4096-byte DB. NOT a missing feature — VPS was on the same commit (072e47d) with identical API surface and byte-identical signals. Fixed by setting [Experts] Enabled=1 in common.ini and restarting terminal64 via an ELEVATED scheduled task (/RL HIGHEST — unelevated taskkill returned Access is denied and silently no-opped). Verified terminal_info().trade_allowed=True, terminal PID 2472, bridge PID 7732, 0x retcode 10027 since. Positions (magic 888888) untouched. STILL OPEN on VPS: BTCUSD spread ~1700 pts vs MAX_SPREAD 50 blocks all BTC; AI filter hardcoded 60% blocks BTC at conf 50."
+    },
+    {
+      "ts": "2026-08-06T07:04:49.220896+00:00",
+      "tag": "SYSTEM",
+      "text": "VPS PARITY AUDIT 2026-08-06 — .claude surface is IDENTICAL to local: same 6 agents, same 43 commands/skills, same 7 MCP servers, CLAUDE.md byte-identical (19430 b), keys.env + apikey.txt present, node v24.18.0 both. Claude CLI WORKS on VPS (live test returned PARITY_OK in 11.2s). AI jobs all ran today: morning_proposals 07:00, morning_summary 07:01 (26 KB vs local 2.8 KB), agent_log 07:01, analysis 01:23, auto_tune 02:00, daily check 07:30. Nothing is missing — the VPS AI has been WORKING AND IGNORED: it flagged the gate-50 comment drift identically on 08-04, 08-05 and 08-06. FIXED TODAY: per-symbol spread cap (MAX_SPREAD_BTCUSD=2500) so BTC is no longer skipped at ~1700 pts vs cap 50; 6/6 unit tests pass. REAL GAPS REMAINING: (1) tasks/proposals.json empty since 07-26 — morning proposals never land in the store, so nothing is ever applied; (2) server_log.txt 15.6 MB on VPS vs 249 KB local, no rotation; (3) Brain vault absent on VPS so CLAUDE.md startup step 1 silently no-ops; (4) AI filter hardcoded 60 still blocks BTC at conf 50."
+    },
+    {
+      "ts": "2026-08-06T07:26:49.652636+00:00",
+      "tag": "SYSTEM",
+      "text": "VPS 4th fix 2026-08-06 (commit 816820c): Telegram polling could never succeed. The bot has a webhook registered (Supabase function), and Telegram refuses getUpdates whenever a webhook exists — 409 Conflict on every call. pollTelegram runs every 3s so it produced 114 errors per 20 min, the largest single contributor to the 15.6 MB log, and it meant inbound Telegram commands have NEVER reached the VPS server. ensureTelegramPolling now checks getWebhookInfo and skips polling when a webhook is present; runtime check, so removing the webhook restores polling with no code change. Webhook deliberately NOT deleted — separate integration, user's call. Verified 0 new 409s in 75s where ~25 were expected. Local unaffected: no TELEGRAM_TOKEN in its keys.env, zero 409s there."
+    },
+    {
+      "ts": "2026-08-06T07:50:36.412094+00:00",
+      "tag": "SYSTEM",
+      "text": "VPS fixes 5+6 (commit b01051a) — Gold was invisible on two counts, neither a missing signal. (1) CONCURRENT REFRESH RACE: refreshSignals is called from 6 places but only the candle-ingest path checked signalRefreshInFlight, and that flag guarded it against itself only. At boot the slow Yahoo pass and the candle-flip MT5 pass ran concurrently and the slower one won per-asset — Gold served yahoo conf 74 while the broker feed said 0, i.e. futures levels for an account that fills spot. Fixed with a chained queue (chained NOT coalesced — joining an in-flight pass would skip the recompute the flip fired for). Tell: /api/mt5/candles says activeSource=mt5 while /api/signals says dataSource=yahoo. (2) R:R GATE ERASED ITS OWN EVIDENCE: it overwrote the whole reasons array and nulled levels, so a near miss serialised identically to \"no setup formed\" and learning saw nothing. Gold actually has RANGE_TRADE_SHORT at R:R 1.39 (entry 4257.06 stop 4387.99 target 4075.06) — missing the 1.5 bar by 0.11, not absent. Risk policy unchanged, diagnostics preserved. toFixed(2) replaces toFixed(1) which rendered 1.45 as \"R:R 1.5 below minimum 1.5\". Verified: all 3 assets now flip yahoo->mt5 together."
+    },
+    {
+      "ts": "2026-08-06T08:20:30.339846+00:00",
+      "tag": "SYSTEM",
+      "text": "SESSION CLOSE 2026-08-06. DONE: VPS went from zero orders in 11 days to trading and journaling. Four VPS commits (12c4491 execution: AutoTrading 10027 + spread cap + AI filter 60; 816820c Telegram webhook; b01051a refresh race + R:R erasure; e4a3360 R:R shadow log). Local commit 4cc60dd = Evidence Court plan. VPS at close: gate 70, all 3 assets on mt5, healer 8/8, bridge PID 4200, 1 open BTC position, log rotation daily 04:30. LEFT TO FINISH next session: #3 allowlist /api/stats/by-setup (calibration has NEVER had data); #2 local Gold trade journaled as setup WAIT will poison learning on close (db.js:316); #8 port all four VPS fixes to local — laptop still has the hardcoded 60, the refresh race and gate 50; #9 build the scorer for rr_rejected.jsonl (use sourceSymbol not ticker); #10-15 Evidence Court, Phase 0 is a hard prerequisite. DECISIONS LEFT TO USER: MIN_RR stays 1.5 until the shadow log is scored; sample size is the binding constraint and INSUFFICIENT EVIDENCE must count as success. Handoff written to vault Active Priorities.md."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-06T05:45:01.111509+00:00",
+  "updated_at": "2026-08-06T08:20:30.341862+00:00"
+}

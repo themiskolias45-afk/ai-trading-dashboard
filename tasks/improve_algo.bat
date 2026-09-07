@@ -12,7 +12,7 @@ echo  (Claude reads code and journal - no changes yet)
 echo.
 
 REM Phase 1: Analysis only — save output to file so Phase 2 can read it
-claude --dangerously-skip-permissions -p "JARVIS: Read server/index.js (focus on generateSignal and generateSignalMTF) and server/journal.json (trade results). Identify the single biggest weakness right now. Write your findings to tasks/temp/improvement_plan.txt in EXACTLY this format: PROBLEM: [one sentence]. FIX: [exactly what line/function to change and how]. EXPECTED IMPACT: [what metric improves and by how much]. Then display the same text to the console. Do NOT make any code changes."
+call claude --dangerously-skip-permissions -p "JARVIS: Read server/index.js (focus on generateSignal and generateSignalMTF) and server/journal.json (trade results). Identify the single biggest weakness right now. Write your findings to tasks/temp/improvement_plan.txt in EXACTLY this format: PROBLEM: [one sentence]. FIX: [exactly what line/function to change and how]. EXPECTED IMPACT: [what metric improves and by how much]. Then display the same text to the console. Do NOT make any code changes."
 
 echo.
 echo  ==========================================
@@ -29,7 +29,7 @@ echo.
 if /i "%APPROVE%"=="Y" (
   echo  Implementing fix...
   echo.
-  claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/improvement_plan.txt for the approved improvement plan. Now implement it: read server/index.js, make the precise change described, verify the edit landed correctly, then run: git add server/index.js && git commit -m 'Auto-improve: [describe what you fixed]' && git push -u origin claude/backup-deploy-server-FWgpv. Report: what line changed, what it changed from and to, commit hash. Max 5 lines."
+  call claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/improvement_plan.txt for the approved improvement plan. Now implement it: read server/index.js, make the precise change described, verify the edit landed correctly, then run: git add server/index.js && git commit -m 'Auto-improve: [describe what you fixed]' && git push -u origin claude/backup-deploy-server-FWgpv. Report: what line changed, what it changed from and to, commit hash. Max 5 lines."
   echo.
   echo  ==========================================
   echo   Fix committed and pushed.

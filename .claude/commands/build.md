@@ -18,10 +18,22 @@ If $ARGUMENTS is empty, ask: "What do you want to build?"
     RISK:     [what could break in the existing system]
   Wait for approval before proceeding.
 
+═══ STEP 2b — DESIGN GATE (if UI: yes in the build plan) ═══
+  Before touching any dashboard/ or .html file:
+  Load the artifact-design skill — it calibrates how much design investment this warrants.
+  For any chart, graph, metric tile, or sparkline → load the dataviz skill first.
+
+  Design standards for SmartEntry Pro UI:
+  - Dark-mode aware: define all colors as CSS tokens on :root, swap under prefers-color-scheme
+  - Responsive: relative units, flexbox/grid, no horizontal body scroll
+  - Consistent palette: signal colors (BUY=green, SELL=red, WAIT=amber) must match across ALL pages
+  - Numbers readable at a glance: confidence % large, secondary info small
+  - No decorative elements that don't carry information — every pixel earns its place
+
 ═══ STEP 3 — READ BEFORE TOUCHING ═══
   Read EVERY file in the build plan — full content, front to back.
   For server/index.js: understand the existing route structure, middleware, error patterns.
-  For dashboard files: understand the existing fetch/render pattern.
+  For dashboard files: understand the existing fetch/render pattern AND the visual design system.
   If any file is too large to hold fully in context, read the relevant section and say so.
 
 ═══ STEP 4 — BUILD ═══
@@ -35,7 +47,7 @@ If $ARGUMENTS is empty, ask: "What do you want to build?"
 
 ═══ STEP 5 — TEST ═══
   After building, verify it actually works:
-  - New API endpoint → curl or mcp__fetch to hit it, confirm 200 and correct JSON shape
+  - New API endpoint → curl http://localhost:3001/api/[route] or mcp__exa__web_fetch_exa to hit it, confirm 200 and correct JSON shape
   - Changed signal logic → trace with confidence=65, 64, 100, 0
   - New dashboard element → confirm data appears at the endpoint it fetches from
   - If a test file exists (server/tests/) → run it

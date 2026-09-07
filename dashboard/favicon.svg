@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="SmartEntry Pro">
+  <!--
+    SmartEntry Pro mark.
+
+    Designed for 16x16 first, not scaled down to it. At tab size a favicon gets about
+    the area of a full stop, so anything with an outline, a gradient or a letterform
+    turns to mush: this is three solid bars and one dot, and it survives because there
+    is nothing in it that needs resolving.
+
+    The three ascending bars read as "trading" instantly and carry the system's own
+    semantics — the two completed bars in muted blue-grey, the third in the theme's
+    green, because green means "this one worked" everywhere else in the interface.
+    The dot is the ENTRY: the whole product is about where you get in, and it sits at
+    the base of the rising bar rather than the top of it.
+
+    Colours are the theme tokens literally (--surface #0d1420, --muted #8aa0c0,
+    --green #2bd07c, --accent #7c5cff), hard-coded because an SVG loaded as a favicon
+    gets no stylesheet and no CSS variables. If theme.css changes those values, change
+    them here too — there is no cascade to do it for you.
+  -->
+  <rect width="32" height="32" rx="7" fill="#0d1420"/>
+  <rect x="3.5" y="3.5" width="25" height="25" rx="5.5" fill="none" stroke="#1e2a3d" stroke-width="1"/>
+
+  <!-- Two completed bars, receding. -->
+  <rect x="7"  y="19" width="4.5" height="7"  rx="1.4" fill="#8aa0c0"/>
+  <rect x="14" y="15" width="4.5" height="11" rx="1.4" fill="#8aa0c0"/>
+
+  <!-- The winning bar. -->
+  <rect x="21" y="8"  width="4.5" height="18" rx="1.4" fill="#2bd07c"/>
+
+  <!-- The entry. -->
+  <circle cx="23.25" cy="8" r="3" fill="#0d1420"/>
+  <circle cx="23.25" cy="8" r="2" fill="#7c5cff"/>
+</svg>

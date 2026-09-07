@@ -11,6 +11,54 @@ const MIN_CONFIDENCE = 65;
 const MIN_RR = 1.5;
 const CORRELATION_PENALTY = 0.2;
 
+// The smallest budget this module will ever approve, as a fraction of balance.
+//
+// THIS BOUND IS A TRADING GUARD, NOT A TIDINESS ONE. validateTrade deliberately still
+// returns approved:true when it cannot size (see resolveValuePerPoint), because
+// "refusing to size must not refuse the trade" — but mt5_bridge.py then computes
+// `risk_amount = suggestedSize * stop_distance` and REFUSES on `risk_amount <= 0` with
+// "risk engine approved a zero budget". So a zero or negative risk percent arriving
+// from config would silently become a full trading outage, one layer below the place
+// that tried not to block anything. Clamped here so that cannot happen.
+const MIN_RISK_PCT = 0.0001;   // 0.01% of balance
+
+/**
+ * The per-trade risk budget actually in force, as a fraction of balance.
+ *
+ * Reads strategy_settings.riskPercent when it is present and sane, and falls back to
+ * the historical hardcoded 1% otherwise — so a box with no such key behaves EXACTLY as
+ * it did before this existed.
+ *
+ * ALWAYS PERCENT UNITS, never a fraction. `riskPercent: 1` already means 1% in this
+ * project's account config, so 0.10 means one tenth of one percent. A first draft of
+ * this accepted either spelling and guessed by magnitude — which read 0.05 as 5% and
+ * clamped it UP to the 3% ceiling when the author meant 0.05%. Guessing units on a
+ * number that sizes real money is not worth the convenience.
+ */
+function resolveRiskPct(riskPercent) {
+  const percent = Number(riskPercent);
+  if (!Number.isFinite(percent) || percent <= 0) return BASE_RISK_PCT;
+  return Math.min(MAX_SINGLE_TRADE_RISK, Math.max(MIN_RISK_PCT, percent / 100));
+}
+
+// BUY/SELL is the only vocabulary the live path uses: MT5 reports positions as
+// "BUY"/"SELL" (mt5_bridge.py:1237) and the signal engine emits the same through
+// sig["signal"] (mt5_bridge.py:1731). But /api/size is a public route and callers
+// have historically also said LONG/SHORT, so BOTH sides of the duplicate comparison
+// are normalised here.
+//
+// Returns null for anything it cannot classify. That null is load-bearing: the
+// duplicate guard treats an unclassifiable direction as a REASON TO REFUSE, never as
+// evidence the sides differ. Guessing "opposite" from an absence is how a true
+// duplicate would slip through.
+function normaliseDirection(direction) {
+  if (typeof direction !== 'string') return null;
+  const value = direction.trim().toUpperCase();
+  if (value === 'BUY' || value === 'LONG') return 'BUY';
+  if (value === 'SELL' || value === 'SHORT') return 'SELL';
+  return null;
+}
+
 function calcKelly(winRate, avgWin, avgLoss) {
   if (
     typeof winRate !== 'number' || typeof avgWin !== 'number' || typeof avgLoss !== 'number' ||
@@ -223,6 +271,8 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
     ? suppliedMin
     : MIN_CONFIDENCE;
 
+  // `direction` is read again. The duplicate guard below is DIRECTION-AWARE: a
+  // same-side entry is still refused, an opposite-side one is allowed through.
   const { entry, stop, target, confidence, symbol, direction } = signal;
 
   if (typeof confidence !== 'number' || confidence < minConfidence) {
@@ -255,16 +305,52 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
 
   const positions = Array.isArray(openPositions) ? openPositions : [];
 
-  if (symbol && direction) {
-    const duplicate = positions.find(
-      p => p && p.symbol === symbol && p.direction === direction
-    );
-    if (duplicate) {
-      return {
-        approved: false,
-        reason: `Already holding ${symbol} ${direction}`,
-        suggestedSize: 0
-      };
+  // DIRECTION-AWARE duplicate guard. Refuses a SAME-SIDE entry; lets the opposite
+  // side through to the portfolio checks below.
+  //
+  // History, because this has now been both things. It originally matched symbol AND
+  // direction, which let a hedge through: on 2026-08-08 account A held XAUUSD BUY
+  // #1713655080 @4241.74 (opened 08-05) and XAUUSD SELL #1726672007 @4296.78 (opened
+  // 08-07) at once. The accounts are in HEDGING mode, so the platform carries both
+  // sides happily and nothing downstream objects. It was then widened to match on
+  // SYMBOL ALONE to stop exactly that.
+  //
+  // Narrowed back to direction-aware on 2026-08-30 by explicit operator decision,
+  // after the symbol-only form was found refusing a valid opposite-side SELL while a
+  // BUY was open — i.e. suppressing a tradeable signal, which the standing rules put
+  // above the statistical cost below.
+  //
+  // THE COST THAT COMES BACK, stated rather than hidden: one market state can again
+  // write two opposing outcomes into the per-setup learning tables. The rows stay
+  // structurally separate (each has its own ticket and setup), so nothing is lost or
+  // overwritten — the damage is purely statistical, in the per-setup win rate, and it
+  // is worst while the journal is small. Accepted deliberately, not overlooked.
+  //
+  // The reason string MUST keep starting with "Already holding":
+  // mt5_bridge.py (RISK_ENGINE_DUPLICATE_PREFIX) matches that literal prefix to decide
+  // whether to write a DUPLICATE row to the rejection ledger. Reword it and the gate
+  // silently stops being recorded — which would block LEARNING, not just a trade.
+  if (symbol) {
+    const requestedDirection = normaliseDirection(direction);
+
+    // Only a position whose direction is KNOWN and matches can be dismissed as the
+    // opposite side. Everything else is a refusal, so an unreadable direction can
+    // never be mistaken for a safe hedge.
+    const held = positions.find(p => {
+      if (!p || p.symbol !== symbol) return false;
+      const heldDirection = normaliseDirection(p.direction);
+      if (heldDirection === null || requestedDirection === null) return true;
+      return heldDirection === requestedDirection;
+    });
+
+    if (held) {
+      // Never interpolate a missing direction — "Already holding XAUUSD undefined"
+      // is what the operator would have to debug from.
+      const heldLabel = normaliseDirection(held.direction) || 'UNKNOWN';
+      const reason = requestedDirection === null
+        ? `Already holding ${symbol} ${heldLabel} and this signal has no readable direction`
+        : `Already holding ${symbol} ${heldLabel}`;
+      return { approved: false, reason, suggestedSize: 0 };
     }
   }
 
@@ -280,7 +366,10 @@ function validateTrade(signal, accountBalance, openPositions, options = {}) {
     };
   }
 
-  const suggestedRiskPct = Math.min(BASE_RISK_PCT, maxNewRisk);
+  // The configured per-trade budget, still floored by whatever headroom the 6%
+  // portfolio cap leaves. Absent config reproduces the previous BASE_RISK_PCT exactly.
+  const configuredRiskPct = resolveRiskPct(options.riskPercent);
+  const suggestedRiskPct = Math.min(configuredRiskPct, maxNewRisk);
   const suggestedRiskAmount = accountBalance * suggestedRiskPct;
 
   const projectedTotalRisk = totalRiskPct + (suggestedRiskAmount / accountBalance);

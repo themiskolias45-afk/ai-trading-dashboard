@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #4a9eff; } a:hover { color: #7c5cff; }
+  </style>
+</helmet>
+
+<div style="width: 900px; height: 760px; box-sizing: border-box; background: #070b12; color: #e8eef7; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif; padding: 44px 48px; display: flex; flex-direction: column; gap: 26px;">
+
+  <div style="display: flex; align-items: baseline; gap: 12px;">
+    <div style="font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: #7488ab;">SmartEntry Pro · engine</div>
+    <div style="flex-grow: 1; height: 1px; background: #1e2a3d;"></div>
+    <div style="font-size: 10px; letter-spacing: .08em; color: #7488ab; font-family: 'JetBrains Mono', Consolas, monospace;">2026-08-22</div>
+  </div>
+
+  <div style="display: flex; align-items: flex-end; gap: 22px;">
+    <div style="font-size: 92px; font-weight: 800; line-height: .88; letter-spacing: -.04em; color: #f0b429; font-variant-numeric: tabular-nums;">24<span style="color: #7488ab; font-weight: 500;">/</span>24</div>
+    <div style="padding-bottom: 8px;">
+      <div style="font-size: 21px; font-weight: 700; line-height: 1.25; letter-spacing: -.01em;">near-misses blocked by one condition</div>
+      <div style="font-size: 14px; color: #8aa0c0; margin-top: 5px; font-family: 'JetBrains Mono', Consolas, monospace;">RSI_ABOVE_CEILING</div>
+    </div>
+  </div>
+
+  <div style="background: #121a28; border: 1px solid #2b3a52; border-radius: 10px; padding: 18px 22px; display: flex; align-items: center; gap: 26px;">
+    <div>
+      <div style="font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #7488ab;">Closest it has come to a trade</div>
+      <div style="font-size: 16px; font-weight: 600; margin-top: 6px;">Gold <span style="color: #8aa0c0; font-weight: 400;">H4</span> MOMENTUM</div>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="text-align: right; font-family: 'JetBrains Mono', Consolas, monospace;">
+      <div style="font-size: 32px; font-weight: 700; color: #f0b429; line-height: 1; font-variant-numeric: tabular-nums;">1.5</div>
+      <div style="font-size: 11px; color: #8aa0c0; margin-top: 4px;">points over the limit</div>
+    </div>
+    <div style="width: 1px; align-self: stretch; background: #2b3a52;"></div>
+    <div style="font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13px; color: #8aa0c0; line-height: 1.8;">
+      <div>RSI &nbsp;<span style="color: #e8eef7; font-weight: 600;">73.5</span></div>
+      <div>limit <span style="color: #e8eef7; font-weight: 600;">72</span></div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 0;">
+
+    <div style="display: grid; grid-template-columns: 30px 1fr; gap: 16px; padding: 17px 0; border-top: 1px solid #1e2a3d;">
+      <div style="font-size: 13px; font-weight: 700; color: #7c5cff; font-family: 'JetBrains Mono', Consolas, monospace;">01</div>
+      <div>
+        <div style="font-size: 15px; font-weight: 700; letter-spacing: -.01em;">It is the constraint — not the confidence gate</div>
+        <div style="font-size: 13px; color: #8aa0c0; line-height: 1.65; margin-top: 5px;">Every surface in the system reports the distance to the confidence gate. Over the same window the CONFIDENCE gate killed one candidate and passed none, while this single check turned away everything that got close. The number everyone watches is not the number stopping the trades.</div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 30px 1fr; gap: 16px; padding: 17px 0; border-top: 1px solid #1e2a3d;">
+      <div style="font-size: 13px; font-weight: 700; color: #f2555f; font-family: 'JetBrains Mono', Consolas, monospace;">02</div>
+      <div>
+        <div style="font-size: 15px; font-weight: 700; letter-spacing: -.01em;">And it could not be tested</div>
+        <div style="font-size: 13px; color: #8aa0c0; line-height: 1.65; margin-top: 5px;">The two limits were literals inside <span style="font-family: 'JetBrains Mono', Consolas, monospace; color: #e8eef7;">generateSignal</span>. The replay harness plumbed only the RSI <em style="color: #e8eef7; font-style: normal;">floor</em>; the sweep script sweeps only the <em style="color: #e8eef7; font-style: normal;">floor</em>. The top blocker in the engine was the one number defended by opinion rather than evidence.</div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 30px 1fr; gap: 16px; padding: 17px 0; border-top: 1px solid #1e2a3d; border-bottom: 1px solid #1e2a3d;">
+      <div style="font-size: 13px; font-weight: 700; color: #2bd07c; font-family: 'JetBrains Mono', Consolas, monospace;">03</div>
+      <div>
+        <div style="font-size: 15px; font-weight: 700; letter-spacing: -.01em;">Now it is measurable, and nothing moved</div>
+        <div style="font-size: 13px; color: #8aa0c0; line-height: 1.65; margin-top: 5px;">The limits read from config through the same guarded pattern the ADX floor beside them already used — still function-local, because hoisting them to module scope is what silently erased 1,131 replay steps twice before. No key exists in the live config, so the engine keeps 72 and 68.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="flex-grow: 1;"></div>
+
+  <div style="font-size: 12px; color: #7488ab; line-height: 1.6; border-left: 2px solid #7c5cff; padding-left: 14px;">
+    Making a threshold measurable is not permission to move it. A challenger has to beat the baseline on its <span style="color: #e8eef7; font-weight: 600;">worst fold</span>, not its average — and more trades is not the goal.
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

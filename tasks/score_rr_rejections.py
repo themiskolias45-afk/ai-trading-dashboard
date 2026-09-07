@@ -63,6 +63,52 @@ LEGACY_PATH = os.path.join(ROOT, "tasks", "rr_rejected.jsonl")
 SCORED_PATH = os.path.join(ROOT, "tasks", "rejections_scored.jsonl")
 HISTORY_DIR = os.path.join(ROOT, "tasks", "history")
 
+# The broker offset is a TIMEZONE, and no timezone on earth sits outside UTC-12..UTC+14.
+# A value beyond that is not a clock difference, it is a stale tick: when the market is
+# shut, symbol_info_tick returns the LAST tick from the previous close, and
+# `tick.time - now_utc` then measures how long the market has been closed rather than
+# where the broker's clock sits. There is no way to tell the two apart from that
+# subtraction alone, which is why the bound is the check.
+MAX_BROKER_OFFSET_SEC = 14 * 3600
+MIN_BROKER_OFFSET_SEC = -12 * 3600
+
+# R is reward/risk, so it explodes as the stop collapses toward the entry. One episode
+# with a $4.21 stop on Bitcoin - 0.0065% of price, inside the spread, unfillable - scored
+# +298.56R and set the SIGN OF THE ENTIRE VPS LEDGER: total +279.05R, with the other 497
+# episodes summing to -19.5R. It also flipped the CONFIDENCE gate's verdict to COSTING
+# MONEY at 4% would-have-won, which is arithmetically impossible and is the gate most
+# likely to be loosened on such a reading.
+#
+# Capped on implied R:R rather than on a percentage of price, because R:R is scale-free -
+# one number works for BTCUSD at 64,000, XAUUSD at 4,400 and SP500 at 7,800, where a
+# price fraction would need tuning per instrument and would drift as prices move.
+#
+# 10 is chosen from measured output, not taste. The engine builds targets structurally at
+# about 2.5x risk, the largest plannedRr ever recorded in the journal is 6.57, and the
+# laptop ledger has a clean EMPTY GAP between R:R 6 and 13.5. Above the cap the stop has
+# collapsed (see the pivot-stop-with-no-ATR-floor defect); it is never the target
+# extending. 173 of 177 resolved episodes sit below R:R 3 and net +0.85R, so the cap
+# removes an artifact, not an edge.
+#
+# The row is RECLASSIFIED, never deleted: rejections.jsonl is append-only and untouched,
+# and UNSCORABLE is an existing bucket every consumer already handles. Excluding a
+# degenerate datum improves what learning_from_rejections.py sees rather than reducing it,
+# and feedsTheGate is false throughout, so no signal is suppressed.
+MAX_PLAUSIBLE_RR = 10.0
+
+
+class BrokerClockUnavailable(RuntimeError):
+    """The broker's UTC offset could not be measured, so no row can be walked.
+
+    Raised rather than defaulted, because the offset shifts the walk window for
+    EVERY row: a wrong one silently re-scores settled history instead of failing.
+    Measured 2026-08-17 - re-running against a byte-identical 655-row input moved
+    STOP 89->70 and flipped 21 XAUUSD outcomes, because the previous run had fired
+    on a Sunday. Aborting leaves the last good rejections_scored.jsonl in place,
+    which is the correct outcome: the file is rewritten wholesale every run, so a
+    skipped weekend costs nothing and the next weekday run rebuilds it in full.
+    """
+
 # Seconds per bar, and how many bars a setup gets to resolve. A D1 mean-reversion
 # short that has not touched either level in a month was not the trade the setup
 # described, so it is marked to market rather than left open forever.
@@ -302,17 +348,32 @@ class Mt5BarSource:
         is off by the server offset - typically 2-3 hours, which is enough to pick
         the wrong daily bar as "the one after the rejection". Measured from a live
         tick rather than hardcoded, because brokers change it at DST.
+
+        The measurement is only as live as the tick. On a closed market the last
+        tick is hours or days old and this subtraction returns the age of the
+        weekend, not a timezone - so the result is bounds-checked and the run is
+        aborted rather than allowed to walk every row through a shifted window.
         """
         if symbol in self._offsets:
             return self._offsets[symbol]
 
-        offset = 0
         tick = self._mt5.symbol_info_tick(symbol)
-        if tick is not None and tick.time:
-            now_utc = datetime.now(timezone.utc).timestamp()
-            # Round to the nearest half hour: the raw difference carries tick
-            # latency, and no broker runs an offset finer than that.
-            offset = int(round((tick.time - now_utc) / 1800.0) * 1800)
+        if tick is None or not tick.time:
+            raise BrokerClockUnavailable(
+                "no tick for %s, so the broker's UTC offset cannot be measured" % symbol)
+
+        now_utc = datetime.now(timezone.utc).timestamp()
+        # Round to the nearest half hour: the raw difference carries tick
+        # latency, and no broker runs an offset finer than that.
+        offset = int(round((tick.time - now_utc) / 1800.0) * 1800)
+        if not MIN_BROKER_OFFSET_SEC <= offset <= MAX_BROKER_OFFSET_SEC:
+            raise BrokerClockUnavailable(
+                "%s: last tick is %s, %.1fh from now - that is a closed market, not a "
+                "timezone. Re-run on a trading day."
+                % (symbol,
+                   datetime.fromtimestamp(tick.time, tz=timezone.utc).isoformat(),
+                   offset / 3600.0))
+
         self._offsets[symbol] = offset
         return offset
 
@@ -434,6 +495,16 @@ def score_row(row, bars, horizon_end_utc, now_epoch, data_end_epoch=None,
     risk = abs(entry - stop)
     if risk == 0:
         return "UNSCORABLE", None, "stop distance is zero"
+
+    # A stop that collapsed toward the entry, which makes R a property of the geometry
+    # rather than of what price did. Guarding only risk == 0 let a $4.21 Bitcoin stop
+    # through at +298.56R. See MAX_PLAUSIBLE_RR.
+    implied_rr = abs(target - entry) / risk
+    if implied_rr > MAX_PLAUSIBLE_RR:
+        return "UNSCORABLE", None, (
+            "implied R:R %.1f exceeds the %.0f cap - stop is %.4f%% of price, so R would "
+            "measure the collapsed stop, not the outcome"
+            % (implied_rr, MAX_PLAUSIBLE_RR, 100.0 * risk / abs(entry) if entry else 0.0))
 
     is_short = direction.startswith("S")
 
@@ -565,6 +636,36 @@ def score_ledger(rows, source, horizon_mult, now_epoch):
             # GC=F bars, so it is dropped with its reason recorded.
             scored.append(dict(base, outcome="UNSCORABLE", r=None,
                                detail="no sourceSymbol - cannot know which instrument these levels belong to"))
+            continue
+        # The guard above assumed a yahoo-fed row arrives with NO sourceSymbol. It does
+        # not: server\index.js:2421 writes the YAHOO TICKER into that field on the
+        # fallback branch, so these rows carry ^GSPC / GC=F / BTC-USD. The broker
+        # terminal has no such series, bars() returns nothing, and score_row's horizon
+        # check (line 456) runs BEFORE its `not bars` check - so 112 of these reported
+        # "PENDING - horizon has not elapsed yet" for rows that can never resolve, and
+        # the surface read that as evidence still on its way. Measured 2026-08-17: 177
+        # rows, every one dead, including all 45 STALE_SOURCE rows.
+        #
+        # Keyed on dataSource, never on the shape of the symbol: of 297 mt5 rows not one
+        # carries a yahoo-looking symbol, and the 12 frozen legacy rows are all mt5, so
+        # this cannot touch a scorable row. Substituting the broker symbol is NOT the
+        # fix - that prices these levels on a different instrument, ~$51 apart on gold,
+        # which is the confidently-wrong answer this whole file exists to refuse.
+        # Spec section 2: unscorable is RECORDED, never guessed.
+        #
+        # A WHITELIST, not a ban on "yahoo". The first version of this guard tested
+        # `== "yahoo"`, which would have let a future third feed reintroduce exactly the
+        # PENDING-forever bug it was written to kill - silently, because the symptom is a
+        # row that looks like it is still coming. Only the broker's own feed can be walked
+        # against the broker's own bars, so anything else is unscorable by construction.
+        # A row with no dataSource at all falls through deliberately: every such row in
+        # both ledgers also has no sourceSymbol and was already caught above, and the
+        # frozen legacy file predates the field.
+        feed = str(row.get("dataSource") or "").lower()
+        if feed and feed != "mt5":
+            scored.append(dict(base, outcome="UNSCORABLE", r=None,
+                               detail="levels priced on the %s feed - %s is not a broker series"
+                                      % (feed, symbol)))
             continue
         if timeframe not in BAR_SECONDS or ts is None:
             scored.append(dict(base, outcome="UNSCORABLE", r=None,
@@ -859,7 +960,15 @@ def main():
 
     try:
         now_epoch = datetime.now(timezone.utc).timestamp()
-        scored = score_ledger(rows, source, horizon_mult, now_epoch)
+        try:
+            scored = score_ledger(rows, source, horizon_mult, now_epoch)
+        except BrokerClockUnavailable as err:
+            # Deliberately BEFORE the write below. Every existing verdict stays as the
+            # last good run left it, rather than being overwritten by one measured
+            # against a clock that was not running.
+            log("ABORTED - broker clock unmeasurable: %s" % err)
+            log("Nothing was written. %s still holds the last good run." % output_path)
+            return 1
 
         with open(output_path, "w", encoding="utf-8") as handle:
             for entry in scored:

@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<!--
+  FLEET MAP v2 — the whole system, both boxes, one screen.
+
+  WHY THIS EXISTS, AND WHY IT IS A NEW FILE.
+  dashboard/fleet.html is untouched and still served. This is additive: if this page is
+  worse, nothing was lost and nothing needs undoing.
+
+  The existing page renders fleet agreement, the systems plan, the clock, the ledgers and
+  a "server cron jobs" row. There are 94 scheduled tasks across the two boxes, and three
+  whole layers of the system have no representation at all: EXECUTION (MT5 terminals, EA
+  attach state, bridge heartbeats, the three executors), HEALTH (healer, watchdog, restart
+  rate) and INTELLIGENCE (AI employee queue, RAG index, and the Claude auth session).
+
+  THE DESIGN TEST. On 2026-09-06 a day of failures was found by hand: the VPS had been
+  signed out for two days, an EA looked detached, a weekly job was being killed at a
+  10-minute limit, two tasks failed on a filtered admin token, and SP500 sat at 90% of its
+  spread cap. NOT ONE of them was visible on the old page. Every tile here was chosen
+  because it would have shown one of them.
+
+  THE RULE EVERY TILE OBEYS. Four states, never three: OK / WARN / BAD / UNKNOWN.
+  "cannot tell" is rendered grey with a "?" and NEVER as green. Today's root cause, over
+  and over, was a check that could not distinguish "fine" from "no idea" and reported the
+  guess as a fact. A tile with no data says so.
+
+  Read-only. Every fetch is a GET. Nothing here writes, arms, halts or sizes anything.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet Map — SmartEntry Pro</title>
+<link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+<link rel="stylesheet" href="/dashboard/theme.css">
+<link rel="stylesheet" href="/dashboard/nav.css">
+<style>
+  body { background: var(--bg); color: var(--text); font-family: var(--font); margin: 0; }
+  .wrap { max-width: 1500px; margin: 0 auto; padding: 20px 22px 64px; }
+
+  .head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+  .head h1 { font-size: 19px; margin: 0; letter-spacing: .2px; }
+  .head .sub { color: var(--muted); font-size: 12px; }
+  .stamp { margin-left: auto; color: var(--muted-dim); font-size: 11px; font-family: var(--mono); }
+
+  /* VERDICT: the 10-second answer. Nothing else may compete with it visually. */
+  .verdict { border-radius: var(--radius); padding: 15px 18px; margin: 14px 0 20px;
+             border: 1px solid var(--border2); background: var(--surface);
+             display: flex; align-items: center; gap: 15px; }
+  .verdict .dot { width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto; }
+  .verdict .txt { font-size: 16px; font-weight: 600; }
+  .verdict .why { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .v-ok   { border-color: #14512f; background: linear-gradient(180deg, #0c2b1c, var(--surface)); }
+  .v-warn { border-color: #5a4410; background: linear-gradient(180deg, #33280a, var(--surface)); }
+  .v-bad  { border-color: #5c1a20; background: linear-gradient(180deg, #381115, var(--surface)); }
+  .v-unk  { border-color: var(--border2); }
+
+  .boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 16px; }
+  .box { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+  .box > header { padding: 11px 15px; background: var(--surface2); border-bottom: 1px solid var(--border);
+                  display: flex; align-items: center; gap: 10px; }
+  .box > header .name { font-weight: 650; font-size: 13.5px; letter-spacing: .3px; }
+  .box > header .role { color: var(--muted-dim); font-size: 11px; }
+  .box > header .hb { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--muted-dim); }
+
+  .layer { border-top: 1px solid var(--subtle); }
+  .layer:first-of-type { border-top: 0; }
+  .layer > h3 { margin: 0; padding: 9px 15px 5px; font-size: 10px; letter-spacing: 1.3px;
+                text-transform: uppercase; color: var(--muted-dim); font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+           gap: 7px; padding: 3px 12px 13px; }
+
+  .tile { border: 1px solid var(--border); border-radius: 7px; padding: 8px 9px; background: var(--surface2);
+          border-left-width: 3px; min-width: 0; }
+  .tile .k { font-size: 9.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted-dim);
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .v { font-family: var(--mono); font-size: 14px; margin-top: 3px; font-weight: 600;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .n { font-size: 10px; color: var(--muted-dim); margin-top: 3px; line-height: 1.35;
+             word-break: break-word; }
+  .ok   { border-left-color: var(--green); }  .ok   .v { color: var(--green); }
+  .warn { border-left-color: var(--amber); }  .warn .v { color: var(--amber); }
+  .bad  { border-left-color: var(--red); }    .bad  .v { color: var(--red); }
+  /* UNKNOWN is deliberately colourless. It must never be mistaken for OK. */
+  .unk  { border-left-color: var(--dim); }    .unk  .v { color: var(--muted-dim); }
+
+  .panel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+           margin-top: 16px; overflow: hidden; }
+  .panel > h2 { margin: 0; padding: 11px 15px; font-size: 11px; letter-spacing: 1.2px;
+                text-transform: uppercase; color: var(--muted); background: var(--surface2);
+                border-bottom: 1px solid var(--border); font-weight: 600; }
+  .panel .body { padding: 12px 15px; }
+  .row { display: flex; gap: 11px; padding: 7px 0; border-top: 1px solid var(--subtle);
+         font-size: 12.5px; align-items: baseline; }
+  .row:first-child { border-top: 0; }
+  .row .lab { color: var(--muted); min-width: 148px; flex: 0 0 auto; }
+  .row .val { font-family: var(--mono); }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10px;
+          font-family: var(--mono); border: 1px solid var(--dim); color: var(--muted); }
+  .pill.ok { border-color: #14512f; color: var(--green); }
+  .pill.bad { border-color: #5c1a20; color: var(--red); }
+  .pill.warn { border-color: #5a4410; color: var(--amber); }
+  .empty { color: var(--muted-dim); font-size: 12px; font-style: italic; }
+  .note { color: var(--muted-dim); font-size: 11.5px; line-height: 1.5; }
+  a.q { color: var(--blue); text-decoration: none; font-size: 11px; }
+  a.q:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div id="se-rail"></div>
+<div class="wrap">
+
+  <div class="head">
+    <h1>Fleet Map</h1>
+    <span class="sub">every layer, both boxes &mdash; read-only</span>
+    <span class="stamp" id="stamp">loading&hellip;</span>
+  </div>
+
+  <div class="verdict v-unk" id="verdict">
+    <div class="dot" style="background:var(--dim)"></div>
+    <div>
+      <div class="txt" id="verdict-txt">Reading the fleet&hellip;</div>
+      <div class="why" id="verdict-why">Nine endpoints, both boxes.</div>
+    </div>
+  </div>
+
+  <div class="boxes" id="boxes"></div>
+
+  <div class="panel">
+    <h2>Divergence &mdash; what actually differs between the boxes</h2>
+    <div class="body" id="divergence"><div class="empty">not read yet</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Action items &mdash; each one names what would clear it</h2>
+    <div class="body" id="actions"><div class="empty">not read yet</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Standing notes &mdash; true, accepted, and not action items</h2>
+    <div class="body" id="standing"><div class="empty">not read yet</div></div>
+  </div>
+
+  <p class="note" style="margin-top:18px">
+    Every tile shows a value, the threshold that makes it good or bad, and how old the reading is.
+    A grey tile marked <code>?</code> means the answer could not be read &mdash; it does not mean healthy.
+    That distinction is the whole point: on 2026-09-06 a signed-out VPS, a detached EA, a job being
+    killed at a 10&nbsp;minute limit and SP500 at 90% of its spread cap were all invisible because the
+    checks that covered them could not tell &ldquo;fine&rdquo; from &ldquo;no idea&rdquo;.
+  </p>
+</div>
+
+<script src="/dashboard/nav.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var PEER_LABEL = "VPS";
+  var $ = function (id) { return document.getElementById(id); };
+
+  function ageWords(iso) {
+    if (!iso) return null;
+    var t = Date.parse(iso);
+    if (isNaN(t)) return null;
+    var s = Math.round((Date.now() - t) / 1000);
+    if (s < 0) return "in the future";
+    if (s < 90) return s + "s ago";
+    if (s < 5400) return Math.round(s / 60) + "m ago";
+    if (s < 172800) return Math.round(s / 3600) + "h ago";
+    return Math.round(s / 86400) + "d ago";
+  }
+
+  // A tile with no reading is UNKNOWN, never OK. Callers pass state explicitly so that
+  // "undefined" can never fall through to green.
+  function tile(key, value, state, note) {
+    var d = document.createElement("div");
+    d.className = "tile " + (state || "unk");
+    var k = document.createElement("div"); k.className = "k"; k.textContent = key;
+    var v = document.createElement("div"); v.className = "v";
+    v.textContent = (value === null || value === undefined || value === "") ? "?" : String(value);
+    d.appendChild(k); d.appendChild(v);
+    if (note) { var n = document.createElement("div"); n.className = "n"; n.textContent = note; d.appendChild(n); }
+    return d;
+  }
+
+  function layer(title, tiles) {
+    var wrap = document.createElement("div"); wrap.className = "layer";
+    var h = document.createElement("h3"); h.textContent = title;
+    var g = document.createElement("div"); g.className = "tiles";
+    tiles.forEach(function (t) { if (t) g.appendChild(t); });
+    wrap.appendChild(h); wrap.appendChild(g);
+    return wrap;
+  }
+
+  function getJSON(url) {
+    return fetch(url, { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) return { __auth: true };
+        if (!r.ok) return { __err: "HTTP " + r.status };
+        return r.json();
+      })
+      .catch(function (e) { return { __err: String(e && e.message || e) }; });
+  }
+  function bad(o) { return !o || o.__err || o.__auth || o.error; }
+
+  // ---- per-box tiles -------------------------------------------------------
+  function configLayer(s) {
+    if (bad(s)) return layer("Config", [tile("gate", null, "unk", "settings unreadable")]);
+    var se = s.settingsError;
+    return layer("Config", [
+      tile("gate", s.confidenceThreshold, se ? "bad" : "ok",
+           se ? "RUNNING DEFAULTS - not the saved config" : "from saved config"),
+      tile("risk / trade", (s.riskPercent != null ? s.riskPercent + "%" : null),
+           s.riskPercent > 0 ? "ok" : "warn", "fixedLot " + (s.fixedLotSize != null ? s.fixedLotSize : "?")),
+      tile("min strength", s.minStrength, s.minStrength ? "ok" : "unk"),
+      tile("max positions", s.maxConcurrentPositions, s.maxConcurrentPositions ? "ok" : "unk")
+    ]);
+  }
+
+  function riskLayer(r, j) {
+    if (bad(r)) return layer("Risk", [tile("halted", null, "unk", "risk-status unreadable")]);
+    var open = null;
+    if (!bad(j)) {
+      var arr = j.trades || j.journal || j;
+      if (Object.prototype.toString.call(arr) === "[object Array]") {
+        open = arr.filter(function (t) { return t.status === "OPEN"; }).length;
+      }
+    }
+    return layer("Risk", [
+      tile("halted", r.halted ? "HALTED" : "no", r.halted ? "bad" : "ok",
+           r.halted ? (r.haltReason || "circuit breaker open") : "breaker closed"),
+      tile("consec losses", r.consecutiveLosses, r.consecutiveLosses >= 3 ? "bad" : (r.consecutiveLosses > 0 ? "warn" : "ok")),
+      tile("daily P&L", r.dailyPnl, "ok"),
+      tile("open positions", open, open === null ? "unk" : "ok",
+           open === null ? "journal unreadable" : null)
+    ]);
+  }
+
+  function executionLayer(mt5A, mt5B, runtime) {
+    var tiles = [];
+    [["bridge A", mt5A], ["bridge B", mt5B]].forEach(function (p) {
+      var h = p[1];
+      if (bad(h)) { tiles.push(tile(p[0], null, "unk", "no reading")); return; }
+      if (h.connected === true) {
+        var age = h.ageMs != null ? Math.round(h.ageMs / 1000) : null;
+        tiles.push(tile(p[0], "live", age !== null && age > 180 ? "warn" : "ok",
+                        age !== null ? "heartbeat " + age + "s ago - stale over 180s" : null));
+      } else if (h.expected === false) {
+        // Configured absence is NOT a fault, and must not read as one.
+        tiles.push(tile(p[0], "not run here", "ok", "MT5_EXPECTED_ACCOUNTS excludes it - by config"));
+      } else {
+        tiles.push(tile(p[0], "DOWN", "bad", "not reporting"));
+      }
+    });
+
+    if (bad(runtime)) {
+      tiles.push(tile("MT5 terminal", null, "unk", "runtime status not pulled"));
+      tiles.push(tile("chart EA", null, "unk", "runtime status not pulled"));
+    } else {
+      tiles.push(tile("MT5 terminal", runtime.mt5Running ? "up" : "DOWN",
+                      runtime.mt5Running ? "ok" : "bad",
+                      "build " + (runtime.terminalBuild || "?") + " - up " + (runtime.mt5UptimeHours != null ? runtime.mt5UptimeHours + "h" : "?")));
+      tiles.push(tile("algo trading", runtime.algoTradingAllowed === 1 ? "allowed" : "BLOCKED",
+                      runtime.algoTradingAllowed === 1 ? "ok" : "bad",
+                      "terminal Options > Trade"));
+      // eaAttached is an INFERENCE. Publish its basis or it is just another guess.
+      var st = runtime.eaAttached === true ? "ok" : (runtime.eaAttached === false ? "warn" : "unk");
+      tiles.push(tile("chart EA", runtime.eaName || (runtime.eaAttached === false ? "none seen" : null), st,
+                      runtime.eaAttachBasis || "no basis published - treat as unknown"));
+      tiles.push(tile("EA trail off", runtime.eaTrailOff === true ? "yes" : (runtime.eaTrailOff === false ? "NO" : null),
+                      runtime.eaTrailOff === true ? "ok" : (runtime.eaTrailOff === false ? "bad" : "unk"),
+                      "trail ON measured -551 GBP over 13 months"));
+      tiles.push(tile("chart profile", runtime.profilesDirPresent === true ? "saved" : "NONE",
+                      runtime.profilesDirPresent === true ? "ok" : "warn",
+                      "no profile = charts may not survive a restart"));
+    }
+    return layer("Execution", tiles);
+  }
+
+  function healthLayer(healer, sig) {
+    var tiles = [];
+    if (bad(healer)) tiles.push(tile("healer", null, "unk", "endpoint unreachable"));
+    else tiles.push(tile("healer", healer.healthy ? "healthy" : "UNHEALTHY", healer.healthy ? "ok" : "bad",
+                         (healer.healCount != null ? healer.healCount + " heals" : null)));
+    if (bad(sig)) { tiles.push(tile("signals", null, "unk", "signals unreadable")); return layer("Health", tiles); }
+    var age = ageWords(sig.updatedAt);
+    tiles.push(tile("signal cache", age || "?", age ? "ok" : "unk", "engine is producing"));
+    ["btc", "gold", "spx"].forEach(function (k) {
+      var s = sig[k]; if (!s) { tiles.push(tile(k, null, "unk")); return; }
+      tiles.push(tile(k, s.signal + " " + (s.confidence != null ? s.confidence : "?"),
+                      s.signal === "WAIT" ? "ok" : "warn", s.setup || null));
+    });
+    return layer("Health", tiles);
+  }
+
+  function boxCard(name, role, parts) {
+    var b = document.createElement("div"); b.className = "box";
+    var h = document.createElement("header");
+    var n = document.createElement("span"); n.className = "name"; n.textContent = name;
+    var r = document.createElement("span"); r.className = "role"; r.textContent = role;
+    var hb = document.createElement("span"); hb.className = "hb"; hb.textContent = parts.stamp || "";
+    h.appendChild(n); h.appendChild(r); h.appendChild(hb);
+    b.appendChild(h);
+    (parts.layers || []).forEach(function (l) { if (l) b.appendChild(l); });
+    return b;
+  }
+
+  function setVerdict(cls, txt, why) {
+    var v = $("verdict");
+    v.className = "verdict " + cls;
+    var colour = cls === "v-ok" ? "var(--green)" : cls === "v-bad" ? "var(--red)"
+               : cls === "v-warn" ? "var(--amber)" : "var(--dim)";
+    v.querySelector(".dot").style.background = colour;
+    $("verdict-txt").textContent = txt;
+    $("verdict-why").textContent = why;
+  }
+
+  function listInto(el, items, renderer, emptyMsg) {
+    el.innerHTML = "";
+    if (!items || !items.length) {
+      var e = document.createElement("div"); e.className = "empty"; e.textContent = emptyMsg;
+      el.appendChild(e); return;
+    }
+    items.forEach(function (it) { el.appendChild(renderer(it)); });
+  }
+
+  function row(lab, val, pillClass) {
+    var d = document.createElement("div"); d.className = "row";
+    var l = document.createElement("div"); l.className = "lab"; l.textContent = lab;
+    var v = document.createElement("div"); v.className = "val";
+    if (pillClass) { var p = document.createElement("span"); p.className = "pill " + pillClass; p.textContent = val; v.appendChild(p); }
+    else v.textContent = val;
+    d.appendChild(l); d.appendChild(v);
+    return d;
+  }
+
+  function load() {
+    Promise.all([
+      getJSON("/api/strategy-settings"), getJSON("/api/risk-status"), getJSON("/api/signals"),
+      getJSON("/api/mt5/health?account=A"), getJSON("/api/mt5/health?account=B"),
+      getJSON("/api/healer"), getJSON("/api/journal?limit=100"),
+      getJSON("/api/fleet"), getJSON("/api/system-plan"),
+      getJSON("/dashboard/mt5-runtime-status.json")
+    ]).then(function (r) {
+      var settings = r[0], risk = r[1], sig = r[2], mA = r[3], mB = r[4],
+          healer = r[5], journal = r[6], fleet = r[7], plan = r[8], runtime = r[9];
+
+      $("stamp").textContent = "read " + new Date().toLocaleTimeString();
+
+      if (settings && settings.__auth) {
+        setVerdict("v-unk", "Signed out", "The fleet endpoints are session-gated by design. Sign in to read them.");
+      }
+
+      var boxes = $("boxes"); boxes.innerHTML = "";
+
+      // THIS BOX ------------------------------------------------------------
+      boxes.appendChild(boxCard("THIS BOX", "the one you are reading from", {
+        stamp: ageWords(sig && sig.updatedAt) || "",
+        layers: [ configLayer(settings), executionLayer(mA, mB, null),
+                  riskLayer(risk, journal), healthLayer(healer, sig) ]
+      }));
+
+      // PEER ----------------------------------------------------------------
+      var peerLayers, peerStamp = "";
+      if (bad(fleet)) {
+        peerLayers = [ layer("Peer", [ tile("peer", null, "unk",
+          fleet && fleet.__auth ? "sign in to read /api/fleet" : "peer unreadable - cannot tell if it agrees") ]) ];
+      } else {
+        var p = fleet.peer || fleet.remote || {};
+        var ps = p.settings || p.strategySettings || {};
+        peerStamp = ageWords(p.checkedAt || fleet.checkedAt) || "";
+        peerLayers = [
+          layer("Config", [
+            tile("gate", ps.confidenceThreshold != null ? ps.confidenceThreshold : null,
+                 ps.confidenceThreshold != null ? "ok" : "unk",
+                 ps.settingsError ? "RUNNING DEFAULTS" : (ps.confidenceThreshold != null ? "from saved config" : "not reported")),
+            tile("risk / trade", ps.riskPercent != null ? ps.riskPercent + "%" : null,
+                 ps.riskPercent != null ? "ok" : "unk"),
+            tile("reachable", p.reachable === false ? "NO" : (p.reachable === true ? "yes" : null),
+                 p.reachable === false ? "bad" : (p.reachable === true ? "ok" : "unk"))
+          ]),
+          executionLayer(p.mt5A || null, p.mt5B || null, runtime)
+        ];
+      }
+      boxes.appendChild(boxCard(PEER_LABEL, "the box that trades continuously", {
+        stamp: peerStamp, layers: peerLayers
+      }));
+
+      // VERDICT --------------------------------------------------------------
+      if (!bad(fleet)) {
+        var agrees = fleet.verdict && /AGREE/i.test(fleet.verdict);
+        var why = [];
+        if (fleet.thisBoxGate != null && fleet.peerGate != null) {
+          why.push("gate " + fleet.thisBoxGate + " here vs " + fleet.peerGate + " there");
+        }
+        if (fleet.parity && fleet.parity.verdict) why.push(fleet.parity.verdict.toLowerCase());
+        if (risk && risk.halted) why.push("TRADING HALTED");
+        setVerdict(risk && risk.halted ? "v-bad" : (agrees ? "v-ok" : "v-warn"),
+                   risk && risk.halted ? "Trading halted" : (fleet.verdict || "Fleet read"),
+                   why.join(" · ") || "no divergence reported");
+      } else if (!(settings && settings.__auth)) {
+        setVerdict("v-unk", "Cannot tell", "/api/fleet did not answer, so agreement between the boxes is unknown - not assumed.");
+      }
+
+      // DIVERGENCE -----------------------------------------------------------
+      var dv = $("divergence");
+      if (bad(fleet)) {
+        listInto(dv, [], null, "Peer not readable, so nothing can be compared. This is not the same as agreement.");
+      } else {
+        var diffs = [];
+        if (fleet.parity) {
+          var pa = fleet.parity;
+          diffs.push(row("engine functions", (pa.engineDrift === 0 ? "identical" : pa.engineDrift + " differ"), pa.engineDrift === 0 ? "ok" : "bad"));
+          diffs.push(row("behavioural constants", (pa.scalarDrift === 0 ? "identical" : pa.scalarDrift + " differ"), pa.scalarDrift === 0 ? "ok" : "bad"));
+          if (pa.fileDrift != null) diffs.push(row("non-engine files", pa.fileDrift + " differ", pa.fileDrift ? "warn" : "ok"));
+          if (pa.ageHours != null) diffs.push(row("parity last ran", pa.ageHours + "h ago", pa.ageHours > 24 ? "warn" : "ok"));
+          if (pa.filesDiffering && pa.filesDiffering.length) diffs.push(row("which files", pa.filesDiffering.join(", ")));
+        }
+        if (fleet.thisBoxGate != null && fleet.peerGate != null) {
+          diffs.push(row("confidence gate", fleet.thisBoxGate + " vs " + fleet.peerGate,
+                         fleet.thisBoxGate === fleet.peerGate ? "ok" : "bad"));
+        }
+        dv.innerHTML = "";
+        if (!diffs.length) listInto(dv, [], null, "Nothing reported.");
+        else diffs.forEach(function (d) { dv.appendChild(d); });
+      }
+
+      // ACTIONS + STANDING ---------------------------------------------------
+      var acts = $("actions"), stand = $("standing");
+      if (bad(plan)) {
+        listInto(acts, [], null, plan && plan.__auth ? "Sign in to read the systems plan." : "Systems plan unreadable.");
+        listInto(stand, [], null, "—");
+      } else {
+        listInto(acts, plan.actionItems || plan.actions || [], function (a) {
+          var d = document.createElement("div"); d.className = "row";
+          var l = document.createElement("div"); l.className = "lab";
+          l.innerHTML = '<span class="pill ' + (/high|red/i.test(a.severity || "") ? "bad" : "warn") + '">' +
+                        (a.severity || "item") + "</span>";
+          var v = document.createElement("div");
+          v.textContent = a.title || a.detail || a.text || JSON.stringify(a);
+          if (a.clearsWhen || a.clears) {
+            var c = document.createElement("div"); c.className = "note";
+            c.textContent = "clears when: " + (a.clearsWhen || a.clears);
+            v.appendChild(c);
+          }
+          d.appendChild(l); d.appendChild(v); return d;
+        }, "No open action items — every one that existed has cleared.");
+
+        listInto(stand, plan.standingNotes || plan.standing || [], function (s) {
+          var d = document.createElement("div"); d.className = "row";
+          var v = document.createElement("div");
+          v.textContent = (typeof s === "string") ? s : (s.title || s.detail || JSON.stringify(s));
+          d.appendChild(v); return d;
+        }, "None recorded.");
+      }
+    });
+  }
+
+  load();
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>

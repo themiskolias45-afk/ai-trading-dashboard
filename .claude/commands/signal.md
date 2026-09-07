@@ -3,9 +3,10 @@ Fetch live signals and sentiment context. Usage: /signal
 Use SmartEntry MCP tools directly — faster and more reliable than HTTP fetches.
 
 Call in parallel:
-  mcp__smartentry__get_signals        → BTC/Gold/SPX signals, confidence, entry/stop/target
-  mcp__smartentry__get_risk_status    → regime, circuit breaker, session P&L, news blackout
-  mcp__smartentry__get_healer         → system health
+  mcp__smartentry__get_signals           → BTC/Gold/SPX signals, confidence, entry/stop/target
+  mcp__smartentry__get_risk_status       → regime, circuit breaker, session P&L, news blackout
+  mcp__smartentry__get_healer            → system health
+  mcp__smartentry__get_strategy_settings → live confidenceThreshold (gate); never hardcode
 
 HTTP fallback only if MCP fails:
   GET http://localhost:3001/api/signals
@@ -22,7 +23,7 @@ Report in this exact format:
 Regime: [regime] | Session: [session] | Circuit breaker: [CLEAR/OPEN] | News blackout: YES/NO
 
 GAP ANALYSIS (for each asset showing WAIT):
-  **[ASSET]**: conf [X]% — needs [65-X]pt more to fire | last traded [N] days ago
+  **[ASSET]**: conf [X]% — needs [gate-X]pt more to fire (gate=[gate]%) | last traded [N] days ago
   Daily: [BUY/SELL/WAIT] | H4: [BUY/SELL/WAIT] | missing: [what agreement is needed]
   If conf ≥ 60%: "CLOSE — [what market condition would push it over threshold]"
   If conf < 50%: "FAR — market flat on all timeframes"

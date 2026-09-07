@@ -52,21 +52,27 @@ STEP 3 — CODE QUALITY AUDIT:
 
   Rate overall code health: A (no issues) / B (minor) / C (needs work) / D (critical issues)
 
-STEP 4 — DEEP STRATEGY RESEARCH (parallel, targeted at current weaknesses):
+STEP 4 — DEEP STRATEGY RESEARCH (spawn researcher agent — targeted at current weaknesses):
   From Step 1, identify: what is the system's #1 performance gap?
     Gap A: Win rate below expected → search for better entry filters
     Gap B: R:R worse than planned → search for better exit techniques
     Gap C: Regime-dependent weakness → search for regime filtering strategies
     Gap D: Specific setup underperforming → search for that setup specifically
 
-  Run in parallel:
-    Brave search: "best [gap area] trading strategy BTC gold 2025 backtested"
-    Brave search: "quantitative [gap area] improvement algorithmic trading 2025"
-    Exa search:   "[gap area] trading strategy win rate academic research"
-    Brave search: "professional trader [worst setup] filter technique"
+  Also: read tasks/analysis/strategy-search-latest.txt if it exists — the automated
+  daily strategy search may have already found a candidate this week.
 
-  For each finding, score: CODEABLE (Y/N) + EDGE data (Y/N) + FIT for our assets (Y/N)
-  Only include findings that score YES on all three.
+  Spawn researcher agent:
+    Agent type: researcher
+    Prompt: "Research SmartEntry Pro weekly strategy improvement.
+    PERFORMANCE GAP: [gap from Step 1 — be specific: WR %, setup name, asset]
+    CURRENT SYSTEM: multi-timeframe BTC/GOLD/SPX, confidence gate 70%, ~96 trades/year pace.
+    Find: (1) quantitative evidence for fixing this specific gap, (2) backtested approaches
+    with explicit WR or R improvement, (3) any failure mode in live conditions vs backtest.
+    Score each finding: CODEABLE (Y/N) + EDGE DATA (Y/N) + ASSET FIT (Y/N).
+    Return only findings scoring YES on all three. Under 400 words. Be specific."
+
+  Wait for researcher to complete, then include findings in Step 7 plan.
 
 STEP 5 — BACKTEST COMPARISON:
   If backtest data is available (GET /api/backtest):

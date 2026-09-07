@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-25",
+  "total": 1,
+  "wins": 1,
+  "losses": 0,
+  "win_rate": 100.0,
+  "gross_pnl": 192.7,
+  "best": {
+    "symbol": "XAUUSD",
+    "pnl": 192.7
+  },
+  "worst": {
+    "symbol": "XAUUSD",
+    "pnl": 192.7
+  },
+  "setups": {
+    "MOMENTUM": {
+      "wins": 1,
+      "losses": 0,
+      "pnl": 192.7
+    }
+  },
+  "insight": "TODAY: One momentum trade, one winner — $+192.70 booked, clean 100% day with no drawdown taken.\n\nPATTERN: Momentum is the only setup with a positive record (2/2); the three mean-reversion/squeeze variants are 0-for-3 combined, so keep taking trend continuation and stop fading ranges until there's evidence they work.\n\nTOMORROW: Watch for the same momentum trigger conditions at open and let the BB_SQUEEZE/RANGE setups sit as observation-only until the sample is large enough to judge — 5 trades total is far too thin to call any of this edge yet."
+}

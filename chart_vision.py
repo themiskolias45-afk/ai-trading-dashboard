@@ -18,7 +18,13 @@ from datetime import datetime
 PROJECT_ROOT = Path(__file__).parent
 SCREENSHOTS_DIR = PROJECT_ROOT / "tasks" / "screenshots"
 API_KEY_PATH = PROJECT_ROOT / "server" / "apikey.txt"
-CLAUDE_MODEL = "claude-opus-4-8"
+# CLAUDE.md assigns claude-sonnet-5 to "per-asset commentary, summaries and
+# analysis", and reading one asset's chart is exactly that; claude-opus-5 is
+# reserved there for the JARVIS brain and the /engineer split. This was still on
+# claude-opus-4-8 — a THIRD call site the 2026-08-02 sweep missed, while CLAUDE.md
+# recorded that "both remaining call sites were upgraded". The model is still
+# valid, so nothing was failing; the rule was just quietly untrue.
+CLAUDE_MODEL = "claude-sonnet-5"
 WATCH_INTERVAL_SECONDS = 1800  # 30 minutes
 ANALYSIS_PROMPT_TEMPLATE = (
     "You are an expert technical analyst. Analyze this {symbol} chart:\n"

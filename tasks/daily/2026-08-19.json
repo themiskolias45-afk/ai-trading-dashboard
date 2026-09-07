@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-19",
+  "entries": [
+    {
+      "ts": "2026-08-19T03:49:02.677546+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY 2026-08-19: laptop stack DOWN 00:14–04:44 local (4h30m) — Kernel-Power confirms power-source change 00:05, sleep 00:14, Modern Standby until 04:43:54. ensure_running did not tick between 00:11 and 04:44. Server+bridge+guardian+tunnel all restarted on wake; breaker streak restored 2/3, 2 open positions re-tracked. Health 8/8 green after wake. Top rec: give \"SmartEntry Ensure Running\" a wake-to-run trigger or disable DC standby."
+    },
+    {
+      "ts": "2026-08-19T03:51:29.352060+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-19: health 8/8, fleet AGREES (parity 0 drift, 6.3h old), syntax clean, no secrets tracked, no log errors. SPX opened its FIRST EVER trade 2026-08-18 22:30 (0.1 lot, conf 88, Daily+H4-agree MOMENTUM) — 0.1 is SP500's BROKER MINIMUM, so fixedLotSize 0.01 is INERT for SPX. Per-trade risk is NOT a common unit: SPX 0.1lot=~$2, BTC 0.01lot=~$7, GOLD 0.01lot=~$47 — a 24x spread, so the dollar expectancy (-104.89) is dominated by Gold's contract, not by edge. Top rec: report expectancy in R, not $. Also: no new trade can open right now — Gold+SPX blocked by DUPLICATE (both held), BTC's live cohort (H4-only MODERATE, ceiling 65) is arithmetically DEAD vs gate 70. consecutiveLosses 2 of 3 — one more loss halts. Exa MCP is down (401 invalid API key)."
+    },
+    {
+      "ts": "2026-08-19T08:36:37.267675+00:00",
+      "tag": "SESSION-END",
+      "text": "Session close 2026-08-19 — 7 commits, no trades opened or closed. The day's theme was success messages that verify nothing. checkCoverageGaps (cbbf0a8) revealed the 10-minute ensure_running heartbeat has TEN holes totalling ~107h offline in 7 days, invisible because the tick after a gap restarts the stack before reporting it, so the log reads healthy on both sides; the 4h30m Modern Standby hole that prompted the check was the smallest of the ten. checkTvPlan + tv_daily_plan.ps1 (b56d8db, 640c868) fixed Gold's frozen TradingView levels — the engine was always right, tradingview_bot.py was simply scheduled nowhere on either box; it now draws at 06:45 and 13:15 local, 06:45 picked so the trigger stays ahead of the 07:00Z PRE-LONDON boundary under both BST and GMT, and it refuses rather than draws when the server is down. Two PowerShell exit-code traps fixed in place (Start-Process -PassThru discards the handle so ExitCode reads EMPTY; an unreadable exit code is now its own verdict). Parity widened 42 -> 44 files, probe deployed to the VPS first. /backtest rebuilt on run_walkforward with worst-fold challenger comparison; /goal and /learn added; /agent and /profit rebuilt as researcher->analyst->builder pipelines. OPEN: the Gold Pine study is still bound to an Aug-7 saved version and needs a one-time manual rebind, plus a cmd_plan assertion on the rendered date. Engine untouched by design — the constraint is sample size."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-19T03:49:02.677546+00:00",
+  "updated_at": "2026-08-19T08:36:37.267675+00:00"
+}

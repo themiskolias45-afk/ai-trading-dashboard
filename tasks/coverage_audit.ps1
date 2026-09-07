@@ -41,6 +41,17 @@ function Get-Json([string]$path, [int]$timeout = 6) {
 # one that matters. A task registered years ago that has never fired is the purest
 # form of blind: it exists, it reports Ready, and it has never done anything.
 $now = Get-Date
+
+# Probed BEFORE the task loop because the loop needs it. Section 2 below already states
+# the principle -- "by HTTP, never by process name" -- and then section 1 judged the
+# server by its scheduler exit code anyway, so the same report could say RED on
+# SmartEntryServer and GREEN on the server in the same breath. Measured on the VPS
+# 2026-08-23: task State=Ready, LastTaskResult=4294967295, and the server answering
+# every request with a bridge heartbeat 25s old. The task is Ready because
+# EnsureRunning started the process, not this task; a scheduler's opinion of a task
+# says nothing about whether the service is up.
+$serverAnswering = $null -ne (Get-Json '/api/status')
+
 $tasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -match 'SmartEntry' })
 if ($tasks.Count -eq 0) {
     Add-Check 'tasks' 'scheduled tasks' 'RED' 'no SmartEntry tasks registered on this box at all'
@@ -64,6 +75,13 @@ if ($tasks.Count -eq 0) {
         $trigKinds = @($t.Triggers | ForEach-Object { $_.CimClass.CimClassName })
         $hasBoot   = @($trigKinds | Where-Object { $_ -match 'Boot' }).Count -gt 0
         $logonOnly = ($trigKinds.Count -gt 0) -and -not (@($trigKinds | Where-Object { $_ -notmatch 'Logon' }).Count)
+        # An UNLOCK trigger (MSFT_TaskSessionStateChangeTrigger) has no NextRunTime
+        # either, and it is STRONGER coverage than logon-only on a laptop -- it is the
+        # trigger that actually fires when the lid opens. It does not match 'Logon', so
+        # 'Morning Ready' (logon + unlock) fell past $logonOnly and reported AMBER
+        # 'nothing will fire it again' every day while firing every day. A false AMBER
+        # on a status surface is the same failure as a false RED.
+        $eventOnly = ($trigKinds.Count -gt 0) -and -not (@($trigKinds | Where-Object { $_ -notmatch 'Logon|SessionStateChange' }).Count)
 
         if (-not $ranEver -or $i.LastTaskResult -eq 267011) {
             # The question is not "has it run" but "will it". A scheduled next run
@@ -90,11 +108,127 @@ if ($tasks.Count -eq 0) {
                 " (previous instance exited $($i.LastTaskResult))"
             } else { '' }
             Add-Check 'tasks' $t.TaskName 'GREEN' "running (started ${ageH}h ago)$prior"
+        } elseif ($t.TaskName -match 'Strategy\s*Search' -and $i.LastTaskResult -eq 4) {
+            # Exit 4 is strategy_search.cjs SKIPPING because the bar fingerprint is
+            # unchanged - the --skip-if-bars-unchanged contract, and the correct result
+            # far more often than not. New D1 bars arrive about once a day and this runs
+            # every 6 hours, so most runs SHOULD skip.
+            #
+            # Re-testing identical bars would inflate the multiplicity ledger and RAISE
+            # the significance bar every future candidate must clear, with no new
+            # evidence behind it. Skipping is the searcher protecting its own statistics.
+            #
+            # Only rc=4, only this task. A real crash still reads RED.
+            Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 4 = skipped, bars unchanged since the last run - the intended result)"
+        } elseif ($t.TaskName -match 'Doctor' -and $i.LastTaskResult -eq 1) {
+            # SAME CONVENTION AS COVERAGE AUDIT BELOW, and it must be exempted for the
+            # same reason. tasks\doctor.cjs:1275 exits 1 when any finding is RED - by
+            # design, so a scheduled task can act on it. Read literally that makes the
+            # doctor permanently "failing" from the first RED it ever reports, which
+            # buries the findings it exists to surface behind its own name.
+            #
+            # Only rc=1, only this task. A real crash (2, or a Node fault code) still
+            # reads RED.
+            Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 1 = a RED finding in its own report, not a crash)"
+        } elseif ($t.TaskName -match 'CoverageAudit' -and $i.LastTaskResult -eq 1) {
+            # THIS AUDIT, JUDGING ITSELF. Exit 1 is how this script SAYS SOMETHING IS
+            # RED -- server/ai_work_ledger.js already encodes that as exitOneIsFinding.
+            # The task loop did not, so the first RED it ever reported set its own
+            # LastTaskResult to 1, which it then read back as a crash and reported as a
+            # RED, which made it exit 1 again. A permanent alarm that could never clear,
+            # and the report's one RED line became the audit's own name rather than the
+            # thing actually broken -- burying the finding this audit exists to surface.
+            #
+            # Only rc=1 is exempted, and only for this task. A real crash here (2, or a
+            # PowerShell fault code) still reads RED.
+            Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 1 = a RED finding in its own last report, not a crash)"
+        } elseif ($t.TaskName -match 'Refresh\s*Bars' -and $i.LastTaskResult -eq 3) {
+            # Exit 3 is refresh_bars.cjs REFUSING because a position is open, which its
+            # own header calls "the EXPECTED result most days - it is not a failure and
+            # must not be alerted on as one". The task loop did not know that and read it
+            # as a crash, so a correct guard doing its job was the audit's headline RED.
+            #
+            # This got worse on 2026-08-23, when the task went from firing once a day to
+            # hourly so it could catch the first flat book instead of sampling for one.
+            # That is 24 refusals a day, and 24 false REDs a day, which is exactly how a
+            # report stops being read.
+            #
+            # THE TASK IS NAMED DIFFERENTLY ON THE TWO BOXES: 'SmartEntryRefreshBars' on
+            # the VPS and 'SmartEntry Refresh Bars' on the laptop. The first version of
+            # this branch matched 'RefreshBars' and silently did nothing on the laptop,
+            # which still reported RED while the VPS went quiet. \s* covers both.
+            #
+            # Only rc=3 on this one task is exempted; any other non-zero still reads RED.
+            # The thing actually worth alarming on is not the exit code but whether the
+            # BARS have gone stale, and that is a separate check below -- an exit code
+            # says whether the tool ran, never whether the data moved.
+            Add-Check 'tasks' $t.TaskName 'INFO' "refused ${ageH}h ago (exit 3 = a position was open, the expected result)"
+        } elseif ($t.TaskName -match 'Server' -and $serverAnswering) {
+            # Third instance of one root cause, all found in a single session: judging a
+            # service by its supervisor's exit code instead of by whether the service
+            # answers. The other two were CoverageAudit's own rc=1 and RefreshBars' rc=3.
+            #
+            # The guard here is not the name match, it is $serverAnswering: if the server
+            # is NOT answering, this branch does not apply and the exit code reads RED as
+            # before. A wrong name simply misses the exemption, which fails toward the
+            # alarm rather than away from it.
+            Add-Check 'tasks' $t.TaskName 'INFO' "task is $($t.State) with exit $($i.LastTaskResult), but the server IS answering on 3001 - the process was started by EnsureRunning, not by this task"
         } elseif ($i.LastTaskResult -ne 0 -and $i.LastTaskResult -ne 267009) {
-            Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
+            # AN EXIT CODE IS A CLAIM; THE ARTIFACT IS THE EVIDENCE.
+            #
+            # The Claude CLI exits 255 on runs that fully succeeded, so the two agent
+            # jobs on the VPS reported RED every day while having written complete
+            # analyses minutes earlier - daily_YYYYMMDD.txt at 27KB, morning_summary.txt
+            # at 11KB. Their wrappers are HONEST: they compute the CLI's code carefully
+            # and pass it through. The CLI is the part that lies, so the fix belongs
+            # here rather than in a wrapper - rewriting one to swallow 255 would swallow
+            # a real failure too.
+            #
+            # This checks whether the OUTPUT landed at or after the run started. A stale
+            # artifact still reads RED, so it separates the false alarm from the real
+            # one instead of excusing both. Same rule as tasksutonomy_audit.ps1.
+            $artifactMap = @{
+                'SmartEntryDailyCheck'     = ('tasks\logs\daily_' + (Get-Date -Format 'yyyyMMdd') + '.txt')
+                'SmartEntry - Daily Check' = ('tasks\logs\daily_' + (Get-Date -Format 'yyyyMMdd') + '.txt')
+                'SmartEntryMorningAgent'   = 'tasks\logs\morning_summary.txt'
+                'JARVIS Morning Agent'     = 'tasks\logs\morning_summary.txt'
+            }
+            $proved = $false
+            if ($artifactMap.ContainsKey($t.TaskName)) {
+                $ap = Join-Path $Proj $artifactMap[$t.TaskName]
+                if (Test-Path $ap) {
+                    $ai = Get-Item $ap
+                    if ($i.LastRunTime -and $ai.LastWriteTime -ge $i.LastRunTime.AddMinutes(-5)) {
+                        Add-Check 'tasks' $t.TaskName 'INFO' ("exit $($i.LastTaskResult) but the ARTIFACT PROVES it worked: " + $ai.Name + ", " + $ai.Length + " bytes at " + $ai.LastWriteTime.ToString('HH:mm') + " (the Claude CLI exits non-zero on success)")
+                        $proved = $true
+                    }
+                }
+            }
+            if (-not $proved) {
+                Add-Check 'tasks' $t.TaskName 'RED' "last exit $($i.LastTaskResult), ${ageH}h ago"
+            }
         } elseif ($null -eq $i.NextRunTime) {
-            # No next run and not running: only a trigger nothing will fire can do this.
-            Add-Check 'tasks' $t.TaskName 'AMBER' "ok ${ageH}h ago but NO next run scheduled - trigger may never fire again"
+            # No next run, and it is not running. The same reasoning the never-run branch
+            # above already applies was missing here, so every boot- and logon-triggered
+            # task that had ever run reported AMBER forever: those triggers have no
+            # scheduled next time by definition, not because they are broken.
+            #
+            # THE FACT THAT IT HAS RUN IS THE EVIDENCE. A logon-triggered task that has
+            # actually fired proves logons happen on this box, which is stronger than
+            # inferring it from [Environment]::UserInteractive -- that reads the session
+            # the AUDIT runs in, not the one the other task runs in.
+            if ($hasBoot) {
+                Add-Check 'tasks' $t.TaskName 'INFO' "ok ${ageH}h ago, boot-triggered - fires again on the next reboot"
+            } elseif ($logonOnly) {
+                # Not silent: logon-only is thin coverage even where it works. It is the
+                # exact shape that left the VPS dead after a reboot, and on a laptop it
+                # never fires on a lid-open. Named as a limitation, not a fault.
+                Add-Check 'tasks' $t.TaskName 'INFO' "ok ${ageH}h ago, LOGON-only - fires again at next logon, and never on lid-open or unlock"
+            } elseif ($eventOnly) {
+                Add-Check 'tasks' $t.TaskName 'INFO' "ok ${ageH}h ago, event-triggered (logon + unlock) - fires again at the next logon or lid-open, which is why it has no next run time"
+            } else {
+                Add-Check 'tasks' $t.TaskName 'AMBER' "ok ${ageH}h ago but NO next run scheduled and no boot/logon trigger - nothing will fire it again"
+            }
         } else {
             Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago, next $($i.NextRunTime.ToString('MM-dd HH:mm'))"
         }
@@ -177,16 +311,29 @@ if (-not (Test-Path $queue)) {
     if ($lines.Count -eq 0) { Add-Check 'agents' 'parked briefs' 'GREEN' 'queue empty' }
     else {
         $oldest = $null
+        $authParked = 0
         foreach ($l in $lines) {
             try { $j = $l | ConvertFrom-Json } catch { continue }
             if ($j.queuedAt) {
                 $qd = [datetime]$j.queuedAt
                 if ($null -eq $oldest -or $qd -lt $oldest) { $oldest = $qd }
             }
+            # Written by claude_agent.py's queue_job. Absent on rows parked before that
+            # field existed, which read as a limit - the old assumption, and harmless.
+            if ($j.parkedBecause -eq 'auth') { $authParked++ }
         }
         $ageH = if ($oldest) { [math]::Round(($now - $oldest).TotalHours, 1) } else { -1 }
+        # A LIMIT CLEARS ITSELF. AN EXPIRED LOGIN DOES NOT. Saying "waiting on the limit
+        # window" for an auth-parked brief tells the reader to wait for something that is
+        # never coming, and the drain will keep skipping it until a person signs in.
+        $waitingOn = if ($authParked -gt 0) {
+            "$authParked of them waiting on a SIGN-IN, which will not clear on its own - run ``claude`` on this box"
+        } else {
+            'waiting on the limit window'
+        }
         if ($ageH -gt 48) { Add-Check 'agents' 'parked briefs' 'RED' "$($lines.Count) parked, oldest ${ageH}h - past the staleness drop, drain is not running" }
-        elseif ($lines.Count -gt 0) { Add-Check 'agents' 'parked briefs' 'AMBER' "$($lines.Count) parked, oldest ${ageH}h - waiting on the limit window" }
+        elseif ($authParked -gt 0) { Add-Check 'agents' 'parked briefs' 'RED' "$($lines.Count) parked, oldest ${ageH}h - $waitingOn" }
+        elseif ($lines.Count -gt 0) { Add-Check 'agents' 'parked briefs' 'AMBER' "$($lines.Count) parked, oldest ${ageH}h - $waitingOn" }
     }
 }
 
@@ -203,6 +350,301 @@ foreach ($f in @(
         $ageH = [math]::Round(($now - (Get-Item $p).LastWriteTime).TotalHours, 1)
         if ($ageH -gt $f.MaxAgeH) { Add-Check 'learning' $f.Name 'RED' "not updated for ${ageH}h - the daily pipeline is not running" }
         else { Add-Check 'learning' $f.Name 'GREEN' "updated ${ageH}h ago" }
+    }
+}
+
+# ── 5b. The research bars: is the searcher looking at anything new? ──────────
+#
+# ADDED 2026-08-23, replacing an alarm that was firing on the wrong thing. The audit
+# reported SmartEntryRefreshBars RED for exiting 3 -- its documented refusal -- while
+# saying NOTHING about the fact that the cached D1 bars had not moved since 2026-07-26.
+# Twenty-eight days of the daily strategy search re-testing identical data, and the one
+# check that mentioned bars at all was complaining about a guard working correctly.
+#
+# An exit code says whether the tool RAN. It never says whether the data MOVED. Those
+# are different questions and only the second one matters here.
+#
+# Thresholds: a refresh needs a flat book, and this system holds trades for days, so a
+# few stale days is normal and is not an alarm. Past a week the searcher is re-asking
+# settled questions; past a fortnight its candidate count is growing while its evidence
+# is not, which is the failure mode the searcher's own multiplicity warning exists for.
+$barFile = Join-Path $Proj 'tasks\history\BTCUSD_D1.csv'
+if (-not (Test-Path $barFile)) {
+    Add-Check 'learning' 'research bars' 'RED' 'tasks\history\BTCUSD_D1.csv is missing - every replay reads it'
+} else {
+    $barAgeD = [math]::Round(($now - (Get-Item $barFile).LastWriteTime).TotalDays, 1)
+    if ($barAgeD -gt 14) {
+        Add-Check 'learning' 'research bars' 'RED' "cached ${barAgeD}d ago - the strategy search is re-testing identical data"
+    } elseif ($barAgeD -gt 7) {
+        Add-Check 'learning' 'research bars' 'AMBER' "cached ${barAgeD}d ago - no flat book has come up in a week"
+    } else {
+        Add-Check 'learning' 'research bars' 'GREEN' "cached ${barAgeD}d ago"
+    }
+}
+
+# ── 5c. The PLAN ARTIFACTS, not the runner that makes them ───────────────────
+#
+# ADDED 2026-08-29. Section 1 above reads `SmartEntry TV Daily Plan`'s last exit code
+# and reported it GREEN while SIX of the previous fourteen days had no daily plan at
+# all (2026-08-16, -17, -20, -21, -23, -27 -- a 43% miss rate). That is not a bug in
+# section 1; it is what an exit code IS. It describes the most recent run that
+# HAPPENED and is structurally incapable of saying anything about a day on which
+# nothing ran, which is exactly what a sleeping laptop produces.
+#
+# So this checks the ARTIFACT. Same reason the bridge is checked by its heartbeat and
+# not by a process listing.
+#
+# TODAY absent is the only RED, and it is one a reader can actually clear: the server
+# regenerates a missing plan on boot and on every 30-minute tick, so if it is still
+# absent the generator itself is failing. The historical gaps are INFO forever -- a
+# plan cannot be generated for a day whose market has moved on, and an alarm that can
+# never clear teaches the reader to skim past the one that matters.
+$planCoverage = $null
+try {
+    $planJson = & node (Join-Path $Proj 'tasks\plan_coverage.cjs') --json 2>$null
+    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 1) { $planCoverage = $planJson | ConvertFrom-Json }
+} catch { $planCoverage = $null }
+
+if ($null -eq $planCoverage) {
+    Add-Check 'learning' 'plan coverage' 'UNKNOWN' 'tasks\plan_coverage.cjs did not return usable JSON'
+} else {
+    if ($planCoverage.todayPresent) {
+        Add-Check 'learning' 'daily plan today' 'GREEN' "$($planCoverage.todayDate) is on disk"
+    } else {
+        Add-Check 'learning' 'daily plan today' 'RED' "no plan for $($planCoverage.todayDate) - the server catch-up is not producing one"
+    }
+
+    $missCount = @($planCoverage.missing).Count
+    if ($missCount -eq 0) {
+        Add-Check 'learning' 'daily plan history' 'GREEN' "$($planCoverage.coveragePct)% over the last $($planCoverage.windowDays) days - no gaps"
+    } else {
+        Add-Check 'learning' 'daily plan history' 'INFO' "$($planCoverage.coveragePct)% over $($planCoverage.windowDays) days - $missCount missing (history, not recoverable): $(@($planCoverage.missing) -join ', ')"
+    }
+
+    if ($null -eq $planCoverage.weekly.newest) {
+        Add-Check 'learning' 'weekly review' 'AMBER' 'no tasks\logs\weekly_YYYYMMDD.txt has ever been written on this box'
+    } elseif ($planCoverage.weekly.overdue) {
+        Add-Check 'learning' 'weekly review' 'RED' "newest is $($planCoverage.weekly.newest), $($planCoverage.weekly.ageDays)d ago - a full cycle has been skipped"
+    } else {
+        Add-Check 'learning' 'weekly review' 'GREEN' "$($planCoverage.weekly.newest), $($planCoverage.weekly.ageDays)d ago - on cadence"
+    }
+}
+
+# ── 5d. Two things that were happening with nobody watching ──────────────────
+#
+# ADDED 2026-08-29, both for the same reason: something was going on and no surface
+# could say so.
+#
+# SERVER RESTARTS. On 2026-08-29 this server restarted at 09:45 local and nothing on
+# the box could say when or why. /api/status carries only the CURRENT startedAt, which
+# the next restart overwrites, and the boot banner in server_log.txt has no timestamp.
+# The count is now recorded per boot. It is INFO at normal rates -- a restart is not a
+# fault, and alarming on one would be an item that fires on every ordinary deploy --
+# and RED only at a rate that means thrashing.
+#
+# STOP-VARIANT LEDGER. It had a writer and no reader for two days. A file that only
+# grows is indistinguishable from a file nothing is doing, which is why it needs a row
+# of its own rather than being assumed healthy because its writer is running.
+$startsFile = Join-Path $Proj 'tasks\logs\server_starts.txt'
+if (-not (Test-Path $startsFile)) {
+    Add-Check 'server' 'restarts' 'INFO' 'no starts recorded yet - this server has not rebooted since the recorder shipped'
+} else {
+    $cutoff = $now.AddHours(-24)
+    $recent = @(Get-Content $startsFile | ForEach-Object {
+        if ($_ -match '^\[(?<ts>[^\]]+)\]') {
+            try { [datetime]::Parse($Matches['ts']).ToLocalTime() } catch { $null }
+        }
+    } | Where-Object { $_ -and $_ -gt $cutoff })
+    $lastStart = if ($recent.Count) { ($recent | Sort-Object)[-1].ToString('HH:mm') } else { 'none in 24h' }
+
+    # REWRITTEN 2026-09-06. The rule above was "more than 6 starts in 24h = RED", and
+    # the comment above it already said what it was supposed to mean: RED "only at a
+    # rate that means thrashing", because "alarming on one would be an item that fires
+    # on every ordinary deploy". A raw 24h COUNT does not measure thrashing. It
+    # measures A WORKING DAY. On 2026-09-05 nine deploys plus one lid-open restart the
+    # next morning put this at RED with the server healthy and up, and an item that
+    # goes red every time you do your job is one you learn to skim past -- the exact
+    # failure this file warns about twenty lines earlier.
+    #
+    # Thrashing is not "restarted often today", it is "restarting RIGHT NOW". So the
+    # test is a recent cluster AND a server that has not managed to stay up:
+    #
+    #   RED   >= 4 starts in the last 3h AND the current process is under 15 min old.
+    #   AMBER the same cluster, but this one has now held for 15 min -- it settled.
+    #   INFO  any other restarts in 24h, with the count and the last time.
+    #
+    # A gap-based rule was considered and rejected: it would have to call a 3-minute
+    # gap thrash, and the loop that actually happens here is driven by
+    # SmartEntryEnsureRunning, which relaunches on a TEN MINUTE trigger. A 3-minute
+    # rule is blind to the one crash-loop this box can actually produce.
+    #
+    # This one CAN clear, which the count-based rule could not until midnight.
+    $RAPID_WINDOW_H     = 3
+    $RAPID_STARTS       = 4
+    $SETTLED_UPTIME_S   = 900
+    $rapidCutoff = $now.AddHours(-$RAPID_WINDOW_H)
+    $rapid = @($recent | Where-Object { $_ -gt $rapidCutoff })
+    $uptimeKnown = $serverAgeS -ne [int]::MaxValue
+    $settled     = $uptimeKnown -and ($serverAgeS -ge $SETTLED_UPTIME_S)
+    $agePhrase   = if ($uptimeKnown) { "$($serverAgeS)s old" } else { 'not answering at all' }
+
+    # HOW MANY OF THOSE WERE ASKED FOR?
+    #
+    # The rule above cannot tell a deliberate restart from crash-looping, so four
+    # operator-requested restarts read exactly like a server that will not stay up. On
+    # 2026-09-06 that produced an AMBER for an hour over restarts that were intentional -
+    # a true signal about the wrong thing, and the kind that teaches you to skim past it.
+    #
+    # The bridge logs "RESTART REQUESTED from the dashboard" when it stands down on request,
+    # so those are countable. This does NOT suppress or downgrade anything: the severity
+    # rules are untouched and a genuine crash-loop still goes RED. It only ATTRIBUTES the
+    # count, so the reader can tell which kind they are looking at.
+    $requested = 0
+    $bridgeLog = Join-Path $Proj (Join-Path 'tasks' (Join-Path 'logs' 'bridge_log_A.txt'))
+    if (Test-Path $bridgeLog) {
+        try {
+            $requested = @(Get-Content $bridgeLog -Tail 400 -ErrorAction Stop |
+                Where-Object { $_ -match 'RESTART REQUESTED' }).Count
+        } catch { $requested = 0 }
+    }
+    $attrib = if ($requested -gt 0) { " ($requested operator-requested in the recent log)" } else { '' }
+
+    if ($rapid.Count -ge $RAPID_STARTS -and -not $settled) {
+        Add-Check 'server' 'restarts' 'RED' "$($rapid.Count) starts in the last $($RAPID_WINDOW_H)h and this one is $agePhrase (last $lastStart) - it is not staying up$attrib. Clears once a start holds for $($SETTLED_UPTIME_S / 60) min"
+    } elseif ($rapid.Count -ge $RAPID_STARTS) {
+        Add-Check 'server' 'restarts' 'AMBER' "$($rapid.Count) starts in the last $($RAPID_WINDOW_H)h (last $lastStart) but this one has held $($serverAgeS)s - churn has settled$attrib"
+    } elseif ($recent.Count -gt 0) {
+        Add-Check 'server' 'restarts' 'INFO' "$($recent.Count) start(s) in the last 24h, last at $lastStart"
+    } else {
+        Add-Check 'server' 'restarts' 'GREEN' 'no restarts in the last 24h'
+    }
+}
+
+# ── HALT COVERAGE: when you halt, does everything actually stop? ──────────────
+#
+# server/index.js already warns that "a switch that stops some of them is worse than one
+# that stops none, because you believe you are flat and may trade manually on top of
+# positions that are still opening." Nothing checked whether that was currently true.
+#
+# Traced 2026-09-06: mt5_bridge.py and tasks\fvg_executor.py both check BOTH halt systems
+# and fail closed, so every PYTHON order path is covered. The chart EAs are not and cannot
+# be -- they run inside MetaTrader and never call the server. EA_CRT_AMD has placed 36
+# real trades.
+#
+# SEVERITY IS DELIBERATE AND NOT SYMMETRIC:
+#   RED   only when trading IS halted and something can still trade. That is the moment
+#         the belief "I am flat" becomes false and expensive.
+#   INFO  when nothing is halted. An EA trading while the system is running is the
+#         CONFIGURED INTENT, not a fault, and reporting it as AMBER every single day
+#         would be exactly the alarm that can never clear this file warns about.
+$haltJson = Join-Path $Proj 'tasks\halt_coverage.cjs'
+if (-not (Test-Path $haltJson)) {
+    Add-Check 'safety' 'halt coverage' 'UNKNOWN' 'tasks\halt_coverage.cjs is missing'
+} else {
+    $haltOut = & node $haltJson --json 2>&1
+    $haltRc  = $LASTEXITCODE
+    $halt    = $null
+    try { $halt = ($haltOut -join "`n") | ConvertFrom-Json } catch { }
+    if ($null -eq $halt) {
+        Add-Check 'safety' 'halt coverage' 'UNKNOWN' 'halt_coverage.cjs did not return usable JSON'
+    } elseif ($haltRc -eq 2 -or $halt.verdict -eq 'CANNOT TELL') {
+        Add-Check 'safety' 'halt coverage' 'UNKNOWN' 'could not read both halt systems - unknown is never reported as safe'
+    } elseif ($halt.verdict -eq 'HALT IS PARTIAL') {
+        $names = ($halt.stillArmed | ForEach-Object { $_.what }) -join ', '
+        Add-Check 'safety' 'halt coverage' 'RED' "TRADING IS HALTED BUT $names CAN STILL TRADE - you are not flat. Press Ctrl+E in the terminal; the Python API cannot disable AutoTrading"
+    } elseif ($halt.stillArmed -and @($halt.stillArmed).Count -gt 0) {
+        $names = ($halt.stillArmed | ForEach-Object { $_.what }) -join ', '
+        Add-Check 'safety' 'halt coverage' 'INFO' "not halted. If you halt, $names would keep trading - a chart EA reads neither halt route (by design, not a fault)"
+    } else {
+        Add-Check 'safety' 'halt coverage' 'GREEN' 'every order path is reachable by a halt'
+    }
+}
+
+# -- MT5 RUNTIME STATUS FRESHNESS: is the thing that watches MT5 still watching? -------
+#
+# The AI Brain panel calls a status file older than 30 minutes UNKNOWN rather than "fine",
+# which is right. Nothing checked the same file here, so on 2026-09-06 it sat 380 MINUTES
+# stale while this audit reported 0 RED on both boxes - the panel knew and the audit did not.
+#
+# WHY IT GOES STALE, measured the same day: MT5 Ensure Running has LogonType=Interactive,
+# so it runs ONLY while a user is logged on. Its own log shows EIGHT runs in three days on
+# a ten-minute schedule, and the gaps line up with the absence of a session. It fired again
+# within minutes of an RDP login. A DISCONNECTED session still counts as logged on, so
+# closing the RDP window is safe - SIGNING OUT is what stops it.
+#
+# THE CONSEQUENCE WORTH SEEING: that same task is the thing that restarts MT5 if it dies.
+# With no session there is no watcher AND no restarter, and nothing anywhere says so.
+$runtimeStatus = Join-Path $Proj 'dashboard\mt5-runtime-status.json'
+if (-not (Test-Path $runtimeStatus)) {
+    Add-Check 'safety' 'MT5 status freshness' 'UNKNOWN' 'dashboard\mt5-runtime-status.json does not exist'
+} else {
+    $rsAgeMin = $null
+    try {
+        $rs = Get-Content $runtimeStatus -Raw | ConvertFrom-Json
+        if ($rs.checkedAt) {
+            $rsAgeMin = [math]::Round(((Get-Date).ToUniversalTime() - [datetime]::Parse($rs.checkedAt).ToUniversalTime()).TotalMinutes, 1)
+        }
+    } catch { }
+    if ($null -eq $rsAgeMin) {
+        Add-Check 'safety' 'MT5 status freshness' 'UNKNOWN' 'could not read checkedAt - staleness cannot be judged, so it is not called fresh'
+    } elseif ($rsAgeMin -gt 180) {
+        Add-Check 'safety' 'MT5 status freshness' 'RED' "status file is $rsAgeMin min old (writer runs every 10 min). MT5 Ensure Running is LogonType=Interactive - if no session is logged on it neither publishes status NOR restarts MT5. Check: qwinsta"
+    } elseif ($rsAgeMin -gt 30) {
+        Add-Check 'safety' 'MT5 status freshness' 'AMBER' "status file is $rsAgeMin min old - the Brain panel already shows UNKNOWN. The writer needs a logged-on session (disconnected is fine, signed out is not)"
+    } else {
+        Add-Check 'safety' 'MT5 status freshness' 'GREEN' "published $rsAgeMin min ago by $($rs.host)"
+    }
+}
+
+# -- EA BUILD WATCH: did the live EA build change without anyone doing it? -------------
+#
+# MT5 persists a chart profile only on a CLEAN EXIT. On 2026-09-06 v3.56 was attached at
+# 17:26 while the profile on disk, written at 17:21, still named v355 -- so the running
+# build existed in memory only and ANY restart would have silently reloaded the older one.
+# The revert is cosmetic (identical inputs, same magic 26070455, trading unaffected); the
+# problem is that it would have been silent, which is the shape of every other failure here.
+#
+# AMBER not RED for a changed build, because trading does not change. RED is reserved for
+# the EA vanishing from the logs entirely.
+$eaWatch = Join-Path $Proj 'tasks\ea_build_watch.cjs'
+if (-not (Test-Path $eaWatch)) {
+    Add-Check 'safety' 'EA build watch' 'UNKNOWN' 'tasks\ea_build_watch.cjs is missing'
+} else {
+    $eaOut = & node $eaWatch --json 2>&1
+    $ea    = $null
+    try { $ea = ($eaOut -join "`n") | ConvertFrom-Json } catch { }
+    if ($null -eq $ea) {
+        Add-Check 'safety' 'EA build watch' 'UNKNOWN' 'ea_build_watch.cjs did not return usable JSON'
+    } elseif ($ea.severity -eq 'RED') {
+        Add-Check 'safety' 'EA build watch' 'RED' $ea.detail
+    } elseif ($ea.severity -eq 'AMBER') {
+        Add-Check 'safety' 'EA build watch' 'AMBER' $ea.detail
+    } elseif ($ea.severity -eq 'UNKNOWN') {
+        Add-Check 'safety' 'EA build watch' 'UNKNOWN' $ea.detail
+    } else {
+        Add-Check 'safety' 'EA build watch' 'GREEN' $ea.detail
+    }
+}
+
+# The scorer is tasks\score_stop_variants.cjs, which auto_daily.bat already runs
+# nightly with --emit, and its artifact is the report it appends. Checking for the
+# REPORT rather than for the ledger is the point: the ledger growing proves only that
+# the writer runs, and it was the READER that was missing.
+$variantLedger = Join-Path $Proj 'tasks\stop_variants.jsonl'
+$variantReport = Join-Path $Proj 'tasks\logs\stop_variant_scores.txt'
+if (-not (Test-Path $variantLedger)) {
+    Add-Check 'learning' 'stop-variant ledger' 'INFO' 'nothing recorded yet - the writer only fires when a setup forms'
+} else {
+    $variantRows = @(Get-Content $variantLedger | Where-Object { $_.Trim() }).Count
+    if (-not (Test-Path $variantReport)) {
+        Add-Check 'learning' 'stop-variant ledger' 'AMBER' "$variantRows row(s) accumulating, never scored - run node tasks\score_stop_variants.cjs --emit"
+    } else {
+        $scoredAgeH = [math]::Round(($now - (Get-Item $variantReport).LastWriteTime).TotalHours, 1)
+        if ($scoredAgeH -gt 48) {
+            Add-Check 'learning' 'stop-variant ledger' 'AMBER' "$variantRows row(s), last scored ${scoredAgeH}h ago - the nightly scorer has not run"
+        } else {
+            Add-Check 'learning' 'stop-variant ledger' 'GREEN' "$variantRows row(s), scored ${scoredAgeH}h ago"
+        }
     }
 }
 
@@ -258,7 +700,12 @@ $out += "=======================================================================
 $out += " SmartEntry COVERAGE AUDIT - $stamp"
 $out += " box: $env:COMPUTERNAME   project: $Proj"
 $out += "=========================================================================="
-foreach ($area in @('tasks','server','bridge','agents','learning','peers','alerting')) {
+# 'safety' added 2026-09-06. A check whose AREA is not in this list is still COUNTED in
+# the totals and still sets the exit code, but is never PRINTED -- so it can be red and
+# invisible at the same time. That is the worst possible shape for a safety check, and it
+# is exactly what happened when the halt-coverage check first landed: 62 checks, and no
+# way to see the new one. Anything added to Add-Check must be added here too.
+foreach ($area in @('tasks','server','bridge','safety','agents','learning','peers','alerting')) {
     $rows = @($results | Where-Object { $_.Area -eq $area })
     if ($rows.Count -eq 0) { continue }
     $out += ''
@@ -300,15 +747,33 @@ if ($isRed -ne $wasRed) {
     } else {
         "SmartEntry coverage RECOVERED on $env:COMPUTERNAME - all checks green again"
     }
-    if ($notifierOk) {
-        if (Send-Notification $msg) { Write-Output ' (alert sent)' }
-        else { Write-Output ' (ALERT SEND FAILED - the transition was not delivered)' }
-    } else {
-        # Say it in the report rather than swallowing it. This box cannot tell anyone.
-        Write-Output ' (NO ALERT SENT - this box has no notifier configured)'
-    }
+    # Write-Output alone goes to a stream Task Scheduler discards, so whether the
+    # alarm was DELIVERED left no trace: 2,164 lines of this log and not one record
+    # either way. A send that silently failed looked identical to one that worked.
+    $outcome = if (-not $notifierOk)           { ' (NO ALERT SENT - this box has no notifier configured)' }
+               elseif (Send-Notification $msg) { ' (alert sent)' }
+               else                            { ' (ALERT SEND FAILED - the transition was not delivered)' }
+    Write-Output $outcome
+    try { "$stamp$outcome" | Out-File -FilePath $logPath -Encoding utf8 -Append } catch { }
 }
 try { @{ red = $isRed; at = $stamp } | ConvertTo-Json | Out-File -FilePath $statePath -Encoding utf8 } catch { }
 
-if ($isRed) { exit 1 }
-exit 0
+# Completion marker, so the AI-employee ledger can tell a finished audit from one
+# that was killed mid-run. Without it this job reads NO COMPLETION MARKER forever,
+# whatever the scheduler recorded. Note 1 here means A RED FINDING, not a crash —
+# the ledger knows that and reports REPORTS RED rather than FAILING.
+$exitCode = if ($isRed) { 1 } else { 0 }
+$marker = "[exit $exitCode]"
+
+# The marker has to land IN THE LOG FILE, not merely on stdout. Until 2026-08-16 this
+# only ever wrote to stdout, and the log was already closed by then because $out is
+# piped to $logPath further up. Nothing captures this script's stdout, so the marker
+# went nowhere: coverage_audit.txt held ZERO of them across every run it had ever made.
+# exitCodeFrom() in server/ai_work_ledger.js reads the FILE, so the ledger reported
+# NO COMPLETION MARKER forever while the scheduler recorded rc=0 throughout - a
+# permanent false amber on a job that was in fact healthy every single time.
+# Appended, never rewritten: this log is append-only by design.
+try { $marker | Out-File -FilePath $logPath -Encoding utf8 -Append } catch { }
+
+Write-Output $marker
+exit $exitCode

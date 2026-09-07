@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-21",
+  "entries": [
+    {
+      "ts": "2026-08-21T03:12:57.298326+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY 2026-08-21: 0 RED / 6 AMBER, code CLEAN, 0 TypeError/ECONNREFUSED in logs. Laptop stack DOWN 08-19 18:41 -> 08-21 04:05 local (33.4h, 200 missed ensure_running ticks, 7 components restarted) — largest single loss of sample this week. BTC SIGNAL-DEAD 9.4d (last conf>=70 was 81% on 08-11 16:36Z); Gold 1.4d (83% on 08-19 17:02Z, blocked from filling by the 10-day-old XAUUSD long via DUPLICATE); SPX 1.6d OK. Binding constraint is now MEASURED: 10 of 10 near-misses since restart are RSI_ABOVE_CEILING — BTC D1 83.7 vs MOMENTUM ceiling 72 (margin 11.7), BTC H4 95.9 (margin 23.9), Gold D1 79.1 (margin 7.1). tasks/rsi_walkforward.cjs sweeps the FLOOR only and _replay_mtf.cjs has no ceiling knob, so the ceiling remains unfalsifiable. Top rec: fix the sleep hole (recovers ~15% of calendar time), then instrument MTF_MOMENTUM_RSI_MAX and walk it forward on worst fold. Both servers HAVE now restarted (VPS 08-19T17:18Z, laptop 08-21T03:05Z) — the handover's \"one thing not done\" is closed; VPS /investment and /api/near-miss both 200. Parity verdict ENGINES AGREE is 43.3h old and is the same run memory records as lying — re-run vps_parity.cjs --emit before pooling any number."
+    },
+    {
+      "ts": "2026-08-21T03:14:28.066890+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY 2026-08-21: 33.4h laptop outage 08-19 18:41 -> 08-21 04:05 (Modern Standby S0). All 9 scheduled jobs missed 08-20 entirely - zero log output that date. VPS traded through it (+19.43 today, acct 11581419). Nothing alerted. Top rec: make the VPS peer-silence detector (index.js:6730) push Telegram once per outage instead of only rendering an action item. Fresh vps_parity --emit: ENGINES AGREE (11 fns, 7 constants, 98/98 routes identical; 6 non-engine .bat differ by design) - supersedes the suspect 08-19 07:52 run. Code CLEAN, no secrets tracked. BTC/GOLD silent 10d because D1 RSI 83.7/79.1 vs a long path needing RSI<50 - correct, not a fault."
+    },
+    {
+      "ts": "2026-08-21T03:17:20.657046+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-21: No trades today — rest day."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-21T03:12:57.298326+00:00",
+  "updated_at": "2026-08-21T03:17:20.657046+00:00"
+}

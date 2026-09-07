@@ -1,0 +1,22 @@
+==============================================================================================
+  PER-INSTRUMENT EDGE AT THE LIVE GATE — 2026-08-22T20:27:02.242Z
+  gate 70, 5 equal-count folds per instrument, cost 0.05R/trade
+==============================================================================================
+
+  instrument       fold1    fold2    fold3    fold4    fold5    closed      WR      netR    R/trade   pos/scored   verdict
+  XAUUSD         +0.030   -0.157   +0.958   +0.116   +0.251       130   37.7%    +28.53     +0.219          4/5   MOSTLY POSITIVE
+  BTCUSD         +0.542   +0.242   -0.400   -0.281   +0.367        59   35.6%     +6.16     +0.104          3/5   MOSTLY POSITIVE
+  SP500             n<5      n<5      n<5      n<5   -1.050        13    7.7%    -10.65     -0.819          0/1   TOO FEW TO JUDGE
+  ------------------------------------------------------------------------------------------
+  POOLED         +0.182   -0.108   +0.497   +0.076   +0.011       202   35.1%    +24.04     +0.119          4/5
+
+  CONTRIBUTION TO POOLED R
+    XAUUSD     +28.53R of 24.04R pooled   = 119%   (130 of 202 trades)
+    BTCUSD     +6.16R of 24.04R pooled   = 26%   (59 of 202 trades)
+    SP500      -10.65R of 24.04R pooled   = -44%   (13 of 202 trades)
+
+  If one instrument supplies most of the R AND the others are flat or negative,
+  adding instruments multiplies something that works in one place. If all three
+  are independently positive, the edge is a property of the ENGINE and more
+  instruments should carry it.
+==============================================================================================

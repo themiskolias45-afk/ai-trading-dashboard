@@ -1,0 +1,65 @@
+{
+  "date": "2026-08-06",
+  "generatedAt": "2026-08-06T05:45:00.758640+00:00",
+  "assets": {
+    "btc": {
+      "price": null,
+      "levels": {},
+      "trade_plan": {
+        "direction": "BUY",
+        "confidence": 50,
+        "setup": "BB_SQUEEZE_WATCH",
+        "regime": "SQUEEZE",
+        "entry": 64880.68,
+        "stop": 64067.72,
+        "target": 66506.6,
+        "rr": 2,
+        "risk_pts": 812.96,
+        "reward_pts": 1625.92
+      }
+    },
+    "gold": {
+      "price": null,
+      "levels": {},
+      "trade_plan": null
+    },
+    "spx": {
+      "price": null,
+      "levels": {},
+      "trade_plan": null
+    }
+  },
+  "prices": {},
+  "risk": {
+    "dailyPnl": 0,
+    "consecutiveLosses": 0,
+    "halted": false,
+    "haltReason": "",
+    "accounts": {
+      "A": {
+        "dailyPnl": 0,
+        "consecutiveLosses": 0,
+        "halted": false,
+        "haltReason": "",
+        "account": "A",
+        "config": {
+          "riskPercent": 1,
+          "dailyLossPct": 3,
+          "maxConsecLosses": 3,
+          "maxSpreadPts": 50,
+          "autoMode": true,
+          "expectedLogin": "25446287",
+          "remoteHalted": false
+        }
+      }
+    }
+  },
+  "setup_health": {
+    "BB_SQUEEZE_WATCH": {
+      "winRate": 0.0,
+      "total": 1
+    }
+  },
+  "calendar": [],
+  "warnings": []
+}

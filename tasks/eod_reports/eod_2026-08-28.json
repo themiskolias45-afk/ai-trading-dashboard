@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-28",
+  "total": 1,
+  "wins": 0,
+  "losses": 1,
+  "win_rate": 0.0,
+  "gross_pnl": -226.91,
+  "best": {
+    "symbol": "XAUUSD",
+    "pnl": -226.91
+  },
+  "worst": {
+    "symbol": "XAUUSD",
+    "pnl": -226.91
+  },
+  "setups": {
+    "MOMENTUM": {
+      "wins": 0,
+      "losses": 1,
+      "pnl": -226.91
+    }
+  },
+  "insight": "TODAY: One MOMENTUM trade, one loss — $-226.91 on a setup that was your only proven edge (now 66.7% WR across 3 trades, down from 100%).\n\nPATTERN: MOMENTUM remains the sole setup with a positive record; the three squeeze/range variants are 0-for-3 combined and should stay off the sizing sheet until one of them posts a win on paper.\n\nTOMORROW: With a 6-trade lifetime sample, the real risk is drawing conclusions from noise — hold size flat, keep taking only MOMENTUM, and log the entry conditions on today's loss to see whether it differed from the two winners."
+}

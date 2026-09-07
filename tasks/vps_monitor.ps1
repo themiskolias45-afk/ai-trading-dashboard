@@ -152,12 +152,52 @@ try {
     }
     if ($relaySecret) {
         $peerUrl = ($vpsUrl -replace '/api/healer$', '/api/peer-heartbeat')
+
+        # WHAT this box is running, not just that it is. The VPS cannot pull from
+        # here - this machine is not addressable from outside - so the check-in is
+        # the only way the always-on box can ever learn that its partner is gating
+        # trades differently, has an open breaker, or has a silent bridge.
+        #
+        # Best-effort in its own try: a local server that is down must still produce
+        # a heartbeat, because "alive but cannot describe itself" is information and
+        # silence is not. All endpoints below are public GETs, so no session needed.
+        $selfState = $null
+        try {
+            $local     = Get-Setting 'VPS_MONITOR_SELF_URL' 'http://localhost:3001'
+            $settings  = Invoke-RestMethod -Uri "$local/api/strategy-settings" -TimeoutSec 5
+            $risk      = Invoke-RestMethod -Uri "$local/api/risk-status"       -TimeoutSec 5
+            $armed = @(); $live = @(); $silent = @()
+            foreach ($tag in $risk.accounts.PSObject.Properties.Name) {
+                if ($risk.accounts.$tag.config.autoMode) { $armed += $tag }
+                try {
+                    $health = Invoke-RestMethod -Uri "$local/api/mt5/health?account=$tag" -TimeoutSec 5
+                    if ($health.connected) { $live += $tag } else { $silent += $tag }
+                } catch { $silent += $tag }
+            }
+            $unreviewed = $null
+            try { $unreviewed = (Invoke-RestMethod -Uri "$local/api/ai-work" -TimeoutSec 5).totals.unreviewed } catch { }
+            $selfState = @{
+                gate                = $settings.confidenceThreshold
+                settingsError       = $settings.settingsError
+                halted              = [bool]$risk.halted
+                haltReason          = [string]$risk.haltReason
+                dailyPnl            = $risk.dailyPnl
+                armed               = $armed
+                bridgesLive         = $live
+                bridgesSilent       = $silent
+                unreviewedProposals = $unreviewed
+            }
+        } catch {
+            Write-MonitorLog ('self-state not gathered - ' + $_.Exception.Message)
+        }
+
         $payload = @{
             secret = $relaySecret
             box    = $env:COMPUTERNAME
             status = $(if ($reachable -and $problems.Count -eq 0) { 'ok' } else { 'degraded' })
             detail = $(if ($problems.Count) { ($problems -join '; ') } else { 'laptop monitor reporting in' })
-        } | ConvertTo-Json -Compress
+            state  = $selfState
+        } | ConvertTo-Json -Compress -Depth 4
         Invoke-RestMethod -Uri $peerUrl -Method Post -ContentType 'application/json; charset=utf-8' `
             -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 10 | Out-Null
     } else {

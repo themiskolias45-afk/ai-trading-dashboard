@@ -1,0 +1,1 @@
+{"key": "btc|1788451200|tk", "at": "2026-09-03T17:32:01.589147+00:00", "symbol": "BTCUSD", "direction": "BUY", "lots": 0.05, "price": 81041.63, "sl": 75533.95625, "tp": 87570.68749999999, "magic": 20260903, "placed": true, "retcode": 10009, "ticket": 1930518564, "model": "TK_SWING_PULLBACK"}

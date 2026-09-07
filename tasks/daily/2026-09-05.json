@@ -1,0 +1,29 @@
+{
+  "date": "2026-09-05",
+  "entries": [
+    {
+      "ts": "2026-09-05T01:58:32.141250+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-09-05 (levels: confluence-zones): |   BTC WAIT | R1 80000 S1 78054.35 |   GOLD WAIT | R1 4500 S1 4475.9 |   SPX WAIT | R1 7730.39 S1 7708.7 |   MACRO VIX 14.53 — CALM |   MACRO DXY 99.16 FALLING (-0.54% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind"
+    },
+    {
+      "ts": "2026-09-05T02:03:57.032027+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-09-05: No trades today — rest day."
+    },
+    {
+      "ts": "2026-09-05T05:01:12.997549+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-09-05: No trades today — rest day."
+    },
+    {
+      "ts": "2026-09-05T21:40:50.533402+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-09-05: No trades today — rest day."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-09-05T01:58:32.141250+00:00",
+  "updated_at": "2026-09-05T21:40:50.534397+00:00"
+}

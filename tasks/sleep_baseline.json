@@ -1,0 +1,13 @@
+﻿{
+    "Episodes":  200,
+    "SpanHours":  2690.6,
+    "AsleepHours":  1578.9,
+    "PercentAsleep":  58.7,
+    "TimerWakes":  0,
+    "Hibernated":  200,
+    "LongestHours":  33.03,
+    "First":  "\/Date(1777645310829)\/",
+    "Last":  "\/Date(1787331556508)\/",
+    "RecordedAt":  "2026-08-21T21:18:58.0022578+01:00",
+    "OverrideApplied":  false
+}

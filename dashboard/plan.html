@@ -8,7 +8,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
-      --text:#e2e8f0; --muted:#4a6080; --accent:#7c3aed;
+      --text:#e2e8f0; --muted:#6b83a8; --muted-dim:#4a6080; --accent:#7c3aed;
       --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
       --font:'Segoe UI',system-ui,Arial,sans-serif;
     }
@@ -79,7 +79,43 @@
     .footnote { font-size:.66rem; color:var(--muted); text-align:center; margin-top:18px; line-height:1.6; }
     /* Wide content must scroll inside its own box, never the page body. */
     .scroll-x { overflow-x:auto; }
+
+    /* ── Fleet: this box beside the other one ── */
+    .banner {
+      border-radius:10px; padding:12px 16px; margin-bottom:14px;
+      font-size:.78rem; line-height:1.6; border:1px solid;
+    }
+    .banner-bad  { background:rgba(239,68,68,.08);  border-color:rgba(239,68,68,.45);  color:#fca5a5; }
+    .banner-ok   { background:rgba(34,197,94,.06);  border-color:rgba(34,197,94,.3);   color:#86efac; }
+    .banner-warn { background:rgba(234,179,8,.07);  border-color:rgba(234,179,8,.35);  color:#fde047; }
+    .banner strong { display:block; font-size:.82rem; margin-bottom:3px; color:inherit; }
+
+    .fleet-table { width:100%; border-collapse:collapse; font-size:.76rem; }
+    .fleet-table th {
+      text-align:left; padding:9px 12px; font-size:.62rem; text-transform:uppercase;
+      letter-spacing:.1em; color:var(--muted); border-bottom:1px solid var(--border); font-weight:600;
+    }
+    .fleet-table th.col-box { color:var(--text); font-size:.72rem; text-transform:none; letter-spacing:0; }
+    .fleet-table td { padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+    .fleet-table tbody tr:last-child td { border-bottom:none; }
+    .fleet-table tr.differs { background:rgba(239,68,68,.06); }
+    .fleet-table tr.by-design { background:rgba(234,179,8,.04); }
+    .fleet-row-label { color:var(--muted); }
+    .fleet-note { font-size:.66rem; color:var(--muted); margin-top:3px; }
+    .tag {
+      display:inline-block; font-size:.6rem; font-weight:700; letter-spacing:.06em;
+      padding:2px 7px; border-radius:20px; margin-left:6px; vertical-align:middle;
+    }
+    .tag-differs   { background:rgba(239,68,68,.15); color:#fca5a5; }
+    .tag-bydesign  { background:rgba(234,179,8,.12); color:#fde047; }
   </style>
+  <link rel="stylesheet" href="/dashboard/theme.css">
+  <link rel="stylesheet" href="/dashboard/nav.css">
+  <script src="/dashboard/nav.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/freshness.css">
+  <script src="/dashboard/freshness.js" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+  <meta name="theme-color" content="#070b12">
 </head>
 <body>
   <header>
@@ -107,6 +143,13 @@
       <div class="pill pill-muted" id="uptime-pill">uptime --</div>
     </div>
 
+    <div id="divergence-banner"></div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-head">THE FLEET &mdash; DO THE TWO BOXES AGREE?</div>
+      <div class="card-body scroll-x" id="fleet"><div class="empty">Loading...</div></div>
+    </div>
+
     <div class="grid2">
       <div class="card">
         <div class="card-head">HEALTH CHECKS</div>
@@ -121,6 +164,11 @@
     <div class="card" style="margin-bottom:16px;">
       <div class="card-head">NEEDS A HUMAN</div>
       <div class="card-body" id="actions"><div class="empty">Loading...</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-head">KNOWN &amp; ACCEPTED</div>
+      <div class="card-body" id="standing"><div class="empty">Loading...</div></div>
     </div>
 
     <div class="footnote">
@@ -198,15 +246,354 @@ function renderComponents(data) {
       + '<div class="row-value idle">N/A</div></div>');
   }
 
+  // Check-ins. The only liveness signal that survives a box this one cannot reach:
+  // the laptop is not addressable from outside, so if it sleeps, its bridge stops
+  // trading and nothing else anywhere would say so.
+  const beats = data.heartbeats || { expected: [], seen: [], missing: [], stale: [] };
+  const expectedBoxes = beats.expected || [];
+  if (expectedBoxes.length === 0 && (beats.seen || []).length === 0) {
+    parts.push('<div class="row"><div><div class="row-label">Peer check-ins</div>'
+      + '<div class="row-detail">no box declared in PEER_HEARTBEAT_EXPECT — nothing here raises an alarm if the other machine goes quiet</div></div>'
+      + '<div class="row-value idle">NONE</div></div>');
+  } else {
+    const seenByName = {};
+    (beats.seen || []).forEach(beat => { seenByName[String(beat.box).toUpperCase()] = beat; });
+    const names = expectedBoxes.slice();
+    (beats.seen || []).forEach(beat => {
+      if (!names.some(n => n.toUpperCase() === String(beat.box).toUpperCase())) names.push(beat.box);
+    });
+    names.forEach(name => {
+      const beat = seenByName[name.toUpperCase()];
+      const declared = expectedBoxes.some(n => n.toUpperCase() === name.toUpperCase());
+      // detail is plain text and gets escaped at render; detailExtraHtml is already
+      // escaped and carries its own markup, so the two are concatenated separately.
+      let cls, value, detail, detailExtraHtml = '';
+      if (!beat) {
+        cls = declared ? 'bad' : 'idle';
+        value = declared ? 'SILENT' : 'NOT SEEN';
+        detail = beats.withinStartupGrace
+          ? 'expected, nothing yet — still inside the startup window after a restart'
+          : 'declared in PEER_HEARTBEAT_EXPECT and has not reported in';
+      } else {
+        cls = beat.stale ? 'bad' : (beat.status === 'ok' ? 'ok' : 'warn');
+        value = beat.stale ? 'STALE' : String(beat.status || 'seen').toUpperCase();
+        detail = (beat.detail || 'reported in') + ' · '
+          + (window.SEFresh ? window.SEFresh.agoMs(beat.ageSeconds * 1000) : beat.ageSeconds + 's ago')
+          + (declared ? '' : ' · not declared, informational only');
+        // What that box is RUNNING, self-reported. This is the only way the
+        // always-on machine learns its partner's gate — it cannot pull from it.
+        const reported = beat.state;
+        if (reported) {
+          const facts = [];
+          if (reported.gate !== null && reported.gate !== undefined) facts.push('gate ' + reported.gate);
+          facts.push(reported.halted ? 'BREAKER OPEN' : 'breaker closed');
+          if ((reported.armed || []).length) facts.push('armed ' + reported.armed.join(','));
+          else facts.push('nothing armed');
+          if ((reported.bridgesSilent || []).length) facts.push('SILENT ' + reported.bridgesSilent.join(','));
+          if (reported.settingsError) facts.push('RUNNING DEFAULTS');
+          if (reported.unreviewedProposals) facts.push(reported.unreviewedProposals + ' unreviewed');
+          detailExtraHtml = '<br>it reports: ' + esc(facts.join(' · '));
+        }
+      }
+      parts.push('<div class="row"><div><div class="row-label">Check-in ' + esc(name) + '</div>'
+        + '<div class="row-detail">' + esc(detail) + detailExtraHtml + '</div></div>'
+        + '<div class="row-value ' + cls + '">' + esc(value) + '</div></div>');
+    });
+  }
+
   const backup = data.latestBackup;
   parts.push('<div class="row"><div><div class="row-label">Latest backup</div>'
     + '<div class="row-detail">' + (backup
         ? esc(backup.name) + ' &middot; ' + esc(backup.sizeKB) + ' KB'
-        : 'none found') + '</div></div>'
+          + (backup.dir ? ' &middot; ' + esc(backup.dir) : '')
+        : 'none found in any backup directory') + '</div></div>'
     + '<div class="row-value ' + (backup ? 'ok' : 'bad') + '">'
     + (backup ? new Date(backup.modified).toLocaleString() : 'MISSING') + '</div></div>');
 
   host.innerHTML = parts.join('');
+}
+
+// ── The fleet ────────────────────────────────────────────────────────────────
+// This box beside the other one, one row per fact that decides what trades. The
+// comparison is done here rather than left to the eye, because the failures that
+// have cost the most were both boxes reporting healthy while disagreeing about
+// what a signal is.
+function valueOrDash(value) {
+  return value === null || value === undefined || value === '' ? '—' : String(value);
+}
+
+// Every bar-freshness field is frozen at signal-refresh time, so the row states WHEN it
+// was judged. Without that, a stalled refresh chain leaves "current" on screen forever —
+// which is the same green-while-wedged failure the row exists to break.
+// Delegates to dashboard/freshness.js. This page was the only one rendering a
+// COMPOUND age ("2h 14m ago"), and the only one that could never say seconds or
+// days - a 3-day-old parity run read as "72h 4m ago". Returns '' rather than
+// "unknown" on a bad timestamp, because callers concatenate it into a detail line.
+function agoText(isoTimestamp) {
+  return window.SEFresh ? window.SEFresh.ago(isoTimestamp, { unknown: '' }) : '';
+}
+
+function renderFleet(data) {
+  const host = document.getElementById('fleet');
+  const here = data.thisBox || {};
+  const peer = data.peer || { configured: false };
+  const div  = data.divergence || {};
+  const parity = data.parity || { available: false };
+
+  const peerLabel = peer.configured
+    ? (peer.reachable ? peer.url : peer.url + ' (unreachable)')
+    : 'no peer configured';
+
+  const bridgeText = (box) => {
+    const bridges = box.bridges || { reporting: [], silent: [] };
+    const live    = (bridges.reporting || []).join(', ');
+    const silent  = (bridges.silent || []).join(', ');
+    if (!live && !silent) return '—';
+    return (live ? live + ' live' : 'none live') + (silent ? ' · ' + silent + ' SILENT' : '');
+  };
+
+  const haltText = (box) => {
+    if (box.halted === null || box.halted === undefined) return '—';
+    return box.halted ? 'OPEN — ' + (box.haltReason || 'halted') : 'closed';
+  };
+
+  // MT5 bar freshness, per box. `stale` is a statement about the BROKER SERIES only:
+  // when it is true the engine has already fallen back to Yahoo, so the prices and
+  // levels on every page are current and it is the feed behind them that stopped
+  // moving. No other row here changes when a terminal wedges underneath a running
+  // bridge — the push stays seconds old and the bridge keeps reporting LIVE.
+  const barFreshnessText = (box) => {
+    const freshness = box.barFreshness;
+    if (!freshness) return 'not reported by this box';
+    const asOf = freshness.judgedAt ? ' · judged ' + agoText(freshness.judgedAt) : '';
+    // Never one hardcoded cause: each box sends the reason it actually has, and they
+    // call for different things — no bars pushed yet, a bridge older than the check,
+    // an empty cache after a restart, or a server that predates the field entirely.
+    if (!freshness.checked) {
+      const named = (freshness.unjudgedAssets || []);
+      return 'UNVERIFIED — ' + (named.length > 0 ? named.join(', ').toUpperCase() + ': ' : '')
+           + (freshness.reason || 'no reason reported') + asOf;
+    }
+    const worst = freshness.worst || {};
+    const staleAssets = freshness.staleAssets || [];
+    // Which assets were NOT looked at. Reporting only the judged ones as "current"
+    // would let one verified asset speak for a box where two were never checked.
+    const unjudged = freshness.unjudgedAssets || [];
+    const unjudgedNote = unjudged.length > 0
+      ? ' · UNVERIFIED: ' + unjudged.join(', ').toUpperCase() + ' (' + (freshness.reason || 'no reason reported') + ')'
+      : '';
+    if (staleAssets.length > 0) {
+      return 'BROKER FEED STALE: ' + staleAssets.join(', ').toUpperCase()
+           + (worst.reason ? ' · ' + worst.reason : '')
+           + (worst.usedForThisSignal === false ? ' · signals fell back to Yahoo, prices shown are current' : '')
+           + unjudgedNote + asOf;
+    }
+    const judged = freshness.judgedAssets || [];
+    // lastBarAt is the NEWEST bar of the LAGGIEST asset, so it is labelled as that
+    // rather than as an "oldest bar" a reader would take for the series start.
+    const laggiest = worst.lastBarAt
+      ? ' · laggiest ' + String(worst.asset || '').toUpperCase() + ', newest D1 bar '
+        + worst.lastBarAt.slice(0, 16).replace('T', ' ') + 'Z'
+      : '';
+    return 'current' + (judged.length > 0 ? ' (' + judged.join(', ').toUpperCase() + ')' : '')
+         + laggiest + unjudgedNote + asOf;
+  };
+
+  // Only boxes that answered can be judged. An unreachable peer gets a dash, never a
+  // pass — the whole point of this row is that silence and freshness look identical.
+  const judgedBoxes = peer.reachable ? [here, peer] : [here];
+  const staleWorstCases = judgedBoxes
+    .map(box => box.barFreshness && box.barFreshness.worst)
+    .filter(worst => worst && worst.stale);
+  const feedStale = judgedBoxes.some(box => box.barFreshness && (box.barFreshness.staleAssets || []).length > 0);
+  const feedUnverified = judgedBoxes.every(box => !(box.barFreshness && box.barFreshness.checked));
+  // Only claim the fallback happened when the stale box says it did. If a stale series
+  // still produced the signal, telling the reader the levels are current is the lie
+  // this row was written to avoid.
+  const fellBackToYahoo = staleWorstCases.length > 0
+    && staleWorstCases.every(worst => worst.usedForThisSignal === false);
+
+  const rows = [
+    { label: 'Health',
+      local: here.healthy === null || here.healthy === undefined ? '—' : (here.healthy ? 'Healthy' : 'Degraded'),
+      peer:  peer.healthy === null || peer.healthy === undefined ? '—' : (peer.healthy ? 'Healthy' : 'Degraded'),
+      bad:   here.healthy === false || peer.healthy === false },
+
+    { label: 'Confidence gate',
+      local: valueOrDash(here.gate),
+      peer:  valueOrDash(peer.gate),
+      bad:   !!(div.gate && div.gate.differs),
+      note:  div.gate && div.gate.differs
+               ? 'strategy_settings.json is per-machine and untracked — the same commit is running two different gates.'
+               : '' },
+
+    { label: 'Circuit breaker',
+      local: haltText(here),
+      peer:  haltText(peer),
+      bad:   here.halted === true || peer.halted === true },
+
+    { label: 'Bridges',
+      local: bridgeText(here),
+      peer:  peer.reachable ? bridgeText(peer) : '—',
+      bad:   (here.bridges && (here.bridges.silent || []).length > 0)
+             || (peer.bridges && (peer.bridges.silent || []).length > 0) },
+
+    { label: 'MT5 bar freshness',
+      local: barFreshnessText(here),
+      peer:  peer.reachable ? barFreshnessText(peer) : '—',
+      bad:   feedStale,
+      note:  feedStale
+               ? 'The BROKER SERIES stopped moving. A wedged terminal keeps its bridge posting on schedule, so nothing else on this page turns red — the MT5 terminal on that box is what to check. '
+                 + (fellBackToYahoo
+                     ? 'The engine has already fallen back to Yahoo, so the prices and levels shown everywhere are current; it is the MT5 feed behind them that is stale.'
+                     : 'This signal was still computed from the MT5 series — check its levels before acting on them.')
+               : (feedUnverified
+                   ? (judgedBoxes.length > 1 ? 'Neither box ' : 'This box ')
+                     + 'reported a verified MT5 series, so this row is UNVERIFIED rather than passed. Each cell carries the reason that box gave — they are not the same problem and do not have the same fix.'
+                   : '') },
+
+    { label: 'Fixed lot size',
+      local: valueOrDash(here.fixedLotSize),
+      peer:  valueOrDash(peer.fixedLotSize),
+      byDesign: !!(div.fixedLotSize && div.fixedLotSize.differs),
+      note:  div.fixedLotSize && div.fixedLotSize.differs
+               ? 'Per-machine by design — the VPS deliberately runs a fixed lot. Shown so it is visible, not raised as a fault.'
+               : '' },
+
+    { label: 'Daily P&L',
+      local: valueOrDash(here.dailyPnl),
+      peer:  valueOrDash(peer.dailyPnl),
+      // Deliberately NOT flagged bad. Each box books to its own broker login, so two
+      // different numbers here is the normal case, and painting it red would train the
+      // eye to skip the rows that do matter. It still needs a sentence: this table is
+      // headed "fact that decides what trades", and a reader who sees 0 against 19.43
+      // with no comment cannot tell which kind of difference they are looking at.
+      note:  (here.dailyPnl !== peer.dailyPnl && peer.reachable)
+               ? 'Different numbers are expected while each box trades its own account. This is only a divergence if both boxes are logged into the SAME broker account — check the Bridges row for the logins before treating it as one.'
+               : '' },
+
+    { label: 'Config source',
+      local: here.settingsError ? 'DEFAULTS — ' + here.settingsError : 'saved file',
+      peer:  peer.reachable ? (peer.settingsError ? 'DEFAULTS — ' + peer.settingsError : 'saved file') : '—',
+      bad:   !!here.settingsError || !!peer.settingsError },
+
+    { label: 'Engine parity',
+      local: parity.available
+               ? parity.verdict + (parity.ageHours !== null ? ' · ' + parity.ageHours + 'h ago' : '')
+               : 'never recorded',
+      peer:  parity.available && (parity.fileDrift || 0) > 0 ? parity.fileDrift + ' non-engine file(s) differ' : '—',
+      bad:   !!(div.engine && div.engine.differs),
+      note:  !parity.available
+               ? 'Nothing here proves the two boxes share a trading engine — only that both are up. Run node tasks/vps_parity.cjs --emit.'
+               : (parityIsStale(parity)
+                   ? 'This verdict is ' + parity.ageHours + 'h old and describes the engines as they were then, not as they are now. Re-run node tasks/vps_parity.cjs --emit before trusting it — a recorded AGREE has already outlived the truth once.'
+                   : '') },
+  ];
+
+  host.innerHTML =
+    '<table class="fleet-table"><thead><tr>'
+    + '<th>Fact that decides what trades</th>'
+    + '<th class="col-box">' + esc(here.label || 'this box') + '</th>'
+    + '<th class="col-box">' + esc(peerLabel) + '</th>'
+    + '</tr></thead><tbody>'
+    + rows.map(row => {
+        const cls = row.bad ? 'differs' : (row.byDesign ? 'by-design' : '');
+        const tag = row.bad ? '<span class="tag tag-differs">DIFFERS</span>'
+                  : row.byDesign ? '<span class="tag tag-bydesign">BY DESIGN</span>' : '';
+        return '<tr class="' + cls + '">'
+             + '<td class="fleet-row-label">' + esc(row.label) + tag
+             + (row.note ? '<div class="fleet-note">' + esc(row.note) + '</div>' : '') + '</td>'
+             + '<td>' + esc(row.local) + '</td>'
+             + '<td>' + esc(row.peer) + '</td>'
+             + '</tr>';
+      }).join('')
+    + '</tbody></table>';
+}
+
+// The parity probe runs with the nightly post-close job, so a verdict from within the
+// last half-day is one trading cycle old at most. Past that it is describing a machine
+// state that has had a whole day to move, and the page should stop presenting it as
+// current — a recorded "ENGINES AGREE" has already survived a hand probe that found
+// three functions, two constants and eighteen files differing.
+const PARITY_FRESH_HOURS = 12;
+
+function parityIsStale(parity) {
+  return !!parity
+    && parity.available
+    && parity.ageHours !== null
+    && parity.ageHours !== undefined
+    && Number(parity.ageHours) > PARITY_FRESH_HOURS;
+}
+
+function renderDivergenceBanner(data) {
+  const host   = document.getElementById('divergence-banner');
+  const peer   = data.peer || { configured: false };
+  const div    = data.divergence || {};
+  const parity = data.parity || { available: false };
+  const splits = [];
+
+  if (peer.configured && !peer.reachable) {
+    splits.push('The other box did not answer (' + (peer.error || 'no response') + '). It is the box that trades continuously.');
+  }
+  if (div.gate && div.gate.differs) {
+    splits.push('Confidence gate is ' + div.gate.local + ' here and ' + div.gate.peer + ' there — the two boxes admit different trades from identical bars.');
+  }
+  if (div.engine && div.engine.differs) {
+    splits.push('Engine parity failed: ' + div.engine.engineDrift + ' function(s) and ' + div.engine.scalarDrift + ' constant(s) differ.');
+  }
+  if (peer.halted === true) splits.push('Circuit breaker is OPEN on the other box.');
+
+  if (!peer.configured) {
+    host.innerHTML = '<div class="banner banner-warn"><strong>Single-box view</strong>'
+      + 'No peer is configured, so everything below describes this machine only. Set PEER_SERVER_URL in keys.env to the other box to compare them.</div>';
+    return;
+  }
+  if (splits.length > 0) {
+    host.innerHTML = '<div class="banner banner-bad"><strong>The fleet does not agree with itself</strong>'
+      + splits.map(esc).join('<br />')
+      + '<br />Any number that pools both boxes is unattributable until this is reconciled.</div>';
+    return;
+  }
+  // Green is a claim that the fleet is verified in agreement RIGHT NOW. It was being
+  // printed off a parity run that could be any age, with the age relegated to a
+  // parenthetical at the end of the sentence — so a verdict recorded before the last
+  // deploy read exactly like one recorded a minute ago. Age now decides the colour and
+  // the headline; only a fresh run earns the green.
+  const engineAgrees = parity.available && !(div.engine && div.engine.differs);
+  const engineFresh  = engineAgrees && !parityIsStale(parity);
+
+  if (engineFresh) {
+    host.innerHTML = '<div class="banner banner-ok"><strong>Both boxes agree</strong>'
+      + 'Same gate, both answering, neither halted — and the last engine-parity run said '
+      + esc(parity.verdict)
+      + (parity.ageHours !== null ? ' (' + esc(parity.ageHours) + 'h ago).' : '.')
+      + '</div>';
+    return;
+  }
+
+  host.innerHTML = '<div class="banner banner-warn"><strong>Config agrees — the engines are unverified</strong>'
+    + 'Same gate, both answering, neither halted. '
+    + (engineAgrees
+        ? 'But the only engine-parity run on record is ' + esc(parity.ageHours) + 'h old, which is more than one trading cycle: it says '
+          + esc(parity.verdict) + ' about the machines as they were then, not as they are now.'
+        : 'Engine parity has not been recorded at all, so this is agreement on config, not proof of a shared engine.')
+    + ' Run node tasks/vps_parity.cjs --emit to settle it.'
+    + '</div>';
+}
+
+function renderStanding(items) {
+  const host = document.getElementById('standing');
+  if (!items || items.length === 0) {
+    host.innerHTML = '<div class="empty">Nothing standing.</div>';
+    return;
+  }
+  host.innerHTML = '<div class="row-detail" style="padding-bottom:8px">'
+    + 'True, accepted, and waiting on nobody today. Each states what would retire it.</div>'
+    + items.map(item =>
+        '<div class="action"><div class="sev sev-' + esc(item.severity) + '"></div>'
+        + '<div><div class="action-title">' + esc(item.title) + '</div>'
+        + '<div class="action-detail">' + esc(item.detail) + '</div></div></div>'
+      ).join('');
 }
 
 function renderActions(items) {
@@ -237,21 +624,37 @@ async function loadPlan() {
     document.getElementById('uptime-pill').textContent = 'server up ' + hours + 'h ' + mins + 'm';
 
     setStatus(data.healthy, data.healthy ? 'Healthy' : 'Needs attention');
+    renderDivergenceBanner(data);
+    renderFleet(data);
     renderChecks(data.checks);
     renderComponents(data);
     renderActions(data.actionItems);
+    renderStanding(data.standingNotes);
   } catch (err) {
     // Never fail silently the way daily-plan.html used to: an empty console and a
     // red pill gave nothing to debug from.
     console.error('[plan] loadPlan failed:', err);
     setStatus(false, 'Offline');
     document.getElementById('plan-meta').textContent = 'Could not read system state - ' + err.message;
+    // Say nothing rather than leave the fleet card at "Loading..." — a stalled
+    // comparison must not read as a comparison that passed.
+    document.getElementById('divergence-banner').innerHTML =
+      '<div class="banner banner-warn"><strong>Comparison unavailable</strong>'
+      + 'This server did not answer, so neither box can be compared right now.</div>';
+    document.getElementById('fleet').innerHTML = '<div class="empty">Unreachable.</div>';
+    document.getElementById('standing').innerHTML = '<div class="empty">Unreachable.</div>';
   }
 }
 
 tick();
 setInterval(tick, 1000);
-loadPlan();
+/* freshness.js is deferred, so it has not run yet when the parser reaches this
+   line. Without the guard the first paint renders every age as unknown. */
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", loadPlan);
+} else {
+  loadPlan();
+}
 setInterval(loadPlan, REFRESH_MS);
 </script>
 </body>

@@ -1,0 +1,823 @@
+#!/usr/bin/env node
+// Force every doctor check to fire, and prove it says the right thing when it does.
+//
+// WHY THIS EXISTS
+// On a healthy fleet tasks/doctor.cjs prints almost nothing, and "no findings" is
+// indistinguishable from "never ran". That silence has already hidden real defects:
+//
+//   - The encoding check's first version reported all eight dashboard pages clean while
+//     six were corrupted. It matched the Latin-1 mis-decode sequence; the damage was
+//     cp1252. A clean report from an untested detector is worth nothing.
+//   - The ghost/orphan reconciliation check needed a WARM position cache to be correct,
+//     which only shows up if you exercise it against a young server.
+//   - checkMarketJobs only fires on a day something has already gone wrong, so its own
+//     comment says a check never seen to fire is not a verified check.
+//
+// So this drives each check against fabricated bad state and asserts the finding appears
+// with the right severity and box. It is the doctor for the doctor.
+//
+// SAFETY
+// Reads and writes NOTHING in the repo. Every file-reading check is pointed at a scratch
+// directory under the OS temp dir, and every HTTP check at a stub server on an ephemeral
+// port. It never touches localhost:3001, never runs a remedy, and never calls diagnose().
+// Nothing here feeds a gate, a threshold, confidence or sizing.
+//
+//   node tasks/doctor_selftest.cjs           run all cases
+//   node tasks/doctor_selftest.cjs --verbose also print each finding
+// Exit 0 = every case behaved, 1 = at least one check did not fire or fired wrongly.
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const http = require("http");
+
+const doctor = require("./doctor.cjs");
+const VERBOSE = process.argv.includes("--verbose");
+
+const results = [];
+function check(name, expectation, findings) {
+  // A case passes only if the EXPECTED finding is present. Extra findings are reported
+  // rather than failed: a scratch root legitimately triggers several "missing file"
+  // branches at once, and failing on those would make the harness fight itself.
+  // `none: true` asserts INTENDED SILENCE. Asserting that a check stays quiet on
+  // good state matters as much as asserting it fires on bad state: a check that
+  // fires on everything is exactly as useless as one that never fires, and this
+  // harness could previously only express one half of that.
+  if (expectation.none) {
+    const quiet = findings.length === 0;
+    results.push({ name, ok: quiet, expectation, findings, hit: null });
+    console.log("  [" + (quiet ? "PASS" : "FAIL") + "] " + name);
+    if (!quiet) {
+      console.log("         expected NO finding, got: " +
+        findings.map(f => "[" + f.severity + "] " + f.box + ": " + f.what).join("; "));
+    }
+    return;
+  }
+  const hit = findings.find(f =>
+    (!expectation.severity || f.severity === expectation.severity) &&
+    (!expectation.box || f.box === expectation.box) &&
+    expectation.match.test(f.what + " " + f.why));
+  results.push({ name, ok: Boolean(hit), expectation, findings, hit });
+  const mark = hit ? "PASS" : "FAIL";
+  console.log("  [" + mark + "] " + name);
+  if (!hit) {
+    console.log("         expected " + (expectation.severity || "any") + "/" +
+      (expectation.box || "any") + " matching " + expectation.match);
+    console.log("         got: " + (findings.length
+      ? findings.map(f => "[" + f.severity + "] " + f.box + ": " + f.what).join("\n              ")
+      : "(no findings at all)"));
+  } else if (VERBOSE) {
+    console.log("         -> [" + hit.severity + "] " + hit.box + ": " + hit.what);
+    console.log("            fix: " + hit.remedy);
+  }
+}
+
+// Run one check function in isolation. Resetting around every case is what keeps the
+// findings array from accumulating across cases and matching the wrong one.
+async function isolate(fn) {
+  doctor._reset();
+  await fn();
+  return doctor._findings().slice();
+}
+
+// ── scratch root ────────────────────────────────────────────────────────────
+const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-selftest-"));
+const put = (rel, content) => {
+  const full = path.join(SCRATCH, rel);
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  fs.writeFileSync(full, content, "utf8");
+  return full;
+};
+const hoursAgo = h => new Date(Date.now() - h * 3600000).toISOString();
+
+// ── stub server, so the HTTP checks can be handed any state at all ──────────
+// checkBox already takes a base URL, which is the only reason this is possible without
+// touching the real server. Routes not in the map answer 200 {} so the check follows its
+// normal path instead of tripping the unreachable branch.
+function stubServer(routes) {
+  return new Promise(resolve => {
+    const server = http.createServer((req, res) => {
+      const key = req.url.split("?")[0];
+      const body = Object.prototype.hasOwnProperty.call(routes, key) ? routes[key] : {};
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(body));
+    });
+    server.listen(0, "127.0.0.1", () => {
+      resolve({ server, base: "http://127.0.0.1:" + server.address().port });
+    });
+  });
+}
+const close = ({ server }) => new Promise(r => server.close(r));
+
+async function withStub(routes, fn) {
+  const stub = await stubServer(routes);
+  try { return await fn(stub.base); } finally { await close(stub); }
+}
+
+const OK_STATUS = { startedAt: hoursAgo(5) };   // old enough that the cache counts as warm
+
+async function main() {
+  console.log("DOCTOR SELF-TEST - forcing every check to fire");
+  console.log("scratch: " + SCRATCH + "\n");
+
+  // ── checkBox: the trading-critical branches ──────────────────────────────
+  console.log("checkBox");
+
+  check("server unreachable -> RED",
+    { severity: "RED", box: "box", match: /server unreachable/i },
+    await isolate(() => doctor.checkBox("box", "http://127.0.0.1:1", true)));
+
+  check("open position with NO broker-side stop -> RED",
+    { severity: "RED", box: "box", match: /NO broker-side stop/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/mt5/positions": { positions: [{ ticket: 1, symbol: "XAUUSD", type: "BUY", volume: 0.01, sl: 0 }] },
+    }, base => doctor.checkBox("box", base, true))));
+
+  check("settingsError -> RED (running on built-in defaults)",
+    { severity: "RED", box: "box", match: /BUILT-IN DEFAULTS/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/strategy-settings": { settingsError: "ENOENT strategy_settings.json", confidenceThreshold: 70 },
+    }, base => doctor.checkBox("box", base, true))));
+
+  check("circuit breaker open -> RED",
+    { severity: "RED", box: "box", match: /TRADING HALTED/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/risk-status": { halted: true, haltReason: "3 consecutive losses" },
+    }, base => doctor.checkBox("box", base, true))));
+
+  check("2 of 3 consecutive losses -> AMBER",
+    { severity: "AMBER", box: "box", match: /consecutive losses/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/risk-status": { halted: false, consecutiveLosses: 2 },
+    }, base => doctor.checkBox("box", base, true))));
+
+  // The real 2026-08-18 state on the VPS. It read as the same AMBER as 2 of 3, saying
+  // "one more loss halts this box", when the threshold was already met and the only
+  // thing that re-evaluates it is a trade attempt that all-WAIT signals never make.
+  check("AT the limit with halted:false -> RED, not the same AMBER as one short",
+    { severity: "RED", box: "box", match: /AT the limit/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/risk-status": { halted: false, consecutiveLosses: 3,
+        accounts: { A: { config: { maxConsecLosses: 3 } } } },
+    }, base => doctor.checkBox("box", base, true))));
+
+  check("the limit is read from the box's config, not assumed to be 3",
+    { severity: "AMBER", box: "box", match: /4 consecutive losses of 5/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/risk-status": { halted: false, consecutiveLosses: 4,
+        accounts: { A: { config: { maxConsecLosses: 5 } } } },
+    }, base => doctor.checkBox("box", base, true))));
+
+  // THE GUARD. Two losses against a limit of 5 is three short — reporting it would
+  // train the reader to skim past the streak that actually matters.
+  const headroom = await isolate(() => withStub({
+    "/api/status": OK_STATUS,
+    "/api/risk-status": { halted: false, consecutiveLosses: 2,
+      accounts: { A: { config: { maxConsecLosses: 5 } } } },
+  }, base => doctor.checkBox("box", base, true)));
+  const falseStreak = headroom.find(f => /consecutive losses/i.test(f.what));
+  results.push({ name: "a streak with headroom is silent", ok: !falseStreak });
+  console.log("  [" + (falseStreak ? "FAIL" : "PASS")
+    + "] a streak with headroom is SILENT (guard, not finding)");
+
+  check("healer check failing -> RED",
+    { severity: "RED", box: "box", match: /healer check FAILING/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/healer": { checks: { priceFreshness: { ok: false, detail: "BTC 41m stale" } } },
+    }, base => doctor.checkBox("box", base, true))));
+
+  check("only 1 of 2 bridges reporting -> RED",
+    { severity: "RED", box: "box", match: /of 2 expected bridges/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/healer": { checks: { mt5Bridge: { ok: true, detail: "1/2 bridges reporting" } } },
+    }, base => doctor.checkBox("box", base, true))));
+
+  check("job FAILING -> RED",
+    { severity: "RED", box: "box", match: /job Weekly Review: FAILING/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/ai-work": { jobs: [{ label: "Weekly Review", verdict: "FAILING", detail: "no output for 7 days" }], totals: {} },
+    }, base => doctor.checkBox("box", base, true))));
+
+  check("unreviewed AI proposals -> AMBER",
+    { severity: "AMBER", box: "box", match: /nobody has decided/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/ai-work": { jobs: [], totals: { unreviewed: 12 } },
+    }, base => doctor.checkBox("box", base, true))));
+
+  check("proposals citing things that do not resolve -> AMBER",
+    { severity: "AMBER", box: "box", match: /do not resolve/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/ai-work": { jobs: [], totals: { proposalsWithBrokenRefs: 4 } },
+    }, base => doctor.checkBox("box", base, true))));
+
+  // GHOST: journal says open, broker does not. The -$441.84 case.
+  check("GHOST - journal OPEN, broker does not hold it -> RED",
+    { severity: "RED", box: "box", match: /the broker does not hold/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/mt5/positions": { positions: [{ ticket: 999, symbol: "BTCUSD", type: "BUY", volume: 0.01, sl: 50000 }] },
+      "/api/journal": { journal: [{ ticket: 111, symbol: "XAUUSD", direction: "BUY", status: "OPEN" }] },
+    }, base => doctor.checkBox("box", base, true))));
+
+  // ORPHAN: broker holds a position nothing in this system is managing.
+  check("ORPHAN - broker position the journal does not know -> RED",
+    { severity: "RED", box: "box", match: /journal does not know about/i },
+    await isolate(() => withStub({
+      "/api/status": OK_STATUS,
+      "/api/mt5/positions": { positions: [{ ticket: 777, symbol: "BTCUSD", type: "SELL", volume: 0.02, sl: 70000 }] },
+      "/api/journal": { journal: [{ ticket: 777, symbol: "BTCUSD", direction: "SELL", status: "CLOSED", pnl: -3 }] },
+    }, base => doctor.checkBox("box", base, true))));
+
+  // THE GUARD, not the finding. A cold cache must NOT be reported as every position
+  // ghosting at once - this is the false RED the check was built to avoid, so the
+  // assertion is that nothing fires.
+  const coldCache = await isolate(() => withStub({
+    "/api/status": { startedAt: new Date().toISOString() },   // just booted
+    "/api/mt5/positions": { positions: [] },                  // not filled yet
+    "/api/journal": { journal: [{ ticket: 111, symbol: "XAUUSD", direction: "BUY", status: "OPEN" }] },
+  }, base => doctor.checkBox("box", base, true)));
+  const falseGhost = coldCache.find(f => /broker does not hold/i.test(f.what));
+  results.push({ name: "cold position cache does NOT report ghosts", ok: !falseGhost });
+  console.log("  [" + (falseGhost ? "FAIL" : "PASS") + "] cold position cache does NOT report ghosts (guard, not finding)");
+
+  // ── fleet-level ──────────────────────────────────────────────────────────
+  console.log("\ncheckFleetExposure / checkParity");
+
+  check("same symbol and direction on BOTH boxes -> AMBER",
+    { severity: "AMBER", box: "fleet", match: /held on BOTH boxes/i },
+    await isolate(() => doctor.checkFleetExposure([
+      ["this box", { positions: [{ ticket: 1, symbol: "XAUUSD", type: "BUY", volume: 0.01 }] }],
+      ["peer",     { positions: [{ ticket: 2, symbol: "XAUUSD", type: "BUY", volume: 0.01 }] }],
+    ])));
+
+  check("engine parity never recorded -> AMBER on the box that can reach its peer",
+    { severity: "AMBER", box: "fleet", match: /never been recorded/i },
+    await isolate(() => doctor.checkParity(true, SCRATCH)));
+
+  // The asymmetry that matters: on the VPS this can never clear, so it must be INFO.
+  // CLAUDE.md is explicit that an action item which cannot clear is worse than none.
+  check("parity unrecorded on the box that CANNOT reach its peer -> INFO, not a chore",
+    { severity: "INFO", box: "fleet", match: /never been recorded/i },
+    await isolate(() => doctor.checkParity(false, SCRATCH)));
+
+  put("tasks/logs/vps_parity_last.json", JSON.stringify({
+    verdict: "ENGINES DIVERGE", engineDrift: 2, scalarDrift: 0, fileDrift: 1, ranAt: hoursAgo(1),
+  }));
+  check("engines diverge -> RED",
+    { severity: "RED", box: "fleet", match: /ENGINES DIVERGE/i },
+    await isolate(() => doctor.checkParity(true, SCRATCH)));
+
+  put("tasks/logs/vps_parity_last.json", JSON.stringify({
+    verdict: "ENGINES AGREE", engineDrift: 0, scalarDrift: 0, fileDrift: 0, ranAt: hoursAgo(72),
+  }));
+  check("parity verdict 72h stale -> AMBER",
+    { severity: "AMBER", box: "fleet", match: /last confirmed/i },
+    await isolate(() => doctor.checkParity(true, SCRATCH)));
+
+  // ── the AI's capacity to work at all ─────────────────────────────────────
+  console.log("\ncheckAgentQueue / checkAiCapacity");
+
+  put("tasks/agent_queue.jsonl", JSON.stringify({ brief: "weekly", resetAt: hoursAgo(2) }) + "\n");
+  check("parked brief due to resume -> AMBER, healable",
+    { severity: "AMBER", box: "local", match: /due to resume/i },
+    await isolate(() => doctor.checkAgentQueue(SCRATCH)));
+
+  put("tasks/agent_queue.jsonl", JSON.stringify({ brief: "weekly", resetAt: hoursAgo(-6) }) + "\n");
+  check("parked brief still waiting -> INFO, the queue working",
+    { severity: "INFO", box: "local", match: /parked, waiting/i },
+    await isolate(() => doctor.checkAgentQueue(SCRATCH)));
+
+  // The 2026-08-12 failure: four claude jobs died at once behind one weekly ceiling.
+  put("tasks/logs/agent_log.txt",
+    "[run] morning agent\nYou've hit your weekly limit - resets Aug 13, 11am\n");
+  check("limit hit WITH briefs parked -> INFO, not lost",
+    { severity: "INFO", box: "local", match: /subscription limit/i },
+    await isolate(() => doctor.checkAiCapacity(SCRATCH)));
+
+  fs.rmSync(path.join(SCRATCH, "tasks", "agent_queue.jsonl"));
+  check("limit hit with NOTHING parked -> AMBER, the brief was lost",
+    { severity: "AMBER", box: "local", match: /nothing is parked/i },
+    await isolate(() => doctor.checkAiCapacity(SCRATCH)));
+
+  // ── the market-hour jobs ─────────────────────────────────────────────────
+  console.log("\ncheckMarketJobs");
+
+  check("no deep plan has ever been built -> AMBER, healable",
+    { severity: "AMBER", box: "local", match: /has ever been built/i },
+    await isolate(() => doctor.checkMarketJobs(SCRATCH)));
+
+  put("tasks/analysis/deep-plan-latest.json", JSON.stringify({
+    generatedAt: hoursAgo(48), preOpenSlot: { at: "11:45", confident: true },
+  }));
+  check("deep plan 48h old -> AMBER",
+    { severity: "AMBER", box: "local", match: /deep plan is .* old/i },
+    await isolate(() => doctor.checkMarketJobs(SCRATCH)));
+
+  put("tasks/analysis/deep-plan-latest.json", JSON.stringify({
+    generatedAt: hoursAgo(1), preOpenSlot: { at: "11:45", confident: true },
+  }));
+  put("tasks/logs/postclose_analysis.txt",
+    "[2026-08-17 21:35:00] POST-CLOSE ANALYSIS DONE - 5 ok - 2 failed\n");
+  check("post-close analysis had failed harnesses -> AMBER",
+    { severity: "AMBER", box: "local", match: /failed harness/i },
+    await isolate(() => doctor.checkMarketJobs(SCRATCH)));
+
+  // THE ONE THAT MATTERS: the pre-open job firing inside a news blackout.
+  check("pre-open trigger never reconciled with the computed slot -> AMBER",
+    { severity: "AMBER", box: "local", match: /never been reconciled/i },
+    await isolate(() => doctor.checkMarketJobs(SCRATCH)));
+
+  put("tasks/logs/reschedule_preopen.txt",
+    "[2026-08-17 22:00:00] NO CHANGE - schtasks refused, trigger left at previous time\n");
+  check("the attempt to move the pre-open trigger FAILED -> AMBER",
+    { severity: "AMBER", box: "local", match: /failed/i },
+    await isolate(() => doctor.checkMarketJobs(SCRATCH)));
+
+  put("tasks/logs/reschedule_preopen.txt",
+    "[2026-08-10 22:00:00] moved 'SmartEntryPreOpen' to 11:45\n");
+  check("trigger set BEFORE the current plan was built -> AMBER (yesterday's calendar)",
+    { severity: "AMBER", box: "local", match: /before the current plan/i },
+    await isolate(() => doctor.checkMarketJobs(SCRATCH)));
+
+  put("tasks/analysis/deep-plan-latest.json", JSON.stringify({
+    generatedAt: hoursAgo(1),
+    preOpenSlot: { at: "11:45", confident: false, reason: "every candidate slot was blacked out" },
+  }));
+  put("tasks/logs/reschedule_preopen.txt",
+    "[" + new Date().toISOString().slice(0, 19).replace("T", " ") + "] moved 'SmartEntryPreOpen' to 11:45\n");
+  check("pre-open slot not chosen from a clean calendar -> INFO",
+    { severity: "INFO", box: "local", match: /not chosen from a clean calendar/i },
+    await isolate(() => doctor.checkMarketJobs(SCRATCH)));
+
+  // ── the record itself ────────────────────────────────────────────────────
+  console.log("\ncheckBackup / checkDashboardEncoding / checkLearningIntegrity");
+
+  check("no backup log at all -> AMBER",
+    { severity: "AMBER", box: "local", match: /no backup log/i },
+    await isolate(() => doctor.checkBackup(SCRATCH)));
+
+  const backupFile = put("tasks/logs/backup_log.txt", "backup ok\n");
+  const old = Date.now() - 40 * 3600000;
+  fs.utimesSync(backupFile, old / 1000, old / 1000);
+  check("backup 40h old -> AMBER",
+    { severity: "AMBER", box: "local", match: /last backup/i },
+    await isolate(() => doctor.checkBackup(SCRATCH)));
+
+  // -- the heartbeat's own coverage -----------------------------------------
+  //
+  // The 2026-08-19 case: healthy tick at 00:11, nothing until 04:44, and the tick that
+  // ended the hole restarts everything. Both blocks read fine in isolation, which is
+  // exactly why only the GAP can be the signal.
+  console.log("\ncheckCoverageGaps");
+
+  // Local 'yyyy-MM-dd HH:mm:ss', because that is what Write-Log emits and the check
+  // parses it as local time on purpose.
+  const stamp = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+    "-" + String(d.getDate()).padStart(2, "0") + " " + d.toTimeString().slice(0, 8);
+  const tick = (minutesAgo, body) => {
+    const d = new Date(Date.now() - minutesAgo * 60000);
+    return ["[" + stamp(d) + "] --- ensure_running start ---",
+            ...body.map(l => "[" + stamp(d) + "] " + l),
+            "[" + stamp(d) + "] --- ensure_running done ---"].join("\n");
+  };
+  const HEALTHY = ["SERVER: up", "BRIDGE A: reporting (2s ago)", "GUARDIAN: running (1)"];
+  const RESTARTED = ["TERMINAL 1: starting", "SERVER: down -- starting",
+                     "BRIDGE A: not reporting -- starting", "GUARDIAN: starting",
+                     "JARVIS: no window -- opening"];
+  const logOf = (...ticks) => ticks.join("\n") + "\n";
+
+  put("tasks/logs/ensure_running.txt",
+    logOf(tick(300, HEALTHY), tick(290, HEALTHY), tick(20, RESTARTED), tick(10, HEALTHY)));
+  // WAS: expected AMBER and /had to be restarted/. That is no longer the specified
+  // behaviour and this case had been failing ever since, which is worse than it looks -
+  // a failing self-test makes the doctor's whole report inadmissible, by its own
+  // checkDoctorSelftest rule ("until this passes, a clean doctor report is not evidence
+  // of a clean fleet"). So ONE stale expectation was disqualifying all 62 that pass.
+  //
+  // USER DECISION 2026-08-29, recorded in doctor.cjs::checkCoverageGaps: the laptop
+  // sleeps ON PURPOSE. It is the development box; the VPS is the one that trades
+  // continuously. An AMBER that can never clear trains you to skim past the row that
+  // matters, and this one had already sent two sessions hunting a Kernel-Power fault
+  // that was a laptop being a laptop.
+  //
+  // The measurement is unchanged and still asserted - the hole, and that components
+  // came back. Only the severity and the call to action moved. The test now pins the
+  // DECISION rather than the superseded wording.
+  check("4h+ hole followed by components restarting -> INFO (laptop sleep is accepted)",
+    { severity: "INFO", box: "local", match: /no ensure_running tick, and \d+ component\(s\) restarted after it/i },
+    await isolate(() => doctor.checkCoverageGaps(SCRATCH)));
+
+  // Same size hole, ordinary block after it: a suspended machine or a DST step, not an
+  // outage. Must NOT be AMBER, or the check cries wolf twice a year.
+  put("tasks/logs/ensure_running.txt",
+    logOf(tick(300, HEALTHY), tick(290, HEALTHY), tick(20, HEALTHY), tick(10, HEALTHY)));
+  check("same hole but nothing restarted -> INFO, not AMBER",
+    { severity: "INFO", box: "local", match: /nothing needed restarting/i },
+    await isolate(() => doctor.checkCoverageGaps(SCRATCH)));
+
+  put("tasks/logs/ensure_running.txt",
+    logOf(tick(40, HEALTHY), tick(30, HEALTHY), tick(20, HEALTHY), tick(10, HEALTHY)));
+  const steadyTicks = await isolate(() => doctor.checkCoverageGaps(SCRATCH));
+  results.push({ name: "ticks on schedule are SILENT", ok: steadyTicks.length === 0,
+    expectation: { match: /silent/ }, findings: steadyTicks, hit: steadyTicks.length === 0 });
+  console.log("  [" + (steadyTicks.length === 0 ? "PASS" : "FAIL") + "] ticks on schedule are SILENT");
+
+  // An old hole is history. Reporting it forever trains you to skim past the live one.
+  put("tasks/logs/ensure_running.txt",
+    logOf(tick(6000, HEALTHY), tick(5000, RESTARTED), tick(20, HEALTHY), tick(10, HEALTHY)));
+  const oldGap = await isolate(() => doctor.checkCoverageGaps(SCRATCH));
+  const oldGapQuiet = !oldGap.some(f => f.severity === "AMBER");
+  results.push({ name: "a hole older than the lookback is not re-reported", ok: oldGapQuiet,
+    expectation: { match: /old/ }, findings: oldGap, hit: oldGapQuiet });
+  console.log("  [" + (oldGapQuiet ? "PASS" : "FAIL") + "] a hole older than the lookback is not re-reported");
+
+  fs.rmSync(path.join(SCRATCH, "tasks", "logs", "ensure_running.txt"));
+  check("no ensure_running log at all -> AMBER",
+    { severity: "AMBER", box: "local", match: /no ensure_running log/i },
+    await isolate(() => doctor.checkCoverageGaps(SCRATCH)));
+
+  // -- the TradingView drawer ------------------------------------------------
+  //
+  // Gold sat on the chart with days-old levels while the engine was correct, because
+  // nothing ran the drawer. The absence case must stay INFO: the VPS has no TV session
+  // and an AMBER it can never clear is worse than no check at all.
+  console.log("\ncheckSizingTrigger");
+
+  // The sizing flip is the largest lever on returns in the system, so the branch that
+  // matters most is the one where the watcher CANNOT READ: an unmeasurable trigger must
+  // never be silent, because silence here is indistinguishable from "not due yet".
+  check("module missing on this box -> AMBER, never silence",
+    { severity: "AMBER", box: "local", match: /sizing trigger cannot be measured/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
+  // A scratch root complete enough to exercise the REAL extraction path: the module
+  // lifts realizedRFromPrices out of server/index.js rather than copying it, and a stub
+  // would only ever test the stub instead of the thing that can actually drift.
+  fs.mkdirSync(path.join(SCRATCH, "tasks"), { recursive: true });
+  fs.mkdirSync(path.join(SCRATCH, "server"), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, "sizing_trigger.cjs"),
+                  path.join(SCRATCH, "tasks", "sizing_trigger.cjs"));
+  fs.copyFileSync(path.join(__dirname, "..", "server", "index.js"),
+                  path.join(SCRATCH, "server", "index.js"));
+
+  // Gold fills with an exact risk of 100, so realized R is whatever each case asks for.
+  const goldFills = rValues => JSON.stringify(rValues.map((r, i) => ({
+    id: i + 1, ticket: 900000 + i, symbol: "XAUUSD", direction: "BUY", status: "CLOSED",
+    entry: 4000, sl: 3900, tp: 4250, closePrice: 4000 + r * 100,
+    setup: "MOMENTUM", openTime: new Date(Date.UTC(2026, 0, i + 1)).toISOString(),
+  })));
+
+  put("server/journal.json", goldFills([2.49, -1, -1]));
+  check("3 of 30 fills -> INFO with the remaining count, not an item that cannot clear",
+    { severity: "INFO", box: "local", match: /sizing trigger: 3\/30 Gold fills/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
+  put("server/journal.json", goldFills(new Array(30).fill(-1)));
+  check("count met but expectancy negative -> INFO, and NOT a partial pass",
+    { severity: "INFO", box: "local", match: /expectancy is negative/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
+  // 10 wins at +2.5 against 20 losses at -1: mean +0.167R, net +0.117R after the 0.05R
+  // cost, and a 95% lower bound well below zero. The stated trigger IS satisfied here,
+  // which is exactly why the wording must not read as a green light.
+  put("server/journal.json", goldFills(new Array(10).fill(2.5).concat(new Array(20).fill(-1))));
+  check("trigger met on a wide spread -> AMBER naming the evidence as THIN",
+    { severity: "AMBER", box: "local", match: /SIZING TRIGGER MET on thin evidence/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
+  // Same count, same sign, tight spread: the interval clears zero and the wording drops
+  // the caveat. Both cases exist so the difference between them is a tested behaviour
+  // rather than a sentence in a comment.
+  put("server/journal.json", goldFills(new Array(30).fill(0).map((_, i) => (i % 2 ? 0.7 : 0.6))));
+  check("trigger met with the interval clearing zero -> AMBER without the thin caveat",
+    { severity: "AMBER", box: "local", match: /SIZING TRIGGER MET \(30 fills/i },
+    await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+
+  // The VPS's real state on 2026-08-19: index.js is patched rather than copied and still
+  // carries the PRE-CAP scorer. The tool must run it anyway - refusing would blind the
+  // box that trades continuously - and must say so rather than quietly capping for it.
+  {
+    // Built by DELETING every line that mentions the cap - the const and the guard line
+    // inside the function - rather than by pasting a replacement function. A regex around
+    // the whole function body silently matched nothing here: server/index.js is CRLF, and
+    // a pattern written with bare \n produced a fixture identical to the original, so the
+    // case failed against a file that still had the cap. Line-based is ending-agnostic.
+    const laptopSource = fs.readFileSync(path.join(__dirname, "..", "server", "index.js"), "utf8");
+    const withoutCap = laptopSource.split(/\r?\n/)
+      .filter(line => !/MAX_PLAUSIBLE_RR/.test(line))
+      .join("\n");
+    put("server/index.js", withoutCap);
+    put("server/journal.json", goldFills([2.49, -1, -1]));
+    check("server has the PRE-CAP R scorer -> AMBER, and it still measures",
+      { severity: "AMBER", box: "local", match: /NO implausible-R cap/i },
+      await isolate(() => doctor.checkSizingTrigger(SCRATCH)));
+    // Restore, so later cases are not scored by the stripped copy.
+    fs.copyFileSync(path.join(__dirname, "..", "server", "index.js"),
+                    path.join(SCRATCH, "server", "index.js"));
+  }
+
+  console.log("\ncheckTvPlan");
+
+  check("never drawn on this box -> INFO, never AMBER",
+    { severity: "INFO", box: "local", match: /no TradingView plan has been drawn/i },
+    await isolate(() => doctor.checkTvPlan(SCRATCH)));
+
+  put("tasks/logs/tv_daily_plan_last.txt",
+    "[2026-08-19 07:39:16] --- tv daily plan start ---\n[2026-08-19 07:39:18] drawing\n");
+  check("per-run file with no verdict line -> AMBER (died mid-run)",
+    { severity: "AMBER", box: "local", match: /recorded no verdict/i },
+    await isolate(() => doctor.checkTvPlan(SCRATCH)));
+
+  put("tasks/logs/tv_daily_plan_last.txt",
+    "[2026-08-19 07:39:16] REFUSED: server down\n[tv-plan exit 2] server down - refused, nothing drawn\n");
+  check("refused because the server was down -> AMBER naming the refusal",
+    { severity: "AMBER", box: "local", match: /TradingView plan FAILED.*refused/i },
+    await isolate(() => doctor.checkTvPlan(SCRATCH)));
+
+  const tvOk = put("tasks/logs/tv_daily_plan_last.txt",
+    "[2026-08-19 07:40:26] OK: plan drawn on all charts\n[tv-plan exit 0] plan drawn\n");
+  const tvFresh = await isolate(() => doctor.checkTvPlan(SCRATCH));
+  results.push({ name: "a fresh successful draw is SILENT", ok: tvFresh.length === 0,
+    expectation: { match: /silent/ }, findings: tvFresh, hit: tvFresh.length === 0 });
+  console.log("  [" + (tvFresh.length === 0 ? "PASS" : "FAIL") + "] a fresh successful draw is SILENT");
+
+  const tvOld = Date.now() - 40 * 3600000;
+  fs.utimesSync(tvOk, tvOld / 1000, tvOld / 1000);
+  check("succeeded but 40h ago -> AMBER (the daily job has not completed)",
+    { severity: "AMBER", box: "local", match: /last drawn/i },
+    await isolate(() => doctor.checkTvPlan(SCRATCH)));
+
+  // The mojibake this whole thread started with, in both mis-decode forms.
+  put("dashboard/broken.html",
+    "<title>SmartEntry Pro â€” System</title>ðŸŽ¯\n");
+  put("dashboard/latin1.html",
+    "<h1>Fleet â both boxes</h1>\n");
+  check("mojibake in a served page -> AMBER (cp1252 AND Latin-1 forms)",
+    { severity: "AMBER", box: "local", match: /mis-decoded text/i },
+    await isolate(() => doctor.checkDashboardEncoding(path.join(SCRATCH, "dashboard"))));
+
+  check("dashboard directory missing -> INFO, must not throw",
+    { severity: "INFO", box: "local", match: /could not be scanned/i },
+    await isolate(() => doctor.checkDashboardEncoding(path.join(SCRATCH, "nope"))));
+
+  // The check that reads THIS suite's own result. Its four branches matter because the
+  // whole point of scheduling the suite is that a failure surfaces without being asked for.
+  console.log("\ncheckDoctorSelftest (the reporter reporting on the reporter)");
+
+  check("self-test never run on this box -> AMBER",
+    { severity: "AMBER", box: "local", match: /never been verified/i },
+    await isolate(() => doctor.checkDoctorSelftest(SCRATCH)));
+
+  // A run that died partway leaves output but no verdict line. Unknown, not good.
+  put("tasks/logs/doctor_selftest_last.txt", "DOCTOR SELF-TEST\n  [PASS] something\n");
+  check("output present but no verdict line -> AMBER (died mid-run)",
+    { severity: "AMBER", box: "local", match: /recorded no verdict/i },
+    await isolate(() => doctor.checkDoctorSelftest(SCRATCH)));
+
+  put("tasks/logs/doctor_selftest_last.txt",
+    "  36 of 39 cases behaved as specified\n"
+    + "  DID NOT FIRE OR FIRED WRONGLY:\n"
+    + "    - open position with NO broker-side stop -> RED\n"
+    + "[selftest exit 1]\n");
+  check("self-test FAILING -> AMBER naming the checks that did not fire",
+    { severity: "AMBER", box: "local", match: /self-test FAILING.*36 of 39/i },
+    await isolate(() => doctor.checkDoctorSelftest(SCRATCH)));
+
+  const stFile = put("tasks/logs/doctor_selftest_last.txt",
+    "  39 of 39 cases behaved as specified\n[selftest exit 0]\n");
+  const stOld = Date.now() - 40 * 3600000;
+  fs.utimesSync(stFile, stOld / 1000, stOld / 1000);
+  check("self-test passed but 40h ago -> AMBER (the daily job has not completed)",
+    { severity: "AMBER", box: "local", match: /last passed/i },
+    await isolate(() => doctor.checkDoctorSelftest(SCRATCH)));
+
+  // And the healthy case must be SILENT, or it becomes noise every single day.
+  fs.utimesSync(stFile, Date.now() / 1000, Date.now() / 1000);
+  const freshPass = await isolate(() => doctor.checkDoctorSelftest(SCRATCH));
+  results.push({ name: "fresh passing self-test is SILENT", ok: freshPass.length === 0 });
+  console.log("  [" + (freshPass.length === 0 ? "PASS" : "FAIL") +
+    "] fresh passing self-test is SILENT (guard, not finding)");
+  if (freshPass.length) console.log("         got: " + freshPass.map(f => f.what).join("; "));
+
+  put("server/journal.json", JSON.stringify([
+    { ticket: 1, status: "CLOSED", pnl: 12, setup: "MOMENTUM" },
+    { ticket: 2, status: "CLOSED", pnl: -8, setup: "WAIT" },
+  ]));
+  put("server/learning.json", JSON.stringify({ setupStats: { MOMENTUM: { wins: 1, losses: 0 } } }));
+  check("journal and learning disagree, with an unnamed setup -> INFO naming why",
+    { severity: "INFO", box: "local", match: /closed trades, learning counts/i },
+    await isolate(() => doctor.checkLearningIntegrity(SCRATCH)));
+
+  // ── the peer, seen only through its heartbeat ─────────────────────────────
+  // This is the VPS's only view of the laptop, and it was 401 for a week without anyone
+  // noticing, so every branch here is one that has already failed silently in production.
+  console.log("\ncheckPeerViaHeartbeat (the VPS's only view of the laptop)");
+
+  check("no peer has ever checked in -> AMBER",
+    { severity: "AMBER", box: "peer", match: /has ever checked in/i },
+    await isolate(() => withStub({ "/api/peer-heartbeat": { peers: [] } },
+      base => doctor.checkPeerViaHeartbeat(70, base))));
+
+  check("heartbeat silent 40m -> RED",
+    { severity: "RED", box: "peer THEMIS", match: /heartbeat silent/i },
+    await isolate(() => withStub({
+      "/api/peer-heartbeat": { peers: [{ box: "THEMIS", ageSeconds: 2400, state: {} }] },
+    }, base => doctor.checkPeerViaHeartbeat(70, base))));
+
+  check("peer halted -> RED",
+    { severity: "RED", box: "peer THEMIS", match: /TRADING HALTED/i },
+    await isolate(() => withStub({
+      "/api/peer-heartbeat": { peers: [{ box: "THEMIS", ageSeconds: 120, state: { halted: true, haltReason: "3 losses" } }] },
+    }, base => doctor.checkPeerViaHeartbeat(70, base))));
+
+  check("peer bridge silent -> RED",
+    { severity: "RED", box: "peer THEMIS", match: /bridge\(s\) silent/i },
+    await isolate(() => withStub({
+      "/api/peer-heartbeat": { peers: [{ box: "THEMIS", ageSeconds: 120, state: { bridgesSilent: ["A"] } }] },
+    }, base => doctor.checkPeerViaHeartbeat(70, base))));
+
+  // The most expensive divergence this fleet can have: two gates, one pooled journal.
+  check("confidence gate DIFFERS between boxes -> RED on fleet",
+    { severity: "RED", box: "fleet", match: /confidence gate DIFFERS/i },
+    await isolate(() => withStub({
+      "/api/peer-heartbeat": { peers: [{ box: "THEMIS", ageSeconds: 120, state: { gate: 50 } }] },
+    }, base => doctor.checkPeerViaHeartbeat(70, base))));
+
+  // ── verdict ──────────────────────────────────────────────────────────────
+  // ── the strategy lab, whose every failure mode is silence ────────────────
+  // Each branch is forced. On a healthy box checkLab prints nothing, and "nothing"
+  // is what a dead 24/7 loop also prints -- which is the entire reason this section
+  // exists. Two of these were real defects on 2026-08-31 found only by hand.
+  // ── positions held below the R:R floor the gate enforces ─────────────────
+  // Three of the six fleet positions were in this state on 2026-08-31 and nothing
+  // reported it, because the only R:R anyone reads is the PLAN.
+  // ── one box halted beside a live one ─────────────────────────────────────
+  // Real on 2026-08-31: the VPS tripped on three genuine losses while the laptop
+  // traded on, and every surface said FLEET AGREES.
+  console.log("\ncheckFleetPooling");
+
+  check("peer halted while this box is live -> RED, pooling invalid",
+    { severity: "RED", box: "fleet", match: /HALTED on the peer/i },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { halted: { local: false, peer: true, differs: true, poolingValid: false } } })));
+
+  check("both boxes live -> silent",
+    { none: true },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { halted: { local: false, peer: false, differs: false, poolingValid: true } } })));
+
+  check("both boxes halted -> silent on pooling (symmetric, still comparable)",
+    { none: true },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { halted: { local: true, peer: true, differs: false, poolingValid: true } } })));
+
+  check("breaker cooldown 1h vs 48h -> AMBER naming both",
+    { severity: "AMBER", box: "fleet", match: /cooldown differs: 1h here vs 48h/i },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { breakerCooldownHours: { local: [1], peer: [48], differs: true } } })));
+
+  check("matching cooldowns -> silent",
+    { none: true },
+    await isolate(() => doctor.checkFleetPooling(SCRATCH,
+      { divergence: { breakerCooldownHours: { local: [48], peer: [48], differs: false } } })));
+
+  console.log("\ncheckHeldRr");
+
+  put("server/strategy_settings.json", JSON.stringify({ minRr: 1.5 }));
+  // Approved at 2.0, held at 1.18 - the SP500 case, exactly.
+  put("server/journal.json", JSON.stringify([
+    { symbol: "SP500", status: "OPEN", direction: "BUY", entry: 7744.96,
+      sl: 7601.25, tp: 7915.05, plannedRr: 2 },
+  ]));
+  check("open position held below the floor -> AMBER",
+    { severity: "AMBER", box: "local", match: /held BELOW the 1\.5 R:R floor/i },
+    await isolate(() => doctor.checkHeldRr(SCRATCH)));
+
+  // A position comfortably above the floor must be SILENT.
+  put("server/journal.json", JSON.stringify([
+    { symbol: "XAUUSD", status: "OPEN", direction: "BUY", entry: 100, sl: 90, tp: 130, plannedRr: 2 },
+  ]));
+  check("a position above the floor is silent",
+    { none: true },
+    await isolate(() => doctor.checkHeldRr(SCRATCH)));
+
+  // A trade PLANNED below the floor was never a gate pass; blaming the fill for it
+  // would be wrong, so it must not fire.
+  put("server/journal.json", JSON.stringify([
+    { symbol: "BTCUSD", status: "OPEN", direction: "BUY", entry: 100, sl: 90, tp: 111, plannedRr: 1.1 },
+  ]));
+  check("a trade planned below the floor does not fire",
+    { none: true },
+    await isolate(() => doctor.checkHeldRr(SCRATCH)));
+
+  // A CLOSED trade below the floor is history, not a live risk.
+  put("server/journal.json", JSON.stringify([
+    { symbol: "SP500", status: "CLOSED", direction: "BUY", entry: 7744.96,
+      sl: 7601.25, tp: 7915.05, plannedRr: 2 },
+  ]));
+  check("a CLOSED trade below the floor does not fire",
+    { none: true },
+    await isolate(() => doctor.checkHeldRr(SCRATCH)));
+
+  console.log("\ncheckLab");
+
+  const labQueue = "tasks/analysis/lab/_queue.jsonl";
+  const labLog = "tasks/logs/lab_drain.txt";
+
+  // A fresh log so the staleness branches do not fire while testing the others.
+  const freshLog = () => { const f = put(labLog, "[x] tick: nothing pending\n");
+    fs.utimesSync(f, new Date(), new Date()); return f; };
+
+  // 1. the loop has stopped turning
+  {
+    const f = freshLog();
+    const old = new Date(Date.now() - 7 * 3600000);
+    fs.utimesSync(f, old, old);
+    check("lab drain silent 7h -> RED",
+      { severity: "RED", box: "local", match: /drain silent/i },
+      await isolate(() => doctor.checkLab(SCRATCH)));
+
+    const mid = new Date(Date.now() - 2 * 3600000);
+    fs.utimesSync(f, mid, mid);
+    check("lab drain last ran 2h ago -> AMBER",
+      { severity: "AMBER", box: "local", match: /drain last ran/i },
+      await isolate(() => doctor.checkLab(SCRATCH)));
+  }
+
+  // 2. a FAILED job recorded and never read
+  freshLog();
+  put(labQueue, JSON.stringify({ id: "a", status: "QUEUED", queuedAt: hoursAgo(1) }) + "\n"
+    + JSON.stringify({ id: "a", status: "FAILED", error: "not enough bars for FOO H4" }) + "\n");
+  check("a FAILED lab job -> AMBER, naming the reason",
+    { severity: "AMBER", box: "local", match: /FAILED/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // 3. queued and never run: the drain is dead or falling behind
+  put(labQueue, JSON.stringify({ id: "b", status: "QUEUED", queuedAt: hoursAgo(5) }) + "\n");
+  check("lab job queued 5h and never run -> AMBER",
+    { severity: "AMBER", box: "local", match: /queued over/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // 4. THE ONE THAT MATTERS: something cleared the bar and nobody has looked
+  put(labQueue, JSON.stringify({ id: "c", status: "DONE", queuedAt: hoursAgo(1) }) + "\n");
+  put("tasks/analysis/lab/_promotable.jsonl",
+    JSON.stringify({ specHash: "abc", label: "donchian_break lookback:20 BTCUSD H4",
+      appliedToLive: false }) + "\n");
+  check("a candidate cleared the bar, unreviewed -> AMBER",
+    { severity: "AMBER", box: "local", match: /cleared the bar/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // 5. the alert could never reach anyone. PRESENCE only - no value is read.
+  fs.rmSync(path.join(SCRATCH, "tasks", "analysis", "lab", "_promotable.jsonl"));
+  put("keys.env", "TELEGRAM_TOKEN=\nTELEGRAM_CHAT_ID=\n");
+  check("no Telegram credentials -> AMBER, the alert would be swallowed",
+    { severity: "AMBER", box: "local", match: /notifier has no Telegram/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // A placeholder must count as unset too, or ${VAR} reads as configured.
+  put("keys.env", "TELEGRAM_TOKEN=${TELEGRAM_TOKEN}\nTELEGRAM_CHAT_ID=123\n");
+  check("a ${placeholder} token counts as unset -> AMBER",
+    { severity: "AMBER", box: "local", match: /notifier has no Telegram/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  // 6. exhausted space: running, but generating nothing. Idle looks like working.
+  put("keys.env", "TELEGRAM_TOKEN=realtokenvalue\nTELEGRAM_CHAT_ID=123456\n");
+  {
+    const f = put(labLog, "[x] generate: declared space fully explored - nothing new\n");
+    fs.utimesSync(f, new Date(), new Date());
+  }
+  check("declared space fully explored -> INFO, not a fault",
+    { severity: "INFO", box: "local", match: /whole declared space/i },
+    await isolate(() => doctor.checkLab(SCRATCH)));
+
+  const failed = results.filter(r => !r.ok);
+  console.log("\n" + "=".repeat(78));
+  console.log("  " + (results.length - failed.length) + " of " + results.length + " cases behaved as specified");
+  if (failed.length) {
+    console.log("  DID NOT FIRE OR FIRED WRONGLY:");
+    for (const f of failed) console.log("    - " + f.name);
+  }
+  console.log("=".repeat(78));
+
+  // Leave the scratch dir on failure so the state that broke it can be inspected.
+  if (!failed.length) { try { fs.rmSync(SCRATCH, { recursive: true, force: true }); } catch (e) {} }
+  else console.log("  scratch kept for inspection: " + SCRATCH);
+
+  process.exit(failed.length ? 1 : 0);
+}
+
+main().catch(err => {
+  console.error("doctor_selftest: " + String((err && err.stack) || err));
+  process.exit(1);
+});

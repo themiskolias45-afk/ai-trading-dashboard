@@ -1,4 +1,10 @@
 @echo off
+
+REM Resolve the interpreter before anything uses it. Bare `python` follows PATH,
+REM and on 2026-08-23 PATH here pointed at a uv trampoline that Smart App Control
+REM had begun blocking - every python call on the box died at once for 8h32m.
+REM Falls back to bare `python`, so a box that works today selects what it always did.
+call "%~dp0resolve_python.bat"
 title Setup TradingView Access
 cd /d C:\Users\User\ai-trading-dashboard
 echo.
@@ -38,7 +44,7 @@ echo  [2/3] Credentials saved to keys.env
 REM Test login
 echo.
 echo  [3/3] Testing login — Chrome will open...
-python tradingview_bot.py test
+"%PY%" tradingview_bot.py test
 
 if errorlevel 1 (
     echo.

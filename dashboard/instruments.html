@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instruments — SmartEntry Pro</title>
+<link rel="icon" href="/dashboard/favicon.svg">
+<!--
+  Which instruments this engine is actually good at.
+
+  READS ONE STATIC FILE: /dashboard/instrument-scan.json, written by
+  tasks/instrument_universe_scan.cjs --json. No API call, no route in index.js, and
+  therefore NO SERVER RESTART to appear — the same pattern Weekly, Analysis, Pipelines
+  and Fleet Map use. That is deliberate: a page that needs a restart to exist is a page
+  that does not exist on the box whose restart is blocked, which is exactly the state
+  the VPS was in when this was written.
+
+  THE BASE RATE IS NOT OPTIONAL ANYWHERE ON THIS PAGE. "8 of the top 10 held up
+  out-of-sample" is a meaningless boast when 31 of all 51 names also held up. Every
+  holdout window fell in the 2023-26 bull run and the engine is ~92% long, so the
+  ranking largely measured beta. Rendering the hit rate without the base rate would
+  make market direction look like skill.
+-->
+<style>
+  :root{
+    --bg:#0b0e13; --panel:#141920; --panel-2:#1a212b; --line:rgba(255,255,255,.09);
+    --text:#e8edf4; --muted:#98a4b5; --muted-dim:#6b7789;
+    --green:#3ecf8e; --red:#ff6b5e; --amber:#ffb800; --accent:#5b9dd9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1140px;margin:0 auto;padding:28px 20px 80px}
+  h1{font-size:24px;margin:0 0 6px;font-weight:650;letter-spacing:-.01em}
+  h2{font-size:15px;margin:0 0 10px;font-weight:650}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:18px 20px;margin-bottom:16px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:right;color:var(--muted-dim);font-size:11px;font-weight:600;
+    letter-spacing:.05em;text-transform:uppercase;padding:8px 10px;
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  th:nth-child(1),th:nth-child(2),td:nth-child(1),td:nth-child(2){text-align:left}
+  td{padding:7px 10px;text-align:right;border-bottom:1px solid rgba(255,255,255,.04);white-space:nowrap}
+  tbody tr:hover{background:rgba(255,255,255,.02)}
+  .owned{background:rgba(255,184,0,.06)}
+  .tag{font-size:10px;font-weight:700;letter-spacing:.04em;padding:1px 5px;
+    border-radius:3px;margin-left:6px}
+  .tag-traded{color:var(--amber);border:1px solid rgba(255,184,0,.35)}
+  .pos{color:var(--green)} .neg{color:var(--red)} .dim{color:var(--muted-dim)}
+  .scroll{overflow-x:auto}
+  .note{border-left:3px solid var(--amber);background:rgba(255,184,0,.05);
+    border-radius:0 8px 8px 0;padding:12px 15px;font-size:12.5px;line-height:1.7;margin-bottom:16px}
+  .note.good{border-left-color:var(--green);background:rgba(62,207,142,.05)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+  .kpi{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi .v{font-size:20px;font-weight:650;letter-spacing:-.01em}
+  .kpi .k{font-size:11px;color:var(--muted-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+  .bars{display:flex;flex-direction:column;gap:5px}
+  .bar{display:grid;grid-template-columns:46px 1fr 62px 74px;gap:10px;align-items:center;font-size:12px}
+  .track{position:relative;height:18px;background:rgba(255,255,255,.05);border-radius:2px}
+  .mid{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--muted-dim);opacity:.5}
+  .fill{position:absolute;top:0;bottom:0;border-radius:2px}
+  ul{margin:10px 0 0;padding-left:18px;color:var(--muted)}
+  li{margin-bottom:8px}
+  li strong{color:var(--text)}
+  .err{color:var(--red)}
+  code{font-family:ui-monospace,monospace;font-size:11.5px;background:rgba(255,255,255,.06);
+    padding:1px 5px;border-radius:3px}
+</style>
+</head>
+<body>
+<script src="/dashboard/nav.js" defer></script>
+<div class="wrap">
+
+  <h1>Which instruments does this engine suit?</h1>
+  <p class="sub" id="sub">Loading the scan&hellip;</p>
+
+  <div id="content" hidden>
+
+    <div class="kpis" id="kpis"></div>
+    <div id="selection"></div>
+
+    <div class="card">
+      <h2>The engine is long-beta</h2>
+      <p class="sub" style="margin-bottom:14px">Pooled across every name, expectancy per trade
+        tracks the S&amp;P calendar return almost one-for-one. This is why the ranking below must
+        be read against the base rate rather than at face value.</p>
+      <div class="bars" id="years"></div>
+    </div>
+
+    <div class="card">
+      <h2>Full ranking</h2>
+      <p class="sub" style="margin-bottom:14px">Ranked on TRAIN. The HOLDOUT column was never used
+        to rank, so it is the out-of-sample check. Instruments this system already trades are
+        highlighted and tagged &mdash; they are never hidden by truncation.</p>
+      <div class="scroll"><table>
+        <thead><tr>
+          <th>#</th><th>Symbol</th>
+          <th>Train n</th><th>Train R/trade</th><th>Train win%</th>
+          <th>Holdout n</th><th>Holdout R/trade</th><th>Holdout total R</th><th>Verdict</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <h2>What would change this answer</h2>
+      <p class="sub" style="margin-bottom:0">Every number here is a paper trade &mdash; the same
+        standing caveat as the rejection ledger: a screening signal for what to investigate,
+        never realised P&amp;L.</p>
+      <ul>
+        <li><strong>This is the D1 screen, not the walk-forward.</strong> The
+          <code>edgeisgold</code> claim ran <code>generateSignalMTF</code> at gate 70; this ran the
+          single-timeframe daily replay. Trade counts here run well above live firing rates and the
+          trade set is not the one the live engine would take. It does not yet clear the bar that
+          claim set for wiring an instrument in.</li>
+        <li><strong>NAS100's live spread is still unmeasured.</strong> Every weekend reading is a
+          stale last-quote, not a cost. <code>tasks/spread_probe.py</code> samples the session on
+          both boxes; SP500 already reads 45 against a <code>maxSpreadPts</code> cap of 50, so a
+          wide NAS100 could trip the gate and settle this regardless of the table above.</li>
+        <li><strong>Candidates were replayed on Yahoo bars, not broker bars.</strong> The owned
+          instruments used real MT5 history. A CFD's prices differ from the underlying &mdash; the
+          gold futures/spot basis is the known example on this system.</li>
+        <li><strong>Adding instruments does not fix the binding constraint.</strong> Sample size
+          does. A second index trading roughly 15 times a year adds evidence slowly.</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <div class="card err" id="error" hidden></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Pooled expectancy by calendar year against the S&P's own return. Measured
+  // 2026-08-30 across all 51 names; kept beside the chart because a bar with no
+  // reference return does not show the reader that this is beta.
+  var YEARS = [
+    { y: 2017, e:  0.418, spx: "+19.4%" },
+    { y: 2018, e:  0.011, spx:  "-6.2%" },
+    { y: 2019, e:  0.247, spx: "+28.9%" },
+    { y: 2020, e:  0.141, spx: "+16.3%" },
+    { y: 2021, e:  0.037, spx: "+26.9%" },
+    { y: 2022, e: -0.232, spx: "-19.4%" },
+    { y: 2023, e:  0.089, spx: "+24.2%" },
+    { y: 2024, e:  0.207, spx: "+23.3%" },
+    { y: 2025, e:  0.003, spx:     "?"  },
+    { y: 2026, e:  0.078, spx:     "?"  }
+  ];
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+  function sgn(n) { return (n >= 0 ? "+" : "") + n.toFixed(3); }
+  function pct(n) { return (n * 100).toFixed(1) + "%"; }
+  function cls(n) { return n > 0 ? "pos" : n < 0 ? "neg" : "dim"; }
+
+  function renderYears() {
+    var peak = 0.45;   // fixed scale so bars stay comparable between reloads
+    document.getElementById("years").innerHTML = YEARS.map(function (r) {
+      var w = Math.min(50, Math.abs(r.e) / peak * 50);
+      var left = r.e >= 0 ? 50 : 50 - w;
+      return '<div class="bar">'
+        + '<span class="mono">' + r.y + '</span>'
+        + '<span class="track"><span class="mid"></span>'
+        + '<span class="fill" style="left:' + left + '%;width:' + w + '%;background:'
+        + (r.e >= 0 ? "var(--green)" : "var(--red)") + '"></span></span>'
+        + '<span class="mono ' + cls(r.e) + '" style="text-align:right">' + sgn(r.e) + '</span>'
+        + '<span class="mono dim" style="text-align:right">S&amp;P ' + r.spx + '</span>'
+        + '</div>';
+    }).join("");
+  }
+
+  function render(d) {
+    var b = d.basis || {}, rows = d.rows || [];
+    var age = d.generatedAt
+      ? ((Date.now() - Date.parse(d.generatedAt)) / 3600000).toFixed(1) + "h old"
+      : "age unknown";
+
+    document.getElementById("sub").innerHTML =
+      esc(b.candidates) + " instruments replayed through the live engine &middot; cost "
+      + esc(b.costR) + "R/trade &middot; " + esc(b.totalTrades) + " trades &middot; " + esc(age);
+
+    document.getElementById("kpis").innerHTML = [
+      ["" + b.candidates, "instruments"],
+      [b.topNheldUp + " / " + b.topN, "top ranks held up"],
+      [pct(b.baseRate), "base rate (whole universe)"],
+      [b.rankingBeatsBaseRate ? "Yes" : "No", "ranking beats base rate"]
+    ].map(function (k) {
+      return '<div class="kpi"><div class="v">' + esc(k[0]) + '</div><div class="k">'
+        + esc(k[1]) + '</div></div>';
+    }).join("");
+
+    // The selection check, stated in words, because the KPI tiles alone still let a
+    // reader take "8 of 10" as the headline.
+    document.getElementById("selection").innerHTML =
+      '<div class="note' + (b.rankingBeatsBaseRate ? " good" : "") + '">'
+      + '<strong>' + esc(b.topNheldUp) + ' of the top ' + esc(b.topN)
+      + '</strong> held up out-of-sample &mdash; but <strong>' + pct(b.baseRate)
+      + ' of all ' + esc(b.candidates) + '</strong> names did too. '
+      + (b.rankingBeatsBaseRate
+          ? "The ranking beats that base rate, so it carries some signal."
+          : "The ranking does NOT beat that base rate, so these ranks are noise.")
+      + "<br><span class=\"dim\">The engine is ~92% long and every holdout window fell in the "
+      + "2023-26 bull run, so most of the column below is beta, not skill. "
+      + esc(b.harness || "") + "</span></div>";
+
+    document.getElementById("rows").innerHTML = rows.map(function (r, i) {
+      return '<tr' + (r.owned ? ' class="owned"' : "") + ">"
+        + '<td class="dim mono">' + (i + 1) + "</td>"
+        + "<td><strong>" + esc(r.symbol) + "</strong>"
+        + (r.owned ? '<span class="tag tag-traded">TRADED</span>' : "")
+        + (r.degraded ? '<span class="tag" style="color:var(--red)">DEGRADED</span>' : "")
+        + "</td>"
+        + '<td class="mono dim">' + r.trainTrades + "</td>"
+        + '<td class="mono ' + cls(r.trainExpectancy) + '">' + sgn(r.trainExpectancy) + "</td>"
+        + '<td class="mono dim">' + pct(r.trainWinRate) + "</td>"
+        + '<td class="mono dim">' + r.holdoutTrades + "</td>"
+        + '<td class="mono ' + cls(r.holdoutExpectancy) + '">' + sgn(r.holdoutExpectancy) + "</td>"
+        + '<td class="mono ' + cls(r.holdoutTotalR) + '">' + sgn(r.holdoutTotalR) + "</td>"
+        + '<td class="' + (r.heldUp ? "pos" : "neg") + '" style="font-size:11px">'
+        + (r.heldUp ? "held up" : "collapsed") + "</td></tr>";
+    }).join("");
+
+    renderYears();
+    document.getElementById("content").hidden = false;
+  }
+
+  fetch("/dashboard/instrument-scan.json", { cache: "no-cache" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(render)
+    .catch(function (e) {
+      // ABSENT and BROKEN are different answers, so the page says which and names the
+      // command that produces the file rather than showing an empty table.
+      document.getElementById("sub").textContent = "";
+      var box = document.getElementById("error");
+      box.hidden = false;
+      box.innerHTML = "Instrument scan not available on this box &mdash; " + esc(e.message)
+        + '.<br><span class="dim">Generate it with </span>'
+        + '<code>node tasks/instrument_universe_scan.cjs --json</code>';
+    });
+})();
+</script>
+</body>
+</html>

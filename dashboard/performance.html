@@ -15,7 +15,8 @@
       --border:   #1e3040;
       --border2:  #253650;
       --text:     #e2e8f0;
-      --muted:    #4a6080;
+      --muted:    #6b83a8;   /* 4.73:1 on --surface; #4a6080 measured 2.85:1, under the 4.5 AA floor */
+      --muted-dim:#4a6080;   /* the old value, kept for decoration where contrast does not apply */
       --muted2:   #6b88a8;
       --green:    #00ff88;
       --green-dim:#005c30;
@@ -109,6 +110,129 @@
 
     /* ── LAYOUT ──────────────────────────────────────────────── */
     main { max-width: 1600px; margin: 0 auto; padding: 22px 24px 48px; }
+
+    /* GO-LIVE READINESS.
+       Placed above the KPI row deliberately. Every number below it is a
+       performance figure on a DEMO account, and a page that opens with win rate
+       and P&L invites the reader to treat those as a verdict on whether the
+       system is ready. It is not one. This strip states what is actually
+       blocking real money, so the KPIs below are read as what they are: a
+       record too small to conclude anything from yet. */
+    .readiness {
+      border: 1px solid var(--border2); border-radius: 10px;
+      background: var(--surface2); margin-bottom: 26px; overflow: hidden;
+    }
+    .readiness-head {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 14px 18px; border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .readiness-verdict { font-size: 1.05rem; font-weight: 700; letter-spacing: .02em; }
+    .readiness-count   { font-size: .72rem; color: var(--muted); }
+    .readiness-note    { font-size: .68rem; color: var(--muted); margin-left: auto; text-align: right; }
+    .readiness-gates   { display: grid; gap: 1px; background: var(--border); }
+    .gate-row {
+      display: grid; grid-template-columns: 62px 132px 1fr; gap: 12px;
+      padding: 11px 18px; background: var(--surface2); align-items: start;
+    }
+    .gate-status {
+      font-size: .6rem; font-weight: 700; letter-spacing: .09em;
+      padding: 3px 0; text-align: center; border-radius: 4px;
+    }
+    /* Chip backgrounds are set here rather than taken from --*-dim because the
+       label is 9.6px bold, which WCAG counts as small text at 4.5:1. Measured
+       against theme.css's --green/--red/--yellow: PASS 6.09, WAIT 6.42, and FAIL
+       on --red-dim was 4.49 — a fail by 0.01, and invisible to anything that
+       eyeballs it. #3b0d12 takes the same pairing to 4.98. */
+    .gate-status.PASS { color: var(--green);  background: #0c3d26; }
+    .gate-status.FAIL { color: var(--red);    background: #3b0d12; }
+    .gate-status.WAIT { color: var(--yellow); background: #4d3100; }
+    .gate-name   { font-size: .72rem; font-weight: 600; letter-spacing: .05em; color: var(--text); }
+    .gate-detail { font-size: .72rem; color: var(--text); line-height: 1.5; }
+    /* The half people act on. A gate that says FAIL and not what clears it trains
+       the reader to skim past it. */
+    .gate-changes { font-size: .68rem; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+    .gate-changes b { color: var(--muted2); font-weight: 600; }
+    @media (max-width: 760px) {
+      .gate-row { grid-template-columns: 62px 1fr; }
+      .gate-name { grid-column: 2; }
+      .gate-detail { grid-column: 1 / -1; }
+    }
+
+    /* ── CALIBRATION ─────────────────────────────────────────────
+       A tier is judgeable at 10 trades and the best has 2, so this renders as a
+       comparison with its sample attached rather than as a curve. Drawing a smooth
+       reliability line through n=2 would look like a measurement. */
+    .calib-row {
+      display: grid; grid-template-columns: 74px 1fr 96px;
+      gap: 10px; align-items: center;
+      padding: 9px 0; border-bottom: 1px solid var(--border);
+      font-size: .72rem;
+    }
+    .calib-row:last-child { border-bottom: none; }
+    .calib-tier  { color: var(--muted2); font-variant-numeric: tabular-nums; }
+    .calib-track {
+      position: relative; height: 16px;
+      background: var(--bg); border-radius: 4px; overflow: hidden;
+    }
+    .calib-said {
+      position: absolute; top: 0; bottom: 0; width: 2px;
+      background: var(--blue); z-index: 2;
+    }
+    .calib-got { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; }
+    .calib-n   { text-align: right; color: var(--muted); font-size: .66rem; }
+    .calib-note {
+      font-size: .68rem; color: var(--muted); line-height: 1.6;
+      margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border);
+    }
+
+    /* ── LIVE VS REPLAY ──────────────────────────────────────── */
+    .lvr-verdict {
+      display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+    .lvr-tag {
+      font-size: .58rem; font-weight: 700; letter-spacing: .09em;
+      padding: 3px 8px; border-radius: 4px;
+    }
+    .lvr-tag.good  { color: var(--green);  background: #0c3d26; }
+    .lvr-tag.few   { color: var(--yellow); background: #4d3100; }
+    .lvr-tag.bad   { color: var(--red);    background: #3b0d12; }
+    .lvr-block  { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .lvr-block:last-child { border-bottom: none; }
+    .lvr-label  { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted2); }
+    .lvr-pair   { display: flex; gap: 18px; margin: 6px 0 3px; font-variant-numeric: tabular-nums; }
+    .lvr-num    { font-size: .95rem; font-weight: 700; }
+    .lvr-cap    { font-size: .6rem; color: var(--muted); display: block; font-weight: 400; letter-spacing: .04em; }
+    .lvr-detail { font-size: .68rem; color: var(--muted); line-height: 1.55; }
+
+    /* ── AUDIT TRAIL ─────────────────────────────────────────── */
+    .audit-toggle {
+      background: none; border: 1px solid var(--border2); color: var(--muted2);
+      border-radius: 4px; font-size: .6rem; padding: 2px 7px; cursor: pointer;
+      font-family: inherit; letter-spacing: .05em;
+    }
+    .audit-toggle:hover { color: var(--text); border-color: var(--accent); }
+    .audit-detail > td { background: var(--surface2); padding: 0 14px 14px; }
+    .audit-grid {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px; background: var(--border); border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden;
+    }
+    .audit-col { background: var(--surface); padding: 11px 13px; }
+    .audit-col h4 {
+      font-size: .58rem; text-transform: uppercase; letter-spacing: .1em;
+      color: var(--muted2); font-weight: 700; margin-bottom: 7px;
+    }
+    .audit-line {
+      display: flex; justify-content: space-between; gap: 10px;
+      font-size: .68rem; padding: 2px 0;
+    }
+    .audit-line span:first-child { color: var(--muted); }
+    .audit-line span:last-child  { font-variant-numeric: tabular-nums; text-align: right; }
+    .audit-missing { font-size: .66rem; color: var(--muted); font-style: italic; line-height: 1.5; }
+    @media (max-width: 1100px) { .audit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 640px)  { .audit-grid { grid-template-columns: 1fr; } }
 
     .section-label {
       font-size: .62rem; text-transform: uppercase; letter-spacing: .12em;
@@ -326,7 +450,37 @@
     @keyframes spin   { to { transform: rotate(360deg); } }
     @keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
     .fade-in { animation: fadeIn .3s ease forwards; }
+  
+    /* ── MOBILE ──────────────────────────────────────────────────────────────
+       Found by measuring, and the first measurement lied. Listing every element whose
+       right edge sits past a 390px viewport surfaces dozens of table cells — but those
+       live inside wrappers that already scroll, so they never widen the page. Filtering
+       to elements NO ancestor clips or scrolls leaves the actual cause, and on this
+       page it is the header's right-hand strip: a nowrap flex row of clock, pills and
+       nav links that cannot shrink, so it sets the width of the document and every
+       panel below inherits the sprawl.
+
+       Fix is the one a dense terminal UI wants: a strip too wide for the screen scrolls
+       inside its own box, and the page itself never scrolls sideways. flex-shrink:0 on
+       the children is load-bearing — without it they squash into slivers instead of
+       scrolling. Nothing is hidden and no control is dropped.
+
+       Scoped to max-width:640px; the desktop layout is untouched. */
+    @media (max-width: 640px) {
+      header { flex-wrap: wrap; gap: 8px; }
+      .header-right { width: 100%; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+      .header-right::-webkit-scrollbar { display: none; }
+      .header-right > * { flex-shrink: 0; }
+      .bottom-grid > *, .chart-row > *, .card, .kpi-card { min-width: 0; }
+    }
   </style>
+  <link rel="stylesheet" href="/dashboard/theme.css">
+  <link rel="stylesheet" href="/dashboard/nav.css">
+  <script src="/dashboard/nav.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/freshness.css">
+  <script src="/dashboard/freshness.js" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+  <meta name="theme-color" content="#070b12">
 </head>
 <body>
 
@@ -356,43 +510,99 @@
 <!-- ═══════════════════════ MAIN ════════════════════════════ -->
 <main>
 
-  <!-- KPI ROW -->
-  <div class="section-label">Key Performance Indicators</div>
-  <div class="kpi-row">
-    <div class="kpi-card" style="--kpi-color: var(--blue)">
-      <div class="kpi-icon">📊</div>
-      <div class="kpi-label">Total Trades</div>
-      <div class="kpi-value" id="kpi-trades">—</div>
-      <div class="kpi-sub" id="kpi-trades-sub">Loading…</div>
+  <!-- GO-LIVE READINESS -->
+  <div class="section-label">Ready for real money?</div>
+  <div class="readiness" id="readiness">
+    <div class="readiness-head">
+      <div class="readiness-verdict" id="readiness-verdict" style="color:var(--muted)">Checking…</div>
+      <div class="readiness-count" id="readiness-count"></div>
+      <div class="readiness-note" id="readiness-note"></div>
     </div>
+    <div class="readiness-gates" id="readiness-gates"></div>
+  </div>
+
+  <!-- RESULT ROW.
+       R first, dollars fourth, and that ordering is the whole point. This journal
+       holds one XAUUSD fill at 0.14 lots and the rest at 0.01, so the dollar total is
+       dominated by a single trade at 14x the current size: the same five fills read
+       -$416.61 and +1.51R. A page that leads with the dollar figure reports a sizing
+       change as if it were a verdict on the engine.
+
+       Every card carries its sample size, because n is the binding constraint on this
+       system and a win rate without its count is an opinion. -->
+  <div class="section-label">The result, in the only unit that compares</div>
+  <div class="kpi-row">
     <div class="kpi-card" style="--kpi-color: var(--green)">
+      <div class="kpi-icon">📐</div>
+      <div class="kpi-label">Net R</div>
+      <div class="kpi-value" id="kpi-netr">—</div>
+      <div class="kpi-sub" id="kpi-netr-sub">Loading…</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--blue)">
+      <div class="kpi-icon">⚖️</div>
+      <div class="kpi-label">Expectancy</div>
+      <div class="kpi-value" id="kpi-exp">—</div>
+      <div class="kpi-sub" id="kpi-exp-sub">Loading…</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--yellow)">
       <div class="kpi-icon">🎯</div>
       <div class="kpi-label">Win Rate</div>
       <div class="kpi-value" id="kpi-winrate">—</div>
       <div class="kpi-sub" id="kpi-winrate-sub">Loading…</div>
     </div>
-    <div class="kpi-card" style="--kpi-color: var(--green)">
+    <div class="kpi-card" style="--kpi-color: var(--muted2)">
       <div class="kpi-icon">💵</div>
-      <div class="kpi-label">Net P&amp;L</div>
+      <div class="kpi-label">Net P&amp;L <span style="opacity:.6">(not comparable)</span></div>
       <div class="kpi-value" id="kpi-pnl">—</div>
       <div class="kpi-sub" id="kpi-pnl-sub">Loading…</div>
     </div>
-    <div class="kpi-card" style="--kpi-color: var(--yellow)">
-      <div class="kpi-icon">⚡</div>
-      <div class="kpi-label">Profit Factor</div>
-      <div class="kpi-value" id="kpi-pf">—</div>
-      <div class="kpi-sub" id="kpi-pf-sub">Loading…</div>
-    </div>
   </div>
 
-  <!-- EQUITY CURVE + GAUGE -->
-  <div class="section-label">Equity Curve &amp; Signal Quality</div>
+  <!-- THE TWO QUESTIONS BEHIND TRUST.
+       Not "did it make money" - at this sample that is a coin. These are the two the
+       readiness gates above are actually blocked on, and both already have server-side
+       arithmetic that nothing rendered. -->
+  <div class="section-label">Does the confidence number mean anything? Is live doing what the backtest promised?</div>
+  <!-- align-start: the calibration card is three rows tall and the comparison beside it
+       is three blocks tall, and stretching them to match left ~200px of dead space
+       under the tiers. -->
+  <div class="chart-row" style="align-items:start">
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Calibration — said vs delivered</div>
+        <div style="font-size:.68rem;color:var(--muted2)" id="calib-meta">loading…</div>
+      </div>
+      <div class="card-body" id="calib-body">
+        <div class="loading-row"><div class="spinner"></div>Reading confidence tiers…</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Live vs Replay</div>
+        <div style="font-size:.68rem;color:var(--muted2)" id="lvr-meta">loading…</div>
+      </div>
+      <div class="card-body" id="lvr-body">
+        <div class="loading-row"><div class="spinner"></div>Comparing…</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CUMULATIVE R + GAUGE.
+       This was a dollar equity curve drawn from ACCOUNT_BASE = 90_000, a constant
+       hardcoded in this file. Nothing reads a balance from the broker - the bridge
+       knows acc.balance and never pushes it - so the curve started from an invented
+       number and the P&L card reported a percentage of it. Cumulative R needs no
+       balance and is not distorted by the 0.14-lot trade, so it is the curve. -->
+  <div class="section-label">Cumulative R &amp; Signal Quality</div>
   <div class="chart-row">
 
     <div class="card">
       <div class="card-header">
-        <div class="card-title">Equity Curve</div>
-        <div style="font-size:.68rem;color:var(--muted2)" id="equity-meta">Last 200 trades · $90,000 base</div>
+        <div class="card-title">Cumulative R</div>
+        <div style="font-size:.68rem;color:var(--muted2)" id="equity-meta">loading…</div>
       </div>
       <div class="card-body">
         <div class="chart-container" id="equity-chart-wrap">
@@ -432,7 +642,8 @@
   <div class="card full-card">
     <div class="card-header">
       <div class="card-title">Strategy Breakdown — Horizontal Win Rate</div>
-      <div style="display:flex;align-items:center;gap:14px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <span style="font-size:.63rem;color:var(--muted2)" id="setup-source">loading…</span>
         <span style="font-size:.63rem;color:var(--green)">▮ &gt;60% Edge</span>
         <span style="font-size:.63rem;color:var(--yellow)">▮ 40–60% OK</span>
         <span style="font-size:.63rem;color:var(--red)">▮ &lt;40% Review</span>
@@ -445,13 +656,17 @@
     </div>
   </div>
 
-  <!-- TRADES TABLE + HEALTH -->
-  <div class="section-label">Recent Trades &amp; System Health</div>
+  <!-- TRADE AUDIT TRAIL + HEALTH.
+       A row per trade was seven columns of outcome. Trust is not built by being shown
+       the result; it is built by being able to check the reasoning that produced it.
+       Every field below already existed in the journal and none of it was rendered:
+       what the engine saw, what it sent, what came back, and why the trade closed. -->
+  <div class="section-label">Trade audit trail &amp; system health</div>
   <div class="bottom-grid">
 
     <div class="card">
       <div class="card-header">
-        <div class="card-title">Recent Trades</div>
+        <div class="card-title">Trade Audit Trail</div>
         <span style="font-size:.68rem;color:var(--muted2)" id="trades-meta">Last 20 trades</span>
       </div>
       <div class="trades-scroll" id="trades-wrap">
@@ -471,6 +686,29 @@
         </div>
         <div class="health-grid" id="health-grid">
           <div class="loading-row"><div class="spinner"></div>Checking…</div>
+        </div>
+      </div>
+
+      <!-- THE THREE BOOKS, and R BESIDE MONEY.
+           This page reads /api/journal, which is SmartEntry only - so it presented one book
+           as though it were the whole picture while two others existed and were invisible
+           here: the CRT chart EA on its own magics, and a separate TradingView paper
+           account. They are never pooled; a single total across three systems on two
+           platforms describes none of them and buries which one is losing.
+           And R sits beside money per asset, because realizedR is already on every journal
+           row next to pnl and the two were never shown together. Money is what the account
+           feels; R is what the strategy earned. When they disagree the difference is
+           POSITION SIZING, not edge - and that disagreement was not visible anywhere.
+           Written by tasks/performance_books.cjs. Read-only, feedsTheGate false. -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">The three books &mdash; R beside money</div>
+          <span id="books-sync" style="font-size:.68rem;opacity:.6">loading…</span>
+        </div>
+        <div class="card-body" style="padding:14px 18px;">
+          <div id="books-body">
+            <div class="loading-row"><div class="spinner"></div></div>
+          </div>
         </div>
       </div>
 
@@ -498,7 +736,16 @@
 'use strict';
 
 const API = '/api';
-const ACCOUNT_BASE = 90_000;
+
+// The floor /api/live-vs-replay applies to its own expectancy verdict. Named once and
+// used by every "can this be judged yet" decision on the page, so the page and the
+// endpoint can never quietly disagree about what counts as enough trades.
+const EXPECTANCY_MIN_CLOSES = 20;
+
+// A confidence tier is judgeable at 10 trades — the same floor tasks/go_live_readiness.cjs
+// applies to the CALIBRATION gate rendered at the top of this page.
+const CALIBRATION_MIN_TRADES = 10;
+
 let equityChart = null;
 let setupChart  = null;
 
@@ -523,9 +770,52 @@ function fmtPct(n, dp = 1) {
 }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function el(id) { return document.getElementById(id); }
+
+// r.ok, not just a successful parse.
+//
+// Every fetch on this page was `.then(r => r.json())`. A 401 returns perfectly valid
+// JSON — {"error":"Not logged in."} — and destructuring `{ journal }` out of it yields
+// undefined, so a logged-out or erroring session renders as "no trades recorded yet"
+// rather than as a problem. This page reports P&L; showing an empty record when the
+// real answer is "we could not read it" is the worst failure it has available.
+//
+// The four endpoints it reads are in the no-login allowlist TODAY, so this is latent
+// rather than live — but the allowlist is exactly the kind of thing that gets tightened
+// later, and the same code path also covers a 500 or a proxy error.
+async function getJson(route) {
+  const response = await fetch(API + route, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(route + ' → HTTP ' + response.status
+      + (response.status === 401 ? ' (not logged in)' : ''));
+  }
+  return response.json();
+}
+
+// Trade fields reach innerHTML through template literals. Symbol and setup come from
+// the journal, which is written from broker and engine data rather than typed by a
+// person — but "it cannot contain markup today" is an assumption about upstream, not a
+// property of this page, and it costs nothing to stop relying on it.
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 function html(id, h) { const e = el(id); if (e) e.innerHTML = h; }
 function text(id, t) { const e = el(id); if (e) e.textContent = t; }
 function setColor(id, c) { const e = el(id); if (e) e.style.color = c; }
+
+// The 2px rule across the top of each KPI card is painted from --kpi-color, which was
+// hardcoded in the markup: a GREEN bar sat over a red 40.0% win rate, a green bar over
+// -$416.61, an amber bar over a red 0.25 profit factor. Three of the four cards were
+// coloured the opposite of what they said. Setting the token on the card as well as
+// the value keeps the bar and the number telling the same story.
+function setKpiTone(valueId, color) {
+  const valueEl = el(valueId);
+  if (!valueEl) return;
+  valueEl.style.color = color;
+  const card = valueEl.closest('.kpi-card');
+  if (card) card.style.setProperty('--kpi-color', color);
+}
 
 function pnlClass(pnl) {
   return pnl == null ? 'pnl-zero' : pnl > 0 ? 'pnl-pos' : pnl < 0 ? 'pnl-neg' : 'pnl-zero';
@@ -627,34 +917,69 @@ function renderSignalBars(signals) {
 }
 
 // ── EQUITY CURVE ───────────────────────────────────────────────
+// /api/journal returns NEWEST FIRST. This function used to accumulate P&L in that
+// native order, so the curve ran backwards: the X axis read Aug 18 → Aug 11 → Jul 30
+// and every drawdown, the max-DD and the whole shape a trader reads off it were
+// fabricated. The endpoint value still looked right because a sum does not care about
+// order, which is exactly what made it survive so long.
+//
+// Equity is realised when a trade CLOSES, not when it opens, so the sort key is
+// closeTime with openTime as the fallback — two of the trades on record opened four
+// days apart and closed 32 seconds apart, and only closeTime puts those in the order
+// the account actually experienced them.
+function tradeTimestamp(trade) {
+  const raw = trade.closeTime || trade.openTime;
+  const ms  = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 function buildEquityChart(trades) {
-  const closed  = trades.filter(t => t.status !== 'OPEN' && t.pnl != null);
-  const last200 = closed.slice(-200);
+  const closed = closedTrades(trades)
+    // .map keeps the original index so a pair with identical (or absent) timestamps
+    // holds a stable order instead of shuffling between refreshes.
+    .map((trade, index) => ({ trade, index }))
+    .sort((a, b) => (tradeTimestamp(a.trade) - tradeTimestamp(b.trade)) || (a.index - b.index))
+    .map(entry => entry.trade);
+
+  // Only scorable closes can go on an R curve, and the ones that cannot are COUNTED in
+  // the meta line rather than dropped in silence — a curve that quietly omits trades is
+  // the same class of error as one drawn in the wrong order.
+  const scored = scorableR(closed);
+  const skipped = closed.length - scored.length;
+  // Newest 200, not oldest: slice(-200) on a newest-first array kept the wrong end.
+  const last200 = scored.slice(-200);
   const wrap    = el('equity-chart-wrap');
+  const metaEl  = el('equity-meta');
 
   if (!last200.length) {
     wrap.innerHTML = `<div class="empty-state">
       <span class="icon">📈</span>
-      No closed trades yet — equity curve will appear here once trades are recorded.
+      No scorable closes yet — the R curve appears once a trade closes with an entry,
+      a stop and a close price on record.
     </div>`;
+    metaEl.textContent = closed.length
+      ? `${closed.length} closed · none scorable in R`
+      : 'no closed trades yet';
+    metaEl.style.color = 'var(--muted2)';
     return;
   }
 
-  let eq = ACCOUNT_BASE;
+  let cumulative = 0;
   const labels = ['Start'];
-  const data   = [eq];
+  const data   = [0];
 
   last200.forEach((t, i) => {
-    eq += t.pnl;
-    data.push(eq);
+    cumulative += t.realizedR;
+    data.push(parseFloat(cumulative.toFixed(2)));
+    const closedAt = t.closeTime || t.openTime;
     labels.push(
-      t.openTime
-        ? new Date(t.openTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      closedAt
+        ? new Date(closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
         : `T${i + 1}`
     );
   });
 
-  const positive = eq >= ACCOUNT_BASE;
+  const positive = cumulative >= 0;
   const lineColor = positive ? '#00ff88' : '#ff4444';
 
   wrap.innerHTML = '<canvas id="equity-canvas"></canvas>';
@@ -677,7 +1002,12 @@ function buildEquityChart(trades) {
         borderWidth: 2.5,
         backgroundColor: grad,
         fill: true,
-        tension: 0.38,
+        // tension 0. A cardinal spline through equity points overshoots between them:
+        // at 0.38 the curve dipped visibly BELOW the Jul 31 low and bulged above the
+        // Aug 11 high, drawing drawdown depth the account never experienced. Equity
+        // moves in discrete steps at each close; straight segments are the only
+        // geometry that does not invent intermediate balances.
+        tension: 0,
         pointRadius: data.length > 50 ? 0 : 3,
         pointHoverRadius: 5,
         pointBackgroundColor: lineColor,
@@ -699,7 +1029,15 @@ function buildEquityChart(trades) {
           bodyColor: '#e2e8f0',
           padding: 10,
           displayColors: false,
-          callbacks: { label: c => ' ' + fmtDollar(c.raw, 0) }
+          callbacks: {
+            label: (c) => {
+              // The step, not just the running total — the per-trade R is the number
+              // being judged and it is invisible on a cumulative line.
+              const trade = c.dataIndex > 0 ? last200[c.dataIndex - 1] : null;
+              const step  = trade ? `  (${fmtR(trade.realizedR)} on ${trade.symbol || '?'})` : '';
+              return ' ' + fmtR(c.raw) + step;
+            }
+          }
         }
       },
       scales: {
@@ -712,7 +1050,7 @@ function buildEquityChart(trades) {
           grid: { color: 'rgba(30,48,64,.5)', drawTicks: false },
           ticks: {
             color: '#4a6080', font: { size: 10 },
-            callback: v => '$' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v)
+            callback: v => (v >= 0 ? '+' : '') + Number(v).toFixed(1) + 'R'
           },
           border: { color: '#1e3040' }
         }
@@ -720,9 +1058,9 @@ function buildEquityChart(trades) {
     }
   });
 
-  const pnlChange = eq - ACCOUNT_BASE;
-  const metaEl = el('equity-meta');
-  metaEl.textContent = `${last200.length} trades · $${(ACCOUNT_BASE / 1000).toFixed(0)}k base → ${fmtDollar(eq, 0)} (${pnlChange >= 0 ? '+' : ''}${fmtDollar(pnlChange, 0)})`;
+  metaEl.textContent = `${last200.length} scorable close${last200.length === 1 ? '' : 's'} → ${fmtR(cumulative)}`
+    + (skipped ? ` · ${skipped} unscorable, not plotted` : '')
+    + ' · no account balance is read from the broker, so this is R, not money';
   metaEl.style.color = positive ? 'var(--green)' : 'var(--red)';
 }
 
@@ -745,13 +1083,40 @@ function buildSetupChart(setups) {
     return;
   }
 
-  const labels   = sorted.map(s => s.name.replace(/_/g, ' '));
+  // "WAIT" is the engine's word for DECLINING to take a setup, and "UNKNOWN" is the
+  // fallback for a journal row with no setup recorded. Neither is a strategy. Both were
+  // being ranked, coloured and sorted as if they were, and because a single WAIT row
+  // happened to close positive it rendered as a full-width green 100% bar sitting at the
+  // top of the board — the best-performing "strategy" in the system.
+  //
+  // The row is KEPT, not filtered: it is real journal data and hiding it would be its
+  // own kind of lie. It is drawn in neutral grey, marked in the label, and excluded from
+  // the edge/OK/review colour scale so it cannot be read as an edge.
+  const NON_SETUPS = new Set(['WAIT', 'UNKNOWN', 'NONE', 'NO_SETUP']);
+  const isNonSetup = s => NON_SETUPS.has(String(s.name || '').toUpperCase());
+
+  // The label carries n and average R because at this sample most bars are 0% wide:
+  // three of the four setups on this board have exactly one closed trade and lost it,
+  // so a pure win-rate chart renders them as a name and nothing else. The row has to
+  // stay informative when the bar has no length.
+  const labels = sorted.map(s => {
+    const name = s.name.replace(/_/g, ' ') + (isNonSetup(s) ? '  (not a setup)' : '');
+    const parts = [`n=${s.count}`];
+    if (s.avgR != null) parts.push(fmtR(s.avgR));
+    return [name, parts.join('  ·  ')];   // array = two-line tick label in Chart.js
+  });
   const winRates = sorted.map(s => +s.winRate.toFixed(1));
 
-  const bgColors     = winRates.map(w => w > 60 ? 'rgba(0,255,136,.75)' : w >= 40 ? 'rgba(255,184,48,.75)' : 'rgba(255,68,68,.75)');
-  const borderColors = winRates.map(w => w > 60 ? '#00ff88' : w >= 40 ? '#ffb830' : '#ff4444');
+  const bgColors = sorted.map((s, i) => isNonSetup(s)
+    ? 'rgba(107,131,168,.30)'
+    : (winRates[i] > 60 ? 'rgba(0,255,136,.75)' : winRates[i] >= 40 ? 'rgba(255,184,48,.75)' : 'rgba(255,68,68,.75)'));
+  const borderColors = sorted.map((s, i) => isNonSetup(s)
+    ? '#6b83a8'
+    : (winRates[i] > 60 ? '#00ff88' : winRates[i] >= 40 ? '#ffb830' : '#ff4444'));
 
-  const barHeight = 34;
+  // 44, not 34: the tick labels are two lines now and at 34 the second line collided
+  // with the bar above it.
+  const barHeight = 44;
   const neededH   = Math.max(160, sorted.length * barHeight + 20);
   wrap.innerHTML  = `<canvas id="setup-canvas"></canvas>`;
   wrap.style.height = neededH + 'px';
@@ -789,8 +1154,22 @@ function buildSetupChart(setups) {
           callbacks: {
             label: c => {
               const s = sorted[c.dataIndex];
-              const badge = s.winRate > 60 ? 'EDGE' : s.winRate >= 40 ? 'OK' : 'REVIEW';
-              return ` ${c.raw}% win rate  ·  ${s.count} trades  ·  ${badge}`;
+              if (isNonSetup(s)) {
+                return ` ${c.raw}% of ${s.count} — NOT A SETUP, no edge to read here`;
+              }
+              // n is the whole story on this system: the binding constraint is sample
+              // size, so a win rate is quoted with the count it came from and anything
+              // under five closes says so instead of showing a verdict it cannot support.
+              const badge = s.count < 5
+                ? 'TOO FEW TO JUDGE'
+                : s.winRate > 60 ? 'EDGE' : s.winRate >= 40 ? 'OK' : 'REVIEW';
+              // Average R sits beside the win rate because they disagree in the way
+              // that matters: two setups on this board are both exactly -1.00R and one
+              // of them lost 4.5x the dollars of the other, purely on lot size.
+              const rPart = (s.avgR == null)
+                ? ''
+                : `  ·  ${fmtR(s.avgR)}/trade`;
+              return ` ${c.raw}% win rate  ·  n=${s.count}${rPart}  ·  ${badge}`;
             }
           }
         }
@@ -836,17 +1215,33 @@ function computeSetupData(trades) {
 // ── TRADES TABLE ───────────────────────────────────────────────
 function buildTradesTable(trades) {
   const wrap   = el('trades-wrap');
-  const recent = [...trades].reverse().slice(0, 20);
+  // /api/journal is newest-first, so [...trades].reverse() handed this the OLDEST
+  // trades under a heading that says "Recent". Sort explicitly rather than relying on
+  // the endpoint's order staying what it is today.
+  //
+  // Sort on openTime, NOT on tradeTimestamp: the Date column of this table renders
+  // openTime, and sorting by close while displaying open produced rows that read as
+  // shuffled (an Aug 5 trade above an Aug 11 one because it closed later). The equity
+  // curve still sorts by close, because equity is realised at close — different
+  // question, different key.
+  const openedAt = trade => {
+    const ms = trade.openTime ? new Date(trade.openTime).getTime() : NaN;
+    return Number.isFinite(ms) ? ms : 0;
+  };
+  const recent = [...trades]
+    .map((trade, index) => ({ trade, index }))
+    .sort((a, b) => (openedAt(b.trade) - openedAt(a.trade)) || (a.index - b.index))
+    .map(entry => entry.trade)
+    .slice(0, 20);
 
   if (!recent.length) {
     wrap.innerHTML = `<div class="empty-state"><span class="icon">📋</span>No trades recorded yet.</div>`;
     return;
   }
 
-  const rows = recent.map(t => {
+  const rows = recent.map((t, rowIndex) => {
     const isOpen = t.status === 'OPEN' || t.pnl == null;
     const isWin  = !isOpen && t.pnl > 0;
-    const isLoss = !isOpen && t.pnl <= 0;
     const rowClass = isOpen ? 'row-open' : isWin ? 'row-win' : 'row-loss';
 
     const dirBadge = t.direction === 'BUY'
@@ -859,9 +1254,18 @@ function buildTradesTable(trades) {
         ? `<span class="badge badge-win">WIN</span>`
         : `<span class="badge badge-loss">LOSS</span>`;
 
+    // R leads, P&L trails it in grey, for the same reason the cards above are ordered
+    // that way. A scorable close with no R is shown as "n/s" rather than as a dash, so
+    // "could not be scored" is distinguishable from "still open".
+    const rHtml = isOpen
+      ? `<span class="pnl-zero">—</span>`
+      : typeof t.realizedR === 'number'
+        ? `<span class="${t.realizedR >= 0 ? 'pnl-pos' : 'pnl-neg'}" style="font-weight:700">${fmtR(t.realizedR)}</span>`
+        : `<span class="pnl-zero" title="entry, stop or close price missing or degenerate">n/s</span>`;
+
     const pnlHtml = isOpen
       ? `<span class="pnl-zero">—</span>`
-      : `<span class="${pnlClass(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${fmtDollar(t.pnl)}</span>`;
+      : `<span class="${pnlClass(t.pnl)}" style="opacity:.75;font-size:.7rem">${t.pnl >= 0 ? '+' : ''}${fmtDollar(t.pnl)}</span>`;
 
     const dateStr = t.openTime
       ? new Date(t.openTime).toLocaleString('en-US', {
@@ -870,104 +1274,400 @@ function buildTradesTable(trades) {
         })
       : '—';
 
-    const setup  = (t.setup || '—').replace(/_/g, ' ');
-    const entry  = t.entry ? '$' + Number(t.entry).toLocaleString() : '—';
+    const setup = escapeHtml((t.setup || '—').replace(/_/g, ' '));
 
     return `<tr class="${rowClass}">
-      <td style="font-weight:700;white-space:nowrap">${t.symbol || '—'}</td>
+      <td style="font-weight:700;white-space:nowrap">${escapeHtml(t.symbol || '—')}</td>
       <td>${dirBadge}</td>
       <td style="color:var(--muted2);font-size:.7rem;white-space:nowrap">${setup}</td>
-      <td style="font-family:var(--mono);font-size:.7rem">${entry}</td>
+      <td>${rHtml}</td>
       <td>${pnlHtml}</td>
       <td>${outcome}</td>
       <td style="color:var(--muted);font-size:.65rem;white-space:nowrap">${dateStr}</td>
+      <td><button class="audit-toggle" data-audit-row="${rowIndex}" aria-expanded="false">TRAIL</button></td>
+    </tr>
+    <tr class="audit-detail" id="audit-detail-${rowIndex}" hidden>
+      <td colspan="8">${auditTrailHtml(t)}</td>
     </tr>`;
   }).join('');
 
   wrap.innerHTML = `<table class="trades-table">
     <thead><tr>
       <th>Symbol</th><th>Dir</th><th>Setup</th>
-      <th>Entry</th><th>P&amp;L</th><th>Outcome</th><th>Date</th>
+      <th>R</th><th>P&amp;L</th><th>Outcome</th><th>Date</th><th></th>
     </tr></thead>
     <tbody class="fade-in">${rows}</tbody>
   </table>`;
 
   const closed = recent.filter(t => t.status !== 'OPEN').length;
-  text('trades-meta', `${closed} closed · ${recent.filter(t => t.status === 'OPEN').length} open`);
+  text('trades-meta', `${closed} closed · ${recent.filter(t => t.status === 'OPEN').length} open · TRAIL opens the full record`);
 }
 
-// ── KPI UPDATE ─────────────────────────────────────────────────
+// The four questions a trade has to answer before its outcome means anything. Every
+// value here was already in the journal and none of it was on the page.
+function auditTrailHtml(t) {
+  const line = (label, value) =>
+    `<div class="audit-line"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`;
+  const num = (v, dp) => (v == null || v === '' || isNaN(v)) ? '—' : Number(v).toFixed(dp);
+  const price = v => (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const when = raw => raw
+    ? new Date(raw).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+    : '—';
+
+  // planned vs realised R:R. plannedRr is what the SIGNAL intended and is not evidence
+  // of anything the trade did — labelled as the plan so it is never read as an outcome.
+  const saw = [
+    line('setup', (t.setup || '—').replace(/_/g, ' ')),
+    line('timeframe', t.setupTimeframe || '—'),
+    line('confidence', t.confidence == null ? '—' : t.confidence + '%'),
+    line('strength', t.strength || '—'),
+    line('regime', t.regime || '—'),
+    line('ATR', num(t.atr, 2)),
+    line('source', t.setupSource || 'not recorded'),
+  ].join('');
+
+  const sent = [
+    line('entry', price(t.entry)),
+    line('stop', price(t.sl)),
+    line('target', price(t.tp)),
+    line('planned R:R', t.plannedRr == null ? '—' : num(t.plannedRr, 2) + ' (the plan)'),
+    line('volume', t.volume == null ? '—' : t.volume + ' lots'),
+    line('account', t.account || '—'),
+    line('ticket', t.ticket == null ? '—' : '#' + t.ticket),
+  ].join('');
+
+  const back = [
+    line('close price', price(t.closePrice)),
+    line('closed', when(t.closeTime)),
+    line('opened', when(t.openTime)),
+    line('P&L', t.pnl == null ? '—' : (t.pnl >= 0 ? '+' : '') + fmtDollar(t.pnl)),
+    line('realised R', typeof t.realizedR === 'number' ? fmtR(t.realizedR) : 'not scorable'),
+    line('status', t.status || '—'),
+  ].join('');
+
+  // exitReason is the broker's DEAL_REASON, and it distinguishes a stop from a manual
+  // close from a target. Trades taken before that capture landed have no value here,
+  // and the honest rendering of that is a sentence, not an em-dash that reads as if the
+  // field were empty on purpose.
+  const why = t.exitReason
+    ? line('exit reason', t.exitReason)
+      + (t.exitReasonCode != null ? line('DEAL_REASON', String(t.exitReasonCode)) : '')
+      + `<div class="audit-missing">Reported by the broker, not inferred from price.</div>`
+    : t.status === 'OPEN'
+      ? `<div class="audit-missing">Still open. Broker-side stop and target are live on this position.</div>`
+      : `<div class="audit-missing">Not recorded — this trade closed before exit-reason capture was added, so a stop and a manual close cannot be told apart here.</div>`;
+
+  return `<div class="audit-grid">
+    <div class="audit-col"><h4>What the engine saw</h4>${saw}</div>
+    <div class="audit-col"><h4>What it sent</h4>${sent}</div>
+    <div class="audit-col"><h4>What came back</h4>${back}</div>
+    <div class="audit-col"><h4>Why it closed</h4>${why}</div>
+  </div>`;
+}
+
+// One delegated listener, bound once at boot rather than per render — buildTradesTable
+// replaces this subtree every 60 seconds, and per-row handlers would be re-attached to
+// nodes that no longer exist.
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('.audit-toggle');
+  if (!button) return;
+  const detail = el('audit-detail-' + button.dataset.auditRow);
+  if (!detail) return;
+  const opening = detail.hasAttribute('hidden');
+  if (opening) detail.removeAttribute('hidden'); else detail.setAttribute('hidden', '');
+  button.setAttribute('aria-expanded', String(opening));
+  button.textContent = opening ? 'HIDE' : 'TRAIL';
+});
+
+// ── RESULT ROW ─────────────────────────────────────────────────
+// R comes from the server (`realizedR` on every journal row, from the same
+// realizedRFromPrices the go-live gates and /api/live-vs-replay use). This page does
+// NOT re-derive it: a copy here would be the fifth in the project and the first to
+// disagree with the readiness verdict rendered directly above it.
+function closedTrades(trades) {
+  return trades.filter(t => t.status !== 'OPEN' && t.pnl != null);
+}
+function scorableR(closed) {
+  return closed.filter(t => typeof t.realizedR === 'number' && Number.isFinite(t.realizedR));
+}
+function fmtR(value, dp = 2) {
+  if (value == null || isNaN(value)) return '—';
+  return (value >= 0 ? '+' : '') + Number(value).toFixed(dp) + 'R';
+}
+
+// Are the trades in this journal even the same size as each other? If they are not,
+// no dollar total across them means anything, and the page has to say so with the
+// actual numbers rather than with a general disclaimer nobody reads.
+function lotSpread(closed) {
+  const volumes = closed
+    .map(t => Number(t.volume))
+    .filter(v => Number.isFinite(v) && v > 0);
+  if (volumes.length < 2) return null;
+  const min = Math.min(...volumes);
+  const max = Math.max(...volumes);
+  if (max === min) return null;
+  return { min, max, ratio: max / min };
+}
+
 function updateKpis(trades) {
-  const closed  = trades.filter(t => t.status !== 'OPEN' && t.pnl != null);
-  const open    = trades.filter(t => t.status === 'OPEN');
-  const wins    = closed.filter(t => t.pnl > 0);
-  const losses  = closed.filter(t => t.pnl <= 0);
+  const closed   = closedTrades(trades);
+  const open     = trades.filter(t => t.status === 'OPEN');
+  const wins     = closed.filter(t => t.pnl > 0);
+  const losses   = closed.filter(t => t.pnl <= 0);
+  const scorable = scorableR(closed);
+  const unscorable = closed.length - scorable.length;
 
-  // Total Trades
-  text('kpi-trades', closed.length.toString());
-  setColor('kpi-trades', 'var(--blue)');
-  text('kpi-trades-sub', `${open.length} open · ${trades.length} total logged`);
+  // NET R
+  const netR = scorable.reduce((sum, t) => sum + t.realizedR, 0);
+  text('kpi-netr', scorable.length ? fmtR(netR) : '—');
+  setKpiTone('kpi-netr', scorable.length ? (netR >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted2)');
+  text('kpi-netr-sub', scorable.length
+    ? `${scorable.length} scorable close${scorable.length === 1 ? '' : 's'}`
+      + (unscorable ? ` · ${unscorable} could not be scored` : '')
+      + ` · ${open.length} open`
+    : 'No scorable closes yet');
 
-  // Win Rate
+  // EXPECTANCY. The floor is /api/live-vs-replay's own: 20 closes before a difference
+  // in expectancy is anything but one trade wearing a verdict's clothes.
+  const expectancy = scorable.length ? netR / scorable.length : null;
+  const judgeable  = scorable.length >= EXPECTANCY_MIN_CLOSES;
+  text('kpi-exp', expectancy == null ? '—' : fmtR(expectancy));
+  setKpiTone('kpi-exp', !judgeable ? 'var(--muted2)'
+    : expectancy >= 0 ? 'var(--green)' : 'var(--red)');
+  text('kpi-exp-sub', expectancy == null
+    ? 'No scorable closes yet'
+    : judgeable
+      ? `R per trade, gross of costs · n=${scorable.length}`
+      : `TOO FEW TO JUDGE — ${scorable.length} of ${EXPECTANCY_MIN_CLOSES} closes`);
+
+  // WIN RATE
   const winRate = closed.length ? wins.length / closed.length * 100 : 0;
-  const wrCol   = winRate >= 55 ? 'var(--green)' : winRate >= 45 ? 'var(--yellow)' : 'var(--red)';
   text('kpi-winrate', closed.length ? fmtPct(winRate) : '—');
-  setColor('kpi-winrate', closed.length ? wrCol : 'var(--muted2)');
-  text('kpi-winrate-sub', closed.length ? `${wins.length} wins · ${losses.length} losses` : 'No closed trades');
-
-  // Net P&L
-  const netPnl = closed.reduce((s, t) => s + t.pnl, 0);
-  const pnlPct = netPnl / ACCOUNT_BASE * 100;
-  text('kpi-pnl', closed.length ? fmtDollar(netPnl) : '—');
-  setColor('kpi-pnl', closed.length ? (netPnl >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted2)');
-  text('kpi-pnl-sub', closed.length
-    ? `${pnlPct >= 0 ? '+' : ''}${fmtPct(pnlPct)} on $${(ACCOUNT_BASE / 1000).toFixed(0)}k account`
+  setKpiTone('kpi-winrate', !closed.length ? 'var(--muted2)'
+    : closed.length < EXPECTANCY_MIN_CLOSES ? 'var(--yellow)'
+    : winRate >= 55 ? 'var(--green)' : winRate >= 45 ? 'var(--yellow)' : 'var(--red)');
+  text('kpi-winrate-sub', closed.length
+    ? `${wins.length}W / ${losses.length}L`
+      + (closed.length < EXPECTANCY_MIN_CLOSES ? ' — too few to judge' : '')
     : 'No closed trades');
 
-  // Profit Factor
-  const grossWin  = wins.reduce((s, t) => s + t.pnl, 0);
-  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
-  let pfVal = '—', pfCol = 'var(--muted2)';
-  if (closed.length) {
-    if (grossLoss === 0) {
-      pfVal = wins.length ? '∞' : 'N/A';
-      pfCol = wins.length ? 'var(--green)' : 'var(--muted2)';
-    } else {
-      const pf = grossWin / grossLoss;
-      pfVal = pf.toFixed(2);
-      pfCol = pf >= 1.5 ? 'var(--green)' : pf >= 1 ? 'var(--yellow)' : 'var(--red)';
-    }
-  }
-  text('kpi-pf', pfVal);
-  setColor('kpi-pf', pfCol);
-  text('kpi-pf-sub', grossLoss > 0
-    ? `$${grossWin.toFixed(0)} gross wins / $${grossLoss.toFixed(0)} gross losses`
-    : 'Gross win ÷ gross loss');
+  // NET P&L, deliberately last and deliberately grey. The sub-line names the actual
+  // reason it cannot be compared rather than waving at it, and computes the spread
+  // from the rows on screen so it cannot go stale the way a written-in number would.
+  const netPnl = closed.reduce((sum, t) => sum + t.pnl, 0);
+  const spread = lotSpread(closed);
+  text('kpi-pnl', closed.length ? fmtDollar(netPnl) : '—');
+  setKpiTone('kpi-pnl', 'var(--muted2)');
+  text('kpi-pnl-sub', !closed.length ? 'No closed trades'
+    : spread
+      ? `sizes span ${spread.ratio.toFixed(0)}x (${spread.min} → ${spread.max} lots) — dollars do not compare across these`
+      : 'demo account · no balance is read from the broker');
 
-  // Session stats card
-  const avgWin  = wins.length  ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length   : null;
-  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + t.pnl, 0) / losses.length) : null;
-  const best    = closed.length ? closed.reduce((b, t) => t.pnl > b.pnl ? t : b, closed[0]) : null;
-  const worst   = closed.length ? closed.reduce((w, t) => t.pnl < w.pnl ? t : w, closed[0]) : null;
-  const rr      = (avgWin && avgLoss && avgLoss > 0) ? (avgWin / avgLoss).toFixed(2) + ':1' : '—';
+  // SESSION STATS, in R for the same reason the headline is.
+  const winR  = scorable.filter(t => t.realizedR > 0);
+  const lossR = scorable.filter(t => t.realizedR <= 0);
+  const avgWinR  = winR.length  ? winR.reduce((s, t) => s + t.realizedR, 0) / winR.length : null;
+  const avgLossR = lossR.length ? lossR.reduce((s, t) => s + t.realizedR, 0) / lossR.length : null;
+  const best  = scorable.length ? scorable.reduce((b, t) => t.realizedR > b.realizedR ? t : b, scorable[0]) : null;
+  const worst = scorable.length ? scorable.reduce((w, t) => t.realizedR < w.realizedR ? t : w, scorable[0]) : null;
 
   const sr = (label, val, col) =>
     `<div class="stat-row">
-      <span class="stat-label">${label}</span>
-      <span class="stat-val" style="color:${col}">${val}</span>
+      <span class="stat-label">${escapeHtml(label)}</span>
+      <span class="stat-val" style="color:${col}">${escapeHtml(val)}</span>
     </div>`;
 
   html('session-stats', [
-    sr('Avg Win',        avgWin  ? fmtDollar(avgWin)  : '—',      'var(--green)'),
-    sr('Avg Loss',       avgLoss ? fmtDollar(avgLoss)  : '—',      'var(--red)'),
-    sr('Risk / Reward',  rr,                                        'var(--text)'),
-    sr('Best Trade',     best  ? fmtDollar(best.pnl)  : '—',       'var(--green)'),
-    sr('Worst Trade',    worst ? fmtDollar(worst.pnl)  : '—',      'var(--red)'),
-    sr('Open Positions', open.length.toString(),  open.length > 0 ? 'var(--blue)' : 'var(--muted2)'),
+    sr('Avg win',        avgWinR  == null ? '—' : fmtR(avgWinR),  'var(--green)'),
+    sr('Avg loss',       avgLossR == null ? '—' : fmtR(avgLossR), 'var(--red)'),
+    sr('Best trade',     best  ? `${fmtR(best.realizedR)} ${best.symbol || ''}`   : '—', 'var(--green)'),
+    sr('Worst trade',    worst ? `${fmtR(worst.realizedR)} ${worst.symbol || ''}` : '—', 'var(--red)'),
+    sr('Open positions', String(open.length), open.length > 0 ? 'var(--blue)' : 'var(--muted2)'),
+    sr('Unscorable',     String(unscorable),  unscorable > 0 ? 'var(--yellow)' : 'var(--muted2)'),
   ].join(''));
 }
 
 // ── SYSTEM HEALTH ──────────────────────────────────────────────
+// The five go-live gates. Rendered whatever the answer, including when the answer
+// is "could not measure" — an empty readiness strip on a page about P&L reads as
+// "nothing blocking", which is the one thing it must never accidentally say.
+async function loadReadiness() {
+  const gatesEl   = document.getElementById('readiness-gates');
+  const verdictEl = document.getElementById('readiness-verdict');
+  const countEl   = document.getElementById('readiness-count');
+  const noteEl    = document.getElementById('readiness-note');
+
+  // The calibration card is fed from this same response, so it has to be told when
+  // the response never arrived. Left spinning, it reads as "still loading" forever.
+  const fallback = (colour, verdict, note) => {
+    verdictEl.textContent = verdict;
+    verdictEl.style.color = colour;
+    countEl.textContent = '';
+    noteEl.textContent = note;
+    gatesEl.innerHTML = '';
+    const calibBody = el('calib-body');
+    const calibMeta = el('calib-meta');
+    if (calibMeta) calibMeta.textContent = 'unavailable';
+    if (calibBody) calibBody.innerHTML = `<div class="audit-missing">${escapeHtml(note)}</div>`;
+  };
+
+  let data;
+  try {
+    data = await getJson('/go-live-readiness');
+  } catch (err) {
+    // A 401 is the ordinary logged-out case and is NOT a fault; anything else is.
+    // Saying which keeps a tightened allowlist from looking like a broken check.
+    const loggedOut = /401/.test(err.message);
+    fallback('var(--muted)',
+      loggedOut ? 'Sign in to see readiness' : 'Could not measure readiness',
+      loggedOut ? 'This check is session-gated' : escapeHtml(err.message));
+    return;
+  }
+
+  if (!data || data.available === false || !Array.isArray(data.gates) || !data.gates.length) {
+    fallback('var(--red)', 'Could not measure readiness',
+      escapeHtml((data && data.reason) || 'no gates returned'));
+    return;
+  }
+
+  verdictEl.textContent = data.ready ? 'READY' : 'NOT YET';
+  verdictEl.style.color = data.ready ? 'var(--green)' : 'var(--red)';
+  countEl.textContent = data.passed + ' of ' + data.total
+    + ' gates met · ' + escapeHtml(String(data.box || ''));
+  noteEl.innerHTML = 'These gates are AND-ed — there is no 4-of-5.<br>'
+    + 'This is a reading, not permission.';
+
+  gatesEl.innerHTML = data.gates.map(gate => {
+    const status = ['PASS', 'FAIL', 'WAIT'].includes(gate.status) ? gate.status : 'WAIT';
+    return '<div class="gate-row">'
+      + '<div class="gate-status ' + status + '">' + status + '</div>'
+      + '<div class="gate-name">' + escapeHtml(gate.name) + '</div>'
+      + '<div><div class="gate-detail">' + escapeHtml(gate.detail) + '</div>'
+      + '<div class="gate-changes"><b>What would change it:</b> '
+      + escapeHtml(gate.changes) + '</div></div>'
+      + '</div>';
+  }).join('');
+
+  // The CALIBRATION gate already carries its per-tier table. Rendered from the same
+  // response rather than fetched again: a second call would spend another doctor run
+  // to redraw numbers this one already returned.
+  renderCalibration(data.gates.find(g => g.name === 'CALIBRATION') || null);
+}
+
+// Does 85% confidence actually win 85% of the time? Nothing on this system has ever
+// shown that, and it is the question that decides whether the confidence number - which
+// every gate, every threshold and the whole go-live EDGE test is built on - means
+// anything at all.
+function renderCalibration(gate) {
+  const body = el('calib-body');
+  const meta = el('calib-meta');
+  if (!body || !meta) return;
+
+  const rows = gate && Array.isArray(gate.rows) ? gate.rows : [];
+  if (!rows.length) {
+    meta.textContent = 'no data';
+    body.innerHTML = `<div class="empty-state" style="padding:24px 12px">
+      <span class="icon">🎚️</span>
+      No confidence tier has a closed trade yet.
+    </div>`;
+    return;
+  }
+
+  const judged = rows.filter(r => r.judged).length;
+  meta.textContent = `${judged} of ${rows.length} tiers judgeable`;
+
+  const bars = rows.map(row => {
+    const said = clamp(Number(row.expectedPct) || 0, 0, 100);
+    const got  = clamp(Number(row.winRatePct) || 0, 0, 100);
+    // Grey unless the tier has the sample to be read. A green bar over n=2 is exactly
+    // the reassurance this page must not manufacture.
+    const colour = !row.judged ? 'rgba(107,131,168,.45)'
+      : Math.abs(got - said) <= 10 ? 'rgba(0,255,136,.65)'
+      : 'rgba(255,68,68,.65)';
+    return `<div class="calib-row">
+      <div class="calib-tier">${escapeHtml(String(row.tier))}</div>
+      <div class="calib-track" title="said ${said}% · delivered ${got}%">
+        <div class="calib-got" style="width:${got}%;background:${colour}"></div>
+        <div class="calib-said" style="left:${said}%"></div>
+      </div>
+      <div class="calib-n">${row.wins}/${row.trades} won</div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML = bars
+    + `<div class="calib-note">The thin blue line is what the engine SAID; the bar is what it
+       DELIVERED. A tier turns from grey the moment it reaches ${CALIBRATION_MIN_TRADES} trades —
+       until then the gap between the two is noise, not miscalibration.
+       ${gate.changes ? '<br><b style="color:var(--muted2)">What would change it:</b> ' + escapeHtml(gate.changes) : ''}</div>`;
+}
+
+// Is live doing what the walk-forward promised? The endpoint does the arithmetic and
+// carries its own verdicts, including refusing to give one. This renders those verdicts
+// rather than computing a second opinion beside them.
+async function loadLiveVsReplay() {
+  const body = el('lvr-body');
+  const meta = el('lvr-meta');
+  if (!body || !meta) return;
+
+  let data;
+  try {
+    data = await getJson('/live-vs-replay');
+  } catch (err) {
+    meta.textContent = 'unavailable';
+    body.innerHTML = `<div class="audit-missing">${/401/.test(err.message)
+      ? 'Sign in to see the comparison — this check is session-gated.'
+      : escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  if (!data || data.available === false) {
+    meta.textContent = 'unavailable';
+    body.innerHTML = `<div class="audit-missing">${escapeHtml((data && data.reason) || 'no comparison returned')}</div>`;
+    return;
+  }
+
+  meta.textContent = 'gate ' + escapeHtml(String(data.gate ?? '—'));
+
+  const tagClass = (verdict) => {
+    const v = String(verdict || '').toUpperCase();
+    if (v.includes('TOO FEW')) return 'few';
+    if (v.includes('CONSISTENT') || v.includes('MATCH')) return 'good';
+    return 'bad';
+  };
+
+  const block = (label, verdict, left, right, detail) => `
+    <div class="lvr-block">
+      <div class="lvr-label">${escapeHtml(label)}</div>
+      <div class="lvr-verdict">
+        <span class="lvr-tag ${tagClass(verdict)}">${escapeHtml(String(verdict || '—'))}</span>
+      </div>
+      <div class="lvr-pair">
+        <div class="lvr-num">${escapeHtml(left.value)}<span class="lvr-cap">${escapeHtml(left.label)}</span></div>
+        <div class="lvr-num">${escapeHtml(right.value)}<span class="lvr-cap">${escapeHtml(right.label)}</span></div>
+      </div>
+      <div class="lvr-detail">${escapeHtml(detail || '')}</div>
+    </div>`;
+
+  const rate = data.rate || {};
+  const exp  = data.expectancy || {};
+
+  body.innerHTML =
+    block('Does it fire as often as the replay?', rate.verdict,
+      { value: String(rate.observed ?? '—'), label: 'live fills' },
+      { value: rate.expected == null ? '—' : Number(rate.expected).toFixed(1), label: 'replay expected' },
+      rate.detail)
+    + block('Does it earn what the replay earned?', exp.verdict,
+      { value: exp.liveRptGross == null ? '—' : fmtR(exp.liveRptGross), label: 'live R/trade' },
+      { value: exp.replayRptGross == null ? '—' : fmtR(exp.replayRptGross), label: 'replay R/trade' },
+      exp.detail)
+    + (data.blocking
+      ? `<div class="lvr-block"><div class="lvr-label">Blocking</div>
+         <div class="lvr-detail">${escapeHtml(data.blocking)}</div></div>`
+      : '')
+    + `<div class="lvr-detail" style="margin-top:10px;opacity:.8">${escapeHtml(
+        (data.live && data.live.costNote) ? data.live.costNote : '')}</div>`;
+}
+
 async function loadHealth() {
   const grid    = el('health-grid');
   const spinner = el('health-spinner');
@@ -975,7 +1675,7 @@ async function loadHealth() {
   spinner.style.display = 'inline-block';
 
   try {
-    const d = await fetch(API + '/checksystem', { cache: 'no-store' }).then(r => r.json());
+    const d = await getJson('/checksystem');
     spinner.style.display = 'none';
     ts.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { hour12: false });
 
@@ -1022,7 +1722,7 @@ async function loadHealth() {
 // ── SIGNALS ────────────────────────────────────────────────────
 async function loadSignals() {
   try {
-    const d = await fetch(API + '/signals', { cache: 'no-store' }).then(r => r.json());
+    const d = await getJson('/signals');
     renderSignalBars(d);
   } catch {
     text('gauge-sub', 'Signal data unavailable');
@@ -1034,7 +1734,7 @@ async function loadSignals() {
 // ── JOURNAL ────────────────────────────────────────────────────
 async function loadJournal() {
   try {
-    const { journal } = await fetch(API + '/journal', { cache: 'no-store' }).then(r => r.json());
+    const { journal } = await getJson('/journal');
     const trades = journal || [];
     markOnline(true);
     updateKpis(trades);
@@ -1051,22 +1751,39 @@ async function loadJournal() {
 }
 
 // ── SETUP DATA ─────────────────────────────────────────────────
+// The server key is `setupStats`. This read `raw.setups || raw.data || []`, matched
+// neither, and fell through to computeSetupData() every single time — so the board was
+// drawn from win rates recomputed in the browser out of dollars, while the endpoint's
+// own avgRealizedR (the figure that is not distorted by lot size) sat unread. A silent
+// fallback is the worst shape for this bug: the chart still rendered, so nothing looked
+// broken. The fallback is KEPT for a genuinely empty or failing endpoint, but it now
+// says so on the card instead of standing in mutely.
 async function loadSetups(trades) {
   let data = null;
+  let derived = false;
   try {
-    const raw = await fetch(API + '/stats/by-setup', { cache: 'no-store' }).then(r => r.json());
-    const arr = Array.isArray(raw) ? raw : (raw.setups || raw.data || []);
+    const raw = await getJson('/stats/by-setup');
+    const arr = Array.isArray(raw) ? raw : (raw.setupStats || raw.setups || raw.data || []);
     if (arr.length) {
       data = arr.map(s => ({
         name:    s.setup || s.name || s.key || 'UNKNOWN',
-        winRate: s.winRate ?? (s.wins && s.count ? s.wins / s.count * 100 : 0),
-        count:   s.count  ?? s.trades ?? 0,
-        pnl:     s.pnl    ?? s.totalPnl ?? 0,
+        winRate: s.winRate ?? (s.wins && s.trades ? s.wins / s.trades * 100 : 0),
+        count:   s.trades ?? s.count ?? 0,
+        pnl:     s.totalPnl ?? s.pnl ?? 0,
+        avgR:    s.avgRealizedR ?? null,
+        rTrades: s.realizedRTrades ?? 0,
       }));
     }
-  } catch { /* fall through */ }
+  } catch { /* fall through to the local derivation */ }
 
-  if (!data || !data.length) data = computeSetupData(trades);
+  if (!data || !data.length) { data = computeSetupData(trades); derived = true; }
+  const src = el('setup-source');
+  if (src) {
+    src.textContent = derived
+      ? 'derived in-page — /api/stats/by-setup returned nothing'
+      : 'from /api/stats/by-setup';
+    src.style.color = derived ? 'var(--yellow)' : 'var(--muted2)';
+  }
   buildSetupChart(data);
 }
 
@@ -1074,7 +1791,9 @@ async function loadSetups(trades) {
 async function refresh() {
   pulseRefresh();
   const trades = await loadJournal();
-  await Promise.all([ loadSetups(trades), loadHealth(), loadSignals() ]);
+  await Promise.all([
+    loadSetups(trades), loadHealth(), loadSignals(), loadReadiness(), loadLiveVsReplay(),
+  ]);
   text('footer-ts', 'Updated ' + new Date().toLocaleTimeString('en-US', { hour12: false }));
 }
 
@@ -1083,6 +1802,136 @@ refresh();
 setInterval(async () => { pulseRefresh(); const t = await loadJournal(); await loadSetups(t); text('footer-ts', 'Updated ' + new Date().toLocaleTimeString('en-US', { hour12: false })); }, 60_000);
 setInterval(loadHealth,  30_000);
 setInterval(loadSignals, 45_000);
+// Five minutes. The server caches this for 60s and the inputs move on the scale of
+// days, so polling it faster would spend a doctor run per tick to redraw the same
+// five rows. The calibration card rides on this response, not on its own timer.
+setInterval(loadReadiness, 300_000);
+// Same reasoning: the replay side of this comparison is a file that regenerates
+// nightly, and the live side moves once every few DAYS.
+setInterval(loadLiveVsReplay, 300_000);
+
+/* THE THREE BOOKS. Never pooled, and every book that could not be read says so rather than
+   showing a zero that would quietly flatter the total. */
+async function refreshBooks() {
+  var d = null;
+  try {
+    var r = await fetch('/dashboard/performance-books.json?t=' + Date.now());
+    if (r.ok) d = await r.json();
+  } catch (e) { /* handled below */ }
+  var sync = document.getElementById('books-sync');
+  var body = document.getElementById('books-body');
+  if (!sync || !body) return;
+  if (!d) {
+    sync.textContent = 'not published yet';
+    body.innerHTML = '<div style="opacity:.7">tasks/performance_books.cjs has not run yet. '
+      + 'This is not evidence that there is nothing to show.</div>';
+    return;
+  }
+  var age = d.generatedAt ? Math.round((Date.now() - new Date(d.generatedAt).getTime())/60000) : null;
+  sync.textContent = (age === null ? 'age unknown' : age + 'm ago') + ' · never pooled';
+
+  /* THE PEER'S BOOKS, unioned for DISPLAY only. The two boxes' journals are disjoint - 9
+     and 13 closed trades with zero tickets in common - so neither alone is the record.
+     Nothing is merged, rewritten or reconciled on disk: both files stay exactly as their
+     own box wrote them, and this only adds them up on screen. If the peer file is missing
+     the fleet line says so rather than silently showing one box as the total. */
+  var peer = null;
+  try {
+    var pr = await fetch('/dashboard/performance-books.peer.json?t=' + Date.now());
+    if (pr.ok) peer = await pr.json();
+  } catch (e) { /* peer stays null */ }
+
+  var money = function (v) {
+    if (v === null || v === undefined) return '<span style="opacity:.5">&mdash;</span>';
+    var c = v > 0 ? '#3fb950' : (v < 0 ? '#f85149' : 'inherit');
+    return '<span style="color:' + c + '">' + (v > 0 ? '+' : '') + v.toFixed(2) + '</span>';
+  };
+  var rfmt = function (v) {
+    if (v === null || v === undefined) return '<span style="opacity:.5">&mdash;</span>';
+    var c = v > 0 ? '#3fb950' : (v < 0 ? '#f85149' : 'inherit');
+    return '<span style="color:' + c + '">' + (v > 0 ? '+' : '') + v.toFixed(2) + 'R</span>';
+  };
+  var html = '';
+  var se = d.books && d.books.smartEntry;
+  var pse = peer && peer.books && peer.books.smartEntry;
+
+  /* FLEET LINE FIRST, because it is the only complete number on this page. */
+  if (se && pse) {
+    var fT = se.trades + pse.trades;
+    var fM = se.netMoney + pse.netMoney;
+    var fR = (se.netR === null || pse.netR === null) ? null : se.netR + pse.netR;
+    html += '<div style="padding:8px 10px;margin-bottom:10px;border:1px solid rgba(255,255,255,.12);border-radius:6px">'
+      + '<div style="font-size:.7rem;opacity:.6;text-transform:uppercase;letter-spacing:.5px">SmartEntry &mdash; WHOLE FLEET</div>'
+      + '<div style="font-size:.86rem;margin-top:3px">' + fT + ' closed &nbsp;&middot;&nbsp; money '
+      + (function(v){var c=v>0?'#3fb950':(v<0?'#f85149':'inherit');return '<span style="color:'+c+'">'+(v>0?'+':'')+v.toFixed(2)+'</span>';})(fM)
+      + ' &nbsp;&middot;&nbsp; ' + (fR === null ? '&mdash;'
+        : (function(v){var c=v>0?'#3fb950':(v<0?'#f85149':'inherit');return '<span style="color:'+c+'">'+(v>0?'+':'')+v.toFixed(2)+'R</span>';})(fR))
+      + '</div>'
+      + '<div style="font-size:.66rem;opacity:.55;margin-top:3px">this box ' + se.trades
+      + ' + peer ' + pse.trades + ', journals are disjoint. Added for display only &mdash; neither journal is modified.</div></div>';
+  } else if (se && !pse) {
+    html += '<div style="color:#e0a030;font-size:.72rem;margin-bottom:8px">'
+      + 'Peer books not available &mdash; the figures below are THIS BOX ONLY and the fleet total cannot be shown.</div>';
+  }
+  if (!se) {
+    html += '<div style="color:#e0a030">SmartEntry: COULD NOT READ the journal.</div>';
+  } else {
+    html += '<div style="font-size:.7rem;opacity:.6;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'
+      + 'SmartEntry &mdash; ' + se.trades + ' closed &middot; money ' + money(se.netMoney)
+      + ' &middot; ' + rfmt(se.netR) + '</div>'
+      + (se.perBoxWarning ? '<div style="color:#e0a030;font-size:.7rem;margin-bottom:6px">'
+          + se.perBoxWarning + '</div>' : '')
+      + '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:.78rem;width:100%">'
+      + '<tr style="opacity:.6"><th style="text-align:left;padding:3px 10px 3px 0">symbol</th>'
+      + '<th style="text-align:right;padding:3px 10px">trades</th>'
+      + '<th style="text-align:right;padding:3px 10px">win%</th>'
+      + '<th style="text-align:right;padding:3px 10px">money</th>'
+      + '<th style="text-align:right;padding:3px 10px">R</th>'
+      + '<th style="text-align:left;padding:3px 10px">what that means</th></tr>';
+    se.perAsset.forEach(function (a) {
+      var warn = /SIZING/.test(a.verdict);
+      html += '<tr style="border-top:1px solid rgba(255,255,255,.06)">'
+        + '<td style="padding:4px 10px 4px 0">' + a.symbol + '</td>'
+        + '<td style="text-align:right;padding:4px 10px">' + a.trades + '</td>'
+        + '<td style="text-align:right;padding:4px 10px">' + a.winRatePct + '%</td>'
+        + '<td style="text-align:right;padding:4px 10px">' + money(a.netMoney) + '</td>'
+        + '<td style="text-align:right;padding:4px 10px">' + rfmt(a.netR) + '</td>'
+        + '<td style="padding:4px 10px;' + (warn ? 'color:#e0a030;font-weight:600' : 'opacity:.65') + '">'
+        + a.verdict + '</td></tr>';
+    });
+    html += '</table></div>';
+  }
+  var ea = d.books && d.books.eaCrt;
+  html += '<div style="font-size:.7rem;opacity:.6;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px">CRT chart EA &mdash; separate book</div>';
+  if (!ea) {
+    html += '<div style="color:#e0a030">COULD NOT READ the EA review.</div>';
+  } else {
+    html += '<div style="font-size:.78rem">before the fix: ' + money(ea.preFix && ea.preFix.netProfit)
+      + ' over ' + ((ea.preFix && ea.preFix.trades) || 0) + ' trades &nbsp;&middot;&nbsp; '
+      + 'v3.55+ (trail off): ' + (ea.current ? money(ea.current.netProfit)
+        : '<span style="opacity:.7">no closed trades yet</span>') + '</div>'
+      + '<div style="font-size:.68rem;opacity:.55;margin-top:3px">Never summed &mdash; the fixed build must not be averaged into a loss it did not cause.</div>';
+  }
+  var tv = d.books && d.books.tradingViewPaper;
+  html += '<div style="font-size:.7rem;opacity:.6;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px">TradingView paper &mdash; separate account</div>';
+  if (!tv) {
+    html += '<div style="color:#e0a030">COULD NOT READ the TradingView account.</div>';
+  } else if (!tv.readable || !tv.pnl) {
+    html += '<div style="color:#e0a030">COULD NOT READ &mdash; not the same as no activity.</div>';
+  } else {
+    html += '<div style="font-size:.78rem">today ' + money(tv.pnl.today) + ' &nbsp;&middot;&nbsp; week '
+      + money(tv.pnl.week) + ' &nbsp;&middot;&nbsp; month ' + money(tv.pnl.month)
+      + ' &nbsp;&middot;&nbsp; all time ' + money(tv.pnl.allTime) + '</div>';
+    if (tv.crossCheck && tv.crossCheck.agree === false) {
+      html += '<div style="color:#f85149;font-size:.7rem;margin-top:3px">CROSS-CHECK FAILED: '
+        + tv.crossCheck.detail + '</div>';
+    }
+  }
+  html += '<div style="font-size:.66rem;opacity:.5;margin-top:12px">' + (d.neverPool || '') + '</div>';
+  body.innerHTML = html;
+}
+refreshBooks();
+setInterval(refreshBooks, 60000);
 </script>
 </body>
 </html>

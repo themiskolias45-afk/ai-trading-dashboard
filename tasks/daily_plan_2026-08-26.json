@@ -1,0 +1,133 @@
+{
+  "date": "2026-08-26",
+  "generatedAt": "2026-08-26T05:45:00.972081+00:00",
+  "assets": {
+    "btc": {
+      "price": 79077,
+      "levels": {
+        "R2": 84000,
+        "R1": 82000,
+        "pivot": 79077,
+        "S1": 78000,
+        "S2": 76000
+      },
+      "trade_plan": null
+    },
+    "gold": {
+      "price": 4702.8,
+      "levels": {
+        "R2": 4860,
+        "R1": 4770,
+        "pivot": 4702.8,
+        "S1": 4590,
+        "S2": 4500
+      },
+      "trade_plan": {
+        "direction": "BUY",
+        "confidence": 74,
+        "setup": "MOMENTUM",
+        "regime": "TRENDING",
+        "entry": 4641.41,
+        "stop": 4610.29,
+        "target": 4701.75,
+        "rr": 1.9,
+        "risk_pts": 31.12,
+        "reward_pts": 60.34
+      }
+    },
+    "spx": {
+      "price": 7677.28,
+      "levels": {
+        "R2": 8000,
+        "R1": 7800,
+        "pivot": 7677.28,
+        "S1": 7400,
+        "S2": 7200
+      },
+      "trade_plan": null
+    }
+  },
+  "prices": {
+    "btc": 79077,
+    "gold": 4702.8,
+    "spx": 7677.28,
+    "dxy": 98.97,
+    "vix": 15.45
+  },
+  "risk": {
+    "dailyPnl": 0,
+    "consecutiveLosses": 0,
+    "halted": false,
+    "haltReason": "",
+    "accounts": {
+      "A": {
+        "dailyPnl": 0,
+        "consecutiveLosses": 0,
+        "halted": false,
+        "haltReason": "",
+        "account": "A",
+        "haltedAt": null,
+        "haltCause": null,
+        "haltReleasesInSeconds": null,
+        "config": {
+          "riskPercent": 1,
+          "dailyLossPct": 3,
+          "maxConsecLosses": 3,
+          "maxSpreadPts": 50,
+          "autoMode": true,
+          "expectedLogin": "25446287",
+          "remoteHalted": false,
+          "haltCooldownHours": 1
+        }
+      }
+    }
+  },
+  "setup_health": {
+    "BB_SQUEEZE_WATCH": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "RANGE_TRADE_SHORT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "SQUEEZE_BREAKOUT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "MOMENTUM": {
+      "winRate": 100,
+      "total": 2
+    }
+  },
+  "calendar": [
+    {
+      "time": "2026-08-25T21:30:00-04:00",
+      "name": "CPI m/m",
+      "currency": ""
+    },
+    {
+      "time": "2026-08-25T21:30:00-04:00",
+      "name": "CPI y/y",
+      "currency": ""
+    },
+    {
+      "time": "2026-08-25T21:30:00-04:00",
+      "name": "Trimmed Mean CPI m/m",
+      "currency": ""
+    },
+    {
+      "time": "2026-08-26T08:30:00-04:00",
+      "name": "Core PCE Price Index m/m",
+      "currency": ""
+    },
+    {
+      "time": "2026-08-26T08:30:00-04:00",
+      "name": "Prelim GDP q/q",
+      "currency": ""
+    }
+  ],
+  "warnings": [
+    "⚠ 5 high-impact events today — check calendar"
+  ]
+}

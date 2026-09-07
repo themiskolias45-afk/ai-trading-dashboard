@@ -1,0 +1,94 @@
+{
+  "date": "2026-08-25",
+  "generatedAt": "2026-08-25T05:45:01.205396+00:00",
+  "assets": {
+    "btc": {
+      "price": 80755,
+      "levels": {
+        "R2": 84000,
+        "R1": 82000,
+        "pivot": 80755,
+        "S1": 78000,
+        "S2": 76000
+      },
+      "trade_plan": null
+    },
+    "gold": {
+      "price": 4698.1,
+      "levels": {
+        "R2": 4860,
+        "R1": 4770,
+        "pivot": 4698.1,
+        "S1": 4590,
+        "S2": 4500
+      },
+      "trade_plan": null
+    },
+    "spx": {
+      "price": 7652.86,
+      "levels": {
+        "R2": 8000,
+        "R1": 7800,
+        "pivot": 7652.86,
+        "S1": 7400,
+        "S2": 7200
+      },
+      "trade_plan": null
+    }
+  },
+  "prices": {
+    "btc": 80755,
+    "gold": 4698.1,
+    "spx": 7652.86,
+    "dxy": 99.07,
+    "vix": 15.85
+  },
+  "risk": {
+    "dailyPnl": 192.7,
+    "consecutiveLosses": 0,
+    "halted": false,
+    "haltReason": "",
+    "accounts": {
+      "A": {
+        "dailyPnl": 192.7,
+        "consecutiveLosses": 0,
+        "halted": false,
+        "haltReason": "",
+        "account": "A",
+        "haltedAt": null,
+        "haltCause": null,
+        "haltReleasesInSeconds": null,
+        "config": {
+          "riskPercent": 1,
+          "dailyLossPct": 3,
+          "maxConsecLosses": 3,
+          "maxSpreadPts": 50,
+          "autoMode": true,
+          "expectedLogin": "25446287",
+          "remoteHalted": false,
+          "haltCooldownHours": 1
+        }
+      }
+    }
+  },
+  "setup_health": {
+    "BB_SQUEEZE_WATCH": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "RANGE_TRADE_SHORT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "SQUEEZE_BREAKOUT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "MOMENTUM": {
+      "winRate": 100,
+      "total": 2
+    }
+  },
+  "calendar": [],
+  "warnings": []
+}

@@ -1,18 +1,27 @@
 'use strict';
 /**
  * SmartEntry Pro — MCP Server v2
- * 19 native tools. Claude calls these directly — no HTTP fetches, no subprocesses in prompts.
+ * Claude calls these directly — no HTTP fetches, no subprocesses in prompts. The tool
+ * count is not written here on purpose: it was stale within a week last time, and
+ * /api/ai-registry counts the catalogue below by parsing this file.
  *
  * READ TOOLS (instant):
  *   get_signals          — live BTC / GOLD / SPX (S&P 500) signals
  *   get_risk_status      — regime, circuit breaker, daily P&L, news blackout
  *   get_healer           — 6-point system health check
+ *   get_fleet_status     — BOTH boxes: what is armed, both gates, parity, check-ins
  *   get_journal          — trade history with filters
  *   get_learning         — setup win rates and calibration
  *   get_performance      — aggregate stats: WR, P&L, best/worst setup, equity curve
+ *   get_gate_health      — per-gate kill/pass counts (FIRING, not whether it should)
+ *   get_evidence_board   — what is measured vs assumed, and what would change it
+ *   get_ai_work          — did the scheduled agents run, and did anyone read them
  *   read_memory          — search JARVIS persistent memory
  *   get_daily_note       — read today's or any date's session log
  *   analyze_symbol       — deep compound analysis (signals + learning + journal in 1 call)
+ *
+ * Every tool above is READ-ONLY. The four that describe fleet state reach
+ * session-gated routes and this process logs itself in — see the HTTP helper.
  *
  * WRITE TOOLS:
  *   write_memory         — store a fact / lesson / decision permanently
@@ -38,7 +47,10 @@ const { execFile } = require('child_process');
 
 const ROOT       = path.join(__dirname, '..');
 const SERVER_URL = 'http://localhost:3001';
-const PYTHON     = process.platform === 'win32' ? 'python' : 'python3';
+// Resolved by probing, not by PATH order. This used to be the bare string 'python',
+// which on 2026-08-23 meant a Smart-App-Control-blocked uv trampoline. See
+// server/python_path.js for what that cost. Lazy so nothing is spawned at import.
+const { pythonBin, pythonEnv, tried: pythonCandidates } = require('./python_path');
 // The walk-forward replays 5 folds x 3 assets through the live engine. Measured at
 // roughly 90s on this machine; 10 minutes leaves headroom for a slower VPS without
 // letting a hung run hold an MCP call open indefinitely.
@@ -55,20 +67,46 @@ function cached(key, ttlMs, fn) {
 }
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
+//
+// Session-aware. Half the interesting state on this server — the Systems Plan, the
+// fleet comparison — sits behind the dashboard login, and the owner's standing
+// decision is that it STAYS there until the system is stable. So the fix for an MCP
+// session that could not see them is for this process to hold a login, not for the
+// server to open a route. Credentials come from keys.env, the same file the server
+// reads, and this process only ever runs on the same machine as the server.
+//
+// A 401 that parses cleanly reads as a successful response, so status is checked
+// here rather than left to each caller.
+let _sessionCookie = null;
 
-function fetchJSON(urlPath, opts = {}) {
+function readKeysEnvValue(key) {
+  try {
+    const text = fs.readFileSync(path.join(ROOT, 'keys.env'), 'utf8');
+    for (const line of text.split(/\r?\n/)) {
+      const idx = line.indexOf('=');
+      if (idx === -1) continue;
+      if (line.slice(0, idx).trim() === key) return line.slice(idx + 1).trim();
+    }
+  } catch (_) { /* no keys.env — treated as unconfigured */ }
+  return null;
+}
+
+function httpRequest(urlPath, opts = {}) {
   return new Promise((resolve, reject) => {
     const fullUrl = SERVER_URL + urlPath;
     const lib     = fullUrl.startsWith('https') ? https : http;
-    const req     = lib.request(
+    const headers = { 'Content-Type': 'application/json' };
+    if (_sessionCookie) headers.Cookie = _sessionCookie;
+    const req = lib.request(
       fullUrl,
-      { method: opts.method || 'GET', headers: { 'Content-Type': 'application/json' }, timeout: 6000 },
+      { method: opts.method || 'GET', headers, timeout: opts.timeout || 6000 },
       (res) => {
         let body = '';
         res.on('data', d => (body += d));
         res.on('end', () => {
-          try { resolve(JSON.parse(body)); }
-          catch (_) { resolve({ _raw: body }); }
+          let data;
+          try { data = JSON.parse(body); } catch (_) { data = { _raw: body }; }
+          resolve({ status: res.statusCode, headers: res.headers, data });
         });
       }
     );
@@ -79,20 +117,125 @@ function fetchJSON(urlPath, opts = {}) {
   });
 }
 
+async function ensureSession() {
+  const username = readKeysEnvValue('DASHBOARD_USERNAME');
+  const password = readKeysEnvValue('DASHBOARD_PASSWORD');
+  if (!username || !password) return false;
+  try {
+    const res = await httpRequest('/api/login', { method: 'POST', body: { username, password } });
+    const setCookie = res.headers && res.headers['set-cookie'];
+    if (res.status === 200 && setCookie && setCookie.length) {
+      _sessionCookie = String(setCookie[0]).split(';')[0];
+      return true;
+    }
+  } catch (_) { /* fall through to the explicit error below */ }
+  return false;
+}
+
+async function fetchJSON(urlPath, opts = {}) {
+  let res = await httpRequest(urlPath, opts);
+  // One retry, and only on 401: a stale SESSION_SECRET (the server regenerates it
+  // when apikey.txt is deleted) looks identical to never having logged in.
+  if (res.status === 401 && await ensureSession()) {
+    res = await httpRequest(urlPath, opts);
+  }
+  if (res.status === 401) {
+    return {
+      error: 'Not logged in, and this MCP server could not obtain a session.',
+      detail: 'Set DASHBOARD_USERNAME and DASHBOARD_PASSWORD in keys.env. The route is deliberately session-gated — do not expect it to be public.',
+      path: urlPath,
+    };
+  }
+  return res.data;
+}
+
 // ── Python runner ─────────────────────────────────────────────────────────────
 
-function runPython(script, args = [], timeout = 60000) {
+function execPython(script, args = [], timeout = 60000) {
   return new Promise((resolve, reject) => {
+    // "No interpreter at all" is a DIFFERENT failure from "the script ran and exited
+    // non-zero after doing its work", and the two must not be reported the same way.
+    // The tolerance below is deliberate - a script can write its file and then die on
+    // a cp1252 encoding error in its final print, and that work is not lost - but it
+    // also meant that when the interpreter itself could not start, the spawn error
+    // arrived on stderr, became `out`, and was resolved as if it were the script's
+    // output. That is precisely how log_note and write_memory answered {ok: true}
+    // while writing nothing at all on 2026-08-23. Checked first, so it cannot recur.
+    const binary = pythonBin();
+    if (!binary) {
+      return reject(new Error(
+        'No working Python interpreter found on this machine. Tried: ' +
+        pythonCandidates().join(', ') +
+        '. Set SMARTENTRY_PYTHON in keys.env to point at one.'
+      ));
+    }
     execFile(
-      PYTHON, [path.join(ROOT, script), ...args],
-      { cwd: ROOT, timeout, env: { ...process.env, NO_COLOR: '1' } },
+      binary, [path.join(ROOT, script), ...args],
+      // pythonEnv() forces UTF-8 stdout on the child. Without it every MCP python
+      // tool inherits the host console code page and dies on the first non-cp1252
+      // character it prints -- reported to the caller as an ordinary script failure.
+      { cwd: ROOT, timeout, env: pythonEnv({ NO_COLOR: '1' }) },
       (err, stdout, stderr) => {
-        const out = (stdout || '').trim() || (stderr || '').trim();
-        if (err && !out) reject(new Error(stderr || err.message));
-        else resolve(out);
+        const stdoutText = (stdout || '').trim();
+        const stderrText = (stderr || '').trim();
+        // execFile's err.code is the EXIT CODE for a child that ran and failed, but a
+        // STRING like 'ENOENT' when the process could not be spawned at all. Only the
+        // number is an exit code; anything else is reported as null so a caller cannot
+        // print 'ENOENT' where a number belongs.
+        resolve({
+          ok:       !err,
+          exitCode: !err ? 0 : (typeof err.code === 'number' ? err.code : null),
+          timedOut: Boolean(err && err.killed),
+          stdout:   stdoutText,
+          stderr:   stderrText,
+          output:   stdoutText || stderrText,
+        });
       }
     );
   });
+}
+
+/**
+ * The string contract, unchanged, kept as a thin wrapper over execPython.
+ *
+ * Every existing caller reads a string and several are fire-and-forget, so this
+ * deliberately keeps the ORIGINAL behaviour including its tolerance: a script that
+ * writes its file and then dies on a cp1252 error in its final print has still done
+ * the work, and that output is still returned rather than thrown away. Only the
+ * no-output case rejects, exactly as before.
+ *
+ * What that tolerance CANNOT do is tell a caller the child failed — which is why any
+ * tool whose job is to PERSIST something must call execPython and read `ok`.
+ */
+function runPython(script, args = [], timeout = 60000) {
+  return execPython(script, args, timeout).then(result => {
+    if (!result.ok && !result.output) {
+      throw new Error(result.stderr || `${script} exited with code ${result.exitCode}`);
+    }
+    return result.output;
+  });
+}
+
+// A write tool that answers ok:true when its child failed is worse than one that
+// throws: the caller records the note or the memory as saved, moves on, and the loss is
+// discovered only when someone goes looking for it. On 2026-08-23 log_note and
+// write_memory answered {ok: true} while writing nothing at all for hours, because
+// runPython resolves whenever the child printed ANYTHING — a python traceback goes to
+// stderr, becomes the "output", and reads as success.
+//
+// The interpreter-missing case was fixed separately and is caught before spawn. This
+// covers the other half: the interpreter starts, the script runs, and it exits non-zero.
+function pythonFailure(script, result) {
+  const cause = result.timedOut
+    ? 'timed out'
+    : result.exitCode === null ? 'could not be run' : `exited with code ${result.exitCode}`;
+  return {
+    ok: false,
+    error: `${script} ${cause} — nothing was written. Read 'output' for what it printed.`,
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    output: result.output,
+  };
 }
 
 // ── Parallel fetch helper ─────────────────────────────────────────────────────
@@ -178,8 +321,10 @@ const TOOLS = [
       'Get self-learning engine data: per-setup win rates, confidence calibration ' +
       '(does 85% confidence really produce 85% WR?), boost/penalty applied to each setup, ' +
       'and total sessions tracked. ' +
-      'setupStats counts REAL FILLS and is tiny - one closed trade in this system\'s ' +
-      'history - so most setups sit below the 5-trade floor and carry boost 0. ' +
+      'setupStats counts REAL FILLS and is small because the system is WEEKS OLD, not ' +
+      'because it refuses to trade - it fills about once every 4 days. Most setups ' +
+      'sit below the 5-trade floor and carry boost 0. Never quote a fill count from ' +
+      'this text; call get_performance for the live one. ' +
       'The separate `shadow` key holds per-setup outcomes from REJECTED setups walked ' +
       'forward on real broker bars: far more of them, but they are forgone PAPER trades ' +
       'with no slippage and no spread, on entries that were never filled. ' +
@@ -188,6 +333,118 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} },
     async handler() {
       return cached('learning', 60000, () => fetchJSON('/api/learning'));
+    },
+  },
+
+  {
+    name: 'get_rejection_evidence',
+    description:
+      'Per-gate verdict on every setup the gates threw away: did rejecting it SAVE ' +
+      'money or COST money? Each rejection is a fully priced paper trade walked ' +
+      'forward on real broker bars, so a gate whose rejections would have LOST is ' +
+      'earning its keep and one whose rejections would have WON is charging the ' +
+      'account for nothing. ' +
+      'Returns per gate: resolved count, would-have-won %, net R, pending, and a ' +
+      'verdict of EARNING ITS KEEP / COSTING MONEY / NO MEASURABLE COST / TOO FEW ' +
+      'TO JUDGE (floor is 5 resolved). Also a cross-gate per-setup view showing ' +
+      'which setups are being discarded regardless of which gate killed them. ' +
+      'THIS IS THE ANSWER TO "why does the system never trade" — use it before ' +
+      'proposing any threshold change. ' +
+      'These are forgone PAPER trades: no spread, no slippage, entries never ' +
+      'filled, fixed scoring horizon. Never present them as realised P&L, never ' +
+      'merge them with get_performance, and where they contradict a walk-forward ' +
+      'the walk-forward wins. feedsTheGate is false — this changes no threshold ' +
+      'and no signal.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      return cached('rejectionEvidence', 60000, () => fetchJSON('/api/rejection-evidence'));
+    },
+  },
+
+  {
+    name: 'check_decision',
+    description:
+      'ASK BEFORE YOU CHANGE ANYTHING: has this already been decided? Searches the ' +
+      'standing-decision register — every "DO NOT", "NEVER" and "LOCKED" rule written ' +
+      'into this codebase, harvested out of the source comments where they actually ' +
+      'live and where nothing else can find them. Each one records something that ' +
+      'already went wrong once, and returns the full reasoning, not just the rule. ' +
+      'USE IT BEFORE proposing or making any change: a threshold, a gate, a chart, a ' +
+      'schedule, a deletion. If your change contradicts a decision, SURFACE THE ' +
+      'CONFLICT and get an explicit answer — do not override it and do not re-derive ' +
+      'it from first principles, because the reasoning attached to it is what a ' +
+      'previous attempt already cost. ' +
+      'WHY THIS EXISTS: on 2026-09-02 an agent rewrote the TradingView chart to draw ' +
+      'pivot lines. That exact change had been made before, caused a real incident, ' +
+      'and been reversed with the reasoning written down — as a code comment nothing ' +
+      'indexed. It found the note by accident, AFTER shipping, then a second attempt ' +
+      'shipped it again. An empty result is NOT a green light: it means no RECORDED ' +
+      'decision matches, and the memory corpus should be searched too. ' +
+      'Read-only. Changes nothing, blocks nothing, feeds no gate.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          description: 'What you are about to change, in plain words — ' +
+            'e.g. "draw price lines on the chart", "lower the confidence gate", ' +
+            '"delete the rejection ledger". Also accepts a file path.',
+        },
+      },
+      required: ['topic'],
+    },
+    async handler({ topic }) {
+      // Reads the append-only register directly rather than shelling out to
+      // tasks/decisions.cjs. One less process, no timeout to tune, and — the reason that
+      // matters — this tool must still answer when the trading server is down, which is
+      // exactly when someone is about to change something in a hurry.
+      const file = path.join(ROOT, 'tasks', 'decision_register.jsonl');
+      if (!fs.existsSync(file)) {
+        return {
+          available: false,
+          reason: 'no decision register on this box — build it with: ' +
+                  'node tasks/decisions.cjs harvest',
+          feedsTheGate: false,
+        };
+      }
+      const byKey = new Map();
+      let corrupt = 0;
+      for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+        const l = line.trim();
+        if (!l) continue;
+        try { const r = JSON.parse(l); byKey.set(r.key, r); } catch (e) { corrupt++; }
+      }
+      const rows = [...byKey.values()];
+      const terms = String(topic || '').toLowerCase().split(/\s+/).filter(t => t.length > 2);
+      const scored = rows.map(r => {
+        const hay = ((r.title || '') + ' ' + (r.text || '') + ' ' +
+                     (r.governs || '') + ' ' + (r.file || '')).toLowerCase();
+        return { r, score: terms.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0) };
+      }).filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+
+      return {
+        available: true,
+        topic,
+        standingDecisions: rows.length,
+        corruptRows: corrupt,
+        matches: scored.map(({ r, score }) => ({
+          matchedTerms: score,
+          where: r.file ? r.file + ':' + r.line : 'explicit',
+          governs: r.governs || null,
+          decision: r.text,
+        })),
+        // Said explicitly because "no matches" is the answer most likely to be
+        // misread as permission.
+        guidance: scored.length
+          ? 'These are STANDING DECISIONS. If your change contradicts one, surface the ' +
+            'conflict rather than overriding it.'
+          : 'No recorded decision matches. That is NOT a green light — this register ' +
+            'covers decisions written as code comments or added explicitly. Search the ' +
+            'memory corpus as well before proceeding.',
+        feedsTheGate: false,
+      };
     },
   },
 
@@ -270,9 +527,28 @@ const TOOLS = [
       let entries = data.entries || [];
       if (query) {
         const q = query.toLowerCase();
+        // Guarded because tasks/jarvis_memory.json has TWO WRITERS and therefore two
+        // row shapes. memory.py writes {key, value, category, ...}; server/index.js
+        // appends session notes in its own {ts, tag, text} shape onto the same file —
+        // memory.py:44 and :95 both say so in their own comments. A note-shaped row has
+        // no key and no value, so the unguarded e.key.toLowerCase() below threw
+        // "Cannot read properties of undefined (reading 'toLowerCase')" and took the
+        // ENTIRE query path down. Measured 2026-08-28: ONE such row against 69 good
+        // ones killed recall across all 70, and CLAUDE.md startup steps 2c and 2e both
+        // call this with a query, so both had been silently erroring every session.
+        //
+        // The fix is the READER, not the row. The row is real data and is never
+        // removed; guarding here also survives the NEXT note-shaped append, whereas
+        // repairing the file leaves the same bug armed for the next one.
         entries = entries.filter(e =>
-          e.key.toLowerCase().includes(q) || e.value.toLowerCase().includes(q) ||
-          (e.category || '').toLowerCase().includes(q)
+          (e.key || '').toLowerCase().includes(q) ||
+          (e.value || '').toLowerCase().includes(q) ||
+          (e.category || '').toLowerCase().includes(q) ||
+          // Note-shaped rows carry their content in `text` and their label in `tag`.
+          // Searching them too means a session note is FINDABLE rather than merely
+          // non-fatal — the file's second half stops being invisible to recall.
+          (e.text || '').toLowerCase().includes(q) ||
+          (e.tag || '').toLowerCase().includes(q)
         );
       }
       return {
@@ -317,12 +593,21 @@ const TOOLS = [
       const sym = symbol.toUpperCase();
       const key = sym.toLowerCase();
 
-      const [signals, learning, journal, risk] = await fetchParallel([
+      const [signals, learning, journal, risk, settings] = await fetchParallel([
         '/api/signals',
         '/api/learning',
         `/api/journal?symbol=${sym}&limit=10`,
         '/api/risk-status',
+        '/api/strategy-settings',
       ]);
+
+      // The gate in force, never a literal. This tool used to compare confidence
+      // against a hardcoded 65 while the live gate has been 70 since 2026-08-02, so it
+      // reported trade_ready:true for setups the engine would refuse. Falls back to 70
+      // rather than 65 if settings are unreadable — the conservative direction, since
+      // guessing low invents readiness that does not exist.
+      const gateThreshold = Number.isFinite(settings?.confidenceThreshold)
+        ? settings.confidenceThreshold : 70;
 
       const sig  = signals[key] || {};
       const setup = sig.setup || '';
@@ -373,9 +658,20 @@ const TOOLS = [
           })),
         },
         risk_regime:   risk?.regime || 'UNKNOWN',
-        circuit_open:  risk?.circuitBreakerOpen || false,
-        news_blackout: risk?.newsBlackout || false,
-        trade_ready:   (sig.confidence || 0) >= 65 && !risk?.circuitBreakerOpen && !risk?.newsBlackout,
+        // `circuitBreakerOpen` and `newsBlackout` are not fields /api/risk-status
+        // returns, so these two reported a confident FALSE at all times — including
+        // while the box was actually halted — and trade_ready ignored the breaker
+        // entirely. `halted` is the real field.
+        circuit_open:  risk?.halted || false,
+        halt_reason:   risk?.haltReason || null,
+        // The blackout is on /api/newsfilter, which this tool does not fetch. Say that
+        // rather than report a false, which is what made the old line dangerous: a
+        // reader cannot tell "checked and clear" from "never looked".
+        news_blackout: 'not checked here — see get_gate_health or /api/newsfilter',
+        // Was hardcoded 65 while the live gate has been 70 since 2026-08-02, so this
+        // called setups ready that the engine would refuse. Read from the live config.
+        trade_ready:   (sig.confidence || 0) >= gateThreshold && !risk?.halted,
+        gate_used:     gateThreshold,
       };
     },
   },
@@ -401,8 +697,9 @@ const TOOLS = [
     },
     async handler({ key, value, category = 'GENERAL' } = {}) {
       if (!key || !value) return { ok: false, error: 'key and value are required' };
-      const output = await runPython('memory.py', ['add', key, value, category]);
-      return { ok: true, output };
+      const result = await execPython('memory.py', ['add', key, value, category]);
+      if (!result.ok) return pythonFailure('memory.py', result);
+      return { ok: true, output: result.output };
     },
   },
 
@@ -419,8 +716,9 @@ const TOOLS = [
     },
     async handler({ text, tag = 'NOTE' } = {}) {
       if (!text) return { ok: false, error: 'text is required' };
-      const output = await runPython('daily_notes.py', ['log', text, tag]);
-      return { ok: true, output };
+      const result = await execPython('daily_notes.py', ['log', text, tag]);
+      if (!result.ok) return pythonFailure('daily_notes.py', result);
+      return { ok: true, output: result.output };
     },
   },
 
@@ -551,21 +849,41 @@ const TOOLS = [
       },
     },
     async handler({ symbol, direction, entry, stop, target, lots, confidence = 80, source = 'manual' } = {}) {
-      // Circuit breaker check first
+      // Circuit breaker check first.
+      //
+      // This guard was DEAD. It read `risk.circuitBreakerOpen` and `risk.newsBlackout`,
+      // and /api/risk-status has never returned either field — it returns dailyPnl,
+      // consecutiveLosses, halted, haltReason and accounts. Both reads were permanently
+      // undefined, so neither branch could ever be taken, and a tool whose own
+      // description promises "refuses if 3 consecutive losses" would happily place a
+      // trade with the breaker open. The bridge's own gates were the only thing
+      // actually stopping it.
       const risk = await cached('risk', 10000, () => fetchJSON('/api/risk-status'));
-      if (risk?.circuitBreakerOpen) {
+      if (risk?.halted) {
         return {
           executed: false,
           blocked:  true,
-          reason:   'Circuit breaker is open — 3 consecutive losses. Trading halted until manual reset.',
+          reason:   `Circuit breaker is open — ${risk.haltReason || 'trading halted'}. `
+                  + 'Trading is halted until it resets or a human clears it.',
         };
       }
-      if (risk?.newsBlackout) {
-        return {
-          executed: false,
-          blocked:  true,
-          reason:   'News blackout active — no trades allowed during high-impact news.',
-        };
+      // The blackout lives on /api/newsfilter, not on risk-status. Fetched separately
+      // and FAILING OPEN: the bridge enforces NEWS_BLACKOUT itself before every order,
+      // so a transient fetch error here must not stop a trade that the real gate would
+      // allow. Reported rather than swallowed, so a permanently failing fetch is
+      // visible instead of quietly reducing this to no guard at all.
+      let newsNote = null;
+      try {
+        const news = await cached('newsfilter', 60000, () => fetchJSON('/api/newsfilter'));
+        if (news?.enabled && news?.blackout) {
+          return {
+            executed: false,
+            blocked:  true,
+            reason:   `News blackout active — ${news.reason || 'high-impact event window'}.`,
+          };
+        }
+      } catch (e) {
+        newsNote = `news blackout NOT checked here (${e.message}) — the bridge still enforces it`;
       }
 
       const result = await fetchJSON('/api/claude-approve-trade', {
@@ -622,7 +940,13 @@ const TOOLS = [
         assets: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Default: [BTC, GOLD, SPX]. Add ETH, NASDAQ, OIL for full scan.',
+          description:
+            'BTC, GOLD and SPX — those are the only three the server computes. ' +
+            'ETH, NASDAQ and OIL are accepted by the scanner but /api/signals carries ' +
+            'no key for them and mt5_bridge.py has no SYMBOL_CANDIDATES entry, so they ' +
+            'come back as UNSUPPORTED (never evaluated), not as a quiet market. This ' +
+            'description used to read "Add ETH, NASDAQ, OIL for full scan", advertising ' +
+            'a capability that does not exist.',
         },
         debate: {
           type: 'boolean',
@@ -686,9 +1010,13 @@ const TOOLS = [
       step(`Signal: ${sig.symbol} ${sig.signal} @ ${sig.entry} conf=${sig.confidence}%`);
 
       // 2. Circuit breaker
+      //
+      // Same dead guard as execute_trade had: `circuitBreakerOpen` is not a field
+      // /api/risk-status returns, so this step was a no-op in a workflow that ends by
+      // placing a real order. `halted` is the field.
       const risk = await fetchJSON('/api/risk-status');
-      if (risk?.circuitBreakerOpen) {
-        return { ok: false, reason: 'Circuit breaker open — trading halted', log };
+      if (risk?.halted) {
+        return { ok: false, reason: `Circuit breaker open — ${risk.haltReason || 'trading halted'}`, log };
       }
 
       // 3. Debate
@@ -796,6 +1124,286 @@ const TOOLS = [
       const tag = String(account || '').trim();
       if (!tag) throw new Error('account tag required (A, B, or default)');
       return fetchJSON(`/api/mt5/health?account=${encodeURIComponent(tag)}`);
+    },
+  },
+
+  {
+    name: 'get_time_context',
+    description:
+      'WHAT TIME IT IS, and how long ago everything happened. Call this before any ' +
+      'reasoning that involves when: staleness, "has this fired in N days", which ' +
+      'session is live, whether it is the weekend, what yesterday\'s date was for a ' +
+      'daily-note lookup. This system stores LOCAL time in its logs and UTC in every ' +
+      'API, and on 2026-08-10 that read as a corrupt log — bridge_log_A.txt said ' +
+      '16:17 while /api/status said 13:38Z, and the difference was BST. Both clocks, ' +
+      'the offset and the DST state are returned together so that cannot happen ' +
+      'again. Also returns year, month, ISO week, quarter, day-of-year, weekday, ' +
+      'today/yesterday/tomorrow as ISO dates, the current and next trading session ' +
+      'with minutes until it changes, and the age of every moving part — signal ' +
+      'cache, each bridge heartbeat, last trade, last parity run, last backup, ' +
+      'server uptime — each as a timestamp, a millisecond age, AND in words. ' +
+      'Sessions here are UTC clock boundaries; whether a market is really trading is ' +
+      'answered by feed freshness, not by that schedule.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      return cached('now', 5000, () => fetchJSON('/api/now'));
+    },
+  },
+
+  {
+    name: 'get_brain_status',
+    description:
+      'EVERYTHING, IN ONE CALL — the widest read available, for the start of a ' +
+      'session or any question of the form "what is going on". Composes: the time ' +
+      'context; the fleet verdict across BOTH boxes (what is armed, both gates, ' +
+      'engine parity, peer check-ins); live signals and the confidence gate they are ' +
+      'measured against; risk and circuit-breaker state; the AI employee\'s verdicts ' +
+      'and anything it proposed that nobody has read; and the evidence board\'s ' +
+      'account of what is MEASURED versus merely assumed. Every part is read-only ' +
+      'and none of it feeds the gate. Prefer this over firing six tools separately, ' +
+      'and read the `blocking` field first: it names the constraint that actually ' +
+      'limits this system, which is sample size, not ideas.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        full: { type: 'boolean', description: 'Include the raw payloads as well as the summary' },
+      },
+    },
+    async handler({ full } = {}) {
+      const [now, plan, fleet, signals, risk, work, board, settings, ctx] = await fetchParallel([
+        '/api/now', '/api/system-plan', '/api/fleet', '/api/signals',
+        '/api/risk-status', '/api/ai-work', '/api/evidence-board', '/api/strategy-settings',
+        '/api/market-context',
+      ]);
+
+      const gate = typeof settings?.confidenceThreshold === 'number' ? settings.confidenceThreshold : null;
+      const assets = ['btc', 'gold', 'spx'];
+      const signalSummary = {};
+      for (const asset of assets) {
+        const s = signals?.[asset];
+        if (!s) continue;
+        const zones = ctx?.[asset]?.zones;
+        const zoneProximity = zones ? {
+          nearestAbove: zones.nearestAbove ? {
+            score: zones.nearestAbove.score ?? null,
+            distanceAtr: zones.nearestAbove.distanceAtr ?? null,
+            low: zones.nearestAbove.low ?? null,
+            high: zones.nearestAbove.high ?? null,
+            methods: zones.nearestAbove.methods ?? [],
+          } : null,
+          nearestBelow: zones.nearestBelow ? {
+            score: zones.nearestBelow.score ?? null,
+            distanceAtr: zones.nearestBelow.distanceAtr ?? null,
+            low: zones.nearestBelow.low ?? null,
+            high: zones.nearestBelow.high ?? null,
+            methods: zones.nearestBelow.methods ?? [],
+          } : null,
+          priceInside: zones.priceInside ?? null,
+        } : null;
+        signalSummary[asset] = {
+          signal: s.signal ?? null,
+          confidence: s.confidence ?? null,
+          gapToGate: gate !== null && typeof s.confidence === 'number'
+            ? Math.max(0, gate - s.confidence) : null,
+          setup: s.setup ?? null,
+          h1Agree: s.h1Agree ?? null,
+          zoneProximity,
+        };
+      }
+
+      const peer = fleet?.peer ?? plan?.peer ?? {};
+      const divergence = plan?.divergence ?? {};
+
+      // The honest constraint. The sample is small because the system is WEEKS OLD
+      // - it fills roughly once every 4 days, against ~218/yr for the same engine
+      // in replay - so every threshold argument is under-powered until TIME passes.
+      // That is arithmetic, not a fault, and the fix is to let it run. The rejection
+      // ledger is the only thing that manufactures evidence without waiting. Do NOT
+      // write a fill count here: it went stale at 'one' and stayed wrong for weeks.
+      const blocking = {
+        constraint: 'sample size',
+        detail: 'Threshold and edge claims are under-powered until far more trades resolve. '
+              + 'The rejection ledger prices every gate rejection as a paper trade at zero risk — '
+              + 'read it before proposing any threshold change, and remember a walk-forward '
+              + 'beats it wherever they disagree.',
+        unreviewedProposals: fleet?.proposals?.fleetUnreviewed ?? null,
+      };
+
+      const summary = {
+        time: now?.error ? { error: now.error } : {
+          utc: now?.now?.utc, local: now?.now?.local, timeZone: now?.now?.localTimeZone,
+          weekday: now?.calendar?.weekday, today: now?.calendar?.today,
+          isWeekend: now?.calendar?.isWeekend, isoWeek: now?.calendar?.isoWeek,
+          session: now?.session?.current?.name, nextSession: now?.session?.next,
+          ages: now?.ages,
+        },
+        fleet: {
+          verdict: !peer.configured ? 'SINGLE BOX'
+                 : !peer.reachable ? 'PEER UNREACHABLE'
+                 : (divergence.gate?.differs || divergence.engine?.differs) ? 'FLEET DIVERGES'
+                 : 'FLEET AGREES',
+          thisBoxGate: plan?.thisBox?.gate ?? null,
+          peerGate: peer.gate ?? null,
+          parity: plan?.parity ?? null,
+          heartbeats: plan?.heartbeats ?? null,
+          actionItems: (plan?.actionItems || []).map(i => `[${i.severity}] ${i.title}`),
+        },
+        trading: {
+          gate,
+          minStrength: settings?.minStrength ?? null,
+          halted: risk?.halted ?? null,
+          haltReason: risk?.haltReason || '',
+          dailyPnl: risk?.dailyPnl ?? null,
+          consecutiveLosses: risk?.consecutiveLosses ?? null,
+          signals: signalSummary,
+        },
+        employee: {
+          jobs: (work?.jobs || []).map(j => `${j.label}: ${j.verdict}`),
+          unreviewedHere: work?.totals?.unreviewed ?? null,
+          unappraisedTasks: work?.totals?.unappraisedTasks ?? null,
+        },
+        evidence: {
+          claims: Array.isArray(board?.claims) ? board.claims.length : null,
+          note: 'Each claim carries its verdict, evidence, caveat and what would change the answer.',
+        },
+        blocking,
+        feedsTheGate: false,
+      };
+
+      return full ? { summary, now, plan, fleet, signals, risk, work, board, settings } : summary;
+    },
+  },
+
+  {
+    name: 'get_fleet_status',
+    description:
+      'THE FLEET, BOTH BOXES, IN ONE CALL — the tool to reach for before trusting any number ' +
+      'that pools the laptop and the VPS. Every other health tool here describes ONE machine ' +
+      'while presenting itself as the system, and every expensive failure this system has had ' +
+      'was a divergence while both boxes reported healthy: AutoTrading disabled on the VPS for ' +
+      '11 days behind green checks, a per-machine strategy_settings.json running a different ' +
+      'gate off the same commit, cohort_table.js absent so the box that trades was the one box ' +
+      'that never named a dead cohort. Returns: a one-word verdict, what is ARMED per account ' +
+      'per box (config.autoMode, reported by the bridge that enforces it), the confidence gate ' +
+      'on each box, circuit-breaker state, engine-parity verdict with its age, peer check-ins, ' +
+      'unreviewed AI-employee proposals across BOTH boxes, and the action items that can ' +
+      'actually clear. A gate mismatch means the two boxes admit different trades from ' +
+      'identical bars and their journals cannot be pooled.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        full: { type: 'boolean', description: 'Return the raw plan and fleet payloads as well as the summary' },
+      },
+    },
+    async handler({ full } = {}) {
+      const [plan, fleet] = await fetchParallel(['/api/system-plan', '/api/fleet']);
+      if (plan && plan.error) return { error: plan.error, detail: plan.detail ?? null };
+
+      const peer = fleet && fleet.peer ? fleet.peer : (plan.peer || {});
+      const divergence = plan.divergence || {};
+      const gateDiffers     = !!(divergence.gate             && divergence.gate.differs);
+      const engineDiffers   = !!(divergence.engine           && divergence.engine.differs);
+      const cooldownDiffers = !!(divergence.haltCooldownHours && divergence.haltCooldownHours.differs);
+
+      let verdict;
+      if (!peer.configured)            verdict = 'SINGLE BOX — no peer configured, everything below is one machine';
+      else if (!peer.reachable)        verdict = 'PEER UNREACHABLE — the other box did not answer';
+      else if (gateDiffers || engineDiffers || cooldownDiffers) verdict = 'FLEET DIVERGES — the two boxes do not agree';
+      else                             verdict = 'FLEET AGREES';
+
+      const summary = {
+        verdict,
+        actionItems: (plan.actionItems || []).map(i => `[${i.severity}] ${i.title}`),
+        standingNotes: (plan.standingNotes || []).length,
+        thisBox: {
+          label: plan.thisBox?.label ?? null,
+          gate: plan.thisBox?.gate ?? null,
+          halted: plan.thisBox?.halted ?? null,
+          settingsError: plan.thisBox?.settingsError ?? null,
+          bridgesLive: plan.thisBox?.bridges?.reporting ?? [],
+          bridgesSilent: plan.thisBox?.bridges?.silent ?? [],
+          armed: (fleet?.thisBox?.arming || []).filter(a => a.autoMode).map(a => a.tag),
+        },
+        peer: {
+          url: peer.url ?? null,
+          reachable: peer.reachable ?? false,
+          gate: peer.gate ?? null,
+          halted: peer.halted ?? null,
+          settingsError: peer.settingsError ?? null,
+          bridgesLive: peer.bridges?.reporting ?? [],
+          bridgesSilent: peer.bridges?.silent ?? [],
+          armed: (peer.arming || []).filter(a => a.autoMode).map(a => a.tag),
+        },
+        divergence,
+        parity: plan.parity ?? null,
+        heartbeats: plan.heartbeats ?? null,
+        unreviewedProposals: fleet?.proposals ?? null,
+        settingsComparison: (fleet?.settingsComparison || []).filter(f => f.differs),
+        feedsTheGate: false,
+      };
+      return full ? { summary, plan, fleet } : summary;
+    },
+  },
+
+  {
+    name: 'get_ai_work',
+    description:
+      'The AI employee\'s timesheet and appraisal: did the scheduled agents run, did they ' +
+      'succeed, and did anyone read what they wrote. Verdict per job — HEALTHY, FAILING, STALE, ' +
+      'INCOMPLETE, NO COMPLETION MARKER, or OUTPUT IGNORED, which means the agent is working and ' +
+      'nobody is reading it and costs exactly what failing costs. Also lists every PROPOSED FIX ' +
+      'harvested from the job logs with its decision status. Read-only over logs those jobs ' +
+      'already write: runs nothing, spawns nothing, spends no tokens. NOTE this covers THIS box ' +
+      'only — use get_fleet_status for the other box\'s unreviewed proposals, which is where they ' +
+      'have historically piled up unseen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        unreviewedOnly: { type: 'boolean', description: 'Return only proposals nobody has decided on yet' },
+      },
+    },
+    async handler({ unreviewedOnly } = {}) {
+      const data = await cached('ai-work', 30000, () => fetchJSON('/api/ai-work'));
+      if (!unreviewedOnly || !data || !Array.isArray(data.proposals)) return data;
+      // DEFERRED counts as still-owed work, not as read. `unreviewedOnly` means "show me
+      // what still needs me", and a proposal accepted-but-unapplied needs someone as much
+      // as an undecided one — filtering to UNREVIEWED alone would hide exactly the work
+      // the deferred status was added to keep visible, which is the same disappearing act
+      // the OUTPUT IGNORED verdict exists to prevent.
+      const stillOwed = p => p.status === 'UNREVIEWED'
+        || String(p.status || '').trim().toLowerCase() === 'deferred';
+      return { ...data, proposals: data.proposals.filter(stillOwed) };
+    },
+  },
+
+  {
+    name: 'get_gate_health',
+    description:
+      'Per-gate kill/pass counts — which gate is actually stopping trades. Says a gate is FIRING; ' +
+      'it does NOT say whether it should have, which is get_rejection_evidence\'s job. Never merge ' +
+      'the two. Known and verified 2026-08-09: the funnel dies at CONFIDENCE (killed 5, passed 1) ' +
+      'and 6 of the 10 gates look silent for correct reasons — ENTRY_RSI is disarmed by config, ' +
+      'COHORT_FLOOR only records when a setup CLEARS the global gate first, and the bridge gates ' +
+      'fire only on a real trade attempt so they are silent on the laptop and not on the VPS. ' +
+      'NONE of the ten gates is broken. Do not "fix" them.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      return cached('gate-health', 30000, () => fetchJSON('/api/gate-health'));
+    },
+  },
+
+  {
+    name: 'get_evidence_board',
+    description:
+      'What this system KNOWS versus what it merely assumes. Every curated claim carries its ' +
+      'verdict, the evidence behind it, its caveat, and WHAT WOULD CHANGE THE ANSWER — joined to ' +
+      'the live per-gate verdicts, so any number on the dashboard can be traced to whether it was ' +
+      'ever tested. Read this before proposing a threshold change or repeating a claim about this ' +
+      'system\'s edge. Curated claims live in server/evidence_register.js and MUST be updated ' +
+      'whenever something new is measured, or the board goes stale and starts lying.',
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      return cached('evidence-board', 60000, () => fetchJSON('/api/evidence-board'));
     },
   },
 
@@ -908,4 +1516,14 @@ rl.on('line', async (line) => {
   send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
 });
 
-process.stderr.write('[SmartEntry MCP v2] Started — 19 tools ready\n');
+// Counted, not hardcoded. This banner read "19 tools" while 23 were registered —
+// a number that only drifts in one direction and misreports the surface area of
+// everything the AI can reach.
+process.stderr.write(`[SmartEntry MCP v2] Started — ${TOOLS.length} tools ready\n`);
+
+// Test seam. This file is the ENTIRE surface the AI can reach and had no test of any
+// kind, because requiring it was the only way in and nothing was exported. The stdio
+// listener above is deliberately left running on require rather than guarded: guarding
+// it would change how this process starts in production, where .mcp.json launches it
+// directly, and a test can simply exit when it is done.
+module.exports = { execPython, runPython, pythonFailure };

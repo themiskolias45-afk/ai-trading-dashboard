@@ -1,0 +1,24 @@
+{
+  "date": "2026-08-12",
+  "total": 1,
+  "wins": 0,
+  "losses": 1,
+  "win_rate": 0.0,
+  "gross_pnl": -6.64,
+  "best": {
+    "symbol": "BTCUSD",
+    "pnl": -6.64
+  },
+  "worst": {
+    "symbol": "BTCUSD",
+    "pnl": -6.64
+  },
+  "setups": {
+    "SQUEEZE_BREAKOUT": {
+      "wins": 0,
+      "losses": 1,
+      "pnl": -6.64
+    }
+  },
+  "insight": "TODAY: One SQUEEZE_BREAKOUT trade fired and failed, closing the day at 0% win rate for -$6.64.\nPATTERN: All three setups in the system's history (BB_SQUEEZE_WATCH, RANGE_TRADE_SHORT, SQUEEZE_BREAKOUT) are sitting at 0% WR with only 1 trade each — that's too thin a sample to trust or discard any of them, so avoid over-reacting to a single loss.\nTOMORROW: Keep position size minimal on these unproven setups until each has a larger sample, and watch specifically whether SQUEEZE_BREAKOUT entries are firing too early relative to actual volatility expansion."
+}

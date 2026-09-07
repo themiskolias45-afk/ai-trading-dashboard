@@ -37,7 +37,7 @@ REM ── 6. Journal file ─────────────────�
 if exist server\journal.json (
   for %%A in (server\journal.json) do echo  [OK] Journal : EXISTS (%%~zA bytes)
 ) else (
-  echo  [--] Journal : No trades yet (file created on first trade)
+  echo  [--] Journal : No trades yet ^(file created on first trade^)
 )
 
 REM ── 7. API key ───────────────────────────────────────────────
@@ -53,7 +53,7 @@ echo  Claude deep analysis...
 echo  ==========================================
 echo.
 
-claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/signals.json, tasks/temp/risk.json, tasks/temp/positions.json (all may or may not exist). Give a 5-line system health summary: 1) Overall verdict: HEALTHY / DEGRADED / OFFLINE. 2) Signal quality: are BTC/Gold/SPY all showing valid data? 3) Risk system status. 4) MT5 connection status. 5) One action item if anything is wrong. If files are missing, say which component is down."
+call claude --dangerously-skip-permissions -p "JARVIS: Read tasks/temp/signals.json, tasks/temp/risk.json, tasks/temp/positions.json (all may or may not exist). Give a 5-line system health summary: 1) Overall verdict: HEALTHY / DEGRADED / OFFLINE. 2) Signal quality: are BTC/Gold/SPY all showing valid data? 3) Risk system status. 4) MT5 connection status. 5) One action item if anything is wrong. If files are missing, say which component is down."
 
 echo.
 echo  ==========================================

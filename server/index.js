@@ -10,6 +10,7 @@ const cron       = require("node-cron");
 const Anthropic  = require("@anthropic-ai/sdk");
 const fs         = require("fs");
 const path       = require("path");
+const os         = require("os");
 const { YouTube } = require("youtube-sr");
 
 // keys.env -> process.env, and it MUST happen here, above the local requires.
@@ -43,11 +44,167 @@ const { YouTube } = require("youtube-sr");
   }
 })();
 
+// ── Last-resort process handlers ──────────────────────────────
+//
+// This file had NO process handlers at all. Since Node 15 the default disposition for
+// an unhandled promise rejection is to TERMINATE, so one rejected promise in any
+// fire-and-forget path took the whole server down: the signal cache, /api/signals, the
+// bridge's only source of levels and the risk endpoints, all at once. Nothing wrote
+// down why. `tasks/ensure_running.ps1` polls every 10 minutes, so the cost was up to
+// ten minutes of dead signal path — while positions were open — followed by a silent
+// restart indistinguishable from a scheduled one.
+//
+// THE TWO ARE TREATED DIFFERENTLY, ON PURPOSE. They are not the same event.
+//
+//   unhandledRejection — an async branch failed and nobody awaited it. The rest of the
+//     process is intact. Killing a healthy server because one background fetch
+//     rejected is a worse outcome than the rejection itself, so this one is RECORDED
+//     AND SURVIVED. Nothing is suppressed: it reaches the console and the disk.
+//
+//   uncaughtException — a synchronous throw escaped every frame. Whatever invariant
+//     that code was maintaining is now half-applied and the process state is genuinely
+//     unknown. Staying up would mean serving trades from it. So this one is recorded
+//     and then EXITS 1 — which is exactly what Node already did. The only thing added
+//     is that the death now names its cause. The supervisor restarts it.
+//
+// THE SINK IS A FILE, NOT THE HEALER'S RING BUFFER. autohealer's errorLog lives in
+// memory and dies with the process, which makes it worthless for precisely the case
+// that kills the process. This appends synchronously, before any exit can happen.
+//
+// APPEND-ONLY, NEVER ROTATED, NEVER TRUNCATED — the standing rule is that nothing here
+// gets deleted. Unbounded growth is held off by rate-limiting instead: a hot loop
+// emitting the same rejection thousands of times a second writes one line per distinct
+// message per minute and counts the rest, so the file records that it happened and how
+// often without itself becoming the next outage.
+const CRASH_LOG_PATH = path.join(__dirname, "..", "tasks", "logs", "server_crash.txt");
+const CRASH_LOG_QUIET_MS = 60 * 1000;
+const crashLogLastWriteByKey = new Map();
+const crashLogSuppressedByKey = new Map();
+
+function recordProcessFault(kind, error) {
+  const message = (error && (error.stack || error.message)) || String(error);
+  const firstLine = message.split("\n")[0];
+  const key = kind + "|" + firstLine;
+  const now = Date.now();
+  const lastWrite = crashLogLastWriteByKey.get(key);
+
+  if (lastWrite !== undefined && now - lastWrite < CRASH_LOG_QUIET_MS) {
+    crashLogSuppressedByKey.set(key, (crashLogSuppressedByKey.get(key) || 0) + 1);
+    return;
+  }
+
+  const suppressed = crashLogSuppressedByKey.get(key) || 0;
+  crashLogSuppressedByKey.set(key, 0);
+  crashLogLastWriteByKey.set(key, now);
+
+  const repeats = suppressed > 0 ? ` (+${suppressed} identical in the last minute)` : "";
+  const line = `[${new Date().toISOString()}] ${kind}${repeats}\n${message}\n\n`;
+
+  // Best-effort and deliberately last: a failure to LOG the fault must never become
+  // the thing that stops us reporting it on the console.
+  try {
+    fs.mkdirSync(path.dirname(CRASH_LOG_PATH), { recursive: true });
+    fs.appendFileSync(CRASH_LOG_PATH, line, "utf8");
+  } catch (writeError) {
+    console.error("[fault] could not write the crash log:", writeError.message);
+  }
+  console.error(`[fault] ${kind}${repeats}:`, message);
+}
+
+// The rate limiter above reports a suppressed count on the NEXT write for that key —
+// which never arrives if the storm simply stops, or if the process dies during it.
+// Caught by testing rather than by reading: 500 identical faults collapsed to a single
+// line that claimed to be one occurrence. An error under-reported is an error hidden,
+// so any outstanding counts are flushed on the way out. `exit` handlers may only do
+// synchronous work, which is why the sink was appendFileSync from the start.
+function flushSuppressedFaults() {
+  for (const [key, suppressed] of crashLogSuppressedByKey) {
+    if (!suppressed) continue;
+    crashLogSuppressedByKey.set(key, 0);
+    const line = `[${new Date().toISOString()}] ${key} (+${suppressed} more, never individually logged)\n\n`;
+    try { fs.appendFileSync(CRASH_LOG_PATH, line, "utf8"); } catch (_) { /* already exiting */ }
+  }
+}
+process.on("exit", flushSuppressedFaults);
+
+process.on("unhandledRejection", (reason) => {
+  recordProcessFault("unhandledRejection", reason);
+  // Deliberately no exit. See above.
+});
+
+process.on("uncaughtException", (error) => {
+  recordProcessFault("uncaughtException", error);
+  // Node's own default disposition, restated here so the exit is a decision with a
+  // reason written beside it rather than the absence of a handler.
+  process.exit(1);
+});
+
 // ── New modules ───────────────────────────────────────────────
 const autohealer = require("./autohealer");
 const db         = require("./db");
 const sizing     = require("./sizing");
+// THE TRADEABLE UNIVERSE. Was written out by hand in four places in this file plus a
+// fifth in mt5_bridge.py; see server/assets.js for why that was the binding constraint
+// on sample size rather than a tidiness problem.
+const assetRegistry = require("./assets");
 const hermes     = require("./hermes");
+// Fair Value Gap geometry. Pure functions over the bar arrays the engine already
+// holds — no I/O, no state, and nothing it exports can reach the trading path.
+const fvg        = require("./fvg");
+const structure  = require("./structure");   // detectCRT / detectAMD — display only
+// Prior-period levels, confirmed swings, round-number magnets, ATR day projection
+// and CONFLUENCE CLUSTERING over all of them, plus the DXY/VIX/correlation read.
+// Pure functions like fvg.js, and like fvg.js nothing it exports can reach the
+// trading path — every object it builds carries feedsTheGate:false and the test
+// suite asserts it rather than trusting the comment.
+const marketContext = require("./market_context");
+// Per-gate verdicts over the scored rejection ledger. Reads one file, aggregates,
+// returns. Cannot reach the trading path — see the header of that module.
+const rejectionEvidence = require("./rejection_evidence");
+// Deliberately required lazily inside the handler instead of here: it pulls in
+// tasks/doctor.cjs and tasks/sizing_trigger.cjs, and sizing_trigger READS THIS FILE
+// off disk at call time to extract realizedRFromPrices. Requiring it at module load
+// would run that extraction against a half-evaluated index.js during boot.
+// AI Brain reading surfaces: the skill/agent/tool catalogue and the curated
+// register of what has actually been measured. Both read-only and fail-soft.
+const aiRegistry      = require("./ai_registry");
+const evidenceRegister = require("./evidence_register");
+// Evidence-accumulation curve. The Performance tab tracks P&L growth, which is
+// blank on one closed fill; this tracks the thing that is actually moving.
+const learningGrowth  = require("./learning_growth");
+// The AI employee's timesheet: did the scheduled agents run, did they succeed,
+// and has anything they proposed ever been read. Read-only over their own logs.
+const aiWorkLedger    = require("./ai_work_ledger");
+// The fleet doctor. Same module the CLI runs, so `node tasks/doctor.cjs` and the
+// dashboard can never drift into disagreeing about the state of the two boxes.
+const fleetDoctor     = require("../tasks/doctor.cjs");
+// Cohort reachability table. Shared with tasks/cohort_reachability.cjs so the audit
+// script and the server can never describe two different systems.
+const cohortTable = require("./cohort_table");
+// Live-vs-replay tracker: does the running system trade like the walk-forward that
+// justified its config? Read-only, and floored so it stays silent until the sample
+// can carry a verdict. See the module header for why this gap matters.
+//
+// Guarded for the same reason require("./rejection_log") below is guarded, and it is
+// not hypothetical: an untracked module once killed the VPS server on boot. The file
+// IS tracked, so a fresh checkout is safe — but the documented VPS deploy path is not
+// a checkout. index.js is PATCHED there by hand because the VPS git history has
+// diverged, so patching this line across without also copying server/live_vs_replay.js
+// would exit the process at startup on the box that trades continuously, and
+// ensure_running.ps1 would restart it into the same crash loop.
+let liveVsReplay;
+try {
+  liveVsReplay = require("./live_vs_replay");
+} catch (e) {
+  console.error("[live-vs-replay] module not loaded — endpoint will report unavailable:", e.message);
+  liveVsReplay = {
+    buildLiveVsReplay: () => ({
+      available: false,
+      feedsTheGate: false,
+      reason: "server/live_vs_replay.js is not deployed on this box",
+    }),
+  };
+}
 // Universal rejection ledger — see tasks/REJECTION-LEDGER-SPEC.md. Pure
 // observability: every function here swallows its own failure and returns, so it
 // can never reach the trading path.
@@ -60,6 +217,119 @@ const hermes     = require("./hermes");
 //
 // Observability degrades to silence; it does not take the process down. A missing or
 // broken ledger now falls back to no-ops of the same shape and says so loudly.
+// Near-miss census — see server/near_miss.js. Counts setups that ALMOST formed, which
+// no gate can see because they die BEFORE a setup exists. Guarded like every other
+// observability module here, and for the reason spelled out above: index.js is patched
+// by hand onto the VPS, so a require whose file did not travel with it kills the box
+// that trades continuously. In memory only; it opens no file and votes on nothing.
+let noteNearMiss, nearMissCensus, flushNearMisses;
+try {
+  ({ noteNearMiss, nearMissCensus, flushNearMisses } = require("./near_miss"));
+} catch (nearMissError) {
+  console.error(
+    `[near-miss] census unavailable (${nearMissError.message}) — /api/near-miss will ` +
+    `report unavailable. Signals and trading are unaffected.`
+  );
+  noteNearMiss    = () => false;
+  flushNearMisses = () => ({ written: 0, skipped: 0, malformed: 0, path: null,
+    error: "server/near_miss.js is not deployed on this box" });
+  nearMissCensus = () => ({
+    available: false,
+    reason: "server/near_miss.js is not deployed on this box",
+    feedsTheGate: false,
+  });
+}
+
+// The catch above only fires when the require THROWS. An OLDER near_miss.js that lacks
+// flushNearMisses requires fine and leaves it undefined - and that combination is not
+// hypothetical here: index.js is hand-patched onto the VPS while near_miss.js travels as
+// its own tracked file (tasks/vps_parity.cjs), so the two can land out of order. Without
+// this guard the flush tick throws "flushNearMisses is not a function" every 10 minutes
+// forever - caught, so the box is safe, but silently persisting nothing while looking
+// like it is merely noisy. Same typeof discipline used at the noteNearMiss call site.
+if (typeof flushNearMisses !== "function") {
+  console.error(
+    "[near-miss] server/near_miss.js is present but exports no flushNearMisses - it is " +
+    "OLDER than this index.js. The census will NOT survive a restart on this box until " +
+    "near_miss.js is deployed. Signals and trading are unaffected."
+  );
+  flushNearMisses = () => ({ written: 0, skipped: 0, malformed: 0, path: null,
+    error: "near_miss.js predates flushNearMisses - deploy it" });
+}
+
+// Stop-variant shadow ledger. Records what the SAME signal would have looked like with
+// an H4 or H1 ATR stop at the SAME R:R, so the question "why is the stop 3% of price"
+// can be settled with this account's own broker bars instead of an argument. Measured
+// 2026-08-27: 1.5x D1 ATR on Gold is 144 pts (3.13%); the identical rule on H1 ATR is
+// 25.9 pts (0.56%), 5.6x tighter. It changes NO stop, NO target and NO trade.
+//
+// Guarded exactly like near_miss above, and for the reason that one taught: index.js is
+// hand-patched onto the VPS while modules travel as their own tracked files, so a
+// require whose file has not landed yet must degrade, never take down the box that
+// trades continuously.
+let flushStopVariants, stopVariantSummary;
+try {
+  ({ flushStopVariants, stopVariantSummary } = require("./stop_variants"));
+} catch (stopVariantError) {
+  console.error(
+    `[stop-variants] module unavailable (${stopVariantError.message}) ` +
+    `— /api/stop-variants will report unavailable. Signals and trading are unaffected.`
+  );
+}
+if (typeof flushStopVariants !== "function") {
+  flushStopVariants = () => ({ written: 0, skipped: 0, malformed: 0, path: null,
+    error: "server/stop_variants.js is not deployed on this box", reasons: {} });
+}
+if (typeof stopVariantSummary !== "function") {
+  stopVariantSummary = () => ({ available: false,
+    reason: "server/stop_variants.js is not deployed on this box", feedsTheGate: false });
+}
+
+// The read side of the shadow SHORT ledger. tasks/shadow_short_ledger.py writes the rows
+// nightly; without this nothing reads them, and a ledger nothing reads can never become a
+// verdict — the exact failure the near-miss census had for weeks.
+//
+// It answers a question upstream of BOTH surfaces above: /api/gate-health counts gates
+// firing on setups that FORMED, /api/near-miss counts setups that ALMOST formed, and
+// neither can see a move for which no branch exists at all. On 2026-08-28 Gold fell
+// 4631 -> 4530 in one H1 bar and left no row on any surface in this system.
+//
+// Guarded exactly like near_miss and stop_variants above, for the reason those two
+// taught: index.js is hand-patched onto the VPS while modules travel as their own tracked
+// files, so a require whose file has not landed yet must degrade rather than take down
+// the box that trades continuously.
+// The employee roster. Guarded like every other optional module, for the reason index.js
+// is hand-patched onto the VPS while modules travel as their own tracked files.
+let employeeRoster;
+try {
+  ({ roster: employeeRoster } = require("./ai_employees"));
+} catch (rosterError) {
+  console.error(
+    `[ai-employees] roster unavailable (${rosterError.message}) — /api/ai-employees will ` +
+    `report unavailable. Signals and trading are unaffected.`
+  );
+}
+if (typeof employeeRoster !== "function") {
+  employeeRoster = () => ({ available: false,
+    reason: "server/ai_employees.js is not deployed on this box",
+    employees: [], counts: {}, feedsTheGate: false });
+}
+
+let shadowShortSummary;
+try {
+  ({ shadowShortSummary } = require("./shadow_shorts"));
+} catch (shadowShortError) {
+  console.error(
+    `[shadow-shorts] module unavailable (${shadowShortError.message}) ` +
+    `— /api/shadow-shorts will report unavailable. Signals and trading are unaffected.`
+  );
+}
+if (typeof shadowShortSummary !== "function") {
+  shadowShortSummary = () => ({ available: false,
+    reason: "server/shadow_shorts.js is not deployed on this box", byAsset: {},
+    feedsTheGate: false });
+}
+
 let logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt;
 try {
   ({ logGateRejection, noteGatePass, gateStats, GATE_NAMES, countersStartedAt } =
@@ -104,6 +374,28 @@ app.use((req, res, next) => {
 // guard (added earlier); this is specifically "don't let a stranger view the
 // dashboard," which is a page-level concern, not an API-level one.
 const crypto = require("crypto");
+// Which experiment arm this box is running. Per-machine, from keys.env, and it names
+// the CONFIG a trade came from rather than the account that held it.
+//
+// WHY: the two boxes run identical settings today and therefore duplicate each other's
+// trades - measured 2026-08-26, SP500 opened 12:50:17 on one and 12:51:28 on the other
+// from the same signal. So the fleet spends two accounts' exposure to produce mostly
+// redundant observations, while the system's own `blocking.constraint` is sample size.
+//
+// The fix is to run the boxes as champion and challenger so every signal becomes a
+// PAIRED observation on identical bars. A paired design removes between-period variance,
+// which is the exact thing that made the RSI-ceiling verdicts flip between fold modes on
+// 2026-08-26: equal-count REJECTED 80/76 and 88/84 while equal-time ADMITTED both, on
+// the same trades.
+//
+// This constant is the scaffolding for that and changes no behaviour on its own. Nothing
+// reads it to decide a trade; it only labels what already happened, so the arms can be
+// told apart later instead of being silently pooled.
+//
+// `account` is NOT a substitute. It says which broker held the position, not which
+// configuration produced it - move a config between boxes and the account label lies.
+const EXPERIMENT_ARM = (process.env.SMARTENTRY_ARM || "champion").trim() || "champion";
+
 const DASHBOARD_USERNAME = (process.env.DASHBOARD_USERNAME || "").trim();
 const DASHBOARD_PASSWORD = (process.env.DASHBOARD_PASSWORD || "").trim();
 // Session secret, persisted across restarts.
@@ -195,6 +487,12 @@ const API_NO_LOGIN_REQUIRED = new Set([
   "/api/login", "/api/logout",
   "/api/signals", "/api/newsfilter", "/api/features",
   "/api/mt5/positions", "/api/risk-status",
+  // The LOOPBACK check inside the handler is the real gate here, not a session. This stops
+  // a trading bridge, so it must never be a remote action - and the caller is a script on
+  // this machine with no browser session, exactly like the bridge polling /api/mt5/control.
+  // Listing it here only skips the session check; the handler still refuses anything that
+  // is not 127.0.0.1.
+  "/api/mt5/restart-bridge",
   "/api/trade-opened", "/api/trade-closed",
   "/api/tv-alert", "/api/claude-approve-trade",
   "/api/agent/notify", "/api/mt5/health", "/api/status",
@@ -216,6 +514,10 @@ const API_NO_LOGIN_REQUIRED = new Set([
   // the VPS, so the localhost restriction is the control that matters here; the
   // bridge always runs on the same machine as the server.
   "/api/mt5/candles",
+  // Raw OHLC for offline analysis. Session-free for the same reason as the line
+  // above — no browser is involved — and separately requireLocalOnly on the route,
+  // which is the control that matters on an internet-facing box.
+  "/api/mt5/candles/raw",
   // Bridge-side gate rejections. Session-free because the bridge has no browser,
   // and requireLocalOnly on the route itself for the same reason /api/mt5/candles
   // carries it. Append-only observability: it writes a log file and touches no
@@ -244,11 +546,81 @@ const API_NO_LOGIN_GET_ONLY = new Set([
   // that writes rejections lives at /api/rejections and is separately
   // requireLocalOnly — there is no POST at this path.
   "/api/gate-health",
+  // Setups that almost formed, counted in memory. Strictly less sensitive than the
+  // line above: a row is a setup name, a condition name, an RSI reading and a count,
+  // and the RSI is already published unauthenticated on /api/signals. No keys, no
+  // account numbers, no positions, no levels. There is no POST at this path — the
+  // census has no write route at all, only the engine increments it.
+  "/api/near-miss",
+  // Moves for which no setup exists at all, priced as paper trades. Strictly less
+  // sensitive again than the line above: a row is an asset name, a count, a mean R and a
+  // verdict string, all of it about trades that were never taken. No keys, no account
+  // numbers, no positions, and no live levels — the entry and stop prices stay in the
+  // file and are not served. There is no POST at this path; the rows are written by
+  // tasks/shadow_short_ledger.py on disk, never over HTTP.
+  "/api/shadow-shorts",
+  // The employee roster: job titles, schedules, which box, and the rules each job works
+  // under. Every value is already visible in this repo's .bat files and Task Scheduler
+  // names. No keys, no account numbers, no positions, no levels. There is no POST — the
+  // roster is a description and cannot hire.
+  "/api/ai-employees",
+  // Fair Value Gap zones, derived from the same bars /api/signals already exposes
+  // publicly. Read-only geometry: price bands and how far price has eaten into
+  // them. Nothing here is not already implied by the candles. No POST at this path.
+  "/api/fvg",
+  // Per-gate verdicts from the scored rejection ledger. Aggregate only: gate
+  // names, counts and R sums over setups the gates already threw away. The POST
+  // that WRITES rejections is /api/rejections and stays separately
+  // requireLocalOnly — there is no POST at this path.
+  "/api/rejection-evidence",
+  // AI Brain catalogue and the measured-claims register. Both are descriptions of
+  // this repo's own contents — skill names, agent names, tool names, and
+  // conclusions already written into commit messages. No keys, no positions, no
+  // levels. Neither has a POST.
+  "/api/ai-registry",
+  "/api/evidence-board",
+  // Daily evidence-accumulation curve, derived from the scored ledger. Counts and
+  // dates only. No POST at this path.
+  "/api/learning-growth",
+  // AI job health and unreviewed proposals, read from the logs those jobs already
+  // write. Decisions are recorded by tasks/ai_decide.cjs, not over HTTP — there is
+  // no POST at this path.
+  "/api/ai-work",
+]);
+
+// The PAGES that may be served without a session. Exact matches only — never a
+// prefix — so a new file under /dashboard cannot become public by accident.
+//
+// WHY THIS SET HAD TO EXIST. /investment carries a comment directly above its route
+// declaring it public, and whoever wrote it did the work to make that true: it reads
+// only /api/signals, /api/strategy-settings and /api/evidence-board, and all three
+// already answer 200 with no cookie (deliberately NOT /api/risk-status, which returns
+// the MT5 login in its account config). But the gate below allowlisted API paths only,
+// and every non-/api/ path fell through to the redirect — so no page could be public
+// no matter what its comment said, and the marketing and investment pages have never
+// once been reachable. The intent was written down and nothing read it.
+//
+// SCOPE, deliberately tiny: two static marketing pages, their direct static filenames,
+// and the shared stylesheet they both link. No API is added here; the three these pages
+// call were already public before this existed. Everything under /dashboard stays
+// gated, and a typo in this set can only fail CLOSED — an unmatched path redirects.
+const PAGES_NO_LOGIN_REQUIRED = new Set([
+  "/",
+  "/index.html",
+  "/investment",
+  "/investment.html",
+  // Linked by both pages. A stylesheet carries no data, and without it a public page
+  // renders unstyled, which looks broken rather than gated.
+  "/dashboard/theme.css",
+  // Same reasoning. An icon carries no data either, and a public page whose favicon
+  // 302s to /login shows a blank tab — which reads as a dead site, not a secured one.
+  "/dashboard/favicon.svg",
 ]);
 
 app.use((req, res, next) => {
   if (!DASHBOARD_USERNAME || !DASHBOARD_PASSWORD) return next(); // not configured yet — never lock the owner out
   if (req.path === "/login") return next();
+  if (req.method === "GET" && PAGES_NO_LOGIN_REQUIRED.has(req.path)) return next();
   if (req.method === "GET" && API_NO_LOGIN_GET_ONLY.has(req.path)) return next();
   if (req.path.startsWith("/api/") && !API_NO_LOGIN_REQUIRED.has(req.path)) {
     const cookies = parseCookies(req);
@@ -280,10 +652,31 @@ function loadApiKey() {
   return process.env.ANTHROPIC_API_KEY || "";
 }
 let ANTHROPIC_API_KEY = loadApiKey();
-let anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+// Wrapped at BOTH construction sites. wrapAnthropicWithCliFallback is a hoisted
+// function declaration so it is callable here; the constants it reads are only
+// touched when a request actually fails, long after module init.
+//
+// TWO clients, and they must be TWO SEPARATE Anthropic instances: the wrapper REPLACES
+// client.messages.create, so wrapping one object twice would stack the two rails on top
+// of each other instead of giving each its own direction.
+//
+//   anthropic    API-first, CLI fallback. The trade path (/api/claude-approve-trade)
+//                and the tool-use loop in askClaude. Unchanged from before.
+//   anthropicBg  CLI/subscription-first, API underneath. Background and display work
+//                only - nothing it serves can admit, suppress, size or exit a trade.
+//
+// Built together and cleared together, so every existing `if (!anthropic)` guard still
+// correctly covers both.
+let anthropic = null;
+let anthropicBg = null;
+function buildAnthropicClients() {
+  anthropic   = ANTHROPIC_API_KEY ? wrapAnthropicWithCliFallback(new Anthropic({ apiKey: ANTHROPIC_API_KEY }), { cliFirst: false }) : null;
+  anthropicBg = ANTHROPIC_API_KEY ? wrapAnthropicWithCliFallback(new Anthropic({ apiKey: ANTHROPIC_API_KEY }), { cliFirst: true  }) : null;
+}
+buildAnthropicClients();
 function reloadAnthropicClient() {
   ANTHROPIC_API_KEY = loadApiKey();
-  anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+  buildAnthropicClients();
   console.log(ANTHROPIC_API_KEY ? "[settings] Anthropic key reloaded" : "[settings] Anthropic key cleared");
 }
 const UW_BASE        = "https://api.unusualwhales.com/api";
@@ -307,11 +700,154 @@ function readKeysEnv() {
   } catch (e) { console.error("[settings] keys.env read error:", e.message); }
   return map;
 }
+// NAMES THAT MUST NEVER BE SETTABLE OVER HTTP.
+//
+// The keys.env boot loader (top of this file) assigns a variable only when it is
+// UNDEFINED. PATH, COMSPEC, PROGRAMFILES and LOCALAPPDATA are always defined, so a
+// poisoned keys.env was INERT at startup — that guard was the containment, and it is
+// invisible unless you go looking for it. /api/settings applies saved keys to
+// process.env so they work without a restart, which means it must re-impose the
+// containment the loader provided for free.
+//
+// The sanitiser CREATES these names rather than blocking them: safeKey uppercases and
+// strips to [A-Z0-9_], so "path" becomes PATH and "comspec" becomes COMSPEC. And
+// process.env on Windows is CASE-INSENSITIVE, so assigning PATH overwrites the real Path.
+//
+// Why each group is here — every one is reached WITHOUT a restart:
+//   COMSPEC          spawn(process.env.COMSPEC || "cmd.exe", ...) for the Claude CLI,
+//                    read at call time, no memoisation.
+//   PATH / PATHEXT   `schtasks` is spawned as a bare command name and resolved through PATH.
+//   SMARTENTRY_PYTHON, PROGRAMFILES, LOCALAPPDATA
+//                    server/python_path.js re-reads these on recheck(), which autohealer
+//                    calls every 10 minutes, and the probe EXECUTES each candidate.
+//   NODE_OPTIONS, PYTHONPATH, PYTHONHOME, PYTHONSTARTUP
+//                    inherited by every child; pythonEnv() spreads { ...process.env }.
+//   MT5_EXPECTED_ACCOUNTS
+//                    the duplicate-bridge control. ensure_running.ps1 starts one bridge
+//                    per expected tag on a 10-minute schedule, so this decides whether a
+//                    second bridge is launched on an account this box does not own —
+//                    the one outcome that would double every trade.
+//   PEER_SERVER_URL, PEER_HEARTBEAT_EXPECT
+//                    the fleet-divergence verdict. Repointing these silently makes every
+//                    parity answer describe a different machine.
+//
+// Refused at safeKey time, so a blocked name never reaches the FILE either — otherwise
+// it would lie dormant and apply at the next restart, which is the same bug delayed.
+const PROTECTED_ENV_KEYS = new Set([
+  "PATH", "PATHEXT", "COMSPEC", "NODE_OPTIONS", "NODE_PATH",
+  "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "SMARTENTRY_PYTHON",
+  "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "PROGRAMDATA",
+  "PROGRAMFILES", "PROGRAMFILES_X86_", "APPDATA", "LOCALAPPDATA",
+  "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "PSMODULEPATH",
+  "MT5_EXPECTED_ACCOUNTS", "PEER_SERVER_URL", "PEER_HEARTBEAT_EXPECT",
+]);
+
+// FIXED 2026-09-05: this used to be a bare truncating writeFileSync over the only copy
+// of every secret on the box. It now takes a VERIFIED backup and replaces atomically —
+// see inside the function.
+//
+// STILL NOT FIXED: this rebuilds keys.env from parsed key=value pairs, so any
+// COMMENT or blank line in the file is dropped the first time anyone saves a setting.
+// Checked 2026-09-05: both boxes have zero comment lines, so nothing is being lost
+// today — it is a latent trap, not an active one. Anyone who documents a key inside
+// keys.env will lose that documentation silently. Fixing it means updating lines in
+// place instead of regenerating, which is a bigger change than the bug currently
+// justifies; recorded so the next person does not rediscover it the hard way.
 function writeKeysEnv(updates) {
   const map = readKeysEnv();
   for (const [k, v] of Object.entries(updates)) map[k] = sanitizeEnvValue(v);
   const body = Object.entries(map).map(([k, v]) => `${k}=${v}`).join("\r\n") + "\r\n";
-  fs.writeFileSync(KEYS_ENV_PATH, body, "utf8");
+
+  // COPY BEFORE YOU REWRITE, AND VERIFY THE COPY EXISTS BEFORE THE WRITE RUNS.
+  // keys.env is gitignored and holds the ONLY copy of DASHBOARD_PASSWORD,
+  // SLACK_BOT_TOKEN, NOTION_TOKEN and TV_PASSWORD. This function used to be a bare
+  // truncating writeFileSync over that file: a crash, a full disk or an EPERM between
+  // truncate and write left an empty or half-written keys.env and every secret on the
+  // box was gone with no recovery path — nothing else holds them and git never sees
+  // the file. The backup is not optional and its absence ABORTS the write rather than
+  // proceeding unprotected.
+  //
+  // Safe to keep forever: .gitignore globs `keys.env*` AND `*.bak-*`, so a backup can
+  // never be committed. Checked before this was written, because a secrets backup that
+  // is not ignored is a worse bug than the one being fixed.
+  if (fs.existsSync(KEYS_ENV_PATH)) {
+    // MILLISECONDS AND A Z. The first version stamped to the second in UTC without
+    // marking it, which broke sorting: `20260905163624` sorts BEFORE a local-time
+    // sibling `20260905T171146` because '1' < 'T', while actually being 25 minutes
+    // NEWER. Anything picking "the latest backup by name" got the older file, and the
+    // two boxes are in different timezones so it was a standing hazard, not a one-off.
+    // Milliseconds also make a same-second collision unreachable, which is what lets
+    // the size check below mean something: the backup is always a copy of the state
+    // that is about to be destroyed, never of an earlier one.
+    const stamp  = new Date().toISOString().replace(/[-:]/g, "").replace(".", "");
+    const backup = `${KEYS_ENV_PATH}.bak-${stamp}`;
+    if (fs.existsSync(backup)) {
+      // Rule 6: never overwrite a backup. Abort rather than continue with one we did
+      // not just take — a backup of the wrong state is worse than a refused save.
+      console.error(`[settings] ABORT: backup ${backup} already exists; keys.env not rewritten`);
+      throw new Error("keys.env backup already exists — refusing to overwrite it");
+    }
+    fs.copyFileSync(KEYS_ENV_PATH, backup);
+    // EXISTENCE IS NOT VALIDITY: existsSync passes for a zero-byte file, and the whole
+    // point of this backup is that it can be trusted. Compare the bytes.
+    const backedUp = fs.existsSync(backup) ? fs.statSync(backup).size : -1;
+    const original = fs.statSync(KEYS_ENV_PATH).size;
+    if (backedUp !== original) {
+      console.error(`[settings] ABORT: keys.env backup is ${backedUp} bytes, original is `
+        + `${original} — keys.env NOT rewritten`);
+      throw new Error("keys.env backup is missing or truncated — refusing to rewrite it");
+    }
+  }
+
+  // ATOMIC REPLACE. writeFileSync truncates the destination first, so a reader during
+  // the write — or a crash mid-write — sees a partial file. A rename within the same
+  // directory is atomic, so keys.env is either entirely the old content or entirely
+  // the new one, never a prefix of the new one.
+  const tempPath = `${KEYS_ENV_PATH}.tmp`;
+  fs.writeFileSync(tempPath, body, "utf8");
+  try {
+    // RENAME NEEDS DELETE ACCESS ON THE DESTINATION, WHICH A PLAIN READER DOES NOT
+    // SHARE. Measured: a Python `open()` of keys.env — exactly what notifications.py
+    // does, reached from ensure_running.ps1 and medic_loop.ps1 — makes renameSync fail
+    // EPERM where the old truncating write succeeded. The window is milliseconds and
+    // the reader is gone by the next attempt, so a short retry closes it. The file
+    // itself is never at risk either way: a failed rename leaves keys.env untouched.
+    let lastError = null;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      try { fs.renameSync(tempPath, KEYS_ENV_PATH); lastError = null; break; }
+      catch (renameError) {
+        lastError = renameError;
+        // A real sleep, not a spin: this blocks one human-triggered save for at most
+        // ~500ms and must not burn the event loop the bridges report into.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40);
+      }
+    }
+    if (lastError) {
+      // FALL BACK TO THE DIRECT WRITE, AND SAY SO. Measured: a reader holding the file
+      // for seconds defeats any retry worth blocking a request for, and the save then
+      // failed with an opaque HTML 500 — a settings save that silently refuses is its
+      // own bug.
+      //
+      // This is safe for exactly one reason: a truncating write is only UNRECOVERABLE
+      // when no verified copy of the old contents exists. One was taken and size-checked
+      // moments ago, a few lines above. So the worst case here is a partial keys.env
+      // beside a known-good backup — recoverable — where the ORIGINAL code's worst case
+      // was a partial keys.env and nothing else anywhere. Atomic when it can be,
+      // available always, never unrecoverable.
+      console.error(`[settings] keys.env atomic replace failed after 12 attempts `
+        + `(${lastError.code || lastError.message}) — falling back to a direct write. `
+        + `The verified backup taken this call covers it.`);
+      fs.writeFileSync(KEYS_ENV_PATH, body, "utf8");
+    }
+  } finally {
+    // THE TEMP FILE HOLDS THE COMPLETE PLAINTEXT SECRET SET. On a failed rename the
+    // first version left it on disk indefinitely — gitignored, so never committed, but
+    // sitting there until a later save happened to overwrite it. Nothing else in the
+    // tree cleans it up, so it is cleaned here on every path including the throw.
+    try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (cleanupError) {
+      console.error(`[settings] keys.env.tmp could not be removed: ${cleanupError.message}`);
+    }
+  }
 }
 function maskKey(v) {
   if (!v) return null;
@@ -321,8 +857,15 @@ function maskKey(v) {
 // ── State ─────────────────────────────────────────────────────
 let priceCache    = { btc: null, btcChange: null, gold: null, goldChange: null, spx: null, spxChange: null, dxy: null, dxyChange: null, vix: null, updated: null };
 let sentimentCache = { fearGreed: 50, classification: "Neutral", btcSentiment: "NEUTRAL", newsHeadlines: [], updated: null };
-let signalCache   = { btc: null, gold: null, spx: null, updatedAt: null };
+// Built FROM THE REGISTRY, not typed out: a new asset that is missing a slot here does
+// not error, it reads as an asset that never produced a signal.
+let signalCache   = { ...Object.fromEntries(assetRegistry.ASSET_KEYS.map(k => [k, null])), updatedAt: null };
 let signalHistory = [];   // last 100 signal cycles — full confidence + reasons per asset
+// DXY daily closes, retained from the fetch refreshSignals already makes for the
+// Gold DIVERGENCE setup. Read ONLY by /api/market-context, which turns a bare
+// dollar level into a direction. Never read on the signal path — the divergence
+// setup keeps using its own local copy, exactly as before.
+let dxyDailyCache = { closes: null, updatedAt: null };
 
 // Native bars pushed up from mt5_bridge.py, keyed by asset key (btc/gold/spx):
 //   { symbol, bars: { d1: {closes,highs,lows,volumes}, h4: {...}, h1: {...} }, receivedAt }
@@ -367,14 +910,21 @@ function queueSignalRefresh() {
 // Yahoo tickers the signal engine is written against → asset keys used everywhere
 // else. Declared once so the ingest endpoint and refreshSignals agree; a mismatch
 // here would silently route XAUUSD bars into the BTC signal.
-const ASSET_KEY_BY_TICKER = { "BTC-USD": "btc", "GC=F": "gold", "^GSPC": "spx" };
+const ASSET_KEY_BY_TICKER = assetRegistry.ASSET_KEY_BY_TICKER;
 
 // A daily series shorter than this leaves ema200 null, which pins `trend` to
 // "MIXED" and makes MOMENTUM, BREAKOUT and TREND_FOLLOW unreachable — the exact
 // starvation that DAILY_RANGE_BY_SYMBOL exists to work around on the Yahoo path.
 // Rather than repeat that bug with a new data source, short MT5 series are refused
 // and the asset falls back to Yahoo.
-const MT5_MIN_BARS = { d1: 200, h4: 50, h1: 50 };
+// m15 added 2026-08-25. NOT on the signal path: generateSignalMTF reads d1/h4/h1
+// and nothing consumes m15. It is carried so tasks/history/*_M15.csv can be topped
+// up from the bridge push instead of needing export_mt5_history.py and a flat book,
+// which is why those files froze at 2026-07-26 while a position stayed open.
+//
+// The floor is low on purpose: a short m15 series is still useful for a top-up,
+// and unlike d1 it cannot starve an indicator because no indicator reads it.
+const MT5_MIN_BARS = { d1: 200, h4: 50, h1: 50, m15: 50 };
 
 // Past this age the bridge is assumed down or wedged and Yahoo takes over. Signals
 // refresh far more often than this, so a healthy bridge never comes close.
@@ -397,6 +947,19 @@ let knownChatIds  = new Set();
 if (TELEGRAM_CHAT_ID) knownChatIds.add(TELEGRAM_CHAT_ID);
 let mt5PositionsByAccount = {};  // account tag -> positions[], one entry per connected MT5 bridge
 let mt5Positions  = [];   // flattened across all accounts (each position tagged with .account) — kept for existing consumers
+// Positions on the SAME accounts that SmartEntry does NOT own — foreign magics. Kept in a
+// SEPARATE map from mt5PositionsByAccount on purpose, and no trading path reads it:
+// recomputeMt5Positions() builds mt5Positions from mt5PositionsByAccount alone, so
+// MAX_POSITIONS, the stop manager and the breaker cannot see these rows even by accident.
+// That separation is the safety property. If these ever merged, SmartEntry would count
+// another EA's trades against its own limit and could move a stop on a position it does
+// not own.
+//
+// It exists because the magic filter in the bridge was making every screen lie by omission.
+// Account 11581419, measured 2026-09-03: SEVEN open positions, ONE of them SmartEntry's.
+// The account was long AND short BTCUSD at the same time and held 0.2 lots of SP500 while
+// every screen showed 0.1, with nothing anywhere saying six rows had been withheld.
+let mt5UnmanagedByAccount = {};  // account tag -> foreign-magic positions[], DISPLAY ONLY
 let features      = { autoCommentary: true, trailingStop: true, newsFilter: true, tradeJournal: true, positionReview: true, weeklyReport: true };
 let tradeJournal  = [];   // trade journal entries (max 200)
 
@@ -428,6 +991,144 @@ function saveJournal() {
 }
 loadJournal();
 
+// ── Persistent alert feed ─────────────────────────────────────
+//
+// tvAlerts was `let tvAlerts = []` and nothing else: four writers, a 50-entry
+// cap, and no disk anywhere. Every server restart emptied it in silence. Both
+// restarts on 2026-08-29 did exactly that, and the only reason anyone noticed is
+// that tasks/content_quality_audit.cjs went RED on /api/alerts within minutes —
+// "200 with no non-null value anywhere in the payload".
+//
+// TWO FILES, because they answer two different questions.
+//   tv_alerts.json  is the DISPLAY buffer: the same 50 entries the panel shows,
+//                   now surviving a restart.
+//   tv_alerts.jsonl is the ARCHIVE: append-only, never capped, never rewritten.
+//                   The 50-cap therefore trims what is DISPLAYED and never what
+//                   is kept — an alert that scrolls off the panel is still on
+//                   disk. Nothing here deletes anything, ever.
+//
+// Every disk touch logs and continues. These routes must not fail because a file
+// is locked: an alert that reaches the panel and Telegram but not the disk is a
+// far better outcome than a webhook that 500s.
+const ALERTS_FILE   = require("path").join(__dirname, "tv_alerts.json");
+const ALERTS_ARCHIVE = require("path").join(__dirname, "..", "tasks", "logs", "tv_alerts.jsonl");
+const MAX_DISPLAYED_ALERTS = 50;
+
+function loadAlerts() {
+  try {
+    if (!fs.existsSync(ALERTS_FILE)) return;
+    const data = JSON.parse(fs.readFileSync(ALERTS_FILE, "utf8"));
+    if (Array.isArray(data)) {
+      tvAlerts = data.slice(0, MAX_DISPLAYED_ALERTS);
+      console.log(`[alerts] Loaded ${tvAlerts.length} alert(s) from disk`);
+    }
+  } catch (e) {
+    // Start empty rather than crash, and DO NOT write over the unreadable file —
+    // the next successful save would otherwise erase whatever is still in it.
+    console.error("[alerts] Load error, starting with an empty feed. The file on disk"
+      + " is untouched and can still be recovered:", e.message);
+  }
+}
+
+function saveAlerts() {
+  try { writeJsonAtomic(ALERTS_FILE, tvAlerts); }
+  catch (e) { console.error(`[alerts] SAVE FAILED — ${tvAlerts.length} alert(s) are in memory only and will be lost on restart:`, e.message); }
+}
+
+// ── Persistent feature flags ──────────────────────────────────
+//
+// `features` was six booleans in memory with nothing behind them, so EVERY
+// restart silently set all six back to true. Two of them change what the system
+// does, not merely what it shows:
+//   newsFilter   gates the news blackout (isNewsBlackout). Back ON, it can BLOCK
+//                a setup that would otherwise have fired — against the standing
+//                rule that nothing may suppress a good signal.
+//   trailingStop is read by mt5_bridge.py over GET /api/features. Back ON, the
+//                bridge resumes advancing stops on live positions.
+// A toggle that reverts itself at the next restart, with nothing said, is worse
+// than no toggle: the dashboard shows OFF until you reload it and then shows ON.
+//
+// Persisting means a flag left OFF now STAYS off. That is the point — it honours
+// an explicit decision instead of quietly undoing it — but it is a real change in
+// behaviour, so every non-default flag is named loudly at boot rather than left
+// to be discovered.
+const FEATURES_FILE = require("path").join(__dirname, "features.json");
+const FEATURE_DEFAULTS = { ...features };
+
+function loadFeatures() {
+  try {
+    if (!fs.existsSync(FEATURES_FILE)) return;
+    const saved = JSON.parse(fs.readFileSync(FEATURES_FILE, "utf8"));
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return;
+    // Only keys this build knows, and only booleans. A hand-edited or stale file
+    // must not be able to introduce a flag nothing reads, or a string where a
+    // boolean is expected — `if (features.newsFilter)` is true for "false".
+    for (const key of Object.keys(FEATURE_DEFAULTS)) {
+      if (typeof saved[key] === "boolean") features[key] = saved[key];
+    }
+    const offDefault = Object.keys(FEATURE_DEFAULTS)
+      .filter(k => features[k] !== FEATURE_DEFAULTS[k]);
+    if (offDefault.length) {
+      console.log(`[features] Restored from disk. NOT AT DEFAULT: `
+        + offDefault.map(k => `${k}=${features[k] ? "ON" : "OFF"}`).join(", "));
+    } else {
+      console.log("[features] Restored from disk, all at default");
+    }
+    const ignored = Object.keys(saved).filter(k => !(k in FEATURE_DEFAULTS));
+    if (ignored.length) console.log(`[features] Ignored unknown key(s) in features.json: ${ignored.join(", ")}`);
+  } catch (e) {
+    // Defaults are the safe fallback here, and the file is left alone so a
+    // hand-fixable typo is still hand-fixable.
+    console.error("[features] Load error, using defaults. features.json untouched:", e.message);
+  }
+}
+
+function saveFeatures() {
+  try { writeJsonAtomic(FEATURES_FILE, features); }
+  catch (e) { console.error("[features] SAVE FAILED — this toggle will revert on the next restart:", e.message); }
+}
+loadFeatures();
+
+// ── Persistent manual-trade queue ─────────────────────────────
+//
+// A trade sits here waiting for a human to approve it. In memory only, it did not
+// wait through a restart — it disappeared, and the only trace was a queue that
+// used to have something in it. Losing a pending DECISION is worse than losing a
+// log line, because nothing downstream notices it is gone.
+const MANUAL_QUEUE_FILE = require("path").join(__dirname, "manual_trade_queue.json");
+
+function loadManualQueue() {
+  try {
+    if (!fs.existsSync(MANUAL_QUEUE_FILE)) return;
+    const saved = JSON.parse(fs.readFileSync(MANUAL_QUEUE_FILE, "utf8"));
+    if (Array.isArray(saved)) {
+      manualTradeQueue = saved;
+      if (manualTradeQueue.length) {
+        console.log(`[manual-queue] Restored ${manualTradeQueue.length} pending trade(s) awaiting approval`);
+      }
+    }
+  } catch (e) {
+    console.error("[manual-queue] Load error, starting empty. The file on disk is untouched:", e.message);
+  }
+}
+
+function saveManualQueue() {
+  try { writeJsonAtomic(MANUAL_QUEUE_FILE, manualTradeQueue); }
+  catch (e) { console.error(`[manual-queue] SAVE FAILED — ${manualTradeQueue.length} pending trade(s) will be lost on restart:`, e.message); }
+}
+
+/** The one way an alert enters the feed: display buffer, archive, disk. */
+function pushAlert(alert) {
+  tvAlerts.unshift(alert);
+  if (tvAlerts.length > MAX_DISPLAYED_ALERTS) tvAlerts = tvAlerts.slice(0, MAX_DISPLAYED_ALERTS);
+  // Archive FIRST. If only one of the two writes can succeed, the append-only
+  // record is the one worth having.
+  try { fs.appendFileSync(ALERTS_ARCHIVE, JSON.stringify(alert) + "\n"); }
+  catch (e) { console.error("[alerts] archive append failed:", e.message); }
+  saveAlerts();
+}
+loadAlerts();
+
 // ── Self-learning engine ──────────────────────────────────────
 const LEARNING_FILE = require("path").join(__dirname, "learning.json");
 let learning = { setupStats: {}, sessionCount: 0, updatedAt: null };
@@ -448,46 +1149,227 @@ function saveLearning() {
   try { writeJsonAtomic(LEARNING_FILE, learning); }
   catch (e) { console.error("[learning] SAVE FAILED — this outcome was NOT recorded and the edge it carried is lost:", e.message); }
 }
-function updateLearning(setup, pnl) {
+// Names that mean "there was no setup", not "the setup was called this".
+//
+// `setup` and `signal` are separate fields, so a real row can read
+// setup:"MOMENTUM" signal:"WAIT". A row where the SETUP itself is "WAIT" is the
+// fingerprint of the H4-only naming bug (fixed in 1047a20), where the setup name was
+// taken from the daily leg while the trade came from H4. One such row is sitting in
+// the journal right now — the open Gold BUY #1713655080, opened 2026-08-05 — and it
+// would have created a tracked setup called "WAIT" the moment it closed.
+//
+// That matters beyond tidiness: getLearningBoost reads this table, so once a phantom
+// setup reaches 5 closed trades it starts adjusting live confidence using the pooled
+// result of unrelated trades. Refusing the attribution is strictly better than
+// inventing one — the trade's P&L is still recorded in the journal either way.
+const NON_SETUP_NAMES = new Set(["WAIT", "NONE", "UNKNOWN"]);
+
+// `symbol` is optional ON PURPOSE: entries written before this change carry no
+// symbol, and they must still record exactly as they do today rather than throw or
+// be skipped. A missing symbol costs the per-asset row, never the setup row.
+// Bucket for a closed trade whose SETUP name was lost but whose ASSET is known.
+const UNATTRIBUTED_SETUP = "UNATTRIBUTED";
+
+// Per-asset recorder. Separate function because it must run for trades that
+// setupStats correctly refuses - see the comment in updateLearning below.
+function recordPerAssetOutcome(symbol, setupKey, pnl) {
+  if (!symbol) {
+    console.warn(`[learning] ${setupKey} recorded with NO SYMBOL - per-asset row skipped.`);
+    return;
+  }
+  if (!learning.bySymbol) learning.bySymbol = {};
+  if (!learning.bySymbol[symbol]) learning.bySymbol[symbol] = {};
+  if (!learning.bySymbol[symbol][setupKey]) learning.bySymbol[symbol][setupKey] = { wins: 0, losses: 0, totalPnl: 0 };
+  const a = learning.bySymbol[symbol][setupKey];
+  if (pnl > 0) a.wins++; else a.losses++;
+  a.totalPnl = parseFloat(((a.totalPnl ?? 0) + pnl).toFixed(2));
+}
+
+function updateLearning(setup, pnl, symbol) {
   if (!setup || pnl === null || pnl === undefined) return;
+  const isNonSetup = NON_SETUP_NAMES.has(String(setup).trim().toUpperCase());
+
+  // THE ASSET TABLE DOES NOT INHERIT THE SETUP TABLE'S EXCLUSION.
+  //
+  // Refusing to attribute a trade to "WAIT" is right for setupStats - WAIT is the
+  // absence of a setup, and a phantom bucket would eventually feed getLearningBoost.
+  // It is WRONG for an asset: XAUUSD is XAUUSD whether or not the label survived.
+  //
+  // Measured 2026-08-31 against the real trade list: Gold's five closed trades are
+  // 2W/3L net -447.12, but excluding the 05/08 +135.91 winner (setup "WAIT") made
+  // the per-asset row read 1W/3L -583.03 - it HID A WIN and made Gold look worse
+  // than it is. Unknown setups go to UNATTRIBUTED so nothing is dropped and nothing
+  // is misattributed.
+  recordPerAssetOutcome(symbol, isNonSetup ? UNATTRIBUTED_SETUP : setup, pnl);
+
+  if (isNonSetup) {
+    console.warn(
+      `[learning] REFUSED to attribute a closed trade to "${setup}" — that is the ` +
+      `absence of a setup, not a setup. P&L ${pnl} stays in the journal and is now ` +
+      `counted against ${symbol || "an unknown asset"} as ${UNATTRIBUTED_SETUP}, but it ` +
+      `is not learned from as a setup. The setup name was lost upstream.`
+    );
+    saveLearning();
+    return;
+  }
   if (!learning.setupStats[setup]) learning.setupStats[setup] = { wins: 0, losses: 0, totalPnl: 0 };
   const s = learning.setupStats[setup];
   if (pnl > 0) s.wins++; else s.losses++;
   s.totalPnl = parseFloat(((s.totalPnl ?? 0) + pnl).toFixed(2));
+
+  // PER-ASSET, alongside and never instead of the pooled row.
+  //
+  // setupStats is keyed by SETUP ONLY, so until now the engine could not answer
+  // "what has this system learned about Gold?" at all - five of the seven closed
+  // trades on this box are XAUUSD and every one of them was pooled into a setup
+  // bucket with the asset discarded at write time. The journal already carries the
+  // symbol; only this function was throwing it away.
+  //
+  // It rides ALONGSIDE for the same reason `shadow` does in /api/learning: mixing
+  // populations is how a paper result becomes indistinguishable from a real fill.
+  //
+  // getLearningBoost() reads learning.setupStats and NOTHING ELSE, so this table
+  // cannot move a confidence score, cannot admit a trade and cannot suppress one.
+  // It is evidence, not a gate. Wiring it into a boost is a separate decision that
+  // needs its own walk-forward.
   saveLearning();
   console.log(`[learning] ${setup} updated — W:${s.wins} L:${s.losses} (boost: ${getLearningBoost(setup)})`);
 }
+// Minimum closed trades on a setup before learning adjusts its confidence at all.
+const LEARNING_MIN_TRADES = 5;
+
+// How far a boost can move confidence, and the span the win rate is stretched over.
+const LEARNING_BOOST_CAP  = 15;
+const LEARNING_BOOST_SPAN = 30;
+
+// Pseudo-trades at a 50% win rate, mixed into the NEGATIVE side only. Ten of them means
+// a setup must out-lose the prior on real volume before it costs a full 15 points.
+const LEARNING_SHRINK_PSEUDO_TRADES = 10;
+
+/**
+ * Confidence adjustment learned from this setup's own closed trades.
+ *
+ * THE NEGATIVE SIDE IS SHRUNK TOWARD THE PRIOR; THE POSITIVE SIDE IS NOT. That asymmetry
+ * is deliberate and it is the whole point of this function's current shape.
+ *
+ * A negative boost is the ONLY thing here that can stop a setup firing, and it used to
+ * reach its full -15 on FIVE closed trades: 0W/5L took fifteen points off confidence on
+ * what is, at that sample, five coin flips. That costs twice over - it suppresses the
+ * signal, and it suppresses the closed trade that would have told us whether the setup is
+ * actually bad. Sample size is the binding constraint on this system, so a rule that
+ * slows accumulation in order to act on noise is the most expensive kind of wrong.
+ *
+ * A positive boost can only ever ADMIT a trade, and an admitted trade produces evidence.
+ * There is no symmetric harm to correct, so the positive branch is left exactly as it was
+ * - shrinking it would make setups fire LESS often, which is the one thing this must not
+ * do.
+ *
+ * Traced exhaustively over every win/loss split to n=200 before it was written: the new
+ * boost is >= the old one in EVERY case, so no setup can fire less often than it does
+ * today. Worked examples:
+ *
+ *     0W/5L    -15 -> -5     five coin flips no longer cost fifteen points
+ *     1W/4L     -9 -> -3
+ *     2W/3L     -3 -> -1
+ *     0W/20L   -15 -> -10    sustained losing still bites, on real volume
+ *     0W/50L   -15 -> -12    converges toward the cap as evidence accumulates
+ *     3W/2L     +3 -> +3     positive side untouched
+ *     5W/0L    +15 -> +15
+ *     45W/5L   +12 -> +12
+ *
+ * LIVE EFFECT ON THE DAY THIS SHIPPED: none. The largest bucket held 2 closed trades
+ * (MOMENTUM 2W/0L), so every boost was already 0 and the firing set was provably
+ * unchanged. It takes effect only as evidence accumulates, which is when it should.
+ */
 function getLearningBoost(setup) {
   if (!setup || !learning.setupStats[setup]) return 0;
   const s = learning.setupStats[setup];
   const total = s.wins + s.losses;
-  if (total < 5) return 0;  // need minimum 5 trades before adjusting
-  const wr = s.wins / total;
-  // WR > 60% → positive boost up to +15, WR < 40% → negative down to -15
-  const boost = Math.round((wr - 0.5) * 30);
-  return Math.max(-15, Math.min(15, boost));
+  if (total < LEARNING_MIN_TRADES) return 0;
+  const winRate = s.wins / total;
+
+  // At or above break-even: unchanged from the original, deliberately.
+  if (winRate >= 0.5) {
+    return Math.max(-LEARNING_BOOST_CAP,
+           Math.min(LEARNING_BOOST_CAP, Math.round((winRate - 0.5) * LEARNING_BOOST_SPAN)));
+  }
+
+  // Below break-even: judge against a prior of LEARNING_SHRINK_PSEUDO_TRADES break-even
+  // trades, so thin evidence moves confidence a little and real volume moves it a lot.
+  const k = LEARNING_SHRINK_PSEUDO_TRADES;
+  const shrunkWinRate = (s.wins + k / 2) / (total + k);
+  return Math.max(-LEARNING_BOOST_CAP,
+         Math.min(0, Math.round((shrunkWinRate - 0.5) * LEARNING_BOOST_SPAN)));
 }
 
 function checkSetupHealth() {
   const alerts = [];
   const AVOID_THRESHOLD    = 0.40;  // below 40% WR → avoid
   const PRIORITY_THRESHOLD = 0.65;  // above 65% WR → prioritise
+  // WIN RATE IS NOT EDGE, AND THIS LABEL USED TO ACT AS IF IT WERE.
+  //
+  // The whole judgement was `wins / total`. totalPnl has been tracked per setup since
+  // updateLearning was written and was never once consulted here, so a setup could be
+  // announced "Setup PRIORITY ✅" while having lost money.
+  //
+  // Not hypothetical, and not far off: MOMENTUM currently sits 2W-1L, 66.7% WR,
+  // totalPnl -$31.27 — its single loss exceeds both wins combined. It is TWO closed
+  // trades from clearing this floor, at which point the old code would have printed
+  // PRIORITY for a setup that loses money. The system's whole record has the same
+  // shape: 9 trades, 5 wins, 55.6% WR, -$72.13 total. Winning more than half and
+  // losing money is precisely what a win-rate-only label cannot see.
+  //
+  // So PRIORITY now requires the setup to have MADE money, and the case that used to
+  // be invisible gets a name of its own rather than being folded into a pass or a
+  // fail: a high win rate with negative P&L is PAYOFF-NEGATIVE, which is a specific
+  // and fixable diagnosis (the losses are too big, not the entries too rare).
+  //
+  // REPORTING ONLY. Nothing on the trade path reads this — the callers are a console
+  // log, GET /api/setup-health and the daily-plan panel. getLearningBoost, which does
+  // feed confidence, is deliberately NOT touched here: whether payoff-weighting beats
+  // win-rate weighting on the GATE is a walk-forward question, not an edit.
   for (const [setup, s] of Object.entries(learning.setupStats)) {
     const total = s.wins + s.losses;
     if (total < 5) continue;
     const wr = s.wins / total;
-    if (wr < AVOID_THRESHOLD)    alerts.push({ setup, wr: Math.round(wr * 100), status: 'AVOID',    trades: total });
-    else if (wr > PRIORITY_THRESHOLD) alerts.push({ setup, wr: Math.round(wr * 100), status: 'PRIORITY', trades: total });
+    const pnl = Number(s.totalPnl ?? 0);
+    // Per-trade expectancy in account currency. The number that decides whether a
+    // setup is worth taking, and the one a win rate cannot express.
+    const expectancy = parseFloat((pnl / total).toFixed(2));
+    const base = { setup, wr: Math.round(wr * 100), trades: total, totalPnl: parseFloat(pnl.toFixed(2)), expectancy };
+    if (wr < AVOID_THRESHOLD) {
+      alerts.push({ ...base, status: 'AVOID' });
+    } else if (wr > PRIORITY_THRESHOLD && pnl > 0) {
+      alerts.push({ ...base, status: 'PRIORITY' });
+    } else if (wr > PRIORITY_THRESHOLD) {
+      alerts.push({ ...base, status: 'PAYOFF-NEGATIVE' });
+    } else if (pnl < 0 && wr >= AVOID_THRESHOLD) {
+      // Middling win rate AND losing money. Not an AVOID on win rate alone, but it
+      // must not read as silence either.
+      alerts.push({ ...base, status: 'LOSING' });
+    }
   }
   if (alerts.length > 0) {
     for (const a of alerts) {
-      const emoji = a.status === 'AVOID' ? '⚠️' : '✅';
-      console.log(`[learning] ${emoji} Setup ${a.status}: ${a.setup} ${a.wr}% WR (${a.trades} trades)`);
+      // Only a setup that MADE money gets the tick. PAYOFF-NEGATIVE and LOSING used
+      // to fall through to the else and print ✅ beside a negative P&L, which is the
+      // one rendering that could actively mislead.
+      const emoji = a.status === 'PRIORITY' ? '✅' : '⚠️';
+      // The P&L is on the line, not left to be looked up. A win rate without the money
+      // beside it is the thing this whole change exists to stop printing.
+      console.log(`[learning] ${emoji} Setup ${a.status}: ${a.setup} ${a.wr}% WR `
+        + `(${a.trades} trades, ${a.totalPnl >= 0 ? '+' : ''}${a.totalPnl}, `
+        + `${a.expectancy >= 0 ? '+' : ''}${a.expectancy}/trade)`);
     }
   }
   return alerts;
 }
 loadLearning();
+// PROCESS starts, not trading sessions. This increments once per server boot, so it
+// counts restarts — it went 195 -> 197 inside an hour of restarts on 2026-08-17 — and it
+// has nothing to do with ASIAN/LONDON/NEW YORK. The name invites the wrong reading, and
+// the evidence register already had to warn that quoting it as a sample would raise an
+// item that can never clear. Acting on morning-4lvhht, proposed 2026-08-12.
 learning.sessionCount = (learning.sessionCount || 0) + 1;
 saveLearning();
 
@@ -526,6 +1408,48 @@ const STRATEGY_LIMITS = {
   // risk calculation entirely and trades exactly that size.
   fixedLotSize: { min: 0,    max: 100, def: 0,  decimals: 2 },
   maxLotSize:   { min: 0.01, max: 100, def: 10, decimals: 2 },
+  // NOTIONAL exposure ceiling, in PERCENT of balance, applied per symbol by the bridge.
+  //
+  // maxLotSize above is ONE number for instruments whose contract value differs by 57x.
+  // Measured 2026-09-06 on a GBP 89,677 account: one lot is GBP 443,131 of gold, 79,746 of
+  // BTC, 7,714 of SP500. At the table default of 10 that permitted 4.43 MILLION of gold,
+  // 49x leverage. DO NOT READ 10 AS THE LIVE CEILING - `def` is a default, and the live
+  // value is whatever /api/strategy-settings serves (2 on both boxes as of 2026-09-06,
+  // i.e. ~886k of gold, ~10x). Quoting a config number in a comment is how CLAUDE.md came
+  // to insist the gate was 65 for a week after it moved.
+  // Set it low enough for gold and every SP500 trade dies (they size to 1.90 lots); set it
+  // high enough for SP500 and gold still takes 10x. No single lot number is correct, which
+  // is why this second ceiling is denominated in MONEY.
+  //
+  // MINIMUM IS 1, NOT 0, AND THAT IS THE WHOLE POINT. The bridge treats 0 as "cap off"
+  // (`if notional_pct > 0`). With min 0 and decimals 1, clampStrategyValue rounds anything
+  // under 0.05 to exactly 0 - so a request for the TIGHTEST possible cap would have
+  // silently produced NO CAP AT ALL, and `{"maxNotionalPct": null}` would have done the
+  // same, since Number(null) is 0. A risk limit that fails OPEN on a small or malformed
+  // value is worse than no limit, because it reads as armed. With min 1 that is
+  // unreachable: to effectively disable it, set 100, which still bounds a runaway
+  // (100% of balance is ~90k; an uncapped near-zero-stop order asked for 22 MILLION).
+  //
+  // It SIZES DOWN and never refuses - the broker minimum stays the floor - so it cannot
+  // block a signal, suppress a confidence value or cost a learning row.
+  //
+  // Listed HERE because loadStrategySettings iterates Object.keys(STRATEGY_LIMITS): a key
+  // absent from this table cannot be set by anything. And it must ALSO be in the bridge's
+  // refresh_strategy_settings allowlist, or it is settable, persisted, served and compared
+  // while the thing that sizes the order never reads it.
+  maxNotionalPct: { min: 1, max: 100, def: 25, decimals: 1 },
+  // Per-trade risk budget in PERCENT of balance, used only when fixedLotSize is 0.
+  // 1 means 1%, 0.1 means one tenth of one percent — the same units the account
+  // config has always used. Default 1 reproduces the hardcoded BASE_RISK_PCT that
+  // server/sizing.js used before this key existed, so a box without it is unchanged.
+  //
+  // It has to be listed HERE or it cannot be set by anything: loadStrategySettings
+  // iterates Object.keys(STRATEGY_LIMITS), which is exactly why the RSI ceilings were
+  // a reader with no writer until ec88075. 4 decimals because 0.1 must survive.
+  //
+  // max 3 mirrors MAX_SINGLE_TRADE_RISK in sizing.js, which clamps independently —
+  // this bound is the UI's, that one is the engine's, and neither trusts the other.
+  riskPercent:  { min: 0.01, max: 3,   def: 1,  decimals: 4 },
   // Below this ADX the trend is treated as too weak to size up. Measured on this
   // account's own 5 years: >=20 lifted swing-pullback win rate 52%->65% on Gold
   // and 42%->54% on SPX.
@@ -563,6 +1487,45 @@ const STRATEGY_LIMITS = {
   // This matters MORE since the gate moved to 50: at 70 the cohort could not fire
   // on BTC or SPX at all, and now it can.
   dailyOnlyMinConfidence: { min: 0, max: 100, def: 0 },
+  // The two RSI CEILINGS - the upper bound MOMENTUM and TREND_FOLLOW may not
+  // cross. Added here 2026-08-25 because the engine already READ them
+  // (strategySettings.momentumRsiMax, index.js ~1237) while this table carried
+  // neither key. Both the POST handler and loadStrategySettings iterate
+  // Object.keys(STRATEGY_LIMITS), so the ceiling could not be set by ANY
+  // supported means: the POST silently dropped it, a hand-edited
+  // strategy_settings.json was never loaded, and saveStrategySettings wiped the
+  // hand-edit on the next save. A READER WITH NO WRITER - the exact inverse of
+  // the Auto Trade mode cards, which wrote state nothing read.
+  //
+  // DEFAULTS ARE THE OLD FALLBACKS. 72 and 68 are the literals the engine used
+  // when the key was absent, so adding these keys changes no signal on either
+  // box. It makes the ceiling MOVABLE; it does not move it.
+  //
+  // WHY THESE BOUNDS. Each min is the LOWEST VALUE THE SWEEP ACTUALLY MEASURED
+  // (momentum 56, trendFollow 52) and max 100 keeps the "no ceiling" row
+  // reachable. A value nobody measured should not be one click away.
+  //
+  // The floor matters more than it looks. MOMENTUM_RSI_MIN is 52 and
+  // TREND_FOLLOW_RSI_MIN is 45, and a ceiling at or below its own floor makes
+  // that window EMPTY - the setup then dies in silence, which is the one failure
+  // this system must never introduce by config. clampStrategyValue turns an
+  // explicit null into 0 and then into `min`, so a min of 50 would have let
+  // `{"momentumRsiMax": null}` kill MOMENTUM outright. Caught by tracing the
+  // value, not by reading it. These mins sit above both floors, so no reachable
+  // setting can empty either window.
+  //
+  // This does NOT constrain measurement: tasks/rsi_ceiling_walkforward.cjs sweeps
+  // through MTF_MOMENTUM_RSI_MAX / MTF_TREND_FOLLOW_RSI_MAX in the environment,
+  // never through this table, so lower values stay measurable.
+  //
+  // MEASURED 2026-08-25, both boxes, three independent cuts, identical numbers:
+  //   72/68 (ships today)  worst fold -0.145 / -0.105 / -0.106,  2 of 5 folds
+  //   80/76                worst fold +0.114 / +0.005 / +0.157,  5 of 5 folds
+  // The middle figure is equal-time folds and +0.005 is a hair above zero, so
+  // 80/76 is not the slam dunk the other two cuts make it look. Re-measure with
+  // tasks/offline.bat ceiling before moving either number.
+  momentumRsiMax:    { min: 56, max: 100, def: 72 },
+  trendFollowRsiMax: { min: 52, max: 100, def: 68 },
 };
 
 // Minimum signal strength AUTO mode will trade.
@@ -572,7 +1535,19 @@ const STRATEGY_LIMITS = {
 // closed trades PER SETUP before it adjusts anything (getLearningBoost), and 10
 // before Kelly sizing engages — roughly 60 trades across the ~12 setups. STRONG-only
 // produces about one trade a month, so that threshold is years away and
-// setupStats has sat empty through 42 server sessions.
+// setupStats sat empty through 42 server sessions.
+//
+// MEASURED 2026-08-27 — THIS WORKED, AND THE SENTENCE ABOVE IS NOW HISTORY.
+// sessionCount is 287 and setupStats is no longer empty: MOMENTUM 2W/0L,
+// BB_SQUEEZE_WATCH 0W/1L, RANGE_TRADE_SHORT 0W/1L, SQUEEZE_BREAKOUT 0W/1L.
+// Five closed trades across four setups, where there had been none.
+//
+// getLearningBoost still returns 0 for every one of them, and that is CORRECT,
+// not a dead path: the floor is 5 closed trades PER SETUP and the largest bucket
+// holds 2. The learning engine is running and simply has not been given enough
+// to say. Do not go looking for a fault here - the constraint is sample size, the
+// same one named everywhere else in this system. It clears with time and nothing
+// else.
 //
 // On a demo account the scarce resource is data, not capital. Allowing MODERATE
 // raises the rate to roughly one signal every 2.4 days, which fills the learning
@@ -584,13 +1559,47 @@ const STRENGTH_LEVELS = ["MODERATE", "STRONG"];
 let strategySettings = {
   confidenceThreshold:    STRATEGY_LIMITS.confidenceThreshold.def,
   maxConcurrentPositions: STRATEGY_LIMITS.maxConcurrentPositions.def,
+  // Setups retired from EXECUTION. They still fire, still display and are still
+  // scored in the rejection ledger under SETUP_DISABLED - retiring one must never
+  // stop the evidence that would say whether retiring it was right.
+  //
+  // NOT in STRATEGY_LIMITS: that table is numeric min/max/def and drives
+  // clampStrategyValue and the dashboard number inputs. A list has neither.
+  executionDisabledSetups: [],
   maxTradesPerDay:        STRATEGY_LIMITS.maxTradesPerDay.def,
   fixedLotSize:           STRATEGY_LIMITS.fixedLotSize.def,
   maxLotSize:             STRATEGY_LIMITS.maxLotSize.def,
+  // Seeded so GET /api/strategy-settings REPORTS the notional ceiling rather than omitting
+  // it. The bridge defaults to 25 when the key is missing, so serving nothing and serving
+  // 25 behave identically - but only one of them lets you see what is in force.
+  maxNotionalPct:         STRATEGY_LIMITS.maxNotionalPct.def,
   adxTrendingMin:         STRATEGY_LIMITS.adxTrendingMin.def,
   minEntryRsi:            STRATEGY_LIMITS.minEntryRsi.def,
   dailyOnlyMinConfidence: STRATEGY_LIMITS.dailyOnlyMinConfidence.def,
+  // Seeded explicitly so GET /api/strategy-settings SHOWS the live ceiling
+  // instead of omitting it. Reading 72 here and reading nothing both make the
+  // engine use 72, but only one of them tells you that.
+  momentumRsiMax:         STRATEGY_LIMITS.momentumRsiMax.def,
+  trendFollowRsiMax:      STRATEGY_LIMITS.trendFollowRsiMax.def,
   minStrength:            "MODERATE",
+  // Scale 50% out at 1R and move the stop to breakeven. FALSE is not a new
+  // restriction - it is the behaviour every trade in this journal was managed
+  // under. take_partial_profit (mt5_bridge.py:2093) could not fire while
+  // fixedLotSize was 0.01, because half of one minimum lot is not tradable, and
+  // on 2026-08-24 the size moved to 0.02 and armed it as a side effect of a
+  // lot-size edit. Nobody chose that. Boolean, not a number, so it is handled
+  // beside minStrength rather than through clampStrategyValue.
+  partialCloseEnabled:    false,
+  // Declared here so GET /api/strategy-settings always REPORTS the arm state rather than
+  // omitting the key when it is off, and so saveStrategySettings() - which serialises
+  // this whole object - cannot drop the key on the next dashboard save.
+  //
+  // An earlier version of this comment claimed vps_parity.cjs and /api/fleet read this
+  // field. THEY DID NOT: vps_parity reads only `arm`, and /api/fleet compares the
+  // FLEET_COMPARED_SETTINGS whitelist, which did not list this key. The comment asserted
+  // a protection that did not exist. The key has since been ADDED to that whitelist, so
+  // the claim is true now - but it was written before it was.
+  breakdownEnabled:       false,
   updatedAt: null,
   updatedBy: null,
 };
@@ -631,10 +1640,41 @@ function loadStrategySettings() {
       if (clamped !== null) strategySettings[name] = clamped;
     }
     if (STRENGTH_LEVELS.includes(saved.minStrength)) strategySettings.minStrength = saved.minStrength;
+    // Only a real array moves this, and only non-empty strings survive. A missing
+    // or malformed key leaves the last known value, and on a cold start that value
+    // is [] - so a corrupt config can never be the thing that retires a setup.
+    if (Array.isArray(saved.executionDisabledSetups)) {
+      strategySettings.executionDisabledSetups = saved.executionDisabledSetups
+        .filter(v => typeof v === "string" && v.trim())
+        .map(v => v.trim().toUpperCase());
+    }
+    // BOOLEANS ARE NOT IN STRATEGY_LIMITS AND WERE THEREFORE NEVER LOADED.
+    //
+    // STRATEGY_LIMITS entries are numeric clamps (min/max/def/decimals), so a boolean
+    // cannot live there, and the loop above is the only thing that reads the file. That
+    // left `partialCloseEnabled` in the worst possible state: a default at the top of
+    // this module, a reader in the partial-close path, and a POST handler that sets it
+    // and saves it - so it worked, persisted to disk, and then SILENTLY REVERTED TO
+    // FALSE on the next restart, with nothing logged. A setting that works until you
+    // restart is harder to trust than one that never worked.
+    //
+    // `breakdownEnabled` had the same gap and it is the reason it could not be armed at
+    // all: the engine reads strategySettings.breakdownEnabled === true, and nothing ever
+    // put the key on that object.
+    //
+    // `=== true` and not a truthy test, for the same reason the engine uses it: a stray
+    // "false" string in a hand-edited config must never arm a live short-selling setup.
+    // A missing key leaves the module default rather than forcing false, so a config
+    // that predates either key behaves exactly as it did before.
+    for (const flag of ["partialCloseEnabled", "breakdownEnabled"]) {
+      if (saved[flag] !== undefined) strategySettings[flag] = saved[flag] === true;
+    }
     strategySettings.updatedAt = saved.updatedAt || null;
     strategySettings.updatedBy = saved.updatedBy || null;
     strategySettingsError = null;
-    console.log(`[strategy] Loaded: confidence>=${strategySettings.confidenceThreshold}%, max ${strategySettings.maxConcurrentPositions} positions, max ${strategySettings.maxTradesPerDay} trades/day`);
+    console.log(`[strategy] Loaded: confidence>=${strategySettings.confidenceThreshold}%, max ${strategySettings.maxConcurrentPositions} positions, max ${strategySettings.maxTradesPerDay} trades/day` +
+      `, breakdown=${strategySettings.breakdownEnabled === true ? "ARMED" : "off"}` +
+      `, partialClose=${strategySettings.partialCloseEnabled === true ? "on" : "off"}`);
   } catch (e) {
     // Keep the safe defaults rather than trading on a half-parsed config — but say
     // so loudly. "Safe" defaults are not the operator's settings: fixedLotSize
@@ -655,29 +1695,189 @@ function saveStrategySettings() {
   }
 }
 
+// Say out loud which signal cohorts cannot reach the current gate.
+//
+// The engine expresses "this cohort has poor edge" as a low confidence number rather
+// than an explicit block, so moving confidenceThreshold silently kills cohorts. It
+// has happened three times; the most recent was 65 -> 70 on 2026-08-02, which killed
+// BTC H4-only MODERATE (ceiling 65) without a word. A dead cohort makes no trades, so
+// it writes nothing to the journal, nothing to the learning table and no error — it
+// is indistinguishable from a quiet market.
+//
+// Reports only. It must never change a signal, and a fault here must never stop the
+// server booting: an unreadable table is a lost warning, not a reason to stop
+// trading. Called at load and again on every settings change, because a gate edit
+// from the dashboard is the exact moment a cohort dies.
+function reportCohortReachability(context) {
+  try {
+    // dailyOnlyMinConfidence is a real gate for the neutral-H4 cohorts — the engine
+    // uses max(confidenceThreshold, cohortFloor) at index.js:1721, not the threshold
+    // alone. Measuring against the threshold only would call those cohorts alive at
+    // the moment a dashboard edit killed them.
+    const rows = cohortTable.computeReachability(
+      strategySettings.confidenceThreshold,
+      strategySettings.dailyOnlyMinConfidence
+    );
+
+    // Validate the table against the engine BEFORE trusting its verdicts. Without
+    // this the boot log announces conclusions from a table that may no longer
+    // describe the code beside it — the audit script checked this and the server,
+    // which is what anyone actually reads, did not.
+    try {
+      const drifted = cohortTable.findTableDrift(fs.readFileSync(__filename, 'utf8'));
+      for (const row of drifted) {
+        console.warn(`[cohorts] ⚠ TABLE DRIFT: "${row.name}" no longer matches this file (missing: ${row.missing.join(' | ')})`);
+      }
+      if (drifted.length > 0) console.warn('[cohorts]   Verdicts below may be wrong. Fix server/cohort_table.js.');
+    } catch (driftErr) {
+      console.warn(`[cohorts] could not verify table against source (${driftErr?.message ?? String(driftErr)})`);
+    }
+
+    const dead = rows.filter(row => row.status === 'DEAD');
+    if (dead.length === 0) {
+      console.log(`[cohorts] ${context}: all ${rows.length} cohorts can reach their gate`);
+      return;
+    }
+    console.warn(
+      `[cohorts] ⚠ ${context}: ${dead.length} of ${rows.length} cohort(s) CANNOT reach their gate ` +
+      `even at maximum boost (+${cohortTable.MAX_BOOST}). ` +
+      `They will never fire and will look like a quiet market:`
+    );
+    for (const row of dead) {
+      const capNote = row.cappedByEngine ? `, capped by the engine at ${row.ceiling}` : '';
+      console.warn(`[cohorts]   ${row.name} — base ${row.base}, ceiling ${row.ceiling}${capNote}, ${row.short} short of gate ${row.effectiveGate}`);
+    }
+    console.warn('[cohorts]   Run `node tasks/cohort_reachability.cjs` for the full table.');
+  } catch (e) {
+    // A thrown non-Error has no .message, and dereferencing it here would make the
+    // catch itself throw — killing boot at startup, and hanging the settings request
+    // after the setting had already been saved. A lost warning must never do that.
+    console.error(`[cohorts] reachability check failed (${e?.message ?? String(e)}) — continuing`);
+  }
+}
+
 loadStrategySettings();
+reportCohortReachability('startup');
 
 // ══════════════════════════════════════════════════════════════
 //  TECHNICAL ANALYSIS
 // ══════════════════════════════════════════════════════════════
 
+// SMA-seeded, because seeding on a single close leaves that one bar inside the
+// answer for a very long time. The residual weight of the seed after n bars is
+// (1 - 2/(period+1))^n, so for EMA200:
+//
+//     145 bars (Yahoo 210d)  23.5% of the value is still the oldest close
+//     205 bars (Yahoo 300d)  12.9%
+//     300 bars (MT5 bridge)   5.0%
+//     600 bars                0.25%
+//
+// Measured 2026-08-09 against a converged reference: Gold's EMA200 was +$111 out
+// on the Yahoo path and +$21 on the MT5 path, and the price-above-or-below-EMA200
+// call — which drives trend classification — disagreed with the converged value
+// on 1.3-2.3% of days. Seeding on the mean of the first `period` closes removes
+// almost all of that without needing more history.
+//
+// SMA seeding is ONLY used when there is real runway behind it, and that
+// condition is not cosmetic — measured against a converged reference on
+// 2026-08-09, seeding on an SMA with too little history is WORSE than seeding on
+// a single close:
+//
+//   bars   GOLD closes[0] err   GOLD SMA err      BTC closes[0]   BTC SMA
+//    300        +21.22            -50.16             +254           +672
+//    400         +2.87             -6.34             +256           +867
+//    600         +0.41             +0.02              +67            +20
+//
+// The reason is runway. With 300 bars and period 200 the SMA seed leaves only 100
+// recursion steps, so 37% of the answer is still an average of 200 OLD closes —
+// a heavy drag in a trend. Seeding on closes[0] gets all 300 steps and tracks
+// recent price better despite starting from a worse guess.
+//
+// So the real fix for EMA accuracy is BAR COUNT, not seeding: DAILY_RANGE_* and
+// mt5_bridge.py BAR_COUNT_BY_TIMEFRAME were both raised alongside this. Past
+// 3x the period the two methods agree to within a rounding error and SMA is
+// marginally better, so that is where the switch sits.
+const EMA_SMA_SEED_MIN_MULTIPLE = 3;
 function emaSeries(closes, period) {
   const k = 2 / (period + 1);
-  const out = [closes[0]];
-  for (let i = 1; i < closes.length; i++) out.push(closes[i] * k + out[i - 1] * (1 - k));
+  if (closes.length < period * EMA_SMA_SEED_MIN_MULTIPLE) {
+    const short = [closes[0]];
+    for (let i = 1; i < closes.length; i++) short.push(closes[i] * k + short[i - 1] * (1 - k));
+    return short;
+  }
+  let seed = 0;
+  for (let i = 0; i < period; i++) seed += closes[i];
+  seed /= period;
+  // The first `period` entries are the seed itself: an EMA is not defined before
+  // its own period has elapsed, and emitting a rising ramp there would invent
+  // structure the data does not contain.
+  const out = new Array(period).fill(seed);
+  for (let i = period; i < closes.length; i++) out.push(closes[i] * k + out[i - 1] * (1 - k));
   return out;
 }
 
+// WILDER'S RSI, not a simple average. Corrected 2026-08-25.
+//
+// This used to sum gains and losses over the LAST 14 BARS ONLY and divide by 14.
+// That is a simple moving average of gains and losses; it is not RSI. Wilder (1978)
+// — which is what MT5, TradingView and every published study compute — smooths those
+// averages exponentially at alpha = 1/period, seeded on the first `period` bars and
+// carried through the ENTIRE series.
+//
+// Measured on the live D1 cache the day this was found:
+//
+//     symbol    old      Wilder    error
+//     BTCUSD    91.6      85.5     -6.1
+//     XAUUSD    81.3      72.3     -9.0
+//     SP500     39.1      52.2    +13.1
+//
+// Six to thirteen points, AND THE SIGN CHANGES. The MOMENTUM ceiling is 72 and
+// rsi_ceiling_walkforward sweeps the band in 8-point steps, so the measurement error
+// was larger than a whole step of the thing being swept. A simple average also
+// whipsaws as bars enter and leave the 14-bar window where Wilder smooths, which is
+// the likeliest reason CSCV found the ceiling axis anti-predictive (PBO 60.5%) and
+// the entry-RSI floor inverted (95.0%): a threshold cannot be learned on a
+// mis-measured, jittery input.
+//
+// EVERY RSI THRESHOLD IN THIS PROJECT WAS CALIBRATED ON THE OLD NUMBER — the 72/68
+// ceilings, "needs RSI below 50", minEntryRsi, the oversold bands. tasks/_replay_mtf
+// sandboxes generateSignal out of this same file, so the replays were internally
+// consistent with the wrong indicator rather than immune to it. This correction
+// re-points all of them and they MUST be re-measured against it, not assumed to
+// carry over.
+//
+// Needs the whole series, not a 14-bar tail: the smoothing has memory, which is the
+// entire point of it. O(n) over the bars already in hand, so the cost is nil.
 function calcRSI(closes, period = 14) {
-  if (closes.length < period + 1) return null;
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
+  if (!Array.isArray(closes) || closes.length < period + 1) return null;
+
+  // Seed: the simple average of the first `period` changes. This is the one place a
+  // simple mean is correct — Wilder defines the seed that way.
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
     const d = closes[i] - closes[i - 1];
-    if (d > 0) gains += d; else losses -= d;
+    if (d > 0) avgGain += d; else avgLoss -= d;
   }
-  const ag = gains / period, al = losses / period;
-  if (al === 0) return 100;
-  return parseFloat((100 - 100 / (1 + ag / al)).toFixed(1));
+  avgGain /= period;
+  avgLoss /= period;
+
+  // Then smooth forward across every remaining bar.
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    const gain = d > 0 ? d : 0;
+    const loss = d < 0 ? -d : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+
+  // No down-closes in the whole smoothed history: RSI is 100 by definition. Kept
+  // identical to the old behaviour so this branch is not a new one.
+  if (avgLoss === 0) return 100;
+  // A non-finite value here would propagate silently into every threshold that reads
+  // it; null means "not computable" and every caller already handles it.
+  const rsi = 100 - 100 / (1 + avgGain / avgLoss);
+  if (!Number.isFinite(rsi)) return null;
+  return parseFloat(rsi.toFixed(1));
 }
 
 function calcBB(closes, period = 20, mult = 2) {
@@ -706,6 +1906,14 @@ function calcMACD(closes) {
     signal:    parseFloat(signalLine[last].toFixed(2)),
     histogram: parseFloat((macdLine[last] - signalLine[last]).toFixed(2)),
     crossed:   macdLine[last] > signalLine[last] && macdLine[prev] <= signalLine[prev],
+    // The bearish mirror of `crossed`. Added for the BREAKDOWN setup, which needs the
+    // same "fresh cross" quality test MOMENTUM gets — `crossed` is bullish-only, so
+    // without this a short could never be graded STRONG on a cross the way a long can,
+    // and the mirror would not be a mirror.
+    //
+    // ADDITIVE ONLY: a new field on the returned object. Nothing existing reads it, and
+    // no branch condition changes. `crossed` and `bullish` are byte-identical to before.
+    crossedBearish: macdLine[last] < signalLine[last] && macdLine[prev] >= signalLine[prev],
     bullish:   macdLine[last] > signalLine[last]
   };
 }
@@ -808,6 +2016,36 @@ function findSwingHigh(highs, lookback = 3) {
 function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyCloses = null, barSource = null) {
   if (!closes || closes.length < 50) return null;
 
+  // REPLAY MODE — do not write to the rejection ledger or the gate counters.
+  //
+  // This function is called two ways. LIVE, once per refresh, on the current bars: those
+  // gate decisions are real, and every rejection is a fully priced paper trade the whole
+  // rejection-evidence system depends on. And by runBacktest (:8553), which walks five
+  // YEARS of history one bar at a time and calls this on every step.
+  //
+  // Until 2026-09-02 both wrote to the same ledger. Measured that day: 1,536 of 3,344 rows
+  // — 45.9% — carried dataSource, sourceSymbol and timeframe all null, because runBacktest
+  // passes six arguments and barSource defaults to null. Those rows can NEVER be walked
+  // forward: nothing records which instrument the levels were priced on. MIN_RR alone held
+  // 109 unscorable episodes against 189 total, and 182 rows landed in a single minute —
+  // the fingerprint of a replay loop, not of live trading.
+  //
+  // The ledger therefore looked healthy at 3,344 rows while nearly half of it could never
+  // become evidence. That matters more than it sounds: sample size is the binding
+  // constraint on this system, and this is the one mechanism that manufactures evidence at
+  // zero risk. Half of it was being thrown away.
+  //
+  // The counters are suppressed too, not just the ledger writes. Suppressing kills while
+  // still counting passes would skew every ratio on /api/gate-health in the opposite
+  // direction — a fix that creates a subtler version of the same lie.
+  //
+  // A CONST, evaluated once, and NOT a free variable: generateSignal is extracted
+  // TEXTUALLY into a bare vm sandbox by tasks/_replay_mtf.cjs and tasks/_replay_engine.cjs,
+  // where an undefined binding is a ReferenceError the harness catch swallows, silently
+  // deleting the whole cohort from the measurement. That has already happened twice here.
+  // Declared inside the function, it travels with the extracted text.
+  const ledgerEnabled = barSource?.replay !== true;
+
   const price  = closes[closes.length - 1];
   const rsi    = calcRSI(closes);
   const bb     = calcBB(closes);
@@ -831,11 +2069,48 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   const inUptrend   = trend === "STRONG UPTREND" || trend === "UPTREND";
   const inDowntrend = trend === "STRONG DOWNTREND" || trend === "DOWNTREND";
 
-  // Volume analysis
-  const avgVol = volumes.length >= 20
-    ? volumes.slice(-20).reduce((a,b) => a+b, 0) / 20
-    : null;
-  const lastVol  = volumes[volumes.length - 1] ?? 0;
+  // Volume analysis — COMPARE LIKE WITH LIKE.
+  //
+  // This compared the LAST bar, which on a live feed is the STILL-FORMING day, against
+  // an average of 20 COMPLETED days. A PART-FORMED DAY is not a daily volume, so the
+  // ratio was structurally small for most of the session and volConfirmed was not
+  // merely rare - it was unreachable.
+  //
+  // Measured 2026-08-27 by rebuilding the intraday volume from m15 bars over ~1,100
+  // days per asset. THE DEFECT IS TIMING, NOT FREQUENCY - and the first reading of this
+  // overstated it, so the correction is recorded here rather than quietly dropped:
+  //
+  //   old code reached 1.4x on   7% / 18% / 19% of days (XAUUSD / SP500 / BTCUSD)
+  //   corrected arithmetic gives 6.8% / 18.7% / 17.3%
+  //
+  // The same frequency. What differed is WHEN: the forming bar only accumulates enough
+  // volume near the end of the session, so the median crossing hour was 21:00 / 19:00 /
+  // 20:00 UTC. Confirmation therefore arrived in the last ~15-20% of the day, long after
+  // the setup formed - so a volume-gated setup could not fire when it appeared, only in
+  // the final hours if at all. That is still blocking, and it is still arithmetic rather
+  // than judgement, but it is not the 85% suppression the first pass claimed.
+  //
+  // volConfirmed is a HARD REQUIREMENT for BREAKOUT (the "REQUIRE volume for breakout"
+  // line below), for SQUEEZE_BREAKOUT detection, and for the Gold/DXY divergence check.
+  //
+  // The fix is to use the last CLOSED bar against the 20 completed bars BEFORE it.
+  // Price indicators deliberately keep using the forming bar: a part-formed PRICE is a
+  // perfectly good current price, while a part-formed VOLUME is not a daily volume.
+  //
+  // Note this makes volume a ONE-BAR-LAGGED confirmation on the daily timeframe. That
+  // is the honest trade: a lagged true reading beats a live meaningless one. The 1.4
+  // threshold is UNCHANGED here on purpose - it was calibrated against the broken
+  // denominator, so it should be swept separately rather than moved in the same edit.
+  //
+  // Falls back to the old behaviour when there is no completed history to compare
+  // against, so a short series degrades instead of throwing.
+  const hasClosedHistory = volumes.length >= 22;
+  const avgVol = hasClosedHistory
+    ? volumes.slice(-22, -2).reduce((a, b) => a + b, 0) / 20
+    : (volumes.length >= 20 ? volumes.slice(-20).reduce((a, b) => a + b, 0) / 20 : null);
+  const lastVol = hasClosedHistory
+    ? (volumes[volumes.length - 2] ?? 0)
+    : (volumes[volumes.length - 1] ?? 0);
   const volRatio = avgVol && avgVol > 0 ? parseFloat((lastVol / avgVol).toFixed(1)) : null;
   const volConfirmed = volRatio !== null && volRatio >= 1.4;
 
@@ -863,6 +2138,93 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   const adxTrending = adxValue !== null && adxValue >= ADX_TRENDING_MIN;
 
   const MIN_RR = 1.5;
+
+  // RSI bands for the two trend-continuation setups. These numbers were inline in the
+  // conditions below; they are named here so the near-miss census can report the bar it
+  // measures against WITHOUT holding a second copy of it. A duplicated threshold is the
+  // single most repeated bug in this codebase — the AI filter was the third copy of the
+  // confidence gate, dashboard/index.html held five more and command.html another five.
+  // Defined INSIDE generateSignal on purpose: tasks/_replay_mtf.cjs extracts this
+  // function into a bare vm sandbox, where a module-level constant is undefined and the
+  // step throws into a catch that silently erases the whole cohort. That has happened
+  // twice already (SIZING_BOOST_MIN_CONFIDENCE, 1131 Gold steps; logRrRejection, 1006).
+  // Behaviour is unchanged: same numbers, same comparisons.
+  //
+  // The two CEILINGS are read from strategySettings when it carries them, using the
+  // same guarded pattern as ADX_TRENDING_MIN fifteen lines above — function-local, and
+  // `typeof` guarded so the bare vm sandbox falls through to the literal instead of
+  // throwing. They stay defined here for exactly the reason in the paragraph above:
+  // hoisting them to module scope is the failure that erased 1,131 Gold steps and 1,006
+  // more, silently, twice.
+  //
+  // WHY THEY BECAME READABLE AT ALL. Measured 2026-08-22: 24 of 24 near-misses failed on
+  // RSI_ABOVE_CEILING, the closest by 1.5 points. That makes this the binding constraint
+  // on how often this system trades — and with the numbers welded shut, no harness could
+  // sweep it, so the top blocker was the one thing in the engine defended by opinion
+  // rather than evidence. tasks/rsi_ceiling_walkforward.cjs sweeps it now.
+  //
+  // BEHAVIOUR IS UNCHANGED. strategy_settings.json carries neither key on either box, so
+  // both fall through to 72 and 68 — the values that have always been here. This makes
+  // the ceiling MEASURABLE; it does not move it, and it must not be moved on anything
+  // less than a walk-forward scored on its worst fold.
+  const MOMENTUM_RSI_MIN     = 52;
+  const MOMENTUM_RSI_MAX     = (typeof strategySettings !== "undefined"
+    && Number.isFinite(strategySettings.momentumRsiMax))
+    ? strategySettings.momentumRsiMax : 72;
+  const TREND_FOLLOW_RSI_MIN = 45;
+  const TREND_FOLLOW_RSI_MAX = (typeof strategySettings !== "undefined"
+    && Number.isFinite(strategySettings.trendFollowRsiMax))
+    ? strategySettings.trendFollowRsiMax : 68;
+
+  // ── BREAKDOWN: the short mirror of MOMENTUM, OFF unless explicitly enabled ──
+  //
+  // WHY IT EXISTS. Counted 2026-08-28: the setup chain below has EIGHT long branches and
+  // FOUR short ones, and the asymmetry is not where it looks. Both DIVERGENCE and
+  // SQUEEZE_BREAKOUT are symmetric pairs; what is missing is an entire CATEGORY. The long
+  // side has three trend-continuation setups (BREAKOUT, MOMENTUM, TREND_FOLLOW) and the
+  // short side has none — its only two setups of its own, SELL_BOUNCE and
+  // RANGE_TRADE_SHORT, are both mean-reversion. A clean downtrend below all EMAs with
+  // bearish MACD therefore matches NO branch and falls out of the final else as WAIT.
+  // That is why the journal reads 6 BUY / 2 SELL and why every recent fill is long.
+  //
+  // The bands are DERIVED from MOMENTUM's rather than copied, so this is an exact mirror
+  // by construction and stays one when the ceiling sweep moves momentumRsiMax. A
+  // duplicated threshold is the single most repeated bug in this codebase — the gate had
+  // five copies — and a mirror that drifts from its original measures nothing.
+  const BREAKDOWN_RSI_MIN = 100 - MOMENTUM_RSI_MAX;
+  const BREAKDOWN_RSI_MAX = 100 - MOMENTUM_RSI_MIN;
+
+  // ARMED 2026-09-02 on BOTH boxes by operator decision. strategy_settings.json now
+  // carries `"breakdownEnabled": true`, so this is TRUE and the setup fires live.
+  //
+  // This comment previously read "Neither box carries the key, so this is false on both
+  // and the firing set is provably unchanged". That proof was real but it was a proof
+  // about the DISARMED world - it compared the code edit with the flag off. It says
+  // nothing about the armed world, and left standing next to a now-live gate it would
+  // have read as a safety guarantee that no longer held.
+  //
+  // What the arming rests on instead: re-measured with MTF_MAX_HOLD=320 (the original
+  // run inherited a default of 40 that biases downward) AND
+  // MTF_DIRECTIONAL_OCCUPANCY=1 (the replay modelled one position per symbol; the live
+  // guard in sizing.js is direction-aware). System worst fold 0.149 -> 0.261, R/trade
+  // 0.325 -> 0.349, better at every gate 55/60/65/70. The cohort's own worst fold is
+  // still negative, -0.675, concentrated in 2022-11..2024-03 - a trend short losing
+  // through a year-long rally. Accepted deliberately: the accounts are DEMO and the
+  // binding constraint is short-side sample size, of which the journal holds 2 trades.
+  //
+  // UNMEASURED, stated rather than hidden: the harness models per-symbol occupancy but
+  // NOT the global maxConcurrentPositions cap of 3 that mt5_bridge.py enforces
+  // direction-blind across all three assets. Adding a whole short category raises
+  // demand on those shared slots and can displace longs on OTHER symbols. That path has
+  // not been measured.
+  //
+  // To disarm: POST /api/strategy-settings {"breakdownEnabled": false} - takes effect
+  // immediately, no restart.
+  //
+  // `=== true` and not a truthy test: a stray "false" string in a hand-edited settings
+  // file must not arm a live short-selling setup.
+  const BREAKDOWN_ENABLED = (typeof strategySettings !== "undefined"
+    && strategySettings.breakdownEnabled === true);
 
   // ── Gold/DXY divergence detection ────────────────────────────
   // Detected BEFORE the setup chain so a non-match falls through to the remaining
@@ -925,6 +2287,90 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     }
   }
 
+  // ══ SWING_PULLBACK_H4 detection, HOISTED ═══════════════════════
+  //
+  // An EXACT port of "Swing Trend Pullback Strategy (21/50 EMA) - Long Only" v10.0,
+  // read off the operator's TradingView on 2026-08-30 (tasks/tv_read_script.py). Its
+  // own tester reports profit factor 1.424 over 72 trades. Four earlier versions of
+  // this setup were written from the NAME alone; every one was worse and two could not
+  // fire at all. These rules are transcribed, not invented:
+  //
+  //   ema21Rising  = ema21 > ema21[1]
+  //   uptrend      = ema21 > ema50 and ema21Rising
+  //   pushDistance = ta.highest(high - ema50, 15)
+  //   momentumPush = pushDistance > 0.6 * atr
+  //   tolerance    = 0.60 * atr
+  //   touchesEma21 = low <= ema21 + tolerance and close >= ema21 - tolerance
+  //   bullishClose = close > open
+  //   pullbackEntry= touchesEma21 and bullishClose and close > ema50
+  //   rsiOk        = rsi > 40                       (useAdxFilter defaults FALSE)
+  //   slPrice      = math.min(swingLow(5), ema21) - 1.5 * atr
+  //   tpPrice      = close + (close - slPrice) * 2.0
+  //
+  // THE MOMENTUM PUSH IS WHAT EVERY EARLIER VERSION MISSED. Not "price pulled back",
+  // but "price first travelled >=0.6 ATR above EMA50 within 15 bars, THEN returned to a
+  // rising EMA21 and closed green". The push is what makes the pullback worth buying.
+  //
+  // Computed here so the chain below can guard on the ANSWER rather than on the inputs.
+  const swingPullback = (() => {
+    const idle = { fires: false, stop: null, target: null, reasons: [] };
+    if (barSource?.timeframe !== "H4") return idle;
+    const opens = barSource?.opens;
+    if (!Array.isArray(opens) || opens.length !== closes.length) return idle;
+    if (closes.length < 60) return idle;
+
+    const ema21Series = emaSeries(closes, 21);
+    const ema50Series = emaSeries(closes, 50);
+    const ema21Now = ema21Series.at(-1), ema21Prev = ema21Series.at(-2);
+    const ema50Now = ema50Series.at(-1);
+    if (!ema21Now || !ema21Prev || !ema50Now) return idle;
+
+    // ta.atr is WILDER-smoothed; the engine's atr() is a plain mean of the last 14
+    // true ranges, which is a different number. The Pine's own definition is rebuilt.
+    const trueRanges = [];
+    for (let i = 1; i < closes.length; i++) {
+      trueRanges.push(Math.max(
+        highs[i] - lows[i],
+        Math.abs(highs[i] - closes[i - 1]),
+        Math.abs(lows[i] - closes[i - 1])));
+    }
+    const atrW = wilderSmooth(trueRanges, 14).at(-1);
+    if (!atrW || !(atrW > 0)) return idle;
+
+    if (!(ema21Now > ema50Now && ema21Now > ema21Prev)) return idle;
+
+    // ta.highest(high - ema50, 15): each bar's excursion above ITS OWN EMA50.
+    let pushDistance = -Infinity;
+    for (let i = Math.max(0, closes.length - 15); i < closes.length; i++) {
+      pushDistance = Math.max(pushDistance, highs[i] - ema50Series[i]);
+    }
+    if (!(pushDistance > 0.6 * atrW)) return idle;
+
+    const tolerance = 0.60 * atrW;
+    const lastLow = lows.at(-1), lastOpen = opens.at(-1), lastClose = closes.at(-1);
+    if (!(lastLow <= ema21Now + tolerance && lastClose >= ema21Now - tolerance)) return idle;
+    if (!(lastClose > lastOpen)) return idle;
+    if (!(lastClose > ema50Now)) return idle;
+    if (!(rsi !== null && rsi > 40)) return idle;
+
+    let swingLow5 = Infinity;
+    for (let i = Math.max(0, lows.length - 5); i < lows.length; i++) swingLow5 = Math.min(swingLow5, lows[i]);
+    const sl = parseFloat((Math.min(swingLow5, ema21Now) - 1.5 * atrW).toFixed(2));
+    if (!(lastClose > sl)) return idle;   // a non-positive risk distance is not a trade
+
+    return {
+      fires: true,
+      stop: sl,
+      target: parseFloat((lastClose + (lastClose - sl) * 2.0).toFixed(2)),
+      reasons: [
+        `Momentum push ${(pushDistance / atrW).toFixed(2)}x ATR above EMA50 within 15 bars`,
+        `Pullback into the EMA21 zone (±${tolerance.toFixed(2)}) closing bullish`,
+        `EMA21 rising and above EMA50 — trend intact`,
+        `RSI ${rsi} above the 40 floor`,
+      ],
+    };
+  })();
+
   let setup = "WAIT", signal = "WAIT", strength = "NONE";
   let entry = price, stop = null, target = null, reasons = [];
 
@@ -933,14 +2379,35 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     (inUptrend || (trend === "MIXED" && aboveEma50)) &&
     !aboveEma20 &&
     price >= ema20 * 0.978 &&       // within 2.2% of EMA20
-    rsi !== null && rsi < 50 &&
-    macd?.bullish
+    rsi !== null && rsi < BUY_DIP_RSI_MAX &&
+    (!BUY_DIP_REQUIRE_MACD_BULLISH || macd?.bullish)
   ) {
     setup  = "BUY_DIP";
     signal = "BUY";
     const sl = atrStop15 ? parseFloat((entry - atrStop15).toFixed(2)) : parseFloat((entry * 0.985).toFixed(2));
     stop   = sl;
     target = parseFloat((entry + Math.abs(entry - sl) * 2.5).toFixed(2));
+    // The MODERATE band used to be `rsi < 42` while the ENTRY condition was `rsi < 50`,
+    // so every BUY_DIP formed in the 42-50 band carried strength NONE - and a setup must
+    // clear the gate AND minStrength (MODERATE) to fire. Those bars produced a named
+    // setup that was structurally untradeable, a hidden second RSI filter duplicating
+    // the entry test eight points tighter. That dead zone is the most likely reason
+    // BUY_DIP has never fired once in this system's history, and raising the entry
+    // ceiling to 55 would have widened it to thirteen points rather than fixing
+    // anything: Gold at RSI 52.7 passes every entry condition and would still have
+    // scored NONE.
+    //
+    // MODERATE now means "passed every entry condition", which is what the minimum
+    // tradeable strength should mean. STRONG is deliberately UNCHANGED at deep-oversold
+    // plus volume: STRONG can raise position size, and nothing here measured that.
+    // REVERTED to 42 with everything else on 2026-09-01. The finding behind the change
+    // STANDS and is worth measuring properly: entry allows rsi < 50 while MODERATE needs
+    // rsi < 42, so every BUY_DIP formed in the 42-50 band is born with strength NONE and
+    // cannot clear minStrength. It is a real dead zone and a plausible part of why
+    // BUY_DIP has never fired live. But the walk-forward could not see the change at all
+    // — 836/308/413/115 identical before and after — so there is NO evidence either way,
+    // and today's lesson is that this engine punishes unmeasured edits. Measure it with a
+    // harness that models minStrength before touching it again.
     strength = (rsi < 38 && volConfirmed) ? "STRONG" : rsi < 42 ? "MODERATE" : "NONE";
     reasons.push(`Uptrend intact — EMA50/200 structural support`);
     reasons.push(`RSI ${rsi} — dip into oversold territory`);
@@ -967,8 +2434,24 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   }
 
   // ── SELL_BOUNCE: rejection at EMA20 in downtrend or mixed below EMA50 ──
+  // CONDITION 1 IS THE WHOLE SHORT SIDE'S BOTTLENECK. Measured 2026-08-28 per daily
+  // bar: SELL_BOUNCE forms 2 times in 1090 Gold bars and ZERO in 1092 SPX bars, while
+  // 502 bars across the three assets are blocked by this condition ALONE - price above
+  // EMA20, within 2.2% of it, RSI > 50 and MACD bearish, a textbook rejection into
+  // resistance, refused only because the trend LABEL is not DOWNTREND. And that label
+  // is EMA STACKING, not direction: on 2026-09-01 Gold and SPX both read "UPTREND"
+  // with MACD histogram -17.45 and -12.39 while price was falling.
+  //
+  // Relaxing it is PURELY ADDITIVE - those bars fall through the else-if chain to WAIT
+  // today, so nothing is suppressed and rule 3 is satisfied by construction.
+  //
+  // DEFAULT TRUE = the engine behaves exactly as before. Flipping it admits ~500 more
+  // shorts, and the SELL side currently runs -0.058R, so that is a large loss until a
+  // replay says otherwise. Measure both worlds before changing the default - the same
+  // discipline BREAKDOWN got, and the same one MOMENTUM_REQUIRE_MACD_BULLISH skipped
+  // before being reverted within the hour on 2026-09-01.
   else if (
-    (inDowntrend || (trend === "MIXED" && !aboveEma50)) &&
+    (!SELL_BOUNCE_REQUIRE_DOWNTREND || inDowntrend || (trend === "MIXED" && !aboveEma50)) &&
     aboveEma20 &&
     price <= ema20 * 1.022 &&       // within 2.2% above EMA20
     rsi !== null && rsi > 50 &&
@@ -1040,8 +2523,8 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   else if (
     inUptrend &&
     aboveEma50 && aboveEma20 &&
-    rsi !== null && rsi > 52 && rsi < 72 &&
-    macd?.bullish
+    rsi !== null && rsi > MOMENTUM_RSI_MIN && rsi < MOMENTUM_RSI_MAX &&
+    (!MOMENTUM_REQUIRE_MACD_BULLISH || macd?.bullish)
   ) {
     setup  = "MOMENTUM";
     signal = "BUY";
@@ -1058,8 +2541,8 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // ── TREND_FOLLOW: price in uptrend above all EMAs, MACD bullish — trend continuation ──
   else if (
     (inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20) &&
-    rsi !== null && rsi > 45 && rsi < 68 &&
-    macd?.bullish &&
+    rsi !== null && rsi > TREND_FOLLOW_RSI_MIN && rsi < TREND_FOLLOW_RSI_MAX &&
+    (!TREND_FOLLOW_REQUIRE_MACD_BULLISH || macd?.bullish) &&
     ema200 && price > ema200 * 1.005
   ) {
     setup  = "TREND_FOLLOW";
@@ -1138,6 +2621,104 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     reasons.push(`Volume ${volRatio}x avg — institutional selling`);
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // ADDED 2026-08-30, ON REQUEST. THREE SETUPS, PLACED ABOVE BB_SQUEEZE_WATCH.
+  //
+  // THE POSITION IS THE SAFETY PROPERTY. This is a priority-ordered if/else-if chain,
+  // so a branch inserted higher captures cycles that currently reach the branches below
+  // it -- the defect that once blocked five setups on Gold.
+  //
+  // These sat LAST at first, which blocked nothing and ALSO fired nothing: measured
+  // 2026-08-30, BB_SQUEEZE_WATCH took 4,303 of the 4,733 WAIT cycles on SP500 H4 and
+  // terminated the chain before them. Placed here instead, immediately ABOVE
+  // BB_SQUEEZE_WATCH, because that branch hardcodes `signal = "WAIT"` and therefore
+  // CANNOT PRODUCE A TRADE -- it is an observability label. Taking cycles from it
+  // forfeits no signal, which is what makes this position safe rather than merely
+  // convenient. Everything that can actually trade still sits above.
+  //
+  // Verified by diffing /api/signals across all three assets before and after.
+  //
+  // Each is scoped to ONE timeframe via barSource.timeframe. generateSignal is called
+  // once per timeframe by generateSignalMTF, so without that guard an H4 setup would
+  // also fire on the daily and the H1 and quietly become three different setups
+  // wearing one name.
+  //
+  // Each guard tests THE MATCH ITSELF, never merely the data needed to compute it --
+  // the second half of the same lesson: a branch that guards on preconditions
+  // terminates the chain even when nothing matched.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ── SWING_PULLBACK_H4 ─ exact port of the operator's live Pine strategy ──
+  // Detection is HOISTED above this chain (see swingPullback) and this branch guards
+  // ONLY on the result. That is not style: a branch guarding on preconditions with the
+  // real test inside terminates the chain even when nothing matched, which is the
+  // documented defect that once blocked BREAKOUT, MOMENTUM, TREND_FOLLOW,
+  // RANGE_TRADE_LONG/SHORT and SQUEEZE_BREAKOUT on Gold.
+  else if (swingPullback.fires) {
+    setup  = "SWING_PULLBACK_H4";
+    signal = "BUY";
+    stop   = swingPullback.stop;
+    target = swingPullback.target;
+    // The Pine has no strength concept -- longCondition is simply true or false, and
+    // every qualifying bar is a full entry there. MODERATE is the honest mapping;
+    // STRONG stays unreachable until something measures a band worth claiming.
+    strength = "MODERATE";
+    for (const r of swingPullback.reasons) reasons.push(r);
+  }
+
+  // ── EMA_REVERSAL_H1: price reclaims EMA20 from below. LONG ONLY, as specified. ──
+  else if (
+    barSource?.timeframe === "H1" &&
+    ema20 && ema50 &&
+    aboveEma20 &&                    // reclaimed
+    price <= ema20 * 1.006 &&        // and only JUST — this is the turn, not the run
+    rsi !== null && rsi >= 45 && rsi <= 62 &&
+    macd?.bullish &&
+    aboveEma50                       // reclaim against the larger trend, not into it
+  ) {
+    setup  = "EMA_REVERSAL_H1";
+    signal = "BUY";
+    // Same clamp as SWING_PULLBACK_H4 above, and for the same measured reason.
+    const atrStopPrice = atrStop15 ? entry - atrStop15 : entry * 0.99;
+    const atrUnit = atrVal || Math.abs(entry - atrStopPrice) / 1.5;
+    const structuralOk = swingLow
+      && (entry - swingLow) >= atrUnit * 1.0
+      && (entry - swingLow) <= atrUnit * 3.0;
+    const sl = parseFloat((structuralOk ? swingLow : atrStopPrice).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry + Math.abs(entry - sl) * 2.0).toFixed(2));
+    strength = (rsi >= 50 && macd.histogram > 0) ? "MODERATE" : "NONE";
+    reasons.push(`1H reclaim of EMA20 from below — reversal, still above EMA50`);
+    reasons.push(`RSI ${rsi} — turning up through the 45-62 band`);
+  }
+
+  // ── M15_MOMENTUM: the only new setup that trades BOTH directions. ──
+  // m15 has been pushed by the bridge since 2026-08-25 and read by NOTHING. This is
+  // its first reader; generateSignalMTF passes it only when the caller supplies it.
+  else if (
+    barSource?.timeframe === "M15" &&
+    ema20 && ema50 && rsi !== null && macd &&
+    (
+      (price > ema20 && ema20 > ema50 && rsi > 52 && rsi < 70 && macd.bullish) ||
+      (price < ema20 && ema20 < ema50 && rsi < 48 && rsi > 30 && !macd.bullish)
+    )
+  ) {
+    const isLong = price > ema20;
+    setup  = "M15_MOMENTUM";
+    signal = isLong ? "BUY" : "SELL";
+    const atrFloor = atrStop15
+      ? (isLong ? entry - atrStop15 : entry + atrStop15)
+      : (isLong ? entry * 0.995 : entry * 1.005);
+    const sl = parseFloat(atrFloor.toFixed(2));
+    stop   = sl;
+    target = parseFloat((isLong
+      ? entry + Math.abs(entry - sl) * 2.0
+      : entry - Math.abs(sl - entry) * 2.0).toFixed(2));
+    strength = (Math.abs(rsi - 50) >= 8 && Math.abs(macd.histogram) > 0) ? "MODERATE" : "NONE";
+    reasons.push(`15m ${isLong ? "long" : "short"} momentum — price ${isLong ? "above" : "below"} EMA20 with EMA20 ${isLong ? "above" : "below"} EMA50`);
+    reasons.push(`RSI ${rsi}, MACD ${macd.bullish ? "bullish" : "bearish"} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
+  }
+
   // ── BB_SQUEEZE_WATCH: tight squeeze — flag pending breakout ──────
   else if (bb && bb.bandwidth < 8) {
     setup  = "BB_SQUEEZE_WATCH";
@@ -1148,18 +2729,371 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     reasons.push(`Watch for break above ${breakoutUp} (BUY) or below ${breakoutDown} (SELL)`);
     reasons.push(`RSI ${rsi} — position neutral, waiting for direction`);
     if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg — low volume confirms squeeze`);
+
+    // A WATCH is a NO-TRADE. Explain it like one: without this, a squeeze suppresses
+    // the whole diagnosis and the asset reads "breakout imminent" forever while the
+    // actual blocker goes unrecorded. Also say what MOMENTUM was still missing, so
+    // the reasons array carries the answer and not just the weather.
+    const watchMissing = [
+      !inUptrend ? "uptrend" : null,
+      !(rsi !== null && rsi > MOMENTUM_RSI_MIN && rsi < MOMENTUM_RSI_MAX)
+        ? `RSI inside ${MOMENTUM_RSI_MIN}-${MOMENTUM_RSI_MAX} (now ${rsi})` : null,
+      !macd?.bullish ? "MACD bullish" : null,
+    ].filter(Boolean);
+    if (watchMissing.length) {
+      reasons.push(`Not tradeable — MOMENTUM still needs: ${watchMissing.join(", ")}`);
+    }
+    recordNearMisses();
+  }
+
+  // ── BREAKDOWN: all EMAs aligned DOWN + MACD bearish — the mirror of MOMENTUM ──
+  //
+  // PLACED LAST ON PURPOSE, and the position is the safety argument. Every branch above
+  // is an `else if`, so a new branch inserted higher up would STEAL cycles from whatever
+  // sits below it. Sitting here, after BB_SQUEEZE_WATCH and immediately before the final
+  // else, it can only ever convert a cycle that was going to be WAIT anyway. It cannot
+  // displace a setup, cannot change a single existing entry, stop or target, and cannot
+  // suppress a signal that would otherwise have fired — the standing rule this edit was
+  // written under.
+  //
+  // NO NEAR-MISS ROW IS LOST by taking a cycle from the else below. recordNearMisses()
+  // only reports MOMENTUM and TREND_FOLLOW, and both of those require inUptrend (or MIXED
+  // above both EMAs), which is false by construction whenever this branch is entered —
+  // it requires inDowntrend. The census would have recorded nothing on these cycles.
+  //
+  // Occupancy is the one real interaction and it is NOT visible here: a BREAKDOWN that
+  // opens holds the symbol, so a later long can be blocked by a position rather than by
+  // a rule. That is measured explicitly by tasks/breakdown_walkforward.cjs and reported
+  // as a displacement count — it is the honest cost of adding any setup, and it is a
+  // reason to check the number, not a reason to assume it is zero.
+  //
+  // UNMEASURED UNTIL THE HARNESS SAYS OTHERWISE. This ships OFF. Turning it on is a
+  // separate decision that needs a walk-forward whose worst fold clears zero.
+  else if (
+    BREAKDOWN_ENABLED &&
+    inDowntrend &&
+    !aboveEma50 && !aboveEma20 &&
+    rsi !== null && rsi > BREAKDOWN_RSI_MIN && rsi < BREAKDOWN_RSI_MAX &&
+    macd && !macd.bullish
+  ) {
+    setup  = "BREAKDOWN";
+    signal = "SELL";
+    const sl = atrStop15 ? parseFloat((entry + atrStop15).toFixed(2)) : parseFloat((entry * 1.015).toFixed(2));
+    stop   = sl;
+    target = parseFloat((entry - Math.abs(sl - entry) * 2.0).toFixed(2));
+    strength = (macd.crossedBearish || (volRatio !== null && volRatio >= 1.8)) ? "STRONG" : rsi < 40 ? "MODERATE" : "NONE";
+    reasons.push(`All EMAs aligned down — trend structure intact to the downside`);
+    reasons.push(`MACD bearish${macd.crossedBearish ? " — fresh crossover" : ""} (histogram ${macd.histogram > 0 ? "+" : ""}${macd.histogram})`);
+    if (volConfirmed) reasons.push(`Volume ${volRatio}x avg — institutional participation`);
+    else reasons.push(`Volume ${volRatio ?? "?"}x avg (monitoring for breakdown confirmation)`);
   }
 
   else {
     // WAIT — explain exactly what's needed to trigger each setup
-    const needsUptrend   = !inUptrend   ? `price above EMA200 (${ema200 ? ema200.toFixed(0) : "N/A"})` : null;
-    const needsOversold  = rsi !== null && rsi >= 50 ? `RSI below 50 (now ${rsi})` : null;
-    const needsMACD      = !macd?.bullish ? `MACD bullish crossover` : null;
-    const blockReasons   = [needsUptrend, needsOversold, needsMACD].filter(Boolean);
-    reasons.push(`No setup: ${blockReasons.length > 0 ? blockReasons.join(", ") : "market not at key level"}`);
+    // THIS LIST WAS A SECOND, HARDCODED COPY OF BUY_DIP'S CONDITIONS AND IT WAS WRONG
+    // IN BOTH DIRECTIONS. Rewritten 2026-09-01 after it cost most of a session.
+    //
+    // It reported two conditions the engine no longer has — a bare `rsi >= 50` and
+    // `!macd.bullish`, both frozen at their old values while the real branch moved to
+    // BUY_DIP_RSI_MAX and dropped MACD entirely — and it OMITTED the one condition that
+    // was actually binding: BUY_DIP needs price BELOW EMA20, because it buys a pullback
+    // TO that average. Gold and SP500 both sat ABOVE their EMA20 and were told they
+    // needed a lower RSI and a MACD cross. Every diagnosis built on this string aimed at
+    // the wrong thing, mine included.
+    //
+    // Now derived from the SAME constants the branch tests, so it cannot drift again:
+    // change BUY_DIP_RSI_MAX or BUY_DIP_REQUIRE_MACD_BULLISH and this text follows.
+    const inBuyDipTrend  = inUptrend || (trend === "MIXED" && aboveEma50);
+    const needsUptrend   = !inBuyDipTrend
+      ? `an uptrend, or MIXED with price above EMA50 (${ema50 ? ema50.toFixed(0) : "N/A"})` : null;
+    // The binding condition, and the one that was missing from this list entirely.
+    const needsPullback  = (inBuyDipTrend && aboveEma20 && ema20)
+      ? `a pullback — price ${price} is ABOVE EMA20 ${ema20.toFixed(2)}, and BUY_DIP buys dips TO it` : null;
+    const needsInWindow  = (inBuyDipTrend && !aboveEma20 && ema20 && !(price >= ema20 * 0.978))
+      ? `price within 2.2% of EMA20 — it is ${(((ema20 - price) / ema20) * 100).toFixed(2)}% below, too deep` : null;
+    const needsOversold  = rsi !== null && rsi >= BUY_DIP_RSI_MAX
+      ? `RSI below ${BUY_DIP_RSI_MAX} (now ${rsi})` : null;
+    const needsMACD      = (BUY_DIP_REQUIRE_MACD_BULLISH && !macd?.bullish)
+      ? `MACD bullish crossover` : null;
+    const blockReasons   = [needsUptrend, needsPullback, needsInWindow, needsOversold, needsMACD].filter(Boolean);
+    // "needs:", not a bare colon. blockReasons is a list of things that are MISSING —
+    // needsUptrend/needsOversold/needsMACD above are each the CONDITION STILL REQUIRED,
+    // not a reading of the market. Under the old prefix Gold rendered
+    // "No setup: RSI below 50 (now 73.2)", which states that RSI is below 50 and then
+    // prints 73.2 in the same breath. It had been misreporting that way for a week
+    // (visible in tasks/analysis/deep-plan-20260812T181931.json) and it is the first
+    // line a human reads when asking why an asset did not fire.
+    //
+    // The empty case keeps its own wording: with no missing conditions the fallback is
+    // "market not at key level", which is a STATE, and "needs: market not at key level"
+    // would be the same category error in the opposite direction.
+    reasons.push(blockReasons.length > 0
+      ? `No setup — needs: ${blockReasons.join(", ")}`
+      : `No setup — market not at key level`);
     reasons.push(`Trend: ${trend} | RSI: ${rsi} | BB bandwidth: ${bb?.bandwidth ?? "N/A"}%`);
     if (bb && bb.bandwidth < 15) reasons.push(`BB squeeze forming — breakout setup building`);
     if (volRatio !== null) reasons.push(`Volume ${volRatio}x avg`);
+
+    // ── Near-miss census ──────────────────────────────────────────
+    // OBSERVABILITY ONLY. Nothing below assigns setup, signal, entry, stop, target,
+    // strength or confidence, and the whole block is wrapped so a fault here can never
+    // reach the trading path. See server/near_miss.js for why this is not a rejection
+    // row: no setup formed, so REJECTION-LEDGER-SPEC rule 3.1 excludes it by design.
+    //
+    // Reaching this else means EVERY setup branch failed. So if a setup's non-RSI
+    // conditions all pass here, the RSI band is necessarily what killed it — had RSI
+    // been in range the branch would have fired and we would not be in this else.
+    // That is the whole inference, and it is exact rather than heuristic.
+    //
+    // typeof-guarded like every other engine-side helper: tasks/_replay_mtf.cjs runs
+    // this function in a bare vm sandbox where these bindings do not exist, and an
+    // unstubbed reference throws into a catch that silently deletes the entire cohort
+    // from every measurement.
+    recordNearMisses();
+  }
+
+  // Called from the final else AND from the WATCH branch above it. Declared as a
+  // function so there is ONE census, not two that drift.
+  //
+  // WHY THE WATCH BRANCH NEEDS IT: BB_SQUEEZE_WATCH is an `else if` sitting ahead of
+  // the final `else`, and the final `else` is where both this census and the
+  // "No setup - needs: ..." line live. An asset in a squeeze therefore got
+  // "breakout imminent" and NO diagnosis at all. SPX sat exactly there - RSI 52.8
+  // inside the MOMENTUM band, failing only on macd.bullish - showing confidence 0
+  // with nothing anywhere recording why. A WATCH is a no-trade and must explain
+  // itself like any other no-trade.
+  function recordNearMisses() {
+    try {
+      if (rsi !== null) {
+        const nearMissBase = {
+          symbol:    barSource?.sourceSymbol ?? null,
+          timeframe: barSource?.timeframe ?? null,
+        };
+
+        // Collected as well as recorded, so the census can ALSO answer the question on
+        // the surface a human actually reads. Until 2026-08-28 this block wrote the
+        // real cause to /api/near-miss and the `reasons` array said something else
+        // entirely: BTC rendered "No setup — needs: RSI below 50 (now 82.2)" while
+        // MOMENTUM had in fact died on the RSI CEILING by 2.2 points with every other
+        // condition passing. "RSI below 50" is the BUY_DIP path — it is not what was
+        // blocking, and it is the first line anyone reads when asking why an asset has
+        // not fired in nine days. The right number existed and was one array away.
+        //
+        // noteNearMiss is called only when it exists, but the misses are COMPUTED
+        // unconditionally, so the explanation is correct even in the replay sandbox
+        // where that binding is absent. Pushing a string is the only effect.
+        const noted = [];
+        const note  = (row) => {
+          noted.push(row);
+          if (typeof noteNearMiss === "function") noteNearMiss(row);
+        };
+
+        // MOMENTUM: inUptrend && aboveEma50 && aboveEma20 && macd.bullish, RSI banded.
+        //
+        // `macd.bullish` USED TO SIT IN THIS GUARD, which made the census blind to the
+        // single most common reason a setup does not fire. It was a PRECONDITION FOR
+        // BEING LOOKED AT, never a reported condition, so when MACD was the only thing
+        // failing nothing was recorded at all. Measured 2026-09-01: across both boxes
+        // the census held 64 rows and every one was RSI — 36 on the VPS, 28 here, and
+        // ZERO for Gold on either machine, ever. Gold fails MOMENTUM on macd.bullish
+        // and nothing else, so the instrument CLAUDE.md calls the binding constraint
+        // could not see the asset it was most needed for. why_zero_confidence.cjs
+        // reported "nothing got close enough to a setup to be counted — a QUIET MARKET,
+        // not a blocked one" while Gold sat one condition away.
+        //
+        // Now reported as its own condition. REPORTING ONLY: this records and pushes a
+        // string. It assigns no setup, signal, entry, stop, target, strength or
+        // confidence, and changes no gate — the branch that decides MOMENTUM is
+        // untouched above.
+        const momentumStructureOk = inUptrend && aboveEma50 && aboveEma20;
+        if (momentumStructureOk && macd?.bullish) {
+          if (rsi >= MOMENTUM_RSI_MAX) {
+            note({ ...nearMissBase, setup: "MOMENTUM",
+              condition: "RSI_ABOVE_CEILING", threshold: MOMENTUM_RSI_MAX, actual: rsi });
+          } else if (rsi <= MOMENTUM_RSI_MIN) {
+            note({ ...nearMissBase, setup: "MOMENTUM",
+              condition: "RSI_BELOW_FLOOR", threshold: MOMENTUM_RSI_MIN, actual: rsi });
+          }
+        } else if (momentumStructureOk && !macd?.bullish
+                   && rsi > MOMENTUM_RSI_MIN && rsi < MOMENTUM_RSI_MAX
+                   && Number.isFinite(macd?.histogram)) {
+          // threshold 0 because the crossover IS the zero line for the histogram, so
+          // |actual - threshold| stays the true distance-to-fire, the same meaning it
+          // carries for the RSI rows beside it.
+          note({ ...nearMissBase, setup: "MOMENTUM",
+            condition: "MACD_NOT_BULLISH", threshold: 0, actual: macd.histogram });
+        }
+
+        // TREND_FOLLOW: same idea, its own band and its own EMA200 distance rule.
+        // Same correction as MOMENTUM above — macd.bullish moved out of the guard.
+        const trendFollowStructureOk = (inUptrend || trend === "MIXED" && aboveEma50 && aboveEma20)
+            && ema200 && price > ema200 * 1.005;
+        if (trendFollowStructureOk && macd?.bullish) {
+          if (rsi >= TREND_FOLLOW_RSI_MAX) {
+            note({ ...nearMissBase, setup: "TREND_FOLLOW",
+              condition: "RSI_ABOVE_CEILING", threshold: TREND_FOLLOW_RSI_MAX, actual: rsi });
+          } else if (rsi <= TREND_FOLLOW_RSI_MIN) {
+            note({ ...nearMissBase, setup: "TREND_FOLLOW",
+              condition: "RSI_BELOW_FLOOR", threshold: TREND_FOLLOW_RSI_MIN, actual: rsi });
+          }
+        } else if (trendFollowStructureOk && !macd?.bullish
+                   && rsi > TREND_FOLLOW_RSI_MIN && rsi < TREND_FOLLOW_RSI_MAX
+                   && Number.isFinite(macd?.histogram)) {
+          note({ ...nearMissBase, setup: "TREND_FOLLOW",
+            condition: "MACD_NOT_BULLISH", threshold: 0, actual: macd.histogram });
+        }
+
+        // ── THE SHORT SIDE, which this census could not see until 2026-09-02 ──
+        //
+        // WHY. Every block above instruments MOMENTUM or TREND_FOLLOW, and both are
+        // LONG. The census therefore held two conditions and only two - RSI_ABOVE_CEILING
+        // and MACD_NOT_BULLISH - across 46 rows, and not one of them was a SELL. So when
+        // the question was "why has it not sold all week" while Gold sat in a STRONG
+        // DOWNTREND with H4 and H1 both bearish and M15 printing SELL, the instrument
+        // built to answer exactly that returned nothing, and the answer had to be
+        // reconstructed by hand from 3,296 rejection-ledger rows.
+        //
+        // ONLY STATIONARY THRESHOLDS ARE INSTRUMENTED, and that is the load-bearing
+        // constraint here. The first version of this block also reported the EMA20 and
+        // BB-band legs, with thresholds of `ema20`, `ema20 * 1.022` and `bb.upper * 0.992`
+        // - all recomputed from the live last close on every refresh. near_miss.js was
+        // built on the assumption that a threshold is a CONSTANT: its per-day bucket is
+        // `${day}|${threshold}` (:143) and its file dedupe key is
+        // `...|thr:${row.threshold}|${day}` (:294). A threshold that moves every tick is a
+        // new key every tick, so the dedupe can never fire, and the */10 flush cron would
+        // have appended ~144 rows per active key per day into an evidence file that holds
+        // 46 rows across its entire life - and which rule 6 forbids ever cleaning up.
+        // It would also have leaked one `writtenThisProcess` Map entry per row, forever.
+        //
+        // So those three legs are PRECONDITIONS now, not reported conditions. That is the
+        // same shape `momentumStructureOk` above already uses, and it is better evidence
+        // besides: "price is not at the band" is the market not being there, not a bound
+        // doing anything, and a census row saying so on every refresh would have buried
+        // the rows that mean something. Requiring price to be AT the level is what makes
+        // the surviving RSI row a genuine near miss rather than a statement of location.
+        //
+        // CENSUS ONLY - these rows do NOT join `noted`. The BLOCKED: line below buckets by
+        // `condition !== "MACD_NOT_BULLISH"` and renders the survivor as
+        // `RSI <actual> <where> <threshold>`, so any non-RSI row joining `noted` would
+        // print a fabricated RSI reading on the first line a human reads. `reasons` is
+        // therefore BYTE-IDENTICAL after this change.
+        //
+        // ADDITIVE AND NON-BLOCKING. Nothing here assigns setup, signal, entry, stop,
+        // target, strength or confidence; it calls noteNearMiss, an in-memory counter with
+        // feedsTheGate false. No setup is suppressed and none is admitted.
+        const noteCensusOnly = (row) => {
+          if (typeof noteNearMiss === "function") noteNearMiss(row);
+        };
+
+        // Returns the single failing condition, or null when zero or several fail. A near
+        // miss defeated by TWO conditions is not a near miss - the margin stops being the
+        // distance to firing, which is the only reason this census exists.
+        const onlyFailure = (conditions) => {
+          const failed = conditions.filter(c => !c.ok);
+          return failed.length === 1 ? failed[0] : null;
+        };
+
+        // SELL_BOUNCE: a rejection at EMA20 in a downtrend, or mixed below EMA50. The
+        // trend and EMA20-band legs are quoted from the branch at :2166 so the two cannot
+        // drift; both are preconditions, per the note above.
+        const sellBounceTrendOk = (!SELL_BOUNCE_REQUIRE_DOWNTREND || inDowntrend
+          || (trend === "MIXED" && !aboveEma50));
+        const sellBounceAtResistance = aboveEma20 && Number.isFinite(ema20)
+          && price <= ema20 * 1.022;
+        if (sellBounceTrendOk && sellBounceAtResistance && macd) {
+          const sellBounceMiss = onlyFailure([
+            { ok: rsi > 50, condition: "RSI_BELOW_FLOOR", threshold: 50, actual: rsi },
+            // The blocker is that MACD is STILL BULLISH - the branch requires
+            // !macd.bullish. Named for what is wrong rather than as the negation of a
+            // test that does not exist: `macd.bullish` is macdLine > signalLine (:1681),
+            // so there is no separate "bearish" reading to be not-yet at. threshold 0
+            // because the crossover IS the zero line for the histogram, the same meaning
+            // MACD_NOT_BULLISH carries above.
+            { ok: !macd.bullish, condition: "MACD_STILL_BULLISH",
+              threshold: 0, actual: macd.histogram },
+          ]);
+          // Number.isFinite matches the guard the MOMENTUM and TREND_FOLLOW MACD blocks
+          // already carry at :2634 and :2653. finiteOrNull in near_miss.js would drop the
+          // row anyway; the asymmetry would just read as an oversight.
+          if (sellBounceMiss
+              && (sellBounceMiss.condition !== "MACD_STILL_BULLISH"
+                  || Number.isFinite(macd.histogram))) {
+            noteCensusOnly({ ...nearMissBase, setup: "SELL_BOUNCE",
+              condition: sellBounceMiss.condition,
+              threshold: sellBounceMiss.threshold, actual: sellBounceMiss.actual });
+          }
+        }
+
+        // RANGE_TRADE_SHORT: sell the BB upper band in a ranging or squeezing market.
+        // 595 of the last 628 SELL candidates carried this name, so it is the short side's
+        // whole population and the one worth being able to see. Price must actually BE at
+        // the band; RSI is then the only thing left that can miss.
+        const rangeShortAtBand = bb && Number.isFinite(bb.upper) && price >= bb.upper * 0.992;
+        if (!inUptrend && rangeShortAtBand) {
+          const rangeShortMiss = onlyFailure([
+            { ok: rsi > 58, condition: "RSI_BELOW_FLOOR", threshold: 58, actual: rsi },
+          ]);
+          if (rangeShortMiss) {
+            noteCensusOnly({ ...nearMissBase, setup: "RANGE_TRADE_SHORT",
+              condition: rangeShortMiss.condition,
+              threshold: rangeShortMiss.threshold, actual: rangeShortMiss.actual });
+          }
+        }
+
+        // ── The census, said out loud ────────────────────────────
+        // The TIGHTEST miss only. A list of four near-misses is a wall of text; the
+        // one that came closest is the actionable fact, and the rest stay available
+        // on /api/near-miss for anyone who wants them.
+        //
+        // The margin is computed from the threshold and actual SITTING BESIDE IT in
+        // the same row, never carried in separately — a persisted near-miss row once
+        // paired a lifetime-minimum margin with a latest threshold and actual, three
+        // numbers that need not share an observation, and any consumer recomputing
+        // |actual - threshold| disagreed with the margin printed next to it.
+        //
+        // DISPLAY ONLY. This pushes a string. It assigns no setup, signal, entry,
+        // stop, target, strength or confidence, and every reader of `reasons` is a
+        // dashboard, an alert body or a brief line — nothing gates on it.
+        // RSI rows are ranked among THEMSELVES and MACD rows among themselves. An RSI
+        // margin is in RSI points and a MACD margin is in histogram units — Gold's
+        // -12.82 histogram against BTC's 1.2 RSI points are not the same quantity, and
+        // one reduce over both would silently pick whichever number was smaller. RSI
+        // keeps priority, so this line is BYTE-IDENTICAL whenever an RSI row exists;
+        // the MACD line appears only in the case that previously produced nothing at
+        // all. `where` below is a two-way RSI branch and must never see a MACD row.
+        const rsiNoted  = noted.filter(row => row.condition !== "MACD_NOT_BULLISH");
+        const macdNoted = noted.filter(row => row.condition === "MACD_NOT_BULLISH");
+        if (rsiNoted.length > 0) {
+          const tightest = rsiNoted.reduce((best, row) =>
+            Math.abs(row.actual - row.threshold) < Math.abs(best.actual - best.threshold) ? row : best);
+          const margin = Math.abs(tightest.actual - tightest.threshold).toFixed(1);
+          const where  = tightest.condition === "RSI_ABOVE_CEILING" ? "above ceiling" : "below floor";
+          // Named as the BLOCKER, not as a thing that is "needed". Everything else
+          // about this setup passed; one bound stopped it, and the margin says by how
+          // much. A reader can act on "by 2.2"; they cannot act on "low confidence".
+          //
+          // unshift, NOT push. dashboard/index.html:3067 renders reasons.slice(0, 2)
+          // and the command page slices to 7 — a line appended last is invisible on
+          // the surface most likely to be read, which would reproduce the exact
+          // failure this fixes: the true cause recorded somewhere nobody looks.
+          reasons.unshift(
+            `BLOCKED: ${tightest.setup} — RSI ${tightest.actual} ${where} ${tightest.threshold} (by ${margin}). ` +
+            `Every other ${tightest.setup} condition passed.`);
+        } else if (macdNoted.length > 0) {
+          // The line Gold has never been able to show. Same shape and same unshift as
+          // the RSI line above, for the same reason: reasons.slice(0, 2) is what the
+          // dashboard renders, so a cause appended last is a cause nobody reads.
+          const tightest = macdNoted.reduce((best, row) =>
+            Math.abs(row.actual) < Math.abs(best.actual) ? row : best);
+          const gap = Math.abs(tightest.actual).toFixed(2);
+          reasons.unshift(
+            `BLOCKED: ${tightest.setup} — MACD not bullish (histogram ${tightest.actual}, ` +
+            `${gap} below its signal line). Every other ${tightest.setup} condition passed.`);
+        }
+      }
+    } catch (nearMissError) {
+      console.error("[near-miss] census skipped:", nearMissError.message);
+    }
   }
 
   // ── Minimum R:R gate ─────────────────────────────────────────
@@ -1191,7 +3125,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
       // no-op instead of a deletion. In the live server the require sits at the top
       // of this file and a failed require crashes at boot, so it is always true
       // here and no evidence is lost.
-      if (typeof logGateRejection === "function") logGateRejection({
+      if (ledgerEnabled && typeof logGateRejection === "function") logGateRejection({
         gate:      "MIN_RR",
         side:      "engine",
         ticker,
@@ -1234,7 +3168,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     } else if (typeof noteGatePass === "function") {
       // The denominator. Rejections alone cannot tell you a gate is dead; a gate
       // with a healthy kill count and zero passes is the alarm.
-      noteGatePass("MIN_RR");
+      if (ledgerEnabled) noteGatePass("MIN_RR");
     }
   }
 
@@ -1257,7 +3191,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     // structural-stop block below narrows the stop. That is the correct paper trade
     // for this gate — it is what existed at the moment of the kill — but a scorer
     // must not expect it to match a live fill.
-    if (typeof logGateRejection === "function") logGateRejection({
+    if (ledgerEnabled && typeof logGateRejection === "function") logGateRejection({
       gate:      "ENTRY_RSI",
       side:      "engine",
       ticker,
@@ -1287,7 +3221,7 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   } else if (entryRsiGateArmed && typeof noteGatePass === "function") {
     // Only counted while the gate is ARMED. minEntryRsi ships at 0, and counting a
     // pass for a disarmed gate would make the zero-pass alarm unreadable.
-    noteGatePass("ENTRY_RSI");
+    if (ledgerEnabled) noteGatePass("ENTRY_RSI");
   }
 
   // ── Trend-strength gate ─────────────────────────────────────
@@ -1301,6 +3235,14 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // tables, which need 5 closed trades per setup before they can say anything.
   // Flagging a weak trend is useful; refusing to trade at all is what left
   // setupStats empty for 42 sessions.
+  //
+  // MEASURED 2026-08-27: the demotion-not-refusal choice paid off. setupStats now
+  // carries 4 setups and 5 closed trades after 287 sessions. Still short of the
+  // 5-per-setup floor getLearningBoost needs, so no boost is live yet - but the
+  // table is filling, which is what this change was for. See the note on
+  // STRENGTH_LEVELS for the current counts; do not restate them here, because two
+  // copies of the same number is how the previous version of this comment went
+  // stale and started describing a system that no longer existed.
   if (signal !== "WAIT" && adxValue !== null && !adxTrending) {
     if (strength === "STRONG") {
       strength = "MODERATE";
@@ -1375,6 +3317,22 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     structure: {
       swingLow:  swingLow  ? parseFloat(swingLow.price.toFixed(2))  : null,
       swingHigh: swingHigh ? parseFloat(swingHigh.price.toFixed(2)) : null,
+      // AGE, not just price. findSwingLow/findSwingHigh both already return
+      // { price, barsAgo } and every caller kept the price and threw the age away, so
+      // a swing far from spot could not be told from a stale one without reading the
+      // finder and both consumer guards.
+      //
+      // The case that raised it (morning agent, 2026-08-30): BTC reported
+      // structure.swingHigh 65478.68 against spot 78116.79 - a swing high 16.2% BELOW
+      // price - with nothing in the payload saying whether it was 8 bars old or 300,
+      // while GOLD in the same response said "10 bars ago" in its reason text. The
+      // numbers were already in memory; only the write-out was missing.
+      //
+      // Additive. Nothing reads `structure` to make a decision - the sole consumer is
+      // tasks/deep_plan.cjs, which uses it as a display level-candidate - so no gate,
+      // confidence, stop or size can move. Verified by grep before the edit.
+      swingLowBarsAgo:  swingLow  ? swingLow.barsAgo  : null,
+      swingHighBarsAgo: swingHigh ? swingHigh.barsAgo : null,
       trending:  adxTrending,
     },
     trend,
@@ -1385,21 +3343,49 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
 }
 
 // ── Multi-timeframe wrapper ───────────────────────────────────
-function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyDailyCloses = null, barSource = null) {
-  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? [], dxyDailyCloses, { ...(barSource ?? {}), timeframe: "D1" });
+// m15Data is LAST and defaults to null so every existing caller -- the live route, the
+// replay harnesses, the walk-forwards -- behaves exactly as before. A new positional
+// parameter inserted anywhere else would have silently shifted dxyDailyCloses and
+// barSource for all of them.
+function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyDailyCloses = null, barSource = null, m15Data = null) {
+  const daily = generateSignal(label, ticker, dailyData.closes, dailyData.highs, dailyData.lows, dailyData.volumes ?? [], dxyDailyCloses, { ...(barSource ?? {}), timeframe: "D1", opens: dailyData.opens ?? null });
   if (!daily) return null;
 
+  // A throw here is NOT the same as "not enough bars" and NOT the same as "H4 had
+  // no opinion" — see the h4 === null note in the confidence block below. All three
+  // land on null, and only this log tells them apart. Without it a broken helper
+  // silently demotes every setup on this ticker to daily-only, drops confidence
+  // under the gate, and reads as a quiet market. The fallback is unchanged: null
+  // still means "could not compute", so nothing is blocked that would have fired.
   let h4 = null;
   try {
     if (h4Data?.closes?.length >= 50)
-      h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows, h4Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H4" });
-  } catch (e) {}
+      h4 = generateSignal(label, ticker, h4Data.closes, h4Data.highs, h4Data.lows, h4Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H4", opens: h4Data.opens ?? null });
+  } catch (e) {
+    console.error(`[signals] ${label} (${ticker}) H4 leg threw — confidence collapses to daily-only 40: ${e && e.message ? e.message : String(e)}`);
+  }
 
   let h1 = null;
   try {
     if (h1Data?.closes?.length >= 50)
-      h1 = generateSignal(label, ticker, h1Data.closes, h1Data.highs, h1Data.lows, h1Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H1" });
-  } catch (e) {}
+      h1 = generateSignal(label, ticker, h1Data.closes, h1Data.highs, h1Data.lows, h1Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "H1", opens: h1Data.opens ?? null });
+  } catch (e) {
+    // NOT daily-only: h4 is untouched. Only the triple-alignment boost at the
+    // `h4 && h1` check below is lost, which is worth up to 16 points (88 -> 72).
+    console.error(`[signals] ${label} (${ticker}) H1 leg threw — triple-alignment boost unavailable: ${e && e.message ? e.message : String(e)}`);
+  }
+
+  // m15 leg. PURELY ADDITIVE and deliberately NOT part of the confidence maths: the
+  // gate, the cohorts and the alignment boost are all unchanged, so wiring this in
+  // cannot move a single existing signal. It is computed only when a caller actually
+  // supplies m15 bars, and exposed on the payload as `m15` for the surfaces to read.
+  let m15 = null;
+  try {
+    if (m15Data?.closes?.length >= 50)
+      m15 = generateSignal(label, ticker, m15Data.closes, m15Data.highs, m15Data.lows, m15Data.volumes ?? [], null, { ...(barSource ?? {}), timeframe: "M15", opens: m15Data.opens ?? null });
+  } catch (e) {
+    console.error(`[signals] ${label} (${ticker}) M15 leg threw — m15 setup unavailable: ${e && e.message ? e.message : String(e)}`);
+  }
 
   // Confidence: rises when both timeframes agree
   const isH4Only = h4 && h4.signal !== "WAIT" && daily.signal === "WAIT";
@@ -1471,7 +3457,31 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
                  : 40;
     } else {
       // BTC H4-only: PF 1.08 (marginal) — STRONG needs a small quality boost to clear gate
-      confidence = h4.strength === "STRONG" ? 63 : h4.strength === "MODERATE" ? 50 : 40;
+      //
+      // MODERATE raised 50 -> 55 on 2026-08-28, deliberately to MATCH the Gold
+      // H4-only MODERATE non-squeeze base immediately above. At 50 the whole cohort
+      // was arithmetically dead: 50 + the maximum +15 boost stack is 65 against a
+      // gate of 70, so it could not fire at ANY combination of setup bonus and
+      // confirmed volume. At 55 it reaches exactly 70 at FULL boost — reachable, but
+      // still only on a genuinely good setup, which is the intended shape.
+      //
+      // Evidence, node tasks/cohort_walkforward.cjs 2026-08-28 (825 trades, 5
+      // equal-count folds, 0.05R cost, gate 70): BTCUSD/H4_ONLY/MODERATE is the
+      // LARGEST slice in the table at 132 closed, +0.103 R/trade, positive in 4 of 5
+      // folds, verdict MOSTLY POSITIVE. Gold's equivalent is +0.261 over 85 at 5/5
+      // and already reaches on base 55 — same cohort shape, and the five points were
+      // the whole difference between reaching the gate and never firing.
+      //
+      // Honest limits: +0.103 is MODEST and 4/5 is not 5/5, the base is coupled to
+      // the other cohorts in server/cohort_table.js, and macro penalties still apply
+      // AFTER this number. It is not a licence to raise the others.
+      //
+      // NOT touched: the `: 40` NONE tail. Its own record degraded as the sample grew
+      // — +0.129 over 53 at 2/5 UNSTABLE today, against the +0.294 over 38 at 4/5
+      // that cohort_table.js used to claim — so it stays dead on purpose.
+      // Also NOT touched: BTC's daily-fires-H4-neutral cohort, measured -0.152 over
+      // 40 at 2/5. Raising that one would buy losing trades.
+      confidence = h4.strength === "STRONG" ? 63 : h4.strength === "MODERATE" ? 55 : 40;
     }
   }
   // Direction to use for macro filters and final gate: H4 provides direction when daily is WAIT
@@ -1512,6 +3522,12 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   if (signalTf.setup === "SQUEEZE_BREAKOUT" && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 10);
   if (signalTf.setup === "DIVERGENCE"       && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 6);
   if (signalTf.setup === "MOMENTUM"         && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 5);
+  // Same +5 as MOMENTUM, because BREAKDOWN is its mirror and a mirror that collects
+  // fewer confidence points than its original is not being measured against it — it is
+  // being measured against a handicap. REACHABLE as of 2026-09-02: breakdownEnabled is
+  // true on both boxes, so signals can now carry setup "BREAKDOWN" and this +5 applies.
+  // It read "unreachable while breakdownEnabled is false" until the setup was armed.
+  if (signalTf.setup === "BREAKDOWN"        && signalTf.volume?.confirmed) confidence = Math.min(100, confidence + 5);
   if (signalTf.setup === "BUY_DIP"          && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 3);
   if (signalTf.setup === "SELL_BOUNCE"      && signalTf.strength === "STRONG") confidence = Math.min(100, confidence + 3);
 
@@ -1535,6 +3551,28 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
 
   // Preliminary signal for macro filter checks
   let finalSignal = confidence >= strategySettings.confidenceThreshold ? signalDir : "WAIT";
+
+  // The confidence this setup had assembled BEFORE any macro filter touched it.
+  // NOT "price alone": getLearningBoost (index.js:1043) reads learning.setupStats win
+  // rates and is applied at :2957, above this line. A reader diffing this against a past
+  // value must not attribute the move to price when learning.json is what drifted.
+  // filter touches it. Published, never read by a branch.
+  //
+  // WHY. `confidence` below is mutated in place by DXY, VIX, Fear & Greed and the
+  // cross-asset block, so the single number this function publishes cannot distinguish
+  // a setup that was always weak from one that cleared the gate and was pushed back
+  // under it. Those are opposite situations — the first is a quiet market, the second is
+  // a macro veto on a setup that fired — and every "why did nothing trade today" answer
+  // has had to guess between them.
+  //
+  // THIS CHANGES NOTHING. It is a `const` snapshot of a value that already exists. No
+  // gate, threshold, entry, stop, target, strength or size reads it, and no branch
+  // anywhere tests it. Deliberately captured BEFORE the DXY filter and therefore before
+  // the Gold neutral-H4 sizing clamp further down as well, so the difference from the
+  // final `confidence` covers every post-assembly adjustment, not only the macro ones.
+  // The delta is left for the reader to subtract rather than published as its own field:
+  // a second number derived from these two is one more thing that can drift out of step.
+  const preMacroConfidence = confidence;
 
   // DXY filter: strong dollar hurts Gold and BTC
   const dxy = priceCache.dxy;
@@ -1653,9 +3691,14 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   // DAILY_ONLY_H4_NEUTRAL cohort can be held to a higher floor of its own — see
   // dailyOnlyMinConfidence in STRATEGY_LIMITS. Math.max, so the cohort floor can
   // only ever be STRICTER than the global gate, never a way to sneak under it.
-  const cohortFloor = isDailyNeutralH4
-    ? (Number(strategySettings?.dailyOnlyMinConfidence) || 0)
-    : 0;
+  // SPX H4-only is blocked by measurement at every legal gate — see
+  // SPX_H4_ONLY_BLOCKED_FLOOR. Checked first because it is unconditional: unlike the
+  // neutral-H4 floor it is not a setting anyone can turn off from the dashboard.
+  const isSpxH4Only = isH4Only && ticker === "^GSPC";
+  const cohortFloor = isSpxH4Only ? SPX_H4_ONLY_BLOCKED_FLOOR
+    : isDailyNeutralH4
+      ? (Number(strategySettings?.dailyOnlyMinConfidence) || 0)
+      : 0;
   const effectiveThreshold = Math.max(strategySettings.confidenceThreshold, cohortFloor);
 
   finalSignal = confidence >= effectiveThreshold ? signalDir : "WAIT";
@@ -1770,13 +3813,58 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
     setup:      finalSetup,
     setupTimeframe: finalSetupTimeframe,
     confidence,
+    preMacroConfidence,
     regime,
     entry:      finalEntry,
     stop:       finalStop,
     target:     finalTarget,
     rr:         finalRR ?? h4?.rr ?? null,
-    h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi } : null,
-    h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi } : null,
+    // `setup` on every leg, added 2026-08-30. Without it a leg reporting "BUY" gives no
+    // way to tell WHICH setup produced it -- which is exactly the question when a new
+    // setup is added and a confidence suddenly moves. A signal you cannot attribute is
+    // a signal you cannot audit.
+    h4: h4 ? { signal: h4.signal, trend: h4.trend, rsi: h4.indicators?.rsi, setup: h4.setup } : null,
+    h1: h1 ? { signal: h1.signal, trend: h1.trend, rsi: h1.indicators?.rsi, setup: h1.setup } : null,
+    // Does the HOURLY agree with the direction this setup points? Added 2026-08-31 after
+    // being asked why the system buys when the daily, 4H and 1H are all bearish.
+    //
+    // THIS CHANGES NOTHING. It is a derived label on a payload — no gate, no threshold,
+    // no confidence, no entry, stop, target or size reads it, and nothing is suppressed.
+    // `h1` still gates nothing in this engine: it appears in the confidence assembly
+    // exactly once, as a BONUS at the triple-alignment branch above. CLAUDE.md claimed
+    // for weeks that Daily+4H+1H had to agree; that was never true and is now corrected.
+    //
+    // WHY IT IS WORTH A FIELD. Replayed over 859 entries (tasks/h1_agreement_measure.cjs),
+    // MOMENTUM is the SAME setup on both sides of this label and the sign flips:
+    //   with the H1 trend    517 trades  53.8% win  +0.634R  5/5 folds positive
+    //   against the H1 trend  50 trades  16.0% win  -0.599R  5/5 folds NEGATIVE
+    // That is replay. Publishing the label is what lets the LIVE record accumulate the
+    // same split from real fills, so the question can eventually be settled by trades
+    // this system actually took rather than by a backtest — which is the only way it
+    // ever gets settled properly. Suppressing the cohort instead would have spent the
+    // sample and frozen the evidence at 50 replayed trades forever.
+    //
+    // Read against `signalDir`, NOT `finalSignal`, on purpose: signalDir is the direction
+    // the setup points whether or not it cleared the gate, so this stays populated on the
+    // near-misses too. A label that goes null exactly when the signal does not fire would
+    // answer only the easy half of the question.
+    h1Agree: (() => {
+      if (!h1 || !h1.trend || !signalDir || signalDir === "WAIT") return null;
+      const bullish = h1.trend === "UPTREND" || h1.trend === "STRONG UPTREND";
+      const bearish = h1.trend === "DOWNTREND" || h1.trend === "STRONG DOWNTREND";
+      // MIXED is a real third state, not a missing reading, and must not collapse into
+      // either side — 42 of the 859 replayed entries sat here and they behave like the
+      // AGREE bucket, not the AGAINST one (+0.389R vs -0.435R).
+      if (!bullish && !bearish) return "NEUTRAL";
+      const withTrend = (signalDir === "BUY" && bullish) || (signalDir === "SELL" && bearish);
+      return withTrend ? "AGREE" : "AGAINST";
+    })(),
+    // The m15 leg, exposed so the surfaces can show it. `setup` is carried here and NOT
+    // on the other legs because M15_MOMENTUM is the only setup that can fire on this
+    // timeframe, and a page showing "m15: BUY" without saying which setup produced it
+    // would be a number with no reader able to check it. null on the Yahoo path and on
+    // any bridge that predates the m15 push -- both are normal, not errors.
+    m15: m15 ? { signal: m15.signal, trend: m15.trend, rsi: m15.indicators?.rsi, setup: m15.setup } : null,
     pivots,
     session: getCurrentSession()
   };
@@ -1823,8 +3911,14 @@ function calcPivots(high, low, close) {
 // Deliberately per-symbol rather than a global bump: only Gold's cohorts were
 // validated on held-out data. Widening BTC and SPX would shift their EMA200 and
 // swing points and change signals nobody has measured.
-const DAILY_RANGE_DEFAULT = "210d";
-const DAILY_RANGE_BY_SYMBOL = { "GC=F": "300d" };
+// 210d is ~145 trading bars, which is fewer bars than the 200-period EMA needs.
+// The engine was asking for EMA200 from 145 closes and getting a number that was
+// 23% the oldest bar — Gold's EMA200 came out $185 above its converged value on
+// that path. Raised to 900d (~620 bars) so EMA200 converges on the FALLBACK path
+// too; the per-symbol override stays because GC=F has thinner coverage.
+// See emaSeries() for the measurement.
+const DAILY_RANGE_DEFAULT = "900d";
+const DAILY_RANGE_BY_SYMBOL = { "GC=F": "900d" };
 
 // The confidence at which server/sizing.js starts scaling risk above 1.0x. Kept
 // here because generateSignalMTF has to know where that boundary is to avoid
@@ -1843,6 +3937,234 @@ const STRUCTURAL_STOP_MIN_ATR = 0.5;
 // the live gate (confidenceThreshold 70) so the cohort trades; see the block in
 // generateSignalMTF for why this is pinned rather than following the setting.
 const GOLD_SQUEEZE_MODERATE_CONFIDENCE = 70;
+
+// Does BUY_DIP still require macd.bullish? MEASURED 2026-09-01 and set to false.
+//
+// Asked repeatedly why Gold and SP500 do not trade. The near-miss census could not
+// answer it: all 28 of its rows are BTC, because it only records setups that miss on
+// ONE condition and Gold misses on two (RSI and MACD). The diagnostic was blind to
+// exactly the two assets in question, which is why every previous answer fell back to
+// the gate.
+//
+// `node tasks/ceiling_measure.cjs --setup buydip_macd --horizon 10` — forward returns
+// on the bar, no invented entry/stop/target, matched control, 466 bars where every
+// OTHER BUY_DIP condition passes:
+//
+//   FIRED   (macd.bullish true, what the engine took)    42 bars  -1.117 ATR  40.5% win
+//   BLOCKED (macd rolled over, what it refused)         424 bars  +0.401 ATR  59.7% win
+//   BLOCKED minus FIRED  +1.518 ATR  against a noise band of +/-0.513
+//
+// It discarded 172 of Gold's 184 candidates and 131 of SP500's 144 — 93% and 91% — and
+// the discarded bars OUTPERFORM the taken ones by three times the noise band. Same
+// shape as the RSI ceiling that was starving BTC before it was swept, and consistent
+// with the earlier finding that macd.bullish removes 91% of BUY_DIP's candidates.
+//
+// HONEST CAVEAT, because this is not a profit claim: both groups underperform the
+// unconditioned control (+1.031 ATR) — FIRED by -2.148, BLOCKED by -0.631. Removing
+// this makes the setup markedly LESS BAD, not better than random. What it does is ADD
+// candidates on the two assets that generate almost nothing, and sample size is the
+// binding constraint on this system. It is an addition, not a filter, which is the
+// only direction the standing rules permit without a positive-edge claim.
+//
+// REVERTED TO TRUE, 2026-09-01, by the walk-forward on realised R. The bar-return
+// screen said this was costing money at 3.0x its noise band and it was measuring
+// honestly — but a forward return on a BAR has no stop, no target and no position
+// sequencing, and realised R disagreed at gate 70 / MAX_HOLD=320:
+//   XAUUSD  5/5 ROBUST worst +0.051  ->  4/5 worst -0.307
+//   BTCUSD  5/5 ROBUST worst +0.172  ->  4/5 worst -0.008
+//   SP500   4/5        worst -0.042  ->  3/5 worst -0.061
+// Both leading assets fell out of ROBUST and SP500 lost a fold. Kept as a named
+// constant with the evidence attached rather than reverted silently, so the next
+// session does not re-derive the same wrong answer from the same bar-return screen.
+const BUY_DIP_REQUIRE_MACD_BULLISH = true;
+
+// BUY_DIP's RSI ceiling. Was a hardcoded 50; raised to 55 on 2026-09-01.
+//
+// `node tasks/ceiling_measure.cjs --setup buydip_rsi --horizon 10` — the same method
+// as above, re-measured WITHOUT the macd condition because the engine no longer has
+// one. 466 bars where every other BUY_DIP condition passes:
+//
+//   FIRED   (RSI < 50, what the engine took)   326 bars  +0.188 ATR  56.7% win
+//   BLOCKED (RSI >= 50, what it refused)       140 bars  +0.440 ATR  60.7% win
+//   BLOCKED minus FIRED  +0.251 ATR  against a noise band of +/-0.234
+//
+// This points the SAME way as the MACD result but it is MUCH weaker: 1.07x the noise
+// band against MACD's 3.0x. That is why this is a bounded step and not a deletion.
+// Removing the condition entirely would turn BUY_DIP into "any pullback to EMA20 in
+// an uptrend", a large behavioural change on evidence a whisker outside noise.
+//
+// 55 IS A JUDGEMENT CALL, NOT A MEASURED OPTIMUM. The measurement compares RSI<50
+// against RSI>=50 as one block; it does not say where inside that block the line
+// belongs. 55 was chosen because it admits the live case that prompted this - Gold
+// refused at RSI 52.6 with every other condition passing - while keeping a bound, and
+// because a single named constant is trivial to sweep later. Anyone re-measuring
+// should sweep 50/55/60/65 per asset before moving it again.
+// REVERTED TO 50, 2026-09-01, by the same walk-forward. Raising it to 55 was part of
+// the degraded run above. The +0.251 ATR bar-return signal at 1.07x its noise band was
+// always marginal; realised R says it is not there.
+const BUY_DIP_RSI_MAX = 50;
+
+// Does MOMENTUM still require macd.bullish? MEASURED 2026-09-01 and set to false.
+//
+// Gold sat in a STRONG UPTREND above EMA20 (4443.54 / 4432.64) and above EMA50, RSI
+// 53.9 well inside the 52-88 band, and failed MOMENTUM on macd.bullish AND NOTHING
+// ELSE. That is the condition, not the gate and not the RSI band.
+//
+// `node tasks/ceiling_measure.cjs --setup momentum_macd --floor 52 --ceiling 88`
+// over 2,966 bars where every other MOMENTUM condition passes:
+//
+//   FIRED   (MACD bullish, what the engine took)  1992 bars  +0.592 ATR  60.8% win
+//   BLOCKED (MACD bearish, what it refused)        974 bars  +0.523 ATR  58.3% win
+//   BLOCKED minus FIRED  -0.069 ATR  against a noise band of +/-0.094
+//
+// INSIDE THE NOISE. This is not "it costs money" like the BUY_DIP case at 3.0x the
+// band - it is a WELL-POWERED NULL at n=2966. The condition buys no measurable edge
+// and discards 33% of MOMENTUM's candidates (278 of Gold's 939) to do it. Sample size
+// is the binding constraint on this system, so dropping a filter that provably adds
+// nothing while removing a third of the flow ADDS signal at no measured cost. That is
+// the only justification claimed here: MORE TRADES, NOT BETTER ONES.
+//
+// Honest caveat: both groups underperform the unconditioned control (-0.122 and
+// -0.191 ATR). MOMENTUM's forward-return profile is weak on this horizon regardless
+// of MACD; this changes the flow, not that.
+//
+// MOMENTUM CARRIES THE BOOK - 450 trades, +0.309 R/trade, removing it costs -0.2822
+// in 0/5 folds - so a bar-return null was NOT considered sufficient on its own. The
+// walk-forward on realised R was re-run immediately after this change and compared
+// against the pre-change baseline recorded the same day (gate 70, MAX_HOLD=320:
+// XAUUSD 5/5 +0.051, BTCUSD 5/5 +0.172, SP500 4/5 -0.042). See the commit for the
+// after-numbers. Flip to true to restore the old behaviour.
+// REVERTED TO TRUE, 2026-09-01, within the hour, by the walk-forward above.
+// The bar-return null was real but it was the WRONG INSTRUMENT: forward return on a
+// bar has no stop, no target and no position sequencing. Realised R at gate 70,
+// MAX_HOLD=320, before -> after with this false:
+//   XAUUSD  5/5 ROBUST worst +0.051  ->  4/5 worst -0.357
+//   BTCUSD  5/5 ROBUST worst +0.172  ->  4/5 worst -0.003
+// Both assets fell out of ROBUST. "Where the ledger contradicts a walk-forward, the
+// walk-forward wins" — and a bar-return screen is weaker evidence than either.
+// Do not re-open this on a bar-return result alone.
+const MOMENTUM_REQUIRE_MACD_BULLISH = true;
+
+
+
+// Does TREND_FOLLOW still require macd.bullish? UNTIL 2026-09-02 THIS WAS NOT EVEN A
+// QUESTION ANYONE COULD ASK -- the condition was inline at :2263 with no name, so no
+// harness could flip it and no measurement could reach it.
+//
+// It is the LARGEST SINGLE BLOCKER IN THE CENSUS: 24 of the 92 rows in
+// tasks/near_misses.jsonl are TREND_FOLLOW dying on MACD_NOT_BULLISH and nothing else,
+// ahead of RANGE_TRADE_SHORT's RSI floor (23) and both RSI ceilings (14 each). BUY_DIP
+// and MOMENTUM each got a flag and a measurement on 2026-09-01; this one got neither,
+// and it is the condition actually holding Gold and SP500 at confidence 0 -- SP500's
+// daily MACD sat under its signal line for TEN consecutive bars from 2026-08-20.
+//
+// TRUE REPRODUCES THE LIVE ENGINE EXACTLY. The flag exists so the two worlds can be
+// replayed and compared instead of argued about, which is the whole reason the other
+// two flags exist. tasks/_replay_mtf.cjs flips it via MTF_TREND_FOLLOW_REQUIRE_MACD,
+// measurement-only; the server is never edited to run a measurement.
+//
+// DO NOT flip this on a bar-return screen. That instrument gave the WRONG ANSWER TWICE
+// on 2026-09-01 -- it cleared BUY_DIP and MOMENTUM, both were flipped false, and the
+// per-asset walk-forward on realised R reverted both within the hour because a forward
+// return on a BAR has no stop, no target and no position sequencing. The bar to clear
+// is the same one they failed: per asset, live gate, MAX_HOLD=320, the candidate
+// world's WORST FOLD beating the baseline on XAUUSD and SP500 without degrading
+// BTCUSD. Baseline recorded 2026-09-02 in tasks/analysis/tf-macd-BASELINE.txt:
+// XAUUSD 5/5 +0.051, BTCUSD 5/5 +0.172, SP500 4/5 -0.042.
+//
+// THAT WALK-FORWARD RAN THE SAME DAY, AND THE ANSWER IS NO. The condition is EARNING ITS
+// KEEP. tasks/analysis/tf-macd-COMPARE.txt holds both worlds in full; worst fold per
+// asset, flag ON (live) -> flag OFF (candidate):
+//
+//   gate   XAUUSD              BTCUSD              SP500
+//   70     +0.051 -> -0.097    +0.172 -> +0.051    -0.042 -> -0.121
+//   75     +0.071 -> -0.025    +0.307 -> +0.057    -0.108 -> +0.065
+//   80     +0.086 -> +0.015    +0.450 -> -0.050    -0.108 -> -0.287
+//
+// XAUUSD and BTCUSD degrade at EVERY gate, and XAUUSD falls out of ROBUST at the live
+// one. The single cell where removing it helps is SP500 at candidate gate 75, and buying that
+// degrading the two strongest assets to help the weakest, on a gate that is global.
+//
+// THE COUNTS ARE THE PART WORTH REMEMBERING. Removing a filter made Gold and BTC trade
+// LESS: 308 -> 276 and 413 -> 388. TREND_FOLLOW sits in a first-match-wins else-if chain,
+// so a TREND_FOLLOW that now matches DISPLACES whatever sat later in the chain and scored
+// better. Additive in bars, subtractive in outcomes - the same occupancy cost that killed
+// the SELL_BOUNCE flip on 2026-09-01. "It is purely additive" is never a safety argument
+// in this chain, and a rising trade count is not the same as a rising trade count of the
+// trades you wanted.
+//
+// So all THREE macd.bullish requirements have now been measured on realised R and all
+// three survived. The census counting 24 near-misses on this condition was measuring how
+// often it FIRES, not whether it SHOULD - exactly the distinction get_gate_health and
+// get_rejection_evidence exist to keep apart. Do not re-open this without new data; the
+// next honest question is per-asset setup gating, which is a new mechanism, not this flag.
+const TREND_FOLLOW_REQUIRE_MACD_BULLISH = true;
+
+// SELL_BOUNCE's condition 1 — see the branch for the measurement. TRUE reproduces the
+// engine exactly as it has always run; the flag exists so both worlds can be replayed
+// and compared instead of argued about. `tasks/_replay_mtf.cjs` overrides it through
+// MTF_SELL_BOUNCE_REQUIRE_DOWNTREND, measurement-only.
+//
+// DO NOT flip this to false on the strength of "the system never sells". It admits
+// roughly 500 additional shorts and the SELL side's measured mean is -0.058R against
+// BUY's +0.315R, so the expected first-order effect is a LOSS. What would justify the
+// flip: a per-asset walk-forward at the live gate and MAX_HOLD=320 where the candidate
+// world's WORST FOLD beats the baseline's on XAUUSD and SP500 — the two assets that sit
+// at confidence 0 in a bearish tape — without degrading BTCUSD.
+//
+// THAT WALK-FORWARD RAN, AND THE ANSWER IS NO. Measured 2026-09-01 per asset at
+// MAX_HOLD=320: XAUUSD goes 308 trades / worst fold +0.086, 5/5 ROBUST -> 287 trades /
+// -0.087, 4/5. Gold gets WORSE and its trade COUNT FALLS, because a SELL_BOUNCE that
+// matches DISPLACES a long setup sitting later in the else-if chain. Additive in bars,
+// subtractive in outcomes — the same occupancy cost tasks/breakdown_walkforward.cjs
+// measures for BREAKDOWN, and the reason "it is purely additive" is never a safety
+// argument on its own in a first-match-wins chain.
+//
+// This result existed ONLY ON THE VPS until 2026-09-02, written into that box's copy of
+// this comment and never brought back. The laptop went on carrying the question after
+// the answer was known, which is how the same measurement gets commissioned twice. If
+// you patch a box directly, the reasoning you leave in the file there is invisible to
+// every other box — run `node tasks/vps_parity.cjs`, which is what surfaced this.
+// A PLAIN LITERAL, deliberately. The first version read process.env here, and
+// _replay_mtf.cjs runs the extracted engine inside a `vm` context where `process` does
+// not exist — so every replay died with "ReferenceError: process is not defined". It
+// failed loudly, which is the only reason it was caught; a quieter version of the same
+// mistake is the bug SCALAR_CONSTS exists to prevent. The replay overrides this through
+// MTF_SELL_BOUNCE_REQUIRE_DOWNTREND at extraction time instead.
+const SELL_BOUNCE_REQUIRE_DOWNTREND = true;
+
+// SPX H4-only is BLOCKED BY MEASUREMENT, not by arithmetic.
+//
+// Its base of 45 reads like a leftover from the gate moving 65 -> 70, and the
+// reachability report listed it beside four cohorts that ARE accidents. It is not
+// one. Every SPX H4-only slice is negative out of sample — measured 2026-08-11 by
+// tasks/cohort_walkforward.cjs over 914 trades, 5 equal-count folds, cost 0.05R:
+//
+//   SP500/H4_ONLY/STRONG      47 closed  -0.196 R/trade  1/5 folds
+//   SP500/H4_ONLY/NONE        28 closed  -0.065          2/5 folds
+//   SP500/H4_ONLY/MODERATE    91 closed  -0.039          2/5 folds
+//
+// which agrees with the held-out result already cited at the isH4Only branch.
+//
+// Encoding that as a low number was the hazard. confidenceThreshold is settable
+// down to 50 (STRATEGY_LIMITS), and this system HAS run at 50 before — at any gate
+// from 50 to 60 the cohort's 45 + 15 boost stack clears it and SPX starts trading a
+// measured loser, silently, with nothing in the change saying so.
+//
+// A floor above the maximum attainable confidence blocks it at EVERY legal gate.
+// 101 rather than 100 because confidence is clamped to 100 and `>=` would let a
+// perfect score through. Deliberately expressed as a cohort FLOOR so it flows
+// through the single `confidence >= effectiveThreshold` comparison the ledger block
+// depends on — a separate boolean would create a second decision path and break the
+// invariant that comment relies on.
+//
+// This does NOT silence the cohort. logGateRejection fires on signalDir, before the
+// gate, so every SPX H4-only setup still lands in the rejection ledger at its TRUE
+// confidence and is still walked forward on real bars by the shadow scorer. That is
+// the point: if SPX H4-only ever turns positive, the evidence to overturn this is
+// still being collected. Re-measure with tasks/cohort_walkforward.cjs before
+// removing it.
+const SPX_H4_ONLY_BLOCKED_FLOOR = 101;
 
 async function fetchCandles(symbol) {
   const range = DAILY_RANGE_BY_SYMBOL[symbol] ?? DAILY_RANGE_DEFAULT;
@@ -1946,7 +4268,7 @@ async function fetchPrices() {
 // structural stop. Length equality is checked, not assumed.
 function sanitizeBars(bars, minBars) {
   if (!bars || typeof bars !== "object") return null;
-  const { closes, highs, lows, volumes } = bars;
+  const { closes, highs, lows, volumes, times, opens } = bars;
   const usable = (series) => Array.isArray(series)
     && series.length >= minBars
     && series.every(v => typeof v === "number" && Number.isFinite(v));
@@ -1956,7 +4278,84 @@ function sanitizeBars(bars, minBars) {
   // An empty array makes volRatio null and volConfirmed false, which disables the
   // volume-confirmed setups rather than inventing confirmation from zeros.
   const alignedVolumes = (usable(volumes) && volumes.length === closes.length) ? volumes : [];
-  return { closes, highs, lows, volumes: alignedVolumes };
+  // Bar open times, unix seconds. OPTIONAL and must stay optional: a bridge that
+  // has not restarted since this shipped sends none, and rejecting those bars
+  // would take the live feed down to fix a diagnostic. Absent means the staleness
+  // check below cannot run and says so, rather than passing silently.
+  const alignedTimes = (usable(times) && times.length === closes.length) ? times : null;
+  // Bar OPEN prices. OPTIONAL for exactly the same reason `times` is: a bridge that
+  // has not restarted since this shipped sends none, and rejecting those bars would
+  // take the live feed down to fix something no indicator reads. Nothing on the
+  // signal path consumes opens — they exist so tasks/persist_bars.cjs can write a
+  // complete time,open,high,low,close,tick_volume row back to tasks/history without
+  // inventing the one column the push was missing. Absent means that writer refuses
+  // the series and says so, rather than filling the gap with a guess.
+  const alignedOpens = (usable(opens) && opens.length === closes.length) ? opens : null;
+  return { closes, highs, lows, volumes: alignedVolumes, times: alignedTimes, opens: alignedOpens };
+}
+
+// How old the NEWEST bar may be before the series is stale, per timeframe. Two
+// periods of slack: one for the bar still forming, one for weekend and holiday
+// gaps, which are normal and must not read as a fault.
+const BAR_MAX_AGE_MS = { d1: 4 * 24 * 3600e3, h4: 16 * 3600e3, h1: 5 * 3600e3 };
+
+/**
+ * Is this series actually current, judged on the BARS rather than on when the
+ * push arrived?
+ *
+ * This is the gap that made the check worth building. Freshness was decided by
+ * `receivedAt` alone — the moment the HTTP POST landed. If MT5 hands the bridge a
+ * stale array (the documented failure mode: the terminal restarts underneath a
+ * running bridge and calls quietly return nothing useful), the bridge keeps
+ * posting on schedule, receivedAt is always seconds old, and the engine computes
+ * signals on old prices forever with every health check green.
+ *
+ * Returns { checked, stale, ageMs, lastBarAt, reason }.
+ */
+function judgeBarFreshness(bars, timeframe) {
+  if (!bars || !Array.isArray(bars.times) || !bars.times.length) {
+    return { checked: false, stale: false, ageMs: null, lastBarAt: null,
+             reason: "no bar timestamps — bridge predates this check, so staleness is UNVERIFIED" };
+  }
+  const lastSec = bars.times[bars.times.length - 1];
+  const limit = BAR_MAX_AGE_MS[timeframe] ?? BAR_MAX_AGE_MS.h1;
+
+  // A DAILY bar stamped Friday, read on a Saturday or Sunday, is a closed market — not a
+  // wedged feed. Without saying so the reason reads "newest d1 bar is 48h old" and every
+  // indicator is byte-identical to yesterday's, which is indistinguishable from a frozen
+  // push. The morning agent raised this on 2026-08-23, predicted the unfreeze, and was
+  // CONFIRMED on Monday 08-24 (GOLD rsi 80.8->81.1, SPX rsi 56.2->39.7, lastBarAt rolled
+  // for all three) — then re-flagged it on 08-24 and 08-25 because it had not landed.
+  // Three cycles of a correct diagnosis costing a reviewer the same investigation each
+  // weekend is exactly what an unread proposal costs.
+  //
+  // DIAGNOSTIC STRING ONLY. `stale` is untouched, so nothing this decides changes: the
+  // Yahoo fallback, the bridge's STALE SOURCE refusal and every gate behave identically.
+  // d1 only — an H1 or H4 bar that old on a weekday is a real fault, not a closure.
+  // ONE clock source. A first draft took ageMs from Date.now() and the weekday from
+  // `new Date()`, which is the same instant in production and two different instants
+  // under any test that stubs the clock — so the flag read false in every case,
+  // including the ones it exists for. A function that cannot be tested is a function
+  // whose bugs are found in production.
+  const nowMs = Date.now();
+  const ageMs = nowMs - lastSec * 1000;
+  const lastBar = new Date(lastSec * 1000);
+  const nowDay = new Date(nowMs).getUTCDay();     // 0 Sun, 6 Sat
+  const spansWeekend = timeframe === "d1"
+    && lastBar.getUTCDay() === 5                  // last bar is a Friday
+    && (nowDay === 6 || nowDay === 0);            // and it is now the weekend
+
+  return {
+    checked: true,
+    stale: ageMs > limit,
+    ageMs,
+    lastBarAt: lastBar.toISOString(),
+    spansWeekend,
+    reason: ageMs > limit
+      ? `newest ${timeframe} bar is ${Math.round(ageMs / 3600e3)}h old, limit ${Math.round(limit / 3600e3)}h`
+        + (spansWeekend ? " (spans weekend market closure)" : "")
+      : "current",
+  };
 }
 
 // Returns the MT5 bar set for an asset, or null to mean "use Yahoo". Bars are
@@ -1965,27 +4364,49 @@ function mt5BarsFor(assetKey) {
   const entry = mt5CandleCache[assetKey];
   if (!entry) return null;
   if (Date.now() - new Date(entry.receivedAt).getTime() > MT5_CANDLE_MAX_AGE_MS) return null;
+  // Push freshness is not bar freshness. A wedged terminal keeps the push on
+  // schedule while the bars stop moving, so the daily series is checked on its own
+  // timestamps too. Falls back to Yahoo rather than trading old prices — and only
+  // when timestamps are actually present, so a pre-timestamp bridge is unaffected.
+  const dailyFreshness = judgeBarFreshness(entry.bars?.d1, "d1");
+  if (dailyFreshness.checked && dailyFreshness.stale) {
+    if (!mt5BarsFor._warned || Date.now() - mt5BarsFor._warned > 600000) {
+      mt5BarsFor._warned = Date.now();
+      console.warn(`[mt5] ${assetKey} ${entry.symbol}: STALE BARS — ${dailyFreshness.reason}. `
+        + `The push is current (${Math.round((Date.now() - new Date(entry.receivedAt).getTime()) / 1000)}s ago) `
+        + `but the data is not. Falling back to Yahoo.`);
+    }
+    return null;
+  }
   // No usable daily series means no signal at all — generateSignalMTF requires it —
   // so there is nothing to gain from taking H4/H1 from MT5 and daily from Yahoo.
   // Mixing feeds across timeframes is also how entry and stop ended up on
   // different instruments before; keep one source per asset per cycle.
   if (!entry.bars?.d1) return null;
-  return { symbol: entry.symbol, daily: entry.bars.d1, h4: entry.bars.h4, h1: entry.bars.h1 };
+  // m15 rides along OPTIONALLY. It is null on any bridge that predates the m15 push,
+  // and generateSignalMTF simply skips the leg when it is absent -- so an old bridge
+  // behaves exactly as it did before this existed. The one-source-per-asset rule above
+  // still holds: m15 comes from the same MT5 entry as the other three, never mixed.
+  return { symbol: entry.symbol, daily: entry.bars.d1, h4: entry.bars.h4, h1: entry.bars.h1, m15: entry.bars.m15 ?? null };
 }
 
 async function refreshSignals() {
   console.log("[signals] Refreshing all assets in PARALLEL (Daily + 4H + 1H)…");
-  const assets = [
-    { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
-    { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
-    { key: "spx",  label: "S&P500",     symbol: "^GSPC"   }
-  ];
+  const assets = assetRegistry.ASSET_LIST;
   // Fetch DXY daily candles once — used by Gold DIVERGENCE setup
   let dxyDailyCloses = null;
   try {
     const dxy = await fetchCandles("DX-Y.NYB");
     dxyDailyCloses = dxy?.closes ?? null;
   } catch (e) { console.error("[signals] DXY fetch:", e.message); }
+  // Keep them. This series was fetched every cycle and thrown away the moment the
+  // Gold DIVERGENCE setup was done with it, which is why /api/daily-plan could
+  // print "DXY 99.68" and nothing else — a level with no direction, on the one
+  // instrument whose other half IS the dollar. Pure retention of an already-fetched
+  // value: nothing below reads dxyDailyCache, so this cannot alter any signal.
+  if (dxyDailyCloses) {
+    dxyDailyCache = { closes: dxyDailyCloses, updatedAt: new Date().toISOString() };
+  }
 
   await Promise.all(assets.map(async (a) => {
     try {
@@ -1993,12 +4414,16 @@ async function refreshSignals() {
       // on. Yahoo is the fallback for when no bridge is running, its series is too
       // short for EMA200, or its last push has gone stale.
       const mt5Bars = mt5BarsFor(a.key);
-      let dailyData, h4Data, h1Data, dataSource, sourceSymbol;
+      let dailyData, h4Data, h1Data, m15Data, dataSource, sourceSymbol;
 
       if (mt5Bars) {
         dailyData    = mt5Bars.daily;
         h4Data       = mt5Bars.h4;
         h1Data       = mt5Bars.h1;
+        // MT5 only. The Yahoo fallback below has no 15m series worth using -- it caps
+        // 15m history at ~60 days -- so on that path m15Data stays undefined and the
+        // leg is skipped rather than run on a series too short to mean anything.
+        m15Data      = mt5Bars.m15;
         dataSource   = "mt5";
         sourceSymbol = mt5Bars.symbol;
       } else {
@@ -2018,7 +4443,7 @@ async function refreshSignals() {
       const dxyForAsset = a.key === "gold" ? dxyDailyCloses : null;
       // barSource carries the instrument these levels were actually computed from.
       // Without it the R:R shadow log records GC=F while holding XAUUSD prices.
-      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data, dxyForAsset, { dataSource, sourceSymbol });
+      signalCache[a.key] = generateSignalMTF(a.label, a.symbol, dailyData, h4Data, h1Data, dxyForAsset, { dataSource, sourceSymbol }, m15Data ?? null);
       // Stamped on the signal so every consumer — dashboard, bridge, daily plan —
       // can tell which instrument produced these levels. Without this, a Gold
       // signal carrying futures levels is indistinguishable from one carrying spot
@@ -2030,6 +4455,36 @@ async function refreshSignals() {
           d1: dailyData.closes.length,
           h4: h4Data?.closes.length ?? 0,
           h1: h1Data?.closes.length ?? 0,
+        };
+        // WHEN the newest daily bar closed, not merely how many bars arrived. mt5BarsFor()
+        // already computes this to decide the Yahoo fallback and then discards it, so a
+        // wedged terminal that keeps posting on schedule while its bars stop moving was
+        // invisible from this response — the documented failure mode, and the reader had to
+        // diff two runs against saved memory to catch it.
+        // Proposed by the VPS morning agent, morning-6uy0o7.
+        //
+        // Judged on the MT5 SERIES ITSELF, not on whether it was used, and this is the
+        // whole point. The first cut read `mt5Bars`, which mt5BarsFor() returns as null
+        // PRECISELY WHEN the daily series is stale (see its stale branch above) — so
+        // `stale` could only ever come back false, and the wedged-terminal case landed on
+        // the fallback looking byte-identical to "no bridge is running". A diagnostic whose
+        // headline boolean cannot change state is the status-text-nobody-can-move pattern.
+        // Reading the cache directly makes stale:true reachable.
+        //
+        // `stale` stays a statement about the MT5 bars alone. It must NOT be set on the
+        // fallback: when Yahoo supplied the levels those prices are genuinely fresh, and a
+        // consumer reading stale:true would conclude the served prices were old.
+        // `usedForThisSignal` carries that second, separate fact, so "MT5 wedged, fell back"
+        // (stale:true, used:false) is distinguishable from "no bridge yet"
+        // (checked:false, used:false). Same key set on every branch.
+        const mt5Entry = mt5CandleCache[a.key];
+        const dailyBarFreshness = mt5Entry
+          ? judgeBarFreshness(mt5Entry.bars?.d1, "d1")
+          : { checked: false, stale: false, ageMs: null, lastBarAt: null,
+              reason: "no MT5 bars have been pushed for this asset yet" };
+        signalCache[a.key].barFreshness = {
+          ...dailyBarFreshness,
+          usedForThisSignal: dataSource === "mt5",
         };
       }
       const s = signalCache[a.key];
@@ -2047,8 +4502,81 @@ async function refreshSignals() {
     spx:  signalCache.spx  ? { s: signalCache.spx.signal,  c: signalCache.spx.confidence,  regime: signalCache.spx.regime,  setup: signalCache.spx.setup,  reasons: (signalCache.spx.reasons  || []).slice(0,6), entry: signalCache.spx.entry,  stop: signalCache.spx.stop,  target: signalCache.spx.target  } : null,
   });
   if (signalHistory.length > 100) signalHistory.length = 100;
+  persistSignalChanges();
   try { hermes.runHermesCycle(signalCache, priceCache); } catch (e) { console.error("[hermes] cycle error:", e.message); }
   refreshAnalysis();
+}
+
+// Last row actually written per asset, so a signal that stands for hours is stored
+// once rather than once per refresh. Reset by a restart, which writes one row per
+// asset on the first cycle — that is wanted, because a restart is itself a fact worth
+// having in the series.
+const lastPersistedSignal = {};
+
+/**
+ * Write each asset's signal to SQLite when it MATERIALLY changes.
+ *
+ * The `signals` table has existed since 2026-07-25 and held ZERO rows. db.insertSignal()
+ * is written, exported and documented, and was called from nowhere — a table with no
+ * writer, which is the mirror of the setting-with-no-reader this project keeps finding.
+ * Meanwhile the only history that existed was `signalHistory`: in memory, capped at 100
+ * cycles, so roughly fifty minutes, discarded on every restart.
+ *
+ * That is the thing this system could least afford to throw away. Its binding constraint
+ * is sample size; it computes three signals every refresh and remembered none of them.
+ * The rejection ledger captures setups that reached a GATE, but a candidate that never
+ * got that far — the confidence drifting 45, 50, 55 under the bar for a week — left no
+ * trace at all, and that is precisely the record needed to answer "how close does this
+ * ever come".
+ *
+ * Deduped on (setup, direction, confidence) rather than written every cycle, for the
+ * same reason the rejection ledger counts episodes and not rows: one setup standing for
+ * six hours is one fact, and storing it 720 times would inflate every future count taken
+ * from this table. Expect a few hundred rows a day, not millions.
+ *
+ * WRITE-ONLY AND INERT. Nothing reads this table to decide anything — no gate, no
+ * threshold, no confidence, no sizing. It cannot change what trades.
+ */
+function persistSignalChanges() {
+  for (const key of ["btc", "gold", "spx"]) {
+    const sig = signalCache[key];
+    if (!sig) continue;
+    // A cycle that failed to produce a confidence is not evidence of a quiet market,
+    // it is a missing reading, and storing it as 0 would be a lie the table cannot
+    // later distinguish from a genuine zero.
+    if (sig.confidence === undefined || sig.confidence === null) continue;
+
+    const fingerprint = [sig.setup ?? "", sig.signal ?? "", sig.confidence].join("|");
+    if (lastPersistedSignal[key] === fingerprint) continue;
+
+    try {
+      const written = db.insertSignal({
+        symbol:       sig.sourceSymbol || sig.ticker || key.toUpperCase(),
+        direction:    sig.signal,
+        setup:        sig.setup,
+        confidence:   sig.confidence,
+        strength:     sig.strength,
+        entry:        sig.entry,
+        stop:         sig.stop,
+        target:       sig.target,
+        generated_at: sig.updatedAt || new Date().toISOString(),
+        // Whether this reading CLEARED the live gate. Stored as the engine saw it, so
+        // the table can later be read as "how often was it close" without re-deriving
+        // a threshold that may have moved since.
+        fired:        sig.confidence >= (strategySettings?.confidenceThreshold ?? 70) ? 1 : 0,
+      });
+      // Only advance the marker on a confirmed write. If the DB is unavailable
+      // insertSignal returns null, and moving the marker anyway would silently skip
+      // this change forever once the DB came back.
+      if (written) lastPersistedSignal[key] = fingerprint;
+    } catch (e) {
+      // Persistence is observability. It must never interrupt signal generation.
+      if (!persistSignalChanges._warned || Date.now() - persistSignalChanges._warned > 600000) {
+        persistSignalChanges._warned = Date.now();
+        console.error("[signals] could not persist to SQLite:", e.message);
+      }
+    }
+  }
 }
 
 // ── Unusual Whales ────────────────────────────────────────────
@@ -2101,6 +4629,30 @@ function buildWatchlist() {
     .sort((a, b) => WATCHLIST_PRIORITY_RANK[b.priority] - WATCHLIST_PRIORITY_RANK[a.priority]);
 }
 
+// Every broker symbol each asset can legitimately appear as, so "am I already holding
+// this?" can be answered without depending on which data source last wrote the signal.
+//
+// sourceSymbol is NOT stable: it is the MT5 symbol when bars came from the bridge and
+// the YAHOO ticker when the signal fell back to Yahoo, which happens for the first
+// minute after every server restart. Comparing it directly to an open position means a
+// held XAUUSD reads as free the moment the signal says GC=F - the plan then prints
+// "TRADEABLE now" for a trade that is already open, which is the single most misleading
+// thing this panel can say. Both readers below used to do exactly that.
+//
+// MIRRORS SYMBOL_CANDIDATES in mt5_bridge.py:106, plus each Yahoo ticker. If a symbol is
+// added there, add it here - the bridge is the authority, this is a reader. Getting it
+// wrong makes a MESSAGE wrong, never a trade: the real DUPLICATE gate is in the bridge.
+const ASSET_BROKER_SYMBOLS = assetRegistry.ASSET_BROKER_SYMBOLS;
+
+// True when an open position matches the asset, on any of its accepted symbols.
+function isAssetHeld(assetKey, signal) {
+  const accepted = new Set(ASSET_BROKER_SYMBOLS[assetKey] || []);
+  const src = String(signal?.sourceSymbol || "").toUpperCase();
+  if (src) accepted.add(src);   // never narrower than the old behaviour
+  if (!Array.isArray(mt5Positions)) return false;
+  return mt5Positions.some(p => accepted.has(String(p.symbol || "").toUpperCase()));
+}
+
 function generateDailyPlan() {
   const { btc, btcChange, gold, goldChange, spx, spxChange } = priceCache;
   const signals = [signalCache.btc, signalCache.gold, signalCache.spx].filter(Boolean);
@@ -2125,21 +4677,142 @@ function generateDailyPlan() {
       spx:  signalCache.spx
     },
     watchlist: buildWatchlist(),
+    // Whether ANY bridge had checked in when this plan was built. buildRules uses the
+    // same test to decide between "already held" and "holdings UNKNOWN", and the read
+    // paths below use it to rebuild once the answer becomes knowable.
+    positionsKnown: Object.keys(mt5LastSeenByAccount).length > 0,
     rules: buildRules(regime)
   };
   console.log(`[plan] ${regime} — ${now.toISOString()}`);
   return dailyPlan;
 }
 
+/**
+ * The boot plan is ALWAYS built before any bridge has reported - startup calls
+ * generateDailyPlan directly, and the first bridge POST lands seconds later. Without
+ * this the cached plan says "holdings UNKNOWN" until the half-hourly cron rebuilds it, so for
+ * up to half an hour the panel a human reads first cannot tell them whether the
+ * tradeable signal in front of them is already open.
+ *
+ * Rebuild exactly once, when the answer becomes knowable. generateDailyPlan reads
+ * caches only - no network, no disk - so this cannot slow or fail a request, and
+ * after the single rebuild positionsKnown is true and this returns false forever.
+ */
+function planNeedsRebuild() {
+  if (!dailyPlan) return true;
+  if (dailyPlan.positionsKnown === false && Object.keys(mt5LastSeenByAccount).length > 0) return true;
+
+  // REBUILD WHEN THE SIGNALS THAT DEFINE THE REGIME HAVE MOVED ON.
+  //
+  // regime is `buyCount >= 2 ? RISK-ON : sellCount >= 2 ? RISK-OFF : MIXED`, counted from
+  // signalCache — so it is a SNAPSHOT of the moment the plan was built. The only rebuild
+  // triggers were "no plan yet" and "positions became knowable", and neither fires when a
+  // signal flips, so the badge froze at whatever the market looked like when the server
+  // last started.
+  //
+  // Measured 2026-09-03: the laptop booted 18:30 with two assets on BUY and showed
+  // RISK-ON; the VPS booted 18:43 with one and showed MIXED. Same market, same minute, two
+  // different regimes on the two dashboards. By 18:33 the laptop signals themselves said
+  // buyCount=1, so the badge was contradicting the page it sits on. Restart time is not a
+  // market condition, and a regime that reports one is worse than no regime.
+  //
+  // Cheap and safe to redo: generateDailyPlan is a pure in-memory build — no file write, no
+  // order, no telegram, no I/O — and dailyPlan is read only by /api/plan and the Telegram
+  // /plan command. Nothing gates on it, so this can neither block a signal nor lose data.
+  const newestSignal = [signalCache.btc, signalCache.gold, signalCache.spx]
+    .map(s => (s && Date.parse(s.updatedAt)) || 0)
+    .reduce((a, b) => Math.max(a, b), 0);
+  const builtAt = Date.parse(dailyPlan.generated) || 0;
+  return newestSignal > builtAt;
+}
+
+/**
+ * WHAT THIS SYSTEM ACTUALLY KNOWS TODAY - not generic trading advice.
+ *
+ * This returned five hardcoded strings, and one of them was WRONG. In RISK-ON it said
+ * "Trail stops on winners" while mt5_bridge.py:176 has TRAIL_LADDER_ENABLED = "0",
+ * disabled since 2026-08-07 on a measurement: off is the only give-back that is never
+ * negative across 4/5/7-fold walk-forwards. The page a human reads first was advising a
+ * behaviour this system had measured and switched off.
+ *
+ * The rest were true but weightless - "set a stop before entering" is not news to anyone
+ * reading their own trading dashboard, and it crowded out the things only THIS system can
+ * say: what the live gate is, how far each asset is from it, WHICH condition is blocking
+ * and by how much, and what is merely being held rather than rejected.
+ *
+ * Every line below is derived from live state. Nothing is hardcoded that can drift, and
+ * where a number is not knowable the line is omitted rather than guessed.
+ */
 function buildRules(regime) {
-  const base = [
-    "Never risk more than 1-2% of capital per trade",
-    "Set stop-loss BEFORE entering — no exceptions",
-    "Only enter after signal confirms on your chart"
-  ];
-  if (regime === "RISK-ON")  return [...base, "Favour long setups — trend is your friend", "Trail stops on winners"];
-  if (regime === "RISK-OFF") return [...base, "Reduce size — capital protection first", "Cash is a valid position"];
-  return [...base, "Be selective in mixed conditions — fewer, higher-quality trades only"];
+  const lines = [];
+
+  // The gate, read live. CLAUDE.md forbids stating it from memory - it moved 65 -> 70
+  // and several surfaces kept saying 65 for weeks.
+  const gate = strategySettings.confidenceThreshold;
+  const minStrength = strategySettings.minStrength;
+  if (strategySettingsError) {
+    lines.push(`⚠ settingsError — the server is on BUILT-IN DEFAULTS, not the saved config (${strategySettingsError}). Every number below is suspect.`);
+  }
+  lines.push(`Gate ${gate}% · min strength ${minStrength} · a setup must clear BOTH to fire.`);
+
+  // Per asset: the gap, and the REASON when there is one. "low confidence" is a symptom,
+  // not a cause - the cause lives in the near-miss census.
+  let census = null;
+  try { census = typeof nearMissCensus === "function" ? nearMissCensus() : null; } catch (e) { census = null; }
+  // An empty position list means one of two completely different things, and saying
+  // "TRADEABLE now" for a symbol that is actually held is the worse of the two.
+  // For ~60s after every server restart NO bridge has posted yet, so mt5Positions is
+  // [] while the trades are still open at the broker - the documented
+  // positions-read-zero-after-a-restart window. mt5LastSeenByAccount is the
+  // discriminator: empty means UNKNOWN, not zero.
+  const positionsKnown = Object.keys(mt5LastSeenByAccount).length > 0;
+
+  for (const key of ["btc", "gold", "spx"]) {
+    const sig = signalCache[key];
+    if (!sig) continue;
+    const label = key.toUpperCase();
+    const conf = Number(sig.confidence);
+    const held = isAssetHeld(key, sig);
+
+    if (Number.isFinite(conf) && conf >= gate && sig.signal !== "WAIT") {
+      const setupName = String(sig.setup || "").replace(/_/g, " ");
+      if (held) {
+        lines.push(`${label}: ${sig.signal} ${conf}% — ABOVE the gate but already held, so the DUPLICATE gate will refuse a new entry. Not a failure.`);
+      } else if (!positionsKnown) {
+        lines.push(`${label}: ${sig.signal} ${conf}% — above the gate (${setupName}), but NO bridge has reported positions yet, so whether it is already held is UNKNOWN. Do not read this as tradeable until a bridge checks in.`);
+      } else {
+        lines.push(`${label}: ${sig.signal} ${conf}% — TRADEABLE now (${setupName}).`);
+      }
+      continue;
+    }
+
+    // Not firing. Name the blocking condition and the MARGIN, from the census.
+    let why = null;
+    if (census && Array.isArray(census.rows)) {
+      const row = census.rows
+        .filter(r => String(r.symbol || "").toUpperCase() === String(sig.sourceSymbol || "").toUpperCase())
+        .sort((a, b) => a.minMargin - b.minMargin)[0];
+      if (row) {
+        why = `${row.condition} on ${row.setup} — threshold ${row.threshold}, actual ${row.lastActual}, missing by ${row.minMargin}`;
+      }
+    }
+    const gap = Number.isFinite(conf) ? Math.max(0, gate - conf) : null;
+    lines.push(why
+      ? `${label}: not firing — ${why}.`
+      : `${label}: not firing — confidence ${Number.isFinite(conf) ? conf : "?"}%${gap !== null ? `, ${gap}pt short of the gate` : ""}.`);
+  }
+
+  // The constraint that actually limits this system. get_brain_status says it on every
+  // call and the plan never did.
+  lines.push("Binding constraint: SAMPLE SIZE, not ideas. A quiet day is a correct read, never a reason to loosen anything.");
+
+  // Regime is context, not instruction - and no advice that contradicts a measured
+  // setting. Trailing is OFF by measurement; the plan must not suggest otherwise.
+  if (regime === "RISK-ON")  lines.push("Regime RISK-ON: 2+ assets biased long. Trailing stops are OFF by measurement — stops already moved stay put.");
+  else if (regime === "RISK-OFF") lines.push("Regime RISK-OFF: 2+ assets biased short. Risk per trade and the 3-loss breaker are unchanged.");
+  else lines.push("Regime MIXED: no majority bias. Nothing here licenses a trade the gate refused.");
+
+  return lines;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2209,7 +4882,7 @@ async function handleMessage(message) {
       "/plan — full daily plan with entries\n/btc — BTC signal + entry\n/gold — Gold signal + entry\n/spx — SP500 signal\n/signals — refresh all signals\n/daily — price summary"
     ),
     "/plan": async () => {
-      if (!dailyPlan) generateDailyPlan();
+      if (planNeedsRebuild()) generateDailyPlan();
       await sendTelegram(chatId, planToTelegram(dailyPlan));
     },
     "/btc": async () => {
@@ -2343,6 +5016,242 @@ app.post("/api/shutdown", requireLocalOnly, (_, res) => {
 });
 app.get("/api/health",  (_, res) => res.json({ ok: true, version: 9, ts: Date.now(), healer: autohealer.getStatus() }));
 app.get("/api/signals",        (_, res) => res.json(signalCache));
+
+// ── Fair Value Gaps ───────────────────────────────────────────
+// Unfilled three-candle imbalances per asset, per timeframe.
+//
+// Computed on demand rather than cached: detection is O(bars) over at most 400
+// bars x3 timeframes x3 assets, which is far cheaper than the staleness bugs a
+// second cache would introduce. Deliberately NOT wired into confidence or any
+// gate — this is an observability layer, and an unmeasured geometry must not
+// move a number that sizes a trade.
+//
+// MT5 bars only. The Yahoo fallback series is a different instrument on Gold
+// (COMEX future vs spot), and a gap drawn from futures bars would be at prices
+// the traded symbol never visited. Reports the gap honestly instead of quietly
+// substituting a feed — see the ~5-minute Yahoo window after any restart.
+// m15 ADDED 2026-09-05. The entry is refined on 15m, so the gap that matters for an
+// entry was the one timeframe this never computed - callers asking for m15 silently
+// got h1 back and a chart labelled "H1 FVG" when a 15m gap was what was wanted.
+// mt5BarsFor already carries m15 (it rides along from the same bridge push as the
+// other three), so this costs one more detector pass and no new data path. It is
+// last in the list because order is display order and the slowest frame reads first.
+const FVG_TIMEFRAMES = ["daily", "h4", "h1", "m15"];
+
+// ── Chart geometry: CRT, previous-day levels, AMD ─────────────
+//
+// DISPLAY ONLY, AND THAT IS NOT A DISCLAIMER, IT IS THE DESIGN. This repo's own record
+// is unambiguous: CRT is CLOSED as an engine input after SIX measurements and six
+// negatives — it failed as a setup (0/5 folds, and it DISPLACED 16 Gold trades) and as a
+// confidence contributor (SPX worse at every window). FVG is 6.9pp worse than random over
+// ~6,800 samples. AMD is near-absent: 0 patterns on Gold at d1/h4/h1.
+//
+// So this route exists to put those shapes on a chart where a human can see them, and for
+// no other purpose. feedsTheGate is false and must stay false. Nothing here is read by
+// generateSignal, sizing, or any bridge. If a future change wants one of these in the
+// engine, it needs a walk-forward that clears it, not this endpoint.
+//
+// Read-only over bars the bridge already pushed. It computes nothing that is stored.
+app.get("/api/chart-geometry", (req, res) => {
+  const wanted = String(req.query.asset || "").toLowerCase();
+  const assetKeys = wanted && wanted !== "all" ? [wanted] : ["btc", "gold", "spx"];
+  const maxPatterns = Math.min(8, Math.max(1, Number(req.query.max) || 4));
+
+  const assets = {};
+  for (const assetKey of assetKeys) {
+    const barSet = mt5BarsFor(assetKey);
+    if (!barSet) {
+      assets[assetKey] = { available: false, reason: "no fresh MT5 bars" };
+      continue;
+    }
+
+    const out = { available: true, source: "mt5", sourceSymbol: barSet.symbol, timeframes: {} };
+
+    // CRT per timeframe. H4 is the one the user reads, but daily and h1 cost nothing
+    // extra and a pattern is only meaningful beside its neighbours.
+    for (const timeframe of ["daily", "h4", "h1"]) {
+      const bars = barSet[timeframe];
+      if (!bars) { out.timeframes[timeframe] = { error: "no bars" }; continue; }
+      try {
+        const crt = structure.detectCRT(bars, { maxPatterns });
+        const amd = structure.detectAMD(bars, {});
+        out.timeframes[timeframe] = {
+          crt: { patterns: crt.patterns || [], totalFound: crt.totalFound || 0,
+                 averageRange: crt.averageRange ?? null, error: crt.error || null },
+          amd: { patterns: (amd && amd.patterns) || [], totalFound: (amd && amd.totalFound) || 0,
+                 sessionAligned: amd ? amd.sessionAligned : null, error: (amd && amd.error) || null },
+        };
+      } catch (geometryError) {
+        // One bad series must never take the endpoint down.
+        console.error(`[geometry] ${assetKey}/${timeframe}: ${geometryError.message}`);
+        out.timeframes[timeframe] = { error: geometryError.message };
+      }
+    }
+
+    // PREVIOUS DAY'S HIGH, LOW AND CLOSE — from the daily series, index -2.
+    //
+    // -2 not -1: the last daily bar is TODAY and is still forming, so its high and low
+    // are whatever has printed so far and both move for the rest of the session. A level
+    // that moves is not a level. The bar before it is closed and final.
+    try {
+      const d = barSet.daily;
+      const n = d && d.highs ? d.highs.length : 0;
+      if (n >= 2) {
+        const prevHigh = d.highs[n - 2], prevLow = d.lows[n - 2], prevClose = d.closes[n - 2];
+        const todayHigh = d.highs[n - 1], todayLow = d.lows[n - 1];
+        const live = signalCache[assetKey] || null;
+        const price = live && Number.isFinite(live.price) ? live.price : d.closes[n - 1];
+        out.previousDay = {
+          high: prevHigh, low: prevLow, close: prevClose,
+          range: prevHigh - prevLow,
+          mid: (prevHigh + prevLow) / 2,
+          // Whether today has already taken either side. This is the read that matters:
+          // an unswept previous-day extreme is a magnet, a swept one is a reversal level.
+          highSwept: Number.isFinite(todayHigh) ? todayHigh > prevHigh : null,
+          lowSwept: Number.isFinite(todayLow) ? todayLow < prevLow : null,
+          priceVsPrevHigh: Number.isFinite(price) ? price - prevHigh : null,
+          priceVsPrevLow: Number.isFinite(price) ? price - prevLow : null,
+          basis: "daily bar at index -2 (the last CLOSED day); index -1 is today and still forming",
+        };
+      } else {
+        out.previousDay = { error: "fewer than 2 daily bars" };
+      }
+    } catch (previousDayError) {
+      out.previousDay = { error: previousDayError.message };
+    }
+
+    assets[assetKey] = out;
+  }
+
+  res.json({
+    assets,
+    feedsTheGate: false,
+    whatThisIs: "Chart geometry for DISPLAY. CRT is closed as an engine input (six "
+      + "measurements, six negatives), FVG is 6.9pp worse than random, and AMD is "
+      + "near-absent on these instruments. None of this moves a threshold or sizes a trade.",
+    updatedAt: new Date().toISOString(),
+  });
+});
+
+app.get("/api/fvg", (req, res) => {
+  const requested = Number(req.query.maxZones);
+  const maxZones = Number.isFinite(requested) && requested > 0 && requested <= 20
+    ? Math.floor(requested) : 4;
+
+  const assets = {};
+  for (const assetKey of ["btc", "gold", "spx"]) {
+    const barSet = mt5BarsFor(assetKey);
+    if (!barSet) {
+      assets[assetKey] = { available: false, reason: "no fresh MT5 bars", source: null, timeframes: {} };
+      continue;
+    }
+    // The live signal for this asset, so each timeframe can be read against the
+    // entry, stop and target actually on the table rather than reported as a
+    // bare list of price bands.
+    const liveSignal = signalCache[assetKey] || null;
+    const timeframes = {};
+    for (const timeframe of FVG_TIMEFRAMES) {
+      const bars = barSet[timeframe];
+      if (!bars) { timeframes[timeframe] = { error: "no bars for this timeframe", zones: [] }; continue; }
+      try {
+        const detected = fvg.detectFVGs(bars, { maxZones });
+        // Read against ALL zones found, not just the capped display list: an
+        // obstruction that fell outside the top 4 still obstructs.
+        const everything = fvg.detectFVGs(bars, { maxZones: 500 }).zones;
+        detected.reading = fvg.interpretZones(liveSignal, everything);
+        timeframes[timeframe] = detected;
+      } catch (e) {
+        // One bad series must not take the whole endpoint down.
+        console.error(`[fvg] ${assetKey}/${timeframe}: ${e.message}`);
+        timeframes[timeframe] = { error: e.message, zones: [] };
+      }
+    }
+    assets[assetKey] = { available: true, source: "mt5", sourceSymbol: barSet.symbol, timeframes };
+  }
+
+  res.json({ assets, minGapRangeFraction: fvg.DEFAULT_MIN_GAP_RANGE_FRACTION, updatedAt: new Date().toISOString() });
+});
+
+/**
+ * FVG zones per asset in the shape market_context expects.
+ *
+ * Deliberately NOT a refactor of the /api/fvg route above. That route is the
+ * published contract for the FVG page and rewriting it to share code here would
+ * put a working surface at risk to save twenty lines. This calls the same pure
+ * detector on the same bars and takes a wider zone cap, because a level candidate
+ * that fell outside the display top-4 is still a level.
+ */
+const CONTEXT_FVG_MAX_ZONES = 12;
+function fvgZonesForContext() {
+  const out = {};
+  for (const assetKey of ["btc", "gold", "spx"]) {
+    const barSet = mt5BarsFor(assetKey);
+    if (!barSet) continue;
+    const timeframes = {};
+    for (const timeframe of FVG_TIMEFRAMES) {
+      const bars = barSet[timeframe];
+      if (!bars) continue;
+      try {
+        timeframes[timeframe] = fvg.detectFVGs(bars, { maxZones: CONTEXT_FVG_MAX_ZONES });
+      } catch (e) {
+        // One bad series costs its own timeframe and nothing else.
+        console.error(`[market-context] fvg ${assetKey}/${timeframe}: ${e.message}`);
+      }
+    }
+    out[assetKey] = { timeframes };
+  }
+  return out;
+}
+
+/**
+ * Compose the whole market context from what the server already holds.
+ *
+ * Shared by GET /api/market-context and GET /api/daily-plan so the plan page and
+ * the chart drawer can never disagree about where a level is — the defect this
+ * whole module exists to end was two level systems, one of them invented.
+ *
+ * Returns { available:false, why } on any failure rather than throwing. This is
+ * observability: it may degrade, it may not take a route down.
+ */
+function composeMarketContext() {
+  try {
+    const barsByAsset = {};
+    for (const assetKey of ["btc", "gold", "spx"]) {
+      const barSet = mt5BarsFor(assetKey);
+      if (barSet) barsByAsset[assetKey] = barSet;
+    }
+    const composed = marketContext.buildMarketContext({
+      signals: signalCache,
+      barsByAsset,
+      fvgAssets: fvgZonesForContext(),
+      macro: { vix: priceCache.vix, dxy: priceCache.dxy, dxyCloses: dxyDailyCache.closes },
+    });
+    return Object.assign({ available: true }, composed, {
+      // The ages that matter. Levels derived from bars pushed an hour ago are an
+      // hour old however current the HTTP response is — the same trap the
+      // daily-plan payload names about its own generatedAt.
+      signalsUpdatedAt: signalCache.updatedAt,
+      pricesUpdatedAt: priceCache.updated,
+      dxyUpdatedAt: dxyDailyCache.updatedAt,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error(`[market-context] compose failed: ${e.message}`);
+    return { available: false, why: `compose failed: ${e.message}`, feedsTheGate: false };
+  }
+}
+
+// Confluence-ranked levels, the ATR day projection and the macro read, per asset.
+//
+// NOT on the public allowlist above, and that is deliberate. Every input is already
+// public on /api/signals, but the OUTPUT is a ranked map of where this system thinks
+// price reacts — which is closer to the plan than to the candles. Session-gated
+// until the surface is stable, per the standing rule; tv_daily_plan.py and the MCP
+// server both already hold their own login, so nothing that needs it is blocked.
+app.get("/api/market-context", (_, res) => {
+  res.json(composeMarketContext());
+});
+
 app.get("/api/signal-history", (_, res) => res.json({ history: signalHistory.slice(0, 50) }));
 // Latest parallel_analysis.py run. Served from disk rather than held in memory:
 // the analysis is produced by a separate process on its own schedule, so the
@@ -2382,6 +5291,35 @@ app.get("/api/analysis", (req, res) => {
     }
     const report = JSON.parse(fs.readFileSync(ANALYSIS_FILE, "utf8"));
     const ageHours = (Date.now() - new Date(report.generatedAt).getTime()) / 3_600_000;
+
+    /* A FAILED analysis must not read as an EMPTY one.
+     *
+     * parallel_analysis.py writes its report whatever happens, recording a
+     * per-agent `_error` when an agent could not complete. On 2026-08-29 the
+     * 01:01 run had all FIVE analysts and the synthesiser die with "Failed to
+     * authenticate: OAuth session expired and could not be refreshed" — the run
+     * happened hours before the sign-in was restored.
+     *
+     * This route read synthesis.verdict / .actions / .blindSpots, found them
+     * undefined, and served `available: true, actions: [], blindSpots: []` — which
+     * is indistinguishable from an analysis that ran fine and found nothing worth
+     * flagging. The 825-trade fact pack underneath it was perfect, so nothing else
+     * looked wrong either.
+     *
+     * Same defect as gate:null rendering AT/ABOVE GATE 0, an empty calendar
+     * reading as a clean trading day, and an empty setupHealth reading as a dead
+     * feed. The reasoning layer's failure is now a first-class field, and the
+     * deterministic half is still served — the facts are real and worth having.
+     */
+    const analystErrors = Object.entries(report.analysts || {})
+      .filter(([, a]) => a && a._error)
+      .map(([name, a]) => ({ agent: name, error: String(a._error).slice(0, 300) }));
+    const synthesisError = report.synthesis && report.synthesis._error
+      ? String(report.synthesis._error).slice(0, 300)
+      : null;
+    const analystCount = Object.keys(report.analysts || {}).length;
+    const reasoningFailed = Boolean(synthesisError) || analystErrors.length > 0;
+
     res.json({
       ...brains,
       available:   true,
@@ -2391,6 +5329,22 @@ app.get("/api/analysis", (req, res) => {
       verdict:     report.synthesis?.verdict ?? null,
       actions:     report.synthesis?.actions ?? [],
       blindSpots:  report.synthesis?.blindSpots ?? [],
+      // Absent is not zero. Without these, "no actions" is ambiguous.
+      reasoningFailed,
+      synthesisError,
+      analystErrors,
+      analystsRun:   analystCount - analystErrors.length,
+      analystsTotal: analystCount,
+      // The replays are independent of the Claude calls and are the reason the
+      // report is still worth serving when the reasoning half has failed.
+      replaysOk:   Array.isArray(report.facts?.replayErrors) && report.facts.replayErrors.length === 0,
+      replayErrors: report.facts?.replayErrors ?? null,
+      reasoningNote: reasoningFailed
+        ? `The measured fact pack is real (${report.facts?.overall?.trades ?? "?"} replayed trades), `
+          + `but ${analystErrors.length} of ${analystCount} analyst(s)`
+          + (synthesisError ? " and the synthesiser" : "")
+          + " did not complete, so an empty verdict here means NOT RUN, not 'nothing found'."
+        : null,
       facts:       req.query.full === "1" ? report.facts : undefined,
     });
   } catch (e) {
@@ -2400,7 +5354,7 @@ app.get("/api/analysis", (req, res) => {
 });
 
 app.get("/api/plan",    (_, res) => {
-  if (!dailyPlan) generateDailyPlan();
+  if (planNeedsRebuild()) generateDailyPlan();
   res.json(dailyPlan);
 });
 app.post("/api/plan/refresh", async (_, res) => {
@@ -2417,8 +5371,7 @@ app.post("/api/tv-alert", (req, res) => {
     price:   body.price   || body.close   || null,
     message: body.message || JSON.stringify(body)
   };
-  tvAlerts.unshift(alert);
-  if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+  pushAlert(alert);
   for (const cid of knownChatIds) {
     sendTelegram(cid,
       `🔔 <b>TradingView Alert</b>\n\nTicker: <b>${alert.ticker}</b>\nSignal: <b>${alert.action}</b>` +
@@ -2440,20 +5393,26 @@ app.get("/api/sentiment", (_, res) => res.json(sentimentCache));
 
 // Manual trade queue — bridge polls this to pick up trades queued from dashboard
 let manualTradeQueue = [];
+// Called here and not beside loadFeatures(): the helper is defined further up,
+// but manualTradeQueue is a `let` declared on the line above, so calling the
+// loader any earlier would hit the temporal dead zone and stop the boot.
+loadManualQueue();
 app.get("/api/manual-trade/pending",  (_, res) => res.json({ trades: manualTradeQueue }));
 app.post("/api/manual-trade/queue",   (req, res) => {
   const trade = req.body;
   if (!trade || !trade.symbol) return res.status(400).json({ error: "symbol required" });
   trade.queuedAt = new Date().toISOString();
   manualTradeQueue.push(trade);
+  saveManualQueue();
   console.log(`[manual] Trade queued: ${trade.symbol} ${trade.direction}`);
   res.json({ ok: true, queued: manualTradeQueue.length });
 });
-app.post("/api/manual-trade/clear",   (_, res) => { manualTradeQueue = []; res.json({ ok: true }); });
+app.post("/api/manual-trade/clear",   (_, res) => { manualTradeQueue = []; saveManualQueue(); res.json({ ok: true }); });
 app.delete("/api/manual-trade/:idx",  (req, res) => {
   const idx = parseInt(req.params.idx, 10);
   if (isNaN(idx) || idx < 0 || idx >= manualTradeQueue.length) return res.status(400).json({ error: "invalid index" });
   manualTradeQueue.splice(idx, 1);
+  saveManualQueue();
   res.json({ ok: true, remaining: manualTradeQueue.length });
 });
 
@@ -2516,6 +5475,10 @@ app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
         d1: daily,
         h4: sanitizeBars(payload?.bars?.h4, MT5_MIN_BARS.h4),
         h1: sanitizeBars(payload?.bars?.h1, MT5_MIN_BARS.h1),
+        // OPTIONAL, like times and opens. A bridge that has not restarted since m15
+        // shipped sends none, and sanitizeBars returns null for it - which every
+        // reader already handles. Nothing on the signal path looks at this.
+        m15: sanitizeBars(payload?.bars?.m15, MT5_MIN_BARS.m15),
       },
       receivedAt: new Date().toISOString(),
     };
@@ -2539,7 +5502,31 @@ app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
   // leaving a stale futures-derived signal live for the rest of the cron interval.
   // Fires only on the transition — steady-state pushes every 5 minutes do not
   // trigger it, so this cannot become a refresh storm.
-  const flippedToMt5 = Object.keys(accepted).filter(k => sourceWasYahoo[k] && mt5BarsFor(k));
+  // Keyed on what the LIVE SIGNAL was built from, not on what the BAR CACHE held.
+  //
+  // sourceWasYahoo is captured before this payload is stored, so it is true exactly
+  // ONCE — on the first push after the cache is empty. If that single refresh is
+  // skipped, nothing ever retries: the cache is warm from then on, sourceWasYahoo is
+  // false forever, and the Yahoo-derived signal stays live until the next 30-minute
+  // cron while the bridge refuses every setup as STALE SOURCE.
+  //
+  // That is not hypothetical. Observed 2026-08-28 immediately after a restart: the
+  // server booted at 04:48:08 and its own boot refresh was still running (~15s, so
+  // signalRefreshInFlight was true) when the first push landed. The transition was
+  // skipped, and four pushes and eleven minutes later /api/signals still read
+  // dataSource "yahoo" for all three assets with the bridge logging STALE SOURCE on
+  // every poll. A restart could therefore cost up to a full cron interval of
+  // tradeable signal — it blocks good setups, which is the one thing that must not
+  // happen quietly.
+  //
+  // Reading signalCache instead makes the condition SELF-HEALING: it stays true on
+  // every subsequent push until the signal is genuinely MT5-derived, then stops
+  // matching on its own. That is also why this cannot storm — it is extinguished by
+  // its own success, signalRefreshInFlight still serialises the refreshes, and the
+  // pushes are five minutes apart. sourceWasYahoo is retained: it is the correct
+  // signal for the FIRST push, before signalCache has been populated at all.
+  const flippedToMt5 = Object.keys(accepted).filter(k =>
+    mt5BarsFor(k) && (sourceWasYahoo[k] || signalCache[k]?.dataSource === "yahoo"));
   if (flippedToMt5.length && !signalRefreshInFlight) {
     signalRefreshInFlight = true;
     console.log(`[mt5-candles] ${flippedToMt5.join(", ")} switched yahoo -> mt5, recomputing signals now`);
@@ -2575,9 +5562,45 @@ app.get("/api/mt5/candles", (_, res) => {
       } : null,
       inUse: Boolean(live),
       activeSource: live ? "mt5" : "yahoo",
+      // Bar freshness, judged on the bars rather than on when the push landed.
+      // "unverified" is a real answer here, not a missing one.
+      barFreshness: entry ? {
+        d1: judgeBarFreshness(entry.bars?.d1, "d1"),
+        h4: judgeBarFreshness(entry.bars?.h4, "h4"),
+        h1: judgeBarFreshness(entry.bars?.h1, "h1"),
+      } : null,
     };
   }
-  res.json({ sources, maxAgeMs: MT5_CANDLE_MAX_AGE_MS, minBars: MT5_MIN_BARS });
+  const anyVerified = Object.values(sources).some(s => s.barFreshness && s.barFreshness.d1.checked);
+  res.json({
+    sources, maxAgeMs: MT5_CANDLE_MAX_AGE_MS, minBars: MT5_MIN_BARS,
+    barMaxAgeMs: BAR_MAX_AGE_MS,
+    staleDetection: anyVerified ? "active" : "UNVERIFIED — bridge sends no bar timestamps yet",
+  });
+});
+
+// Raw OHLC out of the in-memory MT5 cache, for offline analysis of the instrument
+// the engine ACTUALLY trades rather than the Yahoo proxy. Every geometry result so
+// far was measured on GC=F futures while the engine trades XAUUSD spot, and that
+// basis has already produced one phantom signal in this project.
+//
+// requireLocalOnly: this is a bulk dump of ~1100 bars x 3 symbols and the VPS is
+// internet-facing. The same protection the candle POST carries, for the same reason.
+app.get("/api/mt5/candles/raw", requireLocalOnly, (req, res) => {
+  const wanted = String(req.query.asset || "").toLowerCase();
+  const out = {};
+  for (const assetKey of Object.keys(mt5CandleCache)) {
+    if (wanted && assetKey !== wanted) continue;
+    const entry = mt5CandleCache[assetKey];
+    if (!entry || !entry.bars) continue;
+    out[assetKey] = {
+      symbol: entry.symbol,
+      receivedAt: entry.receivedAt,
+      ageMs: Date.now() - new Date(entry.receivedAt).getTime(),
+      bars: entry.bars,
+    };
+  }
+  res.json({ assets: out, note: "oldest-first, as pushed by mt5_bridge.py" });
 });
 
 // ── Rejection ledger ──────────────────────────────────────────
@@ -2596,6 +5619,493 @@ app.get("/api/mt5/candles", (_, res) => {
 // not have found that; rejections against passes do it immediately.
 app.get("/api/gate-health", (_, res) => {
   res.json({ ok: true, since: countersStartedAt, gates: gateStats });
+});
+
+// The blind spot BEHIND /api/gate-health. Every gate counted above fires on a setup
+// that already FORMED. A condition that stops a setup forming is upstream of all ten,
+// so it is invisible here and equally invisible in the rejection ledger — and that is
+// why SP500 has never traded: on 2026-08-16 it was STRONG UPTREND, above all EMAs,
+// MACD bullish, ADX 22.8, and missed MOMENTUM by 0.7 RSI points.
+//
+// Deliberately NOT merged into gate-health. That route answers "which gate is firing";
+// this one answers "what died before any gate got a vote". Merging them would put a
+// number that is not a gate kill into a payload every reader treats as gate kills.
+// What the SAME signal would have looked like with a lower-timeframe ATR stop, at the
+// SAME R:R. Read-only, and the rows it serves changed nothing: they are shadow geometries
+// for measurement, never fills. No spread, no slippage, no entry ever filled - evidence
+// about stop SCALE and resolution SPEED, and never realised P&L.
+app.get("/api/stop-variants", (req, res) => {
+  try {
+    const limit = Number(req.query.limit);
+    res.json(stopVariantSummary(Number.isFinite(limit) ? limit : undefined));
+  } catch (e) {
+    console.error("[stop-variants]", e.message);
+    res.status(500).json({ available: false, reason: e.message, feedsTheGate: false });
+  }
+});
+
+app.get("/api/near-miss", (_, res) => {
+  try {
+    res.json(nearMissCensus());
+  } catch (e) {
+    console.error("[near-miss]", e.message);
+    res.status(500).json({ available: false, reason: e.message, rows: [], feedsTheGate: false });
+  }
+});
+
+// One level upstream of the census above. /api/near-miss counts setups that ALMOST
+// formed — a setup one measurable condition short. This counts moves for which NO branch
+// exists at all, so there is no condition to be short of and nothing to count anywhere
+// else: on 2026-08-28 Gold fell 4631 -> 4530 in a single H1 bar and left no row on any
+// surface in this system, while /api/signals still read BUY MOMENTUM confidence 74.
+//
+// Deliberately NOT merged into /api/near-miss, for the same reason that route is not
+// merged into /api/gate-health: "a setup missed by 0.6 RSI" and "no setup could exist"
+// are different facts, and putting them in one payload makes every reader treat them as
+// the same kind of number.
+//
+// Read-only over tasks/shadow_shorts_scored.jsonl, which tasks/shadow_short_ledger.py
+// writes nightly. It is NOT evidence for trading the short side — the family failed a
+// 5.1-year nested walk-forward — it is the instrument that lets that verdict be
+// re-checked against live bars instead of re-argued.
+app.get("/api/shadow-shorts", (_, res) => {
+  try {
+    res.json(shadowShortSummary());
+  } catch (e) {
+    console.error("[shadow-shorts]", e.message);
+    res.status(500).json({ available: false, reason: e.message, byAsset: {}, feedsTheGate: false });
+  }
+});
+
+// WHO is employed, to do what, on which box, reading what, writing where, on whose clock.
+//
+// /api/ai-registry answers "what CAN be run" — 53 skills, 6 agents, 29 tools. It cannot
+// answer who is actually employed. That lived across two boxes' Task Scheduler entries,
+// four .bat files and nobody's head, which is how a weekly agent's correct finding sat
+// unread for five days and how the VPS agents ran for weeks on an older CLAUDE.md.
+//
+// A DESCRIPTION, NOT A SCHEDULER. Nothing here spawns an agent, runs a skill, calls a
+// tool or places a trade; the clock field NAMES the scheduled task that really fires, it
+// does not create one. A roster that could hire would be a roster that could hire by
+// accident.
+app.get("/api/ai-employees", async (_, res) => {
+  try {
+    const local = employeeRoster();
+
+    // THE MAP MUST SHOW BOTH BOXES OR IT IS HALF A FLEET.
+    //
+    // Every capability surface in this project reported THIS machine while presenting
+    // itself as the system, and every expensive failure has been a divergence while both
+    // boxes looked healthy: the VPS ran for weeks on an older CLAUDE.md, its /signal skill
+    // quoted a gate that had moved, and 23 capability files were simply absent there. A
+    // roster that answers for one box invites exactly that.
+    //
+    // Fetched, never assumed: if the peer is unreachable the field says so and the local
+    // half still renders. A dead peer must degrade one column, not blank the page.
+    // A COUNT IS NOT HEALTH. Matching capability tallies on two boxes say nothing about
+    // whether either is actually working — the VPS ran for weeks with matching counts and
+    // no AI at all. So the map carries a health row per box, from endpoints that are
+    // already public on both: healer, risk, and the bridge liveness test that is the only
+    // authoritative one (a process check is not a substitute; Windows reports an empty
+    // command line for the bridge python processes).
+    const healthOf = async (prefix) => {
+      const get = (route) => axios
+        .get(prefix + route, { timeout: 4000, validateStatus: s => s === 200 })
+        .then(r => r.data).catch(() => null);
+      const [healer, risk, bridge] = await Promise.all([
+        get("/api/healer"), get("/api/risk-status"), get("/api/mt5/health?account=A"),
+      ]);
+      return {
+        healer: healer ? (healer.healthy ? "healthy" : "UNHEALTHY") : "unreadable",
+        healCount: healer ? healer.healCount : null,
+        halted: risk ? Boolean(risk.halted) : null,
+        consecutiveLosses: risk ? risk.consecutiveLosses : null,
+        // null means the bridge has never checked in during this server's life, which is
+        // NOT the same as disconnected - reported as its own word rather than as false.
+        bridgeA: bridge ? (bridge.connected === null ? "starting" : bridge.connected ? "connected" : "DOWN") : "unreadable",
+        bridgeAgeSec: bridge && Number.isFinite(bridge.ageMs) ? Math.round(bridge.ageMs / 1000) : null,
+      };
+    };
+
+    const base = String(process.env.PEER_SERVER_URL || "").trim().replace(/\/+$/, "");
+    let peer = { configured: false, reachable: false, url: null, counts: null, health: null, error: null };
+    const localHealthPromise = healthOf("http://localhost:" + (process.env.PORT || 3001));
+
+    if (base) {
+      peer = { configured: true, reachable: false, url: base, counts: null, health: null, error: null };
+      try {
+        const [roster, registry, peerHealth] = await Promise.all([
+          axios.get(base + "/api/ai-employees", { timeout: 4000, validateStatus: s => s === 200 }),
+          axios.get(base + "/api/ai-registry",  { timeout: 4000, validateStatus: s => s === 200 }),
+          healthOf(base),
+        ]);
+        peer.reachable = true;
+        peer.counts = {
+          ...(registry.data && registry.data.counts ? registry.data.counts : {}),
+          employed: roster.data && roster.data.counts ? roster.data.counts.employed : null,
+          proposed: roster.data && roster.data.counts ? roster.data.counts.proposed : null,
+        };
+        peer.scriptsByArea = registry.data ? registry.data.scriptsByArea : null;
+        peer.health = peerHealth;
+      } catch (e) {
+        peer.error = (e && e.message ? e.message : String(e)).slice(0, 120);
+      }
+    }
+    const localHealth = await localHealthPromise;
+
+    // Named so a reader cannot mistake which column is which. "local" is whichever box is
+    // serving this response, which is not always the laptop.
+    res.json({ ...local, health: localHealth, peer, thisBox: os.hostname() });
+  } catch (e) {
+    console.error("[ai-employees]", e.message);
+    res.status(500).json({ available: false, reason: e.message, employees: [], feedsTheGate: false });
+  }
+});
+
+// The verdict /api/gate-health cannot give. Kill counts say a gate is FIRING;
+// only walking the rejections forward says whether it should have. The ledger and
+// the scorer already produced that evidence nightly and nothing read it.
+//
+// Read-only over tasks/rejections_scored.jsonl. Changes no threshold and admits
+// no signal — a route that grades the gates is precisely where the ledger's
+// "observability must never alter what trades" rule would be easiest to break.
+app.get("/api/rejection-evidence", (_, res) => {
+  try {
+    res.json(rejectionEvidence.buildEvidence());
+  } catch (e) {
+    console.error("[rejection-evidence]", e.message);
+    res.status(500).json({ available: false, reason: e.message, gates: {}, setups: {} });
+  }
+});
+
+// Is this system ready for real money? Five gates, AND-ed. See
+// tasks/go_live_readiness.cjs for what each one means and why none of them is
+// weighted against the others.
+//
+// SESSION-GATED ON PURPOSE, and it is the one evidence surface that is. The
+// aggregate numbers are no more revealing than /api/journal, which is public -
+// but the UPTIME gate carries the doctor's verbatim finding, and that names which
+// components were down and for how long. That is an operational detail about the
+// machine rather than a fact about the trading record, so it stays behind the
+// login, consistent with the standing decision to keep this stack gated until it
+// is stable.
+//
+// Cached, and single-flighted. tasks/doctor.cjs accumulates its findings in a
+// MODULE-LEVEL array that callers reset before use, so two overlapping requests
+// would interleave into each other's results and report a mix of the two. The
+// in-flight promise makes concurrent callers share one run rather than race it.
+let goLiveCache = { at: 0, payload: null };
+let goLiveInFlight = null;
+const GO_LIVE_TTL_MS = 60_000;
+
+app.get("/api/go-live-readiness", async (_, res) => {
+  try {
+    if (goLiveCache.payload && Date.now() - goLiveCache.at < GO_LIVE_TTL_MS) {
+      return res.json(goLiveCache.payload);
+    }
+    if (!goLiveInFlight) {
+      goLiveInFlight = (async () => {
+        // Required here, not at module scope - see the note by the
+        // rejection_evidence require for why.
+        const readiness = require("../tasks/go_live_readiness.cjs");
+        const payload = readiness.assess();
+        goLiveCache = { at: Date.now(), payload };
+        return payload;
+      })().finally(() => { goLiveInFlight = null; });
+    }
+    res.json(await goLiveInFlight);
+  } catch (e) {
+    console.error("[go-live-readiness]", e.message);
+    // available:false rather than a bare 500, so the page can say "could not
+    // measure" instead of rendering an empty checklist that reads as "all clear".
+    res.status(500).json({ available: false, reason: e.message, ready: false, gates: [] });
+  }
+});
+
+// Does the LIVE system trade like the walk-forward that justified its config?
+//
+// Every threshold here was chosen by replay, and nothing checked whether reality
+// then matched. That is the shape of this project's expensive failures — four
+// hardcoded copies of the gate, the dashboard on 65 while the engine ran 70, the VPS
+// on a different strategy_settings.json off the same commit — none of which any
+// health check could see, because every component was individually fine.
+//
+// Floored on purpose: both comparisons report TOO FEW TO JUDGE until the sample can
+// carry a verdict. A tracker that cries divergence at four fills is one you have
+// learned to ignore by the time it is right.
+app.get("/api/live-vs-replay", (_, res) => {
+  try {
+    res.json(liveVsReplay.buildLiveVsReplay({
+      journal: tradeJournal,
+      analysisPath: path.join(__dirname, "..", "tasks", "analysis", "setup-walkforward-latest.json"),
+      historyDir: path.join(__dirname, "..", "tasks", "history"),
+      symbols: ["XAUUSD", "BTCUSD", "SP500"],
+      realizedRFromPrices,
+    }));
+  } catch (e) {
+    // Message stays in the log, not the body: e.message here carries absolute paths
+    // from fs errors, which is exactly what the module avoids by using path.basename.
+    console.error("[live-vs-replay]", e.message);
+    res.status(500).json({
+      available: false,
+      reason: "live-vs-replay failed — see server log",
+      feedsTheGate: false,
+    });
+  }
+});
+
+// What the AI side of this system is MADE OF — 44 skills, 6 agents, the MCP tool
+// catalogue and the guardrails. All of it was on disk and none of it was visible
+// from the page that runs the AI.
+app.get("/api/ai-registry", (_, res) => {
+  try {
+    res.json(aiRegistry.getRegistry());
+  } catch (e) {
+    console.error("[ai-registry]", e.message);
+    res.status(500).json({ skills: [], agents: [], tools: [], guardrails: [], error: e.message });
+  }
+});
+
+// Is the system getting smarter, and how fast? P&L growth is blank on one closed
+// fill and will stay blank for months, so it cannot answer that. Evidence growth
+// can: resolved paper episodes per day, per-setup progress toward the threshold
+// that unlocks the live learning engine, and whether the rate is accelerating.
+// Did the AI employee show up, did it succeed, and did anyone read what it wrote?
+// A failing weekly review and three unreviewed PROPOSED FIX lines were both
+// invisible before this. Runs nothing and spends no tokens — it reads the logs
+// the jobs already produce.
+app.get("/api/ai-work", async (_, res) => {
+  try {
+    // Verbose task list, so the ledger can check the job it appraises actually has
+    // a task, what that task returned, and which of the other scheduled jobs nobody
+    // is appraising at all. Degrades to the previous file-only behaviour if the
+    // scheduler cannot be read.
+    const scheduledTasks = await readScheduledTasksVerbose();
+    res.json(aiWorkLedger.build({ scheduledTasks }));
+  } catch (e) {
+    console.error("[ai-work]", e.message);
+    res.status(500).json({ available: false, reason: e.message, jobs: [], proposals: [] });
+  }
+});
+
+app.get("/api/learning-growth", (_, res) => {
+  try {
+    res.json(learningGrowth.build());
+  } catch (e) {
+    console.error("[learning-growth]", e.message);
+    res.status(500).json({ available: false, reason: e.message, days: [], setups: [] });
+  }
+});
+
+// What the system KNOWS versus what it assumes. Curated measured claims joined to
+// the live per-gate verdicts, so a number on this dashboard can always be traced
+// to whether it was ever tested.
+// ── RESEARCH ────────────────────────────────────────────────────────────────
+// Everything the measurement side of this project produces used to live only in
+// tasks/analysis/*.json and a terminal. That is how the near-miss census sat on
+// ZERO pages while owning every near-miss, and it is how a searcher that runs
+// unattended at 05:00 every day would have reported to nobody.
+//
+// Reads the reports the harnesses already write. It runs nothing: a harness takes
+// minutes and an HTTP handler that shells one out would hang the dashboard and
+// compete with the bridge for CPU on the box that trades. Missing or unreadable
+// report = that section reports itself absent, never a blank panel and never a
+// zero pretending to be a measurement.
+// Takes a LIST of candidate paths because the harnesses do not agree on where they
+// write. per_instrument_edge.cjs defaults OUTDIR to tasks/, so its current report is
+// tasks/per_instrument_edge.json while an eight-day-old tasks/analysis/
+// per-instrument-edge-latest.json sits beside it from another writer. Reading the
+// wrong one would have served a stale table as today's — the newest wins, and the
+// file's own mtime ships with it so a reader can see the age rather than trust it.
+function readReport(candidates) {
+  const names = Array.isArray(candidates) ? candidates : [candidates];
+  let best = null;
+  for (const name of names) {
+    try {
+      const file = path.isAbsolute(name) ? name : path.join(__dirname, "..", name);
+      if (!fs.existsSync(file)) continue;
+      const modified = fs.statSync(file).mtimeMs;
+      if (best && modified <= best.modified) continue;
+      best = { file, modified, parsed: JSON.parse(fs.readFileSync(file, "utf8")) };
+    } catch (e) {
+      // A corrupt candidate must not hide a readable one later in the list.
+      continue;
+    }
+  }
+  if (!best) return { available: false, reason: "not run yet" };
+  return {
+    available: true,
+    reportFile: path.basename(best.file),
+    reportAgeHours: Math.round(((Date.now() - best.modified) / 3600000) * 10) / 10,
+    ...best.parsed,
+  };
+}
+
+// Age of the bar cache every replay reads. A sweep over stale bars returns
+// yesterday's answer with today's confidence, and nothing schedules a refresh —
+// export_mt5_history.py does it and is referenced only in a comment.
+function barCacheAge() {
+  const out = { symbols: {}, newest: null, ageDays: null };
+  for (const symbol of ["XAUUSD", "BTCUSD", "SP500"]) {
+    try {
+      const file = path.join(__dirname, "..", "tasks", "history", symbol + "_D1.csv");
+      if (!fs.existsSync(file)) { out.symbols[symbol] = null; continue; }
+      const text = fs.readFileSync(file, "utf8").trim();
+      const lastLine = text.slice(text.lastIndexOf("\n") + 1);
+      const stamp = Number(String(lastLine).split(",")[0]);
+      if (!Number.isFinite(stamp)) { out.symbols[symbol] = null; continue; }
+      out.symbols[symbol] = stamp;
+      if (out.newest === null || stamp > out.newest) out.newest = stamp;
+    } catch (e) {
+      out.symbols[symbol] = null;
+    }
+  }
+  if (out.newest) out.ageDays = Math.floor((Date.now() / 1000 - out.newest) / 86400);
+  return out;
+}
+
+app.get("/api/research", (_, res) => {
+  try {
+    res.json({
+      generatedAt: new Date().toISOString(),
+      backtestHealth: readReport("tasks/analysis/backtest-health-latest.json"),
+      strategySearch: readReport("tasks/analysis/strategy-search-latest.json"),
+      perInstrument: readReport([
+        "tasks/per_instrument_edge.json",
+        "tasks/analysis/per-instrument-edge-latest.json",
+      ]),
+      ceilingSweep: readReport("tasks/analysis/rsi-ceiling-walkforward-latest.json"),
+      bars: barCacheAge(),
+      // Stated on the payload so a reader never has to infer it from the absence
+      // of a POST. Nothing on this route changes what trades.
+      feedsTheGate: false,
+      readsOnly: "reports already written to tasks/analysis by the harnesses",
+    });
+  } catch (e) {
+    console.error("[research]", e.message);
+    res.status(500).json({ error: "research payload failed", detail: String(e.message).slice(0, 200) });
+  }
+});
+
+// ── /api/recall — semantic search over JARVIS's own memory ───────────────────
+//
+// WHY THIS EXISTS. The RAG index holds 323 memories / 1699 chunks and was reachable
+// ONLY from the command line (tasks/rag_query.py). So dashboard/jarvis.html — the one
+// surface named after him — could not search the thing that makes him him, and neither
+// could any browser. Measured cost on the day this was added: the position-sizing bug
+// fixed that morning was ALREADY in memory as "assuming 1.0 made Gold 74x oversize",
+// and it was re-derived from source over several hours because nothing could look it up.
+// A memory you cannot query is a memory you do not have.
+//
+// READ-ONLY. It runs a search and returns rows. It writes nothing, indexes nothing and
+// deletes nothing, and it feeds no gate: the answer cannot admit or suppress a trade.
+//
+// NO SHELL, EVER. execFile with an argument ARRAY, never a concatenated string, so a
+// question containing quotes, semicolons or backticks is data and can never become a
+// command. The query is length-capped and topK is clamped for the same reason.
+app.get("/api/recall", (req, res) => {
+  const question = String(req.query.q || "").trim();
+  if (!question) return res.status(400).json({ error: "q is required" });
+  if (question.length > 500) {
+    return res.status(400).json({ error: "q too long (max 500 chars)" });
+  }
+  // rag_query.py treats a leading "--" as a flag (its own parser checks
+  // argv[0].startswith("--")), so such a question prints its usage text instead of JSON
+  // and the caller gets "unparseable output" — an error that does not name its cause.
+  // Rejected here with the real reason rather than left to surface as a mystery 500.
+  if (question.startsWith("--")) {
+    return res.status(400).json({
+      error: 'q cannot start with "--"',
+      hint: "the search tool reads a leading -- as a command flag; rephrase without it",
+    });
+  }
+  // Allowlisted, never passed through from the caller verbatim.
+  const SOURCES = new Set(["brain", "memory", "vault", "trades", "all"]);
+  const wanted = String(req.query.source || "brain").toLowerCase();
+  const source = SOURCES.has(wanted) ? wanted : "brain";
+  const topK = Math.min(Math.max(parseInt(req.query.top, 10) || 6, 1), 20);
+
+  const args = [path.join(__dirname, "..", "tasks", "rag_query.py"), question,
+                "--top", String(topK), "--json"];
+  if (source !== "all") args.push("--source", source);
+
+  // execFile is destructured INSIDE a handler further down this file (index.js:8109),
+  // so it is not in scope here. Requiring it locally rather than hoisting a global keeps
+  // this route self-contained; a route that is present but throws ReferenceError on its
+  // first call is the shape of bug that had /api/preopen-plan 500ing on the VPS for hours
+  // while the parity check reported ENGINES AGREE.
+  const { execFile } = require("child_process");
+  const PYTHON = require("./python_path").pythonBinOrDefault();
+  execFile(PYTHON, args, {
+    cwd: path.join(__dirname, ".."),
+    // The sentence-transformer model loads on first call and is slow; 60s is generous
+    // for a cold start and still bounded so a hung search cannot pin a request open.
+    timeout: 60000,
+    maxBuffer: 8 * 1024 * 1024,
+    env: require("./python_path").pythonEnv(),
+  }, (err, stdout, stderr) => {
+    // A search that fails must say so rather than return an empty list, which a caller
+    // would read as "nothing is recorded" — the exact wrong conclusion, and the reason
+    // five measured findings sat unread on the other box for a month.
+    if (err && !stdout) {
+      return res.status(500).json({
+        error: "recall failed",
+        detail: String((stderr || err.message) || "").slice(0, 300),
+        hint: "the index may not be built — run: python tasks/rag_index.py --source brain",
+        results: null,
+      });
+    }
+    try {
+      // rag_query prints a HF warning to stdout on some boxes, so take the JSON object
+      // rather than assuming the whole stream is JSON.
+      const start = stdout.indexOf("{");
+      const parsed = JSON.parse(start >= 0 ? stdout.slice(start) : stdout);
+      res.json({ ...parsed, feedsTheGate: false });
+    } catch (e) {
+      res.status(500).json({
+        error: "recall returned unparseable output",
+        detail: String(stdout).slice(0, 300),
+        results: null,
+      });
+    }
+  });
+});
+
+app.get("/api/evidence-board", (_, res) => {
+  try {
+    const register = evidenceRegister.getRegister();
+    let gates = {};
+    let gateTotals = null;
+    try {
+      const evidence = rejectionEvidence.buildEvidence();
+      gates = evidence.gates || {};
+      gateTotals = evidence.totals || null;
+    } catch (e) {
+      // The curated half must still render if the ledger is unreadable.
+      console.error("[evidence-board] gates:", e.message);
+    }
+    res.json({
+      claims: register.claims,
+      claimCounts: register.counts,
+      curatedNote: register.note,
+      // Which curated claims quote a sample that has since moved, and the live sample
+      // they were compared against. Surfaced because a detector nothing renders is
+      // decoration: the liveconfig claim went stale TWICE (n=1/119 sessions, then
+      // n=3/154) while this board displayed it as measured fact to every reader, and
+      // the brief handed the same sentence to every agent. The register never rewrites
+      // itself — it is curated by design — so this flag is the only thing that says a
+      // human needs to look.
+      needsRecuration: register.needsRecuration || [],
+      liveSample: register.liveSample || null,
+      gates,
+      gateTotals,
+      feedsTheGate: false,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("[evidence-board]", e.message);
+    res.status(500).json({ claims: [], gates: {}, error: e.message });
+  }
 });
 
 // Bridge-side rejections. Same protection as /api/mt5/candles — requireLocalOnly,
@@ -2676,20 +6186,274 @@ app.get("/api/mt5/health", (req, res) => {
     if (serverAgeMs < MT5_NEVER_CONNECTED_GRACE_MS) {
       return res.status(200).json({ connected: null, reason: "never connected yet — within startup grace period" });
     }
-    return res.status(503).json({ connected: false, reason: `never connected — server has been up ${Math.round(serverAgeMs / 1000)}s, past the startup grace period` });
+    // An account this box does not own is not a fault, and reporting it as one is
+    // worse than saying nothing: a status surface that carries a permanent RED trains
+    // you to skim past the row that matters, and every expensive failure this fleet
+    // has had was a real divergence sitting behind checks nobody read closely.
+    // MT5_EXPECTED_ACCOUNTS is the single source of truth, shared with the healer
+    // (autohealer.js:33), the watchdog and ensure_running.ps1.
+    //
+    // SAFE BECAUSE connected IS null, NEVER true. Callers that act on this route are
+    // gated on the same variable BEFORE they call it — watchdog.bat reads
+    // MT5_EXPECTED_ACCOUNTS and jumps past the bridge-B branch entirely, so a 200 here
+    // cannot start a duplicate bridge on an account this box does not own, which is
+    // the one outcome that would double every trade. The {connected:null} + 200 shape
+    // is not new: it is exactly what the startup-grace branch above already returns,
+    // so every existing reader already handles it.
+    // Default "A,B" matches the healer, so a box with no keys.env behaves as today.
+    const expectedAccounts = (process.env.MT5_EXPECTED_ACCOUNTS ?? "A,B")
+      .split(",").map(tag => tag.trim()).filter(Boolean);
+    if (account !== "default" && !expectedAccounts.includes(account)) {
+      return res.status(200).json({
+        connected: null,
+        expected:  false,
+        reason: `account ${account} is not run on this machine — MT5_EXPECTED_ACCOUNTS is "${expectedAccounts.join(",")}". Not a fault; this clears itself the moment that variable lists ${account}.`,
+      });
+    }
+    return res.status(503).json({ connected: false, expected: true, reason: `never connected — server has been up ${Math.round(serverAgeMs / 1000)}s, past the startup grace period` });
   }
   const ageMs     = Date.now() - new Date(lastSeen).getTime();
   const connected = ageMs < MT5_HEARTBEAT_STALE_MS;
   res.status(connected ? 200 : 503).json({ connected, ageMs, lastSeen });
 });
 
-app.get("/api/mt5/positions",  (_, res) => res.json({ positions: mt5Positions, byAccount: mt5PositionsByAccount }));
+// `positions` and `byAccount` are UNCHANGED, so every existing reader is untouched.
+// `unmanaged` is additive and read-only: foreign-magic trades on the same accounts, which
+// SmartEntry neither opened nor manages. `exposure` nets the two together per symbol,
+// computed here rather than in each surface, because "you are long here and short there"
+// is the condition that is expensive to miss and nobody re-derives it three times reliably.
+// Trades placed by this system's OWN strategy executors, read straight off their
+// ledgers on disk. tasks/fvg_executor.py appends one line per placed order to
+// tk_executed.jsonl / fvg_executed.jsonl / crt_executed.jsonl, with ticket, symbol,
+// direction, lots, price, sl, tp, magic and model.
+//
+// WHY FROM DISK RATHER THAN THE BRIDGE. The bridge filters every position path to magic
+// 20250101, so an executor trade never reaches the server through it -- and teaching the
+// bridge to send them needs a bridge restart, which is exactly what was blocking this all
+// day. The ledgers were already on disk the whole time. Reading them needs nothing but a
+// server that is running.
+//
+// WHAT THIS CANNOT TELL YOU: whether the trade is still open, and its live P/L. The ledger
+// records PLACEMENT, not lifecycle. So these are reported as placed-with-entry/SL/TP and
+// explicitly NOT as live positions - saying "open" about a trade that may have closed
+// would be a worse lie than the omission this replaces.
+const EXECUTOR_LEDGERS = [
+  ["tk_executed.jsonl",  "TK_SWING_PULLBACK"],
+  ["fvg_executed.jsonl", "FVG_CONTINUATION"],
+  ["crt_executed.jsonl", "CRT_FVG"],
+];
+function readExecutorTrades() {
+  const out = [];
+  for (const [file, fallbackModel] of EXECUTOR_LEDGERS) {
+    const p = path.join(__dirname, "..", "tasks", file);
+    let raw;
+    // A missing ledger means that model has never placed a trade - normal, not an error.
+    try { raw = fs.readFileSync(p, "utf8"); } catch (e) { continue; }
+    for (const line of raw.split(String.fromCharCode(10))) {
+      if (!line.trim()) continue;
+      let row;
+      // One malformed line must not hide every good one on either side of it.
+      try { row = JSON.parse(line); } catch (e) { continue; }
+      if (!row || row.placed === false) continue;
+      out.push({
+        ticket: row.ticket ?? null, symbol: row.symbol ?? null,
+        type: row.direction ?? null, volume: row.lots ?? null,
+        price: row.price ?? null, sl: row.sl ?? null, tp: row.tp ?? null,
+        magic: row.magic ?? null, model: row.model || fallbackModel,
+        placedAt: row.at ?? null, source: file,
+      });
+    }
+  }
+  return out.sort((a, b) => String(b.placedAt).localeCompare(String(a.placedAt)));
+}
+
+// EVERY position on the account, including the ones the bridge filters out.
+//
+// The bridge skips `p.magic != MAGIC_NUMBER` in every position path, so third-party EA
+// trades reach no surface at all - on account 11581419 that was FOUR open positions the
+// page reported as "0 not managed", which is not "none", it is "not reported". Teaching
+// the bridge to send them needs a bridge restart, which has been unavailable all day.
+//
+// tasks/mt5_positions_snapshot.py reads MT5 directly, read-only, and writes every open
+// position to a JSON file. This spawns it at most once a MIN_SNAPSHOT_INTERVAL_MS and
+// NEVER waits for it: the request always serves whatever the last run wrote, so a slow or
+// hung python can delay the data but can never delay the page. A snapshot that cannot be
+// read is reported as unknown rather than as zero - the whole reason this exists.
+const SNAPSHOT_PATH = path.join(__dirname, "..", "tasks", "mt5_positions_snapshot.json");
+const MIN_SNAPSHOT_INTERVAL_MS = 60 * 1000;
+// Older than this and the file describes a book that may have changed. Surfaced as an age
+// on the payload rather than silently served as current.
+const SNAPSHOT_STALE_MS = 5 * 60 * 1000;
+let snapshotRunAt = 0;
+let snapshotInFlight = false;
+
+function refreshPositionSnapshot() {
+  if (snapshotInFlight || Date.now() - snapshotRunAt < MIN_SNAPSHOT_INTERVAL_MS) return;
+  snapshotInFlight = true;
+  snapshotRunAt = Date.now();
+  try {
+    const child = require("child_process").spawn(
+      require("./python_path").pythonBinOrDefault(),
+      [path.join(__dirname, "..", "tasks", "mt5_positions_snapshot.py")],
+      { cwd: path.join(__dirname, ".."), env: require("./python_path").pythonEnv(), windowsHide: true });
+    // A hung MT5 handle must not leave a python process behind for ever.
+    const kill = setTimeout(() => { try { child.kill(); } catch (e) {} }, 30000);
+    child.on("exit", () => { clearTimeout(kill); snapshotInFlight = false; });
+    child.on("error", (e) => { clearTimeout(kill); snapshotInFlight = false;
+      console.error("[snapshot] could not spawn: " + e.message); });
+  } catch (e) {
+    snapshotInFlight = false;
+    console.error("[snapshot] spawn threw: " + e.message);
+  }
+}
+
+function readPositionSnapshot() {
+  try {
+    const raw = fs.readFileSync(SNAPSHOT_PATH, "utf8");
+    const j = JSON.parse(raw);
+    if (!j || j.ok !== true || !Array.isArray(j.positions)) return null;
+    const ageMs = Date.now() - new Date(j.at).getTime();
+    return { at: j.at, ageMs, stale: ageMs > SNAPSHOT_STALE_MS, login: j.login ?? null,
+             equity: j.equity ?? null, balance: j.balance ?? null, positions: j.positions };
+  } catch (e) { return null; }        // missing or unreadable = unknown, never zero
+}
+
+app.get("/api/mt5/positions", (_, res) => {
+  const unmanaged = Object.entries(mt5UnmanagedByAccount).flatMap(([account, rows]) =>
+    (rows || []).map(p => ({ ...p, account })));
+  // Kick a refresh for NEXT time; this call is served from the last file either way.
+  refreshPositionSnapshot();
+  let snapshot = readPositionSnapshot();
+  // THE SNAPSHOT MUST BELONG TO THIS BOX'S ACCOUNT. mt5_positions_snapshot.py calls a bare
+  // mt5.initialize(), which attaches to whichever terminal answers first - and this laptop
+  // runs TWO: the bridge's own (25446287) and a second in AppData logged into 11581419,
+  // the VPS's account. So the reader can land on the wrong book entirely, and the laptop
+  // page would show the VPS's positions as if they were its own.
+  //
+  // The two boxes trade DIFFERENT demo accounts on purpose. Mixing them would corrupt every
+  // per-box number - P&L, exposure, what is open - and the journals would stop being
+  // attributable, which is the same failure the fleet parity check exists to catch.
+  //
+  // The bridge already reports the login it is pinned to (MT5_EXPECTED_LOGIN, sent on
+  // /api/risk-status), so that is the authority. A snapshot from any other login is
+  // DISCARDED, not shown and not merged. Discarding costs a display row; showing another
+  // account's trades as this one's is a wrong number nobody would catch.
+  //
+  // This blocks nothing that trades. It is read-side only - no order, no gate, no sizing.
+  if (snapshot) {
+    const ownLogins = Object.values(riskStatusByAccount)
+      .map(a => a && a.config && a.config.expectedLogin)
+      .filter(Boolean).map(String);
+    const snapLogin = snapshot.login == null ? null : String(snapshot.login);
+    // No pinned login reported yet (bridge still starting) means we cannot verify, and an
+    // unverified snapshot is not evidence about this account. Kept only when it matches.
+    if (!snapLogin || ownLogins.length === 0 || !ownLogins.includes(snapLogin)) {
+      console.warn("[snapshot] discarding: read login " + snapLogin + ", this box expects " +
+                   (ownLogins.join("/") || "(none reported yet)"));
+      snapshot = null;
+    }
+  }
+  // The bridge is the better source when it has them - it is live and per-account. The
+  // snapshot only fills the gap while the bridge is running code that filters them out.
+  // THIS SYSTEM'S MAGIC NUMBERS ONLY. owner === "executor" means the position came from
+  // one of OUR executors (FVG_CONTINUATION 20260902, TK_SWING_PULLBACK 20260903, CRT_FVG
+  // 20260904). The previous filter was `!== "smartentry"`, which swept in every
+  // third-party EA on the account - magic 888888, 202503 and the rest - and put somebody
+  // else's book on this system's page. Operator instruction, and it is right: those trades
+  // are not ours, we do not manage them, and mixing them in makes every number on the page
+  // describe two unrelated systems at once.
+  //
+  // They are still open on the account and still consume the same margin. That is a real
+  // fact, but it belongs somewhere that is clearly not this system's book - not here.
+  const unmanagedFromSnapshot = (unmanaged.length === 0 && snapshot)
+    ? snapshot.positions.filter(p => p.owner === "executor")
+              .map(p => ({ ...p, account: "A", fromSnapshot: true }))
+    : [];
+  // CLASSIFY BY MAGIC HERE, DO NOT TRUST THE ROW TO CARRY IT.
+  //
+  // The bridge tags each row owner/model, but only since today - and the process actually
+  // running predates that, so its rows arrive with owner undefined. Untagged rows were
+  // falling straight through this filter and a third-party EA (magic 996142) appeared on
+  // the laptop page. Restarting the bridge would fix the tagging; deriving it here fixes
+  // it without one, and keeps working if a future bridge ever stops sending the field.
+  //
+  // The allow-list is THIS SYSTEM'S magic numbers and nothing else. Anything not on it is
+  // dropped, whatever appears on the account and whoever put it there.
+  const OWN_MAGICS = {
+    20250101: "SmartEntry",
+    20260902: "FVG_CONTINUATION",
+    20260903: "TK_SWING_PULLBACK",
+    20260904: "CRT_FVG",
+  };
+  const classify = (p) => {
+    const model = OWN_MAGICS[Number(p.magic)];
+    if (!model) return null;                       // not ours - never displayed
+    return { ...p, model: p.model || (model === "SmartEntry" ? null : model),
+             owner: Number(p.magic) === 20250101 ? "smartentry" : "executor" };
+  };
+  const allUnmanaged = (unmanaged.length ? unmanaged : unmanagedFromSnapshot)
+    .map(classify).filter(Boolean);
+  const exposure = {};
+  const tally = (p, owner) => {
+    const e = exposure[p.symbol] || (exposure[p.symbol] = {
+      symbol: p.symbol, longLots: 0, shortLots: 0, netLots: 0, smartentryLots: 0, executorLots: 0 });
+    const lots = Number(p.volume) || 0;
+    if (p.type === "BUY") { e.longLots += lots; e.netLots += lots; }
+    else                  { e.shortLots += lots; e.netLots -= lots; }
+    if (owner === "smartentry") e.smartentryLots += lots; else e.executorLots += lots;
+  };
+  // OURS ONLY. Exposure used to net third-party EA lots in with ours, which mixed two
+  // unrelated books into one number: magic 888888 and the other 15 strangers on this
+  // account are not this system's and must not appear in a figure labelled as its
+  // exposure. Operator instruction, 2026-09-03, and it is the right call - a "net BTCUSD"
+  // that silently includes somebody else's hedge is a number you cannot act on.
+  //
+  // The foreign rows are still COLLECTED (they exist, and pretending otherwise is how the
+  // page lied in the first place) and still returned under `foreign` for anyone who asks.
+  // They are simply not blended into ours.
+  for (const p of mt5Positions) tally(p, "smartentry");
+  for (const p of allUnmanaged.filter(p => p.owner === "executor")) tally(p, "executor");
+  const round2 = n => Math.round(n * 100) / 100;
+  for (const e of Object.values(exposure)) {
+    e.longLots = round2(e.longLots); e.shortLots = round2(e.shortLots);
+    e.netLots  = round2(e.netLots);
+    e.smartentryLots = round2(e.smartentryLots); e.executorLots = round2(e.executorLots);
+    e.hedged = e.longLots > 0 && e.shortLots > 0;
+  }
+  // OUR EXECUTORS ARE NOT STRANGERS. One flat "unmanaged" list filed
+  // TK_SWING_PULLBACK and FVG_CONTINUATION next to a third-party EA, which tells you
+  // nothing about which trades are yours. The bridge now tags each row owner/model from
+  // EXECUTOR_MAGICS; split on that here so a surface never has to know magic numbers.
+  //
+  // A row with NO owner came from a bridge older than that change. It is reported as
+  // "unclassified" rather than guessed into either bucket — calling someone else's trade
+  // yours, or yours a stranger's, are both worse than saying the bridge is out of date.
+  const executors   = allUnmanaged.filter(p => p.owner === "executor");
+  const foreign     = allUnmanaged.filter(p => p.owner === "foreign");
+  const unclassified= allUnmanaged.filter(p => p.owner !== "executor" && p.owner !== "foreign");
+  res.json({
+    positions: mt5Positions, byAccount: mt5PositionsByAccount,
+    unmanaged: allUnmanaged, unmanagedByAccount: mt5UnmanagedByAccount,
+    snapshot: snapshot ? { at: snapshot.at, ageMs: snapshot.ageMs, stale: snapshot.stale, login: snapshot.login, count: snapshot.positions.length } : null,
+    executors, foreign, unclassified,
+    // Placed by our own executors, read from their ledgers. Independent of the bridge.
+    executorTrades: readExecutorTrades(),
+    exposure: Object.values(exposure).sort((a, b) => a.symbol.localeCompare(b.symbol)),
+    note: "positions = SmartEntry engine only (magic 20250101). executors = this system's OWN strategy executors on their own magics (TK_SWING_PULLBACK, FVG_CONTINUATION, CRT_FVG) - yours, but not managed by the main engine. foreign = third-party EAs on the same account. unclassified = a bridge too old to tag them. Nothing outside 'positions' is sized, managed or closed by SmartEntry.",
+  });
+});
 app.post("/api/mt5/positions", (req, res) => {
   const account = req.body?.account || "default";
   mt5PositionsByAccount[account] = req.body?.positions ?? [];
+  // Defaults to [] rather than being left untouched: an OLDER bridge that does not send
+  // this key must CLEAR the account rather than pin a stale foreign book on screen for
+  // ever. A stale unmanaged row is worse than none — it is exposure that no longer exists,
+  // displayed as though it did, and this is exactly the window during a rolling deploy
+  // where one box runs the new bridge and the other does not.
+  mt5UnmanagedByAccount[account] = req.body?.unmanaged ?? [];
   mt5LastSeenByAccount[account] = new Date().toISOString();
   recomputeMt5Positions();
-  res.json({ ok: true, count: mt5Positions.length });
+  res.json({ ok: true, count: mt5Positions.length, unmanaged: mt5UnmanagedByAccount[account].length });
 });
 
 // MT5 terminal login — dashboard "Auto Trade" tab, one form per account.
@@ -2714,9 +6478,13 @@ app.post("/api/mt5/login", (req, res) => {
   if (!terminal) return res.status(400).json({ ok: false, error: "account must be 'A' or 'B'" });
   if (!login || !password || !server) return res.status(400).json({ ok: false, error: "login, password, and server are required" });
 
-  const PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
+  // Probed, not taken from PATH — see server/python_path.js.
+  const PYTHON_BIN = require("./python_path").pythonBinOrDefault();
   const child = require("child_process").spawn(PYTHON_BIN, [path.join(__dirname, "..", "mt5_login_helper.py")], {
-    cwd: path.join(__dirname, "..")
+    cwd: path.join(__dirname, ".."),
+    // A broker or server name carrying a non-cp1252 character would otherwise crash
+    // this helper on print rather than returning a usable error.
+    env: require("./python_path").pythonEnv()
   });
 
   // Hard ceiling independent of the Python-side timeouts — a hung child process
@@ -2763,6 +6531,19 @@ function recomputeRiskStatus() {
   };
 }
 
+// THIS IS THE CIRCUIT BREAKER, NOT THE KILL SWITCH, AND THEY ARE SEPARATE STATE.
+// `riskStatus` is built from what the bridges push up (consecutive losses per account).
+// `tradingControl` -- the dashboard kill switch, POST /api/mt5/control -- NEVER reaches
+// this payload, by design: they answer different questions.
+//
+// The trap that cost on 2026-09-02: mt5_bridge.py reads /api/mt5/control, so the kill
+// switch stopped the bridges. The three executors read ONLY this route, so it did not
+// reach them, and on the day all three were armed the switch covered 2 of 5 order paths.
+// A switch that stops some of them is worse than one that stops none, because you believe
+// you are flat and may trade manually on top of positions that are still opening.
+//
+// ANY COMPONENT THAT CAN PLACE AN ORDER MUST CHECK BOTH AND FAIL CLOSED ON EITHER.
+// tasks/fvg_executor.py trading_halted() is the reference implementation.
 app.get("/api/risk-status",  (_, res) => res.json(riskStatus));
 app.post("/api/risk-status", (req, res) => {
   const account = req.body?.account || "default";
@@ -2829,7 +6610,64 @@ loadTradingControl();
 
 // The bridge polls this every cycle. Kept in the no-login allowlist below because
 // the bridge has no browser session.
-app.get("/api/mt5/control", (_, res) => res.json(tradingControl));
+// COOPERATIVE BRIDGE RESTART, so a restart never needs an elevated shell again.
+//
+// The bridge on this box runs ELEVATED. A non-elevated process cannot signal it:
+// Stop-Process returns "Access is denied", and registering a RunLevel Highest task to do
+// it is refused for the same reason. That is Windows working correctly, not a bug - but it
+// means every code change to the bridge waited on a human opening an Administrator shell,
+// and today that blocked a stop-loss change for hours.
+//
+// The bridge already polls /api/mt5/control every cycle for the kill switch. Adding one
+// field there lets it stand down on request and be restarted by the launcher, with no
+// privilege needed by whoever asks.
+//
+// CLEAR-ON-READ, deliberately. The flag is consumed by the first poll that sees it, so
+// exactly one bridge acts on one request. Leaving it set until an acknowledgement would
+// restart-loop the bridge if it died before acknowledging - a request that cannot be
+// consumed is worse than one that is missed.
+//
+// LOCAL ONLY. This stops a trading bridge, so it is gated the same way the MT5 login form
+// is: the request must come from this machine's own loopback address. The GET stays public
+// because the bridge itself has no browser session.
+let bridgeRestartRequested = false;
+
+// ONLY THE BRIDGE CONSUMES THE FLAG, and it must say so.
+//
+// "Consumed by the first reader" was correct when the bridge was the only reader. It is
+// not: NINE files in this repo poll this endpoint - the bridge, fvg_executor.py,
+// halt_coverage.cjs, ea_crt_weekly_review.py, execution_state.py, content_quality_audit,
+// public_pages_test, state.ps1 and unhalt.ps1. Measured 2026-09-06 by POSTing a restart and
+// then reading with plain curl: the flag came back `true` to the CURL, meaning an
+// observability job wins the race and the bridge never sees the request. That silently
+// disabled the only mechanism able to restart an ELEVATED bridge - the very reason this
+// flag exists, per the note above.
+//
+// IT FAILS TO THE SAFE SIDE. A caller that does not identify itself gets restartRequested
+// FALSE and clears nothing, so an old bridge simply never restarts. That is a MISSED
+// restart, which is recoverable by asking again; the alternative - returning true without
+// clearing - would restart-loop the bridge, which the note above calls the worse failure.
+//
+// The halt state is unaffected for every caller: `tradingControl` is spread out as before,
+// so the kill switch keeps working for the executors and the audits.
+app.get("/api/mt5/control", (req, res) => {
+  const isBridge = String(req.query.consumer || "") === "bridge";
+  const wanted = isBridge && bridgeRestartRequested;
+  if (isBridge) bridgeRestartRequested = false;   // consumed only by a self-identified bridge
+  if (wanted) console.log("[control] bridge restart requested — handing it to the next poll");
+  res.json({ ...tradingControl, restartRequested: wanted });
+});
+
+app.post("/api/mt5/restart-bridge", (req, res) => {
+  const remote = req.socket.remoteAddress || "";
+  const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  if (!isLocal) {
+    return res.status(403).json({ ok: false, error: "local only — stopping a trading bridge is not a remote action" });
+  }
+  bridgeRestartRequested = true;
+  console.log("[control] bridge restart flag set by localhost");
+  res.json({ ok: true, note: "the next bridge poll will stand down and be restarted by its launcher" });
+});
 
 // ── Strategy settings API ─────────────────────────────────────
 // GET is public because the bridge polls it and has no browser session; POST
@@ -2841,8 +6679,151 @@ app.get("/api/strategy-settings", (_, res) => {
   // and it changes live position sizing.
   res.json({
     ...strategySettings,
+    // The experiment arm this box runs. Exposed HERE because this route is already
+    // the config surface and is readable without a login, so the peer and
+    // vps_parity.cjs can both ask "are we running the same arm?" without a session.
+    // It is NOT a strategy setting and is deliberately not in STRATEGY_LIMITS: the
+    // POST must never be able to change it, or a dashboard click could silently
+    // relabel which arm a trade belongs to.
+    arm: EXPERIMENT_ARM,
     limits: STRATEGY_LIMITS,
     settingsError: strategySettingsError,
+  });
+});
+
+// Broker contract specs, exactly as the bridge reported them, plus what the LIVE
+// fixedLotSize actually turns into at this broker. Read-only; session-gated by the
+// /api/ rule at :387 like every other data route.
+//
+// minLot and lotStep have been pushed by the bridge and stored at :3148 since the
+// sizing fix, and until this route existed NOTHING read either one — the same
+// dead-field shape as the signals table with no writer. They are the only facts that
+// answer two questions the dashboard could not: what lot will this symbol really
+// trade, and does that size wake take_partial_profit.
+//
+// The partial arithmetic below MIRRORS mt5_bridge.py:2133-2135 deliberately, floor
+// and round in the same order, including where that is uglier than it needs to be.
+// A tidier version here would be a second rule that drifts from the one the bridge
+// enforces, which is how this codebase ended up with five copies of the confidence
+// gate. If that Python changes, change this with it.
+app.get("/api/broker-specs", (req, res) => {
+  // The lot arithmetic says whether the position CAN be split. This says whether
+  // the bridge will actually do it. Reporting the first as "armed" while the
+  // second is off would make this page assert a behaviour that is switched off -
+  // the same class of lie as the mode cards that wrote localStorage nothing read.
+  const partialEnabled = strategySettings.partialCloseEnabled === true;
+  // ?lot= previews a size that is NOT saved yet, so the dashboard can show what a
+  // typed value would do without keeping its own copy of the arithmetic. Anything
+  // unparseable falls back to the live setting rather than to a guess.
+  const previewLot = Number(req.query.lot);
+  const usingPreview = Number.isFinite(previewLot) && previewLot >= 0 && req.query.lot !== undefined && req.query.lot !== "";
+  const savedLotSize = Number(strategySettings.fixedLotSize) || 0;
+  const fixedLotSize = usingPreview ? previewLot : savedLotSize;
+  const symbols = {};
+  const now = Date.now();
+
+  for (const [mt5Symbol, spec] of Object.entries(mt5SymbolSpecs)) {
+    const minLot  = Number(spec.minLot);
+    const lotStep = Number(spec.lotStep);
+    const haveLotGeometry = Number.isFinite(minLot) && minLot > 0
+                         && Number.isFinite(lotStep) && lotStep > 0;
+
+    // fixedLotSize 0 means size from risk, so the lot depends on the stop distance
+    // of a trade that does not exist yet. Report unknown rather than a number that
+    // would be wrong for every trade but one.
+    let effectiveLots = null, flooredUpToMin = null, partial;
+    if (!haveLotGeometry) {
+      partial = { armed: partialEnabled ? null : false, splittable: null,
+                  enabledBySetting: partialEnabled, halfLot: null,
+                  why: "broker minLot/lotStep not reported for this symbol" };
+    } else if (fixedLotSize <= 0) {
+      partial = { armed: partialEnabled ? null : false, splittable: null,
+                  enabledBySetting: partialEnabled, halfLot: null,
+                  why: partialEnabled
+                    ? "fixedLotSize is 0 — size comes from risk, so the lot varies per trade"
+                    : "partialCloseEnabled is off" };
+    } else {
+      // mt5_bridge.py sizing: the broker's floor always wins (see :1140).
+      effectiveLots  = Math.max(fixedLotSize, minLot);
+      flooredUpToMin = effectiveLots > fixedLotSize;
+
+      // mt5_bridge.py:2133-2135, mirrored.
+      let halfLot = Math.floor(effectiveLots / 2 / lotStep) * lotStep;
+      halfLot = Number(halfLot.toFixed(8));           // kill float dust, as the bridge does
+      const splittable = halfLot >= minLot && halfLot < effectiveLots;
+      const armed = splittable && partialEnabled;
+      partial = {
+        armed,
+        splittable,
+        enabledBySetting: partialEnabled,
+        halfLot,
+        why: !partialEnabled
+          ? (splittable
+              ? `${effectiveLots} lots could be split, but partialCloseEnabled is off - the trailing ladder manages the trade`
+              : `partialCloseEnabled is off, and ${effectiveLots} lots could not be split anyway`)
+          : armed
+          ? `at 1R the bridge closes ${halfLot} of ${effectiveLots} lots and moves the stop to breakeven`
+          : `${effectiveLots} lots cannot be split (half is ${halfLot}, broker minimum is ${minLot}) — the trailing ladder manages the trade instead`,
+      };
+    }
+
+    symbols[mt5Symbol] = {
+      valuePerPoint: spec.valuePerPoint ?? null,
+      contractSize:  spec.contractSize ?? null,
+      minLot:        Number.isFinite(minLot)  ? minLot  : null,
+      lotStep:       Number.isFinite(lotStep) ? lotStep : null,
+      account:       spec.account ?? null,
+      updatedAt:     spec.updatedAt ?? null,
+      ageMs:         spec.updatedAt ? now - Date.parse(spec.updatedAt) : null,
+      effectiveLots,
+      flooredUpToMin,
+      // MONEY PER POINT AT THE LOT THIS SYMBOL WILL ACTUALLY TRADE.
+      //
+      // Added because a LOT COUNT IS NOT A RISK, and reading it as one produced a
+      // confident and completely wrong conclusion on 2026-08-31: SP500 is floored to
+      // 0.1 lots against a fixedLotSize of 0.02, which looks like 5x the size of Gold
+      // and BTC. It is the OPPOSITE. SP500 carries 0.738 per point per lot and Gold
+      // carries 73.84 -- a 100x contract-size difference -- so on the positions open
+      // that day the real money at risk was Gold 160.86, BTC 64.48 and SP500 10.59.
+      // The instrument with FIVE TIMES THE LOTS had ONE FIFTEENTH THE RISK.
+      //
+      // So the number a reader needs is this one, not the lot. Multiply by the stop
+      // distance in points to get the money at risk on any given trade. Serving it
+      // means nobody has to rediscover the contract size to size a position, and the
+      // dispersion that fixed-lot sizing creates is visible rather than inferred.
+      riskPerPointAtEffectiveLots: (Number.isFinite(effectiveLots)
+        && Number.isFinite(Number(spec.valuePerPoint)))
+        ? Number((effectiveLots * Number(spec.valuePerPoint)).toFixed(6))
+        : null,
+      partialClose:  partial,
+    };
+  }
+
+  const available = Object.keys(symbols).length > 0;
+  res.json({
+    available,
+    fixedLotSize,
+    savedLotSize,
+    partialCloseEnabled: partialEnabled,
+    isPreview: usingPreview && previewLot !== savedLotSize,
+    symbols,
+    // Absent specs are a bridge that has not pushed yet, not a broker without
+    // minimums. Say which, so the page shows "unknown" instead of inventing 0.01.
+    // The spread between the cheapest and dearest point, at the lots each symbol will
+    // really trade. This is what "fixed lot size" actually costs in comparability: one
+    // setting, wildly different money per instrument.
+    riskDispersion: (() => {
+      const vals = Object.values(symbols)
+        .map(x => x.riskPerPointAtEffectiveLots)
+        .filter(v => Number.isFinite(v) && v > 0);
+      if (vals.length < 2) return null;
+      const lo = Math.min(...vals), hi = Math.max(...vals);
+      return { lowest: lo, highest: hi, ratio: Number((hi / lo).toFixed(2)),
+        note: "money per point at the effective lot. A fixed LOT is not a fixed RISK." };
+    })(),
+    note: available
+      ? "Reported by the bridge on its candle push (~60s). partialClose mirrors mt5_bridge.py:2133-2135."
+      : "No bridge has pushed contract specs yet — nothing here is known, and none of it is guessed.",
   });
 });
 
@@ -2877,6 +6858,36 @@ app.post("/api/strategy-settings", (req, res) => {
     }
   }
 
+  // Only a real boolean moves this. A truthy string like "false" must not turn
+  // scaling-out on, which is exactly what Boolean(incoming.x) would have done.
+  if (incoming.partialCloseEnabled !== undefined) {
+    if (typeof incoming.partialCloseEnabled === "boolean") {
+      strategySettings.partialCloseEnabled = incoming.partialCloseEnabled;
+      applied.partialCloseEnabled = incoming.partialCloseEnabled;
+    } else {
+      rejected.push("partialCloseEnabled must be true or false");
+    }
+  }
+
+  // THE OFF-SWITCH. Arming BREAKDOWN without one meant disarming a live short-selling
+  // setup required hand-editing JSON and a full server restart - there is no watcher and
+  // loadStrategySettings has exactly one call site, at startup. A control whose undo is
+  // slower than its do is not a safe control.
+  //
+  // Deliberately asymmetric with the loader: the loader coerces `=== true` because it
+  // parses a hand-edited file, whereas this REJECTS a non-boolean rather than quietly
+  // reading it as false. A caller that sends "false" as a string is confused about what
+  // it is doing, and silently disarming a setup it thinks it is arming is the worse
+  // outcome. Mirrors the partialCloseEnabled branch directly above.
+  if (incoming.breakdownEnabled !== undefined) {
+    if (typeof incoming.breakdownEnabled === "boolean") {
+      strategySettings.breakdownEnabled = incoming.breakdownEnabled;
+      applied.breakdownEnabled = incoming.breakdownEnabled;
+    } else {
+      rejected.push("breakdownEnabled must be true or false");
+    }
+  }
+
   if (Object.keys(applied).length === 0) {
     return res.status(400).json({ ok: false, error: "No valid settings supplied", rejected });
   }
@@ -2885,6 +6896,15 @@ app.post("/api/strategy-settings", (req, res) => {
   strategySettings.updatedBy = "dashboard";
   saveStrategySettings();
   console.log(`[strategy] Updated from dashboard: ${JSON.stringify(applied)}`);
+  // A gate edit is the exact moment a cohort dies, so say so now rather than at the
+  // next restart. Moving 65 -> 70 on 2026-08-02 killed BTC H4-only MODERATE and
+  // nothing reported it for six days.
+  // dailyOnlyMinConfidence is a real gate too — it raises the bar for the neutral-H4
+  // cohorts only (index.js:1718). Watching confidenceThreshold alone would stay
+  // silent through the one edit that kills exactly those two cohorts.
+  if (applied.confidenceThreshold !== undefined || applied.dailyOnlyMinConfidence !== undefined) {
+    reportCohortReachability('gate changed from dashboard');
+  }
   res.json({ ok: true, settings: strategySettings, applied, notes: rejected });
 });
 
@@ -2924,6 +6944,14 @@ app.get("/api/settings", (_, res) => {
 app.post("/api/settings", requireLocalOnly, (req, res) => {
   const { anthropicKey, telegramToken, telegramChatId, openaiKey, uwKey, custom } = req.body || {};
   const updates = {};
+  const refusedKeys = [];
+  // KNOWN, PRE-EXISTING, NOT FIXED HERE: the four named keys below mutate their module
+  // variable (and ensureTelegramPolling) BEFORE writeKeysEnv runs. If that write throws,
+  // the response is a 500 while the process is already using a token that was never
+  // persisted — a file/process split in the opposite direction from the one `note`
+  // describes. Fixing it means collecting first and committing after the write, which
+  // changes the order ensureTelegramPolling() is called in; left alone deliberately
+  // rather than restructured in a security patch.
 
   if (typeof telegramToken === "string" && telegramToken.trim())   { TELEGRAM_TOKEN   = sanitizeEnvValue(telegramToken);   updates.TELEGRAM_TOKEN   = TELEGRAM_TOKEN; ensureTelegramPolling(); }
   if (typeof telegramChatId === "string" && telegramChatId.trim()) { TELEGRAM_CHAT_ID = sanitizeEnvValue(telegramChatId); updates.TELEGRAM_CHAT_ID = TELEGRAM_CHAT_ID; knownChatIds.add(TELEGRAM_CHAT_ID); }
@@ -2935,11 +6963,47 @@ app.post("/api/settings", requireLocalOnly, (req, res) => {
       const key = entry?.key, value = entry?.value;
       if (!key || typeof value !== "string" || !value.trim()) continue;
       const safeKey = String(key).trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-      if (safeKey) updates[safeKey] = sanitizeEnvValue(value);
+      if (!safeKey) continue;
+      // See PROTECTED_ENV_KEYS: refused before the file write, not only before the
+      // process.env assignment, or the name would sit in keys.env and apply at the
+      // next restart — the same bug on a delay.
+      if (PROTECTED_ENV_KEYS.has(safeKey)) { refusedKeys.push(safeKey); continue; }
+      updates[safeKey] = sanitizeEnvValue(value);
     }
   }
 
-  if (Object.keys(updates).length) writeKeysEnv(updates);
+  if (Object.keys(updates).length) {
+    writeKeysEnv(updates);
+    // AND APPLY TO THE RUNNING PROCESS. Until 2026-09-05 this line wrote the file and
+    // nothing else, so a key saved here did nothing until the next restart while the UI
+    // said "Saved". The named keys above escape that because each also assigns its own
+    // module-level variable; a `custom` key had no such assignment and was therefore
+    // inert. Found when BRAVE_API_KEY was missing on the VPS: the supported way to set it
+    // would not have worked either.
+    //
+    // THIS IS A PARTIAL APPLICATION AND THE RESPONSE SAYS SO. Anything reading
+    // process.env at CALL time picks the new value up immediately — braveWebSearch does
+    // exactly that. Anything that captured the value at MODULE LOAD keeps the old one:
+    // autohealer.js:33 captures it that way (as the const EXPECTED_MT5_ACCOUNTS, whose
+    // keys.env NAME is MT5_EXPECTED_ACCOUNTS — the two differ, so grepping the file for
+    // the const name finds nothing), which is the documented
+    // reason the keys.env loader has to run above the local requires. A half-applied
+    // setting that reports itself as fully applied is worse than one that never applied,
+    // so the note below is part of the fix, not decoration.
+    for (const [envKey, envValue] of Object.entries(updates)) {
+      // Belt and braces. `updates` cannot contain a protected name by the time it gets
+      // here, but this loop is the thing with teeth and it should not depend on a check
+      // fifteen lines away staying correct.
+      if (PROTECTED_ENV_KEYS.has(envKey)) continue;
+      process.env[envKey] = envValue;
+    }
+    // NAMES ONLY, NEVER VALUES. /api/control logs every halt and this logged nothing,
+    // so a POST that changed the environment left no trace in server_log.txt at all.
+    console.log("[settings] keys written and applied: " + Object.keys(updates).join(", ")
+      + (refusedKeys.length ? "  REFUSED: " + refusedKeys.join(", ") : ""));
+  } else if (refusedKeys.length) {
+    console.log("[settings] all requested keys REFUSED: " + refusedKeys.join(", "));
+  }
 
   if (typeof anthropicKey === "string" && anthropicKey.trim()) {
     try {
@@ -2950,18 +7014,70 @@ app.post("/api/settings", requireLocalOnly, (req, res) => {
     }
   }
 
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    saved: Object.keys(updates),
+    refused: refusedKeys,
+    note: Object.keys(updates).length
+      ? "Written to keys.env and applied to process.env. Readers that check process.env "
+        + "per call (web search) use the new value now; anything that captured it at module "
+        + "load keeps the old value until the server restarts."
+      : "No environment keys changed.",
+    refusedNote: refusedKeys.length
+      ? "Refused as protected: these name the interpreter, the shell or the PATH used to "
+        + "launch child processes, or decide which bridges and which peer this box talks "
+        + "to. They are settable by editing keys.env on the machine itself."
+      : null,
+  });
 });
+
+// Shared by /api/performance and /api/checksystem, which compute the same confidence
+// calibration and must not be able to disagree about what counts as a reading. It was a
+// local const inside /api/performance; the second caller is the reason it is out here.
+//
+// A trade with NO recorded confidence is not a 0%-confidence trade. Every value
+// JavaScript coerces to a finite 0 has to be rejected explicitly, not blacklisted one at
+// a time: Number(null), Number(undefined-via-default), Number(""), Number("   "),
+// Number(false) and Number([]) are all a finite 0, and Number(true) is 1 — so a boolean
+// or an empty array in this field would otherwise score as a real reading. A numeric
+// string like "72" is accepted. A confidence of 0 IS legitimate and is kept.
+const hasConfidence = (v) => {
+  if (typeof v === "number") return Number.isFinite(v);
+  if (typeof v === "string" && v.trim() !== "") return Number.isFinite(Number(v));
+  return false;
+};
 
 // Performance stats — actual win rate per setup + confidence calibration
 app.get("/api/stats/by-setup", (_, res) => {
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
   if (!closed.length) return res.json({ noData: true, message: "No closed trades yet" });
 
-  // Group by setup
+  // Group by setup.
+  //
+  // NON_SETUP_NAMES is excluded here for the same reason updateLearning() refuses it:
+  // "WAIT" is the ABSENCE of a setup, not a setup. Without this the journal's one
+  // WAIT-named filled trade surfaced as its own bucket reading
+  // {setup:"WAIT", trades:1, wins:1, winRate:100, avgRealizedR:2.49} — a phantom
+  // setup with a perfect record, sorted to the top of the table by winRate. Found by
+  // the weekly review on 2026-08-12, which noted that updateLearning already guards
+  // this at the point of learning while this endpoint, which is what a human actually
+  // reads, did not.
+  //
+  // They are REPORTED, never dropped. The P&L is real money and belongs on screen;
+  // what it must not do is masquerade as a setup's track record. Same shape as the
+  // `unattributed` block already served by /api/learning.
   const bySetup = {};
+  const unattributedTrades = [];
   for (const t of closed) {
-    const key = t.setup || "UNKNOWN";
+    const rawSetup = String(t.setup || "").trim().toUpperCase();
+    if (!t.setup || NON_SETUP_NAMES.has(rawSetup)) {
+      unattributedTrades.push({
+        id: t.id, symbol: t.symbol, direction: t.direction,
+        setup: t.setup || null, pnl: t.pnl, closedAt: t.closedAt || null,
+      });
+      continue;
+    }
+    const key = t.setup;
     if (!bySetup[key]) bySetup[key] = {
       setup: key, trades: 0, wins: 0, losses: 0, totalPnl: 0,
       totalRR: 0, rrTrades: 0, totalRealizedR: 0, realizedRTrades: 0,
@@ -3002,8 +7118,30 @@ app.get("/api/stats/by-setup", (_, res) => {
     { label: "65-74%",  min: 65, max: 74  },
     { label: "<65%",    min: 0,  max: 64  }
   ];
+  // A trade with NO recorded confidence is not a 0%-confidence trade. `?? 0` sent it
+  // into the "<65%" bucket, where it would silently drag that tier's win rate while
+  // looking like evidence about low-confidence setups. Both journals happen to carry a
+  // confidence on every closed row today, so this is a trap being closed rather than a
+  // live corruption being fixed — but the rows that lose a field upstream are exactly
+  // the rows that already lost a setup name upstream.
+  //
+  // Calibration DELIBERATELY still includes trades whose setup name was lost. This
+  // measures whether the confidence NUMBER predicts wins, and that number was really
+  // produced by the engine regardless of what happened to the setup label. Dropping
+  // those rows would discard genuine evidence about calibration.
+  // null and undefined must be rejected BEFORE the numeric test: Number(null) is 0 and
+  // 0 is finite, so an isFinite check alone lets a null confidence through into the
+  // "<65%" tier — which is the very bug this is closing, reintroduced one line later.
+  // The same trap produced "stop 0.00" in the deep plan.
+  // Every value JavaScript coerces to 0 has to be rejected explicitly, not just null:
+  // Number(null), Number(undefined-via-default), Number("") and Number("   ") all
+  // produce a finite 0. A legitimate numeric string like "72" is still accepted.
+  // hasConfidence now lives at module scope so /api/checksystem shares this exact
+  // predicate rather than carrying a second, looser copy of the same idea.
+  const scored = closed.filter(t => hasConfidence(t.confidence));
+  const unscored = closed.length - scored.length;
   const calibration = tiers.map(tier => {
-    const group = closed.filter(t => (t.confidence ?? 0) >= tier.min && (t.confidence ?? 0) <= tier.max);
+    const group = scored.filter(t => Number(t.confidence) >= tier.min && Number(t.confidence) <= tier.max);
     const wins  = group.filter(t => t.pnl > 0).length;
     return {
       tier:     tier.label,
@@ -3014,7 +7152,38 @@ app.get("/api/stats/by-setup", (_, res) => {
     };
   }).filter(t => t.trades > 0);
 
-  res.json({ totalClosed: closed.length, setupStats, calibration });
+  // totalClosed counts EVERY closed trade, while setupStats now covers only the
+  // attributed ones. Stating both, plus the difference, so the two numbers can never be
+  // read as disagreeing — the same discipline /api/learning uses for its own split.
+  res.json({
+    totalClosed: closed.length,
+    attributedClosed: closed.length - unattributedTrades.length,
+    setupStats,
+    calibration,
+    // The population behind `calibration`, stated rather than inferred. It is a
+    // different population from setupStats: calibration keeps trades whose setup name
+    // was lost (the confidence reading is still real) and drops trades with no
+    // confidence recorded (there is no reading to calibrate).
+    calibrationBasis: {
+      scored: scored.length,
+      unscored,
+      note: unscored
+        ? `${unscored} closed trade(s) carry no confidence value and are excluded from the `
+          + `tiers — a missing confidence is not a confidence of zero. They remain in `
+          + `totalClosed and in setupStats.`
+        : "every closed trade carries a confidence value",
+      includesUnattributedSetups: true,
+    },
+    unattributed: {
+      count: unattributedTrades.length,
+      totalPnl: parseFloat(unattributedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0).toFixed(2)),
+      trades: unattributedTrades,
+      why: "Closed trades whose setup name is missing or is WAIT/NONE/UNKNOWN. That is the "
+         + "absence of a setup, not a setup, so they are excluded from setupStats rather than "
+         + "bucketed into a phantom one. Their P&L is real and is counted in totalClosed. "
+         + "A row like this means the setup name was lost upstream.",
+    },
+  });
 });
 
 // The second app.get("/api/analysis") lived here and was never reachable — Express
@@ -3104,6 +7273,12 @@ function impliedRRFromPrices(entryPrice, stopPrice, targetPrice) {
 // Realized R for a closed trade: how far price actually travelled, in units of
 // the risk that was on the table. Direction-signed, so a BUY closed at its stop
 // is exactly -1.00R rather than a positive "R:R" the trade never earned.
+// Must move together with MAX_PLAUSIBLE_RR in tasks/score_rr_rejections.py. The language
+// boundary makes one literal impossible, so they are named identically and cross-referenced
+// — change one, change the other, or the paper ledger and the live tracker will disagree
+// about what counts as an outcome.
+const MAX_PLAUSIBLE_RR = 10;
+
 function realizedRFromPrices(direction, entryPrice, stopPrice, closePrice) {
   const prices = [entryPrice, stopPrice, closePrice];
   if (!prices.every(p => typeof p === "number" && Number.isFinite(p))) return null;
@@ -3111,7 +7286,23 @@ function realizedRFromPrices(direction, entryPrice, stopPrice, closePrice) {
   if (riskDistance === 0) return null;
   const isShort  = String(direction || "").toUpperCase().startsWith("S");
   const movement = isShort ? entryPrice - closePrice : closePrice - entryPrice;
-  return parseFloat((movement / riskDistance).toFixed(2));
+  const realizedR = movement / riskDistance;
+  // R explodes as the stop collapses toward entry, and this guarded only riskDistance === 0
+  // — which is exactly the pre-fix state of the identical formula in the rejection scorer,
+  // where ONE row with a $4.21 Bitcoin stop scored +298.56R and inverted the sign of a
+  // 498-episode ledger. This function feeds /api/live-vs-replay's totalR over FOUR closed
+  // trades, so one artifact would not skew that comparison, it would be it — and comparing
+  // live R/trade against replay R/trade is the only thing that tracker exists to do.
+  //
+  // The engine builds targets at about 2.5x risk and the largest plannedRr in the journal
+  // is 6.57, so a realized |R| above 10 means the risk distance was degenerate, not that
+  // the trade ran. Symmetric, because -298R is no more real than +298R.
+  //
+  // null, not 0 and not a clamp: null is already this function's "cannot score" signal, and
+  // live_vs_replay.js:208 COUNTS it as unscorable rather than dropping it silently. Nothing
+  // is discarded — the trade keeps its P&L, which is measured in money and needs no stop.
+  if (!Number.isFinite(realizedR) || Math.abs(realizedR) > MAX_PLAUSIBLE_RR) return null;
+  return parseFloat(realizedR.toFixed(2));
 }
 
 app.post("/api/trade-opened", async (req, res) => {
@@ -3183,13 +7374,33 @@ app.post("/api/trade-opened", async (req, res) => {
     );
   }
 
-  // Generate Claude commentary if feature enabled
-  let commentary = null;
-  if (features.autoCommentary) {
-    commentary = await generateTradeCommentary(trade);
+  // A ticket already journalled and still open is a REPEAT of a POST that already
+  // succeeded, not a second trade. The bridge cannot tell a slow success from a
+  // lost write — it gave up on three of the first four fills while the server
+  // finished the work anyway — so any retry it makes must land on an endpoint that
+  // cannot double-write. Matched on the account too, because MT5 ticket ids are
+  // unique per account and A, B and the VPS all post into this one journal. Only
+  // OPEN rows match: a closed row is history and must never absorb a new fill.
+  const alreadyJournalled = tradeJournal.find(
+    t => t.ticket === trade.ticket
+      && t.status === "OPEN"
+      && (t.account ?? "default") === (trade.account || "default")
+  );
+  if (alreadyJournalled) {
+    console.log(`[trade] #${trade.ticket} already journalled and open — treating as a repeat POST.`);
+    return res.json({ ok: true, duplicate: true });
   }
 
   // Add to trade journal
+  //
+  // Written and acknowledged BEFORE the commentary is generated. This used to
+  // `await generateTradeCommentary(trade)` first, putting an LLM round trip inside
+  // the acknowledgement path: the bridge waits 5s (mt5_bridge.py), the model takes
+  // longer, and 3 of the 4 fills in this system's history timed out client-side.
+  // They were recorded anyway only because the server kept working after the bridge
+  // stopped listening, which is luck. The record is the part that must be durable;
+  // the prose is decoration and can arrive late.
+  let journalEntry = null;
   if (features.tradeJournal) {
     const entry = {
       id:        Date.now(),
@@ -3206,6 +7417,12 @@ app.post("/api/trade-opened", async (req, res) => {
       // could only be matched on a ticket id that is unique per account, not
       // across the fleet.
       account:   trade.account || "default",
+      // Which experiment arm produced this trade. Distinct from `account`: that says
+      // which broker held it, this says which CONFIG decided it. Rows written before
+      // 2026-08-26 carry no arm at all and must read as UNKNOWN - never backfilled to
+      // "champion", which would assert something nobody verified about trades taken
+      // before arms existed.
+      arm:       EXPERIMENT_ARM,
       openTime:  new Date().toISOString(),
       closeTime: null,
       closePrice: null,
@@ -3217,33 +7434,163 @@ app.post("/api/trade-opened", async (req, res) => {
       // instead of overwriting the record of it.
       rr:        impliedRRFromPrices(trade.price, trade.sl, trade.tp),
       plannedRr,
-      commentary
+      // The spread this trade was actually decided against, from the bridge.
+      //
+      // check_spread() has always measured it on every order attempt and thrown it
+      // away unless the order was REJECTED - only the SPREAD rejection row kept it. So
+      // every successful fill discarded its own spread and this system held ZERO
+      // observed spreads, while every cost study borrowed an assumed range. That is
+      // exactly the number the CRT Gold h4 result turns on: it breaks even at ~$0.47
+      // round trip against an INHERITED $0.20-0.50, so whether that edge is real on
+      // THIS account was decided by a figure nobody had written down.
+      //
+      // null, never 0, when the quote could not be measured - a zero would read as a
+      // perfectly tight spread and flatter every study that reads this later. Named
+      // "AtDecision" because it is the pre-send tick, not the realised fill spread;
+      // conflating the two would overstate execution quality.
+      spreadAtDecision: (trade.spread && typeof trade.spread === "object") ? trade.spread : null,
+      // How far the fill landed from the price the signal planned.
+      //
+      // Reconstructed for SP500 #1798862395 on 2026-08-27: the signal planned entry
+      // 7705.85, the fill landed at 7744.96 - a drift of +39.11 points that widened the
+      // risk distance 104.60 -> 143.71 (+37.4%) and cut R:R from a planned 2.00 to 1.18.
+      // With fixedLotSize set the LOT cannot change, so the whole cost lands on R:R and
+      // on dollar risk: the same lots over a 37.4% wider stop.
+      //
+      // RECORDED, NOT CORRECTED. Every mechanical fix is a strategy choice - moving the
+      // stop changes the invalidation level, moving the target trades win rate for
+      // reward, refusing on drift suppresses a signal that would otherwise fire. This
+      // accumulates the cost so the choice can be made on a few dozen rows instead of
+      // one. null when the bridge could not measure it; never 0 as a stand-in.
+      entryDrift: (trade.entryDrift && typeof trade.entryDrift === "object") ? trade.entryDrift : null,
+      // Filled in after the response by addCommentaryLater(). Present as null from
+      // the start so the shape never changes underneath a reader.
+      commentary: null
     };
     tradeJournal.unshift(entry);
     if (tradeJournal.length > 200) tradeJournal = tradeJournal.slice(0, 200);
     saveJournal();
+    journalEntry = entry;
   }
 
-  // Post commentary to alerts panel
-  if (commentary && features.autoCommentary) {
-    const alert = {
+  // The fill is on disk. Answer the bridge now — everything below is enrichment.
+  res.json({ ok: true });
+
+  if (features.autoCommentary) addCommentaryLater(trade, journalEntry);
+});
+
+// Generate the commentary for a fill and attach it, after the bridge has already
+// been told the trade is recorded.
+//
+// Deliberately not awaited by the route: nothing here is allowed to delay or fail
+// the acknowledgement. It is also the reason this is a named function rather than a
+// floating promise — an unhandled rejection terminates Node by default, and this
+// process is a trading server, so the catch is load-bearing rather than tidy.
+async function addCommentaryLater(trade, journalEntry) {
+  // ONE try around everything, not just the model call. After res.json() has gone
+  // out there is no request left to fail, so anything that escapes here is an
+  // unhandled rejection — and Node terminates the process on those by default.
+  // saveJournal() is the realistic thrower: this repo has a history of the journal
+  // file being locked mid-write. Losing a paragraph of commentary must never cost
+  // the trading server.
+  try {
+    const commentary = await generateTradeCommentary(trade);
+    if (!commentary) return;
+
+    // The entry object is the same one held in tradeJournal, so mutating it IS the
+    // update — but only if it is still there. The 200-row cap could in principle
+    // have evicted it while the model was thinking, and writing the array back
+    // after that would resurrect a dropped row.
+    if (journalEntry && tradeJournal.includes(journalEntry)) {
+      journalEntry.commentary = commentary;
+      saveJournal();
+    }
+
+    pushAlert({
       id:      Date.now(),
       ts:      new Date().toISOString(),
       ticker:  trade.symbol,
       action:  `${trade.type} OPENED`,
       price:   trade.price,
       message: commentary
-    };
-    tvAlerts.unshift(alert);
-    if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+    });
+  } catch (e) {
+    console.warn(`[trade] commentary for #${trade.ticket} failed: ${e.message}`);
   }
+}
 
-  res.json({ ok: true, commentary });
-});
+/**
+ * Roll today's closed trades into the SQLite `performance` table.
+ *
+ * db.upsertPerformance() was defined, exported and called from NOWHERE — the
+ * `performance` table has held zero rows since it was created, the same dead-wiring
+ * as the `signals` table. Without it there is no dated performance series anywhere:
+ * the Performance tab recomputes from journal.json on every request, so nothing can
+ * answer "what did the curve look like on the 12th" once the journal is trimmed or a
+ * setup name is corrected in place.
+ *
+ * Keyed on the CLOSE date and written with ON CONFLICT DO UPDATE, so re-running it
+ * for a day is idempotent — one row per day however many trades close that day, and
+ * a late reconciliation of an old close rewrites that day rather than today's.
+ *
+ * Derived entirely from the journal, which stays the source of truth. Nothing reads
+ * this table to decide anything.
+ */
+function persistDailyPerformance(closeTime) {
+  // A close with no timestamp cannot be attributed to a day. Booking it under today
+  // would silently move an old outcome onto the current row.
+  const day = typeof closeTime === "string" && closeTime.length >= 10
+    ? closeTime.slice(0, 10)
+    : null;
+  if (!day) return;
+
+  try {
+    const sameDay = tradeJournal.filter(t =>
+      t && t.status === "CLOSED" && typeof t.closeTime === "string"
+      && t.closeTime.slice(0, 10) === day && typeof t.pnl === "number");
+    if (!sameDay.length) return;
+
+    const wins   = sameDay.filter(t => t.pnl > 0).length;
+    const losses = sameDay.length - wins;
+    const gross  = sameDay.reduce((sum, t) => sum + t.pnl, 0);
+
+    // Best and worst by TOTAL P&L per setup, not by a single trade, so one outsized
+    // fill cannot name a setup that lost money across the day. NON_SETUP_NAMES are
+    // excluded for the same reason updateLearning refuses them: "WAIT" is the absence
+    // of a setup, and bucketing it invents one.
+    const bySetup = {};
+    for (const t of sameDay) {
+      const setup = t.setup;
+      if (!setup || NON_SETUP_NAMES.has(String(setup).toUpperCase())) continue;
+      bySetup[setup] = (bySetup[setup] || 0) + t.pnl;
+    }
+    const ranked = Object.entries(bySetup).sort((a, b) => b[1] - a[1]);
+
+    db.upsertPerformance(day, {
+      total_trades: sameDay.length,
+      wins,
+      losses,
+      gross_pnl: Number(gross.toFixed(2)),
+      // No commission or swap is recorded per trade, so net cannot be derived and is
+      // stored equal to gross rather than invented. Say so here, because a `net_pnl`
+      // column that silently equals gross is exactly the kind of number that gets
+      // quoted later as if costs had been taken out.
+      net_pnl:   Number(gross.toFixed(2)),
+      win_rate:  Number(((wins / sameDay.length) * 100).toFixed(1)),
+      best_setup:  ranked.length ? ranked[0][0] : null,
+      worst_setup: ranked.length ? ranked[ranked.length - 1][0] : null,
+    });
+  } catch (e) {
+    // A rollup failure must never fail the close it was triggered by.
+    console.error("[performance] daily rollup failed:", e.message);
+  }
+}
 
 // MT5 bridge notifies server when a trade is closed
 app.post("/api/trade-closed", (req, res) => {
-  const { ticket, pnl, closePrice, closeTime, account } = req.body;
+  const { ticket, pnl, closePrice, closeTime, closeTimeBroker, account, exitReason,
+          exitReasonCode, mfePrice, maePrice, mfeR, maeR, excursionSamples,
+          excursionIntervalSec, excursionSampled } = req.body;
   if (!ticket) return res.status(400).json({ error: "ticket required" });
   // Ticket ids are unique per ACCOUNT, not across the fleet (mt5_bridge.py:1384),
   // and accounts A, B and the VPS all post into this one journal. Prefer the exact
@@ -3253,12 +7600,82 @@ app.post("/api/trade-closed", (req, res) => {
   const trade = tradeJournal.find(t => t.ticket === ticket && t.account === account)
              ?? tradeJournal.find(t => t.ticket === ticket && !t.account);
   if (trade) {
+    // Has this outcome already been counted?
+    //
+    // updateLearning() and db.updateLearning() below are both INCREMENTS, so a
+    // second POST for the same ticket books the same win or loss twice and there is
+    // no way to tell afterwards. Nothing used to stop that. It matters more now that
+    // the bridge sweeps for unsettled trades every RECONCILE_INTERVAL_S instead of
+    // once at startup.
+    //
+    // A close carrying a real P&L on top of one recorded with pnl null is NOT a
+    // repeat — track_closed_positions() posts an unknown P&L when it watched a
+    // ticket vanish without a closing deal, and that entry was recorded but never
+    // scored. Letting the real number land is the whole point of retrying.
+    const alreadyScored = trade.status === "CLOSED" && trade.pnl !== null;
+    if (alreadyScored) {
+      console.log(`[trade] #${ticket} already closed and scored — ignoring repeat close.`);
+      return res.json({ ok: true, duplicate: true });
+    }
+
     // Stamp legacy entries so the next close matches on the exact pair.
     if (!trade.account && account) trade.account = account;
     trade.status     = "CLOSED";
     trade.pnl        = pnl       ?? null;
     trade.closePrice = closePrice ?? null;
     trade.closeTime  = closeTime  ?? new Date().toISOString();
+    // The broker's own clock reading for the same close, kept beside the observation
+    // stamp. mt5_bridge.py used to derive closeTime from this figure via
+    // fromtimestamp(), which was wrong by FOUR HOURS on this account: MT5 returns
+    // deal.time as the BROKER's wall clock as an epoch, and fromtimestamp() reads it
+    // as UTC and renders it local, so a +3h broker and a +1h local offset ADD.
+    //
+    // closeTime is now stamped at observation in explicit UTC. This field exists so
+    // the raw figure is not discarded and the offset stays auditable - and because
+    // the bridge sends it, so without this line it would be a writer with no reader:
+    // the destructure above takes named fields and would drop it silently.
+    //
+    // RECORD ONLY. Nothing reads it; the day-scoping comparison in the bridge's
+    // record_closed_outcome uses closeTime against breaker_day(), both now UTC.
+    if (closeTimeBroker) trade.closeTimeBroker = closeTimeBroker;
+    // WHY it closed, straight from MT5's deal record — the journal could not previously
+    // tell "hit its stop" from "someone closed it". RECORD ONLY: updateLearning below
+    // stays P&L-based and no gate, threshold, confidence or sizing path reads either
+    // field. The raw code is kept beside the label so an unrecognised reason is still
+    // recoverable rather than flattened into "OTHER" and lost.
+    //
+    // Assigned ONLY when supplied, never `?? null`. The bridge's reconciliation sweep
+    // re-posts closes and does not always carry a reason, so defaulting to null here
+    // would erase a reason the live close path had already recorded — deleting evidence
+    // on a retry, which is the whole failure mode this journal keeps being bitten by.
+    //
+    // A STOP is not a loss: a trailing stop moved into profit still closes as
+    // DEAL_REASON_SL. Read this alongside pnl, never as a substitute for it.
+    if (typeof exitReason === "string" && exitReason) trade.exitReason = exitReason;
+    if (Number.isInteger(exitReasonCode)) trade.exitReasonCode = exitReasonCode;
+
+    // How far the trade ran in favour and against before it ended. The journal has
+    // never recorded this, which is why "would a breakeven stop have saved this
+    // loser" has never been answerable here - only the COST of scaling out at 1R
+    // was visible, in winners that finish short of where they would have.
+    //
+    // SAMPLED at the bridge poll interval, so both are FLOORS, never true extremes.
+    // excursionSampled and excursionIntervalSec travel with the numbers so no later
+    // reader can mistake a 60s sample for a tick-accurate high-water mark.
+    //
+    // RECORD ONLY. No gate, threshold, confidence or sizing path reads any of it.
+    //
+    // Assigned ONLY when supplied, never `?? null`, for the same reason exitReason
+    // is: the reconciliation sweep re-posts closes without these fields, and
+    // defaulting would erase a record the live close path had already written.
+    if (Number.isFinite(mfePrice)) trade.mfePrice = mfePrice;
+    if (Number.isFinite(maePrice)) trade.maePrice = maePrice;
+    if (Number.isFinite(mfeR))     trade.mfeR     = mfeR;
+    if (Number.isFinite(maeR))     trade.maeR     = maeR;
+    if (Number.isInteger(excursionSamples))     trade.excursionSamples     = excursionSamples;
+    if (Number.isInteger(excursionIntervalSec)) trade.excursionIntervalSec = excursionIntervalSec;
+    if (excursionSampled === true)              trade.excursionSampled     = true;
+
     saveJournal();
     // Feed outcome to self-learning engine
     const outcomeKnown = trade.pnl !== null;
@@ -3266,7 +7683,7 @@ app.post("/api/trade-closed", (req, res) => {
     // both stores, so learning.json and SQLite can never disagree on a trade.
     const outcome = outcomeKnown ? (trade.pnl > 0 ? "WIN" : "LOSS") : null;
     if (trade.setup && outcomeKnown) {
-      updateLearning(trade.setup, trade.pnl);
+      updateLearning(trade.setup, trade.pnl, trade.symbol);
       const healthAlerts = checkSetupHealth();
       if (healthAlerts.length > 0) {
         riskStatus.setupAlerts = healthAlerts;
@@ -3287,12 +7704,29 @@ app.post("/api/trade-closed", (req, res) => {
       outcome,
       closed_at: trade.closeTime,
     });
+    persistDailyPerformance(trade.closeTime);
   }
   console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);
   res.json({ ok: true });
 });
 
-// Trade journal with optional filtering
+// Trade journal with optional filtering.
+//
+// Each row is served with `realizedR` alongside its P&L. Dollars are not comparable
+// across this journal: one XAUUSD fill was 0.14 lots and the rest are 0.01, so the
+// all-time dollar total is dominated by a single trade at 14x the current size and
+// says more about a sizing change than about the engine. R is the unit that survives
+// that, and the same five fills read -$416.61 and +1.51R.
+//
+// Derived here rather than in the page. realizedRFromPrices is the server's own
+// scorer, shared with /api/live-vs-replay and (via tasks/sizing_trigger.cjs) with the
+// go-live gates; a copy in JavaScript on the dashboard would be the fifth, and the
+// cost of the copies drifting is a page that disagrees with the readiness verdict
+// printed directly above it.
+//
+// null means "cannot be scored", never 0 — an unscorable trade must not average in as
+// a flat outcome. The rows are MAPPED, not mutated: tradeJournal is the in-memory
+// journal and writing a derived field onto it would leak into what gets persisted.
 app.get("/api/journal", (req, res) => {
   const limit   = Math.min(parseInt(req.query.limit, 10) || 50, 500);
   const symbol  = (req.query.symbol  || "").toUpperCase();
@@ -3300,7 +7734,13 @@ app.get("/api/journal", (req, res) => {
   let entries = tradeJournal;
   if (symbol)  entries = entries.filter(t => (t.symbol  || "").toUpperCase() === symbol);
   if (outcome) entries = entries.filter(t => (t.outcome || "").toUpperCase() === outcome);
-  res.json({ journal: entries.slice(0, limit) });
+  const journal = entries.slice(0, limit).map(trade => ({
+    ...trade,
+    realizedR: trade.closePrice == null
+      ? null
+      : realizedRFromPrices(trade.direction, trade.entry, trade.sl, trade.closePrice),
+  }));
+  res.json({ journal });
 });
 
 // ── /api/growth — P&L by real calendar period ─────────────────
@@ -3452,9 +7892,32 @@ app.get("/api/learning", (_, res) => {
       const shadowPath = path.join(__dirname, "learning_shadow.json");
       if (fs.existsSync(shadowPath)) {
         const raw = JSON.parse(fs.readFileSync(shadowPath, "utf8"));
+        const generatedAt = raw.generatedAt || null;
+        // typeof-guarded, not just Number.isFinite. That catches NaN but not absurdity:
+        // a generatedAt of 12345 would parse to a number and render ageHours as
+        // -90449006.6 rather than null. Unreachable from the current writer; cheap to
+        // make hostile-input-proof.
+        //
+        // The writer MUST keep emitting an offset. tasks/learning_from_rejections.py uses
+        // datetime.now(timezone.utc).isoformat(), which yields "+00:00" — Date.parse reads
+        // an offset-LESS ISO string as LOCAL time, so if that ever became utcnow() this
+        // laptop would overstate the age by its BST offset while the UTC VPS read it
+        // correctly, and the two boxes would disagree by an hour about the same file.
+        const generatedMs = typeof generatedAt === "string" ? Date.parse(generatedAt) : NaN;
         shadow = {
           stats:       raw.shadowStats || {},
-          generatedAt: raw.generatedAt || null,
+          generatedAt,
+          // The AGE, not just the timestamp, because a timestamp makes the reader hold
+          // today's date and do the subtraction — and on 2026-08-17 that is precisely what
+          // failed. These stats were regenerated at 06:30 UTC, the collapsed-stop R:R cap
+          // landed after it, and the shadow went on serving SELL_BOUNCE at +21.38R until
+          // someone read generatedAt by hand. A stalled nightly regeneration is now
+          // visible from this one response. null when unparseable, never 0 — a zero here
+          // would read as "just regenerated", which is the opposite of the truth.
+          // Proposed by the VPS morning agent, morning-ny4yxp.
+          ageHours: Number.isFinite(generatedMs)
+            ? Math.round(((Date.now() - generatedMs) / 3600000) * 10) / 10
+            : null,
           whatTheseAre: raw.basis?.whatTheseAre || null,
           feedsTheGate: false,
         };
@@ -3464,14 +7927,108 @@ app.get("/api/learning", (_, res) => {
       console.error(`[learning] shadow evidence unreadable (${shadowError.message})`);
     }
 
+    // The fills the engine is REFUSING to attribute, stated instead of merely absent.
+    //
+    // updateLearning() will not put a trade under a name like "WAIT", and that refusal
+    // is right: inventing a bucket is worse than admitting a gap, and a phantom setup
+    // reaching 5 trades would start adjusting live confidence using the pooled result
+    // of unrelated trades. But the SILENCE was wrong. setupStats reads 0 wins and 2
+    // losses while the journal holds 3 closed fills including the only WIN this system
+    // has ever had (+135.91, 2026-08-05), so anything calibrating off setupStats alone
+    // is skewed pessimistic and cannot tell that a win exists.
+    //
+    // Checked before writing this: the name is genuinely unrecoverable. The bridge log
+    // for that fill reads "Gold/XAUUSD - MODERATE BUY (WAIT)" at the moment of
+    // execution, so the setup arrived as WAIT in the signal payload itself rather than
+    // being lost at journalling. There is nothing to recover and nothing to guess.
+    //
+    // So it is REPORTED, not attributed. Nothing is written to learning.json, no bucket
+    // is created, and getLearningBoost() is untouched — a reader can now see the whole
+    // record and which part of it the engine is allowed to learn from.
+    const unattributedFills = tradeJournal.filter(t =>
+      t && t.status === "CLOSED" && typeof t.pnl === "number" &&
+      (!t.setup || NON_SETUP_NAMES.has(String(t.setup).trim().toUpperCase())));
+    const attributedCount = Object.values(learning.setupStats)
+      .reduce((sum, s) => sum + (s.wins || 0) + (s.losses || 0), 0);
+    const closedFills = tradeJournal.filter(t =>
+      t && t.status === "CLOSED" && typeof t.pnl === "number").length;
+
+    // Per-asset rows, built the same way as `summary` but WITHOUT a boost field,
+    // because nothing boosts off them. Exposed here so this table has a reader on
+    // day one - an unread table is how the near-miss census sat invisible for weeks.
+    const bySymbol = {};
+    for (const [sym, setups] of Object.entries(learning.bySymbol || {})) {
+      bySymbol[sym] = {};
+      for (const [setup, s] of Object.entries(setups)) {
+        const total = s.wins + s.losses;
+        bySymbol[sym][setup] = {
+          wins: s.wins, losses: s.losses, total,
+          winRate: total > 0 ? parseFloat((s.wins / total * 100).toFixed(1)) : null,
+          totalPnl: s.totalPnl,
+          feedsTheGate: false
+        };
+      }
+    }
+
     res.json({
       setupStats: summary,
+      bySymbol,
       sessionCount: learning.sessionCount,
       updatedAt: learning.updatedAt,
       shadow,
+      unattributed: {
+        count: unattributedFills.length,
+        wins: unattributedFills.filter(t => t.pnl > 0).length,
+        losses: unattributedFills.filter(t => t.pnl <= 0).length,
+        netPnl: +unattributedFills.reduce((sum, t) => sum + t.pnl, 0).toFixed(2),
+        fills: unattributedFills.map(t => ({
+          symbol: t.symbol, direction: t.direction, pnl: t.pnl,
+          openTime: t.openTime, confidence: t.confidence, strength: t.strength,
+          regime: t.regime, recordedSetup: t.setup || null,
+        })),
+        why: "updateLearning refuses to attribute a fill to a name that means "
+           + "\"there was no setup\". The name is not recoverable for these: the bridge "
+           + "log shows the setup already arrived as WAIT in the signal payload, so it "
+           + "was never produced rather than lost. Reported here so the record is "
+           + "complete; nothing is written and no bucket is invented.",
+      },
+      // The one number that says whether the engine can see the whole record.
+      reconciliation: {
+        closedFills,
+        attributedToSetups: attributedCount,
+        unattributed: unattributedFills.length,
+        complete: closedFills === attributedCount + unattributedFills.length,
+      },
+      // ALWAYS PRESENT, null when the read succeeded. A field that appears only on
+      // failure is one a consumer forgets to check, and cannot distinguish a healthy
+      // server from an older one that never emitted it.
+      learningError: null,
     });
   } catch (e) {
-    res.json({ setupStats: {}, sessionCount: 0, updatedAt: null, shadow: null });
+    // This used to swallow `e` entirely and answer 200 with an empty setupStats,
+    // which is byte-identical to a genuinely empty learning file. ELEVEN files read
+    // this endpoint — auto_runner.py, commercial/investment.html, dashboard/command
+    // and jarvis, debate_agents.py, eod_review.py, market_scanner.py, mcp_server.js,
+    // tasks/deep_plan.cjs, tasks/public_pages_test.cjs and tv_daily_plan.py — and not
+    // one of them could tell "no learning yet" from "reading it threw". Two of those
+    // were fixed on 2026-08-24 for mishandling learning data; this is the same fault
+    // one layer up, and it is the fifth instance found that day of a value written
+    // correctly and read by nothing.
+    //
+    // The inner shadow catch two blocks above already had the right shape - log it,
+    // keep serving. This now matches it, and adds the field that makes the failure
+    // READABLE rather than merely logged where nobody looks.
+    //
+    // The status stays 200 on purpose. Switching to 500 would change behaviour for
+    // all eleven consumers at once and could turn a degraded panel into a broken
+    // page; naming the failure in the payload costs them nothing and tells them
+    // everything. Same contract as `settingsError` on /api/strategy-settings, which
+    // CLAUDE.md already instructs every reader to check first.
+    console.error(`[learning] handler failed (${e.message}) — serving an empty payload `
+                + `with learningError set; setupStats below is NOT a real reading.`);
+    res.json({ setupStats: {}, sessionCount: 0, updatedAt: null, shadow: null,
+               unattributed: null, reconciliation: null,
+               learningError: e && e.message ? e.message : String(e) });
   }
 });
 
@@ -3489,19 +8046,69 @@ app.get("/api/checksystem", (_, res) => {
   const totalPnl = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
   const recentLosses = closed.slice(0, 5).filter(t => t.pnl < 0).length;
 
-  // Equity curve health
-  let equity = 10000;
-  for (const t of [...closed].reverse()) {
-    if (t.pnl > 0) equity += t.pnl; else equity += t.pnl;
-  }
+  // The "Equity curve health" block that stood here is gone. It accumulated a local
+  // `equity` in a loop whose two branches were the same statement —
+  // `if (t.pnl > 0) equity += t.pnl; else equity += t.pnl;` — so the conditional was a
+  // no-op, and the variable was never read: not by this handler's res.json, not
+  // anywhere in its scope. The other `equity` names in this file belong to
+  // /api/equity-curve and the backtest handler and are separate locals.
+  //
+  // It cost a full walk of the closed journal on every /api/checksystem request for
+  // nothing, and an identical-branch conditional reads as a half-written bug, so every
+  // future reader had to prove it dead before touching the handler. Removed rather than
+  // left as a puzzle.
 
-  // Setup health
+  // Setup health.
+  //
+  // An empty setupHealth is indistinguishable from a dead feed, and that ambiguity has
+  // real cost: the 2026-08-18, 08-19 (both cycles) and 08-21 summaries each record
+  // opening this file to re-derive that {} was CORRECT — the same read four times,
+  // because the payload stated the result and withheld the reason. It is empty because
+  // every tracked setup currently sits below the sample floor, which is a fact about
+  // sample size, not about health.
+  // 5, not 3 - matching every other reader in this system.
+  //
+  // At 3 this was THE ONLY READER IN THIS SERVER willing to label a setup GOOD or
+  // REVIEW on evidence the other four explicitly refuse to judge:
+  //   getLearningBoost()                      5-trade floor, boost stays 0 below it
+  //   rejection_evidence.js MIN_RESOLVED       5
+  //   learning_from_rejections.py              5 ("insufficient (n/5)")
+  //   score_near_misses / score_stop_variants  5
+  // A health page that grades a setup the learning engine will not even weight is
+  // giving an opinion the rest of the system has agreed is unsupported, and it is the
+  // page a human reads first.
+  //
+  // REPORTING ONLY - checkSetupHealth() feeds /api/checksystem and the daily-plan panel.
+  // Verified by grep: nothing on the trade path reads setupHealth, so raising this
+  // suppresses no signal and changes no order. It makes a LABEL more honest.
+  // Raised from the AI employee's backlog (morning-mlbgnd), verified before applying.
+  const SETUP_HEALTH_MIN_TRADES = 5;
   const setupHealth = {};
+  let setupsBelowMinTrades = 0;
   for (const [setup, s] of Object.entries(learning.setupStats)) {
     const total = s.wins + s.losses;
-    if (total >= 3) {
+    if (total >= SETUP_HEALTH_MIN_TRADES) {
       const wr = s.wins / total;
-      setupHealth[setup] = { wr: parseFloat((wr * 100).toFixed(1)), status: wr > 0.55 ? "GOOD" : wr < 0.4 ? "REVIEW" : "OK" };
+      // SAME PAYOFF RULE AS checkSetupHealth, because this is the SECOND label in this
+      // codebase that graded a setup on win rate alone, and two labels that can
+      // disagree about the same setup are worse than one. "GOOD" now requires the
+      // setup to have made money; a high win rate with negative P&L is named
+      // PAYOFF-NEGATIVE rather than passed. Expectancy is published beside the rate so
+      // the number that actually decides is on the payload, not inferable from it.
+      const pnl = Number(s.totalPnl ?? 0);
+      const expectancy = parseFloat((pnl / total).toFixed(2));
+      const status = wr < 0.4 ? "REVIEW"
+        : (wr > 0.55 && pnl > 0) ? "GOOD"
+        : (wr > 0.55) ? "PAYOFF-NEGATIVE"
+        : pnl < 0 ? "LOSING" : "OK";
+      setupHealth[setup] = {
+        wr: parseFloat((wr * 100).toFixed(1)),
+        totalPnl: parseFloat(pnl.toFixed(2)),
+        expectancy,
+        status,
+      };
+    } else {
+      setupsBelowMinTrades++;
     }
   }
 
@@ -3511,17 +8118,36 @@ app.get("/api/checksystem", (_, res) => {
     { label: "75-84%", min: 75, max: 84 },
     { label: "85%+",   min: 85, max: 100 }
   ];
+  // Filtered through the same hasConfidence predicate /api/performance uses, so the two
+  // calibration tables in this codebase cannot drift apart in what they count.
+  //
+  // Being precise about what this does and does not fix: `(t.confidence ?? 0)` turned a
+  // missing confidence into a 0, but every tier here starts at 65, so a null already
+  // fell outside all three and was never mis-bucketed. Unlike /api/performance, which
+  // carries a "<65%" tier where exactly that trap DID bite. This closes the trap before
+  // anyone adds a low tier here, and — the part that changes today's payload — states
+  // the population the tiers were computed from instead of leaving it to be inferred.
+  const scoredForCalibration = closed.filter(t => hasConfidence(t.confidence));
   const calibration = tiers.map(tier => {
-    const group = closed.filter(t => (t.confidence ?? 0) >= tier.min && (t.confidence ?? 0) <= tier.max);
+    const group = scoredForCalibration.filter(t => Number(t.confidence) >= tier.min && Number(t.confidence) <= tier.max);
     const gWins = group.filter(t => t.pnl > 0).length;
     return { tier: tier.label, trades: group.length, winRate: group.length > 0 ? parseFloat((gWins / group.length * 100).toFixed(1)) : null };
   });
+  const calibrationTiered = calibration.reduce((sum, t) => sum + t.trades, 0);
 
   // Proposal check
   let proposal = null;
   try {
     const pp = require("path").join(__dirname, "..", "tasks", "improvement_proposal.json");
-    if (fs.existsSync(pp)) proposal = JSON.parse(fs.readFileSync(pp, "utf8"));
+    if (fs.existsSync(pp)) {
+      const raw = JSON.parse(fs.readFileSync(pp, "utf8"));
+      // A RETIRED proposal is not a proposal. Serving one is precisely how "MOMENTUM
+      // ... or disable" stayed on this endpoint for two days after the guard that was
+      // supposed to suppress it — the guard stopped the WRITE and nothing cleared the
+      // READ. The file keeps its history under `previous`; this endpoint reports only
+      // a live recommendation.
+      proposal = (raw && raw.superseded) ? null : raw;
+    }
   } catch {}
 
   // MT5 bridge connectivity — based on last heartbeat per account, not open-position
@@ -3534,12 +8160,49 @@ app.get("/api/checksystem", (_, res) => {
 
   res.json({
     server:      { port: PORT, uptime: Math.round(process.uptime()), healthy: true },
+    // The gate every confidence on this payload is measured against, and whether it is
+    // the SAVED one. This is the surface that answers "is anything wrong", and until now
+    // it could not say the server was running on BUILT-IN DEFAULTS: `healthy` above is a
+    // literal `true`, not a computed verdict, so a defaults box answered fully green here
+    // AND on /api/healer, which checks that learning.json and journal.json are readable
+    // and does not read strategy_settings.json at all.
+    //
+    // Publishing the gate ALONE would not be enough, which is why settingsError travels
+    // with it: on this box today the saved and default gate are both 70 — identical —
+    // while riskPercent is 0.15 against a default of 1 and fixedLotSize 0.01 against a
+    // default of 0. An operator reading "gate 70" on a defaults box sees the correct
+    // number and the wrong engine. That is not hypothetical: on 2026-08-02 a UTF-8 BOM
+    // made JSON.parse throw here and fixedLotSize 0.01 became full risk-based sizing on
+    // a live VPS account, announced by nothing louder than one log line.
+    //
+    // Additive only. `healthy` is untouched — this publishes the fact a verdict needs,
+    // it does not change any verdict. Same contract and wording as /api/daily-plan below.
+    gate:          strategySettings.confidenceThreshold,
+    settingsError: strategySettingsError,
     signals:     { btc: signalCache.btc?.signal, gold: signalCache.gold?.signal, spx: signalCache.spx?.signal, updatedAt: signalCache.updatedAt },
     risk:        riskStatus,
     mode:        { modeOverride: null },
     performance: { trades: closed.length, wins, winRate: closed.length > 0 ? parseFloat((wins / closed.length * 100).toFixed(1)) : null, totalPnl: parseFloat(totalPnl.toFixed(2)), recentLosses },
-    learning:    { sessionCount: learning.sessionCount, setupsTracked: Object.keys(learning.setupStats).length, setupHealth },
+    learning:    {
+      sessionCount:  learning.sessionCount,
+      setupsTracked: Object.keys(learning.setupStats).length,
+      setupHealth,
+      // Why setupHealth may be empty, stated rather than left to be re-derived.
+      setupHealthMinTrades: SETUP_HEALTH_MIN_TRADES,
+      setupsBelowMinTrades,
+    },
     calibration,
+    // The population behind `calibration`, so a reader can see when the tiers hold
+    // fewer trades than performance.trades in this same response.
+    calibrationBasis: {
+      scored:   scoredForCalibration.length,
+      unscored: closed.length - scoredForCalibration.length,
+      tiersCover: "65-100",
+      // Trades that carry a real confidence but fall below the lowest tier. Without
+      // this, "scored 5, tiers hold 0" looks like a fault rather than five readings
+      // that were all under 65.
+      scoredBelowTiers: scoredForCalibration.length - calibrationTiered,
+    },
     mt5:         { connected: mt5Accounts.some(a => a.connected), accounts: mt5Accounts },
     proposal:    proposal ? { worstSetup: proposal.worstSetup, winRate: proposal.winRate, generatedAt: proposal.generatedAt } : null
   });
@@ -3551,16 +8214,87 @@ app.get("/api/setup-health", (_, res) => {
 });
 
 // Daily plan — structured trade plan for today
+/**
+ * The measured next-candle read, written by tasks/candle_probability.cjs.
+ *
+ * Rides ALONGSIDE the signals and never merges with them, for the same reason the
+ * shadow ledger does: this is BAR GEOMETRY measured out-of-sample, not a signal and not
+ * a fill. It feeds no gate, no confidence and no order — nothing reads it but a human.
+ *
+ * Carries its own AGE, because a probability with no age is the same trap as a health
+ * tick with no age: the file is regenerated by a scheduled run, and a stalled run would
+ * otherwise serve last week's read as this morning's with nothing on screen to say so.
+ * null when absent, never an empty object that reads as "no edge today".
+ */
+function readCandleToday() {
+  try {
+    const file = path.join(__dirname, "..", "tasks", "analysis", "candle-today.json");
+    if (!fs.existsSync(file)) {
+      return { available: false, why: "not generated yet — run node tasks/candle_probability.cjs" };
+    }
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    const ms = Date.parse(raw.generatedAt);
+    return {
+      available: true,
+      generatedAt: raw.generatedAt || null,
+      ageHours: Number.isFinite(ms) ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null,
+      note: raw.note || null,
+      reads: Array.isArray(raw.reads) ? raw.reads : [],
+      actionable: Array.isArray(raw.reads) ? raw.reads.filter(r => r && r.actionable).length : 0,
+      feedsTheGate: false,
+    };
+  } catch (e) {
+    // Observability must never take the endpoint down — same rule as the shadow block.
+    console.error(`[daily-plan] candle read unreadable (${e.message})`);
+    return { available: false, why: `unreadable: ${e.message}` };
+  }
+}
+
 app.get("/api/daily-plan", (_, res) => {
   const plan = {
     date:     new Date().toISOString().slice(0, 10),
     generatedAt: new Date().toISOString(),
+    // generatedAt above is stamped WHEN THE REQUEST ARRIVES, so it always reads "now"
+    // and can never go stale. The page rendered it as its only freshness stamp, which
+    // meant a plan built on signals refreshed nine hours ago looked as current as one
+    // built a minute ago. These two are the REAL ages, both already held in memory and
+    // simply never sent. Null before the first refresh, and null must render as
+    // "age unknown" - never as fresh. Same rule as the healer tick with no age.
+    signalsUpdatedAt: signalCache.updatedAt,
+    pricesUpdatedAt:  priceCache.updated,
+    // The number every confidence on this page is measured against. It was NOT in
+    // this payload, so dashboard/daily-plan.html had no way to know it and coloured
+    // confidence against a hardcoded 80/65 — while the live gate has been 70 since
+    // 2026-08-02. That made a 72% signal, which is FIRING, render the same amber as a
+    // 66% one that is five points short, on the one page read before trading.
+    // Sent live rather than baked in, for the reason CLAUDE.md gives about this exact
+    // number: anything that hardcodes it is correct only until the gate next moves.
+    // settingsError travels with it because a non-null value means the gate shown is a
+    // built-in DEFAULT, not the saved config — invisible in the number alone.
+    gate:         strategySettings.confidenceThreshold,
+    settingsError: strategySettingsError,
     signals: {
       btc:  signalCache.btc  ? { signal: signalCache.btc.signal,  confidence: signalCache.btc.confidence,  entry: signalCache.btc.entry,  stop: signalCache.btc.stop,  target: signalCache.btc.target,  setup: signalCache.btc.setup,  regime: signalCache.btc.regime,  rr: signalCache.btc.rr  } : null,
       gold: signalCache.gold ? { signal: signalCache.gold.signal, confidence: signalCache.gold.confidence, entry: signalCache.gold.entry, stop: signalCache.gold.stop, target: signalCache.gold.target, setup: signalCache.gold.setup, regime: signalCache.gold.regime, rr: signalCache.gold.rr } : null,
       spx:  signalCache.spx  ? { signal: signalCache.spx.signal,  confidence: signalCache.spx.confidence,  entry: signalCache.spx.entry,  stop: signalCache.spx.stop,  target: signalCache.spx.target,  setup: signalCache.spx.setup,  regime: signalCache.spx.regime,  rr: signalCache.spx.rr  } : null,
     },
     prices:   { btc: priceCache.btc, gold: priceCache.gold, spx: priceCache.spx, dxy: priceCache.dxy, vix: priceCache.vix },
+    // Measured next-candle geometry, D1 and H4 per asset. Separate key, feedsTheGate
+    // false, and most mornings every read says INSIDE NOISE — which is the honest
+    // answer and is printed in those words rather than left as a bare percentage.
+    candleRead: readCandleToday(),
+    // Confluence-ranked levels, the ATR day projection, prior day/week, confirmed
+    // swings, round-number magnets and the DXY/VIX/correlation read.
+    //
+    // This is the field that retires tv_daily_plan.py::_key_levels(), which built
+    // "key levels" as round numbers at +/-2% of spot and wrote BTC "R1 80000 /
+    // S1 76000" on a day the engine's own pivots said 78544 / 77465. Two level
+    // systems existed and the one every consumer of this payload read was the
+    // invented one.
+    //
+    // Rides ALONGSIDE the signals, exactly like candleRead: feedsTheGate is false
+    // through every nested object and nothing here is an input to anything.
+    marketContext: composeMarketContext(),
     risk:     riskStatus,
     setupHealth: checkSetupHealth(),
     calendar: newsCache.filter(ev => {
@@ -3585,19 +8319,205 @@ app.post("/api/features/:name/toggle", requireLocalOnly, (req, res) => {
   const { name } = req.params;
   if (!(name in features)) return res.status(404).json({ error: "unknown feature" });
   features[name] = !features[name];
-  console.log(`[feature] ${name} → ${features[name] ? "ON" : "OFF"}`);
+  saveFeatures();
+  console.log(`[feature] ${name} → ${features[name] ? "ON" : "OFF"} (persisted — it will survive a restart)`);
   res.json({ feature: name, enabled: features[name] });
+});
+
+// ── /api/calendar — the economic week, which was fetched and never shown ──
+//
+// 74 events are pulled from ForexFactory every run and appear on NONE of the eight
+// dashboards. /api/newsfilter returns only a COUNT, and /api/daily-plan buries today's
+// high-impact rows inside a larger payload. For a system trading Gold and the dollar,
+// "what is coming and when" is not decoration.
+//
+// Uses ev.country, which is the field the feed actually has. There is no `currency`
+// field on any of the 74 events — a detail that matters far more than this endpoint,
+// because isNewsBlackout() reads ev.currency and therefore never matches anything. That
+// is REPORTED here as blackoutFieldBug rather than fixed silently: repairing it changes
+// what trades, and that is not a reporting endpoint's decision to make.
+app.get("/api/calendar", (_, res) => {
+  try {
+    const WATCHED = ["USD", "XAU"];
+    const now = Date.now();
+
+    const rows = newsCache.map(ev => {
+      const at = Date.parse(ev.date);
+      if (!Number.isFinite(at)) return null;      // a row with no readable time is not a plan
+      const country = String(ev.country ?? "").toUpperCase();
+      return {
+        title: ev.title,
+        country,
+        impact: ev.impact || "Unknown",
+        at: new Date(at).toISOString(),
+        minutesFromNow: Math.round((at - now) / 60000),
+        forecast: ev.forecast || null,
+        previous: ev.previous || null,
+        high: String(ev.impact || "").toLowerCase() === "high",
+        watched: WATCHED.includes(country),
+      };
+    }).filter(Boolean).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+
+    const highWatched = rows.filter(r => r.high && r.watched);
+    res.json({
+      total: rows.length,
+      events: rows,
+      // HOW FAR AHEAD THIS ACTUALLY SEES. The feed is one week and shrinks as the week
+      // runs, so an empty blackout list on a Friday means "cannot see", not "clear".
+      // Stated as a number rather than left for a reader to infer from absence.
+      horizonDays: calendarHorizonDays(newsCache),
+      storedEvents: newsCache.length,
+      // PROJECTED releases, so a plan can see past the end of the weekly feed - 90-odd days
+      // instead of the 0.8 the feed reaches today. Separate array on purpose: these are
+      // NEVER merged into newsCache, which is what isNewsBlackout() reads, so nothing here
+      // can gate an entry, move a threshold or suppress a setup. A guess that blocks
+      // trading costs money silently; a guess that only informs a plan costs nothing when
+      // it is wrong. Each row carries projected:true and its own confirmed/contradicted
+      // status against what has actually been observed.
+      projection: (() => {
+        try { return require("./calendar_projection").projectReleases(newsCache, 3); }
+        catch (e) { return { projected: [], error: e.message }; }
+      })(),
+      next: rows.find(r => r.minutesFromNow >= 0 && r.high && r.watched) || null,
+      highImpactWatched: highWatched.length,
+      watchedCountries: WATCHED,
+      newsFilterEnabled: features.newsFilter,
+      // Stated plainly so nobody reads "newsFilter: true" as protection.
+      // Repaired 2026-08-12: isNewsBlackout() read ev.currency, a field this feed does
+      // not carry, so the blackout had never fired once. Kept as a field rather than
+      // deleted so the panel states the CURRENT truth instead of silently dropping a
+      // warning it used to show.
+      blackoutFieldBug: null,
+      blackoutRepairedAt: "2026-08-12",
+      // What the repaired filter is actually watching, so the panel can say it.
+      blackoutWindowMinutes: 30,
+      feedsTheGate: false,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("[calendar]", e.message);
+    res.status(500).json({ error: e.message, events: [] });
+  }
 });
 
 // News blackout status (used by MT5 bridge before placing orders)
 app.get("/api/newsfilter", (_, res) => {
   const status = isNewsBlackout();
-  res.json({ enabled: features.newsFilter, ...status, events: newsCache.length });
+  // `watching` is the number this endpoint was missing.
+  //
+  // It reported enabled:true, blackout:false and events:74 for months while matching
+  // NOTHING, because the filter read a field the feed does not carry. Every one of
+  // those numbers was true and the conclusion drawn from them was false. A count of
+  // events the filter can actually SEE makes that failure loud: watching:0 with a
+  // non-zero events count is the signature of exactly that bug returning.
+  const watching = newsCache.filter(ev => {
+    if (!ev.impact || ev.impact.toLowerCase() !== "high") return false;
+    const market = String(ev.country ?? ev.currency ?? "").toUpperCase();
+    return market === "USD" || market === "XAU";
+  }).length;
+  res.json({
+    enabled: features.newsFilter, ...status,
+    events: newsCache.length,
+    watching,
+    windowMinutes: 30,
+    healthy: newsCache.length === 0 || watching > 0,
+  });
 });
 
 // ══════════════════════════════════════════════════════════════
 //  SCHEDULED JOBS
 // ══════════════════════════════════════════════════════════════
+
+// Make sure TODAY has a daily-plan artifact, and generate it if it does not.
+//
+// WHY THIS EXISTS
+// The plan JSON was written by ONE caller: the 06:45 cron. If the box was asleep or
+// the server was down at 06:45, that day's plan was never created and nothing on any
+// board noticed. Measured 2026-08-29: SIX of the last fourteen days had no
+// tasks/daily_plan_*.json at all — 2026-08-16, -17, -20, -21, -23 and -27. A 43% miss
+// rate on the artifact the morning briefing is built from.
+//
+// It was invisible because the coverage audit checks the TASK, not the ARTIFACT. It
+// reads `SmartEntry TV Daily Plan`'s last exit code, which describes the most recent
+// run that HAPPENED and can say nothing about a day on which nothing ran. The same
+// shape as a supervisor's exit code standing in for the service's health.
+//
+// Waking the laptop did not recover it either: morning_ready.ps1 step 3 runs
+// tasks/tv_daily_plan.ps1, which draws the CHART from live /api/signals. That is a
+// different artifact. Nothing regenerated the JSON.
+//
+// So the fix is a catch-up rather than another schedule: one function owns "today has
+// a plan", the 06:45 cron calls it, and the existing 30-minute cron calls it too. A
+// box that wakes at 08:14 or at 14:00 gets its plan on the next tick instead of losing
+// the day. Every extra call is an fs.existsSync that returns before anything is
+// spawned, so the cost on the 30-minute path is one stat.
+//
+// SELF-HEALING, NOT ONE-SHOT: a failed run clears the flag and is retried on the next
+// tick. The predecessor bug this replaces failed silently at 06:45 and then waited a
+// full day for another chance.
+const DAILY_PLAN_TIMEOUT_MS = 60 * 1000;
+let dailyPlanArtifactInFlight = false;
+
+// The SAME date string tv_daily_plan.py names the file with —
+// datetime.now(timezone.utc).strftime("%Y-%m-%d"). Deriving it any other way (local
+// time, or a different formatter) would look for a file the script never writes and
+// regenerate the plan forever.
+function dailyPlanArtifactPath() {
+  const utcDate = new Date().toISOString().slice(0, 10);
+  return path.join(__dirname, "..", "tasks", `daily_plan_${utcDate}.json`);
+}
+
+function ensureDailyPlanArtifact(reason) {
+  const artifactPath = dailyPlanArtifactPath();
+
+  // The 06:45 run passes through here too. It does not need a force flag: at 06:45 the
+  // file for that UTC day does not exist yet, so the check below is already false.
+  if (fs.existsSync(artifactPath)) return;
+
+  // Two overlapping runs would write the same file from two processes. The 30-minute
+  // cron and the 06:45 cron can land within a minute of each other.
+  if (dailyPlanArtifactInFlight) return;
+  dailyPlanArtifactInFlight = true;
+
+  const { execFile } = require("child_process");
+  // Probed, not taken from PATH — see server/python_path.js.
+  const PYTHON_BIN = require("./python_path").pythonBinOrDefault();
+  console.log(`[plan] no artifact for today — generating (${reason})`);
+
+  // env: pythonEnv() — the child used to inherit cp1252 stdout, and this script prints
+  // its warning strings, which begin with U+26A0. It therefore failed on exactly the
+  // days the plan HAD a warning and passed on the quiet ones.
+  execFile(
+    PYTHON_BIN,
+    // --no-draw was MISSING and that was the whole bug. tv_daily_plan.py gates
+    // screenshots on --no-tv but drawing on a SEPARATE --no-draw, so run_tv_draw() ran
+    // unconditionally here: it attaches to a live Edge over CDP and opens three
+    // TradingView charts, ~2.5 minutes against this 60-second budget. Ten
+    // "[cron] daily plan error: Command failed" lines and a 64% history rate came from
+    // this one omission. A scheduled job must never drive a browser.
+    [path.join(__dirname, "..", "tv_daily_plan.py"), "--no-tv", "--no-draw", "--silent"],
+    { cwd: path.join(__dirname, ".."), timeout: DAILY_PLAN_TIMEOUT_MS,
+      env: require("./python_path").pythonEnv() },
+    (err, out, stderr) => {
+      dailyPlanArtifactInFlight = false;
+      if (err) {
+        // Report the interpreter's own last line, not just execFile's summary. "Command
+        // failed" names nothing; the traceback's final line names the fault.
+        const detail = (stderr || "").trim().split("\n").pop() || err.message;
+        console.error(`[plan] daily plan generation failed (${reason}):`, detail);
+        return;
+      }
+      // Say whether the ARTIFACT landed, not merely whether the process exited 0. The
+      // script writes the file before it prints its report, so a zero exit and a
+      // missing file are different failures and must not read the same.
+      if (fs.existsSync(artifactPath)) {
+        console.log(`[plan] daily plan written: ${path.basename(artifactPath)}`);
+      } else {
+        console.error(`[plan] script exited 0 but ${path.basename(artifactPath)} is still absent`);
+      }
+    }
+  );
+}
 
 // 6:45 AM — refresh signals + run full morning plan
 cron.schedule("45 6 * * *", async () => {
@@ -3607,13 +8527,7 @@ cron.schedule("45 6 * * *", async () => {
   await fetchFlow();
   generateDailyPlan();
   console.log("[cron] 6:45 AM — plan ready");
-  // Run Python daily plan generator in background
-  const { execFile } = require("child_process");
-  const PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
-  execFile(PYTHON_BIN, [require("path").join(__dirname, "..", "tv_daily_plan.py"), "--no-tv", "--silent"],
-    { cwd: require("path").join(__dirname, ".."), timeout: 60000 },
-    (err, out) => { if (err) console.error("[cron] daily plan error:", err.message); else console.log("[cron] daily plan done:", out.trim().slice(0, 100)); }
-  );
+  ensureDailyPlanArtifact("06:45 cron");
 });
 
 // 7:00 AM — send morning plan to Telegram
@@ -3628,13 +8542,65 @@ cron.schedule("*/30 * * * *", async () => {
   await fetchPrices();
   await queueSignalRefresh();
   generateDailyPlan();
-  // Alert if strong signal appeared
+  // Catch-up. Costs one fs.existsSync on the days the 06:45 run already succeeded.
+  ensureDailyPlanArtifact("30-min catch-up");
+  // Alert when a signal is TRADEABLE - which is not the same as "STRONG".
+  //
+  // This block used to require `strength === "STRONG"` and to loop over ["btc","gold"]
+  // only. Measured 2026-08-27: ALL EIGHT trades this system has ever taken are
+  // MODERATE, not one is STRONG, and the live config says `minStrength: "MODERATE"` -
+  // so MODERATE is explicitly tradeable. The alert therefore demanded a HIGHER bar
+  // than the trading gate itself and had never fired for a single trade the system
+  // took, and structurally could not. SPX was excluded outright despite having taken
+  // 2 of those 8. A notification that cannot fire is decoration shaped like an alert.
+  //
+  // The condition now mirrors what the system itself calls tradeable, read LIVE rather
+  // than hardcoded: confidence at or above `confidenceThreshold`, and strength meeting
+  // `minStrength` by the same rule the bridge enforces at mt5_bridge.py:1636
+  // (minStrength STRONG admits only STRONG; otherwise STRONG and MODERATE). Hardcoding
+  // either number here would be the sixth copy of a gate in this project.
   if (TELEGRAM_TOKEN) {
-    for (const key of ["btc", "gold"]) {
-      const s = signalCache[key];
-      if (s && s.signal !== "WAIT" && s.strength === "STRONG") {
-        for (const cid of knownChatIds) await sendTelegram(cid, `⚡ <b>STRONG SIGNAL DETECTED</b>\n\n` + signalToTelegram(s));
+    try {
+      const gate = strategySettings.confidenceThreshold;
+      const allowedStrengths = strategySettings.minStrength === "STRONG"
+        ? ["STRONG"] : ["STRONG", "MODERATE"];
+      const today = new Date().toISOString().slice(0, 10);
+
+      for (const key of ["btc", "gold", "spx"]) {
+        const s = signalCache[key];
+        if (!s || s.signal === "WAIT") continue;
+        if (!Number.isFinite(Number(s.confidence)) || Number(s.confidence) < gate) continue;
+        if (!allowedStrengths.includes(s.strength)) continue;
+
+        // One alert per symbol+setup+direction+day. A signal persists for days and
+        // re-sending it every 30 minutes is how an alert gets muted by its reader.
+        const alertKey = `${key}|${s.setup}|${s.signal}|${today}`;
+        if (alertedSignalKeys.has(alertKey)) continue;
+        alertedSignalKeys.add(alertKey);
+
+        // Say WHY it may not have auto-traded. A tradeable signal on a symbol already
+        // held is refused by the DUPLICATE gate, which is correct behaviour and looks
+        // exactly like a broken system if the alert does not mention it.
+        // Same trap as the daily plan: sourceSymbol is the Yahoo ticker on a
+        // Yahoo-derived signal, so a direct comparison misses a held position and
+        // the alert omits the one line that explains why nothing traded.
+        const held = isAssetHeld(key, s);
+        const notes = [];
+        notes.push(`Gate ${gate} · min strength ${strategySettings.minStrength}`);
+        if (held) notes.push("⚠ ALREADY HOLDING this symbol - the DUPLICATE gate will refuse a new entry.");
+        // settingsError means the server is on BUILT-IN DEFAULTS, not the saved config.
+        // Never let an alert imply a gate nobody chose.
+        if (strategySettingsError) notes.push(`⚠ settingsError: running on DEFAULTS, not the saved config (${strategySettingsError})`);
+
+        const header = held ? "⚡ <b>TRADEABLE SIGNAL (position already open)</b>"
+                            : "⚡ <b>TRADEABLE SIGNAL</b>";
+        for (const cid of knownChatIds) {
+          await sendTelegram(cid, `${header}\n\n` + signalToTelegram(s) + `\n\n` + notes.join("\n"));
+        }
       }
+    } catch (alertError) {
+      // An alert must never take the refresh cron down with it.
+      console.error(`[telegram] signal alert failed: ${alertError.message}`);
     }
   }
 });
@@ -3642,8 +8608,109 @@ cron.schedule("*/30 * * * *", async () => {
 // Every 60s — price refresh
 cron.schedule("* * * * *", fetchPrices);
 
+// SIGNALS EVERY 5 MINUTES, matching how often the bridge actually pushes bars.
+//
+// They were recomputed only on the */30 block, so the signal cache ran up to half an hour
+// behind bars that update every five minutes - measured 2026-09-03 at 26.2 minutes old on
+// both boxes while priceFreshness read 0.1min. Everything downstream inherits that age:
+// the confidence on the dashboard, the distance-to-gate, the regime badge, and the
+// pre-open plan rebuild that keys off signal updatedAt. The healer called it OK because
+// its threshold is generous, which is how a stale reading passes for a current one.
+//
+// Deliberately a SEPARATE schedule rather than changing */30 to */5: that block also
+// fetches prices, regenerates the daily plan, writes the artifact and sends tradeable
+// alerts. Running the alerting six times as often would spam it. Nothing in the existing
+// block changes.
+//
+// Cost is small and was checked, not assumed: with MT5 bars present refreshSignals does
+// ONE network call (DXY) and computes the rest locally from cached bars. queueSignalRefresh
+// serialises through a promise chain, so a slow run cannot stack another on top of it.
+cron.schedule("*/5 * * * *", queueSignalRefresh);
+
 // Every 15 min — UW data
 cron.schedule("*/15 * * * *", async () => { await fetchCongress(); await fetchFlow(); });
+
+// Reported-once trackers for the flush tick, so a permanent condition does not become
+// a permanent log stream. Declared beside the cron that owns them.
+// Signal alerts already sent, keyed symbol+setup+direction+UTC day. In memory: a
+// restart may re-send one alert, which is the harmless direction - the failure that
+// matters is an alert that never arrives, not one that arrives twice.
+const alertedSignalKeys = new Set();
+
+let lastNearMissMalformed = 0;
+let lastNearMissError = null;
+// Every 10 min — persist the near-miss census so it survives a restart.
+//
+// Measured 2026-08-27: /api/near-miss startedAt and /api/status startedAt were the SAME
+// instant, because the census is in memory by design. BTC had been SIGNAL-DEAD 16 days
+// blocked at D1 MOMENTUM RSI_ABOVE_CEILING thr 80 actual 80.6 — a margin of 0.6 of one
+// RSI point with every other condition passing — and all 16 days of it had accumulated
+// nothing. The RSI ceiling is the binding constraint on how often this system trades and
+// the only blocker with no rejection-ledger row, so it could never be priced.
+//
+// This is a TICK, not a hook inside generateSignal: noteNearMiss must stay free of disk
+// I/O because it runs on the signal path. Nothing here votes on a signal — the flush is
+// read-only against the census and append-only against its own file, and it can neither
+// admit a trade nor suppress one.
+// Reported-once trackers for the stop-variant tick, declared BEFORE the cron that uses
+// them rather than after: the callback fires long after module evaluation so a later
+// `let` would still work, but relying on that is how a temporal-dead-zone bug gets
+// introduced the next time someone moves code.
+let lastStopVariantMalformed = 0;
+let lastStopVariantError = null;
+
+// At :05 and :35 - five minutes AFTER the */30 signal refresh, deliberately. The
+// near-miss flush is on */10 and its 08:30Z tick raced that refresh, running against a
+// census the refresh had not repopulated yet and writing nothing. Offsetting means this
+// one always reads a settled signal cache.
+//
+// Reads two caches and appends to its own file. It votes on nothing: no stop, no target,
+// no threshold, no lot size, and feedsTheGate is false in every row it writes.
+cron.schedule("5,35 * * * *", () => {
+  try {
+    const flushed = flushStopVariants({
+      signals: signalCache,
+      candles: mt5CandleCache,
+      gate: strategySettings.confidenceThreshold,
+    });
+    if (flushed.written > 0) {
+      console.log(`[stop-variants] recorded ${flushed.written} shadow row(s), ${flushed.skipped} already on file`);
+    }
+    if (flushed.malformed > 0 && flushed.malformed !== lastStopVariantMalformed) {
+      console.error(`[stop-variants] ${flushed.malformed} malformed line(s) in ${flushed.path} - kept, never dropped`);
+    }
+    lastStopVariantMalformed = flushed.malformed;
+    if (flushed.error && flushed.error !== lastStopVariantError) {
+      console.error(`[stop-variants] flush reported: ${flushed.error}`);
+    }
+    lastStopVariantError = flushed.error;
+  } catch (stopVariantTickError) {
+    console.error(`[stop-variants] flush tick failed: ${stopVariantTickError.message}`);
+  }
+});
+
+
+cron.schedule("*/10 * * * *", () => {
+  try {
+    const flushed = flushNearMisses();
+    if (flushed.written > 0) {
+      console.log(`[near-miss] persisted ${flushed.written} row(s), ${flushed.skipped} already on file`);
+    }
+    // Never ignore a warning - but never let one become 144 identical lines a day either.
+    // The no-delete rule makes a malformed line permanent, so an unconditional log here
+    // would repeat forever and train you to skim past it. Reported when the count CHANGES.
+    if (flushed.malformed > 0 && flushed.malformed !== lastNearMissMalformed) {
+      console.error(`[near-miss] ${flushed.malformed} malformed line(s) in ${flushed.path} - kept, never dropped`);
+    }
+    lastNearMissMalformed = flushed.malformed;
+    if (flushed.error && flushed.error !== lastNearMissError) {
+      console.error(`[near-miss] flush reported: ${flushed.error}`);
+    }
+    lastNearMissError = flushed.error;
+  } catch (nearMissFlushError) {
+    console.error(`[near-miss] flush tick failed: ${nearMissFlushError.message}`);
+  }
+});
 
 // Every 4 hours — Claude position review (offset 30 min from signal refresh)
 cron.schedule("30 */4 * * *", async () => {
@@ -3669,8 +8736,12 @@ cron.schedule("*/30 * * * *", fetchFearGreed);
 cron.schedule("0 22 * * 1-5", async () => {
   console.log("[cron] EOD review starting…");
   const { execFile } = require("child_process");
-  const PYTHON = process.platform === "win32" ? "python" : "python3";
-  execFile(PYTHON, [require("path").join(__dirname, "..", "eod_review.py")], { cwd: require("path").join(__dirname, ".."), timeout: 120000 }, (err, out, se) => {
+  // Probed, not taken from PATH — see server/python_path.js.
+  const PYTHON = require("./python_path").pythonBinOrDefault();
+  // Same env for the same reason: eod_review.py builds a status string from
+  // U+1F534/U+1F7E2/U+26AA. It only reaches notifications.py today, so this has never
+  // fired -- one print() of that string away from being the identical bug.
+  execFile(PYTHON, [require("path").join(__dirname, "..", "eod_review.py")], { cwd: require("path").join(__dirname, ".."), timeout: 120000, env: require("./python_path").pythonEnv() }, (err, out, se) => {
     if (err) console.error("[EOD] Error:", se || err.message);
     else console.log("[EOD] Done:", out.trim().slice(0, 200));
   });
@@ -3680,15 +8751,61 @@ cron.schedule("0 22 * * 1-5", async () => {
 cron.schedule("0 21 * * 0", async () => {
   console.log("[agent] Sunday auto-improvement run starting…");
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
-  if (closed.length < 5) { console.log("[agent] Not enough trades for improvement analysis"); return; }
+  // THE THIRD no-proposal path, and the one I missed on the first pass. The morning
+  // agent's proposal said "all three no-proposal return paths"; I fixed two and had to
+  // be told. retireProposal is a hoisted function declaration at the top level of this
+  // callback, so it is callable here despite being written below.
+  if (closed.length < 5) {
+    console.log("[agent] Not enough trades for improvement analysis");
+    retireProposal(`only ${closed.length} closed trade(s) — below the 5 needed to rank setups`);
+    return;
+  }
 
-  // Find worst setup
+  // Find worst setup.
+  //
+  // NON_SETUP_NAMES excluded, and here it matters more than anywhere else this guard
+  // appears: this cron does not merely REPORT the worst bucket, it writes a proposal
+  // recommending "tighten entry criteria or disable" and reads getLearningBoost() for
+  // it. Without the guard a run of WAIT-named fills could be nominated as the worst
+  // "setup", producing a proposal to disable the ABSENCE of a setup — a recommendation
+  // a human might reasonably act on.
+  //
+  // Nothing is dropped: the skipped rows are counted and travel with the proposal, so
+  // the reader can see that some closed trades were not attributable rather than
+  // wondering why the totals do not add up.
   const bySetup = {};
+  let unattributedClosed = 0;
   for (const t of closed) {
-    const s = t.setup || "UNKNOWN";
+    if (!t.setup || NON_SETUP_NAMES.has(String(t.setup).trim().toUpperCase())) {
+      unattributedClosed++;
+      continue;
+    }
+    const s = t.setup;
     if (!bySetup[s]) bySetup[s] = { wins: 0, losses: 0 };
     if (t.pnl > 0) bySetup[s].wins++; else bySetup[s].losses++;
   }
+  if (unattributedClosed) {
+    console.warn(`[agent] ${unattributedClosed} closed trade(s) carry no real setup name and were ` +
+      `excluded from the worst-setup search. Their P&L is still in the journal.`);
+  }
+  // A setup is only worth a "tighten or disable" recommendation if it is actually
+  // LOSING. The loop below is an argmin over whatever cleared the sample gate, and an
+  // argmin of one element is that element - so when exactly one setup has >= 3 closed
+  // trades it is nominated as "worst" no matter how well it did, beating the sentinel
+  // worstWR = 1 trivially.
+  //
+  // Not hypothetical: tasks/improvement_proposal.json generated 2026-08-30T20:00:00Z
+  // read "MOMENTUM has 66.7% WR - review and tighten entry criteria or disable" while
+  // MOMENTUM was the only bucket with a POSITIVE win rate. BB_SQUEEZE_WATCH (0%,
+  // -449.72), RANGE_TRADE_SHORT (0%, -99.10) and SQUEEZE_BREAKOUT (0%, -6.64) each
+  // held one closed trade, so all three `continue` and went unmentioned. The system
+  // recommended disabling its best setup and stayed silent about its three worst, on
+  // /api/checksystem, which is the operator's main status surface.
+  //
+  // 0.5 and not higher: at exactly 2W/2L the proposal is still written. This floor
+  // suppresses a recommendation against a WINNING setup, not against a mediocre one.
+  const WORST_SETUP_MAX_WR = 0.5;
+
   let worstSetup = null, worstWR = 1;
   for (const [setup, stats] of Object.entries(bySetup)) {
     const total = stats.wins + stats.losses;
@@ -3697,14 +8814,63 @@ cron.schedule("0 21 * * 0", async () => {
     if (wr < worstWR) { worstWR = wr; worstSetup = setup; }
   }
 
-  if (!worstSetup) return;
+  // Both no-proposal paths used to `return` and leave the PREVIOUS run's file on disk,
+  // so a suppressed proposal stayed pinned on /api/checksystem permanently instead of
+  // transiently. Raised by the morning agent as morning-czrky8 with 8 of 8 citations
+  // resolving, and confirmed live 2026-09-01: the 2026-08-30T20:00Z file recommending
+  // "MOMENTUM has 66.7% WR — review and tighten entry criteria or disable" was STILL
+  // being served two days after aae7883 added the guard meant to stop exactly that.
+  // MOMENTUM is the setup the walk-forward says carries the book (450 trades,
+  // +0.309 R/trade, removing it costs -0.2822 across 0/5 folds), so the operator's main
+  // status surface was standing advice to disable the best thing in the system.
+  //
+  // SUPERSEDED, NOT DELETED. The retired proposal is kept inside the record: nothing on
+  // this system is deleted, and what was once recommended is worth keeping. Same
+  // treatment as the auto-committed deploy_vps draft in cddadb4.
+  function retireProposal(reason) {
+    try {
+      const p = require("path").join(__dirname, "..", "tasks", "improvement_proposal.json");
+      let previous = null;
+      try { if (fs.existsSync(p)) previous = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+      // Already retired — rewriting would churn the timestamp every hour and make the
+      // file look freshly decided when nothing happened.
+      if (previous && previous.superseded) return;
+      fs.writeFileSync(p, JSON.stringify({
+        superseded: true,
+        supersededAt: new Date().toISOString(),
+        reason,
+        previous,
+      }, null, 2));
+      console.log(`[agent] Retired stale proposal: ${reason}`);
+    } catch (err) {
+      console.log(`[agent] Could not retire stale proposal: ${err.message}`);
+    }
+  }
+
+  if (!worstSetup) {
+    retireProposal("no setup has >= 3 closed trades, so there is nothing to rank");
+    return;
+  }
+  if (worstWR > WORST_SETUP_MAX_WR) {
+    console.log(`[agent] No proposal: lowest-WR eligible setup ${worstSetup} is at `
+      + `${(worstWR * 100).toFixed(1)}% WR - nothing is underperforming.`);
+    retireProposal(`lowest-WR eligible setup ${worstSetup} is at `
+      + `${(worstWR * 100).toFixed(1)}% WR - nothing is underperforming`);
+    return;
+  }
   const proposal = {
     generatedAt: new Date().toISOString(),
     worstSetup,
     winRate: parseFloat((worstWR * 100).toFixed(1)),
     trades: bySetup[worstSetup],
     learningBoost: getLearningBoost(worstSetup),
+    // Carried so the reader can reconcile the totals rather than wonder why closed
+    // trades outnumber the ones behind this verdict.
+    closedConsidered: closed.length - unattributedClosed,
+    closedTotal: closed.length,
+    unattributedClosed,
     recommendation: `${worstSetup} has ${(worstWR * 100).toFixed(1)}% WR — review and tighten entry criteria or disable. Learning engine has already applied ${getLearningBoost(worstSetup)} confidence adjustment.`
+      + (unattributedClosed ? ` (${unattributedClosed} closed trade(s) carry no real setup name and were not considered.)` : "")
   };
 
   const proposalPath = require("path").join(__dirname, "..", "tasks", "improvement_proposal.json");
@@ -3786,23 +8952,19 @@ async function refreshAnalysis() {
   }
   _lastAnalysisFingerprint = fp;
 
-  // Rule-based analysis runs instantly for all 3 in parallel
-  const [btcAuto, goldAuto, spxAuto] = await Promise.all([
-    Promise.resolve(autoAnalyze(signalCache.btc)),
-    Promise.resolve(autoAnalyze(signalCache.gold)),
-    Promise.resolve(autoAnalyze(signalCache.spx))
-  ]);
+  // Rule-based analysis runs instantly for every registered asset, in parallel
+  const autoList = await Promise.all(
+    assetRegistry.ASSET_KEYS.map(k => Promise.resolve(autoAnalyze(signalCache[k]))));
+  const autoByKey = Object.fromEntries(
+    assetRegistry.ASSET_KEYS.map((k, i) => [k, autoList[i]]));
 
   // Start with rule-based results immediately
-  analysisCache = { btc: btcAuto, gold: goldAuto, spx: spxAuto, updatedAt: new Date().toISOString(), aiEnhanced: false };
+  analysisCache = { ...autoByKey, updatedAt: new Date().toISOString(), aiEnhanced: false };
 
   // If Claude is available, run 3 parallel AI brains — one per asset
   if (anthropic) {
-    const assets = [
-      { key: "btc",  sig: signalCache.btc,  base: btcAuto  },
-      { key: "gold", sig: signalCache.gold, base: goldAuto },
-      { key: "spx",  sig: signalCache.spx,  base: spxAuto  }
-    ];
+    const assets = assetRegistry.ASSET_KEYS.map(
+      key => ({ key, sig: signalCache[key], base: autoByKey[key] }));
 
     const results = await Promise.allSettled(assets.map(async ({ key, sig, base }) => {
       if (!sig) return { key, text: base };
@@ -3964,7 +9126,7 @@ You have a force_heal tool that actually runs a real health-check/repair cycle �
 You have list_proposals and approve_proposal tools for reviewing what an autonomous research agent has found and implemented on a branch. Use list_proposals whenever Themis asks what's pending, what the agent found, or what's waiting on him. Use approve_proposal only on a clear, specific approval — approving marks it ready to deploy next session, it does not push it live, so don't imply the change is already live.
 Trading context first: weigh signal quality, risk management, and system reliability before answering.
 Give concrete levels (entry/stop/target) when discussing a trade. Analysis, not financial advice.
-Never loosen or suggest bypassing the 65% confidence gate or the daily-loss circuit breaker just because nothing is firing — a quiet market is a correct read, not a bug.
+Never loosen or suggest bypassing the live confidence gate or the daily-loss circuit breaker just because nothing is firing — a quiet market is a correct read, not a bug. Never state the gate as a number from memory: this prompt is built once at startup, so any figure baked in here goes stale the moment the setting moves. It said "the 65% confidence gate" for weeks after the gate became 70. Read it from /api/strategy-settings and check settingsError before quoting it.
 Keep answers tight — a few sentences unless the question genuinely needs more.`;
 
 const MEMORY_TOOL = {
@@ -4093,22 +9255,32 @@ async function askClaude(question, history = []) {
             resultText = `Heal cycle ran. Healthy: ${result.healthy}. Total heals so far: ${result.healCount}. Last heal: ${result.lastHealAt ?? "just now"}.`;
           } catch (e) { resultText = "Force-heal failed: " + e.message; }
         } else if (block.name === "list_proposals") {
-          const { proposals } = loadProposals();
-          if (!proposals.length) resultText = "No proposals on record.";
-          else resultText = proposals.slice(0, 10).map(p =>
-            `[${p.status}] ${p.id} — ${p.summary}${p.prUrl ? ` (${p.prUrl})` : ""} (${p.createdAt})`
-          ).join("\n");
+          // loadProposals now THROWS on a corrupt file rather than reporting an empty
+          // list, so this reports the fault instead of "No proposals on record." — a
+          // reassuring sentence that used to mean the opposite of what it said.
+          try {
+            const { proposals } = loadProposals();
+            if (!proposals.length) resultText = "No proposals on record.";
+            else resultText = proposals.slice(0, 10).map(p =>
+              `[${p.status}] ${p.id} — ${p.summary}${p.prUrl ? ` (${p.prUrl})` : ""} (${p.createdAt})`
+            ).join("\n");
+          } catch (e) { resultText = "Proposals file is unreadable, not empty: " + e.message; }
         } else if (block.name === "approve_proposal") {
           const { id } = block.input || {};
-          const data = loadProposals();
-          const prop = data.proposals.find(p => p.id === id);
-          if (!prop) resultText = `No proposal found with id ${id}.`;
-          else {
-            prop.status = "approved";
-            prop.approvedAt = new Date().toISOString();
-            saveProposals(data);
-            resultText = `Approved: ${prop.summary}. Marked ready to deploy next session — this did not deploy it live.`;
-          }
+          // Wrapped because this one WRITES. If loadProposals throws on a corrupt file
+          // the save must not run at all — that is the whole point of it throwing —
+          // and the chat should say so rather than surfacing a raw stack.
+          try {
+            const data = loadProposals();
+            const prop = data.proposals.find(p => p.id === id);
+            if (!prop) resultText = `No proposal found with id ${id}.`;
+            else {
+              prop.status = "approved";
+              prop.approvedAt = new Date().toISOString();
+              saveProposals(data);
+              resultText = `Approved: ${prop.summary}. Marked ready to deploy next session — this did not deploy it live.`;
+            }
+          } catch (e) { resultText = "Could not approve — the proposals file is unreadable: " + e.message; }
         } else continue;
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: resultText });
       }
@@ -4134,13 +9306,93 @@ async function askClaude(question, history = []) {
 //  V12 FEATURES
 // ══════════════════════════════════════════════════════════════
 
+// THE CALENDAR IS THE ONLY THING THIS SYSTEM KNOWS ABOUT THE FUTURE, AND IT WAS BEING
+// THROWN AWAY ON EVERY RESTART.
+//
+// The feed is ff_calendar_thisweek.json and there is no other: nextweek, lastweek and
+// thismonth all return 404 from the same host, checked 2026-09-03. So the horizon is one
+// week and it SHRINKS as the week runs - on a Thursday the system sees one day ahead, and
+// from Friday evening through the weekend it sees nothing at all.
+//
+// That is survivable. What was not: newsCache was memory-only. Every server restart blanked
+// the forward view until the next 6-hourly fetch, and on 2026-09-03 the servers restarted
+// five times. In those windows "what will be blocked" rendered EMPTY, which reads as "the
+// week is clear" when it means "I cannot see" - the same false reassurance as a snapshot
+// reporting zero when it means unknown.
+//
+// So every fetch now MERGES into a store on disk, and the store is loaded when a fetch
+// fails. Three things follow:
+//   - the forward view survives a restart instead of going blank
+//   - weeks ACCUMULATE, so a week once seen is never lost and the system gradually gains a
+//     real calendar history to attribute quiet days against, rather than guessing
+//   - the horizon becomes measurable, so a plan can state how far it can actually see
+//
+// NOTHING IS EVER DELETED. Merge only, keyed by country|title|time; the newest copy of an
+// event wins so a revised forecast updates in place. A year of events is a few thousand rows.
+const CALENDAR_STORE_PATH = path.join(__dirname, "..", "tasks", "calendar_store.json");
+
+function loadCalendarStore() {
+  try {
+    const j = JSON.parse(fs.readFileSync(CALENDAR_STORE_PATH, "utf8"));
+    return Array.isArray(j.events) ? j.events : [];
+  } catch (e) { return []; }          // absent or unreadable = start empty, never throw
+}
+
+function calendarKey(ev) {
+  return [String(ev.country || ""), String(ev.title || ""), String(ev.date || "")].join("|");
+}
+
+function saveCalendarStore(events) {
+  const tmp = CALENDAR_STORE_PATH + ".tmp";
+  try {
+    fs.mkdirSync(path.dirname(CALENDAR_STORE_PATH), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify({ updatedAt: new Date().toISOString(), count: events.length, events }));
+    fs.renameSync(tmp, CALENDAR_STORE_PATH);   // atomic: a reader never sees a half file
+  } catch (e) {
+    console.error("[news] could not persist calendar store:", e.message);
+  }
+}
+
+// How far ahead the data ACTUALLY reaches, in days. Reported rather than implied, so an
+// empty blackout list can be told apart from an empty horizon.
+function calendarHorizonDays(events) {
+  const now = Date.now();
+  let furthest = null;
+  for (const ev of events) {
+    const t = Date.parse(ev.date);
+    if (Number.isFinite(t) && t > now && (furthest === null || t > furthest)) furthest = t;
+  }
+  return furthest === null ? 0 : Math.round((furthest - now) / 86400000 * 10) / 10;
+}
+
 async function fetchEconomicCalendar() {
   try {
     const res = await axios.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", { timeout: 10000 });
-    newsCache = Array.isArray(res.data) ? res.data : [];
-    console.log(`[news] Calendar loaded — ${newsCache.length} events this week`);
+    const fetched = Array.isArray(res.data) ? res.data : [];
+    // MERGE, never replace. The feed carries only the current week; replacing would discard
+    // every earlier week the moment a new one is published.
+    const byKey = new Map();
+    for (const ev of loadCalendarStore()) byKey.set(calendarKey(ev), ev);
+    let added = 0;
+    for (const ev of fetched) {
+      const k = calendarKey(ev);
+      if (!byKey.has(k)) added++;
+      byKey.set(k, ev);
+    }
+    const merged = [...byKey.values()].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+    saveCalendarStore(merged);
+    newsCache = merged;
+    console.log("[news] Calendar loaded - " + fetched.length + " this week, " + added +
+                " new, " + merged.length + " in store, horizon " + calendarHorizonDays(merged) + "d");
   } catch (e) {
+    // The fetch failed, but the store is still the best knowledge available, and keeping it
+    // is strictly better than an empty cache.
     console.error("[news] Calendar fetch failed:", e.message);
+    if (newsCache.length === 0) {
+      newsCache = loadCalendarStore();
+      console.log("[news] using stored calendar - " + newsCache.length + " events, horizon " +
+                  calendarHorizonDays(newsCache) + "d");
+    }
   }
 }
 
@@ -4167,8 +9419,21 @@ function isNewsBlackout() {
   const WINDOW_MS = 30 * 60 * 1000;  // 30 minutes either side
   const relevant = newsCache.filter(ev => {
     if (!ev.impact || ev.impact.toLowerCase() !== "high") return false;
-    const cur = (ev.currency ?? "").toUpperCase();
-    return cur === "USD" || cur === "XAU";
+    // ev.COUNTRY, not ev.currency.
+    //
+    // This filter read ev.currency, which does not exist on this feed: 0 of 74 events
+    // carry it and all 74 carry ev.country. `relevant` was therefore always empty and
+    // the blackout NEVER FIRED — not once in this system's life — while
+    // /api/newsfilter reported enabled:true and the bridge treated that as protection.
+    // Found 2026-08-12, a day with four high-impact USD CPI prints at 12:30 UTC that it
+    // was completely blind to.
+    //
+    // Both fields are read so a feed that renames it back cannot silently re-break
+    // this. XAU is kept in the watch list but never matches: the feed's country codes
+    // are AUD CAD CHF CNY EUR GBP JPY NZD USD, with no metals. USD is what actually
+    // moves XAUUSD, so USD coverage is the point.
+    const market = String(ev.country ?? ev.currency ?? "").toUpperCase();
+    return market === "USD" || market === "XAU";
   });
   for (const ev of relevant) {
     try {
@@ -4193,7 +9458,7 @@ async function generateTradeCommentary(trade) {
       `Cover: (1) why this trade makes technical sense, (2) key risk to watch, (3) target expectation. ` +
       `Be specific about price levels. No bullet points — prose only.`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       model:      "claude-sonnet-5",
       max_tokens: 300,
       messages:   [{ role: "user", content: prompt }]
@@ -4220,15 +9485,14 @@ async function reviewOpenPositions() {
       `For each position: (1) is it progressing as expected? (2) should the stop be adjusted? ` +
       `(3) any exit consideration? End with an overall portfolio risk assessment. Keep it concise and actionable.`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       model:      "claude-sonnet-5",
       max_tokens: 600,
       messages:   [{ role: "user", content: prompt }]
     });
     const review = msg.content?.[0]?.text;
     if (review) {
-      tvAlerts.unshift({ id: Date.now(), ts: new Date().toISOString(), ticker: "PORTFOLIO", action: "POSITION REVIEW", price: null, message: review });
-      if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+      pushAlert({ id: Date.now(), ts: new Date().toISOString(), ticker: "PORTFOLIO", action: "POSITION REVIEW", price: null, message: review });
       console.log("[review] Position review posted to alerts");
     }
   } catch (e) {
@@ -4257,15 +9521,14 @@ async function generateWeeklyReport() {
       `Provide: (1) performance summary, (2) what worked well, (3) key improvement areas, ` +
       `(4) strategy suggestions for next week. Practical and concise.`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       model:      "claude-sonnet-5",
       max_tokens: 800,
       messages:   [{ role: "user", content: prompt }]
     });
     const report = msg.content?.[0]?.text;
     if (report) {
-      tvAlerts.unshift({ id: Date.now(), ts: new Date().toISOString(), ticker: "WEEKLY", action: "WEEKLY REPORT", price: null, message: report });
-      if (tvAlerts.length > 50) tvAlerts = tvAlerts.slice(0, 50);
+      pushAlert({ id: Date.now(), ts: new Date().toISOString(), ticker: "WEEKLY", action: "WEEKLY REPORT", price: null, message: report });
       console.log("[weekly] Weekly report posted to alerts");
     }
   } catch (e) {
@@ -4300,8 +9563,14 @@ async function runBacktest(symbol, label, years = 5) {
 
   for (let i = MIN; i < bars.length; i++) {
     const w = bars.slice(0, i + 1);
+    // { replay: true } as barSource. This is five YEARS of history walked one bar at a
+    // time, so every gate decision it produces is a re-enactment, not a forgone live
+    // trade. Passing it silently filled 45.9% of tasks/rejections.jsonl with rows that
+    // carry no instrument and can never be scored. See the note at the top of
+    // generateSignal. dxyCloses stays null because a backtest has no DXY series.
     const sig = generateSignal(label, symbol,
-      w.map(b => b.close), w.map(b => b.high), w.map(b => b.low), w.map(b => b.volume ?? 0));
+      w.map(b => b.close), w.map(b => b.high), w.map(b => b.low), w.map(b => b.volume ?? 0),
+      null, { replay: true });
     if (!sig || sig.signal === "WAIT" || !sig.stop || !sig.target) { lastKey = null; continue; }
 
     // Keep every setup that produced a tradeable signal. Filtering to what live
@@ -4343,16 +9612,34 @@ async function runBacktest(symbol, label, years = 5) {
     });
   }
 
+  // Mirrors mt5_bridge.py:1780 exactly. NONE is never tradeable in AUTO mode, so it
+  // is excluded from the headline whatever the setting says.
+  const liveMinStrength  = (strategySettings && strategySettings.minStrength) || "MODERATE";
+  const allowedStrengths = liveMinStrength === "STRONG" ? ["STRONG"] : ["STRONG", "MODERATE"];
+
   return {
     symbol, label, years,
-    // What the live system would actually have traded. AUTO mode refuses anything
-    // that is not STRONG, so this is the headline figure — the previous one
-    // included MODERATE setups the broker connection would never have taken.
-    ...summariseBacktest(trades.filter(t => t.strength === "STRONG")),
-    // Kept alongside so the cost of that filter is visible rather than implied.
-    allSetups: summariseBacktest(trades),
+    // THE HEADLINE MUST MATCH THE LIVE FILTER, AND IT DID NOT.
+    //
+    // This filtered to STRONG only and justified it with "AUTO mode refuses anything
+    // that is not STRONG". mt5_bridge.py:1780 says otherwise:
+    //     allowed = ("STRONG",) if minStrength == "STRONG" else ("STRONG","MODERATE")
+    // and the live setting is minStrength=MODERATE, so the bridge takes BOTH. The
+    // backtest was stricter than the system it claimed to model, and the cost of that
+    // is not cosmetic: on Gold, STRONG-only is 54 trades over five years (10.8/yr)
+    // where the full allowed set is several times that at the SAME win rate. A gate
+    // that discards most of the sample without improving per-trade quality does not
+    // make the estimate safer, it makes it unmeasurable -- which is exactly what "55
+    // trades in 5 years is nothing" means.
+    //
+    // Read from config, never hardcoded, so this cannot drift from the bridge again.
+    ...summariseBacktest(trades.filter(t => allowedStrengths.includes(t.strength)), years),
+    // Both neighbours kept so the cost of the filter stays visible in either direction.
+    strongOnly: summariseBacktest(trades.filter(t => t.strength === "STRONG"), years),
+    allSetups:  summariseBacktest(trades, years),
     filter: {
-      applied: "STRONG only — matches AUTO_MODE in mt5_bridge.py",
+      applied: `strength in [${allowedStrengths.join(", ")}] — read from strategySettings.minStrength `
+             + `(${liveMinStrength}), matching mt5_bridge.py:1780`,
       caveat:  "Real live confidence also requires Daily/4H/1H agreement, which daily bars "
              + "cannot reproduce. Live will therefore trade the same or fewer times than shown here, never more.",
     },
@@ -4361,25 +9648,43 @@ async function runBacktest(symbol, label, years = 5) {
 
 // Shared so the live-equivalent and all-setups figures are computed identically and
 // any difference between them is the filter, not the arithmetic.
-function summariseBacktest(trades) {
+function summariseBacktest(trades, years) {
   const wins   = trades.filter(t => t.outcome === "WIN").length;
   const losses = trades.filter(t => t.outcome === "LOSS").length;
   const closed = wins + losses;
   const winRate = closed > 0 ? parseFloat((wins / closed * 100).toFixed(1)) : 0;
 
-  // Equity curve — 1% risk per trade on $10 000 start
+  // COSTS. This function modelled NONE — no spread, no slippage, no commission — so
+  // every number it produced was GROSS and read as net. That is not a rounding issue:
+  // the journal records BTCUSD spreadAtDecision at 1698 points = $16.98 PER TRADE, and
+  // a profit factor of 1.91 gross can sit near 1.0 once the spread is paid.
+  //
+  // 0.05R is the basis every other harness in this project uses — mtf_walkforward,
+  // breakdown_walkforward, _regime_xtab — and tasks/_cost_basis.cjs exists precisely
+  // because hardcoding it in each one kept drifting. This table was the only replay
+  // in the repo charging nothing, which is also why it ranked Gold first while the
+  // per-asset walk-forward and the live journal both rank it last.
+  const COST_R = 0.05;
+
+  // Applied on BOTH sides: a win returns rr minus the cost, a loss costs 1 PLUS it.
+  // Charging only the winners would flatter the loser-heavy tail.
   let equity = 10000, peak = 10000, maxDD = 0;
   const curve = [10000];
   for (const t of trades) {
-    if (t.outcome === "WIN")  equity *= (1 + 0.01 * t.rr);
-    if (t.outcome === "LOSS") equity *= 0.99;
+    if (t.outcome === "WIN")  equity *= (1 + 0.01 * (t.rr - COST_R));
+    if (t.outcome === "LOSS") equity *= (1 - 0.01 * (1 + COST_R));
     curve.push(parseFloat(equity.toFixed(0)));
     peak  = Math.max(peak, equity);
     maxDD = Math.max(maxDD, (peak - equity) / peak * 100);
   }
 
-  const winRRsum  = trades.filter(t => t.outcome === "WIN").reduce((s, t) => s + t.rr, 0);
-  const profitFactor = losses > 0 ? parseFloat((winRRsum / losses).toFixed(2)) : null;
+  // Gross kept alongside net so the cost is VISIBLE rather than silently absorbed —
+  // the same reason allSetups sits beside the STRONG-only figure above.
+  const winRRsum      = trades.filter(t => t.outcome === "WIN").reduce((s, t) => s + t.rr, 0);
+  const profitFactorGross = losses > 0 ? parseFloat((winRRsum / losses).toFixed(2)) : null;
+  const netWinR  = Math.max(0, winRRsum - wins * COST_R);
+  const netLossR = losses * (1 + COST_R);
+  const profitFactor = netLossR > 0 ? parseFloat((netWinR / netLossR).toFixed(2)) : null;
 
   // Averaged over CLOSED trades only. Including EXPIRED ones — which never hit a
   // stop or target and move equity not at all — dragged the average R down and
@@ -4389,18 +9694,31 @@ function summariseBacktest(trades) {
     ? closedTrades.reduce((s, t) => s + t.rr, 0) / closedTrades.length
     : 0;
 
+  // SAMPLE SIZE IS A VERDICT, NOT A FOOTNOTE. 55 resolved trades over FIVE YEARS is
+  // ~11 a year, and a profit factor computed on that cannot separate an edge from a
+  // run of luck. The repo's own floor elsewhere is 5 per fold with >=40 for a 5-fold
+  // read; 30 resolved is the minimum at which this table says anything at all.
+  const SAMPLE_OK = 100, SAMPLE_THIN = 30;
+  const sampleVerdict = closed >= SAMPLE_OK  ? "adequate"
+                      : closed >= SAMPLE_THIN ? "THIN — treat the profit factor as indicative, not established"
+                      : "TOO FEW TO JUDGE — this row is a description, not a result";
+
   return {
     totalTrades:  trades.length,
     resolved:     closed,
     expired:      trades.length - closed,
     wins, losses, winRate,
     avgRR:        parseFloat(avgRR.toFixed(1)),
-    profitFactor,
+    profitFactor,                                   // NET of costs
+    profitFactorGross,                              // what this table used to report
+    costRPerTrade: COST_R,
+    tradesPerYear: years > 0 ? parseFloat((closed / years).toFixed(1)) : null,
+    sampleVerdict,
     startEquity:  10000,
     finalEquity:  parseFloat(equity.toFixed(0)),
     returnPct:    parseFloat(((equity - 10000) / 100).toFixed(1)),
     maxDrawdown:  parseFloat(maxDD.toFixed(1)),
-    expectancy:   parseFloat(((winRate / 100 * avgRR) - (1 - winRate / 100)).toFixed(2)),
+    expectancy:   parseFloat((((winRate / 100) * (avgRR - COST_R)) - ((1 - winRate / 100) * (1 + COST_R))).toFixed(2)),
     curve:        curve.slice(-120),
     recentTrades: trades.slice(-15),
   };
@@ -4417,11 +9735,7 @@ app.get("/api/backtest", async (req, res) => {
   }
 
   console.log(`[backtest] Running ${years}-year backtest on BTC, Gold, SPY…`);
-  const assets = [
-    { key: "btc",  label: "Bitcoin",    symbol: "BTC-USD" },
-    { key: "gold", label: "Gold/XAUUSD", symbol: "GC=F"   },
-    { key: "spx",  label: "S&P500",     symbol: "^GSPC"   }
-  ];
+  const assets = assetRegistry.ASSET_LIST;
   const out = { years, runAt: new Date().toISOString() };
   for (const a of assets) {
     try {
@@ -4440,15 +9754,32 @@ app.get("/api/backtest", async (req, res) => {
         `${r.label}: ${r.totalTrades} trades over ${years}y | Win rate ${r.winRate}% | Profit factor ${r.profitFactor} | Max drawdown ${r.maxDrawdown}% | Return on $10k: $${r.finalEquity} (${r.returnPct}%)`
       ).join("\n");
 
-      const msg = await anthropic.messages.create({
+      const msg = await anthropicBg.messages.create({
         model: "claude-sonnet-5", max_tokens: 500,
         messages: [{ role: "user", content:
           `You are a professional quant analyst. Here are backtesting results for a rule-based trading strategy over ${years} years:\n\n${summary}\n\n` +
           `In 4-5 concise sentences: (1) is this strategy viable? (2) which asset performs best? (3) biggest risk/weakness? (4) one concrete improvement suggestion.`
         }]
       });
-      out.claudeVerdict = msg.content?.[0]?.text ?? null;
-    } catch {}
+      // AN AUTH FAILURE IS NOT A VERDICT. anthropicBg is CLI-first, and the CLI's
+      // sign-in error arrives as ordinary message TEXT rather than as a throw — so
+      // "Not logged in · Please run /login" was rendered to the user in the
+      // verdict box, under the heading "Claude verdict", as though a quant had
+      // said it. Same shape as the expired login that destroyed the morning brief.
+      //
+      // The empty catch below is also why a real failure showed nothing rather than
+      // saying so: it now records WHY, because a silent absence and a refusal look
+      // identical to the reader and only one of them needs a person.
+      const verdictText = msg.content?.[0]?.text ?? null;
+      const looksLikeAuthError = verdictText && /not logged in|please run \/login|unauthori[sz]ed|authentication/i.test(verdictText);
+      out.claudeVerdict      = looksLikeAuthError ? null : verdictText;
+      out.claudeVerdictError = looksLikeAuthError
+        ? "the Claude CLI is not signed in on this box — run `claude` interactively and sign in. The backtest NUMBERS above are unaffected; only the commentary is missing."
+        : null;
+    } catch (e) {
+      out.claudeVerdict      = null;
+      out.claudeVerdictError = "commentary unavailable: " + String(e.message || e).slice(0, 160);
+    }
   }
 
   backtestCache = out;
@@ -4480,6 +9811,318 @@ let aiFilterHealth = {
 // for confidenceThreshold, so a settings failure degrades to the documented gate
 // rather than to no gate at all.
 const AI_FILTER_FALLBACK_CONFIDENCE = 70;
+
+// ── AI filter: subscription fallback ─────────────────────────────────────────
+//
+// WHY THIS EXISTS. This server is the ONLY component billed to the pay-as-you-go
+// API. Everything else — the morning agent, the weekly review, every scheduled
+// job — runs through the `claude` CLI on the claude.ai subscription, because
+// morning_agent.bat learned this lesson on 2026-08-03 and clears
+// ANTHROPIC_API_KEY before every call. Measured on one box on 2026-08-19, seconds
+// apart: the CLI answered OK while the API key returned 400 "credit balance too
+// low". So a working account had a dead trade filter purely because this one path
+// used a different billing rail.
+//
+// The filter fails OPEN, so the cost of that was silent: every trade auto-approved
+// with no review and nothing on a screen saying so.
+//
+// STDIN, NOT ARGV. The prompt is written to the child's stdin and the argv stays a
+// fixed five tokens. Passing it as an argument would put a multi-hundred-character
+// string containing quotes, braces and newlines through cmd.exe, which is exactly
+// how .bat files in this repo lost everything after the word `claude`.
+//
+// Timeout is 20s against the bridge's 25s abandon, so a slow call still leaves the
+// bridge to make its own decision rather than both sides timing out. Measured
+// median is 5.0s over three runs.
+const AI_FILTER_CLI_TIMEOUT_MS = 20000;
+// Kill switch. Set AI_FILTER_CLI_FALLBACK=0 to disable without a code change; any
+// other value (or unset) leaves it on.
+const AI_FILTER_CLI_ENABLED = process.env.AI_FILTER_CLI_FALLBACK !== "0";
+
+// Raw text from the CLI, or null if that rail is unavailable too. Shared by the
+// trade filter and by the client-level fallback that covers the other nine call
+// sites — see wrapAnthropicWithCliFallback.
+// Which `claude` to spawn. Resolving by PATH alone is not enough: when the server runs
+// as NT AUTHORITY\SYSTEM (scheduled-task context) Administrator's npm bin dir is not on
+// PATH, which is exactly how this rail died on 2026-08-31.
+//
+// But a HARDCODED Administrator path is wrong on the laptop, whose server runs as
+// THEMIS\User and has no C:\Users\Administrator at all. It would spawn a path that does
+// not exist, return null, and move every CLI-first call quietly back onto the API with
+// nothing on a screen saying so - the same shape as a setting with no reader.
+//
+// So take the first candidate that ACTUALLY EXISTS on this box, and say which one once.
+// The CLI takes its context from its CWD. Spawned from the server's own directory it
+// walks up, finds the 40KB project CLAUDE.md and OBEYS it - on 2026-08-31 an
+// /api/backtest verdict came back beginning "JARVIS online. SmartEntry Pro - what are we
+// building?" - and it also finds .mcp.json and stands up seven MCP servers no prompt here
+// will ever use.
+//
+// Measured on one box, same analytic prompt: 15.4s WITH the persona greeting from the
+// repo directory, 11.6-12.5s and clean from a neutral one. On a trivial prompt, 10.5s vs
+// 4.5s. runClaudeCli is shared with the AI filter's 20s budget against the bridge's 25s
+// abandon, so this was never only cosmetic.
+//
+// Accidental context replaced with correct context, three parts:
+//   cwd                     a neutral dir, so no CLAUDE.md and no .mcp.json are found
+//   --strict-mcp-config     never load MCP servers that discovery turned up
+//   --append-system-prompt  state what this call actually is
+//
+// The role text is deliberately plain ASCII with no quotes, braces or newlines. It
+// crosses cmd.exe as a single argv token, which is precisely where .bat files in this
+// repo have lost everything after the word `claude`.
+const CLAUDE_CLI_ROLE_PROMPT =
+  "You are being called as a subroutine by an automated trading system. " +
+  "Return only the requested content: no greeting, no persona, no preamble, " +
+  "no sign-off, no offer of further help.";
+
+let _resolvedClaudeCliPath = null;
+function resolveClaudeCliPath() {
+  if (_resolvedClaudeCliPath) return _resolvedClaudeCliPath;
+
+  // An explicit override wins even when it does not exist, so a wrong value fails
+  // visibly instead of being silently ignored.
+  if (process.env.CLAUDE_CLI_PATH) {
+    _resolvedClaudeCliPath = process.env.CLAUDE_CLI_PATH;
+    console.log(`[claude-cli] using CLAUDE_CLI_PATH=${_resolvedClaudeCliPath}`);
+    return _resolvedClaudeCliPath;
+  }
+
+  const candidates = [
+    // Whichever user owns this process - correct on both boxes without configuration.
+    path.join(os.homedir(), "AppData", "Roaming", "npm", "claude.cmd"),
+    // Kept from 103f3f7: covers the SYSTEM case, where homedir is systemprofile.
+    "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\claude.cmd",
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) { _resolvedClaudeCliPath = candidate; break; }
+    } catch (e) { /* unreadable candidate is just a miss */ }
+  }
+
+  // Last resort is the bare name, i.e. the original PATH lookup - correct whenever the
+  // server runs as a user who has the CLI on PATH. Worst case here is exactly the
+  // behaviour this function replaced.
+  if (!_resolvedClaudeCliPath) _resolvedClaudeCliPath = "claude";
+  console.log(`[claude-cli] resolved to ${_resolvedClaudeCliPath}`);
+  return _resolvedClaudeCliPath;
+}
+
+function runClaudeCli(prompt, timeoutMs) {
+  return new Promise((resolve) => {
+    if (!AI_FILTER_CLI_ENABLED || process.platform !== "win32") return resolve(null);
+
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+
+    const claudeCliPath = resolveClaudeCliPath();
+
+    let child;
+    try {
+      child = require("child_process").spawn(
+        process.env.COMSPEC || "cmd.exe",
+        ["/c", claudeCliPath, "-p", "--output-format", "text",
+         "--strict-mcp-config", "--append-system-prompt", CLAUDE_CLI_ROLE_PROMPT],
+        {
+          windowsHide: true,
+          // Neutral cwd: this is what stops the project CLAUDE.md and .mcp.json
+          // being discovered. A missing dir would make spawn throw, which the
+          // surrounding try/catch already turns into the same safe null.
+          cwd: os.tmpdir(),
+          env: { ...process.env, ANTHROPIC_API_KEY: "" },
+        }
+      );
+    } catch (e) { return finish(null); }
+
+    const timer = setTimeout(() => { try { child.kill(); } catch (_) {} finish(null); },
+      timeoutMs || AI_FILTER_CLI_TIMEOUT_MS);
+    let stdout = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.on("error", () => { clearTimeout(timer); finish(null); });
+    child.on("close", () => {
+      clearTimeout(timer);
+      const text = stdout.trim();
+      finish(text.length ? text : null);
+    });
+
+    try { child.stdin.write(prompt); child.stdin.end(); }
+    catch (e) { clearTimeout(timer); finish(null); }
+  });
+}
+
+// Background work (weekly report, commentary, ai-brain) is not on the trade path and
+// can afford a longer ceiling than the filter's 20s.
+const CLAUDE_CLI_GENERAL_TIMEOUT_MS = 90000;
+
+// Per-request ceiling for one ai-brain analysis. The SDK default is a 600s timeout
+// with 2 retries, so three of those in parallel could hold a socket for ~30 minutes
+// while the dashboard spins "Thinking..." - neither express nor the page sets a
+// deadline of its own. Measured runs are 13-17s, so this is roughly 7x headroom.
+const AI_BRAIN_REQUEST_TIMEOUT_MS = 120000;
+
+/**
+ * Put the WHOLE client on the working rail, not just the trade filter.
+ *
+ * There are TEN anthropic.messages.create call sites in this file — the filter,
+ * askClaude (/api/chat), generateTradeCommentary, reviewOpenPositions,
+ * generateWeeklyReport, /api/backtest, /api/ai-brain, /api/engineer/architect and two
+ * analysis paths. Fixing only the filter left nine of them dead on a key the API
+ * rejects, which is exactly why today's SP500 fill carries no commentary and the log
+ * repeats "[review] Error: 400".
+ *
+ * TWO RAILS, AND THE DIRECTION IS THE WHOLE POINT.
+ *
+ *   cliFirst:false (default, `anthropic`)   API -> CLI when the API throws
+ *   cliFirst:true  (`anthropicBg`)          CLI -> API when the CLI returns null
+ *
+ * The API sits underneath in BOTH directions, so neither client can lose an answer.
+ * The only cost of a missing or slow CLI is latency, never a refusal, which is what
+ * keeps this compatible with rule 3.
+ *
+ * WHICH CALL SITE GETS WHICH IS NOT A PREFERENCE. Three MUST stay API-first:
+ *
+ *   /api/claude-approve-trade - the ONLY trade-path call. The bridge abandons at 25s,
+ *      so the fastest rail goes first and the CLI stays its fallback.
+ *   askClaude (/api/chat), BOTH of its calls - CORRECTED 2026-08-31: the older claim
+ *      that all ten are "PLAIN TEXT, no tools, verified by inspection" is WRONG. This
+ *      is the one call site carrying `tools:` and a real
+ *      `while (response.stop_reason === "tool_use")` loop. The CLI shim returns
+ *      stop_reason "end_turn", so on that rail the loop NEVER ENTERS: save_memory,
+ *      web search, force_heal and approve_proposal quietly stop working while the
+ *      reply still reads perfectly fine. It must never be CLI-first.
+ *
+ * The rest are display or after-the-fact and can serve from the subscription. None of
+ * them can admit, suppress, size or exit a trade - reviewOpenPositions in particular
+ * only pushAlert()s text, it cannot move a stop or close anything.
+ *
+ * There is no streaming anywhere in this file, so that half of the old note holds.
+ * /api/ai-brain reads stop_reason to warn on max_tokens; on the CLI rail that warning
+ * cannot fire. Accepted, and written down here rather than discovered later.
+ *
+ * The kill switch is unchanged: AI_FILTER_CLI_FALLBACK=0 makes runClaudeCli return
+ * null, which collapses cliFirst back into a straight API call.
+ */
+// Flattens SDK params into the single prompt the CLI takes. Content is a string or the
+// block-array form; both appear in this file. Returns "" when there is nothing to send,
+// which both rails read as "do not use the CLI for this one".
+function flattenParamsToCliPrompt(params) {
+  const parts = [];
+  if (params && typeof params.system === "string") parts.push(params.system);
+  for (const message of (params && params.messages) || []) {
+    const content = message && message.content;
+    if (typeof content === "string") parts.push(content);
+    else if (Array.isArray(content)) {
+      for (const block of content) if (block && typeof block.text === "string") parts.push(block.text);
+    }
+  }
+  return parts.join("\n\n").trim();
+}
+
+// The exact shape every caller in this file already destructures: content[].type === "text".
+function cliReplyEnvelope(text) {
+  return { content: [{ type: "text", text }], stop_reason: "end_turn", _viaCli: true };
+}
+
+function wrapAnthropicWithCliFallback(client, options) {
+  if (!client || !client.messages || typeof client.messages.create !== "function") return client;
+  const cliFirst = !!(options && options.cliFirst);
+  const realCreate = client.messages.create.bind(client.messages);
+
+  // requestOptions is forwarded, not dropped: /api/ai-brain passes its 120s ceiling
+  // as the SDK's SECOND argument and the previous wrapper signature swallowed it,
+  // leaving that call on the SDK default of 600s with 2 retries. The CLI rail has its
+  // own 90s ceiling, which is already under it.
+  client.messages.create = async (params, requestOptions) => {
+    if (cliFirst) {
+      // Subscription rail first. This client is handed ONLY to call sites that are off
+      // the trade path and read nothing but a text block. A null here means the CLI is
+      // absent, disabled or slow, and the API answers instead - so this branch can cost
+      // latency but can never cost an answer.
+      const prompt = flattenParamsToCliPrompt(params);
+      if (prompt) {
+        const text = await runClaudeCli(prompt, CLAUDE_CLI_GENERAL_TIMEOUT_MS);
+        if (text !== null) return cliReplyEnvelope(text);
+        console.log("[anthropic] CLI/subscription rail unavailable - falling through to the API");
+      }
+      return await realCreate(params, requestOptions);
+    }
+
+    try {
+      return await realCreate(params, requestOptions);
+    } catch (apiError) {
+      const prompt = flattenParamsToCliPrompt(params);
+      if (!prompt) throw apiError;
+
+      const text = await runClaudeCli(prompt, CLAUDE_CLI_GENERAL_TIMEOUT_MS);
+      // If the CLI is down too, rethrow the ORIGINAL error so every existing catch
+      // block behaves exactly as it does today.
+      if (text === null) throw apiError;
+
+      console.log(`[anthropic] API rail failed (${String(apiError.message || apiError).slice(0, 80)}) - served via CLI/subscription`);
+      return cliReplyEnvelope(text);
+    }
+  };
+  return client;
+}
+
+function runAiFilterViaCli(prompt) {
+  return new Promise((resolve) => {
+    if (!AI_FILTER_CLI_ENABLED || process.platform !== "win32") return resolve(null);
+
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+
+    let child;
+    try {
+      child = require("child_process").spawn(
+        process.env.COMSPEC || "cmd.exe",
+        ["/c", resolveClaudeCliPath(), "-p", "--output-format", "text",
+         "--strict-mcp-config", "--append-system-prompt", CLAUDE_CLI_ROLE_PROMPT],
+        {
+          windowsHide: true,
+          // Neutral cwd, resolved path and an explicit role - the same three pieces
+          // runClaudeCli got, and they matter MORE here than anywhere else.
+          //
+          // Measured on this exact filter prompt, 2026-08-31:
+          //   repo cwd, bare claude, no flags : 10641 ms, prose BEFORE the JSON
+          //   neutral cwd + flags             :  5126 / 4759 ms, ZERO leading text
+          //
+          // Latency: the internal ceiling here is 20s against the bridge's 25s
+          // abandon, so halving a 10.6s call is the difference between a verdict
+          // and a timeout that fails OPEN on a loaded box.
+          //
+          // Correctness: the close handler below takes the FIRST {...} in stdout.
+          // Prose that happens to contain braces would therefore be parsed AS THE
+          // VERDICT. Removing the project CLAUDE.md removes that hazard at source.
+          //
+          // Nothing here changes the approve/reject rules, the thresholds, the
+          // timeout, or the fail-open: a null still means the API rail decides and
+          // an unreachable CLI still auto-approves exactly as before.
+          cwd: os.tmpdir(),
+          // Emptied, not deleted: the CLI treats a set key as "use the API" and
+          // would bill the same dead rail this exists to route around.
+          env: { ...process.env, ANTHROPIC_API_KEY: "" },
+        }
+      );
+    } catch (e) { return finish(null); }
+
+    const timer = setTimeout(() => { try { child.kill(); } catch (_) {} finish(null); }, AI_FILTER_CLI_TIMEOUT_MS);
+    let stdout = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.on("error", () => { clearTimeout(timer); finish(null); });
+    child.on("close", () => {
+      clearTimeout(timer);
+      // Same extraction as the SDK path: take the first JSON object in the reply,
+      // because the CLI can prepend or append prose no matter how the prompt asks.
+      const match = stdout.match(/\{[\s\S]*?\}/);
+      if (!match) return finish(null);
+      try { finish(JSON.parse(match[0])); } catch (e) { finish(null); }
+    });
+
+    try { child.stdin.write(prompt); child.stdin.end(); }
+    catch (e) { clearTimeout(timer); finish(null); }
+  });
+}
 
 app.post("/api/claude-approve-trade", async (req, res) => {
   const { signal, symbol, entry, stop, target } = req.body ?? {};
@@ -4565,10 +10208,28 @@ app.post("/api/claude-approve-trade", async (req, res) => {
     console.log(`[AI-filter] ${symbol} ${signal.signal}: ${approved ? "APPROVED" : "REJECTED"} — ${reason}`);
     res.json({ approved, reason, risk });
   } catch (e) {
+    // The API rail failed. Before giving up and auto-approving, try the rail that
+    // every other component in this system already uses.
+    const viaCli = await runAiFilterViaCli(prompt);
+    if (viaCli && typeof viaCli.approved === "boolean") {
+      // A review DID happen, so the health counters record success — the filter is
+      // working, it simply reached Anthropic another way. Reporting this as a
+      // failure would leave a permanent red on a system that is functioning.
+      aiFilterHealth.lastOkAt = new Date().toISOString();
+      aiFilterHealth.consecutiveFailures = 0;
+      aiFilterHealth.lastError = null;
+      const reason = viaCli.reason ?? "No reason given";
+      console.log(`[AI-filter] ${symbol} ${signal.signal}: ${viaCli.approved ? "APPROVED" : "REJECTED"} (via CLI/subscription) — ${reason}`);
+      return res.json({ approved: viaCli.approved, reason, risk: viaCli.risk ?? "MEDIUM" });
+    }
+
+    // Both rails are down. Unchanged behaviour: fail OPEN. Blocking trades because
+    // a billing problem cannot be reached would spend the scarce thing — samples —
+    // to protect nothing.
     aiFilterHealth.lastFailAt = new Date().toISOString();
     aiFilterHealth.consecutiveFailures++;
     aiFilterHealth.lastError = String(e.message || e).slice(0, 200);
-    console.error("[AI-filter] Error:", e.message);
+    console.error("[AI-filter] Error:", e.message, "— CLI fallback also unavailable");
     res.json({ approved: true, reason: "AI error — proceeding", risk: "MEDIUM" });
   }
 });
@@ -4581,25 +10242,32 @@ app.get("/api/regime/:key", (_, res) => {
   const { indicators, trend } = sig;
   const rsi = indicators?.rsi ?? 50;
   const bb  = indicators?.bb;
-  // Detect regime
-  let regime = "RANGING";
-  if (trend === "STRONG UPTREND" || trend === "STRONG DOWNTREND") regime = "TRENDING";
-  if (bb && bb.bandwidth < 8) regime = "SQUEEZE";   // Bollinger squeeze = breakout incoming
-  if (bb && bb.bandwidth > 25) regime = "VOLATILE";
+
+  // SERVE THE ENGINE'S REGIME. Do not classify again here.
+  //
+  // This route used to run its own copy of the classifier, and the copy had INVERTED
+  // PRECEDENCE. The engine (index.js ~2271) is a ternary chain where the FIRST match
+  // wins, so a strong trend beats a narrow band. This was four sequential ifs where the
+  // LAST assignment wins, so the band overwrote the trend. Measured live 2026-08-27,
+  // 2 of 3 assets contradicted: BTC STRONG UPTREND bandwidth 38.3 read TRENDING from
+  // /api/signals and VOLATILE here; SPX STRONG UPTREND bandwidth 3.6 read TRENDING and
+  // SQUEEZE here. Same inputs, same instant, two different answers.
+  //
+  // Aligning the copy would leave a copy. The engine already computed it and every
+  // other consumer reads that value, so this now serves it - one source of truth, and
+  // one fewer thing that can silently diverge. Raised by the AI employee as
+  // morning-39fn7y and verified from source before being applied.
+  const regime = sig.regime ?? "UNKNOWN";
   res.json({ regime, trend, rsi, bandwidth: bb?.bandwidth });
 });
 
 // Run 3 parallel Claude AI analyses on demand
 app.post("/api/ai-brain", async (req, res) => {
   if (!anthropic) return res.json({ error: "No Claude API key" });
-  console.log("[ai-brain] Running 3 parallel Claude Opus analyses…");
+  console.log(`[ai-brain] Running ${assetRegistry.ASSET_KEYS.length} parallel Claude Opus analyses…`);
   const start = Date.now();
 
-  const assets = [
-    { key: "btc",  sig: signalCache.btc  },
-    { key: "gold", sig: signalCache.gold },
-    { key: "spx",  sig: signalCache.spx  }
-  ];
+  const assets = assetRegistry.ASSET_KEYS.map(key => ({ key, sig: signalCache[key] }));
 
   const results = await Promise.allSettled(assets.map(async ({ key, sig }) => {
     if (!sig) return { key, analysis: null };
@@ -4624,21 +10292,85 @@ app.post("/api/ai-brain", async (req, res) => {
       `(3) key levels to watch, (4) execution plan if signal fires, (5) main risk. ` +
       `Be specific with prices. Institutional quality.`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       model: "claude-opus-5",
-      max_tokens: 1000,
-      thinking: { type: "enabled", budget_tokens: 500 },
+      // Adaptive thinking, matching the AI-filter call site above. This was
+      // { type: "enabled", budget_tokens: 500 } until 2026-08-30 - a form that is
+      // REMOVED on claude-opus-5 and returns 400, with 500 additionally below the
+      // old 1024 floor, so it failed two independent ways on all three assets on
+      // every single call. It never surfaced because wrapAnthropicWithCliFallback
+      // caught the 400 and silently re-served each brief through the Claude CLI:
+      // the page rendered, the handler logged success, and the only trace was 83
+      // lines of "[anthropic] API rail failed (400 ... thinking.) - served via
+      // CLI/subscription". A working fallback masking a broken primary is the
+      // hardest kind of bug to see, and it cost three CLI subprocesses per load.
+      //
+      // max_tokens 1000 -> 4096 is part of the fix, not a tidy-up. With thinking on,
+      // max_tokens has to cover the thinking AND the reply; left at 1000 the briefs
+      // would truncate mid-sentence, which looks exactly like the fix not working.
+      // effort: the first version of this fix used "low" to mirror the filter site.
+      // That was wrong by the same standard this file keeps applying elsewhere. The
+      // filter asks for ~50 tokens of JSON under a 25s bridge deadline; this asks for
+      // a five-sentence brief that synthesises ~20 inputs across three timeframes and
+      // names levels, a plan and a risk. They are not the same ask. Worse, for the 15
+      // days the API rail was dead EVERY brief was produced by runClaudeCli at Claude
+      // Code defaults, so shipping "low" silently DOWNGRADED a user-visible output,
+      // and the change was "verified" by character count - which measures length and
+      // termination, not quality. "medium" restores roughly what was actually
+      // shipping. No controlled side-by-side quality read has been done.
+      //
+      // max_tokens 8192 breaks the coupling between these two lines. At 4096 the
+      // headroom existed only BECAUSE effort was low, so raising effort later would
+      // have walked into truncation. Verified safe: the SDK throws for non-streaming
+      // above 21,333 (3600000*max/128000 > 600000) and claude-opus-5 is absent from
+      // MODEL_NONSTREAMING_TOKENS, so no streaming is required at this value.
+      max_tokens: 8192,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium" },
       messages: [{ role: "user", content: prompt }]
+    }, {
+      // Without this a hung call inherits the SDK defaults - 600s timeout with 2
+      // retries - so a stalled rail could hold the socket for ~30 minutes while the
+      // page spins "Thinking..." forever, because neither express nor the fetch at
+      // dashboard/index.html sets a deadline. Measured runs are 13-17s.
+      timeout: AI_BRAIN_REQUEST_TIMEOUT_MS
     });
+    // stop_reason was unchecked, which made two different silent failures look normal:
+    // a max_tokens cut renders as a complete brief, and adaptive thinking eating the
+    // whole budget before any text block leaves analysis null - identical on the page
+    // to an asset with no cached signal. Neither is silent now.
+    if (msg.stop_reason === "max_tokens") {
+      console.warn(`[ai-brain] ${key}: hit max_tokens (${msg.usage?.output_tokens ?? "?"} out) - brief may be truncated`);
+    }
     const analysis = (msg.content ?? []).find(b => b.type === "text")?.text ?? null;
+    if (analysis === null) {
+      console.warn(`[ai-brain] ${key}: no text block in response (stop_reason=${msg.stop_reason ?? "?"})`);
+    }
     return { key, analysis };
   }));
 
-  const out = { elapsed: Date.now() - start };
+  // A rejected promise used to leave NO trace: r.reason was never read, the key was
+  // simply absent, and the line below still said "3 parallel analyses done". That is
+  // the same masking shape that hid the budget_tokens 400 for 15 days - a clean log
+  // and a 200 over the top of three failures - so repairing the rail without
+  // repairing this would have left the detector broken for the next outage.
+  //
+  // The precondition is documented on these boxes: with Anthropic credit exhausted
+  // AND the CLI rail unavailable, wrapAnthropicWithCliFallback rethrows and all three
+  // reject. `failed` is emitted so a consumer can tell "this asset failed" from "this
+  // asset had nothing to say" - the page renders both as "No analysis" today and has
+  // no way to separate them without it.
+  const out = { elapsed: Date.now() - start, failed: 0 };
   for (const r of results) {
-    if (r.status === "fulfilled") out[r.value.key] = r.value.analysis;
+    if (r.status === "fulfilled") {
+      out[r.value.key] = r.value.analysis;
+    } else {
+      out.failed++;
+      console.error(`[ai-brain] analysis FAILED: ${String(r.reason?.message ?? r.reason).slice(0, 200)}`);
+    }
   }
-  console.log(`[ai-brain] 3 parallel analyses done in ${out.elapsed}ms`);
+  console.log(`[ai-brain] ${results.length - out.failed}/${results.length} analyses done in ${out.elapsed}ms` +
+              (out.failed ? ` (${out.failed} FAILED)` : ""));
   res.json(out);
 });
 
@@ -4658,9 +10390,24 @@ app.get("/command",    (_, res) => res.sendFile(path.join(__dirname, "..", "dash
 app.get("/jarvis",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "jarvis.html")));
 app.get("/system",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "system.html")));
 app.get("/plan",       (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "plan.html")));
+app.get("/strategy",   (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "strategy.html")));
+app.get("/report",     (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "report.html")));
+// Strategy Lab. Reading surface only: it renders artifacts tasks/lab_report.cjs has
+// ALREADY written and runs no harness. Deliberately NOT added to
+// PAGES_NO_LOGIN_REQUIRED, so it inherits the session gate like every other page
+// under /dashboard - a candidate assessment names strategies and their measured
+// edge, which is the last thing that should answer to an unauthenticated GET.
+app.get("/lab",        (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "lab.html")));
+// Reading surface only. It composes /api/fleet, /api/gate-health, /api/signals,
+// /api/risk-status and /api/mt5/health — it runs nothing and posts nothing.
+app.get("/architecture", (_, res) => res.sendFile(path.join(__dirname, "..", "dashboard", "architecture.html")));
 app.use("/screenshots", express.static(path.join(__dirname, "..", "dashboard", "screenshots")));
 app.use(express.static(path.join(__dirname, "..", "commercial")));
 app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
+// Public. Reads only /api/signals, /api/strategy-settings and /api/evidence-board,
+// all of which already answer 200 unauthenticated. Deliberately NOT /api/risk-status,
+// which returns the MT5 login in its account config.
+app.get("/investment", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "investment.html")));
 
 // ── /api/healer ───────────────────────────────────────────────
 app.get("/api/healer", (_, res) => {
@@ -4682,7 +10429,16 @@ app.post("/api/healer/heal", async (_, res) => {
 // and a status page that is quietly wrong is worse than none — that is exactly how
 // the healer came to report "1/1 account(s) reporting" while half the bridges were
 // dead. If a fact here is stale, the system it describes has changed, not the page.
-const SCHEDULED_TASK_PREFIX = "SmartEntry";
+// Task-name prefixes used by this system's own scheduled jobs. "SmartEntry" was the
+// only one until 2026-08-16, and that single word silently hid "JARVIS Morning Agent"
+// from BOTH lists in the AI-employee ledger: it could not be linked to its declared
+// job, and it could not even appear in the unappraised list, because it never survived
+// this filter to reach either. A daily Claude job, running clean for weeks, that
+// nothing on any surface could see. Widening admits exactly one more task on this box
+// and excludes nothing that matched before.
+const SCHEDULED_TASK_PREFIXES = ["SmartEntry", "JARVIS"];
+const isOwnScheduledTask = (name) =>
+  SCHEDULED_TASK_PREFIXES.some((prefix) => name.startsWith(prefix));
 const TASK_QUERY_TIMEOUT_MS = 8000;
 
 // Scheduled Tasks are a Windows-only concept; on anything else report "unavailable"
@@ -4707,7 +10463,7 @@ function readScheduledTasks() {
         const cells = line.split('","').map(c => c.replace(/^"|"$/g, "").trim());
         if (cells.length < 3) return acc;
         const name = cells[0].replace(/^\\+/, "");
-        if (!name.startsWith(SCHEDULED_TASK_PREFIX)) return acc;
+        if (!isOwnScheduledTask(name)) return acc;
         acc.push({ name, nextRun: cells[1], status: cells[2] });
         return acc;
       }, []);
@@ -4716,64 +10472,796 @@ function readScheduledTasks() {
   });
 }
 
+// Both boxes, because the archive lands in a different place on each. vps_backup.ps1
+// writes C:\ai-trading-dashboard-backups on the VPS; pull_vps_backup.bat copies the
+// newest one down to <repo>\vps-backups on the laptop. Checking only the first path
+// made this read MISSING forever on the laptop — a permanently red row is one you
+// stop reading, which is the exact failure this page exists to avoid.
+const BACKUP_DIRS = [
+  path.join(__dirname, "..", "vps-backups"),
+  "C:\\ai-trading-dashboard-backups",
+];
+
+// Verbose task query — the non-verbose one above returns name, next run and status
+// only, which cannot answer "did it succeed" or "what does it actually run". Both
+// of those are what let the AI-employee ledger match a job to its task across two
+// machines that name the same job differently.
+//
+// Slower than the plain query (it returns every column for every task), so it gets
+// its own cache. Windows-only, like the query above; anything else reports null and
+// the ledger falls back to reading log files alone.
+// The verbose query returns EVERY column for every task — 326 lines and 150KB on the
+// VPS, measured at 7.3s there against a shared 8s budget it kept losing by a whisker.
+// It gets its own, larger timeout and a long cache: scheduled-task results change on
+// the order of hours, so paying this once every five minutes is right.
+const VERBOSE_TASK_TIMEOUT_MS = 25 * 1000;
+const VERBOSE_TASK_CACHE_MS   = 5 * 60 * 1000;
+let verboseTaskCache = { at: 0, value: null };
+
+function readScheduledTasksVerbose() {
+  return new Promise((resolve) => {
+    if (process.platform !== "win32") return resolve(null);
+    if (verboseTaskCache.value && Date.now() - verboseTaskCache.at < VERBOSE_TASK_CACHE_MS) {
+      return resolve(verboseTaskCache.value);
+    }
+
+    const child = require("child_process").spawn("schtasks", ["/query", "/fo", "csv", "/v"], { windowsHide: true });
+    let stdout = "";
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (value) verboseTaskCache = { at: Date.now(), value };
+      resolve(value);
+    };
+    const timer = setTimeout(() => { child.kill(); finish(null); }, VERBOSE_TASK_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.on("error", () => { clearTimeout(timer); finish(null); });
+    child.on("close", () => {
+      clearTimeout(timer);
+      try {
+        const rows = stdout.split(/\r?\n/)
+          .map(line => line.split('","').map(cell => cell.replace(/^"|"$/g, "").trim()))
+          .filter(cells => cells.length > 3);
+        // Keep the header rather than using /nh: column ORDER is not contractual
+        // across Windows builds, and reading by index without a header is how a
+        // parser silently starts reporting the wrong field.
+        const header = rows.find(cells => cells.includes("TaskName"));
+        if (!header) return finish(null);
+        const col = (name) => header.indexOf(name);
+        const idxName = col("TaskName"), idxStatus = col("Status"), idxNext = col("Next Run Time");
+        const idxLastRun = col("Last Run Time"), idxResult = col("Last Result"), idxRuns = col("Task To Run");
+        if (idxName === -1) return finish(null);
+
+        // One ROW PER TRIGGER, not per task: "SmartEntry Ensure Running" has three
+        // triggers and appeared three times in the first run of this. Keyed by name
+        // so a multi-trigger task is one job, with the soonest next-run kept.
+        const byName = new Map();
+        for (const cells of rows) {
+          if (cells === header || cells.includes("TaskName")) continue;
+          const name = (cells[idxName] || "").replace(/^\\+/, "");
+          if (!name || !isOwnScheduledTask(name)) continue;
+          const rawResult = idxResult === -1 ? null : Number(cells[idxResult]);
+          const task = {
+            name,
+            status:    idxStatus  === -1 ? null : cells[idxStatus],
+            nextRun:   idxNext    === -1 ? null : cells[idxNext],
+            lastRun:   idxLastRun === -1 ? null : cells[idxLastRun],
+            lastResult: Number.isFinite(rawResult) ? rawResult : null,
+            taskToRun: idxRuns    === -1 ? null : cells[idxRuns],
+          };
+          const existing = byName.get(name);
+          if (!existing) { byName.set(name, task); continue; }
+          // Same task, different trigger: the run history is identical, so keep the
+          // earliest upcoming run as the one worth showing.
+          const a = Date.parse(existing.nextRun || ""), b = Date.parse(task.nextRun || "");
+          if (Number.isFinite(b) && (!Number.isFinite(a) || b < a)) existing.nextRun = task.nextRun;
+        }
+        finish([...byName.values()]);
+      } catch (e) {
+        console.error("[tasks] verbose query parse failed:", e.message);
+        finish(null);
+      }
+    });
+  });
+}
+
 function readLatestBackup() {
-  const backupDir = "C:\\ai-trading-dashboard-backups";
+  const found = [];
+  for (const backupDir of BACKUP_DIRS) {
+    try {
+      if (!fs.existsSync(backupDir)) continue;
+      for (const name of fs.readdirSync(backupDir)) {
+        if (!name.toLowerCase().endsWith(".zip")) continue;
+        try {
+          const stat = fs.statSync(path.join(backupDir, name));
+          found.push({ name, sizeKB: Math.round(stat.size / 1024), modified: stat.mtime.toISOString(), dir: backupDir });
+        } catch (_) { /* a file that vanished mid-scan is not a missing backup */ }
+      }
+    } catch (_) { /* unreadable directory — try the next one */ }
+  }
+  if (found.length === 0) return null;
+  return found.sort((a, b) => new Date(b.modified) - new Date(a.modified))[0];
+}
+
+// ── Fleet view: pull what the OTHER box actually believes ─────────────────────
+//
+// /api/peer-heartbeat already answers "is the other box alive", but liveness has
+// never been the expensive failure. Every expensive failure has been a DIVERGENCE
+// while both boxes looked healthy: AutoTrading disabled on the VPS for 11 days
+// behind green health checks; strategy_settings.json never syncing, so the same
+// commit ran a different gate; cohort_table.js absent, so the box that trades
+// continuously was the one box that never reported a dead cohort. This pulls the
+// peer's own public state and compares it, so a split shows up on a screen instead
+// of in the journal weeks later.
+//
+// Read-only and out of band: three GETs against endpoints that are already public,
+// writing nothing and feeding no gate. With PEER_SERVER_URL unset it reports
+// configured:false and this endpoint behaves exactly as it did before.
+const PEER_PROBE_TIMEOUT_MS = 3000;
+const PEER_PROBE_CACHE_MS   = 30 * 1000;
+const BACKUP_STALE_HOURS    = 24;
+const LOG_DIR_WARN_MB       = 500;
+const PARITY_STALE_DAYS     = 7;
+// tasks/vps_monitor.ps1 pushes every 5 minutes, so three missed pushes is a real
+// silence rather than one unlucky timeout.
+const HEARTBEAT_STALE_MINUTES = 15;
+
+/**
+ * Boxes that MUST check in, declared rather than discovered — you cannot notice
+ * the absence of something you never declared, which is the same reasoning that
+ * put MT5_EXPECTED_ACCOUNTS in keys.env. peerHeartbeats is in-memory, so an
+ * undeclared box that has simply never pushed is indistinguishable from one that
+ * died; declaring it is what makes the silence mean something.
+ *
+ * Unset (the laptop, which nothing can push to) => no alarm, a standing note.
+ */
+function expectedHeartbeatBoxes() {
+  return String(process.env.PEER_HEARTBEAT_EXPECT || "")
+    .split(",").map(name => name.trim()).filter(Boolean);
+}
+
+function assessHeartbeats(uptimeSeconds) {
+  const now = Date.now();
+  const expected = expectedHeartbeatBoxes();
+  const seen = Object.values(peerHeartbeats).map(beat => {
+    const ageSeconds = Math.round((now - new Date(beat.at).getTime()) / 1000);
+    return { ...beat, ageSeconds, stale: ageSeconds > HEARTBEAT_STALE_MINUTES * 60 };
+  });
+  const byName = new Map(seen.map(beat => [beat.box.toUpperCase(), beat]));
+
+  // A restart empties the in-memory store, so nothing is "missing" until a full
+  // stale window has passed since boot — otherwise every restart invents an alarm.
+  const withinStartupGrace = uptimeSeconds < HEARTBEAT_STALE_MINUTES * 60;
+
+  const missing = [], stale = [];
+  for (const name of expected) {
+    const beat = byName.get(name.toUpperCase());
+    if (!beat) { if (!withinStartupGrace) missing.push(name); }
+    else if (beat.stale) stale.push(name);
+  }
+  return { expected, seen, missing, stale, withinStartupGrace, staleAfterMinutes: HEARTBEAT_STALE_MINUTES };
+}
+
+// vps_monitor.ps1 pushes every 5 minutes; checking on the same cadence detects a
+// silence within one stale window rather than whenever somebody next opens a page.
+const PEER_SILENCE_CHECK_MS = 5 * 60 * 1000;
+
+/**
+ * Box names currently reported as silent. The alert is EDGE-triggered off this set,
+ * not off a cooldown timer: a cooldown re-sends forever during a long outage and
+ * trains you to mute the channel, which is the same failure as never alerting.
+ */
+const peerSilenceAlerted = new Set();
+
+/**
+ * Where an unattended alert goes. TELEGRAM_CHAT_ID is the only reliable source on the
+ * VPS: knownChatIds is populated by polling, and polling is permanently disabled there
+ * because a webhook is registered and getUpdates 409s on every call.
+ */
+function peerAlertChatId() {
+  return TELEGRAM_CHAT_ID || [...knownChatIds][0] || "";
+}
+
+/**
+ * sendTelegram posts with parse_mode HTML, so any raw < or & in an interpolated value
+ * makes Telegram reject the whole message with a 400 — which sendTelegram catches and
+ * logs, silently dropping the alert. An alert that cannot render is an alert that does
+ * not arrive, which is the failure this whole watcher exists to remove.
+ */
+function escapeTelegramHtml(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** The peer's last known state, so the alert says what it was doing when it went quiet. */
+function describeLastKnownState(state) {
+  if (!state) return "last state: not reported";
+  const parts = [];
+  if (state.gate !== null)         parts.push(`gate ${state.gate}`);
+  if (state.halted)                parts.push(`HALTED${state.haltReason ? ` (${escapeTelegramHtml(state.haltReason)})` : ""}`);
+  if (state.armed?.length)         parts.push(`armed ${escapeTelegramHtml(state.armed.join(","))}`);
+  if (state.bridgesSilent?.length) parts.push(`bridges silent ${escapeTelegramHtml(state.bridgesSilent.join(","))}`);
+  if (state.settingsError)         parts.push("settings ERROR");
+  return parts.length ? `last state: ${parts.join(" · ")}` : "last state: reported, nothing notable";
+}
+
+function silenceAlertText(name, beat, staleAfterMinutes) {
+  const header = `🔴 <b>FLEET: ${escapeTelegramHtml(name)} HAS GONE SILENT</b>`;
+  if (!beat) {
+    return `${header}\n\nDeclared in PEER_HEARTBEAT_EXPECT but has not checked in once since this server started.\n\nThat box cannot be reached from here, so its silence is the only symptom available — and a sleeping machine's bridge stops trading with nothing else looking wrong.`;
+  }
+  const minutes = Math.round(beat.ageSeconds / 60);
+  const forHuman = minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+  return `${header}\n\nNo check-in for <b>${forHuman}</b> (alarm threshold ${staleAfterMinutes}m).\nLast seen: ${beat.at}\n${describeLastKnownState(beat.state)}\n\nThat box cannot be reached from here, so its silence is the only symptom available.`;
+}
+
+function recoveryAlertText(name, beat) {
+  const detail = beat ? `\n${describeLastKnownState(beat.state)}` : "";
+  return `🟢 <b>FLEET: ${escapeTelegramHtml(name)} IS BACK</b>\n\nCheck-ins have resumed.${detail}`;
+}
+
+/**
+ * Evaluate peer silence on a timer and alert on the transition.
+ *
+ * This exists because assessHeartbeats() had exactly one caller — the /api/system-plan
+ * handler — so the detector only ran when a human was already looking. On 2026-08-21
+ * that let a 33.4-hour laptop outage pass with no notification of any kind: nine
+ * scheduled jobs missed a full day and the gap was found by reading a log afterwards.
+ *
+ * Read-only over state the heartbeat endpoint already records. Sends a message and
+ * nothing else: no gate, no signal, no position, no setting.
+ */
+function checkPeerSilence() {
   try {
-    if (!fs.existsSync(backupDir)) return null;
-    const newest = fs.readdirSync(backupDir)
-      .filter(name => name.toLowerCase().endsWith(".zip"))
-      .map(name => {
-        const stat = fs.statSync(path.join(backupDir, name));
-        return { name, sizeKB: Math.round(stat.size / 1024), modified: stat.mtime.toISOString() };
-      })
-      .sort((a, b) => new Date(b.modified) - new Date(a.modified))[0];
-    return newest || null;
+    const heartbeats = assessHeartbeats(Math.round(process.uptime()));
+    if (!heartbeats.expected.length) return;
+
+    const byName  = new Map(heartbeats.seen.map(beat => [beat.box.toUpperCase(), beat]));
+    const chatId  = peerAlertChatId();
+    const downNow = new Set([...heartbeats.missing, ...heartbeats.stale]);
+
+    for (const name of downNow) {
+      if (peerSilenceAlerted.has(name)) continue;
+      peerSilenceAlerted.add(name);
+      const beat = byName.get(name.toUpperCase()) || null;
+      const text = silenceAlertText(name, beat, heartbeats.staleAfterMinutes);
+      console.error(`[fleet] PEER SILENT: ${name} — ${beat ? `${beat.ageSeconds}s since last check-in` : "never checked in"}`);
+      // Marked alerted BEFORE the send so a Telegram outage cannot turn one alert into
+      // a retry every five minutes. A dropped alert is still visible in this log.
+      if (chatId) sendTelegram(chatId, text).catch(() => {});
+    }
+
+    for (const name of [...peerSilenceAlerted]) {
+      if (downNow.has(name)) continue;
+      peerSilenceAlerted.delete(name);
+      console.log(`[fleet] PEER RECOVERED: ${name}`);
+      if (chatId) sendTelegram(chatId, recoveryAlertText(name, byName.get(name.toUpperCase()) || null)).catch(() => {});
+    }
+  } catch (e) {
+    // A watcher that throws must not take the trading server with it.
+    console.error("[fleet] peer-silence check failed:", e?.message || e);
+  }
+}
+
+/**
+ * Say at boot whether this box will ever actually alert. A watcher that cannot send is
+ * indistinguishable from a healthy fleet, which is the exact class of decoration this
+ * change exists to remove.
+ */
+function startPeerSilenceWatch() {
+  const expected = expectedHeartbeatBoxes();
+  if (!expected.length) {
+    console.log("[fleet] Peer-silence watch INERT — PEER_HEARTBEAT_EXPECT unset (correct on a box nothing pushes to).");
+    return;
+  }
+  if (!TELEGRAM_TOKEN || !peerAlertChatId()) {
+    console.error(`[fleet] Peer-silence watch WATCHING ${expected.join(",")} BUT CANNOT ALERT — ${!TELEGRAM_TOKEN ? "TELEGRAM_TOKEN" : "TELEGRAM_CHAT_ID"} is unset. Silence will reach the log only.`);
+  } else {
+    console.log(`[fleet] Peer-silence watch armed — ${expected.join(",")}, alarm at ${HEARTBEAT_STALE_MINUTES}m, checking every ${PEER_SILENCE_CHECK_MS / 60000}m.`);
+  }
+  setInterval(checkPeerSilence, PEER_SILENCE_CHECK_MS).unref?.();
+  checkPeerSilence();
+}
+
+/**
+ * The worst MT5 bar staleness in ONE box's /api/signals payload.
+ *
+ * Per-asset barFreshness has been stamped on /api/signals since the wedged-terminal
+ * check landed, and dashboard/index.html shows it — for this box only. The failure it
+ * exists to catch is the one that hides best across the fleet: the bridge keeps
+ * posting on schedule, receivedAt stays seconds old, the bars stop moving, and every
+ * health check on both boxes stays green. The box that trades continuously is the one
+ * nobody is looking at, so the fact has to travel.
+ *
+ * Only assets that actually reported checked:true are judged. A pre-timestamp bridge
+ * sends no bar times, and counting that as fresh — or inventing an age or a date for
+ * it — would turn an admitted gap into a confident wrong number.
+ *
+ * Which assets were judged and which were not travels with the verdict, and so does
+ * each unjudged asset's OWN reason. A summary that reported checked:true while two of
+ * three assets were never looked at would read as a clean pass, and a page that names
+ * one hardcoded cause for "unverified" would prescribe the wrong remedy: no bars
+ * pushed yet, a bridge that predates the timestamps, an empty cache after a restart
+ * and a peer whose server predates this field are four different problems.
+ *
+ * judgedAt is the payload's own updatedAt, because every field here is FROZEN at
+ * signal-refresh time. If the refresh chain stalls, "current" would otherwise stay on
+ * screen forever — the same green-while-wedged pattern this check exists to break.
+ *
+ * `stale` stays a statement about the MT5 SERIES alone: when it is true the engine has
+ * already fallen back to Yahoo, so the prices being served are current and it is the
+ * broker feed that is not. `usedForThisSignal` carries that second fact.
+ */
+function summarizeBarFreshness(signalsPayload) {
+  const nothingJudged = (reason, judgedAt = null, unjudgedAssets = []) => ({
+    checked: false, staleAssets: [], worst: null,
+    judgedAssets: [], unjudgedAssets, reason, judgedAt,
+  });
+  if (!signalsPayload || typeof signalsPayload !== "object") {
+    return nothingJudged("the signals payload was not readable");
+  }
+
+  const judgedAt = typeof signalsPayload.updatedAt === "string" ? signalsPayload.updatedAt : null;
+
+  // Discovered from the payload rather than from a hardcoded asset list: an asset
+  // added to the engine and forgotten here would silently never be judged.
+  const judged = [];
+  const unjudged = [];
+  for (const assetKey of Object.keys(signalsPayload)) {
+    if (assetKey === "updatedAt") continue;
+    const asset = signalsPayload[assetKey];
+    if (asset === null) {
+      unjudged.push({ asset: assetKey, reason: "no signal has been generated yet" });
+      continue;
+    }
+    if (typeof asset !== "object") continue;   // a scalar field, not an asset
+    const freshness = asset.barFreshness;
+    if (!freshness || typeof freshness !== "object") {
+      unjudged.push({ asset: assetKey, reason: "signal carries no barFreshness field — that server predates this check" });
+      continue;
+    }
+    if (freshness.checked !== true) {
+      unjudged.push({
+        asset: assetKey,
+        reason: typeof freshness.reason === "string" && freshness.reason
+          ? freshness.reason
+          : "reported unverified without a reason",
+      });
+      continue;
+    }
+    judged.push({
+      asset: assetKey,
+      stale: freshness.stale === true,
+      ageMs: Number.isFinite(freshness.ageMs) ? freshness.ageMs : null,
+      lastBarAt: typeof freshness.lastBarAt === "string" ? freshness.lastBarAt : null,
+      reason: typeof freshness.reason === "string" ? freshness.reason : "",
+      usedForThisSignal: freshness.usedForThisSignal === true,
+    });
+  }
+
+  // Distinct reasons, so three assets failing for one cause read as one sentence.
+  const unjudgedReason = [...new Set(unjudged.map(entry => entry.reason))].join("; ");
+  if (judged.length === 0) {
+    return nothingJudged(
+      unjudged.length === 0 ? "no assets in the signals payload" : unjudgedReason,
+      judgedAt,
+      unjudged.map(entry => entry.asset),
+    );
+  }
+
+  // Stale first, then the laggiest series. An absent age must lose every comparison
+  // rather than win one by being falsy, and a broker-clock bar timed in the FUTURE
+  // gives a negative age — which is still a real reading and must outrank "no age".
+  const ageRank = (entry) => (entry.ageMs === null ? Number.NEGATIVE_INFINITY : entry.ageMs);
+  judged.sort((a, b) => {
+    if (a.stale !== b.stale) return a.stale ? -1 : 1;
+    return ageRank(b) - ageRank(a);
+  });
+
+  return {
+    checked: true,
+    staleAssets: judged.filter(entry => entry.stale).map(entry => entry.asset),
+    worst: judged[0],
+    judgedAssets: judged.map(entry => entry.asset),
+    unjudgedAssets: unjudged.map(entry => entry.asset),
+    reason: unjudgedReason,
+    judgedAt,
+  };
+}
+
+let peerProbeCache = { at: 0, value: null };
+
+async function probePeer() {
+  const base = String(process.env.PEER_SERVER_URL || "").trim().replace(/\/+$/, "");
+  if (!base) return { configured: false, reachable: false, url: null, error: null };
+  if (peerProbeCache.value && Date.now() - peerProbeCache.at < PEER_PROBE_CACHE_MS) {
+    return peerProbeCache.value;
+  }
+
+  const getJson = (route) => axios
+    .get(base + route, { timeout: PEER_PROBE_TIMEOUT_MS, validateStatus: (status) => status === 200 })
+    .then((response) => response.data);
+
+  const peer = {
+    configured: true, url: base, reachable: false, probedAt: new Date().toISOString(), error: null,
+    healthy: null, checks: null,
+    gate: null, fixedLotSize: null, settingsError: null,
+    halted: null, haltReason: "", dailyPnl: null, consecutiveLosses: null,
+    accountTags: [], accounts: {}, bridges: { reporting: [], silent: [] },
+    settings: null, aiWork: null,
+    // Unverified until the peer answers, and unverified is NOT fresh. Replaced below
+    // on both paths — fulfilled and rejected — so the shape never varies.
+    barFreshness: {
+      checked: false, staleAssets: [], worst: null,
+      judgedAssets: [], unjudgedAssets: [], judgedAt: null,
+      reason: "the peer has not been probed yet",
+    },
+  };
+
+  // allSettled, never all: a peer that answers three of four questions is far more
+  // useful than a probe that throws away every answer because the fourth timed out.
+  const [healerResult, riskResult, settingsResult, aiWorkResult, signalsResult] = await Promise.allSettled([
+    getJson("/api/healer"),
+    getJson("/api/risk-status"),
+    getJson("/api/strategy-settings"),
+    getJson("/api/ai-work"),
+    getJson("/api/signals"),
+  ]);
+
+  if (healerResult.status === "fulfilled") {
+    peer.reachable = true;
+    peer.healthy = healerResult.value?.healthy === true;
+    peer.checks  = healerResult.value?.checks ?? null;
+  }
+  if (riskResult.status === "fulfilled") {
+    peer.reachable = true;
+    const remoteRisk = riskResult.value || {};
+    peer.halted            = remoteRisk.halted === true;
+    peer.haltReason        = typeof remoteRisk.haltReason === "string" ? remoteRisk.haltReason : "";
+    peer.dailyPnl          = typeof remoteRisk.dailyPnl === "number" ? remoteRisk.dailyPnl : null;
+    peer.consecutiveLosses = typeof remoteRisk.consecutiveLosses === "number" ? remoteRisk.consecutiveLosses : null;
+    peer.accountTags       = Object.keys(remoteRisk.accounts || {});
+    // Kept whole: config.autoMode per account is the only honest answer to "is that
+    // box actually arming trades", and it is reported by the bridge that enforces it.
+    peer.accounts          = remoteRisk.accounts || {};
+  }
+  if (settingsResult.status === "fulfilled") {
+    peer.reachable = true;
+    const remoteSettings = settingsResult.value || {};
+    peer.gate          = typeof remoteSettings.confidenceThreshold === "number" ? remoteSettings.confidenceThreshold : null;
+    peer.fixedLotSize  = typeof remoteSettings.fixedLotSize === "number" ? remoteSettings.fixedLotSize : null;
+    peer.settingsError = remoteSettings.settingsError || null;
+    peer.settings      = remoteSettings;
+  }
+  if (aiWorkResult.status === "fulfilled") {
+    peer.reachable = true;
+    peer.aiWork = aiWorkResult.value || null;
+  }
+  if (signalsResult.status === "fulfilled") {
+    // /api/signals is public on both boxes (API_NO_LOGIN_REQUIRED), so this needs no
+    // session — the same reason the healer and risk probes above work.
+    //
+    // Deliberately does NOT set reachable: that route is a bare in-memory dump
+    // (res.json(signalCache)) and answers even when the healer and risk routes are
+    // failing. Letting it prove reachability would turn a degraded box into one that
+    // reports reachable with every state field null — suppressing the "not answering"
+    // action item while nothing else fires either.
+    peer.barFreshness = summarizeBarFreshness(signalsResult.value);
+  } else {
+    // A peer that answers its healer but not its signals is NOT a peer whose bars are
+    // unverified — those two must not render alike. The probe is cached for 30s, so an
+    // unearned claim about the other box's broker feed would also persist.
+    peer.barFreshness = {
+      checked: false, staleAssets: [], worst: null,
+      judgedAssets: [], unjudgedAssets: [], judgedAt: null, probeFailed: true,
+      reason: "the peer's /api/signals did not answer: "
+        + String(signalsResult.reason?.message || signalsResult.reason).slice(0, 120),
+    };
+  }
+  if (!peer.reachable) {
+    const firstFailure = [healerResult, riskResult, settingsResult, aiWorkResult, signalsResult].find(r => r.status === "rejected");
+    peer.error = firstFailure
+      ? String(firstFailure.reason?.message || firstFailure.reason).slice(0, 200)
+      : "no response";
+  }
+
+  // Bridge liveness per account tag, using the same authoritative heartbeat test
+  // this box uses on itself — a process list is not a substitute on either machine.
+  if (peer.reachable && peer.accountTags.length > 0) {
+    const bridgeResults = await Promise.allSettled(
+      peer.accountTags.map(tag => getJson("/api/mt5/health?account=" + encodeURIComponent(tag)))
+    );
+    bridgeResults.forEach((result, index) => {
+      const tag = peer.accountTags[index];
+      if (result.status === "fulfilled" && result.value?.connected === true) peer.bridges.reporting.push(tag);
+      else peer.bridges.silent.push(tag);
+    });
+  }
+
+  peerProbeCache = { at: Date.now(), value: peer };
+  return peer;
+}
+
+// Last engine-parity verdict, written only when vps_parity.cjs is run with --emit.
+// The comparison itself stays a deliberate manual act; this just stops its answer
+// from living exclusively in a terminal scrollback nobody re-reads.
+function readParityResult() {
+  const parityPath = path.join(__dirname, "..", "tasks", "logs", "vps_parity_last.json");
+  try {
+    if (!fs.existsSync(parityPath)) {
+      return { available: false, reason: "never run — node tasks/vps_parity.cjs --emit" };
+    }
+    const saved = JSON.parse(fs.readFileSync(parityPath, "utf8"));
+    const ranAt = saved.ranAt ? new Date(saved.ranAt) : null;
+    const ageHours = ranAt && !isNaN(ranAt.getTime()) ? (Date.now() - ranAt.getTime()) / 3600000 : null;
+    return {
+      available:   true,
+      ranAt:       saved.ranAt ?? null,
+      ageHours:    ageHours === null ? null : Math.round(ageHours * 10) / 10,
+      engineDrift: saved.engineDrift ?? null,
+      scalarDrift: saved.scalarDrift ?? null,
+      fileDrift:   saved.fileDrift ?? null,
+      // The names behind those counts. Absent from any record written before
+      // 2026-08-23, so an older file yields [] rather than undefined and a reader can
+      // tell "none differ" from "this run did not record which" by comparing the array
+      // against the count. Defaulted here rather than at each caller so one stale file
+      // cannot make a page throw.
+      filesDiffering:   Array.isArray(saved.filesDiffering)   ? saved.filesDiffering   : [],
+      enginesDiffering: Array.isArray(saved.enginesDiffering) ? saved.enginesDiffering : [],
+      scalarsDiffering: Array.isArray(saved.scalarsDiffering) ? saved.scalarsDiffering : [],
+      verdict:     saved.verdict ?? null,
+    };
+  } catch (e) {
+    return { available: false, reason: "unreadable: " + e.message };
+  }
+}
+
+// Measured, so "no log rotation" can carry a number and stop being a permanent
+// line of furniture on the page.
+function readLogDirSizeMB() {
+  const logDir = path.join(__dirname, "..", "tasks", "logs");
+  try {
+    const totalBytes = fs.readdirSync(logDir).reduce((sum, name) => {
+      try {
+        const stat = fs.statSync(path.join(logDir, name));
+        return sum + (stat.isFile() ? stat.size : 0);
+      } catch (_) { return sum; }
+    }, 0);
+    return Math.round(totalBytes / (1024 * 1024) * 10) / 10;
   } catch (_) {
     return null;
   }
 }
 
-// Things only a human can clear. Derived from configuration, so an item disappears
-// when it is genuinely resolved rather than when someone remembers to delete it.
-function deriveActionItems(expectedAccounts, reportingAccounts) {
-  const items = [];
+// Things only a human can clear, split two ways.
+//
+// actionItems are conditions that CAN clear; standingNotes are true, accepted and
+// waiting on nobody today. The split exists because three of the four items here
+// were previously unconditional — "Bridge B disabled" fires forever on a box that
+// deliberately runs one account — so the panel meant to demand attention sat
+// permanently at three and taught you to skim past the one that mattered.
+// Nothing was dropped in the split: every original item is still produced, and
+// each now states the condition that would retire it.
+function deriveActionItems(context) {
+  const {
+    expectedAccounts, reportingAccounts,
+    localHalted, localHaltReason, localGate, localSettingsError,
+    peer, parity, backup, logDirSizeMB, heartbeats,
+  } = context;
+
+  const actionItems   = [];
+  const standingNotes = [];
 
   const missingBridges = expectedAccounts.filter(tag => !reportingAccounts.includes(tag));
   if (missingBridges.length > 0) {
-    items.push({
+    actionItems.push({
       severity: "high",
       title: `Bridge ${missingBridges.join(", ")} expected but not reporting`,
       detail: "A bridge this deployment declares as required is silent. Check its terminal login and the bridge log.",
     });
   }
 
-  if (!expectedAccounts.includes("B")) {
-    items.push({
-      severity: "medium",
-      title: "Bridge B disabled — needs a second demo account",
-      detail: "This machine holds one broker account. Two bridges on one account would place every trade twice at double risk, so B stays off until a second account exists. Then set MT5_EXPECTED_LOGIN in start_bridge_B_vps.bat and MT5_EXPECTED_ACCOUNTS=A,B.",
+  if (localHalted) {
+    actionItems.push({
+      severity: "high",
+      title: "Circuit breaker open on this box",
+      detail: (localHaltReason || "Trading is halted here.") + " Nothing on this box trades until it is cleared, and an absence of trades looks exactly like a quiet market.",
     });
   }
 
-  items.push({
-    severity: "low",
-    title: "No log rotation",
-    detail: "tasks/logs grows without bound. Not urgent at current disk headroom, but nothing trims it.",
-  });
+  if (localSettingsError) {
+    actionItems.push({
+      severity: "high",
+      title: "This box is running built-in defaults, not the saved config",
+      detail: `strategy_settings.json did not load (${localSettingsError}). Every number on every page describes defaults, and live position sizing is not what the file says.`,
+    });
+  }
 
-  items.push({
+  if (peer.configured && !peer.reachable) {
+    actionItems.push({
+      severity: "high",
+      title: "The other box is not answering",
+      detail: `${peer.url} did not respond (${peer.error || "no response"}). That is the box trading continuously, so its silence is not a quiet market — check it before reading any number here as the fleet's.`,
+    });
+  }
+
+  if (peer.reachable) {
+    if (peer.halted) {
+      actionItems.push({
+        severity: "high",
+        title: "Circuit breaker open on the other box",
+        detail: (peer.haltReason || "Trading is halted there.") + " The box that trades continuously is not trading, and nothing on this machine would have told you.",
+      });
+    }
+    if (peer.settingsError) {
+      actionItems.push({
+        severity: "high",
+        title: "The other box is running built-in defaults, not its saved config",
+        detail: `Its strategy_settings.json did not load (${peer.settingsError}). It is sizing and gating on defaults right now.`,
+      });
+    }
+    if (peer.gate !== null && localGate !== null && peer.gate !== localGate) {
+      actionItems.push({
+        severity: "high",
+        title: `Confidence gate differs across the fleet — ${localGate} here, ${peer.gate} there`,
+        detail: "strategy_settings.json is per-machine and untracked, so a shared commit does not mean shared behaviour. The two boxes will admit different trades from identical bars, and any conclusion pooling their journals is unattributable.",
+      });
+    }
+    if (peer.bridges.silent.length > 0) {
+      actionItems.push({
+        severity: "high",
+        title: `Bridge ${peer.bridges.silent.join(", ")} silent on the other box`,
+        detail: "That box declares the account but no heartbeat is arriving from its bridge. Check its MT5 terminal login and bridge log.",
+      });
+    }
+    if (peer.healthy === false) {
+      actionItems.push({
+        severity: "medium",
+        title: "The other box reports degraded health",
+        detail: "Its own healer is not returning healthy. Open its /plan or /api/healer for which check is failing.",
+      });
+    }
+  }
+
+  if (parity.available && (parity.engineDrift > 0 || parity.scalarDrift > 0)) {
+    actionItems.push({
+      severity: "high",
+      title: "The two boxes do not run the same engine",
+      detail: `${parity.engineDrift} engine function(s) and ${parity.scalarDrift} constant(s) differ as of the last parity run${parity.ageHours !== null ? ` (${parity.ageHours}h ago)` : ""}. They can produce different signals from identical bars — reconcile before drawing any conclusion that pools both boxes.`,
+    });
+  } else if (!parity.available) {
+    actionItems.push({
+      severity: "low",
+      title: "Engine parity has never been recorded",
+      detail: `${parity.reason}. Until it runs, nothing on this page proves the two boxes share a trading engine — only that both are up.`,
+    });
+  } else if (parity.ageHours !== null && parity.ageHours > PARITY_STALE_DAYS * 24) {
+    actionItems.push({
+      severity: "low",
+      title: `Engine parity last checked ${Math.round(parity.ageHours / 24)} days ago`,
+      detail: "The VPS carries commits this repo has never seen and its index.js is patched by hand, so parity decays with every deploy. Re-run node tasks/vps_parity.cjs --emit.",
+    });
+  }
+
+  // A box that stops checking in. This is the ONLY signal that survives a machine
+  // the other one cannot reach — the laptop is not addressable from outside, so if
+  // it sleeps, Bridge A stops trading and the absence of trades looks exactly like
+  // a quiet market. The channel existed since 2026-08-03 and delivered nothing
+  // until 2026-08-10: every push was rejected 401 by the auth middleware on the
+  // receiving box, and the only record was one line in a monitor log.
+  if (heartbeats.missing.length > 0) {
+    actionItems.push({
+      severity: "high",
+      title: `${heartbeats.missing.join(", ")} has not checked in`,
+      detail: `Declared in PEER_HEARTBEAT_EXPECT and silent for more than ${heartbeats.staleAfterMinutes} minutes. That box cannot be reached from here, so its silence is the only symptom you get — and a sleeping machine's bridge stops trading without anything looking wrong.`,
+    });
+  }
+  if (heartbeats.stale.length > 0) {
+    actionItems.push({
+      severity: "high",
+      title: `${heartbeats.stale.join(", ")} stopped checking in`,
+      detail: `Last check-in is older than ${heartbeats.staleAfterMinutes} minutes. It was reporting and is not now — check whether the machine is asleep, shut, or has lost its network.`,
+    });
+  }
+  // Divergence detected from a PUSH. The always-on box cannot pull from the laptop,
+  // so until the check-in carried state, the one box that runs continuously could
+  // never tell that its partner was gating trades differently.
+  for (const beat of heartbeats.seen) {
+    const reported = beat.state;
+    if (!reported || beat.stale) continue;
+    if (reported.gate !== null && localGate !== null && reported.gate !== localGate) {
+      actionItems.push({
+        severity: "high",
+        title: `Confidence gate differs — ${localGate} here, ${reported.gate} on ${beat.box}`,
+        detail: "Reported by that box's own check-in. strategy_settings.json is per-machine and untracked, so a shared commit does not mean shared behaviour: the two boxes admit different trades from identical bars and their journals cannot be pooled.",
+      });
+    }
+    if (reported.halted) {
+      actionItems.push({
+        severity: "high",
+        title: `Circuit breaker open on ${beat.box}`,
+        detail: (reported.haltReason || "Trading is halted there.") + " Reported by its own check-in — nothing here can reach that box to ask.",
+      });
+    }
+    if (reported.settingsError) {
+      actionItems.push({
+        severity: "high",
+        title: `${beat.box} is running built-in defaults, not its saved config`,
+        detail: `Its strategy_settings.json did not load (${reported.settingsError}). It is sizing and gating on defaults right now.`,
+      });
+    }
+    if ((reported.bridgesSilent || []).length > 0) {
+      actionItems.push({
+        severity: "high",
+        title: `Bridge ${reported.bridgesSilent.join(", ")} silent on ${beat.box}`,
+        detail: "That box declares the account and reports no heartbeat from its bridge. Its trades are not being placed.",
+      });
+    }
+  }
+
+  if (heartbeats.expected.length === 0) {
+    standingNotes.push({
+      severity: "low",
+      title: "No box is expected to check in here",
+      detail: "PEER_HEARTBEAT_EXPECT is unset, so nothing raises an alarm if the other machine goes quiet. Correct on a box nothing can push to; on the always-on box, list the machines that must report in.",
+    });
+  }
+
+  const backupAgeHours = backup ? (Date.now() - new Date(backup.modified).getTime()) / 3600000 : null;
+  if (!backup) {
+    actionItems.push({
+      severity: "medium",
+      title: "No backup found",
+      detail: "Nothing in the backup directory. The learning data and journal represent weeks of real trades and exist on one disk right now.",
+    });
+  } else if (backupAgeHours !== null && backupAgeHours > BACKUP_STALE_HOURS) {
+    actionItems.push({
+      severity: "medium",
+      title: `Latest backup is ${Math.round(backupAgeHours)}h old`,
+      detail: `Newest archive is ${backup.name}. Anything learned since then exists on one disk only.`,
+    });
+  }
+
+  if (logDirSizeMB !== null && logDirSizeMB > LOG_DIR_WARN_MB) {
+    actionItems.push({
+      severity: "medium",
+      title: `tasks/logs has reached ${logDirSizeMB} MB and nothing trims it`,
+      detail: `Past the ${LOG_DIR_WARN_MB} MB mark this raises at. Rotate or archive it.`,
+    });
+  } else {
+    standingNotes.push({
+      severity: "low",
+      title: "No log rotation",
+      detail: `tasks/logs grows without bound — ${logDirSizeMB === null ? "size unreadable" : logDirSizeMB + " MB"} today, under the ${LOG_DIR_WARN_MB} MB mark that turns this into an action. Nothing trims it.`,
+    });
+  }
+
+  if (!expectedAccounts.includes("B")) {
+    standingNotes.push({
+      severity: "low",
+      title: "Bridge B disabled — needs a second demo account",
+      detail: "This machine holds one broker account. Two bridges on one account would place every trade twice at double risk, so B stays off until a second account exists. Then set MT5_EXPECTED_LOGIN in start_bridge_B_vps.bat and MT5_EXPECTED_ACCOUNTS=A,B. Deliberate, not a fault — it retires itself the moment that variable lists B.",
+    });
+  }
+
+  standingNotes.push({
     severity: "low",
     title: "Voice needs a trusted origin",
     detail: "Chrome allows the microphone only on HTTPS or localhost. Use the SSH tunnel at localhost:3002, or finish the cloudflared tunnel for a real HTTPS URL that also works on a phone.",
   });
 
-  return items;
+  return { actionItems, standingNotes };
 }
 
 app.get("/api/system-plan", async (_, res) => {
   try {
-    const healer   = autohealer.getStatus();
-    const taskInfo = await readScheduledTasks();
+    const healer = autohealer.getStatus();
+
+    // Both are slow and independent, so neither should wait on the other. Each
+    // resolves to an "unavailable" shape rather than rejecting, so a dead peer or a
+    // schtasks timeout degrades one card instead of 500-ing the page.
+    const [taskInfo, peer] = await Promise.all([readScheduledTasks(), probePeer()]);
 
     const reportingAccounts = Object.entries(mt5LastSeenByAccount)
       .filter(([, seenAt]) => Date.now() - new Date(seenAt).getTime() < MT5_HEARTBEAT_STALE_MS)
@@ -4781,6 +11269,42 @@ app.get("/api/system-plan", async (_, res) => {
 
     const expectedAccounts = (process.env.MT5_EXPECTED_ACCOUNTS ?? "A,B")
       .split(",").map(tag => tag.trim()).filter(Boolean);
+
+    const localGate     = typeof strategySettings?.confidenceThreshold === "number" ? strategySettings.confidenceThreshold : null;
+    const localLotSize  = typeof strategySettings?.fixedLotSize === "number" ? strategySettings.fixedLotSize : null;
+    // haltCooldownHours is a bridge env var (HALT_COOLDOWN_HOURS), POSTed on every
+    // risk-status heartbeat inside config{}. A mismatch means one box resumes after
+    // 1 hour and the other stays dark for 48 on the same streak — divergence with
+    // real trading consequences that gate/engine parity cannot catch.
+    const localCooldownHours = (() => {
+      for (const tag of reportingAccounts) {
+        const v = riskStatusByAccount[tag]?.config?.haltCooldownHours;
+        if (typeof v === "number") return v;
+      }
+      return null;
+    })();
+    const peerCooldownHours = (() => {
+      const accounts = peer.accounts || {};
+      for (const tag of Object.keys(accounts)) {
+        const v = accounts[tag]?.config?.haltCooldownHours;
+        if (typeof v === "number") return v;
+      }
+      return null;
+    })();
+    const parity        = readParityResult();
+    const backup        = readLatestBackup();
+    const logDirSizeMB  = readLogDirSizeMB();
+    const heartbeats    = assessHeartbeats(Math.round(process.uptime()));
+
+    const { actionItems, standingNotes } = deriveActionItems({
+      expectedAccounts,
+      reportingAccounts,
+      localHalted:        riskStatus.halted === true,
+      localHaltReason:    riskStatus.haltReason || "",
+      localGate,
+      localSettingsError: strategySettingsError || null,
+      peer, parity, backup, logDirSizeMB, heartbeats,
+    });
 
     res.json({
       generatedAt: new Date().toISOString(),
@@ -4793,11 +11317,1688 @@ app.get("/api/system-plan", async (_, res) => {
         reporting: reportingAccounts,
       },
       scheduledTasks: taskInfo,
-      latestBackup: readLatestBackup(),
-      actionItems: deriveActionItems(expectedAccounts, reportingAccounts),
+      latestBackup: backup,
+      logDirSizeMB,
+      // What THIS box believes, stated in the same shape as the peer so the page can
+      // put them side by side and the comparison is not done by eye across two cards.
+      thisBox: {
+        label: os.hostname(),
+        healthy: healer.healthy,
+        gate: localGate,
+        fixedLotSize: localLotSize,
+        settingsError: strategySettingsError || null,
+        halted: riskStatus.halted === true,
+        haltReason: riskStatus.haltReason || "",
+        dailyPnl: riskStatus.dailyPnl ?? null,
+        consecutiveLosses: riskStatus.consecutiveLosses ?? null,
+        bridges: {
+          reporting: reportingAccounts,
+          silent: expectedAccounts.filter(tag => !reportingAccounts.includes(tag)),
+        },
+        // Read from signalCache in process — the object /api/signals serves verbatim —
+        // so this box is judged from exactly the payload the peer probe reads remotely,
+        // without a server calling its own HTTP port.
+        barFreshness: summarizeBarFreshness(signalCache),
+      },
+      peer,
+      divergence: {
+        // The gate lives in a per-machine file, which is exactly why a mismatch is
+        // dangerous rather than expected: it decides what trades, and no commit syncs it.
+        gate: peer.reachable && peer.gate !== null && localGate !== null
+          ? { local: localGate, peer: peer.gate, differs: peer.gate !== localGate }
+          : null,
+        // Per-machine BY DESIGN — the VPS deliberately runs a fixed 0.01. Reported so
+        // it is visible, never raised as a fault.
+        fixedLotSize: peer.reachable && peer.fixedLotSize !== null && localLotSize !== null
+          ? { local: localLotSize, peer: peer.fixedLotSize, differs: peer.fixedLotSize !== localLotSize, byDesign: true }
+          : null,
+        // THE BREAKER. Two boxes can hold the same rule and disagree about how long
+        // it holds them, and nothing here compared that until 2026-08-31, when the
+        // VPS tripped on 3 consecutive losses and this endpoint reported FLEET AGREES
+        // while one box was out for 48 hours and the other would have resumed in 1.
+        //
+        // It was invisible for a specific reason worth writing down: haltCooldownHours
+        // is a BRIDGE-side constant (mt5_bridge.py HALT_COOLDOWN_HOURS), pushed up
+        // inside each account config. It is not in strategy_settings.json, so
+        // vps_parity legitimately never sees it, and it was in no cross-box check at
+        // all. A setting that decides how long trading stops, compared by nothing.
+        //
+        // NOT byDesign. fixedLotSize differs deliberately; there is no recorded
+        // decision that these should, so a difference is reported as a difference.
+        breakerCooldownHours: (() => {
+          const pull = accs => {
+            const out = new Set();
+            for (const a of Object.values(accs || {})) {
+              const v = a && a.config && a.config.haltCooldownHours;
+              if (Number.isFinite(Number(v))) out.add(Number(v));
+            }
+            return [...out].sort((x, y) => x - y);
+          };
+          const local = pull(riskStatusByAccount);
+          const remote = pull(peer.accounts);
+          if (!peer.reachable || !local.length || !remote.length) return null;
+          return { local, peer: remote,
+            differs: JSON.stringify(local) !== JSON.stringify(remote) };
+        })(),
+        // ONE BOX HALTED AND THE OTHER LIVE is not merely an action item, it is a
+        // statement about every pooled number: while it holds, the two boxes are
+        // not running the same experiment and their journals cannot be added.
+        halted: peer.reachable
+          ? { local: riskStatus.halted === true, peer: peer.halted === true,
+              differs: (riskStatus.halted === true) !== (peer.halted === true),
+              poolingValid: (riskStatus.halted === true) === (peer.halted === true) }
+          : null,
+        engine: parity.available
+          ? {
+              differs: (parity.engineDrift > 0 || parity.scalarDrift > 0),
+              engineDrift: parity.engineDrift,
+              scalarDrift: parity.scalarDrift,
+              fileDrift: parity.fileDrift,
+              ranAt: parity.ranAt,
+              ageHours: parity.ageHours,
+            }
+          : null,
+        haltCooldownHours: peer.reachable && localCooldownHours !== null && peerCooldownHours !== null
+          ? { local: localCooldownHours, peer: peerCooldownHours, differs: peerCooldownHours !== localCooldownHours }
+          : null,
+      },
+      parity,
+      // Push liveness, kept alongside the pull probe: this is the only signal that
+      // survives a box the other one cannot reach.
+      heartbeats,
+      actionItems,
+      standingNotes,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ── /api/now — what time it is, and how long ago everything happened ─────────
+//
+// Nothing here ever answered "when". The logs are LOCAL time, every API is UTC, and
+// on 2026-08-10 that cost a near-miss: bridge_log_A.txt read 16:17 while /api/status
+// said 13:38Z and the log looked corrupt or the clock wrong. It was BST. A system
+// that reasons about market sessions, bar staleness and "has this fired in 7 days"
+// cannot hold time as an afterthought.
+//
+// Ages are the point. "Signal cache updated 2026-08-10T13:38Z" needs arithmetic to
+// act on; "4 minutes ago" does not — and the mistakes this system has actually made
+// were staleness mistakes: a wedged terminal staying green, positions reading zero
+// after a restart, a bridge that had not pushed in an hour looking identical to a
+// quiet market.
+const MS = { minute: 60000, hour: 3600000, day: 86400000 };
+
+/** "3h 12m ago" — the form a human acts on, alongside the ISO the machine needs. */
+function humanAge(ms) {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return null;
+  if (ms < 0) return "in the future";
+  if (ms < 45 * 1000) return "just now";
+  const days = Math.floor(ms / MS.day);
+  const hours = Math.floor((ms % MS.day) / MS.hour);
+  const minutes = Math.floor((ms % MS.hour) / MS.minute);
+  if (days > 0)  return `${days}d ${hours}h ago`;
+  if (hours > 0) return `${hours}h ${minutes}m ago`;
+  return `${minutes}m ago`;
+}
+
+/** Every timestamp on this system is reported the same way: when, how long, in words. */
+function ageOf(timestamp) {
+  if (!timestamp) return { at: null, ageMs: null, human: "never" };
+  const at = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  if (isNaN(at.getTime())) return { at: null, ageMs: null, human: "unreadable" };
+  const ageMs = Date.now() - at.getTime();
+  return { at: at.toISOString(), ageMs, human: humanAge(ageMs) };
+}
+
+/** ISO-8601 week number — the unit weekly jobs and weekly reviews are keyed to. */
+function isoWeek(date) {
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNumber = (target.getUTCDay() + 6) % 7;          // Monday = 0
+  target.setUTCDate(target.getUTCDate() - dayNumber + 3);  // nearest Thursday
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+  const firstDayNumber = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNumber + 3);
+  return 1 + Math.round((target - firstThursday) / (7 * MS.day));
+}
+
+// UTC hour boundaries, matching getCurrentSession above so the two can never drift.
+const SESSION_SCHEDULE = [
+  { name: "ASIAN",      startUtcHour: 22, endUtcHour: 7  },
+  { name: "PRE-LONDON", startUtcHour: 7,  endUtcHour: 9  },
+  { name: "LONDON",     startUtcHour: 9,  endUtcHour: 12 },
+  { name: "OVERLAP",    startUtcHour: 12, endUtcHour: 13 },
+  { name: "NEW YORK",   startUtcHour: 13, endUtcHour: 17 },
+  { name: "AFTER HOURS",startUtcHour: 17, endUtcHour: 22 },
+];
+
+function nextSessionTransition(now) {
+  const boundaries = [...new Set(SESSION_SCHEDULE.map(s => s.startUtcHour))].sort((a, b) => a - b);
+  const hour = now.getUTCHours();
+  const nextHour = boundaries.find(h => h > hour);
+  const at = new Date(now);
+  at.setUTCMinutes(0, 0, 0);
+  if (nextHour === undefined) { at.setUTCDate(at.getUTCDate() + 1); at.setUTCHours(boundaries[0]); }
+  else at.setUTCHours(nextHour);
+  const session = SESSION_SCHEDULE.find(s => s.startUtcHour === at.getUTCHours());
+  return { name: session ? session.name : "unknown", atUtc: at.toISOString(), inMinutes: Math.round((at - now) / MS.minute) };
+}
+
+app.get("/api/now", (_, res) => {
+  try {
+    const now = new Date();
+    const localOffsetMinutes = -now.getTimezoneOffset();   // JS reports the inverse
+    // DST by comparison with January and July — no library, no assumption about
+    // which hemisphere this box is in.
+    const january = new Date(now.getFullYear(), 0, 1).getTimezoneOffset();
+    const july    = new Date(now.getFullYear(), 6, 1).getTimezoneOffset();
+    const isDST   = now.getTimezoneOffset() < Math.max(january, july);
+
+    const dayMs = MS.day;
+    const isoDate = (d) => d.toISOString().slice(0, 10);
+    const weekday = now.toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
+    const utcDay = now.getUTCDay();
+
+    const newestTrade = Array.isArray(tradeJournal) && tradeJournal.length
+      ? tradeJournal[0].openTime || tradeJournal[0].closeTime || null
+      : null;
+    const parity = readParityResult();
+    const backup = readLatestBackup();
+
+    res.json({
+      // Both clocks, always, and the offset between them — because every log on
+      // this machine is local and every API on it is UTC.
+      now: {
+        utc: now.toISOString(),
+        local: now.toLocaleString("en-GB", { hour12: false }),
+        localTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        utcOffsetMinutes: localOffsetMinutes,
+        isDST,
+        epochMs: now.getTime(),
+        unix: Math.floor(now.getTime() / 1000),
+      },
+      calendar: {
+        year: now.getUTCFullYear(),
+        month: now.getUTCMonth() + 1,
+        monthName: now.toLocaleDateString("en-GB", { month: "long", timeZone: "UTC" }),
+        day: now.getUTCDate(),
+        weekday,
+        isoWeek: isoWeek(now),
+        quarter: Math.floor(now.getUTCMonth() / 3) + 1,
+        dayOfYear: Math.floor((now - new Date(Date.UTC(now.getUTCFullYear(), 0, 0))) / dayMs),
+        today:     isoDate(now),
+        yesterday: isoDate(new Date(now.getTime() - dayMs)),
+        tomorrow:  isoDate(new Date(now.getTime() + dayMs)),
+        isWeekend: utcDay === 0 || utcDay === 6,
+      },
+      session: {
+        current: getCurrentSession(),
+        next: nextSessionTransition(now),
+        schedule: SESSION_SCHEDULE,
+        // Clock-derived, NOT broker-verified. Bar freshness below is the evidence.
+        note: "Sessions are UTC clock boundaries. Whether a market is actually trading is answered by feed freshness, not by this schedule.",
+      },
+      // How long ago everything happened, in one place, in both forms.
+      ages: {
+        serverStarted:  ageOf(SERVER_START),
+        signalCache:    ageOf(signalCache?.updatedAt),
+        bridges: Object.fromEntries(
+          Object.entries(mt5LastSeenByAccount).map(([tag, seenAt]) => [tag, ageOf(seenAt)])
+        ),
+        lastTrade:      ageOf(newestTrade),
+        lastParityRun:  ageOf(parity.available ? parity.ranAt : null),
+        lastBackup:     ageOf(backup ? backup.modified : null),
+      },
+      uptimeSeconds: Math.round(process.uptime()),
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[now]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── /api/fleet — both boxes, for the panels that decide what is armed ────────
+//
+// The Auto Trade tab and the AI Employee panel each described ONE machine while
+// presenting themselves as the system. Two measured consequences:
+//
+//   - The mode cards read a browser localStorage value. Whether a bridge actually
+//     arms trades is config.autoMode, reported by the bridge that enforces it, and
+//     the page never looked at it — on either box.
+//   - The AI-employee ledger reads local tasks/logs only. On 2026-08-10 it showed
+//     0 unreviewed proposals while the VPS — the box that trades continuously —
+//     had 2 sitting unread. An unread recommendation does not stop mattering
+//     because it is on the other machine.
+//
+// Read-only: it composes state this server already holds with a cached pull of the
+// peer's public endpoints. Writes nothing, arms nothing, feeds no gate.
+const FLEET_COMPARED_SETTINGS = [
+  { key: "confidenceThreshold",    label: "Confidence gate",  byDesign: false },
+  { key: "minStrength",            label: "Min strength",     byDesign: false },
+  { key: "maxConcurrentPositions", label: "Position slots",   byDesign: false },
+  { key: "maxTradesPerDay",        label: "Max trades/day",   byDesign: false },
+  // Per-machine on purpose: the VPS deliberately runs a fixed 0.01 lot.
+  { key: "fixedLotSize",           label: "Fixed lot size",   byDesign: true  },
+  { key: "maxLotSize",             label: "Max lot size",     byDesign: true  },
+  // NOT byDesign. maxLotSize above is per-machine because the VPS runs its own lot policy,
+  // but the notional ceiling is a RISK LIMIT expressed as a share of each box's own balance
+  // - so the same number is correct on both, and a difference is drift, not intent. This
+  // list is a whitelist: a key missing from it compares as IDENTICAL however far the two
+  // boxes have diverged, which is exactly how a half-armed fleet went unnoticed.
+  { key: "maxNotionalPct",         label: "Max notional %",   byDesign: false },
+  // Added when BREAKDOWN was armed 2026-09-02. Without it a HALF-ARMED FLEET - one box
+  // selling short, the other long-only - compared as IDENTICAL, because this list is a
+  // whitelist and vps_parity.cjs reads only `arm` from this route. Two boxes running
+  // different SETUPS is the largest divergence the fleet can have, and it was the one
+  // thing neither comparator could see.
+  { key: "breakdownEnabled",       label: "BREAKDOWN shorts", byDesign: false },
+];
+
+/** Arming state per account tag, from the bridge's own reported config. */
+function armingFromAccounts(accounts) {
+  return Object.entries(accounts || {}).map(([tag, account]) => ({
+    tag,
+    autoMode:     account?.config?.autoMode === true,
+    remoteHalted: account?.config?.remoteHalted === true,
+    halted:       account?.halted === true,
+    haltReason:   account?.haltReason || "",
+    expectedLogin: account?.config?.expectedLogin ?? null,
+  }));
+}
+
+app.get("/api/fleet", async (_, res) => {
+  try {
+    const peer = await probePeer();
+
+    let localAiWork = null;
+    try { localAiWork = aiWorkLedger.build(); }
+    catch (e) { localAiWork = { available: false, reason: e.message, jobs: [], proposals: [] }; }
+
+    const thisBox = {
+      label: os.hostname(),
+      url: "this box",
+      reachable: true,
+      settings: { ...strategySettings, settingsError: strategySettingsError || null },
+      arming: armingFromAccounts(riskStatusByAccount),
+      halted: riskStatus.halted === true,
+      haltReason: riskStatus.haltReason || "",
+      aiWork: localAiWork,
+    };
+
+    // Settings compared field by field, so "the same commit" never gets mistaken
+    // for "the same behaviour" — strategy_settings.json is untracked per machine.
+    const settingsComparison = FLEET_COMPARED_SETTINGS.map(field => {
+      const localValue = strategySettings ? strategySettings[field.key] : null;
+      const peerValue  = peer.reachable && peer.settings ? peer.settings[field.key] : null;
+      const comparable = localValue !== undefined && localValue !== null
+                      && peerValue  !== undefined && peerValue  !== null;
+      return {
+        key: field.key,
+        label: field.label,
+        local: localValue ?? null,
+        peer: peerValue ?? null,
+        differs: comparable ? localValue !== peerValue : false,
+        byDesign: field.byDesign,
+        comparable,
+      };
+    });
+
+    const localUnreviewed = localAiWork?.totals?.unreviewed ?? 0;
+    const peerUnreviewed  = peer.aiWork?.totals?.unreviewed ?? 0;
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      thisBox,
+      // Shallow copy: probePeer's result is cached and shared, so the derived
+      // arming list is added to the response rather than written back into it.
+      peer: { ...peer, arming: armingFromAccounts(peer.accounts) },
+      settingsComparison,
+      // The number that was wrong: the panel showed only the left-hand side.
+      proposals: {
+        local: localUnreviewed,
+        peer: peer.reachable ? peerUnreviewed : null,
+        fleetUnreviewed: localUnreviewed + (peer.reachable ? peerUnreviewed : 0),
+      },
+      // Editing settings on this page writes THIS box's strategy_settings.json and
+      // nothing else. Stated in the payload so the page cannot forget to say it.
+      settingsScope: "Saving writes " + os.hostname() + " only. strategy_settings.json is per-machine and untracked — the other box keeps its own.",
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[fleet]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── /api/doctor — the fleet's findings, each with the command that fixes it ──
+//
+// READ-ONLY. This serves the diagnosis; it never heals. --heal stays on the CLI
+// deliberately: a button that restarts things is a different risk from a page that
+// lists them, and nothing on a dashboard should be one click from touching a bridge.
+//
+// Cached, and single-flight. The cache is the lesser reason: a full pass measures
+// ~150-215ms locally, so this is not about latency, and an earlier note here claiming
+// /api/ai-work takes 30s was wrong — that was one MCP client timing out, not the
+// endpoint, which answers in ~150ms. What the cache actually buys is not hammering the
+// PEER on every panel refresh across two boxes.
+//
+// The single-flight is the load-bearing part and is about CORRECTNESS: diagnose()
+// accumulates into a module-level array, so two concurrent runs would interleave into
+// one list. The in-flight promise means a burst of readers all wait on the SAME pass.
+const DOCTOR_CACHE_MS = 60000;
+let doctorCache = { at: 0, report: null };
+let doctorInFlight = null;
+
+app.get("/api/doctor", async (_, res) => {
+  try {
+    const fresh = Date.now() - doctorCache.at < DOCTOR_CACHE_MS;
+    if (fresh && doctorCache.report) {
+      return res.json({ ...doctorCache.report, cached: true,
+                        ageMs: Date.now() - doctorCache.at });
+    }
+    if (!doctorInFlight) {
+      doctorInFlight = fleetDoctor.diagnose()
+        .then(report => { doctorCache = { at: Date.now(), report }; return report; })
+        .finally(() => { doctorInFlight = null; });
+    }
+    const report = await doctorInFlight;
+    res.json({ ...report, cached: false, ageMs: 0 });
+  } catch (e) {
+    // A doctor that 500s tells you nothing about the thing it was asked to inspect,
+    // which is the one moment you need it. Serve the last good pass and say it is old.
+    console.error("[doctor]", e.message);
+    if (doctorCache.report) {
+      return res.json({ ...doctorCache.report, cached: true, stale: true,
+                        ageMs: Date.now() - doctorCache.at, error: e.message });
+    }
+    res.status(500).json({ error: e.message, findings: [] });
+  }
+});
+
+// ── /api/measurements — what the harnesses actually found ───────────────────
+//
+// The measurement work lived only in tasks/analysis/*.json and terminal scrollback, so
+// the answer to "when does this system make money" existed and was invisible. This
+// serves the LATEST run of each harness, and its AGE, because a measurement whose date
+// is hidden is how a stale number gets quoted as current.
+//
+// Read-only over files the harnesses already write. It runs nothing: these replays take
+// minutes and an HTTP request must never kick one off.
+const MEASUREMENT_FILES = [
+  ["timeHeatmap",  "time-heatmap-latest.json",        "node tasks/time_heatmap.cjs"],
+  ["sessionFolds", "session-walkforward-latest.json", "node tasks/session_walkforward.cjs"],
+  ["setupFolds",   "setup-walkforward-latest.json",   "node tasks/session_walkforward.cjs --by setup"],
+  ["instrumentScan", "instrument-scan-latest.json",   "node tasks/instrument_universe_scan.cjs --json"],
+];
+
+app.get("/api/measurements", (_, res) => {
+  const out = { generatedAt: new Date().toISOString(), measurements: {}, feedsTheGate: false };
+  for (const [key, file, command] of MEASUREMENT_FILES) {
+    const full = path.join(__dirname, "..", "tasks", "analysis", file);
+    try {
+      const raw = JSON.parse(fs.readFileSync(full, "utf8"));
+      const ranAt = raw.generatedAt || null;
+      const entry = {
+        available: true, ranAt, command,
+        ageHours: ranAt ? +(((Date.now() - Date.parse(ranAt)) / 3600000).toFixed(1)) : null,
+        gate: raw.basis && raw.basis.gate,
+        totalTrades: raw.basis && raw.basis.totalTrades,
+        // An incomplete replay must travel with the numbers, not sit in a log. SP500
+        // silently produced nothing for three harnesses before this was caught.
+        failedAssets: Object.entries(raw.perAsset || {})
+          .filter(([, v]) => v && v.error).map(([k]) => k),
+      };
+      if (key === "timeHeatmap") {
+        entry.atGateTrades = raw.basis && raw.basis.atGateTrades;
+        entry.entryHoursUtc = raw.basis && raw.basis.entryHoursUtc;
+        entry.minClosedPerCell = raw.basis && raw.basis.minClosedPerCell;
+        entry.sessions = (raw.atLiveGate && raw.atLiveGate.session) || {};
+        // The grid itself, both populations. At the live gate most cells are under the
+        // per-cell floor, so the floor population is served alongside it — without that
+        // the grid is nearly empty and reads as "no data" rather than "too thin to
+        // score", which are different statements.
+        entry.grid = {
+          atGate: {
+            blockByDay: (raw.atLiveGate && raw.atLiveGate.blockByDay) || {},
+            block: (raw.atLiveGate && raw.atLiveGate.block) || {},
+            day: (raw.atLiveGate && raw.atLiveGate.day) || {},
+          },
+          atFloor: {
+            blockByDay: (raw.atConfFloor && raw.atConfFloor.blockByDay) || {},
+            block: (raw.atConfFloor && raw.atConfFloor.block) || {},
+            day: (raw.atConfFloor && raw.atConfFloor.day) || {},
+          },
+          confFloor: raw.basis && raw.basis.confFloor,
+        };
+      } else if (key === "instrumentScan") {
+        // The BASE RATE travels with the ranking, always. 31 of 51 names were positive
+        // out-of-sample simply because every holdout window fell in a bull run, so a
+        // panel showing only "8 of the top 10 held up" would make beta look like skill
+        // — the same failure shape as a pooled number shown without its fold count.
+        entry.costR = raw.basis && raw.basis.costR;
+        entry.candidates = raw.basis && raw.basis.candidates;
+        entry.topN = raw.basis && raw.basis.topN;
+        entry.topNheldUp = raw.basis && raw.basis.topNheldUp;
+        entry.baseRate = raw.basis && raw.basis.baseRate;
+        entry.rankingBeatsBaseRate = raw.basis && raw.basis.rankingBeatsBaseRate;
+        // Named here rather than left to the reader: this is the D1 screen, not the
+        // generateSignalMTF walk-forward that "edgeisgold" set as the bar for wiring an
+        // instrument in. A panel that omitted this would read as a settled result.
+        entry.harness = raw.basis && raw.basis.harness;
+        entry.rows = raw.rows || [];
+      } else {
+        const view = raw.atLiveGate || {};
+        entry.baseline = view.baseline && view.baseline.rpt;
+        entry.foldCount = view.foldCount;
+        entry.trades = view.trades;
+        entry.slices = (view.slices || []).map(s => ({
+          slice: s.slice, closed: s.own && s.own.closed, rpt: s.own && s.own.rpt,
+          pooledDelta: s.pooledDelta, foldsImproved: s.foldsImproved,
+          foldsScored: s.foldsScored, verdict: s.verdict,
+        }));
+      }
+      out.measurements[key] = entry;
+    } catch (e) {
+      // Absent is a legitimate state — the harness may simply never have run here — so
+      // it reports the command that would produce it rather than an error.
+      out.measurements[key] = { available: false, command, reason: e.code === "ENOENT"
+        ? "never run on this box" : e.message };
+    }
+  }
+  res.json(out);
+});
+
+// ── /api/fleet-performance — the whole record, both boxes, POOLED ───────────
+//
+// The binding constraint on this system is sample size, and every surface halves it.
+// Each box journals its OWN fills, so the laptop shows 3 closed trades and the VPS
+// shows 3, and the fleet's actual record of 6 appears nowhere. Doubling the visible
+// evidence changes nothing about the trading and quite a lot about what can be said.
+//
+// POOLING IS GATED ON ENGINE PARITY, and that is not a formality. The standing rule
+// here is that numbers pooling both boxes are unattributable while the engines differ:
+// two boxes running different code admit different trades from identical bars, so
+// their fills are not samples of one thing. If parity is missing, stale or divergent
+// this returns the boxes SEPARATELY and says why, rather than quietly averaging two
+// populations that are not comparable.
+const FLEET_PERF_PARITY_STALE_HOURS = 48;
+
+/**
+ * Collapse fills that are the SAME market event seen on two boxes.
+ *
+ * Both machines run the same engine on the same bars, so they take the same trade.
+ * Verified 2026-08-07: XAUUSD RANGE_TRADE_SHORT opened 07:00 here and 08:00 there,
+ * entries $6 apart, losses of -99.10 and -98.31. That is one Gold short observed
+ * twice, and counting it as two samples would reach the learning engine's 5-trade
+ * floor on half the real information.
+ *
+ * The rule is OVERLAPPING EXPOSURE, not a time bucket: same symbol, same direction,
+ * same setup, and the two positions open at the same time. An earlier draft used "same
+ * H4 bar" and would have missed this exact pair, because 07:00 and 08:00 fall in
+ * different H4 bars while describing one trade.
+ *
+ * Different instrument or non-overlapping windows stay separate — BB_SQUEEZE_WATCH is
+ * XAUUSD on 07-30 here and BTCUSD on 08-06 there, which are genuinely two observations.
+ *
+ * A cluster whose fills disagree is reported as SPLIT rather than silently averaged:
+ * the same setup on the same instrument at the same time resolving differently on two
+ * boxes is an execution divergence, and that is worth seeing, not smoothing.
+ */
+function collapseCorrelated(trades) {
+  const windowOf = (t) => {
+    const open = Date.parse(t.openTime);
+    const close = t.closeTime ? Date.parse(t.closeTime) : Number.POSITIVE_INFINITY;
+    return Number.isFinite(open) ? [open, close] : null;
+  };
+  const groups = new Map();
+  for (const t of trades) {
+    const key = `${t.symbol}|${t.direction}|${t.setup}`;
+    (groups.get(key) || groups.set(key, []).get(key)).push(t);
+  }
+
+  const clusters = [];
+  for (const [, rows] of groups) {
+    const dated = rows.map(t => ({ t, w: windowOf(t) })).filter(x => x.w);
+    const undated = rows.filter(t => !windowOf(t));
+    dated.sort((a, b) => a.w[0] - b.w[0]);
+
+    let current = null;
+    for (const { t, w } of dated) {
+      // Overlap, not adjacency: [openA, closeA] must intersect [openB, closeB].
+      if (current && w[0] <= current.end) {
+        current.fills.push(t);
+        current.end = Math.max(current.end, w[1]);
+      } else {
+        current = { fills: [t], end: w[1] };
+        clusters.push(current);
+      }
+    }
+    // A fill with no readable open time cannot be proven correlated with anything, so
+    // it stands alone rather than being folded in on a guess.
+    for (const t of undated) clusters.push({ fills: [t], end: 0 });
+  }
+
+  return clusters.map(c => {
+    const wins = c.fills.filter(t => t.pnl > 0).length;
+    const outcome = wins === c.fills.length ? "WIN" : wins === 0 ? "LOSS" : "SPLIT";
+    return {
+      setup: c.fills[0].setup, symbol: c.fills[0].symbol, direction: c.fills[0].direction,
+      fills: c.fills.length,
+      boxes: [...new Set(c.fills.map(t => t.box))],
+      outcome,
+      // The representative P&L of one observation is the mean of the fills that
+      // reported it. Summing would restate one event's cost as two.
+      pnl: +(c.fills.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0) / c.fills.length).toFixed(2),
+      openedAt: c.fills[0].openTime,
+    };
+  });
+}
+
+function poolStats(trades) {
+  const wins = trades.filter(t => t.pnl > 0);
+  const losses = trades.filter(t => t.pnl <= 0);
+  const net = trades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
+  return {
+    closed: trades.length,
+    wins: wins.length,
+    losses: losses.length,
+    winRatePct: trades.length ? +((wins.length / trades.length) * 100).toFixed(1) : null,
+    netPnl: +net.toFixed(2),
+    // Expectancy over six trades is a number, not a fact. It is returned because the
+    // caller will compute it anyway, and withheld from meaning by sampleWarning below.
+    expectancy: trades.length ? +(net / trades.length).toFixed(2) : null,
+  };
+}
+
+app.get("/api/fleet-performance", async (_, res) => {
+  try {
+    const localClosed = tradeJournal
+      .filter(t => t && t.status === "CLOSED" && typeof t.pnl === "number")
+      .map(t => ({ ...t, box: "this box" }));
+
+    let parity = null;
+    try {
+      parity = JSON.parse(fs.readFileSync(
+        path.join(__dirname, "..", "tasks", "logs", "vps_parity_last.json"), "utf8"));
+    } catch (e) { parity = null; }
+    const parityAgeHours = parity && parity.ranAt
+      ? (Date.now() - Date.parse(parity.ranAt)) / 3600000 : null;
+    const enginesAgree = Boolean(parity && parity.verdict === "ENGINES AGREE");
+    const parityFresh = Number.isFinite(parityAgeHours) && parityAgeHours <= FLEET_PERF_PARITY_STALE_HOURS;
+
+    // axios with an explicit 200-only validator, matching probePeer(). A 401 or a 502
+    // parses cleanly as JSON and would otherwise be pooled as if it were a journal.
+    const peerUrl = String(process.env.PEER_SERVER_URL || "").trim().replace(/\/+$/, "");
+    let peerClosed = null, peerError = null;
+    if (peerUrl) {
+      try {
+        const response = await axios.get(peerUrl + "/api/journal?limit=100",
+          { timeout: 8000, validateStatus: (status) => status === 200 });
+        const rows = response.data && response.data.journal;
+        if (Array.isArray(rows)) {
+          peerClosed = rows
+            .filter(t => t && t.status === "CLOSED" && typeof t.pnl === "number")
+            .map(t => ({ ...t, box: "peer" }));
+        } else {
+          peerError = "peer returned no journal array";
+        }
+      } catch (e) {
+        peerError = e.message;
+      }
+    }
+
+    const poolable = enginesAgree && parityFresh && Array.isArray(peerClosed);
+    const all = poolable ? [...localClosed, ...peerClosed] : localClosed;
+
+    // Per setup, across whatever population is legitimate. This is the number the
+    // learning engine starves for: it needs 5 closed trades in ONE setup bucket before
+    // it will act, and no single box is close.
+    // NON_SETUP_NAMES excluded here too. This table is explicitly the one read to judge
+    // how close a setup is to the 5-closed-trade threshold the learning engine needs, so
+    // a phantom bucket does not just look wrong — it makes a non-setup appear to be
+    // approaching the bar, on the one screen that pools BOTH boxes.
+    //
+    // Reported, never dropped: the fleet and per-box totals below still count these
+    // trades, and `unattributed` names them.
+    const bySetup = {};
+    const unattributedFleet = [];
+    for (const t of all) {
+      if (!t.setup || NON_SETUP_NAMES.has(String(t.setup).trim().toUpperCase())) {
+        unattributedFleet.push(t);
+        continue;
+      }
+      (bySetup[t.setup] = bySetup[t.setup] || []).push(t);
+    }
+
+    res.json({
+      pooled: poolable,
+      whyNotPooled: poolable ? null
+        : !peerUrl ? "no PEER_SERVER_URL on this box, so the peer cannot be read from here"
+        : peerError ? `peer unreachable: ${peerError}`
+        : !parity ? "engine parity has never been recorded, so the two records are not known to be comparable"
+        : !enginesAgree ? `engine parity says ${parity.verdict} — the boxes admit different trades from identical bars`
+        : `engine parity is ${parityAgeHours.toFixed(1)}h old, past the ${FLEET_PERF_PARITY_STALE_HOURS}h freshness bar`,
+      parity: parity ? {
+        verdict: parity.verdict, ranAt: parity.ranAt,
+        ageHours: parityAgeHours === null ? null : +parityAgeHours.toFixed(1),
+      } : null,
+      fleet: poolStats(all),
+      // Counted in `fleet` and `byBox` above, excluded from bySetup below. Named here so
+      // the two can be reconciled instead of read as a discrepancy.
+      unattributed: {
+        count: unattributedFleet.length,
+        totalPnl: parseFloat(unattributedFleet.reduce((sum, t) => sum + (t.pnl || 0), 0).toFixed(2)),
+        why: "Closed trades whose setup name is missing or is WAIT/NONE/UNKNOWN — the absence "
+           + "of a setup, not a setup. Included in the fleet and per-box totals, excluded from "
+           + "bySetup so nothing counts toward a setup's progress to the 5-trade threshold "
+           + "that did not come from that setup.",
+      },
+      byBox: {
+        "this box": poolStats(localClosed),
+        peer: peerClosed ? poolStats(peerClosed) : null,
+      },
+      bySetup: Object.fromEntries(Object.entries(bySetup).map(([k, v]) => {
+        const clusters = collapseCorrelated(v);
+        const wins = clusters.filter(c => c.outcome === "WIN").length;
+        const losses = clusters.filter(c => c.outcome === "LOSS").length;
+        const split = clusters.filter(c => c.outcome === "SPLIT").length;
+        return [k, {
+          ...poolStats(v),
+          boxes: [...new Set(v.map(t => t.box))],
+          // RAW is fills; INDEPENDENT is market events. The gap between them is the
+          // amount by which a naive pool would have overstated the evidence.
+          independent: {
+            observations: clusters.length,
+            wins, losses, split,
+            duplicatesCollapsed: v.length - clusters.length,
+            clusters: clusters.map(c => ({
+              symbol: c.symbol, direction: c.direction, fills: c.fills,
+              boxes: c.boxes, outcome: c.outcome, pnl: c.pnl, openedAt: c.openedAt,
+            })),
+          },
+          // The learning engine's floor, measured in INDEPENDENT observations. Counting
+          // fills here is how one Gold short would fill the bucket twice as fast.
+          towardLearningFloor: `${clusters.length}/5`,
+          towardLearningFloorRawFills: `${v.length}/5`,
+        }];
+      })),
+      // Stated once, at the top level, because it is the reason this endpoint does not
+      // simply feed getLearningBoost: the raw pooled counts are not what they look like.
+      dedupNote: "towardLearningFloor counts INDEPENDENT market events. Both boxes run "
+        + "the same engine on the same bars, so they take the same trade — fills with "
+        + "overlapping exposure on one symbol, direction and setup collapse to one "
+        + "observation. Nothing here feeds live confidence; getLearningBoost still reads "
+        + "this box's learning.json only.",
+      // Said out loud, every time. Six closed trades cannot support a claim about edge,
+      // and a win rate printed without this line invites exactly that claim.
+      sampleWarning: all.length < 30
+        ? `${all.length} closed trades across the fleet. Far too few for any claim about edge — `
+          + "read this as a record of what happened, not as a measurement of what works."
+        : null,
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[fleet-performance]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── /api/cohort-reachability — which cohorts can reach the gate AT ALL ──────
+//
+// The answer to "why does it so rarely trade" is often not that the market is quiet:
+// it is that the cohort a setup lands in has a ceiling BELOW the gate, so it could
+// never have fired however good the setup was. The boot log has said this for a while
+// and nothing on a screen did.
+//
+// Computed by cohort_table.computeReachability — the SAME call the boot check makes,
+// with the SAME live settings. Deliberately not re-derived here and emphatically not
+// re-derived in the dashboard: index.html once hardcoded 65 in five places while the
+// gate was 70 and every displayed gap was 5pt short. One implementation, or it drifts.
+app.get("/api/cohort-reachability", (_, res) => {
+  try {
+    const rows = cohortTable.computeReachability(
+      strategySettings.confidenceThreshold,
+      strategySettings.dailyOnlyMinConfidence
+    );
+    const blocking = rows.filter(r => r.status === "DEAD" || r.status === "BLOCKED (MEASURED)");
+    res.json({
+      gate: strategySettings.confidenceThreshold,
+      dailyOnlyMinConfidence: strategySettings.dailyOnlyMinConfidence,
+      maxBoost: cohortTable.MAX_BOOST,
+      total: rows.length,
+      unreachable: blocking.length,
+      rows,
+      // Stated rather than implied: a DEAD cohort is not necessarily a WRONG one. SPX
+      // H4-only is blocked deliberately because every slice measured negative
+      // out-of-sample, and that is a different fact from a cohort dying by accident.
+      note: "DEAD = ceiling below the gate, so it can never fire however good the setup. "
+          + "BLOCKED (MEASURED) = deliberately floored after measuring negative. "
+          + "Dead does not imply wrongly dead.",
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[cohort-reachability]", e.message);
+    res.status(500).json({ error: e.message, rows: [] });
+  }
+});
+
+// ── /api/strategy-board — every setup, and every source of truth about it ───
+//
+// The engine emits eight setup names and the evidence about them lived in four
+// places that never met: learning.json (real fills), learning_shadow.json (forgone
+// paper trades), the rejection ledger (which gate killed it), and the evidence
+// register (what has actually been measured). No page joined them, so the honest
+// answer to "which of my strategies work" was to open four screens and do it by
+// hand. This is that join, and nothing more: read-only, session-gated by the
+// /api/ rule, feedsTheGate false.
+//
+// The one thing it must never do is blur live and paper together. A shadow row is
+// a trade that was NEVER FILLED - no spread, no slippage, a fixed scoring horizon.
+// Folding it into a win rate would make a paper result indistinguishable from
+// money, which is the same mistake that once filed a real -449.72 fill under a
+// watch-only setup name. They stay in separate columns, always.
+// The check KNOWN_SETUPS has claimed to have since 2026-08-25 and never actually had.
+//
+// A hardcoded list is the RIGHT design for this board: a setup that has never fired must
+// still get a row, and deriving the list from the data would hide precisely those. But
+// "hardcoded" was quietly doing a second job — it was also unverified. BUY_DIP and
+// BREAKOUT went missing once, DIVERGENCE went missing for the board's entire life, and
+// the comment beside the list asserted a count check that did not exist. An assertion
+// with no code behind it is the same failure as a setting with no reader.
+//
+// So: the list stays hand-written, and this compares it against the engine. Reads THIS
+// file and collects every `setup = "NAME";` assignment. Two filters keep it honest —
+// comment lines are skipped and the assignment must be semicolon-terminated — because
+// the KNOWN_SETUPS comment itself contains the literal `setup  = "NAME"` and a naive
+// regex would have invented a setup called NAME out of the prose describing the check.
+//
+// Cached after the first call: the source cannot change under a running process, and
+// re-reading a 9,000-line file per request would be real cost for an answer that
+// cannot move.
+let engineSetupNamesCache = null;
+function engineSetupNames() {
+  if (engineSetupNamesCache) return engineSetupNamesCache;
+  try {
+    const found = new Set();
+    for (const line of fs.readFileSync(__filename, "utf8").split(/\r?\n/)) {
+      const t = line.trim();
+      if (t.startsWith("//") || t.startsWith("*")) continue;
+      for (const m of line.matchAll(/\bsetup\s*=\s*"([A-Z_]+)"\s*;/g)) {
+        // WAIT is the ABSENCE of a setup, not a setup — the same rule the board's own
+        // journal loop applies. Counting it would invent a strategy out of a null.
+        if (m[1] !== "WAIT") found.add(m[1]);
+      }
+    }
+    engineSetupNamesCache = { names: [...found].sort(), error: null };
+  } catch (e) {
+    // Never throws into the route. "Could not check" is reported as itself, which is a
+    // different fact from "checked, and the list is correct".
+    console.error("[strategy-board] setup-list check could not read the engine:", e.message);
+    engineSetupNamesCache = { names: null, error: e.message };
+  }
+  return engineSetupNamesCache;
+}
+
+app.get("/api/strategy-board", (_, res) => {
+  try {
+    // Every name the engine can emit. Hardcoded deliberately: a setup that has
+    // never fired must still appear, and deriving the list from the data would
+    // hide exactly the ones with no history - the rows most worth seeing.
+    // ALL TEN the engine can emit. It was eight when this shipped on 2026-08-25 and
+    // BUY_DIP and BREAKOUT were simply missing - a board whose whole purpose is "here
+    // are your strategies" that silently showed 8 of 10. Derived by hand from the
+    // `setup  = "NAME"` assignments in generateSignal; if a setup is added there it
+    // must be added here, and the count check below is what will catch it next time.
+    const KNOWN_SETUPS = [
+      "MOMENTUM", "TREND_FOLLOW", "SQUEEZE_BREAKOUT", "BUY_OVERSOLD",
+      "SELL_BOUNCE", "RANGE_TRADE_LONG", "RANGE_TRADE_SHORT", "BB_SQUEEZE_WATCH",
+      "BUY_DIP", "BREAKOUT",
+      // Added 2026-08-28. The engine has emitted DIVERGENCE since long before this board
+      // existed — two branches, Gold/DXY correlation breakdown, one BUY and one SELL —
+      // and the board has NEVER shown it. Third time this list has silently omitted a
+      // live setup, after BUY_DIP and BREAKOUT. The count check below now has a body,
+      // which is what stops there being a fourth.
+      "DIVERGENCE",
+      // Added 2026-08-30 WITH the setups themselves, in the same commit, because this
+      // list has silently omitted a live setup three times already -- BUY_DIP, BREAKOUT
+      // and DIVERGENCE -- and each time the strategy page showed a setup the engine was
+      // emitting as if it did not exist. All three are timeframe-scoped and appended at
+      // the END of the chain, so they cannot displace an existing signal.
+      "SWING_PULLBACK_H4", "EMA_REVERSAL_H1", "M15_MOMENTUM",
+      // Added 2026-08-28 with the setup itself, and ARMED 2026-09-02 on both boxes. It
+      // read "no history on both boxes" while it was gated off; that is now the wrong
+      // expectation and this row should begin accumulating real fills. Keeping the list
+      // hardcoded is still right - it is what let the row exist through the whole
+      // disarmed period instead of appearing out of nowhere on the day it was armed.
+      "BREAKDOWN",
+    ];
+    // Below this many closed fills a win rate is noise, not a verdict. Same floor
+    // the learning engine uses to withhold a boost.
+    const LIVE_JUDGEMENT_FLOOR = 5;
+
+    // ── live fills, from the journal, which is the record that cannot drift ──
+    // R is derived from the FILLED PRICES, never from the stored r:r - journal.rr
+    // was the SIGNAL'S PLAN, not the outcome, and reading it as realised was a real
+    // bug this project already shipped once.
+    const live = {};
+    for (const t of tradeJournal) {
+      if (t.status !== "CLOSED") continue;
+      const name = t.setup;
+      // WAIT/NONE/UNKNOWN is the ABSENCE of a setup, not a setup. Counting it
+      // would invent a ninth strategy out of a missing field.
+      if (!name || !KNOWN_SETUPS.includes(name)) continue;
+      const row = live[name] || (live[name] = {
+        trades: 0, wins: 0, losses: 0, pnl: 0, realizedR: 0, rTrades: 0,
+      });
+      row.trades += 1;
+      if (t.pnl !== null && t.pnl !== undefined) {
+        if (t.pnl > 0) row.wins += 1; else row.losses += 1;
+        row.pnl += t.pnl;
+      }
+      // realizedR is NOT stored on the journal row - it is derived at read time by
+      // realizedRFromPrices, the server's own single implementation, which is why
+      // /api/journal shows it and the file on disk does not. Called here rather than
+      // recomputed: a second copy of "what did this trade actually return" is exactly
+      // how journal.rr came to be read as an outcome when it was only the plan.
+      const derivedR = t.closePrice == null
+        ? null
+        : realizedRFromPrices(t.direction, t.entry, t.sl, t.closePrice);
+      if (Number.isFinite(derivedR)) { row.realizedR += derivedR; row.rTrades += 1; }
+    }
+
+    // ── shadow: forgone paper trades, read from the same file /api/learning uses ──
+    let shadowStats = {};
+    let shadowAgeHours = null;
+    let shadowError = null;
+    try {
+      const shadowPath = path.join(__dirname, "learning_shadow.json");
+      if (fs.existsSync(shadowPath)) {
+        const raw = JSON.parse(fs.readFileSync(shadowPath, "utf8"));
+        shadowStats = raw.shadowStats || {};
+        const ms = typeof raw.generatedAt === "string" ? Date.parse(raw.generatedAt) : NaN;
+        shadowAgeHours = Number.isFinite(ms)
+          ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+      }
+    } catch (e) {
+      // Surfaced, never swallowed: a stalled nightly regeneration is exactly the
+      // kind of failure that reads as "no evidence" instead of "stale evidence".
+      shadowError = e.message;
+      console.error(`[strategy-board] shadow unreadable (${e.message})`);
+    }
+
+    // ── which gate killed it, from the rejection ledger ──
+    let killedBy = {};
+    let ledgerError = null;
+    try {
+      const eviction = rejectionEvidence.buildEvidence();
+      for (const [name, row] of Object.entries(eviction.setups || {})) {
+        killedBy[name] = row.gates || {};
+      }
+    } catch (e) {
+      ledgerError = e.message;
+      console.error(`[strategy-board] rejection ledger unreadable (${e.message})`);
+    }
+
+    // ── the curated claims, so a measured verdict is not re-derived here ──
+    let claims = [];
+    try {
+      claims = (evidenceRegister.getRegister() || {}).claims || [];
+    } catch (e) {
+      console.error(`[strategy-board] evidence register unreadable (${e.message})`);
+    }
+
+    const rows = KNOWN_SETUPS.map(name => {
+      const l = live[name] || null;
+      const s = shadowStats[name] || null;
+
+      // The verdict rule is stated in the response rather than left implicit,
+      // because a label like STRONG carries an implied sample size and this book
+      // does not have one yet for anything.
+      let verdict, basis;
+      if (l && l.trades >= LIVE_JUDGEMENT_FLOOR) {
+        const wr = l.wins / (l.wins + l.losses || 1) * 100;
+        verdict = wr >= 65 ? "STRONG" : wr >= 55 ? "OK" : wr >= 45 ? "REVIEW" : "KILL";
+        basis = `${l.trades} live fills, ${wr.toFixed(0)}% win rate`;
+      } else if (l && l.trades > 0) {
+        verdict = "LEARNING";
+        basis = `${l.trades} live fill(s), under the ${LIVE_JUDGEMENT_FLOOR}-fill floor - no conclusion drawn`;
+      } else if (s && s.enoughForReading) {
+        verdict = "SHADOW ONLY";
+        basis = `never filled live; ${s.episodes} forgone paper episodes at ${s.rPerEpisode}R each`;
+      } else {
+        verdict = "TOO FEW";
+        basis = "no live fills and not enough forgone episodes to read";
+      }
+
+      return {
+        setup: name,
+        live: l ? {
+          trades: l.trades, wins: l.wins, losses: l.losses,
+          pnl: Math.round(l.pnl * 100) / 100,
+          // R, not dollars. The same six fills read -223.91 in currency and +3.51R
+          // in risk units, because one of them was sized 14x the others.
+          realizedR: l.rTrades ? Math.round(l.realizedR * 1000) / 1000 : null,
+          realizedRTrades: l.rTrades,
+        } : null,
+        shadow: s ? {
+          episodes: s.episodes, wins: s.wins, losses: s.losses,
+          netR: s.totalR, rPerEpisode: s.rPerEpisode,
+          winRate: s.winRate, enoughForReading: s.enoughForReading,
+          gates: s.gates || [], symbols: s.symbols || [],
+        } : null,
+        killedBy: killedBy[name] || {},
+        verdict,
+        basis,
+      };
+    });
+
+    res.json({
+      gate: strategySettings.confidenceThreshold,
+      settingsError: strategySettingsError,
+      liveJudgementFloor: LIVE_JUDGEMENT_FLOOR,
+      totalLiveFills: rows.reduce((n, r) => n + (r.live ? r.live.trades : 0), 0),
+      shadowAgeHours,
+      shadowError,
+      ledgerError,
+      claims: claims.map(c => ({
+        id: c.id, title: c.title, status: c.status,
+        measuredOn: c.measuredOn, changesTheAnswer: c.changesTheAnswer,
+      })),
+      rows,
+      // Surfaced in the response rather than kept in a log, because a drift nobody reads
+      // is how the last three omissions survived. A page can render this as a banner.
+      setupListDrift: (() => {
+        const engine = engineSetupNames();
+        if (!engine.names) return { checked: false, detail: `engine source unreadable: ${engine.error}` };
+        const missingFromBoard = engine.names.filter(n => !KNOWN_SETUPS.includes(n));
+        const notInEngine      = KNOWN_SETUPS.filter(n => !engine.names.includes(n));
+        if (missingFromBoard.length || notInEngine.length) {
+          console.error(`[strategy-board] KNOWN_SETUPS DRIFT — emitted by the engine but not on `
+            + `the board: ${missingFromBoard.join(", ") || "none"}; on the board but not in the `
+            + `engine: ${notInEngine.join(", ") || "none"}`);
+        }
+        return {
+          checked: true,
+          engineSetups: engine.names.length,
+          boardRows: KNOWN_SETUPS.length,
+          missingFromBoard,
+          notInEngine,
+          inSync: missingFromBoard.length === 0 && notInEngine.length === 0,
+        };
+      })(),
+      verdictRule: `STRONG >=65% / OK >=55% / REVIEW >=45% / KILL <45%, but ONLY at ${LIVE_JUDGEMENT_FLOOR}+ live fills. `
+                 + "Below that it is LEARNING and no conclusion is drawn. SHADOW ONLY means it has never "
+                 + "filled live and the number beside it is forgone PAPER trades.",
+      shadowCaveat: "Shadow rows are trades that were NEVER FILLED: no spread, no slippage, a fixed "
+                  + "scoring horizon. They are a screening signal for which gate to investigate, not "
+                  + "realised P&L, and where they contradict a walk-forward the walk-forward wins.",
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[strategy-board]", e.message);
+    res.status(500).json({ error: e.message, rows: [] });
+  }
+});
+
+// ── /api/robustness-report — the Monte-Carlo report behind /report ─────────
+// Reads the file tasks/montecarlo_report.cjs writes. Does NOT run it: that harness
+// replays three assets and bootstraps 4,000 paths, which is minutes of CPU on the box
+// that trades. A page request must never start it.
+// ── CPCV: the out-of-sample DISTRIBUTION, not a single path ───
+//
+// tasks/pbo.cjs runs CSCV and is good work, but the words purge, embargo and leak
+// appear nowhere in it - and that is exactly the gap between CSCV and CPCV. A trade
+// here is not a point: it opens on one bar and closes many later, so a trade that
+// STARTS in a training block and ENDS inside a test block was partly decided by the
+// data the test block is meant to judge blind. Purging removes those; the embargo
+// removes the ones starting just after a test block, where serial correlation still
+// carries its information.
+//
+// The other half is why it beats a 5-fold walk-forward for this system specifically:
+// a walk-forward gives ONE out-of-sample path, and this repo's own records show
+// verdict after verdict turning on a single fold - "delete its best fold and it goes
+// negative" recurs. CPCV gives C(N,k) paths and therefore a distribution, so the
+// question becomes "in what fraction of ALL splits does it survive".
+//
+// Read-only over a report already on disk. feedsTheGate false.
+// ── Parameter sensitivity: plateau or spike ───────────────────
+//
+// The question none of the other artifacts on this page asks. The bootstrap shows the
+// range of LUCK around an edge, CPCV asks whether it survives different SPLITS, PBO asks
+// whether the SELECTION PROCEDURE is sound, and the deflated Sharpe corrects for how many
+// candidates were tried. None of them asks whether the parameter VALUE IN FORCE sits on a
+// plateau or on a spike - which is the thing a curve-fit strategy fails.
+//
+// lab_promote.cjs already gates LAB candidates on plateau evidence. The live settings
+// never had it: they were inherited, hand-tuned, or settled by a single walk-forward.
+//
+// Read-only over an artifact on disk. It reports; it never tunes.
+app.get("/api/param-sensitivity", (_, res) => {
+  const p = path.join(__dirname, "..", "tasks", "analysis", "param-sensitivity.json");
+  try {
+    if (!fs.existsSync(p)) {
+      return res.json({ status: "NOT RUN",
+        detail: "No sensitivity report yet. Run: node tasks/param_sensitivity.cjs",
+        feedsTheGate: false });
+    }
+    const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+    const ms = Date.parse(raw.generatedAt || "");
+    const ageHours = Number.isFinite(ms)
+      ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+    res.json({ status: "OK", ageHours, stale: ageHours !== null && ageHours > 192, ...raw });
+  } catch (sensitivityError) {
+    console.error("[sensitivity] " + sensitivityError.message);
+    res.json({ status: "ERROR", detail: sensitivityError.message, feedsTheGate: false });
+  }
+});
+
+app.get("/api/cpcv-report", (_, res) => {
+  const p = path.join(__dirname, "..", "tasks", "analysis", "cpcv-latest.json");
+  try {
+    if (!fs.existsSync(p)) {
+      return res.json({ status: "NOT RUN",
+        detail: "No CPCV report yet. Run: node tasks/cpcv.cjs", feedsTheGate: false });
+    }
+    const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+    const ms = Date.parse(raw.generatedAt || "");
+    const ageHours = Number.isFinite(ms)
+      ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+    res.json({ status: "OK", ageHours, stale: ageHours !== null && ageHours > 192, ...raw });
+  } catch (cpcvError) {
+    console.error("[cpcv] " + cpcvError.message);
+    res.json({ status: "ERROR", detail: cpcvError.message, feedsTheGate: false });
+  }
+});
+
+app.get("/api/robustness-report", (_, res) => {
+  const p = path.join(__dirname, "..", "tasks", "analysis", "montecarlo-latest.json");
+  try {
+    if (!fs.existsSync(p)) {
+      return res.json({ status: "NOT RUN",
+        detail: "No robustness report on this box yet.", feedsTheGate: false });
+    }
+    const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+    const ms = Date.parse(raw.generatedAt || "");
+    const ageHours = Number.isFinite(ms) ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+    // STALE IS A STATUS, NOT A NUMBER THE READER HAS TO DERIVE.
+    //
+    // ageHours has always been in this payload and the page never rendered it, so a
+    // report generated five days ago looked exactly like one generated this morning -
+    // on the page read to decide whether the system is sound. Same trap as a healer
+    // tick with no age, and the daily plan's own STALE marker exists because of it.
+    //
+    // The threshold is set against the regeneration cadence (weekly, SmartEntry
+    // Robustness Report), with a day of slack so a healthy schedule never trips it and
+    // a MISSED run does. Below it, "OK" now means fresh rather than merely parseable.
+    const STALE_AFTER_HOURS = 192;  // 8 days: a weekly job plus one day of slack
+    const stale = ageHours !== null && ageHours > STALE_AFTER_HOURS;
+    // `status` DELIBERATELY STAYS "OK". report.html does
+    // `if (d.status !== "OK") { show detail; return; }` - so putting "STALE" here would
+    // BLANK the whole page and hide the very report it is warning about. Staleness is
+    // its own boolean beside the data; a stale report is still the best evidence
+    // available and must render, loudly marked. Same rule as the Pine plan, which shows
+    // STALE in red and still draws the levels.
+    res.json({
+      status: "OK",
+      ageHours,
+      stale,
+      staleAfterHours: STALE_AFTER_HOURS,
+      generatedAt: raw.generatedAt || null,
+      // The LIVE closed-trade count, so the page stops carrying a hardcoded one.
+      // report.html said "this system has 8 closed live trades"; the journal holds 7,
+      // and that number moves every time a trade closes. A figure baked into a page is
+      // correct only until the next fill - and this one is load-bearing, because the
+      // whole banner argues that the live sample is too small to mean anything.
+      liveClosedTrades: tradeJournal.filter(t => t && t.status === "CLOSED").length,
+      // Lifted onto the ENVELOPE beside the age, because that is where the page's
+      // provenance header reads from. It also stays inside `report` for anything
+      // consuming the raw artifact - one value, two readers, no second source.
+      engineConfig: raw.engineConfig || null,
+      // Same reason as engineConfig: the page's header reads the envelope.
+      horizon: raw.horizon || null,
+      blockSimulated: raw.blockSimulated || null,
+      // PSR / Deflated Sharpe / MinTRL, written by tasks/sharpe_robustness.cjs. Served
+      // beside the bootstrap because they answer DIFFERENT questions and the page is
+      // misleading with only one: the bootstrap measures luck in the DRAW, this
+      // measures luck in the SEARCH. Absent until the weekly job has run once, and
+      // absent must read as absent rather than as a pass.
+      sharpeRobustness: (() => {
+        try {
+          const sp = path.join(__dirname, "..", "tasks", "analysis", "sharpe-robustness.json");
+          if (!fs.existsSync(sp)) return { available: false, why: "not generated yet - run node tasks/sharpe_robustness.cjs" };
+          return Object.assign({ available: true }, JSON.parse(fs.readFileSync(sp, "utf8")));
+        } catch (e) {
+          return { available: false, why: "unreadable: " + e.message };
+        }
+      })(),
+      report: raw,
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    // Unreadable is not absent. Say which, and never serve a half-parsed report.
+    console.error("[robustness-report]", e.message);
+    res.json({ status: "UNREADABLE", detail: e.message, feedsTheGate: false });
+  }
+});
+
+// ── /api/measured-evidence — what has actually been MEASURED, on one screen ──
+//
+// Every harness in tasks/ writes a JSON report and, until now, every one of them was
+// read by a human running a command. Findings that live only in a terminal are
+// findings nobody acts on, and this project has already learned that lesson twice:
+// /api/near-miss owned 24 of 24 blocks while rendered on ZERO pages, and lotStep was
+// pushed, stored, and read by nothing.
+//
+// This reads the reports off disk and reports their AGE beside them. It runs no
+// harness - a page request must never kick off an 18-replay walk-forward - so a
+// report that has never been generated is reported as NOT RUN rather than silently
+// blank. "Not measured" and "measured as zero" are different facts.
+//
+// Read-only, session-gated by the /api/ rule, feedsTheGate false.
+// -- /api/lab-report -- the strategy-lab assessments behind /lab -------------
+// Reads artifacts tasks/lab_report.cjs has already written into
+// tasks/analysis/lab/. It DOES NOT RUN THE LAB, for the same reason
+// /api/robustness-report does not run the Monte Carlo: a page request must never
+// start minutes of CPU on the box that trades.
+//
+// Session-gated by omission - it is in neither API_NO_LOGIN_GET_ONLY nor
+// API_NO_LOGIN_REQUIRED, so the middleware above answers 401 without a cookie.
+// That is the intended state and it must stay that way.
+// -- /api/lab-catalog -- what the workbench may ask for --------------------
+// The strategies, their parameter RANGES, the symbols that have bars on this box,
+// the timeframes and the sessions. Served so the page cannot offer a control the
+// validator would then reject: a form that lets you ask for something impossible
+// is a form that teaches you to distrust its error messages.
+app.get("/api/lab-catalog", (_, res) => {
+  try {
+    // Lazily required INSIDE the handler, never at module scope. This is the process
+    // that trades; it should not carry the backtest stack just to answer a page.
+    const { STRATEGIES, SESSIONS, TIMEFRAMES, availableSymbols } =
+      require(path.join(__dirname, "..", "tasks", "lab_strategies.cjs"));
+    const { EXEC_SPEC } = require(path.join(__dirname, "..", "tasks", "lab_run.cjs"));
+    res.json({
+      status: "OK",
+      strategies: Object.values(STRATEGIES).map(s => ({
+        id: s.id, label: s.label, describe: s.describe, params: s.params,
+      })),
+      exec: EXEC_SPEC,
+      symbols: availableSymbols(),
+      timeframes: TIMEFRAMES,
+      sessions: Object.keys(SESSIONS),
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    res.json({ status: "ERROR", detail: String(e && e.message ? e.message : e), feedsTheGate: false });
+  }
+});
+
+// -- /api/lab-queue -- ask for a backtest; NEVER run one here ---------------
+// THE SERVER DOES NOT RUN BACKTESTS. It validates a spec and appends it to a queue;
+// tasks/lab_queue.cjs --drain does the work out of band. That boundary is structural
+// rather than a matter of judgement, because this is the box that trades and "it is
+// only 0.3 seconds" stops being true the moment somebody adds a slower strategy.
+//
+// Session-gated by omission, like every /api path not on an allowlist. The POST is a
+// WRITE, so it is gated in the strongest sense available here.
+const LAB_QUEUE_MAX_PENDING = 500;
+app.post("/api/lab-queue", express.json({ limit: "16kb" }), (req, res) => {
+  try {
+    const { validateSpec } = require(path.join(__dirname, "..", "tasks", "lab_run.cjs"));
+    const queue = require(path.join(__dirname, "..", "tasks", "lab_queue.cjs"));
+
+    // ONE validator, shared with the CLI. Validation written twice is validation that
+    // disagrees, and the half that disagrees is always the half facing the network. It
+    // allowlists the strategy id, checks the symbol against the CSVs actually on disk,
+    // and clamps every parameter to its declared range -- so nothing in this body can
+    // reach a file path, a require, or an unbounded loop.
+    const specs = [];
+    const raw = Array.isArray(req.body && req.body.specs) ? req.body.specs
+      : [req.body && req.body.spec ? req.body.spec : req.body];
+    if (raw.length > 100) {
+      return res.status(400).json({ error: "at most 100 specs per request" });
+    }
+    for (const one of raw) specs.push(validateSpec(one));
+
+    const pending = queue.state().filter(j => j.status === "QUEUED").length;
+    if (pending + specs.length > LAB_QUEUE_MAX_PENDING) {
+      return res.status(429).json({ error: "queue full", pending, max: LAB_QUEUE_MAX_PENDING });
+    }
+
+    const queued = specs.map(sp => queue.enqueue(sp, "dashboard"));
+    res.json({ status: "QUEUED", queued: queued.map(q => ({ id: q.id, spec: q.spec })),
+      pending: pending + queued.length,
+      note: "Nothing has run yet. A scheduled drain executes the queue out of band; "
+        + "this server never runs a backtest.",
+      feedsTheGate: false });
+  } catch (e) {
+    // A rejected spec is a 400 carrying the REASON, not a 500. The reason is what tells
+    // the user which control was wrong.
+    res.status(400).json({ error: String(e && e.message ? e.message : e) });
+  }
+});
+
+app.get("/api/lab-queue", (_, res) => {
+  try {
+    const queue = require(path.join(__dirname, "..", "tasks", "lab_queue.cjs"));
+    const jobs = queue.state();
+    const counts = jobs.reduce((a, j) => { a[j.status] = (a[j.status] || 0) + 1; return a; }, {});
+    res.json({ status: "OK", counts, jobs: jobs.slice(-40).reverse(), feedsTheGate: false });
+  } catch (e) {
+    res.json({ status: "ERROR", counts: {}, jobs: [],
+      detail: String(e && e.message ? e.message : e), feedsTheGate: false });
+  }
+});
+
+app.get("/api/lab-report", (req, res) => {
+  const dir = path.join(__dirname, "..", "tasks", "analysis", "lab");
+  try {
+    if (!fs.existsSync(dir)) {
+      return res.json({ status: "NOT RUN", reports: [],
+        detail: "No lab artifacts on this box yet. Generate one with: "
+          + "node tasks/lab_report.cjs --trades <file> --out tasks/analysis/lab/<name>.json",
+        feedsTheGate: false });
+    }
+    const names = fs.readdirSync(dir)
+      .filter(f => f.endsWith(".json"))
+      .map(f => f.slice(0, -5))
+      // SAME filter as the one applied to the query below. A file whose name could
+      // not be requested must not be advertised either, or the page offers a link
+      // that always 400s.
+      .filter(n => /^[A-Za-z0-9_-]+$/.test(n))
+      .sort();
+
+    // The LEADERBOARD, so candidates can be compared, with the per-family trial count
+    // visible beside each one -- the cost of the search shown next to its result.
+    let board = [];
+    try {
+      board = require(path.join(__dirname, "..", "tasks", "lab_registry.cjs")).leaderboard();
+    } catch (e) { /* an unreadable registry must not blank the page */ }
+
+    const want = String(req.query.name || "");
+    if (!want) return res.json({ status: "OK", reports: names, leaderboard: board, report: null, feedsTheGate: false });
+
+    // PATH TRAVERSAL, CLOSED TWICE. The allowlist regex alone would be enough, but
+    // a second check that the RESOLVED path is still inside the directory costs
+    // nothing and does not depend on getting a regex exactly right. Rejects
+    // "../../server/apikey", any separator, any dot segment, and any absolute path.
+    if (!/^[A-Za-z0-9_-]+$/.test(want)) {
+      return res.status(400).json({ error: "bad report name" });
+    }
+    const file = path.join(dir, want + ".json");
+    if (path.relative(dir, file) !== want + ".json") {
+      return res.status(400).json({ error: "bad report name" });
+    }
+    if (!fs.existsSync(file)) {
+      return res.status(404).json({ error: "no such report", reports: names });
+    }
+
+    const raw = JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, ""));
+    const ms = Date.parse(raw.generatedAt || "");
+    const ageHours = Number.isFinite(ms)
+      ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+    // Staleness is a STATUS, not a number the reader has to derive - the same lesson
+    // /api/robustness-report already carries. `status` stays "OK" on purpose: a stale
+    // assessment is still the best evidence available and must render, loudly marked,
+    // rather than blanking the page that warns about it.
+    const STALE_AFTER_HOURS = 192;
+    res.json({
+      status: "OK",
+      reports: names,
+      name: want,
+      ageHours,
+      stale: ageHours !== null && ageHours > STALE_AFTER_HOURS,
+      staleAfterHours: STALE_AFTER_HOURS,
+      report: raw,
+      leaderboard: board,
+      // THE PLATEAU: siblings differing in exactly ONE parameter, so a reader can see
+      // whether this candidate sits on a shelf or is a lone spike surrounded by losers.
+      // A spike is an artefact of the search however good its own numbers look, and no
+      // per-candidate report can ever reveal it.
+      plateau: (() => {
+        try {
+          if (!raw.spec) return null;
+          return require(path.join(__dirname, "..", "tasks", "lab_registry.cjs")).plateau(raw.spec);
+        } catch (e) { return null; }
+      })(),
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    // Never 500 a reading surface into a blank page. Name the failure instead.
+    res.json({ status: "ERROR", reports: [], report: null,
+      detail: String(e && e.message ? e.message : e), feedsTheGate: false });
+  }
+});
+
+app.get("/api/measured-evidence", (_, res) => {
+  const dir = path.join(__dirname, "..", "tasks", "analysis");
+
+  // Each entry: the file, what question it answers, and how to regenerate it. The
+  // command is carried so a stale panel tells you how to refresh it instead of
+  // leaving you to grep for the harness.
+  const REPORTS = [
+    { key: "ceilingWalkforward", file: "rsi-ceiling-walkforward-latest.json",
+      title: "RSI ceiling — walk-forward, equal-count folds, costs charged",
+      command: "node tasks/rsi_ceiling_walkforward.cjs" },
+    { key: "ceilingWalkforwardTime", file: "rsi-ceiling-walkforward-time-latest.json",
+      title: "RSI ceiling — walk-forward, equal-TIME folds",
+      command: "RSI_CEILING_FOLD_MODE=time node tasks/rsi_ceiling_walkforward.cjs" },
+    { key: "ceilingWalkforwardPerAsset", file: "rsi-ceiling-walkforward-latest-perasset.json",
+      title: "RSI ceiling — walk-forward, per-asset cost basis",
+      command: "RSI_CEILING_COST=perasset node tasks/rsi_ceiling_walkforward.cjs" },
+    { key: "ceilingForward", file: "ceiling-measure-latest.json",
+      title: "RSI ceiling — forward returns vs a matched control",
+      command: "node tasks/ceiling_measure.cjs --json" },
+    { key: "pbo", file: "pbo-latest.json",
+      title: "Probability of backtest overfitting (CSCV)",
+      command: "node tasks/pbo.cjs --json" },
+    { key: "sizing", file: "sizing_walkforward.json",
+      title: "Position sizing — fixed lot vs risk-based, in money",
+      command: "node tasks/sizing_walkforward.cjs --json" },
+  ];
+
+  // ENGINE EPOCH. calcRSI was a simple 14-bar average, not Wilder, for this
+  // system's whole life; it was corrected at this instant (commit b7d89a5). RSI
+  // moved 6 to 13 points and the sign varied, so EVERY report generated before
+  // this measured a different engine and its verdicts do not carry over.
+  //
+  // This is not hypothetical: the first version of this route counted a 68.9-hour
+  // old per-asset cut as a completed cut and admitted 64/60 to the survivors list
+  // on the strength of it, while the two FRESH cuts disagreed about that very
+  // candidate. A stale report reading as current is the failure this project keeps
+  // repeating - see the fill count that stayed in the boot file long after it
+  // stopped being true.
+  //
+  // Move this forward whenever something changes what the engine computes.
+  const ENGINE_EPOCH = Date.parse("2026-08-25T12:15:06Z");
+
+  const out = {};
+  for (const r of REPORTS) {
+    const p = path.join(dir, r.file);
+    const entry = { title: r.title, command: r.command, file: r.file };
+    try {
+      if (!fs.existsSync(p)) {
+        entry.status = "NOT RUN";
+        entry.detail = "no report on disk — this question has not been measured on this box";
+        out[r.key] = entry;
+        continue;
+      }
+      const stat = fs.statSync(p);
+      const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+      entry.status = "OK";
+      // AGE, not just a timestamp. A timestamp makes the reader hold today's date and
+      // do the subtraction, which is exactly what went wrong when the shadow ledger
+      // served stale stats for a day and nobody noticed.
+      const stampedAt = raw.generatedAt || raw.measuredAt || stat.mtime.toISOString();
+      entry.generatedAt = stampedAt;
+      const ms = Date.parse(stampedAt);
+      entry.ageHours = Number.isFinite(ms)
+        ? Math.round(((Date.now() - ms) / 3600000) * 10) / 10 : null;
+
+      // A report older than the engine epoch is STALE, not merely old. It is
+      // excluded from every verdict below rather than quietly averaged in.
+      // An UNDATED report is treated as stale too: if it cannot prove it is
+      // current, it does not get to vote.
+      entry.stale = !Number.isFinite(ms) || ms < ENGINE_EPOCH;
+      if (entry.stale) {
+        entry.status = "STALE";
+        entry.detail = "generated before the calcRSI correction (2026-08-25T12:15Z), "
+                     + "so it measured a different engine - re-run before trusting it";
+      }
+      entry.report = raw;
+    } catch (e) {
+      // An unreadable report is NOT an absent one. Say which.
+      entry.status = "UNREADABLE";
+      entry.detail = e.message;
+      console.error(`[measured-evidence] ${r.file}: ${e.message}`);
+    }
+    out[r.key] = entry;
+  }
+
+  // A compact ceiling summary the page can render without re-deriving anything. The
+  // candidate rows already carry worstFold and foldsPositive; nothing is recomputed
+  // here, because a second implementation of "which candidate wins" is a second thing
+  // to drift from the harness that decided it.
+  function ceilingRows(entry) {
+    if (!entry || entry.status !== "OK") return null;
+    const cands = entry.report.candidates || {};
+    return Object.values(cands).map(c => ({
+      label: c.label,
+      worstFold: c.worstFold,
+      foldsPositive: c.foldsPositive,
+      foldsScored: c.foldsScored,
+      closed: c.overall ? c.overall.closed : null,
+      totalR: c.overall ? c.overall.R : null,
+      isBaseline: !!c.isBaseline,
+      beatsBaseline: !!c.beatsBaselineWorstFold,
+    }));
+  }
+
+  // A challenger only counts if it beats the baseline under EVERY cut that has been
+  // run. One cut is a coin toss with extra steps - candidates flip between 5/5 and
+  // 3/5 purely on where the fold lines fall, which is what the equal-time cut caught.
+  const cuts = ["ceilingWalkforward", "ceilingWalkforwardTime", "ceilingWalkforwardPerAsset"];
+  // OK only. A STALE cut is not a cut that ran, it is a cut that ran against
+  // different arithmetic.
+  const cutsRun = cuts.filter(k => out[k] && out[k].status === "OK");
+  const cutsStale = cuts.filter(k => out[k] && out[k].status === "STALE");
+  const perCut = {};
+  for (const k of cutsRun) perCut[k] = ceilingRows(out[k]);
+
+  let survivors = null;
+  if (cutsRun.length) {
+    const names = new Set();
+    for (const k of cutsRun) for (const row of perCut[k]) if (!row.isBaseline) names.add(row.label);
+    survivors = [...names].filter(name =>
+      cutsRun.every(k => {
+        const row = perCut[k].find(r => r.label === name);
+        return row && row.beatsBaseline;
+      }));
+  }
+
+  res.json({
+    reports: out,
+    ceiling: {
+      cutsRun: cutsRun.length,
+      cutsTotal: cuts.length,
+      perCut,
+      survivorsAcrossEveryCutRun: survivors,
+      standard: "A challenger must beat the baseline's WORST FOLD under every cut that "
+              + "has been run. Winning one cut is a coin toss with extra steps.",
+        cutsStale: cutsStale.length,
+      incomplete: cutsRun.length < cuts.length
+        ? (cuts.length - cutsRun.length) + " cut(s) not usable"
+          + (cutsStale.length ? " (" + cutsStale.length + " STALE - predate the calcRSI fix)" : " (not yet run)")
+          + " — this is not a verdict"
+        : null,
+    },
+    note: "Reports are read off disk. Nothing here runs a harness, changes a setting, "
+        + "or touches a position.",
+    feedsTheGate: false,
+  });
+});
+
+// ── /api/preopen-plan — the plan the daily pre-open job produced ────────────
+//
+// Serves the ARTIFACT, and deliberately does not build the plan on demand.
+// tasks/preopen_plan.cjs makes seven HTTP calls back to this same server plus a
+// login; running it inside a route would mean the dashboard's poll fires eight
+// self-requests through the event loop it is already occupying. The plan is a
+// point-in-time statement about the session ahead anyway — recomputing it on every
+// dashboard refresh would produce a different "distance to fire" each poll and
+// destroy the one property that makes a plan useful, which is that it does not move
+// while you are reading it.
+//
+// AGE IS PART OF THE ANSWER. A plan from three days ago is not a plan, and the whole
+// point of surfacing this is that a stale read must never look like a fresh one.
+// THREE STATES, because this artifact has three conditions and the old code had one.
+//
+//   fresh      the open it names is still ahead. Normal, and the only state that needs
+//              no comment.
+//   past-open  that open has begun. NORMAL for the hours between the open and the next
+//              scheduled run, so it is INFORMATIONAL, never an alarm.
+//   overdue    the age has passed a full cycle, so a scheduled run was skipped -- or the
+//              artifact is malformed. This is the actionable one.
+//
+// THE FIRST VERSION OF THIS FIX FOLDED past-open INTO stale AND WAS A REGRESSION: a
+// pre-open plan is past its open for about 1379 of every 1440 minutes, so the yellow
+// banner would have been on 95.8% of the time, including for a plan built at the correct
+// slot that is the best one in existence. That is the repo's own "an action item that
+// cannot clear" failure -- it trains you to skim past the one that matters. Caught in
+// review before it reached a running server.
+//
+// The claim it replaced was ALSO overstated. `age > 24h` was not dead code: with a daily
+// job it crosses the threshold the moment a run is skipped, which is precisely the
+// failure worth alarming on. What it never expressed was past-open, and the banner TEXT
+// asserted past-open ("describes a session that has already happened") while the TEST
+// measured a skipped run. The test was right and the words were wrong.
+//
+// NOT "12:00 UTC" ANYWHERE IN THE MESSAGES. tasks/reschedule_preopen.ps1 moves this
+// trigger nightly to keep the hour before the open clear of high-impact news -- on
+// 2026-08-26 it moved 13:00 -> 12:45 local for Core PCE. A number copied out of a
+// schedule that moves is the same stale-claim class this project keeps finding.
+// ANCHORED ON THE OPEN, NOT ON THE CLOCK. `overdue` asks "did we reach an open with no
+// plan for it?", because the New York open is FIXED at 13:00Z while the run slot is
+// not -- tasks/reschedule_preopen.ps1 moves it 60-180 minutes before the open to dodge
+// high-impact news. An age-based test measures the moving thing against a fixed
+// threshold, so the day AFTER a shifted run it alarms before the healthy run lands:
+// measured against the real 2026-08-26 shift (11:45Z, then 12:00Z the next day), 14
+// minutes of OVERDUE with nothing wrong, and up to ~2h at the ends of the slot range.
+// A check built to stop crying wolf must not cry wolf. The trade is ~1 hour of later
+// detection for zero false alarms, which is the right way round for an alarm nobody
+// is paged by.
+const PREOPEN_PLAN_MISSED_OPEN_MINUTES = 24 * 60;   // one open to the next
+// Corruption backstop ONLY, for a plan whose nextNewYorkOpen is present but absurd --
+// a far-future date would otherwise read as fresh forever. Deliberately 48h, not 24h,
+// so no slot shift can ever reach it.
+const PREOPEN_PLAN_ABSURD_AGE_MINUTES = 48 * 60;
+// HOW OFTEN THE PRE-OPEN PLAN WAS RIGHT.
+//
+// The plan makes a falsifiable call every run - per asset, "would fire" and a gap to the
+// gate - and 52 of them had been written without one ever being checked. A forecast nobody
+// scores teaches nothing: it cannot be wrong, so it cannot improve, and a reader has no way
+// to tell whether "30pt short" means "nearly traded" or "never trades".
+//
+// Reads the artifact written by tasks/preopen_score.cjs. Reporting only: it changes no
+// threshold, feeds no gate and opens nothing. A miss is a prompt to look, not a verdict -
+// "ready but no trade" can be correct behaviour when a downstream gate refused for a good
+// reason.
+app.get("/api/preopen-score", (_, res) => {
+  const p = path.join(__dirname, "..", "tasks", "analysis", "preopen-score-latest.json");
+  try {
+    res.json(JSON.parse(fs.readFileSync(p, "utf8")));
+  } catch (e) {
+    // Absent is not zero. Say which it is.
+    res.json({ unavailable: true, reason: "no scorecard yet — run node tasks/preopen_score.cjs" });
+  }
+});
+
+app.get("/api/preopen-plan", (_, res) => {
+  const file = path.join(__dirname, "..", "tasks", "analysis", "preopen-plan-latest.json");
+  try {
+    if (!fs.existsSync(file)) {
+      // Not an error: the job has simply never run on this box. Say which job, or the
+      // reader has no way to act on it.
+      return res.json({
+        available: false,
+        // NOT "12:00 UTC": tasks/reschedule_preopen.ps1 moves the trigger nightly to keep
+        // the hour before the open clear of high-impact news, so the hour it names would
+        // be wrong on exactly the days it matters most.
+        reason: "no plan artifact yet — the daily pre-open run has not produced one on "
+              + "this box, or: node tasks/preopen_plan.cjs",
+        feedsTheGate: false,
+      });
+    }
+    const plan = JSON.parse(fs.readFileSync(file, "utf8"));
+    const ageMinutes = Math.round((Date.now() - Date.parse(plan.generatedAt)) / 60000);
+
+    // The session test, and the REASON, because "STALE" with no cause tells the reader
+    // nothing they can act on. Ordered most specific first.
+    const openAt = Date.parse(plan.nextNewYorkOpen);
+    const minutesSinceOpen = Number.isFinite(openAt)
+      ? Math.round((Date.now() - openAt) / 60000) : null;
+    let state = "fresh";
+    let stateReason = null;
+    if (!Number.isFinite(ageMinutes)) {
+      state = "overdue";
+      stateReason = "this plan carries no usable generatedAt";
+    } else if (ageMinutes > PREOPEN_PLAN_ABSURD_AGE_MINUTES) {
+      // No age repeated here: the panel already prints it beside this sentence.
+      state = "overdue";
+      stateReason = "a scheduled pre-open run has been skipped — no newer plan exists";
+    } else if (!Number.isFinite(openAt)) {
+      // Reported, not swallowed. Silently falling back to the age test would hide the
+      // fact that the session check could not run at all.
+      state = "overdue";
+      stateReason = "this plan carries no nextNewYorkOpen, so it cannot be checked "
+                  + "against the session it was built for";
+    } else if (minutesSinceOpen > PREOPEN_PLAN_MISSED_OPEN_MINUTES) {
+      // We have passed a whole open-to-open cycle on this plan, so the run that should
+      // have produced a newer one did not. Slot-independent by construction.
+      state = "overdue";
+      stateReason = "a scheduled pre-open run has been skipped — the NEW YORK open this "
+                  + "was built for was more than a full day ago and no newer plan exists";
+    } else if (minutesSinceOpen > 0) {
+      // NOT an alarm. Expected for most of the day; the next scheduled run replaces it.
+      state = "past-open";
+      stateReason = "the NEW YORK open this was built for began "
+                  + (minutesSinceOpen < 120 ? minutesSinceOpen + " minutes"
+                                            : Math.round(minutesSinceOpen / 60) + " hours")
+                  + " ago — the next plan is due before the following open";
+    }
+
+    res.json({
+      available: true,
+      ageMinutes,
+      state,
+      stateReason,
+      // Kept, and now meaning ONLY "a run was skipped or the artifact is broken", which
+      // is what an alarm should mean. past-open is deliberately NOT stale.
+      stale: state === "overdue",
+      staleReason: state === "overdue" ? stateReason : null,
+      minutesSinceOpen,
+      // Kept under its old name so an OLD CACHED BUNDLE still reads something sane:
+      // dashboard/sw.js caches ./index.html, so a browser can be a version behind.
+      staleAfterMinutes: PREOPEN_PLAN_MISSED_OPEN_MINUTES,
+      plan,
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[preopen-plan]", e.message);
+    res.status(500).json({ available: false, error: e.message, feedsTheGate: false });
+  }
+});
+
+// ── /api/deep-plan — the full document, as data ─────────────────────────────
+//
+// Same artifact-not-on-demand rule as /api/preopen-plan, and for a stronger reason: the
+// deep plan makes eleven HTTP calls back to this server and sends a Telegram message.
+// Rebuilding it on a dashboard poll would message the user every time someone opened a
+// browser tab.
+const DEEP_PLAN_STALE_MINUTES = 24 * 60;
+app.get("/api/deep-plan", (_, res) => {
+  const file = path.join(__dirname, "..", "tasks", "analysis", "deep-plan-latest.json");
+  try {
+    if (!fs.existsSync(file)) {
+      return res.json({
+        available: false,
+        reason: "no deep plan yet — runs nightly after the close, or: node tasks/deep_plan.cjs",
+        feedsTheGate: false,
+      });
+    }
+    const plan = JSON.parse(fs.readFileSync(file, "utf8"));
+    const ageMinutes = Math.round((Date.now() - Date.parse(plan.generatedAt)) / 60000);
+    res.json({
+      available: true,
+      ageMinutes,
+      stale: !Number.isFinite(ageMinutes) || ageMinutes > DEEP_PLAN_STALE_MINUTES,
+      staleAfterMinutes: DEEP_PLAN_STALE_MINUTES,
+      plan,
+      feedsTheGate: false,
+    });
+  } catch (e) {
+    console.error("[deep-plan]", e.message);
+    res.status(500).json({ available: false, error: e.message, feedsTheGate: false });
   }
 });
 
@@ -4827,6 +13028,9 @@ app.post("/api/size", (req, res) => {
     const validation = sizing.validateTrade(signal, accountBalance, openPositions || [], {
       minConfidence: strategySettings.confidenceThreshold,
       valuePerPointBySymbol,
+      // The configured per-trade budget. Absent or unparseable, sizing.js falls back to
+      // its own 1% and this route behaves exactly as it did before the key existed.
+      riskPercent: strategySettings.riskPercent,
     });
     res.json(validation);
   } catch (e) {
@@ -4841,15 +13045,52 @@ app.post("/api/size", (req, res) => {
 const PROPOSALS_PATH   = path.join(__dirname, "..", "tasks", "proposals.json");
 const AGENT_RELAY_SECRET = (process.env.AGENT_RELAY_SECRET || "").trim();
 
+// ABSENT and CORRUPT are different answers and must never share a return value.
+//
+// This used to `catch {}` and return an empty list for both. Every writer below calls
+// this first, mutates the result and writes it back — so ONE unparseable read silently
+// converted the whole file into a single row, with nothing in the log. Combined with a
+// non-atomic write (which is what produces a truncated file in the first place) that is
+// a closed loop: the bad write creates the corruption, the silent read turns it into a
+// delete, and the next save makes it permanent. Fixing either alone leaves the loop
+// open, so both are fixed here.
+//
+// Absent is still a normal first run and still returns the empty default. Corrupt
+// throws, because refusing to answer is the only response that cannot destroy data.
 function loadProposals() {
+  if (!fs.existsSync(PROPOSALS_PATH)) return { proposals: [] };
+  let raw;
   try {
-    if (fs.existsSync(PROPOSALS_PATH)) return JSON.parse(fs.readFileSync(PROPOSALS_PATH, "utf8"));
-  } catch {}
-  return { proposals: [] };
+    raw = fs.readFileSync(PROPOSALS_PATH, "utf8");
+  } catch (e) {
+    console.error(`[proposals] UNREADABLE ${PROPOSALS_PATH}: ${e.message} — refusing to ` +
+                  `report an empty list, because the next save would make that permanent.`);
+    throw e;
+  }
+  try {
+    // Strip a UTF-8 BOM before parsing. readFileSync("utf8") keeps it, so a BOM'd but
+    // otherwise perfect file would parse-fail and be reported as corruption. This repo
+    // has been burned by exactly that input: PowerShell Set-Content -Encoding utf8
+    // emits a BOM and silently reset the VPS to defaults on 2026-08-02.
+    const parsed = JSON.parse(raw.replace(/^﻿/, ""));
+    if (!parsed || !Array.isArray(parsed.proposals)) {
+      throw new Error("parsed but has no proposals array");
+    }
+    return parsed;
+  } catch (e) {
+    console.error(`[proposals] CORRUPT ${PROPOSALS_PATH}: ${e.message} — ${raw.length} bytes ` +
+                  `on disk. NOT returning an empty list: every writer round-trips through ` +
+                  `this function, so doing so would delete the file's contents on the next ` +
+                  `save. Fix or move the file by hand.`);
+    throw e;
+  }
 }
 function saveProposals(data) {
   fs.mkdirSync(path.dirname(PROPOSALS_PATH), { recursive: true });
-  fs.writeFileSync(PROPOSALS_PATH, JSON.stringify(data, null, 2));
+  // Atomic: temp + rename, the same guarantee saveLearning already uses. A plain
+  // writeFileSync interrupted mid-flush leaves a truncated file, which is precisely
+  // the input that used to read back as "empty".
+  writeJsonAtomic(PROPOSALS_PATH, data);
 }
 
 // ── Peer heartbeat: so each box can notice the OTHER one dying ────────────────
@@ -4869,8 +13110,38 @@ function saveProposals(data) {
 // setting. The worst a caller with the secret can do is lie about being alive.
 const peerHeartbeats = {};
 
+/**
+ * What the reporting box is RUNNING, not merely that it is running.
+ *
+ * The pull probe cannot work in this direction — the laptop is not addressable from
+ * outside — so without this the always-on box knows its peer is alive and nothing
+ * else: not its gate, not whether its breaker is open, not whether its bridges are
+ * armed. That is the same single-box blindness the Systems Plan was built to end,
+ * left standing in the one direction that could not be fixed by pulling.
+ *
+ * Whitelisted and bounded field by field. The caller is already authenticated by
+ * AGENT_RELAY_SECRET and this is display-only — it feeds no gate, sizes nothing,
+ * and arms nothing. Unknown keys are dropped rather than stored.
+ */
+function sanitizeHeartbeatState(state) {
+  if (!state || typeof state !== "object") return null;
+  const finiteOrNull = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  const shortTags = (value) => (Array.isArray(value) ? value.slice(0, 8).map(tag => String(tag).slice(0, 16)) : []);
+  return {
+    gate:                finiteOrNull(state.gate),
+    dailyPnl:            finiteOrNull(state.dailyPnl),
+    unreviewedProposals: finiteOrNull(state.unreviewedProposals),
+    halted:              state.halted === true,
+    haltReason:          typeof state.haltReason === "string" ? state.haltReason.slice(0, 120) : "",
+    settingsError:       typeof state.settingsError === "string" ? state.settingsError.slice(0, 120) : null,
+    bridgesLive:         shortTags(state.bridgesLive),
+    bridgesSilent:       shortTags(state.bridgesSilent),
+    armed:               shortTags(state.armed),
+  };
+}
+
 app.post("/api/peer-heartbeat", (req, res) => {
-  const { secret, box, status, detail } = req.body || {};
+  const { secret, box, status, detail, state } = req.body || {};
   if (!AGENT_RELAY_SECRET || secret !== AGENT_RELAY_SECRET) {
     return res.status(403).json({ error: "invalid or missing secret" });
   }
@@ -4879,9 +13150,10 @@ app.post("/api/peer-heartbeat", (req, res) => {
     box:    name,
     status: typeof status === "string" ? status.slice(0, 32) : "unknown",
     detail: typeof detail === "string" ? detail.slice(0, 300) : null,
+    state:  sanitizeHeartbeatState(state),
     at:     new Date().toISOString(),
   };
-  res.json({ ok: true, recorded: name });
+  res.json({ ok: true, recorded: name, stateAccepted: peerHeartbeats[name].state !== null });
 });
 
 app.get("/api/peer-heartbeat", (_, res) => {
@@ -4901,25 +13173,39 @@ app.post("/api/agent/notify", (req, res) => {
     return res.status(403).json({ error: "invalid or missing secret" });
   }
 
-  let id = null;
-  if (proposal && typeof proposal === "object") {
-    const data = loadProposals();
-    id = "prop_" + Date.now().toString(36);
-    data.proposals.unshift({
-      id,
-      summary:      proposal.summary || "(no summary provided)",
-      branch:       proposal.branch || null,
-      prUrl:        proposal.prUrl || null,
-      filesChanged: proposal.filesChanged || [],
-      createdAt:    new Date().toISOString(),
-      status:       "pending"
-    });
-    saveProposals(data);
+  // Sent BEFORE the proposal is recorded, deliberately. A corrupt proposals file makes
+  // the block below return 500, and the alert is the half that still works — losing it
+  // too would mean a failure that is silent in the one channel a human actually reads.
+  if (message && TELEGRAM_TOKEN) {
+    const alertChatId = TELEGRAM_CHAT_ID || [...knownChatIds][0];
+    if (alertChatId) sendTelegram(alertChatId, message).catch(() => {});
   }
 
-  if (message && TELEGRAM_TOKEN) {
-    const chatId = TELEGRAM_CHAT_ID || [...knownChatIds][0];
-    if (chatId) sendTelegram(chatId, message).catch(() => {});
+  let id = null;
+  if (proposal && typeof proposal === "object") {
+    // A corrupt proposals file must fail this POST LOUDLY rather than append to an
+    // empty object and wipe the record. The remote agent gets a 500 and can retry;
+    // silently discarding everything already on file is not a recoverable state.
+    try {
+      const data = loadProposals();
+      id = "prop_" + Date.now().toString(36);
+      data.proposals.unshift({
+        id,
+        summary:      proposal.summary || "(no summary provided)",
+        branch:       proposal.branch || null,
+        prUrl:        proposal.prUrl || null,
+        filesChanged: proposal.filesChanged || [],
+        createdAt:    new Date().toISOString(),
+        status:       "pending"
+      });
+      saveProposals(data);
+    } catch (e) {
+      console.error("[agent/notify] proposal NOT recorded:", e.message);
+      return res.status(500).json({
+        ok: false,
+        error: "proposals file unreadable — proposal not recorded, nothing was overwritten",
+      });
+    }
   }
 
   res.json({ ok: true, id });
@@ -4930,23 +13216,74 @@ app.post("/api/agent/notify", (req, res) => {
 // this is what makes the web chat's memory genuinely cross-session, not just this tab.
 const MEMORY_PATH = path.join(__dirname, "..", "tasks", "jarvis_memory.json");
 
+// Same contract as loadProposals above, and for the same reason — see that comment.
+// This one guards more: tasks/jarvis_memory.json is the web chat's cross-session
+// memory and held 31 entries / 31,951 bytes when this was fixed. saveMemoryEntry
+// round-trips through here, so a silent empty return followed by one save would have
+// destroyed all 31 with nothing in the log to show for it.
 function loadMemory() {
+  if (!fs.existsSync(MEMORY_PATH)) return { version: 1, entries: [] };
+  let raw;
   try {
-    if (fs.existsSync(MEMORY_PATH)) return JSON.parse(fs.readFileSync(MEMORY_PATH, "utf8"));
-  } catch {}
-  return { version: 1, entries: [] };
+    raw = fs.readFileSync(MEMORY_PATH, "utf8");
+  } catch (e) {
+    console.error(`[memory] UNREADABLE ${MEMORY_PATH}: ${e.message} — refusing to report ` +
+                  `an empty store, because the next save would make that permanent.`);
+    throw e;
+  }
+  try {
+    // BOM stripped for the same reason as loadProposals above — a BOM'd file is
+    // perfectly readable and must not be mistaken for a truncated one.
+    const parsed = JSON.parse(raw.replace(/^﻿/, ""));
+    if (!parsed || !Array.isArray(parsed.entries)) {
+      throw new Error("parsed but has no entries array");
+    }
+    // Validate the ELEMENTS, not just the container. saveMemoryEntry does
+    // e.key.toLowerCase() on every row, so one entry without a key throws a bare
+    // TypeError deep in the writer instead of naming the file that is malformed.
+    //
+    // BUT A NOTE-SHAPED ROW IS NOT MALFORMED. This file has TWO writers by design —
+    // memory.py writes {key, value, category, ...} and this server appends session
+    // notes as {ts, tag, text} (memory.py:44 and :95 both say so). Requiring a string
+    // `key` therefore rejected rows the system itself had legitimately written, and
+    // GET /api/memory answered 500 "entry 70 has no string key" — the entire memory
+    // API down because of one valid note. Found 2026-08-28 by check_errors.py, which
+    // had been reporting it as a plain FAIL every run.
+    //
+    // Accepting them is SAFER than the old rule, not weaker: the guard existed only
+    // to stop e.key.toLowerCase() throwing inside the writer, and saveMemoryEntry now
+    // guards that call directly, which protects it whatever shape arrives. A row that
+    // is neither shape is still rejected, and still names the index.
+    const bad = parsed.entries.findIndex(e =>
+      !e || (typeof e.key !== "string" && typeof e.text !== "string"));
+    if (bad !== -1) throw new Error(`entry ${bad} is neither a memory row (key) nor a note row (text)`);
+    return parsed;
+  } catch (e) {
+    console.error(`[memory] CORRUPT ${MEMORY_PATH}: ${e.message} — ${raw.length} bytes on ` +
+                  `disk. NOT returning an empty store: saveMemoryEntry round-trips through ` +
+                  `this function, so doing so would delete every saved fact on the next ` +
+                  `write. Fix or move the file by hand.`);
+    throw e;
+  }
 }
 
 function saveMemoryEntry(key, value, category, source = "manual") {
   const data = loadMemory();
   const now = new Date().toISOString();
-  const idx = data.entries.findIndex(e => e.key.toLowerCase() === key.toLowerCase());
+  // (e.key || "") because the same file legitimately holds note-shaped rows with no
+  // key at all. Unguarded, this threw a bare TypeError from inside the WRITER, which
+  // is why loadMemory used to refuse the whole file rather than let it get here.
+  // Guarding at the point of use protects every caller regardless of row shape.
+  const idx = data.entries.findIndex(e => (e?.key || "").toLowerCase() === key.toLowerCase());
   const entry = { key, value, category: (category || "GENERAL").toUpperCase(), source, updated_at: now };
   if (idx >= 0) data.entries[idx] = { ...data.entries[idx], ...entry };
   else { entry.created_at = now; data.entries.unshift(entry); }
   data.last_updated = now;
   fs.mkdirSync(path.dirname(MEMORY_PATH), { recursive: true });
-  fs.writeFileSync(MEMORY_PATH, JSON.stringify(data, null, 2));
+  // Atomic: temp + rename. A plain writeFileSync interrupted mid-flush leaves the
+  // truncated file that loadMemory above now refuses to read as empty — this is the
+  // other half of that loop, and closing only one end leaves the failure reachable.
+  writeJsonAtomic(MEMORY_PATH, data);
   return data.entries[idx >= 0 ? idx : 0];
 }
 
@@ -5015,7 +13352,7 @@ app.post("/api/engineer/architect", requireLocalOnly, async (req, res) => {
       `{"workstreams":[{"name":"short-id","files":"which files this agent owns","task":"exact self-contained ` +
       `instructions for this agent, written as if briefing a colleague with no other context"}]}`;
 
-    const msg = await anthropic.messages.create({
+    const msg = await anthropicBg.messages.create({
       // Opus 5: this call decides how work is split across parallel agents, and a
       // bad split costs every downstream agent's time plus a merge conflict.
       model: "claude-opus-5",
@@ -5125,20 +13462,79 @@ app.get("/api/engineer/runs", requireLocalOnly, (_, res) => {
 });
 
 // ── Boot ──────────────────────────────────────────────────────
+// One timestamped line per boot, appended forever.
+//
+// WHY. On 2026-08-29 this server restarted at 09:45 local and NOTHING on the box
+// could say when, why, or that it was the third start of the day. `/api/status`
+// exposes only the CURRENT `startedAt`, which the next restart overwrites, and
+// server_log.txt prints "SmartEntry Pro v12 on port 3001" with NO TIMESTAMP — so the
+// boot banner cannot even be correlated against the scheduler or the healer. Three
+// separate surfaces reported the system healthy while the fact of the restart was
+// unrecoverable ten minutes later.
+//
+// This does not explain a restart. It makes one COUNTABLE, which is the prerequisite:
+// a start with no matching entry in server_crash.txt was an external stop — a
+// scheduled task, a supervisor, or a kill — rather than a process that died on its
+// own. That single distinction is what took the longest to establish by hand today.
+//
+// Append-only, never rotated. Best-effort: a failure to record a boot must never be
+// the thing that stops the server booting.
+function recordServerStart() {
+  try {
+    const startsPath = path.join(__dirname, "..", "tasks", "logs", "server_starts.txt");
+    fs.mkdirSync(path.dirname(startsPath), { recursive: true });
+    fs.appendFileSync(startsPath, `[${new Date().toISOString()}] pid=${process.pid} port=${PORT}\n`, "utf8");
+  } catch (startLogError) {
+    console.error("[boot] could not record this start:", startLogError.message);
+  }
+}
+
 app.listen(PORT, async () => {
-  console.log(`✅ SmartEntry Pro v12 on port ${PORT}`);
+  recordServerStart();
+  console.log(`✅ SmartEntry Pro v12 on port ${PORT} — started ${new Date().toISOString()} pid ${process.pid}`);
 
   // Init SQLite (graceful if better-sqlite3 not installed)
   const dbPath = process.env.DB_PATH || path.join(__dirname, "smartentry.db");
   db.init(dbPath);
 
-  await fetchPrices();
+  /* SENTIMENT IS FETCHED BEFORE THE FIRST SIGNAL CYCLE, NOT AFTER IT.
+   *
+   * This used to read `fetchPrices(); queueSignalRefresh(); ...; fetchFearGreed();`
+   * so the first cycle after EVERY restart scored with sentimentCache at its
+   * hardcoded default of 50 — a value where neither the >= 60 nor the <= 40
+   * branch at the Fear & Greed term fires. Every BUY in that cycle came out
+   * THREE POINTS LOW, and in the extreme bands the miss is 6 or 7.
+   *
+   * Measured on 2026-08-29, and it is why the two boxes disagreed on Gold after
+   * a restart: identical inputs — price 4454.31, MACD +7.11, ADX 34.9, swing low
+   * 4311.01 — and the laptop's boot cycle simply lacked the reason
+   * "Fear & Greed 68 (Greed) — risk appetite supports BUY". 62 here, 65 there.
+   *
+   * With the gate at 70, a setup genuinely at 70-72 reads 67-69 on the first
+   * cycle after a restart and does not fire. That is a good signal suppressed by
+   * cache ordering rather than by any gate, which is the one thing that must
+   * never happen.
+   *
+   * Concurrent, not sequential: both are independent network calls and
+   * fetchPrices is already the slower, so this costs no extra boot time.
+   * allSettled because a boot must not be taken down by a third-party API —
+   * though both functions already swallow their own errors and leave their
+   * defaults in place, so a dead sentiment API just restores today's behaviour.
+   *
+   * priceCache is the engine's other boot-filled input (VIX, DXY) and was
+   * already fetched first. newsCache, congressCache and flowCache are NOT read
+   * by the signal engine — checked, not assumed — so they stay where they are.
+   */
+  await Promise.allSettled([fetchPrices(), fetchFearGreed()]);
   await queueSignalRefresh();
   await fetchCongress();
   await fetchFlow();
   await fetchEconomicCalendar();
-  await fetchFearGreed();
   generateDailyPlan();
+  // On boot as well as on the 30-minute tick. A laptop that wakes at 08:14 has already
+  // missed 06:45, and waiting up to another 30 minutes for the artifact is the same
+  // lost morning in miniature. Returns immediately when today's plan already exists.
+  ensureDailyPlanArtifact("server boot");
   ensureTelegramPolling();
   if (ANTHROPIC_API_KEY) console.log("[ai] Claude AI enabled ✅");
   else console.log("[ai] No ANTHROPIC_API_KEY — using rule-based analysis");
@@ -5158,5 +13554,6 @@ app.listen(PORT, async () => {
     refreshSignals,
     fetchPrices,
   });
+  startPeerSilenceWatch();
   console.log('[BOOT] Auto-healer + SQLite DB active');
 });

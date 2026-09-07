@@ -57,6 +57,34 @@ exit /b 0
 echo [%date% %time%] Guardian started - supervising watchdog. >> "%WDLOG%"
 set /a RESTARTS=0
 :guard_loop
+REM Never stack a second watchdog on one that is already running.
+REM
+REM The guard above counts GUARDIANS, and that was the whole of it until 2026-08-08.
+REM It held: exactly one guardian was running. But an ORPHANED watchdog (PID 23920,
+REM its parent already dead, started 06:00:24) sat beside the guardian's own child
+REM from 06:00:24 to 06:40 and nothing noticed. The log double-heartbeated every ten
+REM cycles for forty minutes and that was treated as normal output.
+REM
+REM Two watchdogs both restart the server on the same failure. Only the marker file
+REM in watchdog.bat stops them, and the server branch had no marker until the same
+REM day. Counting guardians is not the same as counting watchdogs.
+set WAITED=0
+:wait_for_free
+REM Fails SAFE to 99 when the process list cannot be read, so an unreadable WMI means
+REM this waits rather than starting a watchdog that might be a duplicate. That leaves
+REM the box briefly unwatched; ensure_running.ps1 covers the gap on its own schedule,
+REM and a gap is recoverable where a duplicate racing a server restart is not.
+set WATCHDOGS=99
+for /f "usebackq delims=" %%N in (`powershell -NoProfile -ExecutionPolicy Bypass -File "tasks\count_watchdogs.ps1"`) do set WATCHDOGS=%%N
+if %WATCHDOGS% GTR 0 (
+  REM No parentheses in this text: a literal ^) inside an if-block closes the block
+  REM early and cmd then tries to run the remainder as a command.
+  if %WAITED% EQU 0 echo [%date% %time%] Guardian: a watchdog is already running - %WATCHDOGS% found - not starting a second, rechecking every 30s. >> "%WDLOG%"
+  set WAITED=1
+  timeout /t 30 /nobreak >nul
+  goto wait_for_free
+)
+
 REM /wait blocks here for the watchdog's entire life. Reaching the next line means
 REM the watchdog stopped, which is always abnormal — it has no exit path of its own.
 start "SmartEntry Watchdog" /min /wait cmd /c "tasks\watchdog.bat"

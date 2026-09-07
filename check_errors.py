@@ -10,9 +10,21 @@ Usage:
   python check_errors.py code      # check code syntax only
   python check_errors.py files     # check critical files only
 """
-import sys, os, json, subprocess, re
+import sys, os, json, subprocess, re, ast
 from pathlib import Path
 from datetime import datetime, timezone
+
+# Windows consoles here default to cp1252, which cannot encode the check glyphs this
+# script prints. Every run therefore died in the FINAL print with UnicodeEncodeError -
+# after all the work was done - and exited 1, so a fully passing check looked like a
+# crashed one. Reconfigure rather than strip the glyphs: the output is meant to be read
+# by a person, and errors="replace" means an exotic character degrades to "?" instead of
+# taking the whole report down with it.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 ROOT       = Path(__file__).parent
 SERVER_URL = "http://localhost:3001"
@@ -32,21 +44,46 @@ NEVER_COMMIT = [
     "tasks/.tv_session.json",
 ]
 
+# Method matters. /api/size and /api/chat are declared with app.post ONLY, so a GET
+# against them returns 404 — which this file was reporting as a FAILED ROUTE on a
+# perfectly healthy server. A checker that cries wolf on three of its seven routes
+# teaches you to ignore it, which costs more than not having it.
+#
+# POST routes are verified by their DECLARATION in server/index.js rather than by being
+# called. That is deliberate and not laziness: POSTing /api/chat spends Anthropic credit
+# on every health check, and a checker must never have a side effect worth noticing.
 REQUIRED_API_ROUTES = [
-    "/api/signals",
-    "/api/risk-status",
-    "/api/healer",
-    "/api/size",
-    "/api/journal",
-    "/api/chat",
-    "/api/memory",
+    ("GET",  "/api/signals"),
+    ("GET",  "/api/risk-status"),
+    ("GET",  "/api/healer"),
+    ("GET",  "/api/journal"),
+    ("GET",  "/api/memory"),      # session-gated: needs the cookie below
+    ("POST", "/api/size"),
+    ("POST", "/api/chat"),
 ]
+
+
+def _session_cookie() -> str:
+    """The session cookie value IS server/session_secret.txt.
+
+    Without it every gated route answers 401, and a 401 body parses as clean JSON —
+    so an unauthenticated checker reports a healthy server as broken, or worse reads
+    an error object as data. Missing file is not fatal: the public routes still answer.
+    """
+    try:
+        return (ROOT / "server" / "session_secret.txt").read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
 
 
 def _fetch(path: str, timeout: int = 4):
     import urllib.request
     try:
-        with urllib.request.urlopen(f"{SERVER_URL}{path}", timeout=timeout) as r:
+        req = urllib.request.Request(f"{SERVER_URL}{path}")
+        secret = _session_cookie()
+        if secret:
+            req.add_header("Cookie", f"smartentry_session={secret}")
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return True, json.loads(r.read().decode()), r.status
     except Exception as exc:
         return False, str(exc), 0
@@ -60,14 +97,28 @@ def check_server_health() -> list:
         healthy = data.get("healthy", False)
         results.append({
             "check":   "Server Running",
-            "status":  "PASS" if ok else "FAIL",
+            # Unconditional: this branch only runs when ok is True. The ternary read as
+            # a real test and could never be False.
+            "status":  "PASS",
             "detail":  f"HTTP {code}, healthy={healthy}",
         })
-        checks = data.get("checks", [])
-        for c in checks:
-            name    = c.get("name", "?")
+        # /api/healer returns checks as an OBJECT keyed by check name:
+        #   {"signalFreshness": {"ok": true, "detail": "..."} , ...}
+        # This iterated it as a list of dicts, and iterating a dict yields its KEYS —
+        # plain strings — so every run died on `'str' object has no attribute 'get'`.
+        # The error checker was the one thing in the stack that could not report an
+        # error. Both shapes are accepted so it survives the endpoint changing back.
+        checks = data.get("checks") or {}
+        if isinstance(checks, dict):
+            items = list(checks.items())
+        else:
+            items = [(c.get("name", "?"), c) for c in checks if isinstance(c, dict)]
+        for name, c in items:
+            if not isinstance(c, dict):
+                continue
             c_ok    = c.get("ok", False)
-            message = c.get("message", "")
+            # The field is "detail"; "message" was never present and every line printed blank.
+            message = c.get("detail") or c.get("message") or ""
             results.append({
                 "check":  f"Healer/{name}",
                 "status": "PASS" if c_ok else "WARN",
@@ -81,13 +132,32 @@ def check_server_health() -> list:
         })
         return results
 
-    for route in REQUIRED_API_ROUTES:
-        route_ok, route_data, route_code = _fetch(route)
+    try:
+        server_src = (ROOT / "server" / "index.js").read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        server_src = ""
         results.append({
-            "check":  f"API Route {route}",
-            "status": "PASS" if route_ok else "FAIL",
-            "detail": f"HTTP {route_code}" if route_ok else str(route_data)[:100],
+            "check":  "server/index.js readable",
+            "status": "FAIL",
+            "detail": str(exc)[:120],
         })
+
+    for method, route in REQUIRED_API_ROUTES:
+        if method == "GET":
+            route_ok, route_data, route_code = _fetch(route)
+            results.append({
+                "check":  f"API GET {route}",
+                "status": "PASS" if route_ok else "FAIL",
+                "detail": f"HTTP {route_code}" if route_ok else str(route_data)[:100],
+            })
+        else:
+            declared = f'app.post("{route}"' in server_src
+            results.append({
+                "check":  f"API {method} {route}",
+                "status": "PASS" if declared else "FAIL",
+                "detail": "declared in server/index.js (not invoked — a health check must not spend credit or place a trade)"
+                          if declared else "no app.post declaration found",
+            })
 
     return results
 
@@ -202,7 +272,10 @@ def _find_node() -> str | None:
 def check_python_imports() -> list:
     results = []
     PY_FILES = {
-        "chart_vision.py":  ["playwright", "anthropic"],
+        # Not "anthropic": this file calls api.anthropic.com over raw urllib and has
+        # never imported the SDK. It was flagged for years for a dependency it does
+        # not have and does not need.
+        "chart_vision.py":  ["playwright"],
         "voice.py":         ["sounddevice", "scipy", "whisper", "pyttsx3"],
         "notifications.py": ["smtplib", "urllib"],
         "debate_agents.py": ["concurrent.futures"],
@@ -222,12 +295,35 @@ def check_python_imports() -> list:
             })
             continue
 
+        # Parse the file and look at what it ACTUALLY imports.
+        #
+        # This used to substring-search for "import smtplib". notifications.py line 16
+        # reads `import sys, os, json, smtplib, urllib.request, subprocess` — the module
+        # IS imported, but as part of a comma list, so the literal never appeared and the
+        # checker reported it missing. Same for `ast` in self_improve.py. Three of the
+        # eight files carried a permanent false WARN, which is how a checker teaches you
+        # to ignore it. ast sees imports wherever they are, including inside functions.
         src = path.read_text(encoding="utf-8", errors="ignore")
-        missing = []
-        for mod in required_mods:
-            top = mod.split(".")[0]
-            if f"import {top}" not in src and f"from {top}" not in src:
-                missing.append(mod)
+        try:
+            tree = ast.parse(src)
+        except SyntaxError as exc:
+            results.append({
+                "check":  f"PyImport/{fname}",
+                "status": "WARN",
+                "detail": f"could not parse: {exc}",
+            })
+            continue
+
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported.add(alias.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imported.add(node.module.split(".")[0])
+
+        missing = [m for m in required_mods if m.split(".")[0] not in imported]
 
         if missing:
             results.append({

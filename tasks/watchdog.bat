@@ -32,6 +32,29 @@ REM exceed a cold start: MT5 terminal launch plus the bridge's 6 x 15s connect r
 REM loop. Enforced via a marker file so it survives a watchdog restart.
 set BRIDGE_RESTART_COOLDOWN_SEC=180
 
+REM Single-instance guard. watchdog_guardian.bat has one for itself (:44-51) and one
+REM for its child (:71-86), but those only serialise the GUARDIAN'S launch.
+REM tasks\start_all.bat:23 and tasks\startup.bat:27 start this file directly and
+REM bypass the guardian entirely, so nothing stopped a second instance. On
+REM 2026-08-14 that stacked one: the pair logged three "BRIDGE B DOWN" lines at
+REM 19:50:34.80, :36.90 and :38.75 - gaps of 2.1s and 1.85s, which is the
+REM `timeout /t 2` inside the restart branch below. A single 60s-paced loop cannot
+REM produce that. Counting our own cmd.exe is expected, so more than one is real.
+REM
+REM count_watchdogs.ps1 fails SAFE to 99, so an unreadable process list exits here
+REM rather than starting a possible duplicate. That is the guardian's own stated
+REM trade-off and it is not a dead end: the guardian relaunches 10s later and
+REM ensure_running.ps1 covers the gap on its own schedule. Two watchdogs racing a
+REM server restart is the failure that is NOT recoverable.
+set WATCHDOGS=99
+for /f "usebackq delims=" %%N in (`powershell -NoProfile -ExecutionPolicy Bypass -File "tasks\count_watchdogs.ps1"`) do set WATCHDOGS=%%N
+if %WATCHDOGS% GTR 1 (
+  REM No parentheses in this text: a literal ^) inside an if-block closes the block
+  REM early and cmd then tries to run the remainder as a command.
+  echo [%date% %time%] Watchdog already running - %WATCHDOGS% found - this instance exited. >> tasks\logs\watchdog_log.txt
+  exit /b 0
+)
+
 echo [%date% %time%] Watchdog started. >> tasks\logs\watchdog_log.txt
 
 :loop
@@ -40,8 +63,20 @@ set /a HB=!CYCLE! %% !HEARTBEAT_EVERY_CYCLES!
 if !HB! EQU 1 echo [!date! !time!] heartbeat - cycle !CYCLE!, watchdog alive. >> tasks\logs\watchdog_log.txt
 REM Check if server responds (5 second timeout)
 curl -s --max-time 5 http://localhost:3001/api/signals >nul 2>&1
+if errorlevel 1 (set SERVER_DOWN=1) else (set SERVER_DOWN=0)
 
-if errorlevel 1 (
+REM The server branch needs the same cooldown the bridge branches have, and for a
+REM sharper reason: the bridges are serialised by their marker file, this was not
+REM serialised by anything. On 2026-08-08 two watchdogs ran side by side for 40
+REM minutes - one orphaned, one owned by the guardian - and had the server gone down
+REM in that window, BOTH would have taskkilled it and BOTH would have started node.
+REM The loser takes EADDRINUSE and dies, which is already a familiar line in
+REM tasks\logs\server_err.txt. The marker is written BEFORE the taskkill so the race
+REM window is as small as it can be, and it is a FILE so it outlives a watchdog that
+REM is itself churning.
+call :recent_restart SERVER
+if !SERVER_DOWN! EQU 1 if !RECENT! EQU 0 (
+    echo restarted > "tasks\logs\.restart_SERVER"
     echo [!date! !time!] SERVER DOWN - restarting... >> tasks\logs\watchdog_log.txt
     echo  [WATCHDOG] Server down - restarting...
 
@@ -62,6 +97,12 @@ if errorlevel 1 (
         echo [!date! !time!] Server recovered OK. >> tasks\logs\watchdog_log.txt
         echo  [WATCHDOG] Server back online.
     )
+) else (
+    REM Chained `if A if B (...) else (...)` binds this else to the INNER if, so it is
+    REM reached only when the server is down AND a restart is still in cooldown. A
+    REM healthy server skips the whole construct and logs nothing, which is correct --
+    REM do not add a re-test of SERVER_DOWN here, it can only ever be true.
+    echo [!date! !time!] SERVER DOWN but a restart is still within cooldown - waiting. >> tasks\logs\watchdog_log.txt
 )
 
 REM -- MT5 bridge watchdog - restart only the specific account that went stale --
@@ -88,8 +129,18 @@ if !RECENT! EQU 1 (
         REM fixed for this in 12e0c12; this file was missed.
         taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT A*" >nul 2>&1
         timeout /t 2 /nobreak >nul
-        start "" /min cmd /k "tasks\start_bridge_A.bat"
-        echo restarted > "tasks\logs\.bridge_A_restart"
+        REM `cmd /k` KEPT THIS SHELL ALIVE FOREVER after the bridge stopped.
+        REM Measured 2026-08-27: 71 orphaned cmd.exe shells across the fleet - 6 on the
+        REM laptop, 65 on the VPS, oldest 476 hours. 30 of the VPS ones came from /k.
+        REM Each held a conhost and NO python child - the bridge had exited and the
+        REM shell simply stayed. /c behaves identically while the bridge RUNS, because
+        REM cmd blocks on the python call either way, and exits when it stops. The
+        REM window title the taskkill above matches is set by the batch itself, so
+        REM recovery still finds a live bridge.
+        REM NO PARENTHESES IN THIS COMMENT - it sits inside an if-block and a literal
+        REM close-paren would end that block early.
+        start "" /min cmd /c "tasks\start_bridge_A.bat"
+        echo restarted > "tasks\logs\.restart_A"
         set /a COOL_A=!BRIDGE_STARTUP_GRACE_CYCLES!
         echo [!date! !time!] Bridge A restart triggered - holding off !BRIDGE_STARTUP_GRACE_CYCLES! cycles. >> tasks\logs\watchdog_log.txt
     )
@@ -99,14 +150,23 @@ REM Bridge B only exists on machines that own tag B. MT5_EXPECTED_ACCOUNTS in
 REM keys.env is the single source of truth, shared with the server's healer and
 REM ensure_running.ps1. Local B and the VPS's A were both pinned to login 11581419
 REM with separate circuit breakers; without this check the watchdog restarts that
-REM duplicate within 60 seconds of it being stopped. Absent or unreadable value
-REM means A,B -- never an empty list, which would stop watching every bridge.
-set "EXPECTED_TAGS=A,B"
+REM duplicate within 60 seconds of it being stopped.
+REM
+REM Fails CLOSED, not open. This defaulted to "A,B", so ANY failure to read keys.env
+REM became "start a bridge for an account this box may not own" -- precisely the
+REM outcome the check exists to prevent, reached by the one path nobody tests. A box
+REM that owns B and cannot read its config loses B monitoring until the file is
+REM readable, and both ensure_running.ps1 and the server's healer report that
+REM independently; a box that does not own B can never start a duplicate.
+set "EXPECTED_TAGS="
 REM /c: is required. Without it findstr splits the pattern on spaces and treats each
 REM piece as its own search term, so "[ ]*=" alone matched any line containing "=" --
 REM a keys.env holding FOO=bar set EXPECTED_TAGS to "bar". Caught in trace, not live.
 for /f "tokens=2 delims==" %%T in ('findstr /r /c:"^ *MT5_EXPECTED_ACCOUNTS *=" keys.env 2^>nul') do set "EXPECTED_TAGS=%%T"
-if "!EXPECTED_TAGS!"=="" set "EXPECTED_TAGS=A,B"
+REM Logged on cycle 1 only: this is a config fault, not a per-minute event, and a
+REM line every 60s would bury the restart lines this file exists to make visible.
+if "!EXPECTED_TAGS!"=="" if !CYCLE! EQU 1 echo [!date! !time!] MT5_EXPECTED_ACCOUNTS unreadable - bridge B not watched this run. >> tasks\logs\watchdog_log.txt
+if "!EXPECTED_TAGS!"=="" goto :skip_bridge_b
 echo !EXPECTED_TAGS! | findstr /i "B" >nul
 if errorlevel 1 goto :skip_bridge_b
 
@@ -122,8 +182,18 @@ if !RECENT! EQU 1 (
         echo  [WATCHDOG] Bridge B down - restarting...
         taskkill /f /t /fi "windowtitle eq SmartEntry MT5 Bridge - ACCOUNT B*" >nul 2>&1
         timeout /t 2 /nobreak >nul
-        start "" /min cmd /k "tasks\start_bridge_B.bat"
-        echo restarted > "tasks\logs\.bridge_B_restart"
+        REM `cmd /k` KEPT THIS SHELL ALIVE FOREVER after the bridge stopped.
+        REM Measured 2026-08-27: 71 orphaned cmd.exe shells across the fleet - 6 on the
+        REM laptop, 65 on the VPS, oldest 476 hours. 30 of the VPS ones came from /k.
+        REM Each held a conhost and NO python child - the bridge had exited and the
+        REM shell simply stayed. /c behaves identically while the bridge RUNS, because
+        REM cmd blocks on the python call either way, and exits when it stops. The
+        REM window title the taskkill above matches is set by the batch itself, so
+        REM recovery still finds a live bridge.
+        REM NO PARENTHESES IN THIS COMMENT - it sits inside an if-block and a literal
+        REM close-paren would end that block early.
+        start "" /min cmd /c "tasks\start_bridge_B.bat"
+        echo restarted > "tasks\logs\.restart_B"
         set /a COOL_B=!BRIDGE_STARTUP_GRACE_CYCLES!
         echo [!date! !time!] Bridge B restart triggered - holding off !BRIDGE_STARTUP_GRACE_CYCLES! cycles. >> tasks\logs\watchdog_log.txt
     )
@@ -138,14 +208,19 @@ goto loop
 
 REM ── Subroutines ───────────────────────────────────────────────────────────────
 :recent_restart
-REM %1 = account tag. Sets RECENT=1 if that bridge was restarted less than
-REM BRIDGE_RESTART_COOLDOWN_SEC ago, 0 otherwise.
+REM %1 = what was restarted: an account tag (A, B) or SERVER. Sets RECENT=1 if it was
+REM restarted less than BRIDGE_RESTART_COOLDOWN_SEC ago, 0 otherwise.
+REM
+REM Marker files are .restart_%1, renamed from .bridge_%1_restart on 2026-08-08 when
+REM the server started using this too and ".bridge_SERVER_restart" would have been a
+REM lie. The markers are transient - they only matter for
+REM BRIDGE_RESTART_COOLDOWN_SEC - so no old file needed migrating.
 REM
 REM PowerShell rather than batch date arithmetic on purpose: %date%/%time% maths in
 REM cmd is locale-dependent and wrong across midnight and month boundaries, and a
 REM cooldown that silently fails open at midnight would stack duplicate bridges at
 REM exactly the hour nobody is watching.
 set RECENT=0
-if not exist "tasks\logs\.bridge_%~1_restart" exit /b 0
-for /f "usebackq delims=" %%R in (`powershell -NoProfile -Command "$f='tasks\logs\.bridge_%~1_restart'; $age=((Get-Date)-(Get-Item $f).LastWriteTime).TotalSeconds; if ($age -lt %BRIDGE_RESTART_COOLDOWN_SEC%) { '1' } else { '0' }"`) do set RECENT=%%R
+if not exist "tasks\logs\.restart_%~1" exit /b 0
+for /f "usebackq delims=" %%R in (`powershell -NoProfile -Command "$f='tasks\logs\.restart_%~1'; $age=((Get-Date)-(Get-Item $f).LastWriteTime).TotalSeconds; if ($age -lt %BRIDGE_RESTART_COOLDOWN_SEC%) { '1' } else { '0' }"`) do set RECENT=%%R
 exit /b 0

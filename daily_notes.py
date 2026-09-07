@@ -14,6 +14,25 @@ import sys, json, time
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
+# Notes are WRITTEN as UTF-8 (write_text(..., encoding="utf-8"), ensure_ascii=False) but
+# printed to a Windows console that defaults to cp1252, so any note containing a glyph
+# outside that codepage crashes the read path with UnicodeEncodeError while the file
+# itself is perfectly fine. Observed 2026-08-28: `daily_notes.py today` died on a single
+# "⚠" at position 1676 of a note written that morning, and the same note displays
+# correctly everywhere else. 2026-08-26 carried the same glyph.
+#
+# errors="replace", not "ignore": a character that cannot be shown becomes a visible
+# placeholder rather than vanishing. A note that silently loses a warning symbol is worse
+# than one that shows a box, because the reader cannot tell anything was dropped.
+#
+# Guarded because reconfigure() needs Python 3.7+ and is absent on some wrapped streams.
+# Failing to improve the console must never stop the notes from being read.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 NOTES_DIR = Path(__file__).parent / "tasks" / "daily"
 SERVER_URL = "http://localhost:3001"
 

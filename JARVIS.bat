@@ -8,4 +8,4 @@ echo   JARVIS - SmartEntry Pro
 echo   Full AI control - no permission dialogs
 echo  ==========================================
 echo.
-claude --dangerously-skip-permissions
+call claude --dangerously-skip-permissions

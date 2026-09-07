@@ -1,0 +1,29 @@
+{
+  "date": "2026-08-16",
+  "entries": [
+    {
+      "ts": "2026-08-16T06:20:06.508456+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-16: 8/8 healer green, 0 log errors, syntax clean, no secrets tracked. SPX has NEVER traded (0 of 5 journal rows) — today it is STRONG UPTREND, above all EMAs, MACD +22.71, ADX 22.8 and blocked SOLELY by MOMENTUM's rsi<72 ceiling at RSI 72.7, a 0.7pt miss. That block is invisible to the evidence pipeline: logGateRejection fires only at index.js:1398/1464/1942, all downstream of setup formation at :1247, so the ledger's 655 rows cover exactly 4 gates and none for the RSI band. Top rec: instrument the band before touching it. Also: coverage_audit.ps1 writes its [exit N] marker to stdout AFTER the log file is written (:311 vs :347), so 0 markers exist in coverage_audit.txt and the AI-employee ledger reads NO COMPLETION MARKER forever despite scheduler LastResult=0."
+    },
+    {
+      "ts": "2026-08-16T06:20:41.978836+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-16: health 8/8 green, syntax clean, no tracked secrets, fleet AGREES (gate 70 both boxes). Top issue = CRITICAL: XAUUSD BUY open on BOTH boxes (3 positions fleet-wide per doctor); each dashboard shows only its own leg and both boxes sit at 2/3 consecutive losses independently, so the fleet absorbs 4 losses before either breaker trips. Top recommendation = recover the 182 unscorable rejection rows (all from one 2026-08-09T07:45 backfill missing sourceSymbol; writer already fixed) — that more than doubles the 159 resolved episodes at zero trading risk. Also: 2 market-hour jobs RED on the VPS only; Exa search key returns 401. No trades in 24h; last close 08-12. Setups: all 3 below the 5-trade floor, nothing judgeable."
+    },
+    {
+      "ts": "2026-08-16T06:24:10.084265+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-16: No trades today — rest day."
+    },
+    {
+      "ts": "2026-08-16T08:00:26.061851+00:00",
+      "tag": "SYSTEM",
+      "text": "SESSION 8 CLOSE (2026-08-16) - deferred to next season by owner. Shipped and deployed to BOTH boxes, parity ENGINES AGREE 11/11 functions, 7/7 constants, 98/98 routes: c3b9dfd markers nobody read (coverage [exit N] went to stdout after the log closed; Morning Agent was invisible to its own ledger twice over), c9cf4c5 near-miss census GET /api/near-miss (SPX misses MOMENTUM by 0.7 RSI and nothing counted it), 774a9d7 auto_weekly_vps.bat ran `node tasksai_brief.cjs` with the backslash missing so the VPS weekly was NEVER briefed, 1a6056b + d2c62a5 post-close failures now name their cause. OPEN THREAD, start here next season: four post-close steps failed nightly from 08-13 (time_heatmap, session_walkforward x2, deep_plan) and ALL exit 0 by hand with static inputs - cause is specific to 21:30 UTC and not yet known. Both callers now log the reason, so read tasks/logs/postclose_analysis.txt and deep_plan.txt on the VPS for runs after 2026-08-16. engine parity is SOLVED - vps_parity.cjs is laptop-only, now skipped where its key is absent; do not re-investigate. Both boxes at consecutiveLosses 2 of 3."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-16T06:20:06.508456+00:00",
+  "updated_at": "2026-08-16T08:00:26.061851+00:00"
+}

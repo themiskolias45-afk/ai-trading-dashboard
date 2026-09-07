@@ -1,0 +1,49 @@
+{
+  "date": "2026-08-26",
+  "entries": [
+    {
+      "ts": "2026-08-26T03:12:41.263279+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-08-26: No trades today — rest day."
+    },
+    {
+      "ts": "2026-08-26T03:14:39.723716+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY-CHECK 2026-08-26: 0 RED / 7 AMBER, code clean, no secrets tracked. Gold D1 MOMENTUM missed the gate by 0.2 RSI points (72.2 vs ceiling 72) — 8/8 near-misses are RSI_ABOVE_CEILING. Top rec unchanged and still unexecuted: set momentumRsiMax 80 / trendFollowRsiMax 76 on BOTH boxes (WF: 5/5 folds vs 2/5 for the incumbent). Peer RED SmartEntryStrategySearch is STALE — exit 4 came from the 08-25 05:00 skip run, 2h before the exit4->0 fix landed 07:23; today's run is in progress. BTC SIGNAL-DEAD 14.4d (RSI 82.6 needs 88/84, NOT unblocked by 80). Fleet holds the same SP500 BUY + XAUUSD BUY on TWO DIFFERENT accounts (25446287 local, 11581419 peer) = 4 correlated positions no screen shows."
+    },
+    {
+      "ts": "2026-08-26T04:27:50.885594+00:00",
+      "tag": "SYSTEM",
+      "text": "DAILY CHECK 2026-08-26: all 9 healer checks green, logs clean, engines agree, fleet gate 70/70. GOLD live BUY 74% MOMENTUM correctly blocked by DUPLICATE (position already open from 08-25). Top open item unchanged: RSI ceiling still 72/68 in strategy_settings, measured sweep says 80/76 (5/5 folds vs 2/5) — Gold cleared the 72 cap by only 0.9pt today. Investigated and DISMISSED the Gold price gap (signal 4644.19 vs ticker 4700.6): that is the known Yahoo GC=F futures vs MT5 XAUUSD spot basis, not execution drift."
+    },
+    {
+      "ts": "2026-08-26T04:49:41.300674+00:00",
+      "tag": "SYSTEM",
+      "text": "CEILING APPLIED 2026-08-26 05:44 BST: momentumRsiMax 72->80, trendFollowRsiMax 68->76 on BOTH boxes. Route: edit strategy_settings.json + safe_server_restart.ps1 -Execute (POST is session-gated; the UI needs a password). Backups verified 306 bytes each. Verified: both boxes report 80/76, settingsError null, gate 70 and lot 0.02 unchanged; why_zero_confidence.cjs prints \"gate 70, RSI ceilings 80/76\" on both. Rule-3 proof: firing set IDENTICAL before/after, MT5-sourced both times (BTC WAIT/0, GOLD BUY/74 MOMENTUM, SPX WAIT/0). Parity ENGINES AGREE 11/11, 7/7, 107/107 routes. BTC still near-misses at threshold 80 vs actual 82.3 — needs 88/84."
+    },
+    {
+      "ts": "2026-08-26T04:57:58.475601+00:00",
+      "tag": "SYSTEM",
+      "text": "BAND MONITOR LIVE 2026-08-26: tasks/band_monitor.cjs on BOTH boxes, every 15 min (laptop 'SmartEntry Band Monitor', VPS 'SmartEntryBandMonitor'), both first runs 0x0. Alerts when a setup FIRES with RSI in [72,80) MOMENTUM or [68,76) TREND_FOLLOW — the band the ceiling change newly admitted, and the only live evidence that change will produce. Read-only: 2 bare GETs on no-login-GET routes, no POST anywhere. Touches no learning/journal/ledger file. One appendFileSync, no rotation/truncation/unlink, no state file. New ceiling read live from /api/strategy-settings, never hardcoded. Verified by mutation test (band lowered so Gold trips it) plus dedupe and exit codes 0/1/2. Post-change check: signals unchanged (GOLD BUY 74), learning 4 setups, journal 8 entries, healer healthy."
+    },
+    {
+      "ts": "2026-08-26T05:13:49.856765+00:00",
+      "tag": "SYSTEM",
+      "text": "BTC CEILING MEASURED 2026-08-26 — UNRESOLVED, nothing changed. Added RSI_CEILING_ASSETS filter to rsi_ceiling_walkforward (unset = byte-identical to before) because the pooled sweep let Gold and SPX vote on a BTC question. BTC-only, same trade set, two fold modes give OPPOSITE verdicts: equal-count REJECTS 80/76 and 88/84 (worst -0.550 each, only 56/52 challenges); equal-time ADMITS both with 88/84 best at -0.056. Identical closes (74/80/83) and totalR (+17.7/+26.1/+28.9) in both — only the partition moved. ~10-17 closes per fold: that is an underpowered sample, not an edge. Survives every cut: 88/84 is indistinguishable from NO ceiling (worst fold equals 'none' in pooled flat, pooled perasset and BTC equal-count), so it is not a slightly higher ceiling — it is a decision to remove it. Pooled, 80/76 has the best worst fold in 2 of 3 cuts. Ceiling STAYS 80/76. BTC's live near-miss at 82.3 is one bar and is not evidence."
+    },
+    {
+      "ts": "2026-08-26T05:19:14.347819+00:00",
+      "tag": "TRADE",
+      "text": "SP500 POSITION CHECKED 2026-08-26 (read-only, nothing touched). Laptop #1798862395 acct 25446287: BUY 0.1 @ 7744.96, SL 7601.25, TP 7915.05, open 6d16h, price 7676.98 = -0.47R, 75.7pts to stop. VPS #1798857871 acct 11581419: BUY 0.1 @ 7743.21, SL 7604.50 — DIFFERENT accounts and DIFFERENT tickets, so the fleet really holds 0.2 lots on one correlated bet and the two stops are 3.25pts apart, i.e. they stop out together. FINDING: this position took 39.11pts of slippage (signal Entry 7705.85 vs fill 7744.96) while SL/TP went to the broker unchanged — the risk engine approved R:R 2.00 / 1.0% risk and the account got R:R 1.18 / ~1.37% ($1,297 not $943.85). Not systemic: the other 5 fills in the log are all within 1.6pts, this one is 24x the next worst. No slippage guard exists and MIN_RR is never re-checked against the fill. Also: the AI filter logged \"AI error - proceeding\" (failed OPEN) on this trade. Bridge is tracking it normally, SL intact, no trail (never reached 1R), partialCloseEnabled false."
+    },
+    {
+      "ts": "2026-08-26T05:45:57.142099+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-08-26: |   BTC WAIT |   GOLD BUY 74% entry:4641.41 stop:4610.29 target:4701.75 |   SPX WAIT |   ⚠ 5 high-impact events today — check calendar"
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-26T03:12:41.263279+00:00",
+  "updated_at": "2026-08-26T05:45:57.142099+00:00"
+}

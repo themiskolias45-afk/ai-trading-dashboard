@@ -8,35 +8,71 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{height:100%}
 :root{
-  --bg:#04070f;
-  --surface:#0a0f1e;
-  --surface2:#0d1428;
-  --border:#1a2540;
-  --border2:#243060;
-  --text:#e2e8f0;
-  --muted:#4a6080;
-  --accent:#7c3aed;
+  /* Deeper, cooler base. The old #04070f sat under four purple gradients at up to
+     .32 alpha, so the "background" was really a purple wash and every surface
+     floated on it with no separation. Surfaces are now opaque enough to read as
+     panels, and the glow is scenery behind them rather than the substrate. */
+  /* MEASURED 2026-09-01, not eyeballed. Every ratio below is against the surface the
+     token is actually painted on, computed with the WCAG relative-luminance formula.
+
+     Three real failures were found and all three were load-bearing:
+       --border    1.28:1 vs --surface. It is `border:1px solid var(--border)` on every
+                   card, so the card edges were mathematically invisible. This is why
+                   the boxes read as flat.
+       --muted-dim 2.96:1 as TEXT. The old comment here claimed "decoration only - dots,
+                   hairlines - where the AA floor does not apply". That was false: grep
+                   finds `color:var(--muted-dim)` and three JS branches that paint the
+                   "too few to judge" labels with it. It was body text at 2.96:1.
+       --muted     4.39:1 on --surface3. Passed on --surface and was assumed to pass
+                   everywhere; the raised cards are a different background.
+
+     The surface ladder was the other half. #0a1020 -> #0e1628 -> #121c33 differ by
+     1.05:1 and 1.06:1 - a panel on a panel was indistinguishable from the panel. Depth
+     now comes from THREE cues (fill, edge, shadow) so no single one has to shout. */
+  --bg:#03060d;
+  --surface:#0b1222;       /* 1.09:1 on --bg */
+  --surface2:#111a2e;      /* 1.12:1 on --surface - was 1.05, a difference you could not see */
+  --surface3:#18243f;      /* raised: inputs, hovered rows. 1.15:1 on --surface2 */
+  --border:#31456f;        /* 2.00:1 vs --surface, was 1.28:1 and invisible */
+  --border2:#42598c;       /* 2.74:1 - emphasis edges, focus rings */
+  --text:#e6edf7;          /* 16.09 / 15.31 / 14.38 on the three surfaces */
+  --muted:#8fa7c9;         /* 7.71 / 7.34 / 6.89 - passes AA on ALL THREE, was 4.39 on surface3 */
+  --muted-dim:#7590b5;     /* 5.79 / 5.51 / 5.17 - it IS text, so it clears 4.5 everywhere */
+  --accent:#8b5cf6;        /* 4.79:1 on --bg - unchanged, it already passed */
   --accent2:#4f46e5;
+  --accent-dim:rgba(139,92,246,.14);
   --green:#22c55e;--red:#ef4444;--yellow:#eab308;--blue:#3b82f6;
+  /* Elevation, so separation never rests on a 1px hairline alone. */
+  --shadow-1:0 1px 2px rgba(0,0,0,.40), 0 0 0 1px rgba(255,255,255,.03) inset;
+  --shadow-2:0 4px 14px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.04) inset;
   --font:'Segoe UI',system-ui,Arial,sans-serif;
 }
 body{background:var(--bg);color:var(--text);font-family:var(--font);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
 /* ── ANIMATED BACKGROUND ── */
-#bg-fx{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.85;animation:hueShift 22s ease-in-out infinite}
+/* NO hue-rotate. It was running on three layers at ±30 degrees over 22s, which
+   means the page's colours were never the same twice. On a terminal where green
+   and red carry the meaning, a hue that drifts is a hue you cannot trust — and it
+   dragged the purple through blue and magenta on every cycle. The glow now sits
+   still and the drift is positional only.
+   Alphas roughly halved: this is scenery behind the panels, not the substrate. */
+#bg-fx{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.55}
 body::before{
   content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   background:
-    radial-gradient(ellipse 70% 60% at 15% -5%,rgba(139,92,246,.32) 0%,transparent 65%),
-    radial-gradient(ellipse 55% 50% at 85% 105%,rgba(59,130,246,.24) 0%,transparent 65%),
-    radial-gradient(ellipse 45% 55% at 50% 50%,rgba(124,58,237,.13) 0%,transparent 75%),
-    radial-gradient(ellipse 40% 40% at 90% 10%,rgba(96,165,250,.15) 0%,transparent 70%);
+    radial-gradient(ellipse 70% 60% at 15% -5%,rgba(139,92,246,.16) 0%,transparent 62%),
+    radial-gradient(ellipse 55% 50% at 85% 105%,rgba(59,130,246,.12) 0%,transparent 62%),
+    radial-gradient(ellipse 45% 55% at 50% 50%,rgba(124,58,237,.06) 0%,transparent 72%),
+    radial-gradient(ellipse 40% 40% at 90% 10%,rgba(96,165,250,.07) 0%,transparent 68%);
   background-size:140% 140%;
-  animation:bgPulse 10s ease-in-out infinite, bgDrift 26s ease-in-out infinite, hueShift 22s ease-in-out infinite;
+  /* Positional drift only, and slower. Three simultaneous animations on a
+     full-viewport gradient is also the most expensive thing on this page. */
+  animation:bgDrift 40s ease-in-out infinite;
 }
 @keyframes bgPulse{0%,100%{opacity:1}50%{opacity:.75}}
 @keyframes bgDrift{0%,100%{background-position:0% 0%}50%{background-position:8% 6%}}
-@keyframes hueShift{0%,100%{filter:hue-rotate(0deg)}33%{filter:hue-rotate(-28deg)}66%{filter:hue-rotate(32deg)}}
+/* hueShift deliberately removed — see the note on #bg-fx. Kept as a comment so a
+   future session does not "restore" it thinking it was lost in an edit. */
 
 /* ── HEADER ── */
 header{
@@ -59,6 +95,39 @@ header{
 .tick-major{stroke:rgba(230,235,255,.95);stroke-width:1.2;stroke-linecap:round}
 .tick-minor{stroke:rgba(167,139,250,.55);stroke-width:.6;stroke-linecap:round}
 .crosshair{stroke:rgba(230,235,255,.8);stroke-width:1;stroke-linecap:round}
+/* One moving part. A 3/4 gap in the dash pattern reads as a single arc sweeping
+   the ring rather than as a dashed circle spinning. */
+.ring-scan{
+  fill:none;stroke-width:2.4;stroke-linecap:round;
+  stroke-dasharray:62 221;                 /* ~22% of a 283px circumference */
+  transform-origin:50px 50px;animation:spinRing 7s linear infinite;
+}
+/* Hexagonal aperture. Straight edges survive downscaling; the old radial-gradient
+   core did not — a gradient has no edge left to resolve at 52px. */
+/* Weights raised 2026-09-01. The geometry was right and the reasoning above holds;
+   the mark was simply too faint to carry the header. The fill at .16 alpha over a
+   near-black surface resolved to about 3% of the page's contrast range, so the
+   hexagon read as a smudge rather than an aperture and the J appeared to float. */
+.logo-aperture{
+  fill:rgba(124,58,237,.30);
+  stroke:rgba(214,203,255,.92);stroke-width:2.1;stroke-linejoin:round;
+}
+/* The J. Flat cap, generous weight — this is the part that has to read at 24px
+   in a browser tab, so it gets the strongest contrast in the mark. */
+.logo-j{
+  fill:none;stroke:#fff;stroke-width:5.2;stroke-linecap:square;
+  filter:drop-shadow(0 0 4px rgba(196,181,253,.9));
+}
+.core-dot{
+  fill:#c4b5fd;opacity:.9;
+}
+/* ── HERO MARK ──────────────────────────────────────────────────────────────
+   The big centre HUD keeps the busy version, and these rules exist for it alone.
+   The header mark was simplified because eleven elements do not survive 52px;
+   the hero renders around 400px, where the counter-rotating facets and orbiting
+   dots are legible and are the point. Same identity, drawn for its own size —
+   deleting these with the header redesign would have left the hero unstyled,
+   which is what the class audit after that edit caught. */
 .ring-dash{
   fill:none;stroke-width:2.6;stroke-dasharray:9 6;stroke-linecap:round;
   transform-origin:50px 50px;animation:spinRing 12s linear infinite;
@@ -71,7 +140,6 @@ header{
   fill:#60a5fa;filter:drop-shadow(0 0 4px #60a5fa) drop-shadow(0 0 9px #3b82f6);
   transform-origin:50px 50px;animation:spinRing 4s linear infinite reverse;
 }
-.logo-core{fill:url(#coreGrad)}
 .core-facet-fill{
   fill:rgba(124,58,237,.22);stroke:rgba(196,181,253,.55);stroke-width:.9;
   transform-origin:50px 50px;animation:spinRing 15s linear infinite;
@@ -80,10 +148,8 @@ header{
   fill:none;stroke:rgba(255,255,255,.7);stroke-width:1.2;
   transform-origin:50px 50px;animation:spinRing 8s linear infinite reverse;
 }
-.core-dot{
-  fill:#fff;filter:drop-shadow(0 0 7px #fff) drop-shadow(0 0 16px #c4b5fd);
-  animation:corePulse 2.2s ease-in-out infinite;
-}
+/* corePulse's element is gone from the header, but the hero still animates its
+   own core dot through .core-dot, so the keyframe stays. */
 @keyframes corePulse{0%,100%{r:3.6;opacity:.85}50%{r:5.8;opacity:1}}
 @keyframes logoPulse{
   0%,100%{filter:drop-shadow(0 0 8px rgba(124,58,237,.65)) drop-shadow(0 0 20px rgba(124,58,237,.4))}
@@ -110,6 +176,9 @@ header{
 .status-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex-shrink:0}
 .status-dot.online{background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 2s ease-in-out infinite}
 .status-dot.offline{background:var(--red)}
+/* Amber, not red: the server is fine, this browser's session is not. Sending
+   someone to check the server when they need to press reload wastes the alarm. */
+.status-dot.auth{background:var(--yellow);box-shadow:0 0 6px var(--yellow);animation:blink 1.4s ease-in-out infinite}
 
 /* ── LAYOUT ── */
 .layout{flex:1;display:flex;min-height:0;position:relative;z-index:1}
@@ -125,10 +194,50 @@ header{
 .sb-title{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 
 /* Signal cards */
+/* Depth instead of a flat fill. A 1px top highlight and a soft drop reads as a
+   raised panel; the old flat rectangle on a purple wash read as a coloured area. */
 .sig-card{
-  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-  padding:10px 12px;margin-bottom:6px;transition:border-color .4s,background .4s;
+  background:linear-gradient(180deg,var(--surface3) 0%,var(--surface2) 100%);
+  border:1px solid var(--border);border-radius:9px;
+  padding:10px 12px;margin-bottom:6px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.045), 0 1px 3px rgba(0,0,0,.4);
+  transition:border-color .3s,background .3s,transform .15s;
 }
+.sig-card:hover{ transform:translateY(-1px); border-color:var(--border2); }
+
+/* ── CAPABILITIES: what JARVIS can actually do ──────────────────────────────
+   This page IS JARVIS and listed none of its own skills, agents or tools — 44
+   commands, 6 agents and 23 MCP tools existed on disk and the page that runs
+   them showed zero of them. Served by /api/ai-registry, the same endpoint the
+   dashboard's AI Brain tab uses, so the two can never disagree. */
+.cap-tabs{display:flex;gap:4px;margin-bottom:8px}
+.cap-tab{
+  flex:1;padding:4px 0;text-align:center;font-size:.58rem;font-weight:700;
+  letter-spacing:.06em;border-radius:6px;cursor:pointer;
+  background:var(--surface2);border:1px solid var(--border);color:var(--muted);
+  transition:all .15s;
+}
+.cap-tab:hover{color:var(--text);border-color:var(--border2)}
+.cap-tab.on{background:var(--accent-dim);border-color:var(--accent);color:#c4b5fd}
+.cap-list{max-height:190px;overflow-y:auto;padding-right:2px}
+.cap-item{
+  padding:5px 8px;border-radius:6px;cursor:pointer;margin-bottom:3px;
+  border:1px solid transparent;transition:all .12s;
+}
+.cap-item:hover{background:var(--surface3);border-color:var(--border2)}
+.cap-name{font-size:.66rem;font-weight:700;font-family:'Courier New',monospace;color:var(--text)}
+.cap-desc{font-size:.55rem;color:var(--muted);line-height:1.4;margin-top:1px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* A tool that can open a position must never look like one that reads a number. */
+.cap-flag{font-size:.48rem;font-weight:800;padding:1px 4px;border-radius:3px;margin-left:5px;vertical-align:middle}
+.cap-trades{background:#2d0d0d;color:var(--red);border:1px solid rgba(239,68,68,.55)}
+.cap-writes{background:#2d220a;color:var(--yellow)}
+.cap-empty{font-size:.6rem;color:var(--muted);padding:6px 2px}
+.engineer-btn{
+  background:linear-gradient(135deg,rgba(139,92,246,.16),rgba(79,70,229,.10));
+  border-color:rgba(139,92,246,.45)!important;
+}
+.engineer-btn:hover{border-color:var(--accent)!important;background:linear-gradient(135deg,rgba(139,92,246,.26),rgba(79,70,229,.16))}
 .sig-card.buy {border-color:rgba(34,197,94,.4);background:rgba(13,28,18,.6)}
 .sig-card.sell{border-color:rgba(239,68,68,.4);background:rgba(28,13,13,.6)}
 .sc-row1{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
@@ -190,15 +299,26 @@ header{
   pointer-events:none;z-index:0;opacity:.24;animation:heroPulse 6s ease-in-out infinite;
   transition:opacity .6s ease;
 }
-.hero-logo svg{width:min(50vw,520px);height:min(50vw,520px);overflow:visible;transition:width .6s ease,height .6s ease,transform .09s linear}
+/* RESTING SIZE REDUCED 2026-09-01, 520px -> 340px.
+   This is a WATERMARK: position:absolute, inset:0, z-index:0, pointer-events:none,
+   with .messages on z-index:1 floating over it. It never stole layout space -- the
+   apparent "dead half of the column" was simply an empty chat, and the ring showing
+   through it. Nothing was wrong with the layering.
+   What WAS wrong is scale. At min(50vw,520px) on a 1440px viewport it rendered 520px
+   across and pulsed between .18 and .34 opacity, so on first load -- exactly when the
+   chat has one greeting in it and nothing else -- the largest, most animated thing on
+   the page was decoration. Focus mode still enlarges it to 640px, which is that
+   mode's entire purpose and is left alone. */
+.hero-logo svg{width:min(34vw,340px);height:min(34vw,340px);overflow:visible;transition:width .6s ease,height .6s ease,transform .09s linear}
 .hero-logo::after{
-  content:'';position:absolute;top:50%;left:50%;width:min(54vw,560px);height:min(54vw,560px);
+  content:'';position:absolute;top:50%;left:50%;width:min(37vw,370px);height:min(37vw,370px);
   border-radius:50%;background:conic-gradient(from 0deg,transparent 0%,rgba(167,139,250,.5) 6%,transparent 16%);
   -webkit-mask:radial-gradient(circle,transparent 61%,#000 62%,#000 65%,transparent 66%);
   mask:radial-gradient(circle,transparent 61%,#000 62%,#000 65%,transparent 66%);
   animation:sweepRotate 5s linear infinite;transition:width .6s ease,height .6s ease;
 }
-@keyframes heroPulse{0%,100%{opacity:.18;transform:scale(1)}50%{opacity:.34;transform:scale(1.04)}}
+/* Pulse calmed: .18-.34 is a 90% swing on something the eye should never track. */
+@keyframes heroPulse{0%,100%{opacity:.13;transform:scale(1)}50%{opacity:.20;transform:scale(1.02)}}
 @keyframes sweepRotate{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
 .messages{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px;position:relative;z-index:1}
 
@@ -239,6 +359,66 @@ body.focus-mode .focus-mic{display:flex}
 }
 body.focus-mode .focus-status{display:block;bottom:100px}
 body.focus-mode .focus-exit{display:block}
+/* ── OPENING BRIEFING ─────────────────────────────────────────────────────────
+   The chat pane is the largest region on this page and, before a conversation
+   starts, roughly three quarters of it was empty — a decorative HUD ring behind
+   nothing. The ring is a backdrop (position:absolute, z-index:0, pointer-events:
+   none) so it never cost layout; what was missing was anything to put in FRONT of
+   it. This is that: the state you would have asked for first anyway.
+
+   It sits above the ring and yields to the conversation — the first message you
+   send removes it. Nothing is hidden and nothing is replaced. */
+.brief{
+  align-self:stretch;background:rgba(13,20,32,.72);border:1px solid var(--border2);
+  border-radius:12px;padding:14px 16px;backdrop-filter:blur(8px);position:relative;z-index:1;
+  animation:briefIn .45s ease both;
+}
+@keyframes briefIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.brief-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px}
+.brief-t{font-size:.62rem;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+.brief-when{font-size:.6rem;color:var(--muted-dim);font-variant-numeric:tabular-nums}
+.brief-row{display:grid;grid-template-columns:52px minmax(0,420px) auto;gap:14px;align-items:center;padding:6px 0;justify-content:start}
+.brief-row:first-of-type{padding-top:0}
+.brief-sym{font-size:.72rem;font-weight:700;letter-spacing:.04em}
+/* The track is a 0-100 CONFIDENCE scale and nothing on screen said so. A bar with an
+   unlabelled tick two-thirds along is not a reading. Height 5 -> 7 because a 5px bar
+   cannot carry a fill colour and a boundary at once. */
+.brief-track{position:relative;height:7px;background:rgba(255,255,255,.07);border-radius:4px}
+.brief-fill{height:100%;border-radius:4px;transition:width .6s ease}
+/* NO SETUP IS NOT ZERO CONFIDENCE, and an empty track rendered both identically - an
+   asset the engine never scored looked exactly like one it scored and gave nothing.
+   Hatching reads "not measured" where a flat bar reads "measured, low". */
+.brief-track.no-setup{
+  background-image:repeating-linear-gradient(135deg,
+    rgba(255,255,255,.045) 0 3px, transparent 3px 7px);
+}
+/* The gate tick is the point of the whole row: a confidence number means nothing
+   without the line it has to clear. It now carries its own VALUE - previously the
+   only way to learn the threshold was to read a sentence under the panel. */
+.brief-gate{position:absolute;top:-5px;width:2px;height:18px;background:var(--accent);border-radius:1px;box-shadow:0 0 0 1px rgba(3,6,13,.85), 0 0 7px rgba(139,92,246,.75)}
+/* The value sits on the AXIS, not on every row. Labelling all three ticks printed
+   "80" three times for one threshold that applies to all of them - repetition the
+   reader has to filter out before reading the bars. */
+/* Axis, drawn ONCE beneath the rows rather than repeated on each. */
+.brief-scale{
+  display:grid;grid-template-columns:52px minmax(0,420px) auto;gap:14px;
+  padding-top:2px;font-size:.55rem;color:var(--muted-dim);
+  font-variant-numeric:tabular-nums;letter-spacing:.04em;justify-content:start;
+}
+.brief-scale-track{position:relative;height:10px}
+.brief-scale-track span{position:absolute;top:0}
+.brief-scale-track span.s0{left:0}
+.brief-scale-track span.s100{right:0}
+.brief-gap{font-size:.63rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.brief-state{margin-top:11px;padding-top:10px;border-top:1px solid rgba(255,255,255,.07);font-size:.66rem;color:var(--muted);line-height:1.6}
+.brief-ask{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.brief-chip{
+  font-family:inherit;font-size:.64rem;color:var(--muted);cursor:pointer;
+  background:rgba(255,255,255,.04);border:1px solid var(--border2);
+  border-radius:20px;padding:5px 11px;transition:all .15s;
+}
+.brief-chip:hover{color:var(--text);border-color:var(--accent);background:var(--accent-dim)}
+
 .messages::-webkit-scrollbar{width:4px}
 .messages::-webkit-scrollbar-track{background:transparent}
 .messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
@@ -255,7 +435,32 @@ body.focus-mode .focus-exit{display:block}
 .msg.user .av{background:var(--surface2);border:1px solid var(--border2);color:var(--muted)}
 .mc{max-width:72%;display:flex;flex-direction:column;gap:3px}
 .msg.user .mc{align-items:flex-end}
-.bubble{padding:11px 15px;border-radius:12px;font-size:.82rem;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+.bubble{padding:11px 15px;border-radius:12px;font-size:.82rem;line-height:1.65;word-break:break-word}
+/* ── Markdown inside a chat bubble ────────────────────────────────────────────
+   fmt() used to handle **bold** and nothing else, so every list came through with
+   its leading dash, every fenced block printed three backticks, and every link
+   printed its raw URL. The answers were always markdown; only the renderer was not.
+   .bubble lost white-space:pre-wrap in the same change: real block elements carry
+   their own spacing and pre-wrap would double it. */
+.bubble p{margin:0 0 8px}
+.bubble p:last-child{margin-bottom:0}
+.bubble .md-h{margin:12px 0 6px;font-size:.8rem;font-weight:800;letter-spacing:.02em;color:#c4b5fd}
+.bubble .md-h:first-child{margin-top:0}
+.msg.user .bubble .md-h{color:#fff}
+.bubble .md-list{margin:0 0 8px;padding-left:19px}
+.bubble .md-list:last-child{margin-bottom:0}
+.bubble .md-list li{margin:3px 0}
+.bubble .md-code{background:rgba(139,92,246,.16);border:1px solid rgba(139,92,246,.28);
+  border-radius:4px;padding:1px 5px;font-family:ui-monospace,Consolas,monospace;font-size:.75rem;color:#ddd6fe}
+.msg.user .bubble .md-code{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.3);color:#fff}
+.bubble .md-pre{background:var(--bg);border:1px solid var(--border);border-radius:7px;
+  padding:10px 12px;margin:8px 0;overflow-x:auto}
+.bubble .md-pre code{font-family:ui-monospace,Consolas,monospace;font-size:.74rem;
+  color:#cbd5e1;background:none;border:none;padding:0;white-space:pre}
+.bubble .md-q{margin:8px 0;padding:4px 0 4px 11px;border-left:2px solid var(--accent);color:var(--muted)}
+.bubble .md-hr{border:0;border-top:1px solid var(--border);margin:11px 0}
+.bubble a{color:#a78bfa;text-decoration:underline;text-underline-offset:2px}
+.msg.user .bubble a{color:#fff}
 .msg.jarvis .bubble{background:var(--surface2);border:1px solid var(--border);border-top-left-radius:2px;color:var(--text)}
 .msg.user   .bubble{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border-top-right-radius:2px}
 .bubble strong{color:#c4b5fd}
@@ -432,8 +637,93 @@ body.focus-mode .focus-exit{display:block}
 @keyframes slideIn{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:translateX(0)}}
 
 /* ── RESPONSIVE ── */
+/* ── MIND — the cognition surfaces ────────────────────────────────────────────
+   Seven endpoints already existed and NOTHING rendered them, which is the same
+   failure shape as a setting with no reader: the server computes an evidence
+   board, a rejection ledger, a learning-growth curve and two AI ledgers on every
+   call, and the only consumer was curl. READ-ONLY, every one of them. Nothing in
+   this block posts, changes a gate, admits or suppresses a signal — each endpoint
+   reports feedsTheGate:false and this renderer keeps it that way.
+   Four of the seven are session-gated; a 401 renders as a sign-in note, never as
+   an error and never as an empty panel that reads like "no evidence exists". */
+.mind-tabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px;
+  border-bottom:1px solid var(--border);padding-bottom:10px}
+.mind-tab{padding:6px 11px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;font-size:.68rem;font-weight:700;letter-spacing:.04em;color:var(--muted);
+  cursor:pointer;transition:all .15s;white-space:nowrap}
+.mind-tab:hover{background:var(--surface3);color:var(--text);border-color:var(--border2)}
+.mind-tab.on{background:var(--accent-dim);border-color:var(--accent);color:var(--text)}
+.mind-pane{display:none}
+.mind-pane.on{display:block}
+.mind-note{font-size:.68rem;color:var(--muted-dim);line-height:1.55;margin-bottom:12px;
+  padding:9px 11px;background:var(--surface2);border-left:2px solid var(--border2);border-radius:0 6px 6px 0}
+.mind-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;margin-bottom:14px}
+.mind-kpi{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:10px 11px;box-shadow:var(--shadow-1)}
+.mind-kpi-v{font-size:1.18rem;font-weight:800;color:var(--text);line-height:1.1}
+.mind-kpi-l{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-top:4px}
+.mind-row{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:10px 12px;margin-bottom:7px;box-shadow:var(--shadow-1)}
+.mind-row-hd{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:4px}
+.mind-row-t{font-size:.78rem;font-weight:700;color:var(--text)}
+.mind-row-b{font-size:.72rem;color:var(--muted);line-height:1.55}
+.mind-row-b strong{color:var(--text);font-weight:700}
+.mind-meta{font-size:.63rem;color:var(--muted-dim);margin-top:5px;line-height:1.5}
+.mind-pill{font-size:.58rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+  padding:2px 7px;border-radius:20px;white-space:nowrap;border:1px solid transparent}
+.p-good{background:rgba(34,197,94,.13);color:#7ee2a8;border-color:rgba(34,197,94,.35)}
+.p-bad{background:rgba(239,68,68,.13);color:#f5a3a3;border-color:rgba(239,68,68,.35)}
+.p-warn{background:rgba(234,179,8,.13);color:#e8ce6a;border-color:rgba(234,179,8,.35)}
+.p-info{background:rgba(59,130,246,.13);color:#93c0f7;border-color:rgba(59,130,246,.35)}
+.p-mute{background:var(--surface3);color:var(--muted);border-color:var(--border)}
+.mind-empty{font-size:.72rem;color:var(--muted-dim);padding:14px;text-align:center;
+  background:var(--surface2);border:1px dashed var(--border);border-radius:8px}
+.mind-spark{display:flex;align-items:flex-end;gap:2px;height:44px;margin:10px 0 4px}
+.mind-spark i{flex:1;background:var(--accent);border-radius:1px 1px 0 0;min-height:1px;opacity:.75}
+.mind-spark i.res{background:var(--green)}
+/* Sidebar digest — the headline numbers without opening the overlay. */
+.mind-mini{display:flex;justify-content:space-between;align-items:center;gap:8px;
+  padding:6px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);
+  margin-bottom:5px;font-size:.7rem}
+.mind-mini-l{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mind-mini-v{font-weight:800;color:var(--text);white-space:nowrap}
+
 @media(max-width:820px){.sidebar{display:none}.mc{max-width:88%}.modal-box.wide{width:92vw}.chart-slot-body{height:220px}}
-</style>
+
+    /* ── MOBILE ──────────────────────────────────────────────────────────────
+       Diagnosed by measuring, not by eye: the page's own scrollWidth against a 390px
+       viewport, then the deepest element whose right edge sat past it.
+
+       The interesting part is that the tables here ALREADY sat inside
+       overflow-x:auto wrappers and still widened the document. A grid or flex ITEM
+       defaults to min-width:auto, which refuses to shrink below its content, so the
+       scroll box was never handed a width small enough to have to scroll. min-width:0
+       is what actually lets the wrapper do its job.
+
+       Scoped to max-width:640px — the desktop layout is untouched. */
+    @media (max-width:640px) {
+      /* The .hbtn strip - Voice, Alerts, Focus, Charts, Hermes, Settings, Dashboard -
+         is a nowrap row 935px wide on a 390px screen, and it was setting the width of
+         the whole document. It becomes its own scrolling strip. */
+      header { flex-wrap:wrap; padding:10px 14px; gap:8px; }
+      header > *:last-child { width:100%; overflow-x:auto; display:flex; gap:8px;
+                              scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+      header > *:last-child::-webkit-scrollbar { display:none; }
+      .hbtn { flex-shrink:0; }
+      /* A grid/flex child defaults to min-width:auto and refuses to shrink below its
+         content, so one long line pushes the whole layout wider than the screen. This
+         used to name .main-col and .chat-col, neither of which exists here — the
+         columns are .sidebar and .chat, so the fix was inert on every phone. */
+      .sidebar, .chat { min-width:0; }
+    }
+  </style>
+  <link rel="stylesheet" href="/dashboard/theme.css">
+  <link rel="stylesheet" href="/dashboard/nav.css">
+  <script src="/dashboard/nav.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/freshness.css">
+  <script src="/dashboard/freshness.js" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+  <meta name="theme-color" content="#070b12">
 </head>
 <body>
 
@@ -469,17 +759,26 @@ body.focus-mode .focus-exit{display:block}
             <stop offset="100%" stop-color="#c4b5fd"/>
           </linearGradient>
         </defs>
-        <circle cx="50" cy="50" r="46" class="ring-glow"/>
-        <circle cx="50" cy="50" r="46" class="ring-outer"/>
-        <circle cx="50" cy="50" r="40" class="ring-tick"/>
-        <circle cx="50" cy="50" r="22" class="logo-core"/>
-        <circle cx="50" cy="50" r="22" class="core-edge"/>
-        <circle cx="50" cy="50" r="34" class="ring-dash" stroke="url(#ringGradHeader)"/>
-        <circle cx="50" cy="4" r="2.6" class="orbit-dot"/>
-        <circle cx="88" cy="50" r="1.7" class="orbit-dot2"/>
-        <polygon points="50,36 64,50 50,64 36,50" class="core-facet-fill"/>
-        <polygon points="50,42 58,50 50,58 42,50" class="core-facet"/>
-        <circle cx="50" cy="50" r="3.6" class="core-dot"/>
+        <!-- Redrawn 2026-08-09. The previous mark stacked eleven elements and four
+             simultaneous animations — two counter-rotating facets, two orbiting
+             dots, a spinning dashed ring, a pulsing core — into 52 CSS pixels,
+             where it resolved to a purple blob. The soft radial-gradient core was
+             the worst of it: a gradient with no hard edge has nothing left to
+             read at that size.
+
+             This keeps the identity (ring, aperture, bright centre) and cuts to
+             five shapes with ONE motion. A hexagonal aperture has straight edges,
+             so it stays crisp small; the "J" arc makes it a monogram rather than
+             a generic sci-fi reticle. -->
+        <circle cx="50" cy="50" r="45" class="ring-glow"/>
+        <circle cx="50" cy="50" r="45" class="ring-outer"/>
+        <!-- The single moving part: one scanning arc. -->
+        <circle cx="50" cy="50" r="45" class="ring-scan" stroke="url(#ringGradHeader)"/>
+        <!-- Aperture: hexagon, hard edges, legible at 52px. -->
+        <polygon points="50,22 74,36 74,64 50,78 26,64 26,36" class="logo-aperture"/>
+        <!-- J monogram: descender + hook, drawn as one stroke. -->
+        <path d="M56 34 L56 56 A9 9 0 0 1 38 56" class="logo-j"/>
+        <circle cx="50" cy="50" r="2.6" class="core-dot"/>
       </svg>
     </div>
     <div class="logo-text">
@@ -628,11 +927,79 @@ body.focus-mode .focus-exit{display:block}
   </div>
 </div>
 
+<!-- ═══════════ MIND — nine read-only cognition surfaces ═══════════
+     Every endpoint below already existed on the server and had no reader on this
+     page. Opening the overlay fetches them; closing it stops. Nothing here writes. -->
+<div class="modal-overlay" id="mind-overlay">
+  <div class="modal-box wide">
+    <div class="modal-hdr">
+      <div class="modal-title">🧠 Mind — what JARVIS knows, and how he knows it</div>
+      <button class="modal-close" onclick="closeMind()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="mind-tabs">
+        <div class="mind-tab on" id="mtab-evidence"  onclick="setMindTab('evidence')">EVIDENCE</div>
+        <div class="mind-tab"    id="mtab-measured"  onclick="setMindTab('measured')">MEASURED</div>
+        <div class="mind-tab"    id="mtab-gates"     onclick="setMindTab('gates')">GATES</div>
+        <div class="mind-tab"    id="mtab-growth"    onclick="setMindTab('growth')">GROWTH</div>
+        <div class="mind-tab"    id="mtab-setups"    onclick="setMindTab('setups')">SETUPS</div>
+        <div class="mind-tab"    id="mtab-work"      onclick="setMindTab('work')">WORK</div>
+        <div class="mind-tab"    id="mtab-employees" onclick="setMindTab('employees')">EMPLOYEES</div>
+        <div class="mind-tab"    id="mtab-plan"      onclick="setMindTab('plan')">FLEET PLAN</div>
+        <div class="mind-tab"    id="mtab-research"  onclick="setMindTab('research')">RESEARCH</div>
+      </div>
+      <div class="mind-pane on" id="mpane-evidence"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-measured"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-gates"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-growth"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-setups"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-work"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-employees"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-plan"><div class="mind-empty">Loading…</div></div>
+      <div class="mind-pane"    id="mpane-research"><div class="mind-empty">Loading…</div></div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════ MAIN ═══════════ -->
 <div class="layout">
 
   <!-- SIDEBAR -->
   <aside class="sidebar">
+    <!-- MEMORY — the 323 memories that make JARVIS himself.
+         Until 2026-09-05 this index was reachable only from the command line, so the one
+         page named after him could not search the thing he is. The cost was measured the
+         day it was fixed: that morning's position-sizing bug was ALREADY recorded as
+         "assuming 1.0 made Gold 74x oversize" and was re-derived from source over hours
+         because nothing here could look it up. A memory you cannot query is not a memory. -->
+    <div class="sb-section">
+      <div class="sb-title"><span>Memory</span><span id="recall-count" style="font-weight:400;letter-spacing:0">—</span></div>
+      <div style="display:flex;gap:6px;margin-bottom:7px">
+        <input id="recall-q" type="text" placeholder="ask what JARVIS remembers…"
+               onkeydown="if(event.key==='Enter')runRecall()"
+               style="flex:1;min-width:0;padding:7px 9px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:.74rem;font-family:var(--font)">
+        <button onclick="runRecall()" title="Search memory"
+                style="padding:7px 11px;background:var(--accent-dim);border:1px solid var(--accent);border-radius:6px;color:var(--text);font-size:.72rem;font-weight:700;cursor:pointer">↳</button>
+      </div>
+      <div class="cap-tabs" style="margin-bottom:7px">
+        <div class="cap-tab on" id="rtab-brain"  onclick="setRecallSource('brain')">BRAIN</div>
+        <div class="cap-tab"    id="rtab-vault"  onclick="setRecallSource('vault')">VAULT</div>
+        <div class="cap-tab"    id="rtab-trades" onclick="setRecallSource('trades')">TRADES</div>
+      </div>
+      <div class="cap-list" id="recall-list"><div class="cap-empty">Ask a question — searches 323 memories semantically, not by keyword.</div></div>
+    </div>
+
+    <!-- MIND DIGEST — the four numbers that answer "is the system still learning?"
+         without opening anything. They come from endpoints that already existed and
+         had no reader on this page. Read-only; every source reports feedsTheGate:false. -->
+    <div class="sb-section">
+      <div class="sb-title"><span>Mind</span><span id="mind-age" style="font-weight:400;letter-spacing:0">—</span></div>
+      <div id="mind-digest"><div class="cap-empty">Loading…</div></div>
+      <div class="sysbtn" onclick="openMind()" style="margin-top:7px">
+        <span>🧠 Open the Mind</span><span class="arrow">9 surfaces</span>
+      </div>
+    </div>
+
     <div class="sb-section">
       <div class="sb-title"><span>Live Signals</span></div>
       <div class="sig-card" id="sc-btc">
@@ -652,6 +1019,17 @@ body.focus-mode .focus-exit{display:block}
       </div>
     </div>
 
+    <!-- What JARVIS can actually do. Click anything to load it into the prompt. -->
+    <div class="sb-section">
+      <div class="sb-title"><span>Capabilities</span><span id="cap-count" style="font-weight:400;letter-spacing:0">—</span></div>
+      <div class="cap-tabs">
+        <div class="cap-tab on" id="captab-skills" onclick="setCapTab('skills')">SKILLS</div>
+        <div class="cap-tab"    id="captab-agents" onclick="setCapTab('agents')">AGENTS</div>
+        <div class="cap-tab"    id="captab-tools"  onclick="setCapTab('tools')">TOOLS</div>
+      </div>
+      <div class="cap-list" id="cap-list"><div class="cap-empty">Loading…</div></div>
+    </div>
+
     <div class="sb-section">
       <div class="sb-title"><span>Self-Learning</span></div>
       <div id="learn-box"><div class="learn-empty">Loading…</div></div>
@@ -659,11 +1037,20 @@ body.focus-mode .focus-exit{display:block}
 
     <div class="sb-section">
       <div class="sb-title"><span>System</span></div>
+      <!-- /engineer is the flagship capability — parallel agents, wall time = the
+           slowest one rather than the sum — and it was indistinguishable from the
+           other 43 skills in an alphabetical list. Loads the prompt, never fires it:
+           it spawns real workers that write code. -->
+      <div class="sysbtn engineer-btn" onclick="loadPrompt('/engineer ')">
+        <span>🧩 Engineer — parallel build</span><span class="arrow">compose</span>
+      </div>
+      <div class="sysbtn" onclick="openMind()"><span>🧠 Mind — evidence &amp; ledgers</span><span class="arrow">open</span></div>
       <div class="sysbtn" onclick="forceHeal()"><span>🩺 Force Heal</span><span class="arrow">run</span></div>
       <div class="sysbtn" onclick="sq('Give me setup health — which setups should I take or avoid right now?')"><span>📊 Setup Health</span><span class="arrow">ask</span></div>
       <a class="sysbtn" href="/daily-plan"><span>📅 Daily Plan</span><span class="arrow">open</span></a>
       <a class="sysbtn" href="/command"><span>⚡ Command Center</span><span class="arrow">open</span></a>
       <a class="sysbtn" href="/dashboard/performance.html"><span>📈 Performance</span><span class="arrow">open</span></a>
+      <a class="sysbtn" href="/architecture"><span>🏛 Architecture</span><span class="arrow">open</span></a>
     </div>
 
     <div class="sb-section">
@@ -760,47 +1147,76 @@ body.focus-mode .focus-exit{display:block}
     w = canvas.width  = window.innerWidth;
     h = canvas.height = window.innerHeight;
   }
+  // A market field, not a constellation.
+  //
+  // The old background was the particle-network effect every crypto landing page
+  // ships: 190 nodes joined by lines, which is an O(n^2) pass — 18,000 distance
+  // checks every frame at 60fps — and thematically it says "tech startup" rather
+  // than "instrument". This draws a slow price grid with drifting tick marks
+  // instead: O(n), and it belongs on a trading terminal.
+  //
+  // Deliberately very low contrast. It is texture behind the panels; if you
+  // notice it while reading a number, it is too strong.
   function makeParticles() {
-    const count = Math.min(190, Math.floor((w * h) / 9000));
+    const count = Math.min(70, Math.floor((w * h) / 26000));
     particles = Array.from({ length: count }, () => ({
-      x: Math.random() * w, y: Math.random() * h,
-      vx: (Math.random() - 0.5) * 0.32, vy: (Math.random() - 0.5) * 0.32,
-      r: Math.random() * 1.8 + 0.7,
-      tw: Math.random() * Math.PI * 2,   // twinkle phase
-      tws: 0.015 + Math.random() * 0.025 // twinkle speed
+      x: Math.random() * w,
+      y: Math.random() * h,
+      // Drift right-and-slightly-up, like a tape scrolling.
+      vx: 0.10 + Math.random() * 0.22,
+      len: 6 + Math.random() * 22,          // tick length
+      r: Math.random() < 0.16 ? 1.6 : 0,    // a few marks get a dot
+      tw: Math.random() * Math.PI * 2,
+      tws: 0.006 + Math.random() * 0.012
     }));
   }
+  const GRID = 68;          // px between grid lines
+  let scan = 0;             // slow horizontal sweep, in px
+
   function step() {
     ctx.clearRect(0, 0, w, h);
+
+    // 1. The grid. Two weights so it reads as a chart surface rather than paper.
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(120,150,220,.045)";
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += GRID) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); }
+    for (let y = 0; y <= h; y += GRID) { ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); }
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(130,160,235,.085)";
+    ctx.beginPath();
+    for (let x = 0; x <= w; x += GRID * 5) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); }
+    for (let y = 0; y <= h; y += GRID * 5) { ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); }
+    ctx.stroke();
+
+    // 2. A sweep, the way a radar or a live tape moves. One gradient, no per-pixel work.
+    scan = (scan + 0.55) % (w + 420);
+    const sweep = ctx.createLinearGradient(scan - 420, 0, scan, 0);
+    sweep.addColorStop(0,   "rgba(139,92,246,0)");
+    sweep.addColorStop(0.82,"rgba(139,92,246,.030)");
+    sweep.addColorStop(1,   "rgba(167,139,250,.055)");
+    ctx.fillStyle = sweep;
+    ctx.fillRect(scan - 420, 0, 420, h);
+
+    // 3. Tick marks drifting like a tape. O(n) — no pairwise pass.
     for (const p of particles) {
-      p.x += p.vx; p.y += p.vy;
+      p.x += p.vx;
       p.tw += p.tws;
-      if (p.x < 0 || p.x > w) p.vx *= -1;
-      if (p.y < 0 || p.y > h) p.vy *= -1;
-    }
-    const LINK_DIST = 150;
-    for (let i = 0; i < particles.length; i++) {
-      for (let j = i + 1; j < particles.length; j++) {
-        const a = particles[i], b = particles[j];
-        const dist = Math.hypot(a.x - b.x, a.y - b.y);
-        if (dist < LINK_DIST) {
-          const t = 1 - dist / LINK_DIST;
-          ctx.strokeStyle = `rgba(150,110,255,${0.4 * t * t})`;
-          ctx.lineWidth = t > 0.6 ? 1.3 : 0.8;
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-        }
+      if (p.x - p.len > w) { p.x = -p.len; p.y = Math.random() * h; }
+      const fade = 0.30 + 0.30 * (0.5 + 0.5 * Math.sin(p.tw));
+      ctx.strokeStyle = `rgba(150,175,240,${fade * 0.5})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x - p.len, p.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      if (p.r) {
+        ctx.fillStyle = `rgba(196,181,253,${fade * 0.8})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
-    ctx.shadowColor = "rgba(180,150,255,0.95)";
-    for (const p of particles) {
-      const twinkle = 0.5 + 0.45 * (0.5 + 0.5 * Math.sin(p.tw));
-      ctx.shadowBlur = 5 + twinkle * 6;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(210,195,255,${twinkle})`;
-      ctx.fill();
-    }
-    ctx.shadowBlur = 0;
     requestAnimationFrame(step);
   }
   window.addEventListener("resize", () => { resize(); makeParticles(); });
@@ -831,11 +1247,25 @@ window.addEventListener("DOMContentLoaded", () => {
   initRecog();
   updateClock();
   setInterval(updateClock, 1000);
-  fetchData();
+  // The gate has to be known BEFORE the first signal paint. Painting first bands every
+  // asset against a null gate and leaves them neutral until the next 20s tick — the one
+  // moment anyone actually looks at this page is the moment it was least correct.
+  refreshGate()
+    .catch(e => console.error("[jarvis] gate:", e))
+    .finally(() => fetchData());
   setInterval(fetchData, 20000);
   loadLearning();
   setInterval(loadLearning, 60000);
+  // The Mind digest reads three ledgers that move on the order of hours, so a 5-minute
+  // refresh is already faster than the data. It is fetched at boot rather than on first
+  // open because the point of the digest is to be seen without being asked for.
+  loadMindDigest().catch(e => console.error("[jarvis] mind digest:", e));
+  setInterval(() => { loadMindDigest().catch(e => console.error("[jarvis] mind digest:", e)); }, 300000);
   addMsg("jarvis", "JARVIS online. I'm watching BTC, Gold, and SPX live — and I know the full system state: risk, positions, and what I've learned from past trades. Ask me anything or tap 🎤 to speak.");
+  renderBriefing().catch(e => console.error("[jarvis] briefing:", e));
+  // The gate is editable at runtime from the settings panel on this very page, so a
+  // value read once at boot goes stale in the session that changed it.
+  setInterval(() => { refreshGate().catch(e => console.error("[jarvis] gate:", e)); }, 120000);
   // restore voice prefs
   if (localStorage.getItem("jarvis-voice") === "on") { voiceOn = true; refreshVoiceBtn(); }
   if (localStorage.getItem("jarvis-alerts") === "off") { alertsOn = false; refreshAlertBtn(); }
@@ -1226,6 +1656,7 @@ async function send() {
   const el  = document.getElementById("inp");
   const txt = el.value.trim();
   if (!txt) return;
+  briefDismiss();   // the conversation takes the space back
   addMsg("user", txt);
   el.value = "";
   resize(el);
@@ -1277,10 +1708,408 @@ async function send() {
 }
 
 function sq(text) { document.getElementById("inp").value = text; send(); }
+
+// ══════════════════════════════════════════
+//  CAPABILITIES — 44 skills, 6 agents, 23 MCP tools
+//
+//  This page IS JARVIS and listed none of them. They were all on disk and the
+//  only way to discover one was to already know its name. Served by
+//  /api/ai-registry — the same endpoint the dashboard's AI Brain tab reads, so
+//  the two can never drift apart.
+//
+//  Clicking LOADS the prompt without sending. A skill can be destructive and a
+//  mis-click that fires /execute is not a UI I want to ship; you get to see the
+//  text and press enter yourself.
+// ══════════════════════════════════════════
+let capData = null;
+let capTab  = "skills";
+
+function loadPrompt(text) {
+  const input = document.getElementById("inp");
+  if (!input) return;
+  input.value = text;
+  input.focus();
+  if (typeof resize === "function") resize(input);
+}
+
+// ── Memory recall ────────────────────────────────────────────────────────────
+// Semantic search over the RAG index via GET /api/recall. Read-only: it searches and
+// renders, it never writes a memory, never indexes, and feeds no gate.
+let recallSource = "brain";
+
+function setRecallSource(src) {
+  recallSource = src;
+  ["brain", "vault", "trades"].forEach(t => {
+    const el = document.getElementById("rtab-" + t);
+    if (el) el.classList.toggle("on", t === src);
+  });
+  const q = document.getElementById("recall-q");
+  if (q && q.value.trim()) runRecall();   // re-run in the newly chosen source
+}
+
+async function runRecall() {
+  const input = document.getElementById("recall-q");
+  const list  = document.getElementById("recall-list");
+  const count = document.getElementById("recall-count");
+  if (!input || !list) return;
+  const q = input.value.trim();
+  if (!q) { list.innerHTML = '<div class="cap-empty">Type a question first.</div>'; return; }
+
+  // The first call loads a sentence-transformer model and is genuinely slow. Saying so
+  // is the difference between "thinking" and "broken" — a spinner with no explanation is
+  // how a working feature gets reported as a hang.
+  list.innerHTML = '<div class="cap-empty">Searching memory… first search loads the model and can take ~20s.</div>';
+  if (count) count.textContent = "…";
+
+  try {
+    const r = await fetch(`/api/recall?q=${encodeURIComponent(q)}&source=${encodeURIComponent(recallSource)}&top=6`);
+    const j = await r.json();
+
+    // A failed search must NEVER render as "no results". Reading an error as an empty
+    // memory is the exact wrong conclusion, and is how five measured findings sat unread
+    // on the other box for a month.
+    if (!r.ok || j.error) {
+      if (count) count.textContent = "error";
+      list.innerHTML = `<div class="cap-empty" style="color:var(--red)">Recall failed — this is NOT "nothing recorded".<br>${esc(String(j.error || r.status))}` +
+                       (j.hint ? `<br><span style="color:var(--muted)">${esc(j.hint)}</span>` : "") + `</div>`;
+      return;
+    }
+
+    const rows = j.results || [];
+    if (count) count.textContent = rows.length ? `${rows.length} hit${rows.length === 1 ? "" : "s"}` : "0";
+    if (!rows.length) {
+      list.innerHTML = '<div class="cap-empty">Nothing recorded on that. Try different words — the search is semantic, so a rephrase genuinely changes the result.</div>';
+      return;
+    }
+
+    list.innerHTML = rows.map(row => {
+      const score = Number(row.score || 0);
+      // Score colour is a reading aid, not a verdict: a low score means "loosely related",
+      // never "wrong". Labelled rather than left to be guessed at.
+      const col = score >= 0.45 ? "var(--green)" : score >= 0.35 ? "var(--yellow)" : "var(--muted)";
+      const src = esc(String(row.source || "—"));
+      const text = esc(String(row.text || "").replace(/\s+/g, " ").slice(0, 320));
+      return `<div class="cap-item" style="cursor:default">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+          <span style="font-size:.62rem;color:var(--accent);font-weight:700;letter-spacing:.4px">${src.toUpperCase()}</span>
+          <span style="font-size:.6rem;color:${col};font-weight:700" title="semantic similarity, not confidence">${score.toFixed(3)}</span>
+        </div>
+        <div style="font-size:.7rem;color:var(--text);margin-top:3px;line-height:1.45">${text}</div>
+      </div>`;
+    }).join("");
+  } catch (e) {
+    if (count) count.textContent = "error";
+    list.innerHTML = `<div class="cap-empty" style="color:var(--red)">Recall failed — NOT an empty memory.<br>${esc(String(e.message || e))}</div>`;
+  }
+}
+
+function setCapTab(tab) {
+  capTab = tab;
+  ["skills", "agents", "tools"].forEach(t => {
+    const el = document.getElementById("captab-" + t);
+    if (el) el.classList.toggle("on", t === tab);
+  });
+  renderCaps();
+}
+
+function renderCaps() {
+  const list = document.getElementById("cap-list");
+  if (!list) return;
+  if (!capData) { list.innerHTML = '<div class="cap-empty">Registry unavailable — is the server up?</div>'; return; }
+
+  const items = capData[capTab] || [];
+  if (!items.length) { list.innerHTML = '<div class="cap-empty">None found.</div>'; return; }
+
+  list.innerHTML = items.map(item => {
+    let display, prompt, flag = "";
+    if (capTab === "skills") {
+      display = "/" + item.name;
+      prompt  = "/" + item.name + " ";
+    } else if (capTab === "agents") {
+      display = item.name;
+      // Agents are spawned by describing the work, not by typing a name.
+      prompt  = "Use the " + item.name + " agent to ";
+    } else {
+      display = item.name;
+      prompt  = "Use the " + item.name + " tool";
+      if (item.mutates === "TRADES") flag = '<span class="cap-flag cap-trades">TRADES</span>';
+      else if (item.mutates === "writes") flag = '<span class="cap-flag cap-writes">writes</span>';
+    }
+    return '<div class="cap-item" onclick="loadPrompt(' + JSON.stringify(prompt).replace(/"/g, "&quot;") + ')">'
+      + '<div class="cap-name">' + esc(display) + flag + "</div>"
+      + '<div class="cap-desc">' + esc(item.description || "") + "</div></div>";
+  }).join("");
+}
+
+async function loadCapabilities() {
+  try {
+    const r = await fetch("/api/ai-registry", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    capData = await r.json();
+    const c = capData.counts || {};
+    const el = document.getElementById("cap-count");
+    if (el) el.textContent = (c.skills || 0) + "·" + (c.agents || 0) + "·" + (c.tools || 0);
+  } catch (e) {
+    console.error("loadCapabilities:", e);
+    capData = null;
+  }
+  renderCaps();
+}
+loadCapabilities();
 function hkey(e)  { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }
 function resize(el){ el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 function esc(s)   { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-function fmt(s)   { return esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"); }
+
+// ══════════════════════════════════════════
+//  OPENING BRIEFING — what fills the empty chat
+// ══════════════════════════════════════════
+// The gate is 70 and was 65 before 2026-08-02. This page had 65 hardcoded in two
+// places, so it was judging live confidence against a threshold the engine stopped
+// using — colouring a 66% reading GREEN and, worse, speaking it aloud as a ready
+// signal when it is still 4 points short of being able to fire.
+//
+// Read it from the server, hold it in one place, and let everything on the page ask
+// this variable rather than carrying its own copy of the number.
+let liveGate = null;
+
+async function refreshGate() {
+  const res = await getJson("/api/strategy-settings");
+  const value = Number(res.data && res.data.confidenceThreshold);
+  if (Number.isFinite(value) && value > 0) liveGate = value;
+  return liveGate;
+}
+
+const BRIEF_ASSETS = [["btc","BTC"],["gold","GOLD"],["spx","SPX"]];
+
+// Starter questions, phrased the way you would actually ask them. These are prompts,
+// not commands: clicking one types it and sends it, exactly as if it were typed.
+const BRIEF_PROMPTS = [
+  "Why is nothing firing right now?",
+  "What is closest to the gate?",
+  "What did we learn from the last trade?",
+  "Is anything wrong with the system?",
+];
+
+function briefDismiss() {
+  const node = document.getElementById("brief");
+  if (node) node.remove();
+}
+
+function briefRow(label, sig, gate) {
+  const conf   = (sig && sig.confidence) || 0;
+  const scored = conf > 0;
+  // Same distinction the overview card makes: conf 0 means the engine found no setup
+  // to score, not that it scored one and gave it zero.
+  const colour = !scored ? "var(--muted-dim)"
+               : conf >= gate ? "var(--green)"
+               : conf >= gate - 15 ? "var(--yellow)" : "var(--red)";
+  const gapPts = Math.max(0, gate - conf);
+  const right  = !scored ? "no setup"
+               : gapPts === 0 ? "at the gate" : gapPts + "pt short";
+  // The tick now carries the gate's VALUE. Without it the reader sees a line at an
+  // arbitrary position and has to hunt the number out of the sentence below.
+  const tick   = gate > 0 && gate <= 100
+    ? '<div class="brief-gate" data-gate="' + esc(String(gate)) + '" style="left:' + gate + '%"></div>' : "";
+  // Hatch the track when the engine found NO SETUP, so it cannot be misread as a
+  // setup that scored zero. Same distinction the colour already makes, made visible
+  // in the bar itself rather than only in the right-hand label.
+  const trackCls = scored ? "brief-track" : "brief-track no-setup";
+  return '<div class="brief-row">'
+    + '<div class="brief-sym">' + esc(label) + '</div>'
+    + '<div class="' + trackCls + '">'
+    +   '<div class="brief-fill" style="width:' + Math.min(100, conf) + '%;background:' + colour + '"></div>'
+    +   tick
+    + '</div>'
+    + '<div class="brief-gap" style="color:' + colour + '">' + esc(right) + '</div>'
+    + '</div>';
+}
+
+// The axis, once, under the rows. Three labels is the most a 300px track can carry
+// without crowding the gate tick that sits between them.
+function briefScale(gate) {
+  const g = (gate > 0 && gate <= 100) ? gate : null;
+  return '<div class="brief-scale">'
+    + '<div></div>'
+    + '<div class="brief-scale-track">'
+    +   '<span class="s0">0</span>'
+    +   (g ? '<span style="left:' + g + '%;transform:translateX(-50%);color:var(--muted)">gate ' + esc(String(g)) + '</span>' : '')
+    +   '<span class="s100">100</span>'
+    + '</div>'
+    + '<div></div>'
+    + '</div>';
+}
+
+// Reads only. Both endpoints are already used elsewhere in the system, and every
+// failure path degrades to what IS known rather than throwing — an unreachable
+// risk endpoint must not cost you the chat.
+async function renderBriefing() {
+  const box = document.getElementById("msgs");
+  if (!box || document.getElementById("brief")) return;
+
+  const [sigRes, gate, riskRes] = await Promise.all([
+    getJson("/api/signals"),
+    refreshGate(),
+    getJson("/api/risk-status"),
+  ]);
+
+  const signals = sigRes.data || {};
+  const risk = riskRes.data || null;
+
+  // Never invent a gate. Without it there is no such thing as "15pt short", and a
+  // made-up threshold on this page is exactly how the stale 65 spread last time.
+  //
+  // But do not vanish either. The first version of this card just returned, which
+  // left an empty pane indistinguishable from the feature not existing — the same
+  // silent-failure shape this page has been bitten by before. Say what is wrong and
+  // say what it costs, because alerts are suppressed in this state too.
+  if (!gate) {
+    const warn = document.createElement("div");
+    warn.className = "brief";
+    warn.id = "brief";
+    warn.innerHTML =
+        '<div class="brief-h"><div class="brief-t">Where things stand</div></div>'
+      + '<div class="brief-state">Cannot read the confidence gate from '
+      + '<code>/api/strategy-settings</code>, so distance-to-fire cannot be computed and '
+      + 'signal alerts are suppressed until it can. Everything else on this page is live.</div>';
+    box.appendChild(warn);
+    return;
+  }
+
+  const rows = BRIEF_ASSETS.map(([key, label]) => briefRow(label, signals[key], gate)).join("")
+             + briefScale(gate);
+
+  let state = "Gate " + gate + "% on the Daily+4H setup. 1H agreement only adds a bonus — it never blocks a setup, so a bearish 1H does not stop a buy.";
+  if (risk) {
+    state += risk.halted
+      ? " ⚠ TRADING HALTED — " + esc(risk.haltReason || "circuit breaker open") + "."
+      : " Breaker closed, " + (risk.consecutiveLosses || 0) + " consecutive losses.";
+  } else if (riskRes.authError) {
+    state += " Risk state unreadable — this browser's session has expired.";
+  } else {
+    state += " Risk state unavailable.";
+  }
+
+  const chips = BRIEF_PROMPTS
+    .map((q, i) => '<button class="brief-chip" data-brief-q="' + i + '">' + esc(q) + '</button>')
+    .join("");
+
+  const card = document.createElement("div");
+  card.className = "brief";
+  card.id = "brief";
+  card.innerHTML =
+      '<div class="brief-h"><div class="brief-t">Where things stand</div>'
+    + '<div class="brief-when">' + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + "</div></div>"
+    + rows
+    + '<div class="brief-state">' + state + "</div>"
+    + '<div class="brief-ask">' + chips + "</div>";
+
+  // Delegated, and the text comes from the array by index rather than being
+  // interpolated into an onclick attribute — a question mark and an apostrophe in a
+  // prompt should not be able to break the handler.
+  card.addEventListener("click", ev => {
+    const btn = ev.target.closest("[data-brief-q]");
+    if (!btn) return;
+    const input = document.getElementById("inp");
+    if (!input) return;
+    input.value = BRIEF_PROMPTS[Number(btn.dataset.briefQ)] || "";
+    resize(input);
+    send();
+  });
+
+  box.appendChild(card);
+  box.scrollTop = box.scrollHeight;
+}
+/* Markdown in JARVIS's replies. Until now fmt() handled exactly one construct --
+   **bold** -- and every other thing the model writes came through as literal syntax:
+   bullet lines kept their leading dash, numbered steps ran together in one grey
+   block, code fences printed as three backticks, and links printed as [text](url)
+   with the URL spelled out. The answers ARE markdown; the renderer was not.
+
+   Order matters and is the whole design. esc() runs FIRST so nothing the model
+   writes can inject markup, then code spans are lifted out into placeholders so
+   their contents are never treated as markdown -- a stop-loss written as `**` inside
+   a code block must survive verbatim. Everything else is line-oriented block
+   grouping, then inline formatting, then the code spans go back in.
+
+   Links are restricted to http/https. A markdown link is a string from a model and
+   javascript: in an href is script execution; the scheme is checked rather than the
+   text being trusted. */
+function fmt(raw) {
+  const text = esc(String(raw == null ? "" : raw));
+
+  // 1. Lift code out before anything else touches it.
+  const code = [];
+  const stash = html => "\u0000C" + (code.push(html) - 1) + "\u0000";
+  let s = text
+    .replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, lang, body) =>
+      stash('<pre class="md-pre"><code>' + body.replace(/\n$/, "") + "</code></pre>"))
+    .replace(/`([^`\n]+)`/g, (_, body) => stash('<code class="md-code">' + body + "</code>"));
+
+  // 2. Inline formatting, applied to everything that is not code.
+  //    Bold before italic: **x** would otherwise be eaten as two italics.
+  const inline = t => t
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+             '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g,
+             '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+
+  // 3. Line-oriented block grouping. A paragraph accumulates until something ends it.
+  const lines = s.split("\n");
+  const out = [];
+  let list = null;      // "ul" | "ol" | null
+  let para = [];
+
+  const flushPara = () => {
+    if (!para.length) return;
+    out.push("<p>" + inline(para.join("<br>")) + "</p>");
+    para = [];
+  };
+  const flushList = () => { if (list) { out.push("</" + list + ">"); list = null; } };
+  const openList = kind => {
+    if (list === kind) return;
+    flushList();
+    out.push("<" + kind + ' class="md-list">');
+    list = kind;
+  };
+
+  for (const line of lines) {
+    const t = line.trim();
+
+    if (!t) { flushPara(); flushList(); continue; }
+
+    // A stashed fenced block occupies its own line and is already final HTML.
+    if (/^\u0000C\d+\u0000$/.test(t)) { flushPara(); flushList(); out.push(t); continue; }
+
+    const heading = t.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      flushPara(); flushList();
+      const level = Math.min(6, Math.max(4, heading[1].length + 3));  // never outrank the page's own h1-h3
+      out.push("<h" + level + ' class="md-h">' + inline(heading[2]) + "</h" + level + ">");
+      continue;
+    }
+
+    if (/^(---+|\*\*\*+|___+)$/.test(t)) { flushPara(); flushList(); out.push('<hr class="md-hr">'); continue; }
+
+    const bullet = t.match(/^[-*+]\s+(.*)$/);
+    if (bullet) { flushPara(); openList("ul"); out.push("<li>" + inline(bullet[1]) + "</li>"); continue; }
+
+    const numbered = t.match(/^(\d{1,3})[.)]\s+(.*)$/);
+    if (numbered) { flushPara(); openList("ol"); out.push("<li>" + inline(numbered[2]) + "</li>"); continue; }
+
+    const quote = t.match(/^&gt;\s?(.*)$/);   // ">" is already escaped by esc()
+    if (quote) { flushPara(); flushList(); out.push('<blockquote class="md-q">' + inline(quote[1]) + "</blockquote>"); continue; }
+
+    flushList();
+    para.push(t);
+  }
+  flushPara();
+  flushList();
+
+  // 4. Put the code back.
+  return out.join("").replace(/\u0000C(\d+)\u0000/g, (_, i) => code[Number(i)]);
+}
 
 // ══════════════════════════════════════════
 //  VIDEO — search YouTube and pop the result up in a modal
@@ -1329,16 +2158,22 @@ function closeVideoModal() {
 // ══════════════════════════════════════════
 async function fetchData() {
   try {
-    const [pr, si] = await Promise.all([
-      fetch("/api/prices").then(r=>r.json()).catch(()=>null),
-      fetch("/api/signals").then(r=>r.json()).catch(()=>null)
+    const [priceRes, signalRes] = await Promise.all([
+      getJson("/api/prices"),
+      getJson("/api/signals")
     ]);
+    const pr = priceRes.data || null;
+    const si = signalRes.data || null;
 
     if (pr) {
       setOnline(true);
       setPP("pp-btc",  "BTC",  pr.btc,  pr.btcChange);
       setPP("pp-gold", "GOLD", pr.gold, pr.goldChange);
       setPP("pp-spx",  "SPX",  pr.spx,  pr.spxChange);
+    } else if (priceRes.authError) {
+      // /api/prices is NOT in the server's no-login allowlist (unlike
+      // /api/status), so an expired cookie kills exactly this call.
+      setOnline("auth");
     } else setOnline(false);
 
     if (si) {
@@ -1350,11 +2185,37 @@ async function fetchData() {
   } catch { setOnline(false); }
 }
 
-function setOnline(on) {
-  const dot  = document.getElementById("sdot");
-  const txt  = document.getElementById("stext");
-  dot.className = "status-dot " + (on ? "online" : "offline");
-  txt.textContent = on ? "Server Online" : "Server Offline";
+// Three states, not two. "Signed out" was previously indistinguishable from
+// healthy: a 401 returns valid JSON, so .json() resolved, .catch never fired, the
+// object was truthy, and the header went green "Server Online" beside three
+// blank prices. A status light that reads healthy while showing nothing is worse
+// than one that reads offline — it tells you to trust the blanks.
+function setOnline(state) {
+  const dot = document.getElementById("sdot");
+  const txt = document.getElementById("stext");
+  const mode = state === true ? "online" : state === "auth" ? "auth" : "offline";
+  dot.className = "status-dot " + mode;
+  txt.textContent = mode === "online" ? "Server Online"
+                  : mode === "auth"   ? "Signed out — reload to sign in"
+                  : "Server Offline";
+  if (mode === "auth") txt.title = "The server is up. This browser's session has expired, so it is refusing to send data.";
+  else txt.removeAttribute("title");
+}
+
+/**
+ * Fetch JSON and tell the three states apart.
+ * Returns { data } | { authError:true } | { offline:true }.
+ * A 401 body parses cleanly, so the status code is the only reliable signal —
+ * checking r.ok is the whole fix.
+ */
+async function getJson(url) {
+  let response;
+  try { response = await fetch(url, { cache: "no-store" }); }
+  catch (e) { return { offline: true }; }
+  if (response.status === 401 || response.status === 403) return { authError: true };
+  if (!response.ok) return { offline: true };
+  try { return { data: await response.json() }; }
+  catch (e) { return { offline: true }; }
 }
 
 function setPP(id, lbl, price, chg) {
@@ -1377,10 +2238,18 @@ function setSig(key, sig, price) {
   const s = sig.signal || "WAIT";
   badge.textContent = s;
   badge.className   = "sc-badge b-" + s;
-  cEl.textContent   = conf + "%";
+  // conf 0 is the engine declining to score, not a score of zero — same distinction
+  // the overview card and the briefing make. A bare "0%" beside a full-width empty
+  // track reads as a panel that failed to load.
+  cEl.textContent   = conf > 0 ? conf + "%" : "no setup";
   if (price) pEl.textContent = "$" + Number(price).toLocaleString();
 
-  const clr = conf >= 65 ? "var(--green)" : conf >= 40 ? "var(--yellow)" : "var(--muted)";
+  // Banded against the LIVE gate, not a copy of it. Green means "can fire", which is
+  // the only thing green should mean on a row like this.
+  const clr = conf === 0 ? "var(--muted-dim)"
+            : liveGate == null ? "var(--muted)"
+            : conf >= liveGate ? "var(--green)"
+            : conf >= liveGate - 15 ? "var(--yellow)" : "var(--muted)";
   bar.style.width      = conf + "%";
   bar.style.background = clr;
   card.className = "sig-card " + s.toLowerCase();
@@ -1393,7 +2262,16 @@ function checkAlerts(si, pr) {
     { k:"gold", lbl:"Gold",     d:si.gold, p:pr?.gold },
     { k:"spx",  lbl:"S&P 500",  d:si.spx,  p:pr?.spx  },
   ].forEach(({k, lbl, d, p}) => {
-    if (!d || d.confidence < 65) return;
+    // Was "< 65", so this fired a toast AND spoke the setup aloud for confidences
+    // between 65 and 69 — announcing "Bitcoin BUY, 66% confidence, entry $X" for a
+    // trade the gate will not admit. An alert for something that cannot happen is
+    // worse than no alert: it is the one output on this page that interrupts you.
+    //
+    // Fails CLOSED. If the gate cannot be read there is no way to know what "ready"
+    // means, and staying quiet is the safe half of that — the briefing says plainly
+    // when the gate is unreadable, so the silence is explained rather than mysterious.
+    if (liveGate == null) return;
+    if (!d || d.confidence < liveGate) return;
     const akey = `${k}-${d.signal}-${d.confidence}`;
     if (lastAlerts[k] === akey) return;
     lastAlerts[k] = akey;
@@ -1417,7 +2295,17 @@ function showToast(msg) {
 // ══════════════════════════════════════════
 async function loadLearning() {
   try {
-    const learning = await fetch("/api/learning").then(r => r.json());
+    // Through the page's own getJson, which this call was bypassing. A 401 body parses
+    // cleanly, so `learning?.setupStats || {}` turned an auth failure into "nothing
+    // learned so far" — the one message that looks identical to this system's real
+    // state, and so could never be noticed.
+    const learnRes = await getJson("/api/learning");
+    if (learnRes.authError || learnRes.offline) {
+      document.getElementById("learn-box").innerHTML =
+        `<div class="learn-empty">${learnRes.authError ? "Not logged in — cannot read the learning engine." : "Learning engine unreachable."}</div>`;
+      return;
+    }
+    const learning = learnRes.data;
     const stats = learning?.setupStats || {};
     const entries = Object.entries(stats);
     const box = document.getElementById("learn-box");
@@ -1426,14 +2314,26 @@ async function loadLearning() {
       return;
     }
     const sorted = entries.sort((a,b) => ((b[1].wins||0)+(b[1].losses||0)) - ((a[1].wins||0)+(a[1].losses||0))).slice(0, 6);
+    // The binding constraint on this whole system is sample size, so a win rate has to
+    // be read together with the n it came from. This panel was rendering MOMENTUM as a
+    // full-width GREEN 100% off one single closed trade, sitting directly above
+    // BB_SQUEEZE_WATCH as a red 0% off one single closed trade — two coin flips drawn
+    // with the confidence of a measured edge.
+    //
+    // Nothing is hidden and nothing is dropped: the number and the bar still show. Under
+    // the floor they simply lose the verdict colouring they have not earned and say so.
+    // Five matches the floor already used for rejection evidence and setup health.
+    const MIN_CLOSED_FOR_VERDICT = 5;
     box.innerHTML = sorted.map(([name, s]) => {
       const w = s.wins||0, l = s.losses||0, tot = w+l;
       const wr = tot > 0 ? Math.round(w/tot*100) : 0;
-      const clr = wr >= 65 ? "var(--green)" : wr >= 45 ? "var(--yellow)" : "var(--red)";
+      const judged = tot >= MIN_CLOSED_FOR_VERDICT;
+      const clr = !judged ? "var(--muted-dim)"
+                : wr >= 65 ? "var(--green)" : wr >= 45 ? "var(--yellow)" : "var(--red)";
       return `<div class="learn-row">
         <div class="learn-top"><span class="learn-name">${esc(name)}</span><span class="learn-wr" style="color:${clr}">${wr}%</span></div>
         <div class="learn-bar-bg"><div class="learn-bar" style="width:${wr}%;background:${clr}"></div></div>
-        <div style="font-size:.6rem;color:var(--muted)">${w}W / ${l}L</div>
+        <div style="font-size:.6rem;color:var(--muted)">${w}W / ${l}L${judged ? "" : ` · n=${tot}, too few to judge`}</div>
       </div>`;
     }).join("");
   } catch {
@@ -1467,7 +2367,15 @@ function closeSettings() { document.getElementById("settings-overlay").classList
 
 async function loadSettings() {
   try {
-    const s = await fetch("/api/settings").then(r => r.json());
+    const settingsRes = await getJson("/api/settings");
+    if (settingsRes.authError || settingsRes.offline) {
+      // Without this a 401 renders every key as UNSET, which reads as "nothing is
+      // configured" — the opposite of the truth, on the panel used to configure it.
+      setFieldStatus("st-anthropic", null, "in-anthropic");
+      alert(settingsRes.authError ? "Not logged in — settings cannot be read." : "Settings unreachable.");
+      return;
+    }
+    const s = settingsRes.data;
     setFieldStatus("st-anthropic", s.anthropicKey, "in-anthropic");
     setFieldStatus("st-openai",    s.openaiKey,    "in-openai");
     setFieldStatus("st-tgtoken",   s.telegramToken,"in-tgtoken");
@@ -1479,7 +2387,11 @@ async function loadSettings() {
     rows.innerHTML = "";
     (s.custom || []).forEach(c => addCustomRow(c.key, "", c.preview));
   } catch {
-    document.getElementById("settings-save-msg").textContent = "Could not load settings.";
+    // Same element, same reason: it is green by default, so an error needs the
+    // colour set or it reads as a success line.
+    const el = document.getElementById("settings-save-msg");
+    el.textContent = "Could not load settings.";
+    el.style.color = "var(--red)";
   }
 }
 
@@ -1521,24 +2433,56 @@ async function saveSettings() {
     }).filter(c => c.key && c.value),
   };
   const msgEl = document.getElementById("settings-save-msg");
-  msgEl.textContent = "Saving…";
+  // .settings-save-msg is styled green, so a failure written into this element
+  // rendered in the success colour. Colour is now set explicitly on every path.
+  const showMsg = (text, ok) => {
+    msgEl.textContent = text;
+    msgEl.style.color = ok ? "var(--green)" : "var(--red)";
+  };
+  showMsg("Saving…", true);
+
+  // A rejected fetch is the ONLY case where the server is genuinely unreachable.
+  // Every other failure carries a status and usually a reason from the server, and
+  // reporting those as "unreachable" is what sent a real investigation at the network
+  // while the actual answer was requireLocalOnly returning 403: this page can never
+  // save from a browser on the VPS, and it never said so. Discarding the response
+  // body threw away the one sentence that explained the failure.
+  let res;
   try {
-    const r = await fetch("/api/settings", {
+    res = await fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    if (!r.ok) throw new Error();
-    msgEl.textContent = "Saved ✓";
-    document.getElementById("in-anthropic").value = "";
-    document.getElementById("in-openai").value = "";
-    document.getElementById("in-tgtoken").value = "";
-    document.getElementById("in-uw").value = "";
-    loadSettings();
-    setTimeout(() => { msgEl.textContent = ""; }, 3000);
   } catch {
-    msgEl.textContent = "Save failed — server unreachable.";
+    showMsg("Save failed — server unreachable.", false);
+    return;
   }
+
+  if (!res.ok) {
+    // The body may not be JSON (a proxy's HTML error page), so fall back to the status.
+    const detail = await res.json().catch(() => ({}));
+    showMsg("Save failed — " + (detail.error || ("HTTP " + res.status)), false);
+    return;
+  }
+
+  // The server now reports WHICH keys it applied and whether a restart is still
+  // needed. A bare "Saved" was true of the FILE and false of the RUNNING PROCESS:
+  // a custom key went into keys.env and stayed inert until the next restart, and
+  // this line said it had worked. Report what the server actually did.
+  const savedInfo  = await res.json().catch(() => ({}));
+  const savedCount = Array.isArray(savedInfo.saved) ? savedInfo.saved.length : 0;
+  showMsg(savedCount ? ("Saved ✓ — " + savedCount + " key(s) live now")
+                     : "Saved ✓", true);
+  if (savedInfo.note) console.info("[settings] " + savedInfo.note);
+  document.getElementById("in-anthropic").value = "";
+  document.getElementById("in-openai").value = "";
+  document.getElementById("in-tgtoken").value = "";
+  document.getElementById("in-uw").value = "";
+  loadSettings();
+  // Clear the success line only. loadSettings() can replace it with its own error,
+  // and blanking that after three seconds would hide a real failure.
+  setTimeout(() => { if (msgEl.textContent === "Saved ✓") msgEl.textContent = ""; }, 3000);
 }
 
 // ══════════════════════════════════════════
@@ -1561,7 +2505,13 @@ function closeHermes() { document.getElementById("hermes-overlay").classList.rem
 
 async function loadHermes() {
   try {
-    const d = await fetch("/api/hermes").then(r => r.json());
+    const hermesRes = await getJson("/api/hermes");
+    if (hermesRes.authError || hermesRes.offline) {
+      document.getElementById("hermes-inception").textContent =
+        hermesRes.authError ? "Not logged in — Hermes cannot be read." : "Hermes unreachable.";
+      return;
+    }
+    const d = hermesRes.data;
     renderHermesPulse(d.pulse);
     renderHermesDuel(d);
     renderHermesLeaderboard(d.leaderboard);
@@ -1677,6 +2627,537 @@ function renderCharts() {
     });
   });
 }
+
+/* ═══════════════════ MIND — nine read-only cognition surfaces ═══════════════════
+   Nine endpoints the server has always computed and NOTHING on this page rendered.
+   That is the "setting with no reader" shape from the boot rules, inverted: a reader
+   with no surface. The evidence board, both AI ledgers, the rejection ledger, the
+   learning-growth curve and the fleet plan were reachable only by curl, so the one
+   page named after JARVIS could not show what JARVIS knows.
+
+   STRICTLY READ-ONLY. Every source reports feedsTheGate:false and nothing below
+   POSTs, PUTs, changes a threshold, or admits or suppresses a signal. Adding a
+   surface must not change what trades — rule 3.
+
+   Four of the nine are session-gated. A 401 renders as a sign-in note, never as an
+   error and never as an empty panel: "no data" and "not logged in" look identical
+   on screen and mean opposite things, and the wrong one of those two reads as
+   "the system has measured nothing". */
+const MIND_SOURCES = {
+  evidence:  "/api/evidence-board",
+  measured:  "/api/measured-evidence",
+  gates:     "/api/rejection-evidence",
+  growth:    "/api/learning-growth",
+  setups:    "/api/setup-health",
+  work:      "/api/ai-work",
+  employees: "/api/ai-employees",
+  plan:      "/api/system-plan",
+  research:  "/api/research",
+};
+const mindCache = {};
+let mindTab = "evidence";
+
+function openMind()  { document.getElementById("mind-overlay").classList.add("show"); loadMindTab(mindTab); }
+function closeMind() { document.getElementById("mind-overlay").classList.remove("show"); }
+
+/* Fetched on first open of a tab and cached for the session. Re-opening the overlay
+   does not re-fetch: several of these endpoints walk files on every call, and this
+   page already polls signals every 20s. */
+async function loadMindTab(tab) {
+  const pane = document.getElementById("mpane-" + tab);
+  if (!pane) return;
+  if (mindCache[tab]) { pane.innerHTML = mindCache[tab]; return; }
+  pane.innerHTML = '<div class="mind-empty">Loading…</div>';
+
+  const res = await getJson(MIND_SOURCES[tab]);
+  let html;
+  if (res.authError)    html = mindSignIn(MIND_SOURCES[tab]);
+  else if (res.offline) html = '<div class="mind-empty">' + esc(MIND_SOURCES[tab]) + ' did not answer. The server may be restarting — this panel reads only, so nothing is affected.</div>';
+  else {
+    try { html = MIND_RENDER[tab](res.data); }
+    catch (e) {
+      console.error("[mind] render " + tab + ":", e);
+      html = '<div class="mind-empty">This panel could not render (' + esc(e.message) + '). The endpoint answered; the fault is in the renderer, not the data.</div>';
+    }
+  }
+  mindCache[tab] = html;
+  pane.innerHTML = html;
+}
+
+function setMindTab(tab) {
+  mindTab = tab;
+  Object.keys(MIND_SOURCES).forEach(t => {
+    const btn  = document.getElementById("mtab-" + t);
+    const pane = document.getElementById("mpane-" + t);
+    if (btn)  btn.classList.toggle("on", t === tab);
+    if (pane) pane.classList.toggle("on", t === tab);
+  });
+  loadMindTab(tab);
+}
+
+function mindSignIn(url) {
+  return '<div class="mind-empty">Session required. <strong>' + esc(url) + '</strong> is login-gated by design — '
+       + 'this is not an error and no data is missing. Sign in on the dashboard, then reopen.</div>';
+}
+
+/* ── shared bits ───────────────────────────────────────────────────────────── */
+function mPill(text, kind) { return '<span class="mind-pill p-' + kind + '">' + esc(String(text)) + '</span>'; }
+function mKpi(value, label) {
+  return '<div class="mind-kpi"><div class="mind-kpi-v">' + esc(String(value)) + '</div><div class="mind-kpi-l">' + esc(label) + '</div></div>';
+}
+function mAge(iso) {
+  if (!iso) return "—";
+  const mins = (Date.now() - Date.parse(iso)) / 60000;
+  if (!isFinite(mins))  return "—";
+  if (mins < 1)         return "just now";
+  if (mins < 60)        return Math.round(mins) + "m ago";
+  if (mins < 1440)      return (mins / 60).toFixed(1) + "h ago";
+  return (mins / 1440).toFixed(1) + "d ago";
+}
+function mR(n) { const v = Number(n); return (isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(2) : "—") + "R"; }
+/* JSON.stringify(undefined) returns undefined -- NOT the string "undefined" -- so
+   esc() then throws on .replace and takes the whole panel down. Found by the renderer
+   test on the real /api/system-plan payload: its `engine` divergence row carries no
+   local/peer pair, only drift counts. */
+function mVal(v) { const j = JSON.stringify(v); return j === undefined ? "—" : j; }
+function mNote(text)  { return '<div class="mind-note">' + esc(text) + '</div>'; }
+function mEmpty(text) { return '<div class="mind-empty">' + esc(text) + '</div>'; }
+
+/* A status string to a colour, without inventing categories. Anything unrecognised
+   stays neutral rather than being coloured by a guess. */
+function mStatusKind(s) {
+  const t = String(s || "").toUpperCase();
+  if (t.includes("ROBUST") || t.includes("EARNING") || t.includes("EMPLOYED") || t === "OK" || t.includes("HEALTHY")) return "good";
+  if (t.includes("NO EDGE") || t.includes("COSTING") || t.includes("FAIL") || t.includes("NEGATIVE")) return "bad";
+  if (t.includes("CANDIDATE") || t.includes("INCONCLUSIVE") || t.includes("STALE") || t.includes("NEEDS")) return "warn";
+  if (t.includes("UNMEASURED") || t.includes("TOO FEW") || t.includes("NOT RUN") || t.includes("PROPOSED")) return "mute";
+  return "info";
+}
+
+/* Renders any nested object honestly: it prints the keys that are actually there
+   rather than the keys a renderer hoped for. Used for the report-shaped endpoints
+   whose payloads are deep and grow as harnesses are added — a bespoke renderer for
+   those would silently drop a field the day one is added. */
+function mTree(obj, depth) {
+  depth = depth || 0;
+  if (obj === null || obj === undefined) return '<span style="color:var(--muted-dim)">—</span>';
+  if (typeof obj !== "object") {
+    if (obj === true)  return mPill("yes", "good");
+    if (obj === false) return mPill("no", "mute");
+    const s = String(obj);
+    return esc(s.length > 400 ? s.slice(0, 400) + "…" : s);
+  }
+  if (Array.isArray(obj)) {
+    if (!obj.length) return '<span style="color:var(--muted-dim)">none</span>';
+    if (typeof obj[0] !== "object") return esc(obj.slice(0, 40).map(String).join(", "));
+    if (depth > 2) return esc(obj.length + " item(s)");
+    return obj.slice(0, 25).map(o => '<div class="mind-row">' + mTree(o, depth + 1) + '</div>').join("");
+  }
+  return Object.keys(obj).map(k => {
+    const v = obj[k];
+    const deep = v && typeof v === "object" && !Array.isArray(v) && depth < 3;
+    return '<div style="display:flex;gap:9px;align-items:baseline;padding:2px 0;'
+         + (deep ? "flex-direction:column;align-items:stretch" : "") + '">'
+         + '<span style="color:var(--muted);font-size:.66rem;min-width:150px">' + esc(k) + '</span>'
+         + '<span style="color:var(--text);font-size:.72rem;flex:1">' + mTree(v, depth + 1) + '</span>'
+         + '</div>';
+  }).join("");
+}
+
+/* ── 1. EVIDENCE BOARD — what is KNOWN vs merely assumed ───────────────────── */
+function renderMindEvidence(d) {
+  const claims = d.claims || [];
+  const counts = d.claimCounts || {};
+  let h = mNote(d.curatedNote || "Human-reviewed conclusions from harness runs.");
+  h += '<div class="mind-kpis">' + Object.keys(counts).map(k => mKpi(counts[k], k)).join("") + '</div>';
+
+  if ((d.needsRecuration || []).length) {
+    h += '<div class="mind-row" style="border-color:var(--yellow)"><div class="mind-row-hd">'
+       + '<span class="mind-row-t">⚠ ' + d.needsRecuration.length + ' claim(s) need re-curation</span></div>'
+       + '<div class="mind-row-b">A claim goes stale the moment the thing it describes is re-measured. '
+       + 'These are flagged, not hidden — an unflagged stale claim is how the board starts lying.</div></div>';
+  }
+  h += '<div class="hermes-section-title">CLAIMS <span class="hermes-sub">each with its evidence, its caveat, and what would change the answer</span></div>';
+  h += claims.length ? claims.map(c =>
+      '<div class="mind-row">'
+    + '<div class="mind-row-hd"><span class="mind-row-t">' + esc(c.title || c.id || "—") + '</span>'
+    + mPill(c.status || "—", mStatusKind(c.status))
+    + (c.measuredOn ? '<span class="mind-meta">measured ' + esc(c.measuredOn) + '</span>' : "")
+    + '</div>'
+    + (c.evidence         ? '<div class="mind-row-b"><strong>Evidence:</strong> ' + esc(c.evidence) + '</div>' : "")
+    + (c.caveat           ? '<div class="mind-meta"><strong>Caveat:</strong> ' + esc(c.caveat) + '</div>' : "")
+    + (c.changesTheAnswer ? '<div class="mind-meta"><strong>Would change the answer:</strong> ' + esc(c.changesTheAnswer) + '</div>' : "")
+    + (c.harness          ? '<div class="mind-meta">harness: <code>' + esc(c.harness) + '</code></div>' : "")
+    + '</div>').join("") : mEmpty("No curated claims on the board.");
+
+  if (d.liveSample) {
+    h += '<div class="hermes-section-title">LIVE SAMPLE <span class="hermes-sub">the real counts behind every verdict above</span></div>';
+    h += '<div class="mind-row">' + mTree(d.liveSample) + '</div>';
+  }
+  h += '<div class="mind-meta" style="margin-top:12px">Updated ' + mAge(d.updatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 2. MEASURED EVIDENCE — harness reports read off disk ──────────────────── */
+function renderMindMeasured(d) {
+  let h = mNote(d.note || "Reports are read off disk. Nothing here runs a harness or changes a setting.");
+  const reports = d.reports || {};
+  const keys = Object.keys(reports);
+  h += '<div class="hermes-section-title">HARNESS REPORTS <span class="hermes-sub">' + keys.length + ' tracked</span></div>';
+  h += keys.length ? keys.map(k => {
+    const r = reports[k];
+    const isObj = r && typeof r === "object";
+    return '<div class="mind-row"><div class="mind-row-hd">'
+      + '<span class="mind-row-t">' + esc((isObj && r.title) || k) + '</span>'
+      + (isObj && r.status ? mPill(r.status, mStatusKind(r.status)) : "")
+      + '</div>'
+      + (isObj && r.detail  ? '<div class="mind-row-b">' + esc(r.detail) + '</div>' : "")
+      + (isObj && r.command ? '<div class="mind-meta">run it: <code>' + esc(r.command) + '</code></div>' : "")
+      + (isObj && !r.title && !r.detail ? '<div class="mind-row-b">' + mTree(r, 1) + '</div>' : "")
+      + '</div>';
+  }).join("") : mEmpty("No harness reports on disk yet.");
+
+  if (d.ceiling) {
+    h += '<div class="hermes-section-title">RSI CEILING SWEEP <span class="hermes-sub">survivors across every cut</span></div>';
+    h += '<div class="mind-row">' + mTree(d.ceiling) + '</div>';
+  }
+  h += '<div class="mind-meta" style="margin-top:12px">feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 3. GATES — the rejection ledger: is each gate earning its keep? ───────── */
+function renderMindGates(d) {
+  if (d.available === false) return mEmpty("The rejection ledger has not produced evidence yet.");
+  const t = d.totals || {};
+  let h = mNote(d.caveat || "Forgone PAPER trades on entries never filled: no spread, no slippage.");
+  h += '<div class="mind-kpis">'
+     + mKpi(t.episodes ?? "—", "episodes")
+     + mKpi(t.resolved ?? "—", "resolved")
+     + mKpi(t.pending  ?? "—", "pending")
+     + mKpi(mR(t.netR), "net R forgone")
+     + '</div>';
+
+  const gates  = d.gates || {};
+  const gnames = Object.keys(gates);
+  h += '<div class="hermes-section-title">PER GATE <span class="hermes-sub">a verdict needs ' + (d.minResolvedForVerdict ?? 5) + ' resolved episodes</span></div>';
+  h += gnames.length ? gnames.map(name => {
+    const g = gates[name] || {};
+    return '<div class="mind-row"><div class="mind-row-hd">'
+      + '<span class="mind-row-t">' + esc(name) + '</span>'
+      + mPill(g.verdict || "no verdict", mStatusKind(g.verdict))
+      + (g.gateClass ? mPill(g.gateClass, "info") : "")
+      + '</div>'
+      + (g.detail ? '<div class="mind-row-b">' + esc(g.detail) + '</div>' : "")
+      + '<div class="mind-meta">resolved <strong>' + (g.resolved ?? 0) + '</strong>'
+      + ' · would have won <strong>' + (g.wouldHaveWonPct ?? "—") + '%</strong>'
+      + ' · net <strong>' + mR(g.netR) + '</strong>'
+      + ' · per episode <strong>' + mR(g.rPerEpisode) + '</strong>'
+      + ' · unscorable ' + (g.unscorable ?? 0) + ' of ' + (g.total ?? 0) + '</div>'
+      + '</div>';
+  }).join("") : mEmpty("No gate has recorded a rejection yet.");
+
+  const setups = d.setups || {};
+  const snames = Object.keys(setups);
+  if (snames.length) {
+    h += '<div class="hermes-section-title">BY SETUP <span class="hermes-sub">which setup the gates are turning away</span></div>';
+    h += snames.map(n => {
+      const s = setups[n] || {};
+      const via = Object.keys(s.gates || {}).map(g => g + " " + s.gates[g]).join(", ");
+      return '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(n) + '</span>'
+        + mPill(mR(s.netR), Number(s.netR) > 0 ? "bad" : "good") + '</div>'
+        + '<div class="mind-meta">' + (s.won ?? 0) + ' would have won · ' + (s.lost ?? 0) + ' lost'
+        + (via ? ' · rejected by ' + esc(via) : "") + '</div></div>';
+    }).join("");
+  }
+  h += '<div class="mind-meta" style="margin-top:12px">A positive net R here means the gate turned away setups that PAID. '
+     + 'Where this contradicts a walk-forward, the walk-forward wins. Updated ' + mAge(d.updatedAt)
+     + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 4. GROWTH — is the evidence base actually accumulating? ───────────────── */
+function renderMindGrowth(d) {
+  if (d.available === false) return mEmpty("Learning-growth data is not available yet.");
+  const t = d.totals || {}, v = d.velocity || {};
+  let h = mNote(d.note || "Evidence growth, not P&L.");
+  h += '<div class="mind-kpis">'
+     + mKpi(t.logged ?? "—", "logged")
+     + mKpi(t.resolved ?? "—", "resolved")
+     + mKpi(t.usableSetups ?? "—", "usable setups")
+     + mKpi((v.resolvedPerDayRecent ?? "—") + "/d", "recent velocity")
+     + mKpi(v.trend || "—", "trend")
+     + '</div>';
+
+  const days = d.days || [];
+  if (days.length) {
+    const peak = Math.max(1, ...days.map(x => x.logged || 0));
+    h += '<div class="hermes-section-title">DAILY ACCUMULATION <span class="hermes-sub">' + days.length + ' days · purple = logged, green = resolved</span></div>';
+    h += '<div class="mind-spark">' + days.map(x => {
+        const lg = Math.round(((x.logged   || 0) / peak) * 100);
+        const rs = Math.round(((x.resolved || 0) / peak) * 100);
+        return '<i style="height:' + Math.max(lg, 1) + '%" title="' + esc(x.date) + ': ' + (x.logged || 0) + ' logged"></i>'
+             + '<i class="res" style="height:' + Math.max(rs, 1) + '%" title="' + esc(x.date) + ': ' + (x.resolved || 0) + ' resolved"></i>';
+      }).join("") + '</div>';
+    h += '<div class="mind-meta">' + esc(days[0].date) + ' → ' + esc(days[days.length - 1].date) + '</div>';
+  }
+
+  const setups = d.setups || [];
+  h += '<div class="hermes-section-title">PER SETUP <span class="hermes-sub">usable at ' + (d.learningThreshold ?? 5) + ' resolved</span></div>';
+  h += setups.length ? setups.map(s =>
+      '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(s.setup) + '</span>'
+    + mPill(s.usable ? "usable" : "needs " + (s.stillNeeded ?? "?") + " more", s.usable ? "good" : "mute")
+    + '</div><div class="mind-meta">' + (s.resolved ?? 0) + ' resolved · ' + (s.wins ?? 0) + 'W/' + (s.losses ?? 0) + 'L · '
+    + (s.winRate ?? "—") + '% · ' + mR(s.netR) + '</div></div>').join("") : mEmpty("No setup has resolved evidence yet.");
+
+  const proj = d.projections || [];
+  if (proj.length) {
+    h += '<div class="hermes-section-title">TIME TO USABLE <span class="hermes-sub">at the current resolution rate</span></div>';
+    h += proj.map(p => '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(p.setup) + '</span>'
+      + mPill((p.daysAtCurrentRate ?? "—") + " days", "info") + '</div>'
+      + '<div class="mind-meta">' + (p.stillNeeded ?? "—") + ' more resolved episodes needed</div></div>').join("");
+  }
+  h += '<div class="mind-meta" style="margin-top:12px">Updated ' + mAge(d.updatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 5. SETUPS — which setups to take or avoid today ───────────────────────── */
+function renderMindSetups(d) {
+  const alerts = d.alerts || [];
+  let h = mNote("Setup health from realised journal outcomes. Advisory only — it changes nothing on the signal path.");
+  h += alerts.length ? alerts.map(a =>
+      '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(a.setup || "—") + '</span>'
+    + mPill(a.status || "—", mStatusKind(a.status)) + '</div>'
+    + '<div class="mind-meta">' + (a.trades ?? 0) + ' trades · ' + (a.wr ?? "—") + '% WR · '
+    + 'expectancy ' + (a.expectancy ?? "—") + ' · P&amp;L ' + (a.totalPnl ?? "—") + '</div></div>').join("")
+    : mEmpty("No setup alerts — nothing is flagged for or against today.");
+  h += '<div class="mind-meta" style="margin-top:12px">Updated ' + mAge(d.updatedAt) + '</div>';
+  return h;
+}
+
+/* ── 6. WORK — the AI employee's jobs and its unreviewed proposals ─────────── */
+function renderMindWork(d) {
+  if (d.available === false) return mEmpty("The AI work ledger is not available on this box.");
+  const t = d.totals || {};
+  let h = mNote(d.note || "Read-only over files these jobs already write. Runs nothing, spawns nothing.");
+  h += '<div class="mind-kpis">'
+     + mKpi(t.jobs      ?? "—", "jobs")
+     + mKpi(t.healthy   ?? "—", "healthy")
+     + mKpi(t.failing   ?? "—", "failing")
+     + mKpi(t.stale     ?? "—", "stale")
+     + mKpi(t.proposals ?? "—", "unreviewed")
+     + '</div>';
+
+  const props = d.proposals || [];
+  h += '<div class="hermes-section-title">UNREVIEWED PROPOSALS <span class="hermes-sub">'
+     + props.length + ' waiting on a decision — nothing acts on these until you decide</span></div>';
+  h += props.length ? props.slice(0, 40).map(p =>
+      '<div class="mind-row"><div class="mind-row-hd">'
+    + '<span class="mind-row-t">' + esc(p.jobLabel || p.job || "—") + '</span>'
+    + '<span class="mind-meta">' + mAge(p.when) + '</span></div>'
+    + '<div class="mind-row-b">' + esc(String(p.text || "").slice(0, 400)) + '</div>'
+    + (p.file ? '<div class="mind-meta"><code>' + esc(p.file) + (p.line ? ":" + p.line : "") + '</code></div>' : "")
+    + '</div>').join("") : mEmpty("No unreviewed proposals.");
+  if (props.length > 40) h += '<div class="mind-meta">' + (props.length - 40) + ' more not shown.</div>';
+
+  const jobs = d.jobs || [];
+  h += '<div class="hermes-section-title">JOBS <span class="hermes-sub">what runs, and when it last did</span></div>';
+  h += jobs.length ? jobs.map(j =>
+      '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(j.label || j.id) + '</span>'
+    + mPill(j.ageHours == null ? "never run" : Number(j.ageHours).toFixed(1) + "h ago",
+            j.ageHours == null ? "mute" : (Number(j.ageHours) > 48 ? "warn" : "good"))
+    + '</div><div class="mind-meta">' + esc(j.task || "no scheduled task") + ' · ' + (j.runs ?? 0) + ' runs'
+    + (j.script ? ' · <code>' + esc(j.script) + '</code>' : "") + '</div></div>').join("") : mEmpty("No jobs registered.");
+
+  const un = d.unappraisedTasks || [];
+  if (un.length) {
+    const failing = un.filter(x => x.failing);
+    h += '<div class="hermes-section-title">SCHEDULED TASKS NOT APPRAISED <span class="hermes-sub">'
+       + un.length + ' tasks · ' + failing.length + ' failing</span></div>';
+    h += (failing.length ? failing : un.slice(0, 15)).map(x =>
+        '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(x.name) + '</span>'
+      + mPill(x.failing ? "failing" : (x.disabled ? "disabled" : (x.state || "—")),
+              x.failing ? "bad" : (x.disabled ? "mute" : "good"))
+      + '</div><div class="mind-meta">' + esc(x.resultMeaning || String(x.lastResult ?? "—")) + ' · last ' + mAge(x.lastRun) + '</div></div>').join("");
+  }
+  if (d.howToDecide) h += '<div class="mind-meta" style="margin-top:12px">Decide a proposal: <code>' + esc(d.howToDecide) + '</code></div>';
+  h += '<div class="mind-meta">Updated ' + mAge(d.updatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 7. EMPLOYEES — who is employed, on which box, reading what ────────────── */
+function renderMindEmployees(d) {
+  const c = d.counts || {};
+  let h = mNote(d.whatThisIs || "Who is employed, to do what, on which box.");
+  h += '<div class="mind-kpis">'
+     + mKpi(c.total         ?? "—", "total")
+     + mKpi(c.employed      ?? "—", "employed")
+     + mKpi(c.proposed      ?? "—", "proposed")
+     + mKpi(c.withModel     ?? "—", "with a model")
+     + mKpi(c.deterministic ?? "—", "deterministic")
+     + mKpi(c.incomplete    ?? "—", "incomplete")
+     + '</div>';
+
+  if (d.health) {
+    h += '<div class="hermes-section-title">THIS BOX <span class="hermes-sub">' + esc(d.thisBox || "—") + '</span></div>';
+    h += '<div class="mind-row">' + mTree(d.health) + '</div>';
+  }
+  if (d.peer) {
+    const p = d.peer;
+    h += '<div class="hermes-section-title">PEER BOX <span class="hermes-sub">'
+       + (p.configured ? (p.reachable ? "reachable" : "CONFIGURED BUT NOT ANSWERING") : "not configured") + '</span></div>';
+    h += '<div class="mind-row">'
+       + (p.error ? '<div class="mind-row-b" style="color:var(--red)">' + esc(p.error) + '</div>' : "")
+       + mTree({ url: p.url, reachable: p.reachable, counts: p.counts, health: p.health }) + '</div>';
+    if (!p.reachable) h += mNote("A number that pools both boxes is unattributable while the peer is unreachable.");
+  }
+
+  const emp = d.employees || [];
+  h += '<div class="hermes-section-title">THE ROSTER <span class="hermes-sub">brain · context · tools · skills</span></div>';
+  h += emp.length ? emp.map(e =>
+      '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(e.title || e.id) + '</span>'
+    + mPill(e.status || "—", mStatusKind(e.status)) + '</div>'
+    + (e.mission ? '<div class="mind-row-b">' + esc(e.mission) + '</div>' : "")
+    + '<div class="mind-meta">'
+    + (e.brain   ? 'brain: <strong>' + esc(String(e.brain)) + '</strong> · '  : "")
+    + (e.context ? 'context: ' + esc(String(e.context).slice(0, 120)) + ' · ' : "")
+    + (e.tools   ? 'tools: '   + esc(String(e.tools).slice(0, 120))           : "")
+    + '</div></div>').join("") : mEmpty("No employees registered.");
+  h += '<div class="mind-meta" style="margin-top:12px">Updated ' + mAge(d.updatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+/* ── 8. FLEET PLAN — this box beside the peer ──────────────────────────────── */
+function renderMindPlan(d) {
+  const box = d.thisBox || {}, peer = d.peer || {}, div = d.divergence || {};
+  const diverging = Object.keys(div).filter(k => div[k] && div[k].differs);
+  let h = diverging.length
+    ? '<div class="mind-note" style="border-left-color:var(--red)">FLEET SPLIT on: <strong>' + esc(diverging.join(", "))
+      + '</strong>. Numbers that pool both boxes are unattributable until this is reconciled.</div>'
+    : mNote("Both boxes agree on every compared field. Pooling their journals is arithmetically valid — but identical configs on identical bars produce the same trades, so pooling adds rows, not information.");
+
+  h += '<div class="mind-kpis">'
+     + mKpi(d.healthy ? "healthy" : "UNHEALTHY", "this box")
+     + mKpi(box.gate ?? "—", "gate here")
+     + mKpi(peer.gate ?? "—", "gate there")
+     + mKpi(box.halted ? "HALTED" : "live", "breaker")
+     + mKpi(Math.round((d.uptimeSeconds || 0) / 60) + "m", "uptime")
+     + '</div>';
+
+  if (box.settingsError) {
+    h += '<div class="mind-note" style="border-left-color:var(--red)">settingsError is set — this box is running on '
+       + 'BUILT-IN DEFAULTS, not the saved config: ' + esc(String(box.settingsError)) + '</div>';
+  }
+
+  const checks = d.checks || {};
+  const bad = Object.keys(checks).filter(k => checks[k] && checks[k].ok === false);
+  h += '<div class="hermes-section-title">HEALTH CHECKS <span class="hermes-sub">'
+     + (bad.length ? bad.length + ' failing' : 'all passing') + '</span></div>';
+  h += Object.keys(checks).map(k => {
+    const c = checks[k] || {};
+    return '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(k) + '</span>'
+      + mPill(c.ok === false ? "FAIL" : "ok", c.ok === false ? "bad" : "good") + '</div>'
+      + '<div class="mind-meta">' + esc(c.detail || "—") + ' · ' + mAge(c.lastChecked) + '</div></div>';
+  }).join("");
+
+  h += '<div class="hermes-section-title">DIVERGENCE <span class="hermes-sub">field by field against the peer</span></div>';
+  h += Object.keys(div).map(k => {
+    const v = div[k] || {};
+    return '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(k) + '</span>'
+      + mPill(v.differs ? "DIFFERS" : "same", v.differs ? (v.byDesign ? "warn" : "bad") : "good")
+      + (v.byDesign ? mPill("by design", "info") : "") + '</div>'
+      + '<div class="mind-meta">here <strong>' + esc(mVal(v.local)) + '</strong> · there <strong>'
+      + esc(mVal(v.peer)) + '</strong></div></div>';
+  }).join("");
+
+  if (d.parity) {
+    h += '<div class="hermes-section-title">ENGINE PARITY <span class="hermes-sub">do both boxes run the same engine?</span></div>';
+    h += '<div class="mind-row">' + mTree(d.parity) + '</div>';
+    h += '<div class="mind-meta">A green parity run taken immediately after copying a file between the boxes is a '
+       + 'tautology, not evidence — they match because one was overwritten with the other.</div>';
+  }
+  if (d.heartbeats)   { h += '<div class="hermes-section-title">HEARTBEATS <span class="hermes-sub">who has checked in</span></div><div class="mind-row">' + mTree(d.heartbeats) + '</div>'; }
+  if (d.bridges)      { h += '<div class="hermes-section-title">BRIDGES</div><div class="mind-row">' + mTree(d.bridges) + '</div>'; }
+  if (d.latestBackup) { h += '<div class="hermes-section-title">LATEST BACKUP</div><div class="mind-row">' + mTree(d.latestBackup) + '</div>'; }
+  h += '<div class="mind-meta" style="margin-top:12px">Generated ' + mAge(d.generatedAt) + '</div>';
+  return h;
+}
+
+/* ── 9. RESEARCH — the harness reports, and how stale each one is ──────────── */
+function renderMindResearch(d) {
+  let h = mNote(d.readsOnly ? ("Reads only: " + d.readsOnly) : "Reads reports already written by the harnesses.");
+  const skip = { generatedAt: 1, feedsTheGate: 1, readsOnly: 1 };
+  h += Object.keys(d).filter(k => !skip[k]).map(k => {
+    const r = d[k] || {};
+    const age = r.reportAgeHours;
+    return '<div class="mind-row"><div class="mind-row-hd"><span class="mind-row-t">' + esc(k) + '</span>'
+      + mPill(r.available === false ? "not available" : "available", r.available === false ? "mute" : "good")
+      + (age != null ? mPill(Number(age).toFixed(1) + "h old", Number(age) > 48 ? "warn" : "info") : "")
+      + '</div><div class="mind-row-b">' + mTree(r, 1) + '</div></div>';
+  }).join("");
+  h += '<div class="mind-meta" style="margin-top:12px">Generated ' + mAge(d.generatedAt) + ' · feeds the gate: <strong>no</strong></div>';
+  return h;
+}
+
+const MIND_RENDER = {
+  evidence:  renderMindEvidence,
+  measured:  renderMindMeasured,
+  gates:     renderMindGates,
+  growth:    renderMindGrowth,
+  setups:    renderMindSetups,
+  work:      renderMindWork,
+  employees: renderMindEmployees,
+  plan:      renderMindPlan,
+  research:  renderMindResearch,
+};
+
+/* ── SIDEBAR DIGEST ────────────────────────────────────────────────────────────
+   The few numbers that answer "is the system still learning, and is anything
+   waiting on me?" without opening anything. Three ungated endpoints, fetched once
+   at boot and refreshed every 5 minutes — none of these move faster than that. */
+async function loadMindDigest() {
+  const box = document.getElementById("mind-digest");
+  const age = document.getElementById("mind-age");
+  if (!box) return;
+
+  const [ev, gr, wk] = await Promise.all([
+    getJson("/api/evidence-board"),
+    getJson("/api/learning-growth"),
+    getJson("/api/ai-work"),
+  ]);
+
+  const rows = [];
+  if (ev.data) {
+    const counts = ev.data.claimCounts || {};
+    const names  = Object.keys(counts);
+    const robust = names.filter(k => k.includes("ROBUST")).reduce((n, k) => n + counts[k], 0);
+    const total  = names.reduce((n, k) => n + counts[k], 0);
+    rows.push(["Claims measured robust", robust + " / " + total, null]);
+  }
+  if (gr.data && gr.data.available !== false) {
+    const t = gr.data.totals || {}, v = gr.data.velocity || {};
+    rows.push(["Evidence resolved", String(t.resolved ?? "—"), null]);
+    rows.push(["Usable setups", (t.usableSetups ?? "—") + " / " + (t.setupsTracked ?? "—"), null]);
+    rows.push(["Learning rate", (v.resolvedPerDayRecent ?? "—") + "/day " + (v.trend || ""), null]);
+  }
+  if (wk.data && wk.data.available !== false) {
+    const t = wk.data.totals || {};
+    rows.push(["Proposals awaiting you", String(t.proposals ?? 0), t.proposals ? "var(--yellow)" : null]);
+    if (t.failing) rows.push(["Failing jobs", String(t.failing), "var(--red)"]);
+    // The APPRAISED jobs are 5 of ~39 scheduled tasks, and on 2026-09-05 every real
+    // failure was in the other 34: two VPS tasks dying at 0xC0000142 while t.failing
+    // read 0. A digest that reports only the appraised set says "all clear" over a box
+    // with four broken tasks -- the same shape as a check that reports OK while blind.
+    if (t.unappraisedFailing) rows.push(["Failing scheduled tasks", String(t.unappraisedFailing), "var(--red)"]);
+  }
+
+  const anyAuth = [ev, gr, wk].some(r => r.authError);
+  box.innerHTML = rows.length
+    ? rows.map(r => '<div class="mind-mini"><span class="mind-mini-l">' + esc(r[0]) + '</span>'
+        + '<span class="mind-mini-v"' + (r[2] ? ' style="color:' + r[2] + '"' : "") + '>' + esc(r[1]) + '</span></div>').join("")
+    : '<div class="cap-empty">' + (anyAuth ? "Sign in to read the ledgers." : "Ledgers not reachable right now.") + '</div>';
+  if (age) age.textContent = ev.data ? mAge(ev.data.updatedAt) : "—";
+}
+
 </script>
 </body>
 </html>

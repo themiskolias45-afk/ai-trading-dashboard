@@ -1,0 +1,70 @@
+{
+  "date": "2026-08-07",
+  "generatedAt": "2026-08-07T05:45:01.079560+00:00",
+  "assets": {
+    "btc": {
+      "price": null,
+      "levels": {},
+      "trade_plan": null
+    },
+    "gold": {
+      "price": null,
+      "levels": {},
+      "trade_plan": null
+    },
+    "spx": {
+      "price": null,
+      "levels": {},
+      "trade_plan": null
+    }
+  },
+  "prices": {},
+  "risk": {
+    "dailyPnl": 0,
+    "consecutiveLosses": 0,
+    "halted": false,
+    "haltReason": "",
+    "accounts": {
+      "A": {
+        "dailyPnl": 0,
+        "consecutiveLosses": 0,
+        "halted": false,
+        "haltReason": "",
+        "account": "A",
+        "config": {
+          "riskPercent": 1,
+          "dailyLossPct": 3,
+          "maxConsecLosses": 3,
+          "maxSpreadPts": 50,
+          "autoMode": true,
+          "expectedLogin": "25446287",
+          "remoteHalted": false
+        }
+      },
+      "B": {
+        "dailyPnl": 0,
+        "consecutiveLosses": 0,
+        "halted": false,
+        "haltReason": "",
+        "account": "B",
+        "config": {
+          "riskPercent": 1,
+          "dailyLossPct": 3,
+          "maxConsecLosses": 3,
+          "maxSpreadPts": 50,
+          "autoMode": true,
+          "expectedLogin": "11581419",
+          "remoteHalted": false
+        }
+      }
+    }
+  },
+  "setup_health": {
+    "BB_SQUEEZE_WATCH": {
+      "winRate": 0.0,
+      "total": 1
+    }
+  },
+  "calendar": [],
+  "warnings": []
+}

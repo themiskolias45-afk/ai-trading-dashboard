@@ -163,16 +163,175 @@ def notify_signal(symbol: str, direction: str, confidence: str, summary: str) ->
         }],
     })
 
+    # SIGNAL FIRES -> Slack #smartentry-alerts.
+    # Last in the function and returning nothing any caller branches on: a Slack
+    # outage, a bad token or a timeout must cost a MESSAGE, never a TRADE. send_slack
+    # is try/except throughout and cannot raise, so this cannot suppress a setup that
+    # would otherwise have fired (rule 3).
+    send_slack("*" + title + "*" + chr(10) + body)
+
+
+def send_telegram(text: str) -> None:
+    """
+    POST a message to the configured Telegram chat. Skips silently if not configured.
+
+    WHY THIS EXISTS: every other channel here is useless on the box that matters.
+    notify_alert was toast + webhook; WEBHOOK_URL is not set, so send_webhook skips
+    silently and the whole thing collapsed to a Windows toast. A toast reaches nobody
+    on the headless VPS - which is the machine that trades continuously - so a band
+    firing or a health alert raised there went to no one at all.
+
+    TELEGRAM_TOKEN and TELEGRAM_CHAT_ID were already sitting in keys.env, read by the
+    server and by nothing else. The credentials existed and this file simply never
+    looked at them: a writer with no reader, the mirror of the bug this project keeps
+    finding in the other direction.
+
+    THE TOKEN IS IN THE URL. urllib raises HTTPError whose str() includes the full URL,
+    so an unscrubbed exception would print the bot token straight into a log file that
+    gets committed and read. Every error path below scrubs it. Never widen these except
+    blocks to print a raw exception.
+    """
+    token = get_cred("TELEGRAM_TOKEN") or os.environ.get("TELEGRAM_TOKEN", "")
+    chat_id = get_cred("TELEGRAM_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+
+    def _scrub(text_in: str) -> str:
+        """Remove the bot token from anything about to be printed."""
+        return str(text_in).replace(token, "<TELEGRAM_TOKEN>")
+
+    try:
+        payload = json.dumps({
+            "chat_id": chat_id,
+            "text": text,
+            "disable_web_page_preview": True,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "JARVIS/1.0"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status != 200:
+                print(f"[NOTIFY] Telegram returned HTTP {resp.status}")
+    except Exception as exc:
+        print(f"[NOTIFY] Telegram failed: {_scrub(exc)[:200]}")
+
+
+def send_slack(text: str, channel_id: str = "") -> bool:
+    """POST to Slack. Skips silently and returns False if not configured.
+
+    NEVER RAISES. This sits on the alert path, and the alert path is reached from
+    trade-open and signal-fire handlers. Rule 3 says no change may suppress a setup
+    that would otherwise have fired, so a Slack outage, a bad token or a network
+    timeout must cost a MESSAGE and never a TRADE. Everything below is inside
+    try/except and the return value is advisory only - no caller branches on it in a
+    way that can stop an order.
+
+    Needs BOTH, and a channel id is not a credential:
+      SLACK_BOT_TOKEN   xoxb-... with chat:write
+      SLACK_CHANNEL_ID  defaults to the #smartentry-alerts id below
+    The bot must also be INVITED to the channel - `/invite @YourBot` in Slack. A valid
+    token posting to a channel it was never added to fails with `not_in_channel`, which
+    is reported here rather than swallowed, because that failure is fixed by a human
+    action and no amount of retrying helps.
+    """
+    token = get_cred("SLACK_BOT_TOKEN")
+    chan  = channel_id or get_cred("SLACK_CHANNEL_ID") or "C0BUC0SQWTW"
+    if not token:
+        return False
+    try:
+        import json as _json
+        import urllib.request as _rq
+        req = _rq.Request(
+            "https://slack.com/api/chat.postMessage",
+            data=_json.dumps({"channel": chan, "text": text[:3900]}).encode("utf-8"),
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json; charset=utf-8"},
+        )
+        with _rq.urlopen(req, timeout=10) as r:
+            body = _json.loads(r.read().decode("utf-8", "replace"))
+        if not body.get("ok"):
+            # Slack returns HTTP 200 with ok:false, so a status check alone reads as
+            # success. Name the error - `not_in_channel` and `invalid_auth` need a
+            # person, and a silent false would look identical to "not configured".
+            print(f"[NOTIFY] Slack refused: {body.get('error')} (channel {chan})")
+            return False
+        return True
+    except Exception as exc:
+        print(f"[NOTIFY] Slack send failed, continuing: {exc}")
+        return False
+
+
+def notion_append(heading: str, lines: list) -> bool:
+    """Append a dated block to the SmartEntry Pro Notion page. Never raises.
+
+    APPEND ONLY. It adds children to the page and never updates or archives an existing
+    block, so nothing already written can be lost - the same rule the decision ledger
+    and the rejection ledger follow.
+
+    Needs BOTH, and a page id is not a credential:
+      NOTION_TOKEN    an internal integration secret (ntn_... / secret_...)
+      NOTION_PAGE_ID  defaults to the SmartEntry Pro page id below
+    The page must be SHARED with that integration from Notion's UI - a valid token
+    against an unshared page returns 404 `object_not_found`, which looks exactly like a
+    wrong id. Reported rather than swallowed for that reason.
+    """
+    token = get_cred("NOTION_TOKEN")
+    page  = get_cred("NOTION_PAGE_ID") or "3ce788d6-2fca-81e1-aa28-caf7c4ab6630"
+    if not token:
+        return False
+    try:
+        import json as _json
+        import urllib.request as _rq
+        from datetime import datetime, timezone
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        children = [{
+            "object": "block", "type": "heading_3",
+            "heading_3": {"rich_text": [{"type": "text",
+                          "text": {"content": f"{heading} — {stamp}"[:2000]}}]},
+        }]
+        for ln in [l for l in lines if str(l).strip()][:90]:   # Notion caps at 100/request
+            children.append({
+                "object": "block", "type": "paragraph",
+                "paragraph": {"rich_text": [{"type": "text",
+                              "text": {"content": str(ln)[:2000]}}]},
+            })
+        req = _rq.Request(
+            f"https://api.notion.com/v1/blocks/{page}/children",
+            data=_json.dumps({"children": children}).encode("utf-8"),
+            headers={"Authorization": f"Bearer {token}",
+                     "Notion-Version": "2022-06-28",
+                     "Content-Type": "application/json"},
+            method="PATCH",
+        )
+        with _rq.urlopen(req, timeout=15) as r:
+            if r.status not in (200, 201):
+                print(f"[NOTIFY] Notion HTTP {r.status}")
+                return False
+        return True
+    except Exception as exc:
+        print(f"[NOTIFY] Notion append failed, continuing: {exc}")
+        return False
+
 
 def notify_alert(message: str) -> None:
     """
-    System alert — toast + webhook only (no email for alerts).
+    System alert — toast + webhook + Telegram (no email for alerts).
     Use for: server restart, error recovery, health events.
+
+    Telegram is the only one of the three that reaches a phone and works headless, so
+    it is the channel that actually carries an alert off the VPS.
     """
     title = "JARVIS ALERT"
     body = f"JARVIS ALERT: {message}"
 
     toast(title, body)
+
+    send_telegram(body)
+
+    send_slack(f":warning: *ALERT*: {message}")
 
     send_webhook({
         "content": body,
@@ -223,6 +382,12 @@ def notify_trade_closed(symbol: str, outcome: str, pnl: float) -> None:
         }],
     })
 
+    # TRADE CLOSED -> Slack #smartentry-alerts. Same rule as notify_signal: last in
+    # the function, advisory only, cannot raise. A closed trade is already recorded in
+    # the journal and the learning engine before this line runs, so a failed Slack post
+    # loses a notification and never a record.
+    send_slack("*" + title + "*" + chr(10) + body)
+
 
 def run_test() -> None:
     """Send a test notification through every configured channel."""
@@ -241,6 +406,40 @@ def run_test() -> None:
     send_webhook({"content": "JARVIS notification engine test — webhook channel working."})
     webhook_configured = bool(get_cred("WEBHOOK_URL"))
     print(f"  Webhook: {'sent' if webhook_configured else 'skipped (not configured)'}")
+
+    send_telegram("JARVIS notification engine test — Telegram channel working.")
+    telegram_configured = bool(get_cred("TELEGRAM_TOKEN") and get_cred("TELEGRAM_CHAT_ID"))
+    print(f"  Telegram: {'sent' if telegram_configured else 'skipped (not configured)'}")
+
+    # Slack and Notion report the SPECIFIC missing credential rather than a bare
+    # "not configured". A channel id and a page id are not credentials, and the most
+    # likely reason either of these fails is a token that was never added or a
+    # bot/integration that was never granted access to the target.
+    slack_ok = send_slack("JARVIS notification engine test — Slack channel working.")
+    if slack_ok:
+        print(f"  Slack:    sent to {get_cred('SLACK_CHANNEL_ID') or 'C0BUC0SQWTW'}")
+    elif not get_cred("SLACK_BOT_TOKEN"):
+        print("  Slack:    skipped — SLACK_BOT_TOKEN not in keys.env "
+              "(needs a xoxb- token with chat:write, and the bot invited to the channel)")
+    else:
+        print("  Slack:    FAILED — token present but the post was refused (see error above)")
+
+    notion_ok = notion_append("Notification engine test",
+                              ["Slack + Notion wiring check from notifications.py test."])
+    if notion_ok:
+        print(f"  Notion:   appended to {get_cred('NOTION_PAGE_ID') or '3ce788d6-2fca-81e1-aa28-caf7c4ab6630'}")
+    elif not get_cred("NOTION_TOKEN"):
+        print("  Notion:   skipped — NOTION_TOKEN not in keys.env "
+              "(needs an internal integration secret, and the page shared with it)")
+    else:
+        print("  Notion:   FAILED — token present but the append was refused (see error above)")
+    if not telegram_configured:
+        print("           ^ this is the only channel that reaches a phone and works "
+              "headless; without it the VPS can raise an alert nobody receives.")
+
+    send_slack("JARVIS notification engine test — Slack channel working.")
+    slack_configured = bool(get_cred("SLACK_BOT_TOKEN"))
+    print(f"  Slack:    {'sent' if slack_configured else 'skipped (SLACK_BOT_TOKEN not in keys.env)'}")
 
     print("Test complete.")
 
@@ -296,7 +495,25 @@ def main() -> None:
             send_email(subject=f"[JARVIS] {_title}", body=_body)
         if channel in ("all", "webhook"):
             send_webhook({"content": _body, "embeds": [{"title": _title, "description": _body, "color": 16776960}]})
-        print(f"[NOTIFY] Alert sent via {channel}: {_title} — {_body[:80]}")
+        if channel in ("all", "telegram"):
+            send_telegram(f"{_title}: {_body}")
+        if channel in ("all", "slack"):
+            send_slack("*" + _title + "*\n" + _body)
+        # Name the channels that were actually CONFIGURED, not just the ones asked for.
+        live = []
+        if channel in ("all", "toast"):
+            live.append("toast")
+        if channel in ("all", "email") and get_cred("EMAIL_FROM"):
+            live.append("email")
+        if channel in ("all", "webhook") and get_cred("WEBHOOK_URL"):
+            live.append("webhook")
+        if channel in ("all", "telegram") and get_cred("TELEGRAM_TOKEN") and get_cred("TELEGRAM_CHAT_ID"):
+            live.append("telegram")
+        # A channel id alone is not a credential; SLACK_BOT_TOKEN decides.
+        if channel in ("all", "slack") and get_cred("SLACK_BOT_TOKEN"):
+            live.append("slack")
+        print(f"[NOTIFY] Alert sent via {'+'.join(live) if live else 'NOTHING CONFIGURED'}"
+              f": {_title} — {_body[:80]}")
 
     elif command == "trade-closed":
         # python notifications.py trade-closed <SYMBOL> <OUTCOME> <PNL>

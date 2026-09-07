@@ -18,7 +18,12 @@ Log "=== SmartEntry Pro Auto-Start ==="
 Log "Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 
 # 2. START NODE SERVER
-$serverRunning = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
+# /api/status, NOT /api/health. Both exist, but /api/health is not in the server's
+# no-login allowlist, so once DASHBOARD_USERNAME/PASSWORD were set it began answering
+# 401 to this probe. Invoke-WebRequest THROWS on 401, the catch returns $false, and a
+# healthy server read as absent — so this guard failed open and started a second node
+# on every run, exactly like the Get-Process CommandLine guard below it.
+$serverRunning = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/status' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
 if ($serverRunning) {
     Log "SERVER: already running on port 3001"
 } else {
@@ -30,7 +35,7 @@ if ($serverRunning) {
         -RedirectStandardError  "$proj\tasks\logs\server_err.txt" `
         -NoNewWindow
     Start-Sleep 3
-    $check = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
+    $check = try { (Invoke-WebRequest -Uri 'http://localhost:3001/api/status' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop).StatusCode -eq 200 } catch { $false }
     if ($check) { Log "SERVER: started OK" } else { Log "SERVER: FAILED TO START -- check tasks\logs\server_err.txt" }
 }
 
@@ -45,7 +50,23 @@ if ($serverRunning) {
 # and opened every qualifying signal a second time. The 3-loss circuit breaker counts
 # per ACCOUNT_TAG, so the duplicate split the loss count across two tags and neither
 # ever reached the halt. Win32_Process is the only place PS 5.1 exposes a command line.
+#
+# The tag list is NOT hardcoded. It was @('A','B') until 2026-08-08, which meant this
+# script started Bridge B on every logon no matter what MT5_EXPECTED_ACCOUNTS said --
+# so stopping B never stuck, and account 11581419 kept ending up traded by this box and
+# the VPS at once. tasks\bridge_tags.ps1 is the one parser; ensure_running.ps1 reads the
+# same file, so the logon script and the scheduled safety net cannot disagree.
+#
+# A failed dot-source must not stop the bridges starting: falling back to @('A','B') is
+# exactly the old behaviour, whereas an empty list would silently trade nothing.
 $bridgeAccounts = @('A', 'B')
+try {
+    . (Join-Path $PSScriptRoot 'bridge_tags.ps1')
+    $bridgeAccounts = Get-ExpectedBridgeTags -ProjectRoot $proj
+} catch {
+    Log "MT5 BRIDGE: cannot read bridge_tags.ps1 ($($_.Exception.Message)) -- assuming A,B"
+}
+Log "MT5 BRIDGE: this machine owns tag(s) $($bridgeAccounts -join ',')"
 
 $bridgeProcs   = @()
 $canReadProcs  = $true
@@ -115,10 +136,13 @@ try {
 
 # 5. CHECK LAST TRADE DATE
 try {
+    # { journal: [...] }, never { trades: [...] }, and entries carry openTime, not
+    # timestamp. Both field names were wrong, so this logged "no trades in journal"
+    # on every startup and the NO TRADE IN N DAYS alert could never fire.
     $journal = Invoke-RestMethod -Uri 'http://localhost:3001/api/journal' -TimeoutSec 5
-    $trades = $journal.trades
+    $trades = $journal.journal
     if ($trades -and $trades.Count -gt 0) {
-        $lastTrade = $trades[0].timestamp -replace 'T.*',''
+        $lastTrade = $trades[0].openTime -replace 'T.*',''
         $daysSince = ((Get-Date) - [DateTime]$lastTrade).Days
         if ($daysSince -ge 3) {
             Log "TRADE ALERT: !!! NO TRADE IN $daysSince DAYS (last: $lastTrade) -- run /daily immediately"

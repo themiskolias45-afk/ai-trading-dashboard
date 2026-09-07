@@ -18,7 +18,27 @@ import math
 import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+# Aliased on import: this is NOT the builtin TimeoutError on the Python this runs, and
+# the distinction matters because it is the one exception here whose str() is empty.
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from datetime import datetime, timezone
+
+
+def utcnow_naive():
+    """Exact replacement for the deprecated datetime.utcnow().
+
+    MUST STAY NAIVE. Every call site appends a literal "Z" to .isoformat(), so an
+    aware value would render "2026-08-28T04:30:00+00:00Z" — malformed, and
+    unparseable by datetime.fromisoformat in tasks/score_rr_rejections.py, which
+    reads the `ts` field of every rejection row this file writes. The halt-cooldown
+    path also subtracts this from a naive datetime parsed out of the halt file, and
+    mixing aware with naive raises TypeError at exactly the moment the circuit
+    breaker is trying to work out whether it may release.
+
+    datetime.now(timezone.utc).replace(tzinfo=None) is what utcnow() returned, to the
+    microsecond, so this is a rename and not a behaviour change.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # Force UTF-8 stdout/stderr regardless of how this process is launched — Task
 # Scheduler and some non-console launch paths fall back to the system's legacy
@@ -80,6 +100,21 @@ def max_spread_for(symbol):
     return value
 POLL_INTERVAL  = int(os.environ.get("POLL_INTERVAL", "60"))      # seconds between signal checks
 MAGIC_NUMBER   = 20250101                                         # unique ID for SmartEntry orders
+
+# THIS SYSTEM'S OTHER ORDER SOURCES. tasks/fvg_executor.py places trades under its own
+# magic per model so each strategy keeps separate attribution, which means a position can
+# be OURS without carrying MAGIC_NUMBER. Reported so a surface can say "your TK swing
+# pullback" instead of filing it beside a stranger's EA.
+#
+# MIRRORS tasks/fvg_executor.py MODELS (fvg 20260902, tk 20260903, crt 20260904).
+# Duplicated rather than imported because importing that module runs its argv parsing and
+# can sys.exit; tasks/executor_magic_check.cjs fails if the two tables ever disagree, so
+# this is a checked copy rather than a remembered one.
+EXECUTOR_MAGICS = {
+    20260902: "FVG_CONTINUATION",
+    20260903: "TK_SWING_PULLBACK",
+    20260904: "CRT_FVG",
+}
 AUTO_MODE      = "--auto" in sys.argv
 TERMINAL_PATH  = os.environ.get("MT5_TERMINAL_PATH", "")          # pin to one MT5 install when running multiple terminals
 ACCOUNT_TAG    = os.environ.get("ACCOUNT_TAG", "")                # identifies this instance in logs + server posts (dual-account setups)
@@ -127,6 +162,10 @@ executed_signals  = {}   # key → signal updatedAt string (deduplication)
 known_positions   = set()  # set of open SmartEntry position tickets
 position_initial_r = {}  # ticket → initial risk (|entry - original_sl|) for trailing stop logic
 position_partial_taken = set()  # tickets where 50% has already been closed at 1R
+# ticket -> {"mfe": float, "mae": float, "n": int}: how far this trade has travelled
+# in FAVOUR and AGAINST its entry, in price, as non-negative distances.
+# SAMPLED once per poll, so both understate the true extremes - see track_excursions.
+position_excursion = {}
 
 # ── Trailing stop ladder ──────────────────────────────────────────────────────
 # Once a trade reaches TRAIL_ARM_R in profit, the stop ratchets up behind price in
@@ -194,6 +233,23 @@ POSITION_R_PATH = os.path.join(
     f"position_r_{ACCOUNT_TAG or 'default'}.json",
 )
 
+# Deliberately a SEPARATE file from POSITION_R_PATH, not extra keys inside it.
+# load_position_r() calls float(value) on every entry and skips whatever raises,
+# so widening that file to hold an object per ticket would make every initial-R
+# unreadable and quietly disable the trailing ladder on the next restart.
+POSITION_EXCURSION_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "tasks",
+    f"position_excursion_{ACCOUNT_TAG or 'default'}.json",
+)
+
+# Mirrors POSITION_R_PATH and POSITION_EXCURSION_PATH — same fail-open contract.
+# Persists position_partial_taken across restarts so a bridge that restarts while
+# a position is open does not attempt a second partial close at 1R.
+POSITION_PARTIAL_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "tasks",
+    f"position_partial_{ACCOUNT_TAG or 'default'}.json",
+)
+
 # Tickets already reported as having no recoverable R, so the warning below is loud
 # once per position rather than once per 60s poll forever.
 trail_unresolved_logged = set()
@@ -207,6 +263,38 @@ consecutive_losses = 0
 MAX_CONSECUTIVE_LOSSES = int(os.environ.get("MAX_CONSEC_LOSSES", "3"))
 trading_halted   = False
 halt_reason      = ""
+
+# When the current halt was set, and WHICH breaker set it. Both are persisted.
+#
+# The streak breaker used to have no exit. consecutive_losses resets in exactly one
+# place — a winning close — and the halt blocks the entries that could produce one, so
+# once every open position closed with the streak at the cap, no trade could open, no
+# win could occur, and the streak could never clear. The box stayed dead until a human
+# noticed, and the box that trades continuously is headless.
+#
+# halt_cause separates the two breakers because only ONE of them is wedged like that.
+# A daily-loss halt already expires when the day rolls over (see load_breaker_state);
+# a streak halt does not, by design, because the streak itself survives the day.
+halted_at        = ""       # ISO-8601 Z, "" when not halted
+halt_cause       = ""       # HALT_CAUSE_STREAK | HALT_CAUSE_DAILY_LOSS | ""
+
+HALT_CAUSE_STREAK      = "STREAK"
+HALT_CAUSE_DAILY_LOSS  = "DAILY_LOSS"
+
+# How long a STREAK halt stands before the bridge releases itself.
+#
+# 48h rather than the conventional 24h because this system averages well under a trade
+# a day — a 24h box could serve its whole cooldown without a single signal, which makes
+# the pause a formality rather than a pause. Set HALT_COOLDOWN_HOURS to change it; 0
+# disables the release entirely and restores the old human-only behaviour.
+HALT_COOLDOWN_HOURS = float(os.environ.get("HALT_COOLDOWN_HOURS", "48"))
+
+# The release DECAYS the streak instead of clearing it. A clean slate would hand full
+# confidence back to a system that had just lost MAX_CONSECUTIVE_LOSSES in a row, which
+# is precisely when it has least earned it. Coming back one loss short of the cap means
+# a genuinely broken system re-halts on its very next loss, while a system that hit a
+# bad patch gets to prove itself on a single trade.
+HALT_RELEASE_DECAY = 1
 
 # Where the breaker's counters survive a restart.
 #
@@ -232,13 +320,24 @@ last_counted_close = ""
 
 
 def breaker_day():
-    """Local date the daily P&L counter is scoped to.
+    """UTC date the daily P&L counter is scoped to.
 
-    Local rather than UTC because close times come from datetime.fromtimestamp(),
-    which is local — scoping the counter in one zone and stamping the outcomes in
-    another would misfile every close in the offset window.
+    PAIRED WITH summarize_closed_position AND NOT SEPARABLE FROM IT. This used to be
+    local, and its own docstring gave the reason: "close times come from
+    datetime.fromtimestamp(), which is local". That premise was removed on 2026-08-30
+    when close times became explicit UTC, so this had to move with them.
+
+    The two must agree because record_closed_outcome() decides whether a close spends
+    TODAY's loss budget with `close_time[:10] == breaker_day()`. Scoping the counter in
+    one zone while stamping the outcomes in another would misfile every close in the
+    offset window - which on this account is four hours wide.
+
+    Changing them together moves the boundary from local midnight to UTC midnight (one
+    hour earlier under BST) and, as a side effect worth having, makes the two boxes
+    agree: they sit in different timezones and previously scoped the same counter to
+    two different days.
     """
-    return datetime.now().strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def load_breaker_state():
@@ -249,6 +348,7 @@ def load_breaker_state():
     loss streak. It is logged loudly so the failure is never silent.
     """
     global daily_pnl, consecutive_losses, trading_halted, halt_reason, last_counted_close
+    global halted_at, halt_cause
     try:
         with open(BREAKER_STATE_PATH, "r", encoding="utf-8") as state_file:
             state = json.load(state_file)
@@ -266,6 +366,22 @@ def load_breaker_state():
     last_counted_close = str(state.get("lastCountedClose", "") or "")
     trading_halted     = bool(state.get("halted", False))
     halt_reason        = str(state.get("haltReason", "") or "")
+    halt_cause         = str(state.get("haltCause", "") or "")
+    halted_at          = str(state.get("haltedAt", "") or "")
+
+    # A state file written before haltedAt existed carries a halt with no clock on it.
+    # Reading that as epoch-zero would release it the instant this bridge starts, which
+    # turns an upgrade into an unannounced resumption of trading. Stamp it NOW instead,
+    # so a legacy halt serves a full cooldown from the upgrade rather than none.
+    if trading_halted and not halted_at:
+        halted_at = utcnow_naive().isoformat() + "Z"
+        log("Halt on disk predates the cooldown clock — starting it from now, "
+            f"not releasing early ({HALT_COOLDOWN_HOURS:.0f}h from this moment).", YELLOW)
+    # Same reasoning for the cause: an unlabelled halt is treated as a STREAK halt only
+    # when the streak actually justifies one. Otherwise it is left unlabelled and the
+    # timer will not touch it, because guessing wrong here releases a daily-loss halt.
+    if trading_halted and not halt_cause and consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+        halt_cause = HALT_CAUSE_STREAK
 
     if state.get("day") == breaker_day():
         daily_pnl = float(state.get("dailyPnl", 0.0) or 0.0)
@@ -276,9 +392,16 @@ def load_breaker_state():
         if trading_halted and consecutive_losses < MAX_CONSECUTIVE_LOSSES:
             trading_halted = False
             halt_reason    = ""
+            halted_at      = ""
+            halt_cause     = ""
 
+    # The banner names the cooldown too. A restarted bridge that says only "halted True"
+    # leaves whoever reads it unable to tell a pause from a permanent stop.
+    left = halt_cooldown_remaining_seconds()
+    when = f", releases in {left / 3600:.1f}h" if left is not None else ""
     log(f"Breaker state restored: streak {consecutive_losses}/{MAX_CONSECUTIVE_LOSSES}, "
-        f"daily P&L ${daily_pnl:.2f}, halted {trading_halted}", CYAN)
+        f"daily P&L ${daily_pnl:.2f}, halted {trading_halted}"
+        + (f" ({halt_cause})" if halt_cause else "") + when, CYAN)
 
 
 def save_breaker_state():
@@ -293,8 +416,12 @@ def save_breaker_state():
                 "consecutiveLosses": consecutive_losses,
                 "halted":            trading_halted,
                 "haltReason":        halt_reason,
+                # Without these two the cooldown cannot survive a restart, and a
+                # restart is the most likely thing to happen during one.
+                "haltedAt":          halted_at,
+                "haltCause":         halt_cause,
                 "lastCountedClose":  last_counted_close,
-                "updatedAt":         datetime.utcnow().isoformat() + "Z",
+                "updatedAt":         utcnow_naive().isoformat() + "Z",
             }, state_file, indent=2)
     except Exception as exc:
         log(f"Could not persist breaker state ({exc}) — counters are memory-only this run.", YELLOW)
@@ -307,6 +434,16 @@ def record_closed_outcome(pnl, close_time):
     drift apart, and so no counter change is left only in memory. A null P&L is
     ignored rather than treated as a win: an outcome nobody could measure must not
     be allowed to clear a loss streak.
+
+    The breaker is evaluated HERE, in the same moment the counters move, not left
+    to whenever a signal next tries to open a trade. check_circuit_breaker() had
+    exactly one call site — the open-a-trade path — so between a losing close and
+    the next signal the box reported halted:false while already standing at its
+    limit. On 2026-08-18 the VPS sat at 3 consecutive losses of 3 with halted:false
+    on /api/risk-status, the dashboard, the doctor and the fleet view, all three
+    assets WAIT, and nothing due to run that would have corrected it. The next real
+    signal would have halted correctly; every human and automated reader in between
+    saw "trading is live" for a box that was breaker-tripped in all but name.
     """
     global daily_pnl, consecutive_losses, last_counted_close
     if pnl is None:
@@ -324,6 +461,13 @@ def record_closed_outcome(pnl, close_time):
     if close_time and close_time > last_counted_close:
         last_counted_close = close_time
     save_breaker_state()
+    # Counters on disk FIRST, then the verdict — check_circuit_breaker() persists
+    # again if it trips, so the halt flag can never land without the streak that
+    # caused it. Safe to call from here: it is idempotent (early return while
+    # already halted), it returns False rather than raising when MT5 is
+    # unreachable, and it can only ever SET the halt, never clear one. Nothing
+    # that was blocked before becomes permitted by calling it sooner.
+    check_circuit_breaker()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -345,9 +489,39 @@ def check_remote_control():
     """
     global remote_halted, remote_halt_reason
     try:
-        res = requests.get(f"{SERVER_URL}/api/mt5/control", timeout=5)
+        # consumer=bridge IDENTIFIES US AS THE ONE READER ALLOWED TO CONSUME the restart
+        # flag. Without it the server returns restartRequested false and clears nothing, so
+        # this bridge would never stand down on request - and with the old clear-on-read
+        # behaviour any of the nine other pollers could swallow the request instead.
+        res = requests.get(f"{SERVER_URL}/api/mt5/control",
+                           params={"consumer": "bridge"}, timeout=5)
         res.raise_for_status()
         control = res.json()
+
+        # STAND DOWN ON REQUEST, so a restart never needs an elevated shell.
+        #
+        # This bridge runs elevated on the laptop, so a normal shell cannot stop it -
+        # Stop-Process is denied and so is registering a RunLevel Highest task. Every
+        # bridge code change therefore waited on a human opening an Administrator prompt,
+        # and on 2026-09-03 that held up a stop-loss change for hours.
+        #
+        # The server sets this flag only for a request from its own loopback address, and
+        # clears it on read, so exactly one bridge acts on one request.
+        #
+        # Exiting HERE is safe: this runs at the top of the poll, before any order is
+        # placed or modified, and mt5.shutdown() closes nothing - broker-side SL and TP
+        # stay live through the gap exactly as they do on any restart. The launcher (or
+        # ensure_running) brings the bridge straight back.
+        if control.get("restartRequested"):
+            log("RESTART REQUESTED from the dashboard - standing down cleanly. "
+                "Open positions keep their broker-side stops; the launcher will bring "
+                "this bridge back.", YELLOW)
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            sys.exit(0)
+
         halted = bool(control.get("halted"))
         reason = control.get("reason") or "halted from dashboard"
         if halted and not remote_halted:
@@ -362,31 +536,105 @@ def check_remote_control():
         return remote_halted
 
 
+def halt_cooldown_remaining_seconds():
+    """Seconds left on the current STREAK halt's cooldown, or None if none applies.
+
+    None means the timer has nothing to say — not halted, not a streak halt, the
+    release disabled, or the timestamp unreadable. A corrupt timestamp deliberately
+    reads as "no opinion" rather than "release now": failing open here would resume
+    trading on a parse error.
+    """
+    if not trading_halted or halt_cause != HALT_CAUSE_STREAK:
+        return None
+    if HALT_COOLDOWN_HOURS <= 0:
+        return None
+    if not halted_at:
+        return None
+    try:
+        started = datetime.fromisoformat(halted_at.rstrip("Z"))
+    except (ValueError, AttributeError) as exc:
+        log(f"Halt timestamp unreadable ({exc}) — cooldown not applied, halt stands.", YELLOW)
+        return None
+    elapsed = (utcnow_naive() - started).total_seconds()
+    return max(0.0, HALT_COOLDOWN_HOURS * 3600 - elapsed)
+
+
+def release_streak_halt_if_cooled():
+    """Lift a STREAK halt that has served its cooldown, decaying the streak by one.
+
+    This is the exit the streak breaker never had. It is deliberately narrow:
+
+      - STREAK halts only. A daily-loss halt expires when the day rolls over, which
+        load_breaker_state already handles; releasing one here would shorten a limit
+        that is supposed to last the day.
+      - remote_halted is never touched. That is a human deciding to stop, and a timer
+        that could overrule a person is a worse bug than the one being fixed.
+      - The streak DECAYS, it does not reset. Coming back at MAX-1 means a genuinely
+        broken system re-halts on its very next loss.
+
+    Returns True if a halt was released.
+    """
+    global trading_halted, halt_reason, halted_at, halt_cause, consecutive_losses
+    remaining = halt_cooldown_remaining_seconds()
+    if remaining is None or remaining > 0:
+        return False
+    was = consecutive_losses
+    consecutive_losses = max(0, consecutive_losses - HALT_RELEASE_DECAY)
+    trading_halted = False
+    halt_reason    = ""
+    halted_at      = ""
+    halt_cause     = ""
+    log(f"⏱ CIRCUIT BREAKER RELEASED after {HALT_COOLDOWN_HOURS:.0f}h — streak {was} "
+        f"-> {consecutive_losses} of {MAX_CONSECUTIVE_LOSSES}. Trading resumes ONE loss "
+        "short of halting again; this is a cooldown, not a clean slate.", YELLOW + BOLD)
+    save_breaker_state()
+    return True
+
+
 def check_circuit_breaker():
-    global trading_halted, halt_reason
+    global trading_halted, halt_reason, halted_at, halt_cause
+    # BEFORE the early return below, or the release is unreachable: the whole point is
+    # that it applies while trading_halted is True.
+    release_streak_halt_if_cooled()
     if trading_halted:
         return True
+
+    # Consecutive losses FIRST, because this check needs no broker.
+    #
+    # It used to sit below the `if not acc: return False` guard, so a dead MT5 terminal
+    # disabled the streak breaker entirely — and a dead terminal here is SILENT: every
+    # call returns None and nothing raises, so the bridge looks healthy while its loss
+    # guard is off. The streak is arithmetic on an in-memory counter that the close path
+    # maintains; it never needed account_info() and must not depend on it. Only the
+    # daily-loss test below genuinely needs a balance to divide by.
+    if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+        trading_halted = True
+        halt_reason = f"{consecutive_losses} consecutive losses — pausing"
+        halted_at   = utcnow_naive().isoformat() + "Z"
+        halt_cause  = HALT_CAUSE_STREAK
+        cooldown = (f" — releases in {HALT_COOLDOWN_HOURS:.0f}h at streak "
+                    f"{max(0, consecutive_losses - HALT_RELEASE_DECAY)}"
+                    if HALT_COOLDOWN_HOURS > 0 else " — no auto-release, needs a human")
+        log(f"🛑 CIRCUIT BREAKER: {halt_reason}{cooldown}", RED + BOLD)
+        # A halt that only exists in memory is undone by the next restart, which
+        # is the same defect that made the streak unaccumulable.
+        save_breaker_state()
+        return True
+
     acc = mt5.account_info()
     if not acc:
         return False
-    # Daily loss limit
+    # Daily loss limit — needs the balance, so it stays behind the account gate.
     if acc.balance > 0:
         loss_pct = (-daily_pnl / acc.balance) * 100
         if loss_pct >= daily_loss_limit:
             trading_halted = True
             halt_reason = f"Daily loss limit hit: -{loss_pct:.1f}% (limit {daily_loss_limit}%)"
+            halted_at   = utcnow_naive().isoformat() + "Z"
+            halt_cause  = HALT_CAUSE_DAILY_LOSS
             log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
-            # A halt that only exists in memory is undone by the next restart, which
-            # is the same defect that made the streak unaccumulable.
             save_breaker_state()
             return True
-    # Consecutive losses
-    if consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
-        trading_halted = True
-        halt_reason = f"{consecutive_losses} consecutive losses — pausing"
-        log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
-        save_breaker_state()
-        return True
     return False
 
 
@@ -428,6 +676,7 @@ REJECTION_SIDE           = "bridge"
 LEDGER_GATES = frozenset((
     "MIN_RR", "ENTRY_RSI", "CONFIDENCE", "COHORT_FLOOR", "SPREAD",
     "AI_FILTER", "NEWS_BLACKOUT", "STALE_SOURCE", "DUPLICATE", "MAX_POSITIONS",
+    "SETUP_DISABLED",
 ))
 
 # server/sizing.js returns only a prose reason, so its duplicate-position guard can
@@ -547,7 +796,7 @@ def log_rejection(gate, sig, broker_symbol, entry, stop, target,
 
         indicators = signal_dict.get("indicators")
         row = {
-            "ts":           datetime.utcnow().isoformat() + "Z",
+            "ts":           utcnow_naive().isoformat() + "Z",
             "gate":         gate,
             "side":         REJECTION_SIDE,
             "ticker":       signal_dict.get("ticker"),
@@ -621,7 +870,57 @@ def auto_detect_symbols():
 # bars can come from. SYMBOL_MAP is already resolved by auto_detect_symbols(), so
 # this reuses the mapping the executor itself trades on — the feed and the fill can
 # never drift apart.
-BAR_COUNT_BY_TIMEFRAME = {"d1": 300, "h4": 400, "h1": 400}
+# d1 raised 300 -> 600 on 2026-08-09. EMA200 seeded on 300 bars carried ~5% of the
+# oldest close inside today's value (Gold's EMA200 was $21 out against a converged
+# reference); at 600 bars that is 0.25%. The walk-forward that validated gate 70
+# replays a 400-bar window, so production was running on FEWER bars than the
+# measurement that blessed it — at 300 bars gate 70 is 4/5, not the 5/5 on record.
+#
+# Payload is not the constraint any more: the full raw dump measured 101kb against
+# express's 2mb limit, so +300 daily bars x 3 symbols costs ~18kb. The 413 in the
+# _rates_to_bars comment below predates that limit being raised.
+# h1 400 -> 1200 on 2026-08-24, for tasks/persist_bars.cjs rather than for the engine.
+# 400 H1 bars reach back ~23 CALENDAR days on a 24/5 instrument, against a bar cache
+# that had gone ~30 days stale — so the pushed window did not overlap the archive and
+# appending would have punched a week-long HOLE in the series. A replay walks a hole
+# without noticing, which is worse than staleness: stale bars give yesterday's answer,
+# a discontinuous series gives a wrong one that looks right. 1200 bars reach ~50 days,
+# clearing the gap with margin.
+#
+# MEASURED BEFORE CHANGING, because this is the signal path. Shipped indicator code,
+# real broker bars, same final bar, 400 vs 1200 across all three symbols: RSI, EMA20,
+# BB (middle and bandwidth), MACD (line and signal) and ATR are IDENTICAL. EMA50 moves
+# in the 4th decimal, which is float dust. The single real move is EMA200 -- 0.049% on
+# XAUUSD, 0.025% on BTCUSD, 0.010% on SP500 -- and it moves TOWARD the truth: against a
+# 5000-bar reference the 1200-bar value is accurate to 0.000% where 400 bars carried up
+# to 0.079%. The cause is the seed: EMA_SMA_SEED_MIN_MULTIPLE is 3, so EMA200 needs 600
+# bars before it gets a proper SMA seed and 400 falls into the closes[0] path.
+# For that 0.05% to change any decision, price would have to sit within 0.05% of the H1
+# EMA200; it is currently 2.6% (SP500) to 19.0% (BTCUSD) away.
+#
+# Payload: 172kb measured today, 324kb projected at 6600 bars x 6 series. The limit is
+# 2mb, so 6.3x headroom -- nowhere near the 413 in the _rates_to_bars comment below.
+#
+# h4 is DELIBERATELY LEFT AT 400. Its 400 bars already reach ~93 calendar days, so it
+# overlaps the archive and needs nothing. It does carry the worst seed error measured
+# (0.079% on SP500) and 600 would cut that to 0.022% -- worth doing on its own evidence,
+# not folded into a change made for a different reason.
+# m15 added 2026-08-25 at 4000 bars. NOT for the engine - nothing on the signal path
+# reads m15. It exists so tasks/history/*_M15.csv can be topped up from this push
+# instead of needing export_mt5_history.py and a FLAT BOOK, which is exactly why those
+# files froze at 2026-07-26 and stayed frozen for a month while a position was open.
+#
+# 4000 is sized from the gap it has to close, not picked: 4000 x 15min is ~41 days on
+# a 24/7 instrument, and the CSVs were 30 days stale. A shorter window would leave a
+# HOLE between the cached tail and the new bars, and a hole is worse than staleness -
+# stale gives yesterday, a hole gives a silently wrong series.
+#
+# PAYLOAD BUDGET, measured rather than assumed: the current push serialises to 327KB
+# for 6600 bars, so ~50 bytes a bar. 4000 x 3 assets adds ~600KB for a total near
+# 930KB against express's 2MB limit - about 45%, leaving real headroom. This matters
+# because an oversized push is rejected 413 as a WHOLE and the server silently falls
+# back to Yahoo bars; that has happened here before at ~240KB under an older limit.
+BAR_COUNT_BY_TIMEFRAME = {"d1": 600, "h4": 400, "h1": 1200, "m15": 4000}
 
 # Pushed on its own clock rather than every poll: 1100 bars x 3 symbols is a real
 # payload, and the daily bar the signal engine cares about only closes once a day.
@@ -657,6 +956,27 @@ def _rates_to_bars(rates):
             "highs":   [round(float(r["high"]),  PRICE_DECIMALS) for r in rates],
             "lows":    [round(float(r["low"]),   PRICE_DECIMALS) for r in rates],
             "volumes": [float(int(r["tick_volume"]))             for r in rates],
+            # Bar OPEN PRICES. Added 2026-08-24. The signal engine does not read
+            # these -- every indicator here works off close/high/low -- so this is
+            # carried purely so the bars can be written back out to
+            # tasks/history/*.csv, whose format is time,open,high,low,close,
+            # tick_volume. Without opens that CSV could only be completed by
+            # inventing a column, and a fabricated OHLC row is worse than a stale
+            # one: stale gives yesterday's answer, invented gives a wrong one that
+            # looks right. See tasks/persist_bars.cjs.
+            "opens":   [round(float(r["open"]),  PRICE_DECIMALS) for r in rates],
+            # Bar OPEN times, unix seconds. Added 2026-08-09 and the reason is not
+            # cosmetic: the server judged freshness purely on when the push landed,
+            # so a terminal that wedges and returns the same stale array forever
+            # kept every health check green while the engine priced signals off old
+            # bars. Push freshness is not data freshness, and without these the
+            # difference is invisible. Also what AMD needs for real session
+            # boundaries -- see the AMD entry in server/evidence_register.js.
+            #
+            # Costs one integer array per timeframe. The full raw dump measured
+            # 101kb against express's 2mb limit, so this is not near the 413 that
+            # shaped the original payload.
+            "times":   [int(r["time"])                           for r in rates],
         }
     except (KeyError, ValueError, TypeError) as exc:
         log(f"Rate conversion failed: {exc}", YELLOW)
@@ -722,7 +1042,10 @@ def push_candles(force=False):
     # five, and why the 413s came in a burst.
     _last_candle_push_at = now
 
-    timeframes = {"d1": mt5.TIMEFRAME_D1, "h4": mt5.TIMEFRAME_H4, "h1": mt5.TIMEFRAME_H1}
+    # m15 is fetched and pushed but NOT read by any signal - see BAR_COUNT_BY_TIMEFRAME
+    # above for why it exists and for the payload budget that makes it safe.
+    timeframes = {"d1": mt5.TIMEFRAME_D1, "h4": mt5.TIMEFRAME_H4,
+                  "h1": mt5.TIMEFRAME_H1, "m15": mt5.TIMEFRAME_M15}
     assets = {}
     for se_ticker, mt5_symbol in SYMBOL_MAP.items():
         bars_by_tf = {}
@@ -914,6 +1237,20 @@ def get_lot_size(symbol, entry, stop, risk_amount=None):
     # balance decide - e.g. always 0.01 lots on gold regardless of the stop.
     fixed = float(strategy_settings.get("fixedLotSize", 0) or 0)
     if fixed > 0:
+        # SAY SO WHEN THIS DISCARDS A BUDGET SOMEONE COMPUTED.
+        #
+        # `risk_amount` is not a default here - when it is passed, it is the server risk
+        # engine's explicit budget, which is how the 6% portfolio cap and the correlation
+        # penalty are supposed to reach a live trade. `raw_lots = fixed` throws all of
+        # that away without a word, so those two controls have no effect on any order
+        # while a fixed size is set. maxLotSize logs when IT overrides; this did not.
+        #
+        # Deliberately a LOG, not a behaviour change: fixed sizing is the configured
+        # intent and overriding the override would be a trading decision, not a fix.
+        if risk_amount is not None and abs(raw_lots - fixed) > 1e-9:
+            log(f"fixedLotSize {fixed} OVERRIDES the risk-engine budget "
+                f"(${risk_amount:.2f} would have sized {raw_lots:.3f} lots). The portfolio "
+                f"cap and correlation penalty do not reach this order.", YELLOW)
         raw_lots = fixed
 
     # Ceiling applies either way, so a wide stop on a big balance can never quietly
@@ -922,6 +1259,46 @@ def get_lot_size(symbol, entry, stop, risk_amount=None):
     if max_lots > 0 and raw_lots > max_lots:
         log(f"Lot size capped: {raw_lots:.2f} → {max_lots:.2f} (maxLotSize)", YELLOW)
         raw_lots = max_lots
+
+    # NOTIONAL EXPOSURE CAP -- the one maxLotSize cannot be.
+    #
+    # A single lot number cannot protect instruments whose contract value differs by 57x.
+    # Measured 2026-09-06 on a GBP 89,677 account: ONE lot is GBP 443,131 of gold, GBP 79,746
+    # of BTC, GBP 7,714 of SP500. maxLotSize was 10, i.e. 4.43 MILLION of gold - 49x leverage,
+    # the account gone in one trade. Cap it low enough for gold and every SP500 trade dies
+    # (they legitimately size to 1.90 lots); cap it high enough for SP500 and gold can still
+    # take 10x. There is no correct single number, which is why this cap is in MONEY.
+    #
+    # IT SIZES DOWN, IT NEVER REFUSES. The broker minimum below is still the floor, so a
+    # capped trade is a smaller trade, never a missing one - no signal, no confidence value
+    # and no learning row is lost. That is the whole point: the runaway case is impossible
+    # while the ordinary case is untouched.
+    #
+    # LATENT, NOT ACTIVE. raw_lots = risk_amount / value_per_lot is already correct and is
+    # why gold gets 0.02 and SP500 gets 1.90 - all three sit far under this cap and are
+    # unaffected. It only bites when something upstream breaks, and server/index.js:3707
+    # names that case: a small stop distance "would size the position into the maxLotSize
+    # ceiling". This is the backstop for exactly that.
+    #
+    # UNKNOWN PRICE MEANS SKIP, NOT GUESS. Without a contract size or an entry price the
+    # exposure cannot be computed, so the cap steps aside and maxLotSize above still applies.
+    # Inventing a number here would be worse than the gap it fills.
+    notional_pct = float(strategy_settings.get("maxNotionalPct", 25) or 0)
+    if notional_pct > 0:
+        try:
+            contract_size = float(getattr(sym_info, "trade_contract_size", 0) or 0)
+            price = abs(float(entry or 0))
+            value_of_one_lot = contract_size * price
+            if value_of_one_lot > 0 and balance > 0:
+                max_exposure = balance * notional_pct / 100.0
+                notional_lots = max_exposure / value_of_one_lot
+                if raw_lots > notional_lots:
+                    log(f"Lot size capped: {raw_lots:.3f} → {notional_lots:.3f} lots "
+                        f"({symbol} exposure {raw_lots * value_of_one_lot:,.0f} > "
+                        f"{max_exposure:,.0f} = {notional_pct:g}% of balance)", YELLOW)
+                    raw_lots = notional_lots
+        except (TypeError, ValueError) as exc:
+            log(f"notional cap skipped for {symbol}: {exc} - maxLotSize still applies", YELLOW)
 
     step     = sym_info.volume_step
     lots     = round(raw_lots / step) * step
@@ -1006,11 +1383,43 @@ def request_trade_approval(symbol, direction, entry, stop, target, confidence):
     if not verdict.get("approved"):
         return False, verdict.get("reason") or "rejected by risk engine", None
 
-    # suggestedSize is riskAmount / stopDistance, so multiplying back gives the
-    # dollar budget the engine approved - portfolio-aware, unlike a flat percentage.
+    # suggestedSize is LOTS, not a raw unit count. server/sizing.js:392 computes it as
+    #     suggestedRiskAmount / (stopDistance * pointValue)
+    # so recovering the dollar budget needs BOTH factors back. This multiplied by
+    # stop_distance alone, which yields riskAmount / pointValue.
+    #
+    # THE ERROR COMPOUNDED, because get_lot_size then divides by value_per_lot, which is
+    # itself stop_distance * pointValue. The size was therefore divided by pointValue
+    # TWICE:  bridge_lots = correct_lots / pointValue.
+    #
+    # On XAUUSD pointValue is ~75 (GBP per 1.0 of price for one 100oz lot - the figure
+    # _symbol_spec's own docstring cites as 74.33). A correct 0.043 lots became 0.0006,
+    # which the broker floor at the end of get_lot_size raised to volume_min 0.01. So
+    # EVERY gold order was pinned to the minimum lot and the configured riskPercent
+    # never reached a single trade: measured over the 9 closed trades in the journal,
+    # 1R in money ranged from $1.46 to $449.72 while the setting asked for a constant
+    # ~$134. The book is +1.93R and -$589.87 - the edge was real and the conversion
+    # to cash was arbitrary.
+    #
+    # THIS CANNOT BLOCK A TRADE. It only changes size. The zero-budget refusal below is
+    # unchanged, and a larger risk_amount moves it further from zero, never closer -
+    # MIN_RISK_PCT in sizing.js exists precisely so that path cannot become an outage.
+    # If the spec is unavailable we fall back to the OLD behaviour rather than refusing,
+    # because failing to size must not fail the trade.
     stop_distance = abs(float(entry) - float(stop))
     suggested     = float(verdict.get("suggestedSize") or 0)
-    risk_amount   = suggested * stop_distance
+
+    spec        = _symbol_spec(symbol)
+    point_value = spec.get("valuePerPoint") if spec else None
+    if point_value and point_value > 0:
+        risk_amount = suggested * stop_distance * point_value
+    else:
+        # No spec: keep the previous arithmetic rather than guess. Logged because a
+        # silently mis-sized order is the defect this block exists to end.
+        log(f"No valuePerPoint for {symbol} - sizing on the legacy formula, "
+            f"which under-sizes by the point value. Order will likely be minimum lot.",
+            YELLOW)
+        risk_amount = suggested * stop_distance
 
     if risk_amount <= 0:
         return False, "risk engine approved a zero budget", None
@@ -1026,7 +1435,27 @@ strategy_settings = {
     "maxTradesPerDay": 5,
     "fixedLotSize": 0.0,   # 0 = size from risk; above 0 = always trade exactly this
     "maxLotSize": 10.0,    # hard ceiling regardless of what the risk maths asks for
+    # Notional ceiling as a PERCENT of balance, applied per symbol in get_lot_size.
+    # It must be in this dict AND in the copy loop in refresh_strategy_settings, or the
+    # `.get(..., 25)` below it silently returns 25 forever and the dashboard control is
+    # inert - a writer with no reader, the mirror of the RSI-ceiling bug.
+    "maxNotionalPct": 25.0,
     "minStrength": "MODERATE",  # lowest signal strength AUTO mode will take
+    # Scaling 50% out at 1R and moving the stop to breakeven. DEFAULT FALSE, which is
+    # the behaviour this system has actually had for its entire life - not a new
+    # restriction. take_partial_profit could never fire while fixedLotSize was 0.01,
+    # because half of one minimum lot is not a tradable size; on 2026-08-24 the size
+    # moved to 0.02 and silently armed it. Nobody decided that - a lot-size edit did
+    # it as a side effect. It stays off until the excursion record below can say
+    # whether it helps: across the three realised wins so far it would have cost
+    # 1.755R, and the offsetting case (losers that touch 1R then revert to a
+    # breakeven stop) has never been measurable because nothing recorded how far a
+    # trade travelled before it closed.
+    "partialCloseEnabled": False,
+    # Setups retired from EXECUTION by the operator. EMPTY means trade everything,
+    # which is the behaviour this bridge has always had - so a server outage or a
+    # malformed config can never be the thing that retires a setup.
+    "executionDisabledSetups": [],
 }
 
 # Trades opened today, reset on date change. Counted here rather than server-side
@@ -1046,11 +1475,33 @@ def refresh_strategy_settings():
             if isinstance(data.get(name), (int, float)):
                 strategy_settings[name] = int(data[name])
         # Lot sizes stay floats — int() here would make 0.01 become 0.
-        for name in ("fixedLotSize", "maxLotSize"):
+        # maxNotionalPct MUST be here. This loop is an explicit allowlist, so a key that is
+        # merely present in the server's STRATEGY_LIMITS, persisted, served by GET and shown
+        # on the fleet panel is STILL never read by the thing that sizes the order. Adding
+        # the setting without adding it here would have shipped an adjustable risk control
+        # that permanently ran its hardcoded default and whose "off" position did not turn
+        # it off.
+        for name in ("fixedLotSize", "maxLotSize", "maxNotionalPct"):
             if isinstance(data.get(name), (int, float)):
                 strategy_settings[name] = float(data[name])
         if data.get("minStrength") in ("MODERATE", "STRONG"):
             strategy_settings["minStrength"] = data["minStrength"]
+        # Only a real bool moves this. A missing key leaves the last known value, and
+        # on a cold start that value is False - so a server outage can never be the
+        # thing that turns scaling-out ON.
+        if isinstance(data.get("partialCloseEnabled"), bool):
+            strategy_settings["partialCloseEnabled"] = data["partialCloseEnabled"]
+        # Same shape as the bool above: only a real list moves it, only non-empty
+        # strings survive, and a missing key leaves the last known value. WITHOUT
+        # THIS the SETUP_DISABLED gate reads its empty default forever, however
+        # loudly strategy_settings.json disagrees - the gate reads this dict, and
+        # nothing else writes to it.
+        if isinstance(data.get("executionDisabledSetups"), list):
+            strategy_settings["executionDisabledSetups"] = [
+                str(v).strip().upper()
+                for v in data["executionDisabledSetups"]
+                if isinstance(v, str) and str(v).strip()
+            ]
     except Exception:
         pass
 
@@ -1111,14 +1562,46 @@ def check_strategy_limits():
 
 
 def check_spread(symbol):
+    """(ok, spread_points, cap, observed) - `observed` is the raw measurement.
+
+    WHY THE FOURTH VALUE EXISTS. This function measures the spread on EVERY order
+    attempt and, until 2026-08-27, threw it away unless the order was REJECTED: only
+    log_rejection recorded it. Every SUCCESSFUL fill discarded its own spread, so this
+    repo held ZERO observed spreads and every cost claim had to borrow an assumed
+    range. That matters now: the CRT Gold h4 cell breaks even at ~$0.47 round trip
+    against an INHERITED $0.20-0.50 range, so whether it is profitable on this account
+    is decided by a number nobody had ever written down.
+
+    Returns None for `observed` when there is no tick or no symbol_info. A zero would
+    read as "a perfectly tight spread" and quietly flatter every cost study that ever
+    reads this - the same failure the SPREAD rejection row already guards against by
+    recording actual=None rather than 0 on a quote outage.
+    """
     tick = mt5.symbol_info_tick(symbol)
     if not tick:
-        return False, 0, MAX_SPREAD_PTS
+        return False, 0, MAX_SPREAD_PTS, None
     info  = mt5.symbol_info(symbol)
     spread = (tick.ask - tick.bid) / info.trade_tick_size if info else 0
     cap = max_spread_for(symbol)
     ok = spread <= cap
-    return ok, spread, cap
+    observed = None
+    if info:
+        try:
+            observed = {
+                "points":   round(float(spread), 2),
+                "price":    round(float(tick.ask) - float(tick.bid), 6),
+                "cap":      cap,
+                "bid":      round(float(tick.bid), 6),
+                "ask":      round(float(tick.ask), 6),
+                "tickSize": float(info.trade_tick_size),
+                # The spread was read here, BEFORE order_send. It is the spread the
+                # decision was made against, not the realised fill spread, and it must
+                # never be presented as the latter.
+                "measuredAt": "pre-send",
+            }
+        except (TypeError, ValueError, AttributeError, ZeroDivisionError):
+            observed = None
+    return ok, spread, cap, observed
 
 
 def build_order_comment(setup, confidence):
@@ -1155,7 +1638,7 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
     written to the ledger with its ticker, source instrument and timeframe. It is
     never read on the execution path — passing None only costs the ledger row.
     """
-    spread_ok, spread, spread_cap = check_spread(symbol)
+    spread_ok, spread, spread_cap, observed_spread = check_spread(symbol)
     if not spread_ok:
         log(f"Spread too wide on {symbol}: {spread:.0f} pts (max {spread_cap}) — skipping", YELLOW)
         # check_spread returns (False, 0, cap) when the symbol has no tick at all.
@@ -1173,10 +1656,80 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
         )
         return False
 
+    # The spread gate PASSED. Say so loudly when it passed without measuring anything.
+    #
+    # check_spread computes `spread = (ask - bid) / info.trade_tick_size if info else 0`,
+    # so a missing symbol_info gives spread 0, and `0 <= cap` is TRUE. The gate then
+    # passes having measured NOTHING - a risk gate failing OPEN on absent data. Found
+    # 2026-08-27 while instrumenting the spread.
+    #
+    # This deliberately does NOT block the trade. Turning it into a refusal would
+    # suppress setups that would otherwise fire, and on this system sample size is the
+    # binding constraint - a filter costs more than it saves. It is made VISIBLE instead,
+    # and the journal row records spreadAtDecision: null so the gap is never mistaken
+    # for a tight spread. Whether it should refuse is a decision, not a repair.
+    if observed_spread is None:
+        log(f"UNMEASURED SPREAD on {symbol}: the spread gate passed with no quote to "
+            f"measure (symbol_info unavailable). Trade proceeds; the journal will record "
+            f"spreadAtDecision null, never 0.", YELLOW)
+
     order_type = mt5.ORDER_TYPE_BUY if signal_type == "BUY" else mt5.ORDER_TYPE_SELL
     tick       = mt5.symbol_info_tick(symbol)
-    price      = tick.ask if signal_type == "BUY" else tick.bid
-    lots       = get_lot_size(symbol, entry, stop, risk_amount=risk_amount)
+
+    # check_spread already returns (False, ...) on a missing tick, so this is only
+    # reachable if the quote vanishes between that call and this one. Without the guard
+    # `tick.ask` raises AttributeError inside the poll loop. This refuses NOTHING that
+    # could otherwise have traded: with no tick there is no price, so no order is
+    # physically placeable - the choice is a clean logged return or a crash.
+    if not tick:
+        log(f"No tick for {symbol} at order time - the quote went away between the "
+            f"spread check and the fill. No price, so no order could be placed.", YELLOW)
+        return False
+
+    price = tick.ask if signal_type == "BUY" else tick.bid
+
+    # SIZE OFF THE DISTANCE THIS ORDER ACTUALLY RISKS - BUT ONLY EVER DOWNWARD.
+    #
+    # The order fills at `price` and its stop sits at `stop`, so the distance actually
+    # risked is abs(price - stop). Sizing off abs(entry - stop) budgets for a distance
+    # this trade never had. Measured on SP500 #1798862395: a $100 budget put $142 at
+    # risk, 1.0% became 1.37%, and the R:R the gate approved as 2.00 journalled at 1.18.
+    #
+    # ONE-WAY BY CONSTRUCTION. The fill is used only when it WIDENS the risk distance,
+    # and a wider distance means FEWER lots. So this can correct an over-risk and can
+    # never inflate a position. Sizing off the fill unconditionally would have taken a
+    # drift TOWARD the stop from 0.28 lots to 1.67 - correct on dollar risk, six times
+    # the position - and a tighter fill is not a reason to trade bigger. Traced over
+    # 8001 fill prices spanning +/-200 points around the stop: the largest lot increase
+    # against current behaviour is 0.00.
+    #
+    # THIS REFUSES NOTHING. A drift check that rejected the order would suppress a setup
+    # that had already cleared every gate, and on this system sample size is the binding
+    # constraint. The budget is honoured by adjusting the size, which is the lever that
+    # exists for exactly this.
+    #
+    # INERT WHILE fixedLotSize IS SET, AND THAT IS THE CURRENT CONFIG (0.02). get_lot_size
+    # does `raw_lots = fixed`, discarding this computation entirely, so today this changes
+    # no order. It closes the bug for the moment fixedLotSize goes to 0 - which the sizing
+    # measurement on record favours. Under fixed lots the realised-risk drift cannot be
+    # fixed by resizing at all: the lot count does not move, so only the stop could
+    # absorb it, and moving a stop is a trading decision rather than a repair.
+    planned_distance  = abs(entry - stop)
+    realised_distance = abs(price - stop)
+    size_off_fill = realised_distance > planned_distance
+    sizing_entry  = price if size_off_fill else entry
+
+    # Worth seeing even though sizing already handles it: the market has traded through
+    # this setup's own stop before the order went out. The trade is NOT refused.
+    if (price <= stop) if signal_type == "BUY" else (price >= stop):
+        log(f"FILL BEYOND STOP on {symbol}: {signal_type} at {price} with stop {stop}. "
+            f"Sizing uses the signal entry {entry}; the trade is NOT refused.", YELLOW)
+    elif size_off_fill and planned_distance > 0:
+        log(f"Entry drift on {symbol}: signal {entry} -> fill {price}. Risk distance "
+            f"{planned_distance:.5g} -> {realised_distance:.5g} "
+            f"({realised_distance / planned_distance:.2f}x). Sizing off the fill.", CYAN)
+
+    lots = get_lot_size(symbol, sizing_entry, stop, risk_amount=risk_amount)
     if risk_amount is not None:
         log(f"Sizing from risk-engine budget ${risk_amount:.2f} → {lots} lots", CYAN)
 
@@ -1245,7 +1798,38 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
                 "volume": lots,
                 "account": ACCOUNT_TAG or "default",
                 "signalContext": signal_context,
-            }, timeout=5)
+                # The spread this trade was actually decided against. Sent on the
+                # EXISTING post-fill POST, which is built only after
+                # result.retcode == TRADE_RETCODE_DONE - so this is strictly
+                # post-execution and cannot change whether or how an order is placed.
+                # None when the quote could not be measured; never 0 as a stand-in.
+                "spread": observed_spread,
+                # HOW FAR THE FILL LANDED FROM THE PRICE THE SIGNAL PLANNED.
+                #
+                # Measured, not corrected. With fixedLotSize set the lot cannot change,
+                # so drift does not alter position size - it moves the REALISED R:R,
+                # because entry moved while stop and target did not. SP500 #1798862395
+                # filled far enough out to turn a planned 2.00 into 1.18.
+                #
+                # Every mechanical correction is a STRATEGY choice: moving the stop
+                # changes the invalidation level, moving the target trades win rate for
+                # reward, and refusing on drift suppresses a signal that would otherwise
+                # fire. So this records the cost and changes nothing, the same way
+                # spreadAtDecision does. Decide it with a few dozen rows, not with one.
+                "entryDrift": {
+                    "plannedEntry": round(float(entry), 5),
+                    "filledAt":     round(float(price), 5),
+                    "points":       round(float(price) - float(entry), 5),
+                    # Signed so direction is preserved: POSITIVE means the fill landed
+                    # further from the stop than planned (wider risk, lower R:R on a
+                    # BUY), negative means closer.
+                    "riskFraction": (round((abs(float(price) - float(stop))
+                                            - abs(float(entry) - float(stop)))
+                                           / abs(float(entry) - float(stop)), 5)
+                                     if stop is not None and abs(float(entry) - float(stop)) > 0
+                                     else None),
+                },
+            }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
         except Exception as e:
             log(f"Could not POST trade-opened to server: {e}", YELLOW)
         known_positions.add(result.order)
@@ -1408,6 +1992,46 @@ def process_signal(key, sig):
         executed_signals[key] = cache_key
         return
 
+    # Setups retired from EXECUTION, but NOT from generation.
+    #
+    # Deleting a setup from the engine would stop it firing, stop its rejections
+    # reaching the ledger, and therefore stop the system ever learning whether
+    # retiring it was right. So it still fires, still displays, and still gets
+    # priced here as a forgone paper trade - every skipped fill is now a scored
+    # counterfactual rather than a silence.
+    #
+    # RANGE_TRADE_SHORT is the first entry, 2026-08-31. It is the only slice that
+    # has ever cleared this project's stated bar of 5 of 5 folds:
+    #   walk-forward, 650 trades at the live gate: own -0.457 R/t, removing it
+    #     gains +0.0244 R/trade, 5/5 folds
+    #   live per-asset learning:  XAUUSD 0W/1L -98.31
+    #   shadow ledger:            16 episodes, 18.8% WR, -11.4R
+    # It costs 18 of 650 trades - 2.8% of the book - at an average of -0.457 R.
+    #
+    # Defaults to an EMPTY list, so a missing or unreadable setting disables
+    # nothing: the failure direction is 'trade normally', never 'stop trading'.
+    # To re-enable, clear executionDisabledSetups in strategy_settings.json.
+    setup_name = str(sig.get("setup") or "").strip().upper()
+    _disabled_raw = strategy_settings.get("executionDisabledSetups") or []
+    if not isinstance(_disabled_raw, list):
+        _disabled_raw = []
+    disabled_setups = {str(x).strip().upper() for x in _disabled_raw if str(x).strip()}
+    if setup_name and setup_name in disabled_setups:
+        disabled_reason = (
+            setup_name + " is retired from execution (executionDisabledSetups). "
+            "It still fires and is still scored in the rejection ledger."
+        )
+        if last_rejection.get(key) != disabled_reason:
+            log(f"SETUP DISABLED blocked {direction} {symbol}: {setup_name}", YELLOW)
+            last_rejection[key] = disabled_reason
+        # threshold/actual stay null: the ledger keeps them numeric-or-null and
+        # nothing numeric explains this kill. The explanation goes in reason.
+        log_rejection(
+            "SETUP_DISABLED", sig, symbol, entry, stop, target,
+            reason=disabled_reason,
+        )
+        return
+
     # Slot and daily-trade caps. Cheapest checks first — both are local counts.
     limits_ok, limits_reason, limit_detail = check_strategy_limits()
     if not limits_ok:
@@ -1479,7 +2103,29 @@ def report_risk_status():
     trades the dashboard never learned the real limits and the circuit-breaker cards
     had nothing to show. The limits are the whole point of the panel: they need to be
     visible before the first trade, not after it.
+
+    This is also where the breaker is EVALUATED, every cycle, in BOTH directions —
+    the halt and the release. The evaluation has to be here rather than only at the
+    points that change the counters, and getting that wrong has now cost two rounds:
+
+      - check_circuit_breaker() alone runs on a trade ATTEMPT. A box already at the
+        cap with all three assets on WAIT never attempts one, so it reported
+        halted:false while standing at its limit.
+      - Calling it from record_closed_outcome() fixed the CLOSE path but not the
+        RESTART path. A bridge that restarts with the streak already at the cap has
+        no close and no attempt either: the VPS came back on 2026-08-18 at 3 of 3
+        and still read halted:false, because the restored state said false and
+        nothing re-derived it.
+
+    A full check every cycle is the only version with no such gap. It is cheap, it is
+    idempotent, and it can only ever SET a halt or release one that has served its
+    cooldown.
     """
+    was_halted = trading_halted
+    check_circuit_breaker()
+    if was_halted and not trading_halted:
+        log("Cooldown expired — reporting this box as live again.", CYAN)
+    cooldown_left = halt_cooldown_remaining_seconds()
     try:
         requests.post(f"{SERVER_URL}/api/risk-status", json={
             "dailyPnl": round(daily_pnl, 2),
@@ -1487,6 +2133,12 @@ def report_risk_status():
             "halted": trading_halted or remote_halted,
             "haltReason": halt_reason or remote_halt_reason,
             "account": ACCOUNT_TAG or "default",
+            # When the halt was set, which breaker set it, and when it frees itself.
+            # A halt with no visible end date reads as permanent to whoever finds it,
+            # which is how the previous one went unnoticed.
+            "haltedAt":   halted_at or None,
+            "haltCause":  halt_cause or None,
+            "haltReleasesInSeconds": round(cooldown_left) if cooldown_left is not None else None,
             "config": {
                 "riskPercent":     RISK_PERCENT,
                 "dailyLossPct":    daily_loss_limit,
@@ -1495,6 +2147,7 @@ def report_risk_status():
                 "autoMode":        AUTO_MODE,
                 "expectedLogin":   EXPECTED_LOGIN or None,
                 "remoteHalted":    remote_halted,
+                "haltCooldownHours": HALT_COOLDOWN_HOURS,
             },
         }, timeout=3)
     except Exception:
@@ -1514,11 +2167,28 @@ def report_positions():
             log(f"positions_get() failed ({mt5.last_error()}) — heartbeat skipped, "
                 f"MT5 handle looks dead.", YELLOW)
             return
+        # TWO LISTS, AND THE SPLIT IS THE WHOLE POINT.
+        #
+        # `data` is SmartEntry's own book, magic 20250101, and is UNCHANGED - same fields,
+        # same order, same filter. Every consumer of it (MAX_POSITIONS, the stop manager,
+        # the breaker, /api/checksystem) keeps seeing exactly what it saw before.
+        #
+        # `unmanaged` is everything else on the account, and it exists because this filter
+        # was making the dashboard lie by omission. Measured on account 11581419 on
+        # 2026-09-03: SEVEN open positions, of which ONE was SmartEntry. The other six -
+        # five from a third-party EA on magic 888888 and one from our own TK_SWING_PULLBACK
+        # executor on magic 20260903 - were dropped here with nothing anywhere saying so.
+        # The account was long AND short BTCUSD simultaneously and held 0.2 lots of SP500
+        # while every screen showed 0.1.
+        #
+        # THIS IS DISPLAY ONLY AND MUST STAY THAT WAY. If these rows ever reached
+        # mt5Positions, MAX_POSITIONS would count another EA's trades and the stop manager
+        # would try to move a stop on a position we do not own. They travel under a separate
+        # key, the server stores them in a separate map, and no trading path reads either.
         data = []
+        unmanaged = []
         for p in positions:
-            if p.magic != MAGIC_NUMBER:
-                continue  # only SmartEntry trades
-            data.append({
+            row = {
                 "ticket":  p.ticket,
                 "symbol":  p.symbol,
                 "type":    "BUY" if p.type == 0 else "SELL",
@@ -1528,8 +2198,26 @@ def report_positions():
                 "tp":      p.tp,
                 "profit":  round(p.profit, 2),
                 "openTime": datetime.fromtimestamp(p.time).strftime("%H:%M:%S"),
-            })
-        requests.post(f"{SERVER_URL}/api/mt5/positions", json={"positions": data, "account": ACCOUNT_TAG or "default"}, timeout=5)
+            }
+            if p.magic != MAGIC_NUMBER:
+                # magic and comment are the only way to tell whose trade this is, so they
+                # ride along here and nowhere else - `data` keeps its exact original shape.
+                # OUR EXECUTORS ARE NOT STRANGERS. Lumping TK_SWING_PULLBACK and
+                # FVG_CONTINUATION in with a third-party EA under one "unmanaged" heading
+                # was wrong: those are this system's own trades, placed by
+                # tasks/fvg_executor.py, on strategies that were measured and shipped
+                # deliberately. Only the main ENGINE does not manage them. A page that
+                # files them next to TKM3 tells you nothing about which is yours.
+                row["magic"]   = p.magic
+                row["comment"] = p.comment
+                row["model"]   = EXECUTOR_MAGICS.get(p.magic)          # None when genuinely foreign
+                row["owner"]   = "executor" if p.magic in EXECUTOR_MAGICS else "foreign"
+                unmanaged.append(row)
+                continue  # still NOT a SmartEntry trade: never managed, never counted
+            data.append(row)
+        requests.post(f"{SERVER_URL}/api/mt5/positions",
+                      json={"positions": data, "unmanaged": unmanaged,
+                            "account": ACCOUNT_TAG or "default"}, timeout=5)
     except Exception as exc:
         # This POST is the ONLY thing that writes mt5LastSeenByAccount on the server,
         # so swallowing its failure silently meant the single signal the healer watches
@@ -1629,6 +2317,173 @@ def save_position_r():
             json.dump({str(t): v for t, v in position_initial_r.items()}, r_file, indent=2)
     except Exception as exc:
         log(f"Could not persist position risk ({exc}) — trailing may reset on restart.", YELLOW)
+
+
+def load_position_excursion():
+    """Restore the excursion record for positions still open from a previous run.
+
+    Fails open exactly like load_position_r: an unreadable file leaves the dict empty
+    and tracking restarts from the current price, which UNDERSTATES that trade rather
+    than inventing an excursion for it. Logged, never silent.
+    """
+    try:
+        with open(POSITION_EXCURSION_PATH, "r", encoding="utf-8") as ex_file:
+            stored = json.load(ex_file)
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        log(f"Excursion store unreadable ({exc}) - restarting excursion tracking.", YELLOW)
+        return
+
+    if not isinstance(stored, dict):
+        log("Excursion store is not an object - ignoring it.", YELLOW)
+        return
+
+    for ticket_key, rec in stored.items():
+        if not isinstance(rec, dict):
+            continue
+        try:
+            position_excursion[int(ticket_key)] = {
+                "mfe": float(rec.get("mfe", 0.0)),
+                "mae": float(rec.get("mae", 0.0)),
+                "n":   int(rec.get("n", 0)),
+            }
+        except (TypeError, ValueError):
+            continue
+
+    if position_excursion:
+        log(f"Restored excursion record for {len(position_excursion)} position(s).", CYAN)
+
+
+def save_position_excursion():
+    """Persist the excursion map. Never raises - a write failure must not stop trading."""
+    try:
+        with open(POSITION_EXCURSION_PATH, "w", encoding="utf-8") as ex_file:
+            json.dump({str(t): v for t, v in position_excursion.items()}, ex_file, indent=2)
+    except Exception as exc:
+        log(f"Could not persist excursions ({exc}) - MFE/MAE may reset on restart.", YELLOW)
+
+
+def load_position_partial():
+    """Restore the set of tickets that already had 50% closed at 1R.
+
+    Fail-open: a missing or unreadable file leaves the set empty, which is the safe
+    direction — at worst we attempt a partial close that the volume_min check will
+    catch. Never raises; logged if the file is corrupt.
+    """
+    try:
+        with open(POSITION_PARTIAL_PATH, "r", encoding="utf-8") as p_file:
+            stored = json.load(p_file)
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        log(f"Partial-taken store unreadable ({exc}) — starting with empty set.", YELLOW)
+        return
+
+    if not isinstance(stored, list):
+        log("Partial-taken store is not a list — ignoring it.", YELLOW)
+        return
+
+    for ticket in stored:
+        try:
+            position_partial_taken.add(int(ticket))
+        except (TypeError, ValueError):
+            continue
+
+    if position_partial_taken:
+        log(f"Restored partial-taken flag for {len(position_partial_taken)} position(s).", CYAN)
+
+
+def save_position_partial():
+    """Persist position_partial_taken. Never raises — a write failure must not stop trading."""
+    try:
+        with open(POSITION_PARTIAL_PATH, "w", encoding="utf-8") as p_file:
+            json.dump(sorted(position_partial_taken), p_file, indent=2)
+    except Exception as exc:
+        log(f"Could not persist partial-taken set ({exc}) — may re-attempt partial on restart.", YELLOW)
+
+
+def track_excursions():
+    """Record how far each open position has run in favour of and against its entry.
+
+    This exists to answer one question the journal has never been able to answer: when
+    a trade ended a loser, had it first reached 1R? Without that, scaling out at 1R and
+    moving the stop to breakeven cannot be evaluated at all - the COST side shows up in
+    the winners, which finish short of where they would have, and the BENEFIT side is
+    invisible. Every argument about it so far has been half-measured.
+
+    SAMPLED, not exact. It reads price_current once per poll (POLL_INTERVAL, 60s by
+    default), so a spike between two polls is never seen and BOTH figures are floors,
+    never ceilings. The field names and the payload carry that caveat, because reading
+    these as true extremes would overstate how often a trade touched 1R - which is
+    exactly the number the partial-close decision turns on.
+
+    Record-only: nothing here opens, closes, sizes, or blocks a trade.
+    """
+    try:
+        positions = mt5.positions_get()
+    except Exception as exc:
+        log(f"positions_get() failed in excursion tracking ({exc}) - skipping cycle.", YELLOW)
+        return
+    if positions is None:
+        return
+
+    changed = False
+    for p in positions:
+        if p.magic != MAGIC_NUMBER:
+            continue
+        entry = p.price_open
+        price = p.price_current
+        if not entry or not price:
+            continue
+        # A BUY profits as price rises, a SELL as it falls. Both are stored as
+        # non-negative distances so the sign convention lives in ONE place: here.
+        move = (price - entry) if p.type == 0 else (entry - price)
+        favourable = move if move > 0 else 0.0
+        adverse = -move if move < 0 else 0.0
+
+        rec = position_excursion.get(p.ticket)
+        if rec is None:
+            rec = {"mfe": 0.0, "mae": 0.0, "n": 0}
+            position_excursion[p.ticket] = rec
+        if favourable > rec["mfe"]:
+            rec["mfe"] = favourable
+        if adverse > rec["mae"]:
+            rec["mae"] = adverse
+        rec["n"] += 1
+        changed = True
+
+    if changed:
+        save_position_excursion()
+
+
+def excursion_payload(ticket):
+    """The excursion record for a closing ticket, in price AND in R where R is known.
+
+    Returns {} when nothing was tracked, so a close never carries invented zeros:
+    "no record" and "it never moved" are different facts and must not look the same.
+    R needs the position initial risk; where that is unknown the R fields are null and
+    the price fields still stand on their own.
+    """
+    rec = position_excursion.get(ticket)
+    if not rec:
+        return {}
+    risk = position_initial_r.get(ticket)
+    mfe_r = None
+    mae_r = None
+    if risk and risk > 0:
+        mfe_r = round(rec["mfe"] / risk, 3)
+        # Negative by convention, so it reads on the same axis as realizedR.
+        mae_r = -round(rec["mae"] / risk, 3)
+    return {
+        "mfePrice": round(rec["mfe"], 5),
+        "maePrice": round(rec["mae"], 5),
+        "mfeR": mfe_r,
+        "maeR": mae_r,
+        "excursionSamples": rec["n"],
+        "excursionIntervalSec": POLL_INTERVAL,
+        "excursionSampled": True,
+    }
 
 
 def initial_r_from_journal(ticket, symbol):
@@ -1854,14 +2709,25 @@ def manage_trailing_stops():
 def take_partial_profit():
     """At 1R profit: close 50% of the position, move SL to breakeven.
 
-    Dormant at the lot size this system actually trades. `fixedLotSize` is 0.01,
-    which IS the broker minimum on all three instruments, so there is no half to
-    close — a position of one minimum lot cannot be split at all. It used to reach
-    that conclusion silently, via `round(0.5)` returning 0 under banker's rounding,
-    so the function had never executed once in the system's life and nothing said
-    why. Banking profit at these sizes is the trailing ladder's job; this stays for
-    the day position sizes are large enough to scale out of, and now says so.
+    OFF unless `partialCloseEnabled` is set. This paragraph used to say the function
+    was dormant because `fixedLotSize` is 0.01, which IS the broker minimum, so there
+    was no half to close - true when written, and false from 2026-08-24, when the size
+    became 0.02 and half became exactly 0.01. The guard below tests `<` against the
+    minimum, not `<=`, so 0.01 passes it and this function went live on BTCUSD and
+    XAUUSD without anyone choosing that. A safety property recorded only in a comment
+    stops being a safety property the moment the comment goes stale.
+
+    It is a setting now rather than an accident of the lot size, and it defaults to
+    off, which preserves the behaviour every trade in this journal was managed under.
+
+    Note what that behaviour actually is. The original text here handed the job to
+    the trailing ladder - but TRAIL_LADDER_ENABLED has defaulted to 0 since
+    2026-08-07, so the ladder is off as well. With both off NOTHING moves a stop:
+    a position runs to the SL and TP it was opened with. That is the real baseline
+    the excursion record (track_excursions) has to be read against.
     """
+    if not strategy_settings.get("partialCloseEnabled"):
+        return
     positions = mt5.positions_get()
     if positions is None or not positions:
         return
@@ -1920,6 +2786,7 @@ def take_partial_profit():
         result = mt5.order_send(close_req)
         if result.retcode == mt5.TRADE_RETCODE_DONE:
             position_partial_taken.add(ticket)
+            save_position_partial()
             log(f"PARTIAL PROFIT: Closed 50% of #{ticket} {p.symbol} @ {close_price:.2f} (+1R)", GREEN + BOLD)
             # Move SL to breakeven
             be_req = {
@@ -1948,7 +2815,24 @@ def process_all_signals(data):
             try:
                 future.result(timeout=30)
             except Exception as e:
-                log(f"Signal processing error ({futures[future]}): {e}", RED)
+                # ALWAYS name the exception type. concurrent.futures.TimeoutError
+                # stringifies to the EMPTY STRING, so the old line rendered as
+                # "Signal processing error (spx): " with nothing after the colon, and
+                # the next thread's output ran into it on the same line. That is what
+                # it looked like on 2026-08-19 13:51, where the 30s wait expired while
+                # the worker went on to place the order successfully a moment later -
+                # a log that reads like a failure beside a trade that worked.
+                #
+                # A timeout here is on the WAIT, not on the work: the worker thread is
+                # not cancelled and keeps running. Said plainly so nobody reads this
+                # line as a lost signal.
+                detail = str(e) or "(no message)"
+                kind = type(e).__name__
+                if isinstance(e, FuturesTimeoutError):
+                    log(f"Signal processing WAIT timed out after 30s ({futures[future]}) "
+                        f"- the worker thread was NOT cancelled and may still complete", RED)
+                else:
+                    log(f"Signal processing error ({futures[future]}): {kind}: {detail}", RED)
 
 
 def deals_for_position(ticket):
@@ -1996,11 +2880,76 @@ def summarize_closed_position(deals):
         return None
     net_pnl = sum(float(d.profit) + float(d.commission) + float(d.swap) for d in deals)
     final_deal = max(closing_deals, key=lambda d: d.time)
+    # CLOSE TIME IS STAMPED AT OBSERVATION, IN EXPLICIT UTC.
+    #
+    # It used to be datetime.fromtimestamp(final_deal.time).isoformat(), which was
+    # wrong by FOUR HOURS on this account and silently so.
+    #
+    # MT5 returns deal.time as the BROKER's wall clock expressed as an epoch, not a
+    # true UTC epoch. fromtimestamp() then treats that number as UTC and renders it in
+    # LOCAL time, so the two offsets add rather than cancel: broker UTC+3, local BST
+    # UTC+1, total +4h. Measured 2026-08-30 without touching MT5, using bars this
+    # bridge already pushes: the newest H1 bar decoded to 22:00 while real UTC was
+    # 19:33 - an H1 bar cannot open 2.44h in the future. That matches the 3h59m32s
+    # contradiction found in the weekly review, settled there by three independent
+    # sources (journal bid, bridge log wall clock, exitReasonCode 4).
+    #
+    # The close is detected within one POLL_INTERVAL, so stamping it now trades a
+    # ~60s error for the ~4h one. The raw broker figure is carried alongside rather
+    # than discarded, so nothing is lost and the offset stays auditable.
     return (
         round(net_pnl, 2),
         float(final_deal.price),
-        datetime.fromtimestamp(final_deal.time).isoformat(),
+        datetime.now(timezone.utc).isoformat(),
+        datetime.fromtimestamp(final_deal.time, timezone.utc).isoformat(),
     )
+
+
+# MT5's OWN answer to "why did this close", which the terminal has always known and this
+# bridge was throwing away: summarize_closed_position reads final_deal.price and .time and
+# drops .reason.
+#
+# Measured on this account 2026-08-17: of 1092 closing deals, 1064 carried DEAL_REASON_SL,
+# 17 TP, 6 EXPERT, 5 CLIENT. The field is populated and authoritative, which is why the
+# price-inference fallback originally proposed (match closePrice against sl/tp within a
+# slippage tolerance) is not needed — there is nothing to infer.
+#
+# STOPOUT is kept separate from STOP deliberately. A margin stop-out is not the setup's
+# stop being hit, and folding them together would hide a liquidation inside a normal loss.
+# Anything unrecognised becomes OTHER and the raw code travels beside the label, so no
+# information is discarded on the way.
+EXIT_REASON_BY_DEAL_REASON = {
+    mt5.DEAL_REASON_SL: "STOP",
+    mt5.DEAL_REASON_TP: "TARGET",
+    mt5.DEAL_REASON_SO: "STOPOUT",
+}
+
+
+def exit_reason_for(deals):
+    """(label, raw_reason_code) for the deal that actually closed the position.
+
+    (None, None) when there is no closing deal or the terminal reports no reason, so the
+    caller records nothing rather than guessing - the same rule summarize_closed_position
+    follows, and for the same reason: a fabricated outcome is worse than a missing one.
+
+    Picks the LAST closing deal by time, matching summarize_closed_position, so a position
+    that took partial profit at 1R and then stopped out is labelled by how it finally
+    ended rather than by its first exit.
+
+    NOTE a STOP is not necessarily a loss. A trailing stop that moved into profit still
+    closes with DEAL_REASON_SL, and one such deal on this account shows profit +0.40 -
+    so nothing downstream may treat this label as the sign of the P&L.
+    """
+    if not deals:
+        return (None, None)
+    closing_deals = [d for d in deals if d.entry in CLOSING_DEAL_ENTRIES]
+    if not closing_deals:
+        return (None, None)
+    final_deal = max(closing_deals, key=lambda d: d.time)
+    raw_reason = getattr(final_deal, "reason", None)
+    if raw_reason is None:
+        return (None, None)
+    return (EXIT_REASON_BY_DEAL_REASON.get(raw_reason, "OTHER"), int(raw_reason))
 
 
 def opened_by_this_bridge(deals, expected_symbol):
@@ -2046,9 +2995,13 @@ def track_closed_positions():
         pnl         = None
         close_price = None
         close_time  = datetime.now().isoformat()
-        outcome = summarize_closed_position(deals_for_position(ticket))
+        # Fetched ONCE and shared. Calling deals_for_position twice would double the
+        # history round-trip per close for two readings of the same deals.
+        deals = deals_for_position(ticket)
+        outcome = summarize_closed_position(deals)
+        exit_reason, exit_reason_code = exit_reason_for(deals)
         if outcome:
-            pnl, close_price, close_time = outcome
+            pnl, close_price, close_time, close_time_broker = outcome
         else:
             # The position is genuinely gone, so the journal must not keep calling it
             # open — post the close with an unknown P&L rather than silently dropping
@@ -2058,16 +3011,37 @@ def track_closed_positions():
         # Counters and their on-disk copy move together — see record_closed_outcome.
         record_closed_outcome(pnl, close_time)
 
+        # Read BEFORE the cleanup below drops it. Built here rather than inline in
+        # the payload so a failed POST does not leave the record half-consumed.
+        excursion = excursion_payload(ticket)
+
         try:
             requests.post(f"{SERVER_URL}/api/trade-closed", json={
                 "ticket":     ticket,
                 "pnl":        pnl,
                 "closePrice": close_price,
                 "closeTime":  close_time,
+                # The raw broker-clock figure, kept so the offset stays auditable and
+                # nothing is thrown away. closeTime is the observation stamp.
+                "closeTimeBroker": close_time_broker,
                 "account":    ACCOUNT_TAG or "default",
-            }, timeout=5)
+                # How far this trade ran in favour and against before it ended.
+                # RECORD-ONLY and SAMPLED at the poll interval, so both are floors.
+                # Nothing on the server reads these to decide anything; they exist
+                # so the partial-close question can eventually be settled with
+                # measurement instead of argument. Empty dict when untracked -
+                # never zeros, which would read as "it never moved".
+                **excursion,
+                # Record-only. Nothing on the server reads these to decide anything: the
+                # learning engine stays P&L-based and no gate, threshold or sizing path
+                # touches them. They exist so "hit its stop" can be told from "someone
+                # closed it", which the journal could not previously express.
+                "exitReason":     exit_reason,
+                "exitReasonCode": exit_reason_code,
+            }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
             color = GREEN if pnl and pnl > 0 else RED
-            log(f"Trade closed #{ticket}  P&L ${pnl}", color)
+            log(f"Trade closed #{ticket}  P&L ${pnl}"
+                + (f"  exit={exit_reason}" if exit_reason else ""), color)
         except Exception as e:
             log(f"Could not POST trade-closed #{ticket}: {e}", RED)
 
@@ -2099,7 +3073,10 @@ def track_closed_positions():
         position_partial_taken.discard(ticket)
         trail_unresolved_logged.discard(ticket)
         partial_too_small_logged.discard(ticket)
+        position_excursion.pop(ticket, None)
         save_position_r()
+        save_position_partial()
+        save_position_excursion()
 
     known_positions = current_tickets
 
@@ -2119,6 +3096,28 @@ def track_closed_positions():
 # never double-count a trade into updateLearning.
 JOURNAL_FETCH_LIMIT       = 500
 JOURNAL_REQUEST_TIMEOUT_S = 15
+
+# How often the sweep runs AFTER the startup pass.
+#
+# Running it once was the whole defect. On 2026-08-11 the sweep fired 22 seconds
+# after the terminal launched: positions_get() was already correct — #1713655080 and
+# #1726672007 really had closed, at 01:53:41Z and 01:54:13Z, 83 minutes earlier —
+# but history_deals_get(position=...) returned only the OPENING deal for each,
+# because the terminal downloads trade history from the broker asynchronously and
+# had not finished. summarize_closed_position() saw no closing deal, correctly
+# refused to invent a P&L, and nothing ever asked again. Nineteen minutes later the
+# identical query returned both closing deals in full. A +135.91 win — the first
+# this system has ever had — and a -99.10 loss the breaker never counted sat in the
+# journal as OPEN with a null P&L.
+#
+# Repeating it also makes the sweep a standing backstop under track_closed_positions(),
+# whose known_positions set is in memory: a close that slips past the live diff is now
+# picked up on the next pass instead of being lost for good.
+RECONCILE_INTERVAL_S = 300
+
+# Tickets already reported as unresolvable, so a retry every 5 minutes does not
+# reprint the same warning forever. Cleared per ticket the moment it reconciles.
+reconcile_warned = set()
 
 
 def fetch_open_journal_entries():
@@ -2161,13 +3160,14 @@ def journal_entry_is_ours(journal_entry, deals):
 
 def report_reconciled_close(ticket, outcome):
     """POST one recovered close to the server. True when the server accepted it."""
-    pnl, close_price, close_time = outcome
+    pnl, close_price, close_time, close_time_broker = outcome
     try:
         res = requests.post(f"{SERVER_URL}/api/trade-closed", json={
             "ticket":     ticket,
             "pnl":        pnl,
             "closePrice": close_price,
             "closeTime":  close_time,
+            "closeTimeBroker": close_time_broker,
             "account":    ACCOUNT_TAG or "default",
         }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
         res.raise_for_status()
@@ -2221,11 +3221,20 @@ def reconcile_open_trades():
 
         outcome = summarize_closed_position(deals)
         if outcome is None:
-            log(f"#{ticket} ({journal_entry.get('symbol')}) is ours and no longer open, but "
-                f"MT5 has no closing deal for it — leaving it for a human.", YELLOW)
+            # A position that is not open MUST have a closing deal somewhere, so
+            # this is history that has not downloaded yet rather than a trade with
+            # no ending. Say so once and let the next sweep ask again — the earlier
+            # wording ("leaving it for a human") described a one-shot check and was
+            # true of one, but no human was ever told.
+            if ticket not in reconcile_warned:
+                log(f"#{ticket} ({journal_entry.get('symbol')}) is ours and no longer open, "
+                    f"but MT5 has not returned a closing deal for it yet — trade history is "
+                    f"still downloading. Retrying every {RECONCILE_INTERVAL_S}s.", YELLOW)
+                reconcile_warned.add(ticket)
             continue
         if report_reconciled_close(ticket, outcome):
             recovered += 1
+            reconcile_warned.discard(ticket)
             reconciled_pnl, _, reconciled_close_time = outcome
             # Only what the breaker has not already seen. Without this gate every
             # restart would re-fold the same history into the streak; with it,
@@ -2281,11 +3290,19 @@ def main():
     # bridge already moved is measured against its TRUE risk rather than against the
     # stop the last run left behind.
     load_position_r()
+    load_position_excursion()
+    load_position_partial()
 
+    # The startup pass is kept because it is the only one that runs BEFORE
+    # known_positions is seeded, but it is no longer the only pass — see
+    # RECONCILE_INTERVAL_S. At this moment the terminal has been up for seconds and
+    # its trade history may still be downloading, so this call is expected to come
+    # up empty sometimes; the loop below is what makes that harmless.
     try:
         reconcile_open_trades()
     except Exception as exc:
         log(f"Startup reconciliation failed ({exc}) — continuing without it.", YELLOW)
+    last_reconcile_at = time.time()
 
     # Adopt the positions already running under our magic, so the first loop sees them
     # as open rather than as a fresh set to diff against nothing.
@@ -2297,6 +3314,33 @@ def main():
             f"{', '.join('#' + str(t) for t in sorted(known_positions))}", CYAN)
 
     log("Bridge started — watching for signals…", GREEN)
+
+    # WHO THIS PROCESS IS, because Windows will not say.
+    #
+    # Get-CimInstance returns an EMPTY CommandLine for these python processes — verified
+    # 2026-08-17, two of them, both `cmd=[]`, identical creation times — and one of the two
+    # is the shim. So nothing on the laptop could tell Bridge A from Bridge B from an
+    # unrelated script, and tasks/safe_bridge_restart.cjs had no safe way to cycle a bridge
+    # here at all: it fell back to a scheduled task that only exists on the VPS. Killing by
+    # guess on a process that trades is not an option, so the bridge names itself instead.
+    #
+    # Tag-scoped, so two bridges never overwrite each other's file. Written AFTER the MT5
+    # connection is up, so the file's existence means a bridge that actually reached the
+    # terminal, not one that died initialising. Never cleaned up on exit: a stale file is
+    # harmless because every reader must re-verify the pid is a live python process anyway,
+    # whereas deleting it on a crash path that may not run would be a false absence.
+    #
+    # Best-effort by design. A bridge that cannot write a diagnostic file must still trade.
+    try:
+        pid_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "tasks", "logs", f"bridge_{ACCOUNT_TAG or 'default'}.pid")
+        os.makedirs(os.path.dirname(pid_path), exist_ok=True)
+        with open(pid_path, "w", encoding="utf-8") as handle:
+            handle.write(str(os.getpid()))
+        log(f"Bridge pid {os.getpid()} recorded at {os.path.relpath(pid_path)}", CYAN)
+    except Exception as exc:
+        log(f"Could not record bridge pid ({exc}) — restart tooling will fall back to "
+            f"refusing rather than guessing.", YELLOW)
 
     # Push once before the first signal fetch so the server's very first refresh
     # already has MT5 bars rather than spending a cycle on the Yahoo fallback.
@@ -2327,7 +3371,21 @@ def main():
             report_risk_status()
             manage_trailing_stops()
             take_partial_profit()
+            # BEFORE close detection, so the last poll a position is alive for is
+            # counted in its excursion rather than lost with it.
+            track_excursions()
             track_closed_positions()
+
+            # Settle anything the live diff above could not see. track_closed_positions()
+            # compares against an IN-MEMORY set, so it is blind to a trade that ended
+            # while this process was down, and the startup sweep may have run before
+            # MT5 finished downloading history. This is the pass that catches both.
+            if time.time() - last_reconcile_at >= RECONCILE_INTERVAL_S:
+                last_reconcile_at = time.time()
+                try:
+                    reconcile_open_trades()
+                except Exception as exc:
+                    log(f"Reconciliation sweep failed ({exc}) — will retry.", YELLOW)
         except KeyboardInterrupt:
             log("Shutting down MT5 bridge…", YELLOW)
             mt5.shutdown()

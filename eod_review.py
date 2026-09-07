@@ -99,9 +99,23 @@ def review(target_date: str = None, silent: bool = False):
     best  = max(today_trades, key=lambda t: t.get("pnl") or 0)
     worst = min(today_trades, key=lambda t: t.get("pnl") or 0)
 
+    # "WAIT", "NONE" and "UNKNOWN" are the ABSENCE of a setup, not a setup, and the
+    # server refuses to attribute them for exactly that reason (NON_SETUP_NAMES in
+    # server/index.js). Bucketing them here produced a phantom setup in the daily
+    # summary and, downstream, in the AI insight prompt built from it — on 2026-08-12
+    # one such fill was reading as a 100% win rate on the dashboard.
+    #
+    # Excluded from the per-setup table, NOT from the day. The totals above already
+    # count them and they are named below, because the P&L is real money.
+    NON_SETUP_NAMES = {"WAIT", "NONE", "UNKNOWN"}
     setups = {}
+    unattributed = []
     for t in today_trades:
-        s = t.get("setup") or "UNKNOWN"
+        raw = (t.get("setup") or "").strip().upper()
+        if not raw or raw in NON_SETUP_NAMES:
+            unattributed.append(t)
+            continue
+        s = t["setup"]
         if s not in setups:
             setups[s] = {"wins": 0, "losses": 0, "pnl": 0}
         if (t.get("pnl") or 0) > 0:
@@ -113,6 +127,13 @@ def review(target_date: str = None, silent: bool = False):
     print(f"  W:{len(wins)} L:{len(losses)} BE:{len(be)} | WR:{win_rate}% | P&L:${gross:+.2f}")
     print(f"  Best:  {best.get('symbol')} ${best.get('pnl',0):+.2f}")
     print(f"  Worst: {worst.get('symbol')} ${worst.get('pnl',0):+.2f}")
+    if unattributed:
+        # Named rather than silently missing from the per-setup table below. A row like
+        # this means the setup name was lost upstream, which is itself worth seeing.
+        u_pnl = sum(t.get("pnl") or 0 for t in unattributed)
+        print(f"  Unattributed: {len(unattributed)} trade(s) with no real setup name, "
+              f"P&L ${u_pnl:+.2f} — counted in the totals above, excluded from the "
+              f"per-setup table (that is the absence of a setup, not a setup)")
 
     # ── Fetch learning state for context ────────────────────────
     learning = _fetch("/api/learning")

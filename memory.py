@@ -9,7 +9,7 @@ Usage:
   python memory.py summary
   python memory.py forget "BTC 4H double bottom"
 """
-import sys, json, time, re
+import sys, os, json, time, re
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -26,29 +26,92 @@ CATEGORIES = {
 }
 
 
+class MemoryCorrupt(Exception):
+    """The store exists but could not be read. Never treated as an empty store."""
+
+
 def _load() -> dict:
+    """ABSENT and CORRUPT are different answers and must never share a return value.
+
+    This used to return an empty store for both. Every writer here calls _load,
+    mutates the result and writes it back, so ONE unparseable read turned the whole
+    file into a single row and exited 0. Combined with a truncate-then-write _save
+    (which is what produces an unparseable file in the first place) that is a closed
+    loop: the bad write creates the corruption, the silent read turns it into a
+    delete, and the next add makes it permanent.
+
+    server/index.js had the identical pair and was fixed on 2026-08-14; this file is
+    the OTHER writer of the same tasks/jarvis_memory.json and CLAUDE.md lists
+    `python memory.py add KEY VALUE` as a standing command, so it runs in every
+    session. Fixing only the JavaScript side meant the server noticed the damage
+    afterwards rather than the damage not happening.
+
+    Absent is still a normal first run. Corrupt raises, because refusing to answer is
+    the only response that cannot destroy 30-odd saved facts.
+    """
     if not MEMORY_FILE.exists():
         MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
         return {"version": 1, "entries": [], "last_updated": None}
     try:
-        return json.loads(MEMORY_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {"version": 1, "entries": [], "last_updated": None}
+        raw = MEMORY_FILE.read_text(encoding="utf-8-sig")  # utf-8-sig strips a BOM
+    except OSError as exc:
+        raise MemoryCorrupt(
+            f"{MEMORY_FILE} exists but could not be read: {exc}. Refusing to report an "
+            f"empty store, because the next save would make that permanent."
+        ) from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise MemoryCorrupt(
+            f"{MEMORY_FILE} is not valid JSON ({exc}); {len(raw)} bytes on disk. NOT "
+            f"returning an empty store: every writer round-trips through _load, so "
+            f"doing so would delete every saved fact on the next add. Fix or move the "
+            f"file by hand."
+        ) from exc
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+        raise MemoryCorrupt(
+            f"{MEMORY_FILE} parsed but has no entries list — refusing to overwrite it."
+        )
+    return data
 
 
 def _save(data: dict):
+    """Atomic: write a temp file in the same directory, then os.replace.
+
+    A plain write_text truncates the target first, so an interruption leaves exactly
+    the half-written file _load now refuses to read. os.replace is atomic on Windows
+    and POSIX alike, and same-directory keeps the rename intra-volume.
+    """
     data["last_updated"] = datetime.now(timezone.utc).isoformat()
-    MEMORY_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MEMORY_FILE.with_suffix(MEMORY_FILE.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, MEMORY_FILE)
 
 
+def _owned(entries: list) -> list:
+    """The rows THIS module wrote, i.e. the ones shaped {key, value, ...}.
+
+    server/index.js appends to the same tasks/jarvis_memory.json in its own shape,
+    {ts, tag, text} — the /learn session log. The loader deliberately accepts the
+    whole file rather than rejecting a shape it does not own, so every lookup below
+    has to skip foreign rows instead of indexing ["key"] and dying on them. It died
+    on them: a SESSION-END row written 2026-08-24T20:33 raised KeyError on every
+    `add` and every `recall` from that moment until this was fixed, so write_memory
+    reported ok:false for a whole day.
+
+    Foreign rows are SKIPPED, never rewritten and never dropped — forget() filters
+    the full list, so anything this returns nothing about is simply kept.
+    """
+    return [e for e in entries if isinstance(e, dict) and "key" in e]
 def add_memory(key: str, value: str, category: str = "GENERAL", source: str = "manual") -> dict:
     """Add or update a memory entry. Returns the entry."""
     data = _load()
     now = datetime.now(timezone.utc).isoformat()
 
     # Check if key already exists — update in place
-    for entry in data["entries"]:
-        if entry["key"].lower() == key.lower():
+    for entry in _owned(data["entries"]):
+        if str(entry["key"]).lower() == key.lower():
             entry["value"] = value
             entry["category"] = category.upper()
             entry["updated_at"] = now
@@ -74,8 +137,9 @@ def recall(query: str, limit: int = 10) -> list:
     data = _load()
     q = query.lower()
     results = [
-        e for e in data["entries"]
-        if q in e["key"].lower() or q in e["value"].lower() or q in e.get("category", "").lower()
+        e for e in _owned(data["entries"])
+        if q in str(e["key"]).lower() or q in str(e.get("value", "")).lower()
+        or q in str(e.get("category", "")).lower()
     ]
     return results[:limit]
 
@@ -95,7 +159,11 @@ def forget(key: str) -> bool:
     """Remove a memory entry by key (partial match). Returns True if removed."""
     data = _load()
     before = len(data["entries"])
-    data["entries"] = [e for e in data["entries"] if key.lower() not in e["key"].lower()]
+    data["entries"] = [
+        e for e in data["entries"]
+        if not (isinstance(e, dict) and "key" in e
+                and key.lower() in str(e["key"]).lower())
+    ]
     if len(data["entries"]) < before:
         _save(data)
         return True
@@ -123,13 +191,43 @@ def all_entries() -> list:
 
 
 def format_entries(entries: list) -> str:
+    """Render a list of rows. Must survive BOTH shapes this file contains.
+
+    tasks/jarvis_memory.json has TWO WRITERS. memory.py writes {key, value,
+    category, ...}; server/index.js appends the /learn session log to the SAME file
+    as {ts, tag, text} - see _owned() above, which exists precisely to skip those
+    rows for lookups.
+
+    Every lookup path goes through _owned() and is therefore safe. This formatter
+    does not, and it is reached from summary() and get_today(), both of which read
+    the RAW entries list. Indexing e["key"] here raised KeyError on a SESSION-END row
+    written 2026-08-24T20:33, so `python memory.py summary` and `today` died - after
+    printing the totals, which made it read as a rendering hiccup rather than a dead
+    command - for nine days, while recall and add kept working. That asymmetry is why
+    it went unnoticed.
+
+    Fixed in the READER, never the row - the same call server/mcp_server.js:441 made
+    when this identical file broke its query path on 2026-08-28. The row is real data:
+    not rewritten, not reshaped, not dropped.
+    """
     if not entries:
         return "  (no entries)"
     lines = []
     for e in entries:
-        ts = e.get("updated_at", e.get("created_at", ""))[:10]
-        lines.append(f"  [{e.get('category','?'):8s}] {ts}  {e['key']}")
-        lines.append(f"           {e['value']}")
+        if not isinstance(e, dict):
+            lines.append(f"  [{'?':8s}] ----------  (unreadable row: {type(e).__name__})")
+            continue
+        ts = str(e.get("updated_at") or e.get("created_at") or e.get("ts") or "")[:10]
+        if "key" in e:
+            lines.append(f"  [{e.get('category','?'):8s}] {ts}  {e['key']}")
+            lines.append(f"           {e.get('value','')}")
+        else:
+            # Rendered, not hidden. A session note is worth reading in `today`, and
+            # silently skipping it would make the printed total disagree with the
+            # printed list for a reason nothing on screen explains.
+            tag = str(e.get("tag") or "NOTE")
+            lines.append(f"  [{tag:8.8s}] {ts}  (session note - not a memory.py row)")
+            lines.append(f"           {str(e.get('text',''))[:300]}")
     return "\n".join(lines)
 
 
@@ -197,4 +295,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # A corrupt store must fail loudly and non-zero, never quietly "succeed" having
+    # written a one-row file. Caught here so the operator gets the diagnosis and the
+    # remedy instead of a traceback, and so any .bat calling this sees a real failure.
+    try:
+        main()
+    except MemoryCorrupt as exc:
+        print(f"[MEMORY] REFUSING TO WRITE — {exc}", file=sys.stderr)
+        print("[MEMORY] Nothing was modified. Inspect or move the file, then retry.",
+              file=sys.stderr)
+        sys.exit(2)

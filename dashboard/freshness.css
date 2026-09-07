@@ -1,0 +1,144 @@
+/* ============================================================================
+   SmartEntry Pro — freshness chip
+   ============================================================================
+
+   The visual half of dashboard/freshness.js. Kept out of theme.css deliberately:
+   theme.css sets no layout beyond three stated exceptions, and a chip is
+   inline-flex with a gap — i.e. layout. Widening that invariant quietly is how
+   the last one broke twice. Same reasoning that put the page rail in nav.css.
+
+   EVERY COLOUR IS A TOKEN. No hex literal appears below. The rgba() fills are
+   the token colours at low alpha, matching the .badge-buy / .badge-sell pattern
+   theme.css already uses, so a chip reads as a considered badge rather than a
+   highlighter.
+
+   STATE IS NEVER COLOUR ALONE. The glyph carries it (● live, ▲ stale, ✕ not
+   updating, ? unknown) and .se-fresh-sr carries it again for a screen reader.
+   Remove the colour entirely and the chip still says which state it is in.
+   ------------------------------------------------------------------------- */
+
+/* The declarative wrapper the page writes: <span data-se-fresh="…">. It is almost
+   always sitting in a flex or grid row, where it becomes the flex ITEM — and a flex
+   item defaults to min-width:auto and will not shrink below its content. Constraining
+   only .se-fresh inside it changed nothing at all, measured: the wrapper stayed
+   210px wide inside a 180px panel and carried the chip out with it. This is the
+   element that has to be allowed to shrink; .se-fresh below then does the rest.
+   ------------------------------------------------------------------------- */
+[data-se-fresh] {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* nowrap is deliberate — an age broken across two lines is unreadable — but nowrap
+   plus a long caller-supplied label is exactly the trap the design notes warn about:
+   a flex/grid item will not shrink below its content and pushes out of its parent.
+   Measured in Edge before this was added: a chip labelled "a very long source name"
+   overflowed a 180px panel by 15px. max-width caps it, and the shrink order below
+   decides what gives — the LABEL, never the age. */
+.se-fresh {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  /* min-width:0 is the load-bearing half. When the chip is itself a flex or grid
+     item — which it is on every page that puts chips in a row — it inherits
+     min-width:auto, and min-width BEATS max-width in the cascade, so max-width
+     alone left the 15px overflow exactly where it was. Measured both ways. */
+  min-width: 0;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  font-size: .68rem;
+  line-height: 1.5;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.se-fresh-glyph {
+  flex: 0 0 auto;
+  font-size: .62em;
+  line-height: 1;
+  position: relative;
+  top: -1px;
+}
+
+/* The only part allowed to give. min-width:0 is required: a flex item defaults to
+   min-width:auto and refuses to shrink below its text no matter what overflow says. */
+.se-fresh-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-size: .92em;
+}
+
+/* The age itself is the value on this chip, so it gets the mono face and tabular
+   figures — a chip ticking 58s -> 59s -> 1m must not change width and shove its
+   neighbours sideways. */
+.se-fresh-age {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+  color: var(--text);
+}
+
+/* Screen-reader-only restatement of the state. Not display:none — that would
+   remove it from the accessibility tree, which is the opposite of the intent. */
+.se-fresh-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── States ────────────────────────────────────────────────────────────────
+   Only the fresh state gets the halo treatment theme.css gives .dot/.led. Stale
+   and dead are the ones a reader must not skim past, so they carry a tinted
+   ground and a coloured border instead — heavier than the resting state rather
+   than merely a different hue.
+   ------------------------------------------------------------------------- */
+
+.se-fresh.is-fresh {
+  border-color: var(--border2);
+}
+.se-fresh.is-fresh .se-fresh-glyph {
+  color: var(--green);
+  text-shadow: 0 0 7px var(--green);
+}
+
+.se-fresh.is-stale {
+  border-color: rgba(240, 180, 41, .38);
+  background: rgba(240, 180, 41, .10);
+}
+.se-fresh.is-stale .se-fresh-glyph { color: var(--amber); }
+.se-fresh.is-stale .se-fresh-age   { color: var(--amber); }
+
+.se-fresh.is-dead {
+  border-color: rgba(242, 85, 95, .40);
+  background: rgba(242, 85, 95, .12);
+}
+.se-fresh.is-dead .se-fresh-glyph { color: var(--red); }
+.se-fresh.is-dead .se-fresh-age   { color: var(--red); font-weight: 700; }
+
+.se-fresh.is-unknown {
+  border-style: dashed;
+}
+.se-fresh.is-unknown .se-fresh-glyph,
+.se-fresh.is-unknown .se-fresh-age { color: var(--muted-dim); }
+
+/* At phone width the label is the first thing worth dropping: the glyph and the
+   age still carry the whole meaning, and the chips usually sit beside a heading
+   that already names the source. */
+@media (max-width: 480px) {
+  .se-fresh-label { display: none; }
+}

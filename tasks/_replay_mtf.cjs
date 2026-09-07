@@ -69,9 +69,132 @@ const SCALAR_CONSTS = [
   "SIZING_BOOST_MIN_CONFIDENCE",
   "STRUCTURAL_STOP_MIN_ATR",
   "GOLD_SQUEEZE_MODERATE_CONFIDENCE",
+  // Added 2026-08-09 with the EMA seeding guard. emaSeries reads it, so omitting
+  // it threw on every step of all three assets — 6225/9101/6211 — and the
+  // DEGRADED banner below is the only reason that surfaced instead of reading as
+  // "no trades produced". Exactly the failure this list exists to prevent.
+  "EMA_SMA_SEED_MIN_MULTIPLE",
+  // Added 2026-08-12. index.js:1849 reads it unconditionally on the SPX H4-only
+  // branch, so its absence threw on 1114 SP500 steps and the asset dropped OUT of
+  // every replay entirely — cohort_walkforward, regime_xtab and the time heatmap all
+  // silently measured two assets out of three. Nothing in their headline output said
+  // so: the failure went to stderr while stdout carried a complete-looking table.
+  // Third occurrence of this exact bug, which is why the list is read from source and
+  // why callers must check perAsset for an `error` key rather than trusting the total.
+  "SPX_H4_ONLY_BLOCKED_FLOOR",
+  // Added 2026-09-01 — the FOURTH occurrence of exactly the bug this list documents,
+  // and it was caught only because the numbers came back TOO clean. After changing
+  // BUY_DIP and MOMENTUM in the engine, the walk-forward returned trade counts
+  // identical to the pre-change run to the digit (308/413/115) and worst folds
+  // identical to three decimals. A change that admits 33% more MOMENTUM candidates
+  // cannot leave the trade count untouched, which is what gave it away. Had the
+  // change been smaller the run would have "validated" it and I would have reported
+  // a pass that never happened.
+  //
+  // generateSignal reads all three unconditionally on the BUY_DIP and MOMENTUM
+  // branches, so without them here every bar reaching either branch throws and is
+  // swallowed by the caller's catch.
+  "BUY_DIP_REQUIRE_MACD_BULLISH",
+  "BUY_DIP_RSI_MAX",
+  "MOMENTUM_REQUIRE_MACD_BULLISH",
+  // MOMENTUM_MACD_EXEMPT_TICKERS was listed here from 2026-09-03 (c4b264e) until
+  // 2026-09-05. b0bfb9e removed it from the ENGINE the same day it was added — it was
+  // the only new fleet divergence — and did not touch this file, so the harness went on
+  // demanding a const server/index.js no longer defines. It then did exactly what it
+  // promises to do on a missing const: refused. Every SmartEntry Post-Close Analysis run
+  // from 2026-09-03 to 2026-09-05 exited 1 with "no trades from any asset — nothing to
+  // measure". The fail-closed design worked; nothing read the failure for two days.
+  //
+  // RESTORE THIS ENTRY THE MOMENT THE ENGINE READS THAT CONST AGAIN. Absent from the
+  // list while present on the MOMENTUM branch is the SEVENTH occurrence of the bug this
+  // list documents: it throws on every bar reaching the branch and the run reads as
+  // "MOMENTUM never fired", which is the very claim being tested.
+  // Added 2026-09-01 with SELL_BOUNCE's condition-1 flag. Omitting it would be the
+  // FIFTH occurrence of the bug this list documents: the const is read inside the
+  // SELL_BOUNCE branch, so its absence throws on every step and the run reads as
+  // "the short side never traded" — which is the very claim being tested. Its RHS is
+  // an env-driven ternary and the extractor copies the expression verbatim, so
+  // SELL_BOUNCE_REQUIRE_DOWNTREND=false switches the ENGINE and the REPLAY together.
+  "SELL_BOUNCE_REQUIRE_DOWNTREND",
+  // Added 2026-09-02. SIXTH occurrence of the bug this list documents if omitted: the
+  // const is read inside the TREND_FOLLOW branch, so its absence throws on every bar
+  // that reaches it and the run reads as "TREND_FOLLOW never fired" -- which is the
+  // very claim being tested, and TREND_FOLLOW is the largest blocker in the census.
+  "TREND_FOLLOW_REQUIRE_MACD_BULLISH",
 ];
 
 let code = "";
+// Engine consts a harness may flip to compare two worlds. Empty by default, so a plain
+// run reproduces the live engine exactly. Only booleans belong here; anything numeric
+// already has an MTF_* settings knob.
+const CONST_OVERRIDES = {};
+// BOTH OF THESE FAIL LOUD ON ANYTHING BUT "true"/"false".
+//
+// The first version of each read `=== "false"` and silently kept the baseline for every
+// other spelling -- `0`, `FALSE`, `no`, or a typo in the variable name itself. A measured
+// run that quietly reports THE BASELINE UNDER THE CANDIDATE'S LABEL is worse than no run:
+// it is a wrong answer wearing the authority of a walk-forward, and this project has
+// already reverted two settings that were flipped on the wrong instrument.
+//
+// MTF_BREAKDOWN above hard-errors for exactly this reason; these now match it. Flagged by
+// the code-reviewer on 2026-09-02, after the TREND_FOLLOW measurement had already run --
+// that run was correct (the candidate returned 276 trades against the baseline's 308, so
+// the flip demonstrably took effect), but it was correct by luck of spelling.
+const BOOL_ENV_FLAGS = [
+  ["MTF_SELL_BOUNCE_REQUIRE_DOWNTREND", "SELL_BOUNCE_REQUIRE_DOWNTREND"],
+  ["MTF_TREND_FOLLOW_REQUIRE_MACD",     "TREND_FOLLOW_REQUIRE_MACD_BULLISH"],
+  // MOMENTUM and BUY_DIP added 2026-09-03. There are THREE MACD-bullish requirements in
+  // the engine and only TREND_FOLLOW's could be tested, so "the MACD block was measured"
+  // was only ever true of one third of it. On 2026-09-02 all three live assets were
+  // blocked with EVERY other condition passing - BTC hist -203.01, Gold -28.44, SPX
+  // -14.00 - which makes these the single most load-bearing booleans in the engine and
+  // two of them had no way to be measured at all.
+  ["MTF_MOMENTUM_REQUIRE_MACD",         "MOMENTUM_REQUIRE_MACD_BULLISH"],
+  ["MTF_BUY_DIP_REQUIRE_MACD",          "BUY_DIP_REQUIRE_MACD_BULLISH"],
+];
+for (const [envName, constName] of BOOL_ENV_FLAGS) {
+  if (process.env[envName] === undefined) continue;
+  const raw = String(process.env[envName]).trim();
+  if (raw !== "true" && raw !== "false") {
+    console.error(`${envName}=${process.env[envName]} must be exactly "true" or "false" — ` +
+                  `refusing to replay, because anything else would silently report the ` +
+                  `baseline under the candidate's label.`);
+    process.exit(1);
+  }
+  if (raw === "false") CONST_OVERRIDES[constName] = "false";
+}
+
+// MOMENTUM's per-asset MACD exemption. Not a boolean, so it cannot ride BOOL_ENV_FLAGS,
+// but it fails loud on the same contract and for the same reason: a run that silently
+// replays THE BASELINE UNDER THE CANDIDATE'S LABEL is a wrong answer wearing the
+// authority of a walk-forward. Only the two spellings below are accepted.
+//
+//   none  -> []           the PRE-2026-09-03 engine. NOT "as it ships today" any more:
+//                         the engine literal is ["^GSPC"] since c4b264e, so this world is
+//                         the historical baseline, not the current one. Said "as it ships
+//                         today" for exactly as long as the list was empty.
+//   spx   -> ["^GSPC"]    the candidate: SP500 exempt, Gold and BTC untouched
+//
+// The engine ticker for SP500 is "^GSPC" (tasks/mtf_walkforward.cjs:29). Getting that
+// string wrong would exempt NOBODY and report the baseline as the candidate, which is
+// exactly the failure mode this block exists to refuse — so it is spelled here once and
+// never typed by the caller.
+// The two worlds this switch used to select no longer exist to select between: b0bfb9e
+// removed MOMENTUM_MACD_EXEMPT_TICKERS from the engine on 2026-09-03, so there is no
+// const left to override and BOTH worlds now replay as the same baseline. Overriding a
+// const that SCALAR_CONSTS does not extract is a silent no-op, and a silent no-op here
+// reports the baseline under the candidate's label — the one failure this block was
+// written to refuse. So it refuses, rather than quietly measuring the wrong thing.
+if (process.env.MTF_MOMENTUM_MACD_EXEMPT !== undefined) {
+  console.error(`MTF_MOMENTUM_MACD_EXEMPT is set, but the engine no longer defines ` +
+                `MOMENTUM_MACD_EXEMPT_TICKERS — b0bfb9e removed it on 2026-09-03 as the ` +
+                `only new fleet divergence. There is nothing to switch: both worlds would ` +
+                `replay identically and be reported under different labels. Re-add the ` +
+                `const to server/index.js and restore it to SCALAR_CONSTS above before ` +
+                `using this switch again.`);
+  process.exit(1);
+}
+
 for (const name of SCALAR_CONSTS) {
   const m = serverSrc.match(new RegExp(`^const\\s+${name}\\s*=\\s*([^;]+);`, "m"));
   if (!m) {
@@ -80,7 +203,12 @@ for (const name of SCALAR_CONSTS) {
                   `result silently looks like "this cohort never traded".`);
     process.exit(1);
   }
-  code += `const ${name} = ${m[1].trim()};\n`;
+  // MEASUREMENT-ONLY const overrides. Substituted at EXTRACTION time rather than
+  // reassigned afterwards, because these are `const` in the engine and a later
+  // assignment would throw inside the vm. The engine keeps a plain literal; the
+  // switch lives here, so the server is never edited to run a measurement.
+  const override = CONST_OVERRIDES[name];
+  code += `const ${name} = ${override !== undefined ? override : m[1].trim()};\n`;
 }
 for (const marker of NEEDED) {
   const block = extractBlock(marker);
@@ -124,6 +252,27 @@ if (process.env.MTF_MIN_ENTRY_RSI) {
   if (Number.isFinite(floor)) settings.minEntryRsi = floor;
 }
 
+// MEASUREMENT-ONLY override for the two RSI CEILINGS, same contract again: nothing on
+// disk changes, only this replay's copy of the settings object.
+//
+// These are the bars MOMENTUM and TREND_FOLLOW must sit UNDER, and until now no harness
+// could move them: they were literals inside generateSignal, so the single condition
+// that blocks more setups than anything else on this engine — 24 of 24 near-misses on
+// 2026-08-22, the closest by 1.5 points — could not be tested at all.
+//
+// Swept by re-replaying, never by filtering the output, for the same reason as the floor
+// directly above: the ceiling is inside generateSignal and runs on the daily and 4H
+// signals independently, so changing it changes which multi-timeframe combinations form,
+// not merely which rows survive.
+if (process.env.MTF_MOMENTUM_RSI_MAX) {
+  const ceiling = Number(process.env.MTF_MOMENTUM_RSI_MAX);
+  if (Number.isFinite(ceiling)) settings.momentumRsiMax = ceiling;
+}
+if (process.env.MTF_TREND_FOLLOW_RSI_MAX) {
+  const ceiling = Number(process.env.MTF_TREND_FOLLOW_RSI_MAX);
+  if (Number.isFinite(ceiling)) settings.trendFollowRsiMax = ceiling;
+}
+
 // MEASUREMENT-ONLY override for the DAILY_ONLY_H4_NEUTRAL cohort floor.
 //
 // Unlike minEntryRsi this one COULD be approximated by filtering the output — it
@@ -133,6 +282,46 @@ if (process.env.MTF_MIN_ENTRY_RSI) {
 // later signal through that was previously blocked. Filtering afterwards would
 // miss those, and on this engine they are not rare: the census reports 2270 steps
 // blocked by an open position on BTC and 2549 on SPX.
+// MEASUREMENT-ONLY switch for the BREAKDOWN setup — the short mirror of MOMENTUM.
+// Same contract as every override above: nothing on disk changes, only this replay's
+// copy of the settings object.
+//
+// BREAKDOWN ships OFF (server/index.js reads strategySettings.breakdownEnabled === true
+// and neither box's strategy_settings.json carries the key), so without this the harness
+// could not see the setup at all and the only way to measure it would be to arm it live
+// first. That is exactly backwards.
+//
+// Swept by re-replaying rather than by filtering the output, for the reason MTF_MIN_ENTRY
+// _RSI is: the setup forms inside generateSignal and runs on the daily and 4H legs
+// independently, so arming it changes which multi-timeframe combinations exist — and a
+// BREAKDOWN that opens occupies the symbol through `openUntil`, which can block a LONG
+// that the baseline took. Neither effect is reconstructible from a filtered trade list,
+// and the second one is the whole safety question.
+// Same hard-error contract as MTF_BREAKDOWN below: a typo must never silently select
+// the baseline and get reported under the candidate's label.
+const DIRECTIONAL_OCCUPANCY = (() => {
+  const raw = process.env.MTF_DIRECTIONAL_OCCUPANCY;
+  if (raw === undefined || raw === "") return false;
+  const v = String(raw).trim();
+  if (v !== "0" && v !== "1") {
+    console.error(`MTF_DIRECTIONAL_OCCUPANCY=${raw} must be exactly "0" or "1" - ` +
+      `refusing to guess, because a silently-ignored flag reports the baseline as the candidate.`);
+    process.exit(2);
+  }
+  return v === "1";
+})();
+
+if (process.env.MTF_BREAKDOWN) {
+  const raw = String(process.env.MTF_BREAKDOWN).trim();
+  if (raw !== "0" && raw !== "1") {
+    console.error(`MTF_BREAKDOWN=${process.env.MTF_BREAKDOWN} must be exactly "0" or "1" — ` +
+                  `refusing to replay, because anything else would silently report the ` +
+                  `baseline under the candidate's label.`);
+    process.exit(1);
+  }
+  settings.breakdownEnabled = raw === "1";
+}
+
 if (process.env.MTF_DAILY_ONLY_MIN_CONF) {
   const floor = Number(process.env.MTF_DAILY_ONLY_MIN_CONF);
   if (Number.isFinite(floor)) settings.dailyOnlyMinConfidence = floor;
@@ -166,6 +355,53 @@ if (process.env.MTF_ADX_TRENDING_MIN) {
 // replay refuses to run. A silently failed substitution is the dangerous outcome
 // here — it reports the baseline under a different label, which reads as "the R:R
 // bar makes no difference" when in fact it was never moved.
+// PER-DIRECTION R:R bar. A global MIN_RR move was already measured and rejected
+// (lowering to 1.35 buys 3 trades in 4 years and costs 6.6R), but the rejection
+// ledger says the constraint is wrong in ONE DIRECTION ONLY: on the VPS sample of
+// 86 resolved episodes, RANGE_TRADE_LONG rejections would have gone 59W/11L and
+// BUY_OVERSOLD 8W/0L, while RANGE_TRADE_SHORT went 0W/8L. Rejecting longs costs
+// money; rejecting shorts saves it. A blanket change takes both, which is very
+// likely why the global sweep came out negative.
+//
+// Substituted at the USE sites rather than the declarations, because that is where
+// the direction is in scope: `signal` at the generateSignal check, `daily.signal`
+// at the pivot-refine check. Same discipline as MTF_MIN_RR below — each pattern
+// must match EXACTLY once or the replay refuses, because a silently failed
+// substitution reports the baseline under a candidate's label.
+//
+// REPLAY ONLY. server/index.js is untouched; this measures a split bar without
+// shipping one.
+if (process.env.MTF_MIN_RR_LONG || process.env.MTF_MIN_RR_SHORT) {
+  if (process.env.MTF_MIN_RR) {
+    console.error("MTF_MIN_RR cannot be combined with MTF_MIN_RR_LONG/SHORT — " +
+                  "one would silently overwrite the other.");
+    process.exit(1);
+  }
+  const longRr  = Number(process.env.MTF_MIN_RR_LONG);
+  const shortRr = Number(process.env.MTF_MIN_RR_SHORT);
+  if (!Number.isFinite(longRr) || longRr <= 0 || !Number.isFinite(shortRr) || shortRr <= 0) {
+    console.error(`MTF_MIN_RR_LONG=${process.env.MTF_MIN_RR_LONG} / ` +
+                  `MTF_MIN_RR_SHORT=${process.env.MTF_MIN_RR_SHORT} must both be positive numbers.`);
+    process.exit(1);
+  }
+  const dirPatterns = [
+    { name: "generateSignal calcRR check", re: /calcRR < MIN_RR/g,
+      to: `calcRR < (signal === "SELL" ? ${shortRr} : ${longRr})` },
+    { name: "generateSignalMTF pivot refine", re: /refinedRR < ([\d.]+)/g,
+      to: `refinedRR < (daily.signal === "SELL" ? ${shortRr} : ${longRr})` },
+  ];
+  for (const p of dirPatterns) {
+    const matches = [...code.matchAll(p.re)];
+    if (matches.length !== 1) {
+      console.error(`MTF_MIN_RR_LONG/SHORT: expected exactly one "${p.name}" in the extracted ` +
+                    `engine, found ${matches.length}. Fix this harness rather than reporting ` +
+                    `a number it did not measure.`);
+      process.exit(1);
+    }
+    code = code.replace(p.re, p.to);
+  }
+}
+
 if (process.env.MTF_MIN_RR) {
   const wanted = Number(process.env.MTF_MIN_RR);
   if (!Number.isFinite(wanted) || wanted <= 0) {
@@ -196,6 +432,69 @@ if (process.env.MTF_MIN_RR) {
                   `report it before trusting any sweep of this parameter.`);
   }
   settings.minRrReplayed = wanted;
+}
+
+// MEASUREMENT-ONLY minimum distance between entry and a PIVOT-refined stop.
+//
+// generateSignal already floors the OTHER stop-tightening path: a structural swing
+// stop is only adopted when it is at least STRUCTURAL_STOP_MIN_ATR (0.5) ATR from
+// entry, because without that floor "one SPX trade came out at R/R 55.24 and
+// contributed +55.2R of a +39.5R cohort total" — a division artifact that flipped the
+// cohort's sign. That reasoning was never carried across to the pivot refinement in
+// generateSignalMTF, which adopts pivots.s1/r1 with no lower bound at all. Observed
+// live 2026-08-14: Gold entry 4334.84, ATR 94.69, the setup's own stop 4192.80
+// (1.5 ATR) replaced by pivot S1 4312.85 — a 21.99pt stop, 0.23 ATR, below even the
+// floor the structural path already enforces, with the reported R:R going 2.0 -> 3.8.
+//
+// The engine's own guard cannot catch this: `refinedRR < 1.5` reverts the refinement
+// only when the ratio is too LOW, and tightening the stop RAISES the ratio. It
+// protects against target-shortening and nothing else.
+//
+// Cannot be swept by filtering the output. Stop distance sets `risk`, which sets `rr`,
+// which decides both the `rr < 1` drop and the WIN/LOSS walk forward — and every taken
+// trade occupies the symbol via openUntil, so refusing one tightening lets a different
+// signal through later. Each value needs its own replay.
+//
+// "inf" / "off" means no pivot stop is ever adopted, i.e. the refinement's stop half
+// disabled — the honest "what if we never tightened" baseline. A null daily.atr leaves
+// behaviour UNCHANGED, so this knob can only ever refuse a tightening it can measure.
+//
+// REPLAY ONLY. server/index.js is untouched; unset leaves the extracted source
+// byte-identical, which is what keeps the two-box output-hash check valid.
+if (process.env.MTF_PIVOT_MIN_ATR) {
+  const raw = String(process.env.MTF_PIVOT_MIN_ATR).trim().toLowerCase();
+  const wanted = (raw === "inf" || raw === "off") ? Infinity : Number(raw);
+  if (!(wanted >= 0)) {
+    console.error(`MTF_PIVOT_MIN_ATR=${process.env.MTF_PIVOT_MIN_ATR} must be a ` +
+                  `non-negative number, or "inf"/"off" to disable the pivot stop ` +
+                  `entirely — refusing to replay, because ignoring it would report ` +
+                  `the baseline under this label.`);
+    process.exit(1);
+  }
+  const floorExpr = wanted === Infinity ? "Infinity" : String(wanted);
+  const pivotPatterns = [
+    { name: "generateSignalMTF BUY pivot stop",
+      re: /if \(pivots\.s1 > daily\.stop && pivots\.s1 < daily\.entry\) refinedStop = pivots\.s1;/g,
+      to: `if (pivots.s1 > daily.stop && pivots.s1 < daily.entry && ` +
+          `(daily.atr === null || daily.atr === undefined || ` +
+          `Math.abs(daily.entry - pivots.s1) >= daily.atr * ${floorExpr})) refinedStop = pivots.s1;` },
+    { name: "generateSignalMTF SELL pivot stop",
+      re: /if \(pivots\.r1 < daily\.stop && pivots\.r1 > daily\.entry\) refinedStop = pivots\.r1;/g,
+      to: `if (pivots.r1 < daily.stop && pivots.r1 > daily.entry && ` +
+          `(daily.atr === null || daily.atr === undefined || ` +
+          `Math.abs(daily.entry - pivots.r1) >= daily.atr * ${floorExpr})) refinedStop = pivots.r1;` },
+  ];
+  for (const p of pivotPatterns) {
+    const matches = [...code.matchAll(p.re)];
+    if (matches.length !== 1) {
+      console.error(`MTF_PIVOT_MIN_ATR: expected exactly one "${p.name}" in the extracted ` +
+                    `engine, found ${matches.length}. The engine has changed shape; fix this ` +
+                    `harness rather than reporting a number it did not measure.`);
+      process.exit(1);
+    }
+    code = code.replace(p.re, p.to);
+  }
+  settings.pivotMinAtrReplayed = wanted === Infinity ? "inf" : wanted;
 }
 
 // Macro caches are empty and the learning boost is zero. Historical DXY/VIX/
@@ -273,7 +572,21 @@ if (d1.length < 250 || h4.length < 300 || h1.length < 100) {
 }
 
 const WINDOW   = 400;   // trailing bars per timeframe; EMA200 needs ~210
-const MAX_HOLD = 40;    // H4 bars, same as tasks/_replay_engine.cjs
+// H4 BARS, not days -- and that distinction is load-bearing the moment a series with a
+// different bars-per-day is replayed. A broker 24h CFD yields 6 H4 bars a day, so 40 is
+// 6.7 days. H4 resampled from a 6.5h US cash session yields ~1.6 a day, so the SAME 40
+// is 24.6 days: 3.7x longer to reach target, which silently turns a losing instrument
+// into a winning one. Measured 2026-08-30: real MT5 SP500 scored -0.542R/trade with
+// ZERO wins while Yahoo ^GSPC over the identical window scored +0.468, and the EXPIRED
+// share was 54.5% against 16.3%.
+//
+// MTF_MAX_HOLD exists to MATCH THE HOLDING HORIZON IN REAL TIME across feeds, never to
+// tune the number until a result appears. Default is unchanged at 40, so every existing
+// caller behaves exactly as before.
+const MAX_HOLD = (() => {
+  const override = Number(process.env.MTF_MAX_HOLD);
+  return Number.isFinite(override) && override > 0 ? Math.round(override) : 40;
+})();
 
 // ── Trailing-stop ladder, OFF by default ──────────────────────────────────────
 //
@@ -293,6 +606,15 @@ const TRAIL_LADDER   = process.env.MTF_TRAIL_LADDER === "1";
 // `outcome` and the other measured. Comparing a derived number against a measured
 // one is how a trailing backtest flatters itself.
 const EMIT_R         = TRAIL_LADDER || process.env.MTF_EMIT_R === "1";
+// Emit the trade's RISK DISTANCE in price, |entry - stop|, for the per-asset cost
+// basis. A cost in R is spread / risk distance, and without this field every harness
+// has to assume one flat number across instruments whose risk distance spans roughly
+// 24x — which is exactly the assumption tasks/_cost_basis.cjs exists to replace.
+//
+// Opt-in for the same reason EMIT_R is: the default output hash is what the two-box
+// parity check compares, and silently adding a field to every run would destroy that
+// check to save one environment variable.
+const EMIT_RISK      = process.env.MTF_EMIT_RISK === "1";
 const TRAIL_ARM_R    = Number(process.env.MTF_TRAIL_ARM_R      || "1.0");
 const TRAIL_STEP_R   = Number(process.env.MTF_TRAIL_STEP_R     || "0.5");
 // 0.5 to match the shipped bridge default — see the walk-forward table in
@@ -383,6 +705,21 @@ function pickTf(cohort, dailySig, h4Sig, read) {
 const trades = [];
 let d1Ptr = 0, h1Ptr = 0;
 let openUntil = -1;
+// DIRECTION-AWARE OCCUPANCY, OFF by default.
+//
+// `openUntil` alone models ONE POSITION PER SYMBOL regardless of side, and that is
+// STRICTER THAN THE LIVE SYSTEM. server/sizing.js's duplicate guard was narrowed to
+// direction-aware on 2026-08-30 by explicit operator decision, precisely because the
+// symbol-only form was refusing a valid opposite-side SELL while a BUY was open. Live,
+// a short and a long CAN be held on the same symbol at once.
+//
+// That mismatch is not cosmetic: it charges a short setup for "displacing" longs that
+// the live system would have taken anyway. It is what made BREAKDOWN's re-run look like
+// it cost +14.33R of blocked long edge on 2026-09-02.
+//
+// Default 0 so all 33 existing findings stay reproducible byte-for-byte; this only
+// changes anything when a caller explicitly asks for it.
+let openUntilByDir = { BUY: -1, SELL: -1 };
 
 for (let i = 0; i < h4.length - 1; i++) {
   // The step happens at the CLOSE of this H4 bar - that is the moment the live
@@ -426,7 +763,9 @@ for (let i = 0; i < h4.length - 1; i++) {
   noteStep(cohort, conf, fired);
 
   if (!fired) continue;                                // <- the banding under test
-  if (i <= openUntil) { stepsBlockedByOpenPosition++; continue; }   // position still open
+  const dirKey = sig.signal === "SELL" ? "SELL" : "BUY";
+  const occupied = DIRECTIONAL_OCCUPANCY ? (i <= openUntilByDir[dirKey]) : (i <= openUntil);
+  if (occupied) { stepsBlockedByOpenPosition++; continue; }   // position still open
 
   const entry = sig.entry, stop = sig.stop, target = sig.target;
   const risk = Math.abs(entry - stop);
@@ -486,10 +825,20 @@ for (let i = 0; i < h4.length - 1; i++) {
     realisedR = isBuy ? (last.c - entry) / risk : (entry - last.c) / risk;
   }
   openUntil = exitIdx;
+  openUntilByDir[dirKey] = exitIdx;
 
   trades.push({
     t: h4[i].t, dir: sig.signal, setup: sig.setup, conf: sig.confidence,
     strength: sig.strength, h4dir: sig.h4 ? sig.h4.signal : null,
+    // The H1 leg the replay has ALWAYS computed (it is passed to generateSignalMTF at
+    // line 599) and never recorded. Without it nothing could ask the one question a
+    // user asks first: does it buy when the hourly is falling, and does that cost
+    // anything? h1 gates NOTHING in the live engine — it appears twice in the whole of
+    // server/index.js, a bonus branch at :2909 and a payload copy at :3221 — so the
+    // answer was unmeasurable rather than known. Purely additive: a new field on the
+    // row, no existing reader touched, no threshold and no gate involved.
+    h1dir: sig.h1 ? sig.h1.signal : null,
+    h1trend: sig.h1 ? sig.h1.trend : null,
     // Kept as-is so existing readers of this field keep working. `cohort` below
     // is the accurate one - it comes from the daily and 4H signals themselves
     // rather than inferring the branch from a confidence cutoff.
@@ -528,6 +877,10 @@ for (let i = 0; i < h4.length - 1; i++) {
     // output hash the two-box parity check compares, for no benefit to a fixed-stop
     // trade whose R is already implied by `outcome`.
     ...(EMIT_R ? { realisedR: Math.round(realisedR * 1000) / 1000 } : {}),
+    // Rounded to 6 significant digits rather than a fixed number of decimals: the same
+    // field carries a Bitcoin risk distance in the thousands and a Gold one in single
+    // dollars, and a fixed rounding would quantise one of them into nonsense.
+    ...(EMIT_RISK ? { risk: Number(risk.toPrecision(6)), entryPrice: Number(entry.toPrecision(8)) } : {}),
   });
 }
 
@@ -543,6 +896,22 @@ process.stderr.write("MTF_CENSUS " + JSON.stringify({
   symbol: SYMBOL,
   ticker: TICKER,
   tradeThreshold: TRADE_THRESHOLD,
+  // THE RULER THIS RESULT WAS MEASURED WITH. Stated for the same reason as every field
+  // below it, and it is the one that has actually reversed a conclusion.
+  //
+  // MAX_HOLD defaults to 40 and 25 of the 28 harnesses that call this script never set
+  // MTF_MAX_HOLD, so almost every number on record was produced at 40 without saying so.
+  // Measured 2026-09-05 on the RSI ceiling axis: at hold 40 the 72/68 candidate scores a
+  // worst fold of -0.135 at 1/5 and is the single worst option; at hold 320 the same
+  // candidate scores +0.189 at 5/5 and is the BEST worst-fold performer. Same data, same
+  // code, opposite verdict. A result quoted without its horizon is not a result, and
+  // evidence_register.js:108 is a live example of one that is wrong because of it.
+  //
+  // ADDITIVE ONLY: this records the horizon, it does not change it. The default stays 40
+  // so no existing caller's numbers move and no stored census becomes incomparable -
+  // silently shifting 25 baselines to fix a labelling problem would be the worse bug.
+  maxHold: MAX_HOLD,
+  maxHoldExplicit: process.env.MTF_MAX_HOLD !== undefined,
   confidenceThreshold: settings.confidenceThreshold,
   minStrength: settings.minStrength,
   // Stated on every run so a stored census can never be mistaken for the baseline.
@@ -550,6 +919,11 @@ process.stderr.write("MTF_CENSUS " + JSON.stringify({
   minEntryRsi: settings.minEntryRsi ?? null,
   adxTrendingMin: settings.adxTrendingMin ?? null,
   minRrReplayed: settings.minRrReplayed ?? null,
+  pivotMinAtrReplayed: settings.pivotMinAtrReplayed ?? null,
+  // null means "engine default, untouched" — same convention as the fields above, so a
+  // stored census can never be mistaken for the baseline it is being compared against.
+  breakdownEnabled: settings.breakdownEnabled ?? null,
+  directionalOccupancy: DIRECTIONAL_OCCUPANCY,
   stubbed: ["priceCache.dxy", "priceCache.vix", "sentimentCache.fearGreed",
             "signalCache (cross-asset)", "getLearningBoost -> 0"],
   windowBars: WINDOW,
@@ -568,6 +942,34 @@ if (engineThrows > 0) {
   console.error(`MTF_REPLAY DEGRADED: the engine threw on ${engineThrows} step(s). ` +
                 `First error: ${firstEngineThrow}. These steps are MISSING from the ` +
                 `result below — do not treat it as a complete measurement.`);
+}
+
+
+// EXPIRED IS AN ARTIFACT, NOT AN OUTCOME. There is no max-hold anywhere in the live
+// system -- not in mt5_bridge.py, not in server/index.js -- so a trade the replay
+// closes at MAX_HOLD would in reality still be running toward its stop or target.
+// Truncation therefore scores a live-unresolved trade as a flat scratch, which biases
+// every result DOWNWARD, and worst for slow instruments.
+//
+// Measured 2026-08-30 on real broker bars, sweeping MTF_MAX_HOLD: SP500 went from
+// -0.379R/trade at hold 40 (55% expired, 1/5 folds) to +0.241 at hold 320 (4% expired,
+// 3/5 folds) -- a NEGATIVE instrument reading POSITIVE once its trades were allowed to
+// resolve. XAUUSD went +0.173 -> +0.575 (5/5 folds), NAS100 -0.098 -> +0.223.
+//
+// The default stays 40 ON PURPOSE: cohort_walkforward.cjs and nine other callers have
+// stored claims scored against it, and silently moving the default would move every one
+// of those numbers without anyone seeing it happen. So this WARNS instead, on stderr,
+// leaving stdout a clean JSON array for the callers that parse it.
+{
+  const expired = trades.filter(t => t.outcome === "EXPIRED").length;
+  const share = trades.length ? expired / trades.length : 0;
+  if (share > 0.20) {
+    console.error(
+      `HORIZON WARNING: ${expired} of ${trades.length} trades (${(share * 100).toFixed(0)}%) ` +
+      `hit MAX_HOLD=${MAX_HOLD} H4 bars and were scored EXPIRED. The live system has NO ` +
+      `max-hold, so these are unresolved, not flat — this result is biased LOW. Re-run ` +
+      `with MTF_MAX_HOLD=320 to let them resolve, and compare.`);
+  }
 }
 
 process.stdout.write(JSON.stringify(trades));

@@ -18,7 +18,24 @@ ROOT       = Path(__file__).parent
 SERVER_URL = "http://localhost:3001"
 
 DEFAULT_ASSETS = ["BTC", "GOLD", "SPX"]
+
+# ALL_ASSETS is what --all will ATTEMPT. It is deliberately wider than what the
+# server computes: ETH, NASDAQ and OIL have no signal on /api/signals and no entry
+# in mt5_bridge.py's SYMBOL_CANDIDATES, so nothing is generated for them.
+#
+# That used to be invisible. Scanning NASDAQ printed "· NASDAQ — no signal", which
+# is exactly what a genuinely quiet GOLD prints, so an asset the system had never
+# evaluated read as an asset it had checked and found flat. Measured 2026-08-24:
+# /api/signals returns only ['btc','gold','spx'] and signals['nasdaq'] is ABSENT,
+# so _scan_asset took the {} default and scored a confident zero.
+# Same failure class as an error field with no reader.
 ALL_ASSETS     = ["BTC", "GOLD", "SPX", "ETH", "NASDAQ", "OIL"]
+
+# A signal value the ranking, the WAITING list and the exit code must all treat as
+# "not a trade". Kept in ONE place because it was written out as a literal tuple in
+# four, and adding "UNSUPPORTED" to three of four would have made an asset the
+# server cannot even see look ACTIONABLE to full_trade_workflow, which executes.
+NOT_ACTIONABLE = ("WAIT", "NONE", "ERROR", "UNSUPPORTED", "NO_DATA", None, "")
 
 
 def _fetch(path: str, timeout: int = 5):
@@ -29,9 +46,34 @@ def _fetch(path: str, timeout: int = 5):
         return {"_error": str(exc)}
 
 
-def _scan_asset(symbol: str, signals: dict, learning: dict, journal: list) -> dict:
+def _scan_asset(symbol: str, signals: dict, learning: dict, journal: list,
+                server_ok: bool = True) -> dict:
     key         = symbol.lower()
     signal_data = signals.get(key, {}) if isinstance(signals, dict) else {}
+
+    # Say which of the three it is, rather than defaulting all of them to WAIT.
+    #   server unreachable  -> NO_DATA      (we know nothing about ANY asset)
+    #   asset not computed  -> UNSUPPORTED  (the server is fine; it does not do this one)
+    #   otherwise           -> the real signal
+    # Collapsing the first two into WAIT is what let "no signal" mean three
+    # different things, only one of which was true.
+    if not server_ok:
+        return {
+            "symbol": symbol, "signal": "NO_DATA", "supported": None,
+            "confidence": 0.0, "setup": "", "reason": "server did not answer /api/signals",
+            "entry": 0.0, "stop": 0.0, "target": 0.0, "rr": 0.0,
+            "win_rate": None, "setup_trades": 0, "recent_wins": 0,
+            "score": 0.0, "debate_verdict": None,
+        }
+    if not signal_data:
+        return {
+            "symbol": symbol, "signal": "UNSUPPORTED", "supported": False,
+            "confidence": 0.0, "setup": "",
+            "reason": "not computed by the server — /api/signals carries btc, gold, spx only",
+            "entry": 0.0, "stop": 0.0, "target": 0.0, "rr": 0.0,
+            "win_rate": None, "setup_trades": 0, "recent_wins": 0,
+            "score": 0.0, "debate_verdict": None,
+        }
 
     sig    = signal_data.get("signal", "WAIT")
     conf   = float(signal_data.get("confidence", 0))
@@ -51,8 +93,13 @@ def _scan_asset(symbol: str, signals: dict, learning: dict, journal: list) -> di
         if risk_pts > 0:
             rr = round(reward_pts / risk_pts, 2)
 
-    # Win rate from learning data
-    setups    = learning.get("setups", {}) if isinstance(learning, dict) else {}
+    # Win rate from learning data.
+    # /api/learning returns setupStats, NEVER "setups" — verified 2026-08-24, its top
+    # keys are setupStats, sessionCount, updatedAt, shadow, unattributed,
+    # reconciliation. So this read the missing key, got {}, and every row has shown
+    # "WR -" since it was written, with the win-rate term of the score silently
+    # pinned to zero. tv_daily_plan.py already had the fallback; this did not.
+    setups    = (learning.get("setupStats") or learning.get("setups") or {}) if isinstance(learning, dict) else {}
     setup_obj = setups.get(setup, {})
     wins      = setup_obj.get("wins", 0)
     losses    = setup_obj.get("losses", 0)
@@ -95,10 +142,24 @@ def scan_assets(assets: list, run_debate: bool = False) -> list:
     print(f"\n[SCAN] Fetching server data...")
     signals  = _fetch("/api/signals")
     learning = _fetch("/api/learning")
-    journal  = _fetch("/api/journal") if not isinstance(_fetch("/api/journal"), dict) else []
 
+    # /api/journal returns a {"journal": [...]} ENVELOPE, so the old
+    #   journal = _fetch(...) if not isinstance(_fetch(...), dict) else []
+    # was always true and journal was always [] — recent_wins pinned to zero for
+    # every asset, the second dead term in the score. It also called _fetch TWICE.
+    journal_raw = _fetch("/api/journal")
+    journal     = journal_raw.get("journal") if isinstance(journal_raw, dict) else journal_raw
     if not isinstance(journal, list):
         journal = []
+
+    # Distinguish "the server is down" from "this asset is not computed". Without
+    # this, a dead server would report every asset as UNSUPPORTED, which is a
+    # different and equally wrong story.
+    server_ok = isinstance(signals, dict) and not signals.get("_error") and any(
+        k in signals for k in ("btc", "gold", "spx"))
+    if not server_ok:
+        print("[SCAN] WARNING: /api/signals did not return usable data — "
+              "no asset can be judged this run.")
 
     print(f"[SCAN] Scanning {len(assets)} assets in parallel...")
     t0 = time.time()
@@ -106,7 +167,7 @@ def scan_assets(assets: list, run_debate: bool = False) -> list:
     results_map = {}
     with ThreadPoolExecutor(max_workers=min(len(assets), 8)) as pool:
         futures = {
-            pool.submit(_scan_asset, sym, signals, learning, journal): sym
+            pool.submit(_scan_asset, sym, signals, learning, journal, server_ok): sym
             for sym in assets
         }
         for future in as_completed(futures):
@@ -126,7 +187,7 @@ def scan_assets(assets: list, run_debate: bool = False) -> list:
     if run_debate:
         for r in ranked:
             if (
-                r.get("signal") not in ("WAIT", "NONE", "ERROR", None, "")
+                r.get("signal") not in NOT_ACTIONABLE
                 and r.get("confidence", 0) >= 65
                 and r.get("entry") and r.get("stop") and r.get("target")
             ):
@@ -146,8 +207,10 @@ def scan_assets(assets: list, run_debate: bool = False) -> list:
 
 
 def format_scan(results: list) -> str:
-    actionable = [r for r in results if r.get("signal") not in ("WAIT", "NONE", "ERROR", None, "")]
-    waiting    = [r for r in results if r.get("signal") in ("WAIT", "NONE", None, "")]
+    actionable  = [r for r in results if r.get("signal") not in NOT_ACTIONABLE]
+    waiting     = [r for r in results if r.get("signal") in ("WAIT", "NONE", None, "")]
+    unsupported = [r for r in results if r.get("signal") == "UNSUPPORTED"]
+    no_data     = [r for r in results if r.get("signal") == "NO_DATA"]
 
     lines = [
         "",
@@ -178,9 +241,24 @@ def format_scan(results: list) -> str:
         for r in waiting:
             lines.append(f"  · {r['symbol']:7s} — no signal")
 
+    # Rendered SEPARATELY and never as "no signal". These were never evaluated.
+    if unsupported:
+        lines.append("\n  NOT COMPUTED BY THE SERVER (never evaluated — this is not a WAIT):")
+        for r in unsupported:
+            lines.append(f"  ? {r['symbol']:7s} — no signal is generated for this asset; "
+                         f"/api/signals carries btc, gold, spx only")
+
+    if no_data:
+        lines.append("\n  UNKNOWN — the server did not answer, so nothing was judged:")
+        for r in no_data:
+            lines.append(f"  ! {r['symbol']:7s} — {r.get('reason','no data')}")
+
     if not actionable:
-        lines.append("\n  No active signals — all assets in WAIT state")
-        lines.append("  Check again after the next signal refresh (every 5 min)")
+        if waiting:
+            lines.append("\n  No active signals — every EVALUATED asset is in WAIT state")
+            lines.append("  Check again after the next signal refresh (every 5 min)")
+        else:
+            lines.append("\n  Nothing was evaluated this run — see the sections above.")
     else:
         top = actionable[0]
         lines.append(
@@ -218,7 +296,7 @@ def main():
     print(f"[SCAN] Saved: {out_path}")
 
     # Exit 0 if any signal is ready
-    sys.exit(0 if any(r.get("signal") not in ("WAIT","NONE","ERROR",None,"") for r in results) else 1)
+    sys.exit(0 if any(r.get("signal") not in NOT_ACTIONABLE for r in results) else 1)
 
 
 if __name__ == "__main__":

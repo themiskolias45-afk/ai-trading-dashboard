@@ -48,13 +48,31 @@ $IsInteractive = [Environment]::UserInteractive
 $TUNNEL_LOCAL_PORT = 3002
 $SERVER_URL        = 'http://localhost:3001/api/signals'
 $SERVER_TIMEOUT_S  = 6
-# The server needs a moment before it answers; only used to label the log line.
-$SERVER_SETTLE_S   = 8
+# The server needs a moment before it answers. This is a real wait, not a label:
+# $serverUp gates the bridge start below, so declaring the server down too early
+# leaves open positions with no bridge. Polled, because a cold boot took 15s on
+# 2026-08-12 and a flat 8s sleep missed it by 3 seconds.
+$SERVER_SETTLE_TIMEOUT_S = 45
+$SERVER_SETTLE_POLL_S    = 3
 # A bridge reports every 60s. Three missed reports is dead, not merely slow.
 $BRIDGE_STALE_S    = 180
 # A bridge needs ~30s to connect to MT5 and post its first heartbeat. Until then it
 # still looks "not reporting", so a second run must not start another one.
 $BRIDGE_START_COOLDOWN_S = 120
+# How many consecutive runs may start a bridge that never comes up before the
+# terminal, not the bridge, is named as the failed component.
+#
+# WHY THIS EXISTS
+# On 2026-08-13 this script logged "TERMINAL 1: running (PID 11876)" at 09:51,
+# 10:01 and 10:11 while the bridge logged twelve consecutive
+# "MT5 initialize() failed -- (-10005, 'IPC timeout')". The terminal was alive as a
+# process and refusing IPC. The script restarted the bridge six times -- the bridge
+# was never the broken part -- and its own log read healthy for 23 minutes of dead
+# execution. A process check is not a liveness check.
+#
+# Runs are ~10 min apart, so 3 is roughly 13 minutes of a bridge that cannot
+# connect: past any legitimate slow start, well before today's 23.
+$BRIDGE_MAX_FAILED_STARTS = 3
 
 # Which bridge tags this machine owns. Single source of truth is
 # MT5_EXPECTED_ACCOUNTS in keys.env -- the same variable the server's healer reads,
@@ -69,21 +87,19 @@ $BRIDGE_START_COOLDOWN_S = 120
 # Falls back to 'A,B' on a missing file, an unreadable one, or an empty value. Never
 # falls back to an empty list: that would silently start no bridges at all, which is a
 # worse failure than starting one too many.
-function Get-ExpectedBridgeTags {
-    $fallback = @('A', 'B')
-    try {
-        $envFile = Join-Path $Proj 'keys.env'
-        if (-not (Test-Path $envFile)) { return $fallback }
-        $line = Select-String -Path $envFile -Pattern '^\s*MT5_EXPECTED_ACCOUNTS\s*=' -ErrorAction Stop |
-                Select-Object -First 1
-        if (-not $line) { return $fallback }
-        $tags = ($line.Line -replace '^\s*MT5_EXPECTED_ACCOUNTS\s*=', '').Trim() -split ',' |
-                ForEach-Object { $_.Trim().ToUpper() } | Where-Object { $_ }
-        if (-not $tags -or $tags.Count -eq 0) { return $fallback }
-        return $tags
-    } catch {
-        return $fallback
-    }
+#
+# The function itself moved to tasks\bridge_tags.ps1 on 2026-08-08. It used to live
+# here only, and startup_all.ps1 hardcoded @('A','B') rather than calling it -- so this
+# script honoured the flag while the logon script beside it restarted B anyway. If the
+# dot-source fails, define the fallback rather than leaving the name undefined, or the
+# bridge block below would throw and this box would lose its gap-filler entirely.
+try {
+    . (Join-Path $PSScriptRoot 'bridge_tags.ps1')
+} catch {
+    function Get-ExpectedBridgeTags { return @('A', 'B') }
+}
+if (-not (Get-Command Get-ExpectedBridgeTags -ErrorAction SilentlyContinue)) {
+    function Get-ExpectedBridgeTags { return @('A', 'B') }
 }
 
 New-Item -ItemType Directory -Force $LogDir | Out-Null
@@ -140,6 +156,11 @@ if ($TerminalCandidates.Count -eq 0) {
     Write-Log 'TERMINALS: no MT5 install found on this box -- nothing to start'
 }
 $terminalIndex = 0
+# Counts terminals whose PROCESS is alive. Deliberately not called "healthy": a
+# terminal can hold this count and still refuse every IPC call (see
+# $BRIDGE_MAX_FAILED_STARTS). Section 3 uses it to tell "no terminal, so of course
+# the bridge cannot connect" apart from "terminal is up and lying".
+$terminalsRunning = 0
 foreach ($termPath in $TerminalCandidates) {
     $terminalIndex++
     $term = @{ Tag = "$terminalIndex"; Path = $termPath }
@@ -149,6 +170,7 @@ foreach ($termPath in $TerminalCandidates) {
     }
     $running = @($procs | Where-Object { $_.ExecutablePath -eq $term.Path })
     if ($running.Count -gt 0) {
+        $terminalsRunning++
         Write-Log "TERMINAL $($term.Tag): running (PID $($running[0].ProcessId))"
     } else {
         Write-Log "TERMINAL $($term.Tag): starting"
@@ -167,10 +189,14 @@ if ($serverUp) {
     Start-Process -FilePath 'cmd' `
         -ArgumentList '/c', 'cd server && node index.js >> ..\tasks\logs\server_log.txt 2>&1' `
         -WorkingDirectory $Proj -WindowStyle Minimized
-    Start-Sleep -Seconds $SERVER_SETTLE_S
-    $serverUp = Test-ServerUp
-    if ($serverUp) { Write-Log 'SERVER: up' }
-    else { Write-Log 'SERVER: still not answering -- see tasks\logs\server_log.txt' }
+    $waited = 0
+    while (-not $serverUp -and $waited -lt $SERVER_SETTLE_TIMEOUT_S) {
+        Start-Sleep -Seconds $SERVER_SETTLE_POLL_S
+        $waited += $SERVER_SETTLE_POLL_S
+        $serverUp = Test-ServerUp
+    }
+    if ($serverUp) { Write-Log "SERVER: up (answered after ${waited}s)" }
+    else { Write-Log "SERVER: still not answering after ${waited}s -- see tasks\logs\server_log.txt" }
 }
 
 #  3. Bridges A and B
@@ -187,6 +213,39 @@ if ($serverUp) {
 # /api/mt5/health?account=X is written only by POST /api/mt5/positions, so a "true"
 # there means a bridge is alive AND talking to both MT5 and the server - a stronger
 # statement than any process check, and immune to WMI.
+function Get-BridgeLauncher($tag) {
+    # WHICH .bat starts this tag's bridge ON THIS BOX. Ask the box, do not guess.
+    #
+    # THE FAULT THIS FIXES, found 2026-08-30 and latent until then. This script
+    # hardcoded "tasks\start_bridge_$tag.bat". On the VPS that file sets
+    # MT5_EXPECTED_LOGIN=25446287 - the LAPTOP's account - while the VPS trades
+    # 11581419 out of start_bridge_A_vps.bat. So if the VPS bridge ever stopped, the
+    # only thing able to restart it (this script, SYSTEM, every 10 min) would bring it
+    # back pinned to the wrong account, and MT5_EXPECTED_LOGIN would make it refuse
+    # every order. A bridge that looks alive and places nothing - the exact silent
+    # shape this project keeps rediscovering. Meanwhile SmartEntryBridgeA, which HAS
+    # the right launcher, is logon-only on a headless box and can never fire.
+    #
+    # "Prefer the _vps variant when it exists" would be WRONG: the laptop carries
+    # start_bridge_A_vps.bat too, so that rule would start the VPS's account here.
+    #
+    # The box's own SmartEntryBridge<tag> task is the authoritative statement of how
+    # THIS machine starts its bridge, and it is already correct on both: the VPS task
+    # names start_bridge_A_vps.bat, and the laptop has no bridge task at all, so it
+    # falls through to the plain launcher - which is the correct one there.
+    try {
+        $task = Get-ScheduledTask -TaskName ("SmartEntryBridge" + $tag) -ErrorAction Stop
+        foreach ($action in $task.Actions) {
+            $line = "" + $action.Execute + " " + $action.Arguments
+            $hit = [regex]::Match($line, 'start_bridge_[A-Za-z](_vps)?\.bat', 'IgnoreCase')
+            if ($hit.Success) { return $hit.Value }
+        }
+    } catch {
+        # No such task on this box. That is the laptop's normal state, not an error.
+    }
+    return ("start_bridge_" + $tag + ".bat")
+}
+
 function Get-BridgeAge($tag) {
     # Returns age in seconds, or $null when that account has never reported or the
     # server cannot be reached. $null means "start it"; a number means "leave it".
@@ -197,6 +256,64 @@ function Get-BridgeAge($tag) {
         return $null
     } catch {
         return $null
+    }
+}
+
+# Consecutive runs that started bridge $tag and never saw it report. The count is
+# the only thing carried between runs, and it is written, never deleted -- a zero
+# and an absent file mean the same thing, so a failed write costs a warning, not a
+# repair.
+function Get-BridgeFailCount($tag) {
+    try {
+        $f = Join-Path $LogDir ".bridge_fails_$tag"
+        if (-not (Test-Path $f)) { return 0 }
+        $raw = (Get-Content $f -First 1 -ErrorAction Stop)
+        $n = 0
+        # A corrupt or half-written file reads as 0. Losing the count re-arms the
+        # warning later than it should; throwing here would take the gap-filler
+        # down with it, which is far worse.
+        if ([int]::TryParse(($raw -as [string]).Trim(), [ref]$n) -and $n -ge 0) { return $n }
+        return 0
+    } catch {
+        return 0
+    }
+}
+
+function Set-BridgeFailCount($tag, $count) {
+    try {
+        Set-Content -Path (Join-Path $LogDir ".bridge_fails_$tag") `
+                    -Value ([string]$count) -Encoding ascii -ErrorAction Stop
+    } catch {
+        Write-Log "BRIDGE $($tag): could not record fail count ($($_.Exception.Message))"
+    }
+}
+
+# Fired once per episode, on the transition into the alarm state. Non-blocking on
+# purpose: this script runs every ten minutes on a schedule and must never sit
+# waiting on a notifier. Absent python or a failing notifier is logged and ignored.
+function Send-TerminalAlert($text) {
+    try {
+        # Get-Command only proves a python.exe EXISTS on PATH. On 2026-08-23 one did,
+        # first on PATH, and it could not spawn: a uv trampoline for an interpreter
+        # Smart App Control had begun blocking. This resolves by RUNNING a candidate --
+        # see server/python_path.js, the one resolver in this repo.
+        $shared = Join-Path $PSScriptRoot 'resolve_python.ps1'
+        $pythonBin = if (Test-Path $shared) { & $shared } else { $null }
+        if (-not $pythonBin) {
+            Write-Log 'ALERT: no python on this box will run -- log line is the only record'
+            return
+        }
+        # notifications.py exposes `alert "<message>" [--title T]` -- verified against
+        # its arg parser, not assumed. Built as ONE argument string and stripped of
+        # embedded quotes: PS 5.1 does not reliably re-quote an -ArgumentList array,
+        # so a message with a space would otherwise arrive as several arguments and
+        # the notifier would print usage and exit 1.
+        $safe = ($text -replace '"', "'")
+        Start-Process -FilePath $pythonBin `
+            -ArgumentList ('notifications.py alert "{0}" --title "MT5 TERMINAL"' -f $safe) `
+            -WorkingDirectory $Proj -WindowStyle Hidden
+    } catch {
+        Write-Log "ALERT: could not send ($($_.Exception.Message))"
     }
 }
 
@@ -215,10 +332,15 @@ elseif ($null -ne ($strayAge = Get-BridgeAge 'default') -and $strayAge -lt $BRID
 } else {
     $expectedTags = Get-ExpectedBridgeTags
     Write-Log "BRIDGES: this machine owns tag(s) $($expectedTags -join ',')"
+    # (Get-BridgeLauncher is defined above; it decides WHICH .bat starts this tag.)
     foreach ($tag in $expectedTags) {
         $age = Get-BridgeAge $tag
         if ($null -ne $age -and $age -lt $BRIDGE_STALE_S) {
             Write-Log "BRIDGE $($tag): reporting (${age}s ago)"
+            # A bridge that reports has connected to MT5, so the terminal is
+            # answering IPC. Reset by writing 0 rather than removing the file:
+            # nothing in this project deletes state it did not just create.
+            if ((Get-BridgeFailCount $tag) -ne 0) { Set-BridgeFailCount $tag 0 }
             continue
         }
         # Cooldown marker: a bridge takes ~30s to connect and first report, so two
@@ -232,11 +354,42 @@ elseif ($null -ne ($strayAge = Get-BridgeAge 'default') -and $strayAge -lt $BRID
                 continue
             }
         }
-        Write-Log "BRIDGE $($tag): not reporting -- starting"
+        # Counted BEFORE the start, so the number means "runs that have tried and
+        # failed", and only on the path that actually starts something -- the
+        # cooldown and server-down paths above start nothing and must not count.
+        $fails = (Get-BridgeFailCount $tag) + 1
+        Set-BridgeFailCount $tag $fails
+
+        $launcher = Get-BridgeLauncher $tag
+        Write-Log "BRIDGE $($tag): not reporting -- starting via $launcher"
         Set-Content -Path $marker -Value (Get-Date -Format 'o') -Encoding ascii
-        Start-Process -FilePath 'cmd' -ArgumentList '/c', "tasks\start_bridge_$tag.bat" `
+        Start-Process -FilePath 'cmd' -ArgumentList '/c', "tasks\$launcher" `
             -WorkingDirectory $Proj -WindowStyle Minimized
         Start-Sleep -Seconds 3
+
+        # THE POINT OF ALL THIS. Restarting the bridge again is still correct -- it
+        # is cheap and it is right whenever the bridge is the broken part. What was
+        # missing is the sentence that says it ISN'T: a terminal whose process is
+        # alive while the bridge it feeds has failed to connect $BRIDGE_MAX_FAILED_STARTS
+        # times running is a terminal refusing IPC, and no number of bridge restarts
+        # will fix it. Someone has to look at the terminal.
+        #
+        # Nothing is killed here. MT5 is single-instance per install, so starting it
+        # again only activates the window; the only real remedy is a manual restart
+        # of the terminal, which is a human decision on a box with open positions.
+        if ($fails -ge $BRIDGE_MAX_FAILED_STARTS) {
+            if ($terminalsRunning -gt 0) {
+                Write-Log "BRIDGE $($tag): FAILED TO CONNECT $fails RUNS RUNNING while $terminalsRunning MT5 terminal(s) show as running"
+                Write-Log "TERMINAL: SUSPECT -- process alive but not answering IPC. Check tasks\logs\bridge_log_$tag.txt for 'IPC timeout'; restart MetaTrader 5 by hand and confirm it is logged in."
+                # Once per episode, on the transition only, so a machine left in this
+                # state does not send an alert every ten minutes forever.
+                if ($fails -eq $BRIDGE_MAX_FAILED_STARTS) {
+                    Send-TerminalAlert "Bridge $tag has failed to connect $fails runs in a row while MT5 is running. Terminal is alive but not answering IPC - restart MetaTrader 5 and check it is logged in. This box cannot execute until then."
+                }
+            } else {
+                Write-Log "BRIDGE $($tag): failed to connect $fails runs running, and no MT5 terminal is up -- terminal start is the fix, see above"
+            }
+        }
     }
 }
 
@@ -299,6 +452,95 @@ if (-not (Test-Path $TunnelKey)) {
 # different project. A false positive costs a missing JARVIS window that the user
 # can open by hand; a false negative spawns duplicate sessions against the same
 # subscription every ten minutes. Those are not symmetric.
+# ── MT5 RUNTIME STATUS: refreshed HERE, because its own task never executes the script ──
+#
+# THIS MUST SIT ABOVE THE EARLY RETURN BELOW. The VPS is headless, so `-not $IsInteractive`
+# is true there and this file returns at that point - anything appended to the end of the
+# script would never run on the one box that needs it. Placed here on purpose.
+#
+# Measured 2026-09-06 on the VPS: the scheduled task "MT5 Ensure Running" launches
+# powershell.exe - the Task Scheduler Operational log records id=200 "launched action" and
+# id=102 "successfully finished" one second later - and the script NEVER EXECUTES. No START
+# line, no log entry, no file written, LastTaskResult 0, NumberOfMissedRuns 0. The status
+# file aged past 30 minutes and the AI Brain panel read "Status UNKNOWN" while MT5, the EA
+# and the trades were all perfectly healthy.
+#
+# Ruled out by measurement, not reasoning: the script (its exact command line runs and
+# writes over ssh, and from C:\Windows\System32 as CWD, exit 0), the arguments (dumped char
+# by char, pure ASCII, path resolves True), the encoding (no BOM, zero non-ASCII bytes), and
+# RunLevel=Limited (the CRT/TK/FVG shadow tasks are equally Limited and write every few
+# minutes - that check killed my own theory before it became a claim).
+#
+# WHAT ACTUALLY DIFFERS is the action itself. This task - the one that works - uses
+# `-NonInteractive` and `-WindowStyle Hidden`; the broken one omits both, so under an
+# Interactive logon PowerShell tries to create a console window in session 1 and dies
+# instantly when the session cannot host one.
+#
+# Doing it from the laptop instead would go stale every time the lid closed, on the one box
+# that is meant to run 24/7. mt5_ensure_running.ps1 only ever STARTS MT5 when absent and
+# never kills, so calling it more often is safe; any failure here must not take this down.
+$mt5Status = Join-Path $Proj 'tasks\mt5_ensure_running.ps1'
+if (Test-Path $mt5Status) {
+    try {
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "$mt5Status" | Out-Null
+        Write-Log 'MT5 status: refreshed here (its own task launches but never runs the script)'
+    } catch {
+        Write-Log "MT5 status: refresh FAILED - $($_.Exception.Message)"
+    }
+} else {
+    Write-Log 'MT5 status: tasks\mt5_ensure_running.ps1 missing - not refreshed'
+}
+
+# EXECUTION STATE for the Auto Trade page: can it trade, what can place an order, how big
+# can one get. Same reasoning as the block above - it rides this task because this one runs.
+# Read-only: it reads MT5, the settings API and the ledger, and writes one JSON file. A
+# failure here must never take ensure_running down with it.
+$execState = Join-Path $Proj 'tasks\execution_state.py'
+if (Test-Path $execState) {
+    try {
+        & python $execState 2>&1 | Out-Null
+        Write-Log 'Execution state: refreshed'
+    } catch {
+        Write-Log "Execution state: refresh FAILED - $($_.Exception.Message)"
+    }
+}
+
+# THE THREE BOOKS for the Performance page. Same reasoning as the two blocks above: it rides
+# this task because this one runs. Read-only - reads the journal API and two JSON files this
+# system already publishes, writes one file, and a failure must never take ensure_running down.
+$books = Join-Path $Proj 'tasks\performance_books.cjs'
+if (Test-Path $books) {
+    try {
+        & node $books 2>&1 | Out-Null
+        Write-Log 'Performance books: refreshed'
+    } catch {
+        Write-Log "Performance books: refresh FAILED - $($_.Exception.Message)"
+    }
+}
+
+# BUILD WATCH and HALT COVERAGE - refreshed HERE because nothing else writes their files.
+#
+# coverage_audit.ps1 calls both with --json, and BOTH treat --json as "print and write
+# nothing" (`if (AS_JSON) { console.log(...); process.exit(...) }`). So the audit reads them
+# every run while dashboard/ea-build-watch.json and dashboard/halt-coverage.json were last
+# written by a HUMAN running them by hand - 119 and 302 minutes stale when checked on
+# 2026-09-06. That was harmless while no page rendered them. The moment they appear on the
+# Auto Trade panel it stops being harmless: a stale file would show a confident GREEN about
+# a build or a halt state that had since changed.
+#
+# Called WITHOUT --json here, which is the mode that writes. Read-only either way, and a
+# failure must never take ensure_running down.
+foreach ($chk in @('tasks\ea_build_watch.cjs', 'tasks\halt_coverage.cjs')) {
+    $p = Join-Path $Proj $chk
+    if (-not (Test-Path $p)) { Write-Log "$chk missing - not refreshed"; continue }
+    try {
+        & node $p 2>&1 | Out-Null
+        Write-Log "$chk : refreshed"
+    } catch {
+        Write-Log "$chk : refresh FAILED - $($_.Exception.Message)"
+    }
+}
+
 if (-not $IsInteractive) {
     # The VPS is headless. Opening a console session nobody can see would burn
     # subscription on a window that never gets read.
@@ -307,15 +549,37 @@ if (-not $IsInteractive) {
     return
 }
 
+# DETECT BY PROCESS, NOT BY WINDOW TITLE. Corrected 2026-08-23.
+#
+# The title check above is the second time this detection has decayed the same way, and
+# the comment block warned about exactly this. The CLI no longer titles its window
+# "Claude Code" - it titles it after the CONVERSATION ("Page architecture design
+# consistency"), and claude.exe itself has NO MainWindowTitle at all because it is a
+# console child of the terminal. Measured: zero processes on this box matched, so
+# ensure_running opened a fresh session every ten minutes. The log had said
+# "JARVIS: no window -- opening" 200 times since 2026-08-08, 24 of them that day, and
+# the box was carrying 16 Claude Code sessions, ~193 MCP-server cmd processes and
+# ~196 node processes on 13.8 GB of RAM with 1.7 GB free.
+#
+# A WINDOW TITLE IS PRESENTATION AND CHANGES WITHOUT NOTICE. The process is the fact.
+#
+# FILTER ON THE PATH, which is the trap that makes the obvious fix wrong. Claude DESKTOP
+# is also called claude.exe - 10 of the 26 on this box were its Electron renderer, gpu,
+# utility and crashpad children. A bare `Get-Process claude` counts those, so it would
+# report a session present forever and this window would never open again. Only a command
+# line containing "claude-code" is the CLI.
 $jarvisRunning = $false
 try {
-    $claudeWindows = @(Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle -match 'Claude Code' })
-    $jarvisRunning = $claudeWindows.Count -gt 0
+    $cli = @(Get-CimInstance Win32_Process -Filter "Name='claude.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like '*claude-code*' })
+    $jarvisRunning = $cli.Count -gt 0
+    if ($jarvisRunning) { Write-Log ("JARVIS: {0} Claude Code process(es) already running" -f $cli.Count) }
 } catch {
-    # Fail SAFE: an unreadable process list must not spawn a session.
+    # Fail SAFE: an unreadable process list must not spawn a session. A missing window
+    # costs one manual launch; a false negative costs a duplicate session every ten
+    # minutes, which is what this whole block exists to stop.
     $jarvisRunning = $true
-    Write-Log "JARVIS: window check failed ($($_.Exception.Message)) -- assuming one is open"
+    Write-Log "JARVIS: process check failed ($($_.Exception.Message)) -- assuming one is open"
 }
 
 if ($jarvisRunning) {
@@ -327,7 +591,25 @@ if ($jarvisRunning) {
     # Inside the project on purpose. Unlike the unattended agents in claude_agent.py,
     # which run OUTSIDE it to avoid booting as JARVIS, this is the session that is
     # supposed to be JARVIS and load CLAUDE.md.
-    Start-Process -FilePath 'cmd' -ArgumentList '/k', 'claude' -WorkingDirectory $Proj
+    # Start-Process inherits THIS process's environment. When ensure_running is run from
+    # inside a Claude Code session, the window it opens inherits CLAUDE_CODE_CHILD_SESSION
+    # and the CLI turns TRANSCRIPT SAVING OFF for it - a session whose whole history is
+    # discarded, reported only as a one-line status warning. Cleared for the launch and
+    # restored immediately, so nothing else in this script sees a different environment.
+    #
+    # Cleared here rather than inside the cmd line itself: PS 5.1 does not reliably
+    # re-quote an -ArgumentList array, and `set "VAR=" && claude` through it is exactly
+    # the kind of quoting that arrives mangled.
+    $inheritedChildMarker = $env:CLAUDE_CODE_CHILD_SESSION
+    if ($inheritedChildMarker) {
+        $env:CLAUDE_CODE_CHILD_SESSION = $null
+        Write-Log 'JARVIS: cleared inherited CLAUDE_CODE_CHILD_SESSION so the window saves its transcript'
+    }
+    try {
+        Start-Process -FilePath 'cmd' -ArgumentList '/k', 'claude' -WorkingDirectory $Proj
+    } finally {
+        if ($inheritedChildMarker) { $env:CLAUDE_CODE_CHILD_SESSION = $inheritedChildMarker }
+    }
 }
 
 Write-Log '--- ensure_running done ---'

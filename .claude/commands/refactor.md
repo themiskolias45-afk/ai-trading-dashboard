@@ -17,7 +17,7 @@ Rules:
 - Do NOT change behavior. Only change structure.
 - Do NOT add features. This is cleanup only.
 - After each change, verify the call paths still work correctly.
-- Run node --check (JS) or python -m py_compile (Python) mentally after each edit.
+- Run node --check (JS) or python -m py_compile (Python) after each edit — actually run it, not mentally.
 
 Report:
 - Lines removed: X
@@ -25,3 +25,8 @@ Report:
 - Names improved: X
 - Dead code removed: [what]
 - Behavior changed: NONE
+
+After all changes verified:
+  If server/index.js was changed: node tasks/api_snapshot.cjs → must exit 0
+  If server/index.js was changed: invoke code-reviewer agent on changed functions → fix all CRITICAL
+  git add [specific file] && git commit -m "refactor: [what was cleaned up in file]"

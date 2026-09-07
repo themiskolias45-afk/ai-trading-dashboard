@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartEntry Pro — Pipelines</title>
+<style>
+/* ============================================================================
+   PIPELINES — every stage, and whether anything reads what it writes
+   ============================================================================
+
+   This system's recurring failure is not a crash, it is a WRITER WITH NO READER:
+   something produces evidence daily and nothing consumes it, so the gap stays
+   invisible for weeks. Four separate instances were found on 2026-08-29 alone —
+   the weekly review, the deep analysis, the VPS's unscored ledgers, and the deep
+   plan's own alignment data. Every one was found by hand.
+
+   This page shows the chain instead. Each pipeline is drawn as ordered stages,
+   each stage names the artifact it produces, what writes it, and what consumes
+   it — so a dead end reads as a dead end.
+
+   THE DISTINCTION THAT KEEPS IT HONEST: a stage marked EVENT-DRIVEN is written
+   only when a real trading event happens. This engine fills about once every
+   four days, so a still artifact there is the ordinary case and is never aged
+   against a cadence. Judging those the same as a nightly job would produce an
+   alarm that fires every day — the exact thing this page exists to prevent.
+
+   Reads one static JSON. No route, no restart, nothing that runs anything.
+   ============================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.55; font-size: 14px; }
+
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 20px 22px 16px; border-bottom: 1px solid var(--border); }
+.h-title { font-size: 1.35rem; font-weight: 750; letter-spacing: -.02em; }
+.h-sub { font-size: .78rem; color: var(--muted-dim); margin-top: 3px; max-width: 68ch; }
+.stamp { font-family: var(--mono); font-size: .68rem; color: var(--muted-dim); }
+main { max-width: 1120px; margin: 0 auto; padding: 18px 22px 72px; }
+
+.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 18px; }
+.cell { background: var(--surface); padding: 12px 14px; }
+.cell .k { font-family: var(--mono); font-size: .6rem; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); }
+.cell .v { font-size: 1.3rem; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.cell .n { font-size: .67rem; color: var(--muted-dim); margin-top: 1px; }
+
+.banner { border: 1px solid; border-radius: var(--radius); padding: 11px 15px; font-size: .78rem; line-height: 1.6; margin-bottom: 16px; }
+.banner strong { display: block; font-size: .83rem; margin-bottom: 2px; }
+.b-ok { background: rgba(43,208,124,.06); border-color: rgba(43,208,124,.3); color: #86efac; }
+.b-warn { background: rgba(240,180,41,.07); border-color: rgba(240,180,41,.35); color: #fde047; }
+.b-bad { background: rgba(242,85,95,.08); border-color: rgba(242,85,95,.45); color: #fca5a5; }
+
+/* ── one pipeline ────────────────────────────────────────────────────────── */
+.pipe { margin-bottom: 14px; padding: 15px 17px; border-left: 3px solid var(--muted-dim); }
+.pipe.ok { border-left-color: var(--green); }
+.pipe.amber { border-left-color: var(--yellow); }
+.pipe.red { border-left-color: var(--red); }
+.pipe-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pipe-title { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; }
+.pipe-what { font-size: .76rem; color: var(--muted-dim); margin-top: 5px; max-width: 82ch; line-height: 1.55; }
+
+/* The chain. Stages read left to right with an arrow between them, because the
+   dependency direction IS the thing being checked. Wraps on a phone rather than
+   scrolling the page sideways. */
+.chain { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin-top: 12px; }
+.stage { flex: 1 1 200px; min-width: 0; border: 1px solid var(--border2); border-radius: 7px; padding: 9px 11px; background: var(--bg); }
+.stage.missing { border-color: var(--red); background: rgba(242,85,95,.06); }
+.stage.event { border-style: dashed; }
+.stage-name { font-size: .74rem; font-weight: 650; }
+.stage-file { font-family: var(--mono); font-size: .6rem; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+.stage-meta { font-size: .64rem; color: var(--muted-dim); margin-top: 5px; font-variant-numeric: tabular-nums; }
+.stage-by { font-size: .61rem; color: var(--muted-dim); margin-top: 4px; overflow-wrap: anywhere; }
+.stage-by b { color: var(--muted); font-weight: 600; }
+.arrow { align-self: center; color: var(--border2); font-size: 1.1rem; padding: 0 7px; flex: 0 0 auto; }
+
+.pill { display: inline-block; font-family: var(--mono); font-size: .57rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; padding: 1px 6px; border: 1px solid currentColor; border-radius: 20px; white-space: nowrap; }
+.p-ok { color: var(--green); } .p-bad { color: var(--red); } .p-warn { color: var(--yellow); } .p-idle { color: var(--muted-dim); } .p-info { color: var(--blue); }
+
+.finding { display: flex; gap: 9px; margin-top: 9px; font-size: .74rem; }
+.finding .sev { width: 3px; border-radius: 2px; flex-shrink: 0; }
+.finding.RED .sev { background: var(--red); } .finding.AMBER .sev { background: var(--yellow); }
+.finding-text { color: var(--muted-dim); line-height: 1.55; }
+.finding-text b { color: var(--text); }
+
+.empty { font-size: .76rem; color: var(--muted-dim); padding: 13px 0; }
+/* The peer badge. Each box indexes only itself, so without this the page reports
+   one machine while presenting itself as the system — the exact shape of the
+   failure it exists to catch, since the VPS is where the unscored ledgers were. */
+.peer-badge { margin-left: auto; font-size: .62rem; color: var(--muted-dim); white-space: nowrap; }
+.peer-badge .lbl { font-family: var(--mono); letter-spacing: .06em; text-transform: uppercase; font-size: .55rem; }
+/* The card whose PEER reports a different level. The banner says how many differ;
+   this says which one, on the card itself. !important because .pipe.ok/.amber/.red
+   already set the left border and this must win over all three. */
+.disagree { border-left-color: var(--yellow) !important; }
+footer { margin-top: 36px; padding-top: 15px; border-top: 1px solid var(--border); font-size: .7rem; color: var(--muted-dim); line-height: 1.7; }
+footer a, main a { color: var(--accent); }
+</style>
+<link rel="stylesheet" href="/dashboard/theme.css">
+<link rel="stylesheet" href="/dashboard/nav.css">
+<script src="/dashboard/nav.js" defer></script>
+<link rel="stylesheet" href="/dashboard/freshness.css">
+<script src="/dashboard/freshness.js" defer></script>
+<link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+<meta name="theme-color" content="#070b12">
+</head>
+<body>
+
+<header class="page-head">
+  <div>
+    <div class="h-title">Pipelines</div>
+    <div class="h-sub">Every stage of every pipeline, and the one question that matters at each: does anything read what it writes?</div>
+  </div>
+  <div class="stamp" id="stamp">reading…</div>
+</header>
+
+<main>
+  <div id="fleet"></div>
+  <div id="quality"></div>
+  <div id="content"></div>
+  <div id="durable"></div>
+  <div id="banner"></div>
+  <div class="strip" id="strip"></div>
+  <div id="pipes"><div class="card" style="padding:14px 16px"><div class="empty">Loading…</div></div></div>
+
+  <footer>
+    Built by <code>tasks/pipeline_index.cjs</code> into <code>dashboard/pipeline-latest.json</code>,
+    re-indexed on each box's nightly run. Read-only — it opens artifacts and writes one JSON.<br />
+    <b>A stage marked <span class="pill p-idle">event-driven</span> is written only when a real
+    trading event happens.</b> This engine fills about once every four days, so a still artifact
+    there is the ordinary case and is never aged against a cadence.
+  </footer>
+</main>
+
+<script>
+const SOURCE = "/dashboard/pipeline-latest.json";
+/* The peer's own index, pulled to this box by tasks/pull_vps_backup.bat at 04:00.
+   It is PULLED, not fetched live: the other box serves /dashboard behind its login
+   gate and this one holds no session for it. So it is up to a day old, and the page
+   states that age rather than presenting it as current. Absent is fine — the fleet
+   column simply says the peer has not been indexed here. */
+const PEER_SOURCE = "/dashboard/pipeline-peer.json";
+/* The daily page-quality queue. Written by tasks/page_quality_audit.cjs, which
+   PROPOSES and never edits. Shown here because an audit nobody reads is precisely
+   the writer-with-no-reader failure this whole page exists to catch. */
+const QUALITY_SOURCE = "/dashboard/page-quality.json";
+/* The second daily pass. page-quality reads the MARKUP; this reads what the panels
+   actually SAY. A page whose data has been null since the third of the month is
+   byte-identical to a healthy one, which is how /daily-plan showed a price for every
+   asset — all of them null — for twenty-six days. */
+const CONTENT_SOURCE = "/dashboard/content-quality.json";
+/* The third daily pass, and the only one that asks what a RESTART would cost.
+   Nine state files were backed up and verified by sha1 before the 2026-08-29
+   restarts and all nine survived; what was lost lived in none of them, because
+   tvAlerts was an in-memory array with no writer. A backup cannot protect state
+   that was never on disk. */
+const DURABLE_SOURCE = "/dashboard/durable-state.json";
+
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+function ago(when) { return window.SEFresh ? window.SEFresh.ago(when, { unknown: "" }) : ""; }
+
+/* This box beside the peer. A pipeline healthy here and broken there is the case
+   that matters most: the VPS trades continuously, so a stage that stopped THERE
+   costs evidence on the machine actually producing fills. */
+/* One line per page with open findings, newest audit. Deliberately compact: this
+   is a daily improvement QUEUE, not an alarm — nothing here blocks or fails a run. */
+function renderQuality(q) {
+  const host = document.getElementById("quality");
+  if (!host) return;
+  if (!q || !q.available) { host.innerHTML = ""; return; }
+  /* A dead check reports clean, which is why the self-test is shown BESIDE the
+     count and not instead of it. raw-interpolation was dead from the day it was
+     written and reported every page clean for its whole life. */
+  const st = q.selfTest;
+  const proof = !st ? ""
+    : st.allChecksFire
+      ? " All " + esc(st.fired.length) + " checks verified against a canary page carrying each defect."
+      : " <b>SELF-TEST FAILED — " + esc(st.dead.join(", ")) + " cannot fire, so this count is not trustworthy.</b>";
+  if (!q.totalFindings) {
+    host.innerHTML = '<div class="banner ' + (st && !st.allChecksFire ? "b-warn" : "b-ok") + '"><strong>Page quality: clean</strong>'
+      + esc(q.pagesChecked) + " page(s) checked, no findings." + proof + "</div>";
+    return;
+  }
+  const rows = (q.pages || []).slice(0, 8).map(p =>
+    "<b>" + esc(p.page) + "</b> — "
+    + p.findings.slice(0, 3).map(f => esc(f.check) + (f.line ? ":" + esc(f.line) : "")).join(", ")
+    + (p.findings.length > 3 ? " +" + (p.findings.length - 3) + " more" : "")).join("<br>");
+  host.innerHTML = '<div class="banner b-warn"><strong>Page quality: '
+    + esc(q.totalFindings) + " open finding(s) across " + esc((q.pages || []).length) + " page(s)</strong>"
+    + rows
+    + "<br><span style=\"color:var(--muted-dim)\">Proposals only — this audit never edits a page. "
+    + esc(q.clean ? q.clean.length : 0) + " page(s) clean." + proof + "</span></div>";
+}
+
+/* Panels grouped by what is wrong with them, worst first. Deliberately names the
+   PAGES each endpoint feeds, because "/api/setup-health is hollow" is a fact and
+   "the Setup Health panel on the dashboard is hollow" is the thing you can act on. */
+function renderContent(c) {
+  const host = document.getElementById("content");
+  if (!host) return;
+  if (!c) { host.innerHTML = ""; return; }
+
+  if (!c.available) {
+    host.innerHTML = '<div class="banner b-bad"><strong>Content audit did not run</strong>'
+      + esc(c.reason || "no reason given") + "</div>";
+    return;
+  }
+
+  const st = c.selfTest;
+  const proof = !st ? ""
+    : st.allChecksFire
+      ? " All " + esc(st.fired.length) + " checks verified against canary payloads."
+      : " <b>SELF-TEST FAILED — " + esc(st.dead.join("; ")) + "</b>";
+  // An unauthenticated run can only see the open half of the surface. Saying
+  // "clean" from there would be the blind spot, not a clean bill of health.
+  const auth = c.session && c.session.authenticated ? ""
+    : " <b>NOT LOGGED IN (" + esc(c.session ? c.session.reason : "unknown")
+      + ") — session-gated panels were UNCHECKED, not cleared.</b>";
+
+  const tail = "<br><span style=\"color:var(--muted-dim)\">GET only. "
+    + esc((c.denyList || []).length) + " route(s) never probed because they ACT on GET. "
+    + esc(c.historyRows || 0) + " history row(s) — the frozen check needs the past."
+    + proof + auth + "</span>";
+
+  if (!c.totalFindings) {
+    host.innerHTML = '<div class="banner ' + ((st && !st.allChecksFire) || auth ? "b-warn" : "b-ok") + '">'
+      + "<strong>Panel content: " + esc(c.ok) + " of " + esc(c.probed) + " panels carry data</strong>"
+      + "Nothing unreachable, empty, stale or frozen." + tail + "</div>";
+    return;
+  }
+
+  const rows = c.findings.slice(0, 10).map(f =>
+    "<b>" + esc(f.endpoint) + "</b> — " + esc(f.check) + ": " + esc(f.detail)
+    + '<br><span style="color:var(--muted-dim)">feeds ' + esc(f.pages.join(", ")) + "</span>").join("<br>");
+
+  host.innerHTML = '<div class="banner ' + (c.red ? "b-bad" : "b-warn") + '">'
+    + "<strong>Panel content: " + esc(c.red) + " red, " + esc(c.amber) + " amber, "
+    + esc(c.ok) + " ok</strong>" + rows
+    + (c.findings.length > 10 ? "<br>+" + (c.findings.length - 10) + " more" : "")
+    + tail + "</div>";
+}
+
+/* Says what a restart takes with it. "persisted" is VERIFIED here, not claimed:
+   the audit checks the loader and saver exist and are called, because a claim of
+   persistence with no saver is exactly what tvAlerts looked like from outside. */
+function renderDurable(d) {
+  const host = document.getElementById("durable");
+  if (!host) return;
+  if (!d) { host.innerHTML = ""; return; }
+  if (!d.available) {
+    host.innerHTML = '<div class="banner b-bad"><strong>Durable-state audit did not run</strong>'
+      + esc(d.reason || "no reason given") + "</div>";
+    return;
+  }
+
+  const b = d.byClass || {};
+  const st = d.selfTest;
+  const proof = !st ? ""
+    : st.allChecksFire
+      ? " All " + esc(st.fired.length) + " checks verified against canary sources."
+      : " <b>SELF-TEST FAILED — " + esc(st.dead.join(", ")) + "</b>";
+  const tail = '<br><span style="color:var(--muted-dim)">'
+    + esc(b.persisted || 0) + " persisted (loader and saver verified present and called), "
+    + esc(b.regenerable || 0) + " regenerable, "
+    + esc(b.accepted || 0) + " lost on purpose." + proof + "</span>";
+
+  if (!d.totalFindings) {
+    host.innerHTML = '<div class="banner ' + (st && !st.allChecksFire ? "b-warn" : "b-ok") + '">'
+      + "<strong>Restart safety: all " + esc(d.stateFound) + " server states accounted for</strong>"
+      + "Nothing in the server would be lost by a restart without that being a decision on record."
+      + tail + "</div>";
+    return;
+  }
+
+  const rows = d.findings.slice(0, 8).map(f =>
+    "<b>" + esc(f.name) + (f.line ? ":" + esc(f.line) : "") + "</b> — "
+    + esc(f.check) + ": " + esc(f.detail)).join("<br>");
+  host.innerHTML = '<div class="banner ' + (d.red ? "b-bad" : "b-warn") + '">'
+    + "<strong>Restart safety: " + esc(d.red) + " red, " + esc(d.amber) + " amber</strong>"
+    + rows + tail + "</div>";
+}
+
+function renderFleet(d, peer) {
+  const host = document.getElementById("fleet");
+  if (!host) return;
+  if (!peer) {
+    host.innerHTML = '<div class="banner b-warn"><strong>Single-box view</strong>'
+      + "The peer's pipeline index has not been pulled to this box, so everything below "
+      + "describes <b>" + esc(d.box || "this machine") + "</b> alone. It arrives with the 04:00 VPS pull.</div>";
+    return;
+  }
+  const ageH = peer.generatedAt ? (Date.now() - Date.parse(peer.generatedAt)) / 3600000 : null;
+  const byId = {};
+  (peer.pipelines || []).forEach(p => { byId[p.id] = p; });
+  const differing = (d.pipelines || []).filter(p => byId[p.id] && byId[p.id].level !== p.level);
+
+  const stale = ageH !== null && ageH > 26;
+  const head = '<div class="banner ' + (differing.length ? "b-warn" : stale ? "b-warn" : "b-ok") + '">'
+    + "<strong>" + esc(d.box) + " &middot; " + esc(peer.box) + "</strong>";
+
+  if (differing.length) {
+    host.innerHTML = head
+      + differing.map(p => esc(p.label) + " is <b>" + esc(p.level) + "</b> here and <b>"
+          + esc(byId[p.id].level) + "</b> there").join("<br>")
+      + "<br>The peer index is " + (ageH === null ? "of unknown age" : Math.round(ageH) + "h old")
+      + ", so a difference may be a stage that has since recovered there.</div>";
+    return;
+  }
+  host.innerHTML = head
+    + "Both boxes report the same level on all " + esc((d.pipelines || []).length) + " pipelines. "
+    + "Peer index is " + (ageH === null ? "of unknown age" : Math.round(ageH) + "h old")
+    + (stale ? " — <b>older than a day, so it may not reflect the peer now</b>." : ".") + "</div>";
+}
+
+function renderBanner(d) {
+  const host = document.getElementById("banner");
+  const t = d.totals || {};
+  if (t.RED) {
+    host.innerHTML = '<div class="banner b-bad"><strong>' + esc(t.RED) + ' pipeline(s) have a broken stage</strong>'
+      + "An artifact below does not exist, so whatever should read it has nothing to read. "
+      + "That is the writer-with-no-reader failure this page exists to catch.</div>";
+    return;
+  }
+  if (t.AMBER) {
+    host.innerHTML = '<div class="banner b-warn"><strong>' + esc(t.AMBER) + ' pipeline(s) have a stage running late</strong>'
+      + "Every artifact exists, but a reader is behind its input AND past its own cadence — "
+      + "which means the job that produces it has missed a run.</div>";
+    return;
+  }
+  host.innerHTML = '<div class="banner b-ok"><strong>Every pipeline is complete</strong>'
+    + esc(t.stages) + " stage(s) across " + esc((d.pipelines || []).length)
+    + " pipeline(s): every artifact exists and every reader is current with its input.</div>";
+}
+
+function renderStrip(d) {
+  const t = d.totals || {};
+  const cell = (k, v, n) => '<div class="cell"><div class="k">' + esc(k) + '</div><div class="v">'
+    + v + '</div><div class="n">' + esc(n) + "</div></div>";
+  document.getElementById("strip").innerHTML =
+      cell("Pipelines", (d.pipelines || []).length, "declared end to end")
+    + cell("Stages", t.stages || 0, "artifacts + live checks")
+    + cell("Healthy", '<span style="color:var(--green)">' + (t.OK || 0) + "</span>", "no finding on any stage")
+    + cell("Late", '<span style="color:var(--yellow)">' + (t.AMBER || 0) + "</span>", "behind and overdue")
+    + cell("Broken", '<span style="color:' + (t.RED ? "var(--red)" : "var(--muted-dim)") + '">' + (t.RED || 0) + "</span>", "absent, or a dead live stage")
+    + cell("Box", esc(d.box || "—"), "these are per-machine");
+}
+
+/* A LIVE stage is checked against the running server, not a file mtime — the signal
+   chain has no artifact whose age means anything. It carries state/detail instead of
+   bytes and rows, so it is rendered on its own terms rather than showing "0h old" for
+   something that was never a file. */
+function liveStageCard(s) {
+  const bad = s.state === "BROKEN";
+  const warn = s.state === "DEGRADED";
+  const pill = bad ? "p-bad" : warn ? "p-warn" : "p-ok";
+  return '<div class="stage' + (bad ? " missing" : "") + '">'
+    + '<div class="stage-name">' + esc(s.name) + ' <span class="pill ' + pill + '">' + esc(s.state) + "</span></div>"
+    + '<div class="stage-file">' + esc(s.what || "") + "</div>"
+    + '<div class="stage-meta">' + esc(s.detail || "") + "</div>"
+    + '<div class="stage-by">written by <b>' + esc(s.by) + "</b><br>read by <b>" + esc(s.consumedBy) + "</b></div>"
+    + "</div>";
+}
+
+function stageCard(s) {
+  const cls = "stage" + (s.present ? "" : " missing") + (s.eventDriven ? " event" : "");
+  const bits = [];
+  if (s.present) {
+    bits.push(s.ageHours + "h old");
+    if (s.rows !== null && s.rows !== undefined) bits.push(s.rows + " rows");
+    if (s.bytes !== null && s.bytes !== undefined) bits.push(Math.max(1, Math.round(s.bytes / 1024)) + "KB");
+  } else {
+    bits.push("DOES NOT EXIST");
+  }
+  // The lag is shown even when it is not a fault, so "behind" is legible without
+  // being an alarm — a nightly reader is behind a live writer 23 hours a day.
+  let lag = "";
+  if (s.behindInput) {
+    lag = ' <span class="pill p-idle">' + esc(s.behindInputHours) + "h behind input</span>";
+  }
+  return '<div class="' + cls + '">'
+    + '<div class="stage-name">' + esc(s.name)
+    + (s.eventDriven ? ' <span class="pill p-idle">event-driven</span>' : "")
+    + lag + "</div>"
+    + '<div class="stage-file">' + esc(s.file) + "</div>"
+    + '<div class="stage-meta">' + esc(bits.join(" · ")) + "</div>"
+    + '<div class="stage-by">written by <b>' + esc(s.by) + "</b><br>read by <b>"
+    + esc(s.consumedBy) + "</b></div>"
+    + "</div>";
+}
+
+let PEER_BY_ID = null;
+function peerBadge(p) {
+  if (!PEER_BY_ID) return "";
+  const other = PEER_BY_ID[p.id];
+  if (!other) {
+    return '<span class="peer-badge"><span class="lbl">peer</span> not declared there</span>';
+  }
+  const cls = other.level === "OK" ? "p-ok" : other.level === "AMBER" ? "p-warn" : "p-bad";
+  return '<span class="peer-badge"><span class="lbl">peer</span> '
+    + '<span class="pill ' + cls + '">' + esc(other.level) + "</span></span>";
+}
+
+function renderPipes(d) {
+  const host = document.getElementById("pipes");
+  const pipes = d.pipelines || [];
+  if (!pipes.length) { host.innerHTML = '<div class="card" style="padding:14px 16px"><div class="empty">No pipelines declared.</div></div>'; return; }
+
+  host.innerHTML = pipes.map(p => {
+    const chain = p.stages.map(st => st.live ? liveStageCard(st) : stageCard(st)).join('<div class="arrow">&rarr;</div>');
+    const findings = (p.findings || []).map(f =>
+      '<div class="finding ' + esc(f.level) + '"><div class="sev"></div>'
+      + '<div class="finding-text"><b>' + esc(f.stage) + '</b> — ' + esc(f.detail) + "</div></div>").join("");
+    const pill = p.level === "OK" ? "p-ok" : p.level === "AMBER" ? "p-warn" : "p-bad";
+    // A pipeline the peer grades differently is the case that matters most: the VPS
+    // is the box that trades, so a stage healthy here and broken there costs evidence
+    // on the machine producing the fills.
+    const peerDiffers = PEER_BY_ID && PEER_BY_ID[p.id] && PEER_BY_ID[p.id].level !== p.level;
+    return '<div class="card pipe ' + esc(p.level.toLowerCase()) + (peerDiffers ? ' disagree' : '') + '">'
+      + '<div class="pipe-head"><div class="pipe-title">' + esc(p.label) + "</div>"
+      + '<span class="pill ' + pill + '">' + esc(p.level) + "</span>"
+      + peerBadge(p) + "</div>"
+      + '<div class="pipe-what">' + esc(p.what) + "</div>"
+      + '<div class="chain">' + chain + "</div>"
+      + findings
+      + "</div>";
+  }).join("");
+}
+
+async function load() {
+  const stamp = document.getElementById("stamp");
+  try {
+    const res = await fetch(SOURCE, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const d = await res.json();
+    // The peer is optional by design: a missing file makes this a single-box view
+    // that SAYS it is one, never a silent one.
+    const peer = await fetch(PEER_SOURCE, { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null);
+    PEER_BY_ID = null;
+    if (peer && Array.isArray(peer.pipelines)) {
+      PEER_BY_ID = {};
+      peer.pipelines.forEach(x => { PEER_BY_ID[x.id] = x; });
+    }
+    const quality = await fetch(QUALITY_SOURCE, { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null);
+    renderQuality(quality);
+    const content = await fetch(CONTENT_SOURCE, { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null);
+    renderContent(content);
+    const durable = await fetch(DURABLE_SOURCE, { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null);
+    renderDurable(durable);
+    renderFleet(d, PEER_BY_ID ? peer : null);
+    renderBanner(d);
+    renderStrip(d);
+    renderPipes(d);
+    stamp.textContent = esc(d.box || "") + " · indexed " + (ago(d.generatedAt) || "just now");
+  } catch (err) {
+    console.error("[pipelines] load failed:", err);
+    stamp.textContent = "could not read the index";
+    document.getElementById("banner").innerHTML =
+      '<div class="banner b-bad"><strong>Could not read the pipeline index</strong>'
+      + esc(err.message) + ". Generate it with <code>node tasks/pipeline_index.cjs</code>. "
+      + "Nothing below is current.</div>";
+    document.getElementById("pipes").innerHTML =
+      '<div class="card" style="padding:14px 16px"><div class="empty">Unavailable.</div></div>';
+  }
+}
+
+// freshness.js is deferred and has NOT run when an inline end-of-body script fires.
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", load);
+else load();
+</script>
+</body>
+</html>

@@ -3,13 +3,24 @@ TradingView Bot — JARVIS automation
 Login, draw daily plan levels, set price alerts, generate Pine Script
 
 Usage:
-  python tradingview_bot.py test                          # test login
+  python tradingview_bot.py plan                          # AUTO: live signals -> all 3 charts
+  python tradingview_bot.py plan GOLD                     # AUTO: one symbol
+  python tradingview_bot.py repoint                       # chart shows an OLD panel? rebuild the study
+  python tradingview_bot.py repoint GOLD                  # one symbol
+  python tradingview_bot.py test                          # attach only, does NOT sign in
+  python tradingview_bot.py login                         # sign in if the session is not authenticated
   python tradingview_bot.py draw BTC 105000 103500 107000 104000 106500
   python tradingview_bot.py alert BTC 107000 "Resistance — watch for rejection"
   python tradingview_bot.py pine BTC 105000 103500 107000 104000 106500
+
+`plan` is the one to use. It reads /api/signals and /api/strategy-settings itself,
+so the chart cannot drift from the engine, and it reloads each chart before applying
+so re-running replaces the plan instead of stacking another copy of it.
+
+Needs Edge on CDP 9222: tasks\\launch_chrome_tv.bat
 """
 
-import sys, os, time, json
+import sys, os, time, json, urllib.request
 from pathlib import Path
 
 try:
@@ -24,16 +35,78 @@ except ImportError:
 KEYS_FILE   = Path(__file__).parent / "keys.env"
 TV_BASE     = "https://www.tradingview.com"
 CHROME_PATH = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+SERVER_URL  = "http://localhost:3001"
+SHOT_DIR    = Path(__file__).parent / "dashboard" / "screenshots"
 
+# Gold is charted as XAUUSD, not TVC:GOLD. The broker feed is XAUUSD and TV prices
+# it within a few cents of our signal; TVC:GOLD is a different basis and has already
+# cost us once by showing levels that did not exist on the bars we actually trade.
 CHART_SYMBOLS = {
     "BTC":    "BINANCE:BTCUSDT",
-    "GOLD":   "TVC:GOLD",
+    "GOLD":   "OANDA:XAUUSD",
     "SPX":    "SP:SPX",
     "BTCUSD": "BINANCE:BTCUSDT",
-    "XAUUSD": "TVC:GOLD",
+    "XAUUSD": "OANDA:XAUUSD",
     "SP500":  "SP:SPX",
     "SPY":    "SP:SPX",
 }
+
+# The asset keys as /api/signals returns them.
+API_ASSETS = {"BTC": "btc", "GOLD": "gold", "SPX": "spx"}
+
+# Live selectors, verified against TradingView 2026-08-07. The originals
+# (pine-editor-activate-button, .cm-content, header-user-menu-button) are all dead:
+# the editor is Monaco now and a signed-in session has no "Add to chart" button,
+# so the script is applied with Ctrl+Enter.
+SEL_PINE_BUTTON = '[data-name="pine-dialog-button"]'
+SEL_MONACO      = '.monaco-editor'
+SEL_EDITOR_TEXT = '.monaco-editor .view-lines'
+# The editor WIDGET, as opposed to SEL_EDITOR_TEXT which is the scrolled CONTENT.
+# Click this one: .view-lines measured y=-1459 h=2698, so clicking its centre lands
+# off-screen at a negative coordinate and the caret never moves.
+SEL_EDITOR_ELEMENT = '.monaco-editor.pine-editor-monaco'
+SEL_USER_MENU   = '[class*="userMenu"], button[aria-label*="Open user menu" i]'
+SEL_SIGN_IN     = '[data-name="header-user-menu-sign-in"], button:has-text("Sign in")'
+# "Update on chart" is the apply control in the current editor — Ctrl+Enter does
+# NOT apply, it only looked like it did because the old check tested for compile
+# errors instead of testing whether the study reached the chart.
+SEL_APPLY       = '[data-tooltip="Update on chart"], [aria-label="Update on chart"]'
+SEL_COLLAPSE    = '[data-tooltip="Collapse panel"], [aria-label="Collapse panel"]'
+# Exact labels only. A loose button:has-text("Save") fallback matched the
+# "All changes saved" status chip first and clicking it timed out every run.
+SEL_SAVE        = ('[title="Save script"], [data-tooltip="Save script"], '
+                   '[aria-label="Save script"]')
+# The plan lives as ONE saved script. Saving it pushes the new source into every
+# chart already using it, which is how the plan updates without adding a study.
+SAVED_SCRIPT_NAME = "JARVIS Daily Plan"
+# Pine editor internals. Class hashes rotate with TradingView releases, so match on
+# the STABLE fragment rather than the whole name; data-name attributes are stable.
+SEL_PINE_DIALOG = '[data-name=pine-dialog]'
+SEL_EDITOR_AREA = '[data-name=pine-dialog] [class*="monaco"]'
+SEL_NAME_BUTTON = '[data-name=pine-dialog] [class*="nameButton"]'
+SEL_SAVE_BUTTON = '[data-name=pine-dialog] [class*="saveButton"]'
+SEL_OPEN_DIALOG = '[data-name=open-user-script-dialog]'
+SEL_OPEN_ITEM   = '[data-name=open-script-dialog-item-name]'
+# The dialog's own Search box. Matched by tag rather than by placeholder text, which is
+# localised — the dialog holds exactly one input on this build.
+SEL_OPEN_SEARCH = '[data-name=open-user-script-dialog] input'
+
+
+def squash(text):
+    """Compare script names through TradingView's markup.
+
+    The open-script dialog renders every CHARACTER in its own element, so a title reads
+    back as 'J\\nA\\nR\\nV\\nI\\nS\\n \\nD...' and no amount of .strip() makes it equal
+    'JARVIS Daily Plan'. Monaco separately renders spaces as U+00A0. Dropping ALL
+    whitespace sidesteps both without inventing a fuzzy match: two names that differ by
+    anything other than whitespace still differ.
+    """
+    return "".join(str(text).split()).casefold()
+
+# What the applied study actually renders on the chart is the table header, which
+# reads "JARVIS PLAN - <SYMBOL>". The indicator's own name ("JARVIS Daily Plan - X")
+# lives in the legend and is not reliably in the DOM text.
+PLAN_TITLE_FMT  = "JARVIS PLAN - {}"
 
 LINE_COLORS = {
     "entry":      "#4CAF50",   # green
@@ -55,7 +128,13 @@ def get_cred(key):
     return None
 
 # ── Session config ─────────────────────────────────────────────────────────────
-CHROME_USER_DATA = r"C:\Users\User\AppData\Local\Microsoft\Edge\SmartEntryTV"
+# Derived, not hardcoded. This named one user profile path literally, so the copy
+# deployed to the VPS - present, syntax-clean, looking every bit as installed as the
+# laptop copy - pointed at a directory that cannot exist under its Administrator
+# account. Identical value on this machine; the difference only shows on a box whose
+# user account is not the one that was baked in.
+_TV_PROFILE_ROOT = os.environ.get("LOCALAPPDATA") or "C:\\Users\\User\\AppData\\Local"
+CHROME_USER_DATA = str(Path(_TV_PROFILE_ROOT) / "Microsoft" / "Edge" / "SmartEntryTV")
 SESSION_FILE     = Path(__file__).parent / "tasks" / ".tv_session.json"
 
 def save_session(ctx):
@@ -74,21 +153,139 @@ def make_context(playwright):
     """
     browser = playwright.chromium.connect_over_cdp("http://localhost:9222")
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+    # Pine scripts are pasted, not typed, so the page needs clipboard write access.
+    try:
+        ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin=TV_BASE)
+    except Exception as exc:
+        print(f"[TV] Clipboard permission not granted ({exc}) — paste may fail")
+
+    # Own the dialogs, because Playwright's default handling of them can kill the run.
+    #
+    # With NO dialog listener registered, Playwright auto-dismisses every dialog. That
+    # dismiss is a round trip, and TradingView's own JS sometimes closes the dialog
+    # first, so the dismiss arrives at a dialog that is already gone. The driver raises
+    #   ProtocolError (Page.handleJavaScriptDialog): No dialog is showing
+    # as an UNHANDLED rejection inside the node driver process, which tears down the
+    # CDP connection. The failure then surfaces somewhere else entirely — on
+    # 2026-08-29 as "Page.goto: Connection closed while reading from the driver",
+    # which reads like a browser problem and is not one. The job exited 1 and
+    # tasks/tv_daily_plan.ps1 reported exit 5, the only RED on the coverage board.
+    #
+    # Registering a handler makes the dismiss OURS, so the race is caught in Python
+    # where it can be swallowed instead of killing the connection.
+    #
+    # DISMISS, never accept: dismiss is exactly what Playwright already did, so this
+    # changes no behaviour on the happy path. Accepting an unknown TradingView confirm
+    # could agree to discard a chart layout.
+    #
+    # This must never raise. Registering a listener switches the auto-dismiss OFF, so
+    # a handler that threw would leave a dialog up and block the page forever — which
+    # is worse than what it replaces.
+    def _dismiss_dialog(dialog):
+        """Dismiss dialogs — EXCEPT beforeunload, where dismiss means "stay here".
+
+        THE BUG THIS FIXES, measured 2026-08-30. Dismissing is the safe answer for an
+        alert, a confirm or a prompt: it declines whatever was proposed. For a
+        `beforeunload` dialog the semantics INVERT — dismiss is the Cancel button,
+        i.e. "do not leave the page" — so every dismiss silently cancelled the
+        navigation that raised it.
+
+        The symptom was `Page.goto: net::ERR_ABORTED` on every open_chart to a
+        different symbol, with the URL still on the previous chart afterwards. It
+        looked like a network fault or a TradingView block. It was this handler
+        answering "no" on our behalf, once per navigation, for as long as the Pine
+        editor had unsaved changes — which is most of a plan run.
+
+        Accepting a beforeunload discards unsaved editor content, and that is the
+        correct trade here: the saved script is the source of truth, cmd_plan writes
+        the exact source to tasks/pine_daily_plan_current.pine BEFORE it touches the
+        browser, and make_focus_safe exists to stop stray edits reaching the buffer.
+        A human clicking "Leave" is doing the same thing.
+        """
+        try:
+            message = (dialog.message or "")[:120]
+        except Exception:
+            message = "<unreadable>"
+        try:
+            kind = dialog.type
+        except Exception:
+            kind = ""
+        if kind == "beforeunload":
+            try:
+                dialog.accept()
+                print("[TV] accepted beforeunload (leaving the page) — dismissing it "
+                      "would have cancelled this navigation")
+            except Exception as dialog_exc:
+                print(f"[TV] beforeunload vanished before accept ({dialog_exc}) — continuing")
+            return
+        try:
+            dialog.dismiss()
+        except Exception as dialog_exc:
+            # The dialog closed itself first. Nothing is wrong and nothing is lost —
+            # it is gone, which is the state we were asking for.
+            print(f"[TV] dialog vanished before dismiss ({dialog_exc}) — continuing")
+        else:
+            if message:
+                print(f"[TV] dismissed dialog: {message}")
+
+    try:
+        ctx.on("dialog", _dismiss_dialog)
+    except Exception as exc:
+        print(f"[TV] could not register the dialog handler ({exc}) — "
+              f"falling back to Playwright's auto-dismiss")
+
     print("[TV] Attached to running Edge")
     return browser, ctx
 
 # ── Login ─────────────────────────────────────────────────────────────────────
+def is_logged_in(page):
+    """
+    True when the session is authenticated.
+
+    Presence of a user-menu button is NOT a usable test — TradingView renames that
+    class regularly and the old data-name selector matches nothing on a signed-in
+    page. Absence of the sign-in control is the marker that actually holds.
+    """
+    try:
+        if "tradingview.com" not in page.url:
+            return False
+
+        # ASK TRADINGVIEW, DO NOT INFER FROM A BUTTON.
+        #
+        # The sign-in-control test gives a FALSE POSITIVE, measured on the Contabo VPS
+        # 2026-09-05: a freshly created profile that had never signed in reported
+        # count == 0, so this function returned True, login() printed "Already logged in"
+        # and skipped, and the bot went on to draw as a guest. The page's own markup said
+        # the opposite at the same moment:
+        #
+        #     <html class="is-not-authenticated is-not-pro theme-dark">
+        #
+        # and the cookie jar held only analytics and consent cookies. That class is set by
+        # TradingView itself, so it cannot drift the way a data-name attribute does - which
+        # is the exact reason the old comment gave for abandoning the user-menu selector.
+        #
+        # Both markers are consulted: the class is authoritative when present, and the
+        # button check still catches a page that renders a sign-in prompt without it.
+        try:
+            root_class = page.evaluate("() => document.documentElement.className || ''")
+        except Exception:
+            root_class = ""
+        if "is-not-authenticated" in root_class:
+            return False
+        if "is-authenticated" in root_class:
+            return True
+
+        return page.locator(SEL_SIGN_IN).count() == 0
+    except Exception:
+        return False
+
+
 def login(page, ctx):
     """Login to TradingView only if not already logged in."""
     # Check current URL — if already on TV and logged in, skip everything
-    try:
-        current = page.url
-        if "tradingview.com" in current:
-            if page.locator('[data-name="header-user-menu-button"]').count() > 0:
-                print("[TV] Already logged in")
-                return
-    except:
-        pass
+    if is_logged_in(page):
+        print("[TV] Already logged in")
+        return
 
     username = get_cred("TV_USERNAME")
     password = get_cred("TV_PASSWORD")
@@ -98,25 +295,19 @@ def login(page, ctx):
     time.sleep(2)
 
     # Already logged in?
-    try:
-        if page.locator('[data-name="header-user-menu-button"]').count() > 0:
-            print("[TV] Already logged in (session active)")
-            return
-    except:
-        pass
+    if is_logged_in(page):
+        print("[TV] Already logged in (session active)")
+        return
 
     # No credentials — tell user to log in manually in the open window
     if not username or not password:
         print("[TV] No credentials — please log into TradingView in the browser window.")
         print("[TV] Waiting up to 3 minutes...")
         for _ in range(60):
-            try:
-                if page.locator('[data-name="header-user-menu-button"]').count() > 0:
-                    save_session(ctx)
-                    print("[TV] Logged in — session saved.")
-                    return
-            except:
-                pass
+            if is_logged_in(page):
+                save_session(ctx)
+                print("[TV] Logged in — session saved.")
+                return
             time.sleep(3)
         return
 
@@ -141,7 +332,11 @@ def login(page, ctx):
 
     # Fill email — try multiple selectors
     email_filled = False
-    for selector in ['input[name="username"]', 'input[type="email"]', 'input[autocomplete="username"]', 'input[placeholder*="mail"]']:
+    # MEASURED, NOT GUESSED. On 2026-09-05 the live form's fields are id_username and
+    # id_password; name="username" matches nothing, which is why this fell through to the
+    # manual path every time. The older names are kept behind the new ones so a revert on
+    # TradingView's side still works.
+    for selector in ['input[name="id_username"]', '#id_username', 'input[name="username"]', 'input[type="email"]', 'input[autocomplete="username"]', 'input[placeholder*="mail"]']:
         try:
             page.fill(selector, username, timeout=5000)
             email_filled = True
@@ -157,11 +352,17 @@ def login(page, ctx):
                 break
             time.sleep(3)
         save_session(ctx)
-        print("[TV] Logged in manually — session saved.")
+        # VERIFY, DO NOT ANNOUNCE. This printed success unconditionally, and on the VPS it
+        # said "Logged in manually - session saved" at a moment when the page still carried
+        # class="is-not-authenticated". A save of an anonymous session is not a login.
+        if is_logged_in(page):
+            print("[TV] Logged in manually — session saved.")
+        else:
+            print("[TV] STILL NOT SIGNED IN after the manual wait — nothing was saved that helps.")
         return
 
     # Fill password
-    for selector in ['input[name="password"]', 'input[type="password"]', 'input[autocomplete="current-password"]']:
+    for selector in ['input[name="id_password"]', '#id_password', 'input[name="password"]', 'input[type="password"]', 'input[autocomplete="current-password"]']:
         try:
             page.fill(selector, password, timeout=5000)
             break
@@ -199,13 +400,26 @@ def login(page, ctx):
 
     time.sleep(2)
     save_session(ctx)
-    print(f"[TV] Logged in: {username}")
+    # Same rule as the manual path: report what is true, not what was attempted.
+    if is_logged_in(page):
+        print(f"[TV] Logged in: {username}")
+    else:
+        print("[TV] LOGIN DID NOT TAKE — still not authenticated. "
+              "Check for a captcha or 2FA in the browser window.")
 
 # ── Chart navigation ──────────────────────────────────────────────────────────
 def open_chart(page, symbol):
+    """
+    Load a symbol's chart and wait until it is actually usable.
+
+    Never wait for "networkidle" here: TradingView holds streaming sockets open, so
+    the network never goes idle and the wait can only ever time out. The Pine button
+    appearing is the real readiness signal.
+    """
     tv_sym = CHART_SYMBOLS.get(symbol.upper(), symbol)
-    page.goto(f"{TV_BASE}/chart/?symbol={tv_sym}")
-    page.wait_for_load_state("networkidle", timeout=30000)
+    page.goto(f"{TV_BASE}/chart/?symbol={tv_sym}",
+              wait_until="domcontentloaded", timeout=45000)
+    page.wait_for_selector(SEL_PINE_BUTTON, timeout=45000)
     time.sleep(5)
     print(f"[TV] Chart open: {tv_sym}")
 
@@ -300,101 +514,2860 @@ def set_alert(page, price, symbol, message):
         return False
 
 # ── Generate Pine Script ──────────────────────────────────────────────────────
-def generate_pine(symbol, entry, stop, target, support=None, resistance=None, bias="WAIT"):
-    """Generate Pine Script with hardcoded levels — paste once into TV."""
-    bias_color = "color.green" if bias == "LONG" else "color.red" if bias == "SHORT" else "color.gray"
-    lines = []
+# Characters that reach Pine string literals from OUTSIDE this file and must not.
+#
+# The panel text is built from /api/signals `reasons`, which are written for humans and
+# carry typographic punctuation - em-dashes, arrows, comparison glyphs. Everything here
+# is a fold to the ASCII that means the same thing, never a deletion, so the panel still
+# reads correctly on the chart.
+#
+# Why it matters: the source is carried to the browser as text and typed into Monaco
+# through a synthetic paste, and this repo has already been bitten twice by an encoding
+# boundary silently mangling non-ASCII (a UTF-8 BOM resetting the VPS to default
+# sizing, and cp1252 stdout killing a Python step AFTER its write). A Pine literal is
+# the last place to find out that a byte did not survive the trip.
+_PINE_ASCII_FOLD = {
+    "—": "-",   "–": "-",   "‒": "-",   "−": "-",
+    "‘": "'",   "’": "'",   "“": "'",   "”": "'",
+    "…": "...", "→": "->",  "←": "<-",  "≥": ">=",
+    "≤": "<=",  " ": " ",   "•": "*",   "×": "x",
+}
 
-    if entry:   lines.append(f'line.new(bar_index - 100, {entry}, bar_index, {entry}, extend=extend.right, color=color.green,  width=2, style=line.style_dashed)')
-    if stop:    lines.append(f'line.new(bar_index - 100, {stop},  bar_index, {stop},  extend=extend.right, color=color.red,    width=2, style=line.style_dashed)')
-    if target:  lines.append(f'line.new(bar_index - 100, {target},bar_index, {target},extend=extend.right, color=color.blue,   width=2, style=line.style_dashed)')
-    if support: lines.append(f'line.new(bar_index - 100, {support},bar_index,{support},extend=extend.right, color=#64B5F6,     width=1, style=line.style_dotted)')
-    if resistance: lines.append(f'line.new(bar_index - 100, {resistance},bar_index,{resistance},extend=extend.right, color=#EF9A9A, width=1, style=line.style_dotted)')
 
-    label_lines = []
-    if entry:      label_lines.append(f'label.new(bar_index, {entry},      "Entry {entry:,.0f}",   color=color.green,  textcolor=color.white, style=label.style_label_left, size=size.small)')
-    if stop:       label_lines.append(f'label.new(bar_index, {stop},       "Stop  {stop:,.0f}",    color=color.red,    textcolor=color.white, style=label.style_label_left, size=size.small)')
-    if target:     label_lines.append(f'label.new(bar_index, {target},     "Target {target:,.0f}", color=color.blue,   textcolor=color.white, style=label.style_label_left, size=size.small)')
+def _pine_str(value):
+    """Quote a value for Pine, stripping what would break it and folding to ASCII."""
+    text = "-" if value is None else str(value)
+    for fancy, plain in _PINE_ASCII_FOLD.items():
+        text = text.replace(fancy, plain)
+    # Anything still outside ASCII is dropped rather than guessed at. Silently emitting
+    # a byte the compiler may reject is worse than losing one decorative glyph, and a
+    # fold table that pretends to be exhaustive is the thing that goes stale.
+    text = text.encode("ascii", "ignore").decode("ascii")
+    return '"' + text.replace('\\', '').replace('"', "'").replace("\n", " ") + '"'
 
-    pine = f"""//@version=5
-indicator("JARVIS Daily Plan — {symbol}", overlay=true, max_lines_count=20, max_labels_count=20)
 
-// Generated by JARVIS — {time.strftime("%Y-%m-%d %H:%M")}
-// Bias: {bias}
-// Entry: {entry} | Stop: {stop} | Target: {target}
-// Paste this script into TradingView Pine Script editor
+def _fmt(price, decimals):
+    return "-" if price is None else f"{price:,.{decimals}f}"
 
-if barstate.islast
-    // Draw levels
-    {(chr(10)+"    ").join(lines)}
 
-    // Labels
-    {(chr(10)+"    ").join(label_lines)}
-"""
-    return pine
+# Substrings matched against syminfo.ticker to pick which plan a chart shows.
+TICKER_TESTS = {
+    "BTC":  ["BTC"],
+    "GOLD": ["XAU", "GOLD"],
+    "SPX":  ["SPX", "SP500", "US500"],
+}
 
-# ── Pine Editor auto-paste ────────────────────────────────────────────────────
-def draw_via_pine_editor(page, symbol, levels):
-    """Paste Pine Script into TV's editor and add to chart — no price axis needed."""
-    entry      = next((p for p, l in levels if l == "Entry"),      None)
-    stop       = next((p for p, l in levels if l == "Stop"),       None)
-    target     = next((p for p, l in levels if l == "Target"),     None)
-    support    = next((p for p, l in levels if l == "Support"),    None)
-    resistance = next((p for p, l in levels if l == "Resistance"), None)
+# Fixed row order, so every symbol fills the same table shape.
+#
+# Entry / SL / TP lead, and they are rows in their own right. They used to exist
+# only as line labels out on the price scale, which made the panel useless for the
+# one thing it is looked at for. The context rows below them earn their place by
+# explaining the trade; everything that did not (session, volume, swing, feed,
+# strength, two spare reason lines) is gone, because a cluttered panel over a
+# chart that already carries ten indicators is worse than no panel.
+#
+# "Zones" and "Day range" sit directly under "Pivots" because they are the same
+# KIND of fact — where price is likely to react — and the eye should find them
+# together. Two rows, not four: the confluence detail (which methods, how far in
+# ATR) is on the chart as a box label, and duplicating it here would push the panel
+# past the height at which it stops being read.
+PLAN_ROWS = ["Entry", "SL", "TP", "R:R", "Levels", "Pivots", "Zones", "Day range",
+             "Confidence", "Setup", "Regime", "Trend D1", "Trend H4", "Trend H1",
+             "1D read", "4H read", "Note"]
 
-    pine = generate_pine(symbol, entry, stop, target, support, resistance)
+# Broker symbol per API asset, so a plan can find its own rows in the measured read.
+READ_SYMBOL = {"BTC": "BTCUSD", "GOLD": "XAUUSD", "SPX": "SP500"}
 
-    # Open Pine Editor tab (try multiple selector patterns)
-    opened = False
-    for sel in [
-        '[data-name="pine-editor-activate-button"]',
-        'button[aria-label*="Pine"]',
-        'span[class*="tabLabel"]:has-text("Pine")',
-        'div[class*="bottomBar"] button:first-child',
-        'button:has-text("Pine Script editor")',
-    ]:
-        try:
-            page.click(sel, timeout=3000)
-            time.sleep(1.5)
-            opened = True
-            break
-        except:
-            continue
+# WHAT GETS A LINE ON THE CHART, AND WHAT DOES NOT.
+#
+# This used to be one list of seven, and every one of them was drawn whenever the
+# value existed. On 2026-08-24 the Gold chart showed the result: S1, S2, R1, R2 and
+# the price, five dashed and dotted lines with red and green pills, on a chart that
+# ALREADY carries APEX SMC, Clean Structure PRO and TK Swing Trend each drawing
+# their own levels. Meanwhile the panel in the corner said, correctly,
+# "PIVOT BAND - not a trade" and "R:R  n/a - no setup".
+#
+# The panel was honest. The canvas was not. A red dashed line with a pill reading
+# "S2 4,458.07" looks exactly like a stop loss, and the qualifier that says it is
+# not one lived twelve rows away in a table the eye does not reach first. On a chart
+# used to trade MANUALLY that is the expensive kind of wrong: not a false number, a
+# true number dressed as an instruction.
+#
+# So lines are earned now. Only a real engine setup draws them, and it draws the
+# three that constitute a trade. The pivot band still ships in full - as TEXT, in
+# the panel, where "S1" reads as a level rather than as an order.
+SETUP_LEVELS = [
+    ("entry",  "color.new(color.green, 0)", 2, "line.style_solid"),
+    ("stop",   "color.new(color.red, 0)",   2, "line.style_dashed"),
+    ("target", "color.new(color.blue, 0)",  2, "line.style_dashed"),
+]
 
-    if not opened:
-        print("[TV] Cannot open Pine Editor tab — is TV chart fully loaded?")
+# Context levels: carried in the panel, never drawn as lines.
+CONTEXT_LEVELS = [("resistance", "R1"), ("pp", "PP"), ("support", "S1"),
+                  ("breakout_up", "Brk+"), ("breakout_down", "Brk-")]
+
+# A trade is a distance, not three prices, and the eye reads a shaded band faster
+# than it reads two pills. Transparency is high enough that the candles and the
+# user's own indicators stay legible through the fill.
+ZONE_RISK_COLOUR = "color.new(color.red, 88)"
+ZONE_REWARD_COLOUR = "color.new(color.green, 88)"
+
+# CONFLUENCE ZONES AND THE PRIOR SESSION ARE DELIBERATELY NOT RED OR GREEN.
+#
+# On this chart red means stop and green means target — SETUP_LEVELS establishes
+# that and the whole point of the note above it is that a true number dressed as an
+# instruction is the expensive kind of wrong. A confluence zone is neither an entry
+# nor an exit; it is where independent methods agree price has reacted. So it gets
+# a neutral orange band, and the prior session gets the faintest grey there is.
+# Nobody can mistake either for an order.
+ZONE_CONFLUENCE_FILL   = "color.new(color.orange, 85)"
+ZONE_CONFLUENCE_BORDER = "color.new(color.orange, 55)"
+ZONE_LABEL_COLOUR      = "color.new(color.orange, 30)"
+# PIVOTS AND THE ATR ENVELOPE ARE DOTTED AND NEITHER RED NOR GREEN, for the same
+# reason the confluence zones are orange: on this chart red means stop and green
+# means target. A pivot is neither. Dotted-and-blue is a different visual
+# vocabulary from the solid entry line and the dashed stop, so no pivot can be
+# misread as an order.
+# WHERE THE PANEL SITS. Moved off top_right 2026-09-02: the user's own studies
+# (Clean Structure PRO, APEX SMC, TK Swing, EMA Ribbon) print about eight legend
+# rows across the top of the pane, and the panel is 18 rows tall, so its upper half
+# rendered underneath them. bottom_right grows upward from the pane floor and clears
+# the legend entirely, while staying inside the pane so it never collides with the
+# time axis. One constant, because the right answer depends on which studies are
+# loaded and that changes.
+PANEL_POSITION         = "position.bottom_right"
+PIVOT_LINE_COLOUR      = "color.new(color.blue, 45)"
+PIVOT_MID_COLOUR       = "color.new(color.blue, 10)"
+PIVOT_LABEL_COLOUR     = "color.new(color.blue, 35)"
+# The band a normal day is expected to cover, from the same ATR projection the
+# panel already prints as text. Two dashed edges, not a filled box, so it never
+# competes with a confluence zone for the eye.
+ATR_EDGE_COLOUR        = "color.new(color.teal, 35)"
+PRIOR_DAY_FILL         = "color.new(color.gray, 92)"
+PRIOR_DAY_BORDER       = "color.new(color.gray, 65)"
+
+# How far left the context boxes start. Shorter than the 120 bars the trade levels
+# use, so the trade — which is the thing being decided — still dominates the canvas.
+ZONE_BARS_BACK = 60
+
+# CRT and FVG are DISPLAY ONLY and their colours say so: cool and low-contrast,
+# deliberately quieter than the entry/stop/target pills. This repo measured CRT as an
+# engine input SIX times and got six negatives, and FVG at 6.9pp WORSE than random.
+# Drawing them is observability; a shape that shouts is a shape that gets traded.
+CRT_FILL      = "color.new(color.teal, 88)"
+CRT_BORDER    = "color.new(color.teal, 55)"
+CRT_LABEL     = "color.new(color.teal, 30)"
+FVG_FILL      = "color.new(color.purple, 90)"
+FVG_BORDER    = "color.new(color.purple, 62)"
+FVG_LABEL     = "color.new(color.purple, 35)"
+# The risk band of a LIVE position. Red, and the least transparent thing the plan
+# draws, because unlike every other band on this chart it is not context: it is money
+# currently at risk. In profit the border turns green; the fill stays red because the
+# band always spans entry -> stop, which is the loss if it goes wrong.
+POS_FILL       = "color.new(color.red, 86)"
+POS_BORDER     = "color.new(color.red, 15)"
+POS_BORDER_WIN = "color.new(color.green, 15)"
+POS_LABEL      = "color.new(color.red, 25)"
+POS_BARS_BACK  = 50
+CRT_BARS_BACK = 40
+FVG_BARS_BACK = 30
+
+BIAS_COLOURS = {"LONG": "color.new(color.green, 0)",
+                "SHORT": "color.new(color.red, 0)"}
+
+
+def _level_label(plan, key):
+    """A pivot fallback is not a trade, so it must not be labelled like one."""
+    is_setup = plan.get("levels_from", "engine") == "engine"
+    names = {"entry":  "Entry" if is_setup else "Price",
+             "stop":   "Stop"  if is_setup else "S2",
+             "target": "Target" if is_setup else "R2",
+             "resistance": "R1", "support": "S1",
+             "breakout_up": "Break BUY", "breakout_down": "Break SELL"}
+    return names[key] + " " + _fmt(plan.get(key), plan["decimals"])
+
+
+def _context_row(values):
+    """The context levels as one compact line, or a plain dash when none resolved.
+
+    Takes the caller's locals rather than the finished plan because the plan dict is
+    still being built at this point. Only the four CONTEXT_LEVELS names are read.
+    """
+    decimals = values.get("decimals", 2)
+    parts = [label + " " + _fmt(values.get(key), decimals)
+             for key, label in CONTEXT_LEVELS
+             if values.get(key) is not None]
+    return "  ".join(parts) if parts else "-"
+
+
+def _ternary(plans, value_of, default):
+    """Build `_isBTC ? v1 : _isGOLD ? v2 : ... : default` for a single field."""
+    chain = ["_is" + plan["symbol"] + " ? " + str(value_of(plan)) for plan in plans]
+    return " : ".join(chain) + " : " + default
+
+
+# ---- The applied study's version, readable WITHOUT reading the canvas --------
+#
+# apply_pine's comment is right that a DOM assertion cannot see the plan: Pine draws
+# the table, lines and labels onto the chart CANVAS, so none of it is page text. But
+# the study's LEGEND TITLE is an ordinary DOM element - list_plan_studies already
+# reads it - and on 2026-08-21 a probe found it was the only "JARVIS" string on the
+# entire page, carrying no version at all.
+#
+# So the legend title carries the stamp. That turns the one readable element into a
+# statement about WHICH version is applied, which is exactly the thing that was
+# unknowable: the Gold chart rendered an Aug-7 plan for fourteen days while the job
+# logged "OK: plan drawn on all charts" and exited 0.
+#
+# The prefix is preserved so list_plan_studies keeps matching.
+def plan_legend_name(generated_at):
+    return SAVED_SCRIPT_NAME + " " + plan_stamp(generated_at)
+
+
+def plan_stamp(generated_at):
+    """MM-DD HH:MM from a '%Y-%m-%d %H:%M' timestamp. The year is dropped for legend
+    width; a 12-month-stale plan is not the failure mode this guards."""
+    return generated_at[5:]
+
+
+def plan_study_present(page):
+    """
+    Is a plan study on the chart at all? That is the whole of what the DOM can say.
+
+    Replaces applied_plan_stamp(), which tried to read the plan's VERSION back off
+    the legend via indicator(shorttitle=...). The legend shows the SAVED SCRIPT NAME
+    for a study added from a saved user script, so the stamp never appeared there and
+    the check could never have passed. The chart answers the version question itself,
+    with the STALE marker Pine renders from its own embedded timestamp.
+
+    NOT SUFFICIENT ON ITS OWN: it cannot tell a CURRENT study from a stale one, and
+    a stale study compiles perfectly well. See plan_study_is_current below.
+    """
+    return bool(list_plan_studies(page))
+
+
+def plan_study_is_current(page, expected_stamp):
+    """Is the plan ON THE CHART the one just generated? The only check that matters.
+
+    HOW THE LEGEND ACTUALLY BEHAVES, measured directly on 2026-08-30 rather than
+    reasoned about - and it contradicts two earlier beliefs in this file.
+
+    The legend shows the study's SHORTTITLE. generate_pine sets that to
+    plan_legend_name() = SAVED_SCRIPT_NAME + " " + plan_stamp(), so a legend title
+    carrying a TIMESTAMP is NORMAL and is not evidence of an orphan. The older
+    comment on plan_study_present - "the legend shows the SAVED SCRIPT NAME and
+    nothing else" - is wrong on this build: a study added from Indicators > My
+    scripts still reads 'JARVIS Daily Plan 08-30 18:23'.
+
+    So the earlier fix here, requiring the title to equal SAVED_SCRIPT_NAME exactly,
+    could NEVER pass. It replaced a check that was blind with one that was always
+    red, which is the worse failure of the two.
+
+    What the stamp DOES answer is the question actually worth asking: is the chart
+    rendering THIS plan? A study stuck at '08-29 08:15' across repeated saves is
+    stale whatever its provenance; one reading today's stamp is current. Both the
+    orphan case and the never-updated case collapse into that one comparison.
+    """
+    titles = list_plan_studies(page)
+    if not titles:
+        return False, titles, "no plan study on the chart"
+    current = [t for t in titles if t.endswith(expected_stamp)]
+    if not current:
+        return False, titles, f"chart shows {titles!r}, expected the stamp {expected_stamp!r}"
+    if len(titles) > 1:
+        return True, titles, f"{len(titles)} copies stacked - they draw over each other"
+    return True, titles, ""
+
+
+def pine_editor_visible(page):
+    """Is the Pine editor actually ON SCREEN?
+
+    Not `count() > 0`. The pine-dialog node survives in the DOM after the editor is
+    collapsed, with offsetParent null and a full-size bounding box, so a presence
+    test reports a closed editor as open. Everything in this file that decides
+    whether to open or close the editor must use this instead.
+    """
+    return bool(page.evaluate(JS_VISIBLE_BOX, SEL_PINE_DIALOG))
+
+
+def close_pine_editor(page):
+    """Collapse the Pine editor. IDEMPOTENT - the toggle OPENS it when it is closed.
+
+    Needed before any Object-tree work. cmd_plan leaves the editor open after
+    saving, and the editor takes the bottom half of the window, so the Object tree's
+    rows are pushed into a scroll region and report as not visible. The removal then
+    stops with "not visible in the Object tree" on a row that is genuinely there,
+    just off-screen.
+    """
+    # PRESENCE IS NOT OPENNESS. TradingView keeps the pine-dialog node in the DOM
+    # after the editor is collapsed - measured 2026-08-30: count()==1 with
+    # offsetParent null and a 1070x747 box. The old test was count()==0, so a CLOSED
+    # editor read as open and this function clicked the toggle, which OPENED it. It
+    # did the exact opposite of its name, every time.
+    if not pine_editor_visible(page):
+        return True
+    try:
+        box = page.evaluate(JS_VISIBLE_BOX, SEL_PINE_BUTTON)
+        if not box:
+            return False
+        page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
+        page.wait_for_timeout(2500)
+        return not pine_editor_visible(page)
+    except Exception as exc:
+        print(f"[TV] could not close the Pine editor ({str(exc)[:60]})")
         return False
 
-    # Click into editor and select all
-    for sel in ['.cm-content', '.cm-editor', '[class*="editor"] .cm-line']:
-        try:
-            page.locator(sel).first.click(timeout=3000)
-            page.keyboard.press("Control+a")
-            time.sleep(0.3)
-            break
-        except:
-            continue
 
-    # Paste script (type is reliable; clipboard approach works too)
-    page.keyboard.type(pine, delay=0)
-    time.sleep(0.8)
+def open_object_tree(page, attempts=3):
+    """Open the Object tree panel and PROVE it opened. Returns True/False.
 
-    # Click "Add to chart"
-    for sel in [
-        'button:has-text("Add to chart")',
-        '[data-name="add-script-to-chart"]',
-        'button[aria-label*="Add to chart"]',
-    ]:
-        try:
-            page.click(sel, timeout=5000)
-            time.sleep(2)
-            print(f"[TV] Levels added to {symbol} chart via Pine Script")
+    The toggle is a TOGGLE, so a blind click on an already-open panel closes it.
+    Presence is therefore checked before every click and again after, and the whole
+    thing retries - the panel can take longer than one wait to mount when the Pine
+    editor has just been collapsed and the layout is still reflowing, which is
+    exactly the condition a cmd_plan run hits and a standalone script does not.
+    """
+    for attempt in range(attempts):
+        if page.evaluate(JS_VISIBLE_TEXT_BOX, "Object tree"):
             return True
-        except:
+        box = page.evaluate(JS_VISIBLE_BOX, 'button[data-name="object_tree"]')
+        if not box:
+            print("[TV] Object tree button is not visible")
+            page.wait_for_timeout(1500)
+            continue
+        page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
+        page.wait_for_timeout(3500)
+    return bool(page.evaluate(JS_VISIBLE_TEXT_BOX, "Object tree"))
+
+
+def replace_plan_study(page, expected_stamp, symbol_for_chart):
+    """Make the chart show THIS plan: remove every plan study, add the saved script.
+
+    THE WHOLE REASON THIS EXISTS. Saving the Pine source does not update a study on
+    this build - measured 2026-08-30, the saved script read shorttitle '08-30 18:55'
+    while the study on the chart drew its own table header as '08-30 18:23', and
+    that header is rendered BY the running source. A study is pinned to the version
+    it was ADDED at, so the only way to update the chart is to replace the study.
+
+    ORDER IS LOAD-BEARING and every step is verified rather than assumed:
+      1. close the Pine editor - it covers the bottom half of the window and pushes
+         the Object tree's rows into a scroll region where they read as not visible
+      2. open the Object tree, PROVEN open, not assumed
+      3. remove every JARVIS study (this also clears stacked duplicates)
+      4. add the saved script from Indicators > My scripts
+      5. Ctrl+S - without it the study is discarded on the next navigation, because
+         accepting the beforeunload discards unsaved LAYOUT state
+
+    Returns (ok, detail).
+    """
+    # RE-OPEN THE CHART FIRST, and this is the whole difference between this working
+    # and not. Every standalone run that succeeded navigated to the chart immediately
+    # before replacing; cmd_plan navigates BEFORE saving, so by the time it gets here
+    # the page has been through the Pine editor and the panel state is stale - the
+    # Object tree mounts but its row hovers produce no controls. A fresh navigation
+    # resets the right-hand panel to a known state and costs a few seconds.
+    try:
+        open_chart(page, symbol_for_chart)
+        page.wait_for_timeout(5000)
+    except Exception as exc:
+        print(f"[TV] could not re-open the chart before replacing ({str(exc)[:60]})")
+
+    _foreground_browser_window()
+    if not close_pine_editor(page):
+        # Not fatal on its own: the tree may still be reachable. Say so and continue,
+        # because refusing here would turn a recoverable run into a failed one.
+        print("[TV] could not confirm the Pine editor closed - continuing anyway")
+    make_focus_safe(page)
+    page.wait_for_timeout(1500)
+
+    if not open_object_tree(page):
+        return False, "the Object tree panel would not open, so old studies cannot be removed"
+    # The panel mounts before it populates, and the reflow from closing the editor is
+    # still settling. Removing against a half-drawn list is how the hover finds
+    # nothing.
+    page.wait_for_timeout(2500)
+
+    removed = remove_plan_studies_via_tree(page)
+    leftover = [t for t in list_plan_studies(page) if t.startswith(PLAN_NAME_PREFIX)]
+    if leftover:
+        return False, f"{len(leftover)} old study(ies) would not remove: {leftover}"
+
+    if not add_saved_script_to_chart(page):
+        return False, "the saved script could not be added from Indicators > My scripts"
+
+    ok, titles, note = plan_study_is_current(page, expected_stamp)
+    if not ok:
+        return False, f"added, but the chart still shows {titles}"
+    return True, f"removed {len(removed)}, added 1, chart now on {expected_stamp}"
+
+
+def remove_plan_studies_via_tree(page, limit=8):
+    """Delete every JARVIS plan study using the Object tree, not the legend.
+
+    WHY A SECOND REMOVER EXISTS. remove_plan_studies() drives the LEGEND, and the
+    legend will not expand on this layout - measured 2026-08-30, the real
+    `button[title="Show indicators legend"]` is present and visible at 31x21, and a
+    mouse click at its own centre AND a JS .click() both leave all 212 rows at zero
+    height. That path is kept because it has worked before and may work elsewhere;
+    this one is what works here.
+
+    The Object tree lists the same studies in a panel that opens reliably, and each
+    row exposes a [data-name="remove"] control on hover. Rows are located by exact
+    text and clicked by COORDINATES, because TradingView keeps invisible duplicates
+    in the DOM and Playwright's .first resolves to those.
+
+    The title guard is strict and non-negotiable: this layout also carries the
+    user's own work - APEX SMC, Clean Structure PRO, TK Swing Trend and others - and
+    nothing without the JARVIS prefix may ever be touched.
+    """
+    removed = []
+    targets = [t for t in list_plan_studies(page) if t.startswith(PLAN_NAME_PREFIX)]
+    if not targets:
+        return removed
+
+    if not open_object_tree(page):
+        print("[TV] Object tree panel did not open - cannot remove studies this run")
+        return removed
+
+    for _ in range(limit):
+        current = [t for t in list_plan_studies(page) if t.startswith(PLAN_NAME_PREFIX)]
+        if not current:
+            break
+        name = current[0]
+        # Scroll it into view BEFORE measuring. The list scrolls, and an off-screen
+        # row still passes every visibility test while being unhoverable.
+        # RETRY THE FIRST LOOKUP. Measured 2026-09-06 on the VPS: this said "is not in the
+        # Object tree - stopping" and failed the whole run, while a read-only DOM dump
+        # moments later found the row VISIBLE with the exact same text. The panel had only
+        # just been opened and the chart had only just navigated, so the row had not
+        # mounted yet. The hover loop below already retries four times with escalating
+        # waits for exactly this reason; the lookup that GATES it had a single shot, so a
+        # panel that was merely slow read as a panel that did not contain the study.
+        row = None
+        for lookup_attempt in range(5):
+            row = page.evaluate(JS_SCROLL_TEXT_INTO_VIEW, name)
+            if row:
+                break
+            page.wait_for_timeout(1200 + lookup_attempt * 600)
+        if not row:
+            print(f"[TV] {name!r} is not in the Object tree after 5 lookups - stopping")
+            break
+        page.wait_for_timeout(800)
+        row = page.evaluate(JS_SCROLL_TEXT_INTO_VIEW, name) or row
+        if not row.get("onScreen"):
+            print(f"[TV] {name!r} will not scroll into view (y={int(row['y'])}) - stopping")
+            break
+        # Hover reveals the row's controls. The pointer must ARRIVE at the row from
+        # somewhere else: if it is already parked there no mouseover fires, the
+        # controls never render, and the row looks like it has none. That is why the
+        # second and later passes of this loop used to fail on a row the first pass
+        # had just hovered successfully.
+        remove = None
+        for hover_attempt in range(4):
+            # RE-MEASURE every attempt. The panel reflows - it was only just opened,
+            # and closing the Pine editor above resizes everything - so a box
+            # measured once and reused points at where the row WAS. That is the
+            # difference between this working standalone, where the panel had been
+            # open and settled for minutes, and failing inside a plan run.
+            fresh = page.evaluate(JS_SCROLL_TEXT_INTO_VIEW, name)
+            if fresh and fresh.get("onScreen"):
+                row = fresh
+            page.mouse.move(row["x"] + row["w"] / 2, row["y"] - 60)
+            page.wait_for_timeout(400)
+            page.mouse.move(row["x"] + row["w"] / 2, row["y"] + row["h"] / 2)
+            page.wait_for_timeout(1500 + hover_attempt * 700)
+            remove = page.evaluate(JS_ROW_REMOVE_BOX, row)
+            if remove:
+                break
+        if not remove:
+            print(f"[TV] no Remove control appeared for {name!r} - stopping")
+            break
+        page.mouse.click(remove["x"] + remove["w"] / 2, remove["y"] + remove["h"] / 2)
+        page.wait_for_timeout(2500)
+        removed.append(name)
+
+    if removed:
+        print(f"[TV] Removed {len(removed)} stale plan study(ies) via the Object tree")
+    return removed
+
+
+def add_saved_script_to_chart(page):
+    """Add the plan from Indicators > My scripts, then SAVE THE LAYOUT.
+
+    Two things this gets right that add_script_to_chart does not.
+
+    ONE: it adds the SAVED script rather than the Pine editor's buffer. The editor's
+    "Add to chart" applies whatever is in the buffer, which is how a study that no
+    later save can update gets created in the first place.
+
+    TWO: it saves the layout afterwards. Measured 2026-08-30 and genuinely
+    surprising: a study added and then navigated away from is GONE. Accepting the
+    beforeunload dialog - which is what makes navigation work at all here - discards
+    unsaved LAYOUT state, not merely unsaved editor text. Three studies were added,
+    verified present, and had vanished by the next screenshot. Ctrl+S with focus
+    outside the editor persists them.
+
+    The dialog is opened with the "/" hotkey rather than by clicking the toolbar
+    button: that button has an invisible duplicate in the DOM and Playwright's
+    .first resolves to it, so every click times out on an element that is there.
+    """
+    make_focus_safe(page)
+    page.keyboard.press("/")
+    page.wait_for_timeout(3500)
+    for label in ("My scripts", SAVED_SCRIPT_NAME):
+        box = page.evaluate(JS_VISIBLE_TEXT_BOX, label)
+        if not box:
+            print(f"[TV] indicators dialog: no visible row for {label!r}")
+            page.keyboard.press("Escape")
+            return False
+        page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
+        page.wait_for_timeout(2500)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(1500)
+    # Persist, or the study is lost the moment the chart navigates.
+    make_focus_safe(page)
+    page.keyboard.press("Control+s")
+    page.wait_for_timeout(4000)
+    return True
+
+
+# Find an element by its EXACT text, but only one that is actually on screen.
+# TradingView keeps detached duplicates of many nodes, and Playwright's .first
+# resolves to them - which is why text locators and [data-name] .first clicks time
+# out here on elements that are plainly visible. Every click in this file that goes
+# through coordinates does so for that reason.
+JS_VISIBLE_TEXT_BOX = """(name) => {
+  for (const e of document.querySelectorAll('*')) {
+    if (e.children.length) continue;
+    if ((e.textContent || '').trim() !== name) continue;
+    const r = e.getBoundingClientRect();
+    if (e.offsetParent === null || r.width === 0 || r.height === 0) continue;
+    return {x: r.x, y: r.y, w: r.width, h: r.height};
+  }
+  return null;
+}"""
+
+# The first VISIBLE element matching a selector. Same reason as above: .first in
+# Playwright resolves to detached duplicates and times out on elements that are
+# plainly on screen.
+JS_VISIBLE_BOX = """(selector) => {
+  for (const e of document.querySelectorAll(selector)) {
+    const r = e.getBoundingClientRect();
+    if (e.offsetParent === null || r.width === 0 || r.height === 0) continue;
+    return {x: r.x, y: r.y, w: r.width, h: r.height};
+  }
+  return null;
+}"""
+
+# Scroll a row into view, THEN measure it. Returns the post-scroll box.
+#
+# THE TRAP THIS CLOSES, measured 2026-08-30. The Object tree's list scrolls, and a
+# row below the fold still reports offsetParent non-null with a real width - so it
+# passes every "is it visible" test while sitting at y=1361 in a 950px window.
+# Hovering that coordinate lands on nothing, no controls render, and the removal
+# reports "no Remove control appeared" for a row that is genuinely there. Its Remove
+# button was measurably present the whole time, at y=1321, equally off-screen.
+JS_SCROLL_TEXT_INTO_VIEW = """(name) => {
+  for (const e of document.querySelectorAll('*')) {
+    if (e.children.length) continue;
+    if ((e.textContent || '').trim() !== name) continue;
+    if (e.offsetParent === null) continue;
+    e.scrollIntoView({block: 'center', inline: 'nearest'});
+    const r = e.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    return {x: r.x, y: r.y, w: r.width, h: r.height,
+            onScreen: r.y >= 0 && r.y + r.height <= window.innerHeight};
+  }
+  return null;
+}"""
+
+# The Remove control belonging to ONE Object-tree row, found by vertical band. Every
+# row has one; without the band filter this would return the first row's control and
+# delete the wrong study.
+JS_ROW_REMOVE_BOX = """(band) => {
+  for (const e of document.querySelectorAll('[data-name="remove"]')) {
+    const r = e.getBoundingClientRect();
+    if (e.offsetParent === null || r.width === 0) continue;
+    if (r.y < band.y - 14 || r.y > band.y + band.h + 14) continue;
+    return {x: r.x, y: r.y, w: r.width, h: r.height};
+  }
+  return null;
+}"""
+
+
+def _position_label(position, decimals):
+    """One line for a LIVE position: side, size, entry, stop and the running P&L.
+
+    This is the one number on the chart that is not a projection. Everything else the
+    plan draws is what the engine THINKS; this is what is actually open, and it is stated
+    plainly because a trader looking at the chart needs to see the risk they are already
+    carrying, not infer it.
+    """
+    if not isinstance(position, dict):
+        return ""
+    side = str(position.get("type") or "?").upper()
+    volume = position.get("volume")
+    entry = _fmt(position.get("price"), decimals)
+    stop = _fmt(position.get("sl"), decimals)
+    profit = position.get("profit")
+    pl = ("%+.2f" % profit) if isinstance(profit, (int, float)) else "?"
+    stop_note = ("SL " + stop) if position.get("sl") else "NO STOP"
+    return "OPEN %s %s @ %s  %s  P/L %s" % (side, volume, entry, stop_note, pl)
+
+
+def _position_field(position, field):
+    value = (position or {}).get(field)
+    return value if isinstance(value, (int, float)) and value else "na"
+
+
+def _crt_label(crt, decimals):
+    """One line describing the CRT: direction, which side was swept, and the objective.
+
+    The objective is the level the model says price should now travel toward - the far
+    side of the swept range. It is stated as a NUMBER in a label, not drawn as a line,
+    for the reason the locked note gives: a line is read as an order.
+    """
+    if not isinstance(crt, dict):
+        return ""
+    direction = str(crt.get("direction") or "?").upper()
+    side = "high" if crt.get("sweptSide") == "high" else "low"
+    bars = crt.get("barsAgo")
+    objective = _fmt(crt.get("objective"), decimals)
+    age = ("%dh4 ago" % bars) if isinstance(bars, int) else "?"
+    return "CRT %s - swept the %s, %s - objective %s (context)" % (direction, side, age, objective)
+
+
+def _fvg_field(entry, field):
+    """The freshest zone's top/bottom, or "na". Freshest = the one with the smallest
+    barsAgo, because an old gap that price has already traded through is history."""
+    if not isinstance(entry, dict):
+        return "na"
+    zones = [z for z in (entry.get("zones") or []) if isinstance(z, dict)]
+    if not zones:
+        return "na"
+    fresh = sorted(zones, key=lambda z: z.get("barsAgo", 10 ** 6))[0]
+    value = fresh.get(field)
+    return value if isinstance(value, (int, float)) else "na"
+
+
+def _fvg_label(entry, decimals):
+    """One line for the entry-timeframe gap, including how much of it has been filled.
+
+    fillPercent is the retest read and it is the only part of an FVG worth watching: a
+    zone at 0% is untested, one deep into fill is being consumed. Says "context" out loud
+    because FVG measured 6.9pp WORSE than random on this system - the box marks a place to
+    watch price behave, it does not mark an entry.
+    """
+    if not isinstance(entry, dict):
+        return ""
+    zones = [z for z in (entry.get("zones") or []) if isinstance(z, dict)]
+    if not zones:
+        return ""
+    fresh = sorted(zones, key=lambda z: z.get("barsAgo", 10 ** 6))[0]
+    fill = fresh.get("fillPercent")
+    filled = ("%d%% filled" % round(fill)) if isinstance(fill, (int, float)) else "fill ?"
+    status = str(fresh.get("status") or "").upper() or "?"
+    return "%s FVG %s %s-%s  %s, %s (context)" % (
+        str(entry.get("timeframe", "")).upper(),
+        str(fresh.get("direction") or "?"),
+        _fmt(fresh.get("bottom"), decimals),
+        _fmt(fresh.get("top"), decimals),
+        status, filled)
+
+
+def _sweep_suffix(sweep):
+    """"  HIGH SWEPT" / "  LOW SWEPT" / "  both swept" / "" for the prior-day label.
+
+    The levels alone were never the read. An UNSWEPT prior-day extreme is a magnet -
+    somewhere price is still reaching for. A SWEPT one is the opposite: somewhere price
+    has already been and turned away from, which is where a reversal is looked for. The
+    box has drawn both numbers since it was written and said nothing about which case
+    the chart is in.
+
+    Empty string when the state is unknown, never a guess: a label that says "unswept"
+    because the data was missing is worse than a label that says nothing.
+    """
+    if not isinstance(sweep, dict):
+        return ""
+    high, low = sweep.get("highSwept"), sweep.get("lowSwept")
+    if high is True and low is True:
+        return "  both swept"
+    if high is True:
+        return "  HIGH SWEPT"
+    if low is True:
+        return "  LOW SWEPT"
+    if high is False and low is False:
+        return "  unswept"
+    return ""
+
+
+def generate_pine(plans):
+    """
+    Build ONE daily-plan indicator covering every symbol.
+
+    This has to be a single script rather than one per symbol. All three charts
+    live in the same saved TradingView layout, and a layout holds one chart state,
+    so a per-symbol study applied in one tab propagated to the others and the last
+    one won — the Gold chart ended up rendering BTC's plan, levels and all.
+    Selecting on syminfo.ticker works with that model instead of against it: apply
+    once, correct on whichever symbol the chart is showing, and a second copy of
+    the plan becomes impossible to create.
+    """
+    if isinstance(plans, dict):          # single plan, from cmd_pine
+        plans = [plans]
+
+    flags = []
+    for plan in plans:
+        tests = TICKER_TESTS.get(plan["symbol"], [plan["symbol"]])
+        checks = " or ".join('str.contains(_sym, "%s")' % t for t in tests)
+        flags.append("_is" + plan["symbol"] + " = " + checks)
+
+    # A level is a candidate only when some plan on this script HAS it and that plan
+    # is a real engine setup. A chart in WAIT gets no price lines at all.
+    live_keys = [spec for spec in SETUP_LEVELS
+                 if any(plan.get(spec[0]) is not None
+                        and plan.get("levels_from", "engine") == "engine"
+                        for plan in plans)]
+
+    # The job runs 06:45 and 13:15, so the longest NORMAL age is the overnight
+    # 13:15 -> 06:45 gap of 17.5h. A threshold just above that fires only when a run
+    # was actually missed, never on a healthy schedule.
+    STALE_AFTER_HOURS = 18.0
+    plan_ts_ms = plans[0].get("generated_ts_ms")
+    if plan_ts_ms is None:
+        # Never guess an age. An unknown age must read as unknown, not as fresh.
+        stale_vars = [
+            "_planAgeSuffix = \"  (age unknown)\"",
+            "_planAgeColor = color.gray",
+        ]
+    else:
+        stale_vars = [
+            "_planTs = %d" % int(plan_ts_ms),
+            "_planAgeHrs = (timenow - _planTs) / 3600000.0",
+            "_planStale = _planAgeHrs > %.1f" % STALE_AFTER_HOURS,
+            '_planAgeSuffix = _planStale ? "  STALE " + str.tostring(_planAgeHrs, "#.#") + "h" : ""',
+            "_planAgeColor = _planStale ? color.red : color.white",
+        ]
+
+    level_vars, draw_block = [], []
+    level_vars.extend(stale_vars)
+
+    # One flag per script saying whether THIS chart's symbol has a real setup.
+    # Without it, a script covering three assets would draw BTC's entry on the Gold
+    # chart, because the ternary would fall through to a value that exists.
+    level_vars.append("_isSetup = " + _ternary(
+        plans,
+        lambda p: "true" if p.get("levels_from", "engine") == "engine" else "false",
+        "false"))
+
+    for key, colour, width, style in live_keys:
+        level_vars.append("_" + key + " = " + _ternary(
+            plans, lambda p, k=key: p.get(k) if p.get(k) is not None else "na", "na"))
+        level_vars.append("_" + key + "Txt = " + _ternary(
+            plans, lambda p, k=key: _pine_str(_level_label(p, k)), '""'))
+        draw_block.append(
+            "    if _isSetup and not na(_%s)\n"
+            "        line.new(bar_index - 120, _%s, bar_index + 20, _%s, "
+            "extend=extend.right, color=%s, width=%d, style=%s)\n"
+            "        label.new(bar_index + 20, _%s, _%sTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.small)"
+            % (key, key, key, colour, width, style, key, key, colour)
+        )
+
+    # The two zones that turn three prices into a trade: entry->stop is what is
+    # risked, entry->target is what is sought. Drawn only when all three levels
+    # exist, so a partial plan cannot shade a band it has no second edge for.
+    drawn_keys = {spec[0] for spec in live_keys}
+    if {"entry", "stop", "target"} <= drawn_keys:
+        draw_block.append(
+            "    if _isSetup and not na(_entry) and not na(_stop)\n"
+            "        box.new(bar_index - 120, math.max(_entry, _stop), "
+            "bar_index + 20, math.min(_entry, _stop), "
+            "border_color=color.new(color.red, 70), bgcolor=" + ZONE_RISK_COLOUR
+            + ", extend=extend.right)")
+        draw_block.append(
+            "    if _isSetup and not na(_entry) and not na(_target)\n"
+            "        box.new(bar_index - 120, math.max(_entry, _target), "
+            "bar_index + 20, math.min(_entry, _target), "
+            "border_color=color.new(color.green, 70), bgcolor=" + ZONE_REWARD_COLOUR
+            + ", extend=extend.right)")
+
+    # ── Confluence zones, as boxes ─────────────────────────────────────
+    #
+    # NOT gated on _isSetup, and that is the point. Entry, stop and target belong to
+    # a trade and a WAIT chart must not show them. "Where does this stop going up"
+    # is the question a WAIT chart is being read to answer, so the zones are drawn
+    # either way.
+    #
+    # Slot count is the widest any plan on this script needs. A symbol with fewer
+    # zones emits `na` into its slots and draws nothing — the same pattern the level
+    # ternaries already use, so a chart can never inherit another symbol's zone.
+    zone_slots = min(MAX_DRAWN_ZONES,
+                     max([len(plan.get("zones") or []) for plan in plans] or [0]))
+    for slot in range(zone_slots):
+        def zone_number(plan, field, index=slot):
+            zones = plan.get("zones") or []
+            if index >= len(zones) or zones[index].get(field) is None:
+                return "na"
+            # Rounded, or Python's float repr emits 4604.030000000001 into the
+            # source. Valid Pine, but the plan is read by a human and a level with
+            # twelve decimals looks like a bug in the level.
+            return round(zones[index][field], plan["decimals"] + 2)
+
+        def zone_text(plan, index=slot):
+            zones = plan.get("zones") or []
+            if index >= len(zones):
+                return _pine_str("")
+            zone = zones[index]
+            side = {"above": "R", "below": "S", "at": "IN"}.get(zone.get("side"), "?")
+            return _pine_str("x%s %s  %s" % (
+                zone.get("score"), side, _fmt(zone.get("mid"), plan["decimals"])))
+
+        level_vars.append("_zone%dLow = " % slot + _ternary(
+            plans, lambda p, s=slot: zone_number(p, "low", s), "na"))
+        level_vars.append("_zone%dHigh = " % slot + _ternary(
+            plans, lambda p, s=slot: zone_number(p, "high", s), "na"))
+        level_vars.append("_zone%dTxt = " % slot + _ternary(
+            plans, lambda p, s=slot: zone_text(p, s), '""'))
+        draw_block.append(
+            "    if not na(_zone%dLow) and not na(_zone%dHigh)\n"
+            "        box.new(bar_index - %d, _zone%dHigh, bar_index + 20, _zone%dLow, "
+            "border_color=%s, bgcolor=%s, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _zone%dHigh, _zone%dTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (slot, slot, ZONE_BARS_BACK, slot, slot,
+               ZONE_CONFLUENCE_BORDER, ZONE_CONFLUENCE_FILL,
+               slot, slot, ZONE_LABEL_COLOUR))
+
+    # ── The prior session's range ──────────────────────────────────────
+    #
+    # One box, not two lines. Yesterday's high and low drawn as separate lines look
+    # like a pair of orders; drawn as a band they read as what they are — the range
+    # price actually traded in the last completed session.
+    if any(plan.get("prior_day") for plan in plans):
+        level_vars.append("_pdHigh = " + _ternary(
+            plans, lambda p: (p.get("prior_day") or {}).get("high", "na") or "na", "na"))
+        level_vars.append("_pdLow = " + _ternary(
+            plans, lambda p: (p.get("prior_day") or {}).get("low", "na") or "na", "na"))
+        level_vars.append("_pdTxt = " + _ternary(
+            plans,
+            lambda p: _pine_str("Prior day %s-%s%s" % (
+                _fmt((p.get("prior_day") or {}).get("low"), p["decimals"]),
+                _fmt((p.get("prior_day") or {}).get("high"), p["decimals"]),
+                _sweep_suffix(p.get("prior_day_sweep"))))
+            if p.get("prior_day") else '""',
+            '""'))
+        draw_block.append(
+            "    if not na(_pdHigh) and not na(_pdLow)\n"
+            "        box.new(bar_index - %d, _pdHigh, bar_index + 20, _pdLow, "
+            "border_color=%s, bgcolor=%s, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _pdLow, _pdTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (ZONE_BARS_BACK, PRIOR_DAY_BORDER, PRIOR_DAY_FILL, PRIOR_DAY_BORDER))
+
+    # ── The latest H4 CRT, as a box ────────────────────────────────────────
+    #
+    # ADDED DELIBERATELY 2026-09-05, at the user's explicit request, and recorded HERE
+    # because the locked note below requires exactly that rather than a silent re-derive.
+    #
+    # It is a BOX, not a labelled price line. The decision below is about lines: on a
+    # chart traded by hand, a labelled level line is a true number dressed as an
+    # instruction. A shaded band is the shape this chart already uses for context - the
+    # prior-day range and the confluence zones are both boxes - so this rides the
+    # established convention instead of reopening a settled question.
+    #
+    # DISPLAY ONLY, and the colour says so: teal at 88% transparency, deliberately
+    # quieter than the entry/stop/target pills. CRT was measured as an engine input SIX
+    # times on this system and returned six negatives - as a setup (0/5 folds, and it
+    # DISPLACED 16 Gold trades) and as a confidence contributor (SPX worse at every
+    # window). Nothing about drawing it changes that, and nothing here feeds a gate.
+    if any(plan.get("crt_h4") for plan in plans):
+        level_vars.append("_crtHigh = " + _ternary(
+            plans, lambda p: (p.get("crt_h4") or {}).get("rangeHigh", "na") or "na", "na"))
+        level_vars.append("_crtLow = " + _ternary(
+            plans, lambda p: (p.get("crt_h4") or {}).get("rangeLow", "na") or "na", "na"))
+        level_vars.append("_crtTxt = " + _ternary(
+            plans, lambda p: _pine_str(_crt_label(p.get("crt_h4"), p["decimals"]))
+            if p.get("crt_h4") else '""', '""'))
+        draw_block.append(
+            "    if not na(_crtHigh) and not na(_crtLow)\n"
+            "        box.new(bar_index - %d, _crtHigh, bar_index + 20, _crtLow, "
+            "border_color=%s, bgcolor=%s, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _crtHigh, _crtTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (CRT_BARS_BACK, CRT_BORDER, CRT_FILL, CRT_LABEL))
+
+    # ── The freshest entry-timeframe FVG, as a box ─────────────────────────
+    #
+    # ONE zone, the freshest unfilled one, on the timeframe an entry is actually refined
+    # on. Not a stack of them: the detector returns four and a chart carrying four purple
+    # bands per symbol is decoration.
+    #
+    # FVG MEASURED 6.9pp WORSE THAN RANDOM here over ~6,800 samples. So this marks a place
+    # to watch price behave, and the panel row says "context" in as many words. It is not
+    # an entry trigger and must never become one.
+    if any(plan.get("fvg_entry") for plan in plans):
+        level_vars.append("_fvgTop = " + _ternary(
+            plans, lambda p: _fvg_field(p.get("fvg_entry"), "top"), "na"))
+        level_vars.append("_fvgBot = " + _ternary(
+            plans, lambda p: _fvg_field(p.get("fvg_entry"), "bottom"), "na"))
+        level_vars.append("_fvgTxt = " + _ternary(
+            plans, lambda p: _pine_str(_fvg_label(p.get("fvg_entry"), p["decimals"]))
+            if p.get("fvg_entry") else '""', '""'))
+        draw_block.append(
+            "    if not na(_fvgTop) and not na(_fvgBot)\n"
+            "        box.new(bar_index - %d, _fvgTop, bar_index + 20, _fvgBot, "
+            "border_color=%s, bgcolor=%s, extend=extend.right)\n"
+            "        label.new(bar_index + 20, _fvgBot, _fvgTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.tiny)"
+            % (FVG_BARS_BACK, FVG_BORDER, FVG_FILL, FVG_LABEL))
+
+    # ── The live position: entry to stop, as a risk band ───────────────────
+    #
+    # Drawn LAST so it renders above the context bands. Everything else on this chart is
+    # what the engine thinks; this is the trade that is actually open and the money
+    # actually at risk, so it is the one band allowed to be loud.
+    #
+    # Entry to STOP, not entry to target. The band shows what is lost if this goes wrong,
+    # which is the number that should be impossible to miss. The target is already in the
+    # panel rows.
+    #
+    # A position with NO broker-side stop draws nothing and the label says "NO STOP" - an
+    # unbounded band would be a lie about where the risk ends, and a missing band with a
+    # loud label is the honest rendering of an unprotected trade.
+    if any(plan.get("position") for plan in plans):
+        level_vars.append("_posEntry = " + _ternary(
+            plans, lambda p: _position_field(p.get("position"), "price"), "na"))
+        level_vars.append("_posStop = " + _ternary(
+            plans, lambda p: _position_field(p.get("position"), "sl"), "na"))
+        level_vars.append("_posTxt = " + _ternary(
+            plans, lambda p: _pine_str(_position_label(p.get("position"), p["decimals"]))
+            if p.get("position") else '""', '""'))
+        level_vars.append("_posWin = " + _ternary(
+            plans,
+            lambda p: "true" if ((p.get("position") or {}).get("profit") or 0) > 0 else "false",
+            "false"))
+        draw_block.append(
+            "    if not na(_posEntry) and not na(_posStop)\n"
+            "        box.new(bar_index - %d, math.max(_posEntry, _posStop), bar_index + 20, "
+            "math.min(_posEntry, _posStop), border_color=(_posWin ? %s : %s), bgcolor=%s, "
+            "extend=extend.right)\n"
+            "        label.new(bar_index + 20, _posEntry, _posTxt, color=%s, "
+            "textcolor=color.white, style=label.style_label_left, size=size.small)"
+            % (POS_BARS_BACK, POS_BORDER_WIN, POS_BORDER, POS_FILL, POS_LABEL))
+    # NO PIVOT OR ATR LINES. THIS IS A LOCKED DECISION, REVERSED ONCE AND RESTORED.
+    #
+    # On 2026-09-02 a pivot ladder and an ATR envelope were added here as 7 line.new
+    # calls, by an agent that had READ the note above and added them anyway because more
+    # drawing had been asked for. That note records a real 2026-08-24 incident on this
+    # exact chart and its conclusion is unchanged: on a chart used to trade MANUALLY, a
+    # labelled level line is a true number dressed as an instruction, and the qualifier
+    # that says otherwise lives rows away in a table the eye reaches second.
+    #
+    # Dotted blue instead of red pills weakens the signal; it does not remove it. And the
+    # user traded this chart by hand the same day, which is precisely the condition the
+    # original decision was written for.
+    #
+    # The pivot band still ships IN FULL as panel TEXT, where "S1" reads as a level
+    # rather than an order. That is the safe half of the trade-off and it stays.
+    #
+    # If lines are ever wanted here, that is a decision to take deliberately and record
+    # ABOVE, not one to re-derive from "the chart looks empty on a WAIT day".
+
+    cells = [
+        # The ternary MUST be parenthesised. Pine binds + tighter than ?: , so
+        # `_isGOLD ? "a" : "b" + _suffix` attaches the suffix to the FALLBACK branch
+        # only - the stale marker would never appear on a real symbol.
+        "    table.cell(planTable, 0, 0, (" + _ternary(
+            plans,
+            # [-5:] was HH:MM with the date discarded, so a plan drawn two days ago
+            # read exactly like one drawn this morning. That is the stale-chart failure
+            # this whole job exists to prevent, printed in the header.
+            lambda p: _pine_str("JARVIS " + p["symbol"] + "  " + p["generated_at"][5:]),
+            '"JARVIS PLAN"')
+        + ") + _planAgeSuffix, text_color=_planAgeColor, text_size=size.normal, text_halign=text.align_left)",
+        "    table.cell(planTable, 1, 0, " + _ternary(
+            plans, lambda p: _pine_str(p.get("bias") or "WAIT"), '"-"')
+        + ", text_color=color.white, text_size=size.normal, text_halign=text.align_left"
+        + ", bgcolor=" + _ternary(
+            plans,
+            lambda p: BIAS_COLOURS.get(p.get("bias"), "color.new(color.gray, 0)"),
+            "color.new(color.gray, 0)") + ")",
+    ]
+    for i, key in enumerate(PLAN_ROWS):
+        cells.append(
+            "    table.cell(planTable, 0, %d, %s, text_color=color.gray, "
+            "text_size=size.small, text_halign=text.align_left)" % (i + 1, _pine_str(key))
+        )
+        cells.append(
+            "    table.cell(planTable, 1, %d, %s, text_color=color.white, "
+            "text_size=size.small, text_halign=text.align_left)"
+            % (i + 1, _ternary(plans,
+                               lambda p, k=key: _pine_str(p["rows"].get(k, "-")), '"-"'))
+        )
+
+    newline = chr(10)
+    return """//@version=5
+indicator("JARVIS Daily Plan", shorttitle="%s", overlay=true, max_lines_count=40, max_labels_count=40, max_boxes_count=40)
+
+// Generated by JARVIS - %s
+// Covers: %s
+// Levels come from the SmartEntry engine, not from this chart's own feed.
+
+_sym = syminfo.ticker
+%s
+_known = %s
+
+%s
+
+var table planTable = table.new(%s, 2, %d,
+     border_width=1, frame_width=1, frame_color=color.new(color.gray, 40),
+     bgcolor=color.new(color.black, 15))
+
+if barstate.islast and _known
+%s
+
+%s
+""" % (
+        plan_legend_name(plans[0]["generated_at"]),
+        plans[0]["generated_at"],
+        ", ".join(p["symbol"] for p in plans),
+        newline.join(flags),
+        " or ".join("_is" + p["symbol"] for p in plans),
+        newline.join(level_vars),
+        PANEL_POSITION,
+        len(PLAN_ROWS) + 1,
+        newline.join(cells),
+        newline.join(draw_block),
+    )
+
+# ── Pine Editor auto-paste ────────────────────────────────────────────────────
+def _editor_text(page):
+    """
+    Read what is in the Pine editor, in VISUAL line order.
+
+    Three traps, and the third one wasted two hours on 2026-08-24.
+
+    Monaco renders every space as U+00A0, so normalise before comparing.
+
+    .view-lines is virtualised: it holds only the lines currently scrolled into view,
+    so after a paste it shows the END of the script and a check against line 1 fails
+    on a script that landed perfectly. The caller must scroll to the top first.
+
+    AND - the part that was wrong - Monaco does NOT keep those elements in document
+    order. It recycles a pool of divs and positions each by an inline `top`, so DOM
+    order is arbitrary. inner_text() therefore returned the visible lines SHUFFLED,
+    and the "does it start with //@version=5" check was reading whichever line the
+    pool happened to hold first. It passed for months by luck and started failing the
+    moment the script grew by four lines and the pool reshuffled.
+
+    The evidence was unambiguous once looked at directly: the editor reported unsaved
+    changes, the buffer contained today's Gold price and our own "(S2 pivot)" text,
+    scrollTop was 0 - and the "first line" came back as a table.cell from the middle.
+    Nothing was wrong with the paste. The reader was lying.
+
+    So read each .view-line with its own top offset and sort numerically.
+    """
+    # FOURTH trap, 2026-08-26: scope to the editor that is actually ON SCREEN.
+    #
+    # This used to be `document.querySelector('.monaco-editor .view-lines')`, which
+    # takes the FIRST match in the document. A TradingView chart carries two
+    # .monaco-editor nodes, and when the detached one comes first the read returns its
+    # stale model - the run printed `editor starts '/                    '` while the
+    # gutter simultaneously reported the correct 78 lines. The paste was perfect; this
+    # reader was lying again, in the fourth distinct way.
+    #
+    # _editor_line_count was given exactly this fix and its comment already named
+    # _editor_text as carrying the same trap. The note was written and never applied -
+    # so the counter was scoped and the text reader was not, and the two disagreed
+    # about the same buffer. Fixing one reader and describing the other is not fixing.
+    lines = page.evaluate("""() => {
+        const eds = Array.from(document.querySelectorAll('.monaco-editor'))
+          .filter(e => { const r = e.getBoundingClientRect();
+                         return r.width > 50 && r.height > 50; });
+        const ed = eds[0];
+        if (!ed) return null;
+        const box = ed.querySelector('.view-lines');
+        if (!box) return null;
+        return Array.from(box.querySelectorAll('.view-line'))
+            .map(el => [parseFloat(el.style.top) || 0, el.textContent])
+            .sort((a, b) => a[0] - b[0])
+            .map(pair => pair[1]);
+    }""")
+    if lines is None:
+        # Selector missed entirely - fall back rather than crash, and let the
+        # caller's own check decide. An empty read reads as "did not land", which
+        # is the safe direction: it refuses to save, it never saves the wrong thing.
+        return page.locator(SEL_EDITOR_TEXT).first.inner_text().replace("\xa0", " ")
+    return "\n".join(lines).replace("\xa0", " ")
+
+
+def _editor_matches_source(page, pine, tries=3, settle_ms=900):
+    """True when the editor's visible lines match `pine` EXACTLY, indentation included.
+
+    SEVENTH trap, and the one that let a broken script be declared fixed. Pine is
+    indentation-semantic, and Monaco applies AUTO-INDENT to CDP Input.insertText
+    because it treats it as typing. The damage cascades - measured on the live editor,
+    same buffer, same source:
+
+        line 29: want indent 5,  got 10
+        line 31: want indent 0,  got 10     <- `if barstate.islast` pushed off column 0
+        line 32: want indent 4,  got 14
+        line 33: want indent 4,  got 18
+        line 34: want indent 4,  got 22
+
+    A synthetic paste event over the same text produced ZERO mismatches, which is why
+    that method now runs first: Monaco honours a paste as a paste.
+
+    The old verification checked only that line 1 read //@version=5 and that the line
+    COUNT matched. Both pass on a fully auto-indented buffer, so the run reported
+    "Saved" and "Plan drawn", exited 0, and left a study sitting on the chart with
+    TradingView's own legend reading "Compilation error". Checking the first line and
+    the line count is not checking the script.
+
+    LIMIT, stated because it matters: .view-lines is virtualised, so this compares only
+    the lines currently rendered - about 34 of 78 here. That is enough to catch
+    auto-indent, which begins at the first indented block and cascades from there, and
+    the separate line-count guard still catches doubling. It is NOT a full-file
+    comparison and must not be described as one.
+    """
+    src = pine.split("\n")
+    worst = []
+    for attempt in range(tries):
+        got = _editor_text(page).split("\n")
+        span = min(len(got), len(src))
+        # Compare LEADING WHITESPACE only, never the full line.
+        #
+        # Monaco renders inline decorations - notably a colour swatch beside every
+        # color.red / color.new(...) - and those inject characters into textContent. A
+        # full-text comparison therefore reports a mismatch on a line that is perfectly
+        # correct: the first run of this check flagged line 18 as differing while
+        # reporting "indent want 0, got 0", i.e. the indentation agreed and only the
+        # decoration did not. Comparing text makes this guard cry wolf on every colour
+        # line, and a guard that cries wolf gets switched off.
+        #
+        # Indentation is also the only thing that matters. Pine is
+        # indentation-semantic, auto-indent is precisely what corrupts it, and the
+        # characters themselves arrive intact under both paste methods.
+        bad = []
+        for i in range(span):
+            if not src[i].strip() or not got[i].strip():
+                continue          # a blank line carries no indentation meaning
+            want_indent = len(src[i]) - len(src[i].lstrip())
+            have_indent = len(got[i]) - len(got[i].lstrip())
+            if want_indent != have_indent:
+                bad.append((i + 1, want_indent, have_indent))
+        if not bad:
+            return True, []
+        worst = bad
+        if attempt < tries - 1:
+            page.wait_for_timeout(settle_ms)
+    return False, worst
+
+
+def _editor_starts_clean(page, tries=4, settle_ms=900):
+    """True when the editor's first line reads as //@version=5, allowing for re-renders.
+
+    FIFTH trap, 2026-08-26. Monaco repaints .view-line elements in more than one pass,
+    and a read taken between passes returns a half-built first line. Measured directly
+    on the live editor: one read came back
+        "/" + 52 non-breaking spaces + "/@version=5"
+    while the SAME buffer read cleanly as "//@version=5" moments later, and the gutter
+    reported the correct 78 lines throughout.
+
+    A single eager read therefore failed a paste that had landed perfectly - the run
+    printed "CDP insertText left 78 lines, want 78 - trying the next method", pasted a
+    second time, and then refused to save. The check was manufacturing the very
+    corruption it existed to catch.
+
+    Re-reading is safe because it can only ever turn a false NEGATIVE into a pass: the
+    line-count guard runs separately and still refuses a doubled buffer, so nothing
+    here can let two copies through.
+    """
+    seen = ""
+    for attempt in range(tries):
+        seen = _editor_text(page).lstrip()
+        if seen.startswith("//@version=5"):
+            return True, seen
+        if attempt < tries - 1:
+            page.wait_for_timeout(settle_ms)
+    return False, seen
+
+
+def _foreground_browser_window():
+    """Put the TradingView Edge window in the OS foreground before typing into it.
+
+    Windows only; a no-op everywhere else and it never raises.
+
+    Why this exists: when tv_daily_plan.ps1 finds no browser it launches Edge itself
+    ("browser: absent - launching Edge on the SmartEntryTV profile"), and that window
+    never becomes the foreground window. Chromium will not deliver native clipboard
+    paste to a renderer whose window is not foreground, so Ctrl+V silently does
+    nothing while every surrounding step still reports success. A select that fails
+    the same way is how the saved script came to hold two copies of itself.
+
+    Returns True when the window is confirmed foreground.
+    """
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _cb(hwnd, _):
+            if not u32.IsWindowVisible(hwnd):
+                return True
+            n = u32.GetWindowTextLengthW(hwnd)
+            if n <= 0:
+                return True
+            buf = ctypes.create_unicode_buffer(n + 1)
+            u32.GetWindowTextW(hwnd, buf, n + 1)
+            t = buf.value or ""
+            if "Edge" in t and any(k in t for k in
+                                   ("TradingView", "XAUUSD", "BTCUSD", "SPX", "SMART ENTRY")):
+                found.append(hwnd)
+            return True
+
+        u32.EnumWindows(_cb, 0)
+        if not found:
+            return False
+        hwnd = found[0]
+        u32.ShowWindow(hwnd, 9)                      # SW_RESTORE
+        fg = u32.GetForegroundWindow()
+        tid_fg = u32.GetWindowThreadProcessId(fg, None)
+        tid_me = k32.GetCurrentThreadId()
+        u32.AttachThreadInput(tid_me, tid_fg, True)
+        u32.BringWindowToTop(hwnd)
+        u32.SetForegroundWindow(hwnd)
+        u32.AttachThreadInput(tid_me, tid_fg, False)
+        return u32.GetForegroundWindow() == hwnd
+    except Exception:
+        return False
+
+
+def _editor_line_count(page):
+    """Total lines in the buffer, read from Monaco's own line-number gutter.
+
+    .view-lines is virtualised and cannot be counted, but the gutter renders the REAL
+    line numbers for whatever is on screen - so scrolling to the end and taking the
+    maximum gives the true total.
+
+    This is the check that catches a paste which INSERTED instead of replacing. On
+    2026-08-25 06:45 exactly that happened: the select silently failed, Ctrl+V added a
+    second copy, and the saved script became 119 lines holding two of everything. It
+    still started with //@version=5, which was all paste_pine ever looked at, so it
+    saved and reported success - and TradingView refused it with "'_sym' is already
+    defined" for a full day while every run kept printing "Saved".
+
+    Returns None when the gutter cannot be read; the caller must treat that as
+    "unverified", never as "fine".
+    """
+    try:
+        page.keyboard.press("Control+End")
+        page.wait_for_timeout(900)
+        # Scope to the editor that is actually ON SCREEN. There are two
+        # .monaco-editor nodes on a TradingView chart and a page-wide querySelectorAll
+        # takes the max across both, so a detached instance holding an old model
+        # pins this to a stale number forever - the same "the reader was lying" trap
+        # already documented in _editor_text.
+        return page.evaluate("""() => {
+            const eds = Array.from(document.querySelectorAll('.monaco-editor'))
+              .filter(e => { const r = e.getBoundingClientRect();
+                             return r.width > 50 && r.height > 50; });
+            const box = eds[0];
+            if (!box) return null;
+            const ns = Array.from(box.querySelectorAll('.margin-view-overlays .line-numbers'))
+              .map(e => parseInt(e.textContent, 10))
+              .filter(v => !isNaN(v));
+            return ns.length ? Math.max.apply(null, ns) : null;
+        }""")
+    except Exception:
+        return None
+
+
+def _scroll_editor_top(page):
+    """Bring line 1 into Monaco's rendered window. Returns True when it got there.
+
+    One Ctrl+Home and a fixed 800ms was enough until the plan script grew by a few
+    lines on 2026-08-24, and then it stopped being enough: the paste landed perfectly,
+    the view stayed parked mid-document, and the caller read
+    `table.cell(planTable, 0, 1, "Entry"...)` as "the script starts with" and refused
+    to save a script that was already correct. Twice in a row, reproducibly.
+
+    .view-lines holds ONLY what is scrolled into view, so this is a question about the
+    viewport, not about the buffer. Poll it instead of guessing a duration.
+    """
+    for attempt in range(4):
+        page.keyboard.press("Control+Home")
+        page.wait_for_timeout(600 + 400 * attempt)
+        try:
+            if _editor_text(page).lstrip().startswith("//@version=5"):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+PLAN_NAME_PREFIX = "JARVIS Daily Plan"
+
+
+def list_plan_studies(page):
+    """
+    Titles of the JARVIS plan studies attached to the layout.
+
+    Reads the legend rows directly. They keep their text in the DOM even when the
+    legend is collapsed to its counter — which it is on this layout, and which is
+    why every attempt to hover or click them failed with "element is not visible".
+    Counting still works, so study growth stays detectable even where removal
+    through the UI does not.
+    """
+    try:
+        return [t.strip() for t in page.locator(".title-quatTGAC").all_inner_texts()
+                if t.strip().startswith(PLAN_NAME_PREFIX)]
+    except Exception:
+        return []
+
+
+def plan_study_health(page):
+    """Every plan study on the layout, with the status TradingView itself reports.
+
+    Returns [{"title": str, "status": str}], where status is "" for a healthy study
+    and otherwise TradingView's own words - "Compilation error" being the one that
+    matters.
+
+    WHY THIS EXISTS, and it is the gap that let a broken chart pass for a whole day:
+    plan_study_present() answers "is a study there", which stayed True while the study
+    sat on the chart reporting "Compilation error". So the run printed "Saved", "Plan
+    drawn", and exited 0 with nothing rendering. Presence is not health, and a check
+    that cannot distinguish them is the same "nothing it could observe produced a
+    failure" shape that let a stale chart pass for fourteen days.
+
+    The status lives in the legend row beside the title:
+        div[class*="title-"]                          -> the study name
+        ancestor with [data-qa-id="legend-statuses-wrapper"]
+        [data-qa-id="legend-source-item-status"]      -> title attr is the message
+
+    Matched on a partial class because the suffix is a build hash - list_plan_studies
+    hardcodes ".title-quatTGAC" and would silently return nothing the day TradingView
+    rebuilds. This reads [class*="title-"] instead so it degrades to "found nothing"
+    only when the structure really changes.
+
+    This CAN go green - verified 2026-08-26, the same layout read "Compilation error"
+    before a repoint and no pill at all after. A red light that cannot go green is
+    worse than none, so that mattered before shipping it.
+    """
+    try:
+        return page.evaluate("""(prefix) => {
+            return Array.from(document.querySelectorAll('div[class*="title-"]'))
+              .filter(d => d.textContent.trim().startsWith(prefix))
+              .map(t => {
+                let row = t;
+                for (let i = 0; i < 6 && row.parentElement; i++) {
+                  row = row.parentElement;
+                  if (row.querySelector('[data-qa-id="legend-statuses-wrapper"]')) break;
+                }
+                const w = row.querySelector('[data-qa-id="legend-statuses-wrapper"]');
+                const pills = w
+                  ? Array.from(w.querySelectorAll('[data-qa-id="legend-source-item-status"]'))
+                      .map(b => (b.getAttribute('title') || '').trim()).filter(Boolean)
+                  : [];
+                return {title: t.textContent.trim(), status: pills.join(', ')};
+              });
+        }""", PLAN_NAME_PREFIX)
+    except Exception as exc:
+        print(f"[TV] could not read plan study health ({str(exc)[:70]})")
+        return []
+
+
+def plan_studies_erroring(page):
+    """The plan studies whose status is an actual fault, ignoring benign notes.
+
+    "Opened in Pine Editor" is a status pill too and means nothing is wrong, so a
+    naive "any pill is bad" test would fail every run made with the editor open -
+    which is every run this tool makes.
+    """
+    benign = ("opened in pine editor",)
+    return [s for s in plan_study_health(page)
+            if s["status"] and s["status"].lower() not in benign]
+
+
+def sweep_plan_health(page, symbols, settle_ms=6000):
+    """Health of the plan study on EVERY chart, not just the one that happens to be open.
+
+    Returns {symbol: status}, status "" meaning clean.
+
+    Two faults this exists to avoid, both measured on 2026-08-26 with a deliberately
+    broken script:
+
+    ONE CHART IS NOT THE LAYOUT. The legend belongs to the chart currently displayed,
+    so a check run on BTC says nothing about GOLD. A broken study was reported "clean"
+    while all three charts were in fact erroring - the same shape as a fleet status
+    page that reads one box.
+
+    THE BADGE IS LATE. TradingView recompiles asynchronously, so a check 2.5s after
+    saving sees the study still running its PREVIOUS compile and reports clean. The
+    error surfaced only seconds later. Anything shorter than a real settle here makes
+    this check worse than none, because it would licence a green light.
+    """
+    out = {}
+    for symbol in symbols:
+        try:
+            open_chart(page, symbol)
+            page.wait_for_timeout(settle_ms)
+            bad = plan_studies_erroring(page)
+            out[symbol] = bad[0]["status"] if bad else ""
+        except Exception as exc:
+            # Unknown is NOT clean. Say so, and let the caller treat it as unverified.
+            out[symbol] = f"UNREADABLE ({str(exc)[:50]})"
+    return out
+
+
+def ensure_legend_expanded(page):
+    """Expand the collapsed legend so studies become clickable. IDEMPOTENT.
+
+    The counter is a TOGGLE: clicking it when the legend is already open CLOSES it, and
+    the first attempt at this expanded the legend and then immediately collapsed the one
+    it had just opened. So the state is checked before the click, never after.
+
+    Click the counter's LEFT EDGE. The box measures ~1243px wide and its centre is empty
+    chart, where the canvas swallows the event — which is why element clicks and
+    JS-dispatched clicks both failed here for weeks. Coordinates, via page.mouse.
+
+    HONEST STATUS 2026-08-24: this works but is NOT reliable. The identical click at
+    (72,61) expanded the legend to 210 visible rows on one attempt and did nothing on the
+    next, with no state change in between. Treat a False return as normal and fall back
+    to telling the human exactly which study to delete — see report_orphan_studies.
+    """
+    rows = page.locator(".title-quatTGAC")
+    if rows.count() and rows.first.is_visible():
+        return True
+    # FIRST: the actual button. SEL_LEGEND_TOGGLER has been declared in this file the
+    # whole time and this function never used it - it guessed coordinates off a
+    # CONTAINER div instead, which is why the docstring above records it expanding the
+    # legend on one attempt and doing nothing on the next with no state change between.
+    #
+    # Measured on the live chart 2026-08-30: there IS a real
+    # `button[title="Show indicators legend"]`, visible, 31x21 at (65,49). The
+    # coordinate guess clicked (72,61) - inside that button's box, which is why it
+    # sometimes worked - but it is derived from a 779x31 wrapper whose geometry moves
+    # with the symbol name, the timeframe and the exchange label. A click computed from
+    # a box that resizes with its text is a coin flip by construction.
+    #
+    # The coordinate path is KEPT as a fallback rather than deleted: it is the only
+    # thing that works if TradingView renames that title, and it has demonstrably
+    # worked before.
+    def _expanded():
+        rows_now = page.locator(".title-quatTGAC")
+        return bool(rows_now.count() and rows_now.first.is_visible())
+
+    try:
+        toggler = page.locator(SEL_LEGEND_TOGGLER).first
+        if toggler.count() if hasattr(toggler, "count") else True:
+            toggler.click(timeout=6000)
+            page.wait_for_timeout(2500)
+            if _expanded():
+                return True
+    except Exception as exc:
+        print(f"[TV] legend toggler click failed ({str(exc)[:60]}) - trying the "
+              "coordinate fallback")
+
+    box = page.evaluate("""() => {
+      const c=[...document.querySelectorAll('[class*="legend-"]')].map(e=>{
+        const r=e.getBoundingClientRect();
+        return {x:r.x,y:r.y,w:r.width,h:r.height,vis:e.offsetParent!==null};
+      }).filter(o=>o.vis && o.w>500 && o.h>10 && o.h<80);
+      return c.length ? c[0] : null;
+    }""")
+    if not box:
+        return False
+    page.mouse.click(int(box["x"]) + 12, int(box["y"]) + int(box["h"] / 2))
+    page.wait_for_timeout(2500)
+    return _expanded()
+
+
+def report_orphan_studies(page):
+    """Name the stale plan studies, because stacking is invisible until it is explained.
+
+    A plan study whose title carries a TIMESTAMP is an orphan: it was added out of an
+    unsaved editor and is backed by no saved script, so no amount of saving can ever
+    update it. The bound study is the one titled exactly SAVED_SCRIPT_NAME.
+
+    This is what was actually wrong on 2026-08-24. The chart carried BOTH
+    'JARVIS Daily Plan' (bound, updating correctly) and 'JARVIS Daily Plan 08-24 06:45'
+    (orphan, drawing the old panel on top). The earlier reading of that — "the study is
+    pinned to the script version it was added at" — was WRONG, and the fix is not a
+    version problem: it is one stale study that has to go.
+    """
+    titles = list_plan_studies(page)
+    orphans = [t for t in titles if t != SAVED_SCRIPT_NAME]
+    if orphans:
+        print(f"[TV] {len(orphans)} ORPHAN plan study(ies) on this chart: {orphans}")
+        print("[TV] These are backed by no saved script, so saving can never update them,")
+        print("[TV] and they draw the OLD panel over the live one. Delete them by hand:")
+        print("[TV]   click the legend counter (top-left of the chart) to expand it,")
+        print(f"[TV]   hover the row titled {orphans[0]!r} and click its Remove (x).")
+        print(f"[TV] Keep the one titled exactly {SAVED_SCRIPT_NAME!r} — that is the live one.")
+    return orphans
+
+
+def remove_plan_studies(page, limit=12):
+    """
+    Delete every JARVIS plan study from the layout.
+
+    Necessary because a saved TradingView layout autosaves its studies: they
+    survive navigation, so re-running stacked a new copy each time instead of
+    replacing. Worse, the earlier per-symbol scripts carried no symbol guard and
+    drew their table on every chart in the layout, which is how BTC's plan ended
+    up covering the Gold chart.
+
+    The title guard is strict on purpose. This layout also holds the user's own
+    work — APEX SMC, Clean Structure PRO, TK Swing Trend Pullback and others — and
+    nothing without the JARVIS prefix may ever be touched.
+    """
+    # When the legend is collapsed its rows are zero-size, so nothing can be hovered
+    # or clicked and every removal attempt just burns its timeout. Detect that and
+    # say so, rather than failing slowly on each run.
+    # Try to expand first. It is unreliable (see ensure_legend_expanded), so a
+    # failure here is normal and must not read as an error.
+    if not ensure_legend_expanded(page):
+        print("[TV] Legend is collapsed and would not expand — studies cannot be removed "
+              "programmatically on this run.")
+        report_orphan_studies(page)
+        return []
+
+    removed = []
+    for _ in range(limit):
+        titles = list_plan_studies(page)
+        if not titles:
+            break
+        title = titles[0]
+        if not title.startswith(PLAN_NAME_PREFIX):
+            break                 # belt and braces: never touch a foreign study
+        try:
+            row = page.locator(f'text="{title}"').first
+            row.hover(timeout=8000)
+            page.wait_for_timeout(600)
+            row.locator('xpath=ancestor::*[.//*[@aria-label="Remove"]][1]') \
+               .locator('[aria-label="Remove"]').first.click(timeout=8000)
+            page.wait_for_timeout(1800)
+            removed.append(title)
+        except Exception as exc:
+            print(f"[TV] could not remove {title!r}: {exc}")
+            break
+    if removed:
+        print(f"[TV] Removed {len(removed)} stale plan study(ies): {removed}")
+    return removed
+
+
+def paste_pine(page, pine, label):
+    """
+    Open the Pine editor and put `pine` in it. Returns True when the source landed.
+
+    Shared by both paths: applying the script as a new study, and saving it so that
+    every chart already using it picks the change up.
+    """
+    page.bring_to_front()
+    # bring_to_front raises the TAB. The OS WINDOW also has to be foreground or the
+    # renderer never receives a native paste - see _foreground_browser_window.
+    if not _foreground_browser_window():
+        print(f"[TV] {label}: WARNING - could not put the Edge window in the "
+              "foreground; a paste may silently no-op.")
+    page.wait_for_selector(SEL_PINE_BUTTON, timeout=45000)
+    page.wait_for_timeout(3000)
+    # Was a bare click on the Pine toggle. That button CLOSES the editor when it is
+    # already open, and with the editor open it is not reliably clickable at all - a
+    # 30s timeout that surfaced as "Cannot connect to Edge". It only ever worked
+    # because the editor happened to start closed.
+    if not ensure_editor_open(page):
+        return False
+
+    # Monaco tears down and rebuilds while booting, so wait for the rendered lines
+    # rather than the container, and let it settle before touching it.
+    page.wait_for_selector(SEL_EDITOR_TEXT, timeout=30000)
+    page.wait_for_timeout(4000)
+
+    # This click is a nicety, NOT a precondition, and it must never kill the run.
+    # It used to `raise` on the third failure, which is how 2026-08-26 05:46 died with
+    # "Locator.click: Timeout 8000ms exceeded" before a single paste was attempted -
+    # leaving whatever was already in the editor exactly where it was. Worse, the
+    # target is wrong by this file's own account: SEL_EDITOR_TEXT is .view-lines, the
+    # scrolled CONTENT, measured at y=-1459 so its centre is off-screen and the caret
+    # never moves. _clear_editor() below clicks the .monaco-editor ELEMENT by bounding
+    # box, which is the target that actually works. So a failure here costs nothing.
+    for attempt in range(3):
+        try:
+            page.locator(SEL_EDITOR_TEXT).first.click(timeout=8000)
+            break
+        except Exception as exc:
+            if attempt == 2:
+                print(f"[TV] {label}: could not click .view-lines ({str(exc)[:60]}) - "
+                      "continuing; _clear_editor clicks the editor element instead.")
+            else:
+                page.wait_for_timeout(2500)
+
+    # Paste, never type. keyboard.type pushes every character through CDP as its
+    # own event: Monaco's auto-indent mangled the first line ("/  /@version=5") and
+    # ~2500 keystrokes was enough to drop the driver connection outright. One
+    # clipboard write plus Ctrl+V is a single event and cannot be half-applied.
+    # Do NOT go through the clipboard. navigator.clipboard.writeText() fails silently
+    # when the document is not focused, and then Ctrl+V pastes whatever was in the
+    # clipboard BEFORE - which on 2026-08-26 was a copy of the already-doubled script,
+    # so every "successful" paste reproduced the corruption exactly. CDP Input.insertText
+    # writes into the current selection over the protocol: no clipboard, no focus
+    # dependency, and nothing else can substitute its content.
+    #
+    # Click the .monaco-editor ELEMENT, never SEL_EDITOR_TEXT. .view-lines is the
+    # scrolled CONTENT - measured at y=-1459 h=2698, so its centre is off-screen at a
+    # negative coordinate and the caret never moves.
+    cdp = page.context.new_cdp_session(page)
+    want_lines = pine.count("\n") + 1
+
+    def _clear_editor():
+        """Empty the buffer and PROVE it emptied. Returns True only when it is empty.
+
+        SIXTH trap, and the one that actually caused the wall of errors on 2026-08-26.
+        This used to be _select_all(): it left the whole buffer SELECTED and handed
+        that selection to insertText. Monaco runs its auto-indent on a
+        replace-selection, and that is what mangles line 1 into
+
+            "/" + 52 non-breaking spaces + "/@version=5"
+
+        - the exact signature this file already attributes to auto-indent further up,
+        where it says keyboard.type produced "/  /@version=5". A first line like that
+        is not valid Pine, so TradingView reports errors down the whole file, and
+        because the corruption is INSIDE the buffer every later paste selected from
+        after the stray "/" and preserved it. Self-perpetuating, which is why repeated
+        runs never recovered.
+
+        Inserting into an EMPTY document does not take that path. Measured directly on
+        the live editor: clear -> {first:"", total:1} -> insert -> line 1 reads
+        "//@version=5". Same keystrokes, correct result, because there was no selection
+        to "replace".
+
+        The empty-check is the load-bearing half. Without it a clear that silently did
+        nothing would be indistinguishable from one that worked, and the insert would
+        append to whatever was already there - which is how a buffer comes to hold two
+        copies of itself. If this returns False the caller inserts NOTHING, so the
+        sequence can never half-apply.
+
+        Leaving the editor empty on a failed insert is deliberate and is the safe
+        direction: empty is obviously empty and trivially recoverable, corrupt looks
+        like a script. The SAVED script on TradingView is never touched - the landing
+        check below still requires //@version=5 before anything is saved - and the
+        source is regenerated every run and kept at tasks/pine_daily_plan_current.pine.
+        """
+        for attempt in range(3):
+            try:
+                box = page.locator(SEL_EDITOR_ELEMENT).first.bounding_box()
+                if box and box["width"] > 50 and box["height"] > 50:
+                    page.mouse.click(box["x"] + box["width"] / 2,
+                                     box["y"] + box["height"] / 2)
+                    page.wait_for_timeout(400)
+            except Exception:
+                pass
+            page.keyboard.press("Control+Home")
+            page.wait_for_timeout(300)
+            page.keyboard.press("Control+Shift+End")   # Ctrl+A selects only the current
+            page.wait_for_timeout(500)                 # line in this Monaco build
+            page.keyboard.press("Delete")
+            page.wait_for_timeout(800)
+
+            remaining = _editor_line_count(page)
+            _scroll_editor_top(page)
+            text_left = _editor_text(page).strip()
+            if (remaining in (None, 0, 1)) and text_left == "":
+                return True
+            print(f"[TV] {label}: clear attempt {attempt + 1} left {remaining} line(s) "
+                  f"/ {len(text_left)} chars - retrying")
+        print(f"[TV] {label}: could NOT empty the editor - inserting nothing rather "
+              f"than appending to a buffer of unknown content.")
+        return False
+
+    def _via_cdp():
+        cdp.send("Input.insertText", {"text": pine})
+        return True
+
+    def _via_paste_event():
+        """Dispatch a synthetic paste. Returns False when it did not even dispatch.
+
+        EIGHTH trap, 2026-08-30, and it cost a whole run. Monaco's paste handler reads
+        e.clipboardData.getData('text') and does not check isTrusted, so a synthetic
+        ClipboardEvent reaches it without the OS clipboard and without window focus -
+        the two things that fail silently when the scheduler launched the browser
+        itself. That part works and is why this method runs first.
+
+        But the JS returns FALSE when textarea.inputarea is not in the DOM, and the
+        caller used to THROW THAT AWAY. A paste that never dispatched then looked
+        exactly like a paste that dispatched into a void: both printed only
+        "left 1 lines, want 78". Measured on the 04:15 run of 2026-08-30 - the clear
+        proved the buffer empty, this returned into nothing, and the run fell straight
+        through to CDP insertText, which mangled the indentation at line 29 and forced
+        the buffer guard to refuse the save. Plan drawn: none, on all three charts.
+
+        A no-op and a failure need different words, because they have different fixes:
+        no textarea means the editor is not mounted (wait longer, re-open it), while a
+        dispatch that lands nothing means Monaco ignored the event (retry it).
+        """
+        return bool(page.evaluate("""(text) => {
+            const ta = document.querySelector('.monaco-editor textarea.inputarea');
+            if (!ta) return false;
+            ta.focus();
+            const dt = new DataTransfer();
+            dt.setData('text/plain', text);
+            ta.dispatchEvent(new ClipboardEvent('paste',
+                {clipboardData: dt, bubbles: true, cancelable: true}));
+            return true;
+        }""", pine))
+
+    # Paste event FIRST, AND MORE THAN ONCE. Measured on the live editor with the same
+    # source: the synthetic paste produced 0 mismatches, CDP insertText produced 5 with
+    # the indentation cascading deeper on every line, because Monaco auto-indents an
+    # insertText as if it were typed. CDP stays as the fallback - it is the one that
+    # works without window focus - but it is no longer the default.
+    #
+    # The GOOD method now gets PASTE_EVENT_ATTEMPTS tries before the corrupting one is
+    # reached at all. On 2026-08-30 it got exactly one, dispatched into nothing, and the
+    # run fell through to CDP insertText on its first miss - which mangled line 29 and
+    # ended in a refused save with no plan on any chart. Retrying the method that is
+    # measured at zero mismatches is strictly better than reaching sooner for the one
+    # measured at five, and each retry re-clears, so a retry can never append.
+    PASTE_EVENT_ATTEMPTS = 3
+    methods = [("paste event", _via_paste_event)] * PASTE_EVENT_ATTEMPTS
+    methods.append(("CDP insertText", _via_cdp))
+    for method_name, method in methods:
+        page.wait_for_timeout(1200)
+        if not _clear_editor():
+            continue
+        try:
+            dispatched = method()
+        except Exception as exc:
+            print(f"[TV] {label}: {method_name} raised {str(exc)[:70]}")
+            continue
+        if dispatched is False:
+            # Distinct from "pasted and nothing landed" - see _via_paste_event.
+            print(f"[TV] {label}: {method_name} did NOT dispatch - no Monaco "
+                  f"textarea.inputarea in the DOM; the editor is not mounted.")
+            continue
+        page.wait_for_timeout(2200)
+        got = _editor_line_count(page)
+        _scroll_editor_top(page)
+        matches, bad = _editor_matches_source(page, pine)
+        if got == want_lines and _editor_starts_clean(page)[0] and matches:
+            break
+        if not matches and bad:
+            ln, want_i, have_i = bad[0]
+            print(f"[TV] {label}: {method_name} mangled the text - first bad line {ln} "
+                  f"(indent want {want_i}, got {have_i}); {len(bad)} line(s) differ")
+        print(f"[TV] {label}: {method_name} left {got} lines, want {want_lines}"
+              " - trying the next method")
+
+    final_ok, final_bad = _editor_matches_source(page, pine)
+    if not final_ok:
+        ln, want_i, have_i = final_bad[0]
+        print(f"[TV] {label}: buffer does NOT match the source - line {ln} indent "
+              f"want {want_i}, got {have_i}; {len(final_bad)} line(s) differ. Pine is "
+              f"indentation-semantic, so this would save a script that cannot compile. "
+              f"Refusing.")
+        return False
+
+    clean, landed = _editor_starts_clean(page)
+    if not clean:
+        print(f"[TV] {label}: script did not land cleanly after retries; editor starts "
+              f"{landed[:60]!r}")
+        return False
+
+    # "Starts with //@version=5" is NOT enough, and believing it cost a day of a blank
+    # chart. A buffer holding the script TWICE also starts with //@version=5. Count the
+    # real lines and refuse anything longer than one copy.
+    want_lines = pine.count("\n") + 1
+    got_lines = _editor_line_count(page)
+    _scroll_editor_top(page)
+    if got_lines is None:
+        print(f"[TV] {label}: WARNING - could not read the line gutter, so the buffer "
+              f"is UNVERIFIED. Expected {want_lines} lines.")
+    elif got_lines > want_lines + 2:          # +2 tolerates trailing blank lines
+        # REPAIR, do not merely refuse.
+        #
+        # Refusing protected the CHART and abandoned the EDITOR: the run returned False
+        # and left the doubled buffer sitting there, so the second //@version=5 and the
+        # second indicator() landed mid-file and TradingView lit up every line below.
+        # That is what the operator opens the Pine editor and sees, and no amount of
+        # "the chart keeps its previous panel" tells them how to get out of it.
+        #
+        # Only OUR OWN corruption is ever overwritten: this branch is reached solely
+        # when the buffer starts with //@version=5 AND is longer than the script we
+        # just pasted, i.e. it holds our text more than once. Nothing the operator
+        # authored can match that, and the replacement is the same script in a single
+        # clean copy - content is restored, never discarded.
+        print(f"[TV] {label}: buffer holds {got_lines} lines but the script is "
+              f"{want_lines} - the paste INSERTED instead of replacing. Repairing.")
+        for repair_attempt in range(2):
+            if not _clear_editor():
+                break
+            try:
+                cdp.send("Input.insertText", {"text": pine})
+            except Exception as exc:
+                print(f"[TV] {label}: repair insert raised {str(exc)[:70]}")
+                break
+            page.wait_for_timeout(2200)
+            now_lines = _editor_line_count(page)
+            _scroll_editor_top(page)
+            if (now_lines is not None and now_lines <= want_lines + 2
+                    and _editor_text(page).lstrip().startswith("//@version=5")):
+                print(f"[TV] {label}: repaired - buffer now {now_lines} lines "
+                      f"(want {want_lines}).")
+                return True
+            print(f"[TV] {label}: repair attempt {repair_attempt + 1} left "
+                  f"{now_lines} lines - retrying." if repair_attempt == 0 else
+                  f"[TV] {label}: repair attempt {repair_attempt + 1} left "
+                  f"{now_lines} lines.")
+        # Still broken. Say exactly how to recover by hand rather than leaving the
+        # operator to work out that Ctrl+A does not do what it does everywhere else.
+        print(f"[TV] {label}: STILL DOUBLED after repair - not saving. The editor is "
+              f"holding a corrupt buffer RIGHT NOW. To clear it by hand: click in the "
+              f"code, then Ctrl+Home, Ctrl+Shift+End, Delete, and paste "
+              f"tasks/pine_daily_plan_current.pine. Plain Ctrl+A selects only the "
+              f"current line in this Monaco build, which is how the doubling starts.")
+        return False
+    return True
+
+
+def editor_script_name(page):
+    """What the editor header says it is editing. 'Untitled script' means UNBOUND."""
+    try:
+        return page.locator(SEL_NAME_BUTTON).first.inner_text(timeout=5000).strip()
+    except Exception:
+        return ""
+
+
+def editor_has_unsaved_changes(page):
+    """The save button carries an 'unsaved-' class while the buffer is dirty."""
+    try:
+        cls = page.locator(SEL_SAVE_BUTTON).first.get_attribute("class", timeout=5000) or ""
+        return "unsaved" in cls
+    except Exception:
+        return False
+
+
+def close_any_open_dialog(page):
+    """A dialog left open traps focus and every later click is 'intercepted'."""
+    for _ in range(3):
+        if page.locator(SEL_OPEN_DIALOG).count() == 0:
+            return
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(600)
+
+
+def ensure_editor_open(page):
+    """
+    Open the Pine editor if it is not already open, and NEVER click the toggle when
+    it is - that button closes it again. open_saved_script runs before paste_pine,
+    which is what used to do the opening, so without this the first click inside the
+    editor times out and the whole bind step is skipped.
+    """
+    if page.locator(SEL_PINE_DIALOG).count() > 0:
+        return True
+    try:
+        page.click(SEL_PINE_BUTTON, timeout=8000)
+        page.wait_for_selector(SEL_EDITOR_TEXT, timeout=30000)
+        page.wait_for_timeout(3000)
+        return True
+    except Exception as exc:
+        print(f"[TV] Could not open the Pine editor ({str(exc)[:70]})")
+        return False
+
+
+def exit_historical_version(page):
+    """
+    Leave the read-only HISTORICAL VERSION view, if the editor is showing one.
+
+    TradingView keeps a version history per script, and when the editor is bound to an
+    older version it renders a banner and makes the buffer READ-ONLY:
+
+        "This is a historical version of the script. To edit its code, restore this version."
+
+    Nothing about the DOM says read-only: the textarea reports readOnly=false, the editor
+    carries the "focused" class, and document.activeElement is the input textarea. So every
+    keystroke and every CDP Input.insertText is accepted by the page and silently discarded
+    by Monaco. Measured on the VPS 2026-09-05: 106 lines / 4078 chars before and after a
+    full Ctrl+Home / Ctrl+Shift+End / Delete, and identical after CDP insertText. Three
+    plausible causes were tested and eliminated first (RDP rendering, viewport size, the
+    detached second Monaco instance) - the answer was legible in a screenshot the whole
+    time, which is the lesson: LOOK at the page before theorising about it.
+
+    Clicking "restore this version" makes that version the current, editable one. Nothing
+    is lost - TradingView keeps the full version history either way - and paste_pine
+    replaces the whole buffer immediately afterwards.
+
+    Returns True when the editor is editable (either it never was historical, or the
+    restore worked), False when the banner is still there.
+    """
+    try:
+        banner = page.get_by_text("historical version of the script", exact=False)
+        if banner.count() == 0:
+            return True
+    except Exception:
+        return True
+
+    print("[TV] editor is on a HISTORICAL version (read-only) - restoring it to edit")
+    for sel in ['a:has-text("restore this version")',
+                'button:has-text("restore this version")',
+                'text="restore this version"']:
+        try:
+            page.click(sel, timeout=4000)
+            page.wait_for_timeout(2500)
+            break
+        except Exception:
             continue
 
-    print("[TV] Script pasted but could not click 'Add to chart' — do it manually in the Pine Editor")
+    try:
+        still = page.get_by_text("historical version of the script", exact=False).count() > 0
+    except Exception:
+        still = False
+    if still:
+        print("[TV] could NOT leave the historical view - refusing to type into a read-only buffer")
+        return False
+    print("[TV] restored - the editor is editable again")
+    return True
+
+
+def open_saved_script(page, name=SAVED_SCRIPT_NAME):
+    """
+    Bind the editor to the SAVED script of this name. Returns True when bound.
+
+    Without this the editor sits on 'Untitled script', so Save opens the
+    "New script name" dialog and creates ANOTHER script instead of updating the one
+    the chart uses. On 2026-08-21 the saved-script list held 11 scripts and none of
+    them was the plan: the study on the chart was an orphan snapshot, added from an
+    unsaved editor and backed by nothing, which is why fourteen days of saving could
+    never reach it.
+    """
+    if not ensure_editor_open(page):
+        return False
+    close_any_open_dialog(page)
+    # A read-only historical buffer accepts every keystroke and applies none of them,
+    # so this has to run BEFORE anything tries to type.
+    exit_historical_version(page)
+    if editor_script_name(page) == name:
+        return True
+    try:
+        page.click(SEL_EDITOR_AREA, timeout=8000)
+        page.wait_for_timeout(600)
+        page.keyboard.press("Control+o")
+        page.wait_for_selector(SEL_OPEN_DIALOG, timeout=15000)
+        page.wait_for_timeout(1500)
+    except Exception as exc:
+        print(f"[TV] Could not open the script list ({str(exc)[:70]})")
+        close_any_open_dialog(page)
+        return False
+
+    try:
+        # SEARCH, never scan the rendered rows. Two independent reasons, both measured
+        # against the live dialog on 2026-08-24, and either alone was fatal:
+        #
+        #   1. THE LIST IS VIRTUALISED. The scroll container measured scrollHeight 2866
+        #      against clientHeight 467, so all_inner_texts() returned only the ~11 rows
+        #      that happened to be rendered. A script further down the list simply was
+        #      not there to be found, and the code reported it "not a saved script yet".
+        #   2. EVERY CHARACTER IS ITS OWN ELEMENT. The title comes back as
+        #      'J\nA\nR\nV\nI\nS\n \nD\na\ni\nl\ny\n \nP\nl\na\nn' — TradingView renders
+        #      per-character spans, so all_inner_texts() joins them with newlines and
+        #      `t.strip() == name` can NEVER be true, even for a row in full view.
+        #
+        # That pair is the whole reason fourteen days of saving never reached the chart:
+        # every run concluded the script did not exist, took the create path, and made
+        # another orphan. Typing the name into the dialog's own Search box makes the
+        # server do the matching, and squash() makes the comparison survive the markup.
+        searched = False
+        try:
+            box = page.locator(SEL_OPEN_SEARCH).first
+            if box.count() > 0:
+                box.fill(name)
+                page.wait_for_timeout(1800)
+                searched = True
+        except Exception:
+            pass  # older build with no search field: fall back to the rendered rows
+
+        titles = page.locator(SEL_OPEN_ITEM).all_inner_texts()
+        match = next((i for i, t in enumerate(titles) if squash(t) == squash(name)), None)
+        if match is None:
+            where = "no match in the dialog's search" if searched else \
+                    f"{len(titles)} rendered rows scanned, and this build has no search box"
+            print(f"[TV] {name!r} is not a saved script yet ({where}) "
+                  f"- it will be created on this run.")
+            close_any_open_dialog(page)
+            return False
+        page.locator(SEL_OPEN_ITEM).nth(match).click(timeout=8000)
+        page.wait_for_timeout(3500)
+    except Exception as exc:
+        print(f"[TV] Could not open {name!r} ({str(exc)[:70]})")
+        close_any_open_dialog(page)
+        return False
+
+    bound = editor_script_name(page) == name
+    if not bound:
+        print(f"[TV] Editor still reads {editor_script_name(page)!r} after opening {name!r}")
+    return bound
+
+
+def add_script_to_chart(page):
+    """
+    Put the CURRENTLY OPEN script on the chart as a study.
+
+    Saving a script does not place it on a chart - it only updates charts already
+    using it. So a chart that never had the study, or had its orphan snapshot
+    removed, needs this once.
+
+    SEL_APPLY matches "Update on chart", which is the label when a study from this
+    script is already applied. When none is, the button reads "Add to chart" and
+    carries no tooltip or aria-label at all, so the tooltip selector misses it
+    entirely - matched on visible text here, scoped to the editor.
+    """
+    for selector in (SEL_APPLY,
+                     SEL_PINE_DIALOG + ' button:has-text("Add to chart")',
+                     SEL_PINE_DIALOG + ' button:has-text("Update on chart")'):
+        try:
+            page.click(selector, timeout=6000)
+            page.wait_for_timeout(6000)
+            return True
+        except Exception:
+            continue
+    print("[TV] Could not find the add-to-chart control")
     return False
+
+
+def click_save(page):
+    """
+    Press Save. SEL_SAVE matches title/tooltip/aria-label and the current editor's
+    Save button carries NONE of them - only class 'saveButton-<hash>' and the text -
+    so that selector times out every run on this build.
+    """
+    for selector in (SEL_SAVE_BUTTON, SEL_SAVE,
+                     SEL_PINE_DIALOG + ' button:has-text("Save")'):
+        try:
+            page.click(selector, timeout=6000)
+            return True
+        except Exception:
+            continue
+    try:
+        page.keyboard.press("Control+s")
+        return True
+    except Exception:
+        return False
+
+
+def save_as_new_script(page, name=SAVED_SCRIPT_NAME):
+    """First run only: the Save dialog asks for a name because nothing is bound."""
+    # The name field carries NO type attribute, so input[type=text] never matched it
+    # and this timed out every run. It is the only visible <input> on the page - the
+    # Monaco buffer is a <textarea> - and it comes pre-filled with the script name.
+    #
+    # Submit with Enter rather than clicking Save: the dialog's Save button and the
+    # editor's own Save button both match button:has-text("Save"), and picking the
+    # wrong one reopens this dialog instead of closing it.
+    try:
+        page.wait_for_selector('input:visible', timeout=8000)
+        box = page.locator('input:visible').first
+        box.fill(name)
+        page.wait_for_timeout(500)
+        box.press("Enter")
+        page.wait_for_timeout(5000)
+        return True
+    except Exception as exc:
+        print(f"[TV] Save-as dialog failed ({str(exc)[:70]})")
+        page.keyboard.press("Escape")
+        return False
+
+
+def save_pine(page, pine, name=SAVED_SCRIPT_NAME):
+    """
+    Update the plan by SAVING the named script, not by adding it to the chart.
+
+    "Update on chart" still creates another study on some runs - two consecutive
+    runs measured 4 then 5 - and the layout's collapsed legend makes the extras
+    unremovable from here. Saving a named script instead pushes the new source into
+    every chart already using it, so the plan refreshes in place and the study count
+    never moves.
+
+    That design was right and had never once worked, because nothing bound the
+    editor to the script. It sat on "Untitled script", so Save opened the "New
+    script name" dialog and made ANOTHER script. On 2026-08-21 the saved list held
+    11 scripts and no plan among them, while the chart carried a "JARVIS Daily Plan"
+    study that was an orphan snapshot from Aug 7 - added out of an unsaved editor,
+    backed by nothing, and therefore unreachable by any save.
+    """
+    bound = open_saved_script(page, name)
+
+    if not paste_pine(page, pine, name):
+        return False
+
+    if bound:
+        # Ctrl+S on a bound script saves in place with no dialog.
+        page.keyboard.press("Control+s")
+        page.wait_for_timeout(4000)
+        if editor_has_unsaved_changes(page):
+            print(f"[TV] {name!r} still shows unsaved changes after Ctrl+S")
+            return False
+        how = "bound script updated in place"
+    else:
+        if not click_save(page):
+            print("[TV] Save control not found")
+            return False
+        page.wait_for_timeout(2500)
+        if not save_as_new_script(page, name):
+            return False
+        if editor_script_name(page) != name:
+            print(f"[TV] Editor reads {editor_script_name(page)!r} after save-as {name!r}")
+            return False
+        how = "CREATED - add it to the chart once, then every run updates it"
+
+    # Saving cleanly is not compiling cleanly. A script with a Pine error saves
+    # perfectly well and then renders nothing, which looks exactly like success.
+    errors = [e.strip() for e in
+              page.locator('[class*="errorMessage"], .tv-script-console__error')
+                  .all_inner_texts()
+              if e.strip() and "opened" not in e.lower()]
+    if errors:
+        print(f"[TV] Pine reported {errors[:2]}")
+        return False
+
+    print(f"[TV] Saved {name!r} ({how})")
+    return True
+
+
+
+def apply_pine(page, pine, symbol):
+    """Add the script to the chart as a study. Prefer save_pine — this one stacks."""
+    if not paste_pine(page, pine, symbol):
+        return False
+
+    try:
+        page.click(SEL_APPLY, timeout=10000)
+    except Exception:
+        page.keyboard.press("Control+Enter")  # fallback for older editor builds
+    page.wait_for_timeout(7000)
+
+    errors = [e.strip() for e in
+              page.locator('[class*="errorMessage"], .tv-script-console__error')
+                  .all_inner_texts()
+              if e.strip() and "opened" not in e.lower()]
+    if errors:
+        print(f"[TV] {symbol}: Pine reported {errors[:2]}")
+        return False
+
+    # Collapse the editor: the chart has to be visible both to be useful and to be
+    # verifiable, since a expanded editor hides the legend entirely.
+    try:
+        page.click(SEL_COLLAPSE, force=True, timeout=8000)
+        page.wait_for_timeout(3500)
+    except Exception as exc:
+        print(f"[TV] {symbol}: could not collapse the editor ({exc})")
+
+    # There is deliberately no DOM assertion that the study rendered. Pine draws
+    # tables, lines and labels onto the chart CANVAS, so none of it exists as page
+    # text or elements — every innerText/legend check tried here returned empty on
+    # charts that were in fact drawing the plan correctly. What is checkable is:
+    # the script landed in the editor, the apply control was clicked, and the Pine
+    # compiler reported no errors. The screenshot is the visual record.
+    print(f"[TV] {symbol}: daily plan applied (see {SHOT_DIR / f'plan_{symbol.lower()}.png'})")
+    return True
+
+
+def draw_via_pine_editor(page, symbol, levels):
+    """Back-compat shim for cmd_draw: build a minimal plan from (price, label) pairs."""
+    picked = {label: price for price, label in levels}
+    plan = build_plan(symbol, {}, gate=None, overrides={
+        "entry":      picked.get("Entry"),
+        "stop":       picked.get("Stop"),
+        "target":     picked.get("Target"),
+        "support":    picked.get("Support"),
+        "resistance": picked.get("Resistance"),
+    })
+    return apply_pine(page, generate_pine(plan), symbol)
+
+
+# ── Plan data ─────────────────────────────────────────────────────────────────
+def _session_cookie():
+    """The session cookie value IS server/session_secret.txt.
+
+    Same helper as tv_daily_plan.py and check_errors.py — the gated routes are not
+    opened up, this script simply holds its own login the way the MCP server does.
+    A missing file is NOT fatal: the cookie goes empty and every public route still
+    answers, which is exactly how this file behaved before the cookie existed.
+    """
+    try:
+        return (Path(__file__).parent / "server" / "session_secret.txt").read_text(
+            encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _get_json(path):
+    """GET a SmartEntry endpoint. Returns None rather than raising — a dead server
+    must not look like an empty plan."""
+    try:
+        request = urllib.request.Request(f"{SERVER_URL}{path}")
+        secret = _session_cookie()
+        if secret:
+            request.add_header("Cookie", f"smartentry_session={secret}")
+        with urllib.request.urlopen(request, timeout=6) as response:
+            if response.status != 200:
+                print(f"[TV] {path} returned HTTP {response.status}")
+                return None
+            return json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        print(f"[TV] {path} unreachable: {exc}")
+        return None
+
+
+# How many confluence zones get a box on the chart. Three, and no more.
+#
+# The count is a DESIGN limit, not a data limit. This file already learned the
+# lesson at SETUP_LEVELS: on 2026-08-24 the Gold chart carried five plan lines on
+# top of APEX SMC, Clean Structure PRO and TK Swing Trend, and the honest panel in
+# the corner was invisible behind them. The clustering finds nine to twenty-three
+# zones per asset; drawing them all would repeat that mistake with boxes instead of
+# lines.
+MAX_DRAWN_ZONES = 3
+
+# A "zone" only one method found is not confluence — it is that one method, and the
+# panel already prints the pivots and the prior day. Only agreement earns a box.
+MIN_DRAWN_CONFLUENCE = 2
+
+
+def load_market_context():
+    """Confluence zones and the ATR day projection, per asset key.
+
+    Returns {} when the endpoint is unavailable, so the rows print "no context"
+    rather than a blank. An absent measurement and a measurement showing nothing
+    are different facts — the same rule load_candle_reads() follows.
+    """
+    payload = _get_json("/api/market-context")
+    if not isinstance(payload, dict) or payload.get("available") is not True:
+        why = (payload or {}).get("why", "endpoint unavailable")
+        print(f"[TV] Market context: NOT available ({why}) - zone rows will say so")
+        return {}
+    assets = payload.get("assets") or {}
+    usable = {k: v for k, v in assets.items() if isinstance(v, dict) and v.get("available")}
+    print(f"[TV] Market context: {len(usable)} asset(s) with ranked zones")
+    return usable
+
+
+def load_positions():
+    """Open positions keyed by MT5 symbol. {} when none or unavailable.
+
+    /api/mt5/positions returns an EMPTY LIST while the bridge has not reported, which is
+    indistinguishable from a flat book - the documented empty-positions-is-not-flat trap
+    that this fleet has been bitten by more than once. It matters less here than it does
+    for a restart decision, because the failure mode is a missing overlay rather than a
+    wrong one, but the caller is told which case it is instead of being left to assume.
+    """
+    payload = _get_json("/api/mt5/positions")
+    if not isinstance(payload, dict):
+        print("[TV] Positions: NOT available - no overlay")
+        return {}
+    rows = list(payload.get("positions") or []) + list(payload.get("unmanaged") or [])
+    out = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        # One band per symbol. Two positions on the same instrument would overlap into an
+        # unreadable smear, so the LARGEST by volume wins - it is the one carrying the risk.
+        current = out.get(symbol)
+        if current is None or (row.get("volume") or 0) > (current.get("volume") or 0):
+            out[symbol] = row
+    print(f"[TV] Positions: {len(out)} symbol(s) with an open trade"
+          if out else "[TV] Positions: none open (or the bridge is not reporting)")
+    return out
+
+
+def load_chart_geometry():
+    """CRT / previous-day sweep state, from /api/chart-geometry. {} when unavailable.
+
+    Fetched ONCE for all three symbols, like the market context: three fetches would be
+    three different instants of the same read, and a chart whose rows disagree with each
+    other by a few seconds is worse than one that admits it has no data.
+    """
+    payload = _get_json("/api/chart-geometry")
+    if not isinstance(payload, dict):
+        print("[TV] Chart geometry: NOT available - CRT and sweep rows will say so")
+        return {}
+    assets = payload.get("assets") or {}
+    usable = {k: v for k, v in assets.items() if isinstance(v, dict) and v.get("available")}
+    print(f"[TV] Chart geometry: {len(usable)} asset(s) with CRT and prior-day reads")
+    return usable
+
+
+def load_fvg(timeframe="m15"):
+    """Fresh FVG zones for the entry timeframe, from /api/fvg. {} when unavailable.
+
+    m15 is requested because that is the timeframe an entry is actually refined on. Note
+    what this is NOT: FVG measured 6.9pp WORSE than random over ~6,800 samples here, so a
+    zone on the chart is a place to watch, never a reason. The panel text says so.
+    """
+    payload = _get_json("/api/fvg")
+    if not isinstance(payload, dict):
+        print("[TV] FVG: NOT available - entry-zone rows will say so")
+        return {}
+    assets = payload.get("assets") or {}
+    out = {}
+    for key, block in assets.items():
+        if not isinstance(block, dict) or not block.get("available"):
+            continue
+        frames = block.get("timeframes") or {}
+        chosen = frames.get(timeframe) or frames.get("h1") or {}
+        zones = [z for z in (chosen.get("zones") or []) if isinstance(z, dict)]
+        if zones:
+            out[key] = {"timeframe": timeframe if frames.get(timeframe) else "h1", "zones": zones}
+    print(f"[TV] FVG: {len(out)} asset(s) with entry zones")
+    return out
+
+
+def _note_row(reasons, limit=112):
+    """The most actionable engine reason, cut on a word boundary - never mid-token.
+
+    IT USED TO BE reasons[0][:64] AND THAT CUT INSIDE A NUMBER. Measured 2026-09-02,
+    Gold rendered:
+        "BLOCKED: TREND_FOLLOW - MACD not bullish (histogram -26.78, 26.7"
+    The sentence stops mid-figure, so the one number that says HOW FAR the setup is
+    from firing arrives on the chart as a half-written digit. That day the MACD cross
+    was the single condition standing between Gold and a live TREND_FOLLOW setup, with
+    every other leg already passed - the most useful fact the engine produced, and the
+    panel truncated it.
+
+    A BLOCKED line is preferred over reasons[0] when one exists. The engine does not
+    guarantee ordering, and "what is stopping this" outranks "BB squeeze forming" every
+    time. Falls back to the first reason, then to a dash.
+    """
+    if not reasons:
+        return "-"
+    text = next((str(r) for r in reasons if str(r).startswith("BLOCKED")), str(reasons[0]))
+    if len(text) <= limit:
+        return text
+    # Cut at the last space inside the budget so a number is never split. If there is
+    # no space to cut at, a hard cut is still better than overflowing the panel.
+    cut = text.rfind(" ", 0, limit)
+    return (text[:cut] if cut > 40 else text[:limit]).rstrip(" ,.") + "..."
+
+
+def _pick_drawn_zones(asset_context):
+    """The three zones worth a box: the nearest wall above, the nearest floor below,
+    and then the strongest thing left.
+
+    Above-and-below FIRST is deliberate. Ranking purely by confluence score can
+    return three zones all on the same side of price, which tells a trader nothing
+    about where the move stops in the direction it is actually going.
+    """
+    ranked = (asset_context or {}).get("zones") or {}
+    candidates = [z for z in (ranked.get("byConfluence") or [])
+                  if (z.get("score") or 0) >= MIN_DRAWN_CONFLUENCE]
+    if not candidates:
+        return []
+
+    above = sorted((z for z in candidates if z.get("side") == "above"),
+                   key=lambda z: z.get("distance", 0))
+    below = sorted((z for z in candidates if z.get("side") == "below"),
+                   key=lambda z: z.get("distance", 0))
+
+    chosen = []
+    if above:
+        chosen.append(above[0])
+    if below:
+        chosen.append(below[0])
+    for zone in candidates:                      # already strongest-first
+        if len(chosen) >= MAX_DRAWN_ZONES:
+            break
+        if zone not in chosen:
+            chosen.append(zone)
+    return chosen[:MAX_DRAWN_ZONES]
+
+
+def fetch_live_gate():
+    """The confidence gate actually in force. Never hardcode it — it moved 65 -> 70."""
+    settings = _get_json("/api/strategy-settings")
+    if not settings:
+        return None, "strategy-settings unreachable"
+    if settings.get("settingsError"):
+        return settings.get("confidenceThreshold"), \
+            f"DEFAULTS IN FORCE ({settings['settingsError']})"
+    return settings.get("confidenceThreshold"), "saved config"
+
+
+def _decimals_for(price):
+    if price is None:
+        return 2
+    return 2 if price >= 100 else 4
+
+
+def load_candle_reads():
+    """The measured next-candle read, written by tasks/candle_probability.cjs.
+
+    Returns {} when absent or unreadable — the chart then prints "not generated" for
+    those rows rather than a blank, because an absent measurement and a measurement
+    showing no edge are different facts and must not look the same on a chart that is
+    read before trading.
+    """
+    try:
+        # Path(__file__).parent, not a ROOT constant — this file has never defined one,
+        # and py_compile cannot see a NameError, so it would have failed at run time.
+        path = Path(__file__).parent / "tasks" / "analysis" / "candle-today.json"
+        if not path.exists():
+            return {}
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        out = {}
+        for r in raw.get("reads", []):
+            out.setdefault(r.get("symbol"), {})[r.get("tf")] = r
+        return out
+    except Exception as exc:
+        print(f"[TV] candle read unreadable ({str(exc)[:70]}) - rows will say so")
+        return {}
+
+
+def _read_row(reads, symbol, tf):
+    """One panel row. Says INSIDE NOISE in those words when the cell does not clear
+    its own noise bar, which is the answer on most days."""
+    cell = (reads.get(READ_SYMBOL.get(symbol, ""), {}) or {}).get(tf)
+    if not cell:
+        return "not generated - run candle_probability.cjs"
+    if cell.get("error"):
+        return str(cell["error"])[:60]
+    pct = cell.get("cellUpPct")
+    if pct is None:
+        return f'{cell.get("state","?")} - too few cases to judge'
+    if cell.get("actionable"):
+        thin = " THIN" if cell.get("thinFolds") else ""
+        return (f'{cell.get("state")} -> {pct}% up  READ{thin} '
+                f'({cell.get("foldsAgreeing")}/{cell.get("foldsJudged")} folds)')
+    return f'{cell.get("state")} -> {pct}% up  INSIDE NOISE (bar {cell.get("noiseBarPP")}pp)'
+
+
+def _zones_row(drawn, decimals):
+    """The nearest wall above and floor below, with the number that says how much
+    independent agreement is behind each.
+
+    `x4` is not decoration. It is the difference between a level four unrelated
+    methods found and one that pivot arithmetic invented, and before this row the
+    chart had no way to tell them apart.
+    """
+    if not drawn:
+        return "no confluence zone within range"
+    above = next((z for z in drawn if z.get("side") == "above"), None)
+    below = next((z for z in drawn if z.get("side") == "below"), None)
+    parts = []
+    if above:
+        parts.append(f"R {_fmt(above['low'], decimals)} x{above['score']}")
+    if below:
+        parts.append(f"S {_fmt(below['high'], decimals)} x{below['score']}")
+    inside = next((z for z in drawn if z.get("side") == "at"), None)
+    if inside:
+        parts.append(f"IN {_fmt(inside['low'], decimals)}-{_fmt(inside['high'], decimals)} x{inside['score']}")
+    return "  ".join(parts) if parts else "no confluence zone within range"
+
+
+def _day_range_row(asset_context, decimals):
+    """How much of a normal day's range today has already spent.
+
+    A DESCRIPTION and nothing more. It suppresses no setup, it reaches no gate, and
+    the engine never sees it — a day at 180% of ATR is still a day the engine may
+    fire on, and rule 3 says nothing here may change that.
+    """
+    projection = (asset_context or {}).get("projection") or {}
+    if not projection.get("available"):
+        return projection.get("why") or "no ATR projection"
+    return (f"{projection['rangeUsedPct']}% of ATR - {projection['reading']}"
+            f"  band {_fmt(projection['expectedLow'], decimals)}"
+            f"-{_fmt(projection['expectedHigh'], decimals)}")
+
+
+def _plan_fingerprint(pine):
+    """A hash of the plan source with the volatile parts removed.
+
+    WHY THE JOB CAN RUN EVERY 20 MINUTES AT ALL. Each run rewrites and SAVES the Pine
+    script, and TradingView keeps a version per save. That is not free: a read-only
+    HISTORICAL VERSION of this very script is what silently swallowed every keystroke on
+    the VPS for hours, and 72 saves a day is a much larger haystack for that to hide in.
+    Skipping the save when nothing changed keeps a frequent refresh honest.
+
+    The generated-at timestamp and the age suffix are stripped before hashing, because
+    they change on every run BY CONSTRUCTION and would make every fingerprint unique -
+    which would defeat the whole check while looking like it worked.
+    """
+    import hashlib
+    import re
+    # _planTs is a MILLISECOND epoch and was the one field that made every fingerprint
+    # unique. Found by diffing two generations 1.5s apart: 2 differing lines, both this.
+    # A stability test is the only reason this was caught before it shipped as a check
+    # that always reported "changed" while looking like it worked.
+    stripped = re.sub(r"_planTs\s*=\s*\d+", "_planTs = 0", pine)
+    stripped = re.sub(r'"JARVIS [A-Z]+  [0-9:\- ]+"', '"JARVIS"', stripped)
+    stripped = re.sub(r"_planAge\w*\s*=.*", "", stripped)
+    return hashlib.sha256(stripped.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def _fingerprint_path():
+    return Path(__file__).parent / "tasks" / ".tv_plan_fingerprint"
+
+
+def _latest_crt(geometry, timeframe):
+    """The most recent CONFIRMED CRT on this timeframe, or None.
+
+    ONE pattern, not the list. The detector finds 62 of them on 400 H4 bars - about one
+    bar in six - so a chart that drew them all would be a wall of teal boxes saying
+    nothing. Only the newest is a live read; the rest are history the candles already show.
+
+    Confirmed only: an unconfirmed CRT is a sweep whose follow-through has not happened,
+    which is a hypothesis rather than a pattern.
+    """
+    frames = ((geometry or {}).get("timeframes") or {})
+    block = (frames.get(timeframe) or {}).get("crt") or {}
+    for pattern in (block.get("patterns") or []):
+        if pattern.get("confirmed"):
+            return pattern
+    return None
+
+
+def build_plan(symbol, asset, gate=None, overrides=None, reads=None, context=None,
+               geometry=None, fvg_zones=None, position=None):
+    """
+    Turn one asset block from /api/signals into everything the chart should show.
+
+    A WAIT asset still gets a plan: whatever levels the engine did compute, else
+    the pivots, plus the analysis that explains why it is not firing. That is the
+    point of a daily plan — knowing what would have to happen, not just what fired.
+    """
+    overrides = overrides or {}
+    indicators = asset.get("indicators") or {}
+    pivots     = asset.get("pivots") or {}
+    h4         = asset.get("h4") or {}
+    h1         = asset.get("h1") or {}
+
+    price    = asset.get("price")
+    decimals = _decimals_for(price)
+
+    entry  = overrides.get("entry",  asset.get("entry"))
+    stop   = overrides.get("stop",   asset.get("stop"))
+    target = overrides.get("target", asset.get("target"))
+
+    # No engine stop/target on a WAIT asset — fall back to the pivots either side.
+    support    = overrides.get("support",    pivots.get("s1"))
+    resistance = overrides.get("resistance", pivots.get("r1"))
+    levels_from = "engine"
+    if stop is None and target is None:
+        stop, target = pivots.get("s2"), pivots.get("r2")
+        levels_from = "pivots"
+
+    confidence = asset.get("confidence")
+    gap = None
+    if gate is not None and confidence is not None:
+        gap = max(0, gate - confidence)
+
+    # R:R from the prices on the chart, never from the stored rr field — that has
+    # described a different trade than the levels beside it before now. Only a real
+    # engine setup has an R:R at all; a pivot band is not a trade, and printing a
+    # ratio for one on the chart would invent a setup that does not exist.
+    rr = None
+    if levels_from == "engine" and None not in (entry, stop, target):
+        risk = abs(entry - stop)
+        if risk > 0:
+            rr = round(abs(target - entry) / risk, 2)
+
+    signal = asset.get("signal") or "WAIT"
+    bias = signal if signal in ("BUY", "SELL") else "WAIT"
+    bias = {"BUY": "LONG", "SELL": "SHORT"}.get(bias, "WAIT")
+
+    reasons = (asset.get("reasons") or [])
+    is_setup = levels_from == "engine"
+    # Confluence zones for this symbol. Computed once here and carried on the plan,
+    # so the panel row and the boxes on the canvas can never disagree about which
+    # zones were chosen.
+    drawn_zones = _pick_drawn_zones(context)
+    rows = {
+        # The pivot fallback is not a trade, so its prices must not be dressed up
+        # as one. They are shown, but named for what they are.
+        "Entry":      _fmt(entry, decimals) + ("" if is_setup else "  (price)"),
+        "SL":         _fmt(stop, decimals) + ("" if is_setup else "  (S2 pivot)"),
+        "TP":         _fmt(target, decimals) + ("" if is_setup else "  (R2 pivot)"),
+        "R:R":        f'{rr}' if rr else "n/a - no setup",
+        "Levels":     "engine setup" if is_setup else "PIVOT BAND - not a trade",
+        # The four context levels used to be four more lines on the chart. They are
+        # real and worth knowing, so they are kept in full - as one row of text, where
+        # a level reads as a level. See CONTEXT_LEVELS.
+        # Filled in at the end of this function, once the breakout pair (attached
+        # after this dict is built) is known. A placeholder here would ship if that
+        # refresh ever stopped running, so it says so rather than showing a stale "-".
+        "Pivots":     "(not computed)",
+        # Where independent methods AGREE, and how much of today's normal range is
+        # already gone. Both are context and neither is an instruction — same
+        # footing as the 1D/4H reads further down.
+        "Zones":      _zones_row(drawn_zones, decimals),
+        "Day range":  _day_range_row(context, decimals),
+        # "gap 70pt" ON A ZERO IS A TRUE NUMBER THAT MEANS THE WRONG THING. Confidence
+        # on this engine is not a gradient climbing toward the gate: it is 0 when no setup
+        # scored at all, and 55+ when one did. A gap of 70 therefore does not mean "70
+        # points away", it means "nothing to score" - and printed as a distance it reads
+        # like a near miss on a chart used to trade by hand. The three cases are named
+        # instead, and the Note row already carries WHY when it is zero.
+        "Confidence": (f'{confidence} vs gate {gate}  MEETS GATE' if not gap
+                       else f'0 vs gate {gate}  no setup scored - see Note' if not confidence
+                       else f'{confidence} vs gate {gate}  {gap}pt short'),
+        "Setup":      f'{asset.get("setup", "-")} ({asset.get("setupTimeframe", "-")})',
+        "Regime":     f'{asset.get("regime") or "-"}  '
+                      f'RSI {indicators.get("rsi", "-")} ADX {indicators.get("adx", "-")}',
+        "Trend D1":   asset.get("trend") or "-",
+        "Trend H4":   f'{h4.get("trend", "-")} (RSI {h4.get("rsi", "-")})',
+        "Trend H1":   f'{h1.get("trend", "-")} (RSI {h1.get("rsi", "-")})',
+        # Measured bar geometry, NOT a signal. Sits below the trend rows so it reads as
+        # context rather than as an instruction, and prints its own verdict in words.
+        "1D read":    _read_row(reads or {}, symbol, "D1"),
+        "4H read":    _read_row(reads or {}, symbol, "H4"),
+        "Note":       _note_row(reasons),
+    }
+
+    plan = {
+        "symbol": symbol,
+        "decimals": decimals,
+        "bias": bias,
+        "setup": asset.get("setup"),
+        "confidence": confidence,
+        "gate": gate,
+        "gap": gap,
+        "rr": rr,
+        "levels_from": levels_from,
+        "price": price,
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "support": support,
+        "resistance": resistance,
+        # The day reference level. R2 and S2 already reach the panel disguised
+        # as TP and SL on a WAIT asset, but PP appeared NOWHERE on the chart -
+        # not as a line, not as text - despite being the level intraday price
+        # is measured against. Carried here so the Pivots row can show it.
+        "pp": pivots.get("pp"),
+        # The full ladder and the ATR envelope, carried so the CANVAS can show
+        # them. Both were computed already and reached the chart only as table
+        # text: a WAIT day drew 4 boxes and not one price level.
+        "pivots": {k: pivots.get(k) for k in ("r2", "r1", "pp", "s1", "s2")},
+        "atr_low": ((context or {}).get("projection") or {}).get("expectedLow"),
+        "atr_high": ((context or {}).get("projection") or {}).get("expectedHigh"),
+        "generated_at": time.strftime("%Y-%m-%d %H:%M"),
+        # The instant itself, so the chart can age its own plan. Deriving this
+        # back from generated_at would mean re-parsing a LOCAL time string, and
+        # the two boxes are in different timezones.
+        "generated_ts_ms": int(time.time() * 1000),
+        "source_note": f'{asset.get("dataSource", "unknown")} '
+                       f'{asset.get("sourceSymbol", "")} '
+                       f'updated {asset.get("updatedAt", "?")}',
+        # The zones that get a box on the canvas, and the prior session's range.
+        # Both are CONTEXT: they are drawn on a WAIT chart too, unlike entry/stop/
+        # target, which are drawn only for a real engine setup.
+        "zones": drawn_zones,
+        "prior_day": ((context or {}).get("periods") or {}).get("prevDay")
+                     if ((context or {}).get("periods") or {}).get("available") else None,
+        # THE SWEEP STATE IS THE READ, NOT THE LEVELS. The prior-day box has always drawn
+        # the high and the low; what it never said is whether TODAY has already taken
+        # either side. That is the whole difference between a magnet and a reversal level:
+        # an unswept extreme is somewhere price is still reaching for, a swept one is
+        # somewhere it has already been and rejected.
+        "prior_day_sweep": (geometry or {}).get("previousDay") or None,
+        # The most recent CONFIRMED H4 CRT, or None. H4 because that is the bias
+        # timeframe the engine itself agrees on (Daily + H4), so a CRT there sits on the
+        # same clock as the setup rather than on a faster one that will disagree.
+        "crt_h4": _latest_crt(geometry, "h4"),
+        "fvg_entry": fvg_zones or None,
+        "position": position or None,
+        "rows": rows,
+    }
+
+    # A squeeze watch publishes its triggers in the reason text rather than as
+    # fields, so surface them as levels when the engine names them.
+    for reason in (asset.get("reasons") or []):
+        if "break above" in reason.lower():
+            numbers = [t.replace(",", "") for t in reason.replace("(", " ").replace(")", " ").split()
+                       if t.replace(",", "").replace(".", "").isdigit()]
+            if len(numbers) >= 2:
+                plan["breakout_up"]   = float(numbers[0])
+                plan["breakout_down"] = float(numbers[1])
+
+    # The breakout pair is attached ABOVE, after `rows` was frozen, so the Pivots row
+    # has to be recomputed here or a squeeze watch would publish its triggers to
+    # nothing. Built from the finished plan, which is the only point at which all
+    # four context levels are known.
+    plan["rows"]["Pivots"] = _context_row(plan)
+    return plan
+
+
+SEL_LEGEND_TOGGLER = 'button[title="Show indicators legend"]'
+
+# The legend rows live here even when the legend is collapsed, but with ZERO geometry.
+# .item-quatTGAC.study-quatTGAC is one study row; .title-quatTGAC inside it is its name.
+JS_STUDY_ROWS = """() => Array.from(
+    document.querySelectorAll('.item-quatTGAC.study-quatTGAC'))
+  .map(r => { const t = r.querySelector('.title-quatTGAC');
+              const tb = t ? t.getBoundingClientRect() : null;
+              const pb = r.getBoundingClientRect();
+              return {title: t ? t.textContent.trim() : '', roww: pb.width,
+                      tx: tb ? tb.x : 0, ty: tb ? tb.y : 0,
+                      tw: tb ? tb.width : 0, th: tb ? tb.height : 0}; })"""
+
+JS_FOCUS_SAFE = """() => {
+  const a = document.activeElement;
+  if (!a) return {safe: true, where: 'none'};
+  const inEditor = !!a.closest('.monaco-editor, [class*="editor"], textarea');
+  return {safe: !inEditor, where: a.tagName};
+}"""
+
+JS_BLUR = """() => { if (document.activeElement && document.activeElement.blur)
+                      document.activeElement.blur();
+                    if (document.body && document.body.focus) document.body.focus();
+                    return true; }"""
+
+
+def make_focus_safe(page):
+    """Move focus OUT of the Pine editor without typing anything.
+
+    THE MOST IMPORTANT FUNCTION IN THIS FILE, and it exists because of a real
+    accident on 2026-08-24. Removing a study needs the Delete key. Delete was pressed
+    while focus was still in Monaco, so it deleted CHARACTERS OUT OF THE PINE SOURCE -
+    three times - and the Ctrl+S that followed SAVED the corrupted script. The chart
+    then failed to compile with "Undeclared identifier '_sym'" and the user saw a
+    Pine editor full of errors.
+
+    A mouse click cannot be trusted to fix this: click somewhere the editor happens to
+    cover and focus stays exactly where it was. blur() cannot land inside the editor
+    and cannot emit a keystroke, so it is the only safe way.
+    """
+    for _ in range(4):
+        page.evaluate(JS_BLUR)
+        page.wait_for_timeout(700)
+        if page.evaluate(JS_FOCUS_SAFE)["safe"]:
+            return True
+    return False
+
+
+def open_legend(page):
+    """Expand the collapsed legend. Returns True when rows have real geometry.
+
+    The control is a BUTTON titled "Show indicators legend", NOT the counter beside
+    it. Clicking the counter does nothing, which is why every earlier attempt failed.
+    """
+    for _ in range(4):
+        rows = page.evaluate(JS_STUDY_ROWS)
+        if rows and rows[0]["roww"] > 0:
+            return True
+        try:
+            page.locator(SEL_LEGEND_TOGGLER).first.click(timeout=6000)
+        except Exception:
+            pass
+        page.wait_for_timeout(1500)
+    rows = page.evaluate(JS_STUDY_ROWS)
+    return bool(rows) and rows[0]["roww"] > 0
+
+
+def repoint_plan_study(page):
+    """Rebuild this chart's plan study against the CURRENT script. Returns True/False.
+
+    TradingView PINS a study to the script version it was added at. Re-saving the
+    source does not recompile studies already on a chart - verified 2026-08-24, when a
+    Gold chart kept drawing an AUGUST 7 panel while the server copy of the script was
+    confirmed current after a full page reload. The only fix is remove and re-add.
+
+    And it must be persisted: the study list lives in the saved LAYOUT, so without
+    Ctrl+S the next reload restores the old study from the server. That is what
+    silently undid several correct removals before anyone noticed.
+    """
+    if not make_focus_safe(page):
+        print("[TV] repoint: focus will not leave the editor - refusing to press Delete")
+        return False
+    if not open_legend(page):
+        print("[TV] repoint: could not expand the legend")
+        return False
+
+    before = [r["title"] for r in page.evaluate(JS_STUDY_ROWS)]
+    for _ in range(3):
+        plans = [r for r in page.evaluate(JS_STUDY_ROWS)
+                 if r["title"].startswith(PLAN_NAME_PREFIX)]
+        if not plans:
+            break
+        row = plans[0]
+        page.mouse.click(row["tx"] + row["tw"] / 2, row["ty"] + row["th"] / 2)
+        page.wait_for_timeout(1200)
+        if not make_focus_safe(page):
+            print("[TV] repoint: focus moved into the editor - aborting")
+            return False
+        page.keyboard.press("Delete")
+        page.wait_for_timeout(2500)
+
+    if not ensure_editor_open(page):
+        print("[TV] repoint: editor would not open")
+        return False
+    page.wait_for_selector(SEL_EDITOR_TEXT, timeout=30000)
+    page.wait_for_timeout(3000)
+    page.locator(SEL_EDITOR_TEXT).first.click(timeout=10000)
+    page.wait_for_timeout(800)
+    page.keyboard.press("Control+Enter")     # the editor's own "add to chart"
+    page.wait_for_timeout(9000)
+
+    if not make_focus_safe(page):
+        print("[TV] repoint: added the study but will NOT save the layout unsafely")
+        return False
+    page.keyboard.press("Control+s")          # persist, or a reload undoes this
+    page.wait_for_timeout(5000)
+
+    after = [r["title"] for r in page.evaluate(JS_STUDY_ROWS)]
+    plans = [t for t in after if t.startswith(PLAN_NAME_PREFIX)]
+    if len(after) != len(before):
+        print("[TV] repoint: study count changed %d -> %d - CHECK THE CHART"
+              % (len(before), len(after)))
+    print("[TV] repoint: plan study is now %s" % (plans or "MISSING"))
+    if len(plans) != 1:
+        return False
+
+    # Present by name is NOT the same as working. Repointing a study at a script that
+    # does not compile leaves the legend entry intact and the panel BLANK, which is
+    # what happened on 2026-08-26: repoint printed OK on all three charts while every
+    # one of them was showing "Compilation error - '_sym' is already defined".
+    # A green report on a blank chart is worse than a red one.
+    page.wait_for_timeout(2500)
+    broken = page.query_selector('[title="Compilation error"]')
+    if broken is not None:
+        print("[TV] repoint: the study is on the chart but the SCRIPT DOES NOT "
+              "COMPILE - the panel will be blank. Fix the saved script, then repoint.")
+        return False
+    return True
+
+
+def cmd_repoint(symbol="all"):
+    """Rebuild the plan study on one or all charts against the CURRENT saved script.
+
+    Use this when a chart shows an OLD panel after a successful save: TradingView pins
+    a study to the script version it was added at and will not recompile it. Run
+    `plan` first so the saved script is current, then this.
+    """
+    targets = ([symbol.upper()] if symbol.upper() in API_ASSETS
+               else list(API_ASSETS))
+    failed = []
+    with sync_playwright() as pw:
+        browser, ctx = make_context(pw)
+        page = _get_tv_page(ctx)
+        for name in targets:
+            print("[TV] repointing %s" % name)
+            open_chart(page, name)
+            page.wait_for_timeout(6000)
+            if not repoint_plan_study(page):
+                failed.append(name)
+    if failed:
+        print("[TV] repoint FAILED for: %s" % ", ".join(failed))
+        return 1
+    print("[TV] repoint OK: %s" % ", ".join(targets))
+    return 0
+
 
 # ── Main commands ─────────────────────────────────────────────────────────────
 def _get_tv_page(ctx):
@@ -404,8 +3377,120 @@ def _get_tv_page(ctx):
             return p
     return ctx.new_page()
 
+class BrowserLock:
+    """
+    One writer at a time on the shared browser.
+
+    MultipleInstances=IgnoreNew stops two copies of the SAME scheduled task and stops
+    nothing else. Measured 2026-09-05: a manual `plan` run and the scheduled job
+    overlapped and BOTH drove the same Pine editor - the file write lost the race with
+    "[Errno 13] Permission denied: pine_daily_plan_current.pine", the clicks landed in an
+    editor the other run was already retyping, and the job died on a locator timeout that
+    looked like a browser fault and was not.
+
+    The lock is a file holding a pid. STALE LOCKS SELF-CLEAR: if the recorded pid is not
+    alive, or the file is older than the cap, it is taken over rather than blocking
+    forever - a lock that survives a crash is worse than no lock, because the job then
+    never runs again and nothing says why.
+
+    It REFUSES rather than waits. This runs on a schedule; the next run is minutes away
+    and two runs fighting now is the failure being prevented.
+    """
+    STALE_SECONDS = 30 * 60
+
+    def __init__(self, path=None):
+        self.path = Path(path or (Path(__file__).parent / "tasks" / ".tv_browser.lock"))
+        self.held = False
+
+    def _owner_alive(self):
+        try:
+            pid = int(self.path.read_text(encoding="utf-8").split()[0])
+        except Exception:
+            return False
+        if pid == os.getpid():
+            return False
+        try:
+            import subprocess
+            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
+                                 capture_output=True, text=True, timeout=15).stdout
+            return str(pid) in out
+        except Exception:
+            return False
+
+    def acquire(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            if self.path.exists():
+                age = time.time() - self.path.stat().st_mtime
+                if self._owner_alive() and age < self.STALE_SECONDS:
+                    owner = self.path.read_text(encoding="utf-8").strip()[:60]
+                    print("[TV] another run already holds the browser (%s) - refusing to start" % owner)
+                    return False
+                if age >= self.STALE_SECONDS:
+                    print("[TV] clearing a stale browser lock (%d min old)" % int(age / 60))
+            self.path.write_text("%d %s" % (os.getpid(), time.strftime("%Y-%m-%dT%H:%M:%S")),
+                                 encoding="utf-8")
+            self.held = True
+            return True
+        except Exception as exc:
+            # A lock that cannot be taken must not stop the job. It exists to prevent a
+            # collision, not to become a new single point of failure.
+            print("[TV] could not take the browser lock (%s) - continuing unlocked" % exc)
+            return True
+
+    def release(self):
+        if not self.held:
+            return
+        try:
+            if self.path.exists():
+                self.path.unlink()
+        except Exception:
+            pass
+        self.held = False
+
+
+def ensure_window_size(ctx, page, min_width=1200):
+    """Widen the browser window if it is too narrow for the plan panel to render.
+
+    THE PANEL DOES NOT FAIL LOUDLY WHEN THE WINDOW IS SMALL - IT JUST IS NOT THERE.
+    Measured on the VPS 2026-09-05: the Edge window was 734x726 on a 1536x864 desktop
+    despite --start-maximized, and with TradingView's right-hand widget panel open the
+    chart canvas was roughly 400px. The study was applied, listed in the object tree and
+    compiled clean, and the table rendered nowhere a human could see it. Every check the
+    bot performs said the plan was on the chart, and it was - just clipped out of
+    existence.
+
+    So the window is checked and corrected on every run rather than trusted to a launch
+    flag that demonstrably did not hold. Failure here is non-fatal: a chart that is too
+    narrow is worse than one that is not, but it is not worth losing the run over.
+    """
+    try:
+        size = page.evaluate("() => ({w: window.innerWidth, s: screen.availWidth, "
+                             "h: screen.availHeight})")
+        if size["w"] >= min_width:
+            return True
+        cdp = ctx.new_cdp_session(page)
+        target = cdp.send("Browser.getWindowForTarget")
+        cdp.send("Browser.setWindowBounds", {
+            "windowId": target["windowId"],
+            "bounds": {"left": 0, "top": 0,
+                       "width": int(size["s"]), "height": int(size["h"]),
+                       "windowState": "normal"}})
+        page.wait_for_timeout(1200)
+        after = page.evaluate("() => window.innerWidth")
+        print(f"[TV] window widened {size['w']} -> {after}px "
+              f"(the plan panel needs room or it renders off-canvas)")
+        return after >= min_width
+    except Exception as exc:
+        print(f"[TV] could not resize the window ({str(exc)[:70]}) - continuing")
+        return False
+
+
 def _run(fn):
     """Attach to running Edge on port 9222 and run fn(page, ctx). Never opens a new window."""
+    lock = BrowserLock()
+    if not lock.acquire():
+        return
     try:
         with sync_playwright() as pw:
             browser, ctx = make_context(pw)
@@ -417,6 +3502,32 @@ def _run(fn):
     except Exception as e:
         print(f"[TV] Cannot connect to Edge: {e}")
         print("[TV] Open TradingView in Edge, then run: tasks\\launch_chrome_tv.bat")
+
+    finally:
+
+        lock.release()
+
+def cmd_login():
+    """
+    Sign in, if the session is not already authenticated.
+
+    WHY THIS EXISTS: login() was defined and NEVER CALLED. Nothing in this file invoked
+    it, so the bot has never signed itself in on any box — the laptop works only because
+    a human signed in by hand once in that Edge profile, and the credentials in keys.env
+    had simply never been used. A function with no caller is the same shape as a setting
+    with no reader. Found 2026-09-05 while asking why TradingView had never connected
+    from the VPS.
+    """
+    print("[TV] Signing in if needed...")
+    def _login(page, ctx):
+        before = is_logged_in(page)
+        print(f"[TV] authenticated before: {before}")
+        if not before:
+            login(page, ctx)
+        after = is_logged_in(page)
+        print(f"[TV] authenticated after : {after}")
+        print("[TV] SUCCESS" if after else "[TV] STILL NOT SIGNED IN - a captcha or 2FA may need a human")
+    _run(_login)
 
 def cmd_test():
     print("[TV] Testing connection to TradingView...")
@@ -455,12 +3566,358 @@ def cmd_alert(symbol, price, message):
     _run(_alert)
 
 def cmd_pine(symbol, entry, stop, target, support=None, resistance=None, bias="WAIT"):
-    script = generate_pine(symbol, entry, stop, target, support, resistance, bias)
+    plan = build_plan(symbol, {"signal": bias}, gate=None, overrides={
+        "entry": entry, "stop": stop, "target": target,
+        "support": support, "resistance": resistance,
+    })
+    script = generate_pine(plan)
     out_file = Path(__file__).parent / "tasks" / f"pine_{symbol.lower()}_plan.pine"
     out_file.write_text(script, encoding="utf-8")
     print(script)
     print(f"\n[TV] Pine Script saved to: {out_file}")
-    print("[TV] Paste it into TradingView > Pine Script Editor > Add to chart")
+    print("[TV] Paste it into TradingView > Pine Script Editor, then press Ctrl+Enter")
+
+
+def cmd_plan(which="all", shoot=True):
+    """
+    Fully automatic daily plan: read the live signals, draw one plan per symbol.
+
+    Returns a non-zero exit code if any symbol fails, so a scheduled run that
+    silently stops working is visible instead of looking like a clean pass.
+    """
+    signals = _get_json("/api/signals")
+    if not signals:
+        print("[TV] No signals — is the SmartEntry server up on :3001?")
+        return 1
+
+    gate, gate_note = fetch_live_gate()
+    print(f"[TV] Live gate: {gate} ({gate_note})")
+
+    candle_reads = load_candle_reads()
+    print(f"[TV] Candle read: {sum(len(v) for v in candle_reads.values())} row(s) loaded"
+          if candle_reads else "[TV] Candle read: none on disk - rows will say so")
+
+    # Fetched ONCE for all three symbols. The endpoint composes every asset in one
+    # call, so three fetches would be three different instants of the same read.
+    market_context = load_market_context()
+
+    # Same one-fetch rule as the market context: composed for every asset in a single
+    # call, so all three charts describe the SAME instant.
+    chart_geometry = load_chart_geometry()
+    fvg_entries    = load_fvg("m15")
+    open_positions = load_positions()
+
+    wanted = list(API_ASSETS) if which.lower() == "all" else [which.upper()]
+    results = {}
+
+    plans = []
+    for name in wanted:
+        key = API_ASSETS.get(name)
+        asset = signals.get(key) if key else None
+        if not asset:
+            print(f"[TV] {name}: not in /api/signals — skipped")
+            continue
+        plans.append(build_plan(name, asset, gate, reads=candle_reads,
+                                context=market_context.get(key),
+                                geometry=chart_geometry.get(key),
+                                fvg_zones=fvg_entries.get(key),
+                                # Matched on the MT5 symbol the SIGNAL reports, not on a
+                                # hardcoded table: the broker's name for an instrument is
+                                # a property of the feed, and a second copy of that
+                                # mapping is a second thing to get wrong.
+                                position=open_positions.get(
+                                    str(asset.get("sourceSymbol") or "").upper())))
+
+    if not plans:
+        print("[TV] Nothing to draw")
+        return 1
+
+    pine = generate_pine(plans)
+
+    # Write the exact source to disk BEFORE touching the browser.
+    #
+    # paste_pine's recovery message tells the operator to paste this file when the
+    # editor cannot be repaired, and a comment in _clear_editor calls it "regenerated
+    # every run". Both were false when first written: the file existed only because it
+    # had been created by hand once, it is gitignored so no fresh checkout has it, and
+    # it would have gone stale within hours while still carrying today's prices. A
+    # recovery instruction pointing at a file nothing maintains is worse than none -
+    # it fails exactly when it is needed, which is the reader-with-no-writer shape
+    # this codebase keeps rediscovering.
+    #
+    # Written before the browser work so it is available even when the run then fails,
+    # which is precisely the case the recovery message exists for. A write failure is
+    # reported and never aborts the run: the file is a convenience, not the plan.
+    try:
+        plan_source = Path(__file__).parent / "tasks" / "pine_daily_plan_current.pine"
+        plan_source.parent.mkdir(parents=True, exist_ok=True)
+        plan_source.write_text(pine, encoding="utf-8")
+        print(f"[TV] Plan source written: {plan_source.name} "
+              f"({pine.count(chr(10)) + 1} lines) - paste this if the editor needs "
+              f"clearing by hand")
+    except Exception as exc:
+        print(f"[TV] WARNING - could not write the plan source to disk ({exc}); "
+              f"paste_pine's manual-recovery instruction has no file to point at.")
+
+    # THE LOCK BELONGS HERE MOST OF ALL. cmd_plan is what the scheduler runs, and the
+    # measured collision was a scheduled cmd_plan against a manual one: both drove the
+    # same Pine editor, the source write lost the race with Errno 13, and the job died
+    # on a locator timeout that read as a browser fault. cmd_plan opens its own
+    # playwright context rather than going through _run, so it needs its own acquire.
+    plan_lock = BrowserLock()
+    if not plan_lock.acquire():
+        return 1
+    try:
+        with sync_playwright() as pw:
+            browser, ctx = make_context(pw)
+            SHOT_DIR.mkdir(parents=True, exist_ok=True)
+            ensure_window_size(ctx, _get_tv_page(ctx))
+
+            # ONE tab, ONE apply. Every chart shares a single saved layout, so a
+            # study applied anywhere shows up everywhere — which is exactly why a
+            # per-symbol script put BTC's plan on the Gold chart. The script picks
+            # its own symbol, so applying it once covers all of them.
+            tabs = [p for p in ctx.pages if "tradingview.com" in p.url]
+            page = tabs[0] if tabs else ctx.new_page()
+            for extra in tabs[1:]:
+                try:
+                    extra.close()      # TradingView counts every tab against the plan limit
+                except Exception:
+                    pass
+
+            open_chart(page, plans[0]["symbol"])
+
+            before = list_plan_studies(page)
+
+            # SKIP THE SAVE WHEN THE PLAN HAS NOT CHANGED, but never skip the CHECK that
+            # the study is on the chart. Those are different operations and conflating
+            # them is the documented failure this file already carries: the Gold chart
+            # rendered an Aug-7 plan for fourteen days while the save was reported as
+            # proof it had updated. So an unchanged plan still verifies its study is
+            # present, and re-saves if it is not.
+            fingerprint = _plan_fingerprint(pine)
+            previous = None
+            try:
+                fp_file = _fingerprint_path()
+                if fp_file.exists():
+                    previous = fp_file.read_text(encoding="utf-8").strip()
+            except Exception:
+                previous = None   # unreadable -> treat as changed, never as unchanged
+
+            # OFF BY DEFAULT, DELIBERATELY. On 2026-09-05 the plan panel went missing from
+            # the BTC chart shortly after this skip was added. I could NOT prove the skip
+            # caused it - the study was back after the next full save, and no log line
+            # implicates it - but it is the only thing that changed and it is the only
+            # thing that can end a run without calling save_pine.
+            #
+            # An optimisation that MIGHT drop the panel is not worth having. Saving every
+            # 20 minutes was never actually harmful: TradingView keeps versions happily,
+            # and exit_historical_version now handles the one failure that made version
+            # churn dangerous. So the skip stays in the code, switched off, until there is
+            # evidence rather than suspicion.
+            #
+            #   set TV_PLAN_SKIP_UNCHANGED=1 to enable it.
+            skip_enabled = os.environ.get("TV_PLAN_SKIP_UNCHANGED") == "1"
+            unchanged = skip_enabled and (previous == fingerprint) and bool(before)
+            if unchanged:
+                print(f"[TV] plan unchanged ({fingerprint}) and {len(before)} study(ies) "
+                      f"on the chart - skipping the save")
+                applied = True
+            else:
+                if previous == fingerprint and not before:
+                    print("[TV] plan unchanged but NO study on the chart - saving anyway")
+                applied = save_pine(page, pine)
+                try:
+                    _fingerprint_path().write_text(fingerprint, encoding="utf-8")
+                except Exception as fp_error:
+                    # A fingerprint that cannot be written costs a redundant save next
+                    # run. That is the safe direction and must not fail the job.
+                    print(f"[TV] could not record the plan fingerprint ({fp_error})")
+
+            after = list_plan_studies(page)
+
+            # ---- What can actually be verified from here ----------------------
+            #
+            # Saving the SOURCE and putting the study ON a chart are different
+            # operations and this only ever did the first, so the Gold chart rendered
+            # an Aug-7 plan for fourteen days while "1 before, 1 after" was reported
+            # as proof. That count cannot tell "updated" from "did nothing".
+            #
+            # An earlier attempt at this read the plan's VERSION back off the legend
+            # via indicator(shorttitle=...). That does NOT work: for a study added
+            # from a saved user script the legend shows the SAVED SCRIPT NAME and
+            # nothing else - on 2026-08-21 the only JARVIS string in the whole DOM
+            # was "JARVIS Daily Plan". Shipping it would have meant a check that can
+            # never pass, and a red light that cannot go green is worse than none.
+            #
+            # So this asserts only what is knowable: the save landed with no unsaved
+            # changes and no Pine errors, and a plan study is on the chart. WHICH
+            # version renders is answered on the chart itself - Pine compares the
+            # plan's embedded timestamp against timenow and shows STALE in red.
+            page.wait_for_timeout(2500)
+
+            # PRESENCE IS NOT ENOUGH. An ORPHAN study - one titled with a timestamp,
+            # backed by no saved script - satisfies plan_study_present() and compiles
+            # cleanly, so both existing checks pass while the chart renders a plan from
+            # a previous day. That is what happened on 2026-08-30: all three charts held
+            # 'JARVIS Daily Plan 08-29 08:15' and nothing else, the run reported "Plan
+            # drawn: BTC, GOLD, SPX", and not one chart had been updated.
+            #
+            # So the condition for adding the bound script is the absence of the BOUND
+            # study, never the absence of any study.
+            # SAVING DOES NOT UPDATE THE STUDY ON THIS BUILD, and that is the single
+            # most important thing measured on 2026-08-30.
+            #
+            # This file's design rests on the opposite claim - "saving it pushes the
+            # new source into every chart already using it, which is how the plan
+            # updates without adding a study". Measured directly: the saved script
+            # carried shorttitle '08-30 18:55' while the study on the chart still
+            # rendered its own table header as '08-30 18:23'. The header is drawn BY
+            # the running Pine source, so that is not a caching artefact in the
+            # legend - the study had not recompiled at all.
+            #
+            # A study is pinned to the version it was ADDED at. So the chart is
+            # updated by REPLACING it: remove every plan study, add the saved script
+            # again, save the layout. This is also what stops copies stacking, since
+            # the removal runs first.
+            #
+            # That premise being false is the explanation for every stale-chart
+            # symptom in this project's history, including the Gold chart that
+            # rendered an Aug-7 plan for fourteen days while each run reported
+            # success.
+            expected_stamp = plan_stamp(plans[0]["generated_at"])
+            current, titles, note = plan_study_is_current(page, expected_stamp)
+            if not current and applied:
+                print(f"[TV] Chart is not showing this plan ({note}) - replacing the study.")
+                replaced, detail = replace_plan_study(page, expected_stamp, plans[0]["symbol"])
+                print(f"[TV] {'replaced' if replaced else 'REPLACE FAILED'}: {detail}")
+                page.wait_for_timeout(2000)
+                current, titles, note = plan_study_is_current(page, expected_stamp)
+                after = titles
+
+            present = current
+            verified = applied and present
+            if present and note:
+                # Stacked copies draw identical panels over each other. Worth saying;
+                # not worth failing the run over, since the plan on screen IS current.
+                print(f"[TV] NOTE: {note}")
+            if not applied:
+                print("[TV] Save did not land - the chart was left exactly as it was.")
+            elif not present:
+                # Deliberately loud, and it fails the run. The old wording here said
+                # "no plan study is on the chart", which is FALSE when an orphan is
+                # sitting on it drawing yesterday's plan - the operator would look at
+                # the chart, see a JARVIS panel, and conclude the message was wrong.
+                leftover = list_plan_studies(page)
+                print(f"[TV] SAVE LANDED BUT THE CHART IS NOT SHOWING THIS PLAN.")
+                if leftover:
+                    print(f"[TV] The chart carries {leftover}, and none of them ends in "
+                          f"{expected_stamp!r} - so the panel on screen is an OLDER plan "
+                          f"that saving is not updating.")
+                    print(f"[TV] Fix by hand, once: open the Object tree (right rail), hover "
+                          f"{leftover[0]!r}, click Remove, then add {SAVED_SCRIPT_NAME!r} from "
+                          f"Indicators > My scripts and press Ctrl+S to save the layout. "
+                          f"WITHOUT the Ctrl+S the study is discarded on the next navigation.")
+                else:
+                    print(f"[TV] Add {SAVED_SCRIPT_NAME!r} from Indicators > My scripts, then "
+                          "Ctrl+S to save the layout. Every run after that updates it in place.")
+            else:
+                print("[TV] Saved, and a plan study is on the chart. The plan carries "
+                      "its own age - a missed run shows STALE in red on the chart.")
+
+            # ---- Is the study HEALTHY, not merely present? --------------------
+            #
+            # The gap this closes: saving the source does NOT make an existing study
+            # recompile. On 2026-08-26 the chart held a study pinned to saved version
+            # 25.0 reporting "Compilation error" while a fresh instance of the SAME
+            # source compiled clean - and every run reported "Saved / Plan drawn /
+            # exit 0" straight through it, because presence was all that was checked.
+            #
+            # Repointing is the documented remedy, so try it before failing: a run
+            # that can fix itself should. If it still errors afterwards the run FAILS,
+            # which is the point - the job could not previously report this at all.
+            if verified:
+                symbols = [p["symbol"] for p in plans]
+                health = sweep_plan_health(page, symbols)
+                broken = {s: v for s, v in health.items() if v}
+                if broken:
+                    for sym, status in broken.items():
+                        print(f"[TV] {sym}: plan study reports {status!r} - saving the "
+                              f"source does not recompile an attached study; "
+                              f"repointing.")
+                    # The editor must be CLOSED first. repoint_plan_study opens it
+                    # itself, and with it already open the click lands on the toggle
+                    # that CLOSES it - measured 2026-08-26, GOLD failed with
+                    # "Could not open the Pine editor (Timeout 8000ms)" for exactly
+                    # this reason while BTC and SPX succeeded.
+                    close_any_open_dialog(page)
+                    for _ in range(3):
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(600)
+                    try:
+                        for plan in plans:
+                            open_chart(page, plan["symbol"])
+                            page.wait_for_timeout(6000)   # same settle cmd_repoint uses
+                            repoint_plan_study(page)
+                    except Exception as exc:
+                        print(f"[TV] repoint attempt raised {str(exc)[:80]}")
+                    # Re-sweep EVERY chart, not just the last one repointed. The
+                    # first version of this checked only whichever chart was open and
+                    # would have declared success while two others were still broken.
+                    still = {s: v for s, v in
+                             sweep_plan_health(page, symbols).items() if v}
+                    if still:
+                        for sym, status in still.items():
+                            print(f"[TV] STILL BROKEN after repoint - {sym}: {status!r}")
+                        print("[TV] The chart is NOT showing a working plan. Run "
+                              "`python tradingview_bot.py repoint` with the Pine "
+                              "editor CLOSED, or remove the study and re-add it.")
+                        verified = False
+                    else:
+                        print(f"[TV] Repointed - all {len(symbols)} plan studies now "
+                              f"report clean.")
+                else:
+                    print(f"[TV] All {len(symbols)} plan studies report clean "
+                          f"(no compilation error).")
+
+
+            if applied and shoot:
+                # Same tab, same study — switch symbols only to capture each chart.
+                for plan in plans:
+                    try:
+                        open_chart(page, plan["symbol"])
+                        page.wait_for_timeout(4000)
+                        page.screenshot(
+                            path=str(SHOT_DIR / f"plan_{plan['symbol'].lower()}.png"))
+                        results[plan["symbol"]] = verified
+                    except Exception as exc:
+                        print(f"[TV] {plan['symbol']} screenshot: {exc}")
+                        # A failed capture does not un-draw the plan, so this follows
+                        # the VERIFIED state rather than asserting success. It used to
+                        # be a hardcoded True, which is why fourteen days of a stale
+                        # chart reported as a clean pass.
+                        results[plan["symbol"]] = verified
+            else:
+                for plan in plans:
+                    results[plan["symbol"]] = applied and verified
+    except Exception as exc:
+        # This said "Cannot connect to Edge" for ANY exception raised inside the
+        # page, including ordinary click timeouts on a browser it was already
+        # attached to. That misdirection cost two debugging rounds on 2026-08-21.
+        detail = str(exc).splitlines()[0][:160]
+        print(f"[TV] Plan run failed: {detail}")
+        if "connect" in detail.lower() or "browser" in detail.lower():
+            print("[TV] Is Edge up on CDP 9222? Run: tasks" + chr(92) + "launch_chrome_tv.bat")
+        plan_lock.release()
+        return 1
+
+    plan_lock.release()
+
+    ok = [n for n, good in results.items() if good]
+    bad = [n for n, good in results.items() if not good]
+    print(f"\n[TV] Plan drawn: {', '.join(ok) if ok else 'none'}"
+          + (f" | FAILED: {', '.join(bad)}" if bad else ""))
+    return 0 if ok and not bad else 1
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
@@ -474,6 +3931,9 @@ if __name__ == "__main__":
     if cmd == "test":
         cmd_test()
 
+    elif cmd == "login":
+        cmd_login()
+
     elif cmd == "draw":
         if len(args) < 5:
             print("Usage: python tradingview_bot.py draw [symbol] [entry] [stop] [target] [support?] [resistance?]")
@@ -486,6 +3946,12 @@ if __name__ == "__main__":
             support    = float(args[5]) if len(args) > 5 else None,
             resistance = float(args[6]) if len(args) > 6 else None,
         )
+
+    elif cmd == "plan":
+        sys.exit(cmd_plan(args[1] if len(args) > 1 else "all"))
+
+    elif cmd == "repoint":
+        sys.exit(cmd_repoint(args[1] if len(args) > 1 else "all"))
 
     elif cmd == "alert":
         if len(args) < 4:

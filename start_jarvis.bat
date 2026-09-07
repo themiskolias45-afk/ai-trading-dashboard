@@ -29,4 +29,4 @@ if errorlevel 1 (
 )
 
 REM Open JARVIS
-claude
+call claude

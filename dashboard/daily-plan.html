@@ -3,15 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JARVIS — Daily Plan</title>
+  <title>SmartEntry Pro — Daily Plan</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg:#080c14; --surface:#0f1520; --border:#1a2235; --border2:#243044;
-      --text:#e2e8f0; --muted:#4a6080; --accent:#7c3aed;
-      --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
-      --font:'Segoe UI',system-ui,Arial,sans-serif;
-    }
+    /* NO :root HERE. There was one, and every token in it was DEAD: theme.css is linked
+       after this block and its :root wins on source order, so these values had not
+       painted a single pixel in months. They were still the OLD palette (#22c55e green,
+       #ef4444 red, #7c3aed accent, Segoe UI) — the exact set dashboard/theme.css exists
+       to retire — so anyone reading this file to learn the page's colours learned the
+       wrong ones. The tints below were hand-mixed FROM these dead values, which is how
+       a green-tinted panel ended up three shades off the green beside it.
+       Tokens come from /dashboard/theme.css. Nothing is redefined here. */
     body { background:var(--bg); color:var(--text); font-family:var(--font); min-height:100vh; font-size:14px; }
 
     header {
@@ -22,7 +24,7 @@
     .logo { display:flex; align-items:center; gap:10px; }
     .logo-mark {
       width:32px; height:32px;
-      background:linear-gradient(135deg,var(--accent),#4f46e5);
+      background:linear-gradient(135deg,var(--accent),var(--accent2));
       border-radius:8px; display:flex; align-items:center;
       justify-content:center; font-weight:900; font-size:16px; color:#fff;
     }
@@ -34,8 +36,8 @@
       display:flex; align-items:center; gap:6px;
       padding:4px 12px; border-radius:20px; font-size:.72rem; font-weight:700;
     }
-    .pill-green { background:#0d2010; border:1px solid var(--green); color:var(--green); }
-    .pill-red   { background:#200d0d; border:1px solid var(--red);   color:var(--red); }
+    .pill-green { background:var(--green-dim); border:1px solid var(--green); color:var(--green); }
+    .pill-red   { background:var(--red-dim); border:1px solid var(--red);   color:var(--red); }
     .pill-muted { background:var(--surface); border:1px solid var(--border2); color:var(--muted); }
     .dot { width:6px; height:6px; border-radius:50%; background:currentColor; animation:blink 2s ease-in-out infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -55,7 +57,7 @@
     .risk-budget { display:flex; gap:20px; flex-wrap:wrap; }
     .risk-item { text-align:center; }
     .risk-label { font-size:.6rem; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
-    .risk-value { font-size:1rem; font-weight:700; margin-top:2px; }
+    .risk-value { font-size:1rem; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
 
     /* Signal grid */
     .signal-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:16px; }
@@ -73,20 +75,60 @@
     .sc-header { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
     .sc-title { font-size:.85rem; font-weight:700; }
     .sc-badge { padding:4px 10px; border-radius:6px; font-size:.7rem; font-weight:700; letter-spacing:.05em; }
-    .badge-long  { background:#0d2010; color:var(--green); }
-    .badge-short { background:#200d0d; color:var(--red); }
-    .badge-wait  { background:#1a1a2e; color:var(--muted); }
+    .badge-long  { background:var(--green-dim); color:var(--green); }
+    .badge-short { background:var(--red-dim); color:var(--red); }
+    .badge-wait  { background:var(--surface3); color:var(--muted); }
 
     .sc-body { padding:14px 16px; }
-    .sc-price { font-size:1.4rem; font-weight:700; font-variant-numeric:tabular-nums; margin-bottom:10px; }
-    .sc-conf  { font-size:.72rem; color:var(--muted); margin-bottom:10px; }
-    .sc-conf span { font-weight:700; color:var(--text); }
+
+    /* CONFIDENCE IS THE CARD. Price used to be 1.4rem/700 here with confidence a .72rem
+       muted line beneath it, which is backwards for what this page is read for: the
+       question every morning is how far each asset is from FIRING, and the price is
+       context for that number rather than the headline. The gap was already computed
+       and printed - it was just printed in --muted-dim, the dimmest colour on the page. */
+    .sc-conf-row { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+    .sc-conf-val {
+      font-size:2.4rem; font-weight:800; line-height:1;
+      font-variant-numeric:tabular-nums; letter-spacing:-.02em;
+    }
+    .sc-conf-lbl { font-size:.55rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+    .sc-conf-gap { font-size:.7rem; font-weight:700; text-align:right; }
+    .sc-conf-gap .sub { display:block; font-weight:400; font-size:.62rem; color:var(--muted); margin-top:2px; }
+
+    /* Gap-to-fire. The track is 0-100 confidence, the notch sits at the LIVE gate and the
+       fill is where this asset actually is, so "how far" is a glance instead of a
+       subtraction. No gate means NO TRACK at all - a track with no notch would imply a
+       bar that has already been met. */
+    .gap-track { position:relative; height:6px; border-radius:3px; background:var(--surface3); margin:12px 0 4px; }
+    .gap-fill  { position:absolute; top:0; bottom:0; left:0; border-radius:3px; }
+    .gap-notch { position:absolute; top:-4px; bottom:-4px; width:2px; background:var(--text); }
+    /* The scale used space-between with the gate label as the middle item, which parked
+       the words "gate 70" at the track's MIDPOINT while the notch they name sat at 70%.
+       The label now rides the notch, so the mark and its name are the same place. */
+    .gap-scale { position:relative; height:11px; font-size:.55rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .gap-scale .end { position:absolute; top:0; }
+    .gap-scale .lo { left:0; } .gap-scale .hi { right:0; }
+    .gap-scale .at-gate { position:absolute; top:0; transform:translateX(-50%); white-space:nowrap; color:var(--text); font-weight:700; }
+
+    /* Price, regime and data age on one demoted context line. */
+    .sc-context { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:.72rem; color:var(--muted); }
+    .sc-price { font-size:1rem; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
+    .sc-sep { color:var(--border2); }
+
+    /* A card whose signals are older than one and a half refresh cycles. It keeps showing
+       its levels - they are the last thing the engine actually said - but it stops looking
+       live. Colour AND a worded chip, never colour alone. */
+    .signal-card.stale { border-color:var(--yellow); }
+    .stale-chip {
+      font-size:.55rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+      color:var(--yellow); border:1px solid var(--yellow); border-radius:4px; padding:1px 5px;
+    }
 
     .level-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
     .level-item { text-align:center; padding:8px 4px; border-radius:8px; }
-    .level-entry { background:#0d1a2e; }
-    .level-stop  { background:#200d0d; }
-    .level-target { background:#0d2010; }
+    .level-entry { background:var(--surface3); }
+    .level-stop  { background:var(--red-dim); }
+    .level-target { background:var(--green-dim); }
     .level-label { font-size:.58rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
     .level-price { font-size:.85rem; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
     .level-entry  .level-price { color:var(--blue); }
@@ -97,6 +139,25 @@
     .rr-val { font-weight:700; color:var(--yellow); }
 
     .setup-tag { margin-top:10px; font-size:.62rem; color:var(--muted); background:var(--bg); padding:4px 8px; border-radius:4px; display:inline-block; }
+
+    /* Measured next-candle read. Deliberately quiet: on most mornings every row says
+       INSIDE NOISE, and this block must not compete with the signal above it. Only a
+       read that actually clears its noise bar gets colour. */
+    .cp-block { margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
+    .cp-head  { font-size:.56rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:6px; }
+    .cp-age   { color:var(--muted-dim); }
+    .cp-stale { color:var(--yellow); font-weight:700; }
+    .cp-row   { font-size:.62rem; color:var(--muted); line-height:1.5; margin-bottom:3px; }
+    .cp-row b { color:var(--text); font-family:var(--mono, monospace); }
+    .cp-state { color:var(--muted-dim); }
+    /* A read that clears its noise bar AND has most folds agreeing. */
+    .cp-live  { color:var(--green); font-weight:700; font-variant-numeric:tabular-nums; }
+    /* Same, but judged on fewer than 4 folds — real, and weaker. Never the same colour. */
+    .cp-thin  { color:var(--yellow); font-weight:700; font-variant-numeric:tabular-nums; }
+    /* The usual case. Muted on purpose: a number inside its own noise is not a signal. */
+    .cp-noise { color:var(--muted-dim); font-variant-numeric:tabular-nums; }
+    .cp-verdict { display:block; color:var(--muted-dim); font-size:.58rem; margin-left:2px; }
+    .cp-none  { color:var(--muted-dim); font-style:italic; }
 
     /* Two-col layout */
     .two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px; }
@@ -122,12 +183,12 @@
     .health-setup { font-size:.78rem; font-weight:600; }
     .health-wr    { font-size:.78rem; font-variant-numeric:tabular-nums; }
     .health-status { font-size:.62rem; font-weight:700; padding:2px 8px; border-radius:4px; }
-    .status-priority { background:#0d2010; color:var(--green); }
-    .status-avoid    { background:#200d0d; color:var(--red); }
-    .status-ok       { background:#1a1a2e; color:var(--muted); }
+    .status-priority { background:var(--green-dim); color:var(--green); }
+    .status-avoid    { background:var(--red-dim); color:var(--red); }
+    .status-ok       { background:var(--surface3); color:var(--muted); }
 
     /* PnL */
-    .pnl-display { font-size:2rem; font-weight:700; text-align:center; padding:20px 0; }
+    .pnl-display { font-size:2rem; font-weight:700; text-align:center; padding:20px 0; font-variant-numeric:tabular-nums; }
     .pnl-pos { color:var(--green); }
     .pnl-neg { color:var(--red); }
     .pnl-zero { color:var(--muted); }
@@ -140,17 +201,51 @@
 
     /* Screenshot section */
     .screenshot-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+    @media(max-width:900px){ .screenshot-grid{ grid-template-columns:1fr; } }
     .screenshot-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
     .screenshot-card img { width:100%; display:block; }
     .screenshot-label { font-size:.68rem; color:var(--muted); padding:8px 12px; text-align:center; }
     .no-screenshot { padding:40px 20px; text-align:center; color:var(--muted); font-size:.78rem; }
 
     .halted-banner {
-      background:#200d0d; border:1px solid var(--red); border-radius:8px;
+      background:var(--red-dim); border:1px solid var(--red); border-radius:8px;
       padding:10px 16px; margin-bottom:14px; color:var(--red);
       font-size:.8rem; font-weight:700; text-align:center;
     }
+
+    /* The verdict. One sentence, the largest type on the page, because it is the
+       only thing most mornings require. Its left edge carries the state as colour
+       AND the sentence says it in words — colour alone is invisible to about one
+       man in twelve, and this is the line that decides whether you act. */
+    .verdict {
+      background:var(--surface); border:1px solid var(--border);
+      border-left:4px solid var(--muted); border-radius:10px;
+      padding:14px 18px; margin-bottom:14px;
+    }
+    .verdict.ready { border-left-color:var(--green); }
+    .verdict.halted { border-left-color:var(--red); }
+    .verdict.blocked { border-left-color:var(--yellow); }
+    .verdict.unknown { border-left-color:var(--yellow); }
+    .v-label { font-size:.55rem; text-transform:uppercase; letter-spacing:.11em; color:var(--muted); }
+    .v-line  { font-size:1.05rem; font-weight:700; margin-top:4px; letter-spacing:-.01em; line-height:1.35; }
+    .v-why   { font-size:.74rem; color:var(--muted-dim); margin-top:5px; line-height:1.55; }
+    .v-why b { color:var(--muted); font-weight:600; }
+
+    /* The P&L panel was the largest element on the page: a full-width card with a
+       2rem number that reads $0.00 on most days. It is the least meaningful figure
+       here — this system's own doctrine is that dollars measure lot size, not edge,
+       and R is the unit. Kept, because nothing is deleted, but sized like the
+       context it is rather than the headline it was. */
+    .pnl-display { font-size:1.25rem; padding:10px 0; text-align:left; }
+    .pnl-note { font-size:.66rem; color:var(--muted-dim); margin-top:2px; }
   </style>
+  <link rel="stylesheet" href="/dashboard/theme.css">
+  <link rel="stylesheet" href="/dashboard/nav.css">
+  <script src="/dashboard/nav.js" defer></script>
+  <link rel="stylesheet" href="/dashboard/freshness.css">
+  <script src="/dashboard/freshness.js" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/dashboard/favicon.svg">
+  <meta name="theme-color" content="#070b12">
 </head>
 <body>
 
@@ -165,7 +260,7 @@
   <div class="header-right">
     <div class="clock" id="clock">--:--:--</div>
     <div class="pill pill-green" id="server-status"><span class="dot"></span> LIVE</div>
-    <a class="back" href="/">← Dashboard</a>
+    <a class="back" href="/dashboard">← Dashboard</a>
   </div>
 </header>
 
@@ -175,16 +270,40 @@
     ⛔ TRADING HALTED — <span id="halt-reason"></span>
   </div>
 
+  <!-- THE VERDICT. This page is read once a morning to answer one question — is
+       there anything to do today — and it did not answer it anywhere. You had to
+       read three cards and subtract from the gate yourself. Computed from live
+       state, never written down. -->
+  <div class="verdict" id="verdict">
+    <div class="v-label">What this morning says</div>
+    <div class="v-line" id="v-line">reading live state…</div>
+    <div class="v-why" id="v-why"></div>
+  </div>
+
   <!-- Date & risk budget -->
   <div class="date-bar">
     <div>
       <h1 id="plan-date">Loading…</h1>
       <div class="meta" id="plan-meta">Fetching plan…</div>
     </div>
+    <!-- REAL limits, read from the bridge's own reported config. This row used to
+         lead with "Max Daily Loss $200" — a number hardcoded in the markup that no
+         code ever wrote and that corresponds to nothing: there is no maxDailyLoss
+         constant, field or enforcement anywhere in the server. The limit that DOES
+         exist is dailyLossPct, and the page never showed it. A risk row is the last
+         place a decorative number belongs. -->
     <div class="risk-budget">
       <div class="risk-item">
-        <div class="risk-label">Max Daily Loss</div>
-        <div class="risk-value" id="max-loss">$200</div>
+        <div class="risk-label">Daily loss limit</div>
+        <div class="risk-value" id="max-loss">—</div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-label">Breaker</div>
+        <div class="risk-value" id="breaker-val">—</div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-label">Risk / trade</div>
+        <div class="risk-value" id="risk-pct">—</div>
       </div>
       <div class="risk-item">
         <div class="risk-label">Today's P&L</div>
@@ -221,23 +340,26 @@
   <div class="screenshot-grid" id="screenshot-grid" style="display:none">
     <div class="screenshot-card">
       <img id="ss-btc" src="" alt="BTC Chart" />
-      <div class="screenshot-label">BTC Daily Chart</div>
+      <div class="screenshot-label">BTC Daily Chart<span id="ss-btc-age"></span></div>
     </div>
     <div class="screenshot-card">
       <img id="ss-gold" src="" alt="GOLD Chart" />
-      <div class="screenshot-label">GOLD Daily Chart</div>
+      <div class="screenshot-label">GOLD Daily Chart<span id="ss-gold-age"></span></div>
     </div>
     <div class="screenshot-card">
       <img id="ss-spx" src="" alt="SPX Chart" />
-      <div class="screenshot-label">SPX Daily Chart</div>
+      <div class="screenshot-label">SPX Daily Chart<span id="ss-spx-age"></span></div>
     </div>
   </div>
+  <!-- .no-screenshot was styled in this file and never rendered by anything, which is
+       why a missing chart looked identical to a page that never had one. -->
+  <div class="no-screenshot" id="screenshot-empty" style="display:none"></div>
 
   <!-- Calendar + Setup health -->
   <div class="two-col">
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title">📅 High-Impact Events Today</div>
+        <div class="panel-title">High-impact events today</div>
         <div id="cal-count" style="font-size:.65rem;color:var(--muted)"></div>
       </div>
       <div class="panel-body" id="calendar-body">
@@ -247,7 +369,7 @@
 
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title">📊 Setup Health</div>
+        <div class="panel-title">Setup health</div>
         <div style="font-size:.65rem;color:var(--muted)">Min 5 trades</div>
       </div>
       <div class="panel-body" id="health-body">
@@ -259,10 +381,15 @@
   <!-- Today PnL -->
   <div class="panel" style="margin-bottom:16px">
     <div class="panel-header">
-      <div class="panel-title">💰 Today's Performance</div>
+      <div class="panel-title">Today's P&amp;L</div>
     </div>
     <div class="panel-body">
       <div class="pnl-display" id="pnl-big">$0.00</div>
+      <!-- Stated on the page, not just in a commit: this system's own measurement
+           doctrine is that dollars are lot-weighted and R is the unit. Two closed
+           trades here are both exactly -1.00R and one lost 4.5x the money. -->
+      <div class="pnl-note">Dollars are lot-weighted — R is the unit this system
+        judges edge by. See <a href="/dashboard/performance.html">Performance</a> for realised R.</div>
     </div>
   </div>
 
@@ -283,6 +410,17 @@ function fmt(n) {
   return '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/* Signed money. fmt() puts the minus INSIDE the currency symbol, so a losing day rendered
+   as "$-42.18" — and the callers then prefixed a '+' only when positive, which left the
+   two P&L figures as the only inconsistently-signed numbers on the page. The sign belongs
+   in front of the symbol, and it is always shown: an explicit '+' is what makes the '-'
+   read as a value rather than as a stray character. */
+function fmtSigned(n) {
+  const v = Number(n);
+  if (n == null || !Number.isFinite(v)) return '—';
+  return (v < 0 ? '-' : '+') + fmt(Math.abs(v));
+}
+
 function signalClass(s) {
   if (!s || s === 'WAIT') return 'wait';
   return s === 'BUY' || s === 'LONG' ? 'long' : 'short';
@@ -296,24 +434,171 @@ function signalLabel(s) {
   return s;
 }
 
+// The live confidence gate, set from /api/daily-plan on every load. Null until the
+// first successful fetch, and null is rendered as "gate unknown" rather than being
+// quietly replaced with a number — a guessed gate is what this fix exists to remove.
+let liveGate = null;
+let gateIsDefaults = false;
+
+// The measured next-candle read, from /api/daily-plan's candleRead key. Null until the
+// first fetch, and rendered as "not generated" rather than silently omitted — an absent
+// probability and a probability of no edge are different facts.
+let candleRead = null;
+
+// Which broker symbol each card is, so a card can find its own rows in the read.
+const CARD_SYMBOL = { 'card-btc': 'BTCUSD', 'card-gold': 'XAUUSD', 'card-spx': 'SP500' };
+
+// Staleness measured in REAL refresh cycles, not a number chosen to look reasonable.
+// server/index.js refreshes signals on a `*/30 * * * *` cron and prices on `* * * * *`,
+// so these are 1.5 and 5 cycles respectively.
+const SIGNAL_STALE_MS = 45 * 60 * 1000;
+const PRICE_STALE_MS  =  5 * 60 * 1000;
+
+// The age of the data every card is drawn from. `plan.generatedAt` is stamped when the
+// REQUEST arrives, so it always reads "now" and can never be stale — it was this page's
+// only freshness stamp and it was structurally incapable of reporting a problem. These
+// come from signalCache.updatedAt / priceCache.updated, the moments the values actually
+// changed. NaN when the server did not send them (an older build on the other box), and
+// NaN renders as "age unknown" — never as fresh.
+let signalsAgeMs = NaN;
+let pricesAgeMs  = NaN;
+
+function ageText(ms) {
+  return window.SEFresh ? window.SEFresh.agoMs(ms, { unknown: 'age unknown' })
+                        : (Number.isFinite(ms) ? Math.round(ms / 60000) + 'm ago' : 'age unknown');
+}
+function ageMsOf(iso) {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? Math.max(0, Date.now() - t) : NaN;
+}
+
+/* Render the D1 and H4 measured read for one asset.
+   Most mornings every row says INSIDE NOISE, and that is printed in those words. A bare
+   percentage would read as a forecast; the whole value of this block is that it says
+   when the number means nothing. Nothing here feeds the gate or the signal. */
+function candleBlock(cardId) {
+  if (!candleRead) return '';
+  if (!candleRead.available) {
+    return `<div class="cp-block"><span class="cp-none">next-candle read: ${esc(candleRead.why || 'unavailable')}</span></div>`;
+  }
+  const sym = CARD_SYMBOL[cardId];
+  const rows = (candleRead.reads || []).filter(r => r && r.symbol === sym);
+  if (!rows.length) return '';
+  const stale = candleRead.ageHours != null && candleRead.ageHours > 30;
+  const head = `<div class="cp-head">MEASURED NEXT CANDLE`
+    + (candleRead.ageHours != null
+        ? ` <span class="${stale ? 'cp-stale' : 'cp-age'}">${candleRead.ageHours}h old${stale ? ' — STALE' : ''}</span>`
+        : '')
+    + `</div>`;
+  const body = rows.map(r => {
+    if (r.error) return `<div class="cp-row"><b>${esc(r.tf)}</b> <span class="cp-none">${esc(r.error)}</span></div>`;
+    const live = r.actionable;
+    const cls = live ? (r.thinFolds ? 'cp-thin' : 'cp-live') : 'cp-noise';
+    const pctTxt = r.cellUpPct != null ? `${r.cellUpPct}% up` : '—';
+    return `<div class="cp-row">`
+      + `<b>${esc(r.tf)}</b> <span class="cp-state">${esc(r.state)}</span> `
+      + `<span class="${cls}">${esc(pctTxt)}</span> `
+      + `<span class="cp-verdict">${esc(r.verdict)}</span></div>`;
+  }).join('');
+  return `<div class="cp-block">${head}${body}</div>`;
+}
+
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 function renderCard(id, title, sig, price) {
   const card = document.getElementById(id);
   if (!card) return;
   const dir = sig?.signal;
-  card.className = 'signal-card ' + signalClass(dir);
   const hasLevels = sig && dir && dir !== 'WAIT' && sig.entry;
-  const conf = sig?.confidence ?? 0;
-  const confColor = conf >= 80 ? 'var(--green)' : conf >= 65 ? 'var(--yellow)' : 'var(--muted)';
+
+  // ABSENT IS NOT ZERO. This read `sig?.confidence ?? 0`, so an asset the engine has
+  // said nothing about — a cold cache, a scan that threw, an asset dropped from the
+  // loop — rendered an authoritative "0%" and "70 pts to fire", which is a measurement
+  // it never made. Same failure as a missing age rendering as fresh. `hasReading` is
+  // false only when there is genuinely no number, and that case says so in words.
+  const rawConf = sig ? Number(sig.confidence) : NaN;
+  const hasReading = Number.isFinite(rawConf);
+  const conf = hasReading ? rawConf : 0;
+
+  // Signals older than 1.5 refresh cycles keep their levels — they are the last thing
+  // the engine actually said — but the card stops looking live. A yellow border AND a
+  // worded chip, because colour alone is not a state.
+  const signalsStale = Number.isFinite(signalsAgeMs) && signalsAgeMs > SIGNAL_STALE_MS;
+  card.className = 'signal-card ' + signalClass(dir) + (signalsStale ? ' stale' : '');
+
+  // Colour and label against the LIVE gate, never a hardcoded number. This block used
+  // to read `conf >= 80 ? green : conf >= 65 ? yellow : muted` while the gate has been
+  // 70 since 2026-08-02, so a 72% setup that was actually FIRING rendered the same
+  // amber as a 66% one five points short — on the page read immediately before trading.
+  // Three states now, and each means one thing: at or above the gate, within 10 points
+  // of it, or further out. The gap is stated in points so "how far" needs no arithmetic.
+  // Each state also carries a GLYPH: on a card where the number itself is coloured,
+  // colour is the only channel left, and colour alone is not a state.
+  let confColor, confGlyph, gapMain, gapSub;
+  if (!hasReading) {
+    confColor = 'var(--muted)';
+    confGlyph = '—';
+    gapMain = 'NO READING';
+    gapSub  = 'the engine has not scored this asset';
+  } else if (liveGate == null) {
+    confColor = 'var(--muted)';
+    confGlyph = '?';
+    gapMain = 'gate unknown';
+    gapSub  = 'server did not send it';
+  } else if (conf >= liveGate) {
+    confColor = 'var(--green)';
+    confGlyph = '✓';
+    gapMain = 'AT / ABOVE GATE';
+    gapSub  = 'gate ' + liveGate;
+  } else {
+    const gap = liveGate - conf;
+    confColor = gap <= 10 ? 'var(--yellow)' : 'var(--muted)';
+    confGlyph = gap <= 10 ? '▲' : '·';
+    gapMain = gap + ' pt' + (gap === 1 ? '' : 's') + ' to fire';
+    gapSub  = 'gate ' + liveGate;
+  }
+  // A non-null settingsError means the gate above is a built-in DEFAULT, not the saved
+  // config. Same failure this page already had: a number that looks authoritative and
+  // is not. Said out loud rather than left to be inferred.
+  if (gateIsDefaults) {
+    gapSub += ' <span style="color:var(--red)">⚠ DEFAULTS, not saved config</span>';
+  }
+
+  // The track only exists when there is a real gate to notch it at. A full-width track
+  // with no notch would read as a bar that has already been met.
+  const gapBar = (liveGate == null || !hasReading) ? '' : `
+      <div class="gap-track">
+        <div class="gap-fill" style="width:${Math.max(0, Math.min(100, conf))}%;background:${confColor}"></div>
+        <div class="gap-notch" style="left:${Math.max(0, Math.min(100, liveGate))}%" title="gate ${liveGate}"></div>
+      </div>
+      <div class="gap-scale">
+        <span class="end lo">0</span>
+        <span class="at-gate" style="left:${Math.max(0, Math.min(100, liveGate))}%">gate ${liveGate}</span>
+        <span class="end hi">100</span>
+      </div>`;
 
   card.innerHTML = `
     <div class="sc-header">
       <span class="sc-title">${title}</span>
-      <span class="sc-badge ${badgeClass(dir)}">${signalLabel(dir)}</span>
+      <span>${signalsStale ? '<span class="stale-chip">stale</span> ' : ''}<span class="sc-badge ${badgeClass(dir)}">${signalLabel(dir)}</span></span>
     </div>
     <div class="sc-body">
-      <div class="sc-price">${price ? fmt(price) : '—'}</div>
-      <div class="sc-conf">Confidence: <span style="color:${confColor}">${conf}%</span>
-        &nbsp;|&nbsp; Regime: <span>${sig?.regime ?? '—'}</span>
+      <div class="sc-conf-row">
+        <div>
+          <div class="sc-conf-lbl">Confidence</div>
+          <div class="sc-conf-val" style="color:${confColor}">${hasReading ? confGlyph + ' ' + conf + '%' : '—'}</div>
+        </div>
+        <div class="sc-conf-gap" style="color:${confColor}">${gapMain}<span class="sub">${gapSub}</span></div>
+      </div>
+      ${gapBar}
+      <div class="sc-context">
+        <span class="sc-price">${price ? fmt(price) : '—'}</span>
+        <span class="sc-sep">|</span><span>${esc(sig?.regime ?? '—')}</span>
+        <span class="sc-sep">|</span><span${signalsStale ? ' style="color:var(--yellow);font-weight:700"' : ''}>signal ${ageText(signalsAgeMs)}</span>
       </div>
       ${hasLevels ? `
         <div class="level-grid">
@@ -331,30 +616,246 @@ function renderCard(id, title, sig, price) {
           </div>
         </div>
         <div class="rr-bar">
-          <span>Setup: <b>${(sig.setup||'').replace(/_/g,' ')}</b></span>
+          <span>Setup: <b>${esc((sig.setup||'').replace(/_/g,' '))}</b></span>
           <span>R:R <span class="rr-val">1:${sig.rr ?? '—'}</span></span>
         </div>
-      ` : `<div class="setup-tag">No actionable setup — ${sig?.regime ?? 'market scanning'}</div>`}
+      ` : `<div class="setup-tag">No actionable setup — ${esc(sig?.regime ?? 'market scanning')}</div>`}
+      ${candleBlock(id)}
     </div>
   `;
 }
 
-function renderCalendar(events) {
+/* `events` is plan.calendar — HIGH-impact events dated TODAY, already filtered
+   server-side. `feed` is /api/newsfilter, and it is the whole point of this
+   function's rewrite.
+ *
+ * An empty array here used to print "No high-impact events today — clean trading
+ * day." That is a confident all-clear GENERATED FROM AN EMPTY ARRAY, and the
+ * array is empty in two completely different situations: a genuinely quiet day,
+ * and a calendar feed that failed so newsCache is []. The page said "clean
+ * trading day" in both. That is the same defect the weekly review caught on
+ * setupHealth — correct, and indistinguishable from a dead feed — except this
+ * one tells you it is safe to trade.
+ *
+ * /api/newsfilter already reports how many events the feed actually holds, so
+ * the two cases can be told apart with no server change: 72 events loaded and
+ * none high today is a quiet day; ZERO events loaded is an unread feed. */
+function renderCalendar(events, feed) {
   const body = document.getElementById('calendar-body');
-  document.getElementById('cal-count').textContent = events.length + ' events';
+  const count = document.getElementById('cal-count');
+
+  // The count now describes the FEED, not the filtered slice. "0 events" beside a
+  // feed holding 72 was true of the filter and false of the world.
+  if (feed && Number.isFinite(feed.events)) {
+    count.textContent = events.length + ' today · ' + feed.events + ' this week';
+  } else {
+    count.textContent = events.length + ' today';
+  }
+
+  // The blackout gate is live trade state and was not on this page at all. When
+  // it is open, a setup is being refused right now for a reason the morning read
+  // should show before anything else.
+  let blackoutHtml = '';
+  if (feed && feed.blackout) {
+    blackoutHtml = '<div style="border:1px solid rgba(242,85,95,.45);background:rgba(242,85,95,.08);'
+      + 'color:#fca5a5;border-radius:8px;padding:8px 11px;font-size:.74rem;margin-bottom:9px">'
+      + '<b>NEWS BLACKOUT ACTIVE</b> — the gate is refusing setups right now'
+      + (feed.reason ? ': ' + esc(feed.reason) : '') + '.</div>';
+  } else if (feed && Number.isFinite(feed.watching) && feed.watching > 0) {
+    blackoutHtml = '<div style="border:1px solid rgba(240,180,41,.35);background:rgba(240,180,41,.07);'
+      + 'color:#fde047;border-radius:8px;padding:8px 11px;font-size:.74rem;margin-bottom:9px">'
+      + esc(feed.watching) + ' event(s) inside the ' + esc(feed.windowMinutes)
+      + '-minute watch window.</div>';
+  }
+
   if (!events.length) {
-    body.innerHTML = '<div style="color:var(--muted);font-size:.78rem">No high-impact events today — clean trading day.</div>';
+    let note;
+    if (!feed) {
+      // Could not read the feed at all. Say that, and do NOT call the day clean.
+      note = '<span style="color:var(--yellow)">Calendar state unknown</span> — /api/newsfilter '
+        + 'did not answer, so this panel cannot tell a quiet day from a dead feed. '
+        + 'It is not saying the day is clear.';
+    } else if (!feed.events) {
+      // Zero events for a whole WEEK is not a quiet week, it is an unread feed.
+      note = '<span style="color:var(--red)">The calendar feed holds zero events for the entire week</span> '
+        + '— that is a feed problem, not a quiet week. High-impact news would not be '
+        + 'flagged today. Check the [news] lines in server_log.txt.';
+    } else {
+      note = 'No high-impact events today. '
+        + '<span style="color:var(--muted-dim)">The feed holds ' + esc(feed.events)
+        + ' event(s) this week, so this is a quiet day rather than a silent feed.</span>';
+    }
+    body.innerHTML = blackoutHtml
+      + '<div style="color:var(--muted);font-size:.78rem;line-height:1.55">' + note + '</div>';
     return;
   }
-  body.innerHTML = events.map(ev => {
+  body.innerHTML = blackoutHtml + renderCalendarRows(events);
+}
+
+/* Returns HTML rather than writing it, so the caller can put the blackout banner
+   above these rows. It previously assigned to a `body` it no longer has in scope.
+
+   Every field is escaped. These titles come from a third-party calendar feed
+   (nfs.faireconomy.media), which makes them untrusted external content — they
+   were being interpolated raw into innerHTML. */
+function renderCalendarRows(events) {
+  return events.map(ev => {
     const t = ev.date ? new Date(ev.date).toUTCString().slice(17, 22) + ' UTC' : '';
     return `
       <div class="cal-event">
-        <div class="cal-time">${t}</div>
-        <div class="cal-name impact-high">${ev.title || ev.name || ''}</div>
-        <div class="cal-cur">${ev.currency || ''}</div>
+        <div class="cal-time">${esc(t)}</div>
+        <div class="cal-name impact-high">${esc(ev.title || ev.name || '')}</div>
+        <div class="cal-cur">${esc(ev.currency || '')}</div>
       </div>`;
   }).join('');
+}
+
+/* The limits that actually exist, from risk.accounts[TAG].config — the bridge
+   owns them and reports them. Before this the row led with a hardcoded "$200"
+   that nothing wrote and nothing enforced, while dailyLossPct, maxConsecLosses
+   and riskPercent — all real, all live — appeared nowhere on the page. */
+function renderRiskLimits(risk) {
+  const accounts = (risk && risk.accounts) ? Object.values(risk.accounts) : [];
+  const cfg = accounts.map(a => a && a.config).filter(Boolean)[0] || null;
+
+  const set = (id, text, colour) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = colour || '';
+  };
+
+  if (!cfg) {
+    // No bridge reporting means the limits are UNKNOWN, not zero and not default.
+    set('max-loss', 'no bridge', 'var(--yellow)');
+    set('breaker-val', '—');
+    set('risk-pct', '—');
+    return;
+  }
+
+  set('max-loss', Number.isFinite(cfg.dailyLossPct) ? cfg.dailyLossPct + '% equity' : '—');
+  set('risk-pct', Number.isFinite(cfg.riskPercent) ? cfg.riskPercent + '%' : '—');
+
+  const streak = risk && Number.isFinite(risk.consecutiveLosses) ? risk.consecutiveLosses : null;
+  const limit  = Number.isFinite(cfg.maxConsecLosses) ? cfg.maxConsecLosses : null;
+  if (streak === null || limit === null) { set('breaker-val', '—'); return; }
+  // One below the limit is the row that matters and it was never coloured here.
+  const colour = streak >= limit ? 'var(--red)'
+               : streak >= limit - 1 ? 'var(--yellow)' : '';
+  set('breaker-val', streak + ' / ' + limit, colour);
+}
+
+/* THE VERDICT — what this morning actually says, in one sentence.
+ *
+ * The page never answered its own question. It showed three cards and left the
+ * reader to subtract each confidence from the gate. The order below is the order
+ * that matters: a halt beats everything, then a fired signal, then a blackout
+ * that is refusing setups right now, then the ordinary case — nothing is ready,
+ * and here is what is closest.
+ *
+ * Every branch states the EVIDENCE, so the line can be checked rather than
+ * believed. Unknown state is its own branch and never renders as "nothing to
+ * do" — a page that cannot read the gate must not imply the day is quiet. */
+function renderVerdict(plan, feed) {
+  const box  = document.getElementById('verdict');
+  const line = document.getElementById('v-line');
+  const why  = document.getElementById('v-why');
+  // Number(null) is 0 and Number('') is 0, and Number.isFinite(0) is TRUE — so a
+  // guard written as Number.isFinite(Number(plan.gate)) accepts a MISSING gate as
+  // zero. Caught here in test: an unreadable gate rendered "Gate is 0" with all
+  // three assets green and "at or above the gate", which is the exact failure the
+  // fleet page already has on record. Absent must be checked before coercion.
+  const rawGate = plan.gate;
+  const gate = (rawGate === null || rawGate === undefined || rawGate === ''
+                || !Number.isFinite(Number(rawGate)))
+    ? null : Number(rawGate);
+
+  const assets = [
+    { key: 'btc',  label: 'BTC'  },
+    { key: 'gold', label: 'GOLD' },
+    { key: 'spx',  label: 'SPX'  },
+  ].map(a => {
+    const s = plan.signals ? plan.signals[a.key] : null;
+    return {
+      label: a.label,
+      signal: s && s.signal,
+      setup: s && s.setup,
+      confidence: s && Number.isFinite(s.confidence) ? s.confidence : null,
+    };
+  });
+
+  const setState = (state, text, detail) => {
+    box.className = 'verdict ' + state;
+    line.textContent = text;
+    why.innerHTML = detail;
+  };
+
+  if (plan.risk && plan.risk.halted) {
+    setState('halted', 'Trading is halted — nothing will fire today until it clears.',
+      'Reason: <b>' + esc(plan.risk.haltReason || 'risk limit reached') + '</b>. '
+      + 'The breaker is enforced in the bridge, so this holds regardless of what the cards below show.');
+    return;
+  }
+
+  // settingsError means the engine is on built-in defaults, so the gate every
+  // card is compared against is not the saved one. That outranks the signals.
+  if (plan.settingsError) {
+    setState('unknown', 'The engine is running on built-in defaults, not your saved config.',
+      'strategy_settings.json could not be read: <b>' + esc(plan.settingsError) + '</b>. '
+      + 'Every threshold below is a default, so treat the gate and the levels as unverified.');
+    return;
+  }
+
+  if (gate === null) {
+    setState('unknown', 'The live gate could not be read, so nothing below can be judged against it.',
+      'This page compares each confidence to <b>confidenceThreshold</b> from /api/strategy-settings. '
+      + 'Without it the cards show numbers with no bar — it is not saying the day is quiet.');
+    return;
+  }
+
+  const ready = assets.filter(a => a.confidence !== null && a.confidence >= gate);
+  if (ready.length) {
+    const named = ready.map(a => a.label + ' ' + a.confidence + (a.signal ? ' ' + a.signal : '')).join(' · ');
+    // Colour follows the OUTCOME, not the confidence. A setup above the gate that
+    // the blackout will refuse is not a green light, and painting it green would
+    // be the page disagreeing with what the system is about to do.
+    if (feed && feed.blackout) {
+      setState('blocked', named + ' — above the gate, but the news blackout will refuse it.',
+        'Gate is <b>' + gate + '</b>.'
+        + (feed.reason ? ' Blackout: ' + esc(feed.reason) + '.' : '')
+        + ' Nothing will be placed while the blackout holds.');
+      return;
+    }
+    setState('ready', named + ' — at or above the gate.',
+      'Gate is <b>' + gate + '</b>. '
+      + 'Check the levels on the card before acting; the bridge applies its own gates too.');
+    return;
+  }
+
+  const judged = assets.filter(a => a.confidence !== null);
+  if (!judged.length) {
+    setState('unknown', 'No asset reported a confidence, so there is nothing to compare to the gate.',
+      'The signal cache may not have refreshed yet. This is not a quiet market — it is an unread one.');
+    return;
+  }
+
+  const closest = judged.reduce((best, a) => (a.confidence > best.confidence ? a : best), judged[0]);
+  const gap = gate - closest.confidence;
+
+  if (feed && feed.blackout) {
+    setState('blocked', 'Nothing is ready, and a news blackout is refusing setups anyway.',
+      'Closest is <b>' + esc(closest.label) + ' ' + closest.confidence + '</b>, '
+      + gap + 'pt below the gate of <b>' + gate + '</b>.'
+      + (feed.reason ? ' Blackout: ' + esc(feed.reason) + '.' : ''));
+    return;
+  }
+
+  setState('', 'Nothing is ready — closest is ' + closest.label + ' at ' + closest.confidence
+    + ', ' + gap + ' point' + (gap === 1 ? '' : 's') + ' below the gate.',
+    'Gate is <b>' + gate + '</b>'
+    + (closest.setup ? ', and ' + esc(closest.label) + ' is reading <b>' + esc(closest.setup) + '</b>' : '')
+    + '. All three below the gate is the ordinary state of this system, not a fault — it is '
+    + 'designed to trade rarely.');
 }
 
 function renderHealth(alerts) {
@@ -374,20 +875,104 @@ function renderHealth(alerts) {
 
 async function loadPlan() {
   try {
-    const plan = await fetch(BASE + '/api/daily-plan').then(r => r.json());
+    // r.ok, not just a successful parse. A 401 returns valid JSON, so without this
+    // `plan.date` is undefined and the header renders "Daily Plan — undefined" with
+    // every level blank: a plan that looks generated and is not. The single existing
+    // check on this page was already doing exactly this for screenshots, forty lines
+    // below — the pattern was known here and simply not applied to the data call.
+    const response = await fetch(BASE + '/api/daily-plan', { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error('daily-plan -> HTTP ' + response.status
+        + (response.status === 401 ? ' (log in first)' : ''));
+    }
+    const plan = await response.json();
 
-    // Date bar
+    // The calendar FEED state, fetched alongside the plan. plan.calendar is only
+    // the high-impact-today slice, and an empty slice cannot say whether the feed
+    // behind it is alive — see renderCalendar. Failure here resolves to null so
+    // the panel reports "state unknown" rather than taking the whole page down;
+    // this is a second opinion about one panel, not a dependency of the page.
+    const newsFeed = await fetch(BASE + '/api/newsfilter', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .catch(() => null);
+
+    // Set the gate BEFORE any card renders, or the first paint colours against null.
+    // Number() guards a string; a non-finite value stays null so the card says the gate
+    // is unknown rather than comparing against NaN, which is false for every operator
+    // and would silently paint every asset "below gate".
+    //
+    // TWO SOURCES, deliberately. /api/daily-plan carries the gate as of 2026-08-24, but
+    // the VPS runs an older index.js and this page is static — it deploys there by file
+    // copy with no restart, because express.static reads per request. Without a fallback
+    // the fixed page would ship to the box that trades continuously and render "gate
+    // unknown" on every card until that server was restarted, which is a worse read than
+    // the bug it replaces. /api/strategy-settings exists on BOTH boxes today and is the
+    // same value from the same object, so the fallback needs no deploy and no restart.
+    // Number.isFinite alone is NOT enough, and this is the second time this page has
+    // been bitten by the same shape of hole. `Number(null)` is 0 and `Number('')` is 0,
+    // both finite — so a null gate in the payload set liveGate = 0, the fallback below
+    // never ran, and EVERY asset rendered "at/above gate 0" in green. A 41% WAIT reading
+    // as FIRING is the worst thing this page can do, and it is exactly what the comment
+    // above it promises will never happen. A confidence gate is a percentage and is
+    // never 0 — nothing would be gated. Anything outside 1..100 is treated as absent,
+    // which routes it to the fallback and then, if that also fails, to "gate unknown".
+    const isUsableGate = g => Number.isFinite(g) && g > 0 && g <= 100;
+    const gateValue = Number(plan.gate);
+    if (isUsableGate(gateValue)) {
+      liveGate = gateValue;
+      gateIsDefaults = Boolean(plan.settingsError);
+      candleRead = plan.candleRead || null;
+    } else {
+      try {
+        const sr = await fetch(BASE + '/api/strategy-settings', { cache: 'no-store' });
+        if (sr.ok) {
+          const s = await sr.json();
+          const fallback = Number(s.confidenceThreshold);
+          liveGate = isUsableGate(fallback) ? fallback : null;
+          gateIsDefaults = Boolean(s.settingsError);
+        }
+      } catch (e) {
+        // Leave liveGate null: the card then says the gate is unknown, which is true.
+        // Never substitute a guessed number here — a wrong gate rendered confidently is
+        // the exact defect this whole change exists to remove.
+        console.warn('[daily-plan] gate fallback failed:', e.message);
+      }
+    }
+
+    // Ages BEFORE any card renders, or the first paint claims a freshness it has not
+    // checked. Absent keys (an older server on the other box) leave these NaN, which
+    // renders as "age unknown" rather than as fresh.
+    signalsAgeMs = ageMsOf(plan.signalsUpdatedAt);
+    pricesAgeMs  = ageMsOf(plan.pricesUpdatedAt);
+
+    // Date bar. `plan.generatedAt` is stamped when the request arrives, so it is the age
+    // of THIS FETCH and nothing else — it used to be the only stamp on the page, which
+    // meant a plan built on nine-hour-old signals looked exactly as current as one built
+    // a minute ago. It is dropped here in favour of the two ages that can actually go bad.
     document.getElementById('plan-date').textContent = 'Daily Plan — ' + plan.date;
-    document.getElementById('plan-meta').textContent = 'Generated ' + new Date(plan.generatedAt).toLocaleTimeString();
+    const sStale = Number.isFinite(signalsAgeMs) && signalsAgeMs > SIGNAL_STALE_MS;
+    const pStale = Number.isFinite(pricesAgeMs)  && pricesAgeMs  > PRICE_STALE_MS;
+    const meta = document.getElementById('plan-meta');
+    meta.innerHTML = 'Signals <b style="color:' + (sStale ? 'var(--yellow)' : 'var(--text)') + '">'
+      + esc(ageText(signalsAgeMs)) + (sStale ? ' ⚠ STALE' : '') + '</b>'
+      + ' &nbsp;·&nbsp; Prices <b style="color:' + (pStale ? 'var(--yellow)' : 'var(--text)') + '">'
+      + esc(ageText(pricesAgeMs)) + (pStale ? ' ⚠ STALE' : '') + '</b>';
     document.getElementById('vix-val').textContent = plan.prices?.vix ? plan.prices.vix.toFixed(1) : '—';
     document.getElementById('dxy-val').textContent = plan.prices?.dxy ? plan.prices.dxy.toFixed(2) : '—';
 
+    // Real risk limits, from the bridge's own reported config — the same place
+    // index.html reads them. Any account will do for the LIMITS (they are config,
+    // not state); if no account is reporting, every cell says so rather than
+    // falling back to a plausible-looking number.
+    renderRiskLimits(plan.risk);
+    renderVerdict(plan, newsFeed);
+
     // Today P&L
     const pnl = plan.todayPnl ?? 0;
-    document.getElementById('today-pnl').textContent = (pnl >= 0 ? '+' : '') + fmt(pnl);
+    document.getElementById('today-pnl').textContent = fmtSigned(pnl);
     document.getElementById('today-pnl').style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
     const pnlBig = document.getElementById('pnl-big');
-    pnlBig.textContent = (pnl >= 0 ? '+' : '') + fmt(pnl);
+    pnlBig.textContent = fmtSigned(pnl);
     pnlBig.className = 'pnl-display ' + (pnl > 0 ? 'pnl-pos' : pnl < 0 ? 'pnl-neg' : 'pnl-zero');
 
     // Halt banner
@@ -403,24 +988,96 @@ async function loadPlan() {
     renderCard('card-spx',  'SPX / S&P 500', plan.signals?.spx,  p.spx);
 
     // Calendar
-    renderCalendar(plan.calendar || []);
+    renderCalendar(plan.calendar || [], newsFeed);
 
     // Setup health
     renderHealth(plan.setupHealth || []);
 
-    // Screenshots
-    const ssGrid = document.getElementById('screenshot-grid');
-    ['btc','gold','spx'].forEach(sym => {
-      const img = document.getElementById('ss-' + sym);
-      if (img) {
-        const src = '/screenshots/' + sym + '_daily.png?t=' + Date.now();
-        fetch(src, { method: 'HEAD' }).then(r => {
-          if (r.ok) { img.src = src; ssGrid.style.display = 'grid'; }
-        }).catch(() => {});
+    // Screenshots.
+    //
+    // This asked for '<sym>_daily.png' and nothing in the repo has ever written that
+    // name. tv_screenshot.js writes '<sym>_d.png' (key + timeframe lowercased);
+    // tv_daily_plan.py and tradingview_bot.py write 'plan_<sym>.png'. Three names,
+    // no two agreeing, so the HEAD probe always 404'd, the grid stayed display:none
+    // and the panel vanished without a word — indistinguishable from a page that
+    // simply has no charts.
+    //
+    // Rather than pick a winner and break the other writer, probe the known names in
+    // freshness order and take the first that exists. Nothing here changes what any
+    // writer produces.
+    const SCREENSHOT_CANDIDATES = sym => [
+      '/screenshots/plan_' + sym + '.png',   // tv_daily_plan.py / tradingview_bot.py
+      '/screenshots/' + sym + '_d.png',      // tv_screenshot.js
+      '/screenshots/' + sym + '_daily.png',  // historical name this page asked for
+    ];
+
+    // A chart that is silently two weeks old is the failure mode already on record
+    // here: the drawing job reports "OK: plan drawn on all charts" and exits 0 while
+    // the images underneath it do not move. Printing the age next to each chart is
+    // what makes that visible without trusting the job's own verdict.
+    // Delegates to dashboard/freshness.js. This was the fifth separate spelling of
+    // "how old is this" in the product and the only one that could never say
+    // seconds, so a screenshot taken 40 seconds ago read as "just now" for a full
+    // minute. Returns '' on a bad value, which is what the callers concatenate.
+    function ageWords(sinceMs) {
+      return window.SEFresh ? window.SEFresh.agoMs(sinceMs, { unknown: '' }) : '';
+    }
+
+    async function resolveScreenshot(sym) {
+      for (const url of SCREENSHOT_CANDIDATES(sym)) {
+        try {
+          // ONE url string for both the probe and the <img>. Building the cache-buster
+          // twice made them different URLs, so the browser fetched the same file twice and
+          // aborted the superseded HEAD — three net::ERR_ABORTED per load for images that
+          // were resolving perfectly well.
+          const versioned = url + '?t=' + Date.now();
+          const probe = await fetch(versioned, { method: 'HEAD' });
+          // Read the (empty) body so the response stream is released. A HEAD whose
+          // response is never consumed gets torn down when the identical GET for the
+          // <img> supersedes it, and Chrome reports that as net::ERR_ABORTED — three
+          // per page load, for images that were resolving perfectly well.
+          await probe.text().catch(() => {});
+          if (!probe.ok) continue;
+          const lastModified = probe.headers.get('last-modified');
+          const ageMs = lastModified ? Date.now() - new Date(lastModified).getTime() : NaN;
+          return { url: versioned, ageMs };
+        } catch (_) { /* try the next name */ }
       }
+      return null;
+    }
+
+    const ssGrid  = document.getElementById('screenshot-grid');
+    const ssEmpty = document.getElementById('screenshot-empty');
+    Promise.all(['btc','gold','spx'].map(async sym => {
+      const img = document.getElementById('ss-' + sym);
+      if (!img) return false;
+      const found = await resolveScreenshot(sym);
+      if (!found) return false;
+      img.src = found.url;
+      const ageEl = document.getElementById('ss-' + sym + '-age');
+      if (ageEl) {
+        const words = ageWords(found.ageMs);
+        ageEl.textContent = words ? ' · ' + words : '';
+        // Older than a day means the chart is describing a different trading day than
+        // the plan above it, which is worth flagging rather than quietly showing.
+        ageEl.style.color = Number.isFinite(found.ageMs) && found.ageMs > 864e5
+          ? 'var(--red)' : 'var(--muted)';
+      }
+      return true;
+    })).then(results => {
+      const anyFound = results.some(Boolean);
+      ssGrid.style.display = anyFound ? 'grid' : 'none';
+      if (ssEmpty) {
+        ssEmpty.style.display = anyFound ? 'none' : 'block';
+        ssEmpty.textContent = anyFound ? ''
+          : 'No chart images on disk yet — run  python tv_daily_plan.py  (or node tv_screenshot.js) to generate them into dashboard/screenshots/.';
+      }
+    }).catch(e => {
+      console.error('[daily-plan] screenshot probe failed:', e);
     });
 
-    document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
+    lastRefreshAt = Date.now();
+    document.getElementById('last-refresh').textContent = 'last refresh just now';
   } catch (e) {
     // Log it. This catch swallowed the CORS failure above in total silence for as
     // long as the bug existed — an empty console and an OFFLINE pill gave nothing
@@ -429,18 +1086,49 @@ async function loadPlan() {
     document.getElementById('server-status').className = 'pill pill-red';
     document.getElementById('server-status').innerHTML = '<span class="dot"></span> OFFLINE';
     document.getElementById('plan-meta').textContent = 'Failed to load plan — ' + (e && e.message ? e.message : e);
+    // The cards kept their last values with nothing to say the fetch had died, so a
+    // dead server left three confident entry/stop/target sets on screen indefinitely.
+    // Nothing is hidden — they still show what the engine last said — but they are
+    // marked, with a border AND a word, so they cannot be read as live.
+    // Marked even on a card that was ALREADY stale. "stale" and "no refresh" are two
+    // different failures — old data from a live server, versus a server that has stopped
+    // answering at all — and collapsing the second into the first hides the worse one.
+    ['card-btc','card-gold','card-spx'].forEach(id => {
+      const c = document.getElementById(id);
+      if (!c) return;
+      c.classList.add('stale');
+      const head = c.querySelector('.sc-header');
+      if (!head) return;
+      const existing = [...head.querySelectorAll('.stale-chip')];
+      if (existing.some(el => el.textContent === 'no refresh')) return;
+      const chip = document.createElement('span');
+      chip.className = 'stale-chip';
+      chip.textContent = 'no refresh';
+      head.appendChild(chip);
+    });
   }
 }
 
-// Clock
+// Clock. Also ticks the refresh age: the bar used to print a wall-clock time, which
+// leaves the reader to subtract — and on a page whose fetch can die silently, that is
+// exactly the subtraction nobody performs.
+let lastRefreshAt = null;
 function tick() {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+  const el = document.getElementById('last-refresh');
+  if (el && lastRefreshAt) el.textContent = 'last refresh ' + ageText(Date.now() - lastRefreshAt);
 }
 tick();
 setInterval(tick, 1000);
 
 // Load + auto-refresh
-loadPlan();
+/* freshness.js is deferred, so it has not run yet when the parser reaches this
+   line. Without the guard the first paint renders every age as unknown. */
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", loadPlan);
+} else {
+  loadPlan();
+}
 setInterval(loadPlan, 30000);
 </script>
 </body>

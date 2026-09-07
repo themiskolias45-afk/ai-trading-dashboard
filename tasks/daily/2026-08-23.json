@@ -1,0 +1,34 @@
+{
+  "date": "2026-08-23",
+  "entries": [
+    {
+      "ts": "2026-08-23T05:51:57.307434+00:00",
+      "tag": "NOTE",
+      "text": "DAILY-CHECK 2026-08-23 RESOLVED: Laptop Bridge A was dead 8h32m (22:18 local 2026-08-22 to 06:50 today). Root cause was NOT the bridge or the MT5 terminal: Windows Smart App Control (enforced) blocks the unsigned uv python at AppData\\Roaming\\uv\\python\\cpython-3.11.15, and user PATH resolved bare python to the hermes-agent venv trampoline ahead of Python312. CodeIntegrity events 3033/3077/3118 confirm. FIX APPLIED: user PATH reordered so Python312 precedes the hermes venv; nothing deleted, all 11 entries preserved, backup at tasks/logs/userpath_backup_20260823_064500.txt verified byte-identical. python now 3.12.10, MetaTrader5 5.0.5735. Bridge A restarted pid 20872, connected=true, both open positions recovered, breaker streak 0/3 not halted. Healer 8/8 green, 1/1 accounts reporting. Firing set unchanged: all three assets WAIT before and after. VPS untouched."
+    },
+    {
+      "ts": "2026-08-23T05:55:29.868189+00:00",
+      "tag": "NOTE",
+      "text": "DAILY-CHECK 2026-08-23 (JARVIS /daily): Health 7/8 - only mt5Bridge was red and it is now green (Bridge A reconnected 06:50:38, both open positions recovered, breaker 0/3). Root cause of the 8h32m outage was Smart App Control blocking the uv python that bare python resolved to; PATH reordered 06:49:30. OUTSTANDING: the SmartEntry server started 06:40, BEFORE the fix, so it still holds the broken PATH - MCP log_note and write_memory return ok:true and write NOTHING, and the daily-plan cron still fails. Server restart required (2 positions open, so use the safe path). Setups: all 4 are LEARNING at n=1 each; nothing STRONG, nothing KILL; calibration unmeasurable at n=5. Fleet AGREES, gate 70 both boxes, engineDrift 0 but fileDrift 8 unnamed. Exa API key returns 401 - dead. Anthropic API rail 400 on credit, served via CLI fallback."
+    },
+    {
+      "ts": "2026-08-23T06:17:38.548280+00:00",
+      "tag": "NOTE",
+      "text": "SESSION-END 2026-08-23. Three fixes. Laptop Bridge A had been dead 8h32m since 22:18 the previous night - not the bridge and not the MT5 terminal, but Windows Smart App Control blocking the unsigned uv python while user PATH resolved bare python to the hermes venv trampoline ahead of Python312. PATH reordered with a verified byte-identical backup and nothing deleted; bridge back up, both open positions recovered, fleet action items went 2 to 0. The new Anthropic key reached the VPS: the Settings page there can never save, because POST /api/settings is behind requireLocalOnly which admits loopback only, so the POST was run from the VPS against its own localhost - no restart, old key backed up, and the key verified with a live HTTP 200 rather than the healer, which reads unexercised on both boxes and proves nothing. Commit a78a1c4 fixed the message that made all of this take so long: the page printed server-unreachable for every failure including the 403 that explained itself, in the success green. Zero trades; firing set unchanged all day."
+    },
+    {
+      "ts": "2026-08-23T07:42:48.084185+00:00",
+      "tag": "SYSTEM",
+      "text": "Full-system check after 07:38 server restart — verifying python-backed writes now work post-PATH-fix."
+    },
+    {
+      "ts": "2026-08-23T15:42:07.872897+00:00",
+      "tag": "SYSTEM",
+      "text": "MCP runner now reports the child exit code; log_note and write_memory no longer answer ok:true for a failed write."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-08-23T05:51:57.307434+00:00",
+  "updated_at": "2026-08-23T15:42:07.872897+00:00"
+}
