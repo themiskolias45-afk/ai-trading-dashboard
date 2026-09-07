@@ -94,9 +94,45 @@ function build(options) {
   }
   const episodes = [...byEpisode.values()];
 
+  // ── ONLY QUALITY GATES JUDGE A SETUP ───────────────────────────────────────
+  // score_rr_rejections.py:145-163 states the doctrine this module was the last reader
+  // to ignore. NOT_FORGONE (DUPLICATE) means the position was ALREADY OPEN, so "the
+  // outcome is already in the journal" and "scoring it as forgone profit would
+  // double-count a trade the system did make - episode counts only, no R". CONTEXT
+  // gates reject on state, not on the setup's merit, and "get numbers and no verdict,
+  // ever". tasks/learning_from_rejections.py:114 already drops both; this module did
+  // not, which is why /api/learning and /api/learning-growth disagreed about the same
+  // file at the same minute - measured 2026-09-07, resolved 146 here against 135 there,
+  // and the residual was exactly the 11 non-QUALITY episodes carrying +5.936R.
+  //
+  // It is not a rounding difference. It flipped the sign of the setup the brief prices
+  // decisions on: MOMENTUM read 30 resolved / 33% / +0.516R, and reads 20 / 25% /
+  // -6.470R once the eleven are set aside. Eight of the ten it loses are DUPLICATE,
+  // five of those the SAME open Gold MOMENTUM position scored again as forgone profit
+  // on each 30-minute re-fire.
+  //
+  // Every row carries gateClass - verified 0 of 4071 lack it - and the ones set aside
+  // are PUBLISHED as notCountedAsEvidence rather than dropped silently, so the
+  // superseded figure stays auditable the way pendingRows kept its own.
+  const qualityEpisodes = episodes.filter(row => row.gateClass === "QUALITY");
+  const asideEpisodes   = episodes.filter(row => row.gateClass !== "QUALITY");
+
+  // A ledger holding only non-QUALITY episodes is not an empty ledger, and the two
+  // reasons above would both be lies about a file with rows in it. Guarded explicitly
+  // because everyDayBetween(undefined) yields an Invalid Date and would return a
+  // silently empty curve instead of saying anything.
+  if (!qualityEpisodes.length) {
+    return {
+      available: false,
+      reason: "no QUALITY-gate episodes yet - " + episodes.length
+        + " episode(s) present, all NOT_FORGONE or CONTEXT",
+      days: [], setups: [],
+    };
+  }
+
   // ── daily buckets ──────────────────────────────────────────────────────────
   const buckets = {};
-  for (const row of episodes) {
+  for (const row of qualityEpisodes) {
     const day = dayOf(row);
     if (!day) continue;
     buckets[day] = buckets[day] || { logged: 0, resolved: 0, wins: 0, losses: 0 };
