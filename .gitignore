@@ -163,3 +163,5 @@ tasks/.auto_runner_*
 # thing that could be in a diff you are trying to read for a real change.
 tasks/rag_db/
 .tmp_daily/
+server/smartentry.db-shm
+server/smartentry.db-wal
