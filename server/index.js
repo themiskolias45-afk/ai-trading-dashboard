@@ -7174,6 +7174,71 @@ app.get("/api/stats/by-setup", (_, res) => {
         : "every closed trade carries a confidence value",
       includesUnattributedSetups: true,
     },
+    // WHAT ONE R WAS WORTH IN MONEY, per closed fill. The R record and the money record
+    // on this system carry OPPOSITE SIGNS and neither is evidence about the other:
+    // measured 2026-09-06 over 9 fills, +1.93R against -$589.87. The cause is that 1R
+    // ranged from $1.46 to $449.72, a 308x spread (449.72/1.46, the same two published
+    // fields spreadRatio divides, so the three agree), and two XAUUSD fills at IDENTICAL
+    // 0.01 lots priced 1R at $96.35 and $54.58 on stop distances of 137.28 and 75.69
+    // points - lots did not adjust for stop distance at all. index.js already blames "a
+    // sizing change" for the divergence elsewhere, and until now no field let that
+    // excuse be checked.
+    //
+    // Pure measurement: mapped from the journal, never written back onto a row - the
+    // same rule this file states for realizedR. No gate, no guard, no suppressed trade.
+    //
+    // The |R| >= 0.1 floor is not cosmetic. riskDollars = |pnl / realizedR| explodes as
+    // realizedR approaches zero, so a scratch trade would otherwise report a risk of
+    // thousands and become the max on its own.
+    riskDollarsPerR: (() => {
+      const MIN_ABS_R_TO_PRICE = 0.1;
+      const priced = [];
+      // Three DIFFERENT exclusions, counted separately. Collapsing them into one
+      // `unscored` says a number was dropped without saying why, and the three mean
+      // completely different things: a degenerate stop, a scratch trade, and a
+      // malformed P&L. The total is still published so nothing has to be added up.
+      const excluded = { noRealizableR: 0, belowRFloor: 0, nonFinitePnl: 0 };
+      for (const t of closed) {
+        const realizedR = realizedRFromPrices(t.direction, t.entry, t.sl, t.closePrice);
+        if (realizedR === null)                              { excluded.noRealizableR++; continue; }
+        if (Math.abs(realizedR) < MIN_ABS_R_TO_PRICE)        { excluded.belowRFloor++;   continue; }
+        if (!Number.isFinite(t.pnl))                         { excluded.nonFinitePnl++;  continue; }
+        priced.push(Math.abs(t.pnl / realizedR));
+      }
+      const unscored = excluded.noRealizableR + excluded.belowRFloor + excluded.nonFinitePnl;
+      if (!priced.length) {
+        return { n: 0, unscored, excluded, min: null, max: null, spreadRatio: null,
+                 note: "no closed fill carries both a realizable R and a P&L" };
+      }
+      // reduce, not Math.min(...priced): a spread passes each element as an ARGUMENT and
+      // throws RangeError past roughly 65k of them. This journal holds 9 closed fills so
+      // it cannot bite today, but a crash in a reporting endpoint that only appears after
+      // years of accumulation is the worst kind, and the reduce costs nothing.
+      const min = priced.reduce((a, b) => (b < a ? b : a), priced[0]);
+      const max = priced.reduce((a, b) => (b > a ? b : a), priced[0]);
+      // ROUNDED FIRST, THEN DIVIDED, so a reader can reconcile the ratio from the two
+      // fields beside it. Dividing the raw values gave 309 while the published
+      // min/max (1.46 and 449.72) divide to 308 - a number nobody could reproduce from
+      // the payload, in a repo that audits exactly this.
+      const minPub = parseFloat(min.toFixed(2));
+      const maxPub = parseFloat(max.toFixed(2));
+      return {
+        n: priced.length,
+        unscored,
+        excluded,
+        min: minPub,
+        max: maxPub,
+        // A ratio, because it is scale-free across BTCUSD at 79,000 and SP500 at 7,700.
+        spreadRatio: minPub > 0 ? parseFloat((maxPub / minPub).toFixed(1)) : null,
+        note: "Dollar value of 1R per closed fill, over EVERY closed trade including the "
+            + "ones setupStats routes to `unattributed` - it is a property of the sizing "
+            + "pipeline, not of a setup, so `n` here will not reconcile with any setup's "
+            + "realizedRTrades. A wide spread means position size is not tracking stop "
+            + "distance, so the R record and the money record are measuring different "
+            + "things. Narrowing as fills accumulate would mean riskPercent is binding "
+            + "and the spread was fixed-lot-era history.",
+      };
+    })(),
     unattributed: {
       count: unattributedTrades.length,
       totalPnl: parseFloat(unattributedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0).toFixed(2)),
@@ -7349,6 +7414,13 @@ app.post("/api/trade-opened", async (req, res) => {
       strength:       fromBridge.strength,
       regime:         fromBridge.regime,
       atr:            fromBridge.atr,
+      // THE ONLY ROUTE LEFT TO SETTLING THE h1-AGAINST CLAIM. The evidence register
+      // names "enough live MOMENTUM fills to split by h1Agree" as the sole remaining
+      // way to settle it, and no fill has ever carried the field: the label is
+      // computed, published on /api/signals, and then dropped at exactly the moment it
+      // would become evidence. Read from the BRIDGE, not the cache - the cache at
+      // write time is the defect the comment above was written about.
+      h1Agree:        fromBridge.h1Agree ?? null,
       setupSource:    "bridge",
     };
     plannedRr = Number.isFinite(fromBridge.rr) ? fromBridge.rr : null;
@@ -7362,6 +7434,25 @@ app.post("/api/trade-opened", async (req, res) => {
       strength:       sig.strength,
       regime:         sig.regime,
       atr:            sig.atr,
+      // h1Agree HERE IS WEAKER EVIDENCE THAN ON THE BRIDGE BRANCH, and the split must
+      // treat it that way. The guard above is `sig.signal === trade.type` - DIRECTION
+      // only. h1Agree is derived from h1.trend AND signalDir (:3851), so corroborating
+      // the direction constrains one of its two inputs and says nothing about the other:
+      // if H1 flips between the decision and this POST while the direction still reads
+      // BUY, h1Agree flips AGREE->AGAINST and the corroboration still passes. It is
+      // recorded because a labelled gap beats no gap, not because it is trustworthy.
+      //
+      // NULL IS OVERLOADED AND CANNOT BE DISAMBIGUATED FROM THE ROW ALONE. null is both
+      // "this bridge predates the field" and the producer's own legitimate output when
+      // signalDir is WAIT or h1.trend is missing. Nothing records bridge version.
+      //
+      // SO THE SPLIT MUST FILTER ON setupSource === "bridge" - which persists as a
+      // top-level journal column - and must NOT pool this branch in. Measured
+      // 2026-09-07: setupSource is {bridge: 7, undefined: 3} across 10 rows, so this
+      // branch has NEVER executed and the bucket is empty rather than contaminated.
+      // It also means the fill rate depends on mt5_bridge.py reaching BOTH boxes; with
+      // only one deployed the other keeps writing indistinguishable nulls.
+      h1Agree:        sig.h1Agree ?? null,
       setupSource:    "cache-corroborated",
     };
     plannedRr = Number.isFinite(sig.rr) ? sig.rr : null;
@@ -7869,7 +7960,12 @@ app.get("/api/learning", (_, res) => {
         winRate: total > 0 ? parseFloat((s.wins / total * 100).toFixed(1)) : null,
         totalPnl: s.totalPnl,
         boost: getLearningBoost(setup),
-        status: total < 5 ? "learning" : s.wins / total > 0.55 ? "boosted" : s.wins / total < 0.45 ? "penalised" : "neutral"
+        // LEARNING_MIN_TRADES, not a bare 5. The literal here was a THIRD hand-copied
+        // copy of the floor getLearningBoost actually gates on (:1288), with nothing
+        // tying them together - so the label "learning" and the boost being zero could
+        // silently come to disagree. 5 == LEARNING_MIN_TRADES today, so this changes no
+        // byte of the payload; it removes the way they can drift apart.
+        status: total < LEARNING_MIN_TRADES ? "learning" : s.wins / total > 0.55 ? "boosted" : s.wins / total < 0.45 ? "penalised" : "neutral"
       };
     }
     // Shadow evidence rides ALONGSIDE, never merged in.
@@ -7972,6 +8068,12 @@ app.get("/api/learning", (_, res) => {
 
     res.json({
       setupStats: summary,
+      // The floor `status` and `boost` above are measured against, published rather than
+      // left for a reader to assume. This is the one endpoint carrying setupStats totals
+      // AND boosts, and it named no threshold at all - so "learning" vs "boosted" looked
+      // like a judgement when it is arithmetic against this number. Same contract as
+      // setupHealthMinTrades on /api/checksystem.
+      learningMinTrades: LEARNING_MIN_TRADES,
       bySymbol,
       sessionCount: learning.sessionCount,
       updatedAt: learning.updatedAt,
@@ -8179,7 +8281,24 @@ app.get("/api/checksystem", (_, res) => {
     // it does not change any verdict. Same contract and wording as /api/daily-plan below.
     gate:          strategySettings.confidenceThreshold,
     settingsError: strategySettingsError,
-    signals:     { btc: signalCache.btc?.signal, gold: signalCache.gold?.signal, spx: signalCache.spx?.signal, updatedAt: signalCache.updatedAt },
+    // CONFIDENCE AND SETUP, not just the word. This endpoint publishes the gate as "the
+    // gate every confidence on this payload is measured against" and then carried no
+    // confidence at all, so a WAIT fifteen points short, a WAIT one point short and a WAIT
+    // with no setup whatsoever all rendered as the identical string "WAIT" on the surface
+    // whose job is to note problems. Values are COPIED out of signalCache, never written
+    // back. The `? ... : null` guard preserves the pre-first-refresh case `?.` handled.
+    signals: {
+      btc:  signalCache.btc  ? { signal: signalCache.btc.signal,  confidence: signalCache.btc.confidence,  setup: signalCache.btc.setup  } : null,
+      gold: signalCache.gold ? { signal: signalCache.gold.signal, confidence: signalCache.gold.confidence, setup: signalCache.gold.setup } : null,
+      spx:  signalCache.spx  ? { signal: signalCache.spx.signal,  confidence: signalCache.spx.confidence,  setup: signalCache.spx.setup  } : null,
+      updatedAt: signalCache.updatedAt,
+    },
+    // AND HOW OLD THE BARS UNDER THOSE SIGNALS ARE. Measured on the VPS 2026-09-06: this
+    // handler reported a fully green payload over Gold and SPX bars 59 HOURS old, with
+    // nothing on the response that could tell a weekend closure apart from a wedged MT5
+    // terminal. Pure reducer over the same in-process object the lines above dereference -
+    // no new read, no parse, no network call.
+    barFreshness: summarizeBarFreshness(signalCache),
     risk:        riskStatus,
     mode:        { modeOverride: null },
     performance: { trades: closed.length, wins, winRate: closed.length > 0 ? parseFloat((wins / closed.length * 100).toFixed(1)) : null, totalPnl: parseFloat(totalPnl.toFixed(2)), recentLosses },
@@ -10837,6 +10956,12 @@ function summarizeBarFreshness(signalsPayload) {
       lastBarAt: typeof freshness.lastBarAt === "string" ? freshness.lastBarAt : null,
       reason: typeof freshness.reason === "string" ? freshness.reason : "",
       usedForThisSignal: freshness.usedForThisSignal === true,
+      // WITHOUT THIS, A STALE AGE CANNOT BE EXPLAINED. The producer computes
+      // spansWeekend and this reducer dropped it, so every consumer saw a 59-hour bar
+      // age with no way to tell a closed market from a wedged terminal - the two things
+      // that must never be confused, because one is nothing and the other is an outage.
+      // Same defensive `=== true` as the lines either side.
+      spansWeekend: freshness.spansWeekend === true,
     });
   }
 

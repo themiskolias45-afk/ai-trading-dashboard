@@ -1634,9 +1634,12 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
     engine approved; without it the flat RISK_PERCENT is used, which ignores how
     much of the portfolio is already exposed.
 
-    `sig` is the originating signal, carried purely so a spread rejection can be
-    written to the ledger with its ticker, source instrument and timeframe. It is
-    never read on the execution path — passing None only costs the ledger row.
+    `sig` is the originating signal. It is carried for the ledger (a spread rejection
+    is written with its ticker, source instrument and timeframe) AND, since 2026-09-07,
+    read POST-FILL to build signal_context: setup, setupTimeframe, confidence, strength,
+    regime, atr, direction, rr and h1Agree. Still never read on the EXECUTION path —
+    every one of those reads happens after `result.retcode == TRADE_RETCODE_DONE`, so
+    passing None costs the ledger row and the journal's evidence fields, never an order.
     """
     spread_ok, spread, spread_cap, observed_spread = check_spread(symbol)
     if not spread_ok:
@@ -1788,6 +1791,14 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
                     # setup: read from the cache at write time it describes whichever
                     # signal happened to be cached then, not this trade's plan.
                     "rr":             sig.get("rr"),
+                    # The H1 agreement label this order was placed under. The evidence
+                    # register names "enough live MOMENTUM fills to split by h1Agree"
+                    # as the ONLY route left to settling the h1-against claim, and no
+                    # fill has ever carried it: the label is computed and published on
+                    # /api/signals, then dropped at exactly the moment it would become
+                    # evidence. Same reasoning as `rr` above - it must come from the
+                    # signal that was ACTED ON, not from the cache at write time.
+                    "h1Agree":        sig.get("h1Agree"),
                 }
             elif setup:
                 # No full signal, but the caller still knew the setup it traded.
