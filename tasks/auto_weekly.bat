@@ -69,6 +69,21 @@ REM not a failed weekly review. --replay adds ~90s and is the whole point of run
 REM weekly rather than daily.
 node "%PROJ%\tasks\calibration_officer.cjs" --replay --emit >> "%REPORT%" 2>&1
 
+REM FOURTH-ASSET SCREEN. Sample size is the binding constraint - 9 closed fills - and the
+REM only lever that adds samples without loosening a gate that is provably paying for
+REM itself is another INDEPENDENT instrument. This ran once by hand on 2026-09-07 and a
+REM screen that runs when someone remembers is not a screen, so it rides the weekly job.
+REM
+REM Weekly, not daily: it correlates DAILY log returns over years, so a day changes it
+REM by nothing measurable. Read-only, writes no file the engine reads, and correlation is
+REM a VETO not a recommendation - nothing here can promote an instrument.
+REM
+REM What it caught first run: the three best-performing instruments ever measured here are
+REM all disqualified as redundant. ETHUSD is +0.5510R over 105 trades surviving 5/5 folds
+REM AND r=0.842 against BTCUSD - it is Bitcoin with another ticker. Adding it would have
+REM looked like a clear win and bought no new information.
+node "%PROJ%\tasks\instrument_correlation_screen.cjs" >> "%REPORT%" 2>&1
+
 REM Brief the agent before it works. On 2026-08-09 this review proposed a fix to
 REM /api/trade-opened that was ALREADY IMPLEMENTED, more thoroughly than it asked
 REM for -- sound reasoning, code-cited, and wasted, because it had no way to see
