@@ -1,5 +1,44 @@
 {
- "generatedAt": "2026-09-07T12:18:56.792Z",
+ "generatedAt": "2026-09-07T12:28:48.025Z",
+ "dataFreshness": {
+  "maxAgeHours": 96,
+  "fresh": [
+   {
+    "market": "XAUUSD H1",
+    "ageHours": 1.5
+   },
+   {
+    "market": "XAUUSD H4",
+    "ageHours": 4.5
+   },
+   {
+    "market": "BTCUSD H1",
+    "ageHours": 1.5
+   },
+   {
+    "market": "BTCUSD H4",
+    "ageHours": 4.5
+   },
+   {
+    "market": "SP500 H1",
+    "ageHours": 1.5
+   },
+   {
+    "market": "SP500 H4",
+    "ageHours": 4.5
+   }
+  ],
+  "stale": [
+   {
+    "market": "NAS100 H1",
+    "ageHours": 229.5
+   },
+   {
+    "market": "NAS100 H4",
+    "ageHours": 232.5
+   }
+  ]
+ },
  "stagedCandidates": 2,
  "candidates": [
   {
@@ -30,7 +69,7 @@
    "backtestOosExpectancyR": 0.08726141585621909,
    "backtestTrades": 1039,
    "forwardTrades": 3,
-   "forwardNewThisRun": 3,
+   "forwardNewThisRun": 0,
    "forwardSumR": 1.85,
    "forwardExpectancyR": 0.6167,
    "forwardWinRate": 33.3,
@@ -40,6 +79,6 @@
  "totals": {
   "forwardTrades": 3,
   "forwardSumR": 1.85,
-  "addedThisRun": 3
+  "addedThisRun": 0
  }
 }

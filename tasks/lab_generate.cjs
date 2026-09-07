@@ -38,6 +38,7 @@
      node tasks/lab_generate.cjs --selftest
    ========================================================================== */
 
+const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
 
@@ -108,9 +109,55 @@ function cartesian(obj) {
   return out;
 }
 
+/* FROZEN BARS ARE NOT A SEARCH SPACE, AND THEY COST MORE THAN THEY LOOK.
+   Measured 2026-09-07: of 78 CSVs in tasks/history only 7 were current. NAS100 ended
+   2026-08-28 (229h), XAUUSD_M15 the same, and twenty other symbols were frozen at
+   2026-09-02. The exporter that would refresh them refuses whenever a position is
+   open - correctly, it opens a second MT5 client - and a position had been open
+   since 2026-08-19, so the refusal had become permanent.
+
+   Re-testing identical bars would merely be wasted work if the trial count were free.
+   It is not: lab_registry.trialsFor() raises the deflated-Sharpe bar for a family with
+   every trial in it, so trials on frozen data make the bar HARDER for the candidates
+   that do have live data, while adding no information of their own. That is the search
+   penalising itself for standing still.
+
+   Per (symbol, timeframe), because XAUUSD_H1 is current while XAUUSD_M15 is not.
+   96h by default: wide enough that a weekend plus a bank holiday never trips it,
+   narrow enough to exclude everything measured above. */
+let STALE_SKIPPED = [];
+
+const MAX_BAR_AGE_H = Number(process.env.LAB_MAX_BAR_AGE_H) > 0
+  ? Number(process.env.LAB_MAX_BAR_AGE_H) : 96;
+
+function barAgeHours(symbol, timeframe) {
+  const file = path.join(ROOT, 'tasks', 'history', symbol + '_' + timeframe + '.csv');
+  let fh;
+  try {
+    const size = fs.statSync(file).size;
+    if (!size) return null;
+    // Read only the tail: these files reach tens of MB and this runs over every pair.
+    const len = Math.min(4096, size);
+    const buf = Buffer.alloc(len);
+    fh = fs.openSync(file, 'r');
+    fs.readSync(fh, buf, 0, len, size - len);
+    const lines = buf.toString('utf8').trim().split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const ts = Number(String(lines[i]).split(',')[0]);
+      if (Number.isFinite(ts) && ts > 0) return (Date.now() / 1000 - ts) / 3600;
+    }
+    return null;
+  } catch (e) {
+    return null;                                   // unreadable is not "fresh"
+  } finally {
+    if (fh !== undefined) { try { fs.closeSync(fh); } catch (e) { /* ignore */ } }
+  }
+}
+
 /** Every candidate in the declared space, grouped by family. Deterministic order. */
 function enumerateSpace() {
   const have = new Set(availableSymbols());
+  STALE_SKIPPED = [];
   const families = new Map();
   for (const stratId of Object.keys(PARAM_GRID)) {
     if (!STRATEGIES[stratId]) continue;
@@ -124,6 +171,16 @@ function enumerateSpace() {
     for (const symbol of SYMBOLS) {
       if (!have.has(symbol)) continue;             // no bars on this box, skip quietly
       for (const timeframe of TIMEFRAMES) {
+        const ageH = barAgeHours(symbol, timeframe);
+        if (ageH === null || ageH > MAX_BAR_AGE_H) {
+          // Dedupe on the STRING THAT IS PUSHED. The inner loop runs once per strategy,
+          // so keying on a prefix while storing a decorated value lists the same market
+          // once per strategy - which is how a five-line report became fifty.
+          const tag = symbol + ' ' + timeframe
+            + (ageH === null ? ' (unreadable)' : ' (' + ageH.toFixed(0) + 'h)');
+          if (STALE_SKIPPED.indexOf(tag) < 0) STALE_SKIPPED.push(tag);
+          continue;
+        }
         const key = [stratId, symbol, timeframe].join('|');
         const list = families.get(key) || [];
         for (const session of SESSIONS_USED) {
@@ -300,6 +357,18 @@ if (require.main === module) {
   }
 
   const batch = pickBatch(Math.min(max, HEADROOM - pending));
+  // SAY WHAT WAS EXCLUDED AND WHY. A silent skip and a fully-explored space print the
+  // same "nothing new to queue", and those are opposite facts: one means the search is
+  // finished, the other means it is blind on that market.
+  if (STALE_SKIPPED.length) {
+    console.log('');
+    console.log('  SKIPPED — bars older than ' + MAX_BAR_AGE_H + 'h, so a trial there would'
+      + ' re-test frozen data and raise its family bar for nothing:');
+    for (const t of STALE_SKIPPED) console.log('    ' + t);
+    console.log('    Refresh is tasks/refresh_bars_vps.bat, which REFUSES while a position'
+      + ' is open (it opens a second MT5 client). Override with LAB_MAX_BAR_AGE_H.');
+  }
+
   if (!batch.length) {
     console.log('  the declared space is fully explored — nothing new to queue.');
     console.log('  Widen tasks/lab_generate.cjs deliberately: every new cell is a trial that');

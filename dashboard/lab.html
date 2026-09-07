@@ -670,6 +670,25 @@ document.getElementById("picker").addEventListener("change", function (ev) {
    not yet fired are three different facts and this panel never collapses them into
    one empty box. "No candidate has cleared the bar" and "the winner has not fired
    in a week" lead to opposite conclusions. */
+/* A forward record is only as forward as the bars behind it, so the freshness of the
+   search's own data sits in the same card rather than somewhere nobody looks. Stale
+   markets are named, because "the lab searched 4 markets" and "the lab searched 3
+   markets and re-tested a frozen one" are different claims. */
+function freshnessLine(f) {
+  if (!f) return '';
+  if (!f.stale || !f.stale.length) {
+    return '<div class="sub" style="margin-top:4px">Bars: all ' + (f.fresh ? f.fresh.length : 0)
+      + ' searched markets current (within ' + f.maxAgeHours + 'h).</div>';
+  }
+  var names = f.stale.map(function (r) {
+    return esc(r.market) + (r.ageHours === null ? ' (unreadable)' : ' (' + Math.round(r.ageHours) + 'h)');
+  }).join(', ');
+  return '<div class="sub" style="margin-top:4px;color:var(--amber,#e0a030)">Bars: '
+    + (f.fresh ? f.fresh.length : 0) + ' current, ' + f.stale.length + ' STALE beyond '
+    + f.maxAgeHours + 'h — ' + names + '. The generator skips these; the refresh refuses '
+    + 'while a position is open.</div>';
+}
+
 (function () {
   var el = document.getElementById('lab-shadow');
   if (!el) return;
@@ -723,6 +742,7 @@ document.getElementById("picker").addEventListener("change", function (ev) {
       + '<div class="sub" style="margin-top:8px">Shadow only — these never reach an order, '
       + 'a gate or a setting. Forward counts start the moment a candidate was staged; a handful '
       + 'of trades decides nothing.</div>'
+      + freshnessLine(d.dataFreshness)
       + '</div></div>';
   }).catch(function (e) {
     el.innerHTML = '<div class="card"><div class="card-head">Forward shadow</div>'

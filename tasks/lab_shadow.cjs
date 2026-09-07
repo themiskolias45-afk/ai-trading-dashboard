@@ -73,6 +73,52 @@ function fmtR(v) {
   return (v >= 0 ? '+' : '') + Number(v).toFixed(4);
 }
 
+// DATA FRESHNESS, SHOWN NEXT TO THE FORWARD RESULT ON PURPOSE. A forward record is
+// only as forward as the bars behind it. Measured 2026-09-07: of 78 CSVs in
+// tasks/history only 7 were current, because the exporter refuses while a position is
+// open and one had been open since 2026-08-19. The two staged candidates are BTCUSD H1,
+// which IS current - but that is a fact worth showing rather than assuming, and it
+// changes the moment the refresh stalls again.
+const LAB_SYMBOLS    = ['XAUUSD', 'BTCUSD', 'SP500', 'NAS100'];
+const LAB_TIMEFRAMES = ['H1', 'H4'];
+const MAX_BAR_AGE_H  = Number(process.env.LAB_MAX_BAR_AGE_H) > 0
+  ? Number(process.env.LAB_MAX_BAR_AGE_H) : 96;
+
+function barAgeHours(symbol, timeframe) {
+  const file = path.join(ROOT, 'tasks', 'history', symbol + '_' + timeframe + '.csv');
+  let fh;
+  try {
+    const size = fs.statSync(file).size;
+    if (!size) return null;
+    const len = Math.min(4096, size);
+    const buf = Buffer.alloc(len);
+    fh = fs.openSync(file, 'r');
+    fs.readSync(fh, buf, 0, len, size - len);
+    const lines = buf.toString('utf8').trim().split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const ts = Number(String(lines[i]).split(',')[0]);
+      if (Number.isFinite(ts) && ts > 0) return (Date.now() / 1000 - ts) / 3600;
+    }
+    return null;
+  } catch (err) {
+    return null;
+  } finally {
+    if (fh !== undefined) { try { fs.closeSync(fh); } catch (e) { /* ignore */ } }
+  }
+}
+
+function dataFreshness() {
+  const fresh = [], stale = [];
+  for (const sym of LAB_SYMBOLS) {
+    for (const tf of LAB_TIMEFRAMES) {
+      const a = barAgeHours(sym, tf);
+      const row = { market: sym + ' ' + tf, ageHours: a === null ? null : Number(a.toFixed(1)) };
+      if (a !== null && a <= MAX_BAR_AGE_H) fresh.push(row); else stale.push(row);
+    }
+  }
+  return { maxAgeHours: MAX_BAR_AGE_H, fresh: fresh, stale: stale };
+}
+
 function collect(nowIso) {
   const candidates = readJsonl(PROMOTABLE);
   const existing   = readJsonl(LEDGER);
@@ -173,6 +219,7 @@ function main(argv) {
 
   writeJsonAtomic(PANEL, {
     generatedAt: nowIso,
+    dataFreshness: dataFreshness(),
     // Stated so the panel can say "nothing staged" rather than "none found": an
     // empty list because no candidate cleared the bar is a different fact from an
     // empty list because the staged ones have not fired yet.
@@ -197,6 +244,12 @@ function main(argv) {
       + '  win ' + (c.forwardWinRate === null ? '-' : c.forwardWinRate + '%'));
     console.log('    bars to ' + c.lastBarSeen + '   staged ' + c.stagedAt);
   }
+  const fresh = dataFreshness();
+  console.log('  bars: ' + fresh.fresh.length + ' current, ' + fresh.stale.length
+    + ' stale (>' + fresh.maxAgeHours + 'h)'
+    + (fresh.stale.length ? ' -> ' + fresh.stale.map(function (r) {
+        return r.market + (r.ageHours === null ? ' (unreadable)' : ' (' + Math.round(r.ageHours) + 'h)');
+      }).join(', ') : ''));
   console.log('  ledger: ' + LEDGER);
   console.log('  panel : ' + PANEL);
   return 0;
