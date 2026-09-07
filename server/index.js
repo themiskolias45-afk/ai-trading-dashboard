@@ -2485,8 +2485,27 @@ app.get("/api/backtest", async (req, res) => {
 
 // Claude AI trade approval — called by MT5 bridge before executing any order
 app.post("/api/claude-approve-trade", async (req, res) => {
-  const { signal, symbol, entry, stop, target } = req.body ?? {};
-  if (!anthropic || !signal) return res.json({ approved: true, reason: "No AI available — proceeding", risk: "UNKNOWN" });
+  const { signal, symbol, entry, stop, target, accountBalance, openPositions } = req.body ?? {};
+  if (!signal) return res.json({ approved: true, reason: "No signal data — proceeding", risk: "UNKNOWN" });
+
+  // Hard portfolio-risk gate — enforces the 6% portfolio cap, per-trade R:R floor, and
+  // duplicate-position rule from sizing.js *before* any AI judgment call, so a persuasive
+  // LLM answer can never talk its way past the account-level circuit breaker. Only runs
+  // when the bridge supplies real account state; older bridges that omit it fall through
+  // to the AI-only check below (fail open, same policy as the rest of this endpoint).
+  if (Number.isFinite(accountBalance) && accountBalance > 0) {
+    const portfolioCheck = sizing.validateTrade(
+      { entry, stop, target, confidence: signal.confidence, symbol, direction: signal.signal },
+      accountBalance,
+      Array.isArray(openPositions) ? openPositions : []
+    );
+    if (!portfolioCheck.approved) {
+      console.log(`[risk-gate] ${symbol} ${signal.signal}: BLOCKED — ${portfolioCheck.reason}`);
+      return res.json({ approved: false, reason: portfolioCheck.reason, risk: "BLOCKED" });
+    }
+  }
+
+  if (!anthropic) return res.json({ approved: true, reason: "No AI available — proceeding", risk: "UNKNOWN" });
 
   const rr = (entry && stop && target)
     ? (Math.abs(target - entry) / Math.abs(entry - stop)).toFixed(1)

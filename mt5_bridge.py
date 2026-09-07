@@ -407,12 +407,39 @@ def check_news_blackout():
         return False, None  # fail open — don't block trades if server unreachable
 
 
+def get_open_positions_for_risk_check():
+    """Snapshot of currently open SmartEntry positions, shaped for the server's portfolio-risk gate."""
+    positions = mt5.positions_get()
+    if not positions:
+        return []
+    return [
+        {
+            "symbol":    p.symbol,
+            "direction": "BUY" if p.type == 0 else "SELL",
+            "entry":     p.price_open,
+            "stop":      p.sl,
+            "lots":      p.volume,
+        }
+        for p in positions if p.magic == MAGIC_NUMBER
+    ]
+
+
 def claude_approves_trade(sig, symbol, entry, stop, target):
-    """Ask Claude Opus to approve or reject this trade before execution."""
+    """Ask Claude Opus to approve or reject this trade before execution.
+
+    Also carries account balance and open positions so the server can run its
+    hard portfolio-risk gate (6% cap, correlation penalty, duplicate-position
+    check from sizing.js) ahead of the AI's judgment call.
+    """
+    acc = mt5.account_info()
     try:
         res = requests.post(
             f"{SERVER_URL}/api/claude-approve-trade",
-            json={"signal": sig, "symbol": symbol, "entry": entry, "stop": stop, "target": target},
+            json={
+                "signal": sig, "symbol": symbol, "entry": entry, "stop": stop, "target": target,
+                "accountBalance": acc.balance if acc else None,
+                "openPositions": get_open_positions_for_risk_check(),
+            },
             timeout=25
         )
         data = res.json()
