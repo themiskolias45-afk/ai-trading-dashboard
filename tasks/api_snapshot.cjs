@@ -136,7 +136,7 @@ async function main() {
 
   for (const endpoint of ENDPOINTS) {
     const snapshotFile = path.join(SNAPSHOTS_DIR, `${endpoint.name}.schema.json`);
-    let currentData;
+    let currentData, currentStatus;
 
     try {
       currentData = await fetchJSON(endpoint.path);
