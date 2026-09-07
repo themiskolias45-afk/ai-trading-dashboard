@@ -51,7 +51,7 @@ Run all of these in sequence. Stop and report if anything fails.
 3. LIVE API TEST (server must be running — skip with [OFFLINE] note if not):
    mcp__smartentry__get_signals              → must return {signals} not null/error
    mcp__smartentry__get_risk_status          → must return {regime, halted} not null/error
-   mcp__smartentry__get_healer               → must return ≥ 4/6 green
+   mcp__smartentry__get_healer               → every check must be green; name any that is not
    mcp__smartentry__get_performance          → must return {totalTrades, winRate}
    mcp__smartentry__get_learning             → must return {setups}
 

@@ -5,7 +5,7 @@ Use when the system is running but not taking any trades. Traces the full signal
 ═══ STEP 1 — GATHER ALL STATE (parallel) ═══
   mcp__smartentry__get_signals              → current signal for all 3 assets
   mcp__smartentry__get_risk_status          → halted? consecutiveLosses? regime? dailyPnL?
-  mcp__smartentry__get_healer               → which of 6 health checks are failing?
+  mcp__smartentry__get_healer               → which health checks are failing? NAME them; do not assume how many there are
   mcp__smartentry__get_journal limit=20     → when was the last trade?
   mcp__smartentry__get_learning             → setup win rates and confidence boosts
 

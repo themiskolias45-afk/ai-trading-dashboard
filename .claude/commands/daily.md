@@ -190,7 +190,7 @@ DAILY REPORT FORMAT:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DAILY CHECK — [date] [time]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-HEALTH:    [X/6 green] | Signals: [BTC/GOLD/SPX status] | Halted: [Y/N]
+HEALTH:    [X/N green — N is whatever get_healer returns, count it] | Signals: [BTC/GOLD/SPX status] | Halted: [Y/N]
 SIGNAL AGE: BTC [N days] [DEAD/SLOW/OK] | GOLD [N days] | SPX [N days]
 BLOCKED BY: [per dead asset — the named condition AND the margin, from /api/near-miss.
             e.g. "BTC: RSI_ABOVE_CEILING thr 80 actual 80.6, margin 0.6 (16d)".

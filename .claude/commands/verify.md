@@ -27,7 +27,7 @@ Fetch in parallel (timeout 8s each):
 ═══ 4. DATA FRESHNESS ═══
   /api/signals: check updatedAt — must be within last 30 min
   /api/sentiment: check updated — must be within last 2 hours
-  /api/healer: check how many checks are green (expect 6/6)
+  /api/healer: check how many checks are green (count the total from the response — it is 9 today, not 6)
 
 ═══ 5. SIGNAL INTEGRITY ═══
   For each asset (BTC, Gold, SPX):
@@ -47,7 +47,7 @@ VERIFICATION REPORT — [timestamp]
 1. SYNTAX    [PASS / FAIL — X files failed]
 2. SECURITY  [PASS — clean / ESCALATE — [file] tracked]
 3. SERVER    [X/6 endpoints OK]
-4. DATA      [signals fresh: YES/NO | healer: X/6 | sentiment: fresh YES/NO]
+4. DATA      [signals fresh: YES/NO | healer: X/N | sentiment: fresh YES/NO]
 5. SIGNALS   [BTC=[sig conf%] GOLD=[sig conf%] SPX=[sig conf%] — all valid: YES/NO]
 6. GIT       [branch: [name] | dirty: YES/NO]
 

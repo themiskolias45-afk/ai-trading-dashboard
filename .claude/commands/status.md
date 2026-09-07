@@ -13,7 +13,7 @@ Output in exactly this format — one line per item, no prose:
 
 STATUS — [HH:MM]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SERVER   [ONLINE / OFFLINE]  uptime [Xh Xm]    healer [X/6]
+SERVER   [ONLINE / OFFLINE]  uptime [Xh Xm]    healer [X/N]
 REGIME   [regime]  session [session]  halted [YES/NO]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 BTC      [SIGNAL/WAIT] [confidence]%  [if WAIT: gap Xpt | last trade Nd ago]  [if SIGNAL: entry $X  stop $X]
@@ -28,7 +28,7 @@ ACTION   [one sentence — the one thing that needs attention right now, or "Not
 
 Rules:
 - If server is offline: ACTION = "Start server: tasks\menu.bat option S"
-- If healer < 4/6: ACTION = "Force heal: POST /api/healer/heal"
+- If ANY healer check is red: ACTION = "Force heal: POST /api/healer/heal" — and name the failing check, because mt5Bridge red means the box cannot trade
 - If any confidence ≥ the live gate and not halted: ACTION = "SIGNAL READY: [asset] [direction]"
 - If syntax error: ACTION = "SYNTAX ERROR — run /debug"
 - If consecutive losses = 3: ACTION = "CIRCUIT BREAKER — trading halted"

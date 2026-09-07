@@ -16,7 +16,7 @@ Report:
 
 SYSTEM CHECK — [timestamp]
 ══════════════════════════
-SERVER:  [ONLINE / OFFLINE] | Uptime: Xh Xm | Healer: X/6 green
+SERVER:  [ONLINE / OFFLINE] | Uptime: Xh Xm | Healer: X/N green (N = count of checks get_healer returns, do not assume 6)
 SIGNALS: BTC:[signal conf%] GOLD:[signal conf%] SPX:[signal conf%] (updated X min ago)
 RISK:    Daily P&L $X | Consecutive losses: X | Halted: YES/NO | Regime: [regime]
 

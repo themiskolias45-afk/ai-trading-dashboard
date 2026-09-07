@@ -50,7 +50,7 @@ h) MISSING null CHECK before .length, .map, .filter, .forEach on API response da
 Call each endpoint and check for errors:
   mcp__smartentry__get_signals        → PASS if {signals} | FAIL with error message
   mcp__smartentry__get_risk_status    → PASS if {regime} | FAIL
-  mcp__smartentry__get_healer         → PASS if ≥4/6 green | WARN if <4 | FAIL if error
+  mcp__smartentry__get_healer         → PASS only if EVERY check is green | WARN naming each failing check | FAIL if the call errors
   mcp__smartentry__get_performance    → PASS if {totalTrades} | FAIL
   mcp__smartentry__get_learning       → PASS if {setups} | FAIL
 

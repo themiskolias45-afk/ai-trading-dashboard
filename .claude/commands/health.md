@@ -6,7 +6,7 @@ Run ALL of these directly — do not depend on Python scripts succeeding.
   GET http://localhost:3001/api/health       → uptime, version
   GET http://localhost:3001/api/signals      → BTC/Gold/SPX signals + confidence
   GET http://localhost:3001/api/risk-status  → regime, circuit breaker, session P&L
-  GET http://localhost:3001/api/healer       → healer checks (expect 6 green)
+  GET http://localhost:3001/api/healer       → healer checks (count them; there are NINE today, and mt5Bridge is one)
   GET http://localhost:3001/api/sentiment    → Fear & Greed score + updated timestamp
 
 If server is offline (connection refused): "SERVER OFFLINE — run tasks\menu.bat option S to restart"
@@ -30,7 +30,7 @@ SYSTEM HEALTH — [timestamp]
 SERVER:    [ONLINE | OFFLINE] | Uptime: Xh Xm
 SIGNALS:   BTC=[signal conf%] GOLD=[signal conf%] SPX=[signal conf%] (updated X min ago)
 RISK:      [regime] | P&L today: $X | Losses in a row: X | Halted: YES/NO
-HEALER:    [X/6 checks green]
+HEALER:    [X/N checks green, N counted from the response — list any that are not]
 SENTIMENT: Fear & Greed [score] ([classification]) | updated [X] min ago
 SYNTAX:    [PASS / FAIL — filename: error]
 SECURITY:  [CLEAN / ESCALATE — secret file tracked]
