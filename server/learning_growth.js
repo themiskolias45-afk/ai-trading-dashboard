@@ -205,6 +205,26 @@ function build(options) {
       trackedDays: days.length,
       usableSetups: setups.filter(s => s.usable).length,
       setupsTracked: setups.length,
+      countedGateClass: "QUALITY",
+    },
+    // SET ASIDE, NOT DISCARDED. An exclusion nobody can see is indistinguishable from
+    // a bug, and a setup whose every episode is non-QUALITY would otherwise vanish from
+    // setups[] without trace - which is why this counts bySetup as well as byClass.
+    notCountedAsEvidence: {
+      episodes: asideEpisodes.length,
+      resolved: asideEpisodes.filter(isResolved).length,
+      byClass: asideEpisodes.reduce((acc, row) => {
+        const cls = row.gateClass || "UNKNOWN";
+        acc[cls] = (acc[cls] || 0) + 1;
+        return acc;
+      }, {}),
+      bySetup: asideEpisodes.reduce((acc, row) => {
+        const setup = row.setup || "UNKNOWN";
+        acc[setup] = (acc[setup] || 0) + 1;
+        return acc;
+      }, {}),
+      why: "NOT_FORGONE was already traded; CONTEXT rejects on state, not merit. "
+        + "Neither judges the setup. See score_rr_rejections.py:145-163.",
     },
     velocity: {
       resolvedPerDayRecent: Number(perDayRecent.toFixed(2)),
