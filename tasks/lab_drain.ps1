@@ -175,6 +175,14 @@ try {
         if ($dm.Success -and $dm.Groups[1].Value -ne '0') {
             Write-Log ('shadow: *** DRIFT *** ' + $dm.Groups[2].Value.Trim())
         }
+        # Bars moving under evidence already written is a data-integrity event, not a
+        # trading one, and it is silent by nature - nothing crashes, a number just stops
+        # agreeing with itself. It gets its own line for that reason.
+        $rm = [regex]::Match($shadowText, 'LEDGER REVISIONS:\s*(\d+)')
+        if ($rm.Success -and $rm.Groups[1].Value -ne '0') {
+            Write-Log ('shadow: *** LEDGER REVISIONS *** ' + $rm.Groups[1].Value +
+                ' recorded forward trade(s) now recompute to a different R - nothing was overwritten')
+        }
     } catch {
         Write-Log ('shadow: ERROR ' + $_.Exception.Message)
     }

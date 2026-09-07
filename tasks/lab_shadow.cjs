@@ -68,6 +68,20 @@ function writeJsonAtomic(file, payload) {
   fs.renameSync(tmp, file);
 }
 
+// The revision predicate, named so the selftest can EXERCISE it. A detector that has
+// only ever been observed staying quiet is not a detector that is known to work - this
+// project has shipped two "reported OK while blind" checks already.
+function rDiffers(recorded, recomputed) {
+  // null/'' must be rejected BEFORE Number(), because Number(null) is 0 - a finite
+  // number - so a row with a missing r would have been reported as a revision from
+  // zero on every run. The selftest caught exactly that.
+  if (recorded === null || recorded === undefined || recorded === ''
+      || recomputed === null || recomputed === undefined || recomputed === '') return false;
+  const a = Number(recorded), b = Number(recomputed);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) > 1e-9;
+}
+
 function fmtR(v) {
   if (v === null || v === undefined) return '-';
   return (v >= 0 ? '+' : '') + Number(v).toFixed(4);
@@ -126,6 +140,7 @@ function collect(nowIso) {
 
   const added        = [];
   const perCandidate = [];
+  const revisions    = [];
 
   for (const cand of candidates) {
     const entry = { name: cand.name, label: cand.label, specHash: cand.specHash, stagedAt: cand.ts };
@@ -194,6 +209,33 @@ function collect(nowIso) {
     }
     const daysToRequired = (requiredN !== null && ratePerDay && ratePerDay > 0)
       ? Math.round(Math.max(0, requiredN - forward.length) / ratePerDay) : null;
+
+    // HAS AN ALREADY-RECORDED TRADE CHANGED UNDER US?
+    //
+    // Every run re-derives the whole series from the CSVs and keys rows by entry time,
+    // so a row already in the ledger is skipped without ever being compared. If the bar
+    // history were rewritten - a re-export, a corrected feed, a truncated file - an
+    // earlier forward trade could now resolve to a different R and the ledger would keep
+    // the old number in silence. That is the shape of every silent-corruption bug in
+    // this project: not a crash, a quiet disagreement nobody is looking for.
+    //
+    // Detected and REPORTED, never auto-corrected. Overwriting recorded evidence because
+    // a later run disagrees is how an audit trail stops being one; which value is right
+    // depends on why they differ, and that is a decision, not a merge.
+    const byKey = new Map(existing.filter(function (r) { return r.specHash === cand.specHash; })
+      .map(function (r) { return [r.key, r]; }));
+    for (const t of forward) {
+      const k = cand.specHash + '|' + t.openTime;
+      const prior = byKey.get(k);
+      if (!prior) continue;
+      if (rDiffers(prior.r, t.r)) {
+        const before = Number(prior.r), now = Number(t.r);
+        revisions.push({
+          key: k, name: cand.name, openTime: t.openTime,
+          recordedR: Number(before.toFixed(4)), recomputedR: Number(now.toFixed(4)),
+        });
+      }
+    }
 
     let newRows = 0;
     for (const t of forward) {
@@ -283,7 +325,7 @@ function collect(nowIso) {
     }));
   }
 
-  return { candidates: perCandidate, added: added };
+  return { candidates: perCandidate, added: added, revisions: revisions };
 }
 
 function main(argv) {
@@ -293,6 +335,7 @@ function main(argv) {
   const result = collect(nowIso);
   const candidates = result.candidates;
   const added = result.added;
+  const revisions = result.revisions || [];
 
   if (added.length) {
     fs.appendFileSync(LEDGER, added.map(function (r) { return JSON.stringify(r); }).join('\n') + '\n', 'utf8');
@@ -306,6 +349,8 @@ function main(argv) {
     // empty list because the staged ones have not fired yet.
     stagedCandidates: candidates.length,
     candidates: candidates,
+    // Non-empty means the bars moved under evidence already recorded. Surfaced, not fixed.
+    ledgerRevisions: revisions,
     totals: {
       forwardTrades: candidates.reduce(function (a, c) { return a + (c.forwardTrades || 0); }, 0),
       forwardSumR:   Number(candidates.reduce(function (a, c) { return a + (c.forwardSumR || 0); }, 0).toFixed(4)),
@@ -341,6 +386,16 @@ function main(argv) {
       + (c.daysToRequired === null ? '' : '  ~' + c.daysToRequired + ' days at this rate'));
     console.log('    bars to ' + c.lastBarSeen + '   staged ' + c.stagedAt);
   }
+  if (revisions.length) {
+    console.log('  *** LEDGER REVISIONS: ' + revisions.length + ' recorded trade(s) now recompute '
+      + 'to a DIFFERENT R - the bars moved under evidence already written. Nothing was '
+      + 'overwritten. ***');
+    for (const r of revisions.slice(0, 10)) {
+      console.log('      ' + r.openTime + '  recorded ' + fmtR(r.recordedR)
+        + '  recomputes ' + fmtR(r.recomputedR) + '   ' + r.name);
+    }
+  }
+
   // ONE PARSEABLE LINE for the drain log and the coverage audit. A drift status that
   // only ever appears inside a dashboard is a monitor nobody reads.
   const alerts = candidates.filter(function (c) {
@@ -397,6 +452,13 @@ function selftest() {
      rows.every(function (r) { return r.shadow === true && r.feedsTheGate === false; }),
      rows.length + ' rows checked');
 
+  // The revision detector, exercised on both sides rather than assumed from silence.
+  ok('revision detector fires on a changed R', rDiffers(0.5, 0.9) === true);
+  ok('revision detector is quiet on an identical R', rDiffers(0.5, 0.5) === false);
+  ok('revision detector ignores float noise below 1e-9', rDiffers(0.5, 0.5 + 1e-12) === false);
+  ok('revision detector refuses to judge a non-number', rDiffers(null, 0.5) === false
+     && rDiffers(0.5, undefined) === false);
+
   // This file must not be able to reach an order path or the live settings.
   //
   // Scoped to the OPERATIONAL half - everything above this selftest - because the
@@ -420,4 +482,4 @@ function selftest() {
 }
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
-module.exports = { collect: collect, readJsonl: readJsonl, selftest: selftest };
+module.exports = { collect: collect, readJsonl: readJsonl, selftest: selftest, rDiffers: rDiffers };
