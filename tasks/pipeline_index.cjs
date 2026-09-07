@@ -253,7 +253,7 @@ async function buildSignalPipeline() {
   } else {
     const judged = ASSETS.map(k => sig[k] && sig[k].barFreshness).filter(Boolean);
     const stale = ASSETS.filter(k => sig[k] && sig[k].barFreshness && sig[k].barFreshness.stale);
-    const weekend = ASSETS.filter(k => sig[k] && sig[k].barFreshness && sig[k].barFreshness.spansWeekend);
+    weekend = ASSETS.filter(k => sig[k] && sig[k].barFreshness && sig[k].barFreshness.spansWeekend);
     stage("MT5 bars", "the broker series the engine reads",
       stale.length ? "DEGRADED" : "OK",
       stale.length
