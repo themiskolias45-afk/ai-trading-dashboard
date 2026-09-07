@@ -116,6 +116,23 @@ const PARAM_GRID = {
   // knowing whether an edge is the idea or just the direction.
   trend_every_n: { fast: [13, 21, 34], slow: [34, 55, 89],
                    everyN: [15, 30, 45, 60] },     //  <-- PLATEAU AXIS
+
+  // Zone breakout and the trend+zone COMBINATION, added 2026-09-07.
+  //
+  // Handed to the sweep rather than hand-picked, and the reason is on the record:
+  // measured by hand on XAUUSD H4, breakout_zone zoneBars=8 first reported SURVIVES at
+  // DSR 97.0%, then 63.7%, then 51.7% - same cell, same bars, nothing changed but the
+  // number of trials in its family. The deflated Sharpe was doing its job and the first
+  // reading was an artifact of a nearly empty family. Any cell I pick by hand and quote
+  // has that same inflation baked in; only letting the grid fill in removes it.
+  //
+  // zoneBars is the plateau axis for both: on XAUUSD it ran 5..10 all positive
+  // out-of-sample, while the maxZoneAtr axis went NEGATIVE at 1.2 and 1.3. One axis
+  // holding and another not is exactly what plateauEvidence is for.
+  breakout_zone:       { zoneBars: [5, 6, 7, 8, 10],   //  <-- PLATEAU AXIS
+                         maxZoneAtr: [1.5, 2.0] },
+  trend_zone_breakout: { zoneBars: [5, 6, 7, 8, 10],   //  <-- PLATEAU AXIS
+                         maxZoneAtr: [1.5], fast: [21], slow: [55] },
   rsi2_pullback:          { rsiPeriod: [2], entry: [3, 5, 10, 15], // <-- PLATEAU AXIS
                             trendLen: [100, 200] },
 };

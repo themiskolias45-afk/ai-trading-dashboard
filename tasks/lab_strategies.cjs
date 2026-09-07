@@ -334,6 +334,79 @@ const STRATEGIES = {
     },
   },
 
+  breakout_zone: {
+    id: 'breakout_zone',
+    label: 'Breakout from a tight zone',
+    describe: 'A consolidation ZONE - the high/low of the last N bars, and only if that '
+      + 'range is TIGHT relative to ATR - then a close beyond its edge. The tightness '
+      + 'test is what separates this from donchian_break: without it, every window is a '
+      + 'zone and the strategy is a plain channel break under a new name.',
+    params: {
+      zoneBars:   { def: 12,  min: 3,   max: 100, step: 1 },
+      // Zone width as a multiple of ATR. Smaller = only genuinely coiled ranges.
+      maxZoneAtr: { def: 2.0, min: 0.3, max: 10,  step: 0.1 },
+    },
+    generate(bars, p) {
+      const n = Math.max(3, Math.round(p.zoneBars));
+      const atr = atrSeries(bars.h, bars.l, bars.c, 14);
+      const out = [];
+      for (let i = n; i < bars.n; i++) {
+        const a = atr[i];
+        if (!Number.isFinite(a) || a <= 0) continue;
+        // EXCLUDES bar i, for the same reason donchian_break does: a zone containing the
+        // bar that breaks it can never be broken.
+        let hi = -Infinity, lo = Infinity;
+        for (let k = i - n; k < i; k++) { if (bars.h[k] > hi) hi = bars.h[k]; if (bars.l[k] < lo) lo = bars.l[k]; }
+        if (!(hi > lo)) continue;
+        if ((hi - lo) > p.maxZoneAtr * a) continue;      // not coiled - not a zone
+        if (bars.c[i] > hi) out.push({ i, dir: 'BUY' });
+        else if (bars.c[i] < lo) out.push({ i, dir: 'SELL' });
+      }
+      return out;
+    },
+  },
+
+  trend_zone_breakout: {
+    id: 'trend_zone_breakout',
+    label: 'Trend + zone breakout (combination)',
+    describe: 'THE COMBINATION: the same tight-zone breakout, taken ONLY in the direction '
+      + 'of the EMA trend stack. Its two halves are separately measurable in this lab - '
+      + 'breakout_zone is the same logic with no trend filter, and trend_every_n is the '
+      + 'same trend filter with no timing - so what the combination ADDS can be read off '
+      + 'rather than assumed. A combination that beats neither part is two ideas paying '
+      + 'for one.',
+    params: {
+      zoneBars:   { def: 12,  min: 3,   max: 100, step: 1 },
+      maxZoneAtr: { def: 2.0, min: 0.3, max: 10,  step: 0.1 },
+      fast:       { def: 21,  min: 5,   max: 100, step: 1 },
+      slow:       { def: 55,  min: 20,  max: 400, step: 1 },
+    },
+    generate(bars, p) {
+      if (!(p.fast < p.slow)) return [];
+      const n = Math.max(3, Math.round(p.zoneBars));
+      const atr = atrSeries(bars.h, bars.l, bars.c, 14);
+      const f = emaSeries(bars.c, p.fast), sl = emaSeries(bars.c, p.slow);
+      const out = [];
+      for (let i = n; i < bars.n; i++) {
+        const a = atr[i];
+        if (!Number.isFinite(a) || a <= 0) continue;
+        if (f[i] === null || sl[i] === null) continue;
+        const upTrend   = f[i] > sl[i] && bars.c[i] > sl[i];
+        const downTrend = f[i] < sl[i] && bars.c[i] < sl[i];
+        if (!upTrend && !downTrend) continue;
+        let hi = -Infinity, lo = Infinity;
+        for (let k = i - n; k < i; k++) { if (bars.h[k] > hi) hi = bars.h[k]; if (bars.l[k] < lo) lo = bars.l[k]; }
+        if (!(hi > lo)) continue;
+        if ((hi - lo) > p.maxZoneAtr * a) continue;
+        // Breakouts AGAINST the trend are discarded, not reversed. Taking the other side
+        // would be a different strategy, not this one with a filter.
+        if (upTrend && bars.c[i] > hi) out.push({ i, dir: 'BUY' });
+        else if (downTrend && bars.c[i] < lo) out.push({ i, dir: 'SELL' });
+      }
+      return out;
+    },
+  },
+
   rsi_reversion: {
     id: 'rsi_reversion',
     label: 'RSI mean reversion',
