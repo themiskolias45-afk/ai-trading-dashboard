@@ -290,7 +290,7 @@ async function getBarsWithRetry(label) {
     catch (e) {
       lastError = e;
       if (attempt < BAR_FETCH_ATTEMPTS) {
-        console.error(`[${label}] bars attempt ${attempt}/${BAR_FETCH_ATTEMPTS} failed (${e.message}) — retrying in ${BAR_FETCH_RETRY_MS / 1000}s`);
+        console.error(`[${label}] bars attempt ${attempt}/${BAR_FETCH_ATTEMPTS} failed (${e.message || e.code || e}) — retrying in ${BAR_FETCH_RETRY_MS / 1000}s`);
         await pause(BAR_FETCH_RETRY_MS);
       }
     }
