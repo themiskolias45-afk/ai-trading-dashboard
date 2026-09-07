@@ -482,8 +482,19 @@ if (-not (Test-Path $TunnelKey)) {
 $mt5Status = Join-Path $Proj 'tasks\mt5_ensure_running.ps1'
 if (Test-Path $mt5Status) {
     try {
+        # THE OLD MESSAGE HERE CLAIMED A REFRESH IT COULD NOT KNOW ABOUT, and said so on
+        # every tick. mt5_ensure_running.ps1 sets $ErrorActionPreference = 'SilentlyContinue'
+        # and always exits 0, and `&` does not throw on a non-zero child anyway, so the catch
+        # below can never fire and "refreshed here" was unconditional. Measured 2026-09-07 on
+        # the laptop: four such lines at 18:16/18:21/18:31/18:41 against a status file frozen
+        # at 15:29. A log that always says the happy thing is worse than no log - it is what
+        # made the real cause take an hour to find.
+        #
+        # So report the ATTEMPT, which is the only thing this line actually witnesses, and
+        # let the artifact's own freshness be the evidence of success. coverage_audit.ps1
+        # already checks exactly that.
         & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "$mt5Status" | Out-Null
-        Write-Log 'MT5 status: refreshed here (its own task launches but never runs the script)'
+        Write-Log 'MT5 status: invoked mt5_ensure_running.ps1 (its own task launches but never runs the script) - check the status file mtime for whether it wrote'
     } catch {
         Write-Log "MT5 status: refresh FAILED - $($_.Exception.Message)"
     }
