@@ -238,16 +238,22 @@ function selftest() {
      rows.length + ' rows checked');
 
   // This file must not be able to reach an order path or the live settings.
-  const src = fs.readFileSync(__filename, 'utf8').split('\n');
+  //
+  // Scoped to the OPERATIONAL half - everything above this selftest - because the
+  // check's own banned-word list is executable code and matched itself otherwise.
+  // A guard that fails on its own definition gets deleted rather than fixed, and
+  // then nothing guards anything.
+  const whole = fs.readFileSync(__filename, 'utf8');
+  const operational = whole.slice(0, whole.indexOf('function selftest')).split('\n');
   const banned = ['mt5_bridge', 'order_send', 'execute_trade', 'strategy_settings', 'confidenceThreshold'];
   const hit = banned.filter(function (b) {
-    return src.some(function (l) {
+    return operational.some(function (l) {
       const t = l.trim();
       if (t.indexOf('//') === 0 || t.indexOf('*') === 0) return false;
       return l.indexOf(b) >= 0;
     });
   });
-  ok('no order-path or settings reference in executable lines', hit.length === 0, hit.join(','));
+  ok('no order-path or settings reference in the operational code', hit.length === 0, hit.join(','));
 
   console.log(failed ? '\nSELFTEST FAILED (' + failed + ')' : '\nselftest passed');
   return failed ? 1 : 0;
