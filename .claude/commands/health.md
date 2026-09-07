@@ -77,7 +77,7 @@ ACTION rules, first match wins:
 - server offline → `Start server: tasks\menu.bat option S`
 - fleet diverges → `FLEET SPLIT: [what differs]. Pooled numbers are unattributable.`
 - medic shows REGRESSED → `REGRESSED: [finding] — a repair did not hold.`
-- healer < 4/6 → `Force heal: POST /api/healer/heal`
+- any healer check not ok → `Force heal: POST /api/healer/heal`
 - consecutive losses = 3 → `CIRCUIT BREAKER — trading halted`
 - any confidence ≥ the live gate and not halted → `SIGNAL READY: [asset] [direction]`
 - syntax error → `SYNTAX ERROR in [file] — /health why syntax`
