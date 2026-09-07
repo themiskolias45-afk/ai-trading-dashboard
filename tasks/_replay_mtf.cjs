@@ -74,6 +74,16 @@ const SCALAR_CONSTS = [
   // DEGRADED banner below is the only reason that surfaced instead of reading as
   // "no trades produced". Exactly the failure this list exists to prevent.
   "EMA_SMA_SEED_MIN_MULTIPLE",
+  // Added 2026-09-07 with the macd.bullish candidate, and it repeated the failure the
+  // note above describes almost exactly. calcMACD reads MACD_BULLISH_MODE, so before it
+  // was listed here the engine threw on EVERY step — 10878/13717/10872 across the three
+  // assets, 35,467 in total, zero trades — and again the DEGRADED banner was the only
+  // thing that stopped it reading as "no trades produced". Twice now.
+  //
+  // Override it with MTF_MACD_BULLISH_MODE to replay the candidate:
+  //   "signal" = live rule, MACD above its signal line (accelerating)
+  //   "trend"  = candidate, accelerating OR above zero (uptrend catching its breath)
+  "MACD_BULLISH_MODE",
   // Added 2026-08-12. index.js:1849 reads it unconditionally on the SPX H4-only
   // branch, so its absence threw on 1114 SP500 steps and the asset dropped OUT of
   // every replay entirely — cohort_walkforward, regime_xtab and the time heatmap all
