@@ -362,7 +362,13 @@ async function build() {
        * A reader that is behind AND overdue is the real signal, and that is what
        * this now reports. */
       const prev = stages[i - 1];
-      const overdue = !s.eventDriven && s.cadenceHours && s.ageHours > s.cadenceHours;
+      // A REFUSAL IS NOT A MISSED RUN. score_rr_rejections.py declines to walk anything
+      // forward while the broker market is closed, which is the correct decision - so
+      // aging it against a 24h cadence over a weekend reported that decision as a fault.
+      // Both cadence AMBERs below are gated on this; behindInputHours deliberately is
+      // NOT, because the lag against its input is real either way and stays visible.
+      const declined = s.marketDependent && signal.brokerMarketClosed;
+      const overdue = !s.eventDriven && !declined && s.cadenceHours && s.ageHours > s.cadenceHours;
       if (prev && prev.present && s.ageHours !== null && prev.ageHours !== null
           && s.ageHours > prev.ageHours + 1 && overdue) {
         findings.push({ level: "AMBER", stage: s.name,
