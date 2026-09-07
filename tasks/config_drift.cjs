@@ -184,6 +184,21 @@ function checkFile(rel, cfg, findings) {
         while ((m = re.exec(line)) !== null) {
           const claimed = m[1];
           if (claimed === undefined) continue;
+          // A number inside an ENUMERATION or a RANGE is describing a sweep, not
+          // asserting the live value. "better at every gate 55/60/65/70" and "in that
+          // baseline table every gate 45-85" are TRUE sentences about a walk-forward,
+          // and rewriting either to say 70 would destroy their meaning.
+          //
+          // This is the same false positive the `baseline`/`candidate` exemption was
+          // added for on 2026-09-02, recurring in a phrasing that carries no such word.
+          // Two permanent false positives train you to skim the report, which is the
+          // failure this file exists to prevent.
+          //
+          // THREE OR MORE is the threshold on purpose, and it is what keeps the RSI
+          // ceiling rules working: those match a PAIR, "88/84", where the slash is
+          // meaningful syntax rather than a list. A two-value match is never exempted
+          // here, so "ceiling 88/84" is still caught.
+          if (isEnumeratedValue(line, m.index, m[0])) continue;
           const differs = rule.string
             ? String(claimed).toUpperCase() !== String(live).toUpperCase()
             : Number(claimed) !== Number(live);
