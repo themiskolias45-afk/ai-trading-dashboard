@@ -397,8 +397,22 @@ const CLAIMS = [
       + "expectancy-weighted or R-multiple-weighted variant, judged on WORST FOLD, as "
       + "the gate and RSI-ceiling sweeps were. If the payoff variant does not beat the "
       + "current one on its worst fold, the boost stays exactly as it is. NOT a code "
-      + "change until that runs: this reaches the gate, and no setup has yet cleared "
-      + "the 5-trade floor that would make the boost non-zero at all.",
+      + "change until that runs: this reaches the gate. "
+      + "UPDATE 2026-09-07 — THE PREMISE HAS ARRIVED. This used to end 'no setup has yet "
+      + "cleared the 5-trade floor that would make the boost non-zero at all'. MOMENTUM "
+      + "crossed it at 3W-2L, so the boost is LIVE at +3 on a setup carrying totalPnl "
+      + "-170.32 that /api/checksystem labels PAYOFF-NEGATIVE — the exact case the "
+      + "evidence above calls hypothetical, now in the past tense. "
+      + "AND THE OBVIOUS FIX IS BACKWARDS. tasks/learning_boost_walkforward.cjs feeds "
+      + "three signals through the extracted live curve: win rate gives +3, R-weighted "
+      + "gives +6 (MORE permissive, not less), cash-weighted gives -1. MOMENTUM is "
+      + "+2.440R while being -$170.32, so the disagreement is R-versus-DOLLARS — a "
+      + "sizing artifact — not win-rate-versus-payoff. 'R-weight it' would have loosened "
+      + "the very boost that raised the alarm. Cash is the only negative signal and is "
+      + "also the one most contaminated by 1R ranging $1.46 to $449.72, so 'use cash' "
+      + "does not follow either. Nine closed fills settles none of this; what is settled "
+      + "is that the three disagree and in which direction. The worst-fold walk-forward "
+      + "is still the thing that would decide it.",
     // THE SAMPLE THIS CLAIM NEVER DECLARED, which is why it could not flag itself.
     //
     // 3 is not a guess: the evidence text above states "MOMENTUM is 2W-1L" and every
