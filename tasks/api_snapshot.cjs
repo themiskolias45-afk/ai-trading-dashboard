@@ -215,6 +215,15 @@ async function main() {
     process.exit(0);
   }
 
+  // SAY WHAT WAS NOT CHECKED. A clean run that silently covered two of three endpoints
+  // reads exactly like a clean run that covered all three, which is the property that
+  // let performance go unchecked for as long as it did.
+  if (unverifiable.length) {
+    console.log(`[INFO] ${ENDPOINTS.length - unverifiable.length} of ${ENDPOINTS.length} contract(s) checked. `
+              + `NOT checked: ${unverifiable.join(', ')} — session-gated. `
+              + `A pass above does not cover ${unverifiable.length === 1 ? 'it' : 'them'}.`);
+  }
+
   process.exit(anyFailed ? 1 : 0);
 }
 
