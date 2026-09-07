@@ -127,11 +127,35 @@ if (-not $proc) {
 
 $build = (Get-Item $TermExe).VersionInfo.FileVersion
 
+# SAME SHAPE AS THE EA-ATTACH BUG BELOW, AND IT BIT THE SAME WAY. This read ONLY the
+# newest terminal log, but the terminal logs "authorized on" ONCE, at login. This one
+# authorized 2026-09-06 17:21, so on 2026-09-07 the newest log held no such line and
+# `account` rendered as "-" on the dashboard - not because the account was unknown, but
+# because the check looked in a one-day window for an event that happens at startup.
+# Scan back through the retained logs, exactly as the EA scan does.
 $account = $null
-$termLog = Get-ChildItem "$DataDir\logs\2*.log" | Sort-Object Name -Descending | Select-Object -First 1
-if ($termLog) {
-    $line = (Get-Content $termLog.FullName -Encoding Unicode | Select-String "authorized on" | Select-Object -Last 1).Line
-    if ($line -match "'(\d{6,9})': authorized on ([\w\- ]+)") { $account = "$($Matches[1]) @ $($Matches[2])".Trim() }
+$termLogs = @(Get-ChildItem "$DataDir\logs\2*.log" -EA SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 21)
+foreach ($tl in $termLogs) {
+    $line = (Get-Content $tl.FullName -Encoding Unicode -EA SilentlyContinue | Select-String "authorized on" | Select-Object -Last 1).Line
+    if ($line -match "'(\d{6,9})': authorized on ([\w\- ]+)") {
+        $account = "$($Matches[1]) @ $($Matches[2])".Trim()
+        break
+    }
+}
+# Still nothing? config\common.ini holds the login this terminal is configured for. That
+# is weaker evidence than a live authorization - it says which account it WOULD use, not
+# which it is on - so it is labelled rather than passed off as the same thing.
+if (-not $account) {
+    $cfg = Get-Content "$DataDir\config\common.ini" -Encoding Unicode -EA SilentlyContinue
+    if ($cfg) {
+        $lg = ($cfg | Select-String '^Login=(\d{6,9})')
+        $sv = ($cfg | Select-String '^Server=(.+)$')
+        if ($lg) {
+            $account = $lg.Matches[0].Groups[1].Value
+            if ($sv) { $account += ' @ ' + $sv.Matches[0].Groups[1].Value.Trim() }
+            $account += ' (from config, no authorization line in the retained logs)'
+        }
+    }
 }
 
 # Algo trading permission for experts. Trade=1 is "allow automated trading" in Options.
