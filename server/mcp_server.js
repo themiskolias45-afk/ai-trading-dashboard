@@ -1238,7 +1238,22 @@ const TOOLS = [
           ages: now?.ages,
         },
         fleet: {
-          verdict: !peer.configured ? 'SINGLE BOX'
+          // "COULD NOT READ" IS NOT "THERE IS ONE BOX". fetchParallel (:245) returns
+          // `{_error: ...}` for a rejected fetch, so when /api/system-plan and /api/fleet
+          // both fail, `peer` falls back to {} and `!peer.configured` used to render
+          // 'SINGLE BOX' - a positive claim about the fleet, asserted with nothing known.
+          // Measured 2026-09-07 18:49Z: this returned SINGLE BOX with every field below
+          // null, while get_fleet_status three minutes later saw both boxes at gate 70
+          // and PEER_SERVER_URL had been set throughout.
+          //
+          // This tool is the FIRST call of every session per CLAUDE.md, so that verdict
+          // is the premise every later answer rests on. Unlike get_fleet_status this one
+          // must NOT abort - it composes nine endpoints and is meant to degrade - so it
+          // says UNREADABLE and keeps serving the parts that did answer.
+          verdict: (plan?._error || plan?.error || fleet?._error || fleet?.error)
+                     ? 'FLEET UNREADABLE — /api/system-plan or /api/fleet did not answer, '
+                       + 'so nothing below describes the peer. NOT a claim that a peer is absent.'
+                 : !peer.configured ? 'SINGLE BOX'
                  : !peer.reachable ? 'PEER UNREACHABLE'
                  : (divergence.gate?.differs || divergence.engine?.differs) ? 'FLEET DIVERGES'
                  : 'FLEET AGREES',
