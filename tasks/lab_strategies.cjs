@@ -181,6 +181,28 @@ function dayStarts(times) {
 
 // ── sessions ────────────────────────────────────────────────────────────────
 // UTC hour windows, [from, to). `any` disables the filter entirely.
+/* A SESSION-FILTERED RUN IS NOT A SUBSET OF THE UNFILTERED ONE. Read that twice
+   before comparing them, because the numbers invite exactly the wrong conclusion.
+
+   runStrategy holds ONE POSITION AT A TIME (`entryIdx <= openUntil` skips a signal
+   while a trade is open). Under `any`, early trades occupy that slot and block later
+   signals outright. Filter to a session and those blockers are gone, which FREES the
+   slot for signals that were previously suppressed - so the filtered run takes trades
+   the unfiltered run never saw.
+
+   Measured 2026-09-07, XAUUSD H4 swing_trend_pullback 34/89/3:
+
+       any run   188 trades, of which only  46 enter during asia hours
+       asia run  171 trades, of which only  43 exist in the any run
+       => 128 of the 171 asia trades appear NOWHERE in the any run
+
+   So "london +0.5969 against any +0.3497, the edge lives in London" is not a
+   conclusion this harness can support. The two runs share barely a quarter of their
+   trades. Sessions are independent CONFIGURATIONS to be judged on their own record,
+   never a decomposition of the whole.
+
+   The windows also OVERLAP - london 7-16 and ny 12-21 share four hours, asia 0-8 and
+   london share one - so even the eligible-bar counts do not partition a day. */
 const SESSIONS = {
   any:    null,
   asia:   [0, 8],
@@ -669,6 +691,23 @@ function runStrategy(bars, strategy, params, exec) {
 
 // ── self-test ───────────────────────────────────────────────────────────────
 function selftest() {
+  // Guards the SESSIONS comment above: if a session-filtered run ever becomes a true
+  // subset of the unfiltered one, the one-position-at-a-time rule has changed and every
+  // session comparison in the registry means something different than it did.
+  (function sessionsAreNotSubsets() {
+    const bars = loadBars('XAUUSD', 'H4');
+    if (!bars || bars.n < 500) { console.log('  skip  session-subset guard (no XAUUSD H4 bars)'); return; }
+    const exec = { atrLen: 14, atrMult: 2, targetR: 4, trailStartR: 2, trailGiveR: 4,
+                   maxHoldBars: 0, costR: 0.05, symbol: 'XAUUSD' };
+    const p = { fast: 34, slow: 89, within: 3 };
+    const anyRun  = runStrategy(bars, STRATEGIES.swing_trend_pullback, p, Object.assign({}, exec, { session: 'any' }));
+    const asiaRun = runStrategy(bars, STRATEGIES.swing_trend_pullback, p, Object.assign({}, exec, { session: 'asia' }));
+    const anyKeys = new Set(anyRun.map(function (t) { return t.openTime; }));
+    const novel = asiaRun.filter(function (t) { return !anyKeys.has(t.openTime); }).length;
+    if (novel > 0) console.log('  ok    a session run is NOT a subset of any (' + novel + ' novel trades)');
+    else console.log('  FAIL  session run became a subset of any - the SESSIONS comment is now wrong');
+  })();
+
   let failed = 0;
   const ok = (n, c, x) => { if (!c) { failed++; console.log('  FAIL  ' + n + (x ? '  ' + x : '')); } else console.log('  ok    ' + n); };
 

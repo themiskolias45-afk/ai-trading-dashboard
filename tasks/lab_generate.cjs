@@ -65,6 +65,18 @@ const queue = require(path.join(__dirname, 'lab_queue.cjs'));
    warning travels with the result instead of the result being suppressed. */
 const SYMBOLS    = ['XAUUSD', 'BTCUSD', 'SP500', 'NAS100'];
 const TIMEFRAMES = ['H1', 'H4'];          // M15 is noisy and D1 is thin; both can be added
+// SESSIONS ARE INDEPENDENT CONFIGURATIONS, NOT SLICES OF `any`. See the long note at
+// SESSIONS in lab_strategies.cjs: because runStrategy holds one position at a time, a
+// session filter frees the slot for signals the unfiltered run had blocked, so a
+// filtered run takes trades `any` never saw - 128 of 171 in the measured case. Each
+// session cell is therefore its own trial and its own candidate, which is already how
+// the registry counts them; what must NOT happen is anyone reading london-vs-any as
+// "where the edge lives".
+//
+// `asia` is deliberately absent. It is defined in lab_strategies and has never been
+// swept, so no asia cell exists in the registry - a gap, not a decision. Adding it
+// multiplies every family by a third again, and the deflation bar rises for all of
+// them, so it is left out until there is a reason to spend that.
 const SESSIONS_USED = ['any', 'london', 'ny'];
 
 // Parameter grids per strategy, coarse and declared.
