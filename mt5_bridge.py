@@ -1708,12 +1708,18 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
     # constraint. The budget is honoured by adjusting the size, which is the lever that
     # exists for exactly this.
     #
-    # INERT WHILE fixedLotSize IS SET, AND THAT IS THE CURRENT CONFIG (0.02). get_lot_size
-    # does `raw_lots = fixed`, discarding this computation entirely, so today this changes
-    # no order. It closes the bug for the moment fixedLotSize goes to 0 - which the sizing
-    # measurement on record favours. Under fixed lots the realised-risk drift cannot be
-    # fixed by resizing at all: the lot count does not move, so only the stop could
-    # absorb it, and moving a stop is a trading decision rather than a repair.
+    # LIVE, AND THIS PARAGRAPH USED TO SAY THE OPPOSITE. It read "INERT WHILE fixedLotSize
+    # IS SET, AND THAT IS THE CURRENT CONFIG (0.02)" - true when written, false now.
+    # `fixedLotSize` is 0 on both boxes (checked 2026-09-07, settingsError null, so that
+    # is the saved value and not a defaults fallback), so get_lot_size never reaches
+    # `raw_lots = fixed` and this computation reaches EVERY order.
+    #
+    # Left stale it was the more expensive kind of wrong: a comment telling the next
+    # reader that a live sizing path is dead code they need not trace.
+    #
+    # Under fixed lots the realised-risk drift could not be absorbed by resizing at all -
+    # the lot count does not move, so only the stop could take it, and moving a stop is a
+    # trading decision rather than a repair. At 0 that lever exists again.
     planned_distance  = abs(entry - stop)
     realised_distance = abs(price - stop)
     size_off_fill = realised_distance > planned_distance
@@ -2716,6 +2722,11 @@ def take_partial_profit():
     minimum, not `<=`, so 0.01 passes it and this function went live on BTCUSD and
     XAUUSD without anyone choosing that. A safety property recorded only in a comment
     stops being a safety property the moment the comment goes stale.
+
+    `fixedLotSize` is 0 as of 2026-09-07, i.e. risk-based sizing, so the lot is not
+    pinned to any value and "half" varies per trade. That removes the lot size from
+    this question entirely: `partialCloseEnabled` defaulting to off is now the ONLY
+    thing keeping this function dormant, which is the point of the paragraph above.
 
     It is a setting now rather than an accident of the lot size, and it defaults to
     off, which preserves the behaviour every trade in this journal was managed under.
