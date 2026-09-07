@@ -158,7 +158,7 @@ function build(options) {
 
   // ── per-setup progress toward the threshold that unlocks the engine ────────
   const bySetup = {};
-  for (const row of episodes) {
+  for (const row of qualityEpisodes) {
     if (!isResolved(row)) continue;
     const setup = row.setup || "UNKNOWN";
     bySetup[setup] = bySetup[setup] || { resolved: 0, wins: 0, losses: 0, netR: 0 };
