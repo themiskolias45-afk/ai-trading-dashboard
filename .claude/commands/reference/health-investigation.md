@@ -198,3 +198,9 @@ not a mismatch.
 - **"Do NOT rely on Python scripts. Run all checks directly"** (from `check.md`) is
   superseded in one direction only: the four `.cjs` tools `/health` calls are not Python
   and are the authority. The spirit stands — do not trust a wrapper that swallows output.
+- **The healer has NINE checks, not six.** Every one of the nine retired commands said
+  "expect 6 green" / "healer < 4/6". `get_healer` returns nine: `signalFreshness`,
+  `priceFreshness`, `learningFile`, `journalFile`, `memory`, `errorRate`, `mt5Bridge`,
+  `aiFilter`, `pythonInterpreter`. Reporting "6/6 green" passed the system while three
+  checks went unread — including `mt5Bridge`, which is the one that says whether the box
+  can trade at all. Count them; do not assume the denominator.
