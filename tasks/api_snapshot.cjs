@@ -26,13 +26,25 @@ const ENDPOINTS = [
   { name: 'gate-health',  path: '/api/gate-health' },
 ];
 
+// THE STATUS CODE WAS THROWN AWAY, AND THAT IS THE WHOLE BUG.
+//
+// A 401 body is valid JSON, so it parsed cleanly and was treated as the payload.
+// /api/performance is session-gated and this script sends no session, so it has been
+// reading {"error":"Not logged in."} as the performance contract — and a past --update
+// wrote exactly that to disk. tasks/snapshots/performance.schema.json was 23 bytes:
+// {"error": "string"}. Every run since has compared an error with itself and printed
+// [OK] performance: shape unchanged, which is the same failure class as the "Graph OK"
+// over an empty store: the comparison was honest, the conclusion was not.
+//
+// Returning the status makes the caller able to tell "the contract is unchanged" from
+// "I was never shown the contract".
 function fetchJSON(urlPath) {
   return new Promise((resolve, reject) => {
     const req = http.get(BASE_URL + urlPath, { timeout: 5000 }, (res) => {
       let data = '';
       res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
+        try { resolve({ statusCode: res.statusCode, body: JSON.parse(data) }); }
         catch (e) { reject(new Error(`Non-JSON response from ${urlPath}: ${data.slice(0, 100)}`)); }
       });
     });
