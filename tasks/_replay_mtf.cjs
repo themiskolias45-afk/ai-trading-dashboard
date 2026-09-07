@@ -174,6 +174,29 @@ for (const [envName, constName] of BOOL_ENV_FLAGS) {
   if (raw === "false") CONST_OVERRIDES[constName] = "false";
 }
 
+// macd.bullish: ACCELERATING vs RISING. Same fail-loud contract as the flags above and
+// for the same reason — only the two exact spellings are accepted, because a run that
+// silently replays the baseline under the candidate's label is a wrong answer wearing
+// the authority of a walk-forward.
+//
+//   MTF_MACD_BULLISH_MODE=signal   live rule: MACD above its signal line
+//   MTF_MACD_BULLISH_MODE=trend    candidate: above signal OR above zero
+//
+// The candidate is a strict SUPERSET of the live rule — verified over 6561 (macd,signal)
+// pairs, 0 cases where it blocks something the live rule admits — so a replay under
+// "trend" can only ever ADD trades. If it returns the same trade count as the baseline,
+// the override did not take effect and the result must be discarded, not believed.
+if (process.env.MTF_MACD_BULLISH_MODE !== undefined) {
+  const raw = String(process.env.MTF_MACD_BULLISH_MODE).trim();
+  if (raw !== "signal" && raw !== "trend") {
+    console.error(`MTF_MACD_BULLISH_MODE=${process.env.MTF_MACD_BULLISH_MODE} must be ` +
+                  `exactly "signal" or "trend" — refusing to replay, because anything ` +
+                  `else would silently report the baseline under the candidate's label.`);
+    process.exit(1);
+  }
+  CONST_OVERRIDES["MACD_BULLISH_MODE"] = JSON.stringify(raw);
+}
+
 // MOMENTUM's per-asset MACD exemption. Not a boolean, so it cannot ride BOOL_ENV_FLAGS,
 // but it fails loud on the same contract and for the same reason: a run that silently
 // replays THE BASELINE UNDER THE CANDIDATE'S LABEL is a wrong answer wearing the
