@@ -1297,7 +1297,23 @@ const TOOLS = [
     },
     async handler({ full } = {}) {
       const [plan, fleet] = await fetchParallel(['/api/system-plan', '/api/fleet']);
-      if (plan && plan.error) return { error: plan.error, detail: plan.detail ?? null };
+      // BOTH ERROR KEYS. fetchParallel (:245) maps a REJECTED promise to `{_error: ...}`,
+      // while a handler that answers with an error body yields `{error: ...}`. This guard
+      // checked only the second, so a fetch that FAILED fell straight through to the
+      // verdict below with plan.peer undefined - and `!peer.configured` then reported
+      // "SINGLE BOX - no peer configured", a positive factual claim about the fleet,
+      // produced at the exact moment nothing was known about it.
+      //
+      // Measured 2026-09-07 18:49Z: get_brain_status returned SINGLE BOX with every
+      // fleet field null while get_fleet_status, same process and same session three
+      // minutes later, returned FLEET AGREES with the peer reachable at gate 70.
+      // PEER_SERVER_URL was set the whole time. CLAUDE.md makes this the FIRST call of
+      // every session, so a booting session was told there is one machine while the box
+      // that trades 24/7 was answering normally.
+      //
+      // This is the failure class the fleet tools exist to catch, inside a fleet tool.
+      const planErr = plan && (plan.error || plan._error);
+      if (planErr) return { error: planErr, detail: (plan && plan.detail) ?? null };
 
       const peer = fleet && fleet.peer ? fleet.peer : (plan.peer || {});
       const divergence = plan.divergence || {};
