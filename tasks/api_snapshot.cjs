@@ -139,7 +139,7 @@ async function main() {
     let currentData, currentStatus;
 
     try {
-      currentData = await fetchJSON(endpoint.path);
+      ({ statusCode: currentStatus, body: currentData } = await fetchJSON(endpoint.path));
     } catch (e) {
       if (e.message.includes('ECONNREFUSED') || e.message.includes('Timeout')) {
         console.log(`[SKIP] ${endpoint.name}: server not reachable — ${e.message}`);
