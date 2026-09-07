@@ -421,7 +421,11 @@ const CLAIMS = [
     // exactly the event changesTheAnswer said had not happened yet - so recurationCheck
     // will now raise this claim as needing recuration instead of letting the prose go
     // on describing a hypothetical that has already occurred.
-    sampleAtWriting: { maxSetupClosedTrades: 3 },
+    // Re-curated to the LIVE figure on 2026-09-07 rather than left flagging: the prose
+    // above now describes the crossing instead of denying it, so pinning this at 3 would
+    // keep raising a drift that has been dealt with. It stays declared, so the NEXT move
+    // raises it again - which is the whole point of the field.
+    sampleAtWriting: { maxSetupClosedTrades: 5 },
     sampleFrom: "server/learning.json setupStats, largest per-setup wins+losses",
     // Built 2026-09-07: tasks/learning_boost_walkforward.cjs extracts getLearningBoost
     // and its four constants FROM server/index.js and walks three signals through the
