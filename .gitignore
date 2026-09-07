@@ -165,3 +165,12 @@ tasks/rag_db/
 .tmp_daily/
 server/smartentry.db-shm
 server/smartentry.db-wal
+
+# The trade database itself, for the same reason as the -shm/-wal beside it, plus a
+# worse one. Git cannot replace a file the running server holds open, so a tracked
+# smartentry.db aborts every pull with "unable to unlink ... Invalid argument". And
+# the two boxes hold DIFFERENT databases — this laptop trades account 25446287, the
+# VPS trades 11581419 — so versioning it meant every pull tried to overwrite one
+# box's live trade history with the other's. History keeps every version already
+# committed; nothing is lost by stopping here.
+server/smartentry.db
