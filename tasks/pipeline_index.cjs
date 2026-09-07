@@ -166,6 +166,7 @@ function inspect(stage) {
   const out = {
     name: stage.name, file: rel, by: stage.by, consumedBy: stage.consumedBy,
     cadenceHours: stage.cadence, eventDriven: !!stage.event,
+    marketDependent: !!stage.marketDependent,
     present: false, bytes: null, rows: null, modified: null, ageHours: null,
   };
   try {
