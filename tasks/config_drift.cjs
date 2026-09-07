@@ -146,6 +146,31 @@ const RULES = [
   },
 ];
 
+/**
+ * True when the matched number sits inside a list or range of THREE OR MORE values.
+ *
+ * Slash- or comma-separated runs ("55/60/65/70", "45, 55, 65, 75") and hyphen ranges
+ * ("45-85") are sweeps. A pair is NOT a sweep: "88/84" is the momentum/trend-follow
+ * ceiling pair and must stay detectable, which is why the bar is three.
+ *
+ * Scanned from the region AROUND the match rather than the whole line, so an unrelated
+ * list elsewhere in a long comment cannot excuse a genuine stale claim.
+ */
+function isEnumeratedValue(line, matchIndex, matchText) {
+  const WINDOW = 24;
+  const from = Math.max(0, matchIndex - WINDOW);
+  const to = Math.min(line.length, matchIndex + matchText.length + WINDOW);
+  const around = line.slice(from, to);
+
+  // A run of >=3 numbers joined by / or , with only spaces between.
+  if (/\b\d{1,3}(?:\s*[\/,]\s*\d{1,3}){2,}\b/.test(around)) return true;
+
+  // A hyphen range with a "gate/every/from" style lead-in, e.g. "every gate 45-85".
+  if (/\b(?:gate|gates|every|from|between|range)\b[^.\n]{0,16}?\b\d{1,3}\s*(?:-|–|to)\s*\d{1,3}\b/i.test(around)) return true;
+
+  return false;
+}
+
 function readLiveSettings() {
   const p = path.join(PROJECT_ROOT, "server", "strategy_settings.json");
   try {
