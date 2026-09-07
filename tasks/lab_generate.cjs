@@ -64,7 +64,27 @@ const queue = require(path.join(__dirname, 'lab_queue.cjs'));
    lab_promote stages NAS100 candidates with the correlation caveat attached, so the
    warning travels with the result instead of the result being suppressed. */
 const SYMBOLS    = ['XAUUSD', 'BTCUSD', 'SP500', 'NAS100'];
-const TIMEFRAMES = ['H1', 'H4'];          // M15 is noisy and D1 is thin; both can be added
+// D1 IS EXCLUDED, AND NOW THERE IS A NUMBER BEHIND IT. Measured 2026-09-07: the
+// registry held 5,417 trials and ZERO on D1, so "D1 is thin" had never been tested.
+// It is thin, and the ceiling is the point:
+//
+//   XAUUSD/BTCUSD/SP500 D1 hold 2,066-2,587 bars over eight years. The HIGHEST
+//   frequency strategy in the lab, rsi_reversion at period 5, produces 51-53 trades.
+//   tsmom produces 9-40. lab_promote requires 100.
+//
+// So no D1 cell can ever be promoted, and sweeping D1 would spend trials - raising the
+// deflation bar for every H1 and H4 family - on candidates that are unpromotable by
+// construction.
+//
+// AND IT WOULD PUT A TRAP IN THE REGISTRY. XAUUSD D1 swing_trend_pullback 13/34/3
+// reports SURVIVES at DSR 98.0%, expectancy +0.6681R, OOS +1.4500R - on 44 TRADES.
+// Anyone scanning verdicts without reading trade counts would find the best-looking
+// result in the entire lab. lab_promote's MIN_TRADES floor catches it, but only
+// because nothing on D1 is generated for it to catch.
+//
+// M15 stays out for the opposite reason: 13 trials exist and its bars are 183-229h
+// stale on every symbol, so it cannot be measured honestly at the moment anyway.
+const TIMEFRAMES = ['H1', 'H4'];
 // SESSIONS ARE INDEPENDENT CONFIGURATIONS, NOT SLICES OF `any`. See the long note at
 // SESSIONS in lab_strategies.cjs: because runStrategy holds one position at a time, a
 // session filter frees the slot for signals the unfiltered run had blocked, so a
