@@ -239,6 +239,101 @@ const STRATEGIES = {
     },
   },
 
+  swing_trend_pullback: {
+    id: 'swing_trend_pullback',
+    label: 'Generic EMA pullback (NOT the TradingView script)',
+    describe: 'THIS IS NOT THE TRADINGVIEW "Swing Trend Pullback" SCRIPT. It is a '
+      + 'generic EMA-stack pullback written from scratch in this harness, reading only '
+      + 'tasks/history CSVs. His Pine scripts are his, are profitable, and are never read, '
+      + 'copied or modified by anything here. A result on THIS strategy says nothing '
+      + 'whatsoever about THAT ONE - same idea, different implementation, different data, '
+      + 'different execution model - and must never be quoted as a verdict on it. '
+      + 'Mechanics: trend by EMA stack, a pullback whose LOW touches the fast EMA within '
+      + 'N bars, then entry on the bar closing back in the trend direction. Long and short.',
+    params: {
+      fast:     { def: 21, min: 5,  max: 100, step: 1 },
+      slow:     { def: 55, min: 20, max: 400, step: 1 },
+      // How recently the pullback must have touched, in bars. Too wide and "pullback"
+      // stops meaning anything - it becomes "the trend is up", which is the control.
+      within:   { def: 3,  min: 1,  max: 20,  step: 1 },
+    },
+    generate(bars, p) {
+      if (!(p.fast < p.slow)) return [];
+      const f = emaSeries(bars.c, p.fast), sl = emaSeries(bars.c, p.slow);
+      const within = Math.max(1, Math.round(p.within));
+      const out = [];
+      // WHY THE TRIGGER IS THE PULLBACK BAR EXTREME AND NOT THE EMA.
+      //
+      // The first version entered when the close crossed back over the fast EMA having
+      // closed beyond it on the previous bar. That condition CONTAINS its own pullback,
+      // so `within` never bound: within=2 and within=5 returned byte-identical results
+      // on all three symbols. It was an EMA re-cross wearing the name of a pullback -
+      // a parameter with no reader, inside a strategy, which is the worst place for one.
+      //
+      // A pullback needs two separate events: price retraces INTO the fast EMA, and then
+      // takes out the extreme of that retracement. The gap between them is what `within`
+      // measures, and taking out the pullback bar's high is what makes the resumption a
+      // resumption rather than a wobble across a moving average.
+      for (let i = 2; i < bars.n; i++) {
+        if (f[i] === null || sl[i] === null) continue;
+        const upTrend   = f[i] > sl[i] && bars.c[i] > sl[i];
+        const downTrend = f[i] < sl[i] && bars.c[i] < sl[i];
+        if (!upTrend && !downTrend) continue;
+
+        // Find the most recent bar in the window whose extreme reached the fast EMA.
+        // Strictly BEFORE this bar: a pullback and its resumption cannot be one bar.
+        let pb = -1;
+        for (let k = i - 1; k >= Math.max(1, i - within); k--) {
+          if (f[k] === null) continue;
+          if (upTrend   && bars.l[k] <= f[k]) { pb = k; break; }
+          if (downTrend && bars.h[k] >= f[k]) { pb = k; break; }
+        }
+        if (pb < 0) continue;
+
+        // Resumption: this bar takes out the pullback bar's extreme in the trend
+        // direction. That is a real break of the retracement, not a close near a mean.
+        if (upTrend && bars.h[i] > bars.h[pb] && bars.c[i] > f[i]) out.push({ i, dir: 'BUY' });
+        else if (downTrend && bars.l[i] < bars.l[pb] && bars.c[i] < f[i]) out.push({ i, dir: 'SELL' });
+      }
+      return out;
+    },
+  },
+
+  trend_every_n: {
+    id: 'trend_every_n',
+    label: 'Trend only, entry every N bars (matched control)',
+    describe: 'THE CONTROL FOR swing_trend_pullback. Identical EMA trend filter, no '
+      + 'pullback timing at all - it simply enters every N bars while the trend holds. '
+      + 'Sweeping N matches its trade count to the pullback, so the comparison isolates '
+      + 'what the TIMING contributes. Measured 2026-09-02 by strategy_suite.cjs, the '
+      + 'control BEAT the pullback on every timeframe (h4 by 0.62R): the trend direction '
+      + 'paid and the timing subtracted. Without a control in the lab, a pullback that '
+      + 'merely rides a bull market looks like an edge.',
+    params: {
+      fast:  { def: 21, min: 5,  max: 100, step: 1 },
+      slow:  { def: 55, min: 20, max: 400, step: 1 },
+      everyN:{ def: 10, min: 1,  max: 200, step: 1 },
+    },
+    generate(bars, p) {
+      if (!(p.fast < p.slow)) return [];
+      const f = emaSeries(bars.c, p.fast), sl = emaSeries(bars.c, p.slow);
+      const everyN = Math.max(1, Math.round(p.everyN));
+      const out = [];
+      let sinceEntry = everyN;                  // allow the first qualifying bar
+      for (let i = 1; i < bars.n; i++) {
+        if (f[i] === null || sl[i] === null) { continue; }
+        const upTrend   = f[i] > sl[i] && bars.c[i] > sl[i];
+        const downTrend = f[i] < sl[i] && bars.c[i] < sl[i];
+        if (!upTrend && !downTrend) { sinceEntry = everyN; continue; }
+        sinceEntry++;
+        if (sinceEntry < everyN) continue;
+        sinceEntry = 0;
+        out.push({ i, dir: upTrend ? 'BUY' : 'SELL' });
+      }
+      return out;
+    },
+  },
+
   rsi_reversion: {
     id: 'rsi_reversion',
     label: 'RSI mean reversion',

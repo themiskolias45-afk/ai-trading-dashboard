@@ -99,6 +99,23 @@ const PARAM_GRID = {
   tsmom:                  { lookback: [25, 50, 100, 200] }, // <-- PLATEAU AXIS
   bb_squeeze_break:       { period: [20, 50], mult: [2.0],
                             squeezePct: [0.01, 0.02, 0.04, 0.08] }, // <-- PLATEAU AXIS
+
+  // Added 2026-09-07 on request, measured on H4 first. `within` is the plateau axis
+  // because it is the parameter that makes this a PULLBACK rather than an EMA re-cross -
+  // the first implementation had it inert, so every value scored identically and the
+  // whole thing was a moving-average crossover under another name.
+  swing_trend_pullback: { fast: [13, 21, 34], slow: [34, 55, 89],
+                          within: [1, 3, 5, 8] },  //  <-- PLATEAU AXIS
+
+  // ITS MATCHED CONTROL, swept alongside it ON PURPOSE. Same trend filter, no timing at
+  // all. Measured 2026-09-02 by strategy_suite.cjs the control BEAT the pullback on every
+  // timeframe; measured here on XAUUSD H4 with the trend filter held identical, the
+  // pullback beat the control by ~0.27R/trade. Those two results disagree and both stay
+  // on the record until something reconciles them. Searching the control costs trials,
+  // which raises the bar for the pullback family too - that is the correct price for
+  // knowing whether an edge is the idea or just the direction.
+  trend_every_n: { fast: [13, 21, 34], slow: [34, 55, 89],
+                   everyN: [15, 30, 45, 60] },     //  <-- PLATEAU AXIS
   rsi2_pullback:          { rsiPeriod: [2], entry: [3, 5, 10, 15], // <-- PLATEAU AXIS
                             trendLen: [100, 200] },
 };
