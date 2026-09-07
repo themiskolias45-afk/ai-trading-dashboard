@@ -11026,8 +11026,24 @@ async function probePeer() {
     return peerProbeCache.value;
   }
 
+  // PER-ROUTE TIMEOUT, because one of these is not like the others.
+  //
+  // /api/ai-work builds the AI-employee ledger: it enumerates scheduled tasks and reads
+  // job logs, and the peer's response is 78KB. Measured 2026-09-07 across three runs:
+  // 2.65s, 3.06s, 2.92s — STRADDLING the 3000ms bound, so it timed out at random,
+  // roughly half the time. Paired with the old `?? 0` default that rendered as "the peer
+  // has no unreviewed proposals", which is how a real backlog of four read as zero.
+  //
+  // The 3s bound stays for the cheap routes (healer, risk-status, strategy-settings,
+  // signals all answer in tens of ms). Raising it globally would make every fleet call
+  // wait 8s whenever the peer is genuinely down, which is the common case this timeout
+  // exists to keep fast. Only the slow route gets the longer leash.
+  const SLOW_PEER_ROUTES = { "/api/ai-work": 8000 };
   const getJson = (route) => axios
-    .get(base + route, { timeout: PEER_PROBE_TIMEOUT_MS, validateStatus: (status) => status === 200 })
+    .get(base + route, {
+      timeout: SLOW_PEER_ROUTES[route] || PEER_PROBE_TIMEOUT_MS,
+      validateStatus: (status) => status === 200,
+    })
     .then((response) => response.data);
 
   const peer = {
