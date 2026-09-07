@@ -70,11 +70,28 @@ function newestBarKey() {
   return stamps.join('|');
 }
 
+// THE HONEST HORIZON, AND IT IS NOT OPTIONAL.
+//
+// The harness defaults to MTF_MAX_HOLD=40 H4 bars. The LIVE system has no max-hold at
+// all, so a trade still open at bar 40 is scored EXPIRED — recorded as though it went
+// flat when it is simply unresolved. The harness says so itself in a HORIZON WARNING,
+// and on the first run of this job it fired: 148 of 369 SP500 trades, 40%, scored
+// EXPIRED and the whole result biased LOW.
+//
+// This project has been here before: 25 of 26 harnesses had run at 40, and re-measuring
+// at 320 moved XAGUSD from -0.259 to +0.033 and the baseline from +0.119 to +0.366 —
+// verdicts inverted, not merely sharpened. A variant comparison at 40 would compare two
+// candidates through the same distorting lens and could easily rank them wrongly.
+//
+// Pinned here rather than left to the caller, because a default that must be remembered
+// is the thing that produced 25 wrong harnesses.
+const HONEST_MAX_HOLD = '320';
+
 /** Run the harness once and pull the gate-70 row for each asset. */
 function walkForward(envOverride) {
   const out = execFileSync(process.execPath, [HARNESS], {
     cwd: ROOT,
-    env: { ...process.env, ...envOverride },
+    env: { MTF_MAX_HOLD: HONEST_MAX_HOLD, ...process.env, ...envOverride },
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
     timeout: 15 * 60 * 1000,
