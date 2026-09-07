@@ -91,7 +91,15 @@ const HONEST_MAX_HOLD = '320';
 function walkForward(envOverride) {
   const out = execFileSync(process.execPath, [HARNESS], {
     cwd: ROOT,
-    env: { MTF_MAX_HOLD: HONEST_MAX_HOLD, ...process.env, ...envOverride },
+    // Spread order matters and the first draft had it wrong: with the default written
+    // BEFORE ...process.env, an inherited MTF_MAX_HOLD would silently win and the pin
+    // would do nothing. Written last, and explicitly, so 320 holds unless an operator
+    // deliberately exports a different horizon.
+    env: {
+      ...process.env,
+      ...envOverride,
+      MTF_MAX_HOLD: process.env.MTF_MAX_HOLD || HONEST_MAX_HOLD,
+    },
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
     timeout: 15 * 60 * 1000,
