@@ -1,0 +1,45 @@
+{
+ "generatedAt": "2026-09-07T12:18:56.792Z",
+ "stagedCandidates": 2,
+ "candidates": [
+  {
+   "name": "bb_squeeze_break-BTCUSD-H1-any-period50-mult2-squeezePct008-335d88",
+   "label": "bb_squeeze_break · period:50 mult:2 squeezePct:0.08 · BTCUSD H1 · stop:2xATR · target:4R · trail:2,4 · any",
+   "specHash": "335d884396187a75",
+   "stagedAt": "2026-08-31T12:01:14.265Z",
+   "symbol": "BTCUSD",
+   "timeframe": "H1",
+   "backtestExpectancyR": 0.6487914758667305,
+   "backtestOosExpectancyR": 0.43186722188136567,
+   "backtestTrades": 224,
+   "forwardTrades": 0,
+   "forwardNewThisRun": 0,
+   "forwardSumR": 0,
+   "forwardExpectancyR": null,
+   "forwardWinRate": null,
+   "lastBarSeen": "2026-09-07T11:00:00.000Z"
+  },
+  {
+   "name": "donchian_break-BTCUSD-H1-any-lookback40-6b9ad3",
+   "label": "donchian_break · lookback:40 · BTCUSD H1 · stop:2xATR · target:4R · trail:2,4 · any",
+   "specHash": "6b9ad3c81c68690c",
+   "stagedAt": "2026-09-01T11:29:33.177Z",
+   "symbol": "BTCUSD",
+   "timeframe": "H1",
+   "backtestExpectancyR": 0.2524607871621777,
+   "backtestOosExpectancyR": 0.08726141585621909,
+   "backtestTrades": 1039,
+   "forwardTrades": 3,
+   "forwardNewThisRun": 3,
+   "forwardSumR": 1.85,
+   "forwardExpectancyR": 0.6167,
+   "forwardWinRate": 33.3,
+   "lastBarSeen": "2026-09-07T11:00:00.000Z"
+  }
+ ],
+ "totals": {
+  "forwardTrades": 3,
+  "forwardSumR": 1.85,
+  "addedThisRun": 3
+ }
+}

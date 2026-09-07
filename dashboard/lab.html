@@ -146,6 +146,13 @@
     <h1 id="title">Strategy Lab</h1>
     <div class="sub-line" id="subtitle">Loading…</div>
 
+    <!-- FORWARD SHADOW. Deliberately ABOVE the tabs and outside them: every other
+         number on this page is a backtest measured on the history that selected the
+         candidate, and this is the only one measured after it was chosen. Burying
+         the out-of-sample record behind a tab while the in-sample record leads the
+         page is how a search flatters itself. -->
+    <div id="lab-shadow"></div>
+
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="bench"  aria-selected="true">Workbench</button>
       <button class="tab" role="tab" data-tab="board"  aria-selected="false">Leaderboard</button>
@@ -654,6 +661,75 @@ load(new URLSearchParams(location.search).get("name") || "");
 document.getElementById("picker").addEventListener("change", function (ev) {
   load(ev.target.value); showTab("report");
 });
+</script>
+<script>
+/* Forward shadow of the staged candidates. Reads the static file written by
+   tasks/lab_shadow.cjs - no endpoint, so nothing on the server had to change.
+
+   THREE STATES, RENDERED DIFFERENTLY. Missing file, nothing staged, and staged but
+   not yet fired are three different facts and this panel never collapses them into
+   one empty box. "No candidate has cleared the bar" and "the winner has not fired
+   in a week" lead to opposite conclusions. */
+(function () {
+  var el = document.getElementById('lab-shadow');
+  if (!el) return;
+  fetch('/dashboard/lab-shadow.json?t=' + Date.now()).then(function (r) {
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  }).then(function (d) {
+    var ageMin = d.generatedAt ? Math.round((Date.now() - new Date(d.generatedAt)) / 60000) : null;
+    var age = ageMin === null ? 'unknown age'
+            : ageMin < 1 ? 'just now'
+            : ageMin < 90 ? ageMin + ' min ago'
+            : Math.round(ageMin / 60) + ' h ago';
+
+    if (!d.candidates || !d.candidates.length) {
+      el.innerHTML = '<div class="card"><div class="card-head">Forward shadow'
+        + '<span class="sub">' + age + '</span></div><div class="empty">'
+        + 'No candidate has cleared the promotion bar yet, so there is nothing to run forward. '
+        + 'This is not the same as a candidate that has cleared it and not fired.'
+        + '</div></div>';
+      return;
+    }
+
+    var rows = d.candidates.map(function (c) {
+      if (c.error) {
+        return '<tr><td colspan="7">' + esc(c.name || '?') + ' — ' + esc(c.error) + '</td></tr>';
+      }
+      var fired = c.forwardTrades > 0;
+      var fwd = fired
+        ? '<b>' + (c.forwardSumR >= 0 ? '+' : '') + c.forwardSumR + 'R</b> over ' + c.forwardTrades
+          + ' (exp ' + (c.forwardExpectancyR >= 0 ? '+' : '') + c.forwardExpectancyR + ')'
+        : '<span style="opacity:.7">not fired since staging</span>';
+      return '<tr>'
+        + '<td>' + esc(c.label || c.name || '') + '</td>'
+        + '<td>' + esc(c.symbol || '') + ' ' + esc(c.timeframe || '') + '</td>'
+        + '<td>' + (c.backtestExpectancyR === null ? '-' : Number(c.backtestExpectancyR).toFixed(4)) + '</td>'
+        + '<td>' + (c.backtestOosExpectancyR === null ? '-' : Number(c.backtestOosExpectancyR).toFixed(4)) + '</td>'
+        + '<td>' + fwd + '</td>'
+        + '<td>' + (c.forwardWinRate === null ? '-' : c.forwardWinRate + '%') + '</td>'
+        + '<td>' + esc(String(c.stagedAt || '').slice(0, 10)) + '</td>'
+        + '</tr>';
+    }).join('');
+
+    var total = d.totals || {};
+    el.innerHTML = '<div class="card"><div class="card-head">Forward shadow'
+      + '<span class="sub">' + d.stagedCandidates + ' staged · '
+      + (total.forwardTrades || 0) + ' forward trades · ' + age + '</span></div>'
+      + '<div class="card-body scroll-x"><table><thead><tr>'
+      + '<th>Candidate</th><th>Market</th><th>Backtest exp R</th><th>Backtest OOS R</th>'
+      + '<th>Forward (out of sample)</th><th>Forward win</th><th>Staged</th>'
+      + '</tr></thead><tbody>' + rows + '</tbody></table>'
+      + '<div class="sub" style="margin-top:8px">Shadow only — these never reach an order, '
+      + 'a gate or a setting. Forward counts start the moment a candidate was staged; a handful '
+      + 'of trades decides nothing.</div>'
+      + '</div></div>';
+  }).catch(function (e) {
+    el.innerHTML = '<div class="card"><div class="card-head">Forward shadow</div>'
+      + '<div class="empty">Could not read /dashboard/lab-shadow.json: ' + esc(e && e.message)
+      + ' — this is "could not look", not "nothing found".</div></div>';
+  });
+})();
 </script>
 </body>
 </html>

@@ -147,6 +147,31 @@ try {
         Write-Log 'promote: could not parse its output - investigate'
     }
 
+    # FORWARD SHADOW, on the same cadence as the search that produced the candidates.
+    #
+    # It rides this job rather than getting a task of its own for the reason the MT5
+    # status check rides ensure_running: a task that only fires when someone remembers
+    # to register it is not a schedule. lab_promote STAGES and then nothing happened -
+    # every number on a staged candidate stayed a backtest measured on the history that
+    # selected it. This collects what they would have done SINCE staging.
+    #
+    # Shadow only: lab_shadow.cjs requires lab_strategies and lab_run and nothing else,
+    # and every row it writes carries shadow:true / feedsTheGate:false. It cannot reach
+    # an order, a gate or a setting, so like the rest of this job it cannot affect
+    # trading. Failure here is logged and never rethrown.
+    try {
+        $shadow = & $node (Join-Path $Proj 'tasks/lab_shadow.cjs') 2>&1
+        $shadowText = ($shadow | Out-String)
+        $m = [regex]::Match($shadowText, 'staged candidates:\s*(\d+)\s+new forward trades this run:\s*(\d+)')
+        if ($m.Success) {
+            Write-Log ('shadow: {0} staged, {1} new forward trade(s)' -f $m.Groups[1].Value, $m.Groups[2].Value)
+        } else {
+            Write-Log 'shadow: could not parse its output - investigate'
+        }
+    } catch {
+        Write-Log ('shadow: ERROR ' + $_.Exception.Message)
+    }
+
     exit 0
 }
 catch {
