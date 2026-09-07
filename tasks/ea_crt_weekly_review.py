@@ -480,6 +480,13 @@ def main():
         "findings": build_findings(recent, all_rows, sentry, perms),
     }
 
+    # A REVIEW THAT CANNOT WRITE ITS REPORT HAS NOT SUCCEEDED. These writes used to be
+    # caught, printed, and then main() returned 0 regardless - so the scheduled task
+    # recorded rc=0 while both output files stayed at the previous run. Measured on the
+    # VPS 2026-09-07: the task runs RunLevel=Limited, both writes failed with WinError 5,
+    # the log said so, and the dashboard served an 18-hour-old review under a header that
+    # read "last sync 3 min ago". Green task, stale panel, nothing pointing at either.
+    write_failures = []
     for target in (OUT, os.path.abspath(DASH_OUT)):
         try:
             tmp = target + ".tmp"
@@ -487,6 +494,7 @@ def main():
                 json.dump(payload, fh, indent=1)
             os.replace(tmp, target)
         except OSError as exc:
+            write_failures.append((target, exc))
             print("could not write %s: %s" % (target, exc))
 
     wk, at = payload["thisWeek"], payload["allTime"]
@@ -519,6 +527,10 @@ def main():
         if f["severity"] != "OK":
             print("           -> %s" % f["action"])
     print("report: %s" % OUT)
+    if write_failures:
+        print("FAILED: %d of 2 report files could not be written - the panel is showing "
+              "the PREVIOUS run, not this one." % len(write_failures))
+        return 1
     return 0
 
 
