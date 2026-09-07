@@ -1169,6 +1169,10 @@ function liveSample() {
     // squeezegold claim would declare a sample nothing could verify.
     squeezeGoldH4Judgeable: null,
     rangeTradeShortWon: null, rangeTradeShortLost: null,
+    // The largest per-setup closed-trade total. Declared here so a PARTIAL read is
+    // skipped by recurationCheck rather than read as drift - the same reason every
+    // other counter above is initialised to null instead of being added on success.
+    maxSetupClosedTrades: null,
     // The live engine CONFIG, for claims that declare configAtWriting. Nested under its
     // own key so it can never collide with a sampleAtWriting counter name.
     config: null,
