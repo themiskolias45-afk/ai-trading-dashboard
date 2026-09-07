@@ -165,6 +165,25 @@ const PARAM_GRID = {
                          maxZoneAtr: [1.5, 2.0] },
   trend_zone_breakout: { zoneBars: [5, 6, 7, 8, 10],   //  <-- PLATEAU AXIS
                          maxZoneAtr: [1.5], fast: [21], slow: [55] },
+
+  // ICT / SMC, added 2026-09-07 on request. The FVG rule is copied exactly from
+  // server/fvg.js so the lab and the live engine cannot disagree about what a gap is.
+  //
+  // ict_mss_fvg is the COMBINATION and it is the strongest thing found in this session:
+  // on BTCUSD H4 at structure 60/80/100 it beats EVERY one of 200-300 random baselines,
+  // with 30/40/50 clearing the 95th percentile - a plateau on the vs-random metric, not
+  // a spike. struct=100 reports SURVIVES at DSR 97.2%.
+  //
+  // THAT NUMBER IS EXPECTED TO FALL. breakout_zone reported SURVIVES at 97.0% earlier
+  // today and decayed to 51.7% purely as its family filled with trials. These grids
+  // exist so the same thing happens here honestly, rather than the cell being quoted
+  // from the run that found it. structure is the plateau axis for both.
+  ict_fvg_retrace:    { dispAtr: [1.0, 1.5, 2.0], minGap: [0.3],
+                        within: [4, 8, 12, 20] },        //  <-- PLATEAU AXIS
+  ict_sweep_reversal: { lookback: [10, 20, 40, 80],      //  <-- PLATEAU AXIS
+                        minSweep: [0.25, 0.5] },
+  ict_mss_fvg:        { structure: [20, 40, 60, 80, 100], //  <-- PLATEAU AXIS
+                        minGap: [0.3], within: [8] },
   rsi2_pullback:          { rsiPeriod: [2], entry: [3, 5, 10, 15], // <-- PLATEAU AXIS
                             trendLen: [100, 200] },
 };

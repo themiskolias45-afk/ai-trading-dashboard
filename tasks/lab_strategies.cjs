@@ -429,6 +429,139 @@ const STRATEGIES = {
     },
   },
 
+  ict_fvg_retrace: {
+    id: 'ict_fvg_retrace',
+    label: 'ICT: displacement -> FVG -> retrace entry',
+    describe: 'A displacement bar (range above N x ATR, closing in its own direction) '
+      + 'creates a Fair Value Gap, price retraces INTO the gap, and entry is taken there. '
+      + 'The gap rule is copied EXACTLY from server/fvg.js - bullish when lows[i] > '
+      + 'highs[i-2], bearish when highs[i] < lows[i-2], with the same average-range noise '
+      + 'floor - so the lab and the live engine cannot drift apart on what an FVG is.',
+    params: {
+      dispAtr:  { def: 1.5, min: 0.5, max: 5,  step: 0.1 },
+      minGap:   { def: 0.3, min: 0.05, max: 3, step: 0.05 },
+      within:   { def: 8,   min: 1,   max: 40, step: 1 },
+    },
+    generate(bars, p) {
+      const atr = atrSeries(bars.h, bars.l, bars.c, 14);
+      const out = [];
+      // Rolling average bar range, the same noise floor server/fvg.js applies.
+      const RANGE_N = 20;
+      let rangeSum = 0;
+      const ranges = new Array(bars.n).fill(0);
+      for (let i = 0; i < bars.n; i++) {
+        ranges[i] = bars.h[i] - bars.l[i];
+        rangeSum += ranges[i];
+        if (i >= RANGE_N) rangeSum -= ranges[i - RANGE_N];
+      }
+      const avgAt = function (i) {
+        const n = Math.min(RANGE_N, i + 1);
+        let sum = 0;
+        for (let k = i - n + 1; k <= i; k++) sum += ranges[k];
+        return n ? sum / n : 0;
+      };
+      // Open gaps waiting to be retraced into: { dir, bottom, top, bornAt }
+      let open = [];
+      for (let i = 2; i < bars.n; i++) {
+        const a = atr[i];
+        if (Number.isFinite(a) && a > 0) {
+          const avg = avgAt(i);
+          const minGapSize = avg * p.minGap;
+          const displaced = (bars.h[i] - bars.l[i]) > p.dispAtr * a;
+          if (displaced) {
+            if (bars.l[i] > bars.h[i - 2] && bars.c[i] > bars.o[i]) {
+              const h = bars.l[i] - bars.h[i - 2];
+              if (h > minGapSize) open.push({ dir: 'BUY', bottom: bars.h[i - 2], top: bars.l[i], bornAt: i });
+            } else if (bars.h[i] < bars.l[i - 2] && bars.c[i] < bars.o[i]) {
+              const h = bars.l[i - 2] - bars.h[i];
+              if (h > minGapSize) open.push({ dir: 'SELL', bottom: bars.h[i], top: bars.l[i - 2], bornAt: i });
+            }
+          }
+        }
+        // Expire stale gaps, then look for a retrace into any still-open one.
+        open = open.filter(function (z) { return i - z.bornAt <= p.within; });
+        for (let k = 0; k < open.length; k++) {
+          const z = open[k];
+          if (i <= z.bornAt) continue;
+          // Bullish: price trades back down into the gap. Bearish: back up into it.
+          const touched = z.dir === 'BUY' ? (bars.l[i] <= z.top && bars.l[i] >= z.bottom)
+                                          : (bars.h[i] >= z.bottom && bars.h[i] <= z.top);
+          if (touched) { out.push({ i: i, dir: z.dir }); open.splice(k, 1); break; }
+        }
+      }
+      return out;
+    },
+  },
+
+  ict_sweep_reversal: {
+    id: 'ict_sweep_reversal',
+    label: 'ICT: liquidity sweep and reversal',
+    describe: 'Price takes out the extreme of the last N bars - the liquidity resting '
+      + 'beyond an obvious high or low - and then CLOSES back inside the range on the same '
+      + 'bar. The sweep must exceed the level by a fraction of ATR so a one-tick brush '
+      + 'does not count. Long after a low is swept, short after a high is swept.',
+    params: {
+      lookback:  { def: 20,  min: 5,   max: 200, step: 1 },
+      minSweep:  { def: 0.25, min: 0.02, max: 2, step: 0.05 },
+    },
+    generate(bars, p) {
+      const atr = atrSeries(bars.h, bars.l, bars.c, 14);
+      const n = Math.max(3, Math.round(p.lookback));
+      const out = [];
+      for (let i = n; i < bars.n; i++) {
+        const a = atr[i];
+        if (!Number.isFinite(a) || a <= 0) continue;
+        let hi = -Infinity, lo = Infinity;
+        for (let k = i - n; k < i; k++) { if (bars.h[k] > hi) hi = bars.h[k]; if (bars.l[k] < lo) lo = bars.l[k]; }
+        const need = p.minSweep * a;
+        // Swept the low by a real distance and closed back above it: buy-side liquidity taken.
+        if (bars.l[i] < lo - need && bars.c[i] > lo) out.push({ i: i, dir: 'BUY' });
+        else if (bars.h[i] > hi + need && bars.c[i] < hi) out.push({ i: i, dir: 'SELL' });
+      }
+      return out;
+    },
+  },
+
+  ict_mss_fvg: {
+    id: 'ict_mss_fvg',
+    label: 'ICT combination: market structure shift + FVG',
+    describe: 'THE COMBINATION. A market structure shift - close breaking the swing '
+      + 'extreme of the last N bars - followed by an FVG in the SAME direction within a '
+      + 'few bars, entered on the retrace into that gap. Both halves are separately '
+      + 'measurable here: ict_sweep_reversal and ict_fvg_retrace exist on their own, so '
+      + 'what the combination adds can be read off rather than assumed.',
+    params: {
+      structure: { def: 20,  min: 5,   max: 200, step: 1 },
+      minGap:    { def: 0.3, min: 0.05, max: 3,  step: 0.05 },
+      within:    { def: 8,   min: 1,   max: 40,  step: 1 },
+    },
+    generate(bars, p) {
+      const n = Math.max(3, Math.round(p.structure));
+      const RANGE_N = 20;
+      const out = [];
+      let bias = null, biasAt = -1;
+      for (let i = n; i < bars.n; i++) {
+        let hi = -Infinity, lo = Infinity;
+        for (let k = i - n; k < i; k++) { if (bars.h[k] > hi) hi = bars.h[k]; if (bars.l[k] < lo) lo = bars.l[k]; }
+        // Structure shift: a CLOSE beyond the prior swing extreme, not a wick through it.
+        if (bars.c[i] > hi) { bias = 'BUY'; biasAt = i; }
+        else if (bars.c[i] < lo) { bias = 'SELL'; biasAt = i; }
+        if (!bias || i - biasAt > p.within) continue;
+
+        let sum = 0, cnt = 0;
+        for (let k = Math.max(0, i - RANGE_N + 1); k <= i; k++) { sum += bars.h[k] - bars.l[k]; cnt++; }
+        const minGapSize = (cnt ? sum / cnt : 0) * p.minGap;
+
+        if (bias === 'BUY' && bars.l[i] > bars.h[i - 2] && (bars.l[i] - bars.h[i - 2]) > minGapSize) {
+          out.push({ i: i, dir: 'BUY' }); bias = null;
+        } else if (bias === 'SELL' && bars.h[i] < bars.l[i - 2] && (bars.l[i - 2] - bars.h[i]) > minGapSize) {
+          out.push({ i: i, dir: 'SELL' }); bias = null;
+        }
+      }
+      return out;
+    },
+  },
+
   rsi_reversion: {
     id: 'rsi_reversion',
     label: 'RSI mean reversion',
