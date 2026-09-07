@@ -19,7 +19,37 @@ $ErrorActionPreference = 'SilentlyContinue'
 $Root      = 'C:\ai-trading-dashboard'
 $TermExe   = 'C:\Program Files\MetaTrader 5\terminal64.exe'
 $CrtIni    = 'C:\ai-trading-dashboard\tasks\crt_start.ini'
-$DataDir   = "$env:APPDATA\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075"
+# $env:APPDATA IS PER-USER, AND THIS SCRIPT RUNS UNDER TWO IDENTITIES. Measured
+# 2026-09-07: SmartEntryEnsureRunning (SYSTEM, every 10 min) calls this through
+# ensure_running.ps1, and the SYSTEM profile has its OWN MetaQuotes\Terminal\<hash>
+# folder which EXISTS but holds 0 expert logs. The scan below therefore found nothing
+# and wrote eaAttached=false with every EA field null; the Administrator-context run
+# wrote the truth. Last writer wins and SYSTEM runs every 10 minutes, so the dashboard
+# sat on a red it could not actually see - while two EA positions were open.
+#
+# Resolve the directory that actually HOLDS the terminal's logs rather than trusting
+# whichever profile happens to be running this.
+$TerminalHash = 'D0E8209F77C8CF37AD8BF550E51FF075'
+function Resolve-Mt5DataDir($hash) {
+    $cands = @()
+    if ($env:APPDATA) { $cands += (Join-Path $env:APPDATA "MetaQuotes\Terminal\$hash") }
+    foreach ($u in (Get-ChildItem 'C:\Users' -Directory -EA SilentlyContinue)) {
+        $cands += (Join-Path $u.FullName "AppData\Roaming\MetaQuotes\Terminal\$hash")
+    }
+    $best = $null; $bestAt = [datetime]::MinValue
+    foreach ($c in ($cands | Select-Object -Unique)) {
+        $logs = @(Get-ChildItem (Join-Path $c 'MQL5\Logs\2*.log') -EA SilentlyContinue)
+        if (-not $logs) { continue }
+        $at = ($logs | Sort-Object LastWriteTime -Descending)[0].LastWriteTime
+        if ($at -gt $bestAt) { $bestAt = $at; $best = $c }
+    }
+    # Falling back to APPDATA preserves the old behaviour when nothing is readable, so
+    # this can only ever ADD visibility, never take any away.
+    if ($best) { return $best }
+    if ($env:APPDATA) { return (Join-Path $env:APPDATA "MetaQuotes\Terminal\$hash") }
+    return $null
+}
+$DataDir   = Resolve-Mt5DataDir $TerminalHash
 $StatusOut = "$Root\dashboard\mt5-runtime-status.json"
 $LogFile   = "$Root\tasks\logs\mt5_ensure_running.txt"
 
@@ -134,7 +164,7 @@ if ($common) { $m = $common | Select-String '^Trade=(\d)'; if ($m) { $algo = [in
 $eaName = $null; $sentry = $null; $sentryAt = $null
 $eaAttachAt = $null; $eaAttachAgeH = $null
 $eaBasis = 'no CRT_AMD attach line in the retained logs'
-$expLogs = Get-ChildItem "$DataDir\MQL5\Logs\2*.log" -EA SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 21
+$expLogs = @(Get-ChildItem "$DataDir\MQL5\Logs\2*.log" -EA SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 21)
 foreach ($lf in $expLogs) {
     $hits = Get-Content $lf.FullName -Encoding Unicode -EA SilentlyContinue | Select-String 'CRT_AMD'
     if (-not $hits) { continue }
@@ -155,7 +185,17 @@ foreach ($lf in $expLogs) {
 }
 
 # Attached in THIS session, or merely attached at some point in the past?
+#
+# NO READABLE LOG IS "CANNOT TELL", NOT "NOT ATTACHED". This file's own header already
+# says "cannot tell" and "it is fine" must never look the same; the inverse matters just
+# as much, because a false red is a monitor lying too. If zero expert logs were visible
+# the scan learned NOTHING, so eaAttached stays $null and the basis names the directory
+# it actually looked in.
 $eaAttachedNow = $false
+if ($expLogs.Count -eq 0) {
+    $eaAttachedNow = $null
+    $eaBasis = 'could not read ANY expert log under ' + $DataDir + ' - cannot tell whether the EA is attached'
+}
 if ($eaName -and $eaAttachAt -and $proc) {
     if ($eaAttachAt -ge $proc.StartTime.AddMinutes(-2)) {
         $eaAttachedNow = $true

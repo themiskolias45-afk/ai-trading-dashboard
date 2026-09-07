@@ -7178,17 +7178,22 @@ async function refreshEaCrtPanel() {
      green after it dies is worse than no monitor. */
   var ageMin = (st && st.checkedAt) ? (Date.now() - new Date(st.checkedAt)) / 60000 : Infinity;
   var stale  = ageMin > 30;
-  var live   = !!(st && st.mt5Running && st.eaAttached && !stale);
+  /* eaAttached is now THREE-valued: true / false / null, where null means the checker
+     could not read any expert log and therefore learned nothing. A null must not render
+     as a red "NOT RUNNING" - that is the false-red this panel showed all of 2026-09-07
+     while two EA positions were open. Compare against true explicitly. */
+  var eaUnknown = !!(st && st.eaAttached === null);
+  var live   = !!(st && st.mt5Running && st.eaAttached === true && !stale);
 
   document.getElementById('ea-crt-sync').textContent = st
     ? ('last sync ' + eaAgo(st.checkedAt) + (stale ? ' - STALE' : '') + ' \u00b7 ' + (st.host || ''))
     : 'no runtime status on this box';
 
   var chips = [];
-  chips.push(eaChip('Status', stale ? 'UNKNOWN' : live ? 'LIVE' : 'NOT RUNNING', live ? 'ok' : 'bad'));
+  chips.push(eaChip('Status', stale ? 'UNKNOWN' : live ? 'LIVE' : eaUnknown ? 'UNKNOWN' : 'NOT RUNNING', live ? 'ok' : eaUnknown ? '' : 'bad'));
   if (st) {
     chips.push(eaChip('MT5', st.mt5Running ? ('up ' + (st.mt5UptimeHours != null ? st.mt5UptimeHours + 'h' : '')) : 'DOWN', st.mt5Running ? 'ok' : 'bad'));
-    chips.push(eaChip('EA attached', st.eaAttached ? 'yes' : 'no', st.eaAttached ? 'ok' : 'bad'));
+    chips.push(eaChip('EA attached', st.eaAttached === true ? 'yes' : st.eaAttached === null ? 'cannot tell' : 'no', st.eaAttached === true ? 'ok' : st.eaAttached === null ? '' : 'bad'));
     chips.push(eaChip('Trailing stop', st.eaTrailOff === true ? 'OFF' : st.eaTrailOff === false ? 'ON - losing' : '-', st.eaTrailOff === true ? 'ok' : st.eaTrailOff === false ? 'bad' : ''));
     chips.push(eaChip('Fixed lot', st.eaFixedLot === true ? 'ON - risk uncapped' : st.eaFixedLot === false ? 'off' : '-', st.eaFixedLot === true ? 'bad' : st.eaFixedLot === false ? 'ok' : ''));
     chips.push(eaChip('Auto trading', st.algoTradingAllowed === 1 ? 'enabled' : 'DISABLED', st.algoTradingAllowed === 1 ? 'ok' : 'bad'));
