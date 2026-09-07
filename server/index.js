@@ -4314,7 +4314,18 @@ const BAR_MAX_AGE_MS = { d1: 4 * 24 * 3600e3, h4: 16 * 3600e3, h1: 5 * 3600e3 };
  */
 function judgeBarFreshness(bars, timeframe) {
   if (!bars || !Array.isArray(bars.times) || !bars.times.length) {
-    return { checked: false, stale: false, ageMs: null, lastBarAt: null,
+    // spansWeekend IS PRESENT ON BOTH RETURN SHAPES, deliberately. The full return
+    // below carries it; these early returns did not, so /api/signals published TWO
+    // different barFreshness shapes and api_snapshot raised
+    // "signals.btc.barFreshness.spansWeekend: KEY REMOVED" after every restart, until
+    // the first MT5 push swapped the shape back. A contract that changes under a
+    // warm-up is a contract that trains people to run --update, which is exactly how
+    // performance.schema.json came to hold {"error":"string"}.
+    //
+    // false, not null: every consumer already tests `=== true` (summarizeBarFreshness
+    // and the pipeline monitor both do), so false is the value they were already
+    // inferring from its absence. This changes no behaviour, only the wire shape.
+    return { checked: false, stale: false, ageMs: null, lastBarAt: null, spansWeekend: false,
              reason: "no bar timestamps — bridge predates this check, so staleness is UNVERIFIED" };
   }
   const lastSec = bars.times[bars.times.length - 1];
@@ -4480,7 +4491,9 @@ async function refreshSignals() {
         const mt5Entry = mt5CandleCache[a.key];
         const dailyBarFreshness = mt5Entry
           ? judgeBarFreshness(mt5Entry.bars?.d1, "d1")
-          : { checked: false, stale: false, ageMs: null, lastBarAt: null,
+          // spansWeekend present here too — same reason as the early return inside
+          // judgeBarFreshness: one shape, warm-up or not.
+          : { checked: false, stale: false, ageMs: null, lastBarAt: null, spansWeekend: false,
               reason: "no MT5 bars have been pushed for this asset yet" };
         signalCache[a.key].barFreshness = {
           ...dailyBarFreshness,
