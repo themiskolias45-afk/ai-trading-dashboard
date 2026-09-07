@@ -50,17 +50,20 @@ const queue = require(path.join(__dirname, 'lab_queue.cjs'));
 // ── the declared space ──────────────────────────────────────────────────────
 // SMALL ON PURPOSE. Every cell is a trial, and a trial raises the bar for its whole
 // family. Widen this deliberately, never casually.
-/* NAS100 REMOVED 2026-09-07. It was rejected on evidence 2026-09-05 at 0.951
-   correlation with SP500 - the same trade, so holding both is one exposure at double
-   size while server/assets.js counts them as independent. The lab does not know that
-   and optimises whatever has bars: it had already produced a SURVIVES on
-   bb_squeeze_break-NAS100-H1, i.e. a well-measured result on an instrument the system
-   had decided not to trade. Its bars were also 229h stale, because the exporter refuses
-   while a position is open and one had been open since 2026-08-19.
-   Nothing is deleted - the existing NAS100 trials and results stay in the registry.
-   lab_promote refuses to stage the symbol as well, so this is a second lock, not the
-   only one. */
-const SYMBOLS    = ['XAUUSD', 'BTCUSD', 'SP500'];
+/* NAS100 IS KEPT, ON PURPOSE. It carries a known caveat - measured 2026-09-05, 0.951
+   correlation with SP500, so it is close to the same trade and must never be sized as
+   an independent instrument alongside one. That is a reason to MEASURE it carefully,
+   not a reason to stop looking: it goes live only if it proves it makes money, and it
+   can never prove anything if the search refuses to generate it.
+
+   I removed it earlier the same day and that was wrong - a permanent veto guarantees
+   the evidence that would settle the question never accumulates.
+
+   Its bars were 229h stale, so the freshness gate below skips it until the exporter can
+   run again. That is a DATA condition that clears by itself, not a ban.
+   lab_promote stages NAS100 candidates with the correlation caveat attached, so the
+   warning travels with the result instead of the result being suppressed. */
+const SYMBOLS    = ['XAUUSD', 'BTCUSD', 'SP500', 'NAS100'];
 const TIMEFRAMES = ['H1', 'H4'];          // M15 is noisy and D1 is thin; both can be added
 const SESSIONS_USED = ['any', 'london', 'ny'];
 

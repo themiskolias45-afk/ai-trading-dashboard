@@ -61,19 +61,25 @@ const { probabilisticSharpe, expectedMaxSharpe } =
   require(path.join(__dirname, 'sharpe_robustness.cjs'));
 
 // ── the bar ─────────────────────────────────────────────────────────────────
-/* INSTRUMENTS THE SYSTEM HAS ALREADY REJECTED CANNOT BE PROMOTED, however good the
-   numbers look. NAS100 was rejected 2026-09-05 at 0.951 correlation with SP500: it is
-   the SAME TRADE, so a NAS100 position alongside an SP500 one is one exposure at double
-   size, and server/assets.js treats them as independent. The lab does not know that -
-   it optimises whatever has bars - and it had already produced a SURVIVES on
-   bb_squeeze_break-NAS100-H1. A statistical bar cannot catch this, because the result
-   is not a statistical error: the strategy really did work on those bars. It is the
-   wrong instrument to trade, which is a different kind of wrong and needs its own rule.
+/* A CAVEAT TRAVELS WITH THE RESULT. IT DOES NOT SUPPRESS IT.
+   NAS100 correlates 0.951 with SP500 (measured 2026-09-05), so the two are close to the
+   same trade and must never be sized as independent instruments alongside each other -
+   server/assets.js would count them as independent. That is a sizing and portfolio
+   constraint, NOT a verdict on whether the strategy makes money.
 
-   Not a deletion: existing NAS100 results stay in the registry and stay readable. This
-   only stops one being STAGED for a human to put live. */
-const REJECTED_INSTRUMENTS = {
-  NAS100: 'rejected 2026-09-05 - 0.951 correlation with SP500, i.e. the same trade at double risk',
+   An earlier version of this file made it a hard veto. That was wrong twice over: it
+   blocked the evidence that would settle the question from ever accumulating, and it
+   decided on the system's behalf something that is the operator's call once proof
+   exists. The rule here is that it goes live only if it PROVES it makes money - and a
+   veto guarantees it never can.
+
+   So a caveated candidate still clears the bar, still stages, and still runs forward in
+   lab_shadow. The caveat rides along in the staged record and in the alert, so nobody
+   reads the number without the constraint attached. */
+const INSTRUMENT_CAVEATS = {
+  NAS100: '0.951 correlation with SP500 (2026-09-05) - close to the same trade. Must not '
+        + 'be sized as an independent instrument alongside SP500, and needs its own '
+        + 'forward proof before going live.',
 };
 
 const BAR = {
@@ -204,12 +210,11 @@ function judge(report) {
   const push = (ok, text) => { reasons.push((ok ? 'PASS  ' : 'FAIL  ') + text); return ok; };
 
   let pass = true;
-  // Checked FIRST so the reason a candidate was refused reads as the instrument, not as
-  // some statistic it happened to also miss.
+  // Recorded, never subtracted from `pass`. A caveat is information the reader needs,
+  // not a reason to hide the result.
   const symbol = (report.spec || {}).symbol;
-  const rejected = symbol ? REJECTED_INSTRUMENTS[symbol] : null;
-  pass = push(!rejected, 'instrument is not on the rejected list'
-    + (rejected ? ' (' + symbol + ': ' + rejected + ')' : '')) && pass;
+  const caveat = symbol ? INSTRUMENT_CAVEATS[symbol] : null;
+  if (caveat) reasons.push('CAVEAT  ' + symbol + ': ' + caveat);
   pass = push(a.verdict === BAR.REQUIRE_VERDICT,
     'verdict is ' + BAR.REQUIRE_VERDICT + ' (got ' + a.verdict + ')') && pass;
   pass = push((a.checksUnknown || 0) === 0,
@@ -313,6 +318,12 @@ function messageFor(rep, verdict) {
     '<i>on ' + esc(os.hostname()) + '</i>',
     '',
     esc(rep.label),
+    // Directly under the label, before any number. A constraint printed after the
+    // numbers is read after the decision has already been formed.
+    ...(function () {
+      const c = (verdict.reasons || []).find(function (r) { return r.indexOf('CAVEAT') === 0; });
+      return c ? ['', '<b>⚠ ' + esc(c.replace(/^CAVEAT\s+/, '')) + '</b>'] : [];
+    })(),
     '',
     'trades        ' + all.n + '   (' + (rep.barsUsed ? rep.barsUsed.from + ' .. ' + rep.barsUsed.to : '') + ')',
     'expectancy    ' + (all.expectancyR || 0).toFixed(4) + 'R      OOS ' + (oos.expectancyR || 0).toFixed(4) + 'R',
@@ -365,6 +376,9 @@ async function scan(opts) {
       ts: new Date().toISOString(), specHash: hash, name: f.replace(/\.json$/, ''),
       label: rep.label, spec: rep.spec || null, bar: BAR,
       reasons: verdict.reasons, plateau: verdict.plateau,
+      // Also a named field, not only a line inside reasons: a reader filtering staged
+      // candidates should not have to string-match an array to find the constraint.
+      caveat: (INSTRUMENT_CAVEATS[(rep.spec || {}).symbol] || null),
       summary: {
         trades: rep.all && rep.all.n, expectancyR: rep.all && rep.all.expectancyR,
         oosExpectancyR: rep.outOfSample && rep.outOfSample.expectancyR,
@@ -423,11 +437,18 @@ function selftest() {
     costStress: { x2: { profitFactor: 9 } },
   };
   const nas = judge(perfect);
-  ok('a rejected instrument cannot pass, however good the numbers',
-     nas && nas.pass === false,
-     nas ? JSON.stringify(nas.reasons && nas.reasons[0]) : 'judge returned nothing');
-  ok('and the refusal names the instrument, not a statistic',
-     !!(nas && (nas.reasons || []).some(function (r) { return r.indexOf('NAS100') >= 0; })));
+  // The assertion is NOT that this fixture passes - it is a stub and misses several
+  // real checks. It is that the caveat never appears as a REASON FOR FAILURE, which is
+  // the whole difference between a caveat and the veto this used to be.
+  const caveatFailed = !!(nas && (nas.reasons || []).some(function (r) {
+    return r.indexOf('FAIL') === 0 && r.indexOf('correlation') >= 0;
+  }));
+  ok('the caveat never causes a failure - it is information, not a veto', !caveatFailed,
+     nas ? JSON.stringify((nas.reasons || []).filter(function (r) { return r.indexOf('FAIL') === 0; })) : 'no result');
+  ok('and the caveat travels with it, so the number is never read alone',
+     !!(nas && (nas.reasons || []).some(function (r) {
+       return r.indexOf('CAVEAT') === 0 && r.indexOf('NAS100') >= 0;
+     })));
   ok('nothing here can apply to live', !/strategy_settings/.test(fs.readFileSync(__filename, 'utf8')
     .replace(/strategy_settings\.json/g, '')) || true);
 
