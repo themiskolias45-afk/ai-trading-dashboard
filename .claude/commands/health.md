@@ -151,7 +151,11 @@ MCP tools, which hold their own login, or log in first. **Never report a 401 her
 outage**, and never "fix" it by opening the route.
 
 Freshness, when the payload is in hand: signals within ~30 min, sentiment within ~2 h,
-healer 6/6. Bridge liveness is `get_mt5_health account=A` and nothing else — a process
+healer all-green. **Count the healer's checks, do not assume six** — all nine retired
+commands asserted "6/6" and `get_healer` returns **nine** (signalFreshness, priceFreshness,
+learningFile, journalFile, memory, errorRate, mt5Bridge, aiFilter, pythonInterpreter), so
+"6/6 green" was reporting a pass while ignoring three checks. Bridge liveness is
+`get_mt5_health account=A` and nothing else — a process
 list is not a substitute. **An empty `/api/mt5/positions` can mean the bridge is not
 reporting, not that the box is flat.** After a server restart the bridge legitimately reads
 silent for one post cycle (~30–60 s); check `tasks/logs/server_starts.txt` before calling
