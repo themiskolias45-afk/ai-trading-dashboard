@@ -130,6 +130,9 @@ async function main() {
 
   let anyFailed = false;
   let serverReachable = true;
+  // Named, not just counted. "2 unverifiable" tells a reader nothing about WHICH
+  // contract is unchecked, and the whole point is that performance was the unchecked one.
+  const unverifiable = [];
 
   for (const endpoint of ENDPOINTS) {
     const snapshotFile = path.join(SNAPSHOTS_DIR, `${endpoint.name}.schema.json`);
