@@ -5008,7 +5008,29 @@ async function pollTelegram() {
 // ══════════════════════════════════════════════════════════════
 
 const SERVER_START = new Date().toISOString();
-app.get("/api/status",  (_, res) => res.json({ status: "online", version: 12, startedAt: SERVER_START, session: getCurrentSession(), ...priceCache }));
+// THESE PRICES ARE NOT THE PRICES THE ENGINE TRADES, and the payload now says so.
+//
+// priceCache is the Yahoo macro feed: gold is GC=F, the COMEX FUTURE. /api/signals
+// publishes XAUUSD SPOT from MT5 bars. Measured 2026-09-07 at the same timestamp:
+// 4476.6 here against 4406.2 there, 70.4 points apart, while BTC and SPX agreed to
+// ~0.1%. That is the futures/spot basis, not staleness and not a fault — this file
+// already records it at :3135 ("GC=F futures and XAUUSD spot differ by tens of
+// dollars") and refuses to draw FVGs from the fallback series for the same reason.
+//
+// But both surfaces called their number "gold" and neither named its instrument, so
+// comparing them looks exactly like finding a stale feed. A QA pass did read it that
+// way and flagged it as an unexplained divergence. Naming the tickers costs nothing
+// and removes the only reason to distrust either number. Additive: every existing key
+// is untouched.
+app.get("/api/status",  (_, res) => res.json({
+  status: "online", version: 12, startedAt: SERVER_START, session: getCurrentSession(),
+  ...priceCache,
+  priceSource: {
+    feed: "Yahoo macro quotes — NOT the broker series the engine trades",
+    tickers: { btc: "CoinGecko bitcoin/usd", gold: "GC=F (COMEX future)", spx: "^GSPC", dxy: "DX-Y.NYB", vix: "^VIX" },
+    note: "gold here is the FUTURE; /api/signals prices XAUUSD SPOT from MT5 bars, and the two differ by tens of dollars. Neither is stale — they are different instruments. Use /api/signals for anything about a trade.",
+  },
+}));
 app.post("/api/shutdown", requireLocalOnly, (_, res) => {
   res.json({ ok: true });
   console.log("[server] Shutdown requested from dashboard");
@@ -11770,7 +11792,19 @@ app.get("/api/fleet", async (_, res) => {
     });
 
     const localUnreviewed = localAiWork?.totals?.unreviewed ?? 0;
-    const peerUnreviewed  = peer.aiWork?.totals?.unreviewed ?? 0;
+    // NOT `?? 0`. That defaulted a FAILED or missing peer probe to zero, which reads as
+    // "the other box has nothing outstanding" — the most reassuring possible answer, at
+    // the exact moment nothing is known. Measured 2026-09-07: get_fleet_status reported
+    // peer 0 and fleetUnreviewed 1 while the peer's own /api/ai-work reported FOUR
+    // unreviewed proposals, all four of them real and later implemented. probePeer's
+    // result is cached and shared, so a single failed or stale probe silently emptied
+    // the fleet's backlog.
+    //
+    // undefined now propagates instead, and both derived fields go null rather than
+    // guessing. Null is already the shape a consumer sees when the peer is unreachable,
+    // so this adds no new case for a reader to handle.
+    const peerUnreviewed  = peer.aiWork?.totals?.unreviewed;
+    const peerCountKnown  = peer.reachable && Number.isFinite(peerUnreviewed);
 
     res.json({
       generatedAt: new Date().toISOString(),
@@ -11782,8 +11816,16 @@ app.get("/api/fleet", async (_, res) => {
       // The number that was wrong: the panel showed only the left-hand side.
       proposals: {
         local: localUnreviewed,
-        peer: peer.reachable ? peerUnreviewed : null,
-        fleetUnreviewed: localUnreviewed + (peer.reachable ? peerUnreviewed : 0),
+        peer: peerCountKnown ? peerUnreviewed : null,
+        // null, not localUnreviewed, when the peer's count is unknown. Adding 0 to the
+        // local figure produced a fleet total that LOOKED complete and silently covered
+        // one box — the same shape as a health check that reports OK while blind.
+        fleetUnreviewed: peerCountKnown ? localUnreviewed + peerUnreviewed : null,
+        // Says which of the two this total actually covers, so a reader never has to
+        // infer it from a null three fields away.
+        covers: peerCountKnown ? "both boxes"
+              : !peer.reachable ? "THIS BOX ONLY — peer unreachable"
+              : "THIS BOX ONLY — peer answered but its /api/ai-work did not, so its backlog is UNKNOWN, not zero",
       },
       // Editing settings on this page writes THIS box's strategy_settings.json and
       // nothing else. Stated in the payload so the page cannot forget to say it.

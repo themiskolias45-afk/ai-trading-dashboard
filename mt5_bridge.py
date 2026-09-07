@@ -2157,7 +2157,18 @@ def report_risk_status():
             "haltCause":  halt_cause or None,
             "haltReleasesInSeconds": round(cooldown_left) if cooldown_left is not None else None,
             "config": {
+                # NOT the risk that sizes a normal trade. RISK_PERCENT is this bridge's
+                # FALLBACK, used by get_lot_size only when the server's risk engine
+                # passes no explicit budget (risk_amount is None, :1213-1214). The live
+                # figure is strategy_settings.riskPercent, which server/sizing.js:371
+                # reads and which is 0.15 today - so publishing this bare as
+                # "riskPercent" made /api/risk-status and /api/strategy-settings
+                # disagree 6.7x under the same field name. Measured 2026-09-07.
+                # Value deliberately unchanged: closing that gap is a MONEY decision,
+                # not a reporting one. Named here so nobody reads 1 as the live risk.
                 "riskPercent":     RISK_PERCENT,
+                "riskPercentIsFallbackOnly": True,
+                "riskPercentNote": "bridge fallback, used only when the server sends no budget; live risk is strategy_settings.riskPercent",
                 "dailyLossPct":    daily_loss_limit,
                 "maxConsecLosses": MAX_CONSECUTIVE_LOSSES,
                 "maxSpreadPts":    MAX_SPREAD_PTS,
@@ -3078,7 +3089,11 @@ def track_closed_positions():
                 # used to hardcode these numbers in HTML, so changing the env vars
                 # left the dashboard confidently displaying the old ones.
                 "config": {
+                    # Same caveat as the risk-status POST above: this is the FALLBACK,
+                    # not the live risk. See get_lot_size :1213-1214.
                     "riskPercent":      RISK_PERCENT,
+                    "riskPercentIsFallbackOnly": True,
+                    "riskPercentNote":  "bridge fallback, used only when the server sends no budget; live risk is strategy_settings.riskPercent",
                     "dailyLossPct":     daily_loss_limit,
                     "maxConsecLosses":  MAX_CONSECUTIVE_LOSSES,
                     "maxSpreadPts":     MAX_SPREAD_PTS,
