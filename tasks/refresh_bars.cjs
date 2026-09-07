@@ -199,6 +199,37 @@ async function main() {
       + "newer - check that MT5 is logged in and its history is downloaded. Files are "
       + "intact and the backup is kept.");
   }
+  // ── The risk this whole file is built around, actually checked ──
+  //
+  // The header says the exporter can knock the live bridge off IPC, and the flat-book
+  // guard exists precisely because of that. But on the day the guard DOES let a run
+  // through, the risk is taken and then nobody looks: until now this exited "done"
+  // without ever asking whether the bridge survived. A guard that prevents the bad case
+  // but never verifies the case it allows is half a guard.
+  //
+  // It only REPORTS. Nothing here kills or restarts anything - tasks/ensure_running.ps1
+  // owns recovery and never kills, which is why it is safe on any schedule. A non-zero
+  // exit is what makes this visible to the coverage audit instead of scrolling past in
+  // a log.
+  // getJson resolves { status, json } - not the body. Reading health.connected here
+  // would be undefined forever and would report a healthy bridge as dead on every run.
+  const health = await getJson("/api/mt5/health?account=A").catch(function () { return null; });
+  const hj = health && health.json ? health.json : null;
+  if (hj && hj.connected === true) {
+    log("  bridge A still connected after the export (last seen "
+      + (hj.lastSeen || "?") + ").");
+  } else {
+    log("  *** BRIDGE A IS NOT ANSWERING AFTER THE EXPORT ***");
+    log("  This is the -10005 failure this file's header warns about. Open positions are");
+    log("  still protected by broker-side SL/TP, but nothing is reconciling them and no");
+    log("  NEW order can be placed until the bridge is back.");
+    log("  Recovery: tasks\ensure_running.ps1 restarts it and never kills; it runs on a");
+    log("  schedule, so this should clear by itself. Check /api/mt5/health?account=A.");
+    log("  Bars WERE refreshed and the backup is retained - this is a bridge alert, not a");
+    log("  data failure.");
+    process.exitCode = 2;
+  }
+
   log("done. Backup retained at " + path.relative(ROOT, backupDir) + " - nothing was deleted.");
 }
 
