@@ -324,7 +324,10 @@ async function buildSignalPipeline() {
   }
 
   const level = findings.some(f => f.level === "RED") ? "RED" : findings.length ? "AMBER" : "OK";
-  return Object.assign({}, base, { stages, findings, level });
+  // Published so build() can tell a producer that REFUSED from one that FAILED. Computed
+  // here because this is where barFreshness is already read; recomputing it there would be
+  // a second reader of the same fact, free to drift from this one.
+  return Object.assign({}, base, { stages, findings, level, brokerMarketClosed: weekend.length > 0 });
 }
 
 async function build() {
