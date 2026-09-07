@@ -1893,6 +1893,19 @@ function calcBB(closes, period = 20, mult = 2) {
   };
 }
 
+// WHICH QUESTION `macd.bullish` ASKS. "signal" is the live rule and the default:
+// MACD above its signal line, i.e. momentum ACCELERATING. "trend" is the candidate under
+// measurement: accelerating OR simply above zero, i.e. a genuine uptrend that may be
+// catching its breath. Declared as a const rather than read from the environment so
+// tasks/_replay_mtf.cjs can override it through SCALAR_CONSTS — the replay sandbox has no
+// `process` global, and an env read here threw on 35,467 steps before this was corrected.
+//
+// DO NOT change this default to "trend" without a walk-forward that clears on its WORST
+// fold. Removing the MACD condition entirely was already measured and makes Gold and
+// SP500 worse; this candidate is deliberately weaker than removal — MACD below zero
+// stays blocked — but weaker is not the same as proven.
+const MACD_BULLISH_MODE = "signal";
+
 function calcMACD(closes) {
   if (closes.length < 35) return null;
   const ema12 = emaSeries(closes, 12);
@@ -1914,7 +1927,42 @@ function calcMACD(closes) {
     // ADDITIVE ONLY: a new field on the returned object. Nothing existing reads it, and
     // no branch condition changes. `crossed` and `bullish` are byte-identical to before.
     crossedBearish: macdLine[last] < signalLine[last] && macdLine[prev] >= signalLine[prev],
-    bullish:   macdLine[last] > signalLine[last]
+    // `bullish` MEANS ACCELERATING, NOT RISING — and that is the single condition
+    // blocking this system for a quarter of every year.
+    //
+    // MEASURED 2026-09-07 on broker daily bars, over the full history:
+    //     asset    MACD>signal   MACD>0 but BELOW signal   MACD<0
+    //     BTCUSD      52.0%            21.8%                26.2%
+    //     XAUUSD      51.7%            25.6%                22.8%
+    //     SP500       52.0%            29.5%                18.5%
+    // The middle column is days the asset is in a GENUINE UPTREND (MACD above zero) and
+    // every setup is refused because MACD sits under its own signal line. That is
+    // momentum decelerating inside an uptrend — which is what a pullback looks like, and
+    // a pullback is exactly what BUY_DIP and MOMENTUM exist to buy. On 2026-09-07 all
+    // three assets sat in that band simultaneously: BTC MACD +3075 against signal +3340,
+    // labelled STRONG UPTREND, confidence 0 from 07:25 onward across 43 readings.
+    //
+    // WHAT WAS ALREADY MEASURED, AND WHAT WAS NOT. Removing macd.bullish outright was
+    // tested per asset at MTF_MAX_HOLD=320 and it makes Gold and SP500 WORSE, so the
+    // condition is earning its keep. But removal is not the only alternative and the
+    // obvious third option had never been tried: keep refusing a DOWNTREND (MACD below
+    // zero stays blocked, which is the protection that made removal fail) while allowing
+    // an uptrend that is merely catching its breath.
+    //
+    // SHIPPED INERT. The default arm is byte-identical to the old expression, so the live
+    // firing set cannot move; MACD_BULLISH_MODE=trend selects the candidate for the
+    // replay harness only. The candidate is a strict SUPERSET — everything the current
+    // rule admits, it admits — so it can never block a setup that fires today. It does
+    // not go live until a walk-forward clears it on its worst fold.
+    // A MODULE CONST, NOT process.env — that was my first attempt and it broke the
+    // harness outright. tasks/_replay_mtf.cjs runs this engine source in a sandbox with
+    // NO `process` global, so the env read threw on every step: 35,467 engine throws
+    // across the three assets, zero trades, and the replay correctly refused to report
+    // a number ("DEGRADED — do not treat it as a complete measurement"). A const is also
+    // the convention the harness already has for exactly this, via SCALAR_CONSTS.
+    bullish:   MACD_BULLISH_MODE === "trend"
+                 ? (macdLine[last] > signalLine[last] || macdLine[last] > 0)
+                 : macdLine[last] > signalLine[last]
   };
 }
 
