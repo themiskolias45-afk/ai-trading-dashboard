@@ -119,7 +119,7 @@ const RULES = [
       /momentumRsiMax\s*[:=]\s*(\d{2,3})\b/g,
       /MOMENTUM_RSI_MAX\s*=\s*(\d{2,3})\b/g,
     ],
-    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|baseline|candidate|default|def:|predates|retired|MEASURED at|configAtWriting)\b/i,
+    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|baseline|candidate|default|def:|predates|retired|MEASURED at|configAtWriting)\b|\bmoved\b[^.\n]{0,14}?\bto\b/i,
   },
   {
     setting: "trendFollowRsiMax",
@@ -129,7 +129,7 @@ const RULES = [
       /trendFollowRsiMax\s*[:=]\s*(\d{2,3})\b/g,
       /TREND_FOLLOW_RSI_MAX\s*=\s*(\d{2,3})\b/g,
     ],
-    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|baseline|candidate|default|def:|predates|retired|MEASURED at|configAtWriting)\b/i,
+    exempt: /\b(was|were|used to|until|before|previously|history|superseded|stale|old|no longer|baseline|candidate|default|def:|predates|retired|MEASURED at|configAtWriting)\b|\bmoved\b[^.\n]{0,14}?\bto\b/i,
   },
   {
     setting: "fixedLotSize",
