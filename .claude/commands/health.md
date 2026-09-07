@@ -59,7 +59,7 @@ is on built-in defaults, not the saved config — say that before anything else.
 ```
 STATUS — [HH:MM]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SERVER   [ONLINE/OFFLINE]  uptime [Xh Xm]   healer [X/6]
+SERVER   [ONLINE/OFFLINE]  uptime [Xh Xm]   healer [X/N green]
 REGIME   [regime]  session [session]  halted [YES/NO]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 BTC      [SIGNAL/WAIT] [conf]%  [WAIT: gap Xpt | last trade Nd ago] [SIGNAL: entry $X stop $X]
