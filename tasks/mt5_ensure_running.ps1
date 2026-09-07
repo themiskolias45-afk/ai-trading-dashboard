@@ -71,7 +71,20 @@ function Resolve-Mt5DataDir($hash) {
     return $null
 }
 $DataDir   = Resolve-Mt5DataDir $TerminalHash
-$StatusOut = "$Root\dashboard\mt5-runtime-status.json"
+# THIS FILE IS VPS-OWNED, DELIBERATELY, AND THAT IS WHY THIS PATH IS NOT $Root.
+#
+# tasks/pull_vps_status.ps1:26 copies the VPS's mt5-runtime-status.json DOWN onto the
+# laptop every 10 minutes: the laptop dashboard is meant to show the terminal on the box
+# that trades 24/7, not its own. Deriving this from $Root the way the two paths above are
+# derived puts a SECOND writer on that filename, and the laptop panel then alternates
+# between two machines' terminals depending on which job ran last. Measured 2026-09-07 -
+# the laptop's copy held host=VMI3465345, account=11581419, EA v355, which is correct and
+# intended, not drift.
+#
+# So the literal stays, and on the laptop this write lands outside the live repo and does
+# nothing, which is the status quo and is harmless. If the laptop should ever publish its
+# OWN MT5 state that needs a distinct filename and a reader, not a change here.
+$StatusOut = 'C:\ai-trading-dashboard\dashboard\mt5-runtime-status.json'
 $LogFile   = "$Root\tasks\logs\mt5_ensure_running.txt"
 
 if (-not (Test-Path "$Root\tasks\logs")) { New-Item -ItemType Directory -Force "$Root\tasks\logs" | Out-Null }
