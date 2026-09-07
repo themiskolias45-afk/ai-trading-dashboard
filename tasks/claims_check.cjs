@@ -51,7 +51,19 @@ const path = require("path");
 const http = require("http");
 
 const ROOT = path.join(__dirname, "..");
+// Both files are checked as one corpus. The facts moved to SYSTEM-FACTS.md on
+// 2026-09-07; the CLAIMS did not change, so this reads the pair rather than
+// duplicating the anchor table. A missing SYSTEM-FACTS.md is UNVERIFIABLE, never a
+// failure — the split must not become a broken check on a box that has not pulled.
 const CLAUDE_MD = path.join(ROOT, "CLAUDE.md");
+const FACTS_MD  = path.join(ROOT, "SYSTEM-FACTS.md");
+// The ONE file --fix may write. Anchors are facts, so after the 2026-09-07 split
+// they live in SYSTEM-FACTS.md. This is deliberately a single path and never a
+// concatenation: applyAnchorFixes edits by BYTE OFFSET, so a corpus spanning two
+// files would compute offsets against one string and write them into another —
+// which would splice the facts file into the boot file. Read-only checks may span
+// both; anything that writes owns exactly one file.
+const ANCHOR_DOC = fs.existsSync(FACTS_MD) ? FACTS_MD : CLAUDE_MD;
 const ENGINE = path.join(ROOT, "server", "index.js");
 const AS_JSON = process.argv.includes("--json");
 const AS_FIX = process.argv.includes("--fix");
@@ -462,7 +474,7 @@ function applyAnchorFixes(docText) {
   // Rule 4: copy before you rewrite, and VERIFY the copy before touching the original.
   // A backup that was never written is not a backup.
   const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
-  const backup = `${CLAUDE_MD}.bak-claims-${stamp}`;
+  const backup = `${ANCHOR_DOC}.bak-claims-${stamp}`;
   try {
     fs.writeFileSync(backup, docText, "utf8");
     if (fs.readFileSync(backup, "utf8") !== docText) {
@@ -472,7 +484,7 @@ function applyAnchorFixes(docText) {
     return { changed: 0, error: `backup failed (${err.message}) — nothing written` };
   }
 
-  fs.writeFileSync(CLAUDE_MD, next, "utf8");
+  fs.writeFileSync(ANCHOR_DOC, next, "utf8");
   return { changed: edits.length, edits, backup };
 }
 
@@ -524,18 +536,28 @@ function report() {
 }
 
 async function main() {
-  let docText;
+  let docText, anchorText;
   try {
     docText = fs.readFileSync(CLAUDE_MD, "utf8");
   } catch (err) {
     console.error(`claims_check: cannot read CLAUDE.md — ${err.message}`);
     process.exit(2);
   }
+  // Facts file is optional: a box that has not pulled the split still gets a usable
+  // run rather than exit 2.
+  if (fs.existsSync(FACTS_MD)) {
+    docText += "\n" + fs.readFileSync(FACTS_MD, "utf8");
+  } else {
+    record(UNVERIFIABLE, "SYSTEM-FACTS.md present", "readable",
+      "not found — the 2026-09-07 facts split may not be pulled on this box",
+      "git pull, then re-run");
+  }
+  anchorText = fs.readFileSync(ANCHOR_DOC, "utf8");
 
-  checkAnchors(docText);
+  checkAnchors(anchorText);
 
   if (AS_FIX) {
-    fixResult = applyAnchorFixes(docText);
+    fixResult = applyAnchorFixes(anchorText);
     if (fixResult.error) {
       console.error(`claims_check --fix: ${fixResult.error}`);
       process.exit(2);
@@ -555,8 +577,8 @@ async function main() {
       // CLAUDE.md as it now stands, not as it was when the run started. A --fix that
       // reported the pre-fix state would be its own stale claim.
       findings.length = 0;
-      docText = fs.readFileSync(CLAUDE_MD, "utf8");
-      checkAnchors(docText);
+      anchorText = fs.readFileSync(ANCHOR_DOC, "utf8");
+      checkAnchors(anchorText);
     }
   }
 
