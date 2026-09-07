@@ -63,7 +63,12 @@ const PIPELINES = [
     what: "Every gate kill, walked forward on real broker bars to ask whether the gate SHOULD have fired.",
     stages: [
       { name: "rejections written",  file: "tasks/rejections.jsonl",        by: "server/rejection_log.js", cadence: 6,  consumedBy: "score_rr_rejections.py" },
-      { name: "forward-scored",      file: "tasks/rejections_scored.jsonl", by: "tasks/score_rr_rejections.py", cadence: 24, consumedBy: "learning_from_rejections.py" },
+      // marketDependent: score_rr_rejections.py DELIBERATELY refuses to walk rejections
+      // forward while the broker market is closed - a weekend bar cannot resolve a
+      // level. Untagged, its refusal aged into "has missed a run", so the monitor
+      // reported a correct decision as a fault every weekend. This is the only one of
+      // the three forward-scored stages whose producer refuses on a closed market.
+      { name: "forward-scored",      file: "tasks/rejections_scored.jsonl", by: "tasks/score_rr_rejections.py", cadence: 24, marketDependent: true, consumedBy: "learning_from_rejections.py" },
       { name: "shadow book",         file: "server/learning_shadow.json",   by: "tasks/learning_from_rejections.py", cadence: 24, consumedBy: "/api/learning, the deep plan" },
     ],
   },
