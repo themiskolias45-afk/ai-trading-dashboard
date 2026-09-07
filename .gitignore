@@ -174,3 +174,10 @@ server/smartentry.db-wal
 # box's live trade history with the other's. History keeps every version already
 # committed; nothing is lost by stopping here.
 server/smartentry.db
+
+# Written by tasks/lab_shadow.cjs every 15 minutes on each box, from that box's own
+# copy of the lab registry. Regenerable, per-machine, and it conflicted on the very
+# first sync after it was added - same reason as learning_shadow.json above. The
+# LEDGER (tasks/lab_shadow.jsonl) stays tracked: that is accumulated evidence and
+# pools across both boxes, which is the opposite requirement.
+dashboard/lab-shadow.json
