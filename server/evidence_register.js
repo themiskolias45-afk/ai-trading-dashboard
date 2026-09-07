@@ -1223,6 +1223,20 @@ function liveSample() {
   try {
     const learning = JSON.parse(fs.readFileSync(path.join(__dirname, "learning.json"), "utf8"));
     if (Number.isFinite(learning?.sessionCount)) out.sessions = learning.sessionCount;
+    // THE COUNTER THE learningpayoff CLAIM NEEDED IN ORDER TO EVER FLAG ITSELF.
+    //
+    // That claim's own text ended "NOT a code change until that runs: this reaches the
+    // gate, and no setup has yet cleared the 5-trade floor that would make the boost
+    // non-zero at all." On 2026-09-07 the floor was cleared - MOMENTUM 3W/2L - and the
+    // boost went live at +3 on a setup whose totalPnl is -170.32 and which
+    // /api/checksystem labels PAYOFF-NEGATIVE. The claim declared NO sample, so nothing
+    // compared anything and it went on reading as a hypothetical after it had come true.
+    //
+    // A claim that cannot notice its own premise arriving is not a claim, it is a note.
+    const totals = Object.values(learning?.setupStats || {})
+      .map(s => (s?.wins || 0) + (s?.losses || 0))
+      .filter(Number.isFinite);
+    if (totals.length) out.maxSetupClosedTrades = Math.max(...totals);
   } catch (e) { /* sessions stay null */ }
   // The rejection ledger, which is what the fastest-moving claims here actually quote.
   // Without this they declared a sample nothing could check: MIN_RR's evidence said "86
