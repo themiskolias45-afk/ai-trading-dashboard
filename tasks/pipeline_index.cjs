@@ -383,7 +383,7 @@ async function build() {
       }
       // Cadence, and ONLY for continuous stages. An event-driven artifact sitting
       // still is the ordinary state of a system that fills once every four days.
-      if (!s.eventDriven && s.cadenceHours && s.ageHours > s.cadenceHours * 1.5) {
+      if (!s.eventDriven && !declined && s.cadenceHours && s.ageHours > s.cadenceHours * 1.5) {
         findings.push({ level: "AMBER", stage: s.name,
           detail: `${s.ageHours}h old against a ${s.cadenceHours}h cadence — ${s.by} has missed a run.` });
       }
