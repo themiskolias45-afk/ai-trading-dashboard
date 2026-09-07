@@ -262,9 +262,45 @@ function evaluate(assetKey, symbol, bias, exec, sinceLastEntry, trace) {
   return null;
 }
 
+// Read the bar dump, retrying a few times before giving up.
+//
+// WHY: measured 2026-09-07. The server restarts, this task fires inside the warm-up
+// window, the 8s GET times out, and the tick returns having recorded nothing -- so a
+// restart silently costs shadow samples, and sample size is the binding constraint on
+// this whole system. Both tk_shadow.txt and fvg_shadow.txt ended on
+// "cannot read bars: timeout /api/mt5/candles/raw" that morning while their runs 3 and 6
+// hours earlier had succeeded.
+//
+// ADDITIVE ONLY. On a first-attempt success this is byte-identical to the single call it
+// replaces, and the give-up path keeps the same message and the same return, so nothing
+// downstream can tell the difference. This runner is shadow (feedsTheGate: false, places
+// no orders), so a retry cannot delay, suppress or duplicate a trade.
+//
+// Overlap is impossible: the three shadow tasks are MultipleInstances=IgnoreNew with a
+// PT10M limit on 15-30 minute intervals, and the worst case here is ~26s.
+const BAR_FETCH_ATTEMPTS = 3;
+const BAR_FETCH_RETRY_MS = 5000;
+
+function pause(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function getBarsWithRetry(label) {
+  let lastError;
+  for (let attempt = 1; attempt <= BAR_FETCH_ATTEMPTS; attempt++) {
+    try { return await get("/api/mt5/candles/raw"); }
+    catch (e) {
+      lastError = e;
+      if (attempt < BAR_FETCH_ATTEMPTS) {
+        console.error(`[${label}] bars attempt ${attempt}/${BAR_FETCH_ATTEMPTS} failed (${e.message}) — retrying in ${BAR_FETCH_RETRY_MS / 1000}s`);
+        await pause(BAR_FETCH_RETRY_MS);
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function tick() {
   let raw;
-  try { raw = await get("/api/mt5/candles/raw"); }
+  try { raw = await getBarsWithRetry("fvg"); }
   catch (e) { console.error("[fvg] cannot read bars: " + e.message); return; }
   const assets = raw && raw.assets ? raw.assets : null;
   if (!assets) { console.error("[fvg] no assets in the candle dump"); return; }
