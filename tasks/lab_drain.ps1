@@ -168,6 +168,13 @@ try {
         } else {
             Write-Log 'shadow: could not parse its output - investigate'
         }
+        # Drift is the shadow's actual job - it cannot confirm an edge on any useful
+        # horizon, but it can show one decaying. Logged separately and only when non-zero,
+        # so it does not become another line that is always there and therefore unread.
+        $dm = [regex]::Match($shadowText, 'DRIFT ALERTS:\s*(\d+)(.*)')
+        if ($dm.Success -and $dm.Groups[1].Value -ne '0') {
+            Write-Log ('shadow: *** DRIFT *** ' + $dm.Groups[2].Value.Trim())
+        }
     } catch {
         Write-Log ('shadow: ERROR ' + $_.Exception.Message)
     }

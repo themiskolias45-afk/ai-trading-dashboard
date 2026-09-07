@@ -230,6 +230,28 @@ function collect(nowIso) {
     const sumR = mine.reduce(function (a, r) { return a + (Number(r.r) || 0); }, 0);
     const wins = mine.filter(function (r) { return Number(r.r) > 0; }).length;
 
+    // THE DRIFT TEST, AND ITS OWN SENSITIVITY IN THE SAME BREATH.
+    //
+    // Is the forward run consistent with what the backtest claimed? Compare the observed
+    // sum against what the OOS expectancy predicts over the same number of trades:
+    //
+    //   z = (sumR - n*edge) / (sd * sqrt(n))
+    //
+    // The second number is the one that keeps this honest. At n trades the smallest
+    // per-trade degradation this can see at all is 1.96*sd/sqrt(n) - at n=3 and sd~2.2R
+    // that is about 2.5R per trade, i.e. only a catastrophe is visible. Reporting a
+    // green "no drift" without that figure would be the same false comfort as a monitor
+    // that reports OK while blind, which this project has already been bitten by.
+    let driftZ = null, driftStatus = 'NOT ENOUGH DATA', minDetectableR = null;
+    if (mine.length > 0 && sd !== null && sd > 0 && Number.isFinite(effect)) {
+      const se = sd * Math.sqrt(mine.length);
+      driftZ = (sumR - mine.length * effect) / se;
+      minDetectableR = 1.96 * sd / Math.sqrt(mine.length);
+      if (driftZ <= -1.96)      driftStatus = 'WORSE THAN BACKTEST';
+      else if (driftZ >= 1.96)  driftStatus = 'BETTER THAN BACKTEST';
+      else                      driftStatus = 'consistent so far';
+    }
+
     perCandidate.push(Object.assign({}, entry, {
       symbol:                 spec.symbol,
       timeframe:              spec.timeframe,
@@ -253,6 +275,11 @@ function collect(nowIso) {
       tradeRStdDev:           sd === null ? null : Number(sd.toFixed(4)),
       requiredForwardTrades:  requiredN,
       daysToRequired:         daysToRequired,
+      driftZ:                 driftZ === null ? null : Number(driftZ.toFixed(2)),
+      driftStatus:            driftStatus,
+      // The smallest per-trade degradation detectable at the CURRENT sample size. A
+      // "consistent so far" is worth exactly as much as this number is small.
+      minDetectableDegradationR: minDetectableR === null ? null : Number(minDetectableR.toFixed(3)),
     }));
   }
 
@@ -302,12 +329,28 @@ function main(argv) {
       + (c.forwardVsExpected === null ? '' : '  (' + (c.forwardVsExpected >= 0 ? '+' : '') + c.forwardVsExpected + ')')
       + '   ' + c.forwardTrades + '/' + c.forwardFloor + ' toward the borrowed floor'
       + (c.daysToForwardFloor === null ? '' : ', ~' + c.daysToForwardFloor + ' days at this rate'));
+    console.log('    DRIFT        ' + c.driftStatus
+      + (c.driftZ === null ? '' : '  (z ' + (c.driftZ >= 0 ? '+' : '') + c.driftZ + ')')
+      + (c.minDetectableDegradationR === null
+          ? '   - no forward trades yet, so nothing is being detected'
+          : '   - at ' + c.forwardTrades + ' trades this can only see a change of '
+            + c.minDetectableDegradationR + 'R per trade or larger'));
     console.log('    TO PROVE IT  needs ~' + (c.requiredForwardTrades === null ? '?' : c.requiredForwardTrades)
       + ' forward trades to separate ' + fmtR(c.backtestOosExpectancyR) + ' from zero'
       + ' (sd ' + (c.tradeRStdDev === null ? '?' : c.tradeRStdDev) + 'R)'
       + (c.daysToRequired === null ? '' : '  ~' + c.daysToRequired + ' days at this rate'));
     console.log('    bars to ' + c.lastBarSeen + '   staged ' + c.stagedAt);
   }
+  // ONE PARSEABLE LINE for the drain log and the coverage audit. A drift status that
+  // only ever appears inside a dashboard is a monitor nobody reads.
+  const alerts = candidates.filter(function (c) {
+    return c.driftStatus === 'WORSE THAN BACKTEST' || c.driftStatus === 'BETTER THAN BACKTEST';
+  });
+  console.log('  DRIFT ALERTS: ' + alerts.length
+    + (alerts.length ? ' -> ' + alerts.map(function (c) {
+        return c.name + ' ' + c.driftStatus + ' (z ' + c.driftZ + ')';
+      }).join('; ') : ''));
+
   const fresh = dataFreshness();
   console.log('  bars: ' + fresh.fresh.length + ' current, ' + fresh.stale.length
     + ' stale (>' + fresh.maxAgeHours + 'h)'

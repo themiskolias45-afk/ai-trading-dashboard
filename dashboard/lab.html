@@ -709,6 +709,24 @@ function rateCell(c) {
   return line + floor + prove;
 }
 
+/* Drift, WITH ITS SENSITIVITY ATTACHED. "consistent so far" is worth exactly as much
+   as the smallest change the current sample could have detected - at 3 trades that is
+   ~2.5R per trade, i.e. only a catastrophe. Printing the reassurance without the
+   sensitivity is the same false comfort as a monitor reporting OK while blind. */
+function driftCell(c) {
+  var st = c.driftStatus || 'NOT ENOUGH DATA';
+  var colour = st === 'WORSE THAN BACKTEST' ? 'var(--red,#e05555)'
+             : st === 'BETTER THAN BACKTEST' ? 'var(--amber,#e0a030)'
+             : 'inherit';
+  var head = '<span style="color:' + colour + '">' + esc(st) + '</span>'
+           + (c.driftZ === null || c.driftZ === undefined ? ''
+              : ' <span style="opacity:.75">z ' + (c.driftZ >= 0 ? '+' : '') + c.driftZ + '</span>');
+  var sens = (c.minDetectableDegradationR === null || c.minDetectableDegradationR === undefined)
+    ? '<div class="sub">nothing detectable yet</div>'
+    : '<div class="sub">can only see &ge; ' + c.minDetectableDegradationR + 'R/trade</div>';
+  return head + sens;
+}
+
 function freshnessLine(f) {
   if (!f) return '';
   if (!f.stale || !f.stale.length) {
@@ -763,6 +781,7 @@ function freshnessLine(f) {
         + '<td>' + fwd + '</td>'
         + '<td>' + (c.forwardWinRate === null ? '-' : c.forwardWinRate + '%') + '</td>'
         + '<td>' + rateCell(c) + '</td>'
+        + '<td>' + driftCell(c) + '</td>'
         + '<td>' + esc(String(c.stagedAt || '').slice(0, 10)) + '</td>'
         + '</tr>';
     }).join('');
@@ -773,7 +792,8 @@ function freshnessLine(f) {
       + (total.forwardTrades || 0) + ' forward trades · ' + age + '</span></div>'
       + '<div class="card-body scroll-x"><table><thead><tr>'
       + '<th>Candidate</th><th>Market</th><th>Backtest exp R</th><th>Backtest OOS R</th>'
-      + '<th>Forward (out of sample)</th><th>Forward win</th><th>Expected vs actual</th><th>Staged</th>'
+      + '<th>Forward (out of sample)</th><th>Forward win</th><th>Expected vs actual</th>'
+      + '<th>Drift</th><th>Staged</th>'
       + '</tr></thead><tbody>' + rows + '</tbody></table>'
       + '<div class="sub" style="margin-top:8px">Shadow only — these never reach an order, '
       + 'a gate or a setting. Forward counts start the moment a candidate was staged; a handful '
