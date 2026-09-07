@@ -399,8 +399,25 @@ const CLAIMS = [
       + "current one on its worst fold, the boost stays exactly as it is. NOT a code "
       + "change until that runs: this reaches the gate, and no setup has yet cleared "
       + "the 5-trade floor that would make the boost non-zero at all.",
-    harness: "node tasks/mtf_walkforward.cjs  (or run_walkforward via MCP) with a "
-      + "boost-variant arm; no such arm exists yet",
+    // THE SAMPLE THIS CLAIM NEVER DECLARED, which is why it could not flag itself.
+    //
+    // 3 is not a guess: the evidence text above states "MOMENTUM is 2W-1L" and every
+    // other tracked setup sat at 1 closed trade, so 3 was the largest per-setup total
+    // on measuredOn 2026-08-30. Live is now 5, and crossing LEARNING_MIN_TRADES is
+    // exactly the event changesTheAnswer said had not happened yet - so recurationCheck
+    // will now raise this claim as needing recuration instead of letting the prose go
+    // on describing a hypothetical that has already occurred.
+    sampleAtWriting: { maxSetupClosedTrades: 3 },
+    sampleFrom: "server/learning.json setupStats, largest per-setup wins+losses",
+    // Built 2026-09-07: tasks/learning_boost_walkforward.cjs extracts getLearningBoost
+    // and its four constants FROM server/index.js and walks three signals through the
+    // one curve - win rate, R-weighted, and cash-weighted. First result inverted the
+    // expectation: at MOMENTUM 3W-2L the R-weighted boost is +6 against the live +3,
+    // i.e. MORE permissive, because the setup is +2.440R while being -$170.32. Only the
+    // cash signal reads negative. Nine fills settles nothing and the report says so;
+    // what it establishes is that the three disagree and in which direction.
+    harness: "node tasks/learning_boost_walkforward.cjs  (--selftest for its 16 checks). "
+      + "A worst-fold walk-forward arm in tasks/mtf_walkforward.cjs still does not exist.",
     feedsTheGate: false,
   },
   {
