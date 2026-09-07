@@ -8,7 +8,7 @@ Do NOT look at code yet. Gather all available error data:
     tasks\logs\server_log.txt
     tasks\logs\bridge_log.txt
     tasks\logs\startup_log.txt
-    tasks\logs\error_log.txt
+    tasks\logs\error_log.txt   (DOES NOT EXIST — verified 2026-09-07; use server_log.txt / server_crash.txt instead)
 
   Live system state (if server is running):
     mcp__smartentry__get_healer     → which health checks are failing

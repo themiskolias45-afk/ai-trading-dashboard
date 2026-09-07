@@ -3,11 +3,11 @@ Full system health check. Usage: /health
 Run ALL of these directly — do not depend on Python scripts succeeding.
 
 ═══ STEP 1 — LIVE API STATUS (in parallel) ═══
-  GET http://localhost:3001/api/health       → uptime, version
+  GET http://localhost:3001/api/health       → uptime, version. 401 unauthenticated BY DESIGN — prefer mcp__smartentry__get_healer; a 401 is NOT a failure
   GET http://localhost:3001/api/signals      → BTC/Gold/SPX signals + confidence
   GET http://localhost:3001/api/risk-status  → regime, circuit breaker, session P&L
   GET http://localhost:3001/api/healer       → healer checks (count them; there are NINE today, and mt5Bridge is one)
-  GET http://localhost:3001/api/sentiment    → Fear & Greed score + updated timestamp
+  GET http://localhost:3001/api/sentiment    → Fear & Greed score + updated timestamp. 401 unauthenticated BY DESIGN and no MCP tool covers it — record UNVERIFIABLE, never FAIL
 
 If server is offline (connection refused): "SERVER OFFLINE — run tasks\menu.bat option S to restart"
 

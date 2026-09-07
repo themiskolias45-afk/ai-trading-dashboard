@@ -10,7 +10,7 @@ Use when the system is running but not taking any trades. Traces the full signal
   mcp__smartentry__get_learning             → setup win rates and confidence boosts
 
   Also fetch (HTTP):
-  GET http://localhost:3001/api/setup-health   → which setups are disabled today?
+  GET http://localhost:3001/api/setup-health   → which setups are disabled today? (session-gated: 401 unauthenticated is BY DESIGN — the same data rides on mcp__smartentry__get_learning and /api/checksystem)
 
 ═══ STEP 2 — CHECK EACH POSSIBLE CAUSE IN ORDER ═══
 
@@ -32,7 +32,7 @@ Use when the system is running but not taking any trades. Traces the full signal
     → Is the healer reporting stale data (updatedAt > 60 min ago)?
 
   CAUSE D — SETUP HEALTH DISABLING ALL SETUPS:
-    From /api/setup-health: are any setups listed as AVOID or DISABLED?
+    From /api/setup-health (or get_learning / checksystem if it 401s — the 401 is BY DESIGN): are any setups listed as AVOID or DISABLED?
     If ALL setups are disabled → no signal can fire.
     → Why were they disabled? WR too low? Manual override?
 

@@ -17,16 +17,16 @@ Run after every major change. Run before going live. Run when something feels wr
 
 ═══ 3. SERVER — all endpoints responding ═══
 Fetch in parallel (timeout 8s each):
-  GET /api/health      → 200 OK
+  GET /api/health      → session-gated: 401 unauthenticated is BY DESIGN. Use mcp__smartentry__get_healer for the real answer; do NOT score the 401 as a failure
   GET /api/signals     → JSON with btc, gold, spx objects
   GET /api/prices      → JSON with price data
   GET /api/risk-status → JSON with regime, circuitBreaker
   GET /api/healer      → JSON with checks object
-  GET /api/sentiment   → JSON with fearGreed number
+  GET /api/sentiment   → session-gated: 401 unauthenticated is BY DESIGN and no MCP tool covers it. Record UNVERIFIABLE, never FAIL
 
 ═══ 4. DATA FRESHNESS ═══
   /api/signals: check updatedAt — must be within last 30 min
-  /api/sentiment: check updated — must be within last 2 hours
+  /api/sentiment: check updated — must be within last 2 hours (skip this line entirely if the GET returned 401: gated, not stale)
   /api/healer: check how many checks are green (count the total from the response — it is 9 today, not 6)
 
 ═══ 5. SIGNAL INTEGRITY ═══

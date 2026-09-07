@@ -6,7 +6,7 @@ Goes deeper than /check. /check does quick syntax. /errors finds runtime problem
 Read completely:
   tasks\logs\server_log.txt
   tasks\logs\bridge_log.txt
-  tasks\logs\error_log.txt
+  tasks\logs\error_log.txt   (DOES NOT EXIST — verified 2026-09-07; use server_log.txt / server_crash.txt instead)
   tasks\logs\startup_log.txt
   (any other .log or .txt in tasks\logs\)
 
@@ -56,7 +56,7 @@ Call each endpoint and check for errors:
 
   HTTP extras (if server running):
   GET /api/journal → check for 500 or malformed JSON
-  GET /api/setup-health → check for 500
+  GET /api/setup-health → check for 500. A 401 is session-gating BY DESIGN and is NOT an error; only a 5xx counts here
 
 ═══ SCAN 4 — SIGNAL INTEGRITY ═══
 From mcp__smartentry__get_signals:

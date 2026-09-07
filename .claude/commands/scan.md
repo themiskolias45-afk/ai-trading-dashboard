@@ -5,7 +5,7 @@ $ARGUMENTS may contain asset symbols or --debate flag.
 ═══ PRIMARY — Direct API (always works) ═══
 Fetch in parallel:
   GET http://localhost:3001/api/signals      → all three assets
-  GET http://localhost:3001/api/sentiment    → Fear & Greed context
+  GET http://localhost:3001/api/sentiment    → Fear & Greed context (401 unauthenticated BY DESIGN — treat as UNVERIFIABLE, not a failure)
   GET http://localhost:3001/api/risk-status  → regime + circuit breaker
 
 Score each asset (0–100):

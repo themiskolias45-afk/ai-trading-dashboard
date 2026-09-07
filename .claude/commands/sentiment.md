@@ -2,7 +2,8 @@ Full market sentiment analysis — Fear & Greed, news, macro context.
 
 Do all of this in order:
 
-1. Fetch http://localhost:3001/api/sentiment — Fear & Greed score + classification
+1. Fetch http://localhost:3001/api/sentiment — Fear & Greed score + classification.
+   Session-gated: a 401 is BY DESIGN and means unavailable, NOT broken. Say so rather than reporting a fault.
 2. Fetch http://localhost:3001/api/signals — current confidence levels per asset
 3. Fetch http://localhost:3001/api/prices — BTC/Gold/SPX/DXY/VIX
 4. Brave search: "crypto market sentiment today [date]"

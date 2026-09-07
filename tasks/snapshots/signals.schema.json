@@ -7,9 +7,9 @@
     "setup": "string",
     "strength": "string",
     "entry": "number",
-    "stop": "number",
-    "target": "number",
-    "rr": "number",
+    "stop": "null",
+    "target": "null",
+    "rr": "null",
     "atr": "number",
     "indicators": {
       "rsi": "number",
@@ -66,7 +66,7 @@
       "rsi": "number",
       "setup": "string"
     },
-    "h1Agree": "string",
+    "h1Agree": "null",
     "m15": {
       "signal": "string",
       "trend": "string",
@@ -109,9 +109,9 @@
     "setup": "string",
     "strength": "string",
     "entry": "number",
-    "stop": "number",
-    "target": "number",
-    "rr": "number",
+    "stop": "null",
+    "target": "null",
+    "rr": "null",
     "atr": "number",
     "indicators": {
       "rsi": "number",
@@ -168,7 +168,7 @@
       "rsi": "number",
       "setup": "string"
     },
-    "h1Agree": "string",
+    "h1Agree": "null",
     "m15": {
       "signal": "string",
       "trend": "string",
@@ -211,9 +211,9 @@
     "setup": "string",
     "strength": "string",
     "entry": "number",
-    "stop": "number",
-    "target": "number",
-    "rr": "number",
+    "stop": "null",
+    "target": "null",
+    "rr": "null",
     "atr": "number",
     "indicators": {
       "rsi": "number",
@@ -270,7 +270,7 @@
       "rsi": "number",
       "setup": "string"
     },
-    "h1Agree": "string",
+    "h1Agree": "null",
     "m15": {
       "signal": "string",
       "trend": "string",

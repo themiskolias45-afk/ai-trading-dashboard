@@ -66,7 +66,9 @@ STEP 2 — DEEP ERROR SEARCH:
   Read the LAST 200 lines of each log that exists:
     tasks\logs\server_log.txt
     tasks\logs\bridge_log.txt
-    tasks\logs\error_log.txt
+    tasks\logs\error_log.txt   (DOES NOT EXIST — verified 2026-09-07. Scanning a missing
+    file finds nothing, which reads exactly like finding no errors. Use the real logs:
+    tasks\logs\server_log.txt, server_crash.txt, and the per-job logs in tasks\logs\)
     tasks\logs\startup_log.txt
 
   Scan for: ERROR, WARN, TypeError, undefined is not, Cannot read, ECONNREFUSED,

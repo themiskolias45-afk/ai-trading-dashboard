@@ -41,11 +41,11 @@ every answer that follows.
 
 ═══ API HEALTH ═══
 Fetch these in parallel (timeout 5s each):
-  GET http://localhost:3001/api/health
+  GET http://localhost:3001/api/health        (401 unauthenticated BY DESIGN — use mcp__smartentry__get_healer instead; a 401 is NOT a failure)
   GET http://localhost:3001/api/signals
   GET http://localhost:3001/api/risk-status
   GET http://localhost:3001/api/healer
-  GET http://localhost:3001/api/sentiment
+  GET http://localhost:3001/api/sentiment     (401 unauthenticated BY DESIGN — no MCP tool covers it; record UNVERIFIABLE, never FAIL)
 
 Mark each PASS (200 + valid JSON) or FAIL (error/timeout/wrong shape).
 
