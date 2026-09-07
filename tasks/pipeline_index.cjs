@@ -243,6 +243,10 @@ async function buildSignalPipeline() {
 
   // 1 — bars. barFreshness already distinguishes a stale feed from a closed market.
   const sig = signals.ok ? signals.data : null;
+  // Hoisted out of the else-branch below so it can be PUBLISHED rather than used for one
+  // sentence and discarded. [] when /api/signals did not answer, which correctly means
+  // "do not exempt anything" - an unknown market is not a closed one.
+  let weekend = [];
   if (!sig) {
     stage("MT5 bars", "the broker series the engine reads", "BROKEN",
       "/api/signals did not answer (" + signals.reason + ").", "mt5_bridge.py push", "generateSignalMTF");
