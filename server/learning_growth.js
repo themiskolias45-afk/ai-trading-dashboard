@@ -241,7 +241,10 @@ function build(options) {
       + "on real bars — no spread, no slippage, entries never filled. They are how "
       + "fast the system is learning, NOT what it earned. Realised P&L lives on the "
       + "Performance tab and rests on a handful of fills - the system is weeks old, "
-      + "so that number is young, not stalled.",
+      + "so that number is young, not stalled. Counts QUALITY-gate episodes only: a "
+      + "DUPLICATE was already traded and a CONTEXT gate rejects on state rather than "
+      + "on the setup, so neither is evidence ABOUT the setup. What was set aside is "
+      + "published as notCountedAsEvidence, never dropped.",
     updatedAt: new Date().toISOString(),
   };
 }
