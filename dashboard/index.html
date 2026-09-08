@@ -5462,21 +5462,45 @@ async function loadFeedTab() {
     })();
 
     // MT5 positions
+    // EVERY POSITION OF OURS, NOT JUST THE ENGINE'S.
+    // This read `pos.positions` alone, which is the SmartEntry engine's own magic
+    // (20250101) and nothing else. Our strategy executors trade on their own magics -
+    // TK_SWING_PULLBACK, FVG_CONTINUATION, CRT_FVG - and /api/mt5/positions has always
+    // returned them under `executors`, classified by the server's OWN_MAGICS allow-list.
+    // Nothing rendered that key. Measured 2026-09-08: a live BTCUSD 0.05
+    // TK_SWING_PULLBACK sat at -120.15 with no surface anywhere on this page, which is
+    // real money the operator could not see.
+    //
+    // THE TWO BOOKS STAY LABELLED, NEVER POOLED. An executor row is ours but is not
+    // sized, managed or closed by the engine; merging the counts into one "3 open" would
+    // imply the engine is managing a trade it has never heard of.
+    // Third-party EA rows are NOT shown here - that is the operator's 2026-09-03
+    // decision, enforced server-side by the allow-list, and this panel does not reopen it.
     const posBody = document.getElementById('fd-pos-body');
     const positions = pos?.positions || [];
-    document.getElementById('fd-pos-count').textContent = positions.length ? `${positions.length} open` : 'No positions';
+    const execPos   = pos?.executors || [];
+    const posCountEl = document.getElementById('fd-pos-count');
+    if (posCountEl) {
+      const parts = [];
+      if (positions.length) parts.push(`${positions.length} engine`);
+      if (execPos.length)   parts.push(`${execPos.length} executor`);
+      posCountEl.textContent = parts.length ? parts.join(' · ') + ' open' : 'No positions';
+    }
     if (posBody) {
-      posBody.innerHTML = positions.length === 0
-        ? '<tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">No open positions</td></tr>'
-        : positions.map(p => {
-            const pnlCol = (p.profit||0) >= 0 ? 'var(--green)' : 'var(--red)';
-            return `<tr style="border-bottom:1px solid var(--border)">
-              <td style="padding:6px 10px;font-weight:700">${p.symbol||'—'}</td>
+      const row = (p, tag) => {
+        const pnlCol = (p.profit||0) >= 0 ? 'var(--green)' : 'var(--red)';
+        const label = tag ? `<span style="color:var(--yellow);font-size:.58rem;font-weight:400;margin-left:6px">${tag}</span>` : '';
+        return `<tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:6px 10px;font-weight:700">${p.symbol||'—'}${label}</td>
               <td style="padding:6px 10px;color:${p.type==='BUY'?'var(--green)':'var(--red)'}">${p.type||'—'}</td>
               <td style="padding:6px 10px;text-align:right;color:${pnlCol};font-weight:700">${p.profit!=null?'$'+(p.profit>=0?'+':'')+p.profit.toFixed(2):'—'}</td>
               <td style="padding:6px 10px;text-align:right;color:var(--muted)">${p.volume||'—'}</td>
             </tr>`;
-          }).join('');
+      };
+      const html = positions.map(p => row(p, null)).join('')
+                 + execPos.map(p => row(p, p.model || 'EXECUTOR')).join('');
+      posBody.innerHTML = html
+        || '<tr><td colspan="4" style="color:var(--muted);font-size:.72rem;padding:14px;text-align:center">No open positions</td></tr>';
     }
 
     // Alerts feed
