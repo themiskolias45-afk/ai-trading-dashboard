@@ -178,17 +178,37 @@ try {
   Add-Content -Path $logFile -Value ("[" + (Get-Date) + "] Backup FAILED - see backup_errors.txt")
 }
 
-# RETENTION 14 -> 48, because this job went from DAILY to every 4h on 2026-09-02.
+# RETENTION 14 -> 48 (2026-09-02), 48 -> 104 (2026-09-08). Owner's call both times.
 #
-# At 6 runs a day, keeping 14 covers TWO AND A HALF DAYS. Raising the frequency without
-# raising the count would have quietly traded away almost all the history - recency bought
-# with depth, which is a loss wearing the costume of an improvement. 48 restores 8 days.
+# 14 -> 48: this job went from DAILY to every 4h. At 6 runs a day, keeping 14 covers TWO
+# AND A HALF DAYS. Raising the frequency without raising the count would have quietly
+# traded away almost all the history - recency bought with depth, which is a loss wearing
+# the costume of an improvement.
 #
-# The arithmetic is what makes it safe, and it is only affordable because the 29.1 MB
-# tailscale-setup.msi is no longer archived: 48 x 34.6 MB = 1.6 GB against 65.4 GB free.
-# At the old 63.7 MB it would have been 3.1 GB, which is why the exclusion came first and
-# the retention second.
-$KEEP_BACKUPS = 48
+# 48 -> 104: MEASURED, not assumed. The comment above estimated 48 as "8 days" from an
+# assumed 6 runs/day. The archives on disk say otherwise: 48 zips spanning
+# backup_20260826_030002 -> backup_20260908_230002 is 13.8 days, so the real rate is
+# 3.47/day. The estimate was off by a factor of 1.7 in the safe direction, but it was
+# still an estimate presented as a figure - and the whole point of a retention number is
+# knowing what window it actually buys.
+#
+# WHY 30 DAYS IS THE TARGET. bucket_audit.cjs proves the backup RAN; it cannot prove
+# nothing was LOST, because an archive taken after a deletion faithfully preserves the
+# deletion and passes every check afterwards. The only defence is holding an archive from
+# BEFORE the loss, so retention IS the window in which a silent deletion can still be
+# noticed. tasks/backup_history_check.cjs reports that window and refuses to imply
+# anything about what lies beyond it.
+#
+# THE ARITHMETIC, measured on this box 2026-09-08:
+#   3.47 archives/day x 30 days = 104.   Average archive 22.1 MB -> 2.25 GB.
+#   Free on C: 62.7 GB. The cost is 3.6% of free space.
+# The laptop bucket was raised to 180 the same day (tasks/pull_vps_backup.bat), which is
+# ~30 days at ITS higher observed rate - so both boxes now hold the same window, and the
+# copy still outlives the source.
+#
+# Raising a retention only ever deletes LESS, so this cannot lose an archive that the old
+# value would have kept.
+$KEEP_BACKUPS = 104
 Get-ChildItem "$backupDir\*.zip" -ErrorAction SilentlyContinue |
   Sort-Object LastWriteTime -Descending |
   Select-Object -Skip $KEEP_BACKUPS |
