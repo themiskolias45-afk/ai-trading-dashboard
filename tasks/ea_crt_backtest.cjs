@@ -508,9 +508,14 @@ function main() {
     }
     console.log(`sweeping ${input} over [${values.join(', ')}] on ${which.toUpperCase()} ` +
       `(${period.from} -> ${period.to})\n`);
+    // Every sweep sits on the LIVE configuration, not on the template's own inputs. The
+    // template is notrail_noptp (partial TP OFF), and partial TP OFF was measured on
+    // 2026-09-08 to be WORSE out of sample - 403.06 vs 432.82. Sweeping on top of it would
+    // tune a variant we have already rejected and quietly compare it against the live one.
     for (const v of values) {
       const safe = String(v).replace(/[^A-Za-z0-9.-]/g, '_');
-      rows.push(runOne(install, `sweep_${input}_${safe}`, period, { [input]: v }, dataDir));
+      rows.push(runOne(install, `sweep_${input}_${safe}`, period,
+        { ...LIVE_BASE, [input]: v }, dataDir));
     }
   } else if (wf) {
     const base = SCENARIOS[wf];
