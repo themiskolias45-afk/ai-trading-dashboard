@@ -1613,8 +1613,21 @@
         style="padding:9px 18px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.4);color:var(--green);border-radius:6px;font-size:.8rem;font-weight:700;cursor:pointer">
         ▶ RESUME TRADING
       </button>
+      <!-- THE SECOND HALT SYSTEM GETS ITS OWN BUTTON, and is never folded into the one
+           above. The two share no state: HALT/RESUME writes tradingControl.halted, while
+           the circuit breaker lives in the bridge. On 2026-09-08 the VPS read "TRADING
+           HALTED - 3 consecutive losses" while tradingControl.halted was already false,
+           so RESUME TRADING was the obvious thing to press and could not possibly work.
+           Merging them into one button would hide exactly that distinction. -->
+      <button id="ctl-reset-breaker" onclick="resetCircuitBreaker()"
+        style="padding:9px 18px;background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.45);color:var(--yellow);border-radius:6px;font-size:.8rem;font-weight:700;cursor:pointer">
+        ↺ CLEAR CIRCUIT BREAKER
+      </button>
       <div id="ctl-detail" style="font-size:.7rem;color:var(--muted);flex:1;min-width:200px">
-        Halts new entries only. Open positions keep their stops and targets and are still managed.
+        HALT/RESUME stops new entries only — open positions keep their stops and targets and are still managed.
+        CLEAR CIRCUIT BREAKER is a <b>different halt</b>: the bridge's own consecutive-loss breaker,
+        which RESUME cannot reach. Clearing it shortens the cooldown and hands trading back
+        <b>one loss short of halting again</b> — it is not a clean slate, and it will not clear a daily-loss halt.
       </div>
     </div>
   </div>
@@ -6034,6 +6047,30 @@ async function loadControl() {
     console.error('loadControl:', e);
     const stateEl = document.getElementById('ctl-state');
     if (stateEl) { stateEl.textContent = 'state unknown'; stateEl.style.color = 'var(--muted)'; }
+  }
+}
+
+async function resetCircuitBreaker() {
+  // Named for the halt it actually clears. The confirm states the two things an
+  // operator most needs to know before pressing it: the streak decays rather than
+  // resetting, and a daily-loss halt is not affected.
+  const msg = [
+    'Clear the bridge circuit breaker?',
+    '',
+    'This is NOT the same as RESUME TRADING - it clears the consecutive-loss breaker on the bridge.',
+    '',
+    'Trading resumes ONE loss short of halting again (the streak decays, it does not reset).',
+    'A daily-loss halt is NOT cleared by this.'
+  ].join(String.fromCharCode(10));
+  if (!confirm(msg)) return;
+  try {
+    const r = await fetch('/api/mt5/reset-breaker', { method: 'POST' });
+    const body = await r.json();
+    if (!r.ok || !body.ok) throw new Error(body.error || ('HTTP ' + r.status));
+    logExec('Circuit breaker reset requested — the next bridge poll will clear a STREAK halt', 'info');
+  } catch (e) {
+    logExec('Breaker reset FAILED: ' + e.message, 'warn');
+    alert('Breaker reset failed: ' + e.message);
   }
 }
 

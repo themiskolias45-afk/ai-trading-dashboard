@@ -6880,6 +6880,17 @@ loadTradingControl();
 // is: the request must come from this machine's own loopback address. The GET stays public
 // because the bridge itself has no browser session.
 let bridgeRestartRequested = false;
+// THE BREAKER HAD NO OPERATOR EXIT. Two halt systems run on each box and share no
+// state: `tradingControl.halted` (this file, what RESUME TRADING writes) and the
+// bridge's own circuit breaker. Only the second one was stopping the VPS on
+// 2026-09-08 - "TRADING HALTED / 3 consecutive losses" - and the only thing that
+// could ever clear it was a 1-hour timer. RESUME TRADING cleared the OTHER halt and
+// changed nothing the operator could see, which is the worst shape a safety control
+// can have: a button that does not reach the thing it is named after.
+//
+// Set by an explicit human action only, and consumed exactly once by the
+// self-identified bridge, so one press clears one halt.
+let breakerResetRequested = false;
 
 // ONLY THE BRIDGE CONSUMES THE FLAG, and it must say so.
 //
@@ -6904,7 +6915,28 @@ app.get("/api/mt5/control", (req, res) => {
   const wanted = isBridge && bridgeRestartRequested;
   if (isBridge) bridgeRestartRequested = false;   // consumed only by a self-identified bridge
   if (wanted) console.log("[control] bridge restart requested — handing it to the next poll");
-  res.json({ ...tradingControl, restartRequested: wanted });
+  const resetWanted = isBridge && breakerResetRequested;
+  if (isBridge) breakerResetRequested = false;    // same one-reader handshake as the restart flag
+  if (resetWanted) console.log("[control] breaker reset requested — handing it to the next poll");
+  res.json({ ...tradingControl, restartRequested: wanted, breakerResetRequested: resetWanted });
+});
+
+// Clears a STREAK circuit-breaker halt on the bridge, on explicit human request.
+// LOCAL ONLY, exactly like restart-bridge: this server is reachable from the internet
+// and clearing a risk breaker is not something a remote caller gets to do.
+//
+// IT CANNOT WEAKEN THE BREAKER. The bridge decays the streak rather than zeroing it and
+// refuses outright when the halt is a DAILY_LOSS one, so this shortens a cooldown - it
+// never removes a limit, and it never stops a halt from arming.
+app.post("/api/mt5/reset-breaker", (req, res) => {
+  const remote = req.socket.remoteAddress || "";
+  const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  if (!isLocal) {
+    return res.status(403).json({ ok: false, error: "local only — clearing a risk breaker is not a remote action" });
+  }
+  breakerResetRequested = true;
+  console.log("[control] breaker reset flag set by localhost");
+  res.json({ ok: true, note: "the next bridge poll will clear a STREAK halt; a DAILY_LOSS halt is left in place" });
 });
 
 app.post("/api/mt5/restart-bridge", (req, res) => {

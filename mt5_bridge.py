@@ -522,6 +522,13 @@ def check_remote_control():
                 pass
             sys.exit(0)
 
+        # THE OPERATOR'S EXIT FROM THE STREAK BREAKER. Consumed exactly once, by the
+        # same self-identified-bridge / clear-on-read handshake the restart flag uses,
+        # so one press clears one halt and a second bridge cannot swallow the request.
+        if control.get("breakerResetRequested"):
+            log("BREAKER RESET REQUESTED from the dashboard.", YELLOW)
+            release_streak_halt_on_operator_request()
+
         halted = bool(control.get("halted"))
         reason = control.get("reason") or "halted from dashboard"
         if halted and not remote_halted:
@@ -587,6 +594,56 @@ def release_streak_halt_if_cooled():
     log(f"⏱ CIRCUIT BREAKER RELEASED after {HALT_COOLDOWN_HOURS:.0f}h — streak {was} "
         f"-> {consecutive_losses} of {MAX_CONSECUTIVE_LOSSES}. Trading resumes ONE loss "
         "short of halting again; this is a cooldown, not a clean slate.", YELLOW + BOLD)
+    save_breaker_state()
+    return True
+
+
+def release_streak_halt_on_operator_request():
+    """Lift a STREAK halt because a HUMAN asked, not because a timer expired.
+
+    THE HALT THE DASHBOARD COULD NOT REACH. There are two halt systems on this box and
+    they share no state: `remote_halted` is set from /api/mt5/control and is what the
+    "RESUME TRADING" button writes, while `trading_halted` is this bridge's own circuit
+    breaker. Until now the breaker had exactly ONE exit - the cooldown timer - so an
+    operator looking at "TRADING HALTED / 3 consecutive losses" had no control anywhere
+    that could clear it. Pressing RESUME TRADING cleared the other halt and changed
+    nothing they could see. A button that does not reach the thing it names is worse
+    than no button.
+
+    It carries the SAME three constraints as release_streak_halt_if_cooled, for the same
+    reasons, and deliberately does not relax any of them:
+
+      - STREAK halts only. A daily-loss halt is supposed to last the day and is left
+        exactly where it is; returning False here says so rather than pretending.
+      - remote_halted is never touched. If a human halted trading deliberately, clearing
+        the breaker must not quietly resume it behind them.
+      - THE STREAK DECAYS, IT DOES NOT RESET. Same HALT_RELEASE_DECAY as the timed
+        release. Zeroing it would hand back a clean slate on demand, which turns a
+        breaker into a button you hold down - a genuinely broken system would re-halt
+        after MAX losses instead of after one, every time someone clicked.
+
+    This only ever CLEARS an existing halt. Nothing here can stop one arming: the next
+    check_circuit_breaker() call re-derives the verdict from the streak it left behind.
+
+    Returns True if a halt was released.
+    """
+    global trading_halted, halt_reason, halted_at, halt_cause, consecutive_losses
+    if not trading_halted:
+        return False
+    if halt_cause != HALT_CAUSE_STREAK:
+        log(f"Breaker reset requested but this halt is {halt_cause or 'unknown'}, not "
+            f"{HALT_CAUSE_STREAK} — leaving it in place. A daily-loss limit lasts the day.",
+            YELLOW)
+        return False
+    was = consecutive_losses
+    consecutive_losses = max(0, consecutive_losses - HALT_RELEASE_DECAY)
+    trading_halted = False
+    halt_reason    = ""
+    halted_at      = ""
+    halt_cause     = ""
+    log(f"CIRCUIT BREAKER CLEARED BY OPERATOR — streak {was} -> {consecutive_losses} of "
+        f"{MAX_CONSECUTIVE_LOSSES}. Trading resumes ONE loss short of halting again; "
+        "this is a manual cooldown, not a clean slate.", YELLOW + BOLD)
     save_breaker_state()
     return True
 
