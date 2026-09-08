@@ -155,7 +155,12 @@ function main() {
     }
   }
 
-  const rows = [...tally.values()].filter(r => r.count >= MIN_HITS).sort((a, b) => b.count - a.count);
+  const all = [...tally.values()];
+  // "Live" = seen inside the window, or seen in a log that carries no dates at all.
+  // Undated is NOT assumed old: dropping it would hide every timestamp-free log.
+  const live = (r) => r.inWindow + r.undated;
+  const rows = all.filter(r => live(r) >= MIN_HITS).sort((a, b) => live(b) - live(a));
+  const stopped = all.filter(r => live(r) === 0 && r.older >= MIN_HITS).sort((a, b) => b.older - a.older);
 
   console.log('='.repeat(100));
   console.log('  SWALLOWED ERRORS — what the broad handlers actually wrote. ' + new Date().toISOString());
