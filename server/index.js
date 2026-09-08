@@ -3637,8 +3637,32 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   const learnBoost = getLearningBoost(signalTf.setup);
   if (learnBoost !== 0) {
     confidence = Math.max(0, Math.min(100, confidence + learnBoost));
-    if (learnBoost > 0) daily.reasons.push(`✅ Learned: ${signalTf.setup} performing above avg (+${learnBoost})`);
-    else daily.reasons.push(`⚠ Learned: ${signalTf.setup} underperforming (${learnBoost})`);
+
+    // SAY WHAT THE BOOST IS MADE OF. getLearningBoost reads WIN RATE ONLY — it never
+    // looks at P&L — but this line used to read "performing above avg", which asserts
+    // something the calculation never checked.
+    //
+    // Measured 2026-09-08: MOMENTUM is 4W/3L = 57.1%, so it earns +2 and reports
+    // "performing above avg" while its total P&L is -173.16. Per symbol it is worse and
+    // more lopsided still: XAUUSD 1W/2L = 33.3% and -197.58, SP500 2W/1L = 66.7% and
+    // +0.10, BTCUSD 1W/0L and +24.32. The single boost is applied identically to all
+    // three, and gold is where every dollar of the damage is.
+    //
+    // THE NUMBER IS NOT CHANGED, and that is deliberate. Making the boost per-symbol
+    // would return 0 for gold instead of +2 (3 trades, under LEARNING_MIN_TRADES), which
+    // LOWERS confidence and can stop a setup firing - the one thing this function's own
+    // header forbids. So the arithmetic is untouched and the sentence is made honest
+    // instead: same boost, same confidence, same firing set, no claim the inputs cannot
+    // support.
+    const ls = learning.setupStats[signalTf.setup];
+    const basis = ls
+      ? `win rate ${((ls.wins / (ls.wins + ls.losses)) * 100).toFixed(1)}% (${ls.wins}W/${ls.losses}L)`
+      : "win rate";
+    const pnlNote = ls && Number.isFinite(ls.totalPnl)
+      ? `; this setup's P&L is ${ls.totalPnl.toFixed(2)} — the boost does not read P&L`
+      : "";
+    if (learnBoost > 0) daily.reasons.push(`✅ Learned: ${signalTf.setup} +${learnBoost} from ${basis}${pnlNote}`);
+    else daily.reasons.push(`⚠ Learned: ${signalTf.setup} ${learnBoost} from ${basis}${pnlNote}`);
   }
 
   // Name the source timeframe on H4-only entries. Without this the dashboard shows
@@ -8094,6 +8118,22 @@ app.get("/api/learning", (_, res) => {
         winRate: total > 0 ? parseFloat((s.wins / total * 100).toFixed(1)) : null,
         totalPnl: s.totalPnl,
         boost: getLearningBoost(setup),
+        // WHAT THE BOOST READ, AND WHAT IT DID NOT. getLearningBoost uses WIN RATE only;
+        // it never looks at totalPnl and never looks at the per-symbol split that
+        // `bySymbol` below already carries. Measured 2026-09-08, MOMENTUM was boosted +2
+        // on 57.1% while sitting at -173.16, and per symbol XAUUSD was 33.3% / -197.58
+        // against SP500 66.7% / +0.10 - the same boost applied to both.
+        //
+        // Additive and display-only: a field beside the number, not a change to it.
+        // Making the boost itself per-symbol would return 0 for a symbol under
+        // LEARNING_MIN_TRADES and so LOWER confidence, which the function's header
+        // forbids. Surfacing the divergence is the part that can be done safely.
+        boostBasis: {
+          readsWinRateOnly: true,
+          readsPnl: false,
+          readsPerSymbol: false,
+          pnlDisagreesWithBoost: getLearningBoost(setup) > 0 && Number.isFinite(s.totalPnl) && s.totalPnl < 0,
+        },
         // LEARNING_MIN_TRADES, not a bare 5. The literal here was a THIRD hand-copied
         // copy of the floor getLearningBoost actually gates on (:1288), with nothing
         // tying them together - so the label "learning" and the boost being zero could
