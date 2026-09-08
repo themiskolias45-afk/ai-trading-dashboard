@@ -214,7 +214,32 @@ function resumeLines() {
   //    writers, so read defensively and never assume shape.
   const mem = readJsonQuiet(path.join(ROOT, "tasks", "jarvis_memory.json"));
   const entries = mem && Array.isArray(mem.entries) ? mem.entries : [];
-  const last = entries.length ? entries[entries.length - 1] : null;
+  // NEWEST BY TIMESTAMP, not by position. Measured 2026-09-08 on the VPS: after the two
+  // boxes' memory was union-merged, the appended VPS-only rows sat AFTER the newest laptop
+  // row, so entries[length-1] returned a session from days earlier and the boot block
+  // confidently described the wrong session. Position stops meaning recency the moment two
+  // writers merge. Undated rows cannot win, and if nothing is dated this falls back to the
+  // positional last so behaviour is unchanged on a single-writer file.
+  //
+  // RANKED, then newest. Newest is not the same as most useful: the smartentry MCP writes
+  // last-session-commits into this SAME file, so the newest row by clock is often a bare
+  // commit list while the row that actually says where the work stopped sits just behind it.
+  // A session summary outranks bookkeeping; ties break on the clock.
+  const rank = (k) => (/^session-/.test(k) || k === "last-session-state") ? 3
+                    : /session/i.test(k) ? 2 : 1;
+  let last = null, bestR = 0, bestT = -Infinity;
+  for (const e of entries) {
+    if (!e || !e.value) continue;
+    const r = rank(String(e.key || ""));
+    const t = Date.parse(e.timestamp || e.time || e.updated_at || "");
+    const tt = isFinite(t) ? t : -Infinity;
+    if (r > bestR || (r === bestR && tt > bestT)) { bestR = r; bestT = tt; last = e; }
+  }
+  if (!last) {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i] && entries[i].value) { last = entries[i]; break; }
+    }
+  }
   if (last && last.value) {
     out.push("");
     out.push("WHERE IT STOPPED" + (last.key ? "  [" + last.key + "]" : "") + ":");
