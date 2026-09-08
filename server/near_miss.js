@@ -187,6 +187,9 @@ function noteNearMiss(record) {
       row.minMargin          = margin;
       row.minMarginActual    = actual;
       row.minMarginThreshold = threshold;
+      // Recomputed against the threshold that PRODUCED this minimum, not the row's
+      // latest threshold - the same matched-pair discipline minMarginActual exists for.
+      row.minMarginRelative  = relativeMargin(margin, threshold);
     }
 
     // Per-(UTC day, threshold) tightest. A new day or a moved ceiling starts fresh
