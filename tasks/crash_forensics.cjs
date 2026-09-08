@@ -298,6 +298,9 @@ function printReport() {
     if (row.dumps && row.dumps.length) {
       for (const d of row.dumps) console.log('      dump: ' + d.status + ' - ' + d.source);
     }
+    if (row.dumpScanBlocked && row.dumpScanBlocked.length) {
+      for (const b of row.dumpScanBlocked) console.log('      UNREADABLE: ' + b.path + ' - ' + b.reason);
+    }
   }
 }
 
