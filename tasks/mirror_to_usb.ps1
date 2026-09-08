@@ -160,13 +160,26 @@ foreach ($src in $Sources) {
     $bytes    = ($usable | Measure-Object -Property Length -Sum).Sum
     if (-not $bytes) { $bytes = 0 }
 
+    # Charge only what is genuinely NEW. Earlier runs already put some of these on the
+    # stick, and those bytes are already reflected in the free-space figure - counting
+    # them again would under-use the stick and falsely report "no room" for a source
+    # that is in fact already backed up.
+    $destPath  = Join-Path $destRoot $src.Name
+    $destBytes = 0
+    if (Test-Path $destPath) {
+        $dm = Get-ChildItem $destPath -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum
+        if ($dm.Sum) { $destBytes = [int64]$dm.Sum }
+    }
+    $needBytes = [int64][Math]::Max(0, $bytes - $destBytes)
+
     $plan += [pscustomobject]@{
         Name = $src.Name; Source = $src; Files = $usable.Count
-        Bytes = [int64]$bytes; Oversize = $oversize; Status = 'pending'
+        Bytes = [int64]$bytes; Need = $needBytes; Oversize = $oversize; Status = 'pending'
     }
-    $grandBytes += $bytes
+    $grandBytes += $needBytes
     $grandFiles += $usable.Count
-    Write-Host ("  {0,-18} {1,6} files  {2,9} MB" -f $src.Name, $usable.Count, [math]::Round($bytes / 1MB))
+    $already = if ($destBytes -gt 0) { " ({0} MB already there)" -f [math]::Round($destBytes / 1MB) } else { '' }
+    Write-Host ("  {0,-18} {1,6} files  {2,9} MB{3}" -f $src.Name, $usable.Count, [math]::Round($bytes / 1MB), $already)
 }
 
 Write-Host ("  {0,-18} {1,6} files  {2,9} MB" -f 'TOTAL WANTED', $grandFiles, [math]::Round($grandBytes / 1MB)) -ForegroundColor Cyan
