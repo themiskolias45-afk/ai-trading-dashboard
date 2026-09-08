@@ -573,7 +573,13 @@ function main() {
   if (sweep) {
     const { input, values } = parseSweep(sweep);
     const which = String(strArg('--period', 'is')).toLowerCase();
-    const period = which === 'oos' ? OOS : which === 'full' ? FULL : IS;
+    // --from/--to override the named period here too. Until 2026-09-08 they were honoured
+    // only on the --scenario path, so a sweep asked for 2022.11->2026.04 silently ran the
+    // 13-month FULL window instead and produced 601 trades against a 1,583-trade baseline.
+    // Turning a FILTER OFF appeared to REDUCE trade count, which is what exposed it - a
+    // result that is merely wrong, rather than impossible, would have been believed.
+    const period = (FROM && TO) ? { from: FROM, to: TO }
+      : which === 'oos' ? OOS : which === 'full' ? FULL : IS;
     if (which === 'oos') {
       console.log('  *** SWEEPING ON OUT-OF-SAMPLE DATA. The winner cannot then be validated ***');
       console.log('  *** against anything - you are choosing the value that best fits the    ***');
