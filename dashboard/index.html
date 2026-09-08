@@ -5179,9 +5179,22 @@ async function loadFeedTab() {
     const risk   = riskRes.status  === 'fulfilled' ? riskRes.value  : null;
 
     // Freshness bar
-    if (prices?.updatedAt) {
-      const ago = Math.round((Date.now() - new Date(prices.updatedAt)) / 1000);
-      document.getElementById('fd-price-ts').textContent = ago < 120 ? `${ago}s ago` : new Date(prices.updatedAt).toLocaleTimeString();
+    // /api/prices stamps it `updated`. /api/signals stamps it `updatedAt`. This read
+    // `prices.updatedAt`, which has never existed, so the whole branch was skipped and
+    // "Prices Last Fetch" sat on its "—" placeholder while the row beside it worked.
+    // Falls back to updatedAt so the line still works if the API is ever normalised.
+    const priceStamp = prices?.updated ?? prices?.updatedAt;
+    const priceTsEl  = document.getElementById('fd-price-ts');
+    if (priceTsEl) {
+      if (priceStamp) {
+        const ago = Math.round((Date.now() - new Date(priceStamp)) / 1000);
+        priceTsEl.textContent = ago < 120 ? `${ago}s ago` : new Date(priceStamp).toLocaleTimeString();
+        // Stale is stated, not left to the reader to work out from a clock.
+        priceTsEl.style.color = ago > 900 ? 'var(--yellow)' : 'var(--green)';
+      } else {
+        priceTsEl.textContent = 'not reported';
+        priceTsEl.style.color = 'var(--muted)';
+      }
     }
     if (sigs?.updatedAt) {
       const ago = Math.round((Date.now() - new Date(sigs.updatedAt)) / 1000);
@@ -5353,14 +5366,26 @@ async function loadFeedTab() {
     if (alertList) {
       alertList.innerHTML = alertItems.length === 0
         ? '<div style="color:var(--muted);padding:14px;text-align:center">No alerts received yet</div>'
+        // EVERY FIELD NAME HERE WAS WRONG. This read a.signal, a.time, a.symbol and
+        // a.source; /api/alerts returns ts, ticker, action, price and message. So
+        // `${a.signal||'?'}` printed a literal "?" on all 20 rows and the symbol and
+        // time columns were blank - 41 real alerts rendered as a column of question
+        // marks. Same defect as the 24h-change fields one panel up: the renderer was
+        // fine, it was reading names the API has never sent.
         : alertItems.slice(0, 20).map(a => {
-            const col = a.signal === 'BUY' ? 'var(--green)' : a.signal === 'SELL' ? 'var(--red)' : 'var(--muted)';
-            const ts = a.time ? new Date(a.time).toLocaleTimeString() : '';
-            return `<div style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border)">
+            const act = String(a.action || '');
+            const col = act.startsWith('BUY')  ? 'var(--green)'
+                      : act.startsWith('SELL') ? 'var(--red)'
+                      : 'var(--muted)';
+            const ts  = a.ts ? new Date(a.ts).toLocaleTimeString() : '';
+            const px  = (a.price != null) ? Number(a.price).toLocaleString() : '';
+            // The commentary is long, so it is a hover title rather than a wall of text.
+            const msg = a.message ? String(a.message).replace(/"/g, '&quot;') : '';
+            return `<div title="${msg}" style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border)">
               <span style="color:var(--muted);font-size:.6rem;white-space:nowrap">${ts}</span>
-              <span style="font-weight:700;color:${col};min-width:40px">${a.signal||'?'}</span>
-              <span style="color:var(--text)">${a.symbol||''}</span>
-              <span style="color:var(--muted);font-size:.65rem;margin-left:auto">${a.source||''}</span>
+              <span style="font-weight:700;color:${col};min-width:86px">${act || '—'}</span>
+              <span style="color:var(--text);min-width:64px">${a.ticker || ''}</span>
+              <span style="color:var(--muted);font-size:.65rem;margin-left:auto">${px}</span>
             </div>`;
           }).join('');
     }
