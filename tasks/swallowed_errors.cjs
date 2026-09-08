@@ -57,6 +57,19 @@ const PATTERNS = [
   { re: /\b(failed[^\n]{0,70})/gi, kind: 'failed' },
 ];
 
+// A ZERO COUNT IS A SUCCESS LINE. First run of this tool ranked "132x failed #" at the
+// TOP of the report; every one of those was `shipped 3, skipped 0, failed 0` from
+// atomic_feed.txt - the healthiest line in the file. Digits are normalised to # so a
+// defect collapses to one row, and that normalisation is exactly what made "failed 0"
+// indistinguishable from "failed 12". Check the RAW text, before normalisation.
+function isZeroCount(raw) { return /^failed\s*[:=]?\s*0\b/i.test(raw); }
+
+// The `failed` pattern is a KEYWORD scan over prose, not evidence that anything threw:
+// 37 of its hits were the sentence "failed, so the rest is determined." A thrown
+// exception must never be buried underneath a report's own commentary, so the two are
+// counted together and REPORTED SEPARATELY.
+const THROWN_KINDS = new Set(['exception', 'python-traceback', 'syscall']);
+
 function main() {
   if (!fs.existsSync(LOGS)) { console.error('no tasks/logs directory'); process.exitCode = 1; return; }
   const cutoff = Date.now() - DAYS * 86400000;
