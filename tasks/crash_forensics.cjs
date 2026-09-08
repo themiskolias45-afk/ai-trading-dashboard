@@ -347,6 +347,10 @@ function main() {
       bugcheckLabel: (e.id === 41 && hasBugcheck) ? bugcheckLabel(e.bugcheck) : null,
       message: String(e.message || '').slice(0, 500),
       dumps: e.id === 41 ? dumps : [],
+      // Additive, and load-bearing: an empty `dumps` with dumpScanBlocked set means
+      // "could not look", not "nothing was there". Rows written before 2026-09-08 lack
+      // this field, so a reader must treat absent as unknown rather than as false.
+      dumpScanBlocked: (e.id === 41 && blocked.length) ? blocked : null,
       recordedAt: new Date().toISOString(),
     });
   }
