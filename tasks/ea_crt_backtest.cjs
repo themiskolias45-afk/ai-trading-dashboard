@@ -273,6 +273,23 @@ const FULL = { from: '2025.04.01', to: '2026.04.28' };
 const IS   = { from: '2025.04.01', to: '2025.12.19' };
 const OOS  = { from: '2025.12.19', to: '2026.04.28' };
 
+// THE LIVE CONFIGURATION, as shipped in v3.55/v3.56 defaults and pinned by crt_start.ini.
+// Every sweep varies ONE input against this, so a sweep row is always comparable with the
+// live EA rather than with whatever the template happened to carry.
+//
+// Settled by measurement, do not silently vary these in a sweep base:
+//   trailing stop OFF   ON -15.28 vs OFF +536.27 full period (2026-09-04)
+//   partial TP    ON    OFF loses out of sample, 403.06 vs 432.82 (2026-09-08)
+//   break-even    ON    OFF costs -54.58 full period (2026-09-04)
+const LIVE_BASE = {
+  InpUseTrailingStop: 'false',
+  InpUsePartialTP: 'true',
+  InpUseBreakEven: 'true',
+  InpTradeOnlyAB: 'false',
+  InpRiskPercent: '0.5',
+  InpUsePortfolioMode: 'false',
+};
+
 const SCENARIOS = {
   // THE MISSING RUN. notrail_noptp scored best over the FULL period (+562.38, PF 1.19,
   // MaxDD 6.70%) but was never tested out-of-sample, so its margin over notrail
