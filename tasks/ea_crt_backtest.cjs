@@ -420,6 +420,26 @@ function runOne(install, reportName, period, inputs, dataDirForRun) {
   return row;
 }
 
+/**
+ * Sweep one EA input across values, on ONE period.
+ *
+ * TUNE ON IN-SAMPLE, CONFIRM ON OUT-OF-SAMPLE - never the reverse. The partial-TP result
+ * on 2026-09-08 is exactly why: it won by +26 over the FULL period, which includes the
+ * held-out window, and then LOST by -30 on the held-out window alone. A sweep run against
+ * OOS data picks the value that best fits the only data left to check it with, and there
+ * is then nothing honest left to validate against.
+ *
+ * `--period is` is therefore the default, and a sweep on oos prints a warning.
+ */
+function parseSweep(spec) {
+  const eq = spec.indexOf('=');
+  if (eq === -1) throw new Error(`--sweep needs Input=v1,v2,v3 (got "${spec}")`);
+  const input = spec.slice(0, eq).trim();
+  const values = spec.slice(eq + 1).split(',').map(v => v.trim()).filter(Boolean);
+  if (!input || !values.length) throw new Error(`--sweep needs an input and at least one value`);
+  return { input, values };
+}
+
 function appendLedger(rows) {
   try {
     fs.mkdirSync(path.dirname(LEDGER), { recursive: true });
