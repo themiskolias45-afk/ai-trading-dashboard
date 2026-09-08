@@ -65,6 +65,19 @@ const FOLDS       = Math.max(2, numArg("--folds", 5));
 const WINDOW      = numArg("--window", 100);  // trailing detection window, in bias bars
 const EMIT        = process.argv.includes("--emit");
 
+// How many spread widths a round trip pays. 1 is the honest floor for a stop/target exit;
+// 2 models a market-order exit and is the conservative read. See tasks/instrument_costs.cjs.
+const SPREAD_WIDTHS = numArg("--spreads", 1);
+
+// --gross reproduces the pre-2026-09-08 behaviour, in which costs were never charged.
+// It exists ONLY so the two can be diffed; it is not a mode anyone should conclude from.
+const GROSS_ONLY = process.argv.includes("--gross");
+
+// The walk used to begin ON the entry bar, testing that bar's own high and low against a
+// stop - prices that occurred BEFORE the close the trade entered at. That charged phantom
+// losses and biased every cell DOWNWARD. --entry-bar-risk restores it for comparison only.
+const ENTRY_BAR_RISK = process.argv.includes("--entry-bar-risk");
+
 // A number that exists only in a terminal cannot be compared against the next run.
 // backtest_health.cjs scores that as a missing safeguard and it scored THIS file as
 // missing it - so the report now lands in tasks/analysis as {json,txt} beside every
