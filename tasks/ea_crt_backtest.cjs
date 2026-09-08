@@ -357,9 +357,20 @@ function runOne(install, reportName, period, inputs, dataDirForRun) {
   }
 
   const exe = path.join(install, 'terminal64.exe');
-  console.log(`  running ${reportName}  ${period.from} -> ${period.to} ...`);
+
+  // /portable is REQUIRED, not implied by portable.txt. Measured 2026-09-08 on build
+  // 6182: with portable.txt sitting in the install directory the terminal STILL logged
+  // its data path as %APPDATA%\MetaQuotes\Terminal\<hash> and still found no tick history,
+  // because the 864MB cache and the EA are in the install tree. Passing the switch is what
+  // actually moves it. Everything the campaign used - EA, ticks, its own reports - lives
+  // in the install directory, so portable is the mode this instance was built for.
+  const args = [];
+  if (fs.existsSync(path.join(install, 'portable.txt'))) args.push('/portable');
+  args.push(`/config:${iniPath}`);
+
+  console.log(`  running ${reportName}  ${period.from} -> ${period.to}  [${args[0] === '/portable' ? 'portable' : 'non-portable'}] ...`);
   const started = Date.now();
-  const res = spawnSync(exe, [`/config:${iniPath}`], { timeout: TIMEOUT_MS, encoding: 'utf8' });
+  const res = spawnSync(exe, args, { timeout: TIMEOUT_MS, encoding: 'utf8' });
   const secs = Math.round((Date.now() - started) / 1000);
 
   if (res.error) {
