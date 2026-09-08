@@ -2117,6 +2117,30 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   const inUptrend   = trend === "STRONG UPTREND" || trend === "UPTREND";
   const inDowntrend = trend === "STRONG DOWNTREND" || trend === "DOWNTREND";
 
+  // ── FALLING NOW, rather than months late ────────────────────────────────────────────
+  //
+  // `inDowntrend` above can only become true when aboveEma200 is FALSE - price under its
+  // 200-DAY EMA. Measured 2026-09-08 on the live feed, that is how far each asset had to
+  // fall before ANY short setup could even arm:
+  //     BTC   -7.94%    GOLD  -2.81%    SPX  -6.97%
+  // BTC was already -4.78% off its swing high and still labelled STRONG UPTREND. So a
+  // normal pullback is invisible to every short setup, and the engine can only look down
+  // once the move is over. That is why it "never changes naturally".
+  //
+  // This flag says the far more modest thing: price is under its 20-day EMA AND the MACD
+  // LINE is under zero. Not decelerating - actually negative.
+  //
+  // USED BY BREAKDOWN ONLY, AND THAT IS THE WHOLE SAFETY ARGUMENT. The setup chain is
+  // if/else-if, so an earlier match DISPLACES every later one. SELL_BOUNCE sits at 2508,
+  // BEFORE MOMENTUM (2577) and TREND_FOLLOW (2596) - widening its gate would let a short
+  // suppress a long that fires today, which is exactly the "Gold worse AND fewer trades"
+  // result already on record. BREAKDOWN is LAST in the chain, so it is only ever reached
+  // when every long setup has already failed. It cannot take a trade away from anything.
+  //
+  // Purely additive: no existing condition is relaxed, inUptrend is untouched, and
+  // breakdownEnabled remains the instant off switch.
+  const fallingNow = !aboveEma20 && macd && Number.isFinite(macd.macd) && macd.macd < 0;
+
   // Volume analysis — COMPARE LIKE WITH LIKE.
   //
   // This compared the LAST bar, which on a live feed is the STILL-FORMING day, against
@@ -2819,8 +2843,8 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
   // separate decision that needs a walk-forward whose worst fold clears zero.
   else if (
     BREAKDOWN_ENABLED &&
-    inDowntrend &&
-    !aboveEma50 && !aboveEma20 &&
+    (inDowntrend || fallingNow) &&
+    !aboveEma20 &&
     rsi !== null && rsi > BREAKDOWN_RSI_MIN && rsi < BREAKDOWN_RSI_MAX &&
     macd && !macd.bullish
   ) {
