@@ -220,6 +220,20 @@ for (const [symbol, b] of Object.entries(byAsset)) {
     + pad(num(b.gross / b.n, 4), 11) + pad((b.cost / b.n).toFixed(4), 9)
     + pad(num((b.gross - b.cost) / b.n, 4), 10) + num(b.gross - b.cost, 2));
 }
+// The survivability block. Expectancy is an average; these are what the account lives through.
+console.log("");
+console.log("  " + pad("symbol", 9) + pad("maxDD (R)", 12) + pad("worst losing streak", 22)
+  + "risk/trade -> maxDD as % of account");
+for (const [symbol, b] of Object.entries(byAsset)) {
+  const c = curveStats(b.seq);
+  const at015 = c.maxDD * 0.15, at050 = c.maxDD * 0.50;
+  console.log("  " + pad(symbol, 9) + pad(c.maxDD.toFixed(2), 12)
+    + pad(c.worstStreak + " trades", 22)
+    + "0.15% -> " + at015.toFixed(1) + "%   |   0.50% -> " + at050.toFixed(1) + "%");
+}
+console.log("  A 0.50% column is EXTRAPOLATION: the executor sizes at 0.15% and the larger");
+console.log("  size was never tested. Shown because the EA runs 0.50% and the comparison is asked.");
+
 console.log("  " + "-".repeat(96));
 if (tn) {
   console.log("  " + pad("POOLED", 9) + pad(tn, 8) + pad((tw / tn * 100).toFixed(1), 8)
