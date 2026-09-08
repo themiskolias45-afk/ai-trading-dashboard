@@ -39,7 +39,11 @@ if (-not $node) {
     }
 }
 if (-not $node) { Write-Output "MISSING - node.exe not on PATH and not in Program Files"; exit 1 }
-$account = "$env:USERDOMAIN\$env:USERNAME"
+# BARE USERNAME, no domain prefix. "$env:USERDOMAIN\$env:USERNAME" fails on the VPS with
+# HRESULT 0x80070534 ("no mapping between account names and security IDs") because its
+# USERDOMAIN is WORKGROUP, which is not a resolvable authority. Every existing SmartEntry
+# task on that box is registered under the bare name, and this now matches them.
+$account = $env:USERNAME
 $log  = Join-Path $repo "tasks\logs\confluence.txt"
 
 $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
