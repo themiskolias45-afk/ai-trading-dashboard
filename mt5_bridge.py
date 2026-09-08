@@ -3329,7 +3329,24 @@ def reconcile_open_trades():
         if report_reconciled_close(ticket, outcome):
             recovered += 1
             reconcile_warned.discard(ticket)
-            reconciled_pnl, _, reconciled_close_time = outcome
+            # FOUR values, not three. summarize_closed_position returns
+            # (pnl, close_price, close_time, close_time_broker) — the two other call
+            # sites unpack all four (lines 3094 and 3257). This one took three and
+            # raised ValueError every time a close was actually recovered.
+            #
+            # IT FAILED SILENTLY AND IN THE WORST PLACE. Every caller of
+            # reconcile_open_trades() wraps it in `except Exception` (1238, 3396), so the
+            # ValueError was swallowed as a generic reconciliation failure. And it throws
+            # AFTER report_reconciled_close() has already succeeded, so the very next
+            # line — record_closed_outcome() — never ran: THE CIRCUIT BREAKER NEVER
+            # COUNTED A CLOSE RECOVERED FROM AN OUTAGE. The breaker under-counted exactly
+            # when the bridge had been offline, which is when losses are most likely to
+            # have accumulated unseen.
+            #
+            # Found 2026-09-08 by the `tester` agent on its first run through
+            # run_agent.bat, and verified here against both working call sites before
+            # being applied.
+            reconciled_pnl, _, reconciled_close_time, _ = outcome
             # Only what the breaker has not already seen. Without this gate every
             # restart would re-fold the same history into the streak; with it,
             # exactly the closes that happened during the outage are counted.
