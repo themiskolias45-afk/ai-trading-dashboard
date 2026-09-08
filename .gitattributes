@@ -1,0 +1,19 @@
+# APPEND-ONLY LEDGERS MERGE BY UNION, NEVER BY PICKING A SIDE.
+#
+# WHY. Both boxes append to the same git-tracked ledgers, and pull.bat runs
+# `git add -A` + auto-commit before `git pull --no-edit`. So two machines that each
+# added rows produce a real merge on a file where "resolve by taking one side" means
+# silently discarding the other box's evidence. On 2026-09-07 12:29:57 five of these
+# were rewritten by a pull at once; see the memory note "VPS ledgers were READ-ONLY to
+# their own writers" for the ACL half of the same incident.
+#
+# `union` is git's BUILT-IN low-level driver (no merge.*.driver config needed, so it
+# works on a fresh clone on either box). On conflict it keeps EVERY line from BOTH
+# sides. That can duplicate a row both boxes wrote, and duplication is recoverable by
+# a dedupe pass downstream -- a dropped row is not recoverable at all.
+#
+# SCOPED TO *.jsonl ON PURPOSE. These are line-delimited, so concatenating both sides
+# is still a valid file. Do NOT extend this to *.json: 119 tracked .json files are
+# single JSON objects, and union-merging one produces a syntactically broken file that
+# every reader would then fail on.
+tasks/*.jsonl merge=union
