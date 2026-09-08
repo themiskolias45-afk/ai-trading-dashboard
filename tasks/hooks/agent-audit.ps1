@@ -83,10 +83,21 @@ try {
     $line = $row | ConvertTo-Json -Compress -Depth 3
     $out  = Join-Path (Get-Item .).FullName 'tasks/agent_audit.jsonl'
 
+    # AppendAllText with UTF8Encoding($false), NOT Add-Content -Encoding utf8.
+    # Windows PowerShell 5.1 writes a BOM with -Encoding utf8, and a BOM on line 1 of a
+    # .jsonl file makes that row unparseable to any reader that does not trim the whole
+    # file first. Node's JSON.parse throws on a leading ﻿; it only survived the test
+    # here because .trim() happens to strip it. A reader that walks the file line by line
+    # would have lost the first record silently, which is the one failure an audit log
+    # must not have.
+    #
     # Append-only, and a failure to write is silent BY DESIGN: this hook runs before every
     # tool call, so surfacing an error here would spam the session for something that is
     # not the user's problem mid-task. The absence of rows is itself detectable.
-    try { Add-Content -Path $out -Value $line -Encoding utf8 -ErrorAction Stop } catch { }
+    try {
+        $enc = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::AppendAllText($out, $line + [Environment]::NewLine, $enc)
+    } catch { }
 } catch { }
 
 exit 0
