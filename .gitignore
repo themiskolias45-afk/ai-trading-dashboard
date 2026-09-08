@@ -201,3 +201,10 @@ server/learning.json
 # ledgers unwritable for 17 hours on 2026-09-08. It is also per-box by nature: each
 # machine sends its own alerts and must remember its own sends.
 tasks/confluence_state.json
+
+# Per-box mutable state. NEVER git-tracked: a tracked ledger is recreated by a pull and
+# the VPS RunLevel=Limited filtered token then loses append rights on it, which is what
+# left five learning ledgers frozen for 17 hours on 2026-09-08.
+tasks/confluence_ledger.jsonl
+tasks/h4_agreement_state.json
+tasks/atomic_staleness_state.json

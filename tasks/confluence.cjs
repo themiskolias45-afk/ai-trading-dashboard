@@ -1,8 +1,17 @@
-// CONFLUENCE — the five independent reads of the same market, side by side.
+// CONFLUENCE — the six independent reads of the same market, side by side.
 //
-// WHY. Five things form an opinion on BTC, GOLD and SP500 and none of them can see the
+// WHY. Six things form an opinion on BTC, GOLD and SP500 and none of them can see the
 // others: the SmartEntry engine, the pre-open plan, the DAILY PLAN, the ATOMIC_ANALYST_V84
-// indicator, and whatever TradingView last alerted.
+// indicator, the EA_CRT_AMD chart EA, and whatever TradingView last alerted.
+//
+// EA CRT IS A SOURCE BECAUSE IT IS THE ONLY ONE WITH ITS OWN MONEY DOWN. Every other
+// column is an opinion; the EA has actually taken the trade, on its own magic, sized by
+// its own rules, and a halt on this system cannot even reach it. Its direction is read
+// from the LIVE POSITION BOOK rather than from any status panel - measured 2026-09-08,
+// the CRT dashboard panel showed XAUUSD 0.12 @4413.73 while the account really held
+// 0.31 @4403.91, so a panel is not evidence about a position. NO OPEN CRT POSITION IS
+// SILENCE, NOT A "WAIT": an EA with no trade on may simply have had no setup, and
+// scoring that as agreement would invent a vote nobody cast.
 //
 // THE DAILY PLAN IS ITS OWN SOURCE, not a synonym for the pre-open plan. They are written
 // by different jobs at different times off different inputs: the daily plan runs pre-dawn
@@ -37,6 +46,26 @@ const { spawnSync } = require("child_process");
 
 const ROOT   = path.join(__dirname, "..");
 const STATE  = path.join(ROOT, "tasks", "confluence_state.json");
+// EVERY READING IS RECORDED, NOT JUST THE ONES THAT ALERT.
+//
+// He asked for better learning and more evidence, and an alert-only tool can never
+// provide either: it keeps the six cases where everything agreed and throws away the
+// several thousand where it did not. You cannot ask "is agreement worth anything?" of a
+// file that only contains agreements - that is selecting on the outcome.
+//
+// So one line per asset per run goes here regardless of verdict, with every source's
+// direction and the price at the time. Append-only and never rotated, per the standing
+// rule. It feeds nothing and gates nothing today; it exists so that in a few weeks the
+// question "which combination actually preceded a move?" has a population to ask.
+const LEDGER = path.join(ROOT, "tasks", "confluence_ledger.jsonl");
+
+// EA_CRT_AMD magics. 26070455 is the current v3.55/56 line; the two older ones are kept
+// because a position opened by an earlier build is still the EA's position and still the
+// EA's opinion. Sourced from tasks/ea_crt_weekly_review.py, which owns this list.
+const CRT_MAGICS = new Set([26070401, 26070402, 26070455]);
+// The snapshot is written by tasks/mt5_positions_snapshot.py. Older than this and it
+// cannot be called a current read of the book.
+const SNAPSHOT_STALE_MINUTES = 30;
 const NOTIFY = process.argv.includes("--notify");
 const FORCE  = process.argv.includes("--force");
 const HOST = "127.0.0.1", PORT = 3001;
@@ -97,8 +126,28 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
   // Reading the files directly also means the table still works when the server is down,
   // which is exactly when someone would want to know what each source last said.
   const sigRes   = await get("/api/signals");           // ungated by design
+  const setRes   = await get("/api/strategy-settings"); // GET is public: the bridge polls it
+  // KICK THE POSITION SNAPSHOT, or EA CRT can never vote on a headless box.
+  //
+  // The server refreshes tasks/mt5_positions_snapshot.json LAZILY - refreshPositionSnapshot()
+  // is called from the GET /api/mt5/positions handler and nowhere else, explicitly "for
+  // NEXT time". On the laptop an open dashboard polls that route constantly so the file
+  // stays fresh; the VPS is headless, nothing ever asks, and measured 2026-09-08 its
+  // snapshot was 47 MINUTES old - past the 30-minute bar - so the EA CRT column read
+  // "no book" on the one box that trades continuously.
+  //
+  // This request costs nothing (the route is public and serves from the last file
+  // regardless) and leaves a fresh snapshot for the NEXT run. At a 15-minute cadence the
+  // file is therefore at most one interval old, comfortably inside the bar. The result is
+  // deliberately ignored: we read the FILE below, because the file is what survives a
+  // server restart.
+  await get("/api/mt5/positions");
   const alertRes = await get("/api/alerts");            // gated; handled below
   const sigs = sigRes.json || {};
+  // THE LIVE GATE, READ NOT ASSUMED. It moved 65 -> 70 once and the boot file was the
+  // last thing still claiming 65. null here means the read failed, never a default.
+  const liveGate = Number.isFinite(Number(setRes.json?.confidenceThreshold))
+                     ? Number(setRes.json.confidenceThreshold) : null;
 
   const atoms = {};
   try {
@@ -124,6 +173,33 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
       }
     }
   } catch { /* no MT5 data folder on this box */ }
+
+  // ── EA CRT — read from the LIVE POSITION BOOK, not from a status panel ────────────
+  // Net lots per symbol across the CRT magics. Long and short both open on the same
+  // symbol nets to WAIT (the EA is hedged and has no directional opinion right now),
+  // which is a considered verdict; NO position at all is null, which is silence.
+  const crtBySymbol = {};
+  let crtSnapshotAgeMin = null, crtSnapshotOk = false;
+  try {
+    const snap = JSON.parse(fs.readFileSync(path.join(ROOT, "tasks", "mt5_positions_snapshot.json"), "utf8"));
+    const at = snap && snap.at ? Date.parse(snap.at) : NaN;
+    crtSnapshotAgeMin = Number.isFinite(at) ? (Date.now() - at) / 60000 : null;
+    // A stale book is not a current opinion. Say so rather than voting on old positions.
+    crtSnapshotOk = snap && snap.ok !== false && crtSnapshotAgeMin !== null
+                    && crtSnapshotAgeMin <= SNAPSHOT_STALE_MINUTES;
+    if (crtSnapshotOk) {
+      for (const pos of snap.positions || []) {
+        if (!CRT_MAGICS.has(Number(pos.magic))) continue;
+        const sym = String(pos.symbol || "").toUpperCase();
+        if (!sym) continue;
+        const lots = Number(pos.volume) || 0;
+        const isBuy = String(pos.type || pos.direction || "").toUpperCase().startsWith("BUY");
+        const e = crtBySymbol[sym] || (crtBySymbol[sym] = { longLots: 0, shortLots: 0, tickets: 0 });
+        if (isBuy) e.longLots += lots; else e.shortLots += lots;
+        e.tickets += 1;
+      }
+    }
+  } catch { /* no snapshot on this box - the column reads "no data", never agreement */ }
 
   const planByKey = {};
   try {
@@ -161,9 +237,12 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
   const alertsGated = alertRes.status === 401;
 
   console.log("");
-  console.log("============= CONFLUENCE — five independent reads of the same market =============");
+  console.log("============== CONFLUENCE — six independent reads of the same market ==============");
   console.log("  " + pad("ASSET", 7) + pad("SYSTEM", 15) + pad("PRE-OPEN", 15)
-              + pad("DAILY PLAN", 15) + pad("ATOMIC", 17) + pad("TRADINGVIEW", 13) + "VERDICT");
+              + pad("DAILY PLAN", 15) + pad("ATOMIC", 17) + pad("EA CRT", 14)
+              + pad("TRADINGVIEW", 13) + "VERDICT");
+  if (crtSnapshotAgeMin !== null && !crtSnapshotOk)
+    console.log("  position snapshot is " + crtSnapshotAgeMin.toFixed(0) + "m old — EA CRT reads 'no book' and votes on nothing");
   if (daily && dailyStale)
     console.log("  daily plan on file is " + dailyDate + ", NOT today — shown for reference, contributes nothing");
   else if (!daily)
@@ -200,6 +279,16 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
       atomic: { dir: atom ? dir(atom.direction) : null, conf: atom?.confidence ?? null,
                 stale: atom?.stale, consensus: atom?.finalConsensus ?? null, mtf: atom?.mtfAligned },
       tv:     { dir: tvRow ? dir(tvRow.action) : null, at: tvRow?.ts ?? null },
+      crt:    (() => {
+                const e = crtBySymbol[a.broker];
+                if (!crtSnapshotOk || !e) {
+                  return { dir: null, lots: null, tickets: 0,
+                           why: !crtSnapshotOk ? "no book" : "flat" };
+                }
+                const net = e.longLots - e.shortLots;
+                const d = net > 0 ? "BUY" : net < 0 ? "SELL" : "WAIT";   // exactly hedged = WAIT
+                return { dir: d, lots: Math.abs(Math.round(net * 100) / 100), tickets: e.tickets, why: null };
+              })(),
     };
 
     const present = Object.entries(src).filter(([, v]) => v.dir !== null);
@@ -229,6 +318,9 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
       + pad(dailyCell, 15)
       + pad((src.atomic.dir ?? "no data") + (src.atomic.conf != null ? " " + src.atomic.conf + "%" : "")
             + (src.atomic.stale ? " STALE" : ""), 17)
+      + pad(src.crt.dir
+              ? src.crt.dir + " " + src.crt.lots + "L"
+              : (src.crt.why === "no book" ? "no book" : "flat"), 14)
       + pad(src.tv.dir ?? (alertsGated ? "gated" : "no data"), 13)
       + verdict);
 
@@ -240,8 +332,62 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
   console.log("  A source with NO DATA is never counted as agreement. Full agreement needs");
   console.log("  every present source on the same non-WAIT side, and at least 3 present.");
   console.log("  The 3-present floor is UNCHANGED from the four-source version on purpose:");
-  console.log("  adding a fifth reader must not raise the bar and silence a real agreement.");
+  console.log("  adding a fifth or sixth reader must not raise the bar and silence a real");
+  console.log("  agreement. EA CRT 'flat' means no open position — silence, not a WAIT vote,");
+  console.log("  because an EA with no trade on may simply have had no setup.");
   console.log("===========================================================================");
+
+  // ── THE EVIDENCE LEDGER — written BEFORE the early exit, on purpose ───────────────
+  //
+  // This append must happen above the "no full agreement" return. If it sat below it, the
+  // file would contain ONLY the runs where everything agreed, and the one question worth
+  // asking of it - "is agreement worth anything?" - would be unanswerable, because the
+  // disagreements it needs as a control were never recorded. Selecting on the outcome is
+  // how a ledger becomes a scrapbook.
+  //
+  // Append-only, never rotated, one line per asset per run. It feeds nothing and gates
+  // nothing: no confidence, no size, no stop reads this file. It is a population being
+  // accumulated so a walk-forward can be run on it later, and a claim about which
+  // combination predicts anything is NOT supported until that has happened.
+  try {
+    const stamp = new Date().toISOString();
+    const lines = rows.map((r) => JSON.stringify({
+      at: stamp,
+      box: require("os").hostname(),
+      asset: r.asset.key,
+      broker: r.asset.broker,
+      price: r.sig?.price ?? null,
+      // Each source's direction as it stood. null is preserved and NEVER coerced to
+      // "WAIT" - the difference between silence and a considered wait is the whole point.
+      system:  { dir: r.src.system.dir,  conf: r.src.system.conf,  setup: r.src.system.setup },
+      preopen: { dir: r.src.plan.dir,    conf: r.src.plan.conf,    setup: r.src.plan.setup },
+      daily:   { dir: r.src.daily.dir,   conf: r.src.daily.conf,   stale: r.src.daily.stale },
+      atomic:  { dir: r.src.atomic.dir,  conf: r.src.atomic.conf,  stale: r.src.atomic.stale },
+      crt:     { dir: r.src.crt.dir,     lots: r.src.crt.lots,     tickets: r.src.crt.tickets },
+      tv:      { dir: r.src.tv.dir,      at: r.src.tv.at },
+      presentCount: r.present.length,
+      present: r.present,
+      missing: r.missing,
+      agreed: r.agreed,
+      // ONLY SET WHEN THEY ACTUALLY AGREED. This used to carry the first non-WAIT
+      // direction found even on a split row, which reads like a call the table never
+      // made. dirsSeen carries the raw spread instead, so a disagreement stays visible.
+      direction: r.agreed ? r.direction : null,
+      dirsSeen: r.present.map((k) => r.src[k].dir),
+      // The gate at the time, so a later reader never has to guess which regime the row
+      // was recorded under. Read live from /api/strategy-settings - the first version of
+      // this line read sigs.__gate, a key nothing has ever written, so every row would
+      // have recorded gate:null while looking like it had been captured.
+      gate: liveGate,
+      feedsTheGate: false,
+    }));
+    const NL = String.fromCharCode(10);
+    fs.appendFileSync(LEDGER, lines.join(NL) + NL);
+  } catch (e) {
+    // A ledger that cannot be written must be LOUD, but must never stop the alert that
+    // this script exists to send.
+    console.log("  LEDGER WRITE FAILED: " + e.message + " — the table above is unaffected");
+  }
 
   const hits = rows.filter(r => r.agreed);
   if (!hits.length) { console.log(""); console.log("  No full agreement right now."); console.log(""); process.exit(0); }
