@@ -48,7 +48,12 @@ const REWRITTEN = ['learning.json', 'smartentry.db'];
 function entriesOf(zipPath) {
   const ps = 'Add-Type -A System.IO.Compression.FileSystem; ' +
     '$z=[IO.Compression.ZipFile]::OpenRead(' + JSON.stringify(zipPath) + '); ' +
-    '$z.Entries | ForEach-Object { $_.Length.ToString() + " " + $_.Name }; $z.Dispose()';
+    // $_.FullName, NOT $_.Name. ZipArchiveEntry.Name is the BASENAME; FullName carries the
+    // path inside the archive. Using .Name made every entry indistinguishable, so the
+    // full-path keying below silently had nothing to key on and fell back to whichever
+    // learning.json appeared last - the July 30 snapshot. Second time the same false
+    // alarm was produced by a different line in the same function.
+    '$z.Entries | ForEach-Object { $_.Length.ToString() + " " + $_.FullName }; $z.Dispose()';
   try {
     const out = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps],
       { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, timeout: 120000 });
@@ -130,7 +135,8 @@ function main() {
       else if (monotone) verdict = 'SHRANK x' + (drops.length / 2) + '  <-- APPEND-ONLY FILE GOT SMALLER';
       else verdict = 'shrank x' + (drops.length / 2) + ' (rewritten file; check size of drop)';
       console.log('  ' + name.padEnd(30) + String(h.length).padEnd(7) +
-        (h[0].size + ' -> ' + h[h.length - 1].size).padEnd(26) + verdict);
+        (h[0].size + " -> " + h[h.length - 1].size).padEnd(26) + verdict);
+      if (h[0].path) console.log("      path compared: " + h[0].path);
       for (let i = 0; i < drops.length; i += 2) {
         const a = drops[i], b = drops[i + 1];
         console.log('      ' + a.tag + ' (' + a.size + ')  ->  ' + b.tag + ' (' + b.size +
