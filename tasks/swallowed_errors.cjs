@@ -104,6 +104,7 @@ function main() {
         // Normalise: strip digits/paths so the same defect collapses to one row instead
         // of one row per ticket number.
         const raw = (m[1] + (m[2] ? ' ' + m[2] : '')).trim();
+        if (kind === 'failed' && isZeroCount(raw)) continue;
         const sig = raw
           .replace(/\d+/g, '#')
           .replace(/[A-Za-z]:\\[^\s"']+/g, '<path>')
