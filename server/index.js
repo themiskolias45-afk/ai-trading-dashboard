@@ -1904,7 +1904,7 @@ function calcBB(closes, period = 20, mult = 2) {
 // fold. Removing the MACD condition entirely was already measured and makes Gold and
 // SP500 worse; this candidate is deliberately weaker than removal — MACD below zero
 // stays blocked — but weaker is not the same as proven.
-const MACD_BULLISH_MODE = "signal";
+const MACD_BULLISH_MODE = "trend";   // set to "trend" 2026-09-08 by owner decision — see the note below
 
 function calcMACD(closes) {
   if (closes.length < 35) return null;
