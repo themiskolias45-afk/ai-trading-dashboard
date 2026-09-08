@@ -494,9 +494,25 @@ function main() {
 
   const wf = strArg('--walkforward', null);
   const scenario = strArg('--scenario', null);
+  const sweep = strArg('--sweep', null);
   const rows = [];
 
-  if (wf) {
+  if (sweep) {
+    const { input, values } = parseSweep(sweep);
+    const which = String(strArg('--period', 'is')).toLowerCase();
+    const period = which === 'oos' ? OOS : which === 'full' ? FULL : IS;
+    if (which === 'oos') {
+      console.log('  *** SWEEPING ON OUT-OF-SAMPLE DATA. The winner cannot then be validated ***');
+      console.log('  *** against anything - you are choosing the value that best fits the    ***');
+      console.log('  *** only held-out window you have. Prefer --period is.                  ***\n');
+    }
+    console.log(`sweeping ${input} over [${values.join(', ')}] on ${which.toUpperCase()} ` +
+      `(${period.from} -> ${period.to})\n`);
+    for (const v of values) {
+      const safe = String(v).replace(/[^A-Za-z0-9.-]/g, '_');
+      rows.push(runOne(install, `sweep_${input}_${safe}`, period, { [input]: v }, dataDir));
+    }
+  } else if (wf) {
     const base = SCENARIOS[wf];
     if (!base) { console.error(`Unknown scenario for --walkforward: ${wf}`); process.exitCode = 1; return; }
     for (const f of FOLDS) {
