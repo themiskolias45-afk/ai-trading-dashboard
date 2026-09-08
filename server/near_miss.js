@@ -76,6 +76,52 @@ function finiteOrNull(value) {
  * ledger carries, so a later sweep can ask "what if the bar had been X" without
  * re-deriving anything. Returns true only if a row was counted.
  */
+/**
+ * THE UNIT A CONDITION'S MARGIN IS MEASURED IN.
+ *
+ * WHY THIS EXISTS. `minMargin` is |actual - threshold|, which is correct WITHIN a row and
+ * meaningless ACROSS rows: RSI_BELOW_FLOOR measures RSI POINTS while MACD_STILL_BULLISH
+ * measures RAW PRICE. Both were written into the same field and four surfaces read it -
+ * server/index.js, this file, dashboard/index.html and tasks/why_zero_confidence.cjs - so
+ * any "closest to firing" ordering built on it ranked a 2-point RSI miss against a $2
+ * MACD miss as though they were the same distance. Found by the AI employee
+ * (morning-dpxg7l / morning-pi4m60) and verified against the live census: 6 RSI rows and
+ * 2 MACD rows, mixed.
+ *
+ * An unmapped condition returns "unknown", never a guess. A wrong unit is worse than a
+ * missing one: it makes the mixing invisible again while looking fixed.
+ */
+const UNIT_BY_CONDITION = {
+  RSI_BELOW_FLOOR:    "rsi_points",
+  RSI_ABOVE_CEILING:  "rsi_points",
+  MACD_STILL_BULLISH: "price",
+  MACD_STILL_BEARISH: "price",
+  ADX_BELOW_FLOOR:    "adx_points",
+  SPREAD_ABOVE_CAP:   "points",
+  CONF_BELOW_GATE:    "confidence_points",
+};
+
+function unitForCondition(condition) {
+  return UNIT_BY_CONDITION[String(condition || "").toUpperCase()] || "unknown";
+}
+
+/**
+ * A dimensionless margin, so rows in different units can be compared honestly.
+ *
+ * margin / |threshold| - how far short it fell as a FRACTION OF THE BAR IT MISSED.
+ * Returns null when the threshold is zero or non-finite rather than dividing by it: a
+ * MACD histogram bar of exactly 0 is a real and common threshold, and Infinity sorting
+ * to the top of a "closest to firing" list would be the same class of lie this fixes.
+ *
+ * Null means "cannot be compared", which readers must render as such - not as 0, which
+ * would sort as the tightest miss of all.
+ */
+function relativeMargin(margin, threshold) {
+  if (!Number.isFinite(margin) || !Number.isFinite(threshold)) return null;
+  if (threshold === 0) return null;
+  return margin / Math.abs(threshold);
+}
+
 function noteNearMiss(record) {
   try {
     if (!record || typeof record !== "object") return false;
