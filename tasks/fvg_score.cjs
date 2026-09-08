@@ -44,7 +44,23 @@ const HOLD_BARS = 960;   // as measured
 // Live terminal, 2026-09-02. Spread only: commission, swap and slippage are real and
 // none is modelled here.
 const SPREAD = { XAUUSD: 0.22, BTCUSD: 17.00, SP500: 0.36 };
-const ASSET_SYMBOL = { gold: "XAUUSD", btc: "BTCUSD", spx: "SP500" };
+const ASSET_SYMBOL_ALL = { gold: "XAUUSD", btc: "BTCUSD", spx: "SP500" };
+
+// --only gold  restricts the backfill to one asset.
+//
+// WHY IT EXISTS. buildBackfill() calls upTo() once per exec bar, so its cost is O(n^2):
+// a 20,000-bar tail takes minutes and the full 102,300-bar archive takes hours. The
+// question that actually needs answering - does the gold edge survive the FULL archive,
+// on the same 1,583-trade footing as the CRT EA - only needs ONE asset, so paying for
+// three is a 3x tax on the answer. Measured 2026-09-08: gold carries +118.61R of the
+// pooled +140.56R, so the other two are not where the edge is anyway.
+const ONLY = (() => {
+  const i = process.argv.indexOf("--only");
+  return (i === -1 || i + 1 >= process.argv.length) ? null : process.argv[i + 1].toLowerCase();
+})();
+const ASSET_SYMBOL = ONLY && ASSET_SYMBOL_ALL[ONLY]
+  ? { [ONLY]: ASSET_SYMBOL_ALL[ONLY] }
+  : ASSET_SYMBOL_ALL;
 
 function numArg(f, d) { const i = process.argv.indexOf(f); if (i === -1) return d; const v = Number(process.argv[i + 1]); return Number.isFinite(v) ? v : d; }
 const BACKFILL = process.argv.includes("--backfill") ? numArg("--backfill", 4000) : 0;
