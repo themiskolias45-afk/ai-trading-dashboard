@@ -3326,6 +3326,30 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
     reasons.push(`ADX ${adxValue} — trend confirmed`);
   }
 
+  // ── LABEL HONESTY ───────────────────────────────────────────────────────────────────
+  //
+  // `trend` above is EMA STACKING ONLY — price vs ema20/50/200, with no ADX and no slope
+  // — so it can read "STRONG UPTREND" on a market with no trend at all. Measured
+  // 2026-09-08 on the live feed: SP500 was labelled STRONG UPTREND at ADX 12.2, BB
+  // bandwidth 2.2% (an extreme squeeze), with its own structure.trending === false,
+  // purely because price sat 0.067% above its EMA20. The two largest realised losses in
+  // the journal are MOMENTUM longs in GOLD (-226.91 and -163.37) bought while that label
+  // said UPTREND and price was falling.
+  //
+  // IT SAYS SO, IT CHANGES NOTHING. `trend` is not altered by one character, because its
+  // exact strings are compared for GATING in four places: inUptrend and inDowntrend
+  // above, the regime classifier ("STRONG UPTREND" -> TRENDING), and the multi-timeframe
+  // alignment test on h1.trend. Re-wording the label would silently move the firing set,
+  // which is the one thing this must not do. So the truth is added BESIDE it: one line in
+  // `reasons` and one boolean in the payload, both display-only.
+  //
+  // Fires on WAIT too. A misleading label misleads a reader whether or not a setup formed
+  // — that is exactly when someone looks at the screen and asks why nothing is happening.
+  if ((inUptrend || inDowntrend) && adxValue !== null && !adxTrending) {
+    reasons.push(`LABEL CAUTION: "${trend}" is EMA stacking only — ADX ${adxValue} is below `
+      + `${ADX_TRENDING_MIN}, so the trend is NOT confirmed`);
+  }
+
   // ── Structural stop ─────────────────────────────────────────
   // Prefer the last confirmed swing point over a fixed ATR multiple: it sits where
   // the thesis is actually invalidated. Only adopted when it is TIGHTER than the
@@ -3408,6 +3432,9 @@ function generateSignal(label, ticker, closes, highs, lows, volumes = [], dxyClo
       trending:  adxTrending,
     },
     trend,
+    // Display-only companion to `trend`. False means the label came from EMA stacking
+    // alone and ADX does not back it. Nothing gates on this field.
+    trendConfirmed: adxTrending,
     volume: { last: Math.round(lastVol), avg: avgVol ? Math.round(avgVol) : null, ratio: volRatio, confirmed: volConfirmed },
     reasons,
     updatedAt: new Date().toISOString()
