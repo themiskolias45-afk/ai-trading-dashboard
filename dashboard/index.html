@@ -7730,6 +7730,91 @@ async function refreshEaCrtPanel() {
 refreshEaCrtPanel();
 setInterval(refreshEaCrtPanel, 60000);
 
+/* LAB SHADOW panel. Reads dashboard/lab-shadow.json, written hourly by
+   tasks/lab_shadow.cjs via the 'SmartEntry Lab Shadow' task.
+
+   STALENESS IS RENDERED, NEVER ASSUMED FINE. The writer runs hourly, so a file older
+   than ~3 hours means the writer stopped - and this panel existing while its source is
+   dead is the exact failure the EA CRT panel above documents. It says STALE rather than
+   showing the last numbers as if current.
+
+   FORWARD 0 IS NOT A FAILURE AND IS NOT A SUCCESS. Every staged candidate currently has
+   zero forward trades because the collector had never run. Zero is rendered as "no
+   evidence yet" with the days-to-proof beside it, so nobody reads an untested candidate
+   as a validated one. */
+async function refreshLabShadowPanel() {
+  var body = document.getElementById('lab-shadow-body');
+  var sync = document.getElementById('lab-shadow-sync');
+  var count = document.getElementById('lab-shadow-count');
+  if (!body) return;
+
+  var j = null;
+  try {
+    var r = await fetch('/dashboard/lab-shadow.json?t=' + Date.now());
+    j = r.ok ? await r.json() : null;
+  } catch (e) { j = null; }
+
+  if (!j) {
+    body.innerHTML = '<div style="color:var(--muted)">No lab-shadow.json on this box. '
+      + 'The writer is tasks/lab_shadow.cjs (task: SmartEntry Lab Shadow).</div>';
+    if (count) count.textContent = 'none';
+    return;
+  }
+
+  var rows = j.candidates || [];
+  var ageMin = j.generatedAt ? (Date.now() - new Date(j.generatedAt)) / 60000 : Infinity;
+  var stale = ageMin > 180;
+  if (sync) {
+    sync.innerHTML = 'written ' + eaAgo(j.generatedAt)
+      + (stale ? ' <b style="color:var(--red)">— STALE, the hourly writer has stopped</b>' : '')
+      + ' · ' + rows.length + ' staged';
+  }
+  if (count) {
+    count.textContent = rows.length + ' staged';
+    count.style.background = stale ? 'var(--red)' : 'var(--border)';
+  }
+
+  if (!rows.length) {
+    body.innerHTML = '<div style="color:var(--muted)">Nothing staged. '
+      + 'The lab stages a candidate only when it clears all eight bars in lab_promote.cjs.</div>';
+    return;
+  }
+
+  /* Sorted by days-to-proof ASCENDING - the ones that can actually be settled first.
+     Sorting by expectancy would put the unprovable ones at the top, which is how the
+     queue filled with 6,000-day candidates in the first place. */
+  var sorted = rows.slice().sort(function (a, b) {
+    var da = (typeof a.daysToRequired === 'number') ? a.daysToRequired : Infinity;
+    var db = (typeof b.daysToRequired === 'number') ? b.daysToRequired : Infinity;
+    return da - db;
+  });
+
+  body.innerHTML = sorted.map(function (c) {
+    var days = (typeof c.daysToRequired === 'number') ? Math.round(c.daysToRequired) : null;
+    var provable = days !== null && days <= 365;
+    var fwd = c.forwardTrades || 0;
+    var fwdTxt = fwd === 0
+      ? '<span style="color:var(--muted)">no evidence yet</span>'
+      : fwd + ' trades · ' + (typeof c.forwardExpectancyR === 'number'
+          ? (c.forwardExpectancyR > 0 ? '+' : '') + c.forwardExpectancyR.toFixed(3) + 'R' : '—');
+    var daysTxt = days === null ? 'unknown'
+      : (days > 365 ? '<b style="color:var(--red)">' + days + ' days</b>' : '<b style="color:var(--green)">' + days + ' days</b>');
+    return '<div style="padding:6px 0;border-bottom:1px solid var(--border)">'
+      + '<div style="font-weight:600">' + (c.symbol || '?') + ' ' + (c.timeframe || '') + ' · '
+      + (c.name || '').split('-')[0] + '</div>'
+      + '<div style="font-size:.68rem;color:var(--muted)">' + (c.label || '') + '</div>'
+      + '<div style="font-size:.7rem;margin-top:3px">'
+      + 'backtest OOS ' + (typeof c.backtestOosExpectancyR === 'number'
+          ? (c.backtestOosExpectancyR > 0 ? '+' : '') + c.backtestOosExpectancyR.toFixed(3) + 'R' : '—')
+      + ' over ' + (c.backtestTrades || 0) + ' &nbsp;·&nbsp; forward ' + fwdTxt
+      + ' &nbsp;·&nbsp; needs ' + (c.requiredForwardTrades || '?') + ' more = ' + daysTxt
+      + (provable ? '' : ' <span style="font-size:.62rem;color:var(--muted)">(not settleable within a year)</span>')
+      + '</div></div>';
+  }).join('');
+}
+refreshLabShadowPanel();
+setInterval(refreshLabShadowPanel, 300000);
+
 /* TRADINGVIEW PAPER TRADING panel.
    THE THREE STATES ARE RENDERED DIFFERENTLY AND THAT IS THE WHOLE POINT:
      positions: [...]   -> the rows
