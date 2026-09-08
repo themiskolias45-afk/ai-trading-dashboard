@@ -22,6 +22,13 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tasks\register_confluence_task.ps1
 
+param(
+    # Rewrite an already-registered task's action IN PLACE via Set-ScheduledTask. This is a
+    # modify, never a delete: schtasks /create /f and Unregister-ScheduledTask both destroy
+    # the task's run history, and this project does not delete.
+    [switch]$Update
+)
+
 $ErrorActionPreference = "Stop"
 
 $name = "SmartEntry Confluence Alert"
