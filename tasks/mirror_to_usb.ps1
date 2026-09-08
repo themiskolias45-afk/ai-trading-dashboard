@@ -45,7 +45,8 @@
 param(
     # The SanDisk 28.6 GB stick, identified 2026-09-08. Pass another to use a different one.
     [string]$VolumeSerial = 'B63B1D80',
-    [string]$BackupFolderName = 'LAPTOP-BACKUP'
+    [string]$BackupFolderName = 'LAPTOP-BACKUP',
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
