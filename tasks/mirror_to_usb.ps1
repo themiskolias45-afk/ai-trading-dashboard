@@ -65,15 +65,50 @@ function Write-Head { param($Text) Write-Host "`n=== $Text ===" -ForegroundColor
 # remote, AND pulled onto the VPS, so it already has three copies. This script is for the
 # things that have ONE.
 # --------------------------------------------------------------------------------------
+#
+# ORDERED BY HOW IRREPLACEABLE IT IS, because the stick is too small for all of it.
+# Measured 2026-09-08: everything asked for is 33.5 GB and there are 22.7 GB free. That
+# gap is real and is NOT worked around silently - sources are taken in this order, each
+# one is checked against the space actually left, and anything that does not fit is named
+# in the output and written to a manifest on the stick. A backup that quietly stops
+# part-way is the same failure as the VPS backup that logged success over 105 of 13,700
+# files.
+#
+# 'Filter' limits a source to those extensions. The phone folder is split by type rather
+# than copied whole so that 3.6 GB of re-downloadable .exe installers cannot crowd out
+# irreplaceable photographs.
+#
 $Sources = @(
-    [pscustomobject]@{ Name = 'Desktop';        Path = Join-Path $env:USERPROFILE 'Desktop' }
-    [pscustomobject]@{ Name = 'Documents';      Path = Join-Path $env:USERPROFILE 'Documents' }
-    [pscustomobject]@{ Name = 'Downloads';      Path = Join-Path $env:USERPROFILE 'Downloads' }
-    [pscustomobject]@{ Name = 'Pictures';       Path = Join-Path $env:USERPROFILE 'Pictures' }
-    [pscustomobject]@{ Name = 'Videos';         Path = Join-Path $env:USERPROFILE 'Videos' }
-    [pscustomobject]@{ Name = 'Brain-vault';    Path = 'C:\Users\User\Documents\Brain' }
-    [pscustomobject]@{ Name = 'Claude-memory';  Path = 'C:\Users\User\.claude\projects\C--Users-User-ai-trading-dashboard\memory' }
+    # --- irreplaceable and tiny: these go first, they cost almost nothing -------------
+    [pscustomobject]@{ Name = 'Brain-vault';     Path = 'C:\Users\User\Documents\Brain' }
+    [pscustomobject]@{ Name = 'Claude-memory';   Path = 'C:\Users\User\.claude\projects\C--Users-User-ai-trading-dashboard\memory' }
+    [pscustomobject]@{ Name = 'ml_trading_system'; Path = Join-Path $env:USERPROFILE 'ml_trading_system' }
+    [pscustomobject]@{ Name = 'MT5-config';      Path = "$env:APPDATA\MetaQuotes\Terminal"
+                       Filter = @('*.set','*.tpl','*.ini','*.mq5','*.mq4','*.ex5','*.ex4','*.chr') }
+
+    # --- the user's own working files --------------------------------------------------
+    [pscustomobject]@{ Name = 'Desktop';         Path = Join-Path $env:USERPROFILE 'Desktop' }
+    [pscustomobject]@{ Name = 'Documents';       Path = Join-Path $env:USERPROFILE 'Documents' }
+    [pscustomobject]@{ Name = 'Pictures';        Path = Join-Path $env:USERPROFILE 'Pictures' }
+    [pscustomobject]@{ Name = 'Videos';          Path = Join-Path $env:USERPROFILE 'Videos' }
+
+    # --- the phone. 5,722 photographs with no other copy anywhere on earth -------------
+    [pscustomobject]@{ Name = 'Phone-Photos';    Path = "$env:USERPROFILE\CrossDevice"
+                       Filter = @('*.jpg','*.jpeg','*.png','*.heic','*.gif','*.webp') }
+    [pscustomobject]@{ Name = 'Phone-Documents'; Path = "$env:USERPROFILE\CrossDevice"
+                       Filter = @('*.pdf','*.ipynb','*.npy','*.txt','*.docx','*.xlsx','*.csv','*.pptx') }
+    [pscustomobject]@{ Name = 'Phone-Videos';    Path = "$env:USERPROFILE\CrossDevice"
+                       Filter = @('*.mp4','*.mov','*.3gp','*.mkv') }
+
+    # --- last, because it is all re-downloadable ---------------------------------------
+    [pscustomobject]@{ Name = 'Downloads';       Path = Join-Path $env:USERPROFILE 'Downloads' }
+    [pscustomobject]@{ Name = 'Phone-Installers'; Path = "$env:USERPROFILE\CrossDevice"
+                       Filter = @('*.exe','*.apk','*.zip','*.msi') }
 )
+
+# .ssh is ABSENT ON PURPOSE and must stay absent. It holds the private keys to the VPS,
+# and this stick is unencrypted FAT32 that travels in a bag - anyone who picks it up
+# would own the trading server. Protecting those keys needs encryption, not a copy.
 
 # --------------------------------------------------------------------------------------
 # Find the stick by serial. Refuse rather than guess.
