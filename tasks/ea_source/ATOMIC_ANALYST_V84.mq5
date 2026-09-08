@@ -189,9 +189,13 @@ string SessionName()
 {
    MqlDateTime t; TimeToStruct(TimeCurrent(), t);
    int h = t.hour;
+   // "Overlap" is a real value in his panel (13:36 shot) and was missing here. The
+   // London/New York overlap is the highest-liquidity window of the day and it is its own
+   // label, not a slice of either session.
    if(h >= 0  && h < 7)  return("Asian");
-   if(h >= 7  && h < 13) return("Europe");
-   if(h >= 13 && h < 21) return("US");
+   if(h >= 7  && h < 12) return("Europe");
+   if(h >= 12 && h < 16) return("Overlap");
+   if(h >= 16 && h < 21) return("US");
    return("Pacific");
 }
 
@@ -389,14 +393,27 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    // consensus. The MT4 panel printed SELL ONLY at 63% while its own MTF row
    // showed M1, M5, W1 and MN1 on BUY and its Evidence Matrix said MIXED — the
    // headline claimed more than the rows under it supported. This will not.
-   bool   mtfAgrees = (vFinal == V_BUY && tfSell == 0) || (vFinal == V_SELL && tfBuy == 0);
-   string headline  = (vFinal == V_WAIT) ? "WAIT"
-                    : (VerdictText(vFinal) + (mtfAgrees ? " ONLY" : " (MTF MIXED)"));
+   // THE AI DECISION IS NOT THE INDICATOR CONSENSUS. They are two separate readings and
+   // his 13:36 screenshot shows them DISAGREEING: Final Consensus reads SELL while the
+   // Atomic AI Decision reads WAIT, because Dominance was Bullish 6 / Wait 56 / Bearish 38
+   // and WAIT was the largest share. The first build of this file conflated them, so it
+   // could never reproduce that state.
+   //
+   //   Final Consensus = majority of the seven indicators        (vFinal)
+   //   AI Decision     = the largest slice of Market Dominance   (vDecision)
+   int vDecision;
+   if(waitPct >= bullPct && waitPct >= bearPct)      vDecision = V_WAIT;
+   else if(bullPct >= bearPct)                       vDecision = V_BUY;
+   else                                              vDecision = V_SELL;
 
-   if(vFinal != g_lastVerdict && vFinal != V_WAIT)
+   bool   mtfAgrees = (vDecision == V_BUY && tfSell == 0) || (vDecision == V_SELL && tfBuy == 0);
+   string headline  = (vDecision == V_WAIT) ? "WAIT"
+                    : (VerdictText(vDecision) + (mtfAgrees ? " ONLY" : " (MTF MIXED)"));
+
+   if(vDecision != g_lastVerdict && vDecision != V_WAIT)
      {
-      if(vFinal == V_BUY) g_buySignals++; else g_sellSignals++;
-      g_lastVerdict = vFinal;
+      if(vDecision == V_BUY) g_buySignals++; else g_sellSignals++;
+      g_lastVerdict = vDecision;
      }
 
    //--- ticket -----------------------------------------------------
@@ -405,9 +422,9 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    double sl = 0;
    double tp[5];
    ArrayInitialize(tp, 0.0);
-   if(vFinal != V_WAIT)
+   if(vDecision != V_WAIT)
      {
-      int dir = (vFinal == V_BUY) ? 1 : -1;
+      int dir = (vDecision == V_BUY) ? 1 : -1;
       sl = entry - dir * slDist;
       for(int i = 0; i < 5; i++) tp[i] = entry + dir * slDist * FIB_TP[i];
      }
@@ -417,15 +434,15 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    int    dg = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    string spreadTxt = "Spread " + IntegerToString(spreadPts) + "pt";
 
-   if(InpShowPanel) DrawPanel(headline, confidence, tfV, cons, vFinal,
+   if(InpShowPanel) DrawPanel(headline, confidence, tfV, cons, vFinal, vDecision,
                               bullPct, waitPct, bearPct, sentiment,
                               rsi, adx, atr, entry, sl, tp, dg, spreadTxt, mtfAgrees,
-                              volRatio, bbWidth, macdHist, tfBuy, tfSell);
-   if(InpDrawLevels) DrawLevels(vFinal, entry, sl, tp, dg);
+                              volRatio, bbWidth, macdHist, tfBuy, tfSell, px, maS);
+   if(InpDrawLevels) DrawLevels(vDecision, entry, sl, tp, dg);
 
    if(InpWriteFeedFile && (TimeCurrent() - g_lastFeedWrite) >= InpFeedSeconds)
      {
-      WriteFeed(headline, confidence, tfV, cons, vFinal, bullPct, waitPct, bearPct,
+      WriteFeed(headline, confidence, tfV, cons, vFinal, vDecision, bullPct, waitPct, bearPct,
                 sentiment, rsi, macdMain, macdSig, adx, atr, entry, sl, tp,
                 dg, spreadPts, mtfAgrees, volRatio, bbWidth, tfBuy, tfSell);
       g_lastFeedWrite = TimeCurrent();
@@ -436,13 +453,13 @@ int OnCalculate(const int rates_total, const int prev_calculated,
 
 //+------------------------------------------------------------------+
 void DrawPanel(const string headline, const double confidence, const int &tfV[],
-               const int &cons[], const int vFinal, const double bullPct,
+               const int &cons[], const int vFinal, const int vDecision, const double bullPct,
                const double waitPct, const double bearPct, const string sentiment,
                const double rsi, const double adx, const double atr,
                const double entry, const double sl, const double &tp[],
                const int dg, const string spreadTxt, const bool mtfAgrees,
                const double volRatio, const double bbWidth, const double macdHist,
-               const int tfBuy, const int tfSell)
+               const int tfBuy, const int tfSell, const double px, const double maS)
 {
    color bgDark = C'12,20,38', bgPanel = C'18,28,50';
    Box("bg", PANEL_X, PANEL_Y, PANEL_W, 352, bgDark);
@@ -450,7 +467,7 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
    Txt("title", PANEL_X + 12, PANEL_Y + 6, "ATOMIC ANALYST V84", clrWhite, 12, "Segoe UI Bold");
    Txt("sub",   PANEL_X + 12, PANEL_Y + 24, "AI Market Verdict Engine  -  " + _Symbol, C'120,160,220', 7);
    Txt("verd",  PANEL_X + 540, PANEL_Y + 6, headline,
-       vFinal == V_BUY ? clrLime : (vFinal == V_SELL ? C'255,80,90' : clrGoldenrod), 13, "Segoe UI Bold");
+       vDecision == V_BUY ? clrLime : (vDecision == V_SELL ? C'255,80,90' : clrGoldenrod), 13, "Segoe UI Bold");
    Txt("conf",  PANEL_X + 540, PANEL_Y + 26, "Confidence " + DoubleToString(confidence, 0) + "%", C'120,180,255', 8);
    Txt("sess",  PANEL_X + 1100, PANEL_Y + 6, SessionName() + " Session", clrWhite, 8);
    Txt("spr",   PANEL_X + 1100, PANEL_Y + 24, spreadTxt, C'90,220,140', 8);
@@ -482,7 +499,7 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
    Box("dbg", PANEL_X + 440, PANEL_Y + 92, 420, 145, bgPanel);
    Txt("dhdr", PANEL_X + 590, PANEL_Y + 96, "Atomic AI Decision", C'120,180,255', 8, "Segoe UI Bold");
    Txt("dver", PANEL_X + 560, PANEL_Y + 145, headline,
-       vFinal == V_BUY ? clrLime : (vFinal == V_SELL ? C'255,80,90' : clrGoldenrod), 16, "Segoe UI Bold");
+       vDecision == V_BUY ? clrLime : (vDecision == V_SELL ? C'255,80,90' : clrGoldenrod), 16, "Segoe UI Bold");
    Txt("dcnf", PANEL_X + 600, PANEL_Y + 180, "Confidence " + DoubleToString(confidence, 0) + "%", C'150,190,240', 8);
    Txt("dmtf", PANEL_X + 545, PANEL_Y + 206,
        "Timeframes  " + IntegerToString(tfBuy) + " buy / " + IntegerToString(tfSell) + " sell / " +
@@ -493,6 +510,18 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
    Txt("mbul", PANEL_X + 910,  PANEL_Y + 128, "Bullish " + DoubleToString(bullPct, 0) + "%", clrLime, 8);
    Txt("mwai", PANEL_X + 1050, PANEL_Y + 128, "Wait " + DoubleToString(waitPct, 0) + "%",   clrGoldenrod, 8);
    Txt("mbea", PANEL_X + 1170, PANEL_Y + 128, "Bearish " + DoubleToString(bearPct, 0) + "%", C'255,80,90', 8);
+   // The proportional gradient bar under Dominance. Three segments sized by their own
+   // share, so the picture and the numbers can never disagree.
+   int barX = PANEL_X + 890, barY = PANEL_Y + 176, barW = 380;
+   int wBull = (int)MathRound(barW * bullPct / 100.0);
+   int wWait = (int)MathRound(barW * waitPct / 100.0);
+   int wBear = barW - wBull - wWait;
+   if(wBull > 0) Box("domB", barX,                 barY, wBull, 10, C'0,150,75');
+   else          Box("domB", barX,                 barY, 1,     10, C'18,28,50');
+   if(wWait > 0) Box("domW", barX + wBull,         barY, wWait, 10, C'170,120,25');
+   else          Box("domW", barX + wBull,         barY, 1,     10, C'18,28,50');
+   if(wBear > 0) Box("domR", barX + wBull + wWait, barY, wBear, 10, C'165,35,50');
+   else          Box("domR", barX + wBull + wWait, barY, 1,     10, C'18,28,50');
    Txt("msen", PANEL_X + 950,  PANEL_Y + 200, "Market sentiment is " + sentiment, C'200,215,235', 8);
 
    // ATOMIC EVIDENCE MATRIX - all EIGHT rows his panel carries, in his order and with his
@@ -505,16 +534,20 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
    eCol[0] = VerdictColor(vFinal);
    eVal[1] = adx >= 25 ? "STRONG" : (adx >= 20 ? "TRENDING" : "MIXED");
    eCol[1] = adx >= 20 ? C'0,140,70' : C'120,95,20';
-   eVal[2] = MathAbs(macdHist) > atr * 0.05
-             ? (macdHist > 0 ? "STRONG BUY" : "STRONG SELL")
-             : (macdHist > 0 ? "BUY" : "SELL");
+   // His 13:36 panel reads "WEAK BUY" where the 11:42 one read "STRONG SELL", so this
+   // carries a WEAK / plain / STRONG modifier in BOTH directions, not a one-sided scale.
+   eVal[2] = (MathAbs(macdHist) > atr * 0.05)  ? (macdHist > 0 ? "STRONG BUY" : "STRONG SELL")
+           : (MathAbs(macdHist) < atr * 0.015) ? (macdHist > 0 ? "WEAK BUY"   : "WEAK SELL")
+           :                                     (macdHist > 0 ? "BUY"        : "SELL");
    eCol[2] = macdHist > 0 ? C'0,140,70' : C'150,30,45';
    eVal[3] = volRatio >= 1.5 ? "HIGH" : (volRatio <= 0.6 ? "THIN" : "NORMAL");
    eCol[3] = (volRatio >= 1.5 || volRatio <= 0.6) ? C'20,90,140' : C'25,70,110';
    eVal[4] = bbWidth >= 8.0 ? "EXPANDED" : (bbWidth <= 3.0 ? "SQUEEZE" : "NORMAL");
    eCol[4] = bbWidth <= 3.0 ? C'120,95,20' : C'25,70,110';
-   eVal[5] = vFinal == V_WAIT ? "NEUTRAL" : (VerdictText(vFinal) + " FORCE");
-   eCol[5] = VerdictColor(vFinal);
+   // Currency / Pair reads BULLISH in green in his 13:36 shot, so it is a pair-strength
+   // read of its own - price against the slow EMA - not a restatement of the verdict.
+   eVal[5] = (maS <= 0) ? "NEUTRAL" : (px > maS ? "BULLISH" : "BEARISH");
+   eCol[5] = (maS <= 0) ? C'120,95,20' : (px > maS ? C'0,140,70' : C'150,30,45');
    eVal[6] = mtfAgrees ? "ALIGNED" : "MIXED";
    eCol[6] = mtfAgrees ? C'0,140,70' : C'120,95,20';
    eVal[7] = rsi >= 60 ? "BULLISH" : (rsi <= 40 ? "BEARISH" : "NEUTRAL");
@@ -568,18 +601,27 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
        DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) + " " + AccountInfoString(ACCOUNT_CURRENCY),
        AccountInfoDouble(ACCOUNT_PROFIT) >= 0 ? C'90,220,140' : C'255,110,120', 6);
 
-   string sb[5]; color sbc[5];
-   sb[0] = "SESSION " + SessionName();                sbc[0] = C'25,70,110';
-   sb[1] = spreadTxt;                                 sbc[1] = C'25,70,110';
+   // SEVEN cells, as his panel carries them: SESSION, SPREAD, CONNECTED, AI FILTER,
+   // ATOMIC, GRADIENT, ALERTS. The last cell replaces his "ALERTS ON" with the constraint
+   // that actually matters here - this thing decides nothing - so it is stated on the
+   // chart and not only in a source comment nobody reading the panel will ever open.
+   string sb[7]; color sbc[7];
+   color on = C'0,110,60', off = C'70,70,70', info = C'25,70,110';
+   sb[0] = "SESSION " + SessionName();                       sbc[0] = info;
+   sb[1] = spreadTxt;                                        sbc[1] = info;
    sb[2] = TerminalInfoInteger(TERMINAL_CONNECTED) ? "CONNECTED" : "DISCONNECTED";
-   sbc[2] = TerminalInfoInteger(TERMINAL_CONNECTED) ? C'0,110,60' : C'150,30,45';
-   sb[3] = InpWriteFeedFile ? "FEED ON" : "FEED OFF"; sbc[3] = InpWriteFeedFile ? C'0,110,60' : C'90,90,90';
-   sb[4] = "EVIDENCE ONLY - GATES NOTHING";           sbc[4] = C'120,80,20';
-   for(int i = 0; i < 5; i++)
+   sbc[2] = TerminalInfoInteger(TERMINAL_CONNECTED) ? on : C'150,30,45';
+   sb[3] = mtfAgrees ? "MTF FILTER PASS" : "MTF FILTER MIXED";
+   sbc[3] = mtfAgrees ? on : C'120,95,20';
+   sb[4] = "ATOMIC ON";                                      sbc[4] = on;
+   sb[5] = InpDrawLevels ? "LEVELS ON" : "LEVELS OFF";       sbc[5] = InpDrawLevels ? C'20,90,140' : off;
+   sb[6] = InpWriteFeedFile ? "FEED ON - GATES NOTHING" : "FEED OFF";
+   sbc[6] = InpWriteFeedFile ? C'120,80,20' : off;
+   for(int i = 0; i < 7; i++)
      {
-      int bx = PANEL_X + 10 + i * 258;
-      Box("sb" + IntegerToString(i), bx, PANEL_Y + 330, 252, 18, sbc[i]);
-      Txt("sbt" + IntegerToString(i), bx + 10, PANEL_Y + 331, sb[i], clrWhite, 6);
+      int bx = PANEL_X + 10 + i * 184;
+      Box("sb" + IntegerToString(i), bx, PANEL_Y + 330, 178, 18, sbc[i]);
+      Txt("sbt" + IntegerToString(i), bx + 8, PANEL_Y + 331, sb[i], clrWhite, 6);
      }
    ChartRedraw(0);
 }
@@ -642,7 +684,7 @@ void DrawLevels(const int vFinal, const double entry, const double sl,
 //| two accounts' verdicts into one record.                            |
 //+------------------------------------------------------------------+
 void WriteFeed(const string headline, const double confidence, const int &tfV[],
-               const int &cons[], const int vFinal, const double bullPct,
+               const int &cons[], const int vFinal, const int vDecision, const double bullPct,
                const double waitPct, const double bearPct, const string sentiment,
                const double rsi, const double macdMain, const double macdSig,
                const double adx, const double atr, const double entry,
@@ -681,7 +723,11 @@ void WriteFeed(const string headline, const double confidence, const int &tfV[],
    j += "\"generatedAt\":\"" + TimeToString(TimeGMT(), TIME_DATE | TIME_SECONDS) + "\",";
    j += "\"generatedAtEpoch\":" + IntegerToString((long)TimeGMT()) + ",";
    j += "\"verdict\":\"" + JStr(headline) + "\",";
-   j += "\"direction\":\"" + VerdictText(vFinal) + "\",";
+   // BOTH readings, because they can disagree and that disagreement is information.
+   // 13:36 shot: Final Consensus SELL, AI Decision WAIT.
+   j += "\"direction\":\"" + VerdictText(vDecision) + "\",";
+   j += "\"finalConsensus\":\"" + VerdictText(vFinal) + "\",";
+   j += "\"decisionAgreesWithConsensus\":" + ((vDecision == vFinal) ? "true" : "false") + ",";
    j += "\"confidence\":" + JNum(confidence, 1) + ",";
    j += "\"mtfAligned\":" + (mtfAgrees ? "true" : "false") + ",";
    j += "\"dominance\":{\"bullish\":" + JNum(bullPct,1) + ",\"wait\":" + JNum(waitPct,1) +
