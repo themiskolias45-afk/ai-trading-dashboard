@@ -563,9 +563,10 @@ async function main() {
     say("");
     say("  Ranked on WORST FOLD, not mean - the bar every other threshold in this repo is held to.");
     say("  PASS = worst fold positive AND every fold positive. Anything else is a ranking, not a result.");
-    say("  Break-even is the cost, as a fraction of each trade's own risk distance, that takes")
-    say("  the WORST fold to zero. A mean that survives a cost while the worst fold does not is")
-    say("  a strategy that loses money in the year that matters.");
+    say("  Folds are scored NET of costs. Before 2026-09-08 they were scored gross, so a cell");
+    say("  could PASS on money it would never have kept.");
+    say("  'unres%' is the share of entered patterns still open when the hold expired. Those are");
+    say("  DISCARDED, not scored flat - a high unres% means the row describes a filtered subset.");
   }
   say("");
   say("  Nothing here changes a signal, a stop or a threshold. CRT is CLOSED as an engine");
