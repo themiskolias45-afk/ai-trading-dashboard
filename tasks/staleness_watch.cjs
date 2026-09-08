@@ -75,7 +75,14 @@ function main() {
   for (const w of WATCH) {
     const full = path.join(ROOT, w.f);
     if (!fs.existsSync(full)) {
-      rows.push({ ...w, state: 'ABSENT', ageH: null, detail: 'never written on this box' });
+      // `allowed` is set here too. Without it the ABSENT row printed "<= undefinedh",
+      // which is the same shape of defect this tool exists to find: a report stating a
+      // number it never computed. Seen on the VPS run 2026-09-08.
+      rows.push({
+        ...w, state: 'ABSENT', ageH: null,
+        allowed: w.maxAgeH + (w.marketHours ? weekendGrace : 0),
+        detail: 'never written on this box',
+      });
       continue;
     }
     const ageH = (Date.now() - fs.statSync(full).mtimeMs) / 3600000;
