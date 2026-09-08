@@ -100,10 +100,30 @@
    "time": "2026-09-08T11:01:02.989460+01:00",
    "type": "jarvis",
    "text": "STILL BROKEN: the trend label is EMA-stacking only, no ADX and no slope. SP500 read STRONG UPTREND at ADX 12.2 with structure.trending=false. Fixing the LABEL is display-only and safe; tightening inUptrend would block longs."
+  },
+  {
+   "time": "2026-09-08T11:19:00.033304+01:00",
+   "type": "jarvis",
+   "text": "ENGINE 3/3: trend label now honest (38be04a). trendConfirmed + a LABEL CAUTION reason. The label STRING is unchanged - its text gates in 4 places (inUptrend, inDowntrend, regime classifier, MTF h1.trend alignment) so rewording it would move the firing set."
+  },
+  {
+   "time": "2026-09-08T11:19:00.033304+01:00",
+   "type": "jarvis",
+   "text": "LIVE both boxes: BTC trendConfirmed=true ADX 47.9, GOLD true ADX 21, SPX FALSE ADX 13.5 -> 'STRONG UPTREND is EMA stacking only, ADX 13.5 below 20, trend NOT confirmed'."
+  },
+  {
+   "time": "2026-09-08T11:19:00.033304+01:00",
+   "type": "jarvis",
+   "text": "VERIFIED not assumed: SPX BUY/75 -> WAIT/42 across the restart was the MARKET (price +10.08, strength MODERATE->NONE), not the edit. Grepped that `reasons` is never read when computing confidence (index.js:3495)."
+  },
+  {
+   "time": "2026-09-08T11:19:00.033304+01:00",
+   "type": "jarvis",
+   "text": "STANDING: inUptrend must never be made stricter - it would block longs. The label is honest; the gate deliberately is not."
   }
  ],
  "signals": [],
  "trades": [],
  "created_at": "2026-09-08T03:29:53.031445+00:00",
- "updated_at": "2026-09-08T11:01:02.989460+01:00"
+ "updated_at": "2026-09-08T11:19:00.033304+01:00"
 }
