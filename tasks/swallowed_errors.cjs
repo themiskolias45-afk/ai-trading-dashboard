@@ -189,7 +189,7 @@ function main() {
   console.log('  ── THROWN ' + '─'.repeat(78));
   console.log('  Something raised and a handler caught it. This is the section to act on.');
   if (!thrown.length) console.log('\n  nothing thrown repeatedly in this window');
-  thrown.slice(0, 20).forEach(show);
+  thrown.slice(0, 20).forEach(r => show(r, false));
 
   console.log('');
   console.log('  ── KEYWORD ' + '─'.repeat(77));
