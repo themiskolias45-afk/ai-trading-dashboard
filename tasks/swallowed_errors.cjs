@@ -1,0 +1,125 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * WHAT IS BEING CAUGHT AND THROWN AWAY?
+ *
+ * WHY THIS EXISTS. On 2026-09-08 the `tester` agent found mt5_bridge.py:3332 unpacking a
+ * 4-tuple into 3 names. It raised ValueError EVERY TIME a close was recovered after an
+ * outage - and every caller of reconcile_open_trades() wraps it in `except Exception`, so
+ * the error was swallowed and logged as a generic reconciliation failure. The line that
+ * would have counted that close toward the circuit breaker never ran. The breaker
+ * under-counted precisely when the bridge had been offline.
+ *
+ * That bug was invisible for as long as it existed, because a broad handler converts a
+ * crash into a log line nobody reads. mt5_bridge.py has 41 `except Exception` blocks and
+ * server/index.js has 139 catch blocks. Most are correct - an observability path must not
+ * take the caller down - but each one is a place where a real defect can hide forever.
+ *
+ * SO THIS READS THE LOGS FOR WHAT THE HANDLERS WROTE. Not the source. A broad handler is
+ * not a bug; a broad handler that is FIRING is a bug that has already happened.
+ *
+ * IT RANKS BY REPETITION, NOT SEVERITY. A stack trace once, on the day someone restarted a
+ * box, is noise. The same exception 400 times is a defect running in production - and
+ * that is exactly the shape the ValueError had: silent, repeated, every single recovery.
+ *
+ * IT NAMES THE EXCEPTION TYPE where the log carries one, because "reconciliation failed"
+ * is not actionable and "ValueError: too many values to unpack" is.
+ *
+ * READ-ONLY. Reads log files, prints. Writes nothing.
+ *
+ *   node tasks/swallowed_errors.cjs             last 7 days
+ *   node tasks/swallowed_errors.cjs --days 30
+ *   node tasks/swallowed_errors.cjs --min 5     only patterns seen 5+ times
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.join(__dirname, '..');
+const LOGS = path.join(ROOT, 'tasks', 'logs');
+
+function numArg(f, d) { const i = process.argv.indexOf(f); if (i === -1) return d; const v = Number(process.argv[i + 1]); return Number.isFinite(v) ? v : d; }
+const DAYS = numArg('--days', 7);
+const MIN_HITS = numArg('--min', 2);
+
+// Signatures that mean "something threw and was handled". Deliberately not matching the
+// word "error" alone: half the log lines in this repo contain it in prose, and a check
+// that floods is a check that gets ignored.
+const PATTERNS = [
+  { re: /\b([A-Z][a-zA-Z]*(?:Error|Exception))\b\s*:?\s*([^\n]{0,90})/g, kind: 'exception' },
+  { re: /\b(Traceback \(most recent call last\))/g, kind: 'python-traceback' },
+  { re: /\b(ECONNREFUSED|ETIMEDOUT|ENOENT|EPERM|EACCES|EADDRINUSE)\b/g, kind: 'syscall' },
+  { re: /\bfailed\b[^\n]{0,70}/gi, kind: 'failed' },
+];
+
+function main() {
+  if (!fs.existsSync(LOGS)) { console.error('no tasks/logs directory'); process.exitCode = 1; return; }
+  const cutoff = Date.now() - DAYS * 86400000;
+
+  const files = fs.readdirSync(LOGS)
+    .filter(f => /\.(txt|log)$/i.test(f) && !/\.bak/i.test(f))
+    .map(f => ({ f, p: path.join(LOGS, f) }))
+    .filter(x => { try { return fs.statSync(x.p).mtimeMs > cutoff; } catch (e) { return false; } });
+
+  const tally = new Map();   // signature -> {count, files:Set, sample}
+  let scanned = 0;
+
+  for (const { f, p } of files) {
+    let text = '';
+    try {
+      const st = fs.statSync(p);
+      const fd = fs.openSync(p, 'r');
+      // Only the tail of a large log: these reach megabytes and the recent end is what
+      // the window is about.
+      const len = Math.min(st.size, 2 * 1024 * 1024);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, Math.max(0, st.size - len));
+      fs.closeSync(fd);
+      text = buf.toString('utf8');
+    } catch (e) { continue; }
+    scanned++;
+
+    for (const { re, kind } of PATTERNS) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        // Normalise: strip digits/paths so the same defect collapses to one row instead
+        // of one row per ticket number.
+        const raw = (m[1] + (m[2] ? ' ' + m[2] : '')).trim();
+        const sig = raw
+          .replace(/\d+/g, '#')
+          .replace(/[A-Za-z]:\\[^\s"']+/g, '<path>')
+          .replace(/\s+/g, ' ')
+          .slice(0, 110);
+        const key = kind + '|' + sig;
+        const cur = tally.get(key) || { kind, sig, count: 0, files: new Set(), sample: raw.slice(0, 130) };
+        cur.count++; cur.files.add(f);
+        tally.set(key, cur);
+      }
+    }
+  }
+
+  const rows = [...tally.values()].filter(r => r.count >= MIN_HITS).sort((a, b) => b.count - a.count);
+
+  console.log('='.repeat(100));
+  console.log('  SWALLOWED ERRORS — what the broad handlers actually wrote. ' + new Date().toISOString());
+  console.log('  window ' + DAYS + ' day(s) | ' + scanned + ' log file(s) | showing patterns seen >= ' + MIN_HITS + ' times');
+  console.log('  A broad handler is not a bug. A broad handler that is FIRING is a bug that already happened.');
+  console.log('='.repeat(100));
+
+  if (!rows.length) { console.log('  nothing repeated in this window'); return; }
+
+  for (const r of rows.slice(0, 25)) {
+    console.log('');
+    console.log('  ' + String(r.count).padStart(5) + 'x  [' + r.kind + ']  ' + r.sig);
+    console.log('         in: ' + [...r.files].slice(0, 4).join(', ') + ([...r.files].length > 4 ? ' (+' + ([...r.files].length - 4) + ')' : ''));
+  }
+
+  console.log('');
+  console.log('  ' + rows.length + ' repeated pattern(s). Ranked by REPETITION: once is noise, 400 times is production.');
+}
+
+try { main(); } catch (err) {
+  console.error('swallowed_errors failed: ' + (err && err.message));
+  process.exitCode = 1;
+}
