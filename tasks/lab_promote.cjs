@@ -32,6 +32,17 @@
      5. survives 2x costs       profit factor still >= 1.10
      6. PLATEAU EVIDENCE        >= 4 neighbours evaluated on one parameter, and
                                 >= 60% of them positive out-of-sample
+     7. PROVABLE IN <= 365 DAYS forward trades needed to clear zero, divided by the
+                                candidate's own trade rate. Added 2026-09-08 after
+                                measuring the five staged survivors: they needed
+                                1,490 / 1,836 / 1,893 / 6,239 / 6,709 DAYS to settle,
+                                and all five had ZERO forward trades because
+                                lab_shadow.cjs had never been scheduled. A candidate
+                                that cannot be settled inside a year is a permanent
+                                maybe: it consumes attention and returns no answer.
+                                Note this rule PREFERS FREQUENT candidates over
+                                high-expectancy ones - a +0.087R edge needs 2,394
+                                trades to prove, a +0.43R edge needs 114.
 
    Rule 6 is the one that matters and the one a normal lab omits. A winner with no
    neighbours is an untested winner, and a winner surrounded by losers is an
