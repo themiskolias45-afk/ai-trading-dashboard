@@ -109,9 +109,15 @@ for (const n of [...names].sort()) {
   const a = setupStats[n];
   const bB = b ? boostOf(b.wins, b.losses) : 0;
   const aB = a ? boostOf(a.wins, a.losses) : 0;
-  if (aB < bB) wouldDrop.push(n + ": boost " + bB + " -> " + aB);
-  const bs = b ? (b.wins + "W/" + b.losses + "L " + String(b.totalPnl).padStart(9) + " boost " + String(bB).padStart(3)) : "(absent)";
-  const as = a ? (a.wins + "W/" + a.losses + "L " + String(a.totalPnl).padStart(9) + " boost " + String(aB).padStart(3)
+  // COMPARE WHAT ACTUALLY REACHES CONFIDENCE, not the raw score. index.js applies
+  // Math.max(0, learnBoost), so a move from -1 to -3 changes nothing a signal can feel -
+  // both apply as 0. Comparing the raw values made this refuse on a rebuild that costs
+  // nothing, which is a guard blocking the very thing it was written to make safe.
+  if (Math.max(0, aB) < Math.max(0, bB)) {
+    wouldDrop.push(n + ": APPLIED boost " + Math.max(0, bB) + " -> " + Math.max(0, aB));
+  }
+  const bs = b ? (b.wins + "W/" + b.losses + "L " + String(b.totalPnl).padStart(9) + " boost " + String(bB).padStart(3) + "->" + Math.max(0, bB)) : "(absent)";
+  const as = a ? (a.wins + "W/" + a.losses + "L " + String(a.totalPnl).padStart(9) + " boost " + String(aB).padStart(3) + "->" + Math.max(0, aB)
                   + " avgR " + (a.rTrades ? (a.totalRealizedR / a.rTrades).toFixed(3) : "n/a")) : "(absent)";
   log(n.padEnd(20) + " " + bs.padEnd(31) + " " + as);
 }
