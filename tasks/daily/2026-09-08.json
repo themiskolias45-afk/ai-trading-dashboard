@@ -60,10 +60,50 @@
    "ts": "2026-09-08T00:00:01.842038+00:00",
    "tag": "PLAN",
    "text": "Daily Plan 2026-09-08 (levels: confluence-zones): |   BTC WAIT | R1 79210.13 S1 78823.23 |   GOLD WAIT | R1 4460.17 S1 4382.27 |   SPX WAIT | R1 7750 S1 7705.95 |   MACRO VIX 15.3 — NORMAL |   MACRO DXY 99.18 FLAT (-0.26% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind |   ⚠ 2 consecutive losses — reduce size"
+  },
+  {
+   "time": "2026-09-08T11:01:02.989460+01:00",
+   "type": "jarvis",
+   "text": "ENGINE: MACD_BULLISH_MODE 'signal'->'trend' (ae9a2ef). Confidence 0->40 on BTC/GOLD/SPX on BOTH boxes. Owner decision overriding the 09-07 walk-forward lock, shown twice and reaffirmed twice. Undo is one word."
+  },
+  {
+   "time": "2026-09-08T11:01:02.989460+01:00",
+   "type": "jarvis",
+   "text": "ENGINE: BREAKDOWN now reachable on fallingNow = below EMA20 AND macd line < 0 (85e7796). Previously needed BTC -7.94% / GOLD -2.81% / SPX -6.97% before any short could arm."
+  },
+  {
+   "time": "2026-09-08T11:01:02.989460+01:00",
+   "type": "jarvis",
+   "text": "SAFETY RULE LEARNED: the setup chain is if/else-if - SELL_BOUNCE (2508) sits BEFORE MOMENTUM (2577), so widening it displaces longs. Only BREAKDOWN (2827, last) was changed. Never widen a setup above line 2577."
+  },
+  {
+   "time": "2026-09-08T11:01:02.989460+01:00",
+   "type": "jarvis",
+   "text": "VERIFIED ADDITIVE: BTC/GOLD WAIT40->WAIT40, SPX WAIT40->BUY75. A signal gained, none lost. inUptrend untouched."
+  },
+  {
+   "time": "2026-09-08T11:01:02.989460+01:00",
+   "type": "jarvis",
+   "text": "VPS halt CLEARED on its own during the session: was halted=True/3 consecutive losses, now halted=False/2. VPS is live on the new rules."
+  },
+  {
+   "time": "2026-09-08T11:01:02.989460+01:00",
+   "type": "jarvis",
+   "text": "Open BTC longs NOT touched per instruction: VPS 0.06@80755.49 (-89.78) and 0.07@79727.68 (-51.57), laptop 0.05@81041.63."
+  },
+  {
+   "time": "2026-09-08T11:01:02.989460+01:00",
+   "type": "jarvis",
+   "text": "LIVE SPX BUY conf 75 on the laptop, entry 7707.27 stop 7700.68 (6.59pts), ADX 12.2, BB bandwidth 2.2%. Exists because of the MACD flip; the exact trade the walk-forward priced at 5/5 +0.057 -> 3/5 -0.334. Left alone."
+  },
+  {
+   "time": "2026-09-08T11:01:02.989460+01:00",
+   "type": "jarvis",
+   "text": "STILL BROKEN: the trend label is EMA-stacking only, no ADX and no slope. SP500 read STRONG UPTREND at ADX 12.2 with structure.trending=false. Fixing the LABEL is display-only and safe; tightening inUptrend would block longs."
   }
  ],
  "signals": [],
  "trades": [],
  "created_at": "2026-09-08T03:29:53.031445+00:00",
- "updated_at": "2026-09-08T05:54:54.356201+01:00"
+ "updated_at": "2026-09-08T11:01:02.989460+01:00"
 }
