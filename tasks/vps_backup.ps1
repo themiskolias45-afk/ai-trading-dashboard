@@ -84,17 +84,44 @@ $codeFiles = Get-ChildItem -Path $projectRoot -Recurse -File -ErrorAction Silent
 # Copies one file into the open zip under the given entry name.
 # Returns $true on success. Shares ReadWrite+Delete so a log file that the server
 # is actively writing to can still be captured.
+# ONE UNREADABLE FILE USED TO ABORT THE WHOLE REST OF THE ARCHIVE.
+#
+# The catch below returned $false and left $stream -- the entry stream from
+# $entry.Open() -- OPEN. A ZipArchive in Create mode permits exactly ONE open entry at a
+# time, so the very next CreateEntry threw, and so did every one after it, forever.
+#
+# Measured 2026-09-08. On 09-03 at 09:22 a process wrote 21 files into tasks\logs whose
+# names end in a TRAILING DOT (index.js.bak-unmanaged-20260903072257. and friends).
+# Windows cannot open such a path, so File::Open threw on the first one reached and the
+# archive died there:
+#
+#   09/03 07:00   38215.3 KB   5653 files                 <- last good backup
+#   09/03 11:00     934.7 KB     98 files, 5681 SKIPPED   <- and every run since
+#
+# 28 of 78 runs, five days, while the log line still read "Backup created". The box that
+# TRADES had no archived copy of its code, its ledgers or its agent memory vault that
+# whole time -- the zip held journal.json, learning.json, smartentry.db and ~100 log
+# files, and stopped mid-way through the logs folder.
+#
+# The fix is the finally, not a filter on the filename. Filtering trailing dots would fix
+# these 21 files and nothing about the next unreadable file, and the failure mode is
+# silent by construction. Now a file that cannot be read costs ONLY ITSELF: it leaves an
+# empty stub entry and the archive continues.
 function Add-FileToZip($zipArchive, $sourcePath, $entryName) {
+  $stream = $null
+  $source = $null
   try {
     $entry  = $zipArchive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
     $stream = $entry.Open()
     $source = [System.IO.File]::Open($sourcePath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
     $source.CopyTo($stream)
-    $source.Close()
-    $stream.Close()
     return $true
   } catch {
     return $false
+  } finally {
+    # Both closes are guarded: a close that throws must not itself leak the other stream.
+    if ($source) { try { $source.Close() } catch {} }
+    if ($stream) { try { $stream.Close() } catch {} }
   }
 }
 

@@ -161,17 +161,26 @@ try {
 
     foreach ($item in $items) {
         $relativePath = $item.Rel
+        # SAME BUG AS tasksps_backup.ps1, latent here only because this box happens to
+        # have no unreadable filenames yet. Leaving $stream open on the failure path means
+        # the NEXT CreateEntry throws -- a ZipArchive in Create mode allows one open entry
+        # -- so a single bad file silently truncates the rest of the vault snapshot. On the
+        # VPS that cost 5 days and 97% of the archive. Closed in a finally so a file that
+        # cannot be read costs only itself.
+        $stream = $null
+        $source = $null
         try {
             $entry  = $zip.CreateEntry($relativePath, [System.IO.Compression.CompressionLevel]::Optimal)
             $stream = $entry.Open()
             # ReadWrite+Delete share so a note open in Obsidian can still be captured.
             $source = [System.IO.File]::Open($item.Full, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
             $source.CopyTo($stream)
-            $source.Close()
-            $stream.Close()
             $added++
         } catch {
             $skipped++
+        } finally {
+            if ($source) { try { $source.Close() } catch {} }
+            if ($stream) { try { $stream.Close() } catch {} }
         }
     }
 
