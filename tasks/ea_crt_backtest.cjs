@@ -359,7 +359,18 @@ function main() {
     return;
   }
   assertIsolated(install);
+
+  // The Expert= line the template will actually use, checked before anything is launched.
+  const expertRel = (() => {
+    const m = readUtf16(TEMPLATE_INI).match(/^Expert=(.+)$/m);
+    return m ? m[1].trim() : null;
+  })();
+  if (!expertRel) throw new Error(`template ${TEMPLATE_INI} has no Expert= line`);
+  const { dataDir, expertPath } = assertExpertPresent(install, expertRel);
+
   console.log(`tester install: ${install}`);
+  console.log(`data dir      : ${dataDir}`);
+  console.log(`expert        : ${expertPath}`);
   console.log(`template      : ${path.basename(TEMPLATE_INI)}\n`);
 
   const wf = strArg('--walkforward', null);
