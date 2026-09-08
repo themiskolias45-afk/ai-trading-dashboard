@@ -5208,10 +5208,37 @@ async function loadFeedTab() {
       if (spxEl)  spxEl.textContent  = p.spx  != null ? fmtP(p.spx,  0) : '—';
       if (dxyEl)  dxyEl.textContent  = p.dxy  != null ? fmtP(p.dxy,  2) : '—';
       if (vixEl)  vixEl.textContent  = p.vix  != null ? fmtP(p.vix,  2) : '—';
-      const changes = { btc: p.btcChg, gold: p.goldChg, spx: p.spxChg, dxy: p.dxyChg, vix: p.vixChg };
+      // THE FIELD NAMES ARE `...Change`, NOT `...Chg`.
+      //
+      // This read p.btcChg / goldChg / spxChg / dxyChg / vixChg. /api/prices has never
+      // returned any of those - it returns btcChange, goldChange, spxChange, dxyChange -
+      // so all five resolved to undefined and every 24h change on this tab rendered "—"
+      // permanently. Line 3247 of this same file, command.html and jarvis.html all use
+      // the correct names; only this panel did not, which is why it looked like a plain
+      // card that never fed.
+      //
+      // VIX HAS NO CHANGE FIELD AT ALL. /api/prices returns `vix` and no `vixChange`, so
+      // it is listed here as undefined ON PURPOSE and rendered as "n/a" rather than as a
+      // dash that looks like a value still loading. An absent field and a field that has
+      // not arrived yet should not look identical.
+      const changes = {
+        btc:  p.btcChange,
+        gold: p.goldChange,
+        spx:  p.spxChange,
+        dxy:  p.dxyChange,
+        vix:  undefined,
+      };
       ['btc','gold','spx','dxy','vix'].forEach(k => {
         const el = document.getElementById('fd-'+k+'-chg');
-        if (el) { const r = fmtChg(changes[k]); el.textContent = r.txt; el.style.color = r.col; }
+        if (!el) return;
+        if (changes[k] == null) {
+          el.textContent = k === 'vix' ? 'n/a — not served' : '—';
+          el.style.color = 'var(--muted)';
+          return;
+        }
+        const r = fmtChg(changes[k]);
+        el.textContent = r.txt;
+        el.style.color = r.col;
       });
     }
 
