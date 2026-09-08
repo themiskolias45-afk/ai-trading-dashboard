@@ -597,7 +597,11 @@ function main() {
     // That happened on 2026-09-08 with sweep_InpRiskReward_5.0.
     for (const v of values) {
       const safe = String(v).replace(/[^A-Za-z0-9.-]/g, '_');
-      rows.push(runOne(install, `sweep_${which}_${input}_${safe}`, period,
+      // The window and model go in the name too, so a sweep over a custom range cannot
+      // overwrite the named-period run of the same input.
+      const win = (FROM && TO) ? `${FROM.replace(/\./g, '')}_${TO.replace(/\./g, '')}` : which;
+      const mdl = MODEL !== null ? `_m${MODEL}` : '';
+      rows.push(runOne(install, `sweep_${win}_${input}_${safe}${mdl}`, period,
         { ...LIVE_BASE, [input]: v }, dataDir));
     }
   } else if (wf) {
