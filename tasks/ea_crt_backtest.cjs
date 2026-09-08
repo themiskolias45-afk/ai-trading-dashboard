@@ -603,7 +603,12 @@ function main() {
   } else if (scenario) {
     const s = SCENARIOS[scenario];
     if (!s) { console.error(`Unknown scenario: ${scenario}. Try --list.`); process.exitCode = 1; return; }
-    rows.push(runOne(install, scenario, s.period, s.inputs, dataDir));
+    // --from/--to override a scenario's window, so a named config can be re-run over the
+    // longer history without inventing a second scenario for every date range.
+    const period = (FROM && TO) ? { from: FROM, to: TO } : s.period;
+    const tag = (FROM && TO) ? `${scenario}_${FROM.replace(/\./g, '')}_${TO.replace(/\./g, '')}` : scenario;
+    const name = MODEL !== null ? `${tag}_m${MODEL}` : tag;
+    rows.push(runOne(install, name, period, s.inputs, dataDir));
   } else {
     console.error('Nothing to do. Pass --scenario <name>, --walkforward <name>, or --list.');
     process.exitCode = 1;
