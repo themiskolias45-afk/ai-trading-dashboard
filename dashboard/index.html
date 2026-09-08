@@ -1355,6 +1355,30 @@
     </div>
   </div>
 
+  <!-- ATOMIC ANALYST V84 — a SECOND OPINION, from the MT5 indicator.
+       It is rendered here and NOWHERE ELSE on purpose. /api/atomic feeds no gate, no
+       confidence value, no position size and no stop - `grep atomicVerdicts server/index.js`
+       returns hits only inside its own two endpoints. Showing it beside the engine's own
+       feed is the point: two independent reads of the same market, neither voting on the
+       other. The banner below says so in the page itself so nobody has to remember it.
+
+       AGE IS RENDERED, ALWAYS. The MT4 panel this ports from displayed a four-day-old
+       ticket under a live header; that is the failure this row exists to make impossible. -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">Atomic Analyst V84 — second opinion</div>
+      <span id="fd-atomic-count" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:.6rem;color:var(--muted);margin-bottom:8px;line-height:1.6">
+        From the <b>ATOMIC_ANALYST_V84</b> MT5 indicator. Evidence only —
+        <b>it feeds no gate, no confidence, no size and no stop.</b>
+        It has had no walk-forward on this fleet. Treat a verdict here as an observation.
+      </div>
+      <div id="fd-atomic-body" style="font-size:.75rem;line-height:1.9">Loading…</div>
+    </div>
+  </div>
+
   <!-- Bottom: MT5 positions + Live alerts feed -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
 
@@ -5227,6 +5251,55 @@ async function loadFeedTab() {
       renderInd('fd-gold-ind', 'fd-gold-regime', sigs.gold);
       renderInd('fd-spx-ind',  'fd-spx-regime',  sigs.spx);
     }
+
+    // ATOMIC ANALYST V84. Its own fetch, deliberately: a second opinion that cannot be
+    // read must not be able to take the rest of this tab down with it, so a failure here
+    // renders one grey line and everything above still paints.
+    (async () => {
+      const body = document.getElementById('fd-atomic-body');
+      const cnt  = document.getElementById('fd-atomic-count');
+      if (!body) return;
+      try {
+        const r = await fetch('/api/atomic');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        const rows = d.verdicts || [];
+        if (cnt) cnt.textContent = rows.length ? `${rows.length} symbol${rows.length > 1 ? 's' : ''}` : 'not attached';
+        if (!rows.length) {
+          body.innerHTML = '<span style="color:var(--muted)">Indicator not attached to any chart yet — '
+            + 'add ATOMIC ANALYST V84 from Navigator &rarr; Indicators.</span>';
+          return;
+        }
+        body.innerHTML = rows.map(v => {
+          const dirCol = v.direction === 'BUY' ? 'var(--green)' : v.direction === 'SELL' ? 'var(--red)' : 'var(--yellow)';
+          // STALE IS LOUD. A verdict older than the server's own threshold is not a
+          // verdict, and rendering it in the same colour as a live one is how a stale
+          // fact passes for a current one.
+          const ageTxt = v.ageMinutes == null ? 'age unknown'
+                       : (v.stale ? `<b style="color:var(--yellow)">STALE ${v.ageMinutes}m</b>` : `${v.ageMinutes}m ago`);
+          const mtf = v.mtfAligned === false
+            ? '<span style="color:var(--yellow)">MTF mixed</span>'
+            : '<span style="color:var(--green)">MTF aligned</span>';
+          const t = v.ticket;
+          const ticket = t
+            ? `entry ${t.entry} · SL ${t.sl} · TP1 ${t.tp1}`
+            : '<span style="color:var(--muted)">no ticket — consensus is WAIT</span>';
+          return `<div style="border-bottom:1px solid var(--border);padding:6px 0">
+              <b>${v.symbol}</b>
+              <span style="color:${dirCol};font-weight:700;margin-left:8px">${v.verdict ?? '—'}</span>
+              <span style="color:var(--muted);margin-left:8px">conf ${v.confidence ?? '—'}%</span>
+              <span style="margin-left:8px">${mtf}</span>
+              <span style="color:var(--muted);margin-left:8px">${ageTxt}</span>
+              <div style="color:var(--muted);font-size:.7rem">${ticket}
+                <span style="margin-left:8px">acct ${v.account ?? '—'}</span></div>
+            </div>`;
+        }).join('');
+      } catch (e) {
+        if (cnt) cnt.textContent = 'unavailable';
+        body.innerHTML = `<span style="color:var(--muted)">Atomic feed unavailable (${e.message}). `
+          + `The engine above is unaffected — this panel reads nothing the engine uses.</span>`;
+      }
+    })();
 
     // MT5 positions
     const posBody = document.getElementById('fd-pos-body');
