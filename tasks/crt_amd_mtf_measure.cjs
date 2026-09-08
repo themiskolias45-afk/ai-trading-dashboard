@@ -418,6 +418,16 @@ async function main() {
   say(`  CRT / AMD  —  BIAS timeframe x EXECUTION timeframe   ${new Date().toISOString()}`);
   say(`  hold ${MAX_HOLD} exec bars | detection window ${WINDOW} bias bars | folds ${FOLDS} | source ${SOURCE}`);
   say(`  Point-in-time detection, as-of join on CLOSE times, ambiguous bar = LOSS.`);
+  if (GROSS_ONLY) {
+    say(`  *** --gross: NO COSTS CHARGED. Reproduces the pre-2026-09-08 behaviour for diffing only. ***`);
+  } else {
+    say(`  Costs CHARGED: ${SPREAD_WIDTHS} spread width(s) per round trip, per trade, against that`);
+    say(`  trade's own risk distance. Spreads ${SPREADS_MEASURED_AT}. Spread ONLY - no commission,`);
+    say(`  no swap, no slippage - so every net number here is a CEILING on the real one.`);
+  }
+  if (ENTRY_BAR_RISK) {
+    say(`  *** --entry-bar-risk: walk starts ON the entry bar, charging pre-entry prices. Diffing only. ***`);
+  }
   say("=".repeat(100));
 
   let raw;
