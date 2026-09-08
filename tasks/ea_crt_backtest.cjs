@@ -207,6 +207,36 @@ function patchIni(text, testerKeys, inputKeys) {
   return out.join('\r\n');
 }
 
+/**
+ * Read the terminal's own verdict on the last pass out of today's log.
+ *
+ * The tester reports failure in the LOG, not in the report file - the report is written
+ * either way. Returns the offending line, or null if the log says nothing damning.
+ */
+function testerFailureInLog(dataDir) {
+  try {
+    const logDir = path.join(dataDir, 'logs');
+    const logs = fs.readdirSync(logDir).filter(f => f.endsWith('.log'))
+      .map(f => ({ f, m: fs.statSync(path.join(logDir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m);
+    if (!logs.length) return null;
+    const text = fs.readFileSync(path.join(logDir, logs[0].f)).toString('utf16le');
+    const lines = text.split(/\r?\n/).slice(-400);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i];
+      if (/some error after pass finished|tester didn't start|not found|no history data|testing error/i.test(l)) {
+        return l.replace(/\s+/g, ' ').trim().slice(0, 220);
+      }
+      if (/last test passed with result/i.test(l)) return null; // a clean pass ends the search
+    }
+    return null;
+  } catch (err) {
+    // Cannot read the log. Say nothing rather than assert success - the trade-count
+    // check below is the second gate.
+    return null;
+  }
+}
+
 /** Headline metrics out of an MT5 report. Value sits in the NEXT cell, inside <b>. */
 function parseReport(file) {
   const html = readUtf16(file);
