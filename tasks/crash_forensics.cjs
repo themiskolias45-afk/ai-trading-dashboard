@@ -264,7 +264,7 @@ function rescueDumps(dryRun) {
       console.error('  ! copy failed for ' + source + ': ' + err.message);
     }
   }
-  return rescued;
+  return { rescued: rescued, blocked: blocked };
 }
 
 function appendRows(rows) {
