@@ -1394,6 +1394,34 @@
 
        AGE IS RENDERED, ALWAYS. The MT4 panel this ports from displayed a four-day-old
        ticket under a live header; that is the failure this row exists to make impossible. -->
+  <!-- LAB SHADOW — staged candidates being run FORWARD.
+       WHY THIS PANEL EXISTS. tasks/lab_shadow.cjs has written dashboard/lab-shadow.json
+       all along and NOTHING read it: `grep lab-shadow dashboard/index.html` returned 0 on
+       2026-09-08. Worse, the writer itself had never been scheduled, so 4,094 lab trials
+       produced 8 survivors with ZERO forward evidence and no surface on which anyone
+       could have noticed. Both halves are fixed now; this is the surface.
+
+       DAYS-TO-PROOF IS THE HEADLINE, not expectancy. A candidate at +0.087R needs 2,394
+       forward trades to separate from zero and 6,709 days to collect them at its own rate.
+       Showing expectancy alone invites promoting something that can never be settled,
+       which is exactly what the staging queue was full of. -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">Lab Shadow — staged candidates, forward evidence</div>
+      <span id="lab-shadow-count" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:.6rem;color:var(--muted);margin-bottom:8px;line-height:1.6">
+        Shadow only — <b>these place no orders and feed no gate.</b>
+        A backtest edge is a hypothesis; <b>forward trades</b> are the evidence.
+        <b>Days-to-proof</b> is how long this candidate needs to separate its edge from zero
+        at its own trade rate — anything over a year is a permanent maybe.
+      </div>
+      <div id="lab-shadow-sync" style="font-size:.6rem;color:var(--muted);margin-bottom:8px">—</div>
+      <div id="lab-shadow-body" style="font-size:.75rem;line-height:1.7">Loading…</div>
+    </div>
+  </div>
+
   <div class="panel" style="margin-bottom:14px">
     <div class="panel-header">
       <div class="panel-title">Atomic Analyst V84 — second opinion</div>
