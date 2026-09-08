@@ -120,10 +120,45 @@
    "time": "2026-09-08T11:19:00.033304+01:00",
    "type": "jarvis",
    "text": "STANDING: inUptrend must never be made stricter - it would block longs. The label is honest; the gate deliberately is not."
+  },
+  {
+   "ts": "2026-09-08T10:27:57.307689+00:00",
+   "tag": "SESSION-END",
+   "text": "2026-09-08, 14 commits, both boxes at 38be04a. Two halves. HEALTH: five VPS learning ledgers had been unwritable for 17h because RunLevel=Limited tasks lose append rights every time a git pull recreates a tracked file; the VPS backup had captured 105 of ~13,700 files for FIVE DAYS because one filename ending in a trailing dot left a zip entry stream open and poisoned every write after it, while the log said \"Backup created\" and bucket_audit said \"BOTH BUCKETS PRESENT AND FRESH\"; the autohealer overwrote a corrupt learning.json/journal.json instead of preserving it; and boot context surfaced nothing about where the last session stopped, which is why every session started new. All fixed and verified by running them - the VPS coverage audit read 0 RED / 0 AMBER / 0 UNKNOWN for the first time, and the repaired backup went 1,003 KB / 105 files to 65,831 KB / 13,698 files. ENGINE, on owner instruction and against a walk-forward that disagrees: MACD_BULLISH_MODE flipped to \"trend\" and confidence went 0 to 40 on all three assets on both boxes; BREAKDOWN made reachable on a genuine fall instead of waiting for a 3-8% collapse; and the trend label now says out loud when it is EMA stacking with no ADX behind it, without changing the string that gates in four places. The flip started trading inside 90 minutes - two SP500 MOMENTUM longs at confidence 75, one closed +3.28 at realizedR 0.5, one still open. The most useful thing learned is not a fix: MOMENTUM is +0.37 avgRealizedR and 57.1% win rate yet -173.16 in dollars, because riskDollarsPerR spans 1.46 to 449.72 - the sizing, not the signal, is what eats the edge, and nothing changed today touches it. I also made four wrong claims during the session, all the same shape: reporting a conclusion before verifying the thing it rested on. Recorded so it is not repeated."
+  },
+  {
+   "time": "2026-09-08T12:43:58.012585+01:00",
+   "type": "jarvis",
+   "text": "ATOMIC ANALYST V84 ported to MT5 as an INDICATOR (123acd8) - never an EA, no trade functions, no expert slot. He said don't touch any EA and nothing does."
+  },
+  {
+   "time": "2026-09-08T12:43:58.012585+01:00",
+   "type": "jarvis",
+   "text": "WebRequest() is FORBIDDEN in MQL5 indicators (err 4014) - so it writes a JSON file and tasks/atomic_feed_reader.cjs ships it. Also avoids the WebRequest whitelist, impossible on the headless VPS."
+  },
+  {
+   "time": "2026-09-08T12:43:58.012585+01:00",
+   "type": "jarvis",
+   "text": "LIVE and feeding: XAUUSD H1, terminal 5B9C24F1, account 11581419. 'SmartEntry Atomic Feed' task every 5 min, rc=0, shipped 1 skipped 0 failed 0."
+  },
+  {
+   "time": "2026-09-08T12:43:58.012585+01:00",
+   "type": "jarvis",
+   "text": "It gates NOTHING - grep atomicVerdicts hits only its own two endpoints. GET 401, POST {} 400, remote POST 403."
+  },
+  {
+   "time": "2026-09-08T12:43:58.012585+01:00",
+   "type": "jarvis",
+   "text": "It downgraded its OWN headline from 'SELL ONLY' to 'SELL (MTF MIXED)' within a minute of going live - the exact defect his MT4 panel had (SELL ONLY 63% while 4 timeframes said BUY)."
+  },
+  {
+   "time": "2026-09-08T12:43:58.012585+01:00",
+   "type": "jarvis",
+   "text": "STILL MISSING: no dashboard panel. Visible only at GET /api/atomic with a session, or the reader --dry."
   }
  ],
  "signals": [],
  "trades": [],
  "created_at": "2026-09-08T03:29:53.031445+00:00",
- "updated_at": "2026-09-08T11:19:00.033304+01:00"
+ "updated_at": "2026-09-08T12:43:58.012585+01:00"
 }
