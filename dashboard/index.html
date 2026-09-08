@@ -1310,6 +1310,35 @@
     </div>
   </div>
 
+  <!-- MT5 FEED — what is actually arriving from the terminal.
+       This tab is called Data Feed and until now it showed prices, indicators, positions
+       and alerts, but nothing about the FEED: which source each asset is on, how many
+       bars arrived, when the bridge last pushed, whether the bridge is connected at all.
+       Every one of those numbers already existed on /api/mt5/candles and
+       /api/mt5/health; none of them had a surface. -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">MT5 Feed — what is arriving from the terminal</div>
+      <span id="fd-mt5-state" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <table style="width:100%;border-collapse:collapse;font-size:.72rem">
+        <thead><tr style="color:var(--muted);font-size:.6rem;text-transform:uppercase;letter-spacing:.06em">
+          <th style="text-align:left;padding:6px 10px">Asset</th>
+          <th style="text-align:left;padding:6px 10px">Broker symbol</th>
+          <th style="text-align:left;padding:6px 10px">Source</th>
+          <th style="text-align:right;padding:6px 10px">D1</th>
+          <th style="text-align:right;padding:6px 10px">H4</th>
+          <th style="text-align:right;padding:6px 10px">H1</th>
+          <th style="text-align:right;padding:6px 10px">Last push</th>
+          <th style="text-align:left;padding:6px 10px">Newest D1 bar</th>
+        </tr></thead>
+        <tbody id="fd-mt5-body"><tr><td colspan="8" style="padding:12px;color:var(--muted)">Loading…</td></tr></tbody>
+      </table>
+      <div id="fd-bridge-row" style="border-top:1px solid var(--border);padding:8px 10px;font-size:.7rem;color:var(--muted)">Bridge: checking…</div>
+    </div>
+  </div>
+
   <!-- Live macro values -->
   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px">
     <div class="panel" style="padding:10px 12px;text-align:center">
@@ -5291,6 +5320,75 @@ async function loadFeedTab() {
       renderInd('fd-gold-ind', 'fd-gold-regime', sigs.gold);
       renderInd('fd-spx-ind',  'fd-spx-regime',  sigs.spx);
     }
+
+    // MT5 FEED. Its own fetch and its own try/catch for the same reason as the atomic
+    // block below: a feed panel that cannot load must not take the rest of the tab with it.
+    (async () => {
+      const body  = document.getElementById('fd-mt5-body');
+      const state = document.getElementById('fd-mt5-state');
+      const brRow = document.getElementById('fd-bridge-row');
+      if (!body) return;
+      try {
+        const r = await fetch('/api/mt5/candles');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        const src = d.sources || {};
+        const keys = Object.keys(src);
+        if (!keys.length) {
+          // This exact state has a known cause and it is worth naming, because it looks
+          // identical to a dead market: the shadow runners refuse an empty cache rather
+          // than reading it as "no setups".
+          body.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--yellow)">'
+            + 'CANDLE CACHE EMPTY — the bridge has not pushed since the last server restart. '
+            + 'Not a market state.</td></tr>';
+          if (state) { state.textContent = 'empty'; state.style.color = 'var(--yellow)'; }
+          return;
+        }
+        let worstAge = 0, allMt5 = true;
+        body.innerHTML = keys.map(k => {
+          const v = src[k], b = v.bars || {};
+          const fresh = (v.barFreshness || {}).d1 || {};
+          const ageS = Math.round((v.ageMs || 0) / 1000);
+          worstAge = Math.max(worstAge, ageS);
+          if (v.activeSource !== 'mt5') allMt5 = false;
+          // A push older than 15 minutes is called out. "Present" and "current" are
+          // different claims and this whole tab exists to keep them apart.
+          const ageCol = ageS > 900 ? 'var(--yellow)' : 'var(--green)';
+          const srcCol = v.activeSource === 'mt5' ? 'var(--green)' : 'var(--yellow)';
+          const barCol = fresh.stale ? 'var(--yellow)' : 'var(--muted)';
+          return `<tr style="border-top:1px solid var(--border)">
+            <td style="padding:6px 10px;font-weight:700">${k.toUpperCase()}</td>
+            <td style="padding:6px 10px">${v.brokerSymbol || '—'}</td>
+            <td style="padding:6px 10px;color:${srcCol};font-weight:700">${v.activeSource || '—'}${v.inUse ? '' : ' (idle)'}</td>
+            <td style="padding:6px 10px;text-align:right">${b.d1 ?? '—'}</td>
+            <td style="padding:6px 10px;text-align:right">${b.h4 ?? '—'}</td>
+            <td style="padding:6px 10px;text-align:right">${b.h1 ?? '—'}</td>
+            <td style="padding:6px 10px;text-align:right;color:${ageCol}">${ageS}s</td>
+            <td style="padding:6px 10px;color:${barCol}">${fresh.lastBarAt ? String(fresh.lastBarAt).slice(0,16).replace('T',' ') : '—'}${fresh.stale ? ' STALE' : ''}</td>
+          </tr>`;
+        }).join('');
+        if (state) {
+          state.textContent = allMt5 ? `mt5 · ${worstAge}s` : 'MIXED SOURCE';
+          state.style.color = allMt5 && worstAge <= 900 ? 'var(--green)' : 'var(--yellow)';
+        }
+      } catch (e) {
+        body.innerHTML = `<tr><td colspan="8" style="padding:12px;color:var(--muted)">MT5 feed unavailable (${e.message})</td></tr>`;
+      }
+
+      // The bridge, PER ACCOUNT TAG. /api/mt5/health with no ?account= looks up "default",
+      // which no bridge reports under, so it answers "never connected" on a healthy box.
+      try {
+        const parts = [];
+        for (const tag of ['A','B']) {
+          const hr = await fetch('/api/mt5/health?account=' + tag);
+          const h  = await hr.json().catch(() => ({}));
+          if (h.connected === true)      parts.push(`<b>${tag}</b> <span style="color:var(--green)">connected</span> ${Math.round((h.ageMs||0)/1000)}s`);
+          else if (h.expected === false) parts.push(`<b>${tag}</b> <span style="color:var(--muted)">not on this box</span>`);
+          else                           parts.push(`<b>${tag}</b> <span style="color:var(--yellow)">not connected</span>`);
+        }
+        if (brRow) brRow.innerHTML = 'Bridge: ' + parts.join(' &nbsp;·&nbsp; ');
+      } catch { if (brRow) brRow.textContent = 'Bridge: unavailable'; }
+    })();
 
     // ATOMIC ANALYST V84. Its own fetch, deliberately: a second opinion that cannot be
     // read must not be able to take the rest of this tab down with it, so a failure here
