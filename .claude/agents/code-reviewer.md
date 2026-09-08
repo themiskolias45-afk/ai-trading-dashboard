@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Reviews SmartEntry Pro code changes for correctness, security, and trading system integrity. Use after every significant edit to server/index.js or any trading logic file.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, mcp__smartentry__read_memory, mcp__memory__search_nodes, Skill
 ---
 
 <!--
