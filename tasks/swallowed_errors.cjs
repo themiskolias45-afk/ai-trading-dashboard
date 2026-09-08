@@ -49,7 +49,12 @@ const PATTERNS = [
   { re: /\b([A-Z][a-zA-Z]*(?:Error|Exception))\b\s*:?\s*([^\n]{0,90})/g, kind: 'exception' },
   { re: /\b(Traceback \(most recent call last\))/g, kind: 'python-traceback' },
   { re: /\b(ECONNREFUSED|ETIMEDOUT|ENOENT|EPERM|EACCES|EADDRINUSE)\b/g, kind: 'syscall' },
-  { re: /\bfailed\b[^\n]{0,70}/gi, kind: 'failed' },
+  // CAPTURE GROUP REQUIRED. The first version of this line was /\bfailed\b[^\n]{0,70}/gi
+  // with NO group, so m[1] was undefined and 617 distinct log lines collapsed into one
+  // row reading "failed undefined" - a confident count attached to no information. The
+  // tool's own output has to name the thing it counted, or it is the same defect it
+  // exists to find.
+  { re: /\b(failed[^\n]{0,70})/gi, kind: 'failed' },
 ];
 
 function main() {
