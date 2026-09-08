@@ -172,19 +172,19 @@ function main() {
   console.log('  Sorted by net profit. Net profit ALONE ranks leverage, not edge - read PF, MaxDD and');
   console.log('  the date range together, and never compare two rows on different FromDate/ToDate.');
   console.log('='.repeat(126));
-  console.log('  ' + pad('run', 24) + padS('Net', 10) + padS('PF', 7) + padS('MaxDD', 17) +
-    padS('Trades', 8) + padS('Sharpe', 8) + '  ' + pad('trail', 6) + pad('ptp', 5) +
-    pad('be', 5) + pad('AB', 5) + pad('risk%', 7) + 'period');
+  console.log('  ' + pad('run', 24) + padS('Net', 10) + padS('PF', 8) + padS('MaxDD', 19) +
+    padS('Trades', 8) + padS('Sharpe', 8) + '   ' + pad('trail', 7) + pad('ptp', 7) +
+    pad('be', 7) + pad('AB', 7) + pad('risk%', 7) + 'period');
 
   for (const r of rows) {
     const c = r.config || {};
     const period = (c.FromDate && c.ToDate) ? `${c.FromDate}->${c.ToDate}` : (c.MISSING_INI ? 'NO INI' : '-');
     console.log('  ' + pad(r.run, 24) +
-      padS(r['Total Net Profit'], 10) + padS(r['Profit Factor'], 7) +
-      padS(r['Balance Drawdown Maximal'], 17) + padS(r['Total Trades'], 8) +
-      padS(r['Sharpe Ratio'], 8) + '  ' +
-      pad(c.InpUseTrailingStop, 6) + pad(c.InpUsePartialTP, 5) +
-      pad(c.InpUseBreakEven, 5) + pad(c.InpTradeOnlyAB ?? 'false', 5) +
+      padS(r['Total Net Profit'], 10) + padS(r['Profit Factor'], 8) +
+      padS(r['Balance Drawdown Maximal'], 19) + padS(r['Total Trades'], 8) +
+      padS(r['Sharpe Ratio'], 8) + '   ' +
+      pad(c.InpUseTrailingStop, 7) + pad(c.InpUsePartialTP, 7) +
+      pad(c.InpUseBreakEven, 7) + pad(c.InpTradeOnlyAB ?? (c.MISSING_INI ? null : 'false'), 7) +
       pad(c.InpRiskPercent, 7) + period);
   }
 
