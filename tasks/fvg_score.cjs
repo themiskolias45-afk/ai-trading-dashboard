@@ -173,12 +173,40 @@ for (const row of rows) {
   if (!res || res.r === null) { pendingCount++; continue; }
   const spread = SPREAD[symbol];
   const cost = spread && row.risk > 0 ? spread / row.risk : null;
-  const bucket = byAsset[symbol] || (byAsset[symbol] = { n: 0, wins: 0, gross: 0, cost: 0, open: 0 });
+  const bucket = byAsset[symbol] || (byAsset[symbol] = {
+    n: 0, wins: 0, gross: 0, cost: 0, open: 0,
+    // Equity curve in R, so drawdown and losing streaks can be reported. A 15.8% win
+    // rate means long runs of losers BY DESIGN, and expectancy says nothing about
+    // whether an account survives them - the owner's objection, and the right one.
+    seq: [],
+  });
   bucket.n++;
   if (res.r > 0) bucket.wins++;
   bucket.gross += res.r;
   if (cost !== null) bucket.cost += cost;
   if (res.outcome === "OPEN" || res.outcome === "EXPIRED") bucket.open++;
+  bucket.seq.push({ t: row.entryBarTime, net: res.r - (cost || 0) });
+}
+
+/**
+ * Walk the per-trade net-R sequence in TIME ORDER and report what an account would have
+ * lived through: peak-to-trough drawdown in R, and the longest run of consecutive losers.
+ *
+ * Expectancy is an average and hides both. A strategy at +0.30R/trade that goes 30 trades
+ * without a winner will be switched off by its operator long before the average arrives.
+ */
+function curveStats(seq) {
+  const ordered = [...seq].sort((a, b) => (a.t || 0) - (b.t || 0));
+  let equity = 0, peak = 0, maxDD = 0;
+  let streak = 0, worstStreak = 0;
+  for (const s of ordered) {
+    equity += s.net;
+    if (equity > peak) peak = equity;
+    const dd = peak - equity;
+    if (dd > maxDD) maxDD = dd;
+    if (s.net > 0) { streak = 0; } else { streak++; if (streak > worstStreak) worstStreak = streak; }
+  }
+  return { maxDD, worstStreak, finalR: equity };
 }
 
 console.log("");
