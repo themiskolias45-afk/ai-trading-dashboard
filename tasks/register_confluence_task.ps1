@@ -25,8 +25,21 @@
 $ErrorActionPreference = "Stop"
 
 $name = "SmartEntry Confluence Alert"
-$repo = "C:\Users\User\ai-trading-dashboard"
-$node = "C:\Program Files\nodejs\node.exe"
+
+# DERIVED, NEVER HARDCODED. The first version of this file pinned the laptop's repo root
+# and its "User" account. On the VPS — which lives at C:\ai-trading-dashboard under
+# "administrator" — it reported MISSING instead of registering. That is the same defect as
+# mt5_ensure_running.ps1 hardcoding the VPS repo root twice, and the only reason it was
+# caught here instead of shipped is that this script checks its paths before registering.
+$repo = Split-Path -Parent $PSScriptRoot
+$node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+if (-not $node) {
+    foreach ($cand in @("C:\Program Files\nodejs\node.exe", "C:\Program Files (x86)\nodejs\node.exe")) {
+        if (Test-Path $cand) { $node = $cand; break }
+    }
+}
+if (-not $node) { Write-Output "MISSING - node.exe not on PATH and not in Program Files"; exit 1 }
+$account = "$env:USERDOMAIN\$env:USERNAME"
 $log  = Join-Path $repo "tasks\logs\confluence.txt"
 
 $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
