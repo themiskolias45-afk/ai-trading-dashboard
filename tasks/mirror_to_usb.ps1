@@ -212,10 +212,10 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Forc
 $remaining = $freeBytes - $HEADROOM_BYTES
 
 foreach ($item in $plan) {
-    if ($item.Bytes -gt $remaining) {
+    if ($item.Need -gt $remaining) {
         $item.Status = 'NO ROOM'
-        Write-Host ("  {0,-18} SKIPPED - needs {1} MB, {2} MB left" -f `
-            $item.Name, [math]::Round($item.Bytes / 1MB), [math]::Round($remaining / 1MB)) -ForegroundColor Yellow
+        Write-Host ("  {0,-18} SKIPPED - needs {1} MB more, {2} MB left" -f `
+            $item.Name, [math]::Round($item.Need / 1MB), [math]::Round($remaining / 1MB)) -ForegroundColor Yellow
         continue
     }
 
