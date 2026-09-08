@@ -391,7 +391,7 @@ function runOne(install, reportName, period, inputs, dataDirForRun) {
     template = template.replace(/^Login=.*$/mi, `Login=${loginOverride}`);
   }
 
-  const ini = patchIni(template, {
+  const testerKeys = {
     FromDate: period.from,
     ToDate: period.to,
     Report: reportName,
@@ -399,7 +399,9 @@ function runOne(install, reportName, period, inputs, dataDirForRun) {
     ShutdownTerminal: '1',
     Visual: '0',
     Optimization: '0',
-  }, inputs || {});
+  };
+  if (MODEL !== null) testerKeys.Model = MODEL;
+  const ini = patchIni(template, testerKeys, inputs || {});
 
   // Report= resolves against the DATA directory, not the install directory. Measured
   // 2026-09-08: the run wrote to %APPDATA%\MetaQuotes\Terminal\<hash>\ while this looked
