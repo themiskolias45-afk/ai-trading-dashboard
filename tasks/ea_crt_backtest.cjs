@@ -92,6 +92,60 @@ function findTesterInstall() {
   return candidates[0];
 }
 
+/**
+ * The tester loads the EA from the terminal's DATA directory, not its install directory.
+ *
+ * Measured 2026-09-08: this instance runs NON-portable (portable.txt sits in the data dir,
+ * where it does nothing - it is only honoured in the install dir), so its MQL5 root is
+ * %APPDATA%\MetaQuotes\Terminal\<hash>\MQL5 while the compiled EA had only ever been put
+ * in <install>\MQL5. The terminal started, authorised, logged
+ *   "Experts\EA_CRT_AMD_Dashboard\EA_CRT_AMD_Dashboard.ex5 not found"
+ *   "tester didn't start"
+ * and exited -1000012355 in 10 seconds having written nothing. From outside, a failed run
+ * and a run with no trades look identical, so this is checked BEFORE launching.
+ *
+ * Returns the resolved data directory, or throws naming the exact missing path.
+ */
+function assertExpertPresent(install, expertRelative) {
+  const logLine = (() => {
+    // The data dir is whatever the terminal last logged; derive it from origin.txt files
+    // rather than guessing a hash.
+    const termRoot = path.join(os.homedir(), 'AppData', 'Roaming', 'MetaQuotes', 'Terminal');
+    let dirs = [];
+    try { dirs = fs.readdirSync(termRoot); } catch (err) { return null; }
+    for (const d of dirs) {
+      const origin = path.join(termRoot, d, 'origin.txt');
+      try {
+        if (fs.existsSync(origin) &&
+            fs.readFileSync(origin, 'utf8').trim().toLowerCase() === path.resolve(install).toLowerCase()) {
+          return path.join(termRoot, d);
+        }
+      } catch (err) { /* unreadable origin.txt - keep looking */ }
+    }
+    return null;
+  })();
+
+  // Portable mode keeps everything in the install dir; otherwise it is the data dir.
+  const dataDir = fs.existsSync(path.join(install, 'portable.txt')) ? install : logLine;
+  if (!dataDir) {
+    throw new Error(`Could not resolve the data directory for ${install}\n` +
+      `  No %APPDATA%\\MetaQuotes\\Terminal\\<hash>\\origin.txt points at it, and there is ` +
+      `no portable.txt in the install.`);
+  }
+
+  const expertPath = path.join(dataDir, 'MQL5', 'Experts', expertRelative);
+  if (!fs.existsSync(expertPath)) {
+    throw new Error(
+      `Expert not found where the tester will look:\n  ${expertPath}\n` +
+      `  The tester resolves Expert= against the DATA directory, not the install.\n` +
+      `  A missing .ex5 makes the terminal exit in ~10s having written no report, which is ` +
+      `indistinguishable from a run that simply took no trades.\n` +
+      `  Copy the compiled EA there - and copy the SAME binary the other runs used, or the ` +
+      `comparison is confounded.`);
+  }
+  return { dataDir, expertPath };
+}
+
 /** Refuse to drive a terminal that might be trading. */
 function assertIsolated(install) {
   const norm = path.resolve(install).toLowerCase().replace(/[\\/]+$/, '');
