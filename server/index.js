@@ -3657,7 +3657,30 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
   // timeframe supplied the setup.
   const learnBoost = getLearningBoost(signalTf.setup);
   if (learnBoost !== 0) {
-    confidence = Math.max(0, Math.min(100, confidence + learnBoost));
+    // A NEGATIVE BOOST IS REPORTED, NOT APPLIED.
+    //
+    // This function's own header says it outright: "A negative boost is the ONLY thing
+    // here that can stop a setup firing." It had already been shrunk toward the prior once
+    // for exactly that reason - suppressing a setup also suppresses the closed trade that
+    // would have told us whether the setup is actually bad, and sample size is the binding
+    // constraint on this system.
+    //
+    // Math.max(0, ...) finishes that argument. The true value is still computed, still
+    // pushed into `reasons`, and still returned by /api/learning and checkSetupHealth - so
+    // an underperforming setup is visible everywhere it was visible before. It simply
+    // cannot subtract from confidence any more.
+    //
+    // WHY IT MATTERS TODAY: the VPS's learning record is the LAPTOP's, and its true record
+    // (MOMENTUM 3W/6L over 9 fills, -339.20) computes to boost -2. Rebuilding it honestly
+    // would therefore have taken 2 points off every MOMENTUM signal on the box that
+    // trades. With this floor, the record can be made true without costing a single
+    // signal. Truth in the ledger, no veto on the gate.
+    //
+    // PROVABLY INERT ON THE DAY IT SHIPPED: every boost on both boxes is currently >= 0
+    // (laptop MOMENTUM +2, everything else 0), so max(0, x) === x for all of them and the
+    // firing set cannot move.
+    const appliedBoost = Math.max(0, learnBoost);
+    confidence = Math.max(0, Math.min(100, confidence + appliedBoost));
 
     // SAY WHAT THE BOOST IS MADE OF. getLearningBoost reads WIN RATE ONLY — it never
     // looks at P&L — but this line used to read "performing above avg", which asserts
@@ -3683,7 +3706,7 @@ function generateSignalMTF(label, ticker, dailyData, h4Data, h1Data = null, dxyD
       ? `; this setup's P&L is ${ls.totalPnl.toFixed(2)} — the boost does not read P&L`
       : "";
     if (learnBoost > 0) daily.reasons.push(`✅ Learned: ${signalTf.setup} +${learnBoost} from ${basis}${pnlNote}`);
-    else daily.reasons.push(`⚠ Learned: ${signalTf.setup} ${learnBoost} from ${basis}${pnlNote}`);
+    else daily.reasons.push(`⚠ Learned: ${signalTf.setup} scores ${learnBoost} from ${basis}${pnlNote} — REPORTED ONLY, not subtracted from confidence`);
   }
 
   // Name the source timeframe on H4-only entries. Without this the dashboard shows
