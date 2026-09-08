@@ -108,7 +108,7 @@ if ($tasks.Count -eq 0) {
                 " (previous instance exited $($i.LastTaskResult))"
             } else { '' }
             Add-Check 'tasks' $t.TaskName 'GREEN' "running (started ${ageH}h ago)$prior"
-        } elseif ($t.TaskName -match 'Strategy\s*Search' -and $i.LastTaskResult -eq 4) {
+        } elseif ($t.TaskName -match 'Strategy\s*Search|Engine\s*Variant\s*Watch' -and $i.LastTaskResult -eq 4) {
             # Exit 4 is strategy_search.cjs SKIPPING because the bar fingerprint is
             # unchanged - the --skip-if-bars-unchanged contract, and the correct result
             # far more often than not. New D1 bars arrive about once a day and this runs
@@ -118,7 +118,14 @@ if ($tasks.Count -eq 0) {
             # the significance bar every future candidate must clear, with no new
             # evidence behind it. Skipping is the searcher protecting its own statistics.
             #
-            # Only rc=4, only this task. A real crash still reads RED.
+            # ENGINE VARIANT WATCH shares the contract verbatim. engine_variant_watch.cjs:168
+            # is process.exit(4) with the comment "same contract Strategy Search uses for
+            # bars unchanged", and it is that script's ONLY exit(4). Until 2026-09-08 only
+            # Strategy Search was named here, so the variant watch read RED on every correct
+            # skip - and because doctor.cjs reads this report, one false RED here dragged the
+            # whole health board red for a job that was working exactly as specified.
+            #
+            # Only rc=4, only these two tasks. A real crash still reads RED.
             Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 4 = skipped, bars unchanged since the last run - the intended result)"
         } elseif ($t.TaskName -match 'Doctor' -and $i.LastTaskResult -eq 1) {
             # SAME CONVENTION AS COVERAGE AUDIT BELOW, and it must be exempted for the
