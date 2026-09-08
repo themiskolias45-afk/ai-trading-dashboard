@@ -58,9 +58,14 @@ foreach ($p in @($node, (Join-Path $repo "tasks\confluence.cjs"))) {
 $logDir = Split-Path $log -Parent
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 
-# utf8, not ascii: the table prints em-dashes and middots, and ascii turns them into
-# mojibake that encoding_check.cjs then reports as corruption.
-$inner = "& '$node' '$repo\tasks\confluence.cjs' --notify 2>&1 | Out-File -FilePath '$log' -Append -Encoding utf8"
+# TWO separate encoding settings, and BOTH are needed. The table prints em-dashes and
+# middots, so the file must be written utf8 rather than ascii - but that alone still
+# produced "ÔÇö" in the log on the first run. The reason is that node emits UTF-8 bytes
+# and PowerShell decodes a native command's output using [Console]::OutputEncoding, which
+# defaults to the OEM codepage; the text is already mangled before Out-File ever sees it.
+# Setting the console encoding fixes the decode, -Encoding utf8 fixes the write.
+$inner = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " +
+         "& '$node' '$repo\tasks\confluence.cjs' --notify 2>&1 | Out-File -FilePath '$log' -Append -Encoding utf8"
 $arg   = '-NoProfile -ExecutionPolicy Bypass -Command "' + $inner + '"'
 
 $action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg -WorkingDirectory $repo
