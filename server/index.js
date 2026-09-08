@@ -6633,9 +6633,23 @@ app.get("/api/mt5/positions", (_, res) => {
   // exposure. Operator instruction, 2026-09-03, and it is the right call - a "net BTCUSD"
   // that silently includes somebody else's hedge is a number you cannot act on.
   //
-  // The foreign rows are still COLLECTED (they exist, and pretending otherwise is how the
-  // page lied in the first place) and still returned under `foreign` for anyone who asks.
-  // They are simply not blended into ours.
+  // THIS COMMENT USED TO CLAIM the foreign rows are "still COLLECTED and still returned
+  // under `foreign` for anyone who asks". THAT IS NOT TRUE and has not been since the
+  // OWN_MAGICS allow-list went in above: classify() returns null for any magic not on the
+  // list, so a foreign row never reaches allUnmanaged, and `foreign` — which is filtered
+  // OUT of allUnmanaged — is therefore STRUCTURALLY ALWAYS EMPTY. Verified 2026-09-08
+  // against a live account holding two third-party rows (magic 996142, "Copy 3452" /
+  // "Copy 3461"): `foreign` came back [] while `unmanagedByAccount` carried both.
+  //
+  // The rows ARE still visible, but only on `unmanagedByAccount`, which is the raw
+  // per-account store and is written before classification. Two keys in one payload
+  // therefore disagree about the same account. That is the honest description of today's
+  // behaviour; a reader relying on `foreign` gets silence, not an answer.
+  //
+  // NOT FIXED HERE ON PURPOSE. Making `foreign` real again would put third-party trades
+  // back on a surface, and keeping them off is the operator's 2026-09-03 decision. The
+  // choice between "drop them everywhere" and "carry them under their own key" is his,
+  // not a thing to settle inside a comment repair. What is fixed is the claim.
   for (const p of mt5Positions) tally(p, "smartentry");
   for (const p of allUnmanaged.filter(p => p.owner === "executor")) tally(p, "executor");
   const round2 = n => Math.round(n * 100) / 100;
@@ -6664,7 +6678,7 @@ app.get("/api/mt5/positions", (_, res) => {
     // Placed by our own executors, read from their ledgers. Independent of the bridge.
     executorTrades: readExecutorTrades(),
     exposure: Object.values(exposure).sort((a, b) => a.symbol.localeCompare(b.symbol)),
-    note: "positions = SmartEntry engine only (magic 20250101). executors = this system's OWN strategy executors on their own magics (TK_SWING_PULLBACK, FVG_CONTINUATION, CRT_FVG) - yours, but not managed by the main engine. foreign = third-party EAs on the same account. unclassified = a bridge too old to tag them. Nothing outside 'positions' is sized, managed or closed by SmartEntry.",
+    note: "positions = SmartEntry engine only (magic 20250101). executors = this system's OWN strategy executors on their own magics (TK_SWING_PULLBACK, FVG_CONTINUATION, CRT_FVG) - yours, but not managed by the main engine. foreign = ALWAYS EMPTY: the OWN_MAGICS allow-list drops third-party rows before this key is built, and they survive only on unmanagedByAccount. unclassified = ours by magic but tagged neither executor nor smartentry; it can no longer mean 'a bridge too old to tag them', because an untagged row is now dropped by magic instead. Nothing outside 'positions' is sized, managed or closed by SmartEntry.",
   });
 });
 app.post("/api/mt5/positions", (req, res) => {
