@@ -106,6 +106,12 @@ int OnInit()
       return(INIT_FAILED);
      }
    IndicatorSetString(INDICATOR_SHORTNAME, "ATOMIC ANALYST V84");
+   // SAY THAT IT STARTED. Without this, "attached and returning early" and "never
+   // attached at all" produce byte-identical evidence: an empty log and no file. That
+   // ambiguity cost a diagnostic round on 2026-09-08.
+   PrintFormat("ATOMIC V84: attached to %s %s, feed=%s, writing every %ds",
+               _Symbol, EnumToString((ENUM_TIMEFRAMES)_Period),
+               (InpWriteFeedFile ? "ON" : "OFF"), InpFeedSeconds);
    return(INIT_SUCCEEDED);
 }
 
@@ -266,7 +272,30 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    ok &= Val(g_hBands, 2, 0, bbLo);
    ok &= Val(g_hAtr,   0, 0, atr);
    ok &= Val(g_hAdx,   0, 0, adx);
-   if(!ok) return(rates_total);   // buffers not ready — draw nothing rather than guess
+   if(!ok)
+     {
+      // NAME THE BUFFER THAT IS NOT READY. "Something was not ready" is not a
+      // diagnosis, and on a fresh attach several of these warm up at different rates.
+      // Throttled to once a minute so a genuinely cold chart cannot flood the log.
+      static datetime lastWarn = 0;
+      if(TimeCurrent() - lastWarn >= 60)
+        {
+         lastWarn = TimeCurrent();
+         string miss = "";
+         double t;
+         if(!Val(g_hRsi,0,0,t))   miss += "RSI ";
+         if(!Val(g_hMacd,0,0,t))  miss += "MACD ";
+         if(!Val(g_hMaF,0,0,t))   miss += "EMA" + IntegerToString(InpMaFast) + " ";
+         if(!Val(g_hMaS,0,0,t))   miss += "EMA" + IntegerToString(InpMaSlow) + " ";
+         if(!Val(g_hStoch,0,0,t)) miss += "Stoch ";
+         if(!Val(g_hBands,0,0,t)) miss += "Bands ";
+         if(!Val(g_hAtr,0,0,t))   miss += "ATR ";
+         if(!Val(g_hAdx,0,0,t))   miss += "ADX ";
+         PrintFormat("ATOMIC V84: waiting on %s(bars=%d) — no panel, no feed until ready",
+                     (miss == "" ? "(none - a higher-TF buffer)" : miss), rates_total);
+        }
+      return(rates_total);   // buffers not ready — draw nothing rather than guess
+     }
 
    double px = close[rates_total - 1];
 
@@ -524,5 +553,17 @@ void WriteFeed(const string headline, const double confidence, const int &tfV[],
 
    FileWriteString(h, j);
    FileClose(h);
+   // Confirm the first write out loud, then stay quiet. A feed that started is worth
+   // one line; a feed that repeats itself every minute buries the EAs' own output.
+   static bool announced = false;
+   if(!announced)
+     {
+      announced = true;
+      // `path` already carries the subfolder, and the MQL5\Files prefix is implied by
+      // FileOpen's sandbox — spelling it out here only invited the escape-sequence
+      // warnings this line shipped with on its first compile.
+      PrintFormat("ATOMIC V84: feed written -> %s  (%s %.0f pct)",
+                  path, headline, confidence);
+     }
 }
 //+------------------------------------------------------------------+
