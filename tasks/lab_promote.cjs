@@ -601,6 +601,29 @@ function selftest() {
   ok('a candidate with no proof horizon is rejected by judge()',
     judge({ ...good, outOfSample: { expectancyR: 0.3 } }).pass === false);
 
+  // ---- RULE 8: holds on more than one instrument -------------------------------
+  // ict_mss_fvg H1 structure40 ran on BTCUSD, SP500 and XAUUSD and survived on BTC
+  // ALONE. These pin the shape so a one-instrument winner can never clear again.
+  const judgeCross = (siblings) => {
+    const evaluated = siblings.length;
+    const positive = siblings.filter(s => s.expectancyR > 0).length;
+    return evaluated >= BAR.MIN_INSTRUMENTS
+      && (evaluated ? positive / evaluated : 0) >= BAR.MIN_INSTRUMENT_POSITIVE;
+  };
+  ok('one instrument alone cannot clear',
+    judgeCross([{ symbol: 'BTCUSD', expectancyR: 0.25 }]) === false);
+  ok('a winner among two losing siblings cannot clear',
+    judgeCross([{ symbol: 'BTCUSD', expectancyR: 0.25 },
+                { symbol: 'SP500', expectancyR: -0.08 },
+                { symbol: 'XAUUSD', expectancyR: -0.03 }]) === false);
+  ok('two of three positive clears',
+    judgeCross([{ symbol: 'BTCUSD', expectancyR: 0.25 },
+                { symbol: 'SP500', expectancyR: 0.11 },
+                { symbol: 'XAUUSD', expectancyR: -0.03 }]) === true);
+  ok('crossInstrument returns null without a spec', crossInstrument(null) === null);
+  ok('a candidate with no sibling runs is rejected by judge()',
+    judge({ ...good, spec: { strategy: 'nope_not_real', symbol: 'BTCUSD', timeframe: 'H1' } }).pass === false);
+
   // Each individual bar must be able to fail on its own.
   const variants = [
     ['verdict', { ...good, assessment: { verdict: 'MARGINAL', checksUnknown: 0 } }],
