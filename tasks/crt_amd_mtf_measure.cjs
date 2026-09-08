@@ -361,11 +361,13 @@ function summarise(trades, symbol) {
   }
   return {
     n: trades.length,
-    wins,
+    wins, netWins,
     winRate: wins / trades.length * 100,
     grossR, netR,
     rPerTrade: grossR / trades.length,
     netRPerTrade: netR / trades.length,
+    avgCostR: costTotal / trades.length,
+    costUnknown,
     avgBars: barsTotal / trades.length,
     avgHours: trades.reduce((s, t) => s + t.hours, 0) / trades.length,
     avgRiskPct: riskPctTotal / trades.length,
