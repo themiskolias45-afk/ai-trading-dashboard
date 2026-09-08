@@ -59,6 +59,7 @@ const closed = journal.filter(t => t && t.status === "CLOSED" && t.pnl !== null 
 log("closed fills in journal: " + closed.length);
 
 const add = {};
+const overCounted = [];
 let skippedNonSetup = 0, skippedNullR = 0;
 for (const t of closed) {
   const setup = t.setup;
@@ -82,9 +83,33 @@ for (const [setup, a] of Object.entries(add)) {
       " rTrades " + String(a.rTrades).padEnd(3) +
       " totalR " + a.totalRealizedR.toFixed(3).padStart(8) +
       " avgR " + (a.totalRealizedR / a.rTrades).toFixed(3).padStart(7) +
-      (fills !== a.rTrades ? "   (rTrades < fills - some R was not computable)" : ""));
+      (a.rTrades < fills  ? "   (rTrades < fills - R not computable on some)" :
+       a.rTrades > fills  ? "   *** rTrades > fills - see the refusal below" : ""));
+  if (a.rTrades > fills) overCounted.push(setup + " (journal " + a.rTrades + " vs learning " + fills + ")");
 }
 if (anyMissing) log("(rows above marked *** are not written)");
+
+// rTrades COMES FROM THE JOURNAL, fills comes from learning.json. rTrades can legitimately
+// be LOWER - a fill whose stop distance is unusable yields no R. It can never legitimately
+// be HIGHER: that says learning.json has not counted trades this box's own journal holds,
+// so the two files are describing different populations and backfilling R would bolt a
+// journal-shaped R record onto a win/loss record that does not match it.
+//
+// Found on the VPS 2026-09-08: its journal held 9 closed MOMENTUM fills against 6 counted,
+// and 3 SQUEEZE_BREAKOUT against 1 - while three of its four setups carried P&L byte-
+// identical to the LAPTOP's. server/learning.json is git-tracked and server/journal.json is
+// not, so every pull overwrites the VPS's learning record with the laptop's while the
+// journal it should describe stays local. Refusing here is what turns that into something
+// a future run cannot walk past.
+if (overCounted.length) {
+  console.log("");
+  log("REFUSING: learning.json has counted FEWER fills than this box's journal holds:");
+  for (const o of overCounted) log("    " + o);
+  log("That means learning.json is not describing this box's trades. Backfilling R onto it");
+  log("would attach a journal-derived R record to a win/loss record from somewhere else.");
+  log("Rebuild learning.json from THIS box's journal first, then run this again.");
+  process.exit(4);
+}
 
 if (!APPLY) {
   console.log("");
