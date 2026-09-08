@@ -568,9 +568,13 @@ function main() {
     // template is notrail_noptp (partial TP OFF), and partial TP OFF was measured on
     // 2026-09-08 to be WORSE out of sample - 403.06 vs 432.82. Sweeping on top of it would
     // tune a variant we have already rejected and quietly compare it against the live one.
+    // The period goes IN THE NAME. Without it an IS sweep and an OOS sweep of the same
+    // input write the same report file, and the second run renames the first to .prev -
+    // silently destroying the in-sample evidence you are about to compare against.
+    // That happened on 2026-09-08 with sweep_InpRiskReward_5.0.
     for (const v of values) {
       const safe = String(v).replace(/[^A-Za-z0-9.-]/g, '_');
-      rows.push(runOne(install, `sweep_${input}_${safe}`, period,
+      rows.push(runOne(install, `sweep_${which}_${input}_${safe}`, period,
         { ...LIVE_BASE, [input]: v }, dataDir));
     }
   } else if (wf) {
