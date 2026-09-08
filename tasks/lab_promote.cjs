@@ -43,6 +43,18 @@
                                 Note this rule PREFERS FREQUENT candidates over
                                 high-expectancy ones - a +0.087R edge needs 2,394
                                 trades to prove, a +0.43R edge needs 114.
+     8. HOLDS ON >= 2 INSTRUMENTS, >= 50% of them positive out-of-sample. The
+                                registry keys a family as strategy|symbol|timeframe,
+                                so identical parameters on XAUUSD and BTCUSD are
+                                unrelated families that never learn about each other.
+                                ict_mss_fvg H1 structure40 ran on BTCUSD, SP500 and
+                                XAUUSD, survived on BTC ALONE, and BTC was the only
+                                one anybody saw - all 8 survivors to date are BTCUSD.
+                                Rule 6 refuses a winner surrounded by losing
+                                NEIGHBOURS; this refuses one surrounded by losing
+                                INSTRUMENTS. The bar is 50% rather than rule 6's 60%
+                                because instruments differ far more from each other
+                                than adjacent parameter values do.
 
    Rule 6 is the one that matters and the one a normal lab omits. A winner with no
    neighbours is an untested winner, and a winner surrounded by losers is an
