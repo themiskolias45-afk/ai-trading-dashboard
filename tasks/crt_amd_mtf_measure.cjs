@@ -375,8 +375,14 @@ function summarise(trades, symbol) {
   };
 }
 
-/** Sequential out-of-sample folds, in time order. */
-function foldReport(trades, folds) {
+/**
+ * Sequential out-of-sample folds, in time order.
+ *
+ * Folds are scored NET as of 2026-09-08. They used to call summarise(slice, 0), so the
+ * PASS/FAIL verdict - the thing this whole harness exists to produce - was decided on
+ * gross R while the report spoke of costs.
+ */
+function foldReport(trades, folds, symbol) {
   if (trades.length < folds * MIN_TRADES_PER_FOLD) {
     return {
       usable: false,
