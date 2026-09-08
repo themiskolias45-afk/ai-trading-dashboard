@@ -130,6 +130,35 @@ function writeBackup(filePath) {
 }
 
 /**
+ * Copy a CORRUPT file aside before anything overwrites it. Returns the kept path, or null.
+ *
+ * Both corrupt branches below overwrite the file they just failed to parse -- with the .bak
+ * when there is one, and with an EMPTY DEFAULT when there is not. Either way the corrupt
+ * bytes were destroyed, and they are the only remaining copy of whatever was written since
+ * the last good backup. A file that fails JSON.parse is very often recoverable by hand: one
+ * truncated final line, one interleaved write. Overwriting it throws that away at exactly
+ * the moment it matters.
+ *
+ * So: copy first, always, before either recovery path runs. copyFileSync rather than rename,
+ * so the file the server expects stays exactly where it is until the caller replaces it.
+ * This never deletes and never runs on a healthy file -- a file that parses returns long
+ * before it reaches here.
+ */
+function preserveCorrupt(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '_');
+    const keep  = filePath + '.corrupt-' + stamp;
+    if (!fs.existsSync(keep)) fs.copyFileSync(filePath, keep);
+    console.log('[HEALER] Corrupt file preserved as', path.basename(keep));
+    return keep;
+  } catch (err) {
+    logError(`Could not preserve corrupt ${path.basename(filePath)}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Attempt to restore a JSON file from its .bak copy.
  * Returns the parsed object on success, null on failure.
  */
@@ -386,18 +415,22 @@ function checkLearningFile() {
     // File is corrupt — attempt restore
     logError('learning.json is corrupt — attempting restore from backup');
     updateCheck(name, false, 'learning.json corrupt');
+    const keptLearning = preserveCorrupt(LEARNING_FILE);
     const restored = restoreFromBackup(LEARNING_FILE);
     if (restored) {
       // Push the restored data back into the server context if possible
       if (ctx && ctx.learning) Object.assign(ctx.learning, restored);
-      updateCheck(name, true, 'learning.json restored from backup');
+      updateCheck(name, true, 'learning.json restored from backup' +
+        (keptLearning ? `; corrupt copy kept as ${path.basename(keptLearning)}` : ''));
     } else {
       // No backup — write a clean default so the server keeps running
       const defaultLearning = { setupStats: {}, sessionCount: 0, updatedAt: new Date().toISOString() };
       fs.writeFileSync(LEARNING_FILE, JSON.stringify(defaultLearning, null, 2));
       if (ctx && ctx.learning) Object.assign(ctx.learning, defaultLearning);
-      updateCheck(name, true, 'learning.json reset to defaults (no backup available)');
-      recordHeal('learning.json reset to defaults after corruption with no backup');
+      updateCheck(name, true, 'learning.json reset to defaults (no backup available)' +
+        (keptLearning ? `; corrupt copy kept as ${path.basename(keptLearning)}` : '; NOTHING COULD BE PRESERVED'));
+      recordHeal('learning.json reset to defaults after corruption with no backup' +
+        (keptLearning ? ` — corrupt original kept as ${path.basename(keptLearning)}` : ''));
     }
   } catch (err) {
     updateCheck(name, false, err.message);
@@ -421,19 +454,23 @@ function checkJournalFile() {
     // File is corrupt — attempt restore
     logError('journal.json is corrupt — attempting restore from backup');
     updateCheck(name, false, 'journal.json corrupt');
+    const keptJournal = preserveCorrupt(JOURNAL_FILE);
     const restored = restoreFromBackup(JOURNAL_FILE);
     if (restored) {
       if (ctx && Array.isArray(ctx.tradeJournal) && Array.isArray(restored)) {
         ctx.tradeJournal.length = 0;
         ctx.tradeJournal.push(...restored);
       }
-      updateCheck(name, true, 'journal.json restored from backup');
+      updateCheck(name, true, 'journal.json restored from backup' +
+        (keptJournal ? `; corrupt copy kept as ${path.basename(keptJournal)}` : ''));
     } else {
       // No backup — write an empty journal so the server keeps running
       fs.writeFileSync(JOURNAL_FILE, JSON.stringify([], null, 2));
       if (ctx && Array.isArray(ctx.tradeJournal)) ctx.tradeJournal.length = 0;
-      updateCheck(name, true, 'journal.json reset to empty array (no backup available)');
-      recordHeal('journal.json reset to [] after corruption with no backup');
+      updateCheck(name, true, 'journal.json reset to empty array (no backup available)' +
+        (keptJournal ? `; corrupt copy kept as ${path.basename(keptJournal)}` : '; NOTHING COULD BE PRESERVED'));
+      recordHeal('journal.json reset to [] after corruption with no backup' +
+        (keptJournal ? ` — corrupt original kept as ${path.basename(keptJournal)}` : ''));
     }
   } catch (err) {
     updateCheck(name, false, err.message);
