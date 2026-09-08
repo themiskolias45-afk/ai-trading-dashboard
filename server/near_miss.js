@@ -148,7 +148,12 @@ function noteNearMiss(record) {
         symbol, timeframe, setup, condition,
         threshold,
         count: 0,
+        // The unit minMargin/maxMargin are measured in, and a dimensionless companion.
+        // Carried on the ROW so no reader can sort across units without seeing that it
+        // is doing so. minMargin alone cannot say whether 2 means 2 RSI points or $2.
+        unit: unitForCondition(condition),
         minMargin: margin,
+        minMarginRelative: relativeMargin(margin, threshold),
         maxMargin: margin,
         // The observation that PRODUCED minMargin. Without these a persisted row pairs
         // the latest threshold/actual with a lifetime-minimum margin taken from a
