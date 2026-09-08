@@ -255,7 +255,13 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
   for (const h of hits) {
     const sig = h.sig, atom = h.atom;
     const L = [];
-    L.push(`<b>CONFLUENCE — ${h.asset.label} ${h.direction}</b>`);
+    // THE BOX IS NAMED IN THE MESSAGE. Both machines run this on their own schedule and
+    // they are not saying the same thing: measured 2026-09-08 at the same minute, SPX read
+    // SYSTEM 75% / ATOMIC 71.4% here and SYSTEM 91% / ATOMIC 85.7% on the VPS, off separate
+    // MT5 terminals and separate accounts. Two unlabelled alerts would look like a duplicate
+    // send, and the natural fix for a duplicate is to silence one box — which is exactly how
+    // you end up with no alert at all on the day the other one is asleep.
+    L.push(`<b>CONFLUENCE — ${h.asset.label} ${h.direction}</b>  <i>[${require("os").hostname()}]</i>`);
     L.push(`${h.present.length} of 5 sources agree${h.missing.length ? ` · no data from: ${h.missing.join(", ")}` : ""}`);
     L.push("");
     L.push(`<b>SYSTEM</b>  ${h.src.system.dir} · conf ${h.src.system.conf}% · ${h.src.system.setup ?? "—"}`);
