@@ -258,10 +258,26 @@ for (const [symbol, b] of Object.entries(byAsset)) {
   const at015 = c.maxDD * 0.15, at050 = c.maxDD * 0.50;
   console.log("  " + pad(symbol, 9) + pad(c.maxDD.toFixed(2), 12)
     + pad(c.worstStreak + " trades", 22)
-    + "0.15% -> " + at015.toFixed(1) + "%   |   0.50% -> " + at050.toFixed(1) + "%");
+    + "(sizing-independent; see the compounded table below)");
 }
-console.log("  A 0.50% column is EXTRAPOLATION: the executor sizes at 0.15% and the larger");
-console.log("  size was never tested. Shown because the EA runs 0.50% and the comparison is asked.");
+
+// The compounded account path, MEASURED at each risk level rather than scaled from R.
+console.log("");
+console.log("  COMPOUNDED ACCOUNT PATH -- fixed fractional, risk taken on CURRENT equity");
+console.log("  " + pad("symbol", 9) + pad("risk/trade", 12) + pad("return", 12)
+  + pad("max drawdown", 14) + "outcome");
+for (const [symbol, b] of Object.entries(byAsset)) {
+  for (const rp of [0.15, 0.25, 0.50, 1.00]) {
+    const p = compoundPath(b.seq, rp);
+    console.log("  " + pad(symbol, 9) + pad(rp.toFixed(2) + "%", 12)
+      + pad((p.returnPct >= 0 ? "+" : "") + p.returnPct.toFixed(1) + "%", 12)
+      + pad(p.maxDDPct.toFixed(1) + "%", 14)
+      + (p.ruin ? "ACCOUNT WIPED OUT" : ""));
+  }
+}
+console.log("  Compounded, not scaled: a losing run shrinks equity and therefore the next");
+console.log("  position, so real drawdown is smaller than riskPct x maxDD_R -- and the wins");
+console.log("  compound too. 0.15% is what the executor actually sizes; 0.50% matches the EA.");
 
 console.log("  " + "-".repeat(96));
 if (tn) {
