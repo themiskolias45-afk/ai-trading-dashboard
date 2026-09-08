@@ -166,38 +166,65 @@ function existingLedgerKeys() {
   return keys;
 }
 
+/** True when a filesystem error means "you were not allowed to look", not "nothing there". */
+function isAccessDenied(err) {
+  return !!err && (err.code === 'EPERM' || err.code === 'EACCES');
+}
+
 /**
  * Copy any dump Windows still has into our own store. Never moves, never overwrites,
- * never deletes. Returns what it did, for the ledger.
+ * never deletes.
+ *
+ * Returns { rescued, blocked }. The `blocked` half is the whole point of the split:
+ * C:\Windows\Minidump is unreadable to an unelevated caller, and the first version of
+ * this function let that failure fall through to an empty candidate list, so main()
+ * announced "no dump files present in Windows to rescue" over a directory it had just
+ * been refused. A check that cannot see must say so - reporting clean while blind is
+ * the same defect this tool was built to catch in Windows.
  */
 function rescueDumps(dryRun) {
   const rescued = [];
+  const blocked = [];
   const candidates = [];
 
   try {
-    if (fs.existsSync(WINDOWS_MINIDUMP_DIR)) {
-      for (const name of fs.readdirSync(WINDOWS_MINIDUMP_DIR)) {
-        if (name.toLowerCase().endsWith('.dmp')) candidates.push(path.join(WINDOWS_MINIDUMP_DIR, name));
-      }
+    // readdirSync directly: existsSync also returns false on access-denied, which would
+    // silently collapse "blocked" back into "absent" before the catch can tell them apart.
+    for (const name of fs.readdirSync(WINDOWS_MINIDUMP_DIR)) {
+      if (name.toLowerCase().endsWith('.dmp')) candidates.push(path.join(WINDOWS_MINIDUMP_DIR, name));
     }
   } catch (err) {
-    console.error('  ! could not list ' + WINDOWS_MINIDUMP_DIR + ': ' + err.message);
+    if (err && err.code === 'ENOENT') {
+      // Genuinely absent. Windows has written no minidump since this directory last went.
+    } else if (isAccessDenied(err)) {
+      blocked.push({ path: WINDOWS_MINIDUMP_DIR, reason: 'access denied (' + err.code + ') - run elevated' });
+      console.error('  ! BLOCKED: cannot read ' + WINDOWS_MINIDUMP_DIR + ' (' + err.code +
+        '). Dumps may exist and are NOT being rescued. Run tasks\\crash_forensics_install.ps1 elevated.');
+    } else {
+      blocked.push({ path: WINDOWS_MINIDUMP_DIR, reason: String(err && err.message) });
+      console.error('  ! could not list ' + WINDOWS_MINIDUMP_DIR + ': ' + err.message);
+    }
   }
 
   try {
     if (fs.existsSync(WINDOWS_MEMORY_DUMP)) candidates.push(WINDOWS_MEMORY_DUMP);
   } catch (err) {
+    if (isAccessDenied(err)) {
+      blocked.push({ path: WINDOWS_MEMORY_DUMP, reason: 'access denied (' + err.code + ') - run elevated' });
+    } else {
+      blocked.push({ path: WINDOWS_MEMORY_DUMP, reason: String(err && err.message) });
+    }
     console.error('  ! could not stat MEMORY.DMP: ' + err.message);
   }
 
-  if (!candidates.length) return rescued;
+  if (!candidates.length) return { rescued: rescued, blocked: blocked };
 
   if (!dryRun) {
     try {
       fs.mkdirSync(DUMP_STORE, { recursive: true });
     } catch (err) {
       console.error('  ! could not create ' + DUMP_STORE + ': ' + err.message);
-      return rescued;
+      return { rescued: rescued, blocked: blocked };
     }
   }
 
