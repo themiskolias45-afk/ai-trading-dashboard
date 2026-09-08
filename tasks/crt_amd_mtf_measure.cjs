@@ -46,6 +46,7 @@ const path = require("path");
 
 const PROJECT_ROOT = path.join(__dirname, "..");
 const { detectCRT, detectAMD } = require(path.join(PROJECT_ROOT, "server", "structure.js"));
+const { costR, SPREADS_MEASURED_AT } = require(path.join(PROJECT_ROOT, "tasks", "instrument_costs.cjs"));
 
 function strArg(flag, fallback) {
   const i = process.argv.indexOf(flag);
