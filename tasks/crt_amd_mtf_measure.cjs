@@ -326,20 +326,35 @@ function runCell(assetBars, biasTf, execTf, detector, holdBars, windowBars) {
   return { trades, unresolved, notes };
 }
 
-/** Gross and cost-charged summary for a set of trades. */
-function summarise(trades, costFraction) {
+/**
+ * Gross AND cost-charged summary for a set of trades.
+ *
+ * FIXED 2026-09-08. Both call sites used to pass a literal 0, there was no flag to pass
+ * anything else, and `netRPerTrade` was computed and never printed - so every number this
+ * harness has ever published was GROSS while the code around it described a cost model.
+ * That is the decoration failure this repo keeps paying for: the machinery existed, read
+ * convincingly, and was wired to nothing.
+ *
+ * Cost is now charged PER TRADE against THAT TRADE'S own risk distance, via the measured
+ * spread table. Charging a shared PRICE across instruments is what inverted the sign of a
+ * pooled CRT result once - a Gold trade billed a BTC-sized spread.
+ *
+ * `costUnknown` counts trades whose symbol has no measured spread. Those are charged
+ * NOTHING, which flatters them, so the count is surfaced rather than absorbed.
+ */
+function summarise(trades, symbol) {
   if (!trades.length) return null;
-  let grossR = 0, netR = 0, wins = 0, ambiguous = 0, barsTotal = 0, riskPctTotal = 0;
+  let grossR = 0, netR = 0, wins = 0, netWins = 0, ambiguous = 0;
+  let barsTotal = 0, riskPctTotal = 0, costTotal = 0, costUnknown = 0;
   for (const t of trades) {
-    // Cost is expressed as a FRACTION OF THE TRADE'S OWN RISK DISTANCE, so it is
-    // already in R units and each instrument is charged on its own scale. Charging a
-    // shared PRICE across instruments is what inverted the sign of a pooled CRT result
-    // once - a Gold trade billed a BTC-sized spread. See
-    // [[crt_survives_costs_on_gold_and_spx]].
-    const costR = costFraction > 0 ? costFraction : 0;
+    const perTradeCost = GROSS_ONLY ? 0 : costR(symbol, t.risk, SPREAD_WIDTHS);
+    if (perTradeCost === null && !GROSS_ONLY) costUnknown++;
+    const charged = Number.isFinite(perTradeCost) ? perTradeCost : 0;
     grossR += t.r;
-    netR   += t.r - costR;
+    netR   += t.r - charged;
+    costTotal += charged;
     if (t.r > 0) wins++;
+    if (t.r - charged > 0) netWins++;
     if (t.ambiguous) ambiguous++;
     barsTotal += t.bars;
     riskPctTotal += t.riskPct;
