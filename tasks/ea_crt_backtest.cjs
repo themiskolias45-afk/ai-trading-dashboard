@@ -295,7 +295,9 @@ function runOne(install, reportName, period, inputs) {
 
   writeUtf16(iniPath, ini);
   // Never silently reuse a stale report if the tester fails to produce a new one.
-  try { if (fs.existsSync(reportPath)) fs.renameSync(reportPath, reportPath + '.prev'); } catch (e) { /* keep going */ }
+  for (const p of reportCandidates) {
+    try { if (fs.existsSync(p)) fs.renameSync(p, p + '.prev'); } catch (e) { /* keep going */ }
+  }
 
   const exe = path.join(install, 'terminal64.exe');
   console.log(`  running ${reportName}  ${period.from} -> ${period.to} ...`);
@@ -307,13 +309,34 @@ function runOne(install, reportName, period, inputs) {
     console.error(`  ! ${reportName}: ${res.error.message}`);
     return { run: reportName, ok: false, error: res.error.message, seconds: secs };
   }
-  if (!fs.existsSync(reportPath)) {
+
+  const reportPath = findReport();
+  if (!reportPath) {
     console.error(`  ! ${reportName}: terminal exited after ${secs}s but wrote NO report.`);
+    console.error(`    Looked in:\n      ${reportCandidates.join('\n      ')}`);
     console.error(`    That is a failed run, not a zero result - do not record it as one.`);
     return { run: reportName, ok: false, error: 'no report produced', seconds: secs };
   }
 
+  // A FAILED PASS STILL WRITES A REPORT, and it reads as a clean zero.
+  // Measured 2026-09-08: the terminal logged
+  //   'last test passed with result "some error after pass finished" in 0:00:00.000'
+  // and wrote a report whose Total Net Profit was 0. Recording that as a result would put
+  // a fabricated zero into the ledger beside 37 real runs. A pass that traded nothing over
+  // four months of gold is a broken run, not a finding, so it is refused here.
+  const failure = testerFailureInLog(dataDirForRun);
   const metrics = parseReport(reportPath);
+  const tradeCount = Number(String(metrics.totalTrades ?? '').replace(/[^\d-]/g, ''));
+  if (failure || !(tradeCount > 0)) {
+    console.error(`  ! ${reportName}: report written but the pass did not produce trades.`);
+    if (failure) console.error(`    terminal log: ${failure}`);
+    console.error(`    Refusing to record a zero that came from a failed pass.`);
+    return {
+      run: reportName, ok: false, seconds: secs,
+      error: failure || `report parsed but totalTrades=${metrics.totalTrades}`,
+      reportPath,
+    };
+  }
   const row = {
     run: reportName,
     ok: true,
