@@ -275,8 +275,16 @@ function runOne(install, reportName, period, inputs) {
     Optimization: '0',
   }, inputs || {});
 
+  // Report= resolves against the DATA directory, not the install directory. Measured
+  // 2026-09-08: the run wrote to %APPDATA%\MetaQuotes\Terminal\<hash>\ while this looked
+  // in the install dir and declared "no report produced" over a report that existed.
+  // Both are checked, data dir first.
   const iniPath = path.join(install, `${reportName}.ini`);
-  const reportPath = path.join(install, `${reportName}.htm`);
+  const reportCandidates = [
+    path.join(dataDirForRun, `${reportName}.htm`),
+    path.join(install, `${reportName}.htm`),
+  ];
+  const findReport = () => reportCandidates.find(p => fs.existsSync(p)) || null;
 
   if (DRY) {
     console.log(`--- ${reportName}.ini (DRY, not written) ---`);
