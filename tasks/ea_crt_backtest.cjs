@@ -67,6 +67,21 @@ function strArg(flag, fallback) {
 const DRY = process.argv.includes('--dry');
 const TIMEOUT_MS = Number(strArg('--timeout', '3600')) * 1000;
 
+// Tester modelling quality. 4 = every real tick (what the whole campaign used), 1 = 1-minute
+// OHLC. Model 1 exists here for ONE reason: local tick files only span 202504-202609, while
+// the server offers history from 2022.11.15. Reaching that history on real ticks means a
+// multi-GB download; on M1 bars it does not.
+//
+// NEVER compare a Model=1 run against a Model=4 run. The modelling difference is a
+// confound, and mixing them silently is how a "result" becomes an artefact of fill
+// assumptions. Establish a same-window Model=1 control first, then compare Model 1 to
+// Model 1 only.
+const MODEL = strArg('--model', null);
+
+// Arbitrary window, for reaching history the named scenarios do not cover.
+const FROM = strArg('--from', null);
+const TO = strArg('--to', null);
+
 /**
  * Where the isolated tester lives. It was built in a session scratchpad, which is
  * volatile - so this searches rather than hardcoding one dead path, and says plainly when
