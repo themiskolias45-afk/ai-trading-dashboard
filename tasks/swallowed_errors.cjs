@@ -196,11 +196,21 @@ function main() {
   console.log('  A text scan for "failed". Includes prose - 37 hits were once the sentence');
   console.log('  "failed, so the rest is determined." Read these, do not act on the count alone.');
   if (!keyword.length) console.log('\n  none');
-  keyword.slice(0, 12).forEach(show);
+  keyword.slice(0, 12).forEach(r => show(r, false));
+
+  if (stopped.length) {
+    console.log('');
+    console.log('  ── STOPPED ' + '─'.repeat(77));
+    console.log('  Repeated, then ended before this window opened. Not a to-do list - this is');
+    console.log('  the section that tells you a defect is already over, which the count alone');
+    console.log('  cannot. The 70 JSON SyntaxErrors that prompted this split live here now.');
+    stopped.slice(0, 12).forEach(r => show(r, true));
+  }
 
   console.log('');
-  console.log('  ' + thrown.length + ' thrown pattern(s), ' + keyword.length + ' keyword pattern(s).');
+  console.log('  ' + thrown.length + ' thrown, ' + keyword.length + ' keyword, ' + stopped.length + ' stopped.');
   console.log('  Ranked by REPETITION: once is noise, 400 times is production.');
+  console.log('  A recent FILE is not a recent LINE — every count above is dated, not inferred.');
 }
 
 try { main(); } catch (err) {
