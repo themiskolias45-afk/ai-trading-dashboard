@@ -235,7 +235,7 @@ foreach ($item in $plan) {
     # "non-zero" as failure would report every healthy run as broken.
     if ($code -lt 8) {
         $item.Status = 'copied'
-        $remaining -= $item.Bytes
+        $remaining -= $item.Need
         Write-Host ("  {0,-18} rc={1} ok    ({2} MB left)" -f $item.Name, $code, [math]::Round($remaining / 1MB)) -ForegroundColor Green
     } else {
         $item.Status = "FAILED rc=$code"
