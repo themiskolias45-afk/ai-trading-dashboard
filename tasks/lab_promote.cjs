@@ -90,6 +90,29 @@ const BAR = {
   MIN_PF_AT_2X_COST:      1.10,
   MIN_NEIGHBOURS:         4,
   MIN_NEIGHBOUR_POSITIVE: 0.60,
+
+  // RULE 7: it must be PROVABLE IN A HUMAN TIMEFRAME.
+  //
+  // Measured 2026-09-08 across the five staged survivors, using lab_shadow's own
+  // arithmetic - forward trades needed to separate the OOS edge from zero, divided by
+  // the candidate's observed trade rate:
+  //
+  //   bb_squeeze_break BTC H1   +0.4319R   114 trades   1,490 days
+  //   ict_mss_fvg      BTC H1   +0.1831R   540 trades   1,893 days
+  //   swing_trend_pb   BTC H1   +0.1525R   774 trades   1,836 days
+  //   ict_mss_fvg      BTC H4   +0.2417R   358 trades   6,239 days
+  //   donchian_break   BTC H1   +0.0873R 2,394 trades   6,709 days
+  //
+  // FOUR TO EIGHTEEN YEARS EACH. Every one of them had ZERO forward trades, because
+  // lab_shadow.cjs was written and never scheduled - so the queue was full of candidates
+  // that could not have been judged in this decade even if it had been.
+  //
+  // A candidate that cannot be settled inside a year is not a finding, it is a permanent
+  // maybe. Staging it costs attention and returns nothing. The two levers that move this
+  // are TRADE RATE and EDGE SIZE: a +0.43R edge needs 114 trades, a +0.087R edge needs
+  // 2,394 for the same confidence - so ranking by backtest expectancy alone actively
+  // prefers the ones that can never be proven.
+  MAX_DAYS_TO_PROOF:      365,
 };
 
 function readStaged() {
