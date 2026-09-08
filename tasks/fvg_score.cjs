@@ -209,6 +209,35 @@ function curveStats(seq) {
   return { maxDD, worstStreak, finalR: equity };
 }
 
+/**
+ * COMPOUNDED fixed-fractional account path at `riskPct` of CURRENT equity per trade.
+ *
+ * WHY THIS IS NOT maxDD_R * riskPct. That linear scaling was what this file reported until
+ * 2026-09-08 and it is wrong in both directions: a losing run shrinks equity, which shrinks
+ * every subsequent position, so real drawdown is SMALLER than linear at high risk - while
+ * the compounding of wins makes the return LARGER. The gap widens with risk, which is
+ * exactly where the question is being asked (0.15% vs 0.50%).
+ *
+ * Returns percentages of the starting account, and the peak-to-trough drawdown measured
+ * against the running PEAK equity, which is what a drawdown actually is.
+ */
+function compoundPath(seq, riskPct) {
+  const ordered = [...seq].sort((a, b) => (a.t || 0) - (b.t || 0));
+  let equity = 1, peak = 1, maxDDFrac = 0, ruin = false;
+  for (const s of ordered) {
+    equity *= (1 + s.net * riskPct / 100);
+    if (equity <= 0) { ruin = true; equity = 0; break; }
+    if (equity > peak) peak = equity;
+    const dd = (peak - equity) / peak;
+    if (dd > maxDDFrac) maxDDFrac = dd;
+  }
+  return {
+    returnPct: (equity - 1) * 100,
+    maxDDPct: maxDDFrac * 100,
+    ruin,
+  };
+}
+
 console.log("");
 console.log("  " + pad("symbol", 9) + pad("scored", 8) + pad("WR%", 8) + pad("unresolved", 12)
   + pad("gross R/t", 11) + pad("costR", 9) + pad("NET R/t", 10) + "net total R");
