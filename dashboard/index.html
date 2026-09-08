@@ -5458,29 +5458,141 @@ async function loadFeedTab() {
             + 'add ATOMIC ANALYST V84 from Navigator &rarr; Indicators.</span>';
           return;
         }
+        // THE FULL PANEL, laid out like the indicator's own DrawPanel. The previous
+        // version rendered ten fields out of the ~40 the indicator produces: no MTF
+        // table, no consensus rows, no dominance, no evidence matrix, and one TP out of
+        // five. Everything below is fed from keys VERIFIED present in the real feed
+        // files, not from names assumed to exist.
+        const esc = s => String(s ?? '—').replace(/[&<>"']/g, c =>
+          ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const vCol = x => x === 'BUY' ? 'var(--green)' : x === 'SELL' ? 'var(--red)' : 'var(--yellow)';
+        const num  = (n, dp = 2) => (typeof n === 'number' && isFinite(n)) ? n.toFixed(dp) : '—';
+
+        // The indicator's own g_tfNames order, not alphabetical.
+        const TF_ORDER  = ['M1','M5','M15','M30','H1','H4','D1','W1','MN1'];
+        // The indicator's names[7], in its order and with its labels.
+        const CONS_ROWS = [['rsi','RSI'],['macd','MACD'],['movingAverage','Moving Average'],
+                           ['stochastic','Stochastic'],['bollinger','Bollinger'],
+                           ['fibonacci','Fibonacci'],['pivot','Pivot Points']];
+
+        // The Atomic Evidence Matrix. The INDICATOR computes these eight strings in
+        // DrawPanel and does not send them, so they are recomputed here from the same
+        // raw inputs using its own thresholds. Row 6, "Currency / Pair", needs price
+        // against the SMA(250) atomic filter and NEITHER value is in the feed, so it
+        // reads n/a rather than being guessed - inventing a value there is the exact
+        // mistake the indicator's own comments record having made once already.
+        const evidenceMatrix = v => {
+          const ind = v.indicators || {}, ev = v.evidence || {};
+          const macdHist = (typeof ind.macd === 'number' && typeof ind.macdSignal === 'number')
+            ? ind.macd - ind.macdSignal : null;
+          const atr = typeof ind.atr === 'number' ? ind.atr : null;
+          const adx = ind.adx, rsi = ind.rsi, vr = ev.volumeRatio, bb = ev.bbWidthPct;
+          const mom = (macdHist === null || atr === null) ? ['—','var(--muted)']
+            : (Math.abs(macdHist) > atr * 0.05)  ? [(macdHist > 0 ? 'STRONG BUY' : 'STRONG SELL'), macdHist > 0 ? 'var(--green)' : 'var(--red)']
+            : (Math.abs(macdHist) < atr * 0.015) ? [(macdHist > 0 ? 'WEAK BUY'   : 'WEAK SELL'),   macdHist > 0 ? 'var(--green)' : 'var(--red)']
+            :                                      [(macdHist > 0 ? 'BUY'        : 'SELL'),        macdHist > 0 ? 'var(--green)' : 'var(--red)'];
+          return [
+            ['Atomic Bias',    v.finalConsensus ?? '—', vCol(v.finalConsensus)],
+            ['Trend Pressure', typeof adx !== 'number' ? '—' : adx >= 25 ? 'STRONG' : adx >= 20 ? 'TRENDING' : 'MIXED',
+                               typeof adx === 'number' && adx >= 20 ? 'var(--green)' : 'var(--yellow)'],
+            ['Momentum Force', mom[0], mom[1]],
+            ['Volume Pulse',   typeof vr !== 'number' ? '—' : vr >= 1.5 ? 'HIGH' : vr <= 0.6 ? 'THIN' : 'NORMAL', '#2f6ea8'],
+            ['Volatility',     typeof bb !== 'number' ? '—' : bb >= 8 ? 'EXPANDED' : bb <= 3 ? 'SQUEEZE' : 'NORMAL',
+                               typeof bb === 'number' && bb <= 3 ? 'var(--yellow)' : '#2f6ea8'],
+            ['Currency / Pair','n/a', 'var(--muted)'],
+            ['MTF Alignment',  v.mtfAligned === true ? 'ALIGNED' : v.mtfAligned === false ? 'MIXED' : '—',
+                               v.mtfAligned ? 'var(--green)' : 'var(--yellow)'],
+            ['RSI Pressure',   typeof rsi !== 'number' ? '—' : rsi >= 60 ? 'BULLISH' : rsi <= 40 ? 'BEARISH' : 'NEUTRAL',
+                               typeof rsi === 'number' ? (rsi >= 60 ? 'var(--green)' : rsi <= 40 ? 'var(--red)' : 'var(--yellow)') : 'var(--muted)'],
+          ];
+        };
+
         body.innerHTML = rows.map(v => {
-          const dirCol = v.direction === 'BUY' ? 'var(--green)' : v.direction === 'SELL' ? 'var(--red)' : 'var(--yellow)';
+          const dirCol = vCol(v.direction);
           // STALE IS LOUD. A verdict older than the server's own threshold is not a
           // verdict, and rendering it in the same colour as a live one is how a stale
           // fact passes for a current one.
           const ageTxt = v.ageMinutes == null ? 'age unknown'
                        : (v.stale ? `<b style="color:var(--yellow)">STALE ${v.ageMinutes}m</b>` : `${v.ageMinutes}m ago`);
-          const mtf = v.mtfAligned === false
-            ? '<span style="color:var(--yellow)">MTF mixed</span>'
-            : '<span style="color:var(--green)">MTF aligned</span>';
-          const t = v.ticket;
-          const ticket = t
-            ? `entry ${t.entry} · SL ${t.sl} · TP1 ${t.tp1}`
-            : '<span style="color:var(--muted)">no ticket — consensus is WAIT</span>';
-          return `<div style="border-bottom:1px solid var(--border);padding:6px 0">
-              <b>${v.symbol}</b>
-              <span style="color:${dirCol};font-weight:700;margin-left:8px">${v.verdict ?? '—'}</span>
-              <span style="color:var(--muted);margin-left:8px">conf ${v.confidence ?? '—'}%</span>
-              <span style="margin-left:8px">${mtf}</span>
-              <span style="color:var(--muted);margin-left:8px">${ageTxt}</span>
-              <div style="color:var(--muted);font-size:.7rem">${ticket}
-                <span style="margin-left:8px">acct ${v.account ?? '—'}</span></div>
+
+          const mtf = v.mtf || {};
+          const mtfCells = TF_ORDER.map(tf => `<div style="text-align:center;flex:1;min-width:46px">
+              <div style="font-size:.6rem;color:var(--muted)">${esc(tf)}</div>
+              <div style="background:${vCol(mtf[tf])};color:#fff;font-size:.6rem;font-weight:700;border-radius:3px;padding:2px 0">${esc(mtf[tf])}</div>
+            </div>`).join('');
+
+          const cons = v.consensus || {};
+          const consRows = CONS_ROWS.map(([k, label]) =>
+            `<div style="display:flex;justify-content:space-between;align-items:center;padding:1px 0">
+              <span style="color:var(--muted)">${esc(label)}</span>
+              <span style="background:${vCol(cons[k])};color:#fff;font-size:.6rem;font-weight:700;border-radius:3px;padding:1px 10px">${esc(cons[k])}</span>
+            </div>`).join('')
+            + `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-top:1px solid var(--border);margin-top:3px">
+              <b>Final Consensus</b>
+              <span style="background:${vCol(v.finalConsensus)};color:#fff;font-size:.6rem;font-weight:700;border-radius:3px;padding:1px 10px">${esc(v.finalConsensus)}</span>
             </div>`;
+
+          const d = v.dominance || {};
+          const bull = typeof d.bullish === 'number' ? d.bullish : 0;
+          const wait = typeof d.wait    === 'number' ? d.wait    : 0;
+          const bear = typeof d.bearish === 'number' ? d.bearish : 0;
+
+          const ev = v.evidence || {};
+          const tfLine = (typeof ev.tfBuy === 'number')
+            ? `${ev.tfBuy} buy / ${ev.tfSell} sell / ${ev.tfWait} wait` : '—';
+
+          const em = evidenceMatrix(v).map(([label, val, col]) =>
+            `<div style="display:flex;justify-content:space-between;align-items:center;padding:1px 0">
+              <span style="color:var(--muted);font-size:.65rem">${esc(label)}</span>
+              <span style="background:${col};color:#fff;font-size:.6rem;font-weight:700;border-radius:3px;padding:1px 8px">${esc(val)}</span>
+            </div>`).join('');
+
+          const t = v.ticket;
+          const tpLadder = (t && Array.isArray(t.tp) && t.tp.length)
+            ? t.tp.map(x => `<div style="display:flex;justify-content:space-between">
+                  <span style="color:var(--muted)">TP${esc(x.level)} <span style="opacity:.6">fib ${esc(x.fib)}</span></span>
+                  <b>${esc(x.price)}</b></div>`).join('')
+            : '';
+          const ticketBlock = t
+            ? `<div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Entry</span><b>${esc(t.entry)}</b></div>
+               <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Stop</span><b style="color:var(--red)">${esc(t.sl)}</b></div>
+               <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Risk</span><b>${esc(t.riskDistance)}</b></div>
+               ${tpLadder}`
+            : '<span style="color:var(--muted)">no ticket — consensus is WAIT</span>';
+
+          const agree = v.decisionAgreesWithConsensus === false
+            ? ' <span style="color:var(--yellow);font-size:.6rem">(decision differs from consensus)</span>' : '';
+
+          return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">
+              <div><b style="font-size:1rem">${esc(v.symbol)}</b>
+                <span style="color:var(--muted);font-size:.65rem;margin-left:6px">${esc(v.timeframe)}</span></div>
+              <div><span style="color:${dirCol};font-weight:700;font-size:.95rem">${esc(v.verdict)}</span>
+                <span style="color:var(--muted);margin-left:8px">conf ${esc(v.confidence)}%</span>${agree}</div>
+              <div style="color:var(--muted);font-size:.65rem">${ageTxt} · acct ${esc(v.account)}</div>
+            </div>
+
+            <div style="display:flex;gap:4px;margin:8px 0">${mtfCells}</div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:8px">
+              <div><div style="color:var(--accent,#5b9cff);font-size:.65rem;font-weight:700;margin-bottom:3px">INDICATOR CONSENSUS</div>${consRows}</div>
+              <div><div style="color:var(--accent,#5b9cff);font-size:.65rem;font-weight:700;margin-bottom:3px">MARKET DOMINANCE</div>
+                <div style="display:flex;justify-content:space-between;font-size:.65rem">
+                  <span style="color:var(--green)">Bullish ${num(bull,1)}%</span>
+                  <span style="color:var(--yellow)">Wait ${num(wait,1)}%</span>
+                  <span style="color:var(--red)">Bearish ${num(bear,1)}%</span></div>
+                <div style="display:flex;height:10px;border-radius:3px;overflow:hidden;margin:5px 0">
+                  <div style="width:${bull}%;background:var(--green)"></div>
+                  <div style="width:${wait}%;background:var(--yellow)"></div>
+                  <div style="width:${bear}%;background:var(--red)"></div></div>
+                <div style="font-size:.65rem;color:var(--muted)">Market sentiment is <b>${esc(d.sentiment)}</b></div>
+                <div style="font-size:.65rem;color:var(--muted);margin-top:4px">Timeframes ${esc(tfLine)}</div>
+                <div style="font-size:.65rem;color:var(--muted)">RSI ${num(v.indicators&&v.indicators.rsi,1)} · ADX ${num(v.indicators&&v.indicators.adx,1)} · ATR ${num(v.indicators&&v.indicators.atr)} · spread ${esc(v.indicators&&v.indicators.spreadPoints)}</div>
+              </div>
+              <div><div style="color:var(--accent,#5b9cff);font-size:.65rem;font-weight:700;margin-bottom:3px">ATOMIC EVIDENCE MATRIX</div>${em}</div>
+              <div><div style="color:var(--accent,#5b9cff);font-size:.65rem;font-weight:700;margin-bottom:3px">ACTIVE SIGNAL TICKET</div>${ticketBlock}</div>
+            </div>
+          </div>`;
         }).join('');
       } catch (e) {
         if (cnt) cnt.textContent = 'unavailable';
