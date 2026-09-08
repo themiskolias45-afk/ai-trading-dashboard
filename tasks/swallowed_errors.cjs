@@ -70,6 +70,32 @@ function isZeroCount(raw) { return /^failed\s*[:=]?\s*0\b/i.test(raw); }
 // counted together and REPORTED SEPARATELY.
 const THROWN_KINDS = new Set(['exception', 'python-traceback', 'syscall']);
 
+// ── A RECENT FILE IS NOT A RECENT LINE ──────────────────────────────────────────
+// This tool selected FILES by mtime and then counted every match inside them, so an
+// append-only log contributed months of history to a "last 7 days" report. Measured
+// 2026-09-08: it reported 70 JSON SyntaxErrors as current. All 70 stopped on
+// 2026-09-01 and 25,000 lines had been appended since - the file was recent, the
+// evidence was not. A count with the wrong window attached is worse than no count,
+// because it sends someone hunting a defect that already stopped.
+//
+// So each line carries the most recent timestamp seen ABOVE it. Most lines here have
+// no timestamp of their own (`[prices] BTC $78724 ...`), but the server's own start
+// banners and the bracketed PowerShell stamps do, and a match inherits the last one.
+const STAMP_PATTERNS = [
+  /(20\d\d-\d\d-\d\d)T(\d\d:\d\d)/,                       // ISO, e.g. server start banners
+  /\[(\d\d)\/(\d\d)\/(20\d\d) (\d\d:\d\d)/,               // [dd/MM/yyyy HH:mm  - the PS wrappers
+  /^(20\d\d-\d\d-\d\d) (\d\d:\d\d)/,                      // plain leading date
+];
+function stampOf(line) {
+  let m = STAMP_PATTERNS[0].exec(line);
+  if (m) return Date.parse(m[1] + 'T' + m[2] + ':00Z');
+  m = STAMP_PATTERNS[1].exec(line);
+  if (m) return Date.parse(m[3] + '-' + m[2] + '-' + m[1] + 'T' + m[4] + ':00Z');
+  m = STAMP_PATTERNS[2].exec(line);
+  if (m) return Date.parse(m[1] + 'T' + m[2] + ':00Z');
+  return null;
+}
+
 function main() {
   if (!fs.existsSync(LOGS)) { console.error('no tasks/logs directory'); process.exitCode = 1; return; }
   const cutoff = Date.now() - DAYS * 86400000;
