@@ -73,3 +73,6 @@ Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger `
     -Description "Five-source confluence table (system, pre-open plan, daily plan, ATOMIC indicator, TradingView). Telegram only on a new full agreement, deduped per asset per direction per day. Read-only: places no order, moves no gate." | Out-Null
 
 Write-Output "REGISTERED - '$name', every 15 minutes, --notify"
+Write-Output "  repo    $repo"
+Write-Output "  node    $node"
+Write-Output "  account $account"
