@@ -315,11 +315,19 @@ function main() {
   const events = readShutdownEvents(lookbackDays);
   console.log('  ' + events.length + ' shutdown-related event(s) in the Windows System log');
 
-  const dumps = rescueDumps(dryRun);
-  if (dumps.length) {
-    for (const d of dumps) console.log('  dump: ' + d.status + ' - ' + d.source);
-  } else {
+  const scan   = rescueDumps(dryRun);
+  const dumps  = scan.rescued;
+  const blocked = scan.blocked;
+
+  for (const d of dumps) console.log('  dump: ' + d.status + ' - ' + d.source);
+  for (const b of blocked) console.log('  COULD NOT READ ' + b.path + ' - ' + b.reason);
+
+  if (!dumps.length && !blocked.length) {
     console.log('  no dump files present in Windows to rescue');
+  } else if (!dumps.length && blocked.length) {
+    // Never "no dumps" here: we were refused, so whether any exist is unknown.
+    console.log('  0 dump(s) rescued, and ' + blocked.length +
+      ' location(s) unreadable - this is NOT evidence that no dump exists');
   }
 
   const known = existingLedgerKeys();
