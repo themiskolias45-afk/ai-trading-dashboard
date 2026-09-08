@@ -395,8 +395,8 @@ function foldReport(trades, folds, symbol) {
   for (let f = 0; f < folds; f++) {
     const from = f * size;
     const to = (f === folds - 1) ? sorted.length : from + size;
-    const s = summarise(sorted.slice(from, to), 0);
-    perFold.push(s ? s.rPerTrade : null);
+    const s = summarise(sorted.slice(from, to), symbol);
+    perFold.push(s ? s.netRPerTrade : null);
   }
   const positive = perFold.filter(r => r !== null && r > 0).length;
   const worst = perFold.reduce((m, r) => (r !== null && (m === null || r < m) ? r : m), null);
