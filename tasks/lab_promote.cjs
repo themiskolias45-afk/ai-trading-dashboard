@@ -489,6 +489,33 @@ function selftest() {
   const j = judge(good);
   ok('and the reason names the plateau', j.reasons.some(r => /plateau/.test(r) && /^FAIL/.test(r)));
 
+  // ---- RULE 7: provable inside a year -------------------------------------------
+  // The five real survivors on 2026-09-08 needed 1,490-6,709 days. These cases pin the
+  // arithmetic so a future edit cannot quietly turn the rule back into decoration.
+  const proofOf = (oos, all) => daysToProof({ outOfSample: oos, all });
+
+  // donchian_break BTC H1, as measured: +0.0873R edge, sd 2.1781, 0.357 trades/day.
+  const slow = proofOf({ expectancyR: 0.0873, sdR: 2.1781 }, { tradesPerDay: 0.357 });
+  ok('a weak edge needs thousands of trades', slow.tradesNeeded > 2000);
+  ok('and is refused: years, not months', slow.days > BAR.MAX_DAYS_TO_PROOF);
+
+  // A strong, frequent candidate is the shape the lab SHOULD be hunting.
+  const fast = proofOf({ expectancyR: 0.45, sdR: 2.2 }, { tradesPerDay: 4.0 });
+  ok('a strong frequent edge is provable in under a year', fast.days <= BAR.MAX_DAYS_TO_PROOF);
+
+  // Edge size dominates: quadrupling the edge cuts trades needed ~16x.
+  ok('trades needed scale as (sd/edge)^2',
+    proofOf({ expectancyR: 0.1, sdR: 2 }, { tradesPerDay: 1 }).tradesNeeded
+      === Math.ceil(Math.pow(2 * 2 / 0.1, 2)));
+
+  // Missing inputs must FAIL, never pass by default - "we cannot tell" is not grounds.
+  ok('unknown trade rate cannot clear',
+    proofOf({ expectancyR: 0.3, sdR: 2 }, {}).days === null);
+  ok('unknown sd cannot clear',
+    proofOf({ expectancyR: 0.3 }, { tradesPerDay: 5 }).days === null);
+  ok('a candidate with no proof horizon is rejected by judge()',
+    judge({ ...good, outOfSample: { expectancyR: 0.3 } }).pass === false);
+
   // Each individual bar must be able to fail on its own.
   const variants = [
     ['verdict', { ...good, assessment: { verdict: 'MARGINAL', checksUnknown: 0 } }],
