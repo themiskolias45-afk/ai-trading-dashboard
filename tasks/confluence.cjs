@@ -77,15 +77,53 @@ function dir(v) {
 const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
 
 (async () => {
-  const [sigRes, atomRes, planRes, alertRes] = await Promise.all([
-    get("/api/signals"), get("/api/atomic"), get("/api/preopen-plan"), get("/api/alerts"),
-  ]);
+  // FILE FIRST, API SECOND, AND ON PURPOSE.
+  //
+  // /api/atomic and /api/preopen-plan are session-gated - correctly - and this script is a
+  // cron job with no browser cookie, so through the API they both answered 401 and the
+  // table read "no data" for two of its four sources. That is the worst possible failure
+  // here: a gated endpoint and a genuinely silent source look identical, and the whole
+  // point of this table is that a missing source is never counted as agreement.
+  //
+  // Reading the files directly also means the table still works when the server is down,
+  // which is exactly when someone would want to know what each source last said.
+  const sigRes   = await get("/api/signals");           // ungated by design
+  const alertRes = await get("/api/alerts");            // gated; handled below
   const sigs = sigRes.json || {};
+
   const atoms = {};
-  for (const v of (atomRes.json?.verdicts) || []) atoms[String(v.symbol).toUpperCase()] = v;
+  try {
+    const base = path.join(require("os").homedir(), "AppData", "Roaming", "MetaQuotes", "Terminal");
+    for (const e of fs.readdirSync(base)) {
+      const d = path.join(base, e, "MQL5", "Files", "atomic_analyst");
+      let files = [];
+      try { files = fs.readdirSync(d).filter(f => f.endsWith(".json")); } catch { continue; }
+      for (const f of files) {
+        try {
+          const rec = JSON.parse(fs.readFileSync(path.join(d, f), "utf8"));
+          if (rec && rec.source === "ATOMIC_ANALYST_V84" && rec.symbol) {
+            const ageMin = Number.isFinite(rec.generatedAtEpoch)
+              ? (Date.now() / 1000 - rec.generatedAtEpoch) / 60 : null;
+            atoms[String(rec.symbol).toUpperCase()] = {
+              symbol: rec.symbol, direction: rec.direction, confidence: rec.confidence,
+              finalConsensus: rec.finalConsensus, mtfAligned: rec.mtfAligned,
+              ticket: rec.ticket, ageMinutes: ageMin,
+              stale: ageMin === null || ageMin > 30,
+            };
+          }
+        } catch { /* half-written file - next run picks it up */ }
+      }
+    }
+  } catch { /* no MT5 data folder on this box */ }
+
   const planByKey = {};
-  for (const a of (planRes.json?.assets) || []) planByKey[a.key] = a;
+  try {
+    const pl = JSON.parse(fs.readFileSync(path.join(ROOT, "tasks", "analysis", "preopen-plan-latest.json"), "utf8"));
+    for (const a of pl.assets || []) planByKey[a.key] = a;
+  } catch { /* no plan yet today */ }
+
   const alerts = (alertRes.json?.alerts) || [];
+  const alertsGated = alertRes.status === 401;
 
   console.log("");
   console.log("=================== CONFLUENCE — four independent reads ===================");
@@ -130,7 +168,7 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
       + pad((src.plan.dir ?? "—") + (src.plan.conf != null ? " " + src.plan.conf + "%" : ""), 16)
       + pad((src.atomic.dir ?? "no data") + (src.atomic.conf != null ? " " + src.atomic.conf + "%" : "")
             + (src.atomic.stale ? " STALE" : ""), 18)
-      + pad(src.tv.dir ?? "no data", 14)
+      + pad(src.tv.dir ?? (alertsGated ? "gated" : "no data"), 14)
       + verdict);
 
     rows.push({ asset: a, src, agreed, direction: nonWait[0] || null, present: present.map(([k]) => k),

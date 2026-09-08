@@ -32,11 +32,30 @@
 #property indicator_plots 0
 
 //--- inputs ---------------------------------------------------------
-input int    InpRsiPeriod        = 14;
+// DEFAULTS TAKEN FROM HIS ACTUAL MT4 INPUTS DIALOG (screenshots 2026-09-08 13:48).
+// The first build guessed EMA 50/200 and RSI 14, which is nothing like what he runs.
+// His real parameters:
+//     Price Strength Period      17
+//     Stop Loss Vertical Place   0.5
+//     Count Bars to Scan         1000
+//     Momentum Smoothing         2      Momentum Amplitude   2
+//     Atomic Filter              ON, period 250, method SIMPLE (SMA), applied to Close
+//     Max Spread Points          999    Refresh Time         5s
+//
+// The Atomic Filter is an SMA(250) on close - a single slow simple average, not the
+// 50/200 EMA pair this file assumed. That one value changes every trend and bias read.
+input int    InpRsiPeriod        = 17;    // his "Price Strength Period"
+input int    InpAtomicFilter     = 250;   // his "Atomic Filter Period", SMA on close
+input double InpSlVertical       = 0.5;   // his "Stop Loss: Vertical Placement"
+input int    InpBarsToScan       = 1000;  // his "Count Bars to Scan"
+input int    InpMomSmoothing     = 2;     // his "Momentum Smoothing"
+input int    InpMomAmplitude     = 2;     // his "Momentum Amplitude"
+input int    InpMaxSpreadPoints  = 999;   // his "Max Spread Points"
+
 input int    InpMacdFast         = 12;
 input int    InpMacdSlow         = 26;
 input int    InpMacdSignal       = 9;
-input int    InpMaFast           = 50;
+input int    InpMaFast           = 50;    // kept for the MTF rows; the FILTER is InpAtomicFilter
 input int    InpMaSlow           = 200;
 input int    InpStochK           = 5;
 input int    InpStochD           = 3;
@@ -86,7 +105,7 @@ int             g_hMaSlowTf[9];
 
 int g_hRsi = INVALID_HANDLE, g_hMacd = INVALID_HANDLE, g_hMaF = INVALID_HANDLE;
 int g_hMaS = INVALID_HANDLE, g_hStoch = INVALID_HANDLE, g_hBands = INVALID_HANDLE;
-int g_hAtr = INVALID_HANDLE, g_hAdx = INVALID_HANDLE;
+int g_hAtr = INVALID_HANDLE, g_hAdx = INVALID_HANDLE, g_hFilter = INVALID_HANDLE;
 
 datetime g_lastFeedWrite = 0;
 int      g_buySignals = 0, g_sellSignals = 0;
@@ -109,6 +128,8 @@ int OnInit()
    g_hBands = iBands(_Symbol, _Period, InpBandsPeriod, 0, InpBandsDev, PRICE_CLOSE);
    g_hAtr   = iATR(_Symbol, _Period, InpAtrPeriod);
    g_hAdx   = iADX(_Symbol, _Period, InpAtrPeriod);
+   // The Atomic Filter itself: SMA(250) on close, exactly as his inputs specify.
+   g_hFilter = iMA(_Symbol, _Period, InpAtomicFilter, 0, MODE_SMA, PRICE_CLOSE);
 
    if(g_hRsi == INVALID_HANDLE || g_hMacd == INVALID_HANDLE || g_hBands == INVALID_HANDLE ||
       g_hAtr == INVALID_HANDLE || g_hAdx == INVALID_HANDLE || g_hStoch == INVALID_HANDLE)
@@ -143,6 +164,7 @@ void OnDeinit(const int reason)
    if(g_hBands != INVALID_HANDLE) IndicatorRelease(g_hBands);
    if(g_hAtr   != INVALID_HANDLE) IndicatorRelease(g_hAtr);
    if(g_hAdx   != INVALID_HANDLE) IndicatorRelease(g_hAdx);
+   if(g_hFilter!= INVALID_HANDLE) IndicatorRelease(g_hFilter);
    ObjectsDeleteAll(0, PFX);
 }
 
@@ -314,6 +336,7 @@ int OnCalculate(const int rates_total, const int prev_calculated,
 
    double px = close[rates_total - 1];
    double macdHist = macdMain - macdSig;
+   double atomicFilter = 0; Val(g_hFilter, 0, 0, atomicFilter);
 
    // Volume pulse and Bollinger width. His Evidence Matrix carries both ("Volume Pulse"
    // NORMAL, "Volatility" NORMAL) and neither existed in the first build of this file.
@@ -437,7 +460,7 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    if(InpShowPanel) DrawPanel(headline, confidence, tfV, cons, vFinal, vDecision,
                               bullPct, waitPct, bearPct, sentiment,
                               rsi, adx, atr, entry, sl, tp, dg, spreadTxt, mtfAgrees,
-                              volRatio, bbWidth, macdHist, tfBuy, tfSell, px, maS);
+                              volRatio, bbWidth, macdHist, tfBuy, tfSell, px, atomicFilter);
    if(InpDrawLevels) DrawLevels(vDecision, entry, sl, tp, dg);
 
    if(InpWriteFeedFile && (TimeCurrent() - g_lastFeedWrite) >= InpFeedSeconds)
@@ -546,6 +569,8 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
    eCol[4] = bbWidth <= 3.0 ? C'120,95,20' : C'25,70,110';
    // Currency / Pair reads BULLISH in green in his 13:36 shot, so it is a pair-strength
    // read of its own - price against the slow EMA - not a restatement of the verdict.
+   // Read against the ATOMIC FILTER - SMA(250) close - because that is the filter his
+   // inputs actually configure, not the 50/200 EMA pair this file first assumed.
    eVal[5] = (maS <= 0) ? "NEUTRAL" : (px > maS ? "BULLISH" : "BEARISH");
    eCol[5] = (maS <= 0) ? C'120,95,20' : (px > maS ? C'0,140,70' : C'150,30,45');
    eVal[6] = mtfAgrees ? "ALIGNED" : "MIXED";
