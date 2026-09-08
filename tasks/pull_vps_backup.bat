@@ -81,5 +81,17 @@ if exist "C:\Users\User\ai-trading-dashboard\dashboard\pipeline-peer.json" (
 )
 
 rem Keep more than the VPS does, so this copy outlives the source.
-powershell -Command "Get-ChildItem '%DEST%\*.zip' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip 21 | Remove-Item -Force"
+rem
+rem SORTED BY NAME, NOT LastWriteTime. scp does not preserve the source mtime, so every
+rem archive here carries the time it was COPIED, not the time the backup was MADE -
+rem measured 2026-09-08: all 21 zips had mtimes inside a 60-second window from that run's
+rem pull, one per second in transfer order. Sorting a retention on that key means the file
+rem chosen for deletion is decided by transfer order rather than by age, and on 2026-09-08
+rem a 09-08 07:00 archive was gone from this folder while 09-02 archives remained.
+rem
+rem The filename carries the real timestamp - backup_YYYYMMDD_HHMMSS.zip - and sorts
+rem lexicographically in true chronological order, so it is the only reliable key here.
+rem The COUNT is deliberately unchanged at 21: which archives are kept is a correctness
+rem question, how many are kept is the owner's call.
+powershell -Command "Get-ChildItem '%DEST%\*.zip' -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -Skip 21 | Remove-Item -Force"
 endlocal

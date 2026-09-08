@@ -79,10 +79,21 @@ const REQUIRED = {
   ],
   // The VPS's own archive, written by vps_backup.ps1. A shorter list on purpose: that job
   // captures journal, learning, the SQLite store, the logs and its .claude memory vault.
+  // Expanded 2026-09-08. This list was THREE files and the comment above it claimed the
+  // VPS job captures only journal, learning, the db, the logs and the memory vault. It
+  // also captures all code and every .jsonl ledger -- and because none of those were
+  // checked here, an archive that had lost 97% of its content passed this audit for FIVE
+  // DAYS. entryNames() compares BASENAMES, so no path prefix is needed.
   vps: [
     ["learning.json", "the VPS's OWN learning. It is never synced by design, so if the VPS dies this archive is the only copy in existence"],
     ["journal.json", "the VPS's trade record"],
     ["smartentry.db", "the VPS's SQLite store"],
+    ["all_trades_ledger.jsonl", "every fill across the fleet - 7.4 MB, and the largest thing here"],
+    ["rejections.jsonl", "the rejection ledger; evidence that grows without risking money"],
+    ["decision_register.jsonl", "every standing decision harvested from source comments"],
+    ["tk_shadow.jsonl", "TK shadow setups - the ledger that was unwritable for 17h on 2026-09-08"],
+    ["jarvis_memory.json", "the session memory a fresh session boots from"],
+    ["index.js", "the server itself. A restore that hands you data with no server to run it is not a restore"],
   ],
 };
 
@@ -99,12 +110,45 @@ function human(h) {
   return (h / 24).toFixed(1) + "d";
 }
 
-function newestZip(dir) {
-  if (!fs.existsSync(dir)) return null;
-  const zips = fs.readdirSync(dir).filter(f => f.endsWith(".zip"))
-    .map(f => ({ f, p: path.join(dir, f), m: fs.statSync(path.join(dir, f)).mtime }))
+function allZips(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter(f => f.endsWith(".zip"))
+    .map(f => ({ f, p: path.join(dir, f), m: fs.statSync(path.join(dir, f)).mtime,
+                 size: fs.statSync(path.join(dir, f)).size }))
     .sort((a, b) => b.m - a.m);
-  return zips[0] || null;
+}
+
+function newestZip(dir) { return allZips(dir)[0] || null; }
+
+// HAS THE ARCHIVE COLLAPSED? Compares the newest against the MEDIAN SIZE of the previous
+// ones in the same bucket.
+//
+// WHY SIZE AND NOT A FILE COUNT: reading entry counts costs a powershell launch per zip,
+// and size is free from the stat already being done. The collapse this exists to catch was
+// 38,215 KB -> 934 KB, so precision is not what is needed here.
+//
+// WHY IT EXISTS. On 2026-09-03 one unreadable filename left a zip entry stream open and
+// every subsequent write to the VPS archive failed. The archive went from 5,653 files to
+// 98 and stayed there for FIVE DAYS while this audit printed BOTH BUCKETS PRESENT AND
+// FRESH -- because presence and age were both still true, and the three files it checked
+// happened to be written before the failure point. A backup that shrinks 97% overnight is
+// the signature of a silent truncation whatever the cause, so this check is deliberately
+// about SHAPE rather than about trailing dots.
+//
+// 40%: the largest legitimate drop on record is the 2026-09-02 installer exclusion,
+// 63.7 MB -> 34.6 MB, which is 54% and would NOT fire. Needs 3 priors or it is skipped,
+// so a fresh bucket is never accused.
+const COLLAPSE_FLOOR = 0.40;
+const COLLAPSE_MIN_PRIORS = 3;
+
+function collapseCheck(dir) {
+  const zips = allZips(dir);
+  if (zips.length < COLLAPSE_MIN_PRIORS + 1) return null;
+  const priors = zips.slice(1, 11).map(z => z.size).sort((a, b) => a - b);
+  const median = priors[Math.floor(priors.length / 2)];
+  if (!median) return null;
+  const ratio = zips[0].size / median;
+  return { ratio, median, newest: zips[0].size, collapsed: ratio < COLLAPSE_FLOOR };
 }
 
 // Reading a zip's entry list without a dependency: powershell holds the only zip reader
@@ -134,6 +178,20 @@ function auditOne(label, dir, required) {
   console.log("    newest : " + z.f + "  (" + Math.round(fs.statSync(z.p).size / 1024) + " KB)");
   console.log("    age    : " + human(age) + (stale ? "   *** STALE, work since then is unprotected ***" : "   ok"));
 
+  const col = collapseCheck(dir);
+  let collapsed = false;
+  if (col) {
+    const pct = Math.round(col.ratio * 100);
+    if (col.collapsed) {
+      collapsed = true;
+      console.log("    size   : *** COLLAPSED to " + pct + "% of the previous archives ("
+        + Math.round(col.newest / 1024) + " KB vs a median of " + Math.round(col.median / 1024)
+        + " KB). An archive that shrinks like this has stopped capturing, whatever the log says. ***");
+    } else {
+      console.log("    size   : " + pct + "% of the median of previous archives   ok");
+    }
+  }
+
   const names = entryNames(z.p);
   if (!names) { console.log("    *** could not read the archive - treat as unverified ***"); return false; }
   console.log("    entries: " + names.size);
@@ -143,7 +201,7 @@ function auditOne(label, dir, required) {
     if (!ok) allPresent = false;
     console.log("    " + (ok ? "  ok " : "  ** ") + f.padEnd(26) + (ok ? "" : "MISSING - " + why));
   }
-  return allPresent && !stale;
+  return allPresent && !stale && !collapsed;
 }
 
 function main() {
