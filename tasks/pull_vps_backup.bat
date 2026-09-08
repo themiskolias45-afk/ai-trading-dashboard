@@ -91,7 +91,25 @@ rem a 09-08 07:00 archive was gone from this folder while 09-02 archives remaine
 rem
 rem The filename carries the real timestamp - backup_YYYYMMDD_HHMMSS.zip - and sorts
 rem lexicographically in true chronological order, so it is the only reliable key here.
-rem The COUNT is deliberately unchanged at 21: which archives are kept is a correctness
-rem question, how many are kept is the owner's call.
-powershell -Command "Get-ChildItem '%DEST%\*.zip' -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -Skip 21 | Remove-Item -Force"
+rem
+rem COUNT 21 -> 180, owner's call taken 2026-09-08.
+rem
+rem 21 was NOT keeping "more than the VPS does" as the line above intends: the VPS keeps
+rem 48 ($KEEP_BACKUPS in tasks/vps_backup.ps1), so the bucket was holding LESS THAN HALF
+rem of the source it exists to outlive. Measured the same day: 21 archives spanned 3.5
+rem days, and tasks/backup_history_check.cjs could therefore see no further back than
+rem that. A deletion older than 3.5 days was invisible AND unrecoverable.
+rem
+rem WHY THE DEPTH IS THE POINT. bucket_audit.cjs proves the backup RAN; it cannot prove
+rem nothing was LOST, because an archive taken after a deletion faithfully preserves the
+rem deletion and passes every check thereafter. The only defence against a silent loss is
+rem having an archive from BEFORE it - so retention is exactly how long you have to
+rem notice. 3.5 days was the window. 180 makes it 30.
+rem
+rem THE ARITHMETIC, because "keep more" without it is how a disk fills:
+rem   6 runs/day x 30 days = 180 archives.  Measured average 13 MB -> ~2.3 GB.
+rem   Free on C: at the time of the change: 316 GB. The cost is 0.7% of free space.
+rem Raising a retention only ever deletes LESS, so this cannot lose an archive that the
+rem old value would have kept.
+powershell -Command "Get-ChildItem '%DEST%\*.zip' -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -Skip 180 | Remove-Item -Force"
 endlocal
