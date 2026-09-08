@@ -8300,6 +8300,17 @@ app.get("/api/atomic", (_, res) => {
       account:     v.record.account ?? null,
       terminal:    v.terminal,
       generatedAt: v.record.generatedAt ?? null,
+      // These four were WRITTEN BY THE INDICATOR AND DROPPED HERE. Measured 2026-09-08
+      // against the real XAUUSD.json: the record carries finalConsensus, timeframe,
+      // decisionAgreesWithConsensus and the whole evidence block, and this mapping
+      // simply did not list them, so the dashboard could not have rendered them however
+      // well it was written. Passing them through is additive - a reader that asks for
+      // keys by name cannot be broken by new ones - and nothing here decides anything,
+      // because feedsTheGate is false for this whole route.
+      timeframe:   v.record.timeframe ?? null,
+      finalConsensus: v.record.finalConsensus ?? null,
+      decisionAgreesWithConsensus: v.record.decisionAgreesWithConsensus ?? null,
+      evidence:    v.record.evidence ?? null,
       ageMinutes:  ageMin === null ? null : parseFloat(ageMin.toFixed(1)),
       stale:       ageMin === null || ageMin > ATOMIC_STALE_MINUTES,
     });
