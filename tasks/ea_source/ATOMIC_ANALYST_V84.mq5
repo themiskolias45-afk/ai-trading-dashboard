@@ -49,6 +49,17 @@ input double InpSlAtrMult        = 1.5;   // ticket SL distance, in ATR
 input bool   InpWriteFeedFile    = true;  // write MQL5\Files\atomic_analyst\<SYM>.json
 input int    InpFeedSeconds      = 60;    // minimum seconds between file writes
 input bool   InpShowPanel        = true;
+input bool   InpDrawLevels       = true;  // draw SL and TP1..TP5 on the chart
+
+// THE TP LADDER IS FIBONACCI ON THE RISK DISTANCE, NOT ROUND R MULTIPLES.
+//
+// Derived from his own MT4 screenshots rather than guessed. Panel: entry 4393.79,
+// SL 4462.82, so risk = 69.03. Chart: TP1 4377.50, TP2 4351.13, TP3 4324.76,
+// TP4 4298.38, TP5 4255.72. Each distance divided by the risk gives
+// 0.236 / 0.618 / 1.000 / 1.382 / 2.000 - exact to three decimals, and picture 2
+// prints those same five numbers as fib labels down the left of the chart.
+// The first build of this file used 1R and 2R, which matched nothing he had.
+double FIB_TP[5] = { 0.236, 0.618, 1.000, 1.382, 2.000 };
 
 //--- verdict codes --------------------------------------------------
 #define V_BUY   1
@@ -298,6 +309,24 @@ int OnCalculate(const int rates_total, const int prev_calculated,
      }
 
    double px = close[rates_total - 1];
+   double macdHist = macdMain - macdSig;
+
+   // Volume pulse and Bollinger width. His Evidence Matrix carries both ("Volume Pulse"
+   // NORMAL, "Volatility" NORMAL) and neither existed in the first build of this file.
+   //
+   // The volume ratio compares the LAST CLOSED bar against the 20 before it, not the
+   // still-forming bar against completed ones - a part-formed bar is not a bar's volume,
+   // and comparing them makes the ratio structurally small for most of every session.
+   // That exact bug is recorded in the engine's own volume block.
+   double volRatio = 1.0;
+   if(rates_total > 22)
+     {
+      double vSum = 0;
+      for(int i = 2; i <= 21; i++) vSum += (double)tick_volume[rates_total - i];
+      double vAvg = vSum / 20.0;
+      if(vAvg > 0) volRatio = (double)tick_volume[rates_total - 2] / vAvg;
+     }
+   double bbWidth = (bbMid > 0) ? ((bbUp - bbLo) / bbMid * 100.0) : 0.0;
 
    //--- indicator consensus ---------------------------------------
    int vRsi   = (rsi > 55 ? V_BUY : (rsi < 45 ? V_SELL : V_WAIT));
@@ -373,9 +402,15 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    //--- ticket -----------------------------------------------------
    double entry = px;
    double slDist = atr * InpSlAtrMult;
-   double sl = 0, tp1 = 0, tp2 = 0;
-   if(vFinal == V_BUY)  { sl = entry - slDist; tp1 = entry + slDist; tp2 = entry + slDist * 2.0; }
-   if(vFinal == V_SELL) { sl = entry + slDist; tp1 = entry - slDist; tp2 = entry - slDist * 2.0; }
+   double sl = 0;
+   double tp[5];
+   ArrayInitialize(tp, 0.0);
+   if(vFinal != V_WAIT)
+     {
+      int dir = (vFinal == V_BUY) ? 1 : -1;
+      sl = entry - dir * slDist;
+      for(int i = 0; i < 5; i++) tp[i] = entry + dir * slDist * FIB_TP[i];
+     }
 
    //--- spread -----------------------------------------------------
    long   spreadPts = (long)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
@@ -384,13 +419,15 @@ int OnCalculate(const int rates_total, const int prev_calculated,
 
    if(InpShowPanel) DrawPanel(headline, confidence, tfV, cons, vFinal,
                               bullPct, waitPct, bearPct, sentiment,
-                              rsi, adx, atr, entry, sl, tp1, tp2, dg, spreadTxt, mtfAgrees);
+                              rsi, adx, atr, entry, sl, tp, dg, spreadTxt, mtfAgrees,
+                              volRatio, bbWidth, macdHist, tfBuy, tfSell);
+   if(InpDrawLevels) DrawLevels(vFinal, entry, sl, tp, dg);
 
    if(InpWriteFeedFile && (TimeCurrent() - g_lastFeedWrite) >= InpFeedSeconds)
      {
       WriteFeed(headline, confidence, tfV, cons, vFinal, bullPct, waitPct, bearPct,
-                sentiment, rsi, macdMain, macdSig, adx, atr, entry, sl, tp1, tp2,
-                dg, spreadPts, mtfAgrees);
+                sentiment, rsi, macdMain, macdSig, adx, atr, entry, sl, tp,
+                dg, spreadPts, mtfAgrees, volRatio, bbWidth, tfBuy, tfSell);
       g_lastFeedWrite = TimeCurrent();
      }
 
@@ -402,21 +439,22 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
                const int &cons[], const int vFinal, const double bullPct,
                const double waitPct, const double bearPct, const string sentiment,
                const double rsi, const double adx, const double atr,
-               const double entry, const double sl, const double tp1, const double tp2,
-               const int dg, const string spreadTxt, const bool mtfAgrees)
+               const double entry, const double sl, const double &tp[],
+               const int dg, const string spreadTxt, const bool mtfAgrees,
+               const double volRatio, const double bbWidth, const double macdHist,
+               const int tfBuy, const int tfSell)
 {
    color bgDark = C'12,20,38', bgPanel = C'18,28,50';
-   Box("bg", PANEL_X, PANEL_Y, PANEL_W, 300, bgDark);
+   Box("bg", PANEL_X, PANEL_Y, PANEL_W, 352, bgDark);
 
    Txt("title", PANEL_X + 12, PANEL_Y + 6, "ATOMIC ANALYST V84", clrWhite, 12, "Segoe UI Bold");
-   Txt("sub",   PANEL_X + 12, PANEL_Y + 24, "AI Market Verdict Engine  ·  " + _Symbol, C'120,160,220', 7);
+   Txt("sub",   PANEL_X + 12, PANEL_Y + 24, "AI Market Verdict Engine  -  " + _Symbol, C'120,160,220', 7);
    Txt("verd",  PANEL_X + 540, PANEL_Y + 6, headline,
        vFinal == V_BUY ? clrLime : (vFinal == V_SELL ? C'255,80,90' : clrGoldenrod), 13, "Segoe UI Bold");
    Txt("conf",  PANEL_X + 540, PANEL_Y + 26, "Confidence " + DoubleToString(confidence, 0) + "%", C'120,180,255', 8);
    Txt("sess",  PANEL_X + 1100, PANEL_Y + 6, SessionName() + " Session", clrWhite, 8);
    Txt("spr",   PANEL_X + 1100, PANEL_Y + 24, spreadTxt, C'90,220,140', 8);
 
-   //--- MTF row
    Box("mtfbg", PANEL_X + 10, PANEL_Y + 46, PANEL_W - 20, 40, bgPanel);
    Txt("mtflbl", PANEL_X + 18, PANEL_Y + 60, "MTF", C'120,180,255', 8, "Segoe UI Bold");
    for(int i = 0; i < 9; i++)
@@ -427,9 +465,9 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
       Txt("tft" + IntegerToString(i), cx + 48, PANEL_Y + 64, VerdictText(tfV[i]), clrWhite, 7);
      }
 
-   //--- consensus
+   // Consensus, WITH the Final Consensus row his panel carries as an eighth line.
    string names[7] = { "RSI","MACD","Moving Average","Stochastic","Bollinger","Fibonacci","Pivot Points" };
-   Box("cbg", PANEL_X + 10, PANEL_Y + 92, 420, 130, bgPanel);
+   Box("cbg", PANEL_X + 10, PANEL_Y + 92, 420, 145, bgPanel);
    Txt("chdr", PANEL_X + 150, PANEL_Y + 96, "Indicator Consensus", C'120,180,255', 8, "Segoe UI Bold");
    for(int i = 0; i < 7; i++)
      {
@@ -437,55 +475,161 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
       Box("cb" + IntegerToString(i), PANEL_X + 300, PANEL_Y + 114 + i * ROW_H, 110, 13, VerdictColor(cons[i]));
       Txt("ct" + IntegerToString(i), PANEL_X + 340, PANEL_Y + 113 + i * ROW_H, VerdictText(cons[i]), clrWhite, 7);
      }
+   Txt("cnF", PANEL_X + 92, PANEL_Y + 114 + 7 * ROW_H, "Final Consensus", clrWhite, 7, "Segoe UI Bold");
+   Box("cbF", PANEL_X + 300, PANEL_Y + 114 + 7 * ROW_H, 110, 13, VerdictColor(vFinal));
+   Txt("ctF", PANEL_X + 340, PANEL_Y + 113 + 7 * ROW_H, VerdictText(vFinal), clrWhite, 7);
 
-   //--- decision
-   Box("dbg", PANEL_X + 440, PANEL_Y + 92, 420, 130, bgPanel);
+   Box("dbg", PANEL_X + 440, PANEL_Y + 92, 420, 145, bgPanel);
    Txt("dhdr", PANEL_X + 590, PANEL_Y + 96, "Atomic AI Decision", C'120,180,255', 8, "Segoe UI Bold");
-   Txt("dver", PANEL_X + 560, PANEL_Y + 140, headline,
+   Txt("dver", PANEL_X + 560, PANEL_Y + 145, headline,
        vFinal == V_BUY ? clrLime : (vFinal == V_SELL ? C'255,80,90' : clrGoldenrod), 16, "Segoe UI Bold");
-   Txt("dcnf", PANEL_X + 600, PANEL_Y + 172, "Confidence " + DoubleToString(confidence, 0) + "%", C'150,190,240', 8);
+   Txt("dcnf", PANEL_X + 600, PANEL_Y + 180, "Confidence " + DoubleToString(confidence, 0) + "%", C'150,190,240', 8);
+   Txt("dmtf", PANEL_X + 545, PANEL_Y + 206,
+       "Timeframes  " + IntegerToString(tfBuy) + " buy / " + IntegerToString(tfSell) + " sell / " +
+       IntegerToString(9 - tfBuy - tfSell) + " wait", C'150,175,210', 7);
 
-   //--- dominance
-   Box("mbg", PANEL_X + 870, PANEL_Y + 92, 420, 130, bgPanel);
+   Box("mbg", PANEL_X + 870, PANEL_Y + 92, 420, 145, bgPanel);
    Txt("mhdr", PANEL_X + 1010, PANEL_Y + 96, "Market Dominance", C'120,180,255', 8, "Segoe UI Bold");
    Txt("mbul", PANEL_X + 910,  PANEL_Y + 128, "Bullish " + DoubleToString(bullPct, 0) + "%", clrLime, 8);
    Txt("mwai", PANEL_X + 1050, PANEL_Y + 128, "Wait " + DoubleToString(waitPct, 0) + "%",   clrGoldenrod, 8);
    Txt("mbea", PANEL_X + 1170, PANEL_Y + 128, "Bearish " + DoubleToString(bearPct, 0) + "%", C'255,80,90', 8);
-   Txt("msen", PANEL_X + 960,  PANEL_Y + 190, "Market sentiment is " + sentiment, C'200,215,235', 8);
+   Txt("msen", PANEL_X + 950,  PANEL_Y + 200, "Market sentiment is " + sentiment, C'200,215,235', 8);
 
-   //--- evidence matrix
-   Box("ebg", PANEL_X + 10, PANEL_Y + 230, 420, 62, bgPanel);
-   Txt("ehdr", PANEL_X + 140, PANEL_Y + 232, "Atomic Evidence Matrix", C'120,180,255', 8, "Segoe UI Bold");
-   Txt("e1", PANEL_X + 30,  PANEL_Y + 250, "Bias " + VerdictText(vFinal), C'190,205,225', 7);
-   Txt("e2", PANEL_X + 150, PANEL_Y + 250, "ADX " + DoubleToString(adx, 1) +
-       (adx >= 20 ? " TREND" : " NO TREND"), adx >= 20 ? clrLime : clrGoldenrod, 7);
-   Txt("e3", PANEL_X + 30,  PANEL_Y + 268, "RSI " + DoubleToString(rsi, 1), C'190,205,225', 7);
-   Txt("e4", PANEL_X + 150, PANEL_Y + 268, "MTF " + (mtfAgrees ? "ALIGNED" : "MIXED"),
-       mtfAgrees ? clrLime : clrGoldenrod, 7);
-   Txt("e5", PANEL_X + 290, PANEL_Y + 268, "ATR " + DoubleToString(atr, dg), C'190,205,225', 7);
+   // ATOMIC EVIDENCE MATRIX - all EIGHT rows his panel carries, in his order and with his
+   // labels. The first build of this file had five and invented its own names, which is
+   // why he said to check the pictures properly.
+   string eLbl[8] = { "Atomic Bias", "Trend Pressure", "Momentum Force", "Volume Pulse",
+                      "Volatility", "Currency / Pair", "MTF Alignment", "RSI Pressure" };
+   string eVal[8]; color eCol[8];
+   eVal[0] = VerdictText(vFinal);
+   eCol[0] = VerdictColor(vFinal);
+   eVal[1] = adx >= 25 ? "STRONG" : (adx >= 20 ? "TRENDING" : "MIXED");
+   eCol[1] = adx >= 20 ? C'0,140,70' : C'120,95,20';
+   eVal[2] = MathAbs(macdHist) > atr * 0.05
+             ? (macdHist > 0 ? "STRONG BUY" : "STRONG SELL")
+             : (macdHist > 0 ? "BUY" : "SELL");
+   eCol[2] = macdHist > 0 ? C'0,140,70' : C'150,30,45';
+   eVal[3] = volRatio >= 1.5 ? "HIGH" : (volRatio <= 0.6 ? "THIN" : "NORMAL");
+   eCol[3] = (volRatio >= 1.5 || volRatio <= 0.6) ? C'20,90,140' : C'25,70,110';
+   eVal[4] = bbWidth >= 8.0 ? "EXPANDED" : (bbWidth <= 3.0 ? "SQUEEZE" : "NORMAL");
+   eCol[4] = bbWidth <= 3.0 ? C'120,95,20' : C'25,70,110';
+   eVal[5] = vFinal == V_WAIT ? "NEUTRAL" : (VerdictText(vFinal) + " FORCE");
+   eCol[5] = VerdictColor(vFinal);
+   eVal[6] = mtfAgrees ? "ALIGNED" : "MIXED";
+   eCol[6] = mtfAgrees ? C'0,140,70' : C'120,95,20';
+   eVal[7] = rsi >= 60 ? "BULLISH" : (rsi <= 40 ? "BEARISH" : "NEUTRAL");
+   eCol[7] = rsi >= 60 ? C'0,140,70' : (rsi <= 40 ? C'150,30,45' : C'120,95,20');
 
-   //--- ticket
-   Box("tbg", PANEL_X + 440, PANEL_Y + 230, 420, 62, bgPanel);
-   Txt("thdr", PANEL_X + 580, PANEL_Y + 232, "Active Signal Ticket", C'120,180,255', 8, "Segoe UI Bold");
+   Box("ebg", PANEL_X + 10, PANEL_Y + 244, 420, 80, bgPanel);
+   Txt("ehdr", PANEL_X + 140, PANEL_Y + 246, "Atomic Evidence Matrix", C'120,180,255', 8, "Segoe UI Bold");
+   for(int i = 0; i < 8; i++)
+     {
+      int col = (i < 4) ? 0 : 1;
+      int row = i % 4;
+      int ex  = PANEL_X + 18 + col * 204;
+      int ey  = PANEL_Y + 264 + row * 14;
+      Txt("en" + IntegerToString(i), ex, ey, eLbl[i], C'190,205,225', 6);
+      Box("eb" + IntegerToString(i), ex + 104, ey + 1, 92, 11, eCol[i]);
+      Txt("ev" + IntegerToString(i), ex + 110, ey, eVal[i], clrWhite, 6);
+     }
+
+   // Ticket, now the FULL FIVE-STEP LADDER with the fib ratio beside each level.
+   Box("tbg", PANEL_X + 440, PANEL_Y + 244, 420, 80, bgPanel);
+   Txt("thdr", PANEL_X + 560, PANEL_Y + 246, "Active Signal Ticket", C'120,180,255', 8, "Segoe UI Bold");
+   Txt("tage", PANEL_X + 730, PANEL_Y + 247, TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES), C'140,165,200', 6);
+   for(int i = 0; i < 5; i++) Txt("tkp" + IntegerToString(i), PANEL_X + 450 + (i % 3) * 138,
+                                  PANEL_Y + 284 + (i / 3) * 14, "", C'190,205,225', 6);
    if(vFinal == V_WAIT)
-      Txt("tk1", PANEL_X + 470, PANEL_Y + 258, "no ticket — consensus is WAIT", clrGoldenrod, 7);
+     {
+      Txt("tk1", PANEL_X + 470, PANEL_Y + 280, "no ticket - consensus is WAIT", clrGoldenrod, 7);
+     }
    else
      {
-      Txt("tk1", PANEL_X + 460, PANEL_Y + 250, VerdictText(vFinal) + "  entry " + DoubleToString(entry, dg), clrWhite, 7);
-      Txt("tk2", PANEL_X + 460, PANEL_Y + 268, "SL " + DoubleToString(sl, dg) +
-          "   TP1 " + DoubleToString(tp1, dg) + "   TP2 " + DoubleToString(tp2, dg), C'190,205,225', 7);
+      Txt("tk1", PANEL_X + 450, PANEL_Y + 264,
+          VerdictText(vFinal) + "   entry " + DoubleToString(entry, dg) +
+          "    SL " + DoubleToString(sl, dg), clrWhite, 7);
+      for(int i = 0; i < 5; i++)
+        {
+         Txt("tkp" + IntegerToString(i), PANEL_X + 450 + (i % 3) * 138, PANEL_Y + 284 + (i / 3) * 14,
+             "TP" + IntegerToString(i + 1) + " " + DoubleToString(tp[i], dg) +
+             " (" + DoubleToString(FIB_TP[i], 3) + ")", C'190,205,225', 6);
+        }
      }
-   // The MT4 panel showed a ticket stamped four days earlier under a live
-   // headline. This one always states its own age.
-   Txt("tage", PANEL_X + 700, PANEL_Y + 232, TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES), C'140,165,200', 7);
 
-   //--- stats
-   Box("sbg", PANEL_X + 870, PANEL_Y + 230, 420, 62, bgPanel);
-   Txt("shdr", PANEL_X + 1010, PANEL_Y + 232, "Session Statistics", C'120,180,255', 8, "Segoe UI Bold");
-   Txt("s1", PANEL_X + 890, PANEL_Y + 250, "Buy flips " + IntegerToString(g_buySignals) +
-       "    Sell flips " + IntegerToString(g_sellSignals), C'190,205,225', 7);
-   Txt("s2", PANEL_X + 890, PANEL_Y + 268, "Balance " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
-       "   Equity " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2), C'190,205,225', 7);
+   Box("sbg", PANEL_X + 870, PANEL_Y + 244, 420, 80, bgPanel);
+   Txt("shdr", PANEL_X + 995, PANEL_Y + 246, "Statistics / Performance", C'120,180,255', 8, "Segoe UI Bold");
+   Txt("s1", PANEL_X + 890, PANEL_Y + 266, "Buy flips " + IntegerToString(g_buySignals) +
+       "      Sell flips " + IntegerToString(g_sellSignals), C'190,205,225', 6);
+   Txt("s2", PANEL_X + 890, PANEL_Y + 282, "Balance " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
+       "    Equity " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2), C'190,205,225', 6);
+   // NO "Total Pip Profit" row. His MT4 panel showed +99037 pips beside Total Profit 0.00 -
+   // a pip count with no money behind it, the same illusion as +0.37R against -173.16.
+   Txt("s3", PANEL_X + 890, PANEL_Y + 298, "Open P/L " +
+       DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) + " " + AccountInfoString(ACCOUNT_CURRENCY),
+       AccountInfoDouble(ACCOUNT_PROFIT) >= 0 ? C'90,220,140' : C'255,110,120', 6);
+
+   string sb[5]; color sbc[5];
+   sb[0] = "SESSION " + SessionName();                sbc[0] = C'25,70,110';
+   sb[1] = spreadTxt;                                 sbc[1] = C'25,70,110';
+   sb[2] = TerminalInfoInteger(TERMINAL_CONNECTED) ? "CONNECTED" : "DISCONNECTED";
+   sbc[2] = TerminalInfoInteger(TERMINAL_CONNECTED) ? C'0,110,60' : C'150,30,45';
+   sb[3] = InpWriteFeedFile ? "FEED ON" : "FEED OFF"; sbc[3] = InpWriteFeedFile ? C'0,110,60' : C'90,90,90';
+   sb[4] = "EVIDENCE ONLY - GATES NOTHING";           sbc[4] = C'120,80,20';
+   for(int i = 0; i < 5; i++)
+     {
+      int bx = PANEL_X + 10 + i * 258;
+      Box("sb" + IntegerToString(i), bx, PANEL_Y + 330, 252, 18, sbc[i]);
+      Txt("sbt" + IntegerToString(i), bx + 10, PANEL_Y + 331, sb[i], clrWhite, 6);
+     }
+   ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| SL and the five TPs drawn on the chart, as picture 2 shows them.  |
+//| Deleted and redrawn every update so a level from a previous       |
+//| verdict can never sit on the chart looking current.               |
+//+------------------------------------------------------------------+
+void DrawLevels(const int vFinal, const double entry, const double sl,
+                const double &tp[], const int dg)
+{
+   for(int i = 0; i < 7; i++)
+     {
+      ObjectDelete(0, PFX + "L" + IntegerToString(i));
+      ObjectDelete(0, PFX + "LT" + IntegerToString(i));
+     }
+   if(vFinal == V_WAIT) { ChartRedraw(0); return; }
+
+   double lv[7]; string lb[7]; color lc[7];
+   lv[0] = entry; lb[0] = "ENTRY " + DoubleToString(entry, dg); lc[0] = clrWhite;
+   lv[1] = sl;    lb[1] = "SL - " + DoubleToString(sl, dg);     lc[1] = C'255,80,90';
+   for(int i = 0; i < 5; i++)
+     {
+      lv[i + 2] = tp[i];
+      lb[i + 2] = "TP" + IntegerToString(i + 1) + " - " + DoubleToString(tp[i], dg) +
+                  "  (" + DoubleToString(FIB_TP[i], 3) + ")";
+      lc[i + 2] = C'120,200,255';
+     }
+   for(int i = 0; i < 7; i++)
+     {
+      string n = PFX + "L" + IntegerToString(i);
+      if(ObjectFind(0, n) < 0) ObjectCreate(0, n, OBJ_HLINE, 0, 0, lv[i]);
+      ObjectSetDouble (0, n, OBJPROP_PRICE, lv[i]);
+      ObjectSetInteger(0, n, OBJPROP_COLOR, lc[i]);
+      ObjectSetInteger(0, n, OBJPROP_STYLE, i == 0 ? STYLE_SOLID : STYLE_DOT);
+      ObjectSetInteger(0, n, OBJPROP_WIDTH, i <= 1 ? 2 : 1);
+      ObjectSetInteger(0, n, OBJPROP_BACK, true);
+      ObjectSetInteger(0, n, OBJPROP_SELECTABLE, false);
+
+      string t = PFX + "LT" + IntegerToString(i);
+      if(ObjectFind(0, t) < 0) ObjectCreate(0, t, OBJ_TEXT, 0, TimeCurrent(), lv[i]);
+      ObjectSetInteger(0, t, OBJPROP_TIME, TimeCurrent());
+      ObjectSetDouble (0, t, OBJPROP_PRICE, lv[i]);
+      ObjectSetString (0, t, OBJPROP_TEXT, lb[i]);
+      ObjectSetInteger(0, t, OBJPROP_COLOR, lc[i]);
+      ObjectSetInteger(0, t, OBJPROP_FONTSIZE, 7);
+      ObjectSetInteger(0, t, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
+      ObjectSetInteger(0, t, OBJPROP_SELECTABLE, false);
+     }
    ChartRedraw(0);
 }
 
@@ -502,8 +646,10 @@ void WriteFeed(const string headline, const double confidence, const int &tfV[],
                const double waitPct, const double bearPct, const string sentiment,
                const double rsi, const double macdMain, const double macdSig,
                const double adx, const double atr, const double entry,
-               const double sl, const double tp1, const double tp2,
-               const int dg, const long spreadPts, const bool mtfAgrees)
+               const double sl, const double &tp[],
+               const int dg, const long spreadPts, const bool mtfAgrees,
+               const double volRatio, const double bbWidth,
+               const int tfBuy, const int tfSell)
 {
    string dir  = "atomic_analyst";
    string path = dir + "\\" + _Symbol + ".json";
@@ -545,9 +691,27 @@ void WriteFeed(const string headline, const double confidence, const int &tfV[],
    j += "\"indicators\":{\"rsi\":" + JNum(rsi,2) + ",\"macd\":" + JNum(macdMain,dg) +
         ",\"macdSignal\":" + JNum(macdSig,dg) + ",\"adx\":" + JNum(adx,2) +
         ",\"atr\":" + JNum(atr,dg) + ",\"spreadPoints\":" + IntegerToString(spreadPts) + "},";
+   // THE FULL LADDER, with the ratio each level was built from, so a consumer can
+   // check the geometry instead of trusting five bare numbers.
+   string tpJson = "";
+   for(int i = 0; i < 5; i++)
+      tpJson += (i ? "," : "") + StringFormat("{\"level\":%d,\"fib\":%.3f,\"price\":%s}",
+                                              i + 1, FIB_TP[i], JNum(tp[i], dg));
+   double riskDist = MathAbs(entry - sl);
    j += "\"ticket\":" + (vFinal == V_WAIT ? "null" :
         ("{\"direction\":\"" + VerdictText(vFinal) + "\",\"entry\":" + JNum(entry,dg) +
-         ",\"sl\":" + JNum(sl,dg) + ",\"tp1\":" + JNum(tp1,dg) + ",\"tp2\":" + JNum(tp2,dg) + "}")) + ",";
+         ",\"sl\":" + JNum(sl,dg) +
+         ",\"riskDistance\":" + JNum(riskDist,dg) +
+         ",\"tpBasis\":\"fibonacci extension of the entry-to-stop distance\"" +
+         ",\"tp\":[" + tpJson + "]" +
+         ",\"tp1\":" + JNum(tp[0],dg) + ",\"tp2\":" + JNum(tp[1],dg) +
+         ",\"tp3\":" + JNum(tp[2],dg) + ",\"tp4\":" + JNum(tp[3],dg) +
+         ",\"tp5\":" + JNum(tp[4],dg) + "}")) + ",";
+   j += "\"evidence\":{\"volumeRatio\":" + JNum(volRatio,2) +
+        ",\"bbWidthPct\":" + JNum(bbWidth,2) +
+        ",\"tfBuy\":" + IntegerToString(tfBuy) +
+        ",\"tfSell\":" + IntegerToString(tfSell) +
+        ",\"tfWait\":" + IntegerToString(9 - tfBuy - tfSell) + "},";
    j += "\"note\":\"Evidence only. This is a second opinion from an indicator and must never be wired into confidence, the gate, position size or a stop.\"";
    j += "}";
 
