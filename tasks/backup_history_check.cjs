@@ -101,8 +101,19 @@ function main() {
       if (!map) { unreadable++; console.log('  ! UNREADABLE ARCHIVE: ' + z); continue; }
       const tag = z.replace(/^backup_|\.zip$/g, '');
       for (const name of [...MONOTONIC, ...REWRITTEN]) {
-        if (!map.has(name)) continue;
-        (series[name] = series[name] || []).push({ tag, size: map.get(name) });
+        // The LIVE copy only. A path containing a nested backup folder is a historical
+        // snapshot that is SUPPOSED to be smaller and older; including it manufactures a
+        // shrink that never happened.
+        const candidates = [...map.keys()].filter(k => {
+          if (k.split('/').pop() !== name) return false;
+          return !/(^|\/)(logs|vps-livestate-backup|task_backups|backups)\//i.test(k)
+              && !/_prerestart_|prebridge_|\.bak-/i.test(k);
+        });
+        if (!candidates.length) continue;
+        // Prefer the canonical location (server/x or tasks/x) over a loose root copy.
+        candidates.sort((a, b) => (a.split('/').length - b.split('/').length) || a.localeCompare(b));
+        const chosen = candidates.find(c => c.includes('/')) || candidates[0];
+        (series[name] = series[name] || []).push({ tag, size: map.get(chosen), path: chosen });
       }
     }
 
