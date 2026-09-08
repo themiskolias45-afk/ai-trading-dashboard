@@ -4980,11 +4980,22 @@ function buildRules(regime) {
     // Not firing. Name the blocking condition and the MARGIN, from the census.
     let why = null;
     if (census && Array.isArray(census.rows)) {
+      // RANKED ON minMarginRelative, NOT minMargin. This picks ONE row and calls it the
+      // blocking condition, and minMargin mixes units: RSI_BELOW_FLOOR is in RSI points
+      // while MACD_STILL_BULLISH is in raw price. Sorting them together made a $0.30
+      // MACD miss outrank a 2-point RSI miss purely because 0.30 < 2, so the sentence
+      // below could name the wrong blocker entirely. Unknown relatives sort LAST rather
+      // than winning the comparison by being absent.
+      const rankBy = (r) => (r.minMarginRelative === null || r.minMarginRelative === undefined
+        ? Number.POSITIVE_INFINITY
+        : r.minMarginRelative);
       const row = census.rows
         .filter(r => String(r.symbol || "").toUpperCase() === String(sig.sourceSymbol || "").toUpperCase())
-        .sort((a, b) => a.minMargin - b.minMargin)[0];
+        .sort((a, b) => rankBy(a) - rankBy(b))[0];
       if (row) {
-        why = `${row.condition} on ${row.setup} — threshold ${row.threshold}, actual ${row.lastActual}, missing by ${row.minMargin}`;
+        // The unit is stated. "missing by 2" is unreadable without it.
+        const unit = row.unit && row.unit !== "unknown" ? ` ${row.unit}` : "";
+        why = `${row.condition} on ${row.setup} — threshold ${row.threshold}, actual ${row.lastActual}, missing by ${row.minMargin}${unit}`;
       }
     }
     const gap = Number.isFinite(conf) ? Math.max(0, gate - conf) : null;

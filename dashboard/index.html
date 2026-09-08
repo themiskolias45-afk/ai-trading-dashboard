@@ -6790,8 +6790,18 @@ async function loadWhatHappensNext() {
 
       // The blocking reason, most specific first. A near-miss row names the actual
       // failed check and by how much; the confidence gap only says "not good enough".
+
+    /* Near-miss rows are ranked on minMarginRelative, never minMargin. minMargin mixes
+       units - RSI_BELOW_FLOOR is RSI POINTS, MACD_STILL_BULLISH is RAW PRICE - so
+       ordering by it called a $0.30 MACD miss "closer" than a 2-point RSI miss purely
+       because 0.30 < 2. Rows with no relative margin (threshold 0) sort LAST: an unknown
+       must not appear as the tightest miss on the board. */
+    function nmRank(r) {
+      return (r.minMarginRelative === null || r.minMarginRelative === undefined)
+        ? Number.POSITIVE_INFINITY : r.minMarginRelative;
+    }
       const misses = whnRowsFor(key, rows)
-        .slice().sort((a, b) => a.minMargin - b.minMargin);
+        .slice().sort((a, b) => nmRank(a) - nmRank(b));
       let reason;
       if (globallyStopped) {
         reason = "Every asset is stopped by the control above — the engine still scores, "
@@ -6873,7 +6883,7 @@ async function loadWhatHappensNext() {
       const [topName, topCount] = ranked[0];
       const dominant = total > 0 && topCount / total >= 0.8;
 
-      const sorted = rows.slice().sort((a, b) => a.minMargin - b.minMargin).slice(0, 12);
+      const sorted = rows.slice().sort((a, b) => nmRank(a) - nmRank(b)).slice(0, 12);
 
       nmEl.innerHTML =
         '<div class="nm-head">'
