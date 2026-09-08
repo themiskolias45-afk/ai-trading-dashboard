@@ -1185,7 +1185,19 @@ function recordPerAssetOutcome(symbol, setupKey, pnl) {
   a.totalPnl = parseFloat(((a.totalPnl ?? 0) + pnl).toFixed(2));
 }
 
-function updateLearning(setup, pnl, symbol) {
+// realizedR is OPTIONAL and defaults to null, so every existing call behaves exactly as it
+// did. It is recorded ALONGSIDE wins/losses/pnl and read by NOTHING that gates.
+//
+// WHY IT WAS ADDED. This engine counted wins and dollars and nothing else, while the
+// system's own measurement says the two disagree: MOMENTUM is 57.1% and +0.37 avgRealizedR
+// yet -173.16 in money, because riskDollarsPerR spans 1.46 to 449.72 across 11 fills. A
+// learning engine that records only win RATE cannot tell "won often" from "won well", and
+// getLearningBoost boosts on exactly that number - MOMENTUM carries +2 on a losing record.
+//
+// Recording R does not fix the boost and is not meant to. It is the PREREQUISITE: the boost
+// cannot ever be made expectancy-aware while the metric it would need is thrown away at
+// write time. Nothing here changes a gate, a confidence value or a firing set.
+function updateLearning(setup, pnl, symbol, realizedR = null) {
   if (!setup || pnl === null || pnl === undefined) return;
   const isNonSetup = NON_SETUP_NAMES.has(String(setup).trim().toUpperCase());
 
@@ -1216,6 +1228,15 @@ function updateLearning(setup, pnl, symbol) {
   const s = learning.setupStats[setup];
   if (pnl > 0) s.wins++; else s.losses++;
   s.totalPnl = parseFloat(((s.totalPnl ?? 0) + pnl).toFixed(2));
+
+  // R, counted separately from the fills. rTrades is its OWN counter and is never assumed
+  // to equal wins+losses: a fill with no usable stop distance yields null and is skipped
+  // here while still counting as a win or a loss above. Any average must divide by
+  // rTrades, not by total, or it silently understates every setup that has one such row.
+  if (Number.isFinite(realizedR)) {
+    s.totalRealizedR = parseFloat(((s.totalRealizedR ?? 0) + realizedR).toFixed(4));
+    s.rTrades = (s.rTrades ?? 0) + 1;
+  }
 
   // PER-ASSET, alongside and never instead of the pooled row.
   //
@@ -7932,7 +7953,12 @@ app.post("/api/trade-closed", (req, res) => {
     // both stores, so learning.json and SQLite can never disagree on a trade.
     const outcome = outcomeKnown ? (trade.pnl > 0 ? "WIN" : "LOSS") : null;
     if (trade.setup && outcomeKnown) {
-      updateLearning(trade.setup, trade.pnl, trade.symbol);
+      // R computed from the SAME prices the journal row carries, via the same helper the
+      // performance endpoint uses, so learning.json and /api/stats/by-setup can never
+      // disagree about what one R was. Returns null when the stop distance is unusable,
+      // and updateLearning simply skips the R side in that case.
+      const learnR = realizedRFromPrices(trade.direction, trade.entry, trade.sl, trade.closePrice);
+      updateLearning(trade.setup, trade.pnl, trade.symbol, learnR);
       const healthAlerts = checkSetupHealth();
       if (healthAlerts.length > 0) {
         riskStatus.setupAlerts = healthAlerts;
@@ -8128,6 +8154,12 @@ app.get("/api/learning", (_, res) => {
         // Making the boost itself per-symbol would return 0 for a symbol under
         // LEARNING_MIN_TRADES and so LOWER confidence, which the function's header
         // forbids. Surfacing the divergence is the part that can be done safely.
+        // R alongside the win count. avgRealizedR divides by rTrades, NOT by total - see
+        // updateLearning. Null until a closed fill with a usable stop distance arrives.
+        totalRealizedR: Number.isFinite(s.totalRealizedR) ? s.totalRealizedR : null,
+        rTrades: s.rTrades ?? 0,
+        avgRealizedR: (s.rTrades > 0 && Number.isFinite(s.totalRealizedR))
+          ? parseFloat((s.totalRealizedR / s.rTrades).toFixed(3)) : null,
         boostBasis: {
           readsWinRateOnly: true,
           readsPnl: false,
