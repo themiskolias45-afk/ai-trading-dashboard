@@ -5700,6 +5700,12 @@ app.post("/api/mt5/candles", requireLocalOnly, (req, res) => {
       d1: daily.closes.length,
       h4: mt5CandleCache[assetKey].bars.h4?.closes.length ?? 0,
       h1: mt5CandleCache[assetKey].bars.h1?.closes.length ?? 0,
+      // M15 WAS STORED AND NEVER REPORTED. sanitizeBars caches it a few lines above and
+      // generateSignalMTF consumes it - BTC M15 was producing a live M15_MOMENTUM SELL
+      // while this response said 3 timeframes. The bridge logs "4tf" and the server
+      // answered "d1/h4/h1", so the only visible evidence said M15 was not arriving.
+      // A feed that works but reports nothing is indistinguishable from one that is dead.
+      m15: mt5CandleCache[assetKey].bars.m15?.closes.length ?? 0,
     };
   }
 
@@ -5772,6 +5778,12 @@ app.get("/api/mt5/candles", (_, res) => {
         d1: entry.bars.d1?.closes.length ?? 0,
         h4: entry.bars.h4?.closes.length ?? 0,
         h1: entry.bars.h1?.closes.length ?? 0,
+        // Reported for the same reason as in the POST response: m15 is cached and the
+        // engine consumes it (generateSignalMTF's m15Data, surfaced as `m15` on
+        // /api/signals), but every SURFACE said three timeframes. The bridge logs "4tf"
+        // and this answered d1/h4/h1, so the only visible evidence said M15 was missing
+        // while BTC M15 was live with an M15_MOMENTUM SELL.
+        m15: entry.bars.m15?.closes.length ?? 0,
       } : null,
       inUse: Boolean(live),
       activeSource: live ? "mt5" : "yahoo",

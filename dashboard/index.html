@@ -1254,7 +1254,7 @@
             <th style="padding:7px 8px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Conf</th>
             <th style="padding:7px 8px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border);text-align:left">Fired?</th>
           </tr></thead>
-          <tbody id="sc-hist-body"><tr><td colspan="8" style="color:var(--muted);font-size:.72rem;padding:16px;text-align:center">No history yet — refreshes every 30 min</td></tr></tbody>
+          <tbody id="sc-hist-body"><tr><td colspan="9" style="color:var(--muted);font-size:.72rem;padding:16px;text-align:center">No history yet — refreshes every 30 min</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -1330,10 +1330,11 @@
           <th style="text-align:right;padding:6px 10px">D1</th>
           <th style="text-align:right;padding:6px 10px">H4</th>
           <th style="text-align:right;padding:6px 10px">H1</th>
+          <th style="text-align:right;padding:6px 10px">M15</th>
           <th style="text-align:right;padding:6px 10px">Last push</th>
           <th style="text-align:left;padding:6px 10px">Newest D1 bar</th>
         </tr></thead>
-        <tbody id="fd-mt5-body"><tr><td colspan="8" style="padding:12px;color:var(--muted)">Loading…</td></tr></tbody>
+        <tbody id="fd-mt5-body"><tr><td colspan="9" style="padding:12px;color:var(--muted)">Loading…</td></tr></tbody>
       </table>
       <div id="fd-bridge-row" style="border-top:1px solid var(--border);padding:8px 10px;font-size:.7rem;color:var(--muted)">Bridge: checking…</div>
     </div>
@@ -5114,7 +5115,7 @@ async function loadSignalsTab(){
     const cycles24=history.filter(h=>(now-new Date(h.t).getTime())<86400000).length;
     document.getElementById('sc-cycle-count').textContent=`${history.length} cycles recorded · ${cycles24} last 24h`;
     if(hBody){
-      if(!history.length){hBody.innerHTML=`<tr><td colspan="8" style="color:var(--muted);font-size:.72rem;padding:16px;text-align:center">No history yet — populates after first 30-min refresh cycle</td></tr>`;
+      if(!history.length){hBody.innerHTML=`<tr><td colspan="9" style="color:var(--muted);font-size:.72rem;padding:16px;text-align:center">No history yet — populates after first 30-min refresh cycle</td></tr>`;
       }else{
         const cColor=c=>(liveGate!=null&&c>=liveGate)?'var(--green)':c>=50?'var(--yellow)':'var(--red)';
         const sColor=s=>s==='BUY'?'var(--green)':s==='SELL'?'var(--red)':'var(--muted)';
@@ -5294,6 +5295,7 @@ async function loadFeedTab() {
         ? `<div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">${label}</span><span style="font-weight:600">${val}</span></div>`
         : '';
       const sigCol = sig.signal === 'BUY' ? 'var(--green)' : sig.signal === 'SELL' ? 'var(--red)' : 'var(--muted)';
+      const ind = sig.indicators || {};
       el.innerHTML = [
         tf('Signal', `<span style="color:${sigCol};font-weight:700">${sig.signal||'WAIT'}</span>`),
         tf('Confidence', sig.confidence != null ? sig.confidence+'%' : null),
@@ -5302,12 +5304,31 @@ async function loadFeedTab() {
         tf('Target', sig.target != null ? sig.target.toLocaleString() : null),
         tf('Setup', sig.setup||null),
         tf('Trend', sig.trend||null),
-        tf('RSI-D', sig.rsi_d != null ? sig.rsi_d.toFixed(1) : null),
-        tf('RSI-4H', sig.rsi_4h != null ? sig.rsi_4h.toFixed(1) : null),
-        tf('RSI-1H', sig.rsi_1h != null ? sig.rsi_1h.toFixed(1) : null),
-        tf('MACD', sig.macd != null ? sig.macd.toFixed(2) : null),
-        tf('BB Pos', sig.bb_pos != null ? (sig.bb_pos*100).toFixed(0)+'%' : null),
-        tf('EMA200', sig.ema200 != null ? sig.ema200.toLocaleString() : null),
+        // THE PANEL IS CALLED "RAW INDICATORS" AND SHOWED NONE.
+        //
+        // These six rows read sig.rsi_d, sig.rsi_4h, sig.rsi_1h, sig.macd, sig.bb_pos and
+        // sig.ema200. /api/signals has never returned any of them - the real values live
+        // under sig.indicators (rsi, macd{}, adx, ema20/50/200, bb{}) and the per-timeframe
+        // RSI lives on sig.h4.rsi / sig.h1.rsi / sig.m15.rsi. `tf()` drops a null row, so
+        // all six vanished silently and the card showed only the signal summary above.
+        // Same defect as the 24h-change fields and the alert feed: a working renderer fed
+        // from names the API does not use.
+        tf('RSI (D1)', ind.rsi != null ? ind.rsi.toFixed(1) : null),
+        tf('RSI 4H / 1H / M15', [sig.h4?.rsi, sig.h1?.rsi, sig.m15?.rsi]
+             .map(v => v != null ? Number(v).toFixed(1) : '—').join(' / ')),
+        tf('MACD', ind.macd ? `${Number(ind.macd.macd).toFixed(2)} vs sig ${Number(ind.macd.signal).toFixed(2)}` : null),
+        tf('MACD hist', ind.macd?.histogram != null
+             ? `<span style="color:${ind.macd.histogram >= 0 ? 'var(--green)' : 'var(--red)'}">${Number(ind.macd.histogram).toFixed(2)}</span>` : null),
+        // ADX carries its own verdict because the trend label above does NOT consult it -
+        // SP500 read STRONG UPTREND at ADX 12.2 on 2026-09-08.
+        tf('ADX', ind.adx != null
+             ? `${Number(ind.adx).toFixed(1)} <span style="color:${ind.adx >= 20 ? 'var(--green)' : 'var(--yellow)'}">${ind.adx >= 20 ? 'trend' : 'no trend'}</span>` : null),
+        tf('Trend confirmed', sig.trendConfirmed == null ? null
+             : `<span style="color:${sig.trendConfirmed ? 'var(--green)' : 'var(--yellow)'}">${sig.trendConfirmed ? 'yes' : 'NO — EMA stacking only'}</span>`),
+        tf('EMA 20 / 50 / 200', [ind.ema20, ind.ema50, ind.ema200]
+             .map(v => v != null ? Number(v).toLocaleString(undefined,{maximumFractionDigits:0}) : '—').join(' / ')),
+        tf('BB width', ind.bb?.bandwidth != null ? Number(ind.bb.bandwidth).toFixed(1)+'%' : null),
+        tf('ATR', sig.atr != null ? Number(sig.atr).toFixed(2) : null),
       ].filter(Boolean).join('');
       if (re) {
         re.textContent = sig.regime || '—';
@@ -5338,7 +5359,7 @@ async function loadFeedTab() {
           // This exact state has a known cause and it is worth naming, because it looks
           // identical to a dead market: the shadow runners refuse an empty cache rather
           // than reading it as "no setups".
-          body.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--yellow)">'
+          body.innerHTML = '<tr><td colspan="9" style="padding:12px;color:var(--yellow)">'
             + 'CANDLE CACHE EMPTY — the bridge has not pushed since the last server restart. '
             + 'Not a market state.</td></tr>';
           if (state) { state.textContent = 'empty'; state.style.color = 'var(--yellow)'; }
@@ -5363,6 +5384,7 @@ async function loadFeedTab() {
             <td style="padding:6px 10px;text-align:right">${b.d1 ?? '—'}</td>
             <td style="padding:6px 10px;text-align:right">${b.h4 ?? '—'}</td>
             <td style="padding:6px 10px;text-align:right">${b.h1 ?? '—'}</td>
+            <td style="padding:6px 10px;text-align:right">${b.m15 ?? '—'}</td>
             <td style="padding:6px 10px;text-align:right;color:${ageCol}">${ageS}s</td>
             <td style="padding:6px 10px;color:${barCol}">${fresh.lastBarAt ? String(fresh.lastBarAt).slice(0,16).replace('T',' ') : '—'}${fresh.stale ? ' STALE' : ''}</td>
           </tr>`;
@@ -5372,7 +5394,7 @@ async function loadFeedTab() {
           state.style.color = allMt5 && worstAge <= 900 ? 'var(--green)' : 'var(--yellow)';
         }
       } catch (e) {
-        body.innerHTML = `<tr><td colspan="8" style="padding:12px;color:var(--muted)">MT5 feed unavailable (${e.message})</td></tr>`;
+        body.innerHTML = `<tr><td colspan="9" style="padding:12px;color:var(--muted)">MT5 feed unavailable (${e.message})</td></tr>`;
       }
 
       // The bridge, PER ACCOUNT TAG. /api/mt5/health with no ?account= looks up "default",
