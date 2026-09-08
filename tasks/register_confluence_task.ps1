@@ -85,6 +85,14 @@ $principal = New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive 
 $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                                           -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -StartWhenAvailable
 
+if ($existing -and $Update) {
+    Set-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings | Out-Null
+    Write-Output "UPDATED - '$name' action rewritten in place; run history preserved"
+    Write-Output "  repo    $repo"
+    Write-Output "  node    $node"
+    exit 0
+}
+
 Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger `
     -Principal $principal -Settings $settings `
     -Description "Five-source confluence table (system, pre-open plan, daily plan, ATOMIC indicator, TradingView). Telegram only on a new full agreement, deduped per asset per direction per day. Read-only: places no order, moves no gate." | Out-Null
