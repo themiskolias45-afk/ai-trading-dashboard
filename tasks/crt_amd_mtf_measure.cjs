@@ -486,24 +486,32 @@ async function main() {
     say("=".repeat(100));
     say(`  ${det.name}`);
     say("=".repeat(100));
-    say(`  ${pad("asset", 7)}${pad("bias", 6)}${pad("exec", 6)}${pad("trades", 8)}${pad("WR%", 8)}` +
-        `${pad("R/trade", 10)}${pad("avg hold", 11)}${pad("avg risk%", 11)}${pad("folds+", 8)}worst fold`);
+    say(`  ${pad("asset", 7)}${pad("bias", 6)}${pad("exec", 6)}${pad("trades", 8)}${pad("unres%", 8)}${pad("WR%", 7)}` +
+        `${pad("grossR/t", 10)}${pad("cost", 9)}${pad("netR/t", 10)}${pad("avg hold", 10)}${pad("folds+", 8)}worst fold`);
 
     for (const assetKey of Object.keys(assets)) {
+      const symbol = assets[assetKey].symbol;
       for (const combo of COMBOS) {
         const cell = runCell(assets[assetKey].bars, combo.bias, combo.exec, det.fn, MAX_HOLD, WINDOW);
-        const s = summarise(cell.trades, 0);
-        const folds = s ? foldReport(cell.trades, FOLDS) : { usable: false, reason: "no trades" };
-        cells.push({ detector: det.name, asset: assetKey, ...combo, summary: s, folds, cell });
+        const s = summarise(cell.trades, symbol);
+        const folds = s ? foldReport(cell.trades, FOLDS, symbol) : { usable: false, reason: "no trades" };
+        cells.push({ detector: det.name, asset: assetKey, symbol, ...combo, summary: s, folds, cell });
 
         if (!s) {
           say(`  ${pad(assetKey, 7)}${pad(combo.bias, 6)}${pad(combo.exec, 6)}${pad(0, 8)}` +
               `${cell.notes.join("; ") || "no patterns executed"}`);
           continue;
         }
+        // Unresolved = detected, entered, and still open when the hold expired. These are
+        // DISCARDED from every number on this row. Printed because a cell that drops half
+        // its patterns is a different claim from one that drops none, and until now the
+        // reader could not tell the two apart.
+        const attempted = s.n + cell.unresolved;
+        const unresPct = attempted > 0 ? cell.unresolved / attempted * 100 : 0;
         say(`  ${pad(assetKey, 7)}${pad(combo.bias, 6)}${pad(combo.exec, 6)}${pad(s.n, 8)}` +
-            `${pad(fx(s.winRate, 1), 8)}${pad(fx(s.rPerTrade, 4), 10)}` +
-            `${pad(fx(s.avgHours, 1) + "h", 11)}${pad(fx(s.avgRiskPct, 2) + "%", 11)}` +
+            `${pad(fx(unresPct, 1), 8)}${pad(fx(s.winRate, 1), 7)}` +
+            `${pad(fx(s.rPerTrade, 4), 10)}${pad(fx(s.avgCostR, 4), 9)}${pad(fx(s.netRPerTrade, 4), 10)}` +
+            `${pad(fx(s.avgHours, 1) + "h", 10)}` +
             `${pad(folds.usable ? `${folds.positive}/${folds.folds}` : "-", 8)}` +
             `${folds.usable ? fx(folds.worst, 4) : "UNDERPOWERED"}`);
       }
