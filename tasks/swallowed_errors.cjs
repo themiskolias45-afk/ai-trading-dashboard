@@ -123,23 +123,34 @@ function main() {
     } catch (e) { continue; }
     scanned++;
 
-    for (const { re, kind } of PATTERNS) {
-      re.lastIndex = 0;
-      let m;
-      while ((m = re.exec(text)) !== null) {
-        // Normalise: strip digits/paths so the same defect collapses to one row instead
-        // of one row per ticket number.
-        const raw = (m[1] + (m[2] ? ' ' + m[2] : '')).trim();
-        if (kind === 'failed' && isZeroCount(raw)) continue;
-        const sig = raw
-          .replace(/\d+/g, '#')
-          .replace(/[A-Za-z]:\\[^\s"']+/g, '<path>')
-          .replace(/\s+/g, ' ')
-          .slice(0, 110);
-        const key = kind + '|' + sig;
-        const cur = tally.get(key) || { kind, sig, count: 0, files: new Set(), sample: raw.slice(0, 130) };
-        cur.count++; cur.files.add(f);
-        tally.set(key, cur);
+    // Line by line, carrying the last timestamp seen, so a match can be dated.
+    let lastStamp = null;
+    for (const line of text.split('\n')) {
+      const s = stampOf(line);
+      if (s !== null && !Number.isNaN(s)) lastStamp = s;
+
+      for (const { re, kind } of PATTERNS) {
+        re.lastIndex = 0;
+        let m;
+        while ((m = re.exec(line)) !== null) {
+          // Normalise: strip digits/paths so the same defect collapses to one row
+          // instead of one row per ticket number.
+          const raw = (m[1] + (m[2] ? ' ' + m[2] : '')).trim();
+          if (kind === 'failed' && isZeroCount(raw)) continue;
+          const sig = raw
+            .replace(/\d+/g, '#')
+            .replace(/[A-Za-z]:\\[^\s"']+/g, '<path>')
+            .replace(/\s+/g, ' ')
+            .slice(0, 110);
+          const key = kind + '|' + sig;
+          const cur = tally.get(key) ||
+            { kind, sig, inWindow: 0, older: 0, undated: 0, newest: null, files: new Set(), sample: raw.slice(0, 130) };
+          if (lastStamp === null) cur.undated++;
+          else if (lastStamp >= cutoff) { cur.inWindow++; if (cur.newest === null || lastStamp > cur.newest) cur.newest = lastStamp; }
+          else { cur.older++; if (cur.newest === null || lastStamp > cur.newest) cur.newest = lastStamp; }
+          cur.files.add(f);
+          tally.set(key, cur);
+        }
       }
     }
   }
