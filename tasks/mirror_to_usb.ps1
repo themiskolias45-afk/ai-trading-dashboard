@@ -170,7 +170,11 @@ foreach ($src in $Sources) {
         $dm = Get-ChildItem $destPath -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum
         if ($dm.Sum) { $destBytes = [int64]$dm.Sum }
     }
-    $needBytes = [int64][Math]::Max(0, $bytes - $destBytes)
+    # Both arguments MUST be cast to [int64]. A bare literal 0 binds [Math]::Max to its
+    # Int32 overload, and Phone-Photos at 19,954,100,836 bytes then throws "Value was
+    # either too large or too small for an Int32" - which is the whole reason this
+    # script is about big folders in the first place.
+    $needBytes = [Math]::Max([int64]0, [int64]$bytes - [int64]$destBytes)
 
     $plan += [pscustomobject]@{
         Name = $src.Name; Source = $src; Files = $usable.Count
