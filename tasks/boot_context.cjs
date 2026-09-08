@@ -168,9 +168,90 @@ function score(haystack, termList) {
   return n;
 }
 
+// ── WHERE YOU STOPPED ────────────────────────────────────────────────────────────────
+//
+// WHY THIS EXISTS. Everything needed to resume was already being WRITTEN and none of it was
+// being READ automatically. The session-stop hook writes tasks/jarvis-state.json, /learn
+// writes tasks/jarvis_memory.json, and next_session_open_threads.md is titled "START HERE" —
+// but the only thing that runs on its own at boot was the block below, which matches memories
+// against DIRTY FILENAMES. So a session that began with a clean tree printed NOTHING, and a
+// session that began with a dirty tree got memories about those files and still nothing about
+// where the last one stopped. Continuity depended on the model choosing to walk CLAUDE.md's
+// 12-step read sequence by hand, competing with the user's first message. That is why every
+// session felt like it started new.
+//
+// PURELY ADDITIVE AND READ-ONLY. It prints three local files. It writes nothing, reads no
+// network, loads no model, and touches no gate, no confidence value, no learning record and
+// no signal — there is nothing here that can block anything.
+//
+// EVERY SOURCE IS INDIVIDUALLY GUARDED. A missing or corrupt file drops its own line and the
+// rest still print. A boot helper that breaks the boot is worse than one that says nothing.
+function readJsonQuiet(p) {
+  try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch (e) { return null; }
+}
+
+function ageWords(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!isFinite(ms) || ms < 0) return "";
+  const h = ms / 3600000;
+  if (h < 1) return Math.round(h * 60) + "m ago";
+  if (h < 48) return h.toFixed(1) + "h ago";
+  return Math.round(h / 24) + "d ago";
+}
+
+function resumeLines() {
+  const out = [];
+
+  // 1. What the last session actually shipped. Written by the Stop hook, so it is present
+  //    even when the session ended without anyone running /learn.
+  const state = readJsonQuiet(path.join(ROOT, "tasks", "jarvis-state.json"));
+  if (state && Array.isArray(state.commits) && state.commits.length) {
+    out.push("LAST SESSION SHIPPED" + (state.saved ? "  (" + ageWords(state.saved) + ")" : "") + ":");
+    for (const c of state.commits.slice(0, 3)) out.push("  " + String(c).slice(0, 100));
+  }
+
+  // 2. The last recorded session state. Newest entry wins; jarvis_memory.json has TWO
+  //    writers, so read defensively and never assume shape.
+  const mem = readJsonQuiet(path.join(ROOT, "tasks", "jarvis_memory.json"));
+  const entries = mem && Array.isArray(mem.entries) ? mem.entries : [];
+  const last = entries.length ? entries[entries.length - 1] : null;
+  if (last && last.value) {
+    out.push("");
+    out.push("WHERE IT STOPPED" + (last.key ? "  [" + last.key + "]" : "") + ":");
+    const text = String(last.value).replace(/\s+/g, " ");
+    for (let i = 0; i < text.length && i < 900; i += 110) {
+      out.push("  " + text.slice(i, i + 110));
+    }
+    if (text.length > 900) out.push("  ... full text: tasks/jarvis_memory.json (last entry)");
+  }
+
+  // 3. The open-threads headline. That file is titled START HERE and is the one place the
+  //    unfinished work and the DO-NOT-FIX list live. Only its newest dated heading is taken:
+  //    the file is ~1000 lines and the point here is a pointer, not a dump.
+  try {
+    const memDir = path.join(process.env.USERPROFILE || process.env.HOME || "", ".claude",
+                             "projects", "C--Users-User-ai-trading-dashboard", "memory");
+    const threads = path.join(memDir, "next_session_open_threads.md");
+    const head = fs.readFileSync(threads, "utf8").slice(0, 4000);
+    const h = head.match(/^#\s+(.+)$/m);
+    if (h) {
+      out.push("");
+      out.push("OPEN THREADS (START HERE):  " + h[1].trim().slice(0, 100));
+      out.push("  read: " + threads.split(String.fromCharCode(92)).join("/"));
+    }
+  } catch (e) { /* omitted, never fatal */ }
+
+  return out;
+}
+
 function main() {
   const files = dirtyFiles();
   const lines = [];
+
+  // 0. RESUME FIRST. This is the only section that does not depend on the working tree, so
+  //    it is the only one a clean-tree session would otherwise get nothing from.
+  const resume = resumeLines();
+  if (resume.length) { for (const r of resume) lines.push(r); lines.push(""); }
 
   // 1. DECISIONS IN FILES YOU ARE EDITING — the highest-signal thing available, and the
   //    one that would have prevented 2026-09-02. No scoring, no threshold: you either
@@ -227,9 +308,9 @@ function main() {
   lines.push("  python tasks/rag_query.py \"" + topic + "\"");
 
   console.log("");
-  console.log("=== BOOT CONTEXT — relevant to your working tree ===");
+  console.log("=== BOOT CONTEXT — where you stopped, and what is relevant now ===");
   for (const l of lines) console.log(l);
-  console.log("===================================================");
+  console.log("=====================================================================");
   console.log("");
   return 0;
 }
