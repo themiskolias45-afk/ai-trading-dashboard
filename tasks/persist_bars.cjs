@@ -65,7 +65,20 @@ const CSV_HEADER = "time,open,high,low,close,tick_volume";
 // How many seconds one bar of each timeframe covers. Used to decide whether the newest
 // bar has actually closed; a bar whose period has not elapsed is still being written to
 // by the market and must not be persisted.
-const PERIOD_SECONDS = { d1: 86400, h4: 14400, h1: 3600 };
+//
+// M15 ADDED 2026-09-08, and its absence was costly. This file was written to top up the
+// archive precisely because refresh_bars.cjs cannot run with a position open - measured
+// today, it refused 230 of 237 runs, 97%. But it only ever persisted d1/h4/h1, so while
+// those three stayed current to the hour, XAUUSD_M15, BTCUSD_M15 and SP500_M15 sat
+// 215 HOURS - nine days - stale on a box whose bridge was pushing 4,000 M15 bars per
+// symbol the whole time. The data was in memory at /api/mt5/candles/raw and simply was
+// never written.
+//
+// M15 IS NOT A MINOR TIMEFRAME HERE. FVG continuation - the only strategy on this system
+// with a measured positive edge net of costs - executes on M15, and so do the lab's
+// ict_fvg families. Every M15 measurement taken before this fix ran against a
+// nine-day-old archive.
+const PERIOD_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
 
 // The exporter writes prices at five decimals and volumes as integers. Matching it
 // exactly matters: these files are concatenated with rows the exporter wrote, and a
