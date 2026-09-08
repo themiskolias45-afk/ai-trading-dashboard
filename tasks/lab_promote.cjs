@@ -124,6 +124,22 @@ const BAR = {
   // 2,394 for the same confidence - so ranking by backtest expectancy alone actively
   // prefers the ones that can never be proven.
   MAX_DAYS_TO_PROOF:      365,
+
+  // RULE 8: it must survive on MORE THAN ONE INSTRUMENT.
+  //
+  // The registry treats strategy|symbol|timeframe as the family, so the same parameters
+  // on XAUUSD and BTCUSD are unrelated families that never learn about each other.
+  // Measured 2026-09-08: ict_mss_fvg H1 structure40/minGap03/within8 ran on BTCUSD,
+  // SP500 and XAUUSD, SURVIVED on BTC alone, and BTC was the only one anybody saw. All
+  // 8 lab survivors to date are BTCUSD.
+  //
+  // The plateau rule already refuses a winner surrounded by losing NEIGHBOURS. This is
+  // the same refusal across INSTRUMENTS: an effect real enough to trade should not
+  // vanish the moment the symbol changes. Requiring >= 2 evaluated siblings and >= 50%
+  // positive is deliberately weaker than the 60% plateau bar, because instruments differ
+  // far more from each other than adjacent parameter values do.
+  MIN_INSTRUMENTS:          2,
+  MIN_INSTRUMENT_POSITIVE:  0.50,
 };
 
 function readStaged() {
