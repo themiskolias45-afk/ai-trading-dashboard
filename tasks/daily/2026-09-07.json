@@ -20,10 +20,15 @@
       "ts": "2026-09-07T19:05:44.445177+00:00",
       "tag": "SYSTEM",
       "text": "MEDIC 2026-09-07 fleet health pass. Four findings that the DOCTOR DOES NOT REPORT and which therefore have no home on the medic ledger (it is keyed strictly to doctor findings) — recorded here so they are not lost. (1) get_fleet_status CAN REPORT A FALSE \"SINGLE BOX — no peer configured\". Observed live: 18:49:58Z it returned that verdict with every field null; at 18:53Z /api/system-plan and /api/fleet both answered 200 with peer.configured=true, reachable=true, gate 70/70, and the same tool then said FLEET AGREES. Mechanism is provable by reading server/mcp_server.js: fetchParallel maps a REJECTED promise to {_error: msg}, but the handler guards only `if (plan && plan.error)` — a different key — so a fetch failure falls through and renders as a positive factual claim that no peer is configured. httpRequest's timeout is 6000ms and /api/system-plan probes the VPS live over the internet on a cold call, then caches; that fits first-call-fails / second-call-succeeds exactly, but the specific trigger is INFERRED, not observed. This is the failure class the fleet tool exists to prevent, in the fleet tool itself: a blind read presented as a verdict. Fix is a guard, not a rewrite; needs an MCP restart to take effect. (2) LAPTOP: 22 unhandled EADDRINUSE exceptions in tasks/logs/server_crash.txt since 2026-08-29, most recent 18:51:00Z today. Every entry in that file is a duplicate server start losing the race for port 3001 — 22 of 22. The running server is unaffected (the loser dies) but the crash log is 100% false positives, so a REAL crash would not stand out in it. (3) LAPTOP watchdog acted twice today: \"SERVER DOWN - restarting\" 19:12 local (server_starts.txt confirms pid 12640 at 18:12:19Z) and \"BRIDGE A DOWN - restarting\" 19:51 local, and a SECOND watchdog instance started at 19:51:06 resetting its cycle counter to 1 while the first was at cycle 81. The guardian correctly refused to start a third. Auto-recovery is working; the bridge restart was on a 78s-stale heartbeat and the bridge is healthy now (connected, 13s). Not touched — this is the recovery layer and interfering with it is worse than the noise. (4) VPS: 18 scheduled tasks carry DisallowStartIfOnBatteries. INERT, not a fault — Get-CimInstance Win32_Battery returns 0 on that box. Laptop still has the flag on SmartEntryPro only, which needs an elevated shell. All four are reported to the user in tonight's health report."
+    },
+    {
+      "ts": "2026-09-07T21:00:06.621359+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-09-07: No trades today — rest day."
     }
   ],
   "signals": [],
   "trades": [],
   "created_at": "2026-09-07T03:26:19.921112+00:00",
-  "updated_at": "2026-09-07T19:05:44.445177+00:00"
+  "updated_at": "2026-09-07T21:00:06.621359+00:00"
 }

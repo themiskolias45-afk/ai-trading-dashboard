@@ -1,8 +1,8 @@
 ---
 decision_key: c6fad646bc144869
-source: tasks/config_drift.cjs:155
+source: tasks/config_drift.cjs:180
 status: standing
-recorded: 2026-09-02T17:52:40.137Z
+recorded: 2026-09-08T03:37:10.852Z
 ---
 
 # STANDING DECISION

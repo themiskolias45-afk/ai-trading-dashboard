@@ -1,8 +1,8 @@
 ---
 decision_key: dd58c963c9bad155
-source: tasks/boot_context.cjs:240
+source: tasks/boot_context.cjs:346
 status: standing
-recorded: 2026-09-02T18:27:20.096Z
+recorded: 2026-09-08T06:31:18.359Z
 ---
 
 # STANDING DECISION

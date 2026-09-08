@@ -1,8 +1,8 @@
 ---
 decision_key: 61bfd04ce4466e87
-source: tasks/lab_generate.cjs:293
+source: tasks/lab_generate.cjs:448
 status: standing
-recorded: 2026-09-02T17:52:40.137Z
+recorded: 2026-09-08T03:37:10.852Z
 ---
 
 # STANDING DECISION
