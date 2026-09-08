@@ -1,8 +1,16 @@
-// CONFLUENCE — the four independent reads of the same market, side by side.
+// CONFLUENCE — the five independent reads of the same market, side by side.
 //
-// WHY. Four things form an opinion on BTC, GOLD and SP500 and none of them can see the
-// others: the SmartEntry engine, the pre-open plan, the ATOMIC_ANALYST_V84 indicator, and
-// whatever TradingView last alerted. Agreement between independent readers is the only
+// WHY. Five things form an opinion on BTC, GOLD and SP500 and none of them can see the
+// others: the SmartEntry engine, the pre-open plan, the DAILY PLAN, the ATOMIC_ANALYST_V84
+// indicator, and whatever TradingView last alerted.
+//
+// THE DAILY PLAN IS ITS OWN SOURCE, not a synonym for the pre-open plan. They are written
+// by different jobs at different times off different inputs: the daily plan runs pre-dawn
+// and carries the LEVELS, the day's ATR and its warnings; the pre-open plan runs at the
+// open and carries a scored setup. Folding them into one column showed FOUR sources where
+// he had named five, and hid the case where the level map disagrees with the open.
+// ONLY TODAY'S daily plan may contribute a direction. An older file is displayed with its
+// date and contributes null, because a stale plan agreeing is not agreement. Agreement between independent readers is the only
 // evidence here that is not just one model restating itself, and until now there was
 // nowhere to see it.
 //
@@ -25,6 +33,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const { spawnSync } = require("child_process");
 
 const ROOT   = path.join(__dirname, "..");
 const STATE  = path.join(ROOT, "tasks", "confluence_state.json");
@@ -122,13 +131,43 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
     for (const a of pl.assets || []) planByKey[a.key] = a;
   } catch { /* no plan yet today */ }
 
+  // ── THE DAILY PLAN — its own source, and only if it is TODAY'S ─────────────────────
+  // trade_plan is null on most days; that is a real state ("levels mapped, no setup") and
+  // it renders as "no plan", never counted as agreement. The levels and warnings are
+  // carried into the alert regardless, because they are the evidence a manual entry needs.
+  let daily = null, dailyDate = null, dailyStale = false;
+  {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const readPlan = (d) => {
+      try { return JSON.parse(fs.readFileSync(path.join(ROOT, "tasks", "daily_plan_" + d + ".json"), "utf8")); }
+      catch { return null; }
+    };
+    daily = readPlan(todayKey);
+    if (daily) { dailyDate = todayKey; }
+    else {
+      try {
+        const names = fs.readdirSync(path.join(ROOT, "tasks"))
+          .filter((f) => /^daily_plan_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+        if (names.length) {
+          dailyDate = names[names.length - 1].slice(11, 21);
+          daily = readPlan(dailyDate);
+          dailyStale = true;   // present, but NOT today - contributes nothing to agreement
+        }
+      } catch { /* no tasks dir - impossible here, but never throw on a read */ }
+    }
+  }
+
   const alerts = (alertRes.json?.alerts) || [];
   const alertsGated = alertRes.status === 401;
 
   console.log("");
-  console.log("=================== CONFLUENCE — four independent reads ===================");
-  console.log("  " + pad("ASSET", 7) + pad("SYSTEM", 16) + pad("PRE-OPEN PLAN", 16)
-              + pad("ATOMIC", 18) + pad("TRADINGVIEW", 14) + "VERDICT");
+  console.log("============= CONFLUENCE — five independent reads of the same market =============");
+  console.log("  " + pad("ASSET", 7) + pad("SYSTEM", 15) + pad("PRE-OPEN", 15)
+              + pad("DAILY PLAN", 15) + pad("ATOMIC", 17) + pad("TRADINGVIEW", 13) + "VERDICT");
+  if (daily && dailyStale)
+    console.log("  daily plan on file is " + dailyDate + ", NOT today — shown for reference, contributes nothing");
+  else if (!daily)
+    console.log("  no daily_plan_*.json found at all — that column reads 'no file'");
 
   const rows = [];
   for (const a of ASSETS) {
@@ -146,6 +185,18 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
     const src = {
       system: { dir: sig ? dir(sig.signal) : null, conf: sig?.confidence ?? null, setup: sig?.setup ?? null },
       plan:   { dir: plan ? dir(plan.signal) : null, conf: plan?.confidence ?? null, setup: plan?.setup ?? null, ready: plan?.ready },
+      daily:  (() => {
+                const d = daily && daily.assets ? daily.assets[a.key] : null;
+                const tp = d && d.trade_plan ? d.trade_plan : null;
+                return {
+                  // A stale file never contributes a direction, however confident it reads.
+                  dir: (tp && !dailyStale) ? dir(tp.direction || tp.signal || tp.bias) : null,
+                  conf: tp?.confidence ?? null,
+                  setup: tp?.setup ?? tp?.strategy ?? null,
+                  hasFile: !!daily, hasAsset: !!d, hasPlan: !!tp, stale: dailyStale,
+                  levels: d?.levels || null, atr: d?.context?.atr ?? null, price: d?.price ?? null,
+                };
+              })(),
       atomic: { dir: atom ? dir(atom.direction) : null, conf: atom?.confidence ?? null,
                 stale: atom?.stale, consensus: atom?.finalConsensus ?? null, mtf: atom?.mtfAligned },
       tv:     { dir: tvRow ? dir(tvRow.action) : null, at: tvRow?.ts ?? null },
@@ -163,12 +214,22 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
                   : (dirs.length === 0 ? "no data"
                   : (new Set(dirs).size === 1 ? ("all " + dirs[0]) : "split"));
 
+    // Each cell says WHICH KIND of nothing it is. "no plan" (ran, mapped levels, found no
+    // setup), "STALE" (a real opinion, too old to count) and "no file" (never ran) are three
+    // different facts about the system, and one dash would have hidden all three.
+    const dailyCell = src.daily.dir
+                        ? src.daily.dir + (src.daily.conf != null ? " " + src.daily.conf + "%" : "")
+                    : !src.daily.hasFile  ? "no file"
+                    : !src.daily.hasAsset ? "not in plan"
+                    : src.daily.stale     ? (src.daily.hasPlan ? "STALE" : "stale/no plan")
+                    :                       "no plan";
     console.log("  " + pad(a.label, 7)
-      + pad((src.system.dir ?? "—") + (src.system.conf != null ? " " + src.system.conf + "%" : ""), 16)
-      + pad((src.plan.dir ?? "—") + (src.plan.conf != null ? " " + src.plan.conf + "%" : ""), 16)
+      + pad((src.system.dir ?? "—") + (src.system.conf != null ? " " + src.system.conf + "%" : ""), 15)
+      + pad((src.plan.dir ?? "—") + (src.plan.conf != null ? " " + src.plan.conf + "%" : ""), 15)
+      + pad(dailyCell, 15)
       + pad((src.atomic.dir ?? "no data") + (src.atomic.conf != null ? " " + src.atomic.conf + "%" : "")
-            + (src.atomic.stale ? " STALE" : ""), 18)
-      + pad(src.tv.dir ?? (alertsGated ? "gated" : "no data"), 14)
+            + (src.atomic.stale ? " STALE" : ""), 17)
+      + pad(src.tv.dir ?? (alertsGated ? "gated" : "no data"), 13)
       + verdict);
 
     rows.push({ asset: a, src, agreed, direction: nonWait[0] || null, present: present.map(([k]) => k),
@@ -177,7 +238,9 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
 
   console.log("");
   console.log("  A source with NO DATA is never counted as agreement. Full agreement needs");
-  console.log("  every present source on the same non-WAIT side, and at least 3 of 4 present.");
+  console.log("  every present source on the same non-WAIT side, and at least 3 present.");
+  console.log("  The 3-present floor is UNCHANGED from the four-source version on purpose:");
+  console.log("  adding a fifth reader must not raise the bar and silence a real agreement.");
   console.log("===========================================================================");
 
   const hits = rows.filter(r => r.agreed);
@@ -193,10 +256,16 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
     const sig = h.sig, atom = h.atom;
     const L = [];
     L.push(`<b>CONFLUENCE — ${h.asset.label} ${h.direction}</b>`);
-    L.push(`${h.present.length} of 4 sources agree${h.missing.length ? ` · no data from: ${h.missing.join(", ")}` : ""}`);
+    L.push(`${h.present.length} of 5 sources agree${h.missing.length ? ` · no data from: ${h.missing.join(", ")}` : ""}`);
     L.push("");
     L.push(`<b>SYSTEM</b>  ${h.src.system.dir} · conf ${h.src.system.conf}% · ${h.src.system.setup ?? "—"}`);
     L.push(`<b>PLAN</b>    ${h.src.plan.dir} · conf ${h.src.plan.conf}% · ${h.src.plan.setup ?? "—"}${h.src.plan.ready ? " · READY" : ""}`);
+    L.push(`<b>DAILY PLAN</b> ${h.src.daily.dir
+              ?? (h.src.daily.hasFile
+                    ? (h.src.daily.stale ? "stale (" + dailyDate + ")" : "no setup — levels only")
+                    : "no file")}`
+          + (h.src.daily.conf != null ? ` · conf ${h.src.daily.conf}%` : "")
+          + (h.src.daily.setup ? ` · ${h.src.daily.setup}` : ""));
     L.push(`<b>ATOMIC</b>  ${h.src.atomic.dir} · conf ${h.src.atomic.conf}% · consensus ${h.src.atomic.consensus ?? "—"} · MTF ${h.src.atomic.mtf ? "aligned" : "mixed"}`);
     L.push(`<b>TRADINGVIEW</b> ${h.src.tv.dir ?? "no data"}`);
     L.push("");
@@ -216,6 +285,31 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
       L.push(`<b>ATOMIC LADDER</b> (fib on the entry-to-stop distance)`);
       L.push(`entry ${t.entry} · SL ${t.sl} · risk ${t.riskDistance ?? "—"}`);
       for (const x of (t.tp || [])) L.push(`TP${x.level} (${x.fib}) ${x.price}`);
+    }
+
+    // ── THE DAY'S LEVEL MAP ─────────────────────────────────────────────────────────
+    // The daily plan's real contribution on a no-setup day: WHERE the day's pivot and
+    // zones actually sit. A manual entry is taken or skipped on where price stands against
+    // these, so they travel with the alert even when trade_plan is null. Distance from the
+    // pivot is expressed in ATR because 40 points means nothing without the day's range.
+    if (h.src.daily.levels) {
+      const lv = h.src.daily.levels;
+      L.push("");
+      L.push(`<b>DAILY LEVELS</b> (${dailyDate}${dailyStale ? " — STALE, not today" : ""}, source ${lv.source ?? "—"})`);
+      L.push(`R2 ${lv.R2 ?? "—"} · R1 ${lv.R1 ?? "—"} · pivot ${lv.pivot ?? "—"} · S1 ${lv.S1 ?? "—"} · S2 ${lv.S2 ?? "—"}`);
+      if (h.src.daily.atr != null) {
+        const atrVal = Number(h.src.daily.atr) || 0;
+        const pv = lv.pivot;
+        const fromPivot = (sig?.entry != null && pv != null && atrVal > 0)
+          ? ` · entry sits ${((sig.entry - pv) / atrVal).toFixed(2)} ATR from pivot` : "";
+        L.push(`daily ATR ${h.src.daily.atr}${fromPivot}`);
+      }
+      const warn = (daily?.warnings || []).filter(Boolean);
+      if (warn.length)
+        L.push(`<b>PLAN WARNINGS</b> ${warn.map((w) => typeof w === "string" ? w : (w.message || w.text || JSON.stringify(w))).join(" · ").slice(0, 400)}`);
+      const cal = (daily?.calendar?.events || (Array.isArray(daily?.calendar) ? daily.calendar : []));
+      if (Array.isArray(cal) && cal.length)
+        L.push(`<b>CALENDAR</b> ${cal.slice(0, 4).map((e) => `${e.time ?? e.at ?? "?"} ${e.title ?? e.name ?? e.event ?? "?"}`).join(" · ").slice(0, 300)}`);
     }
 
     // ── SIZE, AND WHETHER THE CAP WILL QUIETLY CHANGE THE TRADE ──────────────────────
@@ -274,9 +368,35 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
     const stateKey = `${h.asset.key}:${h.direction}:${today}`;
     if (!NOTIFY) continue;
     if (state[stateKey] && !FORCE) { console.log(`  [telegram] already sent today for ${stateKey} — not repeating`); continue; }
-    const r = await post("/api/agent/notify", { title: `Confluence ${h.asset.label} ${h.direction}`, message: msg, level: "info" });
-    if (r.status === 200) { state[stateKey] = new Date().toISOString(); sent++; console.log("  [telegram] sent"); }
-    else console.log(`  [telegram] FAILED ${r.status} ${String(r.raw).slice(0, 120)}`);
+
+    // NOT /api/agent/notify. That route is guarded by AGENT_RELAY_SECRET for the cloud
+    // research agent, the secret was never passed here, and every send this script ever
+    // attempted answered 403 "invalid or missing secret" — the alert half of this feature
+    // had never once been deliverable. Proven 2026-09-08 by running it.
+    //
+    // tasks/send_telegram.py posts straight to the Telegram API off keys.env, so it needs
+    // no shared secret, works with the server down, and — unlike notifications.send_telegram,
+    // which returns None whether it sent or not — it prints SENT / NOCONFIG / FAILED and
+    // exits non-zero. A confluence alert that fails silently is precisely the failure this
+    // table exists to prevent, so the outcome is asserted, not assumed.
+    //
+    // Plain text, tags stripped: send_telegram sets no parse_mode, so <b> would arrive
+    // literally. The message is piped on stdin, never placed in an argv.
+    const plain = msg.replace(/<[^>]+>/g, "");
+    const py = process.env.SMARTENTRY_PYTHON || "python";
+    const send = spawnSync(py, [path.join(ROOT, "tasks", "send_telegram.py")],
+                           { input: plain, encoding: "utf8", timeout: 30000 });
+    const verdict = String(send.stdout || "").trim() || String(send.stderr || "").trim()
+                    || (send.error ? send.error.message : "no output");
+    if (send.status === 0 && /^SENT/.test(verdict)) {
+      // The dedupe key is written ONLY on a confirmed send. Recording it on a failure
+      // would suppress every retry for the rest of the day over one transient error.
+      state[stateKey] = new Date().toISOString(); sent++;
+      console.log(`  [telegram] ${verdict}`);
+    } else {
+      console.log(`  [telegram] NOT SENT — ${verdict.slice(0, 200)}`);
+      console.log(`  [telegram] the alert above was NOT delivered; the dedupe key was not written, so the next run retries.`);
+    }
   }
 
   if (NOTIFY && sent) {
