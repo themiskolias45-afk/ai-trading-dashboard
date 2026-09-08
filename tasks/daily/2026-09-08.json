@@ -1,0 +1,64 @@
+{
+ "date": "2026-09-08",
+ "entries": [
+  {
+   "ts": "2026-09-08T03:29:53.031445+00:00",
+   "tag": "PLAN",
+   "text": "Daily Plan 2026-09-08 (levels: confluence-zones): |   BTC WAIT | R1 78866.25 S1 78000 |   GOLD WAIT | R1 4500 S1 4473.06 |   SPX WAIT | R1 7730.39 S1 7708.7 |   MACRO VIX 15.3 — NORMAL |   MACRO DXY 99.18 FLAT (-0.26% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind"
+  },
+  {
+   "ts": "2026-09-08T03:46:02.130600+00:00",
+   "tag": "EOD",
+   "text": "EOD 2026-09-08: No trades today — rest day."
+  },
+  {
+   "time": "2026-09-08T05:54:54.356201+01:00",
+   "type": "jarvis",
+   "text": "HEALTH SWEEP both boxes. VPS 68 checks 0 RED 0 AMBER 0 UNKNOWN (first fully clean run). Laptop 65 checks 1 RED 1 AMBER 0 UNKNOWN. UNKNOWN now 0 on both boxes."
+  },
+  {
+   "time": "2026-09-08T05:54:54.356201+01:00",
+   "type": "jarvis",
+   "text": "FIXED VPS ledger ACLs: 5 learning ledgers had been unwritable 17h (EPERM). RunLevel=Limited tasks lose append every time a git pull recreates the tracked file. Granted Users:(R,W) - no DELETE - plus ObjectInherit on tasks\\ so it survives a pull. Verified surviving a real pull."
+  },
+  {
+   "time": "2026-09-08T05:54:54.356201+01:00",
+   "type": "jarvis",
+   "text": "FIXED coverage_audit false RED on Engine Variant Watch exit 4 (its documented 'bars unchanged' contract). This one false RED was what made doctor.cjs go red."
+  },
+  {
+   "time": "2026-09-08T05:54:54.356201+01:00",
+   "type": "jarvis",
+   "text": "UPGRADED ea_build_watch: reads the TERMINAL log roster instead of attach-line age. VPS now GREEN v356 with certainty. Revealed the laptop runs NO CRT EA - roster is DeepTrade_EA_v1, TK_SMART_ENTRY_v3.22, V10_EA_MASTER x2, V10_EA_TRADING_ONLY x2, Pao."
+  },
+  {
+   "time": "2026-09-08T05:54:54.356201+01:00",
+   "type": "jarvis",
+   "text": "ADDED .gitattributes tasks/*.jsonl merge=union. Negative control proved git otherwise writes <<<<<<< markers INTO the ledger, which breaks every per-line JSON.parse reader. Never extend to *.json."
+  },
+  {
+   "time": "2026-09-08T05:54:54.356201+01:00",
+   "type": "jarvis",
+   "text": "HARDENED autohealer: preserveCorrupt() keeps <file>.corrupt-<stamp> before overwriting a corrupt learning.json/journal.json. Proven by really corrupting files in a scratch harness. TAKES EFFECT AT NEXT SERVER START."
+  },
+  {
+   "time": "2026-09-08T05:54:54.356201+01:00",
+   "type": "jarvis",
+   "text": "FIXED TradingView collision: the two boxes were already an hour apart by timezone; the cause was the VPS trigger PT20M for PT23H (~69 runs/day) running over whatever the laptop drew. Split per box - VPS 04:45-11:45 UTC, laptop 12:15-23:15 UTC (laptop given a repeat because it sleeps). VPS now rc=0 'plan drawn on all charts'."
+  },
+  {
+   "time": "2026-09-08T05:54:54.356201+01:00",
+   "type": "jarvis",
+   "text": "ANSWER on auto-healing: not broken - it has NEVER FIRED. healCount 0, lastHealAt null on both boxes, and autohealer.js:504 says nothing reads state.healthy. Untested, not healthy."
+  },
+  {
+   "time": "2026-09-08T05:54:54.356201+01:00",
+   "type": "jarvis",
+   "text": "OPEN / HIS DECISION: laptop research bars are 1-3 days behind the VPS because Refresh Bars has refused 217 times while SP500 BUY 0.1 has been open since 2026-08-19 (20 days). Refusing is correct - forcing opens a 2nd MT5 client and can drop the bridge. Same position is the 1.184 R:R below the 1.5 floor. Closing or reducing it clears bar drift + parity RED + R:R amber together."
+  }
+ ],
+ "signals": [],
+ "trades": [],
+ "created_at": "2026-09-08T03:29:53.031445+00:00",
+ "updated_at": "2026-09-08T05:54:54.356201+01:00"
+}
