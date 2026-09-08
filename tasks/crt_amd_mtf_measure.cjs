@@ -49,10 +49,12 @@
  *    PASS/FAIL verdict - the entire output of this harness - was decided on money the
  *    strategy would never have kept. Folds are now scored net.
  *
- * 3. THE WALK STARTED ON THE ENTRY BAR. Entry is that bar's CLOSE, but the loop tested
- *    the same bar's high and low against the stop - prices that had already happened.
- *    That charged phantom losses and biased every cell DOWNWARD. The walk now starts on
- *    the next bar.
+ * 3. THE WALK STARTED ON THE ENTRY BAR. Entry is that bar's CLOSE, but the loop resolved
+ *    the trade against the same bar's high and low - prices that had already happened.
+ *    This FLATTERED the results: the bar's high often already sat beyond the objective,
+ *    scoring a win on a move the trade never took part in. Removing it moved gross
+ *    R/trade DOWN in 12 of 18 CRT cells (worst: gold h4->h4 -0.1634). The walk now starts
+ *    on the next bar.
  *
  * And one thing that was measured but hidden: UNRESOLVED trades - entered, still open
  * when the hold expired - are discarded from every figure, and the count was never
