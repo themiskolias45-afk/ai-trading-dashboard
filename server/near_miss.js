@@ -214,16 +214,34 @@ function noteNearMiss(record) {
   }
 }
 
-/** Read-only snapshot. Closest misses first — those are the ones worth arguing about. */
+/**
+ * Read-only snapshot. Closest misses first — those are the ones worth arguing about.
+ *
+ * ORDERED BY minMarginRelative, NOT minMargin. Ranking on the raw margin compares RSI
+ * POINTS against RAW PRICE and calls the smaller number "closer", which is not a
+ * ranking. Rows whose relative margin is unknown (threshold 0, so the fraction is
+ * undefined) sort LAST rather than first: an unknown must never masquerade as the
+ * tightest miss on the board.
+ *
+ * `unit` travels on every row so a caller that wants raw margins can still group by it.
+ */
 function nearMissCensus() {
   try {
+    const rank = (r) => (r.minMarginRelative === null || r.minMarginRelative === undefined
+      ? Number.POSITIVE_INFINITY
+      : r.minMarginRelative);
+
     const rows = [...census.values()]
       .map(row => ({
         ...row,
+        unit: row.unit || unitForCondition(row.condition),
         minMargin: Number(row.minMargin.toFixed(4)),
         maxMargin: Number(row.maxMargin.toFixed(4)),
+        minMarginRelative: (row.minMarginRelative === null || row.minMarginRelative === undefined)
+          ? null
+          : Number(row.minMarginRelative.toFixed(6)),
       }))
-      .sort((a, b) => a.minMargin - b.minMargin || b.count - a.count);
+      .sort((a, b) => rank(a) - rank(b) || b.count - a.count);
 
     return {
       available: true,
