@@ -293,8 +293,18 @@ const FOLDS = [
   { name: 'q4', from: '2026.01.01', to: '2026.04.28' },
 ];
 
-function runOne(install, reportName, period, inputs) {
-  const template = readUtf16(TEMPLATE_INI);
+function runOne(install, reportName, period, inputs, dataDirForRun) {
+  let template = readUtf16(TEMPLATE_INI);
+
+  // DROP THE [Common] LOGIN. The template carries Login=11581419 / VantageMarkets-Demo -
+  // the account the VPS trades. Measured 2026-09-08: the tester logged in, the server
+  // reported "previous successful authorization performed from 80.42.47.168" (the VPS)
+  // and a 'connection lost' immediately followed. The Strategy Tester simulates against
+  // LOCAL history and does not need a live session, so there is no reason to contend for
+  // that account. Stripping the section removes the risk entirely rather than relying on
+  // the broker permitting concurrent logins.
+  template = template.replace(/^\[Common\]\r?\n(?:(?!\[)[^\r\n]*\r?\n)*/mi, '');
+
   const ini = patchIni(template, {
     FromDate: period.from,
     ToDate: period.to,
