@@ -35,6 +35,28 @@
 const fs = require('fs');
 const path = require('path');
 
+// ── ASCII OUT, ALWAYS ─────────────────────────────────────────────────────────
+// The scheduled task redirects stdout to a file through cmd.exe, and cmd applies the
+// CONSOLE CODEPAGE. Measured 2026-09-08: identical output, same script, both boxes -
+// the laptop wrote correct UTF-8 while the VPS report read "STALENESS WATCH <?" age",
+// because that box's console codepage is not 65001. A report a human is meant to read
+// must not depend on which machine ran it, so the typographic characters are folded to
+// ASCII at the output boundary rather than being banned from the source.
+const ASCII_FOLD = new Map(Object.entries({
+  '\u2014': '--', '\u2013': '-', '\u2500': '-', '\u2502': '|', '\u2508': '-',
+  '\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"',
+  '\u2026': '...', '\u2265': '>=', '\u2264': '<=', '\u2192': '->', '\u00b7': '-',
+  '\u2713': 'ok', '\u2717': 'x', '\u26a0': '!', '\u00a0': ' ',
+}));
+function toAscii(s) {
+  return String(s).replace(/[^\x00-\x7F]/g, (ch) => ASCII_FOLD.get(ch) || '?');
+}
+const _rawLog = console.log.bind(console);
+const _rawErr = console.error.bind(console);
+console.log = (...a) => _rawLog(toAscii(a.join(' ')));
+console.error = (...a) => _rawErr(toAscii(a.join(' ')));
+
+
 const ROOT = path.join(__dirname, '..');
 const LEDGER = path.join(ROOT, 'tasks', 'all_trades_ledger.jsonl');
 
