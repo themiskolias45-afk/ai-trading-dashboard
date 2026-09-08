@@ -238,9 +238,12 @@ function walkForward(execBars, startIndex, direction, entry, stop, target, maxHo
     const hitTarget = direction === "bullish" ? high >= target : low  <= target;
     // Both inside one bar: unknowable order, charge the loss. Assuming the good fill is
     // how a backtest flatters itself.
-    if (hitStop && hitTarget) return { r: -1, bars: i - startIndex + 1, resolved: true, ambiguous: true };
-    if (hitStop)   return { r: -1,      bars: i - startIndex + 1, resolved: true, ambiguous: false };
-    if (hitTarget) return { r: rewardR, bars: i - startIndex + 1, resolved: true, ambiguous: false };
+    // Bars HELD, counted so the first resolving bar reads as 1 in either mode - otherwise
+    // moving the start would silently inflate every avg-hold figure by one bar.
+    const held = i - firstBar + 1;
+    if (hitStop && hitTarget) return { r: -1, bars: held, resolved: true, ambiguous: true };
+    if (hitStop)   return { r: -1,      bars: held, resolved: true, ambiguous: false };
+    if (hitTarget) return { r: rewardR, bars: held, resolved: true, ambiguous: false };
   }
   return null; // never resolved inside the hold - excluded, never scored as flat
 }
