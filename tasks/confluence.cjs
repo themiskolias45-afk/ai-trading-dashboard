@@ -217,6 +217,53 @@ const pad = (s, n) => String(s == null ? "—" : s).padEnd(n);
       L.push(`entry ${t.entry} · SL ${t.sl} · risk ${t.riskDistance ?? "—"}`);
       for (const x of (t.tp || [])) L.push(`TP${x.level} (${x.fib}) ${x.price}`);
     }
+
+    // ── SIZE, AND WHETHER THE CAP WILL QUIETLY CHANGE THE TRADE ──────────────────────
+    //
+    // This is the single measured reason the system is positive in R and negative in
+    // money. Proven against the live sizer on 2026-09-08, same symbol, same 0.15% risk,
+    // ONLY the stop distance changing:
+    //
+    //     stop  2.09 pts -> wants 92.4 lots -> capped at 2 -> risks   $3.08   (2.2%)
+    //     stop 89.06 pts -> wants  2.2 lots -> capped at 2 -> risks $131.41  (92.2%)
+    //
+    // A 43x difference in real money, and the ledger records both as 1R. On a tight stop
+    // the cap truncates the position to a fraction of intended risk, so a tight-stop
+    // WINNER pays a few dollars while a wide-stop LOSER costs the full amount. That is
+    // riskDollarsPerR spanning 1.46 to 449.72.
+    //
+    // So the number that matters before a manual entry is not the lot size, it is what
+    // FRACTION of intended risk that lot size actually carries. It is stated outright.
+    if (sig && sig.entry && sig.stop) {
+      const bal = Number(process.env.SE_BALANCE) || 95000;
+      const riskPct = 0.0015;                 // matches live strategy_settings riskPercent 0.15
+      const cap = 2.0;                        // matches live maxLotSize
+      const intended = bal * riskPct;
+      const r = await post("/api/size", {
+        accountBalance: bal,
+        signal: { symbol: h.asset.broker, signal: h.direction, direction: h.direction,
+                  entry: sig.entry, stop: sig.stop, target: sig.target ?? sig.entry,
+                  confidence: sig.confidence ?? 70, atr: sig.atr },
+        openPositions: [],
+      });
+      let want = 0;
+      try { want = JSON.parse(r.raw).suggestedSize || 0; } catch {}
+      const taken = Math.min(want, cap);
+      const frac  = want > 0 ? (taken / want) : 0;
+      const actual = intended * frac;
+      L.push("");
+      L.push(`<b>SIZE</b>  risk-based ${want.toFixed(2)} lots, cap ${cap} -> <b>${taken.toFixed(2)} lots</b>`);
+      L.push(`intended risk $${intended.toFixed(2)} · actual risk $${actual.toFixed(2)} (${(frac * 100).toFixed(0)}% of intended)`);
+      if (frac < 0.75 && want > 0) {
+        L.push(`<b>CAP TRUNCATES THIS TRADE.</b> Its stop is tight enough that the position is cut to `
+             + `${(frac * 100).toFixed(0)}% of normal risk. A win here pays a fraction of what a `
+             + `wide-stop loss costs — that asymmetry is why the ledger reads +R and -money. `
+             + `Either widen the stop so the size fits under the cap, or skip it.`);
+      } else if (want > 0) {
+        L.push(`Size fits under the cap — this trade carries normal risk and its R is comparable to the others.`);
+      }
+    }
+
     L.push("");
     L.push(`<i>Evidence, not an instruction. Nothing here placed an order or moved a gate.</i>`);
     const msg = L.join("\n");
