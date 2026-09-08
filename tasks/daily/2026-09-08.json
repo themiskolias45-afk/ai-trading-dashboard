@@ -155,10 +155,40 @@
    "time": "2026-09-08T12:43:58.012585+01:00",
    "type": "jarvis",
    "text": "STILL MISSING: no dashboard panel. Visible only at GET /api/atomic with a session, or the reader --dry."
+  },
+  {
+   "time": "2026-09-08T13:19:42.885024+01:00",
+   "type": "jarvis",
+   "text": "BOTH BOXES LEVEL at ad00b92. Laptop restarted 12:10:59Z, VPS 12:17:44Z. m15=4000 bars reported on both, src=mt5."
+  },
+  {
+   "time": "2026-09-08T13:19:42.885024+01:00",
+   "type": "jarvis",
+   "text": "Data Feed tab: FOUR panels had working renderers reading field names the API never sends (btcChg/updatedAt/a.signal/sig.rsi_d). None errored - each degraded to a dash or '?'. Fixed all four."
+  },
+  {
+   "time": "2026-09-08T13:19:42.885024+01:00",
+   "type": "jarvis",
+   "text": "M15 was feeding 4000 bars all along - cached, consumed by the engine, live BTC M15_MOMENTUM SELL - but omitted from both the POST accept response and GET /api/mt5/candles."
+  },
+  {
+   "time": "2026-09-08T13:19:42.885024+01:00",
+   "type": "jarvis",
+   "text": "Added an MT5 Feed panel: per asset source/D1/H4/H1/M15/push age/newest bar, plus the bridge PER ACCOUNT TAG (the no-tag call always says 'never connected')."
+  },
+  {
+   "time": "2026-09-08T13:19:42.885024+01:00",
+   "type": "jarvis",
+   "text": "Asymmetry by design: ATOMIC indicator attached on the LAPTOP only - the VPS has no GUI to attach it. Its feed task there correctly reports 'not attached', rc=0."
+  },
+  {
+   "time": "2026-09-08T13:19:42.885024+01:00",
+   "type": "jarvis",
+   "text": "VPS learning MOMENTUM 3W/8L -359.37, boost -4 REPORTED but 0 APPLIED - the floor letting a truthful record cost no signal."
   }
  ],
  "signals": [],
  "trades": [],
  "created_at": "2026-09-08T03:29:53.031445+00:00",
- "updated_at": "2026-09-08T12:43:58.012585+01:00"
+ "updated_at": "2026-09-08T13:19:42.885024+01:00"
 }
