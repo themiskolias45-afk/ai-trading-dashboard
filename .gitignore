@@ -221,3 +221,6 @@ tasks/analysis/ea_crt_tester/raw/
 # Per-tool-call audit written by tasks/hooks/agent-audit.ps1. Per-box, append-only,
 # grows every session - state, not source. See per_box_mutable_state_must_not_be_git_tracked.
 tasks/agent_audit.jsonl
+
+# Curator verdict ledger - per-box append-only state, grows every run.
+tasks/lab_curator_ledger.jsonl
