@@ -471,6 +471,8 @@ function runOne(install, reportName, period, inputs, dataDirForRun) {
   };
   console.log(`    net ${metrics.netProfit}  PF ${metrics.profitFactor}  ` +
     `DD ${metrics.maxDrawdown}  trades ${metrics.totalTrades}  (${secs}s)`);
+  console.log(`      win ${metrics.winRatePct}%  avgWin ${metrics.avgWinR}R  ` +
+    `EXPECTANCY ${metrics.expectancyR}R/trade   <- judge on this, not net`);
   return row;
 }
 
