@@ -102,9 +102,19 @@ const SPREAD_WIDTHS = numArg("--spreads", 1);
 // It exists ONLY so the two can be diffed; it is not a mode anyone should conclude from.
 const GROSS_ONLY = process.argv.includes("--gross");
 
-// The walk used to begin ON the entry bar, testing that bar's own high and low against a
-// stop - prices that occurred BEFORE the close the trade entered at. That charged phantom
-// losses and biased every cell DOWNWARD. --entry-bar-risk restores it for comparison only.
+// The walk used to begin ON the entry bar, testing that bar's own high and low - prices
+// that occurred BEFORE the close the trade entered at.
+//
+// MEASURED 2026-09-08, and it is the OPPOSITE of what it looks like. Including the entry
+// bar mostly produced phantom WINS, not phantom losses: the bar's high frequently already
+// sat beyond the objective, so the trade was scored a winner on a move it never took part
+// in. Removing it moved gross R/trade DOWN in 12 of 18 CRT cells, unchanged in 4, up in 2
+// - worst gold h4->h4 -0.1634, btc h4->h1 -0.1291, spx h4->h1 -0.1030.
+//
+// The mechanism is clearest in the same-timeframe cells, where the entry bar IS the bar
+// the pattern completed on and whose range DEFINED the objective. Scoring the trade
+// against it is close to circular, which is why h4->h4 moves most and the d1->h1 /
+// d1->m15 cells - where the exec bar is far faster than the bias bar - move not at all.
 const ENTRY_BAR_RISK = process.argv.includes("--entry-bar-risk");
 
 // A number that exists only in a terminal cannot be compared against the next run.
