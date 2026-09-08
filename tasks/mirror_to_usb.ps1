@@ -133,7 +133,7 @@ if ($totalBytes -gt $volume.FreeSpace) {
     exit 1
 }
 
-if ($WhatIfPreference) {
+if ($DryRun) {
     Write-Head 'DRY RUN'
     Write-Host "Would copy $totalFiles files into $destRoot. Nothing written." -ForegroundColor Yellow
     exit 0
