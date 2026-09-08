@@ -34,10 +34,14 @@
     green exit code is not evidence.
 
       powershell -ExecutionPolicy Bypass -File tasks\mirror_to_usb.ps1
-      powershell -ExecutionPolicy Bypass -File tasks\mirror_to_usb.ps1 -WhatIf   (dry run)
+      powershell -ExecutionPolicy Bypass -File tasks\mirror_to_usb.ps1 -DryRun
+
+    -DryRun is a plain switch rather than PowerShell's -WhatIf on purpose: -WhatIf
+    propagates into module auto-loading, so the first Get-CimInstance printed a dozen
+    "What if: Performing the operation Set Alias" lines ahead of the real output. A dry
+    run whose own noise buries its answer is not a dry run.
 #>
 
-[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     # The SanDisk 28.6 GB stick, identified 2026-09-08. Pass another to use a different one.
     [string]$VolumeSerial = 'B63B1D80',
