@@ -34,9 +34,38 @@
  * target, there is no way to know which came first, and assuming the good one is how a
  * backtest flatters itself.
  *
+ * ── WHAT CHANGED 2026-09-08, AND WHY THE OLD NUMBERS SHOULD NOT BE QUOTED ──────────
+ *
+ * Three defects were found by reading the call sites rather than the comments. All three
+ * moved the verdict, so every figure this file published before today is superseded.
+ *
+ * 1. COSTS WERE NEVER CHARGED. `summarise(trades, costFraction)` was called with a
+ *    literal 0 at both call sites, no flag existed to pass anything else, and
+ *    `netRPerTrade` was computed and never printed. The cost apparatus read convincingly
+ *    and was wired to nothing. Costs now come from the measured spread table in
+ *    tasks/instrument_costs.cjs, charged per trade on its own risk distance.
+ *
+ * 2. THE FOLDS WERE SCORED GROSS. foldReport called summarise(slice, 0), so the
+ *    PASS/FAIL verdict - the entire output of this harness - was decided on money the
+ *    strategy would never have kept. Folds are now scored net.
+ *
+ * 3. THE WALK STARTED ON THE ENTRY BAR. Entry is that bar's CLOSE, but the loop tested
+ *    the same bar's high and low against the stop - prices that had already happened.
+ *    That charged phantom losses and biased every cell DOWNWARD. The walk now starts on
+ *    the next bar.
+ *
+ * And one thing that was measured but hidden: UNRESOLVED trades - entered, still open
+ * when the hold expired - are discarded from every figure, and the count was never
+ * printed. A cell dropping half its patterns looked identical to one dropping none. It
+ * is now a column.
+ *
+ * --gross and --entry-bar-risk restore the old behaviours so the difference can be
+ * diffed rather than argued about. Neither is a mode to conclude from.
+ *
  * Usage:
- *   node tasks/crt_amd_mtf_measure.cjs [--host http://localhost:3001]
- *        [--hold 96] [--folds 5] [--window 100] [--emit]
+ *   node tasks/crt_amd_mtf_measure.cjs [--host http://localhost:3001] [--source archive]
+ *        [--hold 96] [--folds 5] [--window 100] [--spreads 1] [--emit]
+ *        [--gross] [--entry-bar-risk]        <- old behaviour, for diffing only
  */
 
 const http = require("http");
