@@ -543,13 +543,22 @@ async function main() {
   } else {
     say(`  ${powered.length} cell(s) cleared ${MIN_TRADES_FOR_CELL} trades AND ${FOLDS} usable folds:`);
     powered.sort((a, b) => (b.folds.worst ?? -99) - (a.folds.worst ?? -99));
+    let passCount = 0;
     for (const c of powered) {
       const passes = c.folds.worst > 0 && c.folds.positive === c.folds.folds;
+      if (passes) passCount++;
       say(`    ${passes ? "PASS" : "    "} ${pad(c.detector, 5)}${pad(c.asset, 7)}${pad(c.bias + "->" + c.exec, 10)}` +
           `n=${pad(c.summary.n, 6)}worst fold ${pad(fx(c.folds.worst, 4), 10)}` +
-          `${c.folds.positive}/${c.folds.folds} positive  R/trade ${pad(fx(c.summary.rPerTrade, 4), 10)}` +
-          `break-even ${fx(c.folds.breakEven * 100, 2)}% of risk`);
+          `${c.folds.positive}/${c.folds.folds} positive  netR/t ${pad(fx(c.summary.netRPerTrade, 4), 10)}` +
+          `cost ${fx(c.summary.avgCostR, 4)}`);
     }
+    say("");
+    // Stated outright. A list of 24 rows where the reader has to notice that none of them
+    // carry the PASS marker is a list that gets read as a result.
+    say(`  ${passCount} of ${powered.length} powered cell(s) PASS.` +
+        (passCount === 0
+          ? "  NOT ONE CELL CLEARS THE BAR - on this harness's own criterion, this is a NEGATIVE result."
+          : ""));
     say("");
     say("");
     say("  Ranked on WORST FOLD, not mean - the bar every other threshold in this repo is held to.");
