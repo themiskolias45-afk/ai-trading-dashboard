@@ -358,6 +358,66 @@ const app = express();
 // widen what an internet-facing VPS will accept from an unauthenticated caller.
 const JSON_BODY_LIMIT = "2mb";
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
+
+// ── Name the sender of a malformed body ───────────────────────────────────────
+// server_log.txt holds 70 occurrences of "SyntaxError: Expected property name or '}'
+// in JSON at position 1", every one a bare body-parser stack naming only body-parser's
+// own internals — no method, no URL, no body. This server had NO error middleware at
+// all, so Express's default handler answered 400 and printed that stack.
+//
+// THE 70 ARE NOT CURRENT, and the first version of this comment said they were. They
+// sit in a ~20-hour window ending 2026-09-01, with ~25,000 lines appended since and no
+// recurrence — tasks/swallowed_errors.cjs reported them as "last 7 days" because it
+// selected FILES by mtime and then counted whole files, which is fixed there now. So
+// this is a permanent diagnostic for a sender that may return, not a live incident.
+//
+// This changes no outcome: the request already got a 400 and still does. It only makes
+// the 400 say who sent it. Anything that is not a body-parse failure is passed straight
+// on with next(err) — an error handler that swallows the errors it does not understand
+// is the exact defect this whole exercise exists to find.
+const PARSE_FAIL_BODY_CHARS = 120;
+
+// ANCHOR ON THE KEY TOKEN, NOT THE WHOLE QUOTED STRING. The first version required the
+// keyword to be the ENTIRE key, so it masked "password" and leaked every compound name
+// this server actually carries: anthropicKey, telegramToken, openaiKey and uwKey all
+// post to /api/settings, and a malformed one would have written the key to a log that
+// is rotated into the backup zips. Verified by a reviewer against those exact routes.
+const SECRET_KEY_RE =
+  /"?([A-Za-z0-9_.\-]*(?:password|passwd|pwd|token|secret|api[_-]?key|key|auth[A-Za-z]*)[A-Za-z0-9_.\-]*)"?\s*:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^,}\s]+)/gi;
+
+// A body broken badly enough may have no key:value shape left to match — the parse
+// already failed, so nothing about its structure can be assumed. These match the
+// credential SHAPES themselves, so a bare token in a mangled body is still masked.
+const SECRET_SHAPE_RE = /\b(sk-ant-[A-Za-z0-9_\-]+|sk-proj-[A-Za-z0-9_\-]+|xox[baprse]-[A-Za-z0-9-]+|ghp_[A-Za-z0-9]+|Bearer\s+[A-Za-z0-9._\-]+|\d{6,}:AA[A-Za-z0-9_\-]+)/gi;
+
+function maskSecretsInBody(raw) {
+  // Mask before truncation, never after: a secret must not survive by sitting past
+  // the character cut.
+  return String(raw)
+    .replace(SECRET_KEY_RE, '"$1":<masked>')
+    .replace(SECRET_SHAPE_RE, "<masked>");
+}
+
+app.use((err, req, res, next) => {
+  if (!err || err.type !== "entity.parse.failed") return next(err);
+  const bodyPrefix = maskSecretsInBody(err.body == null ? "" : err.body).slice(0, PARSE_FAIL_BODY_CHARS);
+  // KEEP "SyntaxError: <message>" IN THE LINE, VERBATIM. Answering here means
+  // finalhandler no longer prints the stack, so this line is now the ONLY trace of the
+  // event. tasks/swallowed_errors.cjs counts occurrences by matching /([A-Z]\w*Error)/
+  // against the logs; dropping the name would have made the watcher report ZERO for a
+  // fault that was still happening — a monitor silently blinded by its own fix. Keeping
+  // the original signature also means these rows still collapse with the historical 70.
+  console.error(
+    "[bad-json] " + (err.name || "Error") + ": " + (err.message || "unparseable body") +
+    " | " + req.method + " " + req.originalUrl +
+    " from=" + (req.ip || req.socket?.remoteAddress || "?") +
+    " type=" + (req.headers["content-type"] || "none") +
+    " len=" + (req.headers["content-length"] || "?") +
+    " body=" + JSON.stringify(bodyPrefix)
+  );
+  res.status(400).json({ error: "malformed JSON body" });
+});
+
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-api-key");
