@@ -47,8 +47,9 @@ $account = $env:USERNAME
 $log  = Join-Path $repo "tasks\logs\confluence.txt"
 
 $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-if ($existing) {
+if ($existing -and -not $Update) {
     Write-Output "EXISTS - '$name' is already registered (state: $($existing.State)). Not recreating."
+    Write-Output "         Pass -Update to rewrite its action in place (Set-ScheduledTask, never a delete)."
     exit 0
 }
 
