@@ -263,11 +263,11 @@ function walkForward(execBars, startIndex, direction, entry, stop, target, maxHo
   if (!(risk > 0)) return null;
   const rewardR = Math.abs(target - entry) / risk;
 
-  // Entry is `exec.closes[startIndex]` - the CLOSE of that bar. The bar's own high and low
-  // are prices that already happened by then, so testing them against the stop charges a
-  // loss for a move the trade was never in. The walk therefore begins on the NEXT bar.
-  // Measured 2026-09-08: the old behaviour biased every cell downward. --entry-bar-risk
-  // restores it so the two can be compared rather than argued about.
+  // Entry is `exec.closes[startIndex]` - the CLOSE of that bar. That bar's high and low
+  // already happened, so resolving the trade against them scores it on a move it was
+  // never in. The walk therefore begins on the NEXT bar. Measured 2026-09-08, the old
+  // behaviour flattered results (phantom WINS, not phantom losses); see the note on
+  // ENTRY_BAR_RISK above for the per-cell numbers.
   const firstBar = ENTRY_BAR_RISK ? startIndex : startIndex + 1;
   const end = Math.min(execBars.closes.length - 1, startIndex + maxHold);
 
