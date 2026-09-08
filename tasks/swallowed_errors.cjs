@@ -168,13 +168,19 @@ function main() {
   console.log('  A broad handler is not a bug. A broad handler that is FIRING is a bug that already happened.');
   console.log('='.repeat(100));
 
-  if (!rows.length) { console.log('  nothing repeated in this window'); return; }
-
-  const show = (r) => {
+  const day = (ms) => ms === null ? 'no date' : new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+  const show = (r, useOlder) => {
+    const n = useOlder ? r.older : live(r);
     console.log('');
-    console.log('  ' + String(r.count).padStart(5) + 'x  [' + r.kind + ']  ' + r.sig);
+    console.log('  ' + String(n).padStart(5) + 'x  [' + r.kind + ']  ' + r.sig);
+    const notes = [];
+    if (r.undated) notes.push(r.undated + ' undated');
+    if (!useOlder && r.older) notes.push(r.older + ' older than the window');
+    console.log('         last seen ' + day(r.newest) + (notes.length ? '   (' + notes.join(', ') + ')' : ''));
     console.log('         in: ' + [...r.files].slice(0, 4).join(', ') + ([...r.files].length > 4 ? ' (+' + ([...r.files].length - 4) + ')' : ''));
   };
+
+  if (!rows.length && !stopped.length) { console.log('  nothing repeated in this window'); return; }
 
   const thrown = rows.filter(r => THROWN_KINDS.has(r.kind));
   const keyword = rows.filter(r => !THROWN_KINDS.has(r.kind));
