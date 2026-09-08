@@ -55,20 +55,13 @@ function numArg(flag, fallback) {
 // Measured from the live terminal 2026-09-02 via symbol_info().spread * point, after
 // selecting each symbol into Market Watch and waiting for a tick -- an unselected symbol
 // reports spread 0, which would read as a free instrument.
-const SPREADS = {
-  XAUUSD:  { spread: 0.22,    price: 4308.99,  ticker: "GC=F" },
-  BTCUSD:  { spread: 17.00,   price: 76649.37, ticker: "BTC-USD" },
-  SP500:   { spread: 0.36,    price: 7624.50,  ticker: "^GSPC" },
-  ETHUSD:  { spread: 2.47,    price: 2373.35,  ticker: "ETHUSD" },
-  XRPUSD:  { spread: 0.0083,  price: 1.3199,   ticker: "XRPUSD" },
-  LTCUSD:  { spread: 1.00,    price: 48.34,    ticker: "LTCUSD" },
-  XAGUSD:  { spread: 0.021,   price: 63.764,   ticker: "XAGUSD" },
-  USOUSD:  { spread: 0.037,   price: 90.51,    ticker: "USOUSD" },
-  GBPUSD:  { spread: 0.00015, price: 1.35,     ticker: "GBPUSD" },
-  USDJPY:  { spread: 0.019,   price: 159.85,   ticker: "USDJPY" },
-  EURUSD:  { spread: 0.00014, price: 1.16,     ticker: "EURUSD" },
-  AUDUSD:  { spread: 0.00014, price: 0.71,     ticker: "AUDUSD" },
-};
+//
+// MOVED 2026-09-08 to tasks/instrument_costs.cjs, unchanged (proved identical, 12 of 12
+// symbols, before the move). This file cannot be require()d - it runs its report at top
+// level - so any other harness wanting real costs had to retype these numbers, and a
+// retyped constant that later drifts is a bug this repo has already paid for. There is
+// now exactly one copy and crt_amd_mtf_measure.cjs reads the same one.
+const { SPREADS } = require("./instrument_costs.cjs");
 
 const GATE    = numArg("--gate", 70);
 const HOLD    = String(numArg("--hold", 320));
