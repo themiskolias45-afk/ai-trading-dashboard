@@ -58,15 +58,26 @@ try {
     $detail = $detail -replace '(xox[bepas]-[A-Za-z0-9\-]+)', 'xox-***MASKED***'
     $detail = $detail -replace '((?i)(password|token|api[_-]?key)\s*=\s*)\S+', '$1***MASKED***'
 
+    # Computed BEFORE the hash. PowerShell does not accept try/catch as an expression
+    # inside a hash literal - it fails with "The hash literal was incomplete", which is a
+    # PARSE error, so the hook dies before its own outer catch can run. Caught by feeding
+    # the hook a real payload rather than by reading it.
+    $agent   = ''
+    $session = ''
+    $cwd     = ''
+    try { $agent   = [string]$j.agent_type } catch { }
+    try { $session = [string]$j.session_id } catch { }
+    try { $cwd     = [string]$j.cwd }        catch { }
+
     $row = [ordered]@{
         ts      = (Get-Date).ToUniversalTime().ToString('o')
         tool    = $tool
         detail  = $detail
-        # Present when the call comes from a subagent; absent for the main session. This
+        # Present when the call comes from a subagent; empty for the main session. This
         # is the field that makes the log answer "which agent did that".
-        agent   = try { [string]$j.agent_type } catch { '' }
-        session = try { ([string]$j.session_id) } catch { '' }
-        cwd     = try { [string]$j.cwd } catch { '' }
+        agent   = $agent
+        session = $session
+        cwd     = $cwd
     }
 
     $line = $row | ConvertTo-Json -Compress -Depth 3
