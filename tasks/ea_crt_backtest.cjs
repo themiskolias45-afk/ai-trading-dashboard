@@ -116,8 +116,13 @@ function assertExpertPresent(install, expertRelative) {
     for (const d of dirs) {
       const origin = path.join(termRoot, d, 'origin.txt');
       try {
-        if (fs.existsSync(origin) &&
-            fs.readFileSync(origin, 'utf8').trim().toLowerCase() === path.resolve(install).toLowerCase()) {
+        if (!fs.existsSync(origin)) continue;
+        // origin.txt is UTF-16LE with a BOM, like every other file MT5 writes. Read as
+        // UTF-8 it becomes "C\0:\0\\\0U\0s\0..." which matches nothing, and this function
+        // then reports "could not resolve the data directory" for a directory that is
+        // sitting right there. Third UTF-16 trap in this toolchain; assume it, don't hope.
+        const text = fs.readFileSync(origin).toString('utf16le').replace(/^﻿/, '');
+        if (text.trim().toLowerCase() === path.resolve(install).toLowerCase()) {
           return path.join(termRoot, d);
         }
       } catch (err) { /* unreadable origin.txt - keep looking */ }
@@ -452,12 +457,12 @@ function main() {
     const base = SCENARIOS[wf];
     if (!base) { console.error(`Unknown scenario for --walkforward: ${wf}`); process.exitCode = 1; return; }
     for (const f of FOLDS) {
-      rows.push(runOne(install, `${wf}_${f.name}`, { from: f.from, to: f.to }, base.inputs));
+      rows.push(runOne(install, `${wf}_${f.name}`, { from: f.from, to: f.to }, base.inputs, dataDir));
     }
   } else if (scenario) {
     const s = SCENARIOS[scenario];
     if (!s) { console.error(`Unknown scenario: ${scenario}. Try --list.`); process.exitCode = 1; return; }
-    rows.push(runOne(install, scenario, s.period, s.inputs));
+    rows.push(runOne(install, scenario, s.period, s.inputs, dataDir));
   } else {
     console.error('Nothing to do. Pass --scenario <name>, --walkforward <name>, or --list.');
     process.exitCode = 1;
