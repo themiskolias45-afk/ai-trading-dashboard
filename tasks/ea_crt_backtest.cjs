@@ -251,6 +251,40 @@ function parseReport(file) {
     const m = html.slice(at, at + 400).match(/<b>([^<]+)<\/b>/);
     return m ? m[1].replace(/\s+/g, ' ').trim() : null;
   };
+  const asFloat = (s) => s == null ? null
+    : parseFloat(String(s).replace(/ /g, '').replace(/,/g, '').replace(/[^0-9.-].*$/, ''));
+  const asInt = (s) => s == null ? null : parseInt(String(s).replace(/[^0-9].*$/, ''), 10);
+
+  // ── THE TWO NUMBERS THAT MATTER, AND WHY NET PROFIT IS NOT ONE OF THEM ──────────
+  //
+  // Measured 2026-09-08: raising InpRiskReward from 2.5 to 8.0 lifted net profit from
+  // 99 to 399 and looked like a large win. It was not a payoff change at all - the
+  // AVERAGE WINNER STAYED AT ~1R AT EVERY TARGET (0.84R at a 2.5R target, 1.20R at an
+  // 8R target). The trades never reach the target: InpUsePartialTP banks 50% at 1R and
+  // InpUseBreakEven then caps the runner at break-even, so a winner is worth ~1R however
+  // far away the target is. What actually moved was the TRADE COUNT (342 -> 207), because
+  // a larger target will not fit inside the CRT range and those setups get rejected. The
+  // "reward" lever was an entry filter wearing a disguise, and net profit could not tell
+  // the difference.
+  //
+  // avgWinR = average winning trade in units of one full stop-out. If this does not rise
+  //           when the target rises, the target is not being reached.
+  // expectancyR = the honest edge per trade. The live config sits at +0.023R, which is
+  //           indistinguishable from zero.
+  const grossProfit = asFloat(metric('Gross Profit'));
+  const grossLoss = Math.abs(asFloat(metric('Gross Loss')));
+  const wins = asInt(metric('Profit Trades (% of total)'));
+  const losses = asInt(metric('Loss Trades (% of total)'));
+  const total = asInt(metric('Total Trades'));
+
+  let avgWinR = null, expectancyR = null, winRate = null;
+  if (grossProfit != null && grossLoss > 0 && wins > 0 && losses > 0 && total > 0) {
+    const oneR = grossLoss / losses;          // a full stop-out
+    avgWinR = (grossProfit / wins) / oneR;
+    winRate = wins / total;
+    expectancyR = winRate * avgWinR - (1 - winRate) * 1;
+  }
+
   return {
     netProfit: metric('Total Net Profit'),
     profitFactor: metric('Profit Factor'),
@@ -259,6 +293,9 @@ function parseReport(file) {
     totalTrades: metric('Total Trades'),
     sharpe: metric('Sharpe Ratio'),
     recoveryFactor: metric('Recovery Factor'),
+    winRatePct: winRate == null ? null : Number((winRate * 100).toFixed(2)),
+    avgWinR: avgWinR == null ? null : Number(avgWinR.toFixed(3)),
+    expectancyR: expectancyR == null ? null : Number(expectancyR.toFixed(4)),
   };
 }
 
