@@ -6664,8 +6664,18 @@ app.get("/api/mt5/positions", (_, res) => {
   // nothing about which trades are yours. The bridge now tags each row owner/model from
   // EXECUTOR_MAGICS; split on that here so a surface never has to know magic numbers.
   //
-  // A row with NO owner came from a bridge older than that change. It is reported as
-  // "unclassified" rather than guessed into either bucket — calling someone else's trade
+  // THE NEXT SENTENCE WAS TRUE ONCE AND IS NOT NOW. It said a row with no owner "came
+  // from a bridge older than that change" and "is reported as unclassified rather than
+  // guessed into either bucket". Since the OWN_MAGICS allow-list went in above, an
+  // untagged row is DROPPED BY MAGIC and never reaches this line at all. `unclassified`
+  // filters out executor and foreign, and classify() emits only "smartentry" or
+  // "executor", so the bucket can hold nothing but smartentry rows — and no writer
+  // produces one: mt5_bridge.py gates on `p.magic != MAGIC_NUMBER` before a row can enter
+  // `unmanaged`, and the snapshot path keeps only owner === "executor". It is therefore
+  // a SECOND structurally-empty key beside `foreign`. Kept, not removed: emptying a key
+  // the operator's surfaces still read is his call, not a tidy-up. The reasoning below is
+  // preserved because the principle still holds wherever a row IS ambiguous —
+  // calling someone else's trade
   // yours, or yours a stranger's, are both worse than saying the bridge is out of date.
   const executors   = allUnmanaged.filter(p => p.owner === "executor");
   const foreign     = allUnmanaged.filter(p => p.owner === "foreign");
@@ -6678,7 +6688,7 @@ app.get("/api/mt5/positions", (_, res) => {
     // Placed by our own executors, read from their ledgers. Independent of the bridge.
     executorTrades: readExecutorTrades(),
     exposure: Object.values(exposure).sort((a, b) => a.symbol.localeCompare(b.symbol)),
-    note: "positions = SmartEntry engine only (magic 20250101). executors = this system's OWN strategy executors on their own magics (TK_SWING_PULLBACK, FVG_CONTINUATION, CRT_FVG) - yours, but not managed by the main engine. foreign = ALWAYS EMPTY: the OWN_MAGICS allow-list drops third-party rows before this key is built, and they survive only on unmanagedByAccount. unclassified = ours by magic but tagged neither executor nor smartentry; it can no longer mean 'a bridge too old to tag them', because an untagged row is now dropped by magic instead. Nothing outside 'positions' is sized, managed or closed by SmartEntry.",
+    note: "positions = SmartEntry engine only (magic 20250101). executors = this system's OWN strategy executors on their own magics (TK_SWING_PULLBACK, FVG_CONTINUATION, CRT_FVG) - yours, but not managed by the main engine. foreign = ALWAYS EMPTY: the OWN_MAGICS allow-list drops third-party rows before this key is built, and they survive only on unmanagedByAccount. unclassified = rows tagged smartentry (the filter excludes executor and foreign, and classify() emits nothing else), and it too is ALWAYS EMPTY because no writer puts a magic-20250101 row into unmanaged. It can no longer mean 'a bridge too old to tag them': an untagged row is now dropped by magic instead. Nothing outside 'positions' is sized, managed or closed by SmartEntry.",
   });
 });
 app.post("/api/mt5/positions", (req, res) => {
