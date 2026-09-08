@@ -305,6 +305,62 @@ function judge(report) {
  * Returns days: null when the inputs are missing - and null FAILS the rule, because
  * "we cannot tell how long this would take" is not grounds for staging it.
  */
+/**
+ * THE SAME SPEC ON OTHER INSTRUMENTS.
+ *
+ * The registry keys a family as strategy|symbol|timeframe, so XAUUSD and BTCUSD running
+ * IDENTICAL parameters are two unrelated families and neither ever learns about the other.
+ * That is how a 1-of-3 result reads as a clean winner.
+ *
+ * Measured 2026-09-08: ict_mss_fvg H1 structure40/minGap03/within8 was tried on BTCUSD,
+ * SP500 and XAUUSD. It SURVIVED on BTC alone - and BTC was the only one anybody saw. An
+ * effect present on one instrument and absent on its two siblings is the cross-instrument
+ * form of a spike, and the plateau rule already refuses that shape across PARAMETERS.
+ * This is the same argument across INSTRUMENTS.
+ *
+ * It is also the cheapest power available. Pooling a spec over 4 instruments roughly
+ * quadruples its trade rate, and time-to-proof is trades/rate - so corroboration and
+ * provability improve together.
+ *
+ * Compares on the canonical spec with `symbol` removed, so only the instrument differs.
+ */
+function crossInstrument(spec) {
+  if (!spec) return null;
+  let rows = [];
+  try { rows = registry.readAll(); } catch (err) { return null; }
+
+  const shapeOf = (s) => {
+    const { symbol, ...rest } = s || {};
+    try { return JSON.stringify(registry.canonical(rest)); }
+    catch (err) { return JSON.stringify(rest); }
+  };
+  const target = shapeOf(spec);
+
+  // Newest run per symbol, so a re-run replaces rather than double-counts.
+  const bySymbol = new Map();
+  for (const r of rows) {
+    if (!r || !r.spec || !r.spec.symbol) continue;
+    if (shapeOf(r.spec) !== target) continue;
+    bySymbol.set(r.spec.symbol, r);
+  }
+
+  const siblings = [];
+  let positive = 0;
+  for (const [symbol, r] of bySymbol) {
+    const oos = ((r.summary || {}).outOfSample || {});
+    const e = typeof oos.expectancyR === 'number' ? oos.expectancyR : null;
+    if (e !== null && e > 0) positive++;
+    siblings.push({ symbol, expectancyR: e, verdict: ((r.summary || {}).assessment || {}).verdict || null });
+  }
+
+  return {
+    evaluated: siblings.length,
+    positive,
+    positiveFraction: siblings.length ? positive / siblings.length : 0,
+    siblings: siblings.sort((a, b) => (b.expectancyR ?? -9) - (a.expectancyR ?? -9)),
+  };
+}
+
 function daysToProof(report) {
   const oos = report.outOfSample || {};
   const all = report.all || {};
