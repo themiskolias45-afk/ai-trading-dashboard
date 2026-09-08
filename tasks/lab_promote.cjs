@@ -304,7 +304,20 @@ function judge(report) {
       + (proof.days === null ? 'UNKNOWN' : Math.round(proof.days) + ' days')
       + (proof.reason ? '; ' + proof.reason : '') + ')') && pass;
 
-  return { pass, reasons, plateau: plat, deflation: rd, proof };
+  const cross = report.spec ? crossInstrument(report.spec) : null;
+  pass = push(!!cross && cross.evaluated >= BAR.MIN_INSTRUMENTS
+      && cross.positiveFraction >= BAR.MIN_INSTRUMENT_POSITIVE,
+    'holds on >= ' + BAR.MIN_INSTRUMENTS + ' instruments, >= '
+      + (BAR.MIN_INSTRUMENT_POSITIVE * 100) + '% positive (got '
+      + (cross
+          ? cross.positive + '/' + cross.evaluated + ' ['
+            + cross.siblings.map(s => s.symbol + ' '
+                + (s.expectancyR === null ? '?' : (s.expectancyR > 0 ? '+' : '') + s.expectancyR.toFixed(3))).join(', ')
+            + ']'
+          : 'no sibling runs found')
+      + ')') && pass;
+
+  return { pass, reasons, plateau: plat, deflation: rd, proof, cross };
 }
 
 /**
