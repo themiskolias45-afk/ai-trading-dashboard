@@ -77,6 +77,33 @@ function Write-Head { param($Text) Write-Host "`n=== $Text ===" -ForegroundColor
 # --------------------------------------------------------------------------------------
 $Sources = @(
     # --- irreplaceable and tiny: first, they cost almost nothing ----------------------
+
+    # THE REPO IS EXCLUDED ON AN ASSUMPTION THAT IS FALSE FOR THESE SIX FILES.
+    # The note above says the repo "is in git, pushed to the remote, AND pulled onto the
+    # VPS, so it already has three copies". True for tracked source. Measured 2026-09-08
+    # with `git check-ignore`, these are GITIGNORED and therefore have exactly ONE copy,
+    # on the single disk of a laptop that hard-crashed three times that day:
+    #
+    #   server/learning.json      the learning engine
+    #   server/journal.json       the trade journal
+    #   server/smartentry.db      the database
+    #   tasks/rejections.jsonl    4,880 rows of self-learning
+    #   tasks/crash_ledger.jsonl  71 crash records
+    #   tasks/agent_audit.jsonl   per-tool-call agent audit
+    #
+    # They are gitignored for a good reason - per-box mutable state must not be tracked,
+    # or a `git pull` revokes append permission on the VPS and freezes the ledgers. That
+    # reason keeps them OUT OF GIT; it is not a reason to leave them with one copy.
+    # The VPS holds its OWN learning.json and journal.json - a different account and
+    # different trades - so it is not a copy of these, and never was.
+    #
+    # ~2 MB total. First in the list because it is the smallest irreplaceable thing here.
+    [pscustomobject]@{ Name = 'Trading-state';     Path = 'C:\Users\User\ai-trading-dashboard\server'
+                       Filter = @('learning.json','journal.json','smartentry.db') }
+    [pscustomobject]@{ Name = 'Trading-ledgers';   Path = 'C:\Users\User\ai-trading-dashboard\tasks'
+                       Filter = @('rejections.jsonl','crash_ledger.jsonl','agent_audit.jsonl',
+                                  'all_trades_ledger.jsonl','jarvis_memory.json') }
+
     [pscustomobject]@{ Name = 'Brain-vault';       Path = 'C:\Users\User\Documents\Brain' }
     [pscustomobject]@{ Name = 'Claude-memory';     Path = 'C:\Users\User\.claude\projects\C--Users-User-ai-trading-dashboard\memory' }
     [pscustomobject]@{ Name = 'ml_trading_system'; Path = Join-Path $env:USERPROFILE 'ml_trading_system' }
