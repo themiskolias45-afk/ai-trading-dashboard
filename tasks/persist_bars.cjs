@@ -86,7 +86,10 @@ const PERIOD_SECONDS = { d1: 86400, h4: 14400, h1: 3600, m15: 900 };
 const PRICE_DECIMALS = 5;
 
 // Timeframe key in the API payload -> filename suffix on disk.
-const TF_SUFFIX = { d1: "D1", h4: "H4", h1: "H1" };
+// Both tables must list the same keys: PERIOD_SECONDS decides whether a bar has closed,
+// TF_SUFFIX decides where it is written. A key present in one and absent from the other
+// is how M15 went unwritten for nine days without a single error anywhere.
+const TF_SUFFIX = { d1: "D1", h4: "H4", h1: "H1", m15: "M15" };
 
 function log(line) { console.log(line); }
 
