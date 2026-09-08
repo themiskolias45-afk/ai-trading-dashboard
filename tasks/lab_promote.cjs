@@ -269,7 +269,46 @@ function judge(report) {
       + (plat ? (plat.positive + '/' + plat.evaluated + ' on ' + plat.parameter) : 'too few neighbours run yet')
       + ')') && pass;
 
-  return { pass, reasons, plateau: plat, deflation: rd };
+  const proof = daysToProof(report);
+  pass = push(proof.days !== null && proof.days <= BAR.MAX_DAYS_TO_PROOF,
+    'provable within ' + BAR.MAX_DAYS_TO_PROOF + ' days (needs ~'
+      + (proof.tradesNeeded === null ? '?' : proof.tradesNeeded) + ' forward trades at '
+      + (proof.ratePerDay === null ? '?' : proof.ratePerDay.toFixed(3)) + '/day = '
+      + (proof.days === null ? 'UNKNOWN' : Math.round(proof.days) + ' days')
+      + (proof.reason ? '; ' + proof.reason : '') + ')') && pass;
+
+  return { pass, reasons, plateau: plat, deflation: rd, proof };
+}
+
+/**
+ * How long would it take to SETTLE this candidate forward?
+ *
+ * trades needed for the OOS edge to clear zero at ~2 standard errors:
+ *     n = (2 * sd / edge)^2
+ * then divided by the candidate's observed trade rate.
+ *
+ * This is the same arithmetic lab_shadow.cjs prints per staged candidate; it is applied
+ * HERE so a candidate that cannot be settled in a year is never staged in the first
+ * place, rather than discovered to be unsettleable months later.
+ *
+ * Returns days: null when the inputs are missing - and null FAILS the rule, because
+ * "we cannot tell how long this would take" is not grounds for staging it.
+ */
+function daysToProof(report) {
+  const oos = report.outOfSample || {};
+  const all = report.all || {};
+  const edge = typeof oos.expectancyR === 'number' ? oos.expectancyR : null;
+  const sd = typeof oos.sdR === 'number' ? oos.sdR
+    : (typeof all.sdR === 'number' ? all.sdR : null);
+  const rate = typeof all.tradesPerDay === 'number' ? all.tradesPerDay
+    : (typeof report.tradesPerDay === 'number' ? report.tradesPerDay : null);
+
+  if (edge === null || edge <= 0) return { days: null, tradesNeeded: null, ratePerDay: rate, reason: 'no positive OOS edge to prove' };
+  if (sd === null || !(sd > 0))   return { days: null, tradesNeeded: null, ratePerDay: rate, reason: 'no OOS standard deviation recorded' };
+  if (rate === null || !(rate > 0)) return { days: null, tradesNeeded: null, ratePerDay: null, reason: 'no trade rate recorded' };
+
+  const tradesNeeded = Math.ceil(Math.pow((2 * sd) / edge, 2));
+  return { days: tradesNeeded / rate, tradesNeeded, ratePerDay: rate, reason: null };
 }
 
 // ── Telegram ────────────────────────────────────────────────────────────────
