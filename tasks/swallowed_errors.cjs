@@ -128,14 +128,31 @@ function main() {
 
   if (!rows.length) { console.log('  nothing repeated in this window'); return; }
 
-  for (const r of rows.slice(0, 25)) {
+  const show = (r) => {
     console.log('');
     console.log('  ' + String(r.count).padStart(5) + 'x  [' + r.kind + ']  ' + r.sig);
     console.log('         in: ' + [...r.files].slice(0, 4).join(', ') + ([...r.files].length > 4 ? ' (+' + ([...r.files].length - 4) + ')' : ''));
-  }
+  };
+
+  const thrown = rows.filter(r => THROWN_KINDS.has(r.kind));
+  const keyword = rows.filter(r => !THROWN_KINDS.has(r.kind));
 
   console.log('');
-  console.log('  ' + rows.length + ' repeated pattern(s). Ranked by REPETITION: once is noise, 400 times is production.');
+  console.log('  ── THROWN ' + '─'.repeat(78));
+  console.log('  Something raised and a handler caught it. This is the section to act on.');
+  if (!thrown.length) console.log('\n  nothing thrown repeatedly in this window');
+  thrown.slice(0, 20).forEach(show);
+
+  console.log('');
+  console.log('  ── KEYWORD ' + '─'.repeat(77));
+  console.log('  A text scan for "failed". Includes prose - 37 hits were once the sentence');
+  console.log('  "failed, so the rest is determined." Read these, do not act on the count alone.');
+  if (!keyword.length) console.log('\n  none');
+  keyword.slice(0, 12).forEach(show);
+
+  console.log('');
+  console.log('  ' + thrown.length + ' thrown pattern(s), ' + keyword.length + ' keyword pattern(s).');
+  console.log('  Ranked by REPETITION: once is noise, 400 times is production.');
 }
 
 try { main(); } catch (err) {
