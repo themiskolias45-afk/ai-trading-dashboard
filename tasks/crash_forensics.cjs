@@ -121,7 +121,14 @@ function readShutdownEvents(lookbackDays) {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [parsed];
+    // Windows PowerShell 5.1 renders an explicitly-wrapped array as
+    // {"value":[...],"Count":n} rather than a bare JSON array. Measured 2026-09-08: the
+    // first version of this read that object as ONE event with every field undefined,
+    // and reported "1 shutdown-related event" over a log holding 69. Both shapes are
+    // handled here because the wrapper depends on the PowerShell edition, not on us.
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && Array.isArray(parsed.value)) return parsed.value;
+    return [parsed];
   } catch (err) {
     console.error('  ! event log output was not JSON: ' + err.message);
     return [];
