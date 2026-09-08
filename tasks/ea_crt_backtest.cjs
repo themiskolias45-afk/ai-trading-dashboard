@@ -301,14 +301,26 @@ const FOLDS = [
 function runOne(install, reportName, period, inputs, dataDirForRun) {
   let template = readUtf16(TEMPLATE_INI);
 
-  // DROP THE [Common] LOGIN. The template carries Login=11581419 / VantageMarkets-Demo -
-  // the account the VPS trades. Measured 2026-09-08: the tester logged in, the server
-  // reported "previous successful authorization performed from 80.42.47.168" (the VPS)
-  // and a 'connection lost' immediately followed. The Strategy Tester simulates against
-  // LOCAL history and does not need a live session, so there is no reason to contend for
-  // that account. Stripping the section removes the risk entirely rather than relying on
-  // the broker permitting concurrent logins.
-  template = template.replace(/^\[Common\]\r?\n(?:(?!\[)[^\r\n]*\r?\n)*/mi, '');
+  // THE [Common] LOGIN IS REQUIRED. Keep it.
+  //
+  // I removed it on 2026-09-08 reasoning that the Strategy Tester simulates against local
+  // history and needs no live session. MEASURED, AND WRONG: the terminal refused with
+  //   "tester not started because the account is not specified"  (exit -1000012353)
+  // in 5 seconds. The tester takes symbol specification and trade-server context from the
+  // account, so there is no accountless mode to fall back to.
+  //
+  // WHAT REMAINS TRUE, AND IS A REAL CAVEAT: that account (11581419, VantageMarkets-Demo)
+  // is the one the VPS trades. On the run that did connect, the log showed
+  //   'connection to VantageMarkets-Demo lost'  then  're-authorized'  then
+  //   'previous successful authorization performed from 80.42.47.168'  (the VPS)
+  // which is consistent with two terminals contending for one demo login. The original
+  // 37-run campaign used this same account, so this is the status quo rather than a new
+  // risk - but it is a shared account, and a tester run here may disturb the VPS session.
+  // Point --login at a separate demo account to remove the contention properly.
+  const loginOverride = strArg('--login', null);
+  if (loginOverride) {
+    template = template.replace(/^Login=.*$/mi, `Login=${loginOverride}`);
+  }
 
   const ini = patchIni(template, {
     FromDate: period.from,
