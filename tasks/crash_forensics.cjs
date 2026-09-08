@@ -3,17 +3,21 @@
 /**
  * Preserve the evidence of every unexpected shutdown, before Windows deletes it.
  *
- * WHY THIS EXISTS. On 2026-09-08 this laptop died twice - 14:27:33 with bugcheck
- * 0x00020001 (HYPERVISOR_ERROR) and 16:36:01 with no bugcheck at all, a hard freeze.
- * That was the fifth and sixth unexpected shutdown in 60 days. Every one of them is
- * undiagnosable, for one reason: event 1001 named a dump at
- * C:\WINDOWS\Minidump\090826-28500-01.dmp and that directory is EMPTY. Storage Sense is
- * on, its temp-file sweep is on, and MinidumpsCount is 5. Windows is allowed to delete
- * the only record of why the machine stopped, and it does.
+ * WHY THIS EXISTS. On 2026-09-08 this laptop died three times - 14:27 with bugcheck
+ * 0x00020001 (HYPERVISOR_ERROR), then 16:36 and 17:59 with no bugcheck at all. Event 1001
+ * named a dump at C:\WINDOWS\Minidump\090826-28500-01.dmp, and MinidumpsCount is 5, so
+ * Windows is allowed to roll the only record of why the machine stopped off the end.
  *
- * THE FAILURE SHAPE: the crash is logged, the log points at a file, and the file is gone
- * by the time anyone looks. Nothing errors. Nothing is missing from any check. The
- * evidence simply expires on someone else's schedule.
+ * CORRECTED 2026-09-08. This header used to state that the Minidump directory "is EMPTY"
+ * and blame Storage Sense. That was never measured. The directory returns EPERM /
+ * "Access is denied" to an unelevated caller - whether it holds dumps is UNKNOWN from
+ * here. Storage Sense may also delete them; that remains plausible and unproven. The
+ * claim was corrected rather than kept, because a wrong cause in a header is read as
+ * fact by the next session.
+ *
+ * THE FAILURE SHAPE: the crash is logged, the log points at a file, and nobody can say
+ * whether the file is there. Nothing errors loudly. The evidence expires, or was never
+ * reachable, and both look identical in a report that only counts what it found.
  *
  * SO THIS COPIES, IT NEVER MOVES. Windows keeps its own dumps and does whatever it likes
  * with them; we keep a second copy in tasks/crash_dumps/ where no cleaner is pointed. An
