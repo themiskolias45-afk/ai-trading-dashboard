@@ -64,7 +64,7 @@ $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(4) `
                                     -RepetitionInterval (New-TimeSpan -Minutes 15)
 # Limited matches every other SmartEntry task on this box. Highest would need elevation
 # Windows refuses to grant to Set-ScheduledTask, and nothing here needs it.
-$principal = New-ScheduledTaskPrincipal -UserId "User" -LogonType Interactive -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive -RunLevel Limited
 $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                                           -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -StartWhenAvailable
 
