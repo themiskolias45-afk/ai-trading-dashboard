@@ -208,3 +208,8 @@ tasks/confluence_state.json
 tasks/confluence_ledger.jsonl
 tasks/h4_agreement_state.json
 tasks/atomic_staleness_state.json
+
+# Crash forensics: per-box mutable state. Untracked on purpose - a git-tracked
+# ledger gets its append revoked by every pull (see per_box_mutable_state memory).
+tasks/crash_ledger.jsonl
+tasks/crash_dumps/
