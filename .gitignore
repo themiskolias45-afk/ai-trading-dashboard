@@ -194,3 +194,10 @@ dashboard/lab-shadow.json
 # only copy" - that was the design intent all along, and git was quietly breaking it. Both
 # backup jobs name the file explicitly, so untracking costs no backup coverage.
 server/learning.json
+
+# Per-box dedupe state for the confluence alert. Untracked ON PURPOSE: a git-tracked
+# state file gets recreated by a pull, and under RunLevel=Limited the filtered token
+# loses append rights on the recreated file - the exact ACL trap that left the VPS
+# ledgers unwritable for 17 hours on 2026-09-08. It is also per-box by nature: each
+# machine sends its own alerts and must remember its own sends.
+tasks/confluence_state.json
