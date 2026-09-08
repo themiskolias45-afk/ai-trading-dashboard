@@ -181,3 +181,16 @@ server/smartentry.db
 # LEDGER (tasks/lab_shadow.jsonl) stays tracked: that is accumulated evidence and
 # pools across both boxes, which is the opposite requirement.
 dashboard/lab-shadow.json
+
+# PER-BOX LEARNING RECORD — NEVER SHARED BETWEEN MACHINES.
+#
+# server/learning.json was git-TRACKED while server/journal.json was not, so every pull
+# overwrote a box's learning with the other box's while the journal it describes stayed
+# local. Measured 2026-09-08: three of the VPS's four setups carried P&L byte-identical to
+# the laptop's, and its BB_SQUEEZE_WATCH read -449.72 against -6.80 in its own journal. The
+# VPS had been boosting on the wrong machine's history.
+#
+# bucket_audit.cjs already describes this file as "never synced, so this archive is its
+# only copy" - that was the design intent all along, and git was quietly breaking it. Both
+# backup jobs name the file explicitly, so untracking costs no backup coverage.
+server/learning.json
