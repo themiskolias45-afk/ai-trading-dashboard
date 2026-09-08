@@ -493,6 +493,17 @@ const API_NO_LOGIN_REQUIRED = new Set([
   // Listing it here only skips the session check; the handler still refuses anything that
   // is not 127.0.0.1.
   "/api/mt5/restart-bridge",
+  // Same shape, same reasoning. tasks/atomic_feed_reader.cjs is a script on this machine
+  // with no browser session, shipping a file the ATOMIC_ANALYST_V84 INDICATOR wrote -
+  // MQL5 forbids WebRequest inside an indicator, so a reader has to carry it. Listing it
+  // here skips only the session check; requireLocalOnly on the handler still refuses
+  // anything that is not 127.0.0.1.
+  //
+  // ONLY the POST path is listed. "/api/atomic" (the GET that renders the verdicts) is
+  // deliberately absent, so reading them still needs a session like every other dashboard
+  // read. And the store this writes feeds NOTHING - no gate, no confidence, no size, no
+  // stop - so even a successful post by something unexpected cannot move a trade.
+  "/api/atomic/verdict",
   "/api/trade-opened", "/api/trade-closed",
   "/api/tv-alert", "/api/claude-approve-trade",
   "/api/agent/notify", "/api/mt5/health", "/api/status",
@@ -8155,6 +8166,86 @@ app.get("/api/hermes", (_, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── ATOMIC ANALYST FEED — a second opinion, stored BESIDE the engine ────────────────
+//
+// ATOMIC_ANALYST_V84 is an MT5 INDICATOR (tasks/ea_source/ATOMIC_ANALYST_V84.mq5). It has
+// no trade functions available to it and does not occupy a chart's expert slot, so it can
+// neither place an order nor displace an EA. It writes a verdict file that
+// tasks/atomic_feed_reader.cjs ships here.
+//
+// IT FEEDS NOTHING. No gate, no confidence value, no position size, no stop reads this
+// store - grep atomicVerdicts before ever changing that. It is an unvalidated third-party
+// read, and putting one on the live decision path is precisely what keeping `shadow`
+// alongside rather than merged is meant to prevent. If it earns a place in a decision it
+// does so after a walk-forward, not because it is present.
+//
+// STALENESS IS STRUCTURAL HERE. The MT4 panel this ports from displayed a four-day-old
+// ticket underneath a live header, which is how a stale fact passes for a current one.
+// Every record therefore carries its own age and its own stale flag, set by the reader
+// and recomputed on read so a record cannot go stale silently while sitting in memory.
+const atomicVerdicts = new Map();     // symbol -> { record, terminal, receivedAt, ... }
+const ATOMIC_MAX_KEYS = 40;           // bounded: a runaway writer cannot grow this forever
+const ATOMIC_STALE_MINUTES = 30;
+
+app.post("/api/atomic/verdict", requireLocalOnly, (req, res) => {
+  const rec = req.body && req.body.record;
+  if (!rec || typeof rec !== "object") return res.status(400).json({ error: "record required" });
+  if (rec.source !== "ATOMIC_ANALYST_V84") return res.status(400).json({ error: "unknown source" });
+  const symbol = typeof rec.symbol === "string" ? rec.symbol.trim() : "";
+  if (!symbol) return res.status(400).json({ error: "symbol required" });
+
+  if (!atomicVerdicts.has(symbol) && atomicVerdicts.size >= ATOMIC_MAX_KEYS) {
+    return res.status(429).json({ error: "atomic verdict store is full", keys: atomicVerdicts.size });
+  }
+  atomicVerdicts.set(symbol, {
+    record: rec,
+    terminal: typeof req.body.terminal === "string" ? req.body.terminal.slice(0, 40) : null,
+    ageMinutesAtShip: Number.isFinite(req.body.ageMinutes) ? req.body.ageMinutes : null,
+    staleAtShip: req.body.stale === true,
+    receivedAt: new Date().toISOString(),
+  });
+  res.json({ ok: true, symbol, stored: atomicVerdicts.size, feedsTheGate: false });
+});
+
+app.get("/api/atomic", (_, res) => {
+  const now = Date.now();
+  const out = [];
+  for (const [symbol, v] of atomicVerdicts.entries()) {
+    // Recomputed from the INDICATOR's own stamp, not from receivedAt. A record that
+    // arrived recently can still describe a chart that stopped updating half an hour ago,
+    // and receivedAt would call that fresh.
+    const epoch = Number(v.record.generatedAtEpoch);
+    const ageMin = Number.isFinite(epoch) ? (now / 1000 - epoch) / 60 : null;
+    out.push({
+      symbol,
+      verdict:     v.record.verdict ?? null,
+      direction:   v.record.direction ?? null,
+      confidence:  v.record.confidence ?? null,
+      mtfAligned:  v.record.mtfAligned ?? null,
+      dominance:   v.record.dominance ?? null,
+      mtf:         v.record.mtf ?? null,
+      consensus:   v.record.consensus ?? null,
+      indicators:  v.record.indicators ?? null,
+      ticket:      v.record.ticket ?? null,
+      account:     v.record.account ?? null,
+      terminal:    v.terminal,
+      generatedAt: v.record.generatedAt ?? null,
+      ageMinutes:  ageMin === null ? null : parseFloat(ageMin.toFixed(1)),
+      stale:       ageMin === null || ageMin > ATOMIC_STALE_MINUTES,
+    });
+  }
+  out.sort((a, b) => String(a.symbol).localeCompare(String(b.symbol)));
+  res.json({
+    feedsTheGate: false,
+    staleAfterMinutes: ATOMIC_STALE_MINUTES,
+    count: out.length,
+    verdicts: out,
+    whatThisIs: "A second opinion from the ATOMIC_ANALYST_V84 indicator, stored beside the "
+      + "engine and read by nothing that decides. It has not been walk-forward tested on "
+      + "this fleet. Treat a verdict here as an observation, never as a reason to trade.",
+  });
 });
 
 app.get("/api/learning", (_, res) => {
