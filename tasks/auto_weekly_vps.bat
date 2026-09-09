@@ -6,7 +6,13 @@ REM had begun blocking - every python call on the box died at once for 8h32m.
 REM Falls back to bare `python`, so a box that works today selects what it always did.
 call "%~dp0resolve_python.bat"
 REM Weekly review — VPS version. Proposes an improvement; does not apply it.
-cd /d C:\ai-trading-dashboard
+REM Root derived from this script own location, not baked in. It was
+REM "cd /d C:\ai-trading-dashboard" until 2026-09-09 - the VPS root, hardcoded,
+REM so on the laptop (C:\Users\User\ai-trading-dashboard) this cd silently failed
+REM and everything after it ran against the wrong directory. %~dp0 is this file
+REM folder with a trailing backslash, so %~dp0.. is the repo root on BOTH boxes
+REM and resolves to the identical path on the VPS.
+cd /d "%~dp0.."
 if not exist tasks\logs mkdir tasks\logs
 if exist keys.env (
   for /f "usebackq tokens=1,* delims==" %%a in ("keys.env") do set "%%a=%%b"

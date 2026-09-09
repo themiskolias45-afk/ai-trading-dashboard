@@ -18,7 +18,13 @@ REM a synthesiser merges them, and any proposal naming a tunable setting goes
 REM through tasks\evaluate_change.py. Nothing is applied automatically: the
 REM report is written and waits to be read.
 
-cd /d C:\ai-trading-dashboard
+REM Root derived from this script own location, not baked in. It was
+REM "cd /d C:\ai-trading-dashboard" until 2026-09-09 - the VPS root, hardcoded,
+REM so on the laptop (C:\Users\User\ai-trading-dashboard) this cd silently failed
+REM and everything after it ran against the wrong directory. %~dp0 is this file
+REM folder with a trailing backslash, so %~dp0.. is the repo root on BOTH boxes
+REM and resolves to the identical path on the VPS.
+cd /d "%~dp0.."
 if not exist tasks\logs mkdir tasks\logs
 
 set LOG=tasks\logs\analysis.txt
