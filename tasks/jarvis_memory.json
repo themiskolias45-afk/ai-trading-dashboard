@@ -768,19 +768,19 @@
     },
     {
       "key": "last-session-state",
-      "value": "2026-09-09 NIGHT — THE CLI RAIL + THE CSRF HOLE, BOTH BOXES RESTARTED AND VERIFIED. Laptop server startedAt 19:29:20Z (PID 9840), VPS 19:51:27Z (PID 4728); bridges reconnected, breakers preserved (laptop 0, VPS 2 of 3), 14 fresh / 0 STALE / 0 ABSENT on both, firing set identical across both restarts. SHIPPED laptop: 3bab732 (runClaudeCli rejects non-zero exit), 510432a (+ rejects auth TEXT; CLI_AUTH_ERROR_RE hoisted, one definition two readers), 55bdc3b (isLoopbackOrigin — the CSRF fix), 904615d (_vps_restart.ps1 polls instead of a flat 20s), 1b4034f (post-edit hook now says its auto-commit message is provisional), ba22503 (stderr capture + killClaudeCliTree — NOT LIVE, landed after the restart). SHIPPED VPS: 877592e (7 agent briefs incl. medic's OPERATING BOUNDARY), 9529bb0 (CLI auth rail — READ ITS GIT NOTE, it contains 2 swept blocks), e78aacc (CSRF fix), f88a1a2 (restart poll). MEASURED: a signed-out `claude -p` exits 1 and prints the auth text on STDOUT (probed via a redirected CLAUDE_CONFIG_DIR in a child process — never sign the shared CLI out, it blocks all 5 agent jobs); and `ssh -L 3002:localhost:3001` makes tunnelled requests arrive at the VPS from its OWN loopback, so \"local only\" passed for any page in the operator's browser across ~19 routes incl. /api/shutdown and /api/engineer/launch — fixed with an ORIGIN test, because rejecting loopback would remove the operator's only exit from a VPS breaker halt. OPEN: (1) ba22503 not on the VPS and not live anywhere — port in place with node, never scp index.js; (2) runAiFilterViaCli:10823 has the same orphan defect and is the TRADE-PATH copy, deliberately scoped out; (3) chunk.toString() mojibake on stdout, which reaches journal.json; (4) dashboard/index.html:5071 unescaped innerHTML; (5) no per-request timeout on generateTradeCommentary's API leg; (6) VPS 174 commits behind, pull BLOCKED by 86 dirty files incl. index.js and mt5_bridge.py, 362 uncommitted there — `git add server/index.js` sweeps extras, that is why 9529bb0 came out at 135 insertions; (7) VPS breaker 2 of 3, one more real loss halts the trading box. FULL DETAIL + the traps that cost time: memory/next_session_open_threads.md, section \"2026-09-09 NIGHT\".",
+      "value": "2026-09-09 NIGHT — CLI RAIL + CSRF, BOTH BOXES RESTARTED, RAIL NOW IDENTICAL ON BOTH. Laptop server 19:29:20Z (PID 9840), VPS 19:51:27Z (PID 4728); bridges reconnected, breakers preserved (laptop 0, VPS 2 of 3), 14 fresh/0 STALE/0 ABSENT both, firing set identical across both restarts. LIVE on both: the CLI auth guards (3bab732+510432a laptop, 9529bb0 VPS) and the CSRF Origin fix (55bdc3b laptop, e78aacc VPS). NOT LIVE ON EITHER, committed on both: the stderr+orphan fix — ba22503 (laptop) ported to the VPS as 1987127 by replacing ONE contiguous region (const CLI_AUTH_ERROR_RE .. end of runClaudeCli) in place with node; region md5 69d6cb91 identical on both boxes, everything outside it proved character-identical, both behaviour tests re-run ON the VPS (close 2058ms, grandchild 0; stderr 7/7). Both boxes need a natural restart for it to go live. NEVER scp index.js — 14,190 (laptop) vs 14,327 (VPS) lines. Also shipped: 904615d/f88a1a2 (_vps_restart.ps1 polls instead of a flat 20s — it had declared a SUCCESSFUL restart dead), 1b4034f (post-edit hook now says its auto-commit message is provisional), 877592e (7 agent briefs to the VPS incl. medic's OPERATING BOUNDARY — medic is now CLOSED, verified tools:1 boundary:1 on all 7 on BOTH boxes). MEASURED: signed-out `claude -p` exits 1 with the auth text on STDOUT (probe via redirected CLAUDE_CONFIG_DIR in a child process — never sign the shared CLI out); `ssh -L 3002:localhost:3001` makes tunnelled requests reach the VPS from its OWN loopback, so \"local only\" passed for any browser page across ~19 admin routes incl. /api/shutdown and /api/engineer/launch — fixed with an ORIGIN test, because rejecting loopback would remove the operator's only exit from a breaker halt. OPEN: (1) restart both boxes to make the stderr+orphan fix live; (2) runAiFilterViaCli:10823 has the same orphan defect and is the TRADE-PATH copy, deliberately scoped out, one-line extension of killClaudeCliTree; (3) chunk.toString() mojibake on stdout, which reaches journal.json; (4) dashboard/index.html:5071 unescaped innerHTML; (5) no per-request timeout on generateTradeCommentary's API leg; (6) VPS 174 commits behind, pull BLOCKED by 86 dirty files incl. index.js and mt5_bridge.py, 362 uncommitted — ALWAYS check `git diff --cached --stat` before committing there, that is how 9529bb0 came out at 135 insertions instead of ~40; (7) VPS breaker 2 of 3, one more real loss halts the trading box. DETAIL: memory/next_session_open_threads.md section \"2026-09-09 NIGHT\", plus memory files local_only_was_true_of_the_socket_not_the_caller.md and the_cli_rail_returned_a_signin_error_as_analysis.md (both RAG-indexed and verified retrievable).",
       "category": "SYSTEM",
       "source": "manual",
       "created_at": "2026-08-28T06:16:55.822276+00:00",
-      "updated_at": "2026-09-09T20:31:03.431548+00:00"
+      "updated_at": "2026-09-09T20:54:30.725575+00:00"
     },
     {
       "key": "last-session-commits",
-      "value": "ba22503 runClaudeCli: read stderr, and kill the tree instead of just cmd.exe | 1b4034f Say that the auto-commit message is provisional, when it is written | 904615d update tasks\\_vps_restart.ps1",
+      "value": "0a2387a state: checkpoint the CLI-rail / CSRF session before handoff | ba22503 runClaudeCli: read stderr, and kill the tree instead of just cmd.exe | 1b4034f Say that the auto-commit message is provisional, when it is written",
       "category": "GENERAL",
       "source": "manual",
       "created_at": "2026-08-28T06:16:57.452243+00:00",
-      "updated_at": "2026-09-09T20:27:13.438Z"
+      "updated_at": "2026-09-09T20:44:02.455Z"
     },
     {
       "key": "EOD_20260828",
@@ -944,5 +944,5 @@
       "type": "session"
     }
   ],
-  "last_updated": "2026-09-09T20:31:03.431548+00:00"
+  "last_updated": "2026-09-09T20:54:30.725575+00:00"
 }
