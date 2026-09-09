@@ -1,0 +1,41 @@
+A restart that WORKED read exactly like one that failed.
+
+(The intended commit message. An auto-commit hook committed this edit as
+"update tasks\_vps_restart.ps1" before the real commit ran, so the reasoning is
+recorded here instead. Content is unchanged and correct.)
+
+tasks/_vps_restart.ps1 slept a flat 20s before checking. Measured 2026-09-09: the
+VPS takes ~25-30s to bind after Start-ScheduledTask, so on a completely successful
+restart it printed "NOTHING on 3001" and four "FAIL Unable to connect" lines. The
+server was up seconds later on PID 4728, startedAt 2026-09-09T19:51:27.318Z,
+serving every one of those four endpoints with http 200.
+
+The only reason the contradiction was visible is that the script's own /api/size
+probe, a few lines further down, answered fine against the server it had just
+declared dead. Without that accident the reading was "the restart failed" on the
+box that trades - which is how a live server gets chased as a dead one, or worse,
+restarted a second time underneath itself.
+
+CLAUDE.md already names the mirror image: "a restart that silently no-opped looks
+exactly like the code change not working". This is the same defect pointing the
+other way, and a fixed sleep can only ever be wrong on one side or the other.
+
+Replaced with the same poll ensure_running.ps1 already uses: /api/status every 3s
+up to 90s, then report how long it actually waited. On a genuinely dead server it
+now says so after a real 90s instead of implying 20s was ever the answer.
+
+VERIFIED BY RUNNING:
+- PSParser tokenize: PARSE OK, 514 tokens, 0 errors
+- loop against the live server: "server answered after 3s", real elapsed 4.1s -
+  returns on the first poll instead of blocking for 20
+- loop against a port with nothing on it: "correctly reported down after 9s" -
+  gives up cleanly rather than hanging
+- still ASCII apart from the pre-existing line-1 em-dash, which was not touched;
+  the sibling script's header warns PS 5.1 reads a .ps1 as ANSI without a BOM
+
+Touches nothing on the signal path: no gate, threshold, confidence, setup, lot,
+stop or schedule. Cannot block a signal or the learning writers - it only changes
+how long this script waits before printing what it found.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DrZrHUR1qrZczmuVo2gPoh
