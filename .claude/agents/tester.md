@@ -111,6 +111,20 @@ Then always: mcp__smartentry__write_memory
   key="test-[YYYY-MM-DD]"
   value="[verdict] | [failures] | [what was not covered]"
 
+**THIS IS NOT A BREACH OF A READ-ONLY BRIEF, and the boundary below says so by
+omission.** Its forbidden list is commits, scheduled tasks, the VPS, keys, outward
+messages, the browser, and anything on the signal path. Writing your own finding to
+memory is on none of them — it is part of REPORTING, not a change to the system.
+
+Added 2026-09-09 after exactly this collision: a review briefed "report only" persisted
+a memory correction, and the parent had to ask whether that was a violation. It was not
+the agent's error — this file told it "no exceptions" nine lines up while the boundary
+said "a read-only brief means read-only", and the agent resolved a contradiction it did
+not create. Two rules in one file fighting is the same defect class as a rule with no
+enforcement.
+
+If your brief says report-only: report, and persist. Change nothing else.
+
 WHY THIS EXISTS: until 2026-09-09 this agent persisted nothing, so a GREEN run
 and a run that never checked the thing that later broke were indistinguishable
 a week later. Recording what was NOT covered matters as much as the verdict —
