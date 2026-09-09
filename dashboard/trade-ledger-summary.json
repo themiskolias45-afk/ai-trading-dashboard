@@ -1,8 +1,8 @@
 {
- "generatedAt": "2026-09-09T17:06:04.377900+00:00",
+ "generatedAt": "2026-09-09T20:06:04.225092+00:00",
  "ledger": "all_trades_ledger.jsonl",
  "feedsTheGate": false,
- "totalRowsInLedger": 12577,
+ "totalRowsInLedger": 12578,
  "smartEntry": {
   "trades": 36,
   "wins": 15,
@@ -120,11 +120,11 @@
    "lastClose": "2026-09-09T18:05:45+00:00"
   },
   "foreign": {
-   "trades": 12498,
+   "trades": 12499,
    "wins": 8236,
    "losses": 3999,
-   "scratches": 263,
-   "winRatePct": 65.9,
+   "scratches": 264,
+   "winRatePct": 65.89,
    "netProfit": -14176.39,
    "grossProfit": 65090.55,
    "grossLoss": -79266.94,
@@ -133,7 +133,7 @@
    "largestWin": 3209.1,
    "largestLoss": -1029.22,
    "firstClose": "2026-01-03T10:27:47+00:00",
-   "lastClose": "2026-09-09T19:08:43+00:00"
+   "lastClose": "2026-09-09T21:19:48+00:00"
   }
  },
  "byModel": {

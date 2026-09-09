@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-09-09T17:31:34.106Z",
+  "generatedAt": "2026-09-09T20:21:31.788Z",
   "feedsTheGate": false,
   "verdict": "NOT LOADED IN THIS TERMINAL SESSION",
   "severity": "AMBER",
-  "detail": "No EA matching /(EA_CRT_AMD_Dashboard(?:_v\\d+)?)\\s*\\(([^,]+),([^)]+)\\)/ is loaded on this box. The terminal log is readable and this is what IS loaded -- 5B9C24F1 [session 2026-09-09 16:39:40]: DeepTrade_EA_v1 (MSFT,M15), TK_SMART_ENTRY_v3.22 (BTCUSD,M15), V10_EA_MASTER_v4_15_2_CAPBORN (BTCUSD,M15), V10_EA_MASTER_v4_15_2_CAPBORN (XAUUSD,M15)  |  A35D81CF [session 2026-09-08 22:03:38]: (no experts loaded)  |  D0E8209F [session 2026-09-09 16:39:40]: V10_EA_TRADING_ONLY_v4_15_2_CAPBORN (XAUUSD,M15), V10_EA_TRADING_ONLY_v4_15_2_CAPBORN (BTCUSD,M15), Pao (BTCUSD,M15).  Last recorded here: EA_CRT_AMD_Dashboard_v355 at 2026-09-04 11:16:56. Reported from the roster, so it is certain, not a staleness guess.",
+  "detail": "No EA matching /(EA_CRT_AMD_Dashboard(?:_v\\d+)?)\\s*\\(([^,]+),([^)]+)\\)/ is loaded on this box. The terminal log is readable and this is what IS loaded -- 5B9C24F1 [session 2026-09-09 18:34:42]: DeepTrade_EA_v1 (MSFT,M15), TK_SMART_ENTRY_v3.22 (BTCUSD,M15), V10_EA_MASTER_v4_15_2_CAPBORN (BTCUSD,M15), V10_EA_MASTER_v4_15_2_CAPBORN (XAUUSD,M15)  |  A35D81CF [session 2026-09-08 22:03:38]: (no experts loaded)  |  D0E8209F [session 2026-09-09 18:34:40]: V10_EA_TRADING_ONLY_v4_15_2_CAPBORN (XAUUSD,M15), V10_EA_TRADING_ONLY_v4_15_2_CAPBORN (BTCUSD,M15), Pao (BTCUSD,M15).  Last recorded here: EA_CRT_AMD_Dashboard_v355 at 2026-09-04 11:16:56. Reported from the roster, so it is certain, not a staleness guess.",
   "live": null,
   "roster": [
     {
@@ -13,27 +13,27 @@
     {
       "terminal": "5B9C24F117C34D03F25BA926243C77EB",
       "readable": true,
-      "sessionStart": "2026-09-09 16:39:40",
+      "sessionStart": "2026-09-09 18:34:42",
       "loaded": [
         {
           "key": "DeepTrade_EA_v1 (MSFT,M15)",
           "build": "DeepTrade_EA_v1",
-          "since": "2026-09-09 16:39:49"
+          "since": "2026-09-09 18:34:45"
         },
         {
           "key": "TK_SMART_ENTRY_v3.22 (BTCUSD,M15)",
           "build": "TK_SMART_ENTRY_v3.22",
-          "since": "2026-09-09 16:39:50"
+          "since": "2026-09-09 18:34:46"
         },
         {
           "key": "V10_EA_MASTER_v4_15_2_CAPBORN (BTCUSD,M15)",
           "build": "V10_EA_MASTER_v4_15_2_CAPBORN",
-          "since": "2026-09-09 16:39:51"
+          "since": "2026-09-09 18:34:46"
         },
         {
           "key": "V10_EA_MASTER_v4_15_2_CAPBORN (XAUUSD,M15)",
           "build": "V10_EA_MASTER_v4_15_2_CAPBORN",
-          "since": "2026-09-09 16:39:52"
+          "since": "2026-09-09 18:34:47"
         }
       ]
     },
@@ -50,22 +50,22 @@
     {
       "terminal": "D0E8209F77C8CF37AD8BF550E51FF075",
       "readable": true,
-      "sessionStart": "2026-09-09 16:39:40",
+      "sessionStart": "2026-09-09 18:34:40",
       "loaded": [
         {
           "key": "V10_EA_TRADING_ONLY_v4_15_2_CAPBORN (XAUUSD,M15)",
           "build": "V10_EA_TRADING_ONLY_v4_15_2_CAPBORN",
-          "since": "2026-09-09 16:39:43"
+          "since": "2026-09-09 18:34:43"
         },
         {
           "key": "V10_EA_TRADING_ONLY_v4_15_2_CAPBORN (BTCUSD,M15)",
           "build": "V10_EA_TRADING_ONLY_v4_15_2_CAPBORN",
-          "since": "2026-09-09 16:39:44"
+          "since": "2026-09-09 18:34:43"
         },
         {
           "key": "Pao (BTCUSD,M15)",
           "build": "Pao",
-          "since": "2026-09-09 16:39:44"
+          "since": "2026-09-09 18:34:43"
         }
       ]
     }

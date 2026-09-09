@@ -2,6 +2,14 @@
   "version": 1,
   "entries": [
     {
+      "key": "review-2026-09-09-server-index-generateTradeCommentary",
+      "value": "generateTradeCommentary has no CLI auth-text guard (the one at index.js:10353-10367); anthropicBg is CLI-first and runClaudeCli ignores exit code, so a signed-out CLI's 'Please run /login' would be persisted as commentary to journal.json + tv_alerts.jsonl | server/index.js:10038-10060, write at :7948 saveJournal | WARNING, unfired (0 hits in 17 journal rows), left OPEN - report-only brief",
+      "category": "CODE",
+      "source": "manual",
+      "created_at": "2026-09-09T18:17:29.591437+00:00",
+      "updated_at": "2026-09-09T18:17:29.591437+00:00"
+    },
+    {
       "key": "daily-2026-09-09",
       "value": "errors found: 8 (2 TRADING-IMPACT, 4 SYSTEM, 2 COSMETIC) | top rec: fix mt5_bridge record_close dedupe — it compares journal closeTime against closeTimeBroker, dropped the +8.41 win of 09-08T16:31:21Z, so consecutiveLosses is frozen at 2/3 and account A halts after 1 more loss instead of 3 | rec2: server/index.js:3902 pivot stop refinement has no minimum distance (SPX stop 0.14pt inside a 0.36pt spread; the RR>=1.5 guard only rejects too-WIDE stops) — measure the firing set before changing | rec3: maxLotSize 2 is the only binding cap on SP500 and under-risks it to 5-8% of the 0.15% target; notional-per-symbol is the right shape | setups: STRONG none, KILL none, REVIEW MOMENTUM (10 tr, 50% WR, +0.157 avgR, only setup firing live), LEARNING 3 | NEW: the 308x 1R-dollar spread has NARROWED to 9x over the last 5 risk-based fills — falsifies the standing \"it has not narrowed yet\" memory | calibration INVERTED and monotone across all 3 tiers (50/42.9/33.3) but n=3-7 per tier, not actionable | health 9/9, fleet AGREES, BTC conf 91 firing and correctly held by DUPLICATE",
       "category": "GENERAL",
@@ -760,19 +768,19 @@
     },
     {
       "key": "last-session-state",
-      "value": "2026-09-09 evening — FLEET AUDIT, both boxes. DONE: the VPS ran ZERO agents (7 defs, 0 tasks); run_agent.bat was the only missing piece — copied byte-exact and 5 tasks registered via tasks/install_vps_agents.ps1, PROVEN by running it (rc=0, 12974B report). Gate Watch added to the laptop (was VPS-only). Four hardcoded peer paths removed (9e173ab), deployed both boxes md5-identical; undo = tasks/*.bak-peerpaths-20260909T181132Z. page_parity now exits 0 and vps_parity says ENGINES AGREE. OPEN: (1) medic.md has NO OperatingBoundary block and NO tools: line on BOTH boxes and now runs daily 12:00 on the trading box; (2) VPS /api/atomic drops 4 fields and VPS server/index.js carries mojibake — do NOT fix by copying index.js, 349 uncommitted paths there; (3) phantom-loss STRUCTURAL half still owed in mt5_bridge.py (decision morning-m9y1ih deferred); (4) index.js:3902 pivot stop has no minimum distance; (5) index.js:10009 persists the CLI sign-in error into the journal; (6) Task Scheduler history OFF on the laptop (Win11 SKU default, nobody set it); (7) 31/41 laptop and 21/53 VPS proposals unscored. STATE: laptop holds SP500 2 + XAUUSD 0.01 (fired 17:05:50Z at conf 91) + unmanaged BTC 0.05; VPS holds 4. VPS breaker 2/3 on REAL losses. strategy-search-latest.json is an 840B PARTIAL — ledger INTACT at 255 rows. Audit page: https://claude.ai/code/artifact/dd81ba81-5ed0-4666-9dec-f5ddfbf50d9c",
+      "value": "2026-09-09 NIGHT — THE CLI RAIL + THE CSRF HOLE, BOTH BOXES RESTARTED AND VERIFIED. Laptop server startedAt 19:29:20Z (PID 9840), VPS 19:51:27Z (PID 4728); bridges reconnected, breakers preserved (laptop 0, VPS 2 of 3), 14 fresh / 0 STALE / 0 ABSENT on both, firing set identical across both restarts. SHIPPED laptop: 3bab732 (runClaudeCli rejects non-zero exit), 510432a (+ rejects auth TEXT; CLI_AUTH_ERROR_RE hoisted, one definition two readers), 55bdc3b (isLoopbackOrigin — the CSRF fix), 904615d (_vps_restart.ps1 polls instead of a flat 20s), 1b4034f (post-edit hook now says its auto-commit message is provisional), ba22503 (stderr capture + killClaudeCliTree — NOT LIVE, landed after the restart). SHIPPED VPS: 877592e (7 agent briefs incl. medic's OPERATING BOUNDARY), 9529bb0 (CLI auth rail — READ ITS GIT NOTE, it contains 2 swept blocks), e78aacc (CSRF fix), f88a1a2 (restart poll). MEASURED: a signed-out `claude -p` exits 1 and prints the auth text on STDOUT (probed via a redirected CLAUDE_CONFIG_DIR in a child process — never sign the shared CLI out, it blocks all 5 agent jobs); and `ssh -L 3002:localhost:3001` makes tunnelled requests arrive at the VPS from its OWN loopback, so \"local only\" passed for any page in the operator's browser across ~19 routes incl. /api/shutdown and /api/engineer/launch — fixed with an ORIGIN test, because rejecting loopback would remove the operator's only exit from a VPS breaker halt. OPEN: (1) ba22503 not on the VPS and not live anywhere — port in place with node, never scp index.js; (2) runAiFilterViaCli:10823 has the same orphan defect and is the TRADE-PATH copy, deliberately scoped out; (3) chunk.toString() mojibake on stdout, which reaches journal.json; (4) dashboard/index.html:5071 unescaped innerHTML; (5) no per-request timeout on generateTradeCommentary's API leg; (6) VPS 174 commits behind, pull BLOCKED by 86 dirty files incl. index.js and mt5_bridge.py, 362 uncommitted there — `git add server/index.js` sweeps extras, that is why 9529bb0 came out at 135 insertions; (7) VPS breaker 2 of 3, one more real loss halts the trading box. FULL DETAIL + the traps that cost time: memory/next_session_open_threads.md, section \"2026-09-09 NIGHT\".",
       "category": "SYSTEM",
       "source": "manual",
       "created_at": "2026-08-28T06:16:55.822276+00:00",
-      "updated_at": "2026-09-09T17:31:35.404953+00:00"
+      "updated_at": "2026-09-09T20:31:03.431548+00:00"
     },
     {
       "key": "last-session-commits",
-      "value": "9e173ab fleet: derive repo root and ssh key from the box, not from one box's literals | 724087c update tasks\\page_parity.cjs | 52aa4df update tasks\\vps_parity.cjs",
+      "value": "ba22503 runClaudeCli: read stderr, and kill the tree instead of just cmd.exe | 1b4034f Say that the auto-commit message is provisional, when it is written | 904615d update tasks\\_vps_restart.ps1",
       "category": "GENERAL",
       "source": "manual",
       "created_at": "2026-08-28T06:16:57.452243+00:00",
-      "updated_at": "2026-09-09T17:23:47.313Z"
+      "updated_at": "2026-09-09T20:27:13.438Z"
     },
     {
       "key": "EOD_20260828",
@@ -936,5 +944,5 @@
       "type": "session"
     }
   ],
-  "last_updated": "2026-09-09T17:31:35.404953+00:00"
+  "last_updated": "2026-09-09T20:31:03.431548+00:00"
 }
