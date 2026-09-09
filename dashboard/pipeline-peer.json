@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T05:30:09.252Z",
+  "generatedAt": "2026-09-09T05:30:22.575Z",
   "box": "vmi3465345",
   "pipelines": [
     {
@@ -12,7 +12,7 @@
           "name": "MT5 bars",
           "what": "the broker series the engine reads",
           "state": "OK",
-          "detail": "3 asset series current; GOLD, SPX span a closed market, which is not staleness",
+          "detail": "3 asset series current",
           "by": "mt5_bridge.py push",
           "consumedBy": "generateSignalMTF",
           "present": true,
@@ -22,7 +22,7 @@
           "name": "Bridge heartbeat",
           "what": "the only process that can place an order",
           "state": "OK",
-          "detail": "account A connected, last seen 2026-09-06T05:30:06.783Z",
+          "detail": "account A connected, last seen 2026-09-09T05:29:23.373Z",
           "by": "mt5_bridge.py --auto",
           "consumedBy": "place_order",
           "present": true,
@@ -32,7 +32,7 @@
           "name": "Engine scoring",
           "what": "generateSignalMTF over D1 + H4 + H1",
           "state": "OK",
-          "detail": "3 of 3 assets scored; all from MT5, updated 2026-09-06T05:30:00.783Z",
+          "detail": "3 of 3 assets scored; all from MT5, updated 2026-09-09T05:30:00.450Z",
           "by": "server generateSignalMTF",
           "consumedBy": "the gate chain",
           "present": true,
@@ -42,7 +42,7 @@
           "name": "The ten gates",
           "what": "any one ends the trade",
           "state": "OK",
-          "detail": "11 gates, 2 exercised since the server started: 332 killed, 384 passed. A zero is NOT EXERCISED this uptime, not broken.",
+          "detail": "11 gates, 3 exercised since the server started: 751 killed, 828 passed. A zero is NOT EXERCISED this uptime, not broken.",
           "by": "the gate chain",
           "consumedBy": "place_order",
           "present": true,
@@ -70,7 +70,8 @@
         }
       ],
       "findings": [],
-      "level": "OK"
+      "level": "OK",
+      "brokerMarketClosed": false
     },
     {
       "id": "rejection",
@@ -84,11 +85,12 @@
           "consumedBy": "score_rr_rejections.py",
           "cadenceHours": 6,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 1829487,
-          "rows": 4877,
-          "modified": "2026-09-06T05:10:00.651Z",
-          "ageHours": 0.3
+          "bytes": 2380685,
+          "rows": 6343,
+          "modified": "2026-09-09T05:30:00.356Z",
+          "ageHours": 0
         },
         {
           "name": "forward-scored",
@@ -97,13 +99,14 @@
           "consumedBy": "learning_from_rejections.py",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": true,
           "present": true,
-          "bytes": 2259448,
-          "rows": 4790,
-          "modified": "2026-09-05T05:30:04.080Z",
-          "ageHours": 24,
-          "behindInputHours": 23.7,
-          "behindInput": true
+          "bytes": 3056109,
+          "rows": 6461,
+          "modified": "2026-09-09T05:30:07.044Z",
+          "ageHours": 0,
+          "behindInputHours": 0,
+          "behindInput": false
         },
         {
           "name": "shadow book",
@@ -112,12 +115,13 @@
           "consumedBy": "/api/learning, the deep plan",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 5576,
+          "bytes": 6069,
           "rows": null,
-          "modified": "2026-09-06T05:30:03.955Z",
+          "modified": "2026-09-09T05:30:07.684Z",
           "ageHours": 0,
-          "behindInputHours": -24,
+          "behindInputHours": 0,
           "behindInput": false
         }
       ],
@@ -136,10 +140,11 @@
           "consumedBy": "score_near_misses.cjs",
           "cadenceHours": null,
           "eventDriven": true,
+          "marketDependent": false,
           "present": true,
-          "bytes": 288066,
-          "rows": 535,
-          "modified": "2026-09-06T05:30:00.720Z",
+          "bytes": 450180,
+          "rows": 834,
+          "modified": "2026-09-09T05:30:00.137Z",
           "ageHours": 0
         },
         {
@@ -149,10 +154,11 @@
           "consumedBy": "read by a human",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 13597,
+          "bytes": 19219,
           "rows": null,
-          "modified": "2026-09-06T05:30:06.611Z",
+          "modified": "2026-09-09T05:30:13.590Z",
           "ageHours": 0,
           "behindInputHours": 0,
           "behindInput": false
@@ -173,11 +179,12 @@
           "consumedBy": "score_stop_variants.cjs",
           "cadenceHours": null,
           "eventDriven": true,
+          "marketDependent": false,
           "present": true,
-          "bytes": 11552,
-          "rows": 18,
-          "modified": "2026-09-04T00:05:00.522Z",
-          "ageHours": 53.4
+          "bytes": 12818,
+          "rows": 20,
+          "modified": "2026-09-08T10:05:00.445Z",
+          "ageHours": 19.4
         },
         {
           "name": "forward-scored",
@@ -186,12 +193,13 @@
           "consumedBy": "read by a human",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 16996,
+          "bytes": 22241,
           "rows": null,
-          "modified": "2026-09-06T05:30:07.033Z",
+          "modified": "2026-09-09T05:30:16.325Z",
           "ageHours": 0,
-          "behindInputHours": -53.4,
+          "behindInputHours": -19.4,
           "behindInput": false
         }
       ],
@@ -210,11 +218,12 @@
           "consumedBy": "updateLearning()",
           "cadenceHours": null,
           "eventDriven": true,
+          "marketDependent": false,
           "present": true,
-          "bytes": 20295,
+          "bytes": 25415,
           "rows": null,
-          "modified": "2026-09-03T15:30:34.473Z",
-          "ageHours": 62
+          "modified": "2026-09-09T04:50:15.833Z",
+          "ageHours": 0.7
         },
         {
           "name": "learning table",
@@ -223,13 +232,14 @@
           "consumedBy": "/api/learning, the gate boost",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 1138,
+          "bytes": 1429,
           "rows": null,
-          "modified": "2026-09-05T21:18:48.873Z",
-          "ageHours": 8.2,
-          "behindInputHours": -53.8,
-          "behindInput": false
+          "modified": "2026-09-08T14:43:46.896Z",
+          "ageHours": 14.8,
+          "behindInputHours": 14.1,
+          "behindInput": true
         }
       ],
       "findings": [],
@@ -247,10 +257,11 @@
           "consumedBy": "the deep plan",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 3353,
+          "bytes": 3327,
           "rows": null,
-          "modified": "2026-09-06T05:30:08.611Z",
+          "modified": "2026-09-09T05:30:21.528Z",
           "ageHours": 0
         },
         {
@@ -260,12 +271,13 @@
           "consumedBy": "/api/deep-plan, the overview panel",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 51011,
+          "bytes": 57523,
           "rows": null,
-          "modified": "2026-09-05T21:43:34.799Z",
-          "ageHours": 7.8,
-          "behindInputHours": 7.8,
+          "modified": "2026-09-08T21:49:27.848Z",
+          "ageHours": 7.7,
+          "behindInputHours": 7.7,
           "behindInput": true
         }
       ],
@@ -284,11 +296,12 @@
           "consumedBy": "analysis_index.cjs",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 1001669,
+          "bytes": 1175108,
           "rows": null,
-          "modified": "2026-09-05T23:01:38.130Z",
-          "ageHours": 6.5
+          "modified": "2026-09-08T23:15:37.572Z",
+          "ageHours": 6.2
         },
         {
           "name": "page index",
@@ -297,12 +310,13 @@
           "consumedBy": "/dashboard/analysis.html",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 19023,
+          "bytes": 79636,
           "rows": null,
-          "modified": "2026-09-06T05:30:09.018Z",
+          "modified": "2026-09-09T05:30:22.215Z",
           "ageHours": 0,
-          "behindInputHours": -6.5,
+          "behindInputHours": -6.2,
           "behindInput": false
         }
       ],
@@ -316,16 +330,17 @@
       "stages": [
         {
           "name": "review written",
-          "file": "tasks/logs/weekly_20260830.txt",
+          "file": "tasks/logs/weekly_20260906.txt",
           "by": "auto_weekly{,_vps}.bat (Sunday)",
           "consumedBy": "weekly_report_index.cjs",
           "cadenceHours": 192,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 6158,
+          "bytes": 7401,
           "rows": null,
-          "modified": "2026-08-30T08:04:33.349Z",
-          "ageHours": 165.4
+          "modified": "2026-09-06T08:06:46.931Z",
+          "ageHours": 69.4
         },
         {
           "name": "page index",
@@ -334,11 +349,12 @@
           "consumedBy": "/dashboard/weekly.html",
           "cadenceHours": 192,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 63036,
+          "bytes": 86302,
           "rows": null,
-          "modified": "2026-08-30T08:04:33.490Z",
-          "ageHours": 165.4,
+          "modified": "2026-09-06T08:06:47.082Z",
+          "ageHours": 69.4,
           "behindInputHours": 0,
           "behindInput": false
         }
@@ -358,10 +374,11 @@
           "consumedBy": "/dashboard/fleet.html, the work ledger",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 845,
+          "bytes": 843,
           "rows": null,
-          "modified": "2026-09-06T05:30:08.783Z",
+          "modified": "2026-09-09T05:30:21.793Z",
           "ageHours": 0
         }
       ],
@@ -380,10 +397,11 @@
           "consumedBy": "read by a human",
           "cadenceHours": 24,
           "eventDriven": false,
+          "marketDependent": false,
           "present": true,
-          "bytes": 2051,
+          "bytes": 1050,
           "rows": null,
-          "modified": "2026-09-06T05:30:07.486Z",
+          "modified": "2026-09-09T05:30:17.340Z",
           "ageHours": 0
         }
       ],

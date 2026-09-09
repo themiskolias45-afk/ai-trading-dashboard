@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-09-06T07:20:17.886Z",
+  "generatedAt": "2026-09-09T14:06:39.554Z",
   "box": "Themis",
   "available": true,
-  "pagesChecked": 17,
-  "totalFindings": 2,
+  "pagesChecked": 20,
+  "totalFindings": 4,
   "byCheck": {
-    "raw-interpolation": 1,
+    "raw-interpolation": 3,
     "shell-includes": 1
   },
   "checks": [
@@ -43,15 +43,31 @@
   "pages": [
     {
       "page": "index.html",
-      "bytes": 429590,
+      "bytes": 482927,
       "findings": [
         {
           "check": "raw-interpolation",
           "title": "External text may reach innerHTML unescaped",
           "why": "Calendar titles, analyst text and log lines come from feeds and files this system does not control. Interpolated into innerHTML without escaping, they are an injection surface — and one was found live in the daily-plan calendar.",
           "fix": "Escape at the boundary: esc(value) / escapeHtml(value) before concatenating.",
-          "line": 4121,
+          "line": 4266,
           "excerpt": "${String(e && e.message || e)}"
+        },
+        {
+          "check": "raw-interpolation",
+          "title": "External text may reach innerHTML unescaped",
+          "why": "Calendar titles, analyst text and log lines come from feeds and files this system does not control. Interpolated into innerHTML without escaping, they are an injection surface — and one was found live in the daily-plan calendar.",
+          "fix": "Escape at the boundary: esc(value) / escapeHtml(value) before concatenating.",
+          "line": 5453,
+          "excerpt": "${e.message}"
+        },
+        {
+          "check": "raw-interpolation",
+          "title": "External text may reach innerHTML unescaped",
+          "why": "Calendar titles, analyst text and log lines come from feeds and files this system does not control. Interpolated into innerHTML without escaping, they are an injection surface — and one was found live in the daily-plan calendar.",
+          "fix": "Escape at the boundary: esc(value) / escapeHtml(value) before concatenating.",
+          "line": 5627,
+          "excerpt": "${e.message}"
         }
       ]
     },
@@ -75,6 +91,7 @@
     "architecture.html",
     "command.html",
     "daily-plan.html",
+    "fleet-map.html",
     "fleet.html",
     "jarvis.html",
     "lab.html",
@@ -84,6 +101,8 @@
     "plan.html",
     "report.html",
     "strategy.html",
+    "system-architecture.html",
+    "system-map.html",
     "system.html",
     "weekly.html"
   ],

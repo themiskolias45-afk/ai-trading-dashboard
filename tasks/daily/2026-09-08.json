@@ -190,10 +190,20 @@
       "ts": "2026-09-08T13:28:40.551838+00:00",
       "tag": "SESSION-END",
       "text": "2026-09-08 late. He asked whether I had actually done what he asked, because something was still missing for Atomic. He was right on three counts and all three were found by RUNNING the thing, not by reading it. The confluence Telegram had never sent once - it POSTed /api/agent/notify, a route guarded by AGENT_RELAY_SECRET, without the secret, so every send since the file was written returned 403; it was committed and reported as done having never been run with --notify. The DAILY PLAN he explicitly named was not one of the table's sources - I had substituted the pre-open plan, a different file from a different job at a different hour - so four columns stood where he had named five. And nothing on either box was scheduled to run any of it: zero tasks matched 'confluence'. All three are now fixed and verified live (first deliveries 1161 chars laptop, 1129 VPS; task rc=0 on both; deduped correctly on the retry). Delivered to the VPS over scp with SHA256 verification because GitHub is unreachable from Contabo, copying code only and never the per-box data. Two hardcode bugs in the registration script caught themselves because it verifies its paths before acting rather than after. What is still NOT done, and must be said plainly: the ATOMIC column is my reconstruction, not his indicator - MT4's 'Enable Signal Log File' is still false, no AtomicAnalyst_Signals.txt exists on either box, and his original's buffers 11 and 12 are read by nothing. The TRADINGVIEW column has no data on any asset. Engine untouched: no gate moved, no order placed, no signal blocked, no EA or open trade touched."
+    },
+    {
+      "ts": "2026-09-08T21:00:14.556358+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-09-08: 5 trades | 40.0% WR | $-12.76 | TODAY: Five momentum trades produced two winners and three losers for a -$12.76 day, dragging the setup's lifetime recor"
+    },
+    {
+      "ts": "2026-09-08T21:39:36.144532+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-09-08: 5 trades | 40.0% WR | $-12.76 | TODAY: Five MOMENTUM trades, two winners, three losers, and a $12.76 net bleed — a small, controlled loss rather than a "
     }
   ],
   "signals": [],
   "trades": [],
   "created_at": "2026-09-08T03:29:53.031445+00:00",
-  "updated_at": "2026-09-08T13:28:40.551838+00:00"
+  "updated_at": "2026-09-08T21:39:36.144532+00:00"
 }

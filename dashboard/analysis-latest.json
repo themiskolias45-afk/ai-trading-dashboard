@@ -1,39 +1,39 @@
 {
-  "generatedAt": "2026-09-06T07:20:16.384Z",
+  "generatedAt": "2026-09-09T14:06:38.159Z",
   "available": true,
   "source": "tasks/analysis/latest.json",
-  "reportGeneratedAt": "2026-09-04T23:01:26.748930+00:00",
-  "ageHours": 32.3,
+  "reportGeneratedAt": "2026-09-07T23:01:57.136580+00:00",
+  "ageHours": 39.1,
   "staleAfterHours": 36,
   "overall": {
     "trades": 1411,
-    "winRatePct": 31.6,
+    "winRatePct": 31.7,
     "profitFactor": 1.09,
-    "totalR": 69.54,
-    "expectancyR": 0.064
+    "totalR": 70.59,
+    "expectancyR": 0.065
   },
   "atGate": {
     "available": true,
     "gate": 70,
     "overall": {
-      "trades": 687,
-      "closed": 487,
-      "wins": 170,
-      "losses": 317,
-      "winRatePct": 34.9,
+      "trades": 695,
+      "closed": 493,
+      "wins": 173,
+      "losses": 320,
+      "winRatePct": 35.1,
       "profitFactor": 1.33,
-      "totalR": 108.46,
-      "expectancyR": 0.223
+      "totalR": 111.16,
+      "expectancyR": 0.225
     },
     "rejected": {
-      "trades": 724,
-      "closed": 594,
-      "wins": 172,
-      "losses": 422,
-      "winRatePct": 29,
+      "trades": 716,
+      "closed": 587,
+      "wins": 169,
+      "losses": 418,
+      "winRatePct": 28.8,
       "profitFactor": 0.91,
-      "totalR": -38.92,
-      "expectancyR": -0.066
+      "totalR": -40.57,
+      "expectancyR": -0.069
     },
     "tables": {
       "bySetup": [
@@ -51,13 +51,13 @@
         },
         {
           "name": "MOMENTUM",
-          "trades": 454,
-          "closed": 305,
-          "wins": 121,
-          "losses": 184,
-          "winRatePct": 39.7,
+          "trades": 461,
+          "closed": 311,
+          "wins": 124,
+          "losses": 187,
+          "winRatePct": 39.9,
           "profitFactor": 1.72,
-          "totalR": 139.21,
+          "totalR": 141.91,
           "expectancyR": 0.456,
           "belowMinSample": false
         },
@@ -87,7 +87,7 @@
         },
         {
           "name": "BREAKDOWN",
-          "trades": 67,
+          "trades": 68,
           "closed": 50,
           "wins": 14,
           "losses": 36,
@@ -161,14 +161,14 @@
       "byRegime": [
         {
           "name": "TRENDING",
-          "trades": 546,
-          "closed": 363,
-          "wins": 129,
-          "losses": 234,
-          "winRatePct": 35.5,
+          "trades": 554,
+          "closed": 369,
+          "wins": 132,
+          "losses": 237,
+          "winRatePct": 35.8,
           "profitFactor": 1.45,
-          "totalR": 110.1,
-          "expectancyR": 0.303,
+          "totalR": 112.8,
+          "expectancyR": 0.306,
           "belowMinSample": false
         },
         {
@@ -211,19 +211,19 @@
       "byTrend": [
         {
           "name": "STRONG UPTREND",
-          "trades": 475,
-          "closed": 321,
-          "wins": 124,
-          "losses": 197,
-          "winRatePct": 38.6,
+          "trades": 482,
+          "closed": 327,
+          "wins": 127,
+          "losses": 200,
+          "winRatePct": 38.8,
           "profitFactor": 1.64,
-          "totalR": 132.67,
-          "expectancyR": 0.413,
+          "totalR": 135.37,
+          "expectancyR": 0.414,
           "belowMinSample": false
         },
         {
           "name": "STRONG DOWNTREND",
-          "trades": 172,
+          "trades": 173,
           "closed": 132,
           "wins": 36,
           "losses": 96,
@@ -273,19 +273,19 @@
       "byDirection": [
         {
           "name": "BUY",
-          "trades": 494,
-          "closed": 335,
-          "wins": 128,
-          "losses": 207,
-          "winRatePct": 38.2,
-          "profitFactor": 1.59,
-          "totalR": 128.94,
-          "expectancyR": 0.385,
+          "trades": 501,
+          "closed": 341,
+          "wins": 131,
+          "losses": 210,
+          "winRatePct": 38.4,
+          "profitFactor": 1.6,
+          "totalR": 131.64,
+          "expectancyR": 0.386,
           "belowMinSample": false
         },
         {
           "name": "SELL",
-          "trades": 193,
+          "trades": 194,
           "closed": 152,
           "wins": 42,
           "losses": 110,
@@ -299,31 +299,31 @@
       "byAsset": [
         {
           "name": "Gold",
-          "trades": 334,
-          "closed": 260,
+          "trades": 335,
+          "closed": 261,
           "wins": 95,
-          "losses": 165,
-          "winRatePct": 36.5,
-          "profitFactor": 1.64,
-          "totalR": 111.07,
-          "expectancyR": 0.427,
+          "losses": 166,
+          "winRatePct": 36.4,
+          "profitFactor": 1.63,
+          "totalR": 110.02,
+          "expectancyR": 0.422,
           "belowMinSample": false
         },
         {
           "name": "BTC",
-          "trades": 237,
-          "closed": 178,
-          "wins": 69,
-          "losses": 109,
-          "winRatePct": 38.8,
-          "profitFactor": 1.26,
-          "totalR": 29.68,
-          "expectancyR": 0.167,
+          "trades": 243,
+          "closed": 183,
+          "wins": 72,
+          "losses": 111,
+          "winRatePct": 39.3,
+          "profitFactor": 1.29,
+          "totalR": 33.43,
+          "expectancyR": 0.183,
           "belowMinSample": false
         },
         {
           "name": "SPX",
-          "trades": 116,
+          "trades": 117,
           "closed": 49,
           "wins": 6,
           "losses": 43,
@@ -337,26 +337,26 @@
       "byStrength": [
         {
           "name": "STRONG",
-          "trades": 78,
-          "closed": 50,
-          "wins": 23,
+          "trades": 79,
+          "closed": 51,
+          "wins": 24,
           "losses": 27,
-          "winRatePct": 46,
-          "profitFactor": 1.73,
-          "totalR": 20.74,
-          "expectancyR": 0.415,
+          "winRatePct": 47.1,
+          "profitFactor": 1.8,
+          "totalR": 22.69,
+          "expectancyR": 0.445,
           "belowMinSample": false
         },
         {
           "name": "MODERATE",
-          "trades": 609,
-          "closed": 437,
-          "wins": 147,
-          "losses": 290,
-          "winRatePct": 33.6,
+          "trades": 616,
+          "closed": 442,
+          "wins": 149,
+          "losses": 293,
+          "winRatePct": 33.7,
           "profitFactor": 1.29,
-          "totalR": 87.72,
-          "expectancyR": 0.201,
+          "totalR": 88.47,
+          "expectancyR": 0.2,
           "belowMinSample": false
         }
       ]
@@ -376,48 +376,48 @@
   "analystErrors": [],
   "analystsRun": 5,
   "analystsTotal": 5,
-  "verdict": "The system is not a marginal 1.09-profit-factor book that needs broad tightening - that number is an artifact of all five analysts reading the unfiltered replay as if it described the live champion. Re-running the same 1411 rows under the live gate (confidenceThreshold=70, minStrength=MODERATE) gives 487 closed trades, 34.9% win rate, PF 1.33, +108.46R, expectancy +0.223R. What is actually wrong is far more specific and far more fixable: (1) SPX is not underperforming, it is broken - SPX MOMENTUM wins 5.7% of 88 closed trades (-77.10R) while the identical setup returns +0.385R on BTC and +0.487R on Gold, and 48.0% of all SPX trades never resolve versus 17-19% for BTC and Gold; a 5.7% hit rate at median RR 2.0 is a stop/instrument-spec/data defect, not a market verdict, and it costs -32.29R of the live book; (2) BREAKDOWN is being run at the strength where it loses (MODERATE) and gated nowhere, worth -18.82R live, while BREAKDOWN|STRONG is the best bucket in the pack; (3) five setups - RANGE_TRADE_SHORT, RANGE_TRADE_LONG, BUY_OVERSOLD, BREAKOUT, SELL_BOUNCE - have no regime with a usable sample in which they work, and executionDisabledSetups is empty; (4) the adaptation layer is inert and lying - learning.setupStats scores MOMENTUM, the system's only real edge, at 3W/5L and -333.24, the healer reports aiFilter ok=true with 'no trade has been evaluated yet', and 15 journal entries cover 263 sessions. Stack the three real filters and the same history yields 358 closed trades, PF 1.77, +171.08R, expectancy +0.478R: +58% total R and 2.1x per-trade expectancy while keeping 73% of the trade count. Almost every other proposal in the five reports - raising adxTrendingMin, minStrength=STRONG, minEntryRsi, dailyOnlyMinConfidence, cutting maxTradesPerDay, blocking the DAILY+H4_CONFLICT cohort - targets buckets that are either pure SPX contamination or already blocked by the live confidence threshold, and two of them would destroy R outright.",
+  "verdict": "The engine is not broken, it is diluted, and it has one uncovered hole. Across 1411 replayed trades the whole book earns +70.59R at PF 1.09 and expectancy 0.065R against an assumed cost of 0.05R -- essentially nothing net of costs. That blended number hides one real edge and a pile of taxes on it: MOMENTUM alone is +156.31R over 623 closed at PF 1.37 and is profitable in every adequately-sampled regime slice (TRENDING 0.228 / RANGING 0.325 / SQUEEZE 0.403), while eight of ten setups are net negative. The book is a long, strong-uptrend machine (BUY +135.01R vs SELL -64.42R; STRONG UPTREND +158.82R with every other trend bucket negative). Three loss clusters carry nearly all the drag and they overlap by an unmeasured amount: SPX (-85.5R, PF 0.27, 12.6% win over 127 closed -- larger in magnitude than the entire book's profit, and strategySettings has no per-symbol kill switch at all), BREAKDOWN taken at MODERATE strength (-45.77R over 145 closed at PF 0.61, while BREAKDOWN|STRONG runs +1.034R expectancy), and the five-to-six setups with no profitable adequately-sampled slice in any strength or regime. Meanwhile executionDisabledSetups is empty, breakdownEnabled is true, minEntryRsi is 0, and the system's own feedback loop is vacuous: 15 journal entries and 4 setups on disk against 1411 replayed trades, an aiFilter health check reporting ok=true precisely because it has never once run, healCount 0, and a live learning file that records MOMENTUM as net negative on five trades and carries a setup name (BB_SQUEEZE_WATCH) plus an UNATTRIBUTED bucket that exist nowhere in the executed record. So the system cannot see any of this by itself, and the single knob it is permitted to auto-tune (adxTrendingMin) points at the one dimension where the data shows no separation at all.",
   "actions": [
     {
       "rank": 1,
-      "action": "Add an asset-scoped execution kill-switch (executionDisabledAssets / tradableAssets, checked in the same pre-open guard as executionDisabledSetups) and disable SPX execution while leaving SPX signal generation on for the paper record.",
-      "rationale": "Largest single lever and the only one that is a sign flip rather than a degree difference. Under the live gate SPX is 49 closed, WR 12.2%, PF 0.28, -32.29R, expectancy -0.659R, against BTC +29.68R and Gold +111.07R. Removing it alone takes the live book from 487 closed / PF 1.33 / +108.46R to 438 closed / PF 1.49 / +140.75R (+32.29R, expectancy +0.223 -> +0.321) at zero cost to any winning cohort, because SPX has no positive slice: row-level cross-tabs show SPX losing in every cohort, regime, direction and ADX band, and in all eight calendar years (best year 2020 at 5W/15L). It also removes the contamination that is making three other analysts recommend harmful changes.",
-      "setting": "executionDisabledAssets (does not exist yet; strategySettings only exposes executionDisabledSetups)",
-      "suggestedValues": "[\"SPX\"] / equivalently tradableAssets = [\"BTC\",\"Gold\"]",
+      "action": "Stop executing SPX. Add a per-symbol execution blocklist to strategySettings mirroring executionDisabledSetups -- it does not exist today, executionDisabledSetups is setup-scoped only -- and put SPX in it. In parallel, open a defect investigation into why SPX loses this badly (contract/point-value spec, stop distance in points vs price, data feed, session hours) before treating the block as permanent.",
+      "rationale": "byAsset SPX: 127 closed, 16W/111L, 12.6% win, PF 0.27, -85.5R, expectancy -0.673R. That single stream is larger in magnitude than the whole book's +70.59R, and it is 3-5x worse than BTC (PF 1.19, +72.17R over 562 closed) or Gold (PF 1.31, +83.92R over 391 closed) running the same logic. A 12.6% win rate against 33-35% on the other two assets is not a strategy-quality difference; it is the signature of something structurally wrong on that symbol, which is why the code investigation is part of the action rather than optional.",
+      "setting": null,
+      "suggestedValues": "SPX",
       "measurable": "yes",
-      "measurableWhy": "The replay already emits a per-row asset field and generateSignal runs per symbol, so re-running with SPX excluded is a direct filter over replay output - no new instrumentation needed. What the replay cannot verify is that the MT5 bridge honours the new list; that needs a live shadow check.",
-      "agreement": "loss-autopsy (headline proposal) and risk-and-config (proposal 8) both independently rank this first. setup-forensics, strength-gate and regime-fit never examined byAsset at all - a material gap, since it is the biggest number in the pack.",
-      "risk": "Only 127 of 244 SPX trades resolved, so the true SPX R is unknown and could be worse or better. Cuts diversification from three instruments to two and leaves the book long-only BTC+Gold. Most importantly it masks rather than fixes a probable defect - pair it with action 4 so the kill-switch is a containment measure, not a conclusion.",
+      "measurableWhy": "The replay already tags every trade by asset (coverage BTC 682 / Gold 485 / SPX 244), so re-scoring the book with SPX excluded is a pure post-filter on existing output and needs no new replay capability. The enforcement mechanism itself sits in the signal-to-execution path outside generateSignal, so the replay measures the effect, not the gate.",
+      "agreement": "loss-autopsy and risk-and-config propose it independently and both rank it the largest single drain; no analyst argues against it. setup-forensics, strength-gate and regime-fit did not analyse the asset dimension at all, so this is 2-for, 0-against, 3 silent.",
+      "risk": "Only 127 of SPX's 244 trades are closed (52%), so the closed subset may be selection-biased. You lose one of three markets of diversification. And if the cause is a spec or data defect, blocking the symbol hides the bug instead of fixing it -- hence the bundled investigation. Note also that SPX's -85.5R overlaps unknown amounts with the BREAKDOWN and RSI<50 losses below: savings from actions 1, 2, 3 and 7 are NOT additive.",
       "gate": {
-        "status": "UNMEASURABLE",
-        "detail": "executionDisabledAssets (does not exist yet; strategySettings only exposes executionDisabledSetups) is outside what the replay can see (adxTrendingMin) — needs a human decision"
+        "status": "SKIPPED",
+        "detail": "no setting/values proposed"
       }
     },
     {
       "rank": 2,
-      "action": "Gate BREAKDOWN to STRONG strength only. Add a per-setup minStrength map consulted at the same point the global minStrength check runs; do not use breakdownEnabled=false and do not add BREAKDOWN to executionDisabledSetups.",
-      "rationale": "Best R-per-trade-removed after SPX. Under the live gate this is +18.82R for 39 trades removed (+0.483R per removed trade), taking the live book to 448 closed / PF 1.43 / +127.28R. BREAKDOWN|MODERATE is -0.316R expectancy over 145 closed (-45.77R unfiltered, -18.82R live); BREAKDOWN|STRONG is the highest-expectancy bucket in the whole pack at +1.034R over 11 closed, PF 3.71, and is above minSampleForRecommendation. Stacked with action 1 the book reaches 401 closed / PF 1.61 / +157.47R.",
-      "setting": "per-setup minStrength override (no existing setting expresses this; global minStrength stays MODERATE)",
-      "suggestedValues": "BREAKDOWN -> STRONG; all other setups -> MODERATE",
+      "action": "Add a per-setup minimum-strength floor in the entry gate (checked after setup classification, falling back to the global minStrength when a setup is unlisted) and seed it with BREAKDOWN = STRONG. Leave global minStrength at MODERATE. If that code cannot ship immediately, set breakdownEnabled=false as an explicitly time-boxed interim, not as the answer.",
+      "rationale": "setupByStrength BREAKDOWN|MODERATE is 145 closed, 22.1% win, PF 0.61, -45.77R, expectancy -0.316R -- the largest single loss cell in the pack. BREAKDOWN|STRONG is 11 closed, 63.6% win, PF 3.71, +11.37R, expectancy +1.034R (belowMinSample=false against the floor of 5). The strength split removes more loss than the regime split does (-45.77R over 145 closed vs BREAKDOWN|TRENDING's -28.4R over 116 closed) and it is the only cut that preserves a positive residual, so it strictly dominates both the regime gate and the blunt disable.",
+      "setting": "per-setup strength map (new) / breakdownEnabled (interim only)",
+      "suggestedValues": "BREAKDOWN=STRONG; interim fallback breakdownEnabled=false",
       "measurable": "yes",
-      "measurableWhy": "Strength is computed inside generateSignal and is present on every replayed row, so a strength-conditional setup gate is fully visible to the existing replay. Re-run and compare setupByStrength directly.",
-      "agreement": "setup-forensics (proposal 2), strength-gate (proposal 1) and risk-and-config (finding 3) all identify BREAKDOWN|MODERATE as the largest setup-level loss pool. setup-forensics and strength-gate agree on the STRONG carve-out; risk-and-config wants a full disable, which the facts do not support.",
-      "risk": "The retained slice is 11 closed trades live and only 8 once SPX is removed (+4.83R, WR 50%) - above the minimum sample but thin, so the carve-out is the weakest part of this action. It also cuts roughly 193 of 210 BREAKDOWN signals, removing most short-side participation. If BREAKDOWN|STRONG fails to hold over the next 20 live trades, fall back to a full disable, which still beats the status quo by +7.45R.",
+      "measurableWhy": "Setup classification and signal strength are both outputs of generateSignal over historical bars, so the replay can re-run with the floor applied and report the new bySetup/setupByStrength directly. This is the cleanest item in the list to validate before shipping.",
+      "agreement": "Four of five. setup-forensics, strength-gate, loss-autopsy and risk-and-config all independently identify BREAKDOWN|MODERATE as the avoidable cell and all four name the per-setup strength floor as the preferred implementation with breakdownEnabled=false as the blunt fallback. regime-fit agrees BREAKDOWN must be cut but proposes a regime gate instead -- see disagreements.",
+      "risk": "BREAKDOWN|STRONG rests on 11 closed trades: past the sample floor of 5 but thin, so +1.034R expectancy is fragile, and the surviving branch fires so rarely (17 of 210 BREAKDOWN signals were STRONG) that it will take a long time to re-prove itself. Cutting the MODERATE leg also removes most of the book's remaining short-side volume, deepening an already heavy long bias. The interim breakdownEnabled=false forfeits the +11.37R and is strictly worse-targeted.",
       "gate": {
         "status": "UNMEASURABLE",
-        "detail": "per-setup minStrength override (no existing setting expresses this; global minStrength stays MODERATE) is outside what the replay can see (adxTrendingMin) — needs a human decision"
+        "detail": "per-setup strength map (new) / breakdownEnabled (interim only) is outside what the replay can see (adxTrendingMin) — needs a human decision"
       }
     },
     {
       "rank": 3,
-      "action": "Populate executionDisabledSetups with the five setups that lose in every regime with a usable sample: RANGE_TRADE_SHORT, RANGE_TRADE_LONG, BUY_OVERSOLD, BREAKOUT, SELL_BOUNCE. Deliberately exclude BUY_DIP and BREAKDOWN from this list.",
-      "rationale": "A pure settings change, reversible from the dashboard, no new code path. On top of actions 1 and 2 it adds +13.61R and lifts the book to 358 closed, WR 40.8%, PF 1.77, +171.08R, expectancy +0.478R - the full stack is +62.62R over the live baseline, +58% total R and 2.1x expectancy while retaining 73% of trade count. Every one of the five is negative ex-SPX (RANGE_TRADE_SHORT -18.49R, RANGE_TRADE_LONG -11.23R, BUY_OVERSOLD -6.62R, BREAKOUT -5.39R, SELL_BOUNCE -4.88R) and none has a positive regime cell that survives the belowMinSample rule. BUY_DIP is excluded because it is actually positive once SPX is removed (+1.48R over 9 closed) and all three of its regime cells are belowMinSample, so there is no evidence to act on in either direction. This action also subsumes the separate 'raise the bar on SELL signals' proposal: ex-SPX every MOMENTUM and TREND_FOLLOW signal in the pack is a BUY, so the short book is exactly the losing-setup book and a BUY-only filter is numerically identical to gating these setups.",
+      "action": "Populate executionDisabledSetups, currently empty, with the setups that have no profitable adequately-sampled slice in any strength or regime. Ship in two tranches: tranche A (well-sampled, unambiguous) RANGE_TRADE_SHORT and RANGE_TRADE_LONG; tranche B (thinner, only after A is verified) BUY_OVERSOLD, SELL_BOUNCE, BREAKOUT and SQUEEZE_BREAKOUT. Hold BUY_DIP and TREND_FOLLOW live-but-watched.",
+      "rationale": "Tranche A: RANGE_TRADE_SHORT -18.49R over 65 closed (PF 0.63) is negative in all three adequately-sampled regimes (RANGING -0.352 / SQUEEZE -0.621 / TRENDING -0.130) and has no STRONG leg to retreat to; RANGE_TRADE_LONG -10.13R over 43 closed (PF 0.68) is negative in TRENDING -0.468, RANGING -0.197 and SQUEEZE -0.031, also MODERATE-only. Tranche B: BUY_OVERSOLD -9.77R/26 closed (PF 0.53, worst expectancy in the pack at -0.376), SELL_BOUNCE -4.88R/22 closed (PF 0.73), BREAKOUT -5.39R/21 closed (PF 0.70), and SQUEEZE_BREAKOUT -7.7R/84 closed (PF 0.88) whose best slice, |TRENDING at +0.050 expectancy, is exactly the costAssumptionR of 0.05 -- zero net of costs, so gating it to TRENDING buys nothing that disabling does not. Hold BUY_DIP (-0.62R over only 11 closed, effectively breakeven) and TREND_FOLLOW (+5.66R over 29 closed, PF 1.30).",
       "setting": "executionDisabledSetups",
-      "suggestedValues": "RANGE_TRADE_SHORT,RANGE_TRADE_LONG,BUY_OVERSOLD,BREAKOUT,SELL_BOUNCE",
+      "suggestedValues": "A: RANGE_TRADE_SHORT,RANGE_TRADE_LONG | B: RANGE_TRADE_SHORT,RANGE_TRADE_LONG,BUY_OVERSOLD,SELL_BOUNCE,BREAKOUT,SQUEEZE_BREAKOUT",
       "measurable": "yes",
-      "measurableWhy": "Setup labels are produced by generateSignal on every replayed bar, so setup-level exclusion is exactly what this replay is built to measure. Re-run and read bySetup.",
-      "agreement": "All of setup-forensics (proposal 1: this exact five), strength-gate (proposal 2, plus BUY_DIP), regime-fit (proposals 2 and 3, subset) and risk-and-config (proposal 1, plus BREAKDOWN) converge here. Strongest consensus in the pack, and it survives the ex-SPX recheck.",
-      "risk": "Concentrates the surviving book heavily into MOMENTUM: after actions 1-3, 264 of 358 closed trades and +172.79R of the +171.08R total are MOMENTUM, i.e. everything else nets negative. That is single-setup, long-only, two-asset exposure with no short hedge. If the tape turns to a sustained downtrend the book has no way to participate. Also removes the losing setups' role as a drawdown diversifier, which is untested here.",
+      "measurableWhy": "Setup labels come from generateSignal's setup logic, which the replay sees directly, so each tranche can be scored by re-running or by post-filtering the existing 1411-trade output before any of it goes live.",
+      "agreement": "All five, with different list boundaries. setup-forensics proposes the range setups plus BUY_OVERSOLD, SELL_BOUNCE and BREAKOUT; strength-gate proposes the same core two then widening to five; regime-fit proposes RANGE_TRADE_SHORT specifically and argues no regime rescues it; risk-and-config proposes the range setups plus BUY_OVERSOLD; loss-autopsy corroborates via its bearish-bucket analysis. The two-setup core is backed by every analyst who addressed setups.",
+      "risk": "Tranche B rests on 21-26 closed trades per setup -- above the sample floor of 5 but thin enough that a bad run rather than a structural defect could be doing the work. Together with actions 1 and 2 this strips roughly 300 closed trades of flow at exactly the moment the learning engine needs volume, and concentrates the book almost entirely into MOMENTUM (623 of the remaining closed trades), a single point of failure if that edge decays. A hard disable also never self-corrects: if the losses are window-specific rather than structural, nothing will tell you.",
       "gate": {
         "status": "UNMEASURABLE",
         "detail": "executionDisabledSetups is outside what the replay can see (adxTrendingMin) — needs a human decision"
@@ -425,29 +425,29 @@
     },
     {
       "rank": 4,
-      "action": "Root-cause the SPX signal pipeline before treating the SPX result as a market fact: audit stop/target distance scaling, symbol point/pip size, contract spec and bar-data integrity for SP500, and check the same code path for BTC and Gold.",
-      "rationale": "SPX MOMENTUM wins 5.7% of 88 closed trades (PF 0.12, -77.10R) while the identical setup returns +0.385R on BTC and +0.487R on Gold. A 5.7% win rate at a median RR of 2.0 is not an unprofitable strategy - random entry would be near 33% - it is a mechanically wrong stop or price scale. Two more signatures point the same way: 48.0% of SPX trades expire unresolved versus 17.4% BTC and 19.4% Gold, and SPX at adx<20 is 1 win in 52 closed (-50.54R) where BTC+Gold at adx<20 is the single best slice in the book (+125.68R, expectancy +0.467R). Whatever produces that is a defect class that could be silently mis-scaling risk on the profitable instruments too, which is why this outranks the remaining tuning items on risk even though it books no immediate R.",
-      "setting": null,
-      "suggestedValues": null,
+      "action": "Raise confidenceThreshold from 70 to 80, staged via 75, and hold it for a fixed evaluation window rather than reverting on the first quiet week.",
+      "rationale": "byConfidence conf>=80: 226 closed, 37.6% win, PF 1.50, +74.52R, expectancy 0.33R. conf70-79: 267 closed, 33.0% win, PF 1.19, +36.64R, expectancy 0.137R. The band the current gate admits earns under half the expectancy of the band above it, and 0.137R against a 0.05R cost assumption is a thin real edge. The bands below the gate (conf65-69 -3.78R, conf<50 -47.5R) confirm the score has genuine signal at the top end even though it is non-monotonic in the middle. This is a one-line config change with 226 closed trades behind it.",
+      "setting": "confidenceThreshold",
+      "suggestedValues": "75,80",
       "measurable": "no",
-      "measurableWhy": "The replay reproduces the symptom but cannot attribute it: it has no visibility into MT5 symbol specifications, point value, tick size, spread or fill behaviour, and it scores every loss as a flat -1.05R regardless of whether the stop was correctly placed. Diagnosis needs a code and instrument-spec audit plus a bar-data sanity check against a second source, not another replay run.",
-      "agreement": "loss-autopsy alone hints at it (notes SPX losses have median adx 21.4 / volRatio 0.90 versus 26.2 / 1.25 for wins, and flags 'if the root cause is a data or instrument-spec bug, the ban masks it permanently'). risk-and-config notes the low resolution rate but draws no inference. No analyst compared SPX MOMENTUM against BTC/Gold MOMENTUM, which is where the defect becomes unmistakable.",
-      "risk": "Diagnostic work that may book no R. The opposite risk is larger: shipping action 1 alone converts a probable bug into a permanent policy, and if the same scaling fault touches BTC or Gold in some regime, the measured +171.08R is overstated by an unknown amount.",
+      "measurableWhy": "The replay runs generateSignal, which does not apply confidenceThreshold -- that gate lives downstream. The byConfidence buckets give a static historical attribution of what the >=80 population did, but the replay cannot re-run the system under a different threshold, so second-order effects (which setups survive, how the surviving mix interacts with actions 1-3) stay unmeasured. Treat +0.33R as an upper-bound estimate, not a simulated result.",
+      "agreement": "risk-and-config proposes it directly. loss-autopsy reaches the same boundary from the other side, noting the live threshold of 70 already excludes the worst bands so the 70-79 band is the only remaining lever. setup-forensics, strength-gate and regime-fit did not analyse the confidence dimension.",
+      "risk": "Cuts signal count sharply on top of actions 1-3, pushing volume far under maxTradesPerDay=10 and making weekly results noisy and slow to evaluate. The >=80 bucket has 360 signals but only 226 closed (63%), so its measured edge may shrink as the rest close. Stacking this with the setup disables and the RSI floor could cut volume far more than any single estimate implies.",
       "gate": {
-        "status": "SKIPPED",
-        "detail": "no setting/values proposed"
+        "status": "UNMEASURABLE",
+        "detail": "confidenceThreshold is outside what the replay can see (adxTrendingMin) — needs a human decision"
       }
     },
     {
       "rank": 5,
-      "action": "Re-baseline the fact pack against the live filter: emit every bucket twice, once unfiltered and once restricted to the rows the live champion would actually have taken (currently conf>=70 and minStrength>=MODERATE), and make the live-filtered view the default for any tuning decision.",
-      "rationale": "This is a process fix that prevents the next four bad decisions. All five analysts quoted PF 1.09 / expectancy 0.064R as the system's condition; the live champion's numbers are PF 1.33 / expectancy +0.223R. The gap is not cosmetic - it inverts specific conclusions. The DAILY+H4_CONFLICT bucket (-30.82R, expectancy -0.734R) that two analysts want gated contains zero trades at conf>=70, so blocking it is worth exactly 0.00R live. The adx20-30 band (-24.6R) that two analysts want to fix with adxTrendingMin is +7.16R live. The conf<50 band (-46.6R) is +3.31R once SPX is removed. Cheap to build: the pack already carries conf and strength on every row.",
+      "action": "Reject any signal in the DAILY+H4_CONFLICT cohort -- if the daily and H4 directions disagree, do not execute. Implement as an explicit cohort gate; do not try to approximate it with dailyOnlyMinConfidence, which points at a different cohort.",
+      "rationale": "byCohort DAILY+H4_CONFLICT: 43 closed, 5W/38L, 11.6% win, PF 0.20, -31.87R, expectancy -0.741R -- the worst expectancy of any adequately-sampled cohort in the pack. The contrast is decisive: DAILY+H4_AGREE is 214 closed at PF 1.45 and +64.12R, and even the weak DAILY_ONLY_H4_NEUTRAL cohort (19.7% win) is net positive at PF 1.03. Low win rate alone is therefore not the problem; active timeframe disagreement is. dailyOnlyMinConfidence=0 currently aims at the near-breakeven cohort, not this one.",
       "setting": null,
       "suggestedValues": null,
       "measurable": "no",
-      "measurableWhy": "confidenceThreshold is precisely what the replay cannot see - generateSignal emits a confidence score but the replay never applies the gate. The fix is to apply the threshold as a post-filter over replay output rather than to teach the replay about it, which is a fact-pack change, not a replay change.",
-      "agreement": "None of the five. risk-and-config (finding 10) comes closest - it observes that 'more than half the measured pack sits at confidence levels the live threshold would reject, so the headline expectancy is not what this configuration would actually have produced' - then proceeds to argue from the unfiltered numbers anyway, as do the other four.",
-      "risk": "The live-filtered sample is 487 closed rather than 1081, so per-bucket samples roughly halve and more cells fall below minSampleForRecommendation. Keep both views; use unfiltered for setup-level structure and live-filtered for any settings decision.",
+      "measurableWhy": "Timeframe agreement is computed in generateSignalMTF, which the replay does not run -- it calls generateSignal only. The byCohort labels let you attribute historical R to the cohort after the fact, but the replay cannot re-run the gate or show the book with the cohort removed and everything else re-derived. You can subtract, not simulate.",
+      "agreement": "loss-autopsy and risk-and-config propose the identical gate and both explicitly reject dailyOnlyMinConfidence as the wrong lever. The other three did not examine the cohort dimension.",
+      "risk": "43 closed trades is a modest base for a permanent hard block. If the cohort label is computed differently in the live path than in whatever produced these labels, the gate could silently reject a far wider set than intended -- verify the live label matches before shipping. Conflict-cohort signals may also be the system's only participation at genuine trend turns.",
       "gate": {
         "status": "SKIPPED",
         "detail": "no setting/values proposed"
@@ -455,14 +455,14 @@
     },
     {
       "rank": 6,
-      "action": "Rebuild learning.setupStats from the closed-trade history before any adaptation reads it, make the journal and learning writers consume every closed trade, and change the healer so an unexercised gate reports ok=false. Run the aiFilter in log-only shadow mode first.",
-      "rationale": "The adaptation layer is currently steering against the only thing that works. learning.setupStats scores MOMENTUM at 3W/5L / -333.24 - the setup that is +172.79R and 44.7% WR under the recommended config - and bySymbol.XAUUSD.MOMENTUM at -272.87 against a measured Gold MOMENTUM of +124.23R. It also carries BB_SQUEEZE_WATCH, a setup that appears nowhere in bySetup. Meanwhile healer.checks.aiFilter reports ok=true with detail 'no trade has been evaluated yet - filter unexercised', so a risk gate that has never run is being counted as healthy, and 15 journal entries cover sessionCount 263. Any auto-tuner fed this file will disable MOMENTUM. That is a tail risk large enough to outrank the remaining marginal tuning.",
+      "action": "Fix the feedback loop so the system can see its own state: make healer.checks.aiFilter report degraded while it has never evaluated a trade; make learningFile and journalFile compare on-disk counts against executed trade count instead of merely asserting the file exists; reconcile setup attribution between the live path and the replay/journal path (BB_SQUEEZE_WATCH and XAUUSD/UNATTRIBUTED appear in the learning file but in no executed record); and confirm in code that nothing gates or throttles execution on learning.setupStats P&L.",
+      "rationale": "healer.healthy=true, healCount=0, errorLog empty, every check ok=true -- including aiFilter, whose own detail string reads 'no trade has been evaluated yet, filter unexercised'. That is a check passing by vacuity, exactly the failure mode a healer exists to catch. learningFile is green at 4 setups and journalFile green at 15 entries against 1411 replayed trades. Worse, liveState.learning.setupStats records MOMENTUM as 3W/2L and -170.32 net -- the opposite sign from measured MOMENTUM (+156.31R, PF 1.37, 623 closed) -- on a five-trade sample. If any gate consumes those numbers, the system will suppress the one setup carrying the entire book on the basis of five trades. This action generates no R itself; it is what stops actions 1-5 being silently undone and stops a five-trade sample steering a 623-trade edge.",
       "setting": null,
       "suggestedValues": null,
       "measurable": "no",
-      "measurableWhy": "Entirely outside the replay: these are live persistence, healer and execution-path concerns. Verify by diffing rebuilt setupStats against the fact pack's bySetup and by asserting a non-zero aiFilter evaluation count in the healer.",
-      "agreement": "risk-and-config alone (findings 1, 4, 5 and proposals 9, 10). strength-gate corroborates the symptom in its finding 7 ('learning.setupStats covers only 4 setups', 'filter unexercised') but proposes no fix. The other three never looked at liveState.",
-      "risk": "A backfill overwrites live-execution nuance and could abruptly change sizing or setup selection if downstream logic assumes the current small counts or specific setup keys - version the file and diff the resulting decisions first. Flipping unexercised checks to ok=false will turn healer.healthy false and may trigger heal actions that have never once fired (healCount 0), so gate heal actions behind a manual confirm for the first cycle.",
+      "measurableWhy": "This is live-state instrumentation and attribution plumbing. It involves no historical bars and no generateSignal behaviour, so the replay has nothing to say about it either way -- verify by code inspection and unit tests on the healer checks.",
+      "agreement": "risk-and-config raises all of it (vacuous aiFilter, starved learning file, journal count mismatch, the BB_SQUEEZE_WATCH/UNATTRIBUTED naming inconsistency). strength-gate independently corroborates that live closed volume is near zero and that nothing filters the drag today. The other three did not examine liveState.",
+      "risk": "A stricter healer will fire on a freshly restarted or genuinely low-volume system, so it needs a grace window and a minimum-volume floor before escalating to a self-heal -- otherwise you have swapped a check that never fires for one that always does. Changing attribution naming risks orphaning existing on-disk learning records; migrate rather than rename in place.",
       "gate": {
         "status": "SKIPPED",
         "detail": "no setting/values proposed"
@@ -470,82 +470,82 @@
     },
     {
       "rank": 7,
-      "action": "Restrict SQUEEZE_BREAKOUT to the TRENDING regime, or retire it. Treat this as a trailing cleanup, not a priority.",
-      "rationale": "It is the only remaining negative setup after actions 1-3: 82 closed ex-SPX, PF 0.91, -5.60R, expectancy -0.068R. Ex-SPX it works only in TRENDING (33 closed, PF 1.17, +3.85R) and loses in RANGING and SQUEEZE (24 closed each, PF 0.78, -4.20R each) - it has no edge in the regime it is named for, where MOMENTUM does the work instead (MOMENTUM|SQUEEZE 64 closed, PF 1.74, +25.8R). Dropping it outright takes the recommended config from 358 closed / PF 1.77 / +171.08R to 276 closed / PF 2.10 / +176.68R, expectancy +0.478 -> +0.640. Small in absolute R, which is why it ranks here.",
-      "setting": "executionDisabledSetups (retire) or a regime-conditional setup gate (restrict)",
-      "suggestedValues": "restrict to regime==TRENDING; or add SQUEEZE_BREAKOUT to executionDisabledSetups",
+      "action": "Set an entry RSI floor, but first verify in code whether minEntryRsi is applied to BUY signals only or to all directions. If it is direction-blind, make it BUY-only before enabling it. Stage the value at 35, then 45; do not go straight to 50.",
+      "rationale": "byRsi rsi<35: 193 closed, 25.9% win, PF 0.73, -40.82R. rsi35-50: 129 closed, 27.1% win, PF 0.79, -20.64R. rsi50-65: 442 closed, PF 1.33, +104.7R. rsi>=65: 316 closed, PF 1.13, +27.35R. A combined -61.46R of the closed book sits below RSI 50 and the setting already exists (minEntryRsi=0, limits 0-60), so this is config rather than code -- provided the direction question is settled. Note also that momentumRsiMax and trendFollowRsiMax have both been raised to 100 from defaults of 72 and 68, and the data supports that: rsi>=65 is profitable, so the disabled ceilings are not the problem. The missing floor is.",
+      "setting": "minEntryRsi",
+      "suggestedValues": "35,45",
       "measurable": "yes",
-      "measurableWhy": "Setup and regime labels are both produced by generateSignal on every replayed bar, so a regime-conditional setup gate is directly measurable via setupByRegime. Note the surviving TRENDING slice depends on adxTrendingMin, which the replay also sees, so both can be swept together.",
-      "agreement": "setup-forensics (proposal 3) and regime-fit (finding 8) agree on restricting to TRENDING. risk-and-config lists it among the negative setups but does not propose disabling it. SQUEEZE_BREAKOUT|STRONG is belowMinSample (3 closed) and no proposal here rests on it - strength-gate correctly refused to use it.",
-      "risk": "The surviving TRENDING slice is +0.117R per trade over 33 closed, barely above the 0.05R cost assumption, so restricting rather than retiring may just preserve a break-even setup that adds variance for no return. Retiring removes the last non-MOMENTUM volume and makes the concentration problem in action 3 worse.",
+      "measurableWhy": "Entry RSI is recorded per replayed trade -- the byRsi buckets are built from it -- so a floor can be scored as a post-filter on existing output. The direction-conditional variant needs an RSI-by-direction cross-tab this fact pack does not contain, but the replay can produce one, and it should before this ships.",
+      "agreement": "regime-fit, loss-autopsy and risk-and-config all propose an RSI floor. loss-autopsy and regime-fit both flag the direction caveat; loss-autopsy states it most sharply. Ranked below the setup work because of that unresolved caveat and because it overlaps heavily with actions 1-3.",
+      "risk": "The pack never crosses RSI with direction, so an unknown share of the -61.46R below RSI 50 is SELL trades a BUY-only floor will not touch -- realised gain could be far smaller than the headline. A blanket floor applied to shorts would block exactly the low-RSI entries a short setup wants. At 50 it removes 322 closed trades, roughly a third of the closed book, and would suppress BUY_OVERSOLD and BUY_DIP entirely (BUY_OVERSOLD is already disabled in tranche B, so check for double-counting).",
       "gate": {
         "status": "UNMEASURABLE",
-        "detail": "executionDisabledSetups (retire) or a regime-conditional setup gate (restrict) is outside what the replay can see (adxTrendingMin) — needs a human decision"
+        "detail": "minEntryRsi is outside what the replay can see (adxTrendingMin) — needs a human decision"
       }
     },
     {
       "rank": 8,
-      "action": "Do NOT raise confidenceThreshold to 80 on the champion. Run it as a challenger arm only, and judge it on drawdown and position-slot contention rather than total R.",
-      "rationale": "This is a genuine quality-versus-volume tradeoff that the total-R numbers resolve against. From the live baseline, conf>=80 raises expectancy from +0.223R to +0.333R but cuts total R by -35.59R (268 of 487 trades removed). Applied on top of actions 1-3 it still costs -15.41R (+93.05R over 147 closed at PF 2.08, versus +166.25R over 350 at PF 1.76). Confidence is also not monotonic in the raw pack - conf65-69 (-0.071R) is worse than conf50-64 (+0.061R). The one argument for it is that maxConcurrentPositions=3 makes slots, not signals, the scarce resource, and that is exactly what the replay cannot see - so it must be settled live, on a challenger arm, not decided from these facts.",
-      "setting": "confidenceThreshold",
-      "suggestedValues": "70 (hold champion), 80 (challenger arm only)",
-      "measurable": "no",
-      "measurableWhy": "Explicitly outside the replay - generateSignal emits confidence but the replay never applies the threshold, and the whole case for raising it rests on position-slot contention enforced by the MT5 bridge (maxConcurrentPositions=3), which the replay also cannot see. The R numbers above come from post-filtering replay output, which measures the signal-quality effect but not the slot-contention effect.",
-      "agreement": "risk-and-config (proposal 2) proposes 75/80 outright; loss-autopsy proposes a direction-conditional variant (SELL at 80/85). Neither checked the total-R cost. Ranked as a rejection-with-experiment rather than an action because the facts do not support shipping it.",
-      "risk": "Shipping it to the champion trades away a third of total R for per-trade quality that may not be needed - at roughly 98 live-eligible signals per year (~0.3/day across three assets) against maxTradesPerDay=10, throughput caps are nowhere near binding, so there is currently no scarcity argument. The direction-conditional variant is additionally redundant with action 3.",
+      "action": "Do not let the auto-tuner move adxTrendingMin. Pin it at 20. If you want to know whether the boundary matters, run 20 vs 25 vs 30 as a replay experiment and read the result -- but do not ship a change on the byAdx buckets alone, and widen autoTunableSettings to a knob the data actually discriminates on rather than leaving this as the sole adaptive lever.",
+      "rationale": "byAdx win rates are 31.5% (adx<20), 32.3% (adx20-30) and 31.0% (adx>=30) -- effectively identical, so ADX carries no win-rate signal. The R profile is a middle-band problem: adx<20 +75.14R at PF 1.33 (the best band), adx20-30 -24.6R at PF 0.92 (the only negative one), adx>=30 +20.05R at PF 1.08. A single threshold cannot isolate a losing band sitting between two profitable ones. Critically, adxTrendingMin is a regime-classification boundary, not a filter: raising it does not remove the 427 trades in the 20-30 band, it relabels them into RANGING/SQUEEZE handling where a different and possibly worse setup mix fires, and it changes the regime label that action 2's gate would consume. Cheap to test in replay, wrong to ship blind.",
+      "setting": "adxTrendingMin",
+      "suggestedValues": "20 (hold); replay-test 20,25,30",
+      "measurable": "yes",
+      "measurableWhy": "This is the one setting the replay can fully see, and the only entry in autoTunableSettings. generateSignal consumes adxTrendingMin directly, so a full re-replay at each value gives a genuine simulated answer including the second-order setup-mix effects -- which is exactly why it should be measured rather than reasoned about.",
+      "agreement": "loss-autopsy and risk-and-config both argue for freezing it, on the same middle-band logic. regime-fit argues the opposite (raise to 25/28/30) -- see disagreements; the facts favour freezing, and regime-fit's own risk field concedes the reclassification point.",
+      "risk": "Freezing the only auto-tunable setting removes the system's sole self-adjustment path until a better-supported tunable is added -- an argument for widening autoTunableSettings, not for tuning a knob that shows no separation. Conversely, auto-tuning confidenceThreshold or minStrength instead is far more consequential than a regime label and would chase noise badly on short windows; add them only with a minimum-sample guard.",
       "gate": {
-        "status": "UNMEASURABLE",
-        "detail": "confidenceThreshold is outside what the replay can see (adxTrendingMin) — needs a human decision"
+        "status": "NO_IMPROVEMENT",
+        "detail": "30          replay failed: could not extract const MOMENTUM_MACD_EXEMPT_TICKERS from server/index.js â€” refusing to replay, because without it generateSignal throws on every bar and the result would silently be an empty trade |  | No results — nothing to decide."
       }
     },
     {
       "rank": 9,
-      "action": "Explicitly reject and do not implement: adxTrendingMin 25/30, minStrength=STRONG, minEntryRsi 35/45/50, dailyOnlyMinConfidence 75/80, maxTradesPerDay 10->5, and the DAILY+H4_CONFLICT cohort gate. Leave all six at their current values.",
-      "rationale": "Each targets a bucket that is either SPX contamination or already blocked live, and two would actively destroy R. adxTrendingMin: the -24.6R adx20-30 band is entirely SPX (SPX adx20-30 -25.06R; BTC+Gold adx20-30 is +0.46R at PF 1.00), and under the live gate all three ADX bands are positive (+96.29R / +7.16R / +5.01R) - there is no negative band to fix, and reclassifying regimes would move trades out of MOMENTUM|TRENDING, the largest profit cell. minStrength=STRONG: costs -87.72R off the live baseline and leaves 50 closed trades across seven years. minEntryRsi: worth +13.52R alone but a near no-op (-1.16R) once the setups are gated, because the low-RSI losses are the short setups - it is a proxy for a filter better applied directly, and a single floor blocks short entries by construction. dailyOnlyMinConfidence: actively harmful - the live DAILY_ONLY_H4_NEUTRAL cohort is 42 closed at PF 2.00 and +0.801R expectancy, the best cohort in the live book, and 100% of it sits in conf 70-79, so a 75/80 floor deletes it. maxTradesPerDay: a no-op at ~0.3 signals/day. Conflict cohort: all 42 rows are conf<70 and are already blocked by the live threshold - worth 0.00R.",
-      "setting": "adxTrendingMin, minStrength, minEntryRsi, dailyOnlyMinConfidence, maxTradesPerDay",
-      "suggestedValues": "hold at 20, MODERATE, 0, 0, 10 respectively",
-      "measurable": "yes",
-      "measurableWhy": "adxTrendingMin is the one tunable the replay sees directly and is the only entry in autoTunableSettings, so a 20/25/30 sweep is cheap and should be run once to confirm the rejection rather than assumed. minEntryRsi and minStrength are also visible to generateSignal and can be swept. dailyOnlyMinConfidence, the conflict-cohort gate and maxTradesPerDay are not measurable - they live in generateSignalMTF and the MT5 bridge respectively.",
-      "agreement": "This action contradicts regime-fit (proposals 4, 5), risk-and-config (proposals 2, 3, 4, 5, 6, 7, 9) and loss-autopsy (proposal 2). It is backed by loss-autopsy's finding 5, which correctly identified ADX 20-30 as SPX contamination and warned it must not be filtered on, and by setup-forensics (finding 8) and strength-gate (proposal 1), which both correctly rejected a global STRONG gate.",
-      "risk": "Holding adxTrendingMin at its default leaves the only auto-tunable setting untested and healCount at 0 - if the auto-tuner is silently unable to write the value, that stays hidden. Run the 20/25/30 sweep once to verify both the rejection and that the tuner can actually move the setting.",
+      "action": "Do not raise frequency or risk until a post-change replay shows the book's PF improving. Specifically: reduce maxTradesPerDay from 10 back toward its default of 5, hold riskPercent at 0.15, maxConcurrentPositions at 3 and maxLotSize at 2, and keep minStrength at MODERATE globally.",
+      "rationale": "The book's expectancy is 0.065R against a 0.05R cost assumption -- roughly 0.015R of genuine edge per trade before any of the above ships. maxTradesPerDay is set to double its default of 5, which scales a barely-positive edge and therefore scales the tax as much as the edge. On minStrength: keep MODERATE. MOMENTUM|MODERATE is 586 closed at +141.84R and PF 1.35 -- more than the entire book's +70.59R -- and seven setups including the profitable TREND_FOLLOW exist only as a MODERATE leg, so a global STRONG gate would not have improved them, it would have deleted them, leaving 51 closed trades in total. STRONG's 0.445R expectancy is real per trade but unreachable at volume.",
+      "setting": "maxTradesPerDay, riskPercent, maxConcurrentPositions, minStrength",
+      "suggestedValues": "maxTradesPerDay 5; riskPercent 0.15 (hold); maxConcurrentPositions 3 (hold); minStrength MODERATE (hold)",
+      "measurable": "no",
+      "measurableWhy": "Position and trade caps are enforced by the MT5 bridge, entirely outside generateSignal, so the replay's 1411 trades are an uncapped superset of what the live system would take -- it cannot model the caps at all. minStrength is visible to the replay as a strength filter on generateSignal output, but the frequency and sizing half of this action is not.",
+      "agreement": "risk-and-config raises the maxTradesPerDay-versus-thin-edge point. strength-gate argues explicitly and correctly for holding minStrength at MODERATE, and no analyst proposes reverting it to STRONG. Ranked last because it is a hold-the-line action rather than a source of new R.",
+      "risk": "Holding frequency and risk low caps the upside if the changes above genuinely work, and lengthens the time needed to accumulate enough live closed trades to verify anything -- which, given a learning file holding 8 win/loss records, is already the binding constraint. Revisit once actions 1-3 have a measured post-change replay behind them.",
       "gate": {
         "status": "UNMEASURABLE",
-        "detail": "adxTrendingMin, minStrength, minEntryRsi, dailyOnlyMinConfidence, maxTradesPerDay is outside what the replay can see (adxTrendingMin) — needs a human decision"
+        "detail": "maxTradesPerDay, riskPercent, maxConcurrentPositions, minStrength is outside what the replay can see (adxTrendingMin) — needs a human decision"
       }
     }
   ],
   "blindSpots": [
-    "Unresolved trades are silently dropped. 330 of 1411 rows (23.4%) are EXPIRED and contribute nothing to any R figure. The rate is wildly uneven - 48.0% for SPX versus 17.4% BTC and 19.4% Gold - so roughly half the SPX record is unscored and the SPX verdict rests on the resolved half. Nothing in the pack says whether an expired trade would have been a win, a loss, or a manual close, and nothing says what the live system does with a position that never reaches TP or SL.",
-    "The R model is an idealisation. Every loss is scored at exactly -1.05R and every win at rr-0.05, with a flat costAssumptionR of 0.05 standing in for all spread, slippage, swap and commission. There is no gap risk, no partial fill, no stop-hunt, no weekend gap and no variable spread. Gold and SPX in particular have session-dependent spreads that a flat 0.05R will understate. The measured +0.478R expectancy is therefore an upper bound.",
-    "No equity path, so no drawdown, no risk of ruin, no correlation. With riskPercent=0.15 and the recommended config being long-only BTC and Gold, the two instruments will draw down together in a dollar-liquidity shock, and nothing here measures that. Total R and profit factor say nothing about the maximum peak-to-trough the account would have suffered, which is the number that actually determines whether this configuration is survivable.",
-    "Sequencing and slot contention are invisible. The replay treats every signal as independently takeable; live, maxConcurrentPositions=3 means simultaneous signals compete for slots and some are simply never opened. Which one wins the slot is unmodelled. This is precisely the mechanism that would justify raising confidenceThreshold, so the strongest argument for action 8 is also the one these facts cannot evaluate.",
-    "The replay may not be the live signal path. It runs generateSignal; live execution runs generateSignalMTF. The cohort labels (H4_ONLY, DAILY+H4_AGREE, DAILY+H4_CONFLICT, DAILY_ONLY_H4_NEUTRAL) are the replay's own reconstruction of multi-timeframe agreement, and nothing here verifies that the live MTF path produces the same distribution - or the same signals at all. Every cohort-based conclusion is conditional on that unverified equivalence.",
-    "Everything is in-sample. All nine actions are being fitted to the same 2019-2026 bars that produced the facts, with no holdout, no walk-forward and no out-of-sample confirmation. The recommended config keeps 358 of 1081 closed rows; selecting three filters against one history and reporting the surviving subset's PF is exactly the procedure that manufactures overfitting. The +171.08R figure should be treated as a ceiling, not a forecast.",
-    "The only real-money evidence is 13 trades and it disagrees. liveState.learning holds 5 wins and 8 losses across 4 setups with MOMENTUM at 3W/5L and -333.24 currency, and journalEntries is 15 against sessionCount 263. That sample is far too small to overturn 1081 replayed trades, but it is also the only observation of actual fills, actual spreads and actual bridge behaviour in the entire pack - and it points the other way. Nothing here reconciles the two.",
-    "Regime and trend labels are the system's own output, not ground truth. MOMENTUM fires exclusively under a STRONG UPTREND label, so 'MOMENTUM works' and 'the classifier's STRONG UPTREND label is informative' cannot be separated with these facts. If the classifier is mislabelling, the error is invisible to every bucket in the pack because every bucket is cut by the same labels.",
-    "No sizing or currency dimension. riskPercent is 0.15 against a default of 1, fixedLotSize is 0 and maxLotSize is 10, but nothing maps R to account currency or verifies that a 1R loss is actually 0.15% of equity on each instrument. The live learning file's -333.24 on MOMENTUM against a measured +155.26R is the visible symptom of that gap being unreconciled.",
-    "Nothing measures why SPX fails. The 5.7% MOMENTUM win rate and 48% expiry rate identify a defect but the pack contains no bar-level price data, no stop distances, no instrument specifications and no fill records - so the facts can localise the problem to SPX and rule out regime, cohort, direction and indicator band as explanations, but cannot name the cause. Action 4 has to be answered outside this dataset."
+    "No cross-tabulation between dimensions. There is no asset-by-setup, RSI-by-direction, confidence-by-setup or cohort-by-setup breakdown, so overlap between the loss clusters is entirely unmeasured and the R savings from actions 1, 2, 3, 5 and 7 are NOT additive. SPX's -85.5R almost certainly contains part of BREAKDOWN's -34.4R and part of the -61.46R below RSI 50. Any arithmetic that sums them overstates the benefit, possibly by a large factor.",
+    "Open trades are excluded and close rates vary sharply by bucket: 1411 trades but only 1080 closed; SPX 244 signals to 127 closed (52%), DAILY+H4_AGREE 374 to 214 (57%), conf>=80 360 to 226 (63%), versus H4_ONLY 637 to 589 (92%). If losers close faster than winners -- stops hit before targets -- every low-close-rate bucket is selection-biased toward its losses, which would flatter the case against SPX and against the conflict cohort specifically.",
+    "This is one replay over one historical window with no walk-forward, no out-of-sample split and no date-stratified results, so there is no way to separate edge from regime luck. The entire book's profit rides STRONG UPTREND (+158.82R over 667 closed) while every other trend bucket is negative -- the window may simply have been a bull market in BTC and Gold, in which case MOMENTUM's +156.31R is a beta reading rather than an edge, and concentrating the book into it (which actions 1-3 do) increases that exposure rather than reducing it.",
+    "Costs are a single flat costAssumptionR of 0.05 with no spread, slippage, swap or per-asset differentiation. SPX, Gold and BTC have materially different real cost structures, and several conclusions turn on margins smaller than plausible cost error -- notably SQUEEZE_BREAKOUT|TRENDING at exactly +0.050 and MODERATE's overall 0.047 expectancy, which is already below the assumed cost.",
+    "The replay's trade set is not the set the live system would take. It cannot see confidenceThreshold (so every sub-70-confidence trade among these 1411 is one the live system would never have opened), it cannot see the multi-timeframe agreement in generateSignalMTF, and it cannot see anything the MT5 bridge enforces -- maxConcurrentPositions=3, maxTradesPerDay=10, maxNotionalPct=25, maxLotSize=2. Live results are a capped, filtered subset, and caps bind on exactly the clustered days when the most signals fire, so live sequencing and live R will differ systematically rather than randomly.",
+    "Nothing here distinguishes a strategy failure from an execution or instrument-spec failure. SPX at 12.6% win and PF 0.27 on the same logic that yields 33-35% on two other assets is more consistent with a point-value, stop-distance or data defect than with a bad edge, and there is no execution-quality data -- fills, slippage, actual versus intended stop -- to settle it. Only 15 journal entries and 8 live win/loss records exist to check the replay against.",
+    "No path or timing data at all: no MAE/MFE, no holding period, no time-of-day or session breakdown, no drawdown sequence, no R-multiple distribution beyond terminal outcomes. So nothing can be said about stop placement, target placement, whether the 31.7% win rate reflects stops that are too tight, or how deep the equity path gets -- which is what 'per unit of risk' would ideally mean and cannot mean here.",
+    "The live record and the replay cannot be reconciled. liveState.learning holds 4 setups and 8 win/loss records against the replay's 10 setups and 1411 trades, reports MOMENTUM as net negative where the replay reports it as the only large winner, and contains a setup name (BB_SQUEEZE_WATCH) and an UNATTRIBUTED bucket that appear nowhere in the executed record. Until attribution is consistent there is no way to verify the live system is even running the logic this fact pack replayed -- a precondition for trusting any of the above in production.",
+    "No correlation or concurrent-exposure data. BTC, Gold and SPX are scored independently, with nothing on how often positions are open simultaneously or in the same direction, so maxConcurrentPositions=3 could mean three uncorrelated bets or one bet at triple size, and true risk per unit is unknown either way.",
+    "The individual trade records were not exploited beyond the aggregates the analysts cite, yet the facts file contains all 1411 of them. Several blind spots above -- close-rate bias, RSI-by-direction, asset-by-setup overlap, R distribution -- are answerable from data already on disk without a new replay. That is the cheapest next measurement and should precede shipping actions 4, 5 and 7."
   ],
   "analystReports": [
     {
       "agent": "setup-forensics",
-      "text": "{\"headline\":\"MOMENTUM is the only setup genuinely carrying the book (+155.26R over 624 closed, expectancyR +0.249) while eight negative-expectancy setups bleed -91.38R combined, and the five that lose in every usable regime — BUY_OVERSOLD, RANGE_TRADE_SHORT, BREAKOUT, RANGE_TRADE_LONG, SELL_BOUNCE — should be disabled outright.\",\"findings\":[{\"claim\":\"Ranked worst to best by expectancyR (bySetup): BUY_OVERSOLD -0.376, RANGE_TRADE_SHORT -0.284, BREAKOUT -0.257, RANGE_TRADE_LONG -0.236, SELL_BOUNCE -0.222, BREAKDOWN -0.221, SQUEEZE_BREAKOUT -0.092, BUY_DIP -0.056, TREND_FOLLOW +0.195, MOMENTUM +0.249. Only two of the ten setups have positive expectancy.\",\"evidence\":\"bySetup: BUY_OVERSOLD closed 26, winRatePct 23.1, PF 0.53, totalR -9.77, expectancyR -0.376; RANGE_TRADE_SHORT closed 65, winRatePct 27.7, PF 0.63, totalR -18.49, expectancyR -0.284; BREAKOUT closed 21, winRatePct 19.0, PF 0.70, totalR -5.39, expectancyR -0.257; RANGE_TRADE_LONG closed 43, winRatePct 30.2, PF 0.68, totalR -10.13, expectancyR -0.236; SELL_BOUNCE closed 22, winRatePct 22.7, PF 0.73, totalR -4.88, expectancyR -0.222; BREAKDOWN closed 156, winRatePct 25.0, PF 0.72, totalR -34.40, expectancyR -0.221; SQUEEZE_BREAKOUT closed 84, winRatePct 27.4, PF 0.88, totalR -7.70, expectancyR -0.092; BUY_DIP closed 11, winRatePct 27.3, PF 0.93, totalR -0.62, expectancyR -0.056; TREND_FOLLOW closed 29, winRatePct 37.9, PF 1.30, totalR +5.66, expectancyR +0.195; MOMENTUM closed 624, winRatePct 35.3, PF 1.37, totalR +155.26, expectancyR +0.249. No bySetup bucket is belowMinSample (minSampleForRecommendation 5).\",\"sampleSize\":1081,\"confidence\":\"high\"},{\"claim\":\"MOMENTUM alone produces more R than the entire book, so every other setup combined is a net drag.\",\"evidence\":\"bySetup MOMENTUM totalR +155.26 over 624 closed against overall totalR 69.54 (1411 trades, winRatePct 31.6, profitFactor 1.09, expectancyR 0.064). The eight negative setups sum to -91.38R: BREAKDOWN -34.40, RANGE_TRADE_SHORT -18.49, RANGE_TRADE_LONG -10.13, BUY_OVERSOLD -9.77, SQUEEZE_BREAKOUT -7.70, BREAKOUT -5.39, SELL_BOUNCE -4.88, BUY_DIP -0.62.\",\"sampleSize\":1081,\"confidence\":\"high\"},{\"claim\":\"RANGE_TRADE_SHORT and RANGE_TRADE_LONG lose in every regime with a usable sample — there is no condition under which either deserves to stay enabled.\",\"evidence\":\"setupByRegime RANGE_TRADE_SHORT|RANGING closed 29, PF 0.56, totalR -10.22, expectancyR -0.352; RANGE_TRADE_SHORT|SQUEEZE closed 12, PF 0.29, totalR -7.45, expectancyR -0.621; RANGE_TRADE_SHORT|TRENDING closed 21, PF 0.81, totalR -2.72, expectancyR -0.130 (RANGE_TRADE_SHORT|VOLATILE closed 3 is belowMinSample — insufficient sample). RANGE_TRADE_LONG|TRENDING closed 14, PF 0.43, totalR -6.55, expectancyR -0.468; RANGE_TRADE_LONG|RANGING closed 10, PF 0.73, totalR -1.97, expectancyR -0.197; RANGE_TRADE_LONG|SQUEEZE closed 18, PF 0.95, totalR -0.56, expectancyR -0.031.\",\"sampleSize\":104,\"confidence\":\"high\"},{\"claim\":\"BUY_OVERSOLD's loss is concentrated in the RANGING regime, where it is close to a pure loss generator.\",\"evidence\":\"setupByRegime BUY_OVERSOLD|RANGING closed 13, winRatePct 7.7, PF 0.15, totalR -10.74, expectancyR -0.826 — a larger loss than the whole BUY_OVERSOLD bucket's -9.77R over 26 closed. BUY_OVERSOLD|SQUEEZE closed 6, PF 0.93, expectancyR -0.050; BUY_OVERSOLD|TRENDING closed 6, PF 1.74, expectancyR +0.387 (both slices thin).\",\"sampleSize\":26,\"confidence\":\"medium\"},{\"claim\":\"BREAKDOWN is strength-conditional rather than uniformly broken: it is deeply negative at MODERATE strength, and the small STRONG slice is positive.\",\"evidence\":\"setupByStrength BREAKDOWN|MODERATE closed 145, winRatePct 22.1, PF 0.61, totalR -45.77, expectancyR -0.316 — the largest single loss pool in the fact pack; BREAKDOWN|STRONG closed 11, winRatePct 63.6, PF 3.71, totalR +11.37, expectancyR +1.034 (above minSampleForRecommendation 5 but still thin). By regime, BREAKDOWN|TRENDING closed 116, PF 0.70, totalR -28.40, expectancyR -0.245; BREAKDOWN|RANGING closed 35, PF 0.97, totalR -0.75, expectancyR -0.021.\",\"sampleSize\":156,\"confidence\":\"high\"},{\"claim\":\"SQUEEZE_BREAKOUT only survives in TRENDING; it loses in SQUEEZE and RANGING — the very conditions its name implies.\",\"evidence\":\"setupByRegime SQUEEZE_BREAKOUT|TRENDING closed 35, PF 1.07, totalR +1.75, expectancyR +0.050; SQUEEZE_BREAKOUT|SQUEEZE closed 24, PF 0.78, totalR -4.20, expectancyR -0.175; SQUEEZE_BREAKOUT|RANGING closed 24, PF 0.78, totalR -4.20, expectancyR -0.175. Whole setup: bySetup SQUEEZE_BREAKOUT closed 84, PF 0.88, expectancyR -0.092. SQUEEZE_BREAKOUT|STRONG closed 3 is belowMinSample — insufficient sample.\",\"sampleSize\":84,\"confidence\":\"medium\"},{\"claim\":\"MOMENTUM's best regimes are the low-volume ones: SQUEEZE and RANGING beat TRENDING on expectancy even though TRENDING supplies most of the fills.\",\"evidence\":\"setupByRegime MOMENTUM|SQUEEZE closed 64, winRatePct 48.4, PF 1.74, totalR +25.80, expectancyR +0.403; MOMENTUM|RANGING closed 72, winRatePct 45.8, PF 1.57, totalR +23.40, expectancyR +0.325; MOMENTUM|TRENDING closed 485, winRatePct 32.2, PF 1.32, totalR +109.21, expectancyR +0.225. MOMENTUM|VOLATILE closed 3 is belowMinSample — insufficient sample.\",\"sampleSize\":621,\"confidence\":\"high\"},{\"claim\":\"Tightening minStrength globally to STRONG would misread the strength edge — MOMENTUM at MODERATE strength is profitable on a very large sample and supplies the bulk of the book's profit.\",\"evidence\":\"byStrength STRONG closed 50, PF 1.73, totalR +20.74, expectancyR +0.415 versus MODERATE closed 1031, PF 1.07, totalR +48.80, expectancyR +0.047. But setupByStrength MOMENTUM|MODERATE closed 588, winRatePct 34.7, PF 1.35, totalR +142.74, expectancyR +0.243, versus MOMENTUM|STRONG closed 36, PF 1.60, totalR +12.52, expectancyR +0.348. The global MODERATE weakness comes from the losing setups (notably BREAKDOWN|MODERATE -45.77R), not from MOMENTUM.\",\"sampleSize\":1081,\"confidence\":\"high\"},{\"claim\":\"BUY_DIP and TREND_FOLLOW are the too-little-data group: neither re"
+      "text": "{\"headline\":\"MOMENTUM is the only setup carrying the book (+156.31R over 623 closed, expectancyR 0.251) while eight of the ten setups are net losers totalling -91.38R over 428 closed trades, so the system's edge is one setup being taxed by everything else.\",\"findings\":[{\"claim\":\"Ranked worst to best by expectancyR (bySetup, all ten buckets belowMinSample=false): BUY_OVERSOLD -0.376, RANGE_TRADE_SHORT -0.284, BREAKOUT -0.257, RANGE_TRADE_LONG -0.236, SELL_BOUNCE -0.222, BREAKDOWN -0.221, SQUEEZE_BREAKOUT -0.092, BUY_DIP -0.056, TREND_FOLLOW +0.195, MOMENTUM +0.251.\",\"evidence\":\"bySetup: BUY_OVERSOLD expectancyR -0.376 / PF 0.53 / 26 closed; RANGE_TRADE_SHORT -0.284 / PF 0.63 / 65 closed; BREAKOUT -0.257 / PF 0.70 / 21 closed; RANGE_TRADE_LONG -0.236 / PF 0.68 / 43 closed; SELL_BOUNCE -0.222 / PF 0.73 / 22 closed; BREAKDOWN -0.221 / PF 0.72 / 156 closed; SQUEEZE_BREAKOUT -0.092 / PF 0.88 / 84 closed; BUY_DIP -0.056 / PF 0.93 / 11 closed; TREND_FOLLOW +0.195 / PF 1.30 / 29 closed; MOMENTUM +0.251 / PF 1.37 / 623 closed.\",\"sampleSize\":1080,\"confidence\":\"high\"},{\"claim\":\"MOMENTUM is the only setup that genuinely makes money at scale, and it is profitable in every regime bucket that has a usable sample.\",\"evidence\":\"bySetup MOMENTUM: 623 closed, PF 1.37, totalR +156.31, expectancyR 0.251. setupByRegime: MOMENTUM|TRENDING 0.228 (484 closed), MOMENTUM|RANGING 0.325 (72 closed), MOMENTUM|SQUEEZE 0.403 (64 closed), none belowMinSample. The whole book's totalR is only +70.59, i.e. less than MOMENTUM alone.\",\"sampleSize\":623,\"confidence\":\"high\"},{\"claim\":\"BREAKDOWN is the single largest R drain, and the loss sits entirely in its MODERATE-strength slice; its STRONG slice is the best-performing adequately-sampled bucket in the fact pack.\",\"evidence\":\"bySetup BREAKDOWN totalR -34.40 over 156 closed. setupByStrength BREAKDOWN|MODERATE: 145 closed, winRate 22.1%, PF 0.61, totalR -45.77, expectancyR -0.316. BREAKDOWN|STRONG: 11 closed, winRate 63.6%, PF 3.71, totalR +11.37, expectancyR 1.034, belowMinSample=false (minSampleForRecommendation is 5).\",\"sampleSize\":156,\"confidence\":\"high\"},{\"claim\":\"RANGE_TRADE_SHORT and RANGE_TRADE_LONG lose in every regime slice with a usable sample: there is no market state in which the range setups work.\",\"evidence\":\"setupByRegime RANGE_TRADE_SHORT: RANGING -0.352 (29 closed), TRENDING -0.130 (21 closed), SQUEEZE -0.621 (12 closed); its only positive slice, VOLATILE +0.633, is 3 closed with belowMinSample=true (insufficient sample). RANGE_TRADE_LONG: TRENDING -0.468 (14 closed), RANGING -0.197 (10 closed), SQUEEZE -0.031 (18 closed). setupByStrength shows both are MODERATE-only (RANGE_TRADE_SHORT|MODERATE -0.284 / 65 closed, RANGE_TRADE_LONG|MODERATE -0.236 / 43 closed), so there is no strength slice to retreat to.\",\"sampleSize\":108,\"confidence\":\"high\"},{\"claim\":\"BUY_OVERSOLD has the worst expectancy of any setup, and its loss is concentrated in RANGING conditions, the regime a mean-reversion setup should be best in.\",\"evidence\":\"bySetup BUY_OVERSOLD: 26 closed, winRate 23.1%, PF 0.53, totalR -9.77, expectancyR -0.376. setupByRegime BUY_OVERSOLD|RANGING: 13 closed, winRate 7.7%, PF 0.15, totalR -10.74, expectancyR -0.826, i.e. the RANGING slice alone loses more R than the whole setup. Its BUY_OVERSOLD|TRENDING +0.387 and |SQUEEZE -0.050 slices are 6 closed each, barely above the sample floor.\",\"sampleSize\":26,\"confidence\":\"medium\"},{\"claim\":\"SQUEEZE_BREAKOUT does not work in the squeeze regime it is named for, and its one non-negative slice only matches assumed costs, making it a breakeven-to-negative setup rather than a clear loser.\",\"evidence\":\"bySetup SQUEEZE_BREAKOUT: 84 closed, PF 0.88, totalR -7.70, expectancyR -0.092. setupByRegime SQUEEZE_BREAKOUT|SQUEEZE -0.175 (24 closed) and |RANGING -0.175 (24 closed); best slice |TRENDING +0.050 over 35 closed, exactly the fact pack's costAssumptionR of 0.05. setupByStrength SQUEEZE_BREAKOUT|MODERATE -0.056 (81 closed); its STRONG slice is 3 closed with belowMinSample=true (insufficient sample).\",\"sampleSize\":84,\"confidence\":\"medium\"},{\"claim\":\"Signal strength is a real discriminator across the whole book, not just inside BREAKDOWN, but the STRONG population is far too small to run the system on alone.\",\"evidence\":\"byStrength MODERATE: 1029 closed, winRate 30.9%, PF 1.06, expectancyR 0.047, which is below the costAssumptionR of 0.05. byStrength STRONG: 51 closed, winRate 47.1%, PF 1.80, expectancyR 0.445. setupByStrength MOMENTUM|STRONG 0.391 (37 closed) vs MOMENTUM|MODERATE 0.242 (586 closed). Only 79 of 1411 trades are STRONG, and liveState minStrength is currently MODERATE.\",\"sampleSize\":1080,\"confidence\":\"high\"},{\"claim\":\"BUY_DIP, BREAKOUT, SELL_BOUNCE and TREND_FOLLOW clear the minimum sample of 5 at setup level but rest on thin evidence, and their per-regime breakdowns are dominated by buckets at or near the sample floor, which is insufficient sample for regime-level conclusions.\",\"evidence\":\"bySetup closed counts: BUY_DIP 11 (expectancyR -0.056, PF 0.93), BREAKOUT 21 (-0.257, PF 0.70), SELL_BOUNCE 22 (-0.222, PF 0.73), TREND_FOLLOW 29 (+0.195, PF 1.30). Their standout regime slices are tiny or flagged: BUY_DIP|RANGING +0.807 (4 closed, belowMinSample=true), BUY_DIP|SQUEEZE -1.050 (4 closed, belowMinSample=true), BREAKOUT|RANGING +0.560 (6 closed), TREND_FOLLOW|SQUEEZE +0.982 (5 closed), TREND_FOLLOW|TRENDING +0.078 (23 closed).\",\"sampleSize\":83,\"confidence\":\"medium\"},{\"claim\":\"The VOLATILE regime is loss-making in aggregate, but every setup-level VOLATILE bucket is noise, so any volatility filter has to be decided at regime level and not per setup.\",\"evidence\":\"byRegime VOLATILE: 13 closed, winRate 15.4%, PF 0.26, totalR -8.60, expectancyR -0.662, belowMinSample=false. Every setupByRegime VOLATILE bucket (MOMENTUM, BREAKDOWN, RANGE_TRADE_SHORT, RANGE_TRADE_LONG, SQUEEZE_BREAKOUT, SELL_BOUNCE, BUY_OVERSOLD) is 1 to 4 closed with belowMinSample=true, i.e. insufficient sample.\",\"sampleSize\":13,\"confidence\":\"low\"}],\"propos"
     },
     {
       "agent": "strength-gate",
-      "text": "{\"headline\":\"MODERATE is roughly one-tenth as profitable per trade as STRONG (expectancyR 0.047 vs 0.415, profitFactor 1.07 vs 1.73) and its 0.047R sits below the 0.05R cost assumption, so the loosened gate should stay open only for MOMENTUM and TREND_FOLLOW rather than for all setups.\",\"findings\":[{\"claim\":\"MODERATE trades are dramatically worse than STRONG on every headline metric, and MODERATE's edge does not survive the fact pack's own cost assumption.\",\"evidence\":\"byStrength MODERATE: 1031 closed, winRatePct 30.9, profitFactor 1.07, expectancyR 0.047, totalR 48.8. byStrength STRONG: 50 closed, winRatePct 46.0, profitFactor 1.73, expectancyR 0.415, totalR 20.74. costAssumptionR is 0.05, i.e. above MODERATE's 0.047 expectancyR and far below STRONG's 0.415.\",\"sampleSize\":1081,\"confidence\":\"high\"},{\"claim\":\"The blended MODERATE number hides a sharp split: MODERATE is strongly profitable in MOMENTUM, mildly profitable in TREND_FOLLOW, and loss-making in every other setup bucket.\",\"evidence\":\"setupByStrength MOMENTUM|MODERATE: 588 closed, expectancyR 0.243, profitFactor 1.35, totalR 142.74. TREND_FOLLOW|MODERATE: 29 closed, expectancyR 0.195, profitFactor 1.30, totalR 5.66. Negative MODERATE buckets: BREAKDOWN|MODERATE 145 closed, expectancyR -0.316, totalR -45.77; RANGE_TRADE_SHORT|MODERATE 65 closed, -0.284, totalR -18.49; BUY_OVERSOLD|MODERATE 26 closed, -0.376, totalR -9.77; BREAKOUT|MODERATE 21 closed, -0.257, totalR -5.39; RANGE_TRADE_LONG|MODERATE 43 closed, -0.236, totalR -10.13; SELL_BOUNCE|MODERATE 22 closed, -0.222, totalR -4.88; SQUEEZE_BREAKOUT|MODERATE 81 closed, -0.056, totalR -4.55; BUY_DIP|MODERATE 11 closed, -0.056, totalR -0.62. Eight of the ten MODERATE setup buckets have negative expectancyR.\",\"sampleSize\":1031,\"confidence\":\"high\"},{\"claim\":\"BREAKDOWN is the setup where the strength gate matters most: it is the worst MODERATE bucket by expectancy but the best STRONG bucket in the whole fact pack.\",\"evidence\":\"setupByStrength BREAKDOWN|MODERATE: 145 closed, winRatePct 22.1, profitFactor 0.61, expectancyR -0.316, totalR -45.77. BREAKDOWN|STRONG: 11 closed, winRatePct 63.6, profitFactor 3.71, expectancyR 1.034, totalR 11.37, belowMinSample false (minSampleForRecommendation is 5). The blended bySetup BREAKDOWN row (156 closed, profitFactor 0.72, expectancyR -0.221) is therefore driven by the MODERATE half.\",\"sampleSize\":156,\"confidence\":\"medium\"},{\"claim\":\"MOMENTUM degrades only moderately when the gate is loosened, which is the sole reason the aggregate MODERATE book is positive at all.\",\"evidence\":\"setupByStrength MOMENTUM|STRONG: 36 closed, winRatePct 44.4, profitFactor 1.60, expectancyR 0.348, totalR 12.52, versus MOMENTUM|MODERATE: 588 closed, winRatePct 34.7, profitFactor 1.35, expectancyR 0.243, totalR 142.74. MOMENTUM|MODERATE alone carries more totalR (142.74) than the entire byStrength MODERATE bucket (48.8).\",\"sampleSize\":624,\"confidence\":\"high\"},{\"claim\":\"The data-gathering argument is real in volume terms - MODERATE produces about twenty times the closed-trade flow of STRONG - but that volume is only worth paying for in the setups where MODERATE has positive expectancy.\",\"evidence\":\"byStrength closed counts: MODERATE 1031 vs STRONG 50 (trades 1333 vs 78, out of overall 1411). STRONG appears in only three setup buckets (MOMENTUM|STRONG 36 closed, BREAKDOWN|STRONG 11 closed, SQUEEZE_BREAKOUT|STRONG 3 closed), so a STRONG-only gate starves TREND_FOLLOW, RANGE_TRADE_LONG, RANGE_TRADE_SHORT, BUY_OVERSOLD, BREAKOUT, SELL_BOUNCE and BUY_DIP of learning data entirely. Restricting MODERATE to MOMENTUM plus TREND_FOLLOW still yields 588 + 29 closed trades of learning flow at positive expectancyR (0.243 and 0.195).\",\"sampleSize\":1081,\"confidence\":\"high\"},{\"claim\":\"SQUEEZE_BREAKOUT cannot be used to argue either way on the strength gate.\",\"evidence\":\"setupByStrength SQUEEZE_BREAKOUT|STRONG: 3 closed, winRatePct 0.0, profitFactor 0.0, expectancyR -1.05, belowMinSample true - insufficient sample. Its MODERATE counterpart (81 closed, expectancyR -0.056, profitFactor 0.93) is close to flat, so no strength-conditional conclusion is supported for this setup.\",\"sampleSize\":3,\"confidence\":\"low\"},{\"claim\":\"The live system currently runs the loosened gate with no per-setup execution restriction, so every negative MODERATE bucket is live.\",\"evidence\":\"liveState.strategySettings: minStrength \\\"MODERATE\\\", executionDisabledSetups [] (empty), breakdownEnabled true, confidenceThreshold 70, updatedAt 2026-09-02T13:16:40.157Z. liveState.healer.checks.aiFilter detail: \\\"no trade has been evaluated yet - filter unexercised\\\"; liveState.journalEntries is 15 and liveState.learning.setupStats covers only 4 setups.\",\"sampleSize\":0,\"confidence\":\"high\"}],\"proposals\":[{\"change\":\"Keep minStrength at MODERATE but make the gate per-setup rather than global: allow MODERATE entries only for MOMENTUM and TREND_FOLLOW, require STRONG for BREAKDOWN, and require STRONG for every other setup. Implement as a setup-to-minStrength map consulted at the same point the global minStrength check runs.\",\"setting\":null,\"suggestedValues\":null,\"expectedEffect\":\"Removes the eight negative MODERATE buckets (BREAKDOWN|MODERATE -0.316, BUY_OVERSOLD|MODERATE -0.376, RANGE_TRADE_SHORT|MODERATE -0.284, BREAKOUT|MODERATE -0.257, RANGE_TRADE_LONG|MODERATE -0.236, SELL_BOUNCE|MODERATE -0.222, SQUEEZE_BREAKOUT|MODERATE -0.056, BUY_DIP|MODERATE -0.056) while retaining MOMENTUM|MODERATE (588 closed, expectancyR 0.243, totalR 142.74) and TREND_FOLLOW|MODERATE (29 closed, expectancyR 0.195, totalR 5.66). Blended expectancyR should move up from the 0.047 MODERATE level toward the 0.243 MOMENTUM|MODERATE level and clear the 0.05 costAssumptionR, while still generating far more closed trades than STRONG's 50.\",\"risk\":\"Learning coverage collapses for the excluded setups - RANGE_TRADE_SHORT, RANGE_TRADE_LONG, BUY_OVERSOLD, BREAKOUT, SELL_BOUNCE and BUY_DIP have no STRONG bucket in setupByStrength at all, so they would produce essentially"
+      "text": "{\"headline\":\"MODERATE is not uniformly worse than STRONG - its entire +47.9R comes from MOMENTUM|MODERATE (+141.84R over 586 closed) while eight other MODERATE setup buckets are net negative, so the fix is a per-setup strength gate, not a global rollback to STRONG.\",\"findings\":[{\"claim\":\"Globally, MODERATE is far weaker per trade than STRONG: roughly a tenth of the edge per trade and barely above breakeven.\",\"evidence\":\"byStrength MODERATE: 1029 closed, 30.9% win rate, profitFactor 1.06, totalR +47.9, expectancyR 0.047. byStrength STRONG: 51 closed, 47.1% win rate, profitFactor 1.80, totalR +22.69, expectancyR 0.445. STRONG earns nearly half of MODERATE's total R from 51 closed trades versus 1029.\",\"sampleSize\":1080,\"confidence\":\"high\"},{\"claim\":\"A STRONG-only gate is why the self-learning engine is starved: STRONG signals are rare in the same sample that produced 1332 MODERATE signals.\",\"evidence\":\"byStrength trade counts: MODERATE 1332 trades, STRONG 79 trades, out of overall 1411 trades. STRONG produced only 51 closed trades across the whole replay (coverage BTC 682, Gold 485, SPX 244).\",\"sampleSize\":51,\"confidence\":\"high\"},{\"claim\":\"MODERATE holds up on MOMENTUM. The gap to STRONG there is real but modest, and MOMENTUM|MODERATE is the single largest positive bucket in the fact pack.\",\"evidence\":\"setupByStrength MOMENTUM|MODERATE: 586 closed, 34.6% win rate, profitFactor 1.35, totalR +141.84, expectancyR 0.242. setupByStrength MOMENTUM|STRONG: 37 closed, 45.9% win rate, profitFactor 1.69, totalR +14.47, expectancyR 0.391. MOMENTUM|MODERATE alone exceeds the whole-book overall totalR of +70.59.\",\"sampleSize\":623,\"confidence\":\"high\"},{\"claim\":\"BREAKDOWN is the one setup where the strength gate genuinely flips the sign - MODERATE BREAKDOWN is the largest single loss bucket in the book, while STRONG BREAKDOWN is the highest-expectancy bucket.\",\"evidence\":\"setupByStrength BREAKDOWN|MODERATE: 145 closed, 22.1% win rate, profitFactor 0.61, totalR -45.77, expectancyR -0.316. setupByStrength BREAKDOWN|STRONG: 11 closed, 63.6% win rate, profitFactor 3.71, totalR +11.37, expectancyR +1.034. The MODERATE leg alone loses more R than the entire STRONG strength bucket earns (+22.69R).\",\"sampleSize\":156,\"confidence\":\"medium\"},{\"claim\":\"Outside MOMENTUM and TREND_FOLLOW, every MODERATE setup bucket has negative expectancy and profitFactor below 1.\",\"evidence\":\"setupByStrength MODERATE legs: BREAKDOWN expectancyR -0.316 (145 closed, PF 0.61, -45.77R), RANGE_TRADE_SHORT -0.284 (65 closed, PF 0.63, -18.49R), RANGE_TRADE_LONG -0.236 (43 closed, PF 0.68, -10.13R), BUY_OVERSOLD -0.376 (26 closed, PF 0.53, -9.77R), BREAKOUT -0.257 (21 closed, PF 0.70, -5.39R), SELL_BOUNCE -0.222 (22 closed, PF 0.73, -4.88R), SQUEEZE_BREAKOUT -0.056 (81 closed, PF 0.93, -4.55R), BUY_DIP -0.056 (11 closed, PF 0.93, -0.62R). Positive: MOMENTUM +0.242 (586 closed) and TREND_FOLLOW +0.195 (29 closed, PF 1.30, +5.66R). All of these are belowMinSample false against minSampleForRecommendation 5.\",\"sampleSize\":1029,\"confidence\":\"high\"},{\"claim\":\"Seven setups exist only as a MODERATE leg in the fact pack, so a global STRONG gate would not have improved them - it would have removed them from the book entirely, including a profitable one.\",\"evidence\":\"setupByStrength contains STRONG legs only for MOMENTUM (37 closed), BREAKDOWN (11 closed) and SQUEEZE_BREAKOUT (3 closed). TREND_FOLLOW, RANGE_TRADE_LONG, RANGE_TRADE_SHORT, BUY_OVERSOLD, BREAKOUT, SELL_BOUNCE and BUY_DIP appear with a MODERATE leg only, and TREND_FOLLOW|MODERATE is positive at +5.66R over 29 closed, expectancyR 0.195.\",\"sampleSize\":1029,\"confidence\":\"medium\"},{\"claim\":\"The STRONG leg of SQUEEZE_BREAKOUT cannot be used to argue anything either way.\",\"evidence\":\"setupByStrength SQUEEZE_BREAKOUT|STRONG: 3 closed, 0.0% win rate, totalR -3.15, belowMinSample true against minSampleForRecommendation 5. Insufficient sample - reported for completeness only; no proposal rests on it.\",\"sampleSize\":3,\"confidence\":\"low\"},{\"claim\":\"On the cost-benefit question: the MODERATE relaxation is justified in aggregate because MODERATE is net positive and is the only source of closed-trade volume, but it is carrying about a hundred R of avoidable setup-level drag while it gathers that data.\",\"evidence\":\"MODERATE is net positive overall: 1029 closed, profitFactor 1.06, totalR +47.9. But every negative MODERATE leg above (BREAKDOWN -45.77R, RANGE_TRADE_SHORT -18.49R, RANGE_TRADE_LONG -10.13R, BUY_OVERSOLD -9.77R, BREAKOUT -5.39R, SELL_BOUNCE -4.88R, SQUEEZE_BREAKOUT -4.55R, BUY_DIP -0.62R) is drag on the same book that MOMENTUM|MODERATE's +141.84R funds. liveState.learning.setupStats confirms live closed volume is near zero (MOMENTUM 3 wins / 2 losses, RANGE_TRADE_SHORT 0/1, SQUEEZE_BREAKOUT 0/1, BB_SQUEEZE_WATCH 0/1) and liveState.strategySettings.executionDisabledSetups is currently empty, so nothing is filtering that drag today.\",\"sampleSize\":1029,\"confidence\":\"high\"}],\"proposals\":[{\"change\":\"Keep minStrength at MODERATE globally but add a per-setup strength floor, checked in the entry gate after setup classification and falling back to the global minStrength when a setup is not listed. Seed it with BREAKDOWN requiring STRONG; leave MOMENTUM and TREND_FOLLOW at MODERATE.\",\"setting\":null,\"suggestedValues\":null,\"expectedEffect\":\"Removes the BREAKDOWN|MODERATE leg (145 closed, expectancyR -0.316, profitFactor 0.61, -45.77R) while retaining BREAKDOWN|STRONG (11 closed, expectancyR +1.034, profitFactor 3.71, +11.37R). MODERATE signal volume for the learning engine is essentially preserved because MOMENTUM|MODERATE (586 closed) is untouched.\",\"risk\":\"The BREAKDOWN|STRONG evidence rests on only 11 closed trades, so its +1.034 expectancy is fragile and may not survive live. A STRONG-only BREAKDOWN may also fire so rarely that it contributes almost no learning data. Adds a second gating dimension that must be kept consistent with the global minStrength setting and with breakdownEnabled.\"},{\"change\":\"Un"
     },
     {
       "agent": "regime-fit",
-      "text": "{\"headline\":\"The engine's entire edge is MOMENTUM and it is strongest in quiet tape (SQUEEZE/RANGING, ADX<20); the bleed is concentrated in BREAKDOWN firing during TRENDING (-28.4R over 116 closed) and in the marginal ADX 20-30 / RSI<50 zone.\",\"findings\":[{\"claim\":\"MOMENTUM is profitable in every regime with a usable sample, and its per-trade edge is actually best in the quiet regimes, not in TRENDING.\",\"evidence\":\"setupByRegime MOMENTUM|SQUEEZE: 64 closed, winRate 48.4%, PF 1.74, +25.8R, expectancy 0.403R. MOMENTUM|RANGING: 72 closed, winRate 45.8%, PF 1.57, +23.4R, expectancy 0.325R. MOMENTUM|TRENDING: 485 closed, winRate 32.2%, PF 1.32, +109.21R, expectancy 0.225R. bySetup MOMENTUM totals +155.26R against an overall book of +69.54R.\",\"sampleSize\":621,\"confidence\":\"high\"},{\"claim\":\"BREAKDOWN in the TRENDING regime is the single largest losing cell in the whole fact pack and is the main drag on the TRENDING bucket.\",\"evidence\":\"setupByRegime BREAKDOWN|TRENDING: 116 closed, winRate 23.3%, PF 0.70, -28.4R, expectancy -0.245R. The parent byRegime TRENDING bucket is 717 closed, PF 1.14, +74.36R, so BREAKDOWN|TRENDING is subtracting from a bucket that MOMENTUM|TRENDING (+109.21R) otherwise carries. By comparison BREAKDOWN|RANGING is near flat: 35 closed, PF 0.97, -0.75R.\",\"sampleSize\":116,\"confidence\":\"high\"},{\"claim\":\"The engine bleeds outside a strong uptrend: STRONG UPTREND is the only trend bucket that makes money, which is the same population BREAKDOWN and the short setups draw against.\",\"evidence\":\"byTrend STRONG UPTREND: 668 closed, winRate 35.0%, PF 1.35, +157.77R, expectancy 0.236R. byTrend STRONG DOWNTREND: 238 closed, winRate 25.6%, PF 0.77, -43.5R, expectancy -0.183R. byTrend MIXED: 144 closed, winRate 28.5%, PF 0.69, -34.03R, expectancy -0.236R. The two weak-trend buckets are also negative: UPTREND 14 closed -4.27R, DOWNTREND 17 closed -6.43R.\",\"sampleSize\":1081,\"confidence\":\"high\"},{\"claim\":\"ADX is not behaving as a trend-quality filter here: the only negative ADX bucket is the marginal 20-30 band that sits immediately above the live adxTrendingMin of 20, while ADX<20 is the best bucket.\",\"evidence\":\"byAdx adx<20: 321 closed, PF 1.33, +75.14R, expectancy 0.234R. byAdx adx20-30: 427 closed, PF 0.92, -24.6R, expectancy -0.058R. byAdx adx>=30: 333 closed, PF 1.08, +19.0R, expectancy 0.057R. liveState.strategySettings.adxTrendingMin is 20, and adxTrendingMin is the only entry in autoTunableSettings.\",\"sampleSize\":1081,\"confidence\":\"high\"},{\"claim\":\"RSI cleanly separates the book: both buckets above 50 make money, both below 50 lose, and there is currently no RSI floor on entries.\",\"evidence\":\"byRsi rsi50-65: 443 closed, PF 1.34, +106.65R, expectancy 0.241R. byRsi rsi>=65: 316 closed, PF 1.12, +24.35R, expectancy 0.077R. byRsi rsi35-50: 129 closed, PF 0.79, -20.64R, expectancy -0.160R. byRsi rsi<35: 193 closed, PF 0.73, -40.82R, expectancy -0.212R. liveState.strategySettings.minEntryRsi is 0 (limits allow 0-60).\",\"sampleSize\":1081,\"confidence\":\"high\"},{\"claim\":\"RANGE_TRADE_SHORT has no regime in which it works, including its own home regime RANGING.\",\"evidence\":\"setupByRegime RANGE_TRADE_SHORT|RANGING: 29 closed, winRate 24.1%, PF 0.56, -10.22R, expectancy -0.352R. RANGE_TRADE_SHORT|SQUEEZE: 12 closed, PF 0.29, -7.45R, expectancy -0.621R. RANGE_TRADE_SHORT|TRENDING: 21 closed, PF 0.81, -2.72R. bySetup RANGE_TRADE_SHORT: 65 closed, PF 0.63, -18.49R. The only positive cell is RANGE_TRADE_SHORT|VOLATILE at 3 closed, which is flagged belowMinSample and is insufficient sample.\",\"sampleSize\":65,\"confidence\":\"high\"},{\"claim\":\"RANGE_TRADE_LONG is a range setup that is being allowed to fire in TRENDING, and that is its worst cell by a wide margin.\",\"evidence\":\"setupByRegime RANGE_TRADE_LONG|TRENDING: 14 closed, winRate 21.4%, PF 0.43, -6.55R, expectancy -0.468R, versus RANGE_TRADE_LONG|SQUEEZE 18 closed PF 0.95 -0.56R and RANGE_TRADE_LONG|RANGING 10 closed PF 0.73 -1.97R. The TRENDING cell carries most of the setup's total loss (bySetup RANGE_TRADE_LONG: 43 closed, -10.13R).\",\"sampleSize\":43,\"confidence\":\"medium\"},{\"claim\":\"SQUEEZE_BREAKOUT has no edge in the regime it is named for; MOMENTUM is the setup that actually monetises SQUEEZE.\",\"evidence\":\"setupByRegime SQUEEZE_BREAKOUT|SQUEEZE: 24 closed, winRate 25.0%, PF 0.78, -4.2R, expectancy -0.175R. SQUEEZE_BREAKOUT|RANGING: 24 closed, PF 0.78, -4.2R. SQUEEZE_BREAKOUT|TRENDING: 35 closed, PF 1.07, +1.75R, expectancy 0.05R. In that same SQUEEZE regime MOMENTUM|SQUEEZE returns PF 1.74 and +25.8R over 64 closed.\",\"sampleSize\":84,\"confidence\":\"medium\"},{\"claim\":\"The VOLATILE regime loses money in aggregate, but no individual setup has enough VOLATILE trades to attribute it to a specific setup.\",\"evidence\":\"byRegime VOLATILE: 13 closed, winRate 15.4%, PF 0.26, -8.6R, expectancy -0.662R (belowMinSample false). Every setupByRegime VOLATILE cell is flagged belowMinSample true (MOMENTUM|VOLATILE 3 closed, BREAKDOWN|VOLATILE 3 closed, RANGE_TRADE_SHORT|VOLATILE 3 closed, plus four cells with 1 closed each), so per-setup attribution inside VOLATILE is insufficient sample.\",\"sampleSize\":13,\"confidence\":\"low\"}],\"proposals\":[{\"change\":\"Gate BREAKDOWN so it cannot fire when the classified regime is TRENDING, keeping it eligible in RANGING. This is the rule 'BREAKDOWN should not fire when regime == TRENDING'. executionDisabledSetups is a flat list with no regime condition, so this needs a regime check in the setup eligibility path.\",\"setting\":null,\"suggestedValues\":null,\"expectedEffect\":\"Removes the BREAKDOWN|TRENDING cell (116 closed, PF 0.70, -28.4R, expectancy -0.245R) without touching MOMENTUM|TRENDING (485 closed, +109.21R), which should lift the TRENDING regime bucket above its current PF 1.14 / +74.36R and overall PF above 1.09.\",\"risk\":\"BREAKDOWN|TRENDING is 169 raw signals, so trade count drops noticeably. If regime labelling is noisy near the ADX 20 boundary, genuine downtrend BREAKDOWNs get blocked too. BREAKDOWN|RANGING (35 closed, PF 0.97, -0.7"
+      "text": "{\"headline\":\"The engine only makes money long in STRONG UPTREND with ADX<20 and RSI>=50; its single biggest structural bleed is BREAKDOWN firing in the TRENDING regime (-28.4R over 116 closed, PF 0.70).\",\"findings\":[{\"claim\":\"BREAKDOWN should not fire when regime is TRENDING. Nearly all of BREAKDOWN's loss comes from the TRENDING regime; in RANGING it is roughly flat.\",\"evidence\":\"setupByRegime BREAKDOWN|TRENDING: 116 closed, winRate 23.3%, PF 0.70, totalR -28.4, expectancyR -0.245. setupByRegime BREAKDOWN|RANGING: 35 closed, winRate 34.3%, PF 0.97, totalR -0.75, expectancyR -0.021. bySetup BREAKDOWN overall: 156 closed, PF 0.72, totalR -34.4 - so the TRENDING bucket alone accounts for -28.4 of that -34.4.\",\"sampleSize\":116,\"confidence\":\"high\"},{\"claim\":\"The engine is a long-only, strong-uptrend machine. Every trend bucket other than STRONG UPTREND is net negative, and STRONG UPTREND alone produces more R than the entire book.\",\"evidence\":\"byTrend STRONG UPTREND: 667 closed, winRate 35.1%, PF 1.35, totalR +158.82, expectancyR 0.238. byTrend STRONG DOWNTREND: 238 closed, PF 0.77, totalR -43.5, expectancyR -0.183. byTrend MIXED: 144 closed, PF 0.69, totalR -34.03, expectancyR -0.236. byTrend DOWNTREND: 17 closed, PF 0.56, totalR -6.43. byTrend UPTREND: 14 closed, PF 0.63, totalR -4.27. Corroborated by byDirection BUY 754 closed PF 1.26 totalR +135.01 vs SELL 326 closed PF 0.75 totalR -64.42. Overall book: 1411 trades, PF 1.09, totalR +70.59.\",\"sampleSize\":1080,\"confidence\":\"high\"},{\"claim\":\"ADX 20-30 is a dead zone: it is the only ADX band with negative expectancy, and it is also the largest band by volume. The current adxTrendingMin=20 places the trending boundary exactly at the start of the bleed.\",\"evidence\":\"byAdx adx<20: 321 closed, PF 1.33, totalR +75.14, expectancyR 0.234. byAdx adx20-30: 427 closed, PF 0.92, totalR -24.6, expectancyR -0.058. byAdx adx>=30: 332 closed, PF 1.08, totalR +20.05, expectancyR 0.06. liveState.strategySettings.adxTrendingMin = 20 (limits min 10, max 40, def 20); adxTrendingMin is the only entry in autoTunableSettings.\",\"sampleSize\":427,\"confidence\":\"high\"},{\"claim\":\"Entries taken with RSI below 50 lose money in both sub-bands; entries at RSI>=50 carry the entire book.\",\"evidence\":\"byRsi rsi<35: 193 closed, winRate 25.9%, PF 0.73, totalR -40.82, expectancyR -0.212. byRsi rsi35-50: 129 closed, winRate 27.1%, PF 0.79, totalR -20.64, expectancyR -0.16. byRsi rsi50-65: 442 closed, PF 1.33, totalR +104.7, expectancyR 0.237. byRsi rsi>=65: 316 closed, PF 1.13, totalR +27.35, expectancyR 0.087. liveState.strategySettings.minEntryRsi = 0 (limits min 0, max 60).\",\"sampleSize\":322,\"confidence\":\"high\"},{\"claim\":\"MOMENTUM is the only setup profitable in every regime with adequate sample, and it is regime-robust rather than regime-dependent - it is actually strongest in the low-volatility regimes, not in TRENDING.\",\"evidence\":\"setupByRegime MOMENTUM|TRENDING: 484 closed, PF 1.32, totalR +110.26, expectancyR 0.228. MOMENTUM|SQUEEZE: 64 closed, winRate 48.4%, PF 1.74, totalR +25.8, expectancyR 0.403. MOMENTUM|RANGING: 72 closed, winRate 45.8%, PF 1.57, totalR +23.4, expectancyR 0.325. bySetup MOMENTUM overall: 623 closed, PF 1.37, totalR +156.31. MOMENTUM|VOLATILE is 3 closed with belowMinSample true - insufficient sample, excluded.\",\"sampleSize\":620,\"confidence\":\"high\"},{\"claim\":\"RANGE_TRADE_SHORT has no regime in which it works - it is negative in all three regimes with adequate sample, so no regime condition can rescue it; it needs disabling outright rather than gating.\",\"evidence\":\"setupByRegime RANGE_TRADE_SHORT|RANGING: 29 closed, winRate 24.1%, PF 0.56, totalR -10.22, expectancyR -0.352. RANGE_TRADE_SHORT|SQUEEZE: 12 closed, PF 0.29, totalR -7.45, expectancyR -0.621. RANGE_TRADE_SHORT|TRENDING: 21 closed, PF 0.81, totalR -2.72, expectancyR -0.13. bySetup RANGE_TRADE_SHORT overall: 65 closed, PF 0.63, totalR -18.49. Its VOLATILE bucket is 3 closed with belowMinSample true - insufficient sample.\",\"sampleSize\":62,\"confidence\":\"medium\"},{\"claim\":\"SQUEEZE_BREAKOUT performs worst in the very regime it is named for and is only marginally positive in TRENDING, but the R magnitudes are small - this is a de-prioritisation signal, not a kill signal.\",\"evidence\":\"setupByRegime SQUEEZE_BREAKOUT|SQUEEZE: 24 closed, winRate 25.0%, PF 0.78, totalR -4.2, expectancyR -0.175. SQUEEZE_BREAKOUT|RANGING: 24 closed, winRate 25.0%, PF 0.78, totalR -4.2, expectancyR -0.175. SQUEEZE_BREAKOUT|TRENDING: 35 closed, PF 1.07, totalR +1.75, expectancyR 0.05. bySetup SQUEEZE_BREAKOUT overall: 84 closed, PF 0.88, totalR -7.7.\",\"sampleSize\":48,\"confidence\":\"medium\"},{\"claim\":\"RANGING and SQUEEZE regimes are net-flat in aggregate because the profitable MOMENTUM entries inside them are cancelled out by the mean-reversion setups firing in the same regimes.\",\"evidence\":\"byRegime RANGING: 197 closed, PF 1.01, totalR +0.81, expectancyR 0.004. byRegime SQUEEZE: 154 closed, PF 1.03, totalR +2.97, expectancyR 0.019. Yet setupByRegime MOMENTUM|RANGING is +23.4R (72 closed) and MOMENTUM|SQUEEZE is +25.8R (64 closed). The offsetting negatives in those two regimes are BUY_OVERSOLD|RANGING -10.74R, RANGE_TRADE_SHORT|RANGING -10.22R, RANGE_TRADE_SHORT|SQUEEZE -7.45R, SQUEEZE_BREAKOUT|SQUEEZE -4.2R, SQUEEZE_BREAKOUT|RANGING -4.2R, RANGE_TRADE_LONG|RANGING -1.97R.\",\"sampleSize\":351,\"confidence\":\"medium\"},{\"claim\":\"VOLATILE is by far the worst regime by expectancy, but the whole regime is thin and every setup-level VOLATILE cell is below minimum sample, so only the regime-level aggregate is usable and even that is weak.\",\"evidence\":\"byRegime VOLATILE: 13 closed, winRate 15.4%, PF 0.26, totalR -8.6, expectancyR -0.662 (belowMinSample false). Compare byRegime TRENDING 716 closed PF 1.14 +75.41R, RANGING 197 closed PF 1.01 +0.81R, SQUEEZE 154 closed PF 1.03 +2.97R. Every setupByRegime cell ending in |VOLATILE (MOMENTUM, BREAKDOWN, RANGE_TRADE_SHORT, RANGE_TRADE_LONG, BUY_OVERSOLD, SQUEEZE_BREAKOUT, SELL_BOUNCE) has belo"
     },
     {
       "agent": "loss-autopsy",
-      "text": "{\"headline\":\"The single most common avoidable loss pattern is the asset itself: SPX produced 111 of the 739 closed losses at a 12.6% win rate and -85.5R, while BTC (+71.12R) and Gold (+83.92R) were both profitable, so an SPX execution kill-switch is the one filter that removes the pattern without touching any winning cohort.\",\"findings\":[{\"claim\":\"asset=SPX is the strongest loss marker in the book, and it is not a degree difference but a sign flip. Every other asset bucket is profitable; SPX alone is deeply negative and is large enough to swamp the system's entire edge.\",\"evidence\":\"byAsset SPX: 127 closed, 16 wins, 111 losses, winRatePct 12.6, profitFactor 0.27, totalR -85.5, expectancyR -0.673, belowMinSample false. Compare byAsset BTC: 563 closed, winRatePct 35.0, profitFactor 1.19, totalR +71.12; byAsset Gold: 391 closed, winRatePct 33.0, profitFactor 1.31, totalR +83.92. Overall totalR is only +69.54, i.e. the whole system's profit is smaller than the SPX bleed.\",\"sampleSize\":127,\"confidence\":\"high\"},{\"claim\":\"The SPX failure is not confined to one regime, cohort, direction or indicator band, so no filter narrower than the asset itself captures it. Row-level cross-tabs of the trades array show SPX losing in every slice it appears in and in every calendar year of the sample.\",\"evidence\":\"Row-level cross-tab of trades (asset x cohort): SPX|DAILY_ONLY_H4_NEUTRAL 68 closed WR 7.4%, SPX|DAILY+H4_AGREE 49 closed WR 12.2%, versus BTC|DAILY+H4_AGREE 80 closed WR 45.0% and Gold|DAILY+H4_AGREE 78 closed WR 43.6% on the identical cohort. asset x regime: SPX|TRENDING 106 closed WR 8.5% versus BTC|TRENDING 348 closed WR 34.2% and Gold|TRENDING 263 closed WR 34.6%. asset x direction: SPX|BUY 110 closed WR 10.9%. SPX closed win/loss by year: 2019 0/2, 2020 5/15, 2021 4/14, 2022 1/19, 2023 3/11, 2024 2/11, 2025 1/25, 2026 0/14 - no year is a winner.\",\"sampleSize\":127,\"confidence\":\"high\"},{\"claim\":\"The second clean avoidable pattern is cohort DAILY+H4_CONFLICT - signals taken when the daily and H4 timeframes disagree. It is the only cohort with a profit factor below 0.5, and on BTC and Gold it has never produced a winner.\",\"evidence\":\"byCohort DAILY+H4_CONFLICT: 42 closed, 5 wins, 37 losses, winRatePct 11.9, profitFactor 0.21, totalR -30.82, expectancyR -0.734, belowMinSample false. The other three cohorts are all profitable: H4_ONLY totalR +30.12, DAILY+H4_AGREE totalR +62.47, DAILY_ONLY_H4_NEUTRAL totalR +7.77. Row-level cross-tab of trades (asset x cohort): BTC|DAILY+H4_CONFLICT 23 closed, 0 wins, 23 losses; Gold|DAILY+H4_CONFLICT 9 closed, 0 wins, 9 losses - 0 wins in 32 closed trades, with all 5 of the cohort's wins coming from SPX.\",\"sampleSize\":42,\"confidence\":\"medium\"},{\"claim\":\"SELL is a persistent loser on both profitable assets, so short-side entries are a genuine but weaker loss marker rather than SPX contamination. Unlike SPX it is a degree difference and not an absence - 85 wins are SELL trades - so it warrants a higher bar, not a ban.\",\"evidence\":\"byDirection SELL: 326 closed, 85 wins, 241 losses, winRatePct 26.1, profitFactor 0.75, totalR -64.42, expectancyR -0.198, versus byDirection BUY: 755 closed, winRatePct 34.0, profitFactor 1.26, totalR +133.96. Reinforced by byTrend STRONG DOWNTREND (238 closed, winRatePct 25.6, profitFactor 0.77, totalR -43.5) and byRsi rsi<35 (193 closed, winRatePct 25.9, profitFactor 0.73, totalR -40.82) - the three short-side-correlated buckets are the three largest negative buckets outside SPX.\",\"sampleSize\":326,\"confidence\":\"medium\"},{\"claim\":\"Three features that look like loss markers are NOT patterns and must not be filtered on: ADX 20-30, a low win rate on its own, and volRatio/RSI level. Each is either SPX contamination or a rate-versus-payoff artifact, and each is equally present in the WIN rows.\",\"evidence\":\"byAdx adx20-30 shows 427 closed, profitFactor 0.92, totalR -24.6, but a row-level cross-tab of trades (adx bucket x asset) puts the deficit in SPX|adx20-30 (45 closed, 8 wins) and SPX|adx<20 (52 closed, 1 win); on BTC and Gold combined the adx20-30 slice is 382 closed with 130 wins, WR 34.0%, essentially the book average. byCohort DAILY_ONLY_H4_NEUTRAL has the second-worst win rate in the pack (235 closed, winRatePct 20.0) yet profitFactor 1.04 and totalR +7.77, so a low win rate is not itself a loss pattern. byVolume is flat (vol0.8-1.5x 32.6%, vol>=1.5x 31.9%, vol<0.8x 28.3%) and row-level medians are identical between outcomes: volRatio 1.10 for WIN and 1.10 for LOSS, adx 24.90 for WIN and 24.40 for LOSS.\",\"sampleSize\":1081,\"confidence\":\"high\"}],\"proposals\":[{\"change\":\"Add a per-asset execution kill-switch and disable SPX/SP500 execution. strategySettings currently only exposes executionDisabledSetups, which is setup-scoped and cannot express this, so a new asset-scoped list (e.g. executionDisabledAssets, checked in the same pre-open guard as executionDisabledSetups) is required. Keep SPX signal generation on so the paper record keeps accruing.\",\"setting\":null,\"suggestedValues\":\"executionDisabledAssets = [\\\"SPX\\\"] (equivalently SP500); allowlist form: tradableAssets = [\\\"BTC\\\",\\\"Gold\\\"]\",\"expectedEffect\":\"Removes the -85.5R / profitFactor 0.27 SPX bucket. What remains is BTC +71.12R and Gold +83.92R against an overall book of +69.54R, so total R and profit factor both rise materially and the 111 SPX losses (15% of all closed losses) stop being taken.\",\"risk\":\"Only 127 of SPX's 244 recorded trades are closed, so about half the SPX sample is unresolved and true SPX R could differ. Cutting an asset removes diversification and concentrates risk in two instruments, and it hides rather than fixes whatever is broken for SPX - the stop/target model looks mis-scaled there (SPX losses have median adx 21.4 and median volRatio 0.90 versus 26.2 and 1.25 for SPX wins). If the root cause is a data or instrument-spec bug, the ban masks it permanently.\"},{\"change\":\"Reject any signal whose cohort resolves to DAILY+H4_CONFLICT (daily direction disagrees with "
+      "text": "{\"headline\":\"The losses concentrate on the short/weak-tape side of the book - every bearish bucket (SELL, BREAKDOWN, STRONG DOWNTREND, RSI<50) is loss-making while its bullish mirror is profitable - and the single most avoidable slice is BREAKDOWN at MODERATE strength: 145 closed, 22.1% win rate, PF 0.61, -45.77R.\",\"findings\":[{\"claim\":\"Direction is the cleanest separator between LOSS and WIN rows: short trades lose, long trades pay.\",\"evidence\":\"byDirection SELL: 326 closed, 85W/241L, 26.1% win, PF 0.75, -64.42R, expectancy -0.198R. byDirection BUY: 754 closed, 257W/497L, 34.1% win, PF 1.26, +135.01R, expectancy +0.179R. Overall book is 1411 trades, 31.7% win, PF 1.09, +70.59R - so the SELL book alone is nearly the whole edge given back.\",\"sampleSize\":326,\"confidence\":\"high\"},{\"claim\":\"The bearish bias shows up independently in setup, trend and RSI buckets, all of which are negative while their bullish counterparts are positive - so this is not one mislabelled bucket.\",\"evidence\":\"bySetup BREAKDOWN: 156 closed, 25.0% win, PF 0.72, -34.4R vs MOMENTUM 623 closed, 35.3% win, PF 1.37, +156.31R. byTrend STRONG DOWNTREND: 238 closed, 25.6% win, PF 0.77, -43.5R vs STRONG UPTREND 667 closed, 35.1% win, PF 1.35, +158.82R. byRsi rsi<35: 193 closed, 25.9% win, PF 0.73, -40.82R and rsi35-50: 129 closed, 27.1% win, PF 0.79, -20.64R vs rsi50-65: 442 closed, PF 1.33, +104.7R and rsi>=65: 316 closed, PF 1.13, +27.35R.\",\"sampleSize\":716,\"confidence\":\"high\"},{\"claim\":\"Within the bearish side the avoidable part is precisely BREAKDOWN taken at MODERATE strength; BREAKDOWN at STRONG strength is one of the best cells in the pack, so the fix is a strength gate, not killing the short side outright.\",\"evidence\":\"setupByStrength BREAKDOWN|MODERATE: 145 closed, 32W/113L, 22.1% win, PF 0.61, -45.77R, expectancy -0.316R. setupByStrength BREAKDOWN|STRONG: 11 closed, 7W/4L, 63.6% win, PF 3.71, +11.37R, expectancy +1.034R. setupByRegime BREAKDOWN|TRENDING is the worst regime cell in the pack: 116 closed, 27W/89L, 23.3% win, PF 0.70, -28.4R.\",\"sampleSize\":145,\"confidence\":\"high\"},{\"claim\":\"SPX is the single largest R drain in the book and its loss rate is far outside the other two assets - it is a per-asset failure, not a strategy failure.\",\"evidence\":\"byAsset SPX: 127 closed, 16W/111L, 12.6% win, PF 0.27, -85.5R, expectancy -0.673R. BTC: 562 closed, 35.1% win, PF 1.19, +72.17R. Gold: 391 closed, 33.0% win, PF 1.31, +83.92R. SPX's -85.5R exceeds the whole book's +70.59R.\",\"sampleSize\":127,\"confidence\":\"high\"},{\"claim\":\"Trades where the daily and H4 timeframes disagree are the worst-quality cohort by a wide margin, and unlike the other weak cohort it is genuinely loss-making rather than merely low win rate.\",\"evidence\":\"byCohort DAILY+H4_CONFLICT: 43 closed, 5W/38L, 11.6% win, PF 0.20, -31.87R, expectancy -0.741R. Contrast DAILY_ONLY_H4_NEUTRAL: 234 closed, 19.7% win but PF 1.03 and +5.82R - low win rate yet not a loser. Best cohort DAILY+H4_AGREE: 214 closed, 36.9% win, PF 1.45, +64.12R.\",\"sampleSize\":43,\"confidence\":\"medium\"},{\"claim\":\"Checked and rejected: the biggest raw pile of LOSS rows is NOT a pattern, because the same bucket holds the biggest pile of WIN rows and is profitable.\",\"evidence\":\"setupByRegime MOMENTUM|TRENDING carries 328 losses - the most of any cell - but also 156 wins, 32.2% win, PF 1.32, +110.26R. Same for byRegime TRENDING (497 losses, PF 1.14, +75.41R) and byVolume vol0.8-1.5x (404 losses, PF 1.15, +63.43R). Volume shows no separation at all: vol0.8-1.5x PF 1.15, vol>=1.5x PF 0.98, vol<0.8x PF 1.07.\",\"sampleSize\":484,\"confidence\":\"high\"},{\"claim\":\"ADX does not separate losses from wins in the direction the only auto-tunable setting would push it - the low-ADX bucket is the best one, so tightening adxTrendingMin would cut winners.\",\"evidence\":\"byAdx adx<20: 321 closed, 31.5% win, PF 1.33, +75.14R (best). adx20-30: 427 closed, 32.3% win, PF 0.92, -24.6R (worst). adx>=30: 332 closed, 31.0% win, PF 1.08, +20.05R. Win rates are 31.5 / 32.3 / 31.0 - effectively identical. autoTunableSettings lists only adxTrendingMin, currently 20.\",\"sampleSize\":1080,\"confidence\":\"high\"},{\"claim\":\"The live confidenceThreshold of 70 already excludes the worst confidence bands, so low confidence is a historical rather than a live failure pattern; the only remaining lever is the 70-79 band.\",\"evidence\":\"byConfidence conf<50: 318 closed, 23.0% win, PF 0.82, -47.5R and conf65-69: 67 closed, PF 0.92, -3.78R, both below the live confidenceThreshold of 70. Above it: conf70-79 267 closed PF 1.19 +36.64R; conf>=80 226 closed PF 1.50 +74.52R.\",\"sampleSize\":493,\"confidence\":\"medium\"},{\"claim\":\"The VOLATILE regime is the worst regime bucket but is too thin to act on.\",\"evidence\":\"byRegime VOLATILE: 13 closed, 2W/11L, 15.4% win, PF 0.26, -8.6R. The pack marks it belowMinSample false, but 13 closed trades is still thin and its per-setup cells (MOMENTUM|VOLATILE 3 closed, BREAKDOWN|VOLATILE 3 closed, both 0 wins) are flagged belowMinSample true - insufficient sample.\",\"sampleSize\":13,\"confidence\":\"low\"}],\"proposals\":[{\"change\":\"Require STRONG strength for BREAKDOWN entries - reject any BREAKDOWN signal whose strength is MODERATE. Blunt implementation available today: set breakdownEnabled to false. Preferred implementation: a per-setup strength floor so BREAKDOWN|STRONG still trades while BREAKDOWN|MODERATE is blocked.\",\"setting\":\"breakdownEnabled\",\"suggestedValues\":\"false, true\",\"expectedEffect\":\"Removes the BREAKDOWN|MODERATE cell: 145 closed trades at 22.1% win, PF 0.61, -45.77R, of which BREAKDOWN|TRENDING alone is 116 closed at PF 0.70, -28.4R. Book expectancy should rise from +0.065R.\",\"risk\":\"The blunt breakdownEnabled=false version also forfeits BREAKDOWN|STRONG (11 closed, 63.6% win, PF 3.71, +11.37R) - a thin but strongly positive cell. It also removes 156 closed trades of short-side participation, leaving the book almost entirely long-biased and more exposed to a sustained downtrend.\"},{\"change\":\"Stop executing SPX. execu"
     },
     {
       "agent": "risk-and-config",
-      "text": "{\"headline\":\"Every healer check reports ok, but the AI filter has never evaluated a single trade and executionDisabledSetups is empty while eight setups, the SPX asset (-85.5R over 127 closed) and the DAILY+H4_CONFLICT cohort all carry negative expectancy on adequate samples.\",\"findings\":[{\"claim\":\"The aiFilter gate is reported healthy while having never run: liveState.healer.checks.aiFilter has ok=true with detail 'no trade has been evaluated yet - filter unexercised'. A gate that has never evaluated a trade cannot be rejecting anything, so any risk reduction attributed to it is imaginary, and the healer's ok=true actively hides that.\",\"evidence\":\"liveState.healer: healthy=true, healCount=0, errorLog=[]; checks.aiFilter ok=true, detail 'no trade has been evaluated yet - filter unexercised'. All nine checks are ok=true; the only other irregularity is checks.pythonInterpreter lastChecked 2026-09-04T22:52:55.029Z versus 2026-09-04T23:01:25.029Z for the other eight, i.e. it was not refreshed in the latest cycle.\",\"sampleSize\":0,\"confidence\":\"high\"},{\"claim\":\"strategySettings.executionDisabledSetups is empty and breakdownEnabled=true, so eight setups with negative measured expectancy on samples well above minSampleForRecommendation (5) are all still allowed to execute.\",\"evidence\":\"bySetup: BREAKDOWN expectancyR -0.221, PF 0.72, totalR -34.4 on 156 closed; RANGE_TRADE_SHORT -0.284, PF 0.63, -18.49R on 65 closed; RANGE_TRADE_LONG -0.236, PF 0.68, -10.13R on 43 closed; SQUEEZE_BREAKOUT -0.092, PF 0.88, -7.7R on 84 closed; BUY_OVERSOLD -0.376, PF 0.53, -9.77R on 26 closed; BREAKOUT -0.257, PF 0.70, -5.39R on 21 closed; SELL_BOUNCE -0.222, PF 0.73, -4.88R on 22 closed; BUY_DIP -0.056, PF 0.93, -0.62R on 11 closed. Against this, MOMENTUM alone is +155.26R (PF 1.37, expectancyR 0.249, 624 closed) while the whole book is only +69.54R (PF 1.09, expectancyR 0.064, 1411 trades). liveState.strategySettings.executionDisabledSetups = [] and breakdownEnabled = true.\",\"sampleSize\":156,\"confidence\":\"high\"},{\"claim\":\"minStrength='MODERATE' combined with breakdownEnabled=true admits exactly the losing half of BREAKDOWN: the MODERATE variant is the single largest setup-level loser in the pack, while the STRONG variant is strongly positive.\",\"evidence\":\"setupByStrength: BREAKDOWN|MODERATE expectancyR -0.316, PF 0.61, totalR -45.77 on 145 closed; BREAKDOWN|STRONG expectancyR +1.034, PF 3.71, totalR +11.37 on 11 closed. byStrength: MODERATE expectancyR 0.047, PF 1.07 on 1031 closed versus STRONG 0.415, PF 1.73 on 50 closed. (SQUEEZE_BREAKOUT|STRONG is flagged belowMinSample=true at 3 closed - insufficient sample, not used.)\",\"sampleSize\":145,\"confidence\":\"high\"},{\"claim\":\"The live learning file contradicts the measured record on the system's only large profitable setup, so any adaptation driven by it is being steered the wrong way.\",\"evidence\":\"liveState.learning.setupStats.MOMENTUM = 3 wins / 5 losses, totalPnl -333.24, and bySymbol.XAUUSD.MOMENTUM = 2 wins / 2 losses, totalPnl -272.87. The measured pack has MOMENTUM as the best setup: 624 closed, winRatePct 35.3, PF 1.37, totalR +155.26, expectancyR 0.249.\",\"sampleSize\":624,\"confidence\":\"high\"},{\"claim\":\"The learning and journal stores record roughly one percent of activity yet both healer checks are green, so the self-learning and review loop is silently inert.\",\"evidence\":\"healer.checks.learningFile ok=true, detail '4 setups on disk'; healer.checks.journalFile ok=true, detail '15 journal entries on disk'. liveState.journalEntries = 15. liveState.learning.setupStats holds 5 wins and 8 losses in total across 4 setups, with sessionCount 263 and updatedAt 2026-09-03T20:32:19.758Z against a pack generatedAt of 2026-09-04T23:01:26Z. The measured pack contains 1411 trades (coverage BTC 682, Gold 485, SPX 244). The learning file also carries a setup, BB_SQUEEZE_WATCH (0 wins / 1 loss, totalPnl -6.8), that does not exist anywhere in bySetup.\",\"sampleSize\":13,\"confidence\":\"high\"},{\"claim\":\"There is no per-asset kill switch in strategySettings, and SPX is destroying the book's edge on an adequate sample.\",\"evidence\":\"byAsset: SPX 244 trades, 127 closed, winRatePct 12.6, PF 0.27, totalR -85.5, expectancyR -0.673; BTC +71.12R (PF 1.19, 563 closed) and Gold +83.92R (PF 1.31, 391 closed). Overall totalR is only +69.54. strategySettings exposes executionDisabledSetups but no per-symbol equivalent. SPX also has the lowest resolution rate of the three assets (127 closed of 244 trades).\",\"sampleSize\":127,\"confidence\":\"high\"},{\"claim\":\"adxTrendingMin=20 is the only auto-tunable setting and it sits exactly on the lower edge of the worst-performing ADX band, so the regime classifier labels the losing band as 'trending'.\",\"evidence\":\"autoTunableSettings = ['adxTrendingMin']; strategySettings.adxTrendingMin = 20 (limits min 10, max 40, def 20 - still at default; healer healCount 0, lastHealAt null). byAdx: adx20-30 expectancyR -0.058, PF 0.92, totalR -24.6 on 427 closed; adx>=30 +0.057, PF 1.08, +19.0R on 333 closed; adx<20 +0.234, PF 1.33, +75.14R on 321 closed. byRegime TRENDING carries 997 of 1411 trades at expectancyR 0.104.\",\"sampleSize\":427,\"confidence\":\"high\"},{\"claim\":\"Two filters are pinned to their disabled value (minEntryRsi=0, dailyOnlyMinConfidence=0) while the RSI bands one of them would have gated are clearly negative.\",\"evidence\":\"strategySettings.minEntryRsi = 0 (limits min 0, max 60, def 0) and dailyOnlyMinConfidence = 0 (min 0, max 100, def 0). byRsi: rsi<35 expectancyR -0.212, PF 0.73, totalR -40.82 on 193 closed; rsi35-50 -0.16, PF 0.79, -20.64R on 129 closed; rsi50-65 +0.241, PF 1.34, +106.65R on 443 closed. byCohort DAILY_ONLY_H4_NEUTRAL: 348 trades, 235 closed, winRatePct 20.0, PF 1.04, expectancyR 0.033 - effectively flat and ungated.\",\"sampleSize\":193,\"confidence\":\"high\"},{\"claim\":\"momentumRsiMax and trendFollowRsiMax have been loosened far above their defaults, opening entries into the weaker high-RSI band.\",\"evidence\":\"strategySettings.momentumRsiMax = 88"
+      "text": "{\"headline\":\"The live config has no way to switch off a losing instrument and no setup disabled at all, so the system keeps executing SPX (PF 0.27, -85.5R over 127 closed, larger than the book's entire +70.59R) and BREAKDOWN (PF 0.72, -34.4R over 156 closed) while its own learning/journal feedback state holds only 15 entries and cannot see it.\",\"findings\":[{\"claim\":\"executionDisabledSetups is empty and breakdownEnabled is true, yet 8 of the 10 setups in the pack have negative expectancy; only MOMENTUM (+156.31R) and TREND_FOLLOW (+5.66R) are positive, and MOMENTUM alone exceeds the whole book's totalR of +70.59R.\",\"evidence\":\"liveState.strategySettings.executionDisabledSetups = [], breakdownEnabled = true. bySetup: MOMENTUM PF 1.37, +156.31R, 623 closed; TREND_FOLLOW PF 1.30, +5.66R, 29 closed; BREAKDOWN PF 0.72, -34.4R, 156 closed; RANGE_TRADE_SHORT PF 0.63, -18.49R, 65 closed; RANGE_TRADE_LONG PF 0.68, -10.13R, 43 closed; BUY_OVERSOLD PF 0.53, -9.77R, 26 closed; SQUEEZE_BREAKOUT PF 0.88, -7.7R, 84 closed; BREAKOUT PF 0.70, -5.39R, 21 closed; SELL_BOUNCE PF 0.73, -4.88R, 22 closed; BUY_DIP PF 0.93, -0.62R, 11 closed. overall PF 1.09, +70.59R, expectancy 0.065R.\",\"sampleSize\":1080,\"confidence\":\"high\"},{\"claim\":\"There is no per-symbol kill switch in strategySettings at all (only executionDisabledSetups, which is setup-scoped), so SPX cannot be turned off despite being the single largest drain in the book.\",\"evidence\":\"liveState.strategySettings contains executionDisabledSetups but no symbol-level equivalent. byAsset.SPX: win rate 12.6%, PF 0.27, -85.5R, 127 closed, expectancy -0.673R, versus BTC PF 1.19 +72.17R (562 closed) and Gold PF 1.31 +83.92R (391 closed). coverage.SPX = 244 signals, only 127 closed.\",\"sampleSize\":127,\"confidence\":\"high\"},{\"claim\":\"The live learning file contradicts the measured record and is starved to the point of being useless as a feedback signal: it holds 4 setups and 8 win/loss records against 1411 replayed trades and 10 setups, and its MOMENTUM entry is net negative while measured MOMENTUM is the only large profitable setup.\",\"evidence\":\"healer.checks.learningFile ok=true, detail '4 setups on disk'; liveState.learning.setupStats MOMENTUM wins 3 / losses 2 / totalPnl -170.32, RANGE_TRADE_SHORT 0/1, SQUEEZE_BREAKOUT 0/1, BB_SQUEEZE_WATCH 0/1 (-449.72), sessionCount 426, updatedAt 2026-09-07T20:27:33.528Z. Measured bySetup.MOMENTUM: PF 1.37, +156.31R, 623 closed. Every learning-file cell is 1-5 trades, i.e. insufficient sample, so its P&L must not drive any gate.\",\"sampleSize\":623,\"confidence\":\"high\"},{\"claim\":\"The learning file tracks a setup name that appears nowhere in the executed record (BB_SQUEEZE_WATCH) and an UNATTRIBUTED bucket for XAUUSD, so setup attribution between the live path and the journal/replay path is not consistent.\",\"evidence\":\"liveState.learning.setupStats.BB_SQUEEZE_WATCH (0 wins / 1 loss, -449.72) and learning.bySymbol.XAUUSD.UNATTRIBUTED (1 win, +135.91); bySetup lists only MOMENTUM, BREAKDOWN, SQUEEZE_BREAKOUT, RANGE_TRADE_SHORT, RANGE_TRADE_LONG, TREND_FOLLOW, BUY_OVERSOLD, BREAKOUT, SELL_BOUNCE, BUY_DIP. These are single-trade cells, i.e. insufficient sample for any P&L claim; the naming mismatch itself is the finding.\",\"sampleSize\":0,\"confidence\":\"high\"},{\"claim\":\"No healer check is reporting ok=false (healthy=true, healCount=0, errorLog empty), but aiFilter is green on a check it has never actually run, so it is passing by vacuity, which is exactly the failure mode a healer is supposed to catch.\",\"evidence\":\"healer.healthy=true, healCount=0, lastHealAt=null, errorLog=[]. checks.aiFilter ok=true, detail 'no trade has been evaluated yet - filter unexercised'. All other checks ok=true: signalFreshness 'signal cache age 1.6min', priceFreshness 'price cache age 0.6min', memory 'heap=22MB rss=56MB', errorRate '0 errors in last 5min', mt5Bridge '1/1 expected account(s) reporting', pythonInterpreter present, learningFile '4 setups on disk', journalFile '15 journal entries on disk'.\",\"sampleSize\":0,\"confidence\":\"high\"},{\"claim\":\"The journal check is green at 15 entries while the fact pack replays 1411 trades, so healer.checks.journalFile is not a meaningful liveness test of trade recording.\",\"evidence\":\"healer.checks.journalFile ok=true, detail '15 journal entries on disk'; liveState.journalEntries = 15; overall.trades = 1411; coverage BTC 682 / Gold 485 / SPX 244; replayErrors = [].\",\"sampleSize\":1080,\"confidence\":\"high\"},{\"claim\":\"confidenceThreshold=70 sits at the point where the confidence score is only weakly informative; the score separates cleanly at 80, and the 70-79 band it currently admits earns less than half the expectancy of the >=80 band.\",\"evidence\":\"strategySettings.confidenceThreshold = 70 (limits min 50 / max 95 / def 70). byConfidence: conf>=80 PF 1.50, +74.52R, expectancy 0.33R, 226 closed; conf70-79 PF 1.19, +36.64R, expectancy 0.137R, 267 closed; conf65-69 PF 0.92, -3.78R, 67 closed; conf50-64 PF 1.08, +10.71R, 202 closed; conf<50 PF 0.82, -47.5R, 318 closed (non-monotonic below the gate).\",\"sampleSize\":493,\"confidence\":\"high\"},{\"claim\":\"minEntryRsi=0 leaves no RSI floor on entries and the two low-RSI bands are the worst in the book. By contrast momentumRsiMax=100 and trendFollowRsiMax=100, both raised well above their defaults of 72 and 68, are supported by the data: the high-RSI band is profitable, so the disabled ceilings are not the problem, the missing floor is.\",\"evidence\":\"strategySettings.minEntryRsi = 0 (limits min 0 / max 60 / def 0), momentumRsiMax = 100 (def 72), trendFollowRsiMax = 100 (def 68). byRsi: rsi<35 PF 0.73, -40.82R, 193 closed; rsi35-50 PF 0.79, -20.64R, 129 closed; rsi50-65 PF 1.33, +104.7R, 442 closed; rsi>=65 PF 1.13, +27.35R, 316 closed.\",\"sampleSize\":322,\"confidence\":\"high\"},{\"claim\":\"adxTrendingMin is the only auto-tunable setting, and it is a single split point that cannot express the shape of the ADX data: the losing band sits in the middle, between two profitable ends, so moving the thr"
     }
   ],
   "tables": [
@@ -557,13 +557,13 @@
         {
           "name": "MOMENTUM",
           "trades": 831,
-          "closed": 624,
+          "closed": 623,
           "wins": 220,
-          "losses": 404,
+          "losses": 403,
           "winRatePct": 35.3,
           "profitFactor": 1.37,
-          "totalR": 155.26,
-          "expectancyR": 0.249,
+          "totalR": 156.31,
+          "expectancyR": 0.251,
           "belowMinSample": false
         },
         {
@@ -684,13 +684,13 @@
         {
           "name": "TRENDING",
           "trades": 997,
-          "closed": 717,
+          "closed": 716,
           "wins": 219,
-          "losses": 498,
-          "winRatePct": 30.5,
+          "losses": 497,
+          "winRatePct": 30.6,
           "profitFactor": 1.14,
-          "totalR": 74.36,
-          "expectancyR": 0.104,
+          "totalR": 75.41,
+          "expectancyR": 0.105,
           "belowMinSample": false
         },
         {
@@ -739,13 +739,13 @@
         {
           "name": "STRONG UPTREND",
           "trades": 889,
-          "closed": 668,
+          "closed": 667,
           "wins": 234,
-          "losses": 434,
-          "winRatePct": 35,
+          "losses": 433,
+          "winRatePct": 35.1,
           "profitFactor": 1.35,
-          "totalR": 157.77,
-          "expectancyR": 0.236,
+          "totalR": 158.82,
+          "expectancyR": 0.238,
           "belowMinSample": false
         },
         {
@@ -806,13 +806,13 @@
         {
           "name": "BUY",
           "trades": 996,
-          "closed": 755,
+          "closed": 754,
           "wins": 257,
-          "losses": 498,
-          "winRatePct": 34,
+          "losses": 497,
+          "winRatePct": 34.1,
           "profitFactor": 1.26,
-          "totalR": 133.96,
-          "expectancyR": 0.177,
+          "totalR": 135.01,
+          "expectancyR": 0.179,
           "belowMinSample": false
         },
         {
@@ -849,13 +849,13 @@
         {
           "name": "BTC",
           "trades": 682,
-          "closed": 563,
+          "closed": 562,
           "wins": 197,
-          "losses": 366,
-          "winRatePct": 35,
+          "losses": 365,
+          "winRatePct": 35.1,
           "profitFactor": 1.19,
-          "totalR": 71.12,
-          "expectancyR": 0.126,
+          "totalR": 72.17,
+          "expectancyR": 0.128,
           "belowMinSample": false
         },
         {
@@ -879,25 +879,25 @@
       "rows": [
         {
           "name": "STRONG",
-          "trades": 78,
-          "closed": 50,
-          "wins": 23,
+          "trades": 79,
+          "closed": 51,
+          "wins": 24,
           "losses": 27,
-          "winRatePct": 46,
-          "profitFactor": 1.73,
-          "totalR": 20.74,
-          "expectancyR": 0.415,
+          "winRatePct": 47.1,
+          "profitFactor": 1.8,
+          "totalR": 22.69,
+          "expectancyR": 0.445,
           "belowMinSample": false
         },
         {
           "name": "MODERATE",
-          "trades": 1333,
-          "closed": 1031,
-          "wins": 319,
-          "losses": 712,
+          "trades": 1332,
+          "closed": 1029,
+          "wins": 318,
+          "losses": 711,
           "winRatePct": 30.9,
-          "profitFactor": 1.07,
-          "totalR": 48.8,
+          "profitFactor": 1.06,
+          "totalR": 47.9,
           "expectancyR": 0.047,
           "belowMinSample": false
         }

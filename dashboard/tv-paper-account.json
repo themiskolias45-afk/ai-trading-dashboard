@@ -1,0 +1,44 @@
+{
+  "generatedAt": "2026-09-06T17:03:32.200748+00:00",
+  "source": "TradingView Paper Trading panel (read-only, over CDP)",
+  "feedsTheGate": false,
+  "account": "TradingView Paper Trading",
+  "readable": true,
+  "note": "read the Paper Trading panel",
+  "summary": {
+    "Account balance": "96,392.10",
+    "Equity": "96,392.10",
+    "Realized PnL": "\u22123,607.90",
+    "Unrealized PnL": "0.00",
+    "Available funds": "96,392.10",
+    "Orders margin": "0.00",
+    "Margin buffer": "100.00%"
+  },
+  "positions": [],
+  "positionCount": 0,
+  "pnl": {
+    "today": 0.0,
+    "week": -697.54,
+    "month": -697.54,
+    "allTime": -3607.89,
+    "rowsParsed": 27,
+    "rowsUnparsedTime": 0
+  },
+  "balanceHeaders": [
+    "Time",
+    "Balance before",
+    "Balance after",
+    "Realized PnL",
+    "Action"
+  ],
+  "balanceRows": 27,
+  "balanceVia": "table",
+  "warning": "Invisible to /api/mt5/positions and to the trade ledger - both are fed from MT5. This file is the only place this account appears.",
+  "crossCheck": {
+    "agree": true,
+    "summedFromHistory": -3607.89,
+    "reportedByTradingView": -3607.9,
+    "delta": 0.01,
+    "detail": "balance history sums to the account's own Realized PnL"
+  }
+}

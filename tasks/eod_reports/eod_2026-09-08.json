@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-08",
+  "total": 5,
+  "wins": 2,
+  "losses": 3,
+  "win_rate": 40.0,
+  "gross_pnl": -12.76,
+  "best": {
+    "symbol": "SP500",
+    "pnl": 8.41
+  },
+  "worst": {
+    "symbol": "SP500",
+    "pnl": -11.02
+  },
+  "setups": {
+    "MOMENTUM": {
+      "wins": 2,
+      "losses": 3,
+      "pnl": -12.759999999999998
+    }
+  },
+  "insight": "TODAY: Five MOMENTUM trades, two winners, three losers, and a $12.76 net bleed — a small, controlled loss rather than a structural failure.\n\nPATTERN: MOMENTUM is the only setup with a real sample (10 trades, 50% WR) and remains the one worth repeating; the three one-off setups (BB_SQUEEZE_WATCH, RANGE_TRADE_SHORT, SQUEEZE_BREAKOUT) are 0/3 combined and should stay benched until MOMENTUM's edge is proven.\n\nTOMORROW: At 50% WR the entire edge lives in R-multiple — check whether today's three losers were bigger than the two winners, and if so tighten stops or extend targets before touching entry criteria."
+}

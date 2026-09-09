@@ -1,0 +1,999 @@
+{
+  "date": "2026-09-09",
+  "generatedAt": "2026-09-09T00:00:00.910591+00:00",
+  "assets": {
+    "btc": {
+      "price": 78420,
+      "levels": {
+        "pivot": 78420,
+        "source": "confluence-zones",
+        "R1": 78998.85,
+        "R1_detail": {
+          "price": 78998.85,
+          "zoneLow": 78998.85,
+          "zoneHigh": 80000,
+          "confluence": 5,
+          "methods": [
+            "fair-value-gap",
+            "pivot",
+            "prior-period",
+            "swing",
+            "round-number"
+          ],
+          "distanceAtr": 0.27
+        },
+        "R2": 80385.68,
+        "R2_detail": {
+          "price": 80385.68,
+          "zoneLow": 80385.68,
+          "zoneHigh": 81112.33,
+          "confluence": 5,
+          "methods": [
+            "pivot",
+            "swing",
+            "atr-projection",
+            "bollinger",
+            "fair-value-gap"
+          ],
+          "distanceAtr": 0.91
+        },
+        "S1": 77019.32,
+        "S1_detail": {
+          "price": 77019.32,
+          "zoneLow": 76867.83,
+          "zoneHigh": 77019.32,
+          "confluence": 2,
+          "methods": [
+            "swing",
+            "moving-average"
+          ],
+          "distanceAtr": 0.65
+        },
+        "S2": 76668.72,
+        "S2_detail": {
+          "price": 76668.72,
+          "zoneLow": 75492.93,
+          "zoneHigh": 76668.72,
+          "confluence": 5,
+          "methods": [
+            "fair-value-gap",
+            "swing",
+            "atr-projection",
+            "bollinger",
+            "pivot"
+          ],
+          "distanceAtr": 0.81
+        },
+        "insideZone": {
+          "price": 78160.03,
+          "zoneLow": 77573.2,
+          "zoneHigh": 78823.23,
+          "confluence": 6,
+          "methods": [
+            "pivot",
+            "prior-period",
+            "swing",
+            "round-number",
+            "fair-value-gap",
+            "bollinger"
+          ],
+          "distanceAtr": 0
+        }
+      },
+      "trade_plan": null,
+      "context": {
+        "available": true,
+        "atr": 2161.41,
+        "projection": {
+          "available": true,
+          "atr": 2161.41,
+          "anchor": 78477.69,
+          "expectedHigh": 80639.1,
+          "expectedLow": 76316.28,
+          "rangeSoFar": 255.9499999999971,
+          "rangeUsedPct": 11.8,
+          "reading": "RANGE BARELY STARTED"
+        },
+        "priorDay": {
+          "high": 79481.19,
+          "low": 77622.71,
+          "close": 78477.69,
+          "mid": 78551.95000000001,
+          "range": 1858.479999999996
+        },
+        "priorWeek": {
+          "available": true,
+          "high": 82270.8,
+          "low": 77622.71,
+          "close": 78477.69,
+          "mid": 79946.755,
+          "bars": 5
+        },
+        "swingCounts": {
+          "daily": 8,
+          "h4": 8
+        },
+        "roundStep": 2000,
+        "fvgZoneCount": 42,
+        "zones": [
+          {
+            "low": 77573.2,
+            "high": 78823.23,
+            "mid": 78160.0323,
+            "side": "at",
+            "confluence": 6,
+            "methods": [
+              "pivot",
+              "prior-period",
+              "swing",
+              "round-number",
+              "fair-value-gap",
+              "bollinger"
+            ],
+            "distanceAtr": 0,
+            "members": [
+              "Pivot S1",
+              "Prior day low",
+              "Prior week low",
+              "Swing high H4 (41b ago)",
+              "Swing low H4 (84b ago)",
+              "Swing low H4 (57b ago)",
+              "Round number",
+              "Swing high H4 (96b ago)",
+              "Swing high D1 (106b ago)",
+              "FVG bullish m15 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)",
+              "FVG bullish m15 bottom (FRESH)",
+              "Swing high D1 (111b ago)",
+              "FVG bullish m15 top (FRESH)",
+              "Swing high H4 (61b ago)",
+              "Prior day close",
+              "Pivot PP",
+              "Prior day mid",
+              "BB middle",
+              "Swing low H4 (26b ago)",
+              "Swing low H4 (8b ago)",
+              "Swing high H4 (107b ago)"
+            ]
+          },
+          {
+            "low": 78998.85,
+            "high": 80000,
+            "mid": 79419.2329,
+            "side": "above",
+            "confluence": 5,
+            "methods": [
+              "fair-value-gap",
+              "pivot",
+              "prior-period",
+              "swing",
+              "round-number"
+            ],
+            "distanceAtr": 0.27,
+            "members": [
+              "FVG bearish h1 bottom (FRESH)",
+              "FVG bearish m15 bottom (FRESH)",
+              "FVG bearish m15 top (FRESH)",
+              "FVG bearish m15 bottom (FRESH)",
+              "FVG bearish m15 top (FRESH)",
+              "FVG bearish h1 top (FRESH)",
+              "FVG bearish m15 bottom (PARTIAL)",
+              "Pivot R1",
+              "Prior day high",
+              "Swing high D1 (19b ago)",
+              "FVG bearish h1 bottom (PARTIAL)",
+              "FVG bearish m15 top (PARTIAL)",
+              "FVG bearish h1 top (PARTIAL)",
+              "FVG bearish m15 bottom (PARTIAL)",
+              "FVG bearish h1 bottom (PARTIAL)",
+              "Round number"
+            ]
+          },
+          {
+            "low": 75492.93,
+            "high": 76668.72,
+            "mid": 76157.6233,
+            "side": "below",
+            "confluence": 5,
+            "methods": [
+              "fair-value-gap",
+              "swing",
+              "atr-projection",
+              "bollinger",
+              "pivot"
+            ],
+            "distanceAtr": 0.81,
+            "members": [
+              "FVG bullish h1 bottom (PARTIAL)",
+              "FVG bullish h1 top (PARTIAL)",
+              "Swing low D1 (114b ago)",
+              "FVG bullish m15 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)",
+              "Swing low D1 (7b ago)",
+              "ATR day low",
+              "BB lower",
+              "FVG bullish daily top (PARTIAL)",
+              "Pivot S2"
+            ]
+          },
+          {
+            "low": 80385.68,
+            "high": 81112.33,
+            "mid": 80745.6933,
+            "side": "above",
+            "confluence": 5,
+            "methods": [
+              "pivot",
+              "swing",
+              "atr-projection",
+              "bollinger",
+              "fair-value-gap"
+            ],
+            "distanceAtr": 0.91,
+            "members": [
+              "Pivot R2",
+              "Swing high D1 (2b ago)",
+              "ATR day high",
+              "BB upper",
+              "FVG bearish h1 top (PARTIAL)",
+              "FVG bearish m15 top (PARTIAL)"
+            ]
+          },
+          {
+            "low": 72832.62,
+            "high": 73988.72,
+            "mid": 73382.2634,
+            "side": "below",
+            "confluence": 2,
+            "methods": [
+              "moving-average",
+              "fair-value-gap"
+            ],
+            "distanceAtr": 2.05,
+            "members": [
+              "EMA200",
+              "FVG bullish h1 bottom (FRESH)",
+              "FVG bullish m15 bottom (PARTIAL)",
+              "FVG bullish h1 top (FRESH)",
+              "FVG bullish daily bottom (PARTIAL)",
+              "FVG bullish h4 bottom (FRESH)",
+              "FVG bullish m15 top (PARTIAL)",
+              "FVG bullish m15 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)",
+              "FVG bullish h1 bottom (FRESH)",
+              "FVG bullish h4 top (FRESH)",
+              "FVG bullish h1 top (FRESH)",
+              "FVG bullish m15 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)",
+              "FVG bullish h4 bottom (FRESH)",
+              "FVG bullish h1 bottom (PARTIAL)",
+              "FVG bullish m15 bottom (PARTIAL)"
+            ]
+          },
+          {
+            "low": 74266.06,
+            "high": 74906.22,
+            "mid": 74483.0586,
+            "side": "below",
+            "confluence": 2,
+            "methods": [
+              "swing",
+              "fair-value-gap"
+            ],
+            "distanceAtr": 1.63,
+            "members": [
+              "Swing low D1 (109b ago)",
+              "FVG bullish h1 top (PARTIAL)",
+              "FVG bullish m15 top (PARTIAL)",
+              "FVG bullish h4 top (FRESH)"
+            ]
+          }
+        ],
+        "zonesRelevant": 8,
+        "zonesTotal": 29,
+        "warnings": [],
+        "feedsTheGate": false
+      }
+    },
+    "gold": {
+      "price": 4396.9,
+      "levels": {
+        "pivot": 4396.9,
+        "source": "confluence-zones",
+        "R1": 4406.54,
+        "R1_detail": {
+          "price": 4406.54,
+          "zoneLow": 4406.54,
+          "zoneHigh": 4465.28,
+          "confluence": 7,
+          "methods": [
+            "swing",
+            "fair-value-gap",
+            "moving-average",
+            "pivot",
+            "prior-period",
+            "atr-projection",
+            "bollinger"
+          ],
+          "distanceAtr": 0.56
+        },
+        "R2": 4472.03,
+        "R2_detail": {
+          "price": 4472.03,
+          "zoneLow": 4472.03,
+          "zoneHigh": 4529.36,
+          "confluence": 4,
+          "methods": [
+            "fair-value-gap",
+            "pivot",
+            "prior-period",
+            "swing"
+          ],
+          "distanceAtr": 1.21
+        },
+        "S1": 4327.38,
+        "S1_detail": {
+          "price": 4327.38,
+          "zoneLow": 4269.08,
+          "zoneHigh": 4327.38,
+          "confluence": 6,
+          "methods": [
+            "fair-value-gap",
+            "prior-period",
+            "swing",
+            "pivot",
+            "round-number",
+            "moving-average"
+          ],
+          "distanceAtr": 0.24
+        },
+        "S2": 4261.9,
+        "S2_detail": {
+          "price": 4261.9,
+          "zoneLow": 4202.82,
+          "zoneHigh": 4261.9,
+          "confluence": 4,
+          "methods": [
+            "swing",
+            "fair-value-gap",
+            "bollinger",
+            "atr-projection"
+          ],
+          "distanceAtr": 0.89
+        },
+        "insideZone": {
+          "price": 4367.72,
+          "zoneLow": 4344.41,
+          "zoneHigh": 4400,
+          "confluence": 6,
+          "methods": [
+            "fair-value-gap",
+            "prior-period",
+            "moving-average",
+            "swing",
+            "pivot",
+            "round-number"
+          ],
+          "distanceAtr": 0
+        }
+      },
+      "trade_plan": null,
+      "context": {
+        "available": true,
+        "atr": 100.02,
+        "projection": {
+          "available": true,
+          "atr": 100.02,
+          "anchor": 4355.47,
+          "expectedHigh": 4455.490000000001,
+          "expectedLow": 4255.45,
+          "rangeSoFar": 9.75,
+          "rangeUsedPct": 9.7,
+          "reading": "RANGE BARELY STARTED"
+        },
+        "priorDay": {
+          "high": 4442.94,
+          "low": 4345.87,
+          "close": 4355.47,
+          "mid": 4394.405,
+          "range": 97.06999999999971
+        },
+        "priorWeek": {
+          "available": true,
+          "high": 4510.78,
+          "low": 4282.51,
+          "close": 4355.47,
+          "mid": 4396.645,
+          "bars": 5
+        },
+        "swingCounts": {
+          "daily": 8,
+          "h4": 8
+        },
+        "roundStep": 100,
+        "fvgZoneCount": 45,
+        "zones": [
+          {
+            "low": 4406.54,
+            "high": 4465.28,
+            "mid": 4433.0997,
+            "side": "above",
+            "confluence": 7,
+            "methods": [
+              "swing",
+              "fair-value-gap",
+              "moving-average",
+              "pivot",
+              "prior-period",
+              "atr-projection",
+              "bollinger"
+            ],
+            "distanceAtr": 0.56,
+            "members": [
+              "Swing high H4 (92b ago)",
+              "FVG bearish h1 bottom (PARTIAL)",
+              "FVG bearish m15 bottom (PARTIAL)",
+              "EMA20",
+              "FVG bearish m15 bottom (PARTIAL)",
+              "Swing high H4 (101b ago)",
+              "Pivot R1",
+              "FVG bearish h1 top (PARTIAL)",
+              "FVG bearish m15 top (PARTIAL)",
+              "FVG bearish h1 bottom (FRESH)",
+              "FVG bearish m15 bottom (FRESH)",
+              "FVG bearish h1 top (FRESH)",
+              "FVG bearish m15 top (FRESH)",
+              "FVG bearish h1 bottom (PARTIAL)",
+              "Swing high H4 (95b ago)",
+              "Prior day high",
+              "Swing high H4 (5b ago)",
+              "FVG bearish h4 bottom (FRESH)",
+              "Swing high D1 (19b ago)",
+              "ATR day high",
+              "FVG bearish h4 top (FRESH)",
+              "BB middle",
+              "FVG bearish m15 top (PARTIAL)",
+              "FVG bearish h1 top (PARTIAL)"
+            ]
+          },
+          {
+            "low": 4344.41,
+            "high": 4400,
+            "mid": 4367.7242,
+            "side": "at",
+            "confluence": 6,
+            "methods": [
+              "fair-value-gap",
+              "prior-period",
+              "moving-average",
+              "swing",
+              "pivot",
+              "round-number"
+            ],
+            "distanceAtr": 0,
+            "members": [
+              "FVG bullish h4 bottom (PARTIAL)",
+              "FVG bullish h1 bottom (PARTIAL)",
+              "FVG bullish m15 bottom (PARTIAL)",
+              "Prior day low",
+              "EMA50",
+              "Prior day close",
+              "FVG bullish m15 top (PARTIAL)",
+              "FVG bearish h4 bottom (FRESH)",
+              "FVG bullish h4 top (PARTIAL)",
+              "Swing low H4 (14b ago)",
+              "Swing low D1 (74b ago)",
+              "Swing low H4 (102b ago)",
+              "FVG bullish h1 top (PARTIAL)",
+              "FVG bearish h1 bottom (FRESH)",
+              "FVG bearish m15 bottom (FRESH)",
+              "Swing low H4 (99b ago)",
+              "FVG bearish h4 top (FRESH)",
+              "FVG bearish m15 top (FRESH)",
+              "Pivot PP",
+              "Swing high D1 (60b ago)",
+              "FVG bearish h1 top (FRESH)",
+              "Prior day mid",
+              "Round number"
+            ]
+          },
+          {
+            "low": 4269.08,
+            "high": 4327.38,
+            "mid": 4302.0629,
+            "side": "below",
+            "confluence": 6,
+            "methods": [
+              "fair-value-gap",
+              "prior-period",
+              "swing",
+              "pivot",
+              "round-number",
+              "moving-average"
+            ],
+            "distanceAtr": 0.24,
+            "members": [
+              "FVG bullish h4 bottom (PARTIAL)",
+              "FVG bullish h1 bottom (FRESH)",
+              "FVG bullish h1 top (FRESH)",
+              "Prior week low",
+              "Swing low D1 (5b ago)",
+              "Pivot S2",
+              "FVG bullish m15 bottom (PARTIAL)",
+              "Round number",
+              "FVG bullish h4 top (PARTIAL)",
+              "FVG bullish m15 top (PARTIAL)",
+              "FVG bullish m15 bottom (FRESH)",
+              "Swing low D1 (18b ago)",
+              "FVG bullish h1 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)",
+              "EMA200",
+              "Pivot S1",
+              "Swing low D1 (15b ago)",
+              "Swing low H4 (89b ago)",
+              "FVG bullish h1 top (FRESH)"
+            ]
+          },
+          {
+            "low": 4472.03,
+            "high": 4529.36,
+            "mid": 4502.8465,
+            "side": "above",
+            "confluence": 4,
+            "methods": [
+              "fair-value-gap",
+              "pivot",
+              "prior-period",
+              "swing"
+            ],
+            "distanceAtr": 1.21,
+            "members": [
+              "FVG bearish daily bottom (PARTIAL)",
+              "Pivot R2",
+              "FVG bearish h4 bottom (PARTIAL)",
+              "FVG bearish h1 bottom (PARTIAL)",
+              "FVG bearish m15 bottom (FRESH)",
+              "FVG bearish m15 top (FRESH)",
+              "FVG bearish m15 bottom (PARTIAL)",
+              "Prior week high",
+              "Swing high D1 (4b ago)",
+              "FVG bearish h1 top (PARTIAL)",
+              "FVG bearish m15 top (PARTIAL)",
+              "FVG bearish m15 bottom (FRESH)"
+            ]
+          },
+          {
+            "low": 4202.82,
+            "high": 4261.9,
+            "mid": 4231.2722,
+            "side": "below",
+            "confluence": 4,
+            "methods": [
+              "swing",
+              "fair-value-gap",
+              "bollinger",
+              "atr-projection"
+            ],
+            "distanceAtr": 0.89,
+            "members": [
+              "Swing high D1 (47b ago)",
+              "FVG bullish h1 bottom (PARTIAL)",
+              "FVG bullish h4 bottom (PARTIAL)",
+              "FVG bullish daily top (FRESH)",
+              "FVG bullish h1 top (PARTIAL)",
+              "FVG bullish h4 top (PARTIAL)",
+              "BB lower",
+              "FVG bullish h4 bottom (FRESH)",
+              "ATR day low",
+              "FVG bullish h4 top (FRESH)"
+            ]
+          },
+          {
+            "low": 4534.45,
+            "high": 4593.69,
+            "mid": 4566.37,
+            "side": "above",
+            "confluence": 1,
+            "methods": [
+              "fair-value-gap"
+            ],
+            "distanceAtr": 1.83,
+            "members": [
+              "FVG bearish m15 top (FRESH)",
+              "FVG bearish m15 bottom (FRESH)",
+              "FVG bearish m15 top (FRESH)",
+              "FVG bearish daily top (PARTIAL)",
+              "FVG bearish m15 bottom (PARTIAL)",
+              "FVG bearish h1 bottom (FRESH)",
+              "FVG bearish h4 top (PARTIAL)",
+              "FVG bearish h1 top (FRESH)"
+            ]
+          }
+        ],
+        "zonesRelevant": 8,
+        "zonesTotal": 31,
+        "warnings": [],
+        "feedsTheGate": false
+      }
+    },
+    "spx": {
+      "price": 7673.52,
+      "levels": {
+        "pivot": 7673.52,
+        "source": "confluence-zones",
+        "R1": 7700,
+        "R1_detail": {
+          "price": 7700,
+          "zoneLow": 7700,
+          "zoneHigh": 7727.7,
+          "confluence": 6,
+          "methods": [
+            "round-number",
+            "prior-period",
+            "fair-value-gap",
+            "swing",
+            "bollinger",
+            "pivot"
+          ],
+          "distanceAtr": 0.42
+        },
+        "R2": 7735.36,
+        "R2_detail": {
+          "price": 7735.36,
+          "zoneLow": 7735.36,
+          "zoneHigh": 7735.36,
+          "confluence": 1,
+          "methods": [
+            "atr-projection"
+          ],
+          "distanceAtr": 1.07
+        },
+        "S1": 7661.03,
+        "S1_detail": {
+          "price": 7661.03,
+          "zoneLow": 7629.8,
+          "zoneHigh": 7661.03,
+          "confluence": 4,
+          "methods": [
+            "swing",
+            "fair-value-gap",
+            "pivot",
+            "round-number"
+          ],
+          "distanceAtr": 0.29
+        },
+        "S2": 7628.25,
+        "S2_detail": {
+          "price": 7628.25,
+          "zoneLow": 7595.43,
+          "zoneHigh": 7628.25,
+          "confluence": 6,
+          "methods": [
+            "swing",
+            "fair-value-gap",
+            "moving-average",
+            "prior-period",
+            "bollinger",
+            "atr-projection"
+          ],
+          "distanceAtr": 0.89
+        },
+        "insideZone": {
+          "price": 7680.28,
+          "zoneLow": 7664.35,
+          "zoneHigh": 7694.34,
+          "confluence": 5,
+          "methods": [
+            "swing",
+            "fair-value-gap",
+            "prior-period",
+            "moving-average",
+            "pivot"
+          ],
+          "distanceAtr": 0
+        }
+      },
+      "trade_plan": null,
+      "context": {
+        "available": true,
+        "atr": 54.81,
+        "projection": {
+          "available": true,
+          "atr": 54.81,
+          "anchor": 7680.55,
+          "expectedHigh": 7735.360000000001,
+          "expectedLow": 7625.74,
+          "rangeSoFar": 9.5,
+          "rangeUsedPct": 17.3,
+          "reading": "RANGE BARELY STARTED"
+        },
+        "priorDay": {
+          "high": 7727.65,
+          "low": 7674.82,
+          "close": 7680.55,
+          "mid": 7701.235,
+          "range": 52.82999999999993
+        },
+        "priorWeek": {
+          "available": true,
+          "high": 7765.35,
+          "low": 7617.5,
+          "close": 7680.55,
+          "mid": 7691.425,
+          "bars": 5
+        },
+        "swingCounts": {
+          "daily": 8,
+          "h4": 8
+        },
+        "roundStep": 50,
+        "fvgZoneCount": 43,
+        "zones": [
+          {
+            "low": 7595.43,
+            "high": 7628.25,
+            "mid": 7611.4841,
+            "side": "below",
+            "confluence": 6,
+            "methods": [
+              "swing",
+              "fair-value-gap",
+              "moving-average",
+              "prior-period",
+              "bollinger",
+              "atr-projection"
+            ],
+            "distanceAtr": 0.89,
+            "members": [
+              "Swing high D1 (39b ago)",
+              "FVG bullish m15 bottom (FRESH)",
+              "FVG bullish h4 bottom (FRESH)",
+              "FVG bullish h1 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)",
+              "FVG bullish m15 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)",
+              "FVG bullish h1 top (FRESH)",
+              "FVG bullish daily top (FRESH)",
+              "FVG bullish h4 top (FRESH)",
+              "FVG bullish daily bottom (PARTIAL)",
+              "EMA50",
+              "Prior week low",
+              "Swing low D1 (5b ago)",
+              "BB lower",
+              "FVG bullish m15 bottom (FRESH)",
+              "ATR day low",
+              "FVG bullish h1 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)"
+            ]
+          },
+          {
+            "low": 7700,
+            "high": 7727.7,
+            "mid": 7711.8281,
+            "side": "above",
+            "confluence": 6,
+            "methods": [
+              "round-number",
+              "prior-period",
+              "fair-value-gap",
+              "swing",
+              "bollinger",
+              "pivot"
+            ],
+            "distanceAtr": 0.42,
+            "members": [
+              "Round number",
+              "Prior day mid",
+              "FVG bearish m15 bottom (PARTIAL)",
+              "Swing high H4 (73b ago)",
+              "FVG bearish daily top (FRESH)",
+              "Swing high H4 (62b ago)",
+              "BB middle",
+              "FVG bearish h1 bottom (PARTIAL)",
+              "FVG bearish m15 top (PARTIAL)",
+              "Swing high H4 (38b ago)",
+              "Pivot R1",
+              "FVG bearish h1 top (PARTIAL)",
+              "Prior day high",
+              "FVG bullish daily top (PARTIAL)"
+            ]
+          },
+          {
+            "low": 7664.35,
+            "high": 7694.34,
+            "mid": 7680.2768,
+            "side": "at",
+            "confluence": 5,
+            "methods": [
+              "swing",
+              "fair-value-gap",
+              "prior-period",
+              "moving-average",
+              "pivot"
+            ],
+            "distanceAtr": 0,
+            "members": [
+              "Swing low H4 (55b ago)",
+              "FVG bullish m15 top (PARTIAL)",
+              "FVG bullish h4 top (PARTIAL)",
+              "Swing low H4 (37b ago)",
+              "FVG bullish h1 top (PARTIAL)",
+              "Prior day low",
+              "Prior day close",
+              "FVG bearish m15 bottom (FRESH)",
+              "Swing low H4 (40b ago)",
+              "FVG bearish m15 top (FRESH)",
+              "FVG bearish m15 bottom (PARTIAL)",
+              "FVG bearish daily bottom (FRESH)",
+              "Swing low H4 (87b ago)",
+              "EMA20",
+              "Swing high H4 (25b ago)",
+              "FVG bearish m15 top (PARTIAL)",
+              "Pivot PP"
+            ]
+          },
+          {
+            "low": 7629.8,
+            "high": 7661.03,
+            "mid": 7647.3124,
+            "side": "below",
+            "confluence": 4,
+            "methods": [
+              "swing",
+              "fair-value-gap",
+              "pivot",
+              "round-number"
+            ],
+            "distanceAtr": 0.29,
+            "members": [
+              "Swing high D1 (71b ago)",
+              "FVG bullish h1 top (FRESH)",
+              "Pivot S2",
+              "Swing low D1 (14b ago)",
+              "Round number",
+              "FVG bullish h1 bottom (PARTIAL)",
+              "FVG bullish m15 bottom (PARTIAL)",
+              "FVG bullish h4 bottom (PARTIAL)",
+              "Pivot S1"
+            ]
+          },
+          {
+            "low": 7747.17,
+            "high": 7765.95,
+            "mid": 7757.6374,
+            "side": "above",
+            "confluence": 3,
+            "methods": [
+              "pivot",
+              "fair-value-gap",
+              "prior-period"
+            ],
+            "distanceAtr": 1.28,
+            "members": [
+              "Pivot R2",
+              "FVG bearish h1 bottom (FRESH)",
+              "FVG bearish m15 bottom (PARTIAL)",
+              "FVG bearish h1 top (FRESH)",
+              "FVG bearish daily bottom (PARTIAL)",
+              "Prior week high",
+              "FVG bearish m15 top (PARTIAL)"
+            ]
+          },
+          {
+            "low": 7562.35,
+            "high": 7593.95,
+            "mid": 7578.6515,
+            "side": "below",
+            "confluence": 2,
+            "methods": [
+              "fair-value-gap",
+              "swing"
+            ],
+            "distanceAtr": 1.51,
+            "members": [
+              "FVG bullish h1 top (FRESH)",
+              "FVG bullish h1 bottom (FRESH)",
+              "FVG bullish m15 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)",
+              "FVG bullish m15 bottom (FRESH)",
+              "FVG bullish m15 top (FRESH)",
+              "FVG bullish h1 top (FRESH)",
+              "Swing high D1 (43b ago)",
+              "FVG bullish h4 top (FRESH)",
+              "Swing high D1 (62b ago)"
+            ]
+          }
+        ],
+        "zonesRelevant": 9,
+        "zonesTotal": 28,
+        "warnings": [],
+        "feedsTheGate": false
+      }
+    }
+  },
+  "prices": {
+    "btc": 78420,
+    "gold": 4396.9,
+    "spx": 7673.52,
+    "dxy": 98.78,
+    "vix": 15.72
+  },
+  "risk": {
+    "dailyPnl": -21.17,
+    "consecutiveLosses": 2,
+    "halted": false,
+    "haltReason": "",
+    "accounts": {
+      "A": {
+        "dailyPnl": -21.17,
+        "consecutiveLosses": 2,
+        "halted": false,
+        "haltReason": "",
+        "account": "A",
+        "haltedAt": null,
+        "haltCause": null,
+        "haltReleasesInSeconds": null,
+        "config": {
+          "riskPercent": 1,
+          "riskPercentIsFallbackOnly": true,
+          "riskPercentNote": "bridge fallback, used only when the server sends no budget; live risk is strategy_settings.riskPercent",
+          "dailyLossPct": 3,
+          "maxConsecLosses": 3,
+          "maxSpreadPts": 50,
+          "autoMode": true,
+          "expectedLogin": "25446287",
+          "remoteHalted": false,
+          "haltCooldownHours": 1
+        }
+      }
+    }
+  },
+  "setup_health": {
+    "BB_SQUEEZE_WATCH": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "RANGE_TRADE_SHORT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "SQUEEZE_BREAKOUT": {
+      "winRate": 0.0,
+      "total": 1
+    },
+    "MOMENTUM": {
+      "winRate": 50,
+      "total": 10
+    }
+  },
+  "calendar": [],
+  "warnings": [
+    "⚠ 2 consecutive losses — reduce size"
+  ],
+  "macro": {
+    "vix": 15.72,
+    "vixRegime": "NORMAL",
+    "dxy": 98.78,
+    "dxyTrend": {
+      "changePct5d": -0.65,
+      "direction": "FALLING"
+    },
+    "correlations": [
+      {
+        "pair": "BTC/SPX",
+        "r": -0.11,
+        "note": "BTC/SPX r=-0.11 — UNCOUPLED (inside noise on 30 days)"
+      },
+      {
+        "pair": "GOLD/SPX",
+        "r": 0.25,
+        "note": "GOLD/SPX r=0.25 — UNCOUPLED (inside noise on 30 days)"
+      }
+    ],
+    "notes": [
+      "VIX 15.72 — NORMAL",
+      "DXY 98.78 FALLING (-0.65% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind"
+    ]
+  },
+  "levelsSource": "confluence-zones"
+}

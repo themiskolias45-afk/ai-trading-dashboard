@@ -1,0 +1,30 @@
+{
+  "generatedAt": "2026-09-09T15:31:32.452Z",
+  "feedsTheGate": false,
+  "verdict": "NOT HALTED — and if you halt, 1 path(s) would keep trading",
+  "halted": false,
+  "killSwitchEngaged": false,
+  "circuitBreakerOpen": false,
+  "algoTradingAllowed": 1,
+  "coveredPaths": [
+    {
+      "path": "mt5_bridge.py",
+      "covered": true,
+      "detail": "checks both halt systems, fails closed"
+    },
+    {
+      "path": "tasks/fvg_executor.py (crt / fvg / tk)",
+      "covered": true,
+      "detail": "checks both, fails closed"
+    }
+  ],
+  "stillArmed": [
+    {
+      "what": "EA_CRT_AMD_Dashboard_v356 (XAUUSD,M15)",
+      "why": "a chart EA. It reads neither /api/mt5/control nor /api/risk-status, and AutoTrading is ON (algoTradingAllowed=1), so a halt does not reach it.",
+      "basis": "attached during THIS terminal session (attach 2026-09-06 17:26:03, terminal started 2026-09-06 17:21:21). It logs only at attach, so a later manual removal would leave no trace."
+    }
+  ],
+  "remedy": "MetaTrader cannot be told to stop trading over its Python API — terminal_info().trade_allowed is readable and has no setter. To stop a chart EA you must press Ctrl+E in the terminal (or remove the EA from the chart). Until then a halt stops the bridge and the executors and NOT the chart EAs.",
+  "note": "Read-only. Places no order, changes no setting, and cannot itself halt anything."
+}

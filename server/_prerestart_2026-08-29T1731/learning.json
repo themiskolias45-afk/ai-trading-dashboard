@@ -1,0 +1,26 @@
+{
+  "setupStats": {
+    "BB_SQUEEZE_WATCH": {
+      "wins": 0,
+      "losses": 1,
+      "totalPnl": -449.72
+    },
+    "RANGE_TRADE_SHORT": {
+      "wins": 0,
+      "losses": 1,
+      "totalPnl": -99.1
+    },
+    "SQUEEZE_BREAKOUT": {
+      "wins": 0,
+      "losses": 1,
+      "totalPnl": -6.64
+    },
+    "MOMENTUM": {
+      "wins": 2,
+      "losses": 1,
+      "totalPnl": -31.27
+    }
+  },
+  "sessionCount": 326,
+  "updatedAt": "2026-08-29T17:00:56.847Z"
+}

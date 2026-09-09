@@ -1,0 +1,8 @@
+{
+  "autoCommentary": true,
+  "trailingStop": true,
+  "newsFilter": true,
+  "tradeJournal": true,
+  "positionReview": true,
+  "weeklyReport": true
+}

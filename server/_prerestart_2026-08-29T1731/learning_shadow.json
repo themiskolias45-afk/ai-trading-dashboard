@@ -1,0 +1,180 @@
+{
+  "shadowStats": {
+    "BUY_OVERSOLD": {
+      "wins": 10,
+      "losses": 1,
+      "episodes": 11,
+      "totalR": 7.101,
+      "rPerEpisode": 0.646,
+      "winRate": 90.9,
+      "gates": [
+        "CONFIDENCE",
+        "MIN_RR"
+      ],
+      "symbols": [
+        "BTCUSD",
+        "SP500",
+        "XAUUSD"
+      ],
+      "enoughForReading": true,
+      "pending": {
+        "UNSCORABLE": 13
+      },
+      "pendingRows": {
+        "UNSCORABLE": 78
+      }
+    },
+    "MOMENTUM": {
+      "wins": 3,
+      "losses": 11,
+      "episodes": 14,
+      "totalR": -6.17,
+      "rPerEpisode": -0.441,
+      "winRate": 21.4,
+      "gates": [
+        "CONFIDENCE"
+      ],
+      "symbols": [
+        "BTCUSD",
+        "SP500",
+        "XAUUSD"
+      ],
+      "enoughForReading": true,
+      "pending": {
+        "UNSCORABLE": 9,
+        "TIMEOUT": 3,
+        "PENDING": 6
+      },
+      "pendingRows": {
+        "UNSCORABLE": 84,
+        "TIMEOUT": 22,
+        "PENDING": 145
+      }
+    },
+    "RANGE_TRADE_LONG": {
+      "wins": 41,
+      "losses": 10,
+      "episodes": 51,
+      "totalR": 18.735,
+      "rPerEpisode": 0.367,
+      "winRate": 80.4,
+      "gates": [
+        "CONFIDENCE",
+        "MIN_RR"
+      ],
+      "symbols": [
+        "BTCUSD",
+        "SP500",
+        "XAUUSD"
+      ],
+      "enoughForReading": true,
+      "pending": {
+        "UNSCORABLE": 48,
+        "TIMEOUT": 2,
+        "PENDING": 1
+      },
+      "pendingRows": {
+        "UNSCORABLE": 714,
+        "TIMEOUT": 6,
+        "PENDING": 1
+      }
+    },
+    "RANGE_TRADE_SHORT": {
+      "wins": 9,
+      "losses": 8,
+      "episodes": 17,
+      "totalR": -2.484,
+      "rPerEpisode": -0.146,
+      "winRate": 52.9,
+      "gates": [
+        "CONFIDENCE",
+        "MIN_RR"
+      ],
+      "symbols": [
+        "BTCUSD",
+        "SP500",
+        "XAUUSD"
+      ],
+      "enoughForReading": true,
+      "pending": {
+        "UNSCORABLE": 28
+      },
+      "pendingRows": {
+        "UNSCORABLE": 308
+      }
+    },
+    "SELL_BOUNCE": {
+      "wins": 0,
+      "losses": 2,
+      "episodes": 2,
+      "totalR": -2.1,
+      "rPerEpisode": -1.05,
+      "winRate": 0.0,
+      "gates": [
+        "CONFIDENCE"
+      ],
+      "symbols": [
+        "BTCUSD"
+      ],
+      "enoughForReading": false,
+      "pending": {
+        "UNSCORABLE": 2
+      },
+      "pendingRows": {
+        "UNSCORABLE": 5
+      }
+    },
+    "SQUEEZE_BREAKOUT": {
+      "wins": 3,
+      "losses": 0,
+      "episodes": 3,
+      "totalR": 7.35,
+      "rPerEpisode": 2.45,
+      "winRate": 100.0,
+      "gates": [
+        "CONFIDENCE"
+      ],
+      "symbols": [
+        "BTCUSD"
+      ],
+      "enoughForReading": false,
+      "pending": {
+        "UNSCORABLE": 1,
+        "PENDING": 1
+      },
+      "pendingRows": {
+        "UNSCORABLE": 23,
+        "PENDING": 29
+      }
+    },
+    "TREND_FOLLOW": {
+      "wins": 0,
+      "losses": 1,
+      "episodes": 1,
+      "totalR": -1.05,
+      "rPerEpisode": -1.05,
+      "winRate": 0.0,
+      "gates": [
+        "CONFIDENCE"
+      ],
+      "symbols": [
+        "XAUUSD"
+      ],
+      "enoughForReading": false,
+      "pending": {},
+      "pendingRows": {}
+    }
+  },
+  "generatedAt": "2026-08-29T07:19:45.883060+00:00",
+  "source": "tasks/rejections_scored.jsonl",
+  "basis": {
+    "countedGateClass": "QUALITY",
+    "excludedRowsByClass": {
+      "CONTEXT": 87,
+      "NOT_FORGONE": 200
+    },
+    "minEpisodesForReading": 5,
+    "whatTheseAre": "Forgone PAPER trades: levels a gate rejected, walked forward on real broker bars. No slippage and no spread \u2014 the entry was never filled. Evidence about geometry, not execution.",
+    "whatTheseAreNot": "NOT live fills and NOT merged into server/learning.json, which this tool never writes. They do not feed getLearningBoost(), so no confidence, gate or signal changes from this file."
+  }
+}

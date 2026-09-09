@@ -1,0 +1,95 @@
+{
+  "generatedAt": "2026-09-09T15:23:11.914Z",
+  "feedsTheGate": false,
+  "neverPool": "Three separate books on two platforms. A combined total describes none of them and hides which one is losing.",
+  "books": {
+    "smartEntry": {
+      "scope": "SmartEntry engine and its own executors. Not the chart EA, not TradingView.",
+      "perBoxWarning": "This is THIS BOX'S journal. The other box keeps its own and they do not overlap - neither machine holds the fleet's complete record.",
+      "trades": 17,
+      "netMoney": -523.03,
+      "netR": -2.12,
+      "perAsset": [
+        {
+          "symbol": "BTCUSD",
+          "trades": 8,
+          "winRatePct": 25,
+          "netMoney": -128.65,
+          "netR": -0.67,
+          "avgR": -0.084,
+          "rTrades": 8,
+          "verdict": "negative in both"
+        },
+        {
+          "symbol": "SP500",
+          "trades": 4,
+          "winRatePct": 25,
+          "netMoney": -23.2,
+          "netR": -0.38,
+          "avgR": -0.095,
+          "rTrades": 4,
+          "verdict": "negative in both"
+        },
+        {
+          "symbol": "XAUUSD",
+          "trades": 5,
+          "winRatePct": 40,
+          "netMoney": -371.18,
+          "netR": -1.07,
+          "avgR": -0.214,
+          "rTrades": 5,
+          "verdict": "negative in both"
+        }
+      ]
+    },
+    "eaCrt": {
+      "scope": "The CRT chart EA, by its own magics. Separate from SmartEntry by design.",
+      "preFix": {
+        "trades": 36,
+        "wins": 15,
+        "losses": 21,
+        "winRatePct": 41.67,
+        "netProfit": -457.52,
+        "profitFactor": 0.279,
+        "expectancyPerTrade": -12.71,
+        "avgWin": 11.8,
+        "avgLoss": -30.21,
+        "largestWin": 32.85,
+        "largestLoss": -436.85
+      },
+      "current": null,
+      "note": "preFix is v3.51 and its twin, 2026-07-05..07-15, trailing stop ON. current is v3.55/56 with the trail OFF. Never summed: the fixed build must not be averaged into a loss it did not cause.",
+      "sentrySource": "local MT5 logs on VMI3465345"
+    },
+    "tradingViewPaper": {
+      "scope": "A separate TradingView paper account. Invisible to /api/mt5/positions and to the trade ledger - both are fed from MT5.",
+      "readable": true,
+      "summary": {
+        "Account balance": "96,392.10",
+        "Equity": "96,392.10",
+        "Realized PnL": "−3,607.90",
+        "Unrealized PnL": "0.00",
+        "Available funds": "96,392.10",
+        "Orders margin": "0.00",
+        "Margin buffer": "100.00%"
+      },
+      "pnl": {
+        "today": 0,
+        "week": -697.54,
+        "month": -697.54,
+        "allTime": -3607.89,
+        "rowsParsed": 27,
+        "rowsUnparsedTime": 0
+      },
+      "crossCheck": {
+        "agree": true,
+        "summedFromHistory": -3607.89,
+        "reportedByTradingView": -3607.9,
+        "delta": 0.01,
+        "detail": "balance history sums to the account's own Realized PnL"
+      },
+      "positions": 0
+    }
+  },
+  "note": "Read-only. A book that could not be read is null, never zero."
+}

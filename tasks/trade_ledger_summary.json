@@ -1,8 +1,8 @@
 {
- "generatedAt": "2026-09-08T20:06:05.486137+00:00",
+ "generatedAt": "2026-09-09T15:06:42.564099+00:00",
  "ledger": "all_trades_ledger.jsonl",
  "feedsTheGate": false,
- "totalRowsInLedger": 12537,
+ "totalRowsInLedger": 12559,
  "smartEntry": {
   "trades": 35,
   "wins": 14,
@@ -20,20 +20,20 @@
   "lastClose": "2026-09-08T16:33:31+00:00"
  },
  "crtDashboardEA": {
-  "trades": 40,
-  "wins": 17,
-  "losses": 23,
+  "trades": 42,
+  "wins": 18,
+  "losses": 24,
   "scratches": 0,
-  "winRatePct": 42.5,
-  "netProfit": -1032.39,
-  "grossProfit": 485.9,
-  "grossLoss": -1518.29,
-  "profitFactor": 0.32,
-  "expectancyPerTrade": -25.81,
-  "largestWin": 157.65,
+  "winRatePct": 42.86,
+  "netProfit": -1150.58,
+  "grossProfit": 809.48,
+  "grossLoss": -1960.06,
+  "profitFactor": 0.413,
+  "expectancyPerTrade": -27.39,
+  "largestWin": 323.58,
   "largestLoss": -444.3,
   "firstClose": "2026-07-05T12:27:39+00:00",
-  "lastClose": "2026-09-08T19:09:56+00:00"
+  "lastClose": "2026-09-09T16:19:10+00:00"
  },
  "crtDashboardEAByModel": {
   "EA_CRT_AMD_Dashboard": {
@@ -53,20 +53,20 @@
    "lastClose": "2026-07-15T10:00:09+00:00"
   },
   "EA_CRT_AMD_Dashboard_v355": {
-   "trades": 4,
-   "wins": 2,
-   "losses": 2,
+   "trades": 6,
+   "wins": 3,
+   "losses": 3,
    "scratches": 0,
    "winRatePct": 50.0,
-   "netProfit": -574.87,
-   "grossProfit": 308.92,
-   "grossLoss": -883.79,
-   "profitFactor": 0.35,
-   "expectancyPerTrade": -143.72,
-   "largestWin": 157.65,
+   "netProfit": -693.06,
+   "grossProfit": 632.5,
+   "grossLoss": -1325.56,
+   "profitFactor": 0.477,
+   "expectancyPerTrade": -115.51,
+   "largestWin": 323.58,
    "largestLoss": -444.3,
    "firstClose": "2026-09-08T07:25:47+00:00",
-   "lastClose": "2026-09-08T19:09:56+00:00"
+   "lastClose": "2026-09-09T16:19:10+00:00"
   }
  },
  "separationNote": "EA_CRT_AMD_Dashboard is a standalone MT5 expert, not part of SmartEntry. The two are never summed.",
@@ -87,22 +87,6 @@
    "firstClose": "2026-09-03T23:00:30+00:00",
    "lastClose": "2026-09-07T06:04:18+00:00"
   },
-  "chart_ea": {
-   "trades": 40,
-   "wins": 17,
-   "losses": 23,
-   "scratches": 0,
-   "winRatePct": 42.5,
-   "netProfit": -1032.39,
-   "grossProfit": 485.9,
-   "grossLoss": -1518.29,
-   "profitFactor": 0.32,
-   "expectancyPerTrade": -25.81,
-   "largestWin": 157.65,
-   "largestLoss": -444.3,
-   "firstClose": "2026-07-05T12:27:39+00:00",
-   "lastClose": "2026-09-08T19:09:56+00:00"
-  },
   "smartentry": {
    "trades": 31,
    "wins": 11,
@@ -119,21 +103,37 @@
    "firstClose": "2026-07-31T11:12:45+00:00",
    "lastClose": "2026-09-08T16:33:31+00:00"
   },
+  "chart_ea": {
+   "trades": 42,
+   "wins": 18,
+   "losses": 24,
+   "scratches": 0,
+   "winRatePct": 42.86,
+   "netProfit": -1150.58,
+   "grossProfit": 809.48,
+   "grossLoss": -1960.06,
+   "profitFactor": 0.413,
+   "expectancyPerTrade": -27.39,
+   "largestWin": 323.58,
+   "largestLoss": -444.3,
+   "firstClose": "2026-07-05T12:27:39+00:00",
+   "lastClose": "2026-09-09T16:19:10+00:00"
+  },
   "foreign": {
-   "trades": 12462,
-   "wins": 8216,
-   "losses": 3984,
+   "trades": 12482,
+   "wins": 8227,
+   "losses": 3993,
    "scratches": 262,
-   "winRatePct": 65.93,
-   "netProfit": -14252.38,
-   "grossProfit": 64939.24,
-   "grossLoss": -79191.62,
-   "profitFactor": 0.82,
+   "winRatePct": 65.91,
+   "netProfit": -14219.94,
+   "grossProfit": 65017.39,
+   "grossLoss": -79237.33,
+   "profitFactor": 0.821,
    "expectancyPerTrade": -1.14,
    "largestWin": 3209.1,
    "largestLoss": -1029.22,
    "firstClose": "2026-01-03T10:27:47+00:00",
-   "lastClose": "2026-09-08T21:52:00+00:00"
+   "lastClose": "2026-09-09T16:47:54+00:00"
   }
  },
  "byModel": {

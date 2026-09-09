@@ -1,0 +1,83 @@
+{
+  "generatedAt": "2026-09-09T15:31:31.898Z",
+  "feedsTheGate": false,
+  "neverPool": "Three separate books on two platforms. A combined total describes none of them and hides which one is losing.",
+  "books": {
+    "smartEntry": {
+      "scope": "SmartEntry engine and its own executors. Not the chart EA, not TradingView.",
+      "perBoxWarning": "This is THIS BOX'S journal. The other box keeps its own and they do not overlap - neither machine holds the fleet's complete record.",
+      "trades": 15,
+      "netMoney": -537.73,
+      "netR": 1.56,
+      "perAsset": [
+        {
+          "symbol": "BTCUSD",
+          "trades": 3,
+          "winRatePct": 66.7,
+          "netMoney": 82.58,
+          "netR": -0.08,
+          "avgR": -0.027,
+          "rTrades": 3,
+          "verdict": "money positive, R negative"
+        },
+        {
+          "symbol": "SP500",
+          "trades": 6,
+          "winRatePct": 50,
+          "netMoney": -9.82,
+          "netR": 1.15,
+          "avgR": 0.192,
+          "rTrades": 6,
+          "verdict": "EDGE POSITIVE, MONEY NEGATIVE - sizing, not edge"
+        },
+        {
+          "symbol": "XAUUSD",
+          "trades": 6,
+          "winRatePct": 33.3,
+          "netMoney": -610.49,
+          "netR": 0.49,
+          "avgR": 0.082,
+          "rTrades": 6,
+          "verdict": "EDGE POSITIVE, MONEY NEGATIVE - sizing, not edge"
+        }
+      ]
+    },
+    "eaCrt": {
+      "scope": "The CRT chart EA, by its own magics. Separate from SmartEntry by design.",
+      "preFix": null,
+      "current": null,
+      "note": "preFix is v3.51 and its twin, 2026-07-05..07-15, trailing stop ON. current is v3.55/56 with the trail OFF. Never summed: the fixed build must not be averaged into a loss it did not cause.",
+      "sentrySource": null
+    },
+    "tradingViewPaper": {
+      "scope": "A separate TradingView paper account. Invisible to /api/mt5/positions and to the trade ledger - both are fed from MT5.",
+      "readable": true,
+      "summary": {
+        "Account balance": "96,392.10",
+        "Equity": "96,392.10",
+        "Realized PnL": "−3,607.90",
+        "Unrealized PnL": "0.00",
+        "Available funds": "96,392.10",
+        "Orders margin": "0.00",
+        "Margin buffer": "100.00%"
+      },
+      "pnl": {
+        "today": 0,
+        "week": -697.54,
+        "month": -697.54,
+        "allTime": -3607.89,
+        "rowsParsed": 27,
+        "rowsUnparsedTime": 0
+      },
+      "crossCheck": {
+        "agree": true,
+        "summedFromHistory": -3607.89,
+        "reportedByTradingView": -3607.9,
+        "delta": 0.01,
+        "detail": "balance history sums to the account's own Realized PnL"
+      },
+      "positions": 0
+    }
+  },
+  "note": "Read-only. A book that could not be read is null, never zero."
+}

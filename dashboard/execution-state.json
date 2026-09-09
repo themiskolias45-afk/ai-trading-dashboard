@@ -1,0 +1,334 @@
+{
+  "generatedAt": "2026-09-09T15:31:31.530577+00:00",
+  "feedsTheGate": false,
+  "host": "THEMIS",
+  "canTradeNow": {
+    "halted": false,
+    "unknown": false,
+    "circuitBreakerOpen": false,
+    "killSwitchEngaged": false,
+    "detail": "trading permitted"
+  },
+  "account": {
+    "login": 11581419,
+    "server": "VantageMarkets-Demo",
+    "balance": 88280.34,
+    "equity": 88063.67,
+    "currency": "GBP",
+    "marginFree": 88016.55
+  },
+  "settings": {
+    "confidenceThreshold": 70,
+    "riskPercent": 0.15,
+    "fixedLotSize": 0,
+    "maxLotSize": 2,
+    "maxNotionalPct": 25,
+    "maxConcurrentPositions": 3,
+    "maxTradesPerDay": 10,
+    "minStrength": "MODERATE"
+  },
+  "settingsError": null,
+  "sizing": {
+    "XAUUSD": {
+      "notionalPctSource": "server",
+      "notionalPct": 25.0,
+      "notionalPerLot": 439528.0,
+      "maxLotCap": 2.0,
+      "notionalCap": 0.05,
+      "effectiveMaxLots": 0.05,
+      "bindingCap": "notional",
+      "maxExposure": 22070.08,
+      "leverageAtCap": 0.25,
+      "volumeMin": 0.01
+    },
+    "BTCUSD": {
+      "notionalPctSource": "server",
+      "notionalPct": 25.0,
+      "notionalPerLot": 78457.97,
+      "maxLotCap": 2.0,
+      "notionalCap": 0.281,
+      "effectiveMaxLots": 0.281,
+      "bindingCap": "notional",
+      "maxExposure": 22070.08,
+      "leverageAtCap": 0.25,
+      "volumeMin": 0.01
+    },
+    "SP500": {
+      "notionalPctSource": "server",
+      "notionalPct": 25.0,
+      "notionalPerLot": 7638.92,
+      "maxLotCap": 2.0,
+      "notionalCap": 2.889,
+      "effectiveMaxLots": 2.0,
+      "bindingCap": "maxLotSize",
+      "maxExposure": 15277.84,
+      "leverageAtCap": 0.17,
+      "volumeMin": 0.1
+    }
+  },
+  "positions": [
+    {
+      "ticket": 1940567823,
+      "symbol": "BTCUSD",
+      "side": "BUY",
+      "volume": 0.07,
+      "price": 79727.68,
+      "sl": 76861.18,
+      "tp": 84875.55,
+      "profit": -65.63,
+      "magic": 20260903,
+      "owner": "TK_SWING_PULLBACK executor",
+      "haltReaches": true,
+      "hasStop": true
+    },
+    {
+      "ticket": 1959198389,
+      "symbol": "SP500",
+      "side": "BUY",
+      "volume": 2.0,
+      "price": 7715.63,
+      "sl": 7626.96,
+      "tp": 7894.14,
+      "profit": -113.28,
+      "magic": 20250101,
+      "owner": "SmartEntry bridge",
+      "haltReaches": true,
+      "hasStop": true
+    },
+    {
+      "ticket": 1966120814,
+      "symbol": "BTCUSD",
+      "side": "BUY",
+      "volume": 0.06,
+      "price": 79161.44,
+      "sl": 76252.63,
+      "tp": 85814.06,
+      "profit": -31.17,
+      "magic": 20250101,
+      "owner": "SmartEntry bridge",
+      "haltReaches": true,
+      "hasStop": true
+    },
+    {
+      "ticket": 1970314450,
+      "symbol": "XAUUSD",
+      "side": "BUY",
+      "volume": 0.02,
+      "price": 4417.24,
+      "sl": 4319.91,
+      "tp": 4750.35,
+      "profit": -32.43,
+      "magic": 20250101,
+      "owner": "SmartEntry bridge",
+      "haltReaches": true,
+      "hasStop": true
+    }
+  ],
+  "positionCount": 4,
+  "positionsHaltCannotReach": 0,
+  "positionsHaltUnknown": 0,
+  "scope": "SmartEntry (bridge + its executors) and the CRT chart EA only. Other magics on this account are the owner's separate EAs and are deliberately not monitored here - not shown does not mean not there.",
+  "outOfScopePositions": 2,
+  "positionsWithoutStop": 0,
+  "todaysFills": [
+    {
+      "closeTime": "2026-09-09T11:39",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "volume": 0.05,
+      "netProfit": -9.89,
+      "magic": 10002,
+      "owner": "magic 10002"
+    },
+    {
+      "closeTime": "2026-09-09T12:35",
+      "symbol": "BTCUSD",
+      "direction": "BUY",
+      "volume": 0.01,
+      "netProfit": -2.3,
+      "magic": 10003,
+      "owner": "magic 10003"
+    },
+    {
+      "closeTime": "2026-09-09T13:00",
+      "symbol": "SP500",
+      "direction": "SELL",
+      "volume": 0.1,
+      "netProfit": 2.24,
+      "magic": 888888,
+      "owner": "magic 888888"
+    },
+    {
+      "closeTime": "2026-09-09T13:01",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "volume": 0.33,
+      "netProfit": 323.58,
+      "magic": 26070455,
+      "owner": "EA_CRT_AMD v3.55/56 (chart EA)"
+    },
+    {
+      "closeTime": "2026-09-09T14:35",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "volume": 0.05,
+      "netProfit": -8.26,
+      "magic": 10002,
+      "owner": "magic 10002"
+    },
+    {
+      "closeTime": "2026-09-09T14:50",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "volume": 0.01,
+      "netProfit": 17.95,
+      "magic": 202503,
+      "owner": "magic 202503"
+    },
+    {
+      "closeTime": "2026-09-09T15:54",
+      "symbol": "BTCUSD",
+      "direction": "BUY",
+      "volume": 0.01,
+      "netProfit": 0.58,
+      "magic": 10003,
+      "owner": "magic 10003"
+    },
+    {
+      "closeTime": "2026-09-09T16:03",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "volume": 0.05,
+      "netProfit": 10.62,
+      "magic": 10002,
+      "owner": "magic 10002"
+    },
+    {
+      "closeTime": "2026-09-09T16:19",
+      "symbol": "XAUUSD",
+      "direction": "SELL",
+      "volume": 0.36,
+      "netProfit": -441.77,
+      "magic": 26070455,
+      "owner": "EA_CRT_AMD v3.55/56 (chart EA)"
+    },
+    {
+      "closeTime": "2026-09-09T16:30",
+      "symbol": "AMAZON",
+      "direction": "SELL",
+      "volume": 0.1,
+      "netProfit": 0.2,
+      "magic": 888888,
+      "owner": "magic 888888"
+    },
+    {
+      "closeTime": "2026-09-09T16:30",
+      "symbol": "MSFT",
+      "direction": "SELL",
+      "volume": 0.5,
+      "netProfit": -0.93,
+      "magic": 888888,
+      "owner": "magic 888888"
+    },
+    {
+      "closeTime": "2026-09-09T16:39",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "volume": 0.01,
+      "netProfit": 3.59,
+      "magic": 202503,
+      "owner": "magic 202503"
+    },
+    {
+      "closeTime": "2026-09-09T16:47",
+      "symbol": "BTCUSD",
+      "direction": "BUY",
+      "volume": 0.01,
+      "netProfit": 1.05,
+      "magic": 10003,
+      "owner": "magic 10003"
+    },
+    {
+      "closeTime": "2026-09-09T05:52",
+      "symbol": "XAUUSD",
+      "direction": "SELL",
+      "volume": 0.01,
+      "netProfit": 28.57,
+      "magic": 996142,
+      "owner": "magic 996142"
+    },
+    {
+      "closeTime": "2026-09-09T08:48",
+      "symbol": "BTCUSD",
+      "direction": "BUY",
+      "volume": 0.02,
+      "netProfit": -0.64,
+      "magic": 996142,
+      "owner": "magic 996142"
+    },
+    {
+      "closeTime": "2026-09-09T11:39",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "volume": 0.05,
+      "netProfit": -10.67,
+      "magic": 20002,
+      "owner": "magic 20002"
+    },
+    {
+      "closeTime": "2026-09-09T12:38",
+      "symbol": "BTCUSD",
+      "direction": "BUY",
+      "volume": 0.01,
+      "netProfit": -2.55,
+      "magic": 20003,
+      "owner": "magic 20003"
+    },
+    {
+      "closeTime": "2026-09-09T14:34",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "volume": 0.05,
+      "netProfit": -10.29,
+      "magic": 20002,
+      "owner": "magic 20002"
+    },
+    {
+      "closeTime": "2026-09-09T15:54",
+      "symbol": "BTCUSD",
+      "direction": "BUY",
+      "volume": 0.01,
+      "netProfit": 0.55,
+      "magic": 20003,
+      "owner": "magic 20003"
+    },
+    {
+      "closeTime": "2026-09-09T16:07",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "volume": 0.05,
+      "netProfit": 12.17,
+      "magic": 20002,
+      "owner": "magic 20002"
+    },
+    {
+      "closeTime": "2026-09-09T16:30",
+      "symbol": "MSFT",
+      "direction": "SELL",
+      "volume": 0.1,
+      "netProfit": -0.18,
+      "magic": 996142,
+      "owner": "magic 996142"
+    },
+    {
+      "closeTime": "2026-09-09T16:45",
+      "symbol": "BTCUSD",
+      "direction": "BUY",
+      "volume": 0.01,
+      "netProfit": 0.63,
+      "magic": 20003,
+      "owner": "magic 20003"
+    }
+  ],
+  "note": "Read-only. Places no order, changes no setting. Every section is null when it could not be read - that is rendered differently from empty."
+}

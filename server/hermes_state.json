@@ -2,18 +2,6 @@
   "inceptionAt": "2026-07-25T09:55:01.910Z",
   "open": [
     {
-      "id": "gold-SQUEEZE_BREAKOUT-1786104008880",
-      "asset": "gold",
-      "geometry": "SQUEEZE_BREAKOUT",
-      "dir": "BUY",
-      "entry": 4383.1,
-      "stop": 4232.93,
-      "target": 4758.53,
-      "rr": 2.5,
-      "confidence": 74,
-      "openedAt": "2026-08-07T12:00:08.880Z"
-    },
-    {
       "id": "btc-MOMENTUM-1788082891135",
       "asset": "btc",
       "geometry": "MOMENTUM",
@@ -24,9 +12,75 @@
       "rr": 2,
       "confidence": 75,
       "openedAt": "2026-08-30T09:41:31.135Z"
+    },
+    {
+      "id": "spx-TREND_FOLLOW-1788878151325",
+      "asset": "spx",
+      "geometry": "TREND_FOLLOW",
+      "dir": "BUY",
+      "entry": 7683.59,
+      "stop": 7611.2,
+      "target": 7847.83,
+      "rr": 2.3,
+      "confidence": 75,
+      "openedAt": "2026-09-08T14:35:51.325Z"
+    },
+    {
+      "id": "spx-MOMENTUM-1788887042644",
+      "asset": "spx",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 7692.94,
+      "stop": 7611.2,
+      "target": 7857.18,
+      "rr": 2,
+      "confidence": 75,
+      "openedAt": "2026-09-08T17:04:02.644Z"
+    },
+    {
+      "id": "spx-BUY_DIP-1788962133807",
+      "asset": "spx",
+      "geometry": "BUY_DIP",
+      "dir": "BUY",
+      "entry": 7653.22,
+      "stop": 7611.2,
+      "target": 7854,
+      "rr": 4.8,
+      "confidence": 91,
+      "openedAt": "2026-09-09T13:55:33.807Z"
     }
   ],
   "closed": [
+    {
+      "id": "spx-MOMENTUM-1788860700738",
+      "asset": "spx",
+      "geometry": "MOMENTUM",
+      "dir": "BUY",
+      "entry": 7705.27,
+      "stop": 7700.68,
+      "target": 7725.55,
+      "rr": 4.4,
+      "confidence": 75,
+      "openedAt": "2026-09-08T09:45:00.738Z",
+      "closedAt": "2026-09-08T13:45:00.907Z",
+      "r": -1.05,
+      "result": "LOSS"
+    },
+    {
+      "id": "gold-SQUEEZE_BREAKOUT-1786104008880",
+      "asset": "gold",
+      "geometry": "SQUEEZE_BREAKOUT",
+      "dir": "BUY",
+      "entry": 4383.1,
+      "stop": 4232.93,
+      "target": 4758.53,
+      "rr": 2.5,
+      "confidence": 74,
+      "openedAt": "2026-08-07T12:00:08.880Z",
+      "closedAt": "2026-09-06T12:05:00.211Z",
+      "r": 0.573,
+      "result": "STALE_CLOSE"
+    },
     {
       "id": "gold-MOMENTUM-1788459321599",
       "asset": "gold",

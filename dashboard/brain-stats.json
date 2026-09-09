@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-09-09T14:02:19.792Z",
+  "host": "THEMIS",
+  "feedsTheGate": false,
+  "memories": {
+    "ok": true,
+    "count": 389,
+    "indexes": 2,
+    "newestAt": "2026-09-08T23:00:35.825Z"
+  },
+  "rag": {
+    "ok": true,
+    "storeBytes": 64151552,
+    "rebuiltAt": "2026-09-08T23:01:44.537Z",
+    "note": "store size and rebuild time; not a chunk count — that needs a sqlite read"
+  },
+  "graph": {
+    "ok": true,
+    "entities": 87,
+    "relations": 0,
+    "verdict": "entities only — no relations have ever been written"
+  },
+  "jarvisMemory": {
+    "ok": true,
+    "entries": 119,
+    "lastUpdated": "2026-09-09T00:00:01.279942+00:00"
+  },
+  "bootConfig": {
+    "ok": true,
+    "bytes": 29467,
+    "modifiedAt": "2026-09-07T08:44:01.925Z"
+  },
+  "vaultIndex": {
+    "ok": true,
+    "bytes": 8697,
+    "modifiedAt": "2026-09-08T22:01:18.764Z"
+  },
+  "note": "Written by tasks/brain_stats.cjs. Read-only over files that already exist; served as a static artifact because adding an /api route would need a server restart."
+}

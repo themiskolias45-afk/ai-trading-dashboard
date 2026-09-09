@@ -1,0 +1,15 @@
+{
+  "confidenceThreshold": 70,
+  "maxConcurrentPositions": 3,
+  "maxTradesPerDay": 10,
+  "fixedLotSize": 0.02,
+  "maxLotSize": 10,
+  "adxTrendingMin": 20,
+  "minEntryRsi": 0,
+  "dailyOnlyMinConfidence": 0,
+  "minStrength": "MODERATE",
+  "updatedAt": "2026-08-28T05:43:00.000Z",
+  "updatedBy": "jarvis-daily-unblock-btc",
+  "momentumRsiMax": 88,
+  "trendFollowRsiMax": 84
+}
