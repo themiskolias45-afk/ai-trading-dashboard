@@ -6792,6 +6792,13 @@ app.post("/api/mt5/login", (req, res) => {
   if (!isLocal) {
     return res.status(403).json({ ok: false, error: "This only accepts requests from the server's own machine — open the dashboard in a browser on the VPS itself." });
   }
+  // The loopback test above passes for tunnelled traffic — see isLoopbackOrigin. This
+  // route takes broker credentials in the body, so a cross-site POST is the one that
+  // matters most here.
+  if (!isLoopbackOrigin(req.headers.origin)) {
+    console.error(`[mt5] login refused - cross-site origin ${JSON.stringify(req.headers.origin)}`);
+    return res.status(403).json({ ok: false, error: "cross-site request refused — use the dashboard itself" });
+  }
 
   const { account, login, password, server } = req.body || {};
   const terminal = MT5_TERMINALS[account];
@@ -7005,6 +7012,11 @@ app.post("/api/mt5/reset-breaker", (req, res) => {
   if (!isLocal) {
     return res.status(403).json({ ok: false, error: "local only — clearing a risk breaker is not a remote action" });
   }
+  // The loopback test above passes for tunnelled traffic — see isLoopbackOrigin.
+  if (!isLoopbackOrigin(req.headers.origin)) {
+    console.error(`[control] breaker reset refused - cross-site origin ${JSON.stringify(req.headers.origin)}`);
+    return res.status(403).json({ ok: false, error: "cross-site request refused — press the button on the dashboard itself" });
+  }
   breakerResetRequested = true;
   console.log("[control] breaker reset flag set by localhost");
   res.json({ ok: true, note: "the next bridge poll will clear a STREAK halt; a DAILY_LOSS halt is left in place" });
@@ -7015,6 +7027,11 @@ app.post("/api/mt5/restart-bridge", (req, res) => {
   const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
   if (!isLocal) {
     return res.status(403).json({ ok: false, error: "local only — stopping a trading bridge is not a remote action" });
+  }
+  // The loopback test above passes for tunnelled traffic — see isLoopbackOrigin.
+  if (!isLoopbackOrigin(req.headers.origin)) {
+    console.error(`[control] bridge restart refused - cross-site origin ${JSON.stringify(req.headers.origin)}`);
+    return res.status(403).json({ ok: false, error: "cross-site request refused — press the button on the dashboard itself" });
   }
   bridgeRestartRequested = true;
   console.log("[control] bridge restart flag set by localhost");
@@ -13995,11 +14012,51 @@ function newEngineerRunId() {
 // execution, server shutdown, settings/secret writes, learning-data reset, feature toggles).
 // On an internet-reachable server these were previously callable by anyone who found the
 // URL — restrict them to the server's own loopback address, same pattern as /api/mt5/login.
+// "LOCAL" WAS TRUE OF THE SOCKET AND FALSE OF THE CALLER.
+//
+// The laptop runs `ssh -L 3002:localhost:3001` against the VPS (tasks/tunnel_vps.bat),
+// and `-L` resolves its target ON THE SSH SERVER: sshd dials the VPS's own loopback, so
+// every tunnelled request reaches this server from 127.0.0.1. Measured 2026-09-09 - with
+// one tunnelled request in flight, the VPS's own connection table showed
+// `remote=127.0.0.1 connections=3` and `remote=::1 connections=1` against port 3001.
+//
+// The loopback test therefore passes for ANY page open in the operator's browser. A page
+// on another site can fire `fetch('http://localhost:3002/api/shutdown', {method:'POST',
+// mode:'no-cors'})`; CORS hides the response but not the side effect. That reaches every
+// requireLocalOnly route - shutdown, settings writes, learning reset, feature toggles and
+// /api/engineer/launch, which executes code - plus the three bridge routes that carry
+// their own copy of this check.
+//
+// The fix is an ORIGIN test, not a stricter address test: the address is right, the
+// provenance is not. Rejecting loopback instead would remove the operator's only exit
+// from a VPS breaker halt, because the VPS is headless and the real dashboard IS the
+// tunnel.
+//
+// A browser sends Origin on every non-GET/HEAD request, same-origin included, so the
+// genuine dashboard call carries its own http://localhost:3002 (or :3001) and passes.
+// An absent Origin means no browser is involved - the bridge posting candles and
+// rejections, curl, a script - and those are allowed, because a non-browser caller on
+// this machine already has every power this route could grant. `Origin: null` (sandboxed
+// iframe, file://) does not parse to a loopback host and is refused, which is correct.
+function isLoopbackOrigin(origin) {
+  if (origin === undefined) return true;   // not a browser request at all
+  try {
+    const host = new URL(origin).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  } catch (e) {
+    return false;                          // unparseable, including the literal "null"
+  }
+}
+
 function requireLocalOnly(req, res, next) {
   const remote = req.socket.remoteAddress || "";
   const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
   if (!isLocal) {
     return res.status(403).json({ error: "This admin action only accepts requests from the server's own machine." });
+  }
+  if (!isLoopbackOrigin(req.headers.origin)) {
+    console.error(`[guard] admin action refused - cross-site origin ${JSON.stringify(req.headers.origin)} on ${req.method} ${req.originalUrl}`);
+    return res.status(403).json({ error: "Cross-site request refused. This action must come from the dashboard itself." });
   }
   next();
 }
