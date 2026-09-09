@@ -152,6 +152,18 @@ if (-not $isTrading) {
             git commit -m "update $rel" --quiet 2>$null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "JARVIS: $rel committed -- syntax OK, security OK."
+                # SAY THAT THE MESSAGE IS PROVISIONAL, at the moment it is written.
+                # This commit lands BEFORE the agent's own `git commit`, which then
+                # correctly reports "no changes added to commit" and drops the message it
+                # had prepared. Measured 2026-09-09 on tasks\_vps_restart.ps1: a 41-line
+                # explanation was replaced by "update tasks\_vps_restart.ps1" and only
+                # recovered afterwards as a git note. 724087c and 52aa4df are the same
+                # shape. The auto-commit itself is right and stays -- it is what keeps the
+                # "never leave changes uncommitted" rule true, and trading files are
+                # already exempt so review-gated messages survive. What was missing is
+                # that the agent could not tell the message had been taken from it.
+                Write-Host "JARVIS: that message is PROVISIONAL. If this edit needs its reasoning on the record, replace it now:" -ForegroundColor Cyan
+                Write-Host "JARVIS:   git commit --amend -F <msgfile>   (safe: seconds old, unpushed, content unchanged, SHA not yet referenced)" -ForegroundColor Cyan
             }
         }
     }
