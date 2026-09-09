@@ -10528,9 +10528,26 @@ function runClaudeCli(prompt, timeoutMs) {
     let stdout = "";
     child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
     child.on("error", () => { clearTimeout(timer); finish(null); });
-    child.on("close", () => {
+    // THE EXIT CODE IS PART OF THE ANSWER. This handler used to ignore it and return
+    // any non-empty stdout, so a CLI that exits non-zero while printing
+    // "Not logged in - Please run /login" had that string wrapped by cliReplyEnvelope
+    // and handed back as if a model had written it. Nothing throws on that path, so
+    // the callers' try/catch never sees it: generateTradeCommentary persisted it to
+    // server/journal.json and tasks/logs/tv_alerts.jsonl as trade commentary, two
+    // permanent ledgers. The narrow guard added at the /api/backtest call site in
+    // 287ecf2 fixed one of the callers; this fixes the rail both of them share.
+    //
+    // A non-zero exit is a failure, exactly like empty stdout already is: return null
+    // and let the caller fall through to the API rail. `code` is null when the child
+    // was killed by a signal (the timeout path), which is also not a success - and
+    // that path has already called finish(null), so `settled` makes this a no-op.
+    child.on("close", (code) => {
       clearTimeout(timer);
       const text = stdout.trim();
+      if (code !== 0) {
+        console.error(`[claude-cli] exited ${code} - discarding ${text.length} byte(s) of stdout, falling through to the API rail`);
+        return finish(null);
+      }
       finish(text.length ? text : null);
     });
 
