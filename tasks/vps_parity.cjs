@@ -47,7 +47,13 @@ function opt(flag, fallback) {
 }
 const HOST = opt("--host", "169.58.74.133");
 const USER = opt("--user", "administrator");
-const KEY  = opt("--key",  "C:\\Users\\User\\.ssh\\contabo_smartentry");
+// The key lives in the CURRENT user's profile, not a literal one. This was
+// "C:\\Users\\User\\.ssh\\contabo_smartentry" until 2026-09-09 — the laptop's home,
+// baked in. On any other box that path does not exist, and because the failure
+// message below named neither the key nor the host, "the key is missing" and "the
+// host rejected me" were the same message. Found by the tester agent on its first
+// run on the VPS. --key still overrides, so nothing that passed a key is affected.
+const KEY  = opt("--key",  path.join(os.homedir(), ".ssh", "contabo_smartentry"));
 const REMOTE_ROOT = opt("--remote-root", "C:\\ai-trading-dashboard");
 
 // Files whose content decides behaviour. strategy_settings.json is deliberately
