@@ -10360,7 +10360,7 @@ app.get("/api/backtest", async (req, res) => {
       // saying so: it now records WHY, because a silent absence and a refusal look
       // identical to the reader and only one of them needs a person.
       const verdictText = msg.content?.[0]?.text ?? null;
-      const looksLikeAuthError = verdictText && /not logged in|please run \/login|unauthori[sz]ed|authentication/i.test(verdictText);
+      const looksLikeAuthError = verdictText && CLI_AUTH_ERROR_RE.test(verdictText);
       out.claudeVerdict      = looksLikeAuthError ? null : verdictText;
       out.claudeVerdictError = looksLikeAuthError
         ? "the Claude CLI is not signed in on this box — run `claude` interactively and sign in. The backtest NUMBERS above are unaffected; only the commentary is missing."
@@ -10427,6 +10427,20 @@ const AI_FILTER_CLI_TIMEOUT_MS = 20000;
 // Kill switch. Set AI_FILTER_CLI_FALLBACK=0 to disable without a code change; any
 // other value (or unset) leaves it on.
 const AI_FILTER_CLI_ENABLED = process.env.AI_FILTER_CLI_FALLBACK !== "0";
+
+// A signed-out CLI answers on STDOUT, in prose, and this is how you recognise it.
+//
+// One definition, two readers. It was written inline inside the /api/backtest handler
+// in 287ecf2 (the run where an auth error was rendered as the backtest verdict) and
+// stayed local to that one call site, which left the rail every other caller shares
+// unguarded. Copying the literal to a second site is how the two copies drift apart,
+// so it is hoisted here instead and both sites reference this.
+//
+// Why this exists ALONGSIDE the exit-code test in runClaudeCli and not instead of it:
+// nobody has ever observed what a signed-out `claude -p` exits with. If it prints the
+// auth text and exits 0, the exit-code test alone catches nothing. Two independent
+// tests, so the guard does not rest on an unmeasured fact.
+const CLI_AUTH_ERROR_RE = /not logged in|please run \/login|unauthori[sz]ed|authentication/i;
 
 // Raw text from the CLI, or null if that rail is unavailable too. Shared by the
 // trade filter and by the client-level fallback that covers the other nine call
@@ -10546,6 +10560,15 @@ function runClaudeCli(prompt, timeoutMs) {
       const text = stdout.trim();
       if (code !== 0) {
         console.error(`[claude-cli] exited ${code} - discarding ${text.length} byte(s) of stdout, falling through to the API rail`);
+        return finish(null);
+      }
+      // Second, independent test. The exit-code branch above assumes a signed-out CLI
+      // exits non-zero, which has never been measured; if it exits 0 this is the only
+      // thing standing between "Not logged in - Please run /login" and a journal row.
+      // Rejecting costs one API call (the caller falls through to the API rail, which
+      // still answers) and can never cost an answer or block a trade.
+      if (CLI_AUTH_ERROR_RE.test(text)) {
+        console.error("[claude-cli] auth error text on stdout at exit 0 - discarding, falling through to the API rail");
         return finish(null);
       }
       finish(text.length ? text : null);
