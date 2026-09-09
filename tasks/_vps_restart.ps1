@@ -21,8 +21,40 @@ Start-Sleep -Seconds 3
 
 try { Start-ScheduledTask -TaskName 'SmartEntryServer' -ErrorAction Stop; Write-Output '  started task SmartEntryServer' } catch { Write-Output ('  Start-ScheduledTask: ' + $_.Exception.Message) }
 
-# The server needs a moment to bind and load its caches before it answers.
-Start-Sleep -Seconds 20
+# WAIT BY POLLING, NOT BY A FIXED SLEEP.
+#
+# Measured 2026-09-09: this box took roughly 25-30s to bind after Start-ScheduledTask,
+# so the flat 20s sleep that used to be here printed "NOTHING on 3001" and four
+# "FAIL Unable to connect" lines on a COMPLETELY SUCCESSFUL restart. The only reason the
+# contradiction was visible at all is that the script's own /api/size probe, a few
+# seconds further down, answered fine against the server it had just declared dead.
+#
+# That is the inverse of the hazard CLAUDE.md already names: a restart that silently
+# no-opped looks exactly like the code change not working. Here a restart that WORKED
+# looked exactly like one that failed, on the box that trades - which is how a live
+# server gets chased as a dead one, or worse, restarted a second time underneath itself.
+#
+# Polling also makes the script honest on a genuinely dead server: it says how long it
+# waited instead of implying 20s was ever the answer.
+$SETTLE_TIMEOUT_S = 90
+$SETTLE_POLL_S    = 3
+$waited = 0
+$serverUp = $false
+while (-not $serverUp -and $waited -lt $SETTLE_TIMEOUT_S) {
+    Start-Sleep -Seconds $SETTLE_POLL_S
+    $waited += $SETTLE_POLL_S
+    try {
+        $null = Invoke-RestMethod -Uri 'http://localhost:3001/api/status' -TimeoutSec 6 -ErrorAction Stop
+        $serverUp = $true
+    } catch {
+        $serverUp = $false
+    }
+}
+if ($serverUp) {
+    Write-Output ('  server answered after ' + $waited + 's')
+} else {
+    Write-Output ('  server still not answering after ' + $waited + 's -- see tasks\logs\server_log.txt')
+}
 
 Write-Output ''
 Write-Output '=== after ==='
