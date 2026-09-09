@@ -50,15 +50,23 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const argv = process.argv.slice(2);
 const JSON_OUT = argv.includes('--json');
-const KEY = process.env.VPS_KEY || 'C:/Users/User/.ssh/contabo_smartentry';
+// KEY was the literal 'C:/Users/User/.ssh/contabo_smartentry' until 2026-09-09 — the
+// laptop's home, baked in, so this could only ever be run from that one box. It now
+// resolves from the CURRENT user's profile, which is the same path on the laptop and
+// the right one anywhere else. VPS_KEY still overrides, as before.
+const KEY = process.env.VPS_KEY || path.join(os.homedir(), '.ssh', 'contabo_smartentry').replace(/\\/g, '/');
 const PEER = process.env.VPS_HOST || 'administrator@169.58.74.133';
-const PEER_ROOT = 'C:/ai-trading-dashboard';
+// PEER_ROOT had no override at all, which is what made this file one-directional: run
+// from the VPS it would compare that box against its OWN root and report agreement by
+// construction. The default is unchanged, so nothing about a laptop run moves.
+const PEER_ROOT = process.env.VPS_ROOT || 'C:/ai-trading-dashboard';
 
 // A field marked CONTEXT is printed for orientation and never counted as drift, because
 // it differs BY DESIGN. Anything not marked is a parity claim that must hold.
