@@ -10459,6 +10459,75 @@ const AI_FILTER_CLI_ENABLED = process.env.AI_FILTER_CLI_FALLBACK !== "0";
 // tests, so the guard does not rest on an unmeasured fact.
 const CLI_AUTH_ERROR_RE = /not logged in|please run \/login|unauthori[sz]ed|authentication/i;
 
+// THE FAILURE REASON IS ON STDERR, AND NOTHING WAS READING IT.
+//
+// runClaudeCli captured stdout only, so "[claude-cli] exited 1 - discarding 0 byte(s)
+// of stdout" was the whole of what an operator got. Measured 2026-09-09: when the CLI
+// path does not resolve, the diagnostic goes to STDERR and stdout is empty -
+// `cmd.exe /c definitely_not_a_real_cli_xyz -p` returns
+// {code:1, stdout:"", stderr:"'definitely_not_a_real_cli_xyz' is not recognized..."}.
+// The one line that says what went wrong was the one line being thrown away.
+//
+// Reading it also fixes a second, pre-existing hazard: spawn's stdio defaults to
+// "pipe", and an unread stderr pipe can fill and stall the child until the timeout.
+//
+// Capped, because a chatty child must not be able to grow this without bound; only the
+// tail reaches the log, because the useful part of a CLI error is the end of it.
+// Compared against stderr.length, which counts UTF-16 code units, NOT bytes - hence
+// CHARS in the name. The real ceiling is this minus one, plus whatever the final
+// chunk adds: with 64KB pipe chunks the worst case is about 128KB of memory, and up
+// to roughly 3x that for multi-byte text. Bounded either way, which is the point.
+const CLI_STDERR_CAP_CHARS = 64 * 1024;
+const CLI_STDERR_TAIL_CHARS = 300;
+
+// child.kill() REACHES cmd.exe ONLY, NOT THE CLI.
+//
+// The child here is cmd.exe and the real work is a grandchild (cmd.exe /c claude.cmd),
+// so killing the child leaves claude.exe running and still holding the stdout pipe.
+// Measured 2026-09-09 with a synthetic slow grandchild: "exit" fired at 1524ms with
+// {code:null, signal:"SIGTERM"} but "close" did not fire until 8376ms, when the
+// grandchild finally released the pipe. So the 90s ceiling never actually reclaimed the
+// process, and the close-handler log arrived seconds-to-minutes after the caller had
+// already fallen through to the API rail.
+//
+// taskkill /T walks the tree and /F is unconditional.
+//
+// This changes nothing the function RESOLVES. The timeout calls this and then
+// finish(null) on the next line, so the only caller-visible effect is 7-16ms of
+// synchronous spawn work before the resolve, on the timeout path alone.
+//
+// ORDER MATTERS, AND THE OBVIOUS ORDER IS WRONG. The first version of this called
+// taskkill and then child.kill() straight afterwards. child.kill() is synchronous and
+// execFile is not, so cmd.exe died first and taskkill /T then had no parent left to walk
+// from - the grandchild survived and close still took the full 60s. Measured before the
+// fix was corrected: close 60102ms with a bare kill, 60130ms with the broken tree kill,
+// i.e. no improvement whatsoever.
+//
+// So child.kill() is the FALLBACK ONLY, reached from taskkill's error callback. If
+// taskkill is missing or refuses, behaviour is exactly what it was before this function
+// existed; if it works, the tree goes and close fires promptly.
+//
+// THE TIMEOUT IS LOAD-BEARING, not decoration. execFile defaults to timeout:0, i.e.
+// never. A taskkill that STARTS but wedges - a stalled handle, a hung WMI/RPC path -
+// would then never call back, so the fallback would never run and this path would kill
+// NOTHING, which is strictly worse than the bare child.kill() it replaced. With a
+// timeout, execFile kills taskkill and calls back with an error, which lands in the same
+// fallback as every other failure. Measured: with no timeout set, a 5s child had not
+// called back at 3000ms.
+const TASKKILL_TIMEOUT_MS = 5000;
+function killClaudeCliTree(child) {
+  if (!child || !child.pid) return;
+  try {
+    require("child_process").execFile(
+      "taskkill", ["/PID", String(child.pid), "/T", "/F"],
+      { timeout: TASKKILL_TIMEOUT_MS },
+      (err) => { if (err) { try { child.kill(); } catch (e) { /* already gone */ } } }
+    );
+  } catch (e) {
+    try { child.kill(); } catch (e2) { /* already gone */ }
+  }
+}
+
 // Raw text from the CLI, or null if that rail is unavailable too. Shared by the
 // trade filter and by the client-level fallback that covers the other nine call
 // sites — see wrapAnthropicWithCliFallback.
@@ -10554,10 +10623,24 @@ function runClaudeCli(prompt, timeoutMs) {
       );
     } catch (e) { return finish(null); }
 
-    const timer = setTimeout(() => { try { child.kill(); } catch (_) {} finish(null); },
+    // killClaudeCliTree, not child.kill(): the child is cmd.exe and the CLI is its
+    // grandchild. finish(null) runs regardless, so the caller is unaffected either way.
+    const timer = setTimeout(() => { killClaudeCliTree(child); finish(null); },
       timeoutMs || AI_FILTER_CLI_TIMEOUT_MS);
     let stdout = "";
+    let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    // Read stderr even though only the tail is logged: leaving the pipe unread is what
+    // can stall the child. Capped so a chatty child cannot grow this without bound.
+    if (child.stderr) {
+      child.stderr.on("data", (chunk) => {
+        if (stderr.length < CLI_STDERR_CAP_CHARS) stderr += chunk.toString();
+      });
+    }
+    const stderrTail = () => {
+      const t = stderr.trim();
+      return t ? t.slice(-CLI_STDERR_TAIL_CHARS) : "(empty)";
+    };
     child.on("error", () => { clearTimeout(timer); finish(null); });
     // THE EXIT CODE IS PART OF THE ANSWER. This handler used to ignore it and return
     // any non-empty stdout, so a CLI that exits non-zero while printing
@@ -10576,7 +10659,7 @@ function runClaudeCli(prompt, timeoutMs) {
       clearTimeout(timer);
       const text = stdout.trim();
       if (code !== 0) {
-        console.error(`[claude-cli] exited ${code} - discarding ${text.length} byte(s) of stdout, falling through to the API rail`);
+        console.error(`[claude-cli] exited ${code} - discarding ${text.length} byte(s) of stdout, falling through to the API rail | stderr: ${stderrTail()}`);
         return finish(null);
       }
       // Second, independent test. The exit-code branch above assumes a signed-out CLI
@@ -10585,7 +10668,7 @@ function runClaudeCli(prompt, timeoutMs) {
       // Rejecting costs one API call (the caller falls through to the API rail, which
       // still answers) and can never cost an answer or block a trade.
       if (CLI_AUTH_ERROR_RE.test(text)) {
-        console.error("[claude-cli] auth error text on stdout at exit 0 - discarding, falling through to the API rail");
+        console.error(`[claude-cli] auth error text on stdout at exit 0 - discarding, falling through to the API rail | stderr: ${stderrTail()}`);
         return finish(null);
       }
       finish(text.length ? text : null);
