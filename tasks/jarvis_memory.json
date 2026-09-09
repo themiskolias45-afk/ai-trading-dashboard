@@ -760,19 +760,19 @@
     },
     {
       "key": "last-session-state",
-      "value": "2026-09-08 LATE — BOTH BOXES BROUGHT TO PARITY. Four learning workers now run on each box at DIFFERENT times (laptop 04:05/06:20/19:10/21:25, VPS 04:40/07:15/20:05/22:40): staleness_watch (which writer stopped, by AGE not exit code), swallowed_errors (what the broad handlers wrote, dated), regime_watch (is the edge still there or did it live in one window), lab_curator (which staged candidates the forward evidence supports). All 8 registered, READ BACK, and fired once each. Scripts byte-identical across boxes, SHA256 verified. Both report 14 fresh / 0 STALE / 0 ABSENT. Each runs as cmd.exe /c node tasks\\<x>.cjs > tasks\\analysis\\<x>-latest.txt 2>&1 so the report mtime is the proof it ran, and staleness_watch watches that same file's age. THREE DEFECTS IN MY OWN WORK: (1) the laptop printed \"REGISTERED daily 04:00\" for three workers while Get-ScheduledTask returned ZERO — a registration is not done until Get-ScheduledTask returns it. (2) swallowed_errors selected FILES by mtime then counted whole files, calling 70 JSON SyntaxErrors \"last 7 days\" when all 70 stopped 2026-09-01; it also reported \"49x server still down\" last seen 25 JULY. A recent FILE is not a recent LINE. (3) I NEARLY CORRUPTED server/index.js ON THE VPS: Get-Content/Set-Content -Encoding UTF8 in PS 5.1 read the BOM-less UTF-8 file as ANSI and wrote the mangling back — +39,417 bytes, every non-ASCII char in 13,267 lines double-encoded, and node --check PASSED. Rolled back to the verified backup, redone with [System.IO.File]::ReadAllText/WriteAllText + UTF8Encoding($false). NEVER use Get-Content/Set-Content to patch a source file here. THE TWO index.js HAVE GENUINELY DIVERGED (laptop 14,190 lines, VPS 13,267, VPS locally modified) — DO NOT SCP IT; the bad-json middleware was inserted IN PLACE on each box and verified: file minus block is character-identical to the pre-patch original. NOT LIVE on either box — both servers predate the edit, diagnostic-only for a fault that stopped 2026-09-01, no restart forced. OPEN FOR HIM: no CRT EA runs on EITHER box (VPS logs 7/8/9 Sep show only TK_SMART_ENTRY_v3.22); crt_start.ini is ARMED NOT ACTIVE because MT5 has not been down; pin corrected v355->v356 both boxes. EA_CRT_AMD measured -0.0055R over 1,583 trades with its whole edge in one 110-trade window — not running it may be right, but nothing DECIDED that. Disarm the auto-attach or bring it back deliberately? STILL UNTOUCHED: near-miss fix is laptop-only; builder and ai-memory-vault agents unrestricted and unscheduled.",
+      "value": "2026-09-09 evening — FLEET AUDIT, both boxes. DONE: the VPS ran ZERO agents (7 defs, 0 tasks); run_agent.bat was the only missing piece — copied byte-exact and 5 tasks registered via tasks/install_vps_agents.ps1, PROVEN by running it (rc=0, 12974B report). Gate Watch added to the laptop (was VPS-only). Four hardcoded peer paths removed (9e173ab), deployed both boxes md5-identical; undo = tasks/*.bak-peerpaths-20260909T181132Z. page_parity now exits 0 and vps_parity says ENGINES AGREE. OPEN: (1) medic.md has NO OperatingBoundary block and NO tools: line on BOTH boxes and now runs daily 12:00 on the trading box; (2) VPS /api/atomic drops 4 fields and VPS server/index.js carries mojibake — do NOT fix by copying index.js, 349 uncommitted paths there; (3) phantom-loss STRUCTURAL half still owed in mt5_bridge.py (decision morning-m9y1ih deferred); (4) index.js:3902 pivot stop has no minimum distance; (5) index.js:10009 persists the CLI sign-in error into the journal; (6) Task Scheduler history OFF on the laptop (Win11 SKU default, nobody set it); (7) 31/41 laptop and 21/53 VPS proposals unscored. STATE: laptop holds SP500 2 + XAUUSD 0.01 (fired 17:05:50Z at conf 91) + unmanaged BTC 0.05; VPS holds 4. VPS breaker 2/3 on REAL losses. strategy-search-latest.json is an 840B PARTIAL — ledger INTACT at 255 rows. Audit page: https://claude.ai/code/artifact/dd81ba81-5ed0-4666-9dec-f5ddfbf50d9c",
       "category": "SYSTEM",
       "source": "manual",
       "created_at": "2026-08-28T06:16:55.822276+00:00",
-      "updated_at": "2026-09-08T23:00:14.079175+00:00"
+      "updated_at": "2026-09-09T17:31:35.404953+00:00"
     },
     {
       "key": "last-session-commits",
-      "value": "81a773d update tasks\\memory_integrity_off.ps1 | 3cf0544 workers: ASCII out always, and the ABSENT row had no allowed value | cad65f1 update tasks\\staleness_watch.cjs",
+      "value": "9e173ab fleet: derive repo root and ssh key from the box, not from one box's literals | 724087c update tasks\\page_parity.cjs | 52aa4df update tasks\\vps_parity.cjs",
       "category": "GENERAL",
       "source": "manual",
       "created_at": "2026-08-28T06:16:57.452243+00:00",
-      "updated_at": "2026-09-09T15:30:37.832Z"
+      "updated_at": "2026-09-09T17:23:47.313Z"
     },
     {
       "key": "EOD_20260828",
@@ -936,5 +936,5 @@
       "type": "session"
     }
   ],
-  "last_updated": "2026-09-09T15:30:37.832Z"
+  "last_updated": "2026-09-09T17:31:35.404953+00:00"
 }

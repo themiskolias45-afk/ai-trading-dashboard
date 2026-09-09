@@ -10,10 +10,15 @@
       "ts": "2026-09-09T14:24:48.153360+00:00",
       "tag": "DAILY-CHECK",
       "text": "2026-09-09: CRITICAL — breaker armed one loss early. consecutiveLosses reads 2/3 but the last close by broker time is a WIN (+8.41, 09-08T16:31:21Z); daily P&L reconciles to -21.17 exactly WITHOUT that close, so record_close never saw it. Cause: dedupe compares journal closeTime vs closeTimeBroker (two different clocks) so an out-of-order close is silently dropped. Account A halts after 1 more loss instead of 3. Second finding: pivot stop refinement (server/index.js:3902) has NO minimum distance — SPX live stop is 0.14pt (= pivots.s1) inside a 0.36pt spread; the RR>=1.5 guard can only reject too-WIDE stops. New good news: the 308x 1R-dollar spread has narrowed to 9x over the last 5 risk-based fills — riskPercent is now binding, and the fills are UNDER-risked (5-8% of the 0.15% target) because maxLotSize 2 binds on SP500. Health 9/9, fleet AGREES, BTC conf 91 firing and correctly held by the DUPLICATE gate."
+    },
+    {
+      "ts": "2026-09-09T17:31:47.418374+00:00",
+      "tag": "SYSTEM",
+      "text": "FLEET AUDIT 2026-09-09 evening. Both boxes checked worker-by-worker on OUTPUT freshness, not exit codes. FIXED: VPS had 7 agent definitions and ZERO tasks to run them — run_agent.bat copied byte-exact (md5 4571e566), 5 tasks registered, verified by running tester on the VPS (rc=0, 12974B report). Gate Watch added to the laptop. Four hardcoded peer paths removed (9e173ab), deployed both boxes md5-identical, undo at tasks/*.bak-peerpaths-20260909T181132Z. page_parity exit 0 (\"BOTH BOXES SHOW THE SAME THING\"), vps_parity ENGINES AGREE, /api/signals unchanged either side. FOUND, STILL OPEN: medic.md has no OPERATING BOUNDARY block and no tools: line on BOTH boxes; VPS /api/atomic drops timeframe/finalConsensus/decisionAgreesWithConsensus/evidence and VPS index.js carries mojibake (do NOT fix by copying index.js — 349 uncommitted paths there); Task Scheduler history is OFF on the laptop so LastTaskResult is the only witness for 63 workers. NOTE: Strategy Search had reported exit 0 while writing nothing for 32h; its output is currently an 840-byte PARTIAL after I killed a run with a timeout — the trial ledger is INTACT at 255 rows and a backup exists. GOLD fired unattended at 17:05:50Z, XAUUSD BUY 0.01 at conf 91, left open."
     }
   ],
   "signals": [],
   "trades": [],
   "created_at": "2026-09-09T00:00:01.169271+00:00",
-  "updated_at": "2026-09-09T14:24:48.153360+00:00"
+  "updated_at": "2026-09-09T17:31:47.418374+00:00"
 }

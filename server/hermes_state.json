@@ -48,6 +48,18 @@
       "rr": 4.8,
       "confidence": 91,
       "openedAt": "2026-09-09T13:55:33.807Z"
+    },
+    {
+      "id": "gold-TREND_FOLLOW-1788973500790",
+      "asset": "gold",
+      "geometry": "TREND_FOLLOW",
+      "dir": "BUY",
+      "entry": 4411.18,
+      "stop": 4282.51,
+      "target": 4729.04,
+      "rr": 2.5,
+      "confidence": 91,
+      "openedAt": "2026-09-09T17:05:00.790Z"
     }
   ],
   "closed": [
