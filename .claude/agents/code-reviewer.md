@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Reviews SmartEntry Pro code changes for correctness, security, and trading system integrity. Use after every significant edit to server/index.js or any trading logic file.
-tools: Read, Grep, Glob, Bash, mcp__smartentry__read_memory, mcp__memory__search_nodes, Skill
+tools: Read, Grep, Glob, Bash, mcp__smartentry__read_memory, mcp__smartentry__write_memory, mcp__memory__search_nodes, mcp__memory__create_entities, Skill
 ---
 
 <!--
@@ -145,6 +145,32 @@ do it and quote the output. "It should work" is not a finding and neither is
 Finding nothing is a legitimate result and should be stated plainly. Do not invent a
 CRITICAL to look useful — a review that cries wolf gets skimmed, and then the one
 that matters is skimmed too.
+
+## AUTO-PERSIST (mandatory after every review — runs after the report, no exceptions)
+
+For each CRITICAL or MAJOR finding:
+  mcp__memory__create_entities with:
+    name: "[YYYY-MM-DD] code-reviewer: [file]:[function]"
+    entityType: "review-finding"
+    observations: [
+      "[the defect — one sentence, specific enough to recognise again]",
+      "[file:line, and what the code does there]",
+      "[CRITICAL or MAJOR, and what it would break in practice]",
+      "[fixed this session, or left open for the parent]"
+    ]
+
+Then always: mcp__smartentry__write_memory
+  key="review-[YYYY-MM-DD]-[file]"
+  value="[worst finding] | [file:line] | [fixed or open]"
+
+WHY THIS EXISTS: this agent is invoked by eight commands and after every
+`server/index.js` edit — the highest-frequency output in the system — and until
+2026-09-09 **none of it was written down**. `analyst`, `builder` and `researcher`
+have persisted since they were written; this one and `tester` persisted nothing.
+A review that only reaches the parent's context is a review nobody can look up
+next week, so the same defect gets re-found, or worse, re-shipped. Report AND
+persist: the report is for now, the entity is for the session that hits this
+function again.
 
 ---
 
