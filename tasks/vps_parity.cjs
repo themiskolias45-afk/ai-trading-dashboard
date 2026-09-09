@@ -371,8 +371,19 @@ try {
     { encoding: "utf8", timeout: 120000, maxBuffer: 16 * 1024 * 1024 });
   remote = JSON.parse(raw.slice(raw.indexOf("{")));
 } catch (e) {
-  console.error("Could not probe the VPS: " + (e.stderr || e.message || "").toString().slice(-300));
-  console.error("\nIs tasks/vps_parity.cjs deployed there? scp it across and retry.");
+  console.error("Could not probe the peer: " + (e.stderr || e.message || "").toString().slice(-300));
+  // Name what was actually tried. Without these three lines a missing key, a wrong
+  // user and a rejected host all print the same thing, and the reader has to guess.
+  console.error("\n  target      " + USER + "@" + HOST);
+  console.error("  remote root " + REMOTE_ROOT);
+  console.error("  ssh key     " + KEY + (fs.existsSync(KEY) ? "" : "   <-- NOT FOUND on this box"));
+  if (!fs.existsSync(KEY)) {
+    console.error("\nThis box has no key at that path, so it cannot probe anyone. Parity is\n" +
+                  "initiated from the box that HOLDS the key — today that is the laptop only.\n" +
+                  "Pass --key to point at one, or run this from the box that has it.");
+  } else {
+    console.error("\nIs tasks/vps_parity.cjs deployed there? scp it across and retry.");
+  }
   process.exit(1);
 }
 
