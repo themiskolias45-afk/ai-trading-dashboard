@@ -5701,7 +5701,12 @@ async function loadFeedTab() {
             const ts  = a.ts ? new Date(a.ts).toLocaleTimeString() : '';
             const px  = (a.price != null) ? Number(a.price).toLocaleString() : '';
             // The commentary is long, so it is a hover title rather than a wall of text.
-            const msg = a.message ? String(a.message).replace(/"/g, '&quot;') : '';
+            // NOT an injection - this is a double-quoted attribute and the only way out
+            // of one is a literal ", which the old hand-rolled replace did already stop.
+            // It was still wrong: it left & unescaped, so a message containing "&amp;"
+            // or "P&L" round-tripped through the DOM mangled. escapeHtml handles & and "
+            // together and in the right order (& first), which a lone .replace cannot.
+            const msg = a.message ? escapeHtml(a.message) : '';
             return `<div title="${msg}" style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border)">
               <span style="color:var(--muted);font-size:.6rem;white-space:nowrap">${ts}</span>
               <span style="font-weight:700;color:${col};min-width:86px">${act || '—'}</span>
