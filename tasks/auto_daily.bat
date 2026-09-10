@@ -332,6 +332,24 @@ REM run continues either way.
 node "%PROJ%\tasks\decisions.cjs" harvest >> "%LOGFILE%" 2>&1
 node "%PROJ%\tasks\decisions.cjs" export  >> "%LOGFILE%" 2>&1
 
+REM How much of each order's intended risk budget actually reached the broker.
+REM
+REM IT GOES IN THE DAILY LOG STREAM ON PURPOSE, NOT INTO A TASK OF ITS OWN.
+REM mt5_bridge.py:get_lot_size has always logged every lot truncation it performs,
+REM and on 2026-09-10 `grep -rl "Lot size capped"` returned mt5_bridge.py and
+REM NOTHING ELSE - the bridge was writing an exact record of every under-sized
+REM order into a file no reader opens. Four SP500 orders on 09-08 carried 5-8% of
+REM their intended budget and nothing said so for two days. Giving this its own
+REM scheduled task would produce a second report nobody reads, which is the same
+REM bug one level up. Here, its output lands in %LOGFILE% with the rest of the run.
+REM
+REM SAME PLACEMENT REASONING AS THE TWO ABOVE: read-only and a failure must not
+REM stop the daily run, so output goes to the log and the run continues either way.
+REM It opens no MT5 client, makes no HTTP call, reads no config, gate, journal or
+REM learning file, and writes only its own report - so it cannot suppress a setup,
+REM move a confidence value or drop a learning row.
+node "%PROJ%\tasks\sizing_cap_audit.cjs" >> "%LOGFILE%" 2>&1
+
 REM Re-embed the decision corpus so semantic recall matches the register. Slower
 REM than the two above (it loads a sentence-transformers model), which is why it
 REM sits in the nightly batch and not in a hook.
