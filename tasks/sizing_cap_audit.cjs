@@ -233,6 +233,13 @@ function buildReport(orders, sources) {
   out.push('  Per order. "wanted" is what risk-based sizing asked for, "sent" is what went to');
   out.push('  the broker, and "risk%" is the share of the intended budget actually at risk.');
   out.push('');
+  out.push('  risk% IS BLANK UNLESS A CAP LINE WAS LOGGED, AND THAT IS THE HONEST ANSWER.');
+  out.push('  Without a cap line the only way to price a lot is budget/lots, which makes');
+  out.push('  risk% exactly 1.0 by construction — a tautology, not a check. Those rows are');
+  out.push('  not evidence that the order was correctly sized; they are rows where the log');
+  out.push('  does not say. An uncapped order is EXPECTED to sit at budget, but this tool');
+  out.push('  cannot confirm it and does not pretend to.');
+  out.push('');
   out.push('   acct time      symbol    stopDist   wanted     sent   trunc   budget$   atRisk$   risk%  capped by');
   out.push('   ' + '-'.repeat(96));
 
