@@ -239,6 +239,13 @@ double FIB_TP[5] = { 0.236, 0.618, 1.000, 1.382, 2.000 };
 int g_panelX = 8;      // moved by CHARTEVENT_OBJECT_DRAG when Enable Panel Drag is on
 int g_panelY = 18;
 
+// HIS TWO HEADER BUTTONS, top right. Picture 1 shows "-" beside a magenta "X";
+// picture 2 shows the SAME panel with "+" in that slot, i.e. minus collapses it to the
+// title bar and plus restores it. They are runtime state, not inputs: a collapsed panel
+// must not survive a terminal restart as a setting nobody remembers changing.
+bool g_panelCollapsed = false;
+bool g_panelClosed    = false;
+
 //--- indicator handles, created once in OnInit ----------------------
 // A handle per timeframe per indicator. Creating them inside OnCalculate
 // would leak a handle on every tick - the single most common way an MQL5
