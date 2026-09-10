@@ -28,10 +28,20 @@ const path = require("path");
 
 const DRY  = process.argv.includes("--dry");
 const ROOT = path.join(__dirname, "..");
-const LEDGER  = path.join(ROOT, "tasks", "atomic_verdict_ledger.jsonl");
-const SCORED  = path.join(ROOT, "tasks", "atomic_scored.jsonl");
-const SUMMARY = path.join(ROOT, "dashboard", "atomic-ledger.json");
-const TEXT    = path.join(ROOT, "tasks", "analysis", "atomic-edge-latest.txt");
+
+// PATHS ARE OVERRIDABLE SO THE MATHS CAN BE PROVED WITHOUT WAITING AN HOUR.
+// Every row this scorer writes is "not due yet" until its horizon elapses, which means on
+// a fresh install the arithmetic has never run when you most want to know it is right.
+// --ledger/--scored/--summary point it at a fixture instead. Nothing else changes: the
+// same code path computes the same numbers, which is the point of a fixture over a mock.
+function argPath(flag, fallback) {
+  const i = process.argv.indexOf(flag);
+  return (i !== -1 && process.argv[i + 1]) ? path.resolve(process.argv[i + 1]) : fallback;
+}
+const LEDGER  = argPath("--ledger",  path.join(ROOT, "tasks", "atomic_verdict_ledger.jsonl"));
+const SCORED  = argPath("--scored",  path.join(ROOT, "tasks", "atomic_scored.jsonl"));
+const SUMMARY = argPath("--summary", path.join(ROOT, "dashboard", "atomic-ledger.json"));
+const TEXT    = argPath("--text",    path.join(ROOT, "tasks", "analysis", "atomic-edge-latest.txt"));
 const HISTORY_DIR = path.join(ROOT, "tasks", "history");
 
 // Horizons in minutes. H1 and H4 are the timeframes the engine itself reasons on; D1 is
