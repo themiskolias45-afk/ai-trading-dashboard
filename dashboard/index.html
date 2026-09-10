@@ -1463,6 +1463,32 @@
     </div>
   </div>
 
+  <!-- ATOMIC x ENGINE — does agreement predict anything about OUR decisions?
+       Fed by tasks/atomic_join.cjs, which is an OBSERVER: it reads
+       tasks/rejections_scored.jsonl and tasks/atomic_verdict_ledger.jsonl after the fact
+       and writes its own file. It is called by nothing that decides anything, so it
+       cannot block confidence, learning or a signal - the firing set is unchanged by
+       construction, not by promise.
+
+       IT USES REJECTIONS, NOT TRADES. The rejection scorer has already settled 2,191
+       episodes with a real R, against 16 closed trades. That is the only place this
+       question is answerable at this sample size. -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">Atomic × Engine — does agreement pay?</div>
+      <span id="aj-count" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:.6rem;color:var(--muted);margin-bottom:8px;line-height:1.6">
+        Engine episodes paired with the ATOMIC verdict standing <b>at or before</b> them (never after,
+        which would manufacture a look-ahead). Agreement counts only when <b>both</b> committed to a side —
+        an ATOMIC WAIT is neither agreement nor disagreement.
+        <b>Observer only: blocks nothing, gates nothing.</b>
+      </div>
+      <div id="aj-body" style="font-size:.75rem;line-height:1.9">Loading…</div>
+    </div>
+  </div>
+
   <!-- Bottom: MT5 positions + Live alerts feed -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
 
