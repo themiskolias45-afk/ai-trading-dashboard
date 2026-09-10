@@ -141,8 +141,31 @@ function main() {
   // (46%) were admitted as ZERO-R observations. They are not flat outcomes, they are
   // UNMEASURED ones, and averaging them in dragged the prior toward zero: MOMENTUM read
   // -0.2888R when the genuinely settled rows say -0.5387R. Check the TYPE, not the cast.
-  const episodes = readJsonl(EPISODES).filter(
+  //
+  // GUARD 3 - THE PRIOR MUST NOT BE BUILT FROM QUALITY-SELECTED REJECTIONS.
+  //
+  // A rejection ledger is not a random sample of a setup. A QUALITY-class gate rejects
+  // BECAUSE the setup looked bad, so that population is selected to be worse than the
+  // setup is - by construction, and by design, since that is the gate's whole job.
+  // Using it as a prior therefore understates every setup systematically.
+  //
+  // Measured for MOMENTUM, the only setup that has both populations:
+  //     all rejected      n=958  -0.539R
+  //     QUALITY-gated     n=678  -0.733R   <- selected to be bad
+  //     quality-neutral   n=280  -0.068R   <- MAX_POSITIONS / NEWS_BLACKOUT / DUPLICATE
+  // The honest prior is -0.068R, and it sits close to the fills' own +0.089R. The
+  // biased one said -0.539R and would have argued a real setup down by six points.
+  //
+  // CONTEXT and NOT_FORGONE gates reject for reasons unrelated to setup quality - the
+  // book was full, the calendar was blacked out, the exposure was already held - so they
+  // are quasi-random with respect to quality and safe to learn from.
+  //
+  // A setup whose episodes are ALL quality-gated gets no prior at all. That is correct:
+  // no evidence is better than biased evidence, and guard 1 then makes the shadow decline.
+  const QUALITY_NEUTRAL = (e) => e.gateClass && e.gateClass !== "QUALITY";
+  const episodesAll = readJsonl(EPISODES).filter(
     (e) => e.setup && typeof e.r === "number" && Number.isFinite(e.r));
+  const episodes = episodesAll.filter(QUALITY_NEUTRAL);
   const byEpisodeSetup = new Map();
   for (const e of episodes) {
     if (!byEpisodeSetup.has(e.setup)) byEpisodeSetup.set(e.setup, []);
