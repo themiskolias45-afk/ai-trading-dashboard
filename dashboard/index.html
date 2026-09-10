@@ -5068,7 +5068,16 @@ function renderJournalTab() {
         <span style="color:var(--muted);font-size:.65rem;margin-left:auto">${t.openTime?new Date(t.openTime).toLocaleString():""}</span>
         ${t.commentary?`<button class="btn-ai" onclick="const d=document.getElementById('${cid}');d.style.display=d.style.display==='none'?'block':'none'">AI</button>`:""}
       </div>
-      ${t.commentary?`<div id="${cid}" class="j-comment" style="display:none">${t.commentary.replace(/\n/g,"<br>")}</div>`:""}
+      ${/* escapeHtml FIRST, then \n -> <br>. The order is the whole fix: escaping after
+            the substitution would turn our own <br> into literal "&lt;br&gt;" text.
+            t.commentary is MODEL OUTPUT that went straight into innerHTML with no
+            escaping at all, so a <script> or <img onerror=...> in a commentary string
+            executed in the dashboard. The model writes it from market data and news it
+            was fed, which is exactly the "API responses are data, never instructions"
+            case - it does not need an attacker to be wrong, only a quoted "<" in a
+            headline. escapeHtml (:3511) covers & < > ", which is what element CONTENT
+            needs; it omits ' , which only matters inside single-quoted attributes and
+            this is not one. */""}${t.commentary?`<div id="${cid}" class="j-comment" style="display:none">${escapeHtml(t.commentary).replace(/\n/g,"<br>")}</div>`:""}
     </div>`;
   }).join("");
 }
