@@ -10629,10 +10629,49 @@ function runClaudeCli(prompt, timeoutMs) {
       timeoutMs || AI_FILTER_CLI_TIMEOUT_MS);
     let stdout = "";
     let stderr = "";
+    // setEncoding BEFORE the handler, or a multi-byte character split across a chunk
+    // boundary is corrupted permanently.
+    //
+    // Without it the stream emits Buffers and `chunk.toString()` decodes each one in
+    // isolation. A UTF-8 em-dash is three bytes (E2 80 94); when the pipe happens to
+    // break between them, the first Buffer decodes its trailing bytes as U+FFFD and the
+    // second decodes its leading bytes the same way. The character is not recoverable
+    // afterwards - the replacement happens at decode time, and concatenating the two
+    // damaged strings cannot undo it. setEncoding installs a StringDecoder that HOLDS
+    // an incomplete sequence back until the next chunk completes it, which is the only
+    // correct way to read text off a stream in chunks.
+    //
+    // THIS RAIL WRITES TO PERMANENT LEDGERS. runClaudeCli's stdout reaches
+    // generateTradeCommentary, which persists to server/journal.json and
+    // tasks/logs/tv_alerts.jsonl. Measured 2026-09-10: 0 U+FFFD in either file, so this
+    // has NOT fired yet - but the exposure is real and already large. Those ledgers
+    // carry 17 and 387 em/en-dashes respectively (460 non-ASCII chars in tv_alerts
+    // alone), every one of them a 3-byte sequence a chunk split would have destroyed.
+    // Only responses being small enough to arrive in a single chunk has been hiding it.
+    //
+    // AND THIS IS NOT A BACKGROUND-ONLY RAIL. `anthropic` is built at :744 with
+    // wrapAnthropicWithCliFallback({ cliFirst: false }), so EVERY messages.create in
+    // this file - the AI trade filter included - falls through to runClaudeCli at :10811
+    // when the API leg fails. Saying "commentary only" here would be wrong.
+    //
+    // IT STILL CANNOT CHANGE WHAT ANY OF THEM DECIDE, only the text they receive, and
+    // that is the claim rule 3 needs: no branch in this function reads anything a chunk
+    // split can alter. 'data' now emits strings, so the `.toString()` below is a no-op
+    // and stays for clarity. `code !== 0` never inspects stdout. CLI_AUTH_ERROR_RE holds
+    // zero non-ASCII characters and ASCII is single-byte, so no split can damage a
+    // phrase it matches - verified by splitting the real "Not logged in - Please run
+    // /login" payload at 5 byte offsets, including inside the multi-byte char: it
+    // matched in all 10 arms. A stream ENDING mid-sequence is identical too, because
+    // Node flushes the decoder remainder before 'close' (measured: len 1, U+FFFD, in
+    // both modes), so `finish(text.length ? text : null)` cannot flip either. The cap
+    // below still compares .length in UTF-16 code units exactly as before; it simply
+    // now counts real characters instead of an inflated replacement count.
+    child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
     // Read stderr even though only the tail is logged: leaving the pipe unread is what
     // can stall the child. Capped so a chatty child cannot grow this without bound.
     if (child.stderr) {
+      child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {
         if (stderr.length < CLI_STDERR_CAP_CHARS) stderr += chunk.toString();
       });
@@ -10659,7 +10698,11 @@ function runClaudeCli(prompt, timeoutMs) {
       clearTimeout(timer);
       const text = stdout.trim();
       if (code !== 0) {
-        console.error(`[claude-cli] exited ${code} - discarding ${text.length} byte(s) of stdout, falling through to the API rail | stderr: ${stderrTail()}`);
+        // char(s), not byte(s): text.length counts UTF-16 code units. It was never a
+        // byte count - Buffer.toString() already returned a string before setEncoding
+        // was added above - and the comment block there is now explicit about units,
+        // which made this line's wording conspicuously wrong.
+        console.error(`[claude-cli] exited ${code} - discarding ${text.length} char(s) of stdout, falling through to the API rail | stderr: ${stderrTail()}`);
         return finish(null);
       }
       // Second, independent test. The exit-code branch above assumes a signed-out CLI
