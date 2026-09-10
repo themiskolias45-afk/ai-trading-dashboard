@@ -249,7 +249,11 @@ function buildReport(orders, sources) {
       `   ${o.account.padEnd(4)} ${(o.time || '--:--:--').padEnd(9)} ${o.symbol.padEnd(9)} ` +
       `${fmt(o.stopDistance, 2).padStart(8)} ${fmt(o.lotsWanted, 2).padStart(8)} ${fmt(o.lotsSent, 2).padStart(8)} ` +
       `${o.truncatedBy === null ? '     —' : (o.truncatedBy.toFixed(1) + 'x').padStart(6)} ` +
-      `${fmt(o.budgetDollars, 2).padStart(9)} ${fmt(o.realisedRisk, 2).padStart(9)} ${riskPct.padStart(7)}  ${o.cappedBy || '—'}`
+      // atRisk$ is suppressed on the same condition as risk%: without a cap line it is
+      // lots x (budget/lots), i.e. the budget echoed back in a column that looks like an
+      // independent computation. Two tautologies dressed as two measurements is worse
+      // than one, because the pair corroborate each other.
+      `${fmt(o.budgetDollars, 2).padStart(9)} ${fmt(o.riskFraction === null ? null : o.realisedRisk, 2).padStart(9)} ${riskPct.padStart(7)}  ${o.cappedBy || '—'}`
     );
   }
   out.push('');
