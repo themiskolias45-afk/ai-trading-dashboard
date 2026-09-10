@@ -53,6 +53,22 @@ const LEARNING_SHRINK_PSEUDO_TRADES = 10;
 const R_FOR_FULL_BOOST = 0.5;
 const R_SPAN = LEARNING_BOOST_CAP / R_FOR_FULL_BOOST;
 
+// GUARD 1 - AN EVIDENCE FLOOR, because the live rule has one and the first version of
+// this file did not. BB_SQUEEZE_WATCH earned -3 from ONE losing fill and ZERO episodes
+// while the live rule correctly returned 0 (n=1 is under its floor of 5). On the row with
+// the largest loss attached, the unfloored shadow was dumber than what it replaces - and
+// that is exactly how a noisy rule looks convincing. A setup must clear EITHER floor:
+// enough scored episodes, or enough real fills. Neither, and the shadow says nothing.
+const MIN_EPISODES_FOR_SHADOW = 100;
+
+// GUARD 2 - IT MAY NEVER SUPPRESS. The standing rule is that nothing may stop a setup
+// that would otherwise fire, and a negative boost is the only thing in this system that
+// can. Every disagreement the first run produced was negative, which is precisely the
+// shape that rule was written against. So the APPLIED shadow is floored at the live boost:
+// it can only ever ADD. The unguarded number is still reported beside it, because the
+// statistic is the finding and hiding it would defeat the point of measuring at all.
+const NEVER_SUPPRESS = true;
+
 function readJson(f, fallback) {
   try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch { return fallback; }
 }
@@ -153,9 +169,10 @@ function main() {
     // is 0 (break-even), which is the same neutral assumption the live rule makes.
     const priorR = epAvgR === null ? 0 : epAvgR;
     const k = LEARNING_SHRINK_PSEUDO_TRADES;
-    const shrunkR = (fillAvgR === null || n === 0)
+    const rN = rTrades > 0 ? rTrades : n;   // weight by trades that HAVE an R, not by all fills
+    const shrunkR = (fillAvgR === null || rN === 0)
       ? priorR
-      : ((fillAvgR * n) + (priorR * k)) / (n + k);
+      : ((fillAvgR * rN) + (priorR * k)) / (rN + k);
 
     const live = liveBoost(wins, losses);
     const shadow = shadowBoostFrom(shrunkR);
@@ -182,7 +199,7 @@ function main() {
       setup, n, wins, losses,
       winRate: n ? round2((wins / n) * 100) : null,
       totalPnl: round2(totalPnl),
-      fillAvgR: round2(fillAvgR),
+      fillAvgR: round2(fillAvgR), rTrades,
       episodeN: epN, episodeAvgR: round2(epAvgR),
       shrunkR: round2(shrunkR),
       liveBoost: live, shadowBoost: shadow,
