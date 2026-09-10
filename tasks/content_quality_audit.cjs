@@ -65,6 +65,9 @@ const AS_JSON = process.argv.includes("--json");
 const SELFTEST_ONLY = process.argv.includes("--selftest-only");
 
 const HTTP_TIMEOUT_MS = 8000;
+/* Answering slower than this is reported as SLOW rather than waited on quietly. Half the
+   probe timeout: past it, an ordinary busy moment is enough to turn the panel red. */
+const SLOW_MS = 4000;
 const CONCURRENCY = 4;
 /* Unchanged for this many DISTINCT days, having changed at least once before,
    is the frozen signal. Seven days rather than two because several of these
@@ -262,6 +265,14 @@ function login() {
 
 function getJson(pathname, cookie) {
   return new Promise(resolve => {
+    /* ELAPSED TIME IS RECORDED ON EVERY PROBE, because "unreachable" and "slow" are
+       different faults with different fixes and the board was calling one the other.
+       /api/ai-work answers in 1,578ms on the VPS and 6,011ms here - under the 8s
+       timeout, so it passes, until a busy moment pushes it over and the panel flips to
+       a RED reading "no answer in 8s". A route that answers in six seconds is not
+       unreachable, and an alarm that flips red under load and green on retry is one a
+       reader learns to dismiss. */
+    const startedAt = Date.now();
     const req = http.get({
       host: "127.0.0.1", port: 3001, path: pathname, timeout: HTTP_TIMEOUT_MS,
       headers: cookie ? { Cookie: cookie } : {},
@@ -269,13 +280,14 @@ function getJson(pathname, cookie) {
       let body = "";
       res.on("data", c => (body += c));
       res.on("end", () => {
-        if (res.statusCode !== 200) return resolve({ ok: false, status: res.statusCode });
-        try { resolve({ ok: true, data: JSON.parse(body), bytes: body.length }); }
-        catch (e) { resolve({ ok: false, unparseable: true, bytes: body.length }); }
+        const ms = Date.now() - startedAt;
+        if (res.statusCode !== 200) return resolve({ ok: false, status: res.statusCode, ms });
+        try { resolve({ ok: true, data: JSON.parse(body), bytes: body.length, ms }); }
+        catch (e) { resolve({ ok: false, unparseable: true, bytes: body.length, ms }); }
       });
     });
-    req.on("timeout", () => { req.destroy(); resolve({ ok: false, timedOut: true }); });
-    req.on("error", e => resolve({ ok: false, network: e.code || e.message }));
+    req.on("timeout", () => { req.destroy(); resolve({ ok: false, timedOut: true, ms: Date.now() - startedAt }); });
+    req.on("error", e => resolve({ ok: false, network: e.code || e.message, ms: Date.now() - startedAt }));
   });
 }
 
@@ -486,8 +498,22 @@ function classify(probe, history, endpoint) {
     }
   }
 
+  /* SLOW, not unreachable. A route this close to the probe timeout will trip an
+     intermittent RED on the next busy moment, and the honest report is the number.
+     /api/ai-work is the live case: aiWorkLedger.build() reads its inputs synchronously
+     and uncached on every request, so it also blocks the event loop of the box that
+     trades - measured by the medic agent 2026-09-09, /api/status returning 262ms late
+     behind it. This states the latency permanently instead of flapping. */
+  if (typeof probe.ms === "number" && probe.ms >= SLOW_MS) {
+    return { level: "AMBER", check: "slow",
+             detail: "answered in " + probe.ms + "ms, against a " +
+                     Math.round(HTTP_TIMEOUT_MS / 1000) + "s probe timeout - close enough " +
+                     "to trip an intermittent unreachable under load" };
+  }
+
   return { level: "OK", check: null,
-           detail: leaves + " value(s)" + (holes.length ? ", " + holes.length + " empty field(s)" : "") };
+           detail: leaves + " value(s)" + (holes.length ? ", " + holes.length + " empty field(s)" : "")
+                 + (typeof probe.ms === "number" ? ", " + probe.ms + "ms" : "") };
 }
 
 /* ── SELF-TEST ───────────────────────────────────────────────────────────────
@@ -513,6 +539,12 @@ function selfTest() {
                           hash: "same" },
                         Array.from({ length: FROZEN_DAYS }, (_, i) =>
                           ({ e: "/x", h: "same", d: "2026-08-1" + i })), "/x"],
+    /* A healthy payload that simply took too long. It must NOT read as unreachable:
+       that was the whole bug this check was added for. Canaried like every other
+       check, because a check without one reads exactly like a healthy panel - which
+       is how raw-interpolation stayed dead for its entire life. */
+    ["slow",           { ok: true, data: { v: 1, w: 2, x: 3, y: 4 }, hash: "h",
+                         ms: SLOW_MS + 1 }, [], "/x"],
   ];
   const fired = [];
   const dead = [];
