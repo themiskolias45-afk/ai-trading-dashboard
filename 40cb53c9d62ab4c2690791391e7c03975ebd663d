@@ -1,0 +1,48 @@
+XSS: model commentary went into innerHTML unescaped (dashboard/index.html)
+
+Auto-commit hook wrote the provisional subject; this note is the real message.
+Covers 3224c70 (commentary) and 40cb53c (alert title).
+
+THE HOLE. The journal renderer did:
+    ${t.commentary.replace(/\n/g,"<br>")}
+straight into an innerHTML template literal. t.commentary is MODEL OUTPUT, written
+by Claude from market data and news it was fed. A <script> or <img onerror=...>
+reaching a commentary string executed in the dashboard. This is exactly the
+standing rule that API responses are data and never instructions - and it does not
+need an attacker, only a quoted "<" in a headline.
+
+THE FIX, and the order is the whole thing:
+    ${escapeHtml(t.commentary).replace(/\n/g,"<br>")}
+Escape FIRST, then substitute \n -> <br>. Reversed, our own <br> would be escaped
+to literal "&lt;br&gt;" and the panel would show markup as text. Reuses the
+existing escapeHtml at :3511 rather than adding a fourth escaper - the file
+already had two hand-rolled duplicates at :4375 and :5494.
+
+PROVEN with the real escapeHtml lifted out of the shipped file, not a
+reimplementation. 4 payloads carried live markup before, all 4 inert after;
+newline still renders as a real <br>; "P&L" -> "P&amp;L" (& escaped first, not
+double-escaped).
+
+MY FIRST TEST ORACLE WAS WRONG AND REPORTED A FALSE FAILURE. It regexed the
+output for /on\w+=/, which still matches the literal text inside
+"&lt;img src=x onerror=&quot;...&quot;&gt;" - a completely inert string. Matching
+attack substrings in escaped text tests nothing. Replaced with the structural
+invariant: strip our own <br>, then assert zero surviving '<' or '>', which is
+exactly the condition under which innerHTML can create no element.
+
+SECOND SITE (40cb53c), NOT an injection, fixed anyway: the alerts hover title did
+String(a.message).replace(/"/g,'&quot;'). Inside a double-quoted attribute the only
+way out is a literal ", which that did stop - but it left & unescaped, so "P&L" and
+"&amp;" round-tripped mangled. Now escapeHtml, which handles & and " in the right
+order.
+
+NOT FIXED, deliberately: :5069 builds getElementById('${cid}') from
+cid="jct-"+t.ticket. That is a numeric broker ticket, not model output.
+
+LIVE NOW, no restart needed - express.static (:11154) reads from disk per request
+and sets Cache-Control: no-cache on .html. Different from the setEncoding fix in
+2a4fd3e, which waits for the next server start.
+
+Verified: all inline scripts parse; firing set untouched (this is a render path).
+NOT deployed to the VPS - its dashboard/index.html is one of the 4 drifting files
+and that box is 187 commits behind.
