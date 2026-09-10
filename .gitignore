@@ -233,3 +233,6 @@ tasks/atomic_verdict_ledger.jsonl
 tasks/atomic_scored.jsonl
 dashboard/atomic-ledger.json
 tasks/analysis/atomic-edge-latest.txt
+tasks/atomic_join.jsonl
+dashboard/atomic-join.json
+tasks/analysis/atomic-join-latest.txt
