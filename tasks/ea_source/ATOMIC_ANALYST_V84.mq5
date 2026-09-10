@@ -999,8 +999,12 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
    Txt("verd",  PX + 620, PY + 4, headline,
        vDecision == V_BUY ? clrLime : (vDecision == V_SELL ? C'255,80,90' : clrGoldenrod), 14, "Segoe UI Bold");
    Txt("conf",  PX + 620, PY + 26, "Confidence " + DoubleToString(confidence, 0) + "%", ThemeHdr(), 8);
-   Txt("sess",  PX + 1290, PY + 4, SessionName() + " Session", ThemeTitle(), 8);
-   Txt("spr",   PX + 1290, PY + 24, spreadTxt, spreadOk ? C'90,220,140' : C'255,110,120', 8);
+   // Session and spread sit LEFT of the two buttons, not under them - his panel puts
+   // "Europe Session / Spread OK" beside the minimise and close, and at 1500 wide the
+   // old x=1290 would have run straight through them.
+   Txt("sess",  PX + 1180, PY + 4, SessionName() + " Session", ThemeTitle(), 8);
+   Txt("spr",   PX + 1180, PY + 24, spreadTxt, spreadOk ? C'90,220,140' : C'255,110,120', 8);
+   DrawHeaderButtons();
 
    //--- MTF row ----------------------------------------------------
    Box("mtfbg", PX + 10, PY + 46, PANEL_W - 20, 40, bgPanel);
