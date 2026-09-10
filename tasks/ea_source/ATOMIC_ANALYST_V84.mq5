@@ -938,6 +938,36 @@ int OnCalculate(const int rates_total, const int prev_calculated,
 //+------------------------------------------------------------------+
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
 {
+   //--- his two header buttons ------------------------------------
+   if(id == CHARTEVENT_OBJECT_CLICK)
+     {
+      if(sparam == PFX + "btnMin")
+        {
+         g_panelCollapsed = !g_panelCollapsed;
+         // MT5 latches a button down. Left pressed, the next click reads as no change
+         // and the button appears dead - so the state is cleared here, every time.
+         ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+         g_lastPanelDraw = 0;              // redraw now, not in Refresh Time Seconds
+         ObjectsDeleteAll(0, PFX);         // drop the old layout before drawing the new one
+         ChartRedraw(0);
+         return;
+        }
+      if(sparam == PFX + "btnClose")
+        {
+         g_panelClosed = true;
+         ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+         ObjectsDeleteAll(0, PFX);
+         ChartRedraw(0);
+         // SAY HOW TO GET IT BACK. A panel that vanishes with no way back looks broken;
+         // this is the one place a user can be told, since the panel itself is now gone.
+         Print("ATOMIC V84: panel closed. Re-attach the indicator, or set 'Show / Hide Panel' "
+               "to true in its Inputs, to bring it back. The feed and buffers keep running.");
+         return;
+        }
+      return;
+     }
+
+   //--- panel drag -------------------------------------------------
    if(!InpEnablePanelDrag) return;
    if(id != CHARTEVENT_OBJECT_DRAG) return;
    if(sparam != PFX + "drag") return;
