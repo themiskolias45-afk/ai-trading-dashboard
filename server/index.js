@@ -10052,6 +10052,51 @@ function isNewsBlackout() {
   return { blackout: false, reason: null };
 }
 
+// Per-attempt ceiling for the API leg of one commentary call. Without a requestOptions
+// argument the SDK defaults apply - 600s timeout with 2 retries.
+//
+// WHY 120s, ANCHORED RATHER THAN GUESSED: /api/ai-brain uses the same figure for a
+// call that does strictly more work - adaptive thinking, and max_tokens 8192 against
+// the 300 here - and whose measured runs are 13-17s. The SDK's own model gives an
+// expected 8.4s for 300 tokens. So this is roughly an order of magnitude of headroom.
+//
+// THE ARITHMETIC, AND IT IS NOT 120s - THIS CLIENT IS CLI-FIRST.
+// anthropicBg is built at :745 with { cliFirst: true }, so wrapAnthropicWithCliFallback
+// runs runClaudeCli(prompt, CLAUDE_CLI_GENERAL_TIMEOUT_MS = 90s) FIRST and only reaches
+// the API leg when the CLI returns null. The SDK applies `timeout` PER ATTEMPT
+// (buildRequest sits inside makeRequest, and retryRequest re-enters it), and connection
+// timeouts ARE retried. So one call is bounded at:
+//     90s CLI  +  3 x 120s API  +  ~1.5s backoff  =~ 451s
+// and the figure this replaces was 90s + 3 x 600s =~ 31.5 minutes, per fill, with every
+// fill starting another one. maxRetries stays at its default of 2 deliberately: retries
+// only ever help this call SUCCEED, and what is being bounded here is a pathological
+// hang, not a slow-but-working response.
+//
+// WHERE IT ACTUALLY BITES: nowhere on the happy path. When the CLI rail answers, the
+// API leg never runs and this value bounds nothing - the CLI leg is already capped at
+// 90s. It matters precisely when the CLI returns null, which does happen; the API leg
+// is demonstrably exercised (server_log.txt carries "[commentary] Error: 400 ... credit
+// balance is too low" from that rail).
+//
+// UNVERIFIED, and worth saying: there is no latency instrumentation on this call site,
+// so "how long does a real commentary call take" cannot be answered from this repo.
+// 120s is argued from the ai-brain anchor and the token model, not from measurement.
+const COMMENTARY_REQUEST_TIMEOUT_MS = 120000;
+
+/* NOTHING DOWNSTREAM CAN BE BLOCKED BY THIS, which is what makes the timeout safe to
+   add at all - it can only ever shorten a hang, from ~31.5 minutes to ~451s worst case
+   (see the arithmetic above), and the fast path is unaffected.
+     - The journal row is written and ACKNOWLEDGED before this runs (see the comment
+       at the POST handler: "the record is the part that must be durable; the prose is
+       decoration and can arrive late"). A timeout cannot cost a trade record, so it
+       cannot block learning.
+     - addCommentaryLater is deliberately NOT awaited by the route, so this cannot
+       delay or fail the acknowledgement the bridge is waiting on.
+     - `.commentary` is written at :7965 and read by no other code in this file. It
+       feeds no setup stat, no confidence value and no signal.
+   On timeout the SDK throws, the existing catch below returns null, and the caller
+   returns early without writing a row or pushing an alert - the same path already
+   taken whenever the model declines or the feature flag is off. */
 async function generateTradeCommentary(trade) {
   if (!features.autoCommentary || !anthropic) return null;
   try {
@@ -10068,6 +10113,8 @@ async function generateTradeCommentary(trade) {
       model:      "claude-sonnet-5",
       max_tokens: 300,
       messages:   [{ role: "user", content: prompt }]
+    }, {
+      timeout: COMMENTARY_REQUEST_TIMEOUT_MS
     });
     return msg.content?.[0]?.text ?? null;
   } catch (e) {
