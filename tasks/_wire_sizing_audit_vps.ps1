@@ -74,8 +74,8 @@ $backupLen = (Get-Item $backup).Length
 if ($backupLen -ne $original.Length) { Fail "backup is $backupLen bytes, original is $($original.Length)" }
 Write-Host ("backup   : {0}  ({1} bytes, verified)" -f $backup, $backupLen)
 
-$patched = $text -replace [regex]::Escape($Anchor), ([System.Text.RegularExpressions.Regex]::Escape($Anchor + $Insert) -replace '\\(.)','$1')
-# The -replace above is fragile with $ and \ in the payload; do it positionally instead.
+# Positional splice, never -replace: the payload contains $ and \ sequences that
+# -replace would interpret as substitution groups and silently corrupt.
 $idx     = $text.IndexOf($Anchor)
 $patched = $text.Substring(0, $idx + $Anchor.Length) + $Insert + $text.Substring($idx + $Anchor.Length)
 
