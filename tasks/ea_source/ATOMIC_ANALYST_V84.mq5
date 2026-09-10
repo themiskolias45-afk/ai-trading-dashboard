@@ -516,6 +516,66 @@ void Txt(const string name, const int x, const int y, const string s, const colo
 }
 
 //+------------------------------------------------------------------+
+//| A clickable header button. OBJ_BUTTON, not OBJ_LABEL, because a   |
+//| label raises no click event - it would look like his button and   |
+//| do nothing, which is the decoration failure this repo keeps       |
+//| finding. The pressed state is cleared by the handler; MT5 latches  |
+//| a button down until something sets it back.                        |
+//+------------------------------------------------------------------+
+void Btn(const string name, const int x, const int y, const int w, const int h,
+         const string caption, const color bg, const color fg)
+{
+   string n = PFX + name;
+   if(ObjectFind(0, n) < 0) ObjectCreate(0, n, OBJ_BUTTON, 0, 0, 0);
+   ObjectSetInteger(0, n, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, n, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, n, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, n, OBJPROP_XSIZE, w);
+   ObjectSetInteger(0, n, OBJPROP_YSIZE, h);
+   ObjectSetString (0, n, OBJPROP_TEXT, caption);
+   ObjectSetString (0, n, OBJPROP_FONT, "Segoe UI");
+   ObjectSetInteger(0, n, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, n, OBJPROP_COLOR, fg);
+   ObjectSetInteger(0, n, OBJPROP_BGCOLOR, bg);
+   ObjectSetInteger(0, n, OBJPROP_BORDER_COLOR, bg);
+   ObjectSetInteger(0, n, OBJPROP_STATE, false);
+   ObjectSetInteger(0, n, OBJPROP_BACK, false);
+   ObjectSetInteger(0, n, OBJPROP_SELECTABLE, false);
+}
+
+//+------------------------------------------------------------------+
+//| Draw the header only - used when the panel is collapsed, so "-"   |
+//| leaves exactly what picture 2 shows: the title bar and the two    |
+//| buttons, with "+" in place of "-".                                |
+//+------------------------------------------------------------------+
+void DrawHeaderOnly(const string headline, const int vDecision)
+{
+   int PX = g_panelX, PY = g_panelY;
+   Box("bg",   PX, PY, PANEL_W, 40, ThemeBg());
+   Box("drag", PX, PY, PANEL_W, 40, ThemePanel(), InpEnablePanelDrag);
+   Txt("title", PX + 12, PY + 6, InpIndicatorName + " V84", ThemeTitle(), 13, "Segoe UI Bold");
+   Txt("sub",   PX + 12, PY + 26, "collapsed - press + to restore", ThemeHdr(), 7);
+   Txt("verd",  PX + 620, PY + 10, headline,
+       vDecision == V_BUY ? clrLime : (vDecision == V_SELL ? C'255,80,90' : clrGoldenrod), 13, "Segoe UI Bold");
+   DrawHeaderButtons();
+   ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| The two buttons themselves, in his position and his colours: a    |
+//| dark minimise beside a magenta close, hard against the right edge.|
+//+------------------------------------------------------------------+
+void DrawHeaderButtons()
+{
+   int PX = g_panelX, PY = g_panelY;
+   Btn("btnMin", PX + PANEL_W - 56, PY + 6, 24, 22,
+       (g_panelCollapsed ? "+" : "-"),
+       InpPanelTheme == Dark ? C'28,42,70' : C'220,226,236',
+       InpPanelTheme == Dark ? clrWhite    : C'30,40,55');
+   Btn("btnClose", PX + PANEL_W - 30, PY + 6, 24, 22, "X", C'200,60,170', clrWhite);
+}
+
+//+------------------------------------------------------------------+
 //| Escape a string for JSON. Without this a broker symbol or comment |
 //| containing a quote or a backslash silently produces a file the    |
 //| Node reader cannot parse, and the feed goes quiet with no error.  |
