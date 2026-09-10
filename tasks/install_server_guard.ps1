@@ -75,8 +75,18 @@ if (-not $isAdmin) {
     Write-Host "Measured on this box: Interactive registers fine, S4U returns 'Access is denied'."
     Write-Host "Installing it as Interactive would recreate the bug, so nothing was changed."
     Write-Host ""
-    Write-Host "Re-run from an ADMIN PowerShell:"
-    Write-Host "  powershell -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    # PASTE FORM MATTERS. His admin window is ALREADY a PowerShell prompt, so a
+    # `powershell -ExecutionPolicy Bypass -File ...` line pasted there loses its first
+    # token and PowerShell parses `ExecutionPolicy` as `Get-ExecutionPolicy`, failing
+    # with "Cannot bind parameter 'Scope'". The call operator with an ABSOLUTE path is
+    # the form that works - relative paths fail too, that window does not start in the
+    # project root. Measured 2026-09-10; he lost three attempts to exactly this.
+    Write-Host "Paste this into the ADMIN PowerShell window, exactly as written:"
+    Write-Host ""
+    Write-Host "  & `"$PSCommandPath`""
+    Write-Host ""
+    Write-Host "Check the window is on THIS box first: the prompt must read C:\Users\User."
+    Write-Host "A prompt at C:\Users\Administrator is the VPS, which does not need this."
     exit 3
 }
 
