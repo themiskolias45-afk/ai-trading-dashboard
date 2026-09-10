@@ -35,8 +35,25 @@ REM fault that pinned four other tools to one box.
 cd /d "%~dp0.."
 
 REM Create backup folder with today's date
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set DT=%%I
-set BACKUP_DIR=tasks\backups\%DT:~0,8%
+REM WMIC IS GONE from recent Windows builds. `wmic os get localdatetime` printed
+REM "not recognized", DT stayed EMPTY, and %DT:~0,8% expanded to the LITERAL text
+REM ~0,8. Measured 2026-09-10: every backup since 2026-07-21 landed in one folder
+REM named ~0,8 and overwrote the previous one - SEVEN WEEKS with no dated retention,
+REM so a corrupted file's only copy would be overwritten within 6 hours. The log said
+REM so the whole time and nobody read it.
+REM
+REM PowerShell replaces it and the result is VALIDATED: an unusable date must FAIL
+REM LOUDLY, never fall through to a literal folder name again.
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set DT=%%I
+
+echo %DT%| findstr /R "^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$" >nul
+if errorlevel 1 (
+    echo [%date% %time%] BACKUP ABORTED: date unresolved, got "%DT%". Nothing written. >> tasks\logs\backup_log.txt
+    echo BACKUP ABORTED: date unresolved, got "%DT%"
+    exit /b 2
+)
+
+set BACKUP_DIR=tasks\backups\%DT%
 set MIRROR_DIR=tasks\backups\_mirror
 
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
