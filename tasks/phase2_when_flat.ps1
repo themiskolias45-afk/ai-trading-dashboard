@@ -125,8 +125,13 @@ $vStatus = Get-VpsJson '/api/status'
 if (-not $vStatus.ok) { $fail += "VPS server unreachable ($($vStatus.reason))" }
 
 $vHealth = Get-VpsJson '/api/mt5/health?account=A'
-if (-not $vHealth.ok) { $fail += "VPS bridge health unreadable ($($vHealth.reason))" }
-elseif (-not $vHealth.data.connected) { $fail += "VPS bridge NOT connected - it cannot place the trades this box would stop taking" }
+if (-not $vHealth.ok) {
+    $fail += "VPS bridge health unreadable ($($vHealth.reason))"
+} elseif ($null -eq $vHealth.data.PSObject.Properties['connected']) {
+    $fail += "VPS bridge health carried no 'connected' field - got: $(($vHealth.data | ConvertTo-Json -Compress -Depth 2))"
+} elseif ($vHealth.data.connected -ne $true) {
+    $fail += "VPS bridge NOT connected - it cannot place the trades this box would stop taking"
+}
 
 $vSig = Get-VpsJson '/api/signals'
 if (-not $vSig.ok) {
@@ -139,8 +144,17 @@ if (-not $vSig.ok) {
 }
 
 $vRisk = Get-VpsJson '/api/risk-status'
-if (-not $vRisk.ok) { $fail += "VPS risk-status unreadable ($($vRisk.reason))" }
-elseif ($vRisk.data.halted) { $fail += "VPS is HALTED ($($vRisk.data.haltReason)) - standing this box down too would leave nothing trading" }
+if (-not $vRisk.ok) {
+    $fail += "VPS risk-status unreadable ($($vRisk.reason))"
+} elseif ($null -eq $vRisk.data.PSObject.Properties['halted']) {
+    # An error body is still VALID JSON. {"error":"Not logged in."} has no 'halted'
+    # property, so a bare truthiness test would read it as "not halted" and PASS.
+    # That is the same shape as the CLI rail returning a sign-in error as analysis:
+    # the ABSENCE of the field must fail, never pass.
+    $fail += "VPS risk-status carried no 'halted' field - got: $(($vRisk.data | ConvertTo-Json -Compress -Depth 2))"
+} elseif ($vRisk.data.halted) {
+    $fail += "VPS is HALTED ($($vRisk.data.haltReason)) - standing this box down too would leave nothing trading"
+}
 
 # ---------------------------------------------------------------------------
 # Verdict, and the consecutive-pass counter. One clean read is not evidence: a
