@@ -960,6 +960,15 @@ void DrawPanel(const string headline, const double confidence, const int &tfV[],
    int  PX = g_panelX, PY = g_panelY;
    color bgDark = ThemeBg(), bgPanel = ThemePanel();
 
+   // X was pressed: the panel goes away completely, exactly as his does. Every object
+   // is removed rather than hidden, so a closed panel cannot leave a stale verdict
+   // sitting on the chart looking current.
+   if(g_panelClosed) { ObjectsDeleteAll(0, PFX); ChartRedraw(0); return; }
+
+   // "-" was pressed: title bar only. Everything below it is deleted rather than left
+   // underneath, because an OBJ_LABEL behind a rectangle still renders on top of price.
+   if(g_panelCollapsed) { ObjectsDeleteAll(0, PFX); DrawHeaderOnly(headline, vDecision); return; }
+
    Box("bg", PX, PY, PANEL_W, PANEL_H, bgDark);
 
    // HIS BACKGROUND GRADIENT, with his two colours and his opacity. MQL5 rectangle
