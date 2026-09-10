@@ -502,6 +502,9 @@ class CsvBarSource:
 #   ZERO_STOP_DISTANCE           risk is zero
 #   IMPLIED_RR_ABOVE_CAP         collapsed stop - R would measure geometry, not outcome
 #   NO_SOURCE_SYMBOL             cannot know which instrument the levels belong to
+#   LEGACY_NO_PROVENANCE        CLOSED BUCKET - predates barSource threading (all such
+#                               rows stop 2026-09-01). Instrument known, pricing feed not.
+#                               Irrecoverable BY DESIGN - do not chase it as a live defect.
 #   NON_BROKER_FEED              priced on yahoo etc - not walkable against broker bars
 #   UNKNOWN_TIMEFRAME_OR_TS      unparseable
 #
@@ -664,8 +667,24 @@ def score_ledger(rows, source, horizon_mult, now_epoch):
             # dataSource was yahoo, or the row predates barSource threading.
             # Scoring it against the Yahoo ticker would price XAUUSD levels on
             # GC=F bars, so it is dropped with its reason recorded.
-            scored.append(dict(base, outcome="UNSCORABLE", r=None, cause="NO_SOURCE_SYMBOL",
-                               detail="no sourceSymbol - cannot know which instrument these levels belong to"))
+            #
+            # TWO CAUSES, NOT ONE - and the difference is the difference between a
+            # CLOSED bucket and an OPEN defect. Measured 2026-09-10: all 1,536 such rows
+            # stop on 2026-09-01 and every day since carries ZERO, because the writer was
+            # fixed. They are irrecoverable - they hold a Yahoo ticker and dataSource
+            # null, so the instrument is known but the FEED THAT PRICED THE LEVELS is not,
+            # and GC=F is ~$51 from XAUUSD.
+            #
+            # Reported as one cause, "NO_SOURCE_SYMBOL" read as a live writer defect and
+            # sent a reader chasing a bug that had been fixed nine days earlier. The data
+            # should say so itself rather than rely on someone re-deriving the date range.
+            legacy = row.get("dataSource") in (None, "") and not row.get("sourceSymbol")
+            scored.append(dict(base, outcome="UNSCORABLE", r=None,
+                               cause=("LEGACY_NO_PROVENANCE" if legacy else "NO_SOURCE_SYMBOL"),
+                               detail=("predates barSource threading - instrument known, pricing feed "
+                                       "unknown, and the two feeds differ by more than the stop"
+                                       if legacy else
+                                       "no sourceSymbol - cannot know which instrument these levels belong to")))
             continue
         # The guard above assumed a yahoo-fed row arrives with NO sourceSymbol. It does
         # not: server\index.js:2421 writes the YAHOO TICKER into that field on the
