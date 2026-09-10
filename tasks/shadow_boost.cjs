@@ -135,7 +135,15 @@ function main() {
   for (const [setup, s] of Object.entries(learning.setupStats)) {
     const wins = Number(s.wins) || 0, losses = Number(s.losses) || 0;
     const n = wins + losses;
-    const fillAvgR = Number.isFinite(Number(s.avgRealizedR)) ? Number(s.avgRealizedR) : null;
+    // THE STORE HOLDS totalRealizedR + rTrades; avgRealizedR EXISTS ONLY ON THE API.
+    // Reading the derived name against the raw file returned null on every setup and made
+    // the shadow 100% prior with the fills silently ignored - caught because the fillR
+    // column printed "-" for all four. Derive it, and accept either shape so this works
+    // against server/learning.json and against a /api/learning payload.
+    const rTrades = Number(s.rTrades) || 0;
+    const fillAvgR = Number.isFinite(Number(s.avgRealizedR)) ? Number(s.avgRealizedR)
+                   : (rTrades > 0 && Number.isFinite(Number(s.totalRealizedR))
+                      ? Number(s.totalRealizedR) / rTrades : null);
 
     const eps = byEpisodeSetup.get(setup) || [];
     const epN = eps.length;
