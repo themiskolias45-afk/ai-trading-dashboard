@@ -97,7 +97,53 @@ const DENY = [
   ["/api/engineer/status", "requires a run id in the path"],
   ["/api/scan",            "runs a scan"],
   ["/api/debate",          "spends tokens"],
+  /* POST-ONLY. server/index.js:7009 declares app.post for this path and there is no
+     GET handler, so a GET probe returns 404 and the board shows a RED for a route that
+     is working exactly as designed. Probing it is meaningless, not dangerous - but a
+     permanent false RED is worse than a gap, because it trains a reader to skip the
+     panel. Never POST it from here: it clears a risk breaker. */
+  ["/api/mt5/reset-breaker", "POST-only - GET has no handler and 404s by design"],
+  /* Requires ?q=. server/index.js:6303-6304 returns 400 "q is required" for a bare GET,
+     which is the route stating its contract, not failing. Same shape as
+     /api/youtube-search above. */
+  ["/api/recall",          "requires a ?q= parameter - a bare GET 400s by design"],
 ];
+
+/* ── how often each route is EXPECTED to change ──────────────────────────────
+   A single global staleness threshold cannot be right across routes written by
+   jobs on different clocks. Measured 2026-09-10: SmartEntry CPCV, Param
+   Sensitivity, Robustness Report and Sharpe Robustness are all WEEKLY triggers
+   (next run 13/09), while STALE_HOURS is 48 - so those three panels are
+   GUARANTEED to read stale on five days out of every seven. Three of the four
+   reds and ambers on the board were that, and an alarm that fires by
+   construction is one you stop reading.
+
+   Hours here override STALE_HOURS for that route. A route absent from this table
+   keeps the 48h default. */
+const CADENCE_HOURS = [
+  ["/api/cpcv-report",       24 * 8],   // weekly job + a day of margin
+  ["/api/param-sensitivity", 24 * 8],   // weekly job
+  ["/api/robustness-report", 24 * 8],   // weekly job
+];
+function cadenceFor(endpoint) {
+  const routePath = String(endpoint).split("?")[0].replace(/\/+$/, "");
+  const hit = CADENCE_HOURS.find(c => routePath === c[0]);
+  return hit ? hit[1] : STALE_HOURS;
+}
+
+/* ── config routes are not feeds ─────────────────────────────────────────────
+   /api/settings and /api/strategy-settings publish CONFIGURATION. A config that
+   has not changed in four days is not stale - it is a setting nobody needed to
+   change, which is the desired state. Reporting "updatedAt is 99h old" and
+   "byte-identical for 8 days" against them is a category error: it says the
+   system is healthy in the exact words it uses to say something is broken.
+   They stay probed - an unreachable or empty config IS a defect - but the
+   staleness and frozen checks do not apply. */
+const CONFIG_ROUTES = ["/api/settings", "/api/strategy-settings"];
+function isConfigRoute(endpoint) {
+  const routePath = String(endpoint).split("?")[0].replace(/\/+$/, "");
+  return CONFIG_ROUTES.includes(routePath);
+}
 /* Match on the PATH, never the raw string. The first version compared the whole
    endpoint including its query, so "/api/backtest?years=5" did not equal
    "/api/backtest" and the deny list let a FIVE-YEAR BACKTEST through. It ran.
@@ -413,12 +459,17 @@ function classify(probe, history, endpoint) {
   }
 
   const age = selfReportedAgeHours(data);
-  if (age && age.ageHours > STALE_HOURS) {
+  const staleAfter = cadenceFor(endpoint);
+  if (age && !isConfigRoute(endpoint) && age.ageHours > staleAfter) {
     return { level: "AMBER", check: "stale",
-             detail: "its own " + age.field + " is " + Math.round(age.ageHours) + "h old" };
+             detail: "its own " + age.field + " is " + Math.round(age.ageHours) + "h old"
+                   + (staleAfter !== STALE_HOURS
+                      ? " against a " + Math.round(staleAfter / 24) + "d expected cadence"
+                      : "") };
   }
 
-  const frozen = Array.isArray(history) ? frozenFor(history, endpoint, probe.hash) : null;
+  const frozen = (Array.isArray(history) && !isConfigRoute(endpoint))
+    ? frozenFor(history, endpoint, probe.hash) : null;
   if (frozen && frozen.days >= FROZEN_DAYS) {
     if (frozen.everDiffered) {
       return { level: "AMBER", check: "frozen",
