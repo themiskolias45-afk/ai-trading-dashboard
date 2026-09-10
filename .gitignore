@@ -224,3 +224,12 @@ tasks/agent_audit.jsonl
 
 # Curator verdict ledger - per-box append-only state, grows every run.
 tasks/lab_curator_ledger.jsonl
+
+# ATOMIC evidence ledgers - PER-BOX MUTABLE STATE, deliberately untracked.
+# Both boxes append their own rows; tracking them would diverge the histories and every
+# git pull would fight the writer. This already cost three separate failures in one
+# session (blocked deploy, diverged history, a dropped row).
+tasks/atomic_verdict_ledger.jsonl
+tasks/atomic_scored.jsonl
+dashboard/atomic-ledger.json
+tasks/analysis/atomic-edge-latest.txt
