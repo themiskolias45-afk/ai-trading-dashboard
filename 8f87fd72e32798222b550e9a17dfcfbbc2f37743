@@ -1,0 +1,39 @@
+THE TWO HEADER BUTTONS I MISSED.
+
+He spotted it: his panel has a "-" and a magenta "X" hard against the top right,
+and my rebuild had neither. Picture 1 shows "-" beside the X; picture 2 shows the
+SAME panel with "+" in that slot - so minus collapses to the title bar and plus
+restores it. One state toggle, not two controls.
+
+OBJ_BUTTON, not OBJ_LABEL. A label raises no click event: it would have looked
+exactly like his button and done nothing - the decoration failure this repo keeps
+rediscovering. The handler clears OBJPROP_STATE every time, because MT5 latches a
+button down and a latched button reads as "no change" on the next click and
+appears dead.
+
+  "-" / "+"  collapse to the 40px title bar, and restore. Collapse DELETES the
+             body objects rather than hiding them: an OBJ_LABEL behind a
+             rectangle still renders on top of price.
+  "X"        closes the panel completely, as his does. Every object is removed so
+             a closed panel cannot leave a stale verdict on the chart looking
+             current, and one line goes to the Experts log saying how to get it
+             back - the panel is gone, so it cannot say so on the chart itself.
+
+Both are runtime state, deliberately NOT inputs: a collapsed panel surviving a
+terminal restart is a setting nobody remembers changing.
+
+Session/Spread moved x+1290 -> x+1180. At the new 1500 width the old position ran
+straight through where the buttons now sit.
+
+The feed, the buffers and the alerts keep running while the panel is collapsed or
+closed. The panel is a view, and closing a view must not stop the evidence.
+
+VERIFIED: MetaEditor64 0 errors, 0 warnings (1939 ms); ex5 103,826 bytes, md5
+E5363AAB7480DF99E2503811D219E234; deployed to all FOUR terminals across both
+boxes with every copy md5-matched, each previous copy backed up as *.bak-btns-*.
+UNVERIFIED AT RUNTIME: nothing attached to a chart yet, so the click path is
+compile-proven only.
+
+(The commit message itself is the post-edit hook's provisional auto-commit text -
+the commit was already pushed when I went to replace it, and rewriting pushed
+history is not worth it for a message. This note carries the detail.)
