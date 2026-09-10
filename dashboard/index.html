@@ -5503,6 +5503,83 @@ async function loadFeedTab() {
       } catch { if (brRow) brRow.textContent = 'Bridge: unavailable'; }
     })();
 
+    // ATOMIC EDGE — the scored record. Its own fetch and its own try/catch, same reason
+    // as the block below: an evidence panel that cannot load must not take the tab with it.
+    //
+    // It reads the STATIC file the scorer writes, not an API route. That is deliberate —
+    // it needs no server change and therefore no restart, and the box that trades cannot
+    // be restarted on demand with an open book.
+    (async () => {
+      const body = document.getElementById('ae-body');
+      const cnt  = document.getElementById('ae-count');
+      if (!body) return;
+      try {
+        const r = await fetch('/dashboard/atomic-ledger.json?t=' + Date.now());
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        const esc = s => String(s ?? '—').replace(/[&<>"']/g, c =>
+          ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const num = (n, dp = 2) => (typeof n === 'number' && isFinite(n)) ? n.toFixed(dp) : '—';
+        const MIN_N = d.minSampleForVerdict || 30;
+
+        if (cnt) cnt.textContent = (d.scoredRows || 0) + ' scored / ' + (d.ledgerRows || 0) + ' rows';
+
+        if (!d.scoredRows) {
+          // NOT AN ERROR, AND IT MUST NOT LOOK LIKE ONE. Every row sits unscoreable until
+          // its horizon elapses, so a fresh ledger legitimately reads zero for an hour.
+          body.innerHTML = '<span style="color:var(--muted)">Recording — ' + (d.ledgerRows || 0)
+            + ' verdict(s) captured, ' + (d.notDueYet || 0) + ' waiting for their horizon to elapse. '
+            + 'First scores land 1h after the first verdict.</span>';
+          return;
+        }
+
+        const head = (d.headline || []).map(h => {
+          const thin = h.n < MIN_N;
+          const col  = thin ? 'var(--muted)'
+                     : (h.avgR > 0.05 ? 'var(--green)' : (h.avgR < -0.05 ? 'var(--red)' : 'var(--yellow)'));
+          return '<div style="display:inline-block;margin-right:18px">'
+               + '<b>' + esc(h.horizon.toUpperCase()) + '</b> '
+               + '<span style="color:' + col + '">' + (h.hitRate === null ? '—' : h.hitRate + '%')
+               + '  ' + (h.avgR === null ? '' : (h.avgR > 0 ? '+' : '') + num(h.avgR, 3) + 'R') + '</span>'
+               + ' <span style="color:var(--muted);font-size:.6rem">n=' + h.n
+               + (thin ? ' — too few' : '') + '</span></div>';
+        }).join('');
+
+        // The buckets worth showing on the front page: overall, per symbol, and the two
+        // features that could become a filter — whether ATOMIC's own decision agrees with
+        // its consensus, and whether the timeframes align.
+        const want = ['ALL','XAUUSD','BTCUSD','SP500','agrees','disagrees','mtfAligned','mtfMixed'];
+        const t = d.table || {};
+        let rows = '';
+        for (const w of want) {
+          const cells = ['h1','h4','d1'].map(h => {
+            const b = t[w + '|' + h];
+            if (!b) return '<td style="color:var(--muted)">—</td>';
+            const thin = b.n < MIN_N;
+            const col = thin ? 'var(--muted)'
+                      : (b.avgR > 0.05 ? 'var(--green)' : (b.avgR < -0.05 ? 'var(--red)' : 'var(--yellow)'));
+            return '<td style="color:' + col + '">' + (b.hitRate === null ? '—' : b.hitRate + '%')
+                 + ' <span style="color:var(--muted);font-size:.6rem">' + (b.avgR === null ? '' : num(b.avgR, 3) + 'R')
+                 + ' n=' + b.n + '</span></td>';
+          }).join('');
+          if (cells.indexOf('%') === -1) continue;   // nothing scored in this bucket yet
+          rows += '<tr><td style="color:var(--muted)">' + esc(w) + '</td>' + cells + '</tr>';
+        }
+
+        body.innerHTML = head
+          + '<table style="width:100%;margin-top:10px;font-size:.7rem;border-collapse:collapse">'
+          + '<tr style="color:var(--muted);font-size:.6rem"><th align="left">bucket</th>'
+          + '<th align="left">1h</th><th align="left">4h</th><th align="left">1d</th></tr>'
+          + rows + '</table>'
+          + '<div style="margin-top:8px;font-size:.6rem;color:var(--muted)">'
+          + 'Under n=' + MIN_N + ' no verdict is given, and the figure is greyed. '
+          + 'Updated ' + esc((d.generatedAt || '').replace('T', ' ').slice(0, 16)) + ' UTC.</div>';
+      } catch (e) {
+        body.innerHTML = '<span style="color:var(--muted)">Atomic edge unavailable — '
+          + String(e.message || e) + '</span>';
+      }
+    })();
+
     // ATOMIC ANALYST V84. Its own fetch, deliberately: a second opinion that cannot be
     // read must not be able to take the rest of this tab down with it, so a failure here
     // renders one grey line and everything above still paints.
