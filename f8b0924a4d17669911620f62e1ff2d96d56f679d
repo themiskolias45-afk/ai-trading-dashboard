@@ -1,0 +1,38 @@
+THE ATOMIC x ENGINE PANEL, visible while it is still empty.
+
+Second of the two panels. Renders dashboard/atomic-join.json - the observer's
+output - so the machinery is visible from the day it starts rather than appearing
+only once it already has an opinion.
+
+EMPTY IS NOT BROKEN AND MUST NOT LOOK BROKEN. Today it reads "5,508 engine
+episodes and 3 ATOMIC rows, 0 overlapping" with the reason inline: ATOMIC has no
+history before 2026-09-10 because the indicator overwrote its own file every 60
+seconds. A panel showing bare dashes there is indistinguishable from a broken
+feed, and this repo has spent whole sessions on exactly that ambiguity.
+
+EVERY KEY THE RENDERER READS WAS VERIFIED PRESENT IN THE REAL PAYLOAD before
+shipping - all 15 for this panel, all 7 for the Edge panel, checked against the
+files the scripts actually wrote. The Data Feed tab shipped four WORKING
+renderers fed from key names the API never sent (btcChg / updatedAt / a.signal /
+sig.rsi_d); none errored, they just rendered nothing. Same class of bug, checked
+for deliberately rather than hoped away.
+
+THE POPULATED BRANCH WAS EXERCISED TOO, against the fixture summary from the join
+test: 264 joined / 122 settled / 142 pending, every bucket resolving to a colour
+and the verdict box correctly highlighting once both arms clear n=30. The live
+file is all zeros and cannot exercise that path.
+
+THE CLUSTERING CAVEAT IS IN THE PANEL, not in a source comment. One ATOMIC
+verdict stands for every episode in the following hour, so joined episodes are
+NOT independent observations and the n>=30 guard does not correct for it. A
+reader who saw only the win rate would not know that, so the panel says it.
+
+Patched onto the VPS by ANCHOR with a byte-delta assertion (5655 = 5655) and a
+backup first - never a file copy; the two index.html files differ and copying one
+crashed the VPS on 2026-09-05. Verified on BOTH boxes by counting element ids:
+ae-body 2, ae-count 2, aj-body 2, aj-count 2 on each.
+
+Observer only: both panels read static files and gate nothing.
+
+(Commit subject is the post-edit hook's provisional auto-commit text - it had
+already committed and I did not rewrite pushed history for a message.)
