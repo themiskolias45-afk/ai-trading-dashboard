@@ -6170,14 +6170,93 @@ app.get("/api/ai-registry", (_, res) => {
 // A failing weekly review and three unreviewed PROPOSED FIX lines were both
 // invisible before this. Runs nothing and spends no tokens — it reads the logs
 // the jobs already produce.
-app.get("/api/ai-work", async (_, res) => {
-  try {
+// THIS HANDLER IS CACHED BECAUSE IT BLOCKS THE EVENT LOOP OF A BOX THAT TRADES.
+//
+// Measured 2026-09-10: aiWorkLedger.build() is ~800ms of SYNCHRONOUS readFileSync /
+// readdirSync work, uncached, on EVERY request - and node is single-threaded, so for
+// that whole time this server cannot answer /api/status, cannot serve a bridge poll and
+// cannot process a fill. The medic agent measured the consequence on 2026-09-09:
+// /api/status fired 200ms into an ai-work call and returned at 1,484ms, idle for 262ms
+// of it. tasks/logs is 47MB on the laptop and 102MB on the VPS and grows daily, so this
+// gets worse on its own.
+//
+// The OTHER half was already handled and is worth not confusing with this one:
+// readScheduledTasksVerbose() costs ~5s but it spawns a child process ASYNCHRONOUSLY -
+// it never blocked the loop - and it has carried its own 5-minute cache since it was
+// written. The latency the panel board saw was that cache missing; the trading risk is
+// the 800ms of sync reads. Two different faults behind one slow endpoint.
+//
+// WHY 60 SECONDS. Every input here is written by scheduled jobs on minute-or-longer
+// cadences - job logs, proposal files, decision records. Nothing this reads can change
+// meaningfully inside a minute, and five dashboard pages plus the MCP tool plus the
+// content auditor all poll it, so most requests become cache hits.
+//
+// THE STALENESS IS PUBLISHED, NEVER HIDDEN. cache.ageMs rides in the payload so a stale
+// read is reported rather than served as current. Stated precisely, because a review
+// caught the looser version: NO DASHBOARD PAGE READS IT. All five consumers read named
+// keys, so this is visible to an agent, to the MCP tool and to anyone reading the raw
+// JSON - not to a human looking at a panel. It publishes; it does not gate.
+//
+// IN-FLIGHT REQUESTS SHARE ONE BUILD. Caching the payload alone left the stampede intact:
+// every request arriving during a cold miss also missed, so a 6-way burst measured 6
+// builds and 6 schtasks spawns - about 4.6s of CONTIGUOUS blocked event loop, which is
+// the exact trading risk this exists to remove. dashboard/system-map.html fetches
+// /api/healer, /api/fleet and /api/ai-work in one Promise batch, so that burst is real,
+// not theoretical. The cache therefore holds the PROMISE, and concurrent callers await
+// the same one.
+//
+// NO `hit` FLAG ON PURPOSE. tasks/content_quality_audit.cjs hashes this payload to
+// detect a panel frozen for days, stripping keys that match /age(Hours|Ms|Seconds)?$/i.
+// `ageMs` is therefore invisible to that hash, but a boolean flipping between requests
+// would change it every run and quietly disable the frozen check for this endpoint.
+// Checked before writing this, not after.
+//
+// ERRORS ARE NEVER CACHED. A failure is recomputed on the next request; caching one
+// would turn a transient read error into a minute of false "unavailable".
+const AI_WORK_CACHE_MS = 60 * 1000;
+let aiWorkCache = { at: 0, payload: null, inFlight: null };
+
+/** The cached payload if it is still inside the TTL, else null. Never builds. */
+function aiWorkFresh() {
+  if (!aiWorkCache.payload) return null;
+  return (Date.now() - aiWorkCache.at) < AI_WORK_CACHE_MS ? aiWorkCache.payload : null;
+}
+
+/** The payload, building at most once no matter how many callers arrive together. */
+function getAiWork() {
+  const fresh = aiWorkFresh();
+  if (fresh) return Promise.resolve(fresh);
+  if (aiWorkCache.inFlight) return aiWorkCache.inFlight;
+
+  const inFlight = (async () => {
     // Verbose task list, so the ledger can check the job it appraises actually has
     // a task, what that task returned, and which of the other scheduled jobs nobody
     // is appraising at all. Degrades to the previous file-only behaviour if the
     // scheduler cannot be read.
     const scheduledTasks = await readScheduledTasksVerbose();
-    res.json(aiWorkLedger.build({ scheduledTasks }));
+    return aiWorkLedger.build({ scheduledTasks });
+  })();
+
+  aiWorkCache = { ...aiWorkCache, inFlight };
+  return inFlight.then(
+    (payload) => { aiWorkCache = { at: Date.now(), payload, inFlight: null }; return payload; },
+    (err) => {
+      // ERRORS ARE NEVER CACHED - only the in-flight marker is cleared, so the next
+      // request rebuilds. Caching a failure would turn one transient read error into a
+      // full minute of false "unavailable". The previous payload, if any, is left alone
+      // and still expires on its own clock.
+      aiWorkCache = { ...aiWorkCache, inFlight: null };
+      throw err;
+    });
+}
+
+app.get("/api/ai-work", async (_, res) => {
+  try {
+    const payload = await getAiWork();
+    res.json({
+      ...payload,
+      cache: { ageMs: Math.max(0, Date.now() - aiWorkCache.at), ttlMs: AI_WORK_CACHE_MS },
+    });
   } catch (e) {
     console.error("[ai-work]", e.message);
     res.status(500).json({ available: false, reason: e.message, jobs: [], proposals: [] });
@@ -12452,9 +12531,22 @@ app.get("/api/fleet", async (_, res) => {
   try {
     const peer = await probePeer();
 
-    let localAiWork = null;
-    try { localAiWork = aiWorkLedger.build(); }
-    catch (e) { localAiWork = { available: false, reason: e.message, jobs: [], proposals: [] }; }
+    // REUSE THE /api/ai-work CACHE WHEN IT IS WARM. This is the SECOND route running the
+    // same ~760ms of synchronous file reads, and it is the one the startup sequence hits
+    // every session through get_fleet_status - which timed out on /api/system-plan
+    // tonight for exactly this family of reasons. system-map.html loads both routes in
+    // one batch, so before this the page paid the block twice.
+    //
+    // It takes the cached payload only if one is already fresh, and otherwise does the
+    // bare build exactly as before. It deliberately does NOT await getAiWork(): that
+    // would make this route wait on schtasks (~5s on a cold cache) where today it waits
+    // 760ms, and /api/fleet is already the slowest panel on the board. Faster when warm,
+    // never slower when cold.
+    let localAiWork = aiWorkFresh();
+    if (!localAiWork) {
+      try { localAiWork = aiWorkLedger.build(); }
+      catch (e) { localAiWork = { available: false, reason: e.message, jobs: [], proposals: [] }; }
+    }
 
     const thisBox = {
       label: os.hostname(),
