@@ -165,7 +165,16 @@ function parseLog(filePath, accountTag) {
 
     const budgetDollars = block.budget ? block.budget.dollars : null;
     const realisedRisk  = valuePerLot.value === null ? null : lots * valuePerLot.value;
-    const riskFraction  = (realisedRisk === null || !budgetDollars) ? null : realisedRisk / budgetDollars;
+
+    // WHEN valuePerLot CAME FROM budget/lots, riskFraction IS NOT A MEASUREMENT.
+    // realisedRisk = lots x (budget / lots) = budget, so the ratio is 1.0 by
+    // construction and would print as a confident "100.0%" having tested nothing.
+    // Only a cap line supplies an INDEPENDENT wantedLots, and only then does the
+    // comparison carry information. Anything else is reported as unmeasurable.
+    const riskIsIndependent = valuePerLot.basis.includes('exact');
+    const riskFraction = (realisedRisk === null || !budgetDollars || !riskIsIndependent)
+      ? null
+      : realisedRisk / budgetDollars;
 
     let wantedLots = null;
     let truncatedBy = null;
