@@ -1437,6 +1437,32 @@
     </div>
   </div>
 
+  <!-- ATOMIC EDGE — the SCORED record, not the live gauge.
+       The panel above shows what ATOMIC says right now. That is a gauge reading and
+       nothing can be learned from it: the indicator overwrites its own file every 60
+       seconds, so until 2026-09-10 the system kept six verdicts out of roughly 8,600.
+       tasks/atomic_ledger.cjs appends every verdict CHANGE with the price at the time,
+       and tasks/atomic_score.cjs marks each one forward at 1h/4h/1d in R against the
+       ATR of its own bar. This renders that score.
+
+       EVERY FIGURE CARRIES ITS OWN n, AND A BUCKET UNDER 30 GETS NO VERDICT. A 100%
+       hit rate on three observations is the shape of every false discovery this system
+       has had, and a reader who sees only the percentage will believe it. -->
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">Atomic Edge — scored record</div>
+      <span id="ae-count" style="font-size:.65rem;padding:2px 8px;border-radius:4px;background:var(--border)">—</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:.6rem;color:var(--muted);margin-bottom:8px;line-height:1.6">
+        Forward-scored at <b>1h / 4h / 1d</b>, normalised in <b>R</b> against the ATR of the bar
+        the verdict was written on. WAIT is scored too — right when price went nowhere.
+        <b>Evidence only: feeds no gate, no confidence, no size and no stop.</b>
+      </div>
+      <div id="ae-body" style="font-size:.75rem;line-height:1.9">Loading…</div>
+    </div>
+  </div>
+
   <!-- Bottom: MT5 positions + Live alerts feed -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
 
