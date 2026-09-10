@@ -266,6 +266,7 @@ function main() {
     shadowBasis: "realised R per fill, shrunk toward the episode expectancy as prior",
     fillsUsed: fills.length,
     episodesUsed: episodes.length,
+    episodesRejectedAsQualitySelected: episodesAll.length - episodes.length,
     setups: rows.length,
     disagreeing: disagree.length,
     shadowWouldFireLessCount: fireLess.length,
