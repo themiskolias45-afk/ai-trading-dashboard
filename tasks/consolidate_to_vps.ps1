@@ -62,6 +62,26 @@ function Write-Log($msg) {
 }
 
 # ---------------------------------------------------------------------------
+# BOX GUARD - this script must NEVER run on the VPS.
+#
+# It is git-tracked, so it lands on both boxes. On the VPS it would disable ~50 tasks
+# on the ONLY trading node. Two independent signatures, both measured 2026-09-10:
+#   - the VPS keeps the project at C:\ai-trading-dashboard; the laptop under C:\Users\User
+#   - the VPS has scheduled tasks SmartEntryServer and SmartEntryBridgeA; the laptop
+#     has NEITHER (its server and bridge come from ensure_running.ps1)
+# EITHER signature firing is enough to refuse. A guard that needs both to agree is a
+# guard that fails open the moment one of them changes.
+# ---------------------------------------------------------------------------
+$isVpsLayout = ($Proj -ieq 'C:\ai-trading-dashboard')
+$hasVpsTasks = ($null -ne (Get-ScheduledTask -TaskName 'SmartEntryServer'  -ErrorAction SilentlyContinue)) -or `
+               ($null -ne (Get-ScheduledTask -TaskName 'SmartEntryBridgeA' -ErrorAction SilentlyContinue))
+if ($isVpsLayout -or $hasVpsTasks) {
+    Write-Host "REFUSING on $env:COMPUTERNAME - this looks like the VPS (vpsLayout=$isVpsLayout vpsTasks=$hasVpsTasks)."
+    Write-Host "This script stands a box DOWN. The VPS is the only trading node. Nothing was changed."
+    exit 9
+}
+
+# ---------------------------------------------------------------------------
 # RESTORE - the way back. Named first so it is impossible to miss.
 # ---------------------------------------------------------------------------
 if ($Restore) {
