@@ -135,7 +135,14 @@ function main() {
   } catch { /* source unreadable - reported as unknown below */ }
 
   //--- episodes, the prior ----------------------------------------
-  const episodes = readJsonl(EPISODES).filter((e) => e.setup && Number.isFinite(Number(e.r)));
+  // NULL IS NOT ZERO, AND Number.isFinite(Number(null)) IS TRUE.
+  // The first cut filtered with Number.isFinite(Number(e.r)) and PENDING/UNSCORABLE rows
+  // carry r:null - Number(null) is 0, which is finite, so 829 of MOMENTUM's 1,787 rows
+  // (46%) were admitted as ZERO-R observations. They are not flat outcomes, they are
+  // UNMEASURED ones, and averaging them in dragged the prior toward zero: MOMENTUM read
+  // -0.2888R when the genuinely settled rows say -0.5387R. Check the TYPE, not the cast.
+  const episodes = readJsonl(EPISODES).filter(
+    (e) => e.setup && typeof e.r === "number" && Number.isFinite(e.r));
   const byEpisodeSetup = new Map();
   for (const e of episodes) {
     if (!byEpisodeSetup.has(e.setup)) byEpisodeSetup.set(e.setup, []);
