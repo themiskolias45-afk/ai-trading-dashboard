@@ -41,11 +41,19 @@ const path = require("path");
 
 const DRY  = process.argv.includes("--dry");
 const ROOT = path.join(__dirname, "..");
-const ENGINE  = path.join(ROOT, "tasks", "rejections_scored.jsonl");
-const ATOMIC  = path.join(ROOT, "tasks", "atomic_verdict_ledger.jsonl");
-const JOINED  = path.join(ROOT, "tasks", "atomic_join.jsonl");
-const SUMMARY = path.join(ROOT, "dashboard", "atomic-join.json");
-const TEXT    = path.join(ROOT, "tasks", "analysis", "atomic-join-latest.txt");
+// PATHS ARE OVERRIDABLE SO THE JOIN CAN BE PROVED BEFORE IT HAS ANYTHING TO JOIN.
+// ATOMIC's history starts today, so on a real run this produces zero rows for a while -
+// which is the correct answer and also means the joining, the agreement rule and the
+// arithmetic would all be unexercised at exactly the moment someone wants to trust them.
+function argPath(flag, fallback) {
+  const i = process.argv.indexOf(flag);
+  return (i !== -1 && process.argv[i + 1]) ? path.resolve(process.argv[i + 1]) : fallback;
+}
+const ENGINE  = argPath("--engine",  path.join(ROOT, "tasks", "rejections_scored.jsonl"));
+const ATOMIC  = argPath("--atomic",  path.join(ROOT, "tasks", "atomic_verdict_ledger.jsonl"));
+const JOINED  = argPath("--joined",  path.join(ROOT, "tasks", "atomic_join.jsonl"));
+const SUMMARY = argPath("--summary", path.join(ROOT, "dashboard", "atomic-join.json"));
+const TEXT    = argPath("--text",    path.join(ROOT, "tasks", "analysis", "atomic-join-latest.txt"));
 
 // How far back an ATOMIC row may be and still describe the same moment. The indicator
 // writes at most once a minute and the ledger records changes plus a 60-minute heartbeat,
