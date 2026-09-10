@@ -7010,7 +7010,7 @@ app.post("/api/mt5/reset-breaker", (req, res) => {
   const remote = req.socket.remoteAddress || "";
   const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
   if (!isLocal) {
-    return res.status(403).json({ ok: false, error: "local only — clearing a risk breaker is not a remote action" });
+    return res.status(403).json({ ok: false, error: "local only - clearing a risk breaker is not a remote action" });
   }
   // The loopback test above passes for tunnelled traffic — see isLoopbackOrigin.
   if (!isLoopbackOrigin(req.headers.origin)) {
