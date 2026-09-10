@@ -236,3 +236,5 @@ tasks/analysis/atomic-edge-latest.txt
 tasks/atomic_join.jsonl
 dashboard/atomic-join.json
 tasks/analysis/atomic-join-latest.txt
+dashboard/shadow-boost.json
+tasks/analysis/shadow-boost-latest.txt

@@ -175,7 +175,11 @@ function main() {
       : ((fillAvgR * rN) + (priorR * k)) / (rN + k);
 
     const live = liveBoost(wins, losses);
-    const shadow = shadowBoostFrom(shrunkR);
+    // GUARD 1: no evidence from EITHER source means the shadow declines to speak.
+    const hasEvidence = (epN >= MIN_EPISODES_FOR_SHADOW) || (rTrades >= LEARNING_MIN_TRADES);
+    const shadowRaw = hasEvidence ? shadowBoostFrom(shrunkR) : 0;
+    // GUARD 2: the applied value can only ever ADD to the live boost, never subtract.
+    const shadow = NEVER_SUPPRESS ? Math.max(shadowRaw, live) : shadowRaw;
 
     // PER SYMBOL, which the live rule explicitly does not do. Gold moves 74 GBP a point
     // and SP500 moves 0.74 - pooling them averages two different games.
@@ -202,7 +206,7 @@ function main() {
       fillAvgR: round2(fillAvgR), rTrades,
       episodeN: epN, episodeAvgR: round2(epAvgR),
       shrunkR: round2(shrunkR),
-      liveBoost: live, shadowBoost: shadow,
+      liveBoost: live, shadowBoost: shadow, shadowRaw, hasEvidence,
       delta: shadow - live,
       shadowWouldFireLess: shadow < live,
       belowLiveFloor: n < LEARNING_MIN_TRADES,
@@ -224,6 +228,7 @@ function main() {
           "tasks/rejections_scored.jsonl; WRITES NEITHER - only its own two output files. The live " +
           "boost is unchanged and still decides everything. Nothing here may graduate without a " +
           "walk-forward that clears it.",
+    guards: { MIN_EPISODES_FOR_SHADOW, NEVER_SUPPRESS },
     constants: { LEARNING_MIN_TRADES, LEARNING_BOOST_CAP, LEARNING_BOOST_SPAN,
                  LEARNING_SHRINK_PSEUDO_TRADES, R_FOR_FULL_BOOST },
     constantDrift: drift,
@@ -244,6 +249,7 @@ function main() {
   L.push("SHADOW BOOST - " + out.generatedAt);
   L.push("READ-ONLY. learning.json, the journal and the calibration data were NOT written.");
   if (drift) { L.push("!! CONSTANT DRIFT - the comparison is unsafe until this is fixed:"); for (const d of drift) L.push("   " + d); }
+  L.push("guards: episode floor " + MIN_EPISODES_FOR_SHADOW + ", never-suppress " + NEVER_SUPPRESS);
   L.push("live basis  : " + out.liveBasis);
   L.push("shadow basis: " + out.shadowBasis);
   L.push("fills " + fills.length + ", scored episodes " + episodes.length +
@@ -251,14 +257,14 @@ function main() {
   L.push("");
   L.push("setup".padEnd(20) + "n".padStart(4) + "win%".padStart(7) + "pnl".padStart(10) +
          "fillR".padStart(8) + "epN".padStart(6) + "epR".padStart(8) + "shrunkR".padStart(9) +
-         "live".padStart(6) + "shadow".padStart(8) + "delta".padStart(7));
+         "live".padStart(6) + "raw".padStart(6) + "applied".padStart(9) + "delta".padStart(7));
   for (const r of rows) {
     L.push(r.setup.padEnd(20) + String(r.n).padStart(4) + String(r.winRate ?? "-").padStart(7) +
            String(r.totalPnl ?? "-").padStart(10) + String(r.fillAvgR ?? "-").padStart(8) +
            String(r.episodeN).padStart(6) + String(r.episodeAvgR ?? "-").padStart(8) +
-           String(r.shrunkR ?? "-").padStart(9) + String(r.liveBoost).padStart(6) +
-           String(r.shadowBoost).padStart(8) + String(r.delta > 0 ? "+" + r.delta : r.delta).padStart(7) +
-           (r.belowLiveFloor ? "   below live n=5 floor" : "") +
+           String(r.shrunkR ?? "-").padStart(9) + String(r.liveBoost).padStart(6) + String(r.shadowRaw).padStart(6) +
+           String(r.shadowBoost).padStart(9) + String(r.delta > 0 ? "+" + r.delta : r.delta).padStart(7) +
+           (r.hasEvidence ? "" : "   NO EVIDENCE - shadow declines") +
            (r.signDisagrees ? "   R and MONEY DISAGREE" : ""));
   }
   L.push("");
