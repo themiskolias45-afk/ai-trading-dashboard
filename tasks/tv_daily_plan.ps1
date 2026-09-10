@@ -122,6 +122,58 @@ function Resolve-Python {
     return [pscustomobject]@{ Path = $bin; Version = "$version".Trim() }
 }
 
+# ---------------------------------------------------------------------------
+# IS THIS SESSION ACTUALLY ATTACHED TO A DESKTOP?
+#
+# Measured 2026-09-10, and it cost two wrong diagnoses before it was found. The VPS
+# drew successfully 174 times, then failed EVERY run from 2026-09-08. The cause was
+# not the schedule, not the layout, not credentials: its RDP session had gone to
+# STATE=Disc, and a disconnected session cannot resize a window. The bot needs to
+# widen Edge to ~1514px or the plan panel renders off-canvas and the verify read finds
+# nothing. The moment the session went Active the same run logged
+# "window widened 962 -> 1514px" and "Plan drawn: BTC, GOLD, SPX".
+#
+# Note the distinction, because the other half of this repo relies on it:
+# coverage_audit.ps1:579 records that a DISCONNECTED session still counts as logged on
+# for TASKS TO RUN. That is true, and it is about running - not about driving a GUI.
+# This check exists because the difference is invisible everywhere else.
+#
+# It NEVER skips the run. A disconnected session might still work, and refusing to try
+# would block a draw that would have succeeded. It records the state on every run so a
+# healthy log says "session: Active", and it names the fix on the failure path so a
+# red reads "reconnect" instead of a bare exit 5.
+# ---------------------------------------------------------------------------
+function Get-SessionState {
+    $prev = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $sid = (Get-Process -Id $PID).SessionId
+    # ErrorActionPreference is 'Stop' at the top of this script, and PowerShell 5.1
+    # wraps a native command's redirected stderr in ErrorRecord objects rather than
+    # strings. With Stop that made `query session 2>$null` return rows -match could
+    # not read, and this reported "not listed" on a HEALTHY box - a check that always
+    # says unknown is worse than no check. Drop the redirect and stringify each row.
+        $lines = query session
+        if (-not $lines) { return 'unknown (query session returned nothing)' }
+        foreach ($row in @($lines)) {
+            $line = [string]$row
+            # Match the session ID as a standalone token, then read the state word.
+            if ($line -match ("\s" + [regex]::Escape("$sid") + "\s+(Active|Disc|Conn|Listen)")) {
+                switch ($Matches[1]) {
+                    'Active' { return 'Active' }
+                    'Disc'   { return 'Disconnected' }
+                    default  { return $Matches[1] }
+                }
+            }
+        }
+        return "unknown (session $sid not listed)"
+    } catch {
+        return "unknown ($($_.Exception.Message))"
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
 Say '--- tv daily plan start ---'
 
 if (-not (Test-Path $bot)) {
@@ -136,6 +188,9 @@ if (-not (Probe $serverUrl)) {
     Finish 2 'server down - refused, nothing drawn'
 }
 Say 'server: up'
+
+$sessionState = Get-SessionState
+Say ("session: " + $sessionState + $(if ($sessionState -eq 'Disconnected') { '  <- WARNING: a disconnected session cannot resize the browser window; the plan panel may render off-canvas' } else { '' }))
 
 # 2b. The interpreter. Checked HERE rather than beside the draw so that a dry run
 # validates every precondition it claims to: it is cheap, it is independent of the
@@ -230,6 +285,16 @@ if ($null -eq $code) {
 }
 if ($code -ne 0) {
     Say "FAILED: tradingview_bot.py plan exited $code"
+    if ($sessionState -eq 'Disconnected') {
+        # The single most likely cause, and the one that is invisible in the bot's own
+        # output. Say the fix, not just the symptom.
+        Say 'CAUSE: this session is DISCONNECTED. A disconnected session cannot resize'
+        Say '       the browser, so the plan panel renders off-canvas and the verify'
+        Say '       read finds no study. RECONNECT the session (RDP in) and re-run.'
+        Say '       Verified 2026-09-10: reconnecting turned this exact failure into'
+        Say '       "Plan drawn: BTC, GOLD, SPX" with no other change.'
+        Finish 5 "bot exited $code - SESSION DISCONNECTED, reconnect and re-run"
+    }
     Finish 5 "bot exited $code"
 }
 
