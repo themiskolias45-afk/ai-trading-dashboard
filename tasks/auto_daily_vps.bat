@@ -211,6 +211,25 @@ REM Always exits 0 - knowing what a restart would cost must never fail a daily r
 echo --- durable state --- >> "%LOGFILE%"
 node "%PROJ%\tasks\durable_state_audit.cjs" >> "%LOGFILE%" 2>&1
 
+REM How much of each order's intended risk budget actually reached the broker.
+REM
+REM IT GOES IN THE DAILY LOG STREAM ON PURPOSE, NOT INTO A TASK OF ITS OWN.
+REM mt5_bridge.py:get_lot_size has always logged every lot truncation it performs,
+REM and on 2026-09-10 a repo-wide grep for "Lot size capped" returned mt5_bridge.py
+REM and NOTHING ELSE - the bridge was writing an exact record of every under-sized
+REM order into a file no reader opens. On THIS box two SP500 orders carried 4.8%%
+REM and 10.4%% of their intended budget, truncated 21x by maxLotSize, and nothing
+REM said so. Giving this its own scheduled task would produce a second report
+REM nobody reads, which is the same bug one level up. Here its output lands in
+REM %LOGFILE% with the rest of the run.
+REM
+REM Read-only, and a failure must not stop the daily run, so output goes to the log
+REM and the run continues either way. It opens no MT5 client, makes no HTTP call,
+REM reads no config, gate, journal or learning file, and writes only its own
+REM report - so it cannot suppress a setup, move a confidence value, or drop a
+REM learning row.
+node "%PROJ%\tasks\sizing_cap_audit.cjs" >> "%LOGFILE%" 2>&1
+
 REM ── Do the doctor's own checks still fire? ────────────────────────────────────
 REM Identical to the block in tasks\auto_daily.bat, and it matters MORE here: this is
 REM the box that trades continuously, and every expensive failure on it has been a
