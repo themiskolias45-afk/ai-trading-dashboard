@@ -20,7 +20,7 @@ so re-running replaces the plan instead of stacking another copy of it.
 Needs Edge on CDP 9222: tasks\\launch_chrome_tv.bat
 """
 
-import sys, os, time, json, urllib.request
+import sys, os, re, time, json, urllib.request
 from pathlib import Path
 
 try:
@@ -34,6 +34,30 @@ except ImportError:
 # ── Config ────────────────────────────────────────────────────────────────────
 KEYS_FILE   = Path(__file__).parent / "keys.env"
 TV_BASE     = "https://www.tradingview.com"
+
+# WHICH SAVED LAYOUT THIS BOX DRIVES. Unset = the account's default layout, which is
+# exactly what this script did before this variable existed.
+#
+# WHY IT EXISTS, measured 2026-09-10. One TradingView account has ONE default layout,
+# and a layout holds one chart state (see the docstring on build_plan_pine). Both boxes
+# navigated to /chart/ with no selector, so both drove the SAME layout - and each run
+# carries a "delete every JARVIS plan study" step. They deleted each other's study.
+# The VPS drew successfully 174 times, last at 2026-09-08 09:27:52Z, and stopped dead
+# the hour the laptop's TV task first fired (trigger start 2026-09-08 12:15Z). Zero
+# successes since. Their SCHEDULES never overlapped and still do not - the collision is
+# in persisted layout state, not in time, which is why staggering them fixes nothing.
+#
+# Give each box its own layout id and neither one's delete step can reach the other's
+# study. It also means this box can never delete a study on the layout holding the
+# user's own indicators.
+#
+# A malformed value falls back to the default layout rather than building
+# "/chart//?symbol=", because a broken URL would draw nothing AND hide why.
+TV_LAYOUT_ID = (os.environ.get("TV_LAYOUT_ID") or "").strip()
+if TV_LAYOUT_ID and not re.fullmatch(r"[A-Za-z0-9]{4,32}", TV_LAYOUT_ID):
+    print(f"[TV] WARNING: TV_LAYOUT_ID={TV_LAYOUT_ID!r} is not a plausible layout id "
+          f"(expected 4-32 alphanumerics). Ignoring it and using the default layout.")
+    TV_LAYOUT_ID = ""
 CHROME_PATH = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 SERVER_URL  = "http://localhost:3001"
 SHOT_DIR    = Path(__file__).parent / "dashboard" / "screenshots"
@@ -417,7 +441,10 @@ def open_chart(page, symbol):
     appearing is the real readiness signal.
     """
     tv_sym = CHART_SYMBOLS.get(symbol.upper(), symbol)
-    page.goto(f"{TV_BASE}/chart/?symbol={tv_sym}",
+    # TV_LAYOUT_ID empty -> "/chart/?symbol=", character-identical to the pre-2026-09-10
+    # behaviour. Set -> this box drives its own saved layout and cannot touch another's.
+    _layout = f"/chart/{TV_LAYOUT_ID}/" if TV_LAYOUT_ID else "/chart/"
+    page.goto(f"{TV_BASE}{_layout}?symbol={tv_sym}",
               wait_until="domcontentloaded", timeout=45000)
     page.wait_for_selector(SEL_PINE_BUTTON, timeout=45000)
     time.sleep(5)
