@@ -5606,6 +5606,80 @@ async function loadFeedTab() {
       }
     })();
 
+    // ATOMIC x ENGINE. Own fetch, own try/catch, static file - same reasons as above.
+    (async () => {
+      const body = document.getElementById('aj-body');
+      const cnt  = document.getElementById('aj-count');
+      if (!body) return;
+      try {
+        const r = await fetch('/dashboard/atomic-join.json?t=' + Date.now());
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        const esc = s => String(s ?? '—').replace(/[&<>"']/g, c =>
+          ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const num = (n, dp = 3) => (typeof n === 'number' && isFinite(n)) ? n.toFixed(dp) : '—';
+        const MIN_N = d.minSampleForVerdict || 30;
+        const t = d.table || {};
+
+        if (cnt) cnt.textContent = (d.settledRows || 0) + ' settled / ' + (d.joinedRows || 0) + ' joined';
+
+        // EMPTY IS NOT BROKEN, AND MUST NOT LOOK BROKEN. ATOMIC has no history before
+        // 2026-09-10 - its indicator overwrote its own file every 60 seconds - so this
+        // legitimately reads zero until the two ledgers cover the same moments.
+        if (!d.joinedRows) {
+          body.innerHTML = '<span style="color:var(--muted)">Accumulating — '
+            + (d.engineEpisodes || 0).toLocaleString() + ' engine episodes and '
+            + (d.atomicRows || 0) + ' ATOMIC row(s), <b>0 overlapping</b> so far. '
+            + esc(d.overlapNote || '') + '</span>';
+          return;
+        }
+
+        const ROWS = [
+          ['settledTotal',     'all settled episodes'],
+          ['atomicAgrees',     'ATOMIC agreed'],
+          ['atomicDisagrees',  'ATOMIC disagreed'],
+          ['atomicWait',       'ATOMIC on WAIT'],
+          ['atomicMtfAligned', 'ATOMIC MTF aligned'],
+          ['atomicMtfMixed',   'ATOMIC MTF mixed'],
+        ];
+        let rows = '';
+        for (const [k, label] of ROWS) {
+          const b = t[k];
+          if (!b) continue;
+          const thin = b.n < MIN_N;
+          const col = thin ? 'var(--muted)'
+                    : (b.avgR > 0.05 ? 'var(--green)' : (b.avgR < -0.05 ? 'var(--red)' : 'var(--yellow)'));
+          rows += '<tr><td style="color:var(--muted)">' + esc(label) + '</td>'
+                + '<td>' + b.n + '</td>'
+                + '<td>' + (b.winRate === null ? '—' : b.winRate + '%') + '</td>'
+                + '<td style="color:' + col + '">' + num(b.avgR)
+                + (thin ? ' <span style="color:var(--muted);font-size:.6rem">too few</span>' : '') + '</td></tr>';
+        }
+
+        const settled = t.settledTotal || {};
+        const ready = (t.atomicAgrees || {}).n >= MIN_N && (t.atomicDisagrees || {}).n >= MIN_N;
+        body.innerHTML =
+            '<table style="width:100%;font-size:.7rem;border-collapse:collapse">'
+          + '<tr style="color:var(--muted);font-size:.6rem"><th align="left">bucket</th>'
+          + '<th align="left">n</th><th align="left">win%</th><th align="left">avg R</th></tr>'
+          + rows + '</table>'
+          + '<div style="margin-top:9px;padding:7px 9px;border-radius:4px;background:var(--border);font-size:.65rem;'
+          + 'color:' + (ready ? 'var(--text)' : 'var(--muted)') + '">'
+          + esc(d.verdict || '') + '</div>'
+          // THE CAVEAT IS PART OF THE READING, not a footnote. One ATOMIC verdict stands
+          // for every episode in the following hour, so these rows cluster and the n
+          // threshold does not account for that.
+          + '<div style="margin-top:7px;font-size:.6rem;color:var(--muted);line-height:1.6">'
+          + 'Episodes within an hour of one another share a single ATOMIC verdict, so these are '
+          + '<b>not independent observations</b> — the n threshold does not correct for that clustering. '
+          + (d.pendingRows ? (d.pendingRows + ' joined episode(s) still PENDING and excluded. ') : '')
+          + 'Nothing here may reach the gate without a walk-forward that clears it.</div>';
+      } catch (e) {
+        body.innerHTML = '<span style="color:var(--muted)">Atomic × engine unavailable — '
+          + String(e.message || e) + '</span>';
+      }
+    })();
+
     // ATOMIC ANALYST V84. Its own fetch, deliberately: a second opinion that cannot be
     // read must not be able to take the rest of this tab down with it, so a failure here
     // renders one grey line and everything above still paints.
