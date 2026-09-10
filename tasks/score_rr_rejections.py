@@ -477,6 +477,36 @@ class CsvBarSource:
 # Scoring
 # ---------------------------------------------------------------------------
 
+# MACHINE-READABLE CAUSE, added 2026-09-10 (proposals morning-2sbud5 / morning-460iox).
+#
+# Every scored row now carries `cause` alongside `detail`. The detail string stays exactly
+# as it was - it is for a human - but it was the ONLY record of why a row could not be
+# scored, and English inside a string is not queryable. 371 of MOMENTUM's 1,787 rows are
+# UNSCORABLE and nothing could group them by reason without parsing prose.
+#
+# It cost something real before it was fixed: a shadow-boost prior built on this ledger
+# admitted 829 unmeasured rows as zero-R observations, because the only way to tell them
+# apart was r=None and the filter used Number(null) === 0. A cause field makes that class
+# of mistake visible instead of silent.
+#
+# CAUSES, one per exit, and every outcome carries one - not just the unscorable ones, so a
+# consumer never has to special-case which rows have a reason:
+#   TARGET_FIRST                 target reached before the stop
+#   STOP_FIRST                   stop reached before the target
+#   NEITHER_LEVEL_REACHED        horizon elapsed with neither hit (TIMEOUT)
+#   HORIZON_NOT_ELAPSED          still pending - it may yet resolve
+#   BOTH_LEVELS_IN_ONE_BAR       AMBIGUOUS - OHLC does not record the order
+#   HISTORY_ENDS_BEFORE_HORIZON  INCOMPLETE_DATA
+#   NO_BARS_IN_WINDOW            NO_DATA
+#   MISSING_LEVELS               entry, stop or target absent
+#   ZERO_STOP_DISTANCE           risk is zero
+#   IMPLIED_RR_ABOVE_CAP         collapsed stop - R would measure geometry, not outcome
+#   NO_SOURCE_SYMBOL             cannot know which instrument the levels belong to
+#   NON_BROKER_FEED              priced on yahoo etc - not walkable against broker bars
+#   UNKNOWN_TIMEFRAME_OR_TS      unparseable
+#
+# ADDITIVE ONLY. No outcome, no r and no detail changes - verified by re-running the
+# scorer before and after and diffing every row.
 def score_row(row, bars, horizon_end_utc, now_epoch, data_end_epoch=None,
               horizon_end_broker=None):
     """Walk bars forward and decide which level price reached first.
@@ -490,11 +520,11 @@ def score_row(row, bars, horizon_end_utc, now_epoch, data_end_epoch=None,
     direction = str(row.get("direction") or "").upper()
 
     if not all(isinstance(value, (int, float)) for value in (entry, stop, target)):
-        return "UNSCORABLE", None, "row is missing entry, stop or target"
+        return "UNSCORABLE", None, "row is missing entry, stop or target", "MISSING_LEVELS"
 
     risk = abs(entry - stop)
     if risk == 0:
-        return "UNSCORABLE", None, "stop distance is zero"
+        return "UNSCORABLE", None, "stop distance is zero", "ZERO_STOP_DISTANCE"
 
     # A stop that collapsed toward the entry, which makes R a property of the geometry
     # rather than of what price did. Guarding only risk == 0 let a $4.21 Bitcoin stop
@@ -504,7 +534,7 @@ def score_row(row, bars, horizon_end_utc, now_epoch, data_end_epoch=None,
         return "UNSCORABLE", None, (
             "implied R:R %.1f exceeds the %.0f cap - stop is %.4f%% of price, so R would "
             "measure the collapsed stop, not the outcome"
-            % (implied_rr, MAX_PLAUSIBLE_RR, 100.0 * risk / abs(entry) if entry else 0.0))
+            % (implied_rr, MAX_PLAUSIBLE_RR, 100.0 * risk / abs(entry) if entry else 0.0)), "IMPLIED_RR_ABOVE_CAP"
 
     is_short = direction.startswith("S")
 
@@ -517,30 +547,30 @@ def score_row(row, bars, horizon_end_utc, now_epoch, data_end_epoch=None,
             # would quietly bias the whole dataset toward whichever level the guess
             # favours, so the row is set aside instead.
             return "AMBIGUOUS", None, "stop and target both inside the bar at %s" % (
-                datetime.fromtimestamp(int(bar["time"]), tz=timezone.utc).isoformat())
+                datetime.fromtimestamp(int(bar["time"]), tz=timezone.utc).isoformat()), "BOTH_LEVELS_IN_ONE_BAR"
         if hit_target:
             reward = abs(target - entry)
-            return "TARGET", round(reward / risk - COST_R, 3), "target first"
+            return "TARGET", round(reward / risk - COST_R, 3), "target first", "TARGET_FIRST"
         if hit_stop:
-            return "STOP", round(-1.0 - COST_R, 3), "stop first"
+            return "STOP", round(-1.0 - COST_R, 3), "stop first", "STOP_FIRST"
 
     if now_epoch < horizon_end_utc:
-        return "PENDING", None, "horizon has not elapsed yet"
+        return "PENDING", None, "horizon has not elapsed yet", "HORIZON_NOT_ELAPSED"
 
     if data_end_epoch is not None and horizon_end_broker is not None \
             and data_end_epoch < horizon_end_broker:
         # The walk ran off the end of the series. Marking this to market would
         # report a verdict on a window we never actually saw.
-        return "INCOMPLETE_DATA", None, "history ends before the horizon does"
+        return "INCOMPLETE_DATA", None, "history ends before the horizon does", "HISTORY_ENDS_BEFORE_HORIZON"
 
     if not bars:
-        return "NO_DATA", None, "no bars returned for this window"
+        return "NO_DATA", None, "no bars returned for this window", "NO_BARS_IN_WINDOW"
 
     # Neither level reached inside the horizon. Mark to market so a setup that
     # drifted nowhere counts as the near-nothing it was, rather than vanishing.
     last_close = bars[-1]["close"]
     movement = (entry - last_close) if is_short else (last_close - entry)
-    return "TIMEOUT", round(movement / risk - COST_R, 3), "neither level reached in %d bars" % len(bars)
+    return "TIMEOUT", round(movement / risk - COST_R, 3), "neither level reached in %d bars" % len(bars), "NEITHER_LEVEL_REACHED"
 
 
 def group_episodes(rows):
@@ -634,7 +664,7 @@ def score_ledger(rows, source, horizon_mult, now_epoch):
             # dataSource was yahoo, or the row predates barSource threading.
             # Scoring it against the Yahoo ticker would price XAUUSD levels on
             # GC=F bars, so it is dropped with its reason recorded.
-            scored.append(dict(base, outcome="UNSCORABLE", r=None,
+            scored.append(dict(base, outcome="UNSCORABLE", r=None, cause="NO_SOURCE_SYMBOL",
                                detail="no sourceSymbol - cannot know which instrument these levels belong to"))
             continue
         # The guard above assumed a yahoo-fed row arrives with NO sourceSymbol. It does
@@ -663,12 +693,12 @@ def score_ledger(rows, source, horizon_mult, now_epoch):
         # frozen legacy file predates the field.
         feed = str(row.get("dataSource") or "").lower()
         if feed and feed != "mt5":
-            scored.append(dict(base, outcome="UNSCORABLE", r=None,
+            scored.append(dict(base, outcome="UNSCORABLE", r=None, cause="NON_BROKER_FEED",
                                detail="levels priced on the %s feed - %s is not a broker series"
                                       % (feed, symbol)))
             continue
         if timeframe not in BAR_SECONDS or ts is None:
-            scored.append(dict(base, outcome="UNSCORABLE", r=None,
+            scored.append(dict(base, outcome="UNSCORABLE", r=None, cause="UNKNOWN_TIMEFRAME_OR_TS",
                                detail="unknown timeframe %r or unparseable ts %r" % (timeframe, row.get("ts"))))
             continue
 
@@ -678,12 +708,12 @@ def score_ledger(rows, source, horizon_mult, now_epoch):
         end_utc = end_broker - offset
 
         bars = source.bars(symbol, timeframe, start_broker, end_broker)
-        outcome, realised_r, detail = score_row(
+        outcome, realised_r, detail, cause = score_row(
             row, bars, end_utc, now_epoch,
             data_end_epoch=source.coverage_end(symbol, timeframe),
             horizon_end_broker=end_broker)
 
-        scored.append(dict(base, outcome=outcome, r=realised_r, detail=detail,
+        scored.append(dict(base, outcome=outcome, r=realised_r, detail=detail, cause=cause,
                            barsChecked=len(bars), horizonBars=horizon,
                            brokerOffsetHours=offset / 3600.0))
 
