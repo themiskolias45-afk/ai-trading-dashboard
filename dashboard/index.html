@@ -6985,10 +6985,25 @@ async function loadTrust() {
  */
 async function loadTrustExtras() {
   // ── Coverage: the 88-check audit the System cell knows nothing about ──────
+  // THE FAILURE MODE IS NAMED, NOT GUESSED AT. This block first reported every problem
+  // as "unreachable", and on 2026-09-11 it said exactly that while the file was present
+  // on disk, 1546 bytes and valid JSON — so the one word on screen was wrong about the
+  // one thing it was there to report. A 404, a partial read mid-write and a bug in the
+  // rendering below are three different faults with three different fixes; a panel that
+  // calls them all the same thing sends you looking in the wrong place.
+  let phase = 'fetch';
   try {
     const r = await fetch('/dashboard/coverage-audit.json?t=' + Date.now());
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const c = await r.json();
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' from the server');
+    phase = 'parse';
+    const bodyText = await r.text();
+    let c;
+    try { c = JSON.parse(bodyText); }
+    catch (pe) {
+      throw new Error('served ' + bodyText.length + ' bytes that are not valid JSON'
+        + ' — likely read while being rewritten');
+    }
+    phase = 'render';
     if (!c.available) {
       setTrustCell('tr-coverage', 'trust-idle', 'Unpublished', c.reason || 'audit has not run', false);
     } else {
