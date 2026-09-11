@@ -107,6 +107,14 @@ $codeFiles = Get-ChildItem -Path $projectRoot -Recurse -File -ErrorAction Silent
 # these 21 files and nothing about the next unreadable file, and the failure mode is
 # silent by construction. Now a file that cannot be read costs ONLY ITSELF: it leaves an
 # empty stub entry and the archive continues.
+# WHY THIS RETURNS A REASON AND NOT JUST $false.
+# For at least four days every run logged "21 file(s) could not be read into the backup"
+# and named NONE of them, so nobody could tell a lock file nobody cares about from the
+# journal. The count was the whole report. This repo has already paid for that lesson
+# twice: the backup that captured 105 of 13,700 files while logging "Backup created",
+# and the audit that proved the backup RAN rather than that nothing was LOST.
+# $script:SkippedFiles collects "<relative path> - <reason>" for every failure.
+$script:SkippedFiles = @()
 function Add-FileToZip($zipArchive, $sourcePath, $entryName) {
   $stream = $null
   $source = $null
@@ -117,6 +125,7 @@ function Add-FileToZip($zipArchive, $sourcePath, $entryName) {
     $source.CopyTo($stream)
     return $true
   } catch {
+    $script:SkippedFiles += ($entryName + "  -  " + $_.Exception.Message)
     return $false
   } finally {
     # Both closes are guarded: a close that throws must not itself leak the other stream.
@@ -170,7 +179,14 @@ try {
   $line = $line + ")"
   Add-Content -Path $logFile -Value $line
   if ($skipped -gt 0) {
-    Add-Content -Path $errFile -Value ("[" + (Get-Date) + "] " + $skipped + " file(s) could not be read into the backup")
+    Add-Content -Path $errFile -Value ("[" + (Get-Date) + "] " + $skipped + " file(s) could not be read into the backup:")
+    # Capped: one pathological run must not flood the file the next reader has to scan.
+    # The count above is always exact, so a truncated list is still an honest report.
+    $show = $script:SkippedFiles | Select-Object -First 40
+    foreach ($entry in $show) { Add-Content -Path $errFile -Value ("    " + $entry) }
+    if ($script:SkippedFiles.Count -gt $show.Count) {
+      Add-Content -Path $errFile -Value ("    ... and " + ($script:SkippedFiles.Count - $show.Count) + " more, not listed")
+    }
   }
 } catch {
   $errLine = "[" + (Get-Date) + "] " + $_.Exception.Message
