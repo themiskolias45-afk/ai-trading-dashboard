@@ -7035,6 +7035,9 @@ async function loadTrustExtras() {
 loadTrust();
 loadTrustExtras();
 setInterval(loadTrust, TRUST_REFRESH_MS);
+// On the same cadence as the rest of the strip. A cell that loads once and never again
+// goes stale silently, which is the failure these two were added to remove.
+setInterval(loadTrustExtras, TRUST_REFRESH_MS);
 
 // ── WHY NOTHING FIRED ──────────────────────────────────────────
 // Kill counts and ledger verdicts answer two different questions and are shown as
